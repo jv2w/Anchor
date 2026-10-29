@@ -8,10 +8,10 @@
 //! is sent again; the request's first take, place, swap or drop of such a slot becomes one
 //! [`Click`] for the handler. A request that names only editable slots and only takes, places,
 //! swaps and drops runs as in a chest window ([`super::request`]), with the handler as its last
-//! listener: it hears the changes ([`Change`]) after the request's events, and the request is
-//! checked again and made (a drop thrown) only if it keeps them. The handler runs in the input phase with the handler taken out
-//! of the state ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes
-//! once.
+//! listener: it hears the changes ([`crate::menu::Change`]) after the request's events, and the
+//! request is checked again and made (a drop thrown) only if it keeps them. The handler runs in
+//! the input phase with the handler taken out of the state ([`Handlers`]). A repeated request ID
+//! is refused before, so it clicks or changes once.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from

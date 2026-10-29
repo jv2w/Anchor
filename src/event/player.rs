@@ -1028,8 +1028,9 @@ getters!(PlayerItemHeld {
     slot: u8,
 });
 
-/// Raised when a player uses the held item in the air (throwing, drawing a bow, eating, drinking).
-/// Cancelling refuses the use: nothing is thrown, drawn, eaten or drunk, and no cooldown starts.
+/// Raised when a player uses the held item in the air (throwing, drawing a bow, eating, drinking,
+/// putting on armour). Cancelling refuses the use: nothing is thrown, drawn, eaten, drunk or worn,
+/// and no cooldown starts.
 #[doc(alias = "PlayerItemUseEvent")]
 #[derive(Debug)]
 pub struct PlayerItemUse {

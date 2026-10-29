@@ -885,8 +885,8 @@ impl State {
     /// packets the serial phases queued for it this tick, passed through the send hooks as the
     /// output phase passes them: what the player was sent in the step that removed it (before a
     /// kick, by a quit listener) reaches it, as PMMP flushes the queued packets ahead of the
-    /// disconnect packet. A player whose outbox overflowed this tick gets `packet` alone: its
-    /// outbox lost what came after it filled.
+    /// disconnect packet. A player whose outbox or blocks to send again overflowed this tick
+    /// gets `packet` alone: what it was to be sent is incomplete.
     fn close(&self, player: Player, packet: Packet, output: &mut Output) {
         let Player {
             session,

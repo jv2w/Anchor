@@ -389,7 +389,7 @@ pub(in crate::tick) struct Offers {
     recipes: Vec<Recipe>,
     /// The villager's tier (0 to [`MAX_TRADE_TIER`]): offers of higher tiers are locked.
     tier: u8,
-    /// The villager's trade experience, at most `i32::MAX`.
+    /// The villager's trade experience, at most [`MAX_TRADE_COUNTER`].
     experience: u32,
     /// The experience each tier needs, never going down.
     tier_experience: [u32; TRADE_TIERS],
@@ -637,8 +637,8 @@ impl Offers {
         Ok(())
     }
 
-    /// Sets the villager's trade experience (at most `i32::MAX`, as saved); the tier stays until
-    /// a trade reaches the next one.
+    /// Sets the villager's trade experience (at most [`MAX_TRADE_COUNTER`]); the tier stays
+    /// until a trade reaches the next one.
     pub(in crate::tick) fn set_experience(&mut self, experience: u32) -> Result<()> {
         if experience > MAX_TRADE_COUNTER {
             return Err(Error::Experience);
@@ -647,7 +647,7 @@ impl Offers {
         Ok(())
     }
 
-    /// Sets the experience each tier needs (non-decreasing, at most `i32::MAX`).
+    /// Sets the experience each tier needs (non-decreasing, at most [`MAX_TRADE_COUNTER`]).
     pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TRADE_TIERS]) -> Result<()> {
         if tiers.windows(2).any(|w| w.first() > w.get(1))
             || tiers.iter().any(|&x| x > MAX_TRADE_COUNTER)
@@ -666,8 +666,8 @@ impl Offers {
     }
 
     /// Gives the offers network IDs from `next` (the server's counter, which moves past them)
-    /// unless they have them. IDs stay below `i32::MAX`; past it the counter starts over at
-    /// `first`, the first ID after the recipes.
+    /// unless they have them. IDs stay at most [`MAX_TRADE_COUNTER`]; past it the counter starts
+    /// over at `first`, the first ID after the recipes.
     pub(in crate::tick) fn allocate_net_ids(&mut self, next: &mut u32, first: u32) {
         if self.first_net_id.is_some() {
             return;
@@ -753,7 +753,7 @@ impl Offers {
     }
 }
 
-/// A counter as `TAG_Int` (counters are kept at most `i32::MAX`).
+/// A counter as `TAG_Int` (counters are kept at most [`MAX_TRADE_COUNTER`]).
 fn int(v: u32) -> Value {
     Value::Int(i32::try_from(v).unwrap_or(i32::MAX))
 }

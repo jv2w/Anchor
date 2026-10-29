@@ -1032,9 +1032,15 @@ fn a_handler_refills_a_slot_once_the_change_is_made() {
     fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
         for c in change.changes() {
             if c.inventory() == crate::event::Inventory::Window {
-                let (slot, stack) = (usize::from(c.slot()), c.before().clone());
-                cx.defer(move |cx| cx.set_menu_item(player, slot, stack).unwrap())
-                    .unwrap();
+                let (slot, stack, left) =
+                    (usize::from(c.slot()), c.before().clone(), c.after().clone());
+                // As `Change` says: only if no later request changed the slot again.
+                cx.defer(move |cx| {
+                    if cx.menu_items(player).and_then(|items| items.get(slot)) == Some(&left) {
+                        cx.set_menu_item(player, slot, stack).unwrap();
+                    }
+                })
+                .unwrap();
             }
         }
         Response::Keep

@@ -2214,7 +2214,8 @@ fn open(state: &mut State, session: SessionId, kind: WindowKind) -> bool {
             opened.get_or_insert((world, pos));
         }
     }
-    // A double chest sounds once, at its left half (PMMP plays the sound at the inventory's holder).
+    // A double chest sounds once, at its left half (PMMP plays the sound at the inventory's
+    // holder).
     if let Some((world, pos)) = opened {
         block_entity::lid_sound(state, world, pos, 1, Raise::Events);
     }

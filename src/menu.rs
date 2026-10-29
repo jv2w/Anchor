@@ -250,15 +250,24 @@ impl Click {
 /// runs, and the request is made once it returns, unless it refuses. A drop from a menu slot
 /// leaves fewer items in it; once made, they are thrown as from a chest, by the player.
 ///
-/// The answer holds for the change heard: if the handler's own calls change what the request
-/// reads (a slot it names, changed or not: [`is_slot_named`](Self::is_slot_named), through
-/// [`Context::set_menu_item`] or the player's inventory, or the menu itself, closed or replaced by
-/// another window, a teleport or another world, or the world's room for the item a drop throws),
-/// the change is refused although the handler kept it, and a warning is logged. Do such work with [`Context::defer`], which runs once the change
-/// is made, or answer [`Response::Close`].
+/// Once the handler returns, the request is checked again and made only if it still does what
+/// the handler heard. The handler's own calls can fail that check when they change what the
+/// request reads: a slot it names, changed or not ([`is_slot_named`](Self::is_slot_named)), through
+/// [`Context::set_menu_item`] or the player's inventory; the player's cursor, crafting grid or the
+/// stacks it waits with for room; the menu itself, closed or replaced by another window, a
+/// teleport or another world; or the world's room for the item a drop throws (new entities). The
+/// change is then refused although the handler kept it, a warning is logged, and the handler is
+/// not told. So a handler that changes none of these while it answers never has a kept change
+/// refused: it does such work with [`Context::defer`] or answers [`Response::Close`].
+///
+/// A deferred call runs once the whole packet the request came in is handled, after the packet's
+/// later requests, which may have changed the same slot (the handler hears of those too). So a
+/// deferred call that writes a menu slot first checks that the slot still holds what the kept
+/// change left there ([`Context::menu_items`]).
 ///
 /// [`Context::set_menu_item`]: crate::Context::set_menu_item
 /// [`Context::defer`]: crate::Context::defer
+/// [`Context::menu_items`]: crate::Context::menu_items
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
     pub(crate) menu: Id,
@@ -272,8 +281,10 @@ impl Change {
         self.menu
     }
 
-    /// Every slot the request changed, as [`InventoryTransaction`](crate::event::InventoryTransaction)
-    /// lists them: the menu's slots are [`Inventory::Window`](crate::event::Inventory::Window).
+    /// Every slot the request changed, as [`InventoryTransaction`] lists them: the menu's slots
+    /// are [`Inventory::Window`].
+    ///
+    /// [`InventoryTransaction`]: crate::event::InventoryTransaction
     pub fn changes(&self) -> &[SlotChange] {
         &self.changes
     }

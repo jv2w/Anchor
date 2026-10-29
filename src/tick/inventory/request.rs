@@ -441,7 +441,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
     if let Some(stack) = plan.drop.clone() {
         #[expect(
             clippy::expect_used,
-            reason = "invariant: run's last check, with no callback after it, found room for the drop"
+            reason = "invariant: run's last check, no callback after it, found room for the drop"
         )]
         throw_stack(state, session, stack)
             .then_some(())

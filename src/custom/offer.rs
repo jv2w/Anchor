@@ -11,8 +11,9 @@ pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 /// The largest trade counter, as an NBT `TAG_Int` saves it: an offer's
 /// [`max_uses`](Offer::max_uses), [`uses`](Offer::uses) and
 /// [`trader_experience`](Offer::trader_experience), a villager's trade experience
-/// ([`Context::set_trade_experience`]) and each tier's need
-/// ([`Context::set_trade_tier_experience`]).
+/// ([`Context::set_trade_experience`]), each tier's need
+/// ([`Context::set_trade_tier_experience`]) and the network IDs the server gives offers (sent as
+/// `netId`).
 ///
 /// [`Context::set_trade_experience`]: crate::Context::set_trade_experience
 /// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience

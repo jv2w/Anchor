@@ -89,7 +89,8 @@ impl Context<'_> {
         Some(v.offers.recipes().iter().map(to_offer).collect())
     }
 
-    /// The tier (0 to [`custom::MAX_TRADE_TIER`]) of the villager NPC `villager`; `None` if it is not one.
+    /// The tier (0 to [`custom::MAX_TRADE_TIER`]) of the villager NPC `villager`; `None` if it is
+    /// not one.
     pub fn trade_tier(&self, villager: Id) -> Option<u8> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier())
     }
