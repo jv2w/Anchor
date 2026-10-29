@@ -620,18 +620,18 @@ impl Context<'_> {
         changed
     }
 
-    /// Gives `player` `effect` through the game rules, with its [`EntityEffectAdd`](crate::event::EntityEffectAdd) event
-    /// (`/effect`, PMMP `EffectManager::add`); false if it was not added.
-    pub(crate) fn add_player_effect(&mut self, player: Id, effect: effect::Instance) -> bool {
-        let added = add_effect(self.state, player.session(), effect);
+    /// Gives `player` `effect` through the game rules, with its
+    /// [`EntityEffectAdd`](crate::event::EntityEffectAdd) event (`/effect`, PMMP
+    /// `EffectManager::add`), unless a stronger or longer one is active or a listener cancels it.
+    pub(in crate::tick) fn add_player_effect(&mut self, player: Id, effect: effect::Instance) {
+        add_effect(self.state, player.session(), effect);
         self.touch_player(player);
-        added
     }
 
     /// Ends `player`'s effect of type `effect` through the game rules, with its
     /// [`EntityEffectRemove`](crate::event::EntityEffectRemove) event (`/effect`, PMMP
     /// `EffectManager::remove`).
-    pub(crate) fn remove_player_effect(&mut self, player: Id, effect: effect::Type) {
+    pub(in crate::tick) fn remove_player_effect(&mut self, player: Id, effect: effect::Type) {
         effects::remove(self.state, player.session(), effect);
         self.touch_player(player);
     }
@@ -639,7 +639,7 @@ impl Context<'_> {
     /// Ends every effect of `player` through the game rules, with an
     /// [`EntityEffectRemove`](crate::event::EntityEffectRemove) event each (`/effect clear`, PMMP
     /// `EffectManager::clear`).
-    pub(crate) fn clear_player_effects(&mut self, player: Id) {
+    pub(in crate::tick) fn clear_player_effects(&mut self, player: Id) {
         effects::clear(self.state, player.session());
         self.touch_player(player);
     }
@@ -648,7 +648,7 @@ impl Context<'_> {
     /// a command may run after the rules' flush.
     fn touch_player(&mut self, player: Id) {
         if let Some(p) = self.state.players.get_mut(&player.session()) {
-            p.survival.custom.touched = true;
+            p.survival.touch(0);
         }
     }
 }

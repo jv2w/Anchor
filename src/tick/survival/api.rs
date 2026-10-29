@@ -226,7 +226,7 @@ impl Custom {
 
 impl Survival {
     /// Marks client state to send, by the end of the tick even after the rules' flush.
-    fn touch(&mut self, bits: u16) {
+    pub(super) fn touch(&mut self, bits: u16) {
         self.mark(bits);
         self.custom.touched = true;
     }
