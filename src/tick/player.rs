@@ -24,7 +24,7 @@ use crate::math::Vec3;
 use crate::player::{Error, Id, MAX_TEXT, Message, Packets, Result};
 use crate::protocol::Uuid;
 use crate::protocol::consts::{DeviceOs, DisconnectReason, InputMode};
-use crate::protocol::packet::{Disconnect, Packet, Transfer};
+use crate::protocol::packet::{Disconnect, Packet, PlaySound, SpawnParticleEffect, Transfer};
 use crate::save::WorldIndex;
 use crate::world;
 
@@ -687,6 +687,58 @@ impl Player {
         Ok(())
     }
 
+    /// Plays the sound named `name` (a vanilla or resource pack sound, such as `random.orb`) to
+    /// this player alone at `pos`, once; a `volume` and `pitch` of 1 are the sound's own.
+    /// [`Context::add_sound`] plays the world's sounds to everyone who sees a place. Fails for a
+    /// name longer than 65,536 bytes, a `pos` that is not finite or outside the world border, or
+    /// a volume or pitch that is negative or not finite.
+    pub fn play_sound(&mut self, name: &str, pos: Vec3, volume: f32, pitch: f32) -> Result<()> {
+        check_name(name)?;
+        check_position(pos)?;
+        if ![volume, pitch].iter().all(|v| v.is_finite() && *v >= 0.0) {
+            return Err(Error::OutOfRange);
+        }
+        self.send_packet(Packet::PlaySound(PlaySound {
+            sound_name: name.to_owned(),
+            position: pos.to_f32(),
+            volume,
+            pitch,
+            loop_count: 0,
+            bypass_listener_range_check: false,
+            handle: None,
+            playback_position_seconds: None,
+        }));
+        Ok(())
+    }
+
+    /// Plays one of the world's sounds to this player alone at `pos`, as [`Context::add_sound`]
+    /// plays it to everyone who sees the place. Fails for a `pos` that is not finite or outside
+    /// the world border.
+    pub fn add_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
+        check_position(pos)?;
+        self.send_packet(sound.packet(pos));
+        Ok(())
+    }
+
+    /// Shows the particle effect named `name` (a vanilla or resource pack effect, such as
+    /// `minecraft:totem_particle`) to this player alone at `pos`. [`Context::add_particle`] shows
+    /// the world's particles to everyone who sees a place. Fails for a name longer than 65,536
+    /// bytes or a `pos` that is not finite or outside the world border.
+    pub fn show_particle(&mut self, name: &str, pos: Vec3) -> Result<()> {
+        check_name(name)?;
+        check_position(pos)?;
+        self.send_packet(Packet::SpawnParticleEffect(SpawnParticleEffect {
+            // The overworld (`Dimension::Overworld`), every world's dimension.
+            dimension: 0,
+            // Not an entity's: shown at the position.
+            entity_unique_id: -1,
+            position: pos.to_f32(),
+            particle_name: name.to_owned(),
+            molang_variables: None,
+        }));
+        Ok(())
+    }
+
     /// Disconnects the player at the end of the tick with `reason` on its screen (the client's
     /// "disconnected" text when empty); the other players see that it left the game. Fails if the player already leaves, or for a reason longer
     /// than 65,536 bytes.
@@ -879,6 +931,22 @@ impl Context<'_> {
 /// 253 bytes.
 pub(super) fn is_valid_address(address: &str) -> bool {
     !address.is_empty() && address.len() <= MAX_ADDRESS
+}
+
+/// A sound's or particle's name, at most [`MAX_TEXT`] bytes.
+fn check_name(name: &str) -> Result<()> {
+    if name.len() > MAX_TEXT {
+        return Err(Error::TooLong);
+    }
+    Ok(())
+}
+
+/// A position finite and inside the world border.
+fn check_position(pos: Vec3) -> Result<()> {
+    if !inside_border(pos) {
+        return Err(Error::OutsideWorld);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1276,6 +1344,73 @@ pub(super) mod tests {
         state.close_all(&mut Output::default());
         assert_eq!(quit.try_recv(), Ok(true), "the stop");
         assert!(state.players.is_empty());
+    }
+
+    /// A sound or a particle played to one player reaches it alone: a named sound with its
+    /// volume and pitch, one of the world's sounds, a named particle. A position outside the
+    /// world, a volume or pitch that is not a finite amount, or a name too long sends nothing.
+    #[test]
+    fn sounds_and_particles_played_to_one_player_reach_it_alone() {
+        let (mut state, [mut rx1, mut rx2]) = two();
+        let at = Vec3::new(1.5, -59.0, 2.5);
+        let p = player_mut(&mut state, 1);
+        p.play_sound("random.orb", at, 0.5, 1.5).unwrap();
+        p.add_sound(at, crate::world::Sound::ChestOpen).unwrap();
+        p.show_particle("minecraft:totem_particle", at).unwrap();
+        let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
+        assert_eq!(
+            p.play_sound("random.orb", nowhere, 1.0, 1.0),
+            Err(Error::OutsideWorld)
+        );
+        assert_eq!(
+            p.add_sound(nowhere, crate::world::Sound::ChestOpen),
+            Err(Error::OutsideWorld)
+        );
+        assert_eq!(
+            p.show_particle("minecraft:totem_particle", nowhere),
+            Err(Error::OutsideWorld)
+        );
+        assert_eq!(
+            p.play_sound("random.orb", at, f32::NAN, 1.0),
+            Err(Error::OutOfRange)
+        );
+        assert_eq!(
+            p.play_sound("random.orb", at, 1.0, -1.0),
+            Err(Error::OutOfRange)
+        );
+        let long = "x".repeat(MAX_TEXT + 1);
+        assert_eq!(p.play_sound(&long, at, 1.0, 1.0), Err(Error::TooLong));
+        assert_eq!(p.show_particle(&long, at), Err(Error::TooLong));
+        run(&mut state, Vec::new());
+        let effects = |packets: Vec<Packet>| -> Vec<Packet> {
+            packets
+                .into_iter()
+                .filter(|p| {
+                    matches!(
+                        p,
+                        Packet::PlaySound(_)
+                            | Packet::LevelSoundEvent(_)
+                            | Packet::SpawnParticleEffect(_)
+                    )
+                })
+                .collect()
+        };
+        let got = effects(received(&mut rx1).0);
+        assert!(
+            matches!(&got[..], [
+            Packet::PlaySound(s),
+            Packet::LevelSoundEvent(chest),
+            Packet::SpawnParticleEffect(e),
+        ] if s.sound_name == "random.orb"
+            && s.position == at.to_f32()
+            && (s.volume, s.pitch) == (0.5, 1.5)
+            && chest.sound_type == crate::protocol::consts::SoundEvent::ChestOpen.as_str()
+            && e.particle_name == "minecraft:totem_particle"
+            && e.position == at.to_f32()
+            && e.entity_unique_id == -1),
+            "{got:?}"
+        );
+        assert!(effects(received(&mut rx2).0).is_empty(), "the other player");
     }
 
     // pmmp: Player::kick
