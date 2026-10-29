@@ -316,19 +316,30 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
         }
         inventory::answer_held(player);
         skins_wait |= survival::skin_waits(player);
-        if let Some((world, eye)) = player.marks.teleport.take() {
-            survival::teleport(state, session, world, eye);
-        }
-        survival::sync(state, session);
+        apply_marks(state, session);
     }
     if skins_wait {
         survival::send_skins(state);
     }
 }
 
+/// Moves the player of `session` if it was teleported and does its survival marks.
+fn apply_marks(state: &mut State, session: SessionId) {
+    if let Some((world, eye)) = state
+        .players
+        .get_mut(&session)
+        .and_then(|p| p.marks.teleport.take())
+    {
+        survival::teleport(state, session, world, eye);
+    }
+    survival::sync(state, session);
+}
+
 /// The player of `session` is about to leave for `reason` (PMMP `Player::onPostDisconnect`):
-/// the [`PlayerQuit`] listeners may change `quit_message`, which every other online player then
-/// sees in chat: [`LEFT`] as BDS's translated line with the player's name, an empty one not at
+/// the [`PlayerQuit`] listeners may change `quit_message`, then what the API marked on the
+/// player, the listeners' marks included, takes effect (PMMP saves after the event, so a teleport
+/// is the saved place and a kill dies with its drops), then every other online player sees the
+/// message in chat: [`LEFT`] as BDS's translated line with the player's name, an empty one not at
 /// all, any other as it is. Call it just before the player is removed, in the tick's serial
 /// step. A player still loading its data has not joined, so it raises nothing.
 pub(super) fn quit(state: &mut State, session: SessionId, reason: &str, quit_message: String) {
@@ -352,6 +363,7 @@ pub(super) fn quit(state: &mut State, session: SessionId, reason: &str, quit_mes
     } else {
         quit_message
     };
+    apply_marks(state, session);
     if !message.is_empty() {
         let message = if message == LEFT {
             Message::Translation {
@@ -1196,6 +1208,45 @@ pub(super) mod tests {
             run(&mut state, Vec::new());
             assert_eq!(texts(received(&mut rx2).0), seen, "{reason}");
         }
+    }
+
+    // pmmp: PlayerQuitEvent
+    /// What a [`PlayerQuit`] listener does to the quitting player takes effect before it is
+    /// saved, as PMMP saves after the event: a teleport is the saved position, and a kill drops
+    /// what the player carries with [`crate::event::PlayerDeath`].
+    #[test]
+    fn a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player() {
+        let to = Vec3::new(3.5, -60.0, 2.5);
+        let (deaths, mut died) = mpsc::channel(4);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            crate::event::Priority::Normal,
+            move |e: &mut PlayerQuit, cx: &mut Context<'_>| {
+                let p = cx.player_mut(e.player()).unwrap();
+                p.teleport(world::Id::DEFAULT, to).unwrap();
+                assert!(p.kill());
+            },
+        );
+        listeners.push_monitor(move |e: &crate::event::PlayerDeath, _: &Context<'_>| {
+            deaths.try_send(e.drops().len()).unwrap();
+        });
+        let (mut state, _rx) = two_with(listeners);
+        // The players joined without loading data; a leaving one is kept for the next commit.
+        state.saving.players = true;
+        let bread = crate::item::Stack::new(crate::item::Kind::Bread.default_type(), 5);
+        assert!(inventory::give(player_mut(&mut state, 1), bread).is_empty());
+        player_mut(&mut state, 1).kick("bye").unwrap();
+        run(&mut state, Vec::new());
+        assert_eq!(died.try_recv(), Ok(1), "one death, dropping the bread");
+        let saved = &state.saving.offline.values().next().unwrap().data;
+        let eye = to + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        assert_eq!(saved.position, [eye.x, eye.y, eye.z]);
+        assert!(saved.extra.contains_key("DeathPositionX"));
+        assert!(
+            matches!(saved.extra.get("Inventory"), Some(Value::List(l)) if l.is_empty()),
+            "{:?}",
+            saved.extra.get("Inventory")
+        );
     }
 
     // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight, Player::setScreenLineHeight, Player

@@ -1351,7 +1351,9 @@ getters!(PlayerPostChunkSend {
     chunk: ChunkPos,
 });
 
-/// Raised when a player leaves, before the player is saved and removed.
+/// Raised when a player leaves, before the player is saved and removed: what a listener does to
+/// the player through the API takes effect before the save (a teleport is the saved place, a kill
+/// dies with its drops and [`PlayerDeath`]).
 #[doc(alias = "PlayerQuitEvent")]
 #[derive(Debug)]
 pub struct PlayerQuit {
