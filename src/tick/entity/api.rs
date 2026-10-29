@@ -685,7 +685,7 @@ impl Mut<'_> {
     }
 
     /// The entity, to change what its viewers see too.
-    fn shown(&mut self) -> &mut Entity {
+    pub(super) fn shown(&mut self) -> &mut Entity {
         let e = self.entity();
         e.resend = true;
         e

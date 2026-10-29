@@ -72,6 +72,7 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
         last_damage: 0.0,
         dead_ticks: None,
         data: Compound::new(),
+        held: crate::item::Stack::EMPTY,
     });
     let id = create(state, world, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0))?;
     with(state, id, |e| e.name_tag = name);
@@ -317,7 +318,7 @@ mod tests {
 
     use super::super::tests::{Harness, TEST_HOOKS, adds, at, calls, standing};
     use super::*;
-    use crate::item::Enchantment;
+    use crate::item::{Enchantment, Stack};
     use crate::nbt::Value;
     use crate::protocol::MetadataValue::Int32;
     use crate::protocol::consts::EntityDataKey as K;
@@ -1001,6 +1002,102 @@ mod tests {
             })
             .collect();
         assert_eq!(order, ["add", "player", "remove"]);
+    }
+
+    /// An NPC's held item shows in its hand: to a new viewer after its actor (a human's with
+    /// `AddPlayer`), to its viewers when it changes, and it is saved with the NPC. Other kinds
+    /// hold nothing.
+    #[test]
+    fn an_npcs_held_item_shows_to_its_viewers_and_is_saved() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.take(1);
+        let v = villager(&mut h, at(2.5, -60.0, 0.5));
+        let g = human(&mut h, at(4.5, -60.0, 0.5), "Guide");
+        let sword = stack("minecraft:diamond_sword", 1);
+        h.entities();
+        h.take(1);
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        assert_eq!(cx.entity(v).unwrap().held_item(), Some(&Stack::EMPTY));
+        for id in [v, g] {
+            assert!(cx.entity_mut(id).unwrap().set_held_item(sword.clone()));
+            assert_eq!(cx.entity(id).unwrap().held_item(), Some(&sword));
+        }
+        h.entities();
+        let (vr, gr) = (e_runtime(&h, v), e_runtime(&h, g));
+        let held = |packets: &[Packet], runtime_id: u64| -> Vec<Stack> {
+            packets
+                .iter()
+                .filter_map(|p| match p {
+                    Packet::MobEquipment(m) if m.entity_runtime_id == runtime_id => {
+                        Stack::from_network(&m.new_item.stack)
+                    }
+                    Packet::AddPlayer(a) if a.entity_runtime_id == runtime_id => {
+                        Stack::from_network(&a.held_item.stack)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let packets = h.take(1);
+        assert_eq!(
+            held(&packets, vr),
+            std::slice::from_ref(&sword),
+            "a change shows"
+        );
+        assert_eq!(held(&packets, gr), std::slice::from_ref(&sword));
+        h.spawn(2, standing(0.0, 3.0));
+        h.entities();
+        let packets = h.take(2);
+        let add = packets
+            .iter()
+            .position(|p| matches!(p, Packet::AddActor(a) if a.entity_runtime_id == vr));
+        let equipment = packets
+            .iter()
+            .position(|p| matches!(p, Packet::MobEquipment(m) if m.entity_runtime_id == vr));
+        assert!(add.is_some() && add < equipment, "after its actor");
+        assert_eq!(held(&packets, vr), std::slice::from_ref(&sword));
+        assert_eq!(held(&packets, gr), std::slice::from_ref(&sword));
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        assert!(cx.entity_mut(v).unwrap().set_held_item(Stack::EMPTY));
+        h.entities();
+        assert_eq!(held(&h.take(1), vr), [Stack::EMPTY], "emptied");
+        h.entities();
+        assert_eq!(held(&h.take(1), vr), [], "once");
+        let key = (0, ChunkPos::new(0, 0));
+        let all = h.state.rules.entities.unload(key).expect("changed");
+        h.state
+            .rules
+            .entities
+            .load_list(key, &all, &crate::custom::Registry::default());
+        let entities = &h.state.rules.entities;
+        let loaded: Vec<_> = entities
+            .ids()
+            .filter_map(|id| entities.get(id))
+            .filter_map(crate::tick::Entity::held_item)
+            .cloned()
+            .collect();
+        assert_eq!(loaded, [Stack::EMPTY, sword]);
+        assert!(super::super::drop_item(
+            &mut h.state,
+            0,
+            at(2.5, -60.0, 0.5),
+            stack("minecraft:stick", 1)
+        ));
+        let entities = &h.state.rules.entities;
+        let item = entities
+            .ids()
+            .find(|&id| matches!(entities.get(id).unwrap().kind, Kind::Item(_)))
+            .unwrap();
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        assert_eq!(cx.entity(item).unwrap().held_item(), None);
+        assert!(!cx.entity_mut(item).unwrap().set_held_item(Stack::EMPTY));
     }
 
     /// The hurt event of an NPC carries the official cause number of an explosion (Mojang

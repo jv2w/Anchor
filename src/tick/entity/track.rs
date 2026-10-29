@@ -326,10 +326,23 @@ pub(super) fn instance(stack: &Stack) -> ItemInstance {
     stack.to_instance(0)
 }
 
-/// The packets that show an entity to a player, at the drawn position ([`shown_at`]; an item
+/// The packets that show an entity to a player ([`add`]), then an NPC's held item: `AddActor`
+/// carries no equipment (a human's `AddPlayer` does).
+pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
+    let mut packets = add(entity);
+    if let Kind::Npc(c) = &entity.kind
+        && !matches!(c.form, Form::Human { .. })
+        && !c.held.is_empty()
+    {
+        packets.push(held(entity.runtime_id, &c.held, 0));
+    }
+    packets
+}
+
+/// The packets that add an entity for a player, at the drawn position ([`shown_at`]; an item
 /// 0.125 above its feet as BDS sends it, P6 `crops`). A human NPC is added to the player list for
 /// its skin, shown, and taken off the list again.
-pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
+fn add(entity: &Entity) -> Vec<Packet> {
     let velocity = entity.body.motion.to_f32();
     let metadata = metadata(entity);
     let (yaw, pitch) = (to_f32(entity.yaw), to_f32(entity.pitch));
@@ -345,6 +358,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
         }))],
         Kind::Npc(Character {
             form: Form::Human { uuid, skin },
+            held,
             ..
         }) => {
             let name = &entity.name_tag;
@@ -373,7 +387,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
                 pitch,
                 yaw,
                 head_yaw: yaw,
-                held_item: ItemInstance::default(),
+                held_item: instance(held),
                 // PMMP sends a `Human` as survival.
                 game_type: GameType::Survival.into(),
                 entity_metadata: metadata,
@@ -665,7 +679,7 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
         (EntityDataKey::Height, MetadataValue::Float32(height)),
         (EntityDataKey::SeatOffset, MetadataValue::Vec3([0.0; 3])),
         (EntityDataKey::ControllingSeatIndex, MetadataValue::Byte(0)),
-        (EntityDataKey::ArrowShooterId, MetadataValue::Int64(0)),
+        (EntityDataKey::Reserved139, MetadataValue::Int64(0)),
     ] {
         m.insert(k as u32, v);
     }
@@ -835,7 +849,7 @@ pub(super) fn player_moved(
     })
 }
 
-/// The held item of a player (PMMP `onMobMainHandItemChange`).
+/// The held item of a player (PMMP `onMobMainHandItemChange`), or of an NPC in slot 0.
 pub(super) fn held(runtime_id: u64, stack: &Stack, slot: u8) -> Packet {
     Packet::MobEquipment(Box::new(MobEquipment {
         entity_runtime_id: runtime_id,

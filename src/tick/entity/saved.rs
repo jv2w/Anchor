@@ -30,7 +30,8 @@
 //! - clouds: PMMP's `AreaEffectCloud` keys; `SpawnTick` is minus the cloud's age (the world clock
 //!   is not at hand here; only the difference is read back);
 //! - NPCs: `Health` (float), `Invulnerable` (byte) and, when not empty, `AnchorData` (the user's
-//!   compound, at most [`custom::MAX_DATA_BYTES`]); villagers `Profession` (int) and `Offers`
+//!   compound, at most [`custom::MAX_DATA_BYTES`]) and Bedrock's `Mainhand` (the held item, a
+//!   list of one [`Stack::to_nbt`]); villagers `Profession` (int) and `Offers`
 //!   (the offer list, [`Offers::to_nbt`]); human NPCs their name as the name tag and, with a skin,
 //!   PMMP's `Skin` compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin
 //!   that does not pass [`Skin`]'s checks loads as the default skin);
@@ -85,6 +86,8 @@ pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
 const MAX_EFFECT_TICKS: i32 = 1_000_000;
 /// The key of an NPC's data (Anchor's: PMMP keeps plugin data in the entity's own compound).
 pub(super) const DATA_KEY: &str = "AnchorData";
+/// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
+const MAINHAND: &str = "Mainhand";
 /// What a saved compound describes, before the store gives it a slot.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Loaded {
@@ -202,13 +205,19 @@ pub(super) fn save(entity: &Entity) -> Compound {
     c
 }
 
-/// An NPC's keys: its health, `Invulnerable`, its data and its form's own (PMMP
+/// An NPC's keys: its health, `Invulnerable`, its data, its held item and its form's own (PMMP
 /// `Living::saveNBT`, `Villager::saveNBT`, `Human::saveNBT`).
 fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
     put("Health", Value::Float(to_f32(health)));
     put("Invulnerable", Value::Byte(u8::from(npc.invulnerable)));
     if !npc.data.is_empty() {
         put(DATA_KEY, Value::Compound(npc.data.clone()));
+    }
+    if !npc.held.is_empty() {
+        put(
+            MAINHAND,
+            Value::List(List::Compound(vec![npc.held.to_nbt()])),
+        );
     }
     match &npc.form {
         Form::Villager {
@@ -492,8 +501,11 @@ fn load_kind(
                 },
                 baby: is_baby(c),
             },
+            content,
         )?),
-        "minecraft:zombie" | "Zombie" => Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) })?),
+        "minecraft:zombie" | "Zombie" => {
+            Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) }, content)?)
+        }
         "Human" => Kind::Npc(load_npc(
             c,
             Form::Human {
@@ -503,8 +515,9 @@ fn load_kind(
                     _ => None,
                 },
             },
+            content,
         )?),
-        _ => load_custom(c, identifier, types)?,
+        _ => load_custom(c, identifier, types, content)?,
     })
 }
 
@@ -784,9 +797,18 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
 
 /// A custom entity of the registered type `identifier` (`None` for a type the server does not
 /// have): an NPC's keys.
-fn load_custom(c: &Compound, identifier: &str, types: &EntityTypes) -> Option<Kind> {
+fn load_custom(
+    c: &Compound,
+    identifier: &str,
+    types: &EntityTypes,
+    content: &Registry,
+) -> Option<Kind> {
     let spec = Arc::clone(types.find(identifier)?);
-    Some(Kind::Npc(load_npc(c, Form::Custom(Custom { spec }))?))
+    Some(Kind::Npc(load_npc(
+        c,
+        Form::Custom(Custom { spec }),
+        content,
+    )?))
 }
 
 /// Bedrock's baby flag of a mob (`IsBaby`).
@@ -797,12 +819,21 @@ fn is_baby(c: &Compound) -> bool {
     matches!(c.get(BABY), Some(Value::Byte(b)) if *b != 0)
 }
 
-/// An NPC's keys; `None` for data over [`custom::MAX_DATA_BYTES`].
-fn load_npc(c: &Compound, form: Form) -> Option<Character> {
+/// An NPC's keys; `None` for data over [`custom::MAX_DATA_BYTES`] or a held item that is not one
+/// stack the server knows.
+fn load_npc(c: &Compound, form: Form, content: &Registry) -> Option<Character> {
     let data = match c.get(DATA_KEY) {
         Some(Value::Compound(data)) if custom::fits(data) => data.clone(),
         Some(_) => return None,
         None => Compound::new(),
+    };
+    let held = match c.get(MAINHAND) {
+        Some(Value::List(List::Compound(list))) => match list.as_slice() {
+            [item] => Stack::from_nbt_with(item, content)?,
+            _ => return None,
+        },
+        None => Stack::EMPTY,
+        Some(_) => return None,
     };
     Some(Character {
         form,
@@ -811,6 +842,7 @@ fn load_npc(c: &Compound, form: Form) -> Option<Character> {
         last_damage: 0.0,
         dead_ticks: None,
         data,
+        held,
     })
 }
 
@@ -1070,6 +1102,7 @@ pub(super) mod tests {
                 last_damage: 0.0,
                 dead_ticks: None,
                 data: Compound::from([("npc".to_owned(), Value::String("shop".to_owned()))]),
+                held: stack("minecraft:diamond_sword", 1),
             }),
             Kind::Npc(Character {
                 form: Form::Human {
@@ -1081,6 +1114,7 @@ pub(super) mod tests {
                 last_damage: 0.0,
                 dead_ticks: None,
                 data: Compound::new(),
+                held: Stack::EMPTY,
             }),
             Kind::Npc(Character {
                 form: Form::Zombie { baby: true },
@@ -1089,6 +1123,7 @@ pub(super) mod tests {
                 last_damage: 0.0,
                 dead_ticks: None,
                 data: Compound::new(),
+                held: Stack::EMPTY,
             }),
             Kind::Npc(Character {
                 form: Form::Zombie { baby: false },
@@ -1097,6 +1132,7 @@ pub(super) mod tests {
                 last_damage: 0.0,
                 dead_ticks: None,
                 data: Compound::new(),
+                held: Stack::EMPTY,
             }),
             Kind::Painting(Painting {
                 motive: PaintingMotive::Kebab,
@@ -1206,6 +1242,7 @@ pub(super) mod tests {
                 last_damage: 0.0,
                 dead_ticks: Some(0),
                 data: Compound::new(),
+                held: Stack::EMPTY,
             }),
             Vec3::new(5.25, -59.5, -3.75),
         );

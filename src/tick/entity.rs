@@ -874,6 +874,7 @@ fn hash_character(h: &mut super::Fnv, c: &Character) {
         last_damage,
         dead_ticks,
         data,
+        held,
     } = c;
     match form {
         Form::Villager {
@@ -910,6 +911,7 @@ fn hash_character(h: &mut super::Fnv, c: &Character) {
         }
     }
     super::extra::hash_nbt(h, data);
+    super::inventory::hash_stack(h, held);
     h.u64(u64::from(*invulnerable));
     h.u64(u64::from(*attack_time));
     h.u64(last_damage.to_bits());
@@ -3924,10 +3926,13 @@ fn send_movements(state: &mut State) {
 
 /// Puts in `packets` the packets an entity's change since it was last sent needs (PMMP
 /// `updateMovement`): the flags (no client prediction while it rests, burning), or all its
-/// metadata after an API change, the position, the speed.
+/// metadata (and an NPC's held item) after an API change, the position, the speed.
 fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
     if e.resend {
         packets.push(track::all_data(e, change.flags));
+        if let Kind::Npc(c) = &e.kind {
+            packets.push(track::held(e.runtime_id, &c.held, 0));
+        }
     } else if change.flags != e.sent.flags || change.radius.is_some() {
         packets.push(track::data(e.runtime_id, change.flags, change.radius));
     }

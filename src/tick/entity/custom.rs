@@ -1,6 +1,6 @@
 //! Custom entity types on the tick: the registry the builder fills, the entries the engine adds to
 //! `AvailableActorIdentifiers`, the calls of the types' behaviours, and the API that spawns custom
-//! entities and reads and changes their data.
+//! entities and reads and changes the data and held item of NPCs.
 //!
 //! A custom entity is an NPC of [`Form::Custom`]: it shares the living rules of NPCs (hits,
 //! cooldown, knockback, death, suffocation, fall damage) and is not invulnerable unless the API
@@ -9,7 +9,7 @@
 //! behaviours stay in the registry, which lends one out while it runs: a behaviour cannot run
 //! inside another (callbacks raise no events and call no behaviour).
 //!
-//! Saved custom entities keep their identifier, health, invulnerability and data
+//! Saved custom entities keep their identifier, health, invulnerability, data and held item
 //! ([`super::saved`]); one whose type is not registered at load stays as saved, like an unknown
 //! block, and is written back unchanged.
 
@@ -23,6 +23,7 @@ use super::{Entities, Entity, Mut, SessionId, State, create};
 use crate::ServerBuilder;
 use crate::custom::is_identifier;
 use crate::entity::{Behaviour, Custom as Definition, Error, Id};
+use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{self, Compound, List, Value};
 use crate::player;
@@ -264,7 +265,8 @@ pub(super) fn fits(data: &Compound) -> bool {
         .is_ok()
 }
 
-/// The kind of a new custom entity of `spec`: alive, not invulnerable, with empty data.
+/// The kind of a new custom entity of `spec`: alive, not invulnerable, with empty data and
+/// empty-handed.
 pub(super) fn kind(spec: Arc<Spec>) -> Kind {
     Kind::Npc(Character {
         form: Form::Custom(Custom { spec }),
@@ -273,6 +275,7 @@ pub(super) fn kind(spec: Arc<Spec>) -> Kind {
         last_damage: 0.0,
         dead_ticks: None,
         data: Compound::new(),
+        held: Stack::EMPTY,
     })
 }
 
@@ -405,6 +408,14 @@ impl Entity {
             _ => None,
         }
     }
+
+    /// What an NPC holds in its hand ([`Stack::EMPTY`] for nothing); `None` for another kind.
+    pub fn held_item(&self) -> Option<&Stack> {
+        match &self.kind {
+            Kind::Npc(c) => Some(&c.held),
+            _ => None,
+        }
+    }
 }
 
 impl Mut<'_> {
@@ -417,6 +428,21 @@ impl Mut<'_> {
         match &mut self.entity().kind {
             Kind::Npc(c) => {
                 c.data = data;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Puts `stack` in an NPC's hand ([`Entity::held_item`]; [`Stack::EMPTY`] empties it): its
+    /// viewers see it, and it is saved with the NPC. False, changing nothing, for another kind.
+    pub fn set_held_item(&mut self, stack: Stack) -> bool {
+        if !matches!(self.kind, Kind::Npc(_)) {
+            return false;
+        }
+        match &mut self.shown().kind {
+            Kind::Npc(c) => {
+                c.held = stack;
                 true
             }
             _ => false,

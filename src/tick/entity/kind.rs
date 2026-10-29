@@ -270,6 +270,8 @@ pub(super) struct Character {
     pub(super) dead_ticks: Option<u8>,
     /// The user's payload, saved (at most [`super::custom::MAX_DATA_BYTES`] encoded).
     pub(super) data: Compound,
+    /// What it holds in its hand, shown to its viewers and saved; empty for nothing.
+    pub(super) held: Stack,
 }
 
 /// Ticks a dead NPC shows its death before it goes (PMMP `Living::$maxDeadTicks`).
@@ -408,6 +410,7 @@ fields!(Character {
     last_damage,
     dead_ticks,
     data,
+    held,
 });
 variants!(Form {
     0 => Villager {
