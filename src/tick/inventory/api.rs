@@ -462,17 +462,23 @@ fn put_player(player: &mut Player, kind: Kind, slot: usize, stack: Stack) -> Res
 /// Writes slot `slot` of an offline player's inventory `kind`: its record only, with no stack
 /// network ID, which a join gives every stack.
 fn put_offline(record: &mut Offline, kind: Kind, slot: usize, stack: Stack) -> Result<()> {
-    if let Some(r) = own_slot(&record.inventory, kind, slot, &stack)?
-        && record.inventory.put(
-            r,
-            Slot {
-                stack,
-                id: super::StackId::default(),
-            },
-        )
-    {
-        record.change_inventory();
-    }
+    let Some(r) = own_slot(&record.inventory, kind, slot, &stack)? else {
+        return Ok(());
+    };
+    let slot = Slot {
+        stack,
+        id: super::StackId::default(),
+    };
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: own_slot gives only slots the player's own inventories have"
+    )]
+    record
+        .inventory
+        .put(r, slot)
+        .then_some(())
+        .expect("invariant: own_slot gives an own slot");
+    record.change_inventory();
     Ok(())
 }
 

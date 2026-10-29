@@ -1350,6 +1350,7 @@ pocketmine\block\BaseSign::update*Text skipped a player's edit goes through the 
 # Entity, effect, animation and server rows.
 pocketmine\Server::getPlayerByRawUUID merged Server::getPlayerByUUID
 pocketmine\Server::hasOfflinePlayerData merged Server::getOfflinePlayerData
+pocketmine\Server::saveOfflinePlayerData differs raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game
 pocketmine\Server::*OfflinePlayer* skipped PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players`
 pocketmine\Server::*BroadcastChannel* skipped PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged
 pocketmine\entity\Entity::setGravity skipped an entity kind's physics are PMMP's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off

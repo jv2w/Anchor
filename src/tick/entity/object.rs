@@ -46,7 +46,8 @@ const FIREWORK_CLIMB: f64 = 0.04;
 const BURST_REACH: f64 = 5.0;
 /// The largest flight multiplier of a firework item (PMMP `setFlightTimeMultiplier`: 1 to 127).
 const MAX_FLIGHT_MULTIPLIER: u8 = 127;
-/// The flight multiplier of a firework item without one (PMMP `FireworkRocket::$flightTimeMultiplier`).
+/// The flight multiplier of a firework item without one (PMMP
+/// `FireworkRocket::$flightTimeMultiplier`).
 pub(super) const DEFAULT_FLIGHT_MULTIPLIER: u8 = 1;
 /// A firework item's flight random part, 0 to this many ticks (PMMP `mt_rand(0, 12)`).
 const FLIGHT_RANDOM_TICKS: i32 = 12;

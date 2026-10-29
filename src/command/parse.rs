@@ -487,6 +487,12 @@ mod tests {
         assert_eq!(split(&format!("{full}a")), Err(Error::TooLong));
         assert_eq!(split(&"a".repeat(MAX_LINE_CHARS + 1)), Err(Error::TooLong));
         assert_eq!(split(&"a ".repeat(MAX_LINE_CHARS / 2)).unwrap().len(), 256);
+        let bytes = format!("{},{:03}", MAX_LINE_BYTES / 1000, MAX_LINE_BYTES % 1000);
+        let documented = format!("over {bytes} bytes or {MAX_LINE_CHARS} characters");
+        assert!(
+            include_str!("parse.rs").contains(&documented),
+            "the docs name the bounds"
+        );
     }
 
     #[test]

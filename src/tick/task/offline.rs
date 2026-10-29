@@ -742,6 +742,11 @@ mod tests {
             cx.hold_offline_player(None, "Steve", |_, _| {}),
             Err(Error::Full)
         );
+        let documented = format!("past {MAX_TICKETS} tickets held or asked for");
+        assert!(
+            include_str!("offline.rs").contains(&documented),
+            "the docs name the bound"
+        );
         tick(&mut state, &mut Vec::new(), &mut output);
         let [Response::Player { key, .. }] = &output.answers[..] else {
             panic!("one request for one player");

@@ -16,8 +16,8 @@
 //! read into the stack's fields; every other key, and any of these that is not in the exact form
 //! Anchor writes, stays in [`Extra::nbt`] untouched, so a stack Anchor wrote reads back equal and
 //! writes back byte for byte. A `Damage` of 0 is read too, as no wear, and not written back
-//! (PMMP `Durable`), so it stacks with a new item. NBT that is part of the item type (an ominous banner's `Type`) is
-//! not kept in the stack: the type adds it when the tag is written.
+//! (PMMP `Durable`), so it stacks with a new item. NBT that is part of the item type (an ominous
+//! banner's `Type`) is not kept in the stack: the type adds it when the tag is written.
 //!
 //! Limits: a stack is refused where its extra data is set ([`Stack::with_extra`],
 //! and the conversions from outside forms) if its saved form is over [`MAX_NBT_BYTES`] or its

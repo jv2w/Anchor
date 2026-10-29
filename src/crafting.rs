@@ -887,7 +887,8 @@ pub(crate) fn smelt_experience(result: Type) -> f64 {
 }
 
 /// The armour trim pattern IDs (the `Pattern` of an item's `Trim`), in the order BDS 1.26.52 sends
-/// them in `TrimData` (P6): each is the template `minecraft:<pattern>_armor_trim_smithing_template`.
+/// them in `TrimData` (P6): each is the template
+/// `minecraft:<pattern>_armor_trim_smithing_template`.
 pub const TRIM_PATTERNS: [&str; 18] = [
     "ward",
     "sentry",
