@@ -719,11 +719,11 @@ getters!(EntityMotion {
 });
 
 impl EntityMotion {
-    /// Replaces the new motion, in blocks per tick; it is cut to the speed bound of every push
-    /// (10 a component). A motion that is not finite is ignored.
+    /// Replaces the new motion, in blocks per tick, cut to the speed bound of every push (10 a
+    /// component) as it is set. A motion that is not finite is ignored.
     pub fn set_motion(&mut self, motion: Vec3) {
         if motion.is_finite() {
-            self.motion = motion;
+            self.motion = crate::tick::bounded_motion(motion);
         }
     }
 }
@@ -1714,5 +1714,18 @@ mod tests {
         assert!(launch.is_cancelled());
         launch.uncancel();
         assert!(!launch.is_cancelled());
+    }
+
+    #[test]
+    fn a_set_motion_is_cut_to_the_speed_bound_as_it_is_set() {
+        let mut e = EntityMotion {
+            entity: Actor::Entity(entity(1)),
+            motion: Vec3::ZERO,
+            cancelled: false,
+        };
+        e.set_motion(Vec3::new(30.0, 0.5, -30.0));
+        assert_eq!(e.motion(), Vec3::new(10.0, 0.5, -10.0));
+        e.set_motion(Vec3::new(f64::NAN, 1.0, 1.0));
+        assert_eq!(e.motion(), Vec3::new(10.0, 0.5, -10.0), "ignored");
     }
 }

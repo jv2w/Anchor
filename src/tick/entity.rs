@@ -85,6 +85,7 @@ use self::kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, K
 #[cfg(test)]
 use self::kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
 pub(super) use self::object::Placed;
+pub(crate) use self::physics::bounded as bounded_motion;
 use self::physics::{Body, Inside, Step};
 pub(super) use self::physics::{
     Harm, INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid,
@@ -2748,7 +2749,6 @@ fn push_entity(state: &mut State, id: Id, motion: Vec3) {
         if e.cancelled || (dispatch::listened::<EntityMotion>(state) && !is_live(state, id)) {
             return;
         }
-        e.motion = physics::bounded(e.motion);
         motion = e.motion;
         event = Some(e);
     }
@@ -2951,7 +2951,6 @@ fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise
         if e.cancelled {
             return;
         }
-        e.motion = physics::bounded(e.motion);
         motion = e.motion;
         event = Some(e);
     }

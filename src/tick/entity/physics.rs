@@ -971,7 +971,7 @@ fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
 }
 
 /// The largest absolute component a stored speed may have ([`MAX_SPEED`]); not finite is zero.
-pub(super) fn bounded(v: Vec3) -> Vec3 {
+pub(crate) fn bounded(v: Vec3) -> Vec3 {
     let one = |c: f64| {
         if c.is_finite() {
             crate::math::clamp(c, -MAX_SPEED, MAX_SPEED)
