@@ -2696,9 +2696,10 @@ fn zombie_drops(r: &mut Random) -> Vec<Stack> {
 }
 
 /// Sets the motion a rule gives the entity `id` (knockback, an explosion's push, a Punch arrow;
-/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion.
+/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion, and a
+/// listener's motion replaces the push.
 fn push_entity(state: &mut State, id: Id, motion: Vec3) {
-    let motion = physics::bounded(motion);
+    let mut motion = physics::bounded(motion);
     let mut event = None;
     if dispatch::heard::<EntityMotion>(state) {
         let mut e = EntityMotion {
@@ -2710,6 +2711,8 @@ fn push_entity(state: &mut State, id: Id, motion: Vec3) {
         if e.cancelled || (dispatch::listened::<EntityMotion>(state) && !is_live(state, id)) {
             return;
         }
+        e.motion = physics::bounded(e.motion);
+        motion = e.motion;
         event = Some(e);
     }
     with(state, id, |e| e.body.motion = motion);
@@ -2894,9 +2897,9 @@ pub(in crate::tick) fn knock_player(
 
 /// Pushes a player: its client is sent the motion, and so are the players who see it (PMMP
 /// `Player::setMotion`; the server keeps no motion of players). With [`Raise::Events`] it goes
-/// through [`EntityMotion`]: cancelling sends nothing.
+/// through [`EntityMotion`]: cancelling sends nothing, and a listener's motion replaces the push.
 fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise) {
-    let motion = physics::bounded(motion);
+    let mut motion = physics::bounded(motion);
     let mut event = None;
     if raise == Raise::Events && dispatch::heard::<EntityMotion>(state) {
         if !state.players.contains_key(&session) {
@@ -2911,6 +2914,8 @@ fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise
         if e.cancelled {
             return;
         }
+        e.motion = physics::bounded(e.motion);
+        motion = e.motion;
         event = Some(e);
     }
     send_motion(state, session, motion);

@@ -733,6 +733,30 @@ fn a_cancelled_motion_keeps_the_npc_still() {
     assert_eq!(got(&seen).len(), 3, "listener and monitor");
 }
 
+/// A listener's motion is the one an NPC takes and the monitors see.
+#[test]
+fn a_motion_listener_replaces_an_npc_s_push() {
+    let push = Vec3::new(0.0, 0.25, 0.0);
+    let seen: Log<Vec3> = log();
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityMotion, _: &mut Context<'_>| e.set_motion(push),
+    );
+    let sink = seen.sink();
+    listeners.push_monitor(move |e: &EntityMotion, cx: &Context<'_>| {
+        let Actor::Entity(id) = e.entity() else {
+            panic!("an entity")
+        };
+        sink.push(cx.entity(id).unwrap().motion());
+    });
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(0.0, 0.0));
+    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    hit(&mut h, npc);
+    assert_eq!(got(&seen), [push]);
+}
+
 // pmmp: EntityCombustEvent, EntityCombustByBlockEvent, EntityExtinguishEvent
 #[test]
 fn fire_sets_entities_burning_through_combust_and_water_puts_them_out() {

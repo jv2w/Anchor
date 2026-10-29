@@ -285,6 +285,23 @@ fn a_melee_knockback_on_a_player_goes_through_entity_motion() {
     assert_eq!(drain(&mut seen), [Actor::Player(pid(2))]);
 }
 
+/// A listener's motion replaces the push, cut to the speed bound of every push; one that is not
+/// finite is ignored.
+#[test]
+fn a_motion_listener_replaces_a_player_s_push() {
+    for (set, sent) in [
+        (Vec3::new(0.0, 0.5, 0.0), [0.0, 0.5, 0.0]),
+        (Vec3::new(30.0, 0.5, 0.0), [10.0, 0.5, 0.0]),
+    ] {
+        let listeners = on(move |e: &mut EntityMotion, _: &mut Context<'_>| {
+            e.set_motion(set);
+            e.set_motion(Vec3::new(f64::NAN, 0.0, 0.0));
+        });
+        let mut game = Game::new(2, listeners);
+        assert_eq!(melee_knockback(&mut game), Some(sent));
+    }
+}
+
 /// A melee knockback a listener makes strong is cut to the speed bound of every push.
 #[test]
 fn a_melee_knockback_on_a_player_is_bounded() {

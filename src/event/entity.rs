@@ -699,7 +699,7 @@ setters!(EntityItemPickup {
 });
 
 /// Raised when a player or an entity is pushed: knockback, an explosion. Cancelling keeps its
-/// motion.
+/// motion; [`set_motion`](Self::set_motion) pushes it otherwise.
 #[doc(alias = "EntityMotionEvent")]
 #[derive(Debug)]
 pub struct EntityMotion {
@@ -715,6 +715,16 @@ getters!(EntityMotion {
     #[doc(alias = "EntityMotionEvent::getVector")]
     motion: Vec3,
 });
+
+impl EntityMotion {
+    /// Replaces the new motion, in blocks per tick; it is cut to the speed bound of every push
+    /// (10 a component). A motion that is not finite is ignored.
+    pub fn set_motion(&mut self, motion: Vec3) {
+        if motion.is_finite() {
+            self.motion = motion;
+        }
+    }
+}
 
 /// Raised when an entity is about to explode (primed TNT), before the blocks it breaks are found.
 /// Cancelling stops the explosion; the entity is gone either way.
