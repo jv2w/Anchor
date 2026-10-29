@@ -254,8 +254,10 @@ setters!(PlayerChat {
     #[doc(alias = "PlayerChatEvent::setRecipients")]
     set_recipients => recipients: Vec<player::Id>,
     /// Replaces the format: `None` for the standard line (sent as BDS sends it, see
-    /// [`PlayerChat::format`]), or a text where `{%0}` stands for the speaker's name and `{%1}`
-    /// for the message.
+    /// [`PlayerChat::format`]), or a text where `{%0}` stands for the speaker's name, `{%1}`
+    /// for the message and `{%%` for a literal `{%`. Text put into the format, such as a name,
+    /// keeps its own `{%0}` with every `{%` written as `{%%`: `text.replace("{%", "{%%")`. The
+    /// name and the message filled in are taken as they are.
     #[doc(alias = "PlayerChatEvent::setFormatter")]
     set_format => format: Option<String>,
 });
@@ -263,8 +265,9 @@ setters!(PlayerChat {
 impl PlayerChat {
     /// How the line looks: `None` for the standard line, sent as BDS sends it (a chat text with
     /// the speaker's name as its source and the raw message, which the client shows as
-    /// `<name> message`), or a text where `{%0}` stands for the speaker's name and `{%1}` for the
-    /// message (PMMP `LegacyRawChatFormatter`). Starts as `None`.
+    /// `<name> message`), or a text where `{%0}` stands for the speaker's name, `{%1}` for the
+    /// message and `{%%` for a literal `{%` (PMMP `LegacyRawChatFormatter`, which has no
+    /// escape). Starts as `None`.
     #[doc(alias = "PlayerChatEvent::getFormatter")]
     pub fn format(&self) -> Option<&str> {
         self.format.as_deref()

@@ -289,23 +289,25 @@ fn online(state: &State, id: Id) -> Option<&crate::player::Player> {
         .filter(|p| p.gets_broadcasts())
 }
 
-/// `format` with `{%0}` replaced by `name` and `{%1}` by `message` in one pass (PMMP
-/// `LegacyRawChatFormatter`), or `None` if the line would be longer than a client decodes.
+/// `format` with `{%0}` replaced by `name`, `{%1}` by `message` and `{%%` by `{%` in one pass
+/// (PMMP `LegacyRawChatFormatter`, which has no escape), or `None` if the line would be longer
+/// than a client decodes.
 fn formatted(format: &str, name: &str, message: &str) -> Option<String> {
     let mut out = String::new();
     let mut rest = format;
     while let Some(at) = rest.find("{%") {
         let (before, tail) = rest.split_at(at);
-        let (value, skip) = match tail.get(..4) {
-            Some("{%0}") => (Some(name), 4),
-            Some("{%1}") => (Some(message), 4),
-            _ => (None, 2),
+        let (value, skip) = if tail.starts_with("{%%") {
+            ("{%", 3)
+        } else {
+            match tail.get(..4) {
+                Some("{%0}") => (name, 4),
+                Some("{%1}") => (message, 4),
+                _ => ("{%", 2),
+            }
         };
         push_bounded(&mut out, before)?;
-        match value {
-            Some(v) => push_bounded(&mut out, v)?,
-            None => push_bounded(&mut out, tail.get(..skip).unwrap_or_default())?,
-        }
+        push_bounded(&mut out, value)?;
         rest = tail.get(skip..).unwrap_or_default();
     }
     push_bounded(&mut out, rest)?;
@@ -563,6 +565,14 @@ mod tests {
         assert_eq!(clean("a\u{1b}]0;mb"), "ab");
         assert_eq!(clean("lone\u{1b}x"), "lonex");
         assert_eq!(trim("\0 x \u{b}"), "x");
+    }
+
+    #[test]
+    fn a_format_writes_a_literal_brace_percent_as_brace_percent_percent() {
+        assert_eq!(
+            formatted("[{%%0}] {%0}: {%1} {%%}{%2 {%", "a{%1}", "b").as_deref(),
+            Some("[{%0}] a{%1}: b {%}{%2 {%")
+        );
     }
 
     fn request(session: u64, seq: u64, line: &str) -> Input {
