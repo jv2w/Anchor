@@ -77,6 +77,7 @@ fn runtime_ids_follow_the_vanilla_ones_in_registration_order() {
     assert_eq!(r.item_type(&SWORD).unwrap().runtime_id(), first + 4);
     assert_eq!(ruby.name(), "test:ruby");
     assert_eq!(ruby.custom_item().map(Item::identifier), Some("test:ruby"));
+    assert_eq!(ruby.custom_item().map(Item::display_name), Some("Ruby"));
     assert_eq!(ore.name(), "test:ruby_ore");
     assert_eq!(
         ore.custom_block().map(Block::identifier),

@@ -154,6 +154,11 @@ impl Item {
         self.identifier
     }
 
+    /// The name the client shows for it, such as `Ruby`.
+    pub const fn display_name(&self) -> &'static str {
+        self.display_name
+    }
+
     /// The data row the rules read.
     pub(crate) fn info(&'static self) -> &'static item::Info {
         &self.info
