@@ -1344,12 +1344,18 @@ fn use_break_on(
 }
 
 /// PMMP `World::useBreakOn`'s checks for a player breaking the block `name` (PMMP cancels the
-/// `BlockBreakEvent` for these): not a spectator, a breakable block with finite resources, and
-/// `CanDestroy` in adventure mode.
+/// `BlockBreakEvent` for these): not a spectator, a breakable block with finite resources,
+/// `CanDestroy` in adventure mode, and in creative mode no custom item made
+/// `without_creative_breaking` in the hand.
 fn player_may_break(actor: &Actor, tool: &Stack, name: &str, info: block::BreakInfo) -> bool {
     actor.mode != GameMode::Spectator
         && (!actor.finite() || info.is_breakable())
         && (actor.mode != GameMode::Adventure || adventure_allows(tool, "CanDestroy", name))
+        && (actor.mode != GameMode::Creative
+            || tool
+                .item()
+                .and_then(crate::item::Type::custom_item)
+                .is_none_or(crate::custom::Item::breaks_in_creative))
 }
 
 /// Whether a player's break has room for its `count` drops as entities; a break without it is

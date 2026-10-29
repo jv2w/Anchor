@@ -41,12 +41,13 @@ pub struct Item {
     allow_off_hand: bool,
     hand_equipped: bool,
     glint: bool,
+    breaks_in_creative: bool,
 }
 
 impl Item {
     /// An item named `identifier` (`namespace:name`, not in `minecraft`) that players see as
     /// `display_name` with the icon `icon`: stacks of 64, no durability, not food, not in the
-    /// creative inventory.
+    /// creative inventory, breaking blocks in creative mode as any item does.
     pub const fn new(
         identifier: &'static str,
         display_name: &'static str,
@@ -61,6 +62,7 @@ impl Item {
             allow_off_hand: false,
             hand_equipped: false,
             glint: false,
+            breaks_in_creative: true,
         }
     }
 
@@ -149,6 +151,14 @@ impl Item {
         self
     }
 
+    /// The same item, with which a player in creative mode breaks no block (like a vanilla
+    /// sword): the client does not try, and the server refuses the break.
+    #[must_use]
+    pub const fn without_creative_breaking(mut self) -> Self {
+        self.breaks_in_creative = false;
+        self
+    }
+
     /// The identifier, such as `example:ruby`.
     pub const fn identifier(&self) -> &'static str {
         self.identifier
@@ -162,6 +172,11 @@ impl Item {
     /// The data row the rules read.
     pub(crate) fn info(&'static self) -> &'static item::Info {
         &self.info
+    }
+
+    /// Whether a player in creative mode breaks blocks with it.
+    pub(crate) fn breaks_in_creative(&self) -> bool {
+        self.breaks_in_creative
     }
 
     /// The PMMP classes the rules see: a food, a durable item or a plain item.
@@ -238,6 +253,10 @@ impl Item {
         flag("allow_off_hand", self.allow_off_hand);
         flag("hand_equipped", self.hand_equipped);
         flag("foil", self.glint);
+        // The client breaks blocks in creative mode with an item that leaves the property out.
+        if !self.breaks_in_creative {
+            properties.insert("can_destroy_in_creative".to_owned(), Value::Byte(0));
+        }
         if self.info.attack_points() != 1 {
             properties.insert(
                 "damage".to_owned(),

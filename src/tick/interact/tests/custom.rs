@@ -1,11 +1,12 @@
 //! Tick tests of custom content: a custom block placed, used and broken with its behaviour hooks
 //! and drops, a villager's offers read and changed as typed values, custom furnace recipes cooked,
-//! and custom items kept through a save and a restart.
+//! custom items kept through a save and a restart, and a custom item that breaks nothing in
+//! creative mode.
 
 use super::*;
 use crate::Context as Ctx;
 use crate::crafting::FurnaceType;
-use crate::custom::tests::{ORE, RUBY};
+use crate::custom::tests::{ORE, RUBY, SWORD};
 use crate::custom::{Behaviour, Block, Ingredient, ItemRef, Offer, Property, Recipe, Registry};
 use crate::item::Extra;
 use crate::save::{Request, Response};
@@ -71,13 +72,14 @@ static SWITCH: Block = Block::new("test:switch", "test_switch")
     .with_hardness(0.0)
     .with_behaviour(&Switch);
 
-/// The test server's custom content: `RUBY`, `ORE`, `SWITCH`, and a ruby smelting into a
-/// diamond in a furnace and on a campfire.
+/// The test server's custom content: `RUBY`, `ORE`, `SWITCH`, `SWORD`, and a ruby smelting into
+/// a diamond in a furnace and on a campfire.
 fn registry() -> Registry {
     let mut r = Registry::default();
     r.add_item(&RUBY);
     r.add_block(&ORE);
     r.add_block(&SWITCH);
+    r.add_item(&SWORD);
     let ruby = Ingredient::Item(ItemRef::Custom(&RUBY));
     let diamond = (ItemRef::Item(crate::item::Kind::Diamond.default_type()), 1);
     r.add_recipe(Recipe::furnace(FurnaceType::Furnace, ruby, diamond));
@@ -88,7 +90,12 @@ fn registry() -> Registry {
 
 /// A harness whose server has [`registry`].
 fn harness() -> (Harness, Arc<Registry>) {
-    let mut h = Harness::new(|_| {});
+    harness_with(|_| {})
+}
+
+/// [`harness`] with the settings `edit` makes.
+fn harness_with(edit: impl FnOnce(&mut Config)) -> (Harness, Arc<Registry>) {
+    let mut h = Harness::new(edit);
     let r = Arc::new(registry());
     h.state.custom = Arc::clone(&r);
     for w in &mut h.state.worlds {
@@ -122,6 +129,28 @@ fn a_saved_stack_reads_back_through_the_context_custom_ones_too() {
         assert_eq!(ctx.stack_from_nbt(&stack.to_nbt()), Some(stack));
     }
     assert_eq!(ctx.stack_from_nbt(&crate::nbt::Compound::new()), None);
+}
+
+/// In creative mode a block breaks with a ruby in the hand but not with `SWORD`, made
+/// `without_creative_breaking`.
+#[test]
+fn a_creative_player_breaks_nothing_with_an_item_made_so() {
+    let (mut h, r) = harness_with(creative);
+    for (item, broken) in [(&RUBY, true), (&SWORD, false)] {
+        h.set(TARGET, Kind::Stone.default_state());
+        h.hold(Stack::new(r.item_type(item).unwrap(), 1));
+        h.act(vec![action(
+            PlayerAction::PredictDestroyBlock,
+            TARGET,
+            Face::West,
+        )]);
+        assert_eq!(
+            h.block(TARGET) == block::AIR,
+            broken,
+            "{}",
+            item.identifier()
+        );
+    }
 }
 
 #[test]

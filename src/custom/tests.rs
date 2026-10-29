@@ -20,7 +20,8 @@ pub(crate) static SWORD: Item = Item::new("test:sword", "Ruby Sword", "test_swor
     .with_durability(100)
     .with_attack_damage(7)
     .hand_equipped()
-    .allow_off_hand();
+    .allow_off_hand()
+    .without_creative_breaking();
 pub(crate) static ORE: Block = Block::new("test:ruby_ore", "test_ruby_ore")
     .with_hardness(3.0)
     .with_tool(ToolType::PICKAXE, 2)
@@ -128,6 +129,10 @@ fn item_components_have_dragonflys_shape() {
     assert_eq!(properties.get("allow_off_hand"), Some(&Value::Byte(1)));
     assert_eq!(properties.get("damage"), Some(&Value::Int(7)));
     assert_eq!(
+        properties.get("can_destroy_in_creative"),
+        Some(&Value::Byte(0))
+    );
+    assert_eq!(
         properties.get("creative_category"),
         Some(&Value::Int(CreativeCategory::Items as i32))
     );
@@ -148,6 +153,7 @@ fn item_components_have_dragonflys_shape() {
     let components = compound(&apple, "components");
     let properties = compound(components, "item_properties");
     assert_eq!(properties.get("foil"), Some(&Value::Byte(1)));
+    assert_eq!(properties.get("can_destroy_in_creative"), None);
     assert_eq!(properties.get("use_duration"), Some(&Value::Int(32)));
     assert_eq!(
         properties.get("creative_group"),
