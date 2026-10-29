@@ -15,7 +15,8 @@
 //! In the tag, `display.Name`, `display.Lore`, `ench` and an item's durability (`Damage`) are
 //! read into the stack's fields; every other key, and any of these that is not in the exact form
 //! Anchor writes, stays in [`Extra::nbt`] untouched, so a stack Anchor wrote reads back equal and
-//! writes back byte for byte. NBT that is part of the item type (an ominous banner's `Type`) is
+//! writes back byte for byte. A `Damage` of 0 is read too, as no wear, and not written back
+//! (PMMP `Durable`), so it stacks with a new item. NBT that is part of the item type (an ominous banner's `Type`) is
 //! not kept in the stack: the type adds it when the tag is written.
 //!
 //! Limits: a stack is refused where its extra data is set ([`Stack::with_extra`],
@@ -591,8 +592,9 @@ fn keeps_damage(item: Type, damage: u16) -> bool {
 }
 
 /// Reads the known keys of an item tag (PMMP `Item::deserializeCompoundTag`): the durability of
-/// an item that wears, the custom name, the lore and the enchantments, each only in the exact
-/// form [`Stack::tag`] writes; the rest, without the type's own NBT, is the extra NBT.
+/// an item that wears (0 too, which [`Stack::tag`] leaves out, as PMMP `Durable` does), the custom
+/// name, the lore and the enchantments, each only in the exact form [`Stack::tag`] writes; the
+/// rest, without the type's own NBT, is the extra NBT.
 fn split_tag(item: Type, durability: Option<u16>, mut tag: Compound) -> (Option<u16>, Extra) {
     if let Some(static_nbt) = item.nbt() {
         for (key, value) in nbt::compound(static_nbt) {
@@ -604,7 +606,7 @@ fn split_tag(item: Type, durability: Option<u16>, mut tag: Compound) -> (Option<
     let mut damage = None;
     if let (Some(max), Some(Value::Int(d))) = (durability, tag.get(TAG_DAMAGE))
         && let Ok(d) = u16::try_from(*d)
-        && (1..=max).contains(&d)
+        && d <= max
     {
         damage = Some(d);
         tag.remove(TAG_DAMAGE);
@@ -801,6 +803,23 @@ mod tests {
         let net = stack.to_network();
         assert_eq!(net.item_type.metadata_value, 0);
         assert_eq!(Stack::from_network(&net), Some(stack));
+    }
+
+    /// PMMP `Durable` reads a tag `Damage` of 0 as no wear (over an old meta too) and writes no
+    /// key for it, so such a stack equals and stacks with a new one.
+    #[test]
+    fn a_tag_damage_of_zero_is_no_wear_and_is_not_written() {
+        let fresh = Stack::new(kind(Kind::DiamondSword), 1);
+        for meta in [0, 5] {
+            let mut disk = fresh.to_nbt();
+            disk.insert("Damage".to_owned(), Value::Short(meta));
+            let tag = Compound::from([("Damage".to_owned(), Value::Int(0))]);
+            disk.insert("tag".to_owned(), Value::Compound(tag));
+            let read = Stack::from_nbt(&disk).unwrap();
+            assert_eq!(read, fresh, "meta {meta}");
+            assert!(read.can_stack_with(&fresh));
+            assert_eq!(read.to_nbt(), fresh.to_nbt(), "no Damage key written");
+        }
     }
 
     // pmmp: Durable::setDamage
