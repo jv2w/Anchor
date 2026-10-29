@@ -616,3 +616,54 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     assert_eq!(sent(&mut w), [0]);
     check_slots(&w.state);
 }
+
+/// The totem animation reaches its player alone: the off hand shows a totem of undying while the
+/// client takes the event on the player's own runtime ID, then what it holds again with its
+/// stack network ID; the stacks do not change.
+#[test]
+fn the_totem_animation_shows_its_player_alone_a_totem_in_the_off_hand() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let other = w.join(2);
+    w.player(s)
+        .inventory_mut(Kind::Offhand)
+        .set(0, sticks(3))
+        .unwrap();
+    w.sent(s);
+    w.sent(other);
+    let held = w.id(s, C::Offhand, 0);
+    let runtime_id = w.player(s).runtime_id;
+    w.player(s).show_totem_animation();
+    let offhand = |p: &Packet| match p {
+        Packet::InventoryContent(c) if c.window_id == WINDOW_ID_OFF_HAND => c
+            .content
+            .iter()
+            .map(|i| {
+                (
+                    i.stack.item_type.network_id,
+                    i.stack.count,
+                    i.stack_network_id,
+                )
+            })
+            .collect::<Vec<_>>(),
+        other => panic!("{other:?}"),
+    };
+    let totem = i32::from(item(it::Kind::Totem).runtime_id());
+    let stick = i32::from(item(it::Kind::Stick).runtime_id());
+    let got = w.sent(s);
+    let [shown, Packet::ActorEvent(event), back] = &got[..] else {
+        panic!("{got:?}");
+    };
+    assert_eq!(offhand(shown), [(totem, 1, 0)]);
+    assert_eq!(
+        (event.entity_runtime_id, event.event_type, event.event_data),
+        (
+            runtime_id,
+            u8::from(crate::protocol::consts::ActorEvent::TalismanActivate),
+            0
+        )
+    );
+    assert_eq!(offhand(back), [(stick, 3, held)]);
+    assert!(w.sent(other).is_empty(), "the other player");
+    assert_eq!(w.inv(s).offhand(), &sticks(3));
+}

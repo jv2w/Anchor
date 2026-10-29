@@ -9,8 +9,8 @@
 use super::super::entity::Raise;
 use super::super::{Context, Player, State, block_entity};
 use super::{
-    MAX_SAVED_PENDING, Notice, PublicWindow as Window, SlotRef, block_entity_halves, close_now,
-    public_window, request, select,
+    MAX_SAVED_PENDING, Notice, PublicWindow as Window, SlotRef, WINDOW_ID_OFF_HAND,
+    block_entity_halves, close_now, content_packet, public_window, request, select,
 };
 use crate::inventory::{BlockSlots, Editor, Error, Inventory, Kind, MAX_STACK, Result, Target};
 use crate::item::Stack;
@@ -93,6 +93,21 @@ impl Player {
             .as_ref()
             .and_then(|w| w.ui.get(slot))
             .map(|s| &s.stack)
+    }
+
+    /// Shows this player alone the screen animation of a totem of undying saving it (the
+    /// `TalismanActivate` actor event); the other players see nothing, and no stack changes. The
+    /// client draws the animation only with a totem of undying in hand (`facts.md`), so its off
+    /// hand shows one while it takes the event, then what it holds again.
+    pub fn show_totem_animation(&mut self) {
+        let totem = Stack::new(crate::item::Kind::Totem.default_type(), 1);
+        let held: Vec<_> = self.inventory.offhand.instances().collect();
+        self.send_packet(content_packet(
+            WINDOW_ID_OFF_HAND,
+            vec![totem.to_instance(0)],
+        ));
+        self.send_packet(crate::entity::Animation::TotemUse.packet(self.runtime_id));
+        self.send_packet(content_packet(WINDOW_ID_OFF_HAND, held));
     }
 }
 

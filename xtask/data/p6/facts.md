@@ -230,6 +230,8 @@
   - 문을 빈손으로 누르면 누를 때마다 `PlayerInput`, 예측 1 클릭 하나다.
   - ClickAir(눈덩이)는 trigger `Unknown`이고, 엔티티 Interact도 누르고 있어도 되풀이되지 않는다.
   - Anchor: `PlayerInteract::is_first`는 누름마다 처음 쏘는 오른쪽 클릭만 참이다. `SimulationTick`이 아닌 클릭, 또는 직전 블록 클릭에서 `PRESS_GAP_TICKS`보다 늦은 클릭이 새 누름이다.
+- 불사의 토템 화면 연출(공식 클라이언트, 공식 서버 1.26.5x 위의 이전 운영 서버가 쓰던 방식. 봇으로는 볼 수 없음): 클라이언트는 손에 불사의 토템이 있을 때만 자기 런타임 ID의 ActorEvent TalismanActivate(데이터 0)에 화면 연출을 그린다. 왼손 창 전체에 토템(스택 네트워크 ID 없음)을 보이는 InventoryContent, 그 이벤트, 원래 왼손의 InventoryContent를 차례로 보내면 그 플레이어에게만 연출이 나온다.
+  - Anchor: `Player::show_totem_animation`이 이 셋을 그 플레이어에게만 보낸다. 바닐라 토템이 살릴 때는 토템이 손에 있는 채로 보는 사람 모두에게 이벤트를 보낸다.
 - 비행: 같은 겨냥에서 공식 서버 투척 물약은 3.5블록 벽 높이 1.6에 맞고 Anchor는 땅에 맞는다(던지는 각도·힘 차이로 보임). 삼지창은 1초 당겨 수평으로 공식 서버 약 24블록, Anchor 약 12블록이다. 범위 밖의 차이로 둔다.
 
 ## 웅크리기
@@ -257,6 +259,7 @@
 - `gamemode` 숫자 5·6을 공식 서버가 받는지 보지 않았다.
 - 셋째 플레이어부터의 플레이어 목록 색은 보지 않았다.
 - 투척 물약이 머리 위 높이에서 깨질 때 몇 틱 차이, 즉시 효과의 거리 식은 공식 서버로 재지 않았다.
+- 바닐라 토템이 살릴 때 공식 서버가 보내는 것(ActorEvent TalismanActivate의 데이터와 받는 사람, OnScreenTextureAnimation도 보내는지: bedrock-protocol-docs의 그 패킷 주석이 토템 연출을 용도로 든다)은 보지 않았다.
 - `cargo xtask p6 anchor snappy`처럼 한 압축만 돌리면 NetworkSettings를 zlib 공식 서버 캡처와 비교하는 문제가 있다. 두 압축을 함께 돌린다.
 
 ## 실제 클라이언트로만 확인
@@ -272,3 +275,4 @@
 - 가져온 월드에서 Anchor가 모르는 화분 식물(벚나무 묘목 등 비활성 블록)이 보이는지. BlockActorData `PlantBlock`에 공식 서버가 저장한 원본 그대로를 보낸다. 봇 시나리오로는 놓을 수 없다(Anchor에 그 아이템이 없음).
 - Anchor가 모르는 배너 무늬 ID를 BlockActorData `Patterns`로 받을 때 클라이언트가 그 층만 무시하는지.
 - 서바이벌·크리에이티브에서 블록에 우클릭을 누르고 있을 때 `SimulationTick` 클릭 사이가 `PRESS_GAP_TICKS`(10틱)보다 벌어지는 일이 없는지(모험 모드에서만 봄).
+- `Player::show_totem_animation`: 토템이 아닌 것을 든 오른손과 함께 왼손 표시만으로 연출이 나오는지, 왼손이 곧바로 되돌아가도 연출의 아이템이 토템인지, 손에 토템이 없어도 연출이 나오는지(나오면 왼손 표시는 필요 없다).
