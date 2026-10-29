@@ -7280,10 +7280,15 @@ pub struct SoundDataUpdate {
 
 impl Codec for SoundDataUpdate {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        let mut x = Self {
-            r#type: r.uint8()?,
-            ..Self::default()
-        };
+        let mut x = Self::default();
+        let variant: u32 = r.varuint32()?;
+        x.r#type = r.uint8()?;
+        if variant != (u32::from(x.r#type)) {
+            return Err(Error::InvalidValue {
+                field: "sound data update variant",
+                reason: "differs from the type",
+            });
+        }
         match x.r#type {
             0 | 5 | 6 => {}
             1 => {
@@ -7310,7 +7315,15 @@ impl Codec for SoundDataUpdate {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
+        let variant: u32 = u32::from(self.r#type);
+        w.varuint32(variant);
         w.uint8(self.r#type);
+        if variant != (u32::from(self.r#type)) {
+            return Err(Error::InvalidValue {
+                field: "sound data update variant",
+                reason: "differs from the type",
+            });
+        }
         match self.r#type {
             0 | 5 | 6 => {}
             1 => {

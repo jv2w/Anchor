@@ -11,11 +11,27 @@ pub(crate) fn binary(dir: &Path) -> &'static Path {
     BINARY.get_or_init(|| {
         create_dir(dir);
         let exe = dir.join(format!("bot{}", std::env::consts::EXE_SUFFIX));
+        let go_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("go");
+        let fixmod = dir.join("fixmod");
         let output = Command::new("go")
-            .args(["build", "-o"])
+            .args(["run", "./fixmod", "-out"])
+            .arg(&fixmod)
+            .current_dir(&go_dir)
+            .output()
+            .unwrap_or_else(|e| panic!("cannot run `go` (the bot tests need Go on PATH): {e}"));
+        assert!(
+            output.status.success(),
+            "go run ./fixmod failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = Command::new("go")
+            .arg("build")
+            .arg("-modfile")
+            .arg(fixmod.join("go.mod"))
+            .arg("-o")
             .arg(&exe)
             .arg("./bot")
-            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("go"))
+            .current_dir(&go_dir)
             .output()
             .unwrap_or_else(|e| panic!("cannot run `go` (the bot tests need Go on PATH): {e}"));
         assert!(

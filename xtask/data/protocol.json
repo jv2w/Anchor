@@ -65768,6 +65768,57 @@
         "receiver": "x",
         "stmts": [
           {
+            "kind": "assign",
+            "op": ":=",
+            "lhs": [
+              {
+                "kind": "var",
+                "name": "variant",
+                "type": {
+                  "kind": "basic",
+                  "name": "uint32"
+                }
+              }
+            ],
+            "rhs": [
+              {
+                "kind": "convert",
+                "x": {
+                  "kind": "field",
+                  "name": "Type",
+                  "x": {
+                    "kind": "var",
+                    "name": "x",
+                    "type": {
+                      "kind": "named",
+                      "name": "protocol.SoundDataUpdate"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint8"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint32"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "io",
+            "method": "Varuint32",
+            "place": {
+              "kind": "var",
+              "name": "variant",
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
             "kind": "io",
             "method": "Uint8",
             "place": {
@@ -65786,6 +65837,78 @@
                 "name": "uint8"
               }
             }
+          },
+          {
+            "kind": "if",
+            "cond": {
+              "kind": "binary",
+              "op": "!=",
+              "x": {
+                "kind": "var",
+                "name": "variant",
+                "type": {
+                  "kind": "basic",
+                  "name": "uint32"
+                }
+              },
+              "y": {
+                "kind": "convert",
+                "x": {
+                  "kind": "field",
+                  "name": "Type",
+                  "x": {
+                    "kind": "var",
+                    "name": "x",
+                    "type": {
+                      "kind": "named",
+                      "name": "protocol.SoundDataUpdate"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint8"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint32"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "bool"
+              }
+            },
+            "then": [
+              {
+                "kind": "error",
+                "value": {
+                  "kind": "var",
+                  "name": "variant",
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint32"
+                  }
+                },
+                "error": "invalid_value",
+                "field": {
+                  "kind": "lit",
+                  "value": "sound data update variant",
+                  "type": {
+                    "kind": "basic",
+                    "name": "string"
+                  }
+                },
+                "reason": {
+                  "kind": "lit",
+                  "value": "differs from the type",
+                  "type": {
+                    "kind": "basic",
+                    "name": "string"
+                  }
+                }
+              }
+            ]
           },
           {
             "kind": "switch",
@@ -87932,34 +88055,16 @@
           "value": "138"
         },
         {
-          "name": "protocol.EntityDataKeyArrowShooterID",
+          "name": "protocol.EntityDataKeyReserved139",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "139"
         },
         {
-          "name": "protocol.EntityDataKeyFireworkDirection",
-          "type": "untyped int",
-          "basic": "untyped int",
-          "value": "140"
-        },
-        {
-          "name": "protocol.EntityDataKeyFireworkShooterID",
-          "type": "untyped int",
-          "basic": "untyped int",
-          "value": "141"
-        },
-        {
-          "name": "protocol.EntityDataKeyReserved139",
-          "type": "untyped int",
-          "basic": "untyped int",
-          "value": "142"
-        },
-        {
           "name": "protocol.EntityDataKeyNameplateRenderDistanceMax",
           "type": "untyped int",
           "basic": "untyped int",
-          "value": "143"
+          "value": "140"
         }
       ]
     },
@@ -87994,6 +88099,27 @@
           "basic": "untyped int",
           "value": "25",
           "alias": "protocol.EntityDataKeyUsingItem"
+        },
+        {
+          "name": "protocol.EntityDataKeyArrowShooterID",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "17",
+          "alias": "protocol.EntityDataKeyDisplayOffset"
+        },
+        {
+          "name": "protocol.EntityDataKeyFireworkDirection",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "17",
+          "alias": "protocol.EntityDataKeyDisplayOffset"
+        },
+        {
+          "name": "protocol.EntityDataKeyFireworkShooterID",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "18",
+          "alias": "protocol.EntityDataKeyCustomDisplay"
         }
       ]
     },
@@ -92142,10 +92268,16 @@
           "value": "27"
         },
         {
-          "name": "protocol.PieceTypeUnsupported",
+          "name": "protocol.PieceTypeCoCo",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "28"
+        },
+        {
+          "name": "protocol.PieceTypeUnsupported",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "29"
         }
       ]
     },

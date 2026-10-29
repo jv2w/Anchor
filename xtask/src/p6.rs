@@ -1564,12 +1564,30 @@ fn build_bot(root: &Path) -> Result<PathBuf, String> {
     let dir = root.join(OUT_DIR);
     create_dir(&dir)?;
     let exe = dir.join(format!("bot{}", std::env::consts::EXE_SUFFIX));
+    let go_dir = root.join("xtask").join("go");
+    // The bot reads packets with Anchor's gophertunnel corrections (`xtask/go/fix`).
+    let fixmod = dir.join("fixmod");
+    let output = Command::new("go")
+        .args(["run", "./fixmod", "-out"])
+        .arg(&fixmod)
+        .current_dir(&go_dir)
+        .output()
+        .map_err(|e| format!("cannot run `go` ({e}); install Go and put it on PATH"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "go run ./fixmod failed:
+{}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
     let output = Command::new("go")
         .arg("build")
+        .arg("-modfile")
+        .arg(fixmod.join("go.mod"))
         .arg("-o")
         .arg(&exe)
         .arg("./bot")
-        .current_dir(root.join("xtask").join("go"))
+        .current_dir(&go_dir)
         .output()
         .map_err(|e| format!("cannot run `go` ({e}); install Go and put it on PATH"))?;
     if !output.status.success() {

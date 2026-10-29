@@ -19,6 +19,13 @@
 | github.com/df-mc/go-nethernet | `v1.0.25` |
 | Mojang bedrock-protocol-docs(필드 상한) | 커밋 `0879ab5c4c70be1bd520e32a8c49ea4a155616d6`(v1.26.60 릴리스, 프로토콜 2225) |
 
+결함 판정에만 쓰는 대조 출처(코드에 들이지 않는다):
+
+| 출처 | 판 |
+|---|---|
+| EndstoneMC/bedrock-protocol | v0.4.4, 커밋 `0fb448a6a9940f197e199dcea488fc4129755d48`. 공식 서버 헤더 역분석과 cereal 스키마 덤프에서 만든 스키마라 공식 서버에 가장 가까운 공개 출처다. 2193 이후 모양은 골든 바이트가 없다 |
+| CloudburstMC/Protocol | 브랜치 `3.0` codec `v2225`, 커밋 `17a89ac156ff874fc8773e42a96bbc0635be9eed` |
+
 - v1.63.0 태그 뒤 master에 형식 수정 커밋이 없어 태그로 고정한다. 태그는 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
 - 기준 서버는 같은 프로토콜(2225)의 공식 서버다. 출처 표(`data.md`)의 공식 서버 1.26.52.3은 프로토콜 2193이라, 2225 공식 서버로 바꾸기 전에는 P6 대조가 이 버전과 맞지 않는다.
 - gophertunnel도 형식 버그를 자주 고친다. P3 통과는 "gophertunnel과 같다"는 뜻일 뿐이다.
@@ -29,6 +36,11 @@
 gophertunnel 소스 ──(xtask/go/extract)──> xtask/data/protocol.json ──(cargo xtask gen)──> src/protocol/{types,packet,consts}.rs
 Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_limits.json ──┘
 ```
+
+### gophertunnel 보정 (`xtask/go/fix`)
+- 아래 "gophertunnel 결함" 가운데 코덱과 상수를 바꾸는 것은 고정한 모듈의 사본에 정확히 한 번 나오는 문장을 바꿔 고친다. 바꿀 문장이 없거나 여러 번이면 실패하므로 판을 올릴 때 드러난다.
+- 추출기, 오라클, 봇이 모두 이 사본으로 빌드한다(`-modfile`, `go run ./fixmod -out <폴더>`). 그래서 IR과 P1~P5, P6 봇이 같은 보정을 본다.
+- 보정 조건: 공식 서버에 가까운 출처(Endstone)와 독립 출처 하나 이상(Mojang 문서, CloudburstMC, 공식 서버 관찰)이 gophertunnel 반대편에서 서로 맞을 때만 고친다.
 
 ### 추출기 (`xtask/go/extract`)
 - `golang.org/x/tools/go/packages`로 타입 정보까지 읽고, 각 패킷과 타입의 `Marshal(io protocol.IO)`를 걸어 IR을 낸다.
@@ -80,7 +92,9 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 - EntityMetadata 개수 상한 없음, NBT 깊이 계수 누수, 부분 읽기 허용, ItemInstance·Login 길이 조용히 자름.
 - Snappy 해제가 `s2.Decode`라 S2 확장도 받는다.
 - 스킨 틴트 조각 이름: 코덱이 로그인 이름에서 `persona_`만 떼어 `facial_hair`, `face_accessory`, `left_leg`, `right_leg`, `left_arm`, `right_arm`, `classic_skin`을 보낸다. Mojang 문서(`SerializedSkin`의 `PieceTintColors` 키는 `persona::PieceType` 이름)와 CloudburstMC(`512ea21d9c`)는 밑줄 없는 소문자 이름(`facialhair` 등)이다. 생성 코덱은 gophertunnel과 같게 두고, 로그인 변환(`login/client_data.rs`의 `TINT_PROTOCOL_NAMES`)이 코덱이 그 이름을 쓰는 값을 넣는다. 공식 서버 바이트(P6)로 아직 확인하지 않았다.
-- `PieceType`에 1.26.60의 `CoCo`(28)가 없고 `Unsupported`가 28이다(Mojang 29). 로그인의 모르는 조각 이름은 0(Unknown)으로 보낸다.
+- `PieceType`에 1.26.60의 `CoCo`(28)가 없고 `Unsupported`가 28이다. Endstone(`COCO = 28`, `UNSUPPORTED` 29), CloudburstMC, Mojang 문서가 같다. 보정한다(로그인 `persona_coco` → 28).
+- ClientboundUpdateSoundData의 `SoundDataUpdate`: 타입 바이트 하나만 쓴다. Endstone(variant 선택자는 uvarint32 변형 번호이고 변형 안의 타입 uint8을 한 번 더 쓴다), CloudburstMC(같은 모양, 둘이 같은지 검사), Mojang 문서(`oneOf` + control uint32, 각 변형 0번에 `Type`)가 모두 변형 번호를 앞에 둔다. 보정한다: 변형 번호(= 타입) uvarint32, 타입 u8, 다르면 디코드 오류.
+- EntityDataKey 139~143: gophertunnel은 `ArrowShooterID` 139, `FireworkDirection` 140, `FireworkShooterID` 141, `Reserved139` 142, `NameplateRenderDistanceMax` 143이다(142에 붙은 이름 `Reserved139`부터 모순). Endstone(`RESERVED_139` 139, `NAMEPLATE_RENDER_DISTANCE_MAX` 140)과 CloudburstMC(v975: 139 Long, 140 Float, 화살·폭죽 발사자 키는 17·18)가 같고, 공식 서버도 플레이어에 키 139를 Int64 0, 140을 Float 64.0(이름표 거리)으로 보낸다(P6). 보정한다: 139 `Reserved139`, 140 `NameplateRenderDistanceMax`, 화살·폭죽 키는 17·18의 별칭.
 - 로그인 `ServerAddress`: v1.63.0은 NetherNet 주소를 `http(s)://host:port:port`로만 받는다. 1.26.60 클라이언트는 `https://host:port`를 보내고 태그 뒤 master(`531fd12d9a`)가 둘 다 받는다. Anchor는 master 규칙을 따른다.
 - 빈 스킨 지오메트리: 로그인 `Validate`와 코덱이 빈 `SkinGeometry`를 그대로 받고 보낸다. 프로토콜은 지오메트리와 리소스 패치를 깊이 제한 JSON으로 요구한다(Mojang 문서). Anchor는 로그인의 빈 지오메트리를 `{}`로 두고, 스킨 규칙(`Skin::is_acceptable`)이 두 필드를 깊이 64 이하 JSON으로 검사한다.
 - 로그인 마감 없음, 지연 패킷 큐 상한 없음, 0xff 원문 상한 없음: Anchor 세션에는 모두 있다(`network.md`).

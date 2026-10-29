@@ -954,6 +954,21 @@ mod tests {
     }
 
     #[test]
+    fn coco_persona_pieces_go_out_as_piece_type_28() {
+        let mut data = client_data_json();
+        data["PersonaPieces"] = json!([
+            {"IsDefault": true, "PackId": "p", "PieceId": "q", "PieceType": "persona_coco", "ProductId": ""},
+        ]);
+        let request = online_request(&Issuer::get().token(&claims()), &data, player());
+        let login = verify(&request, Mode::Online(&Issuer::get().keys()), NOW).unwrap();
+        let mut w = protocol::Writer::new(Vec::new(), 0);
+        protocol::Codec::encode(&login.skin.get().persona_pieces[0], &mut w).unwrap();
+        let bytes = w.as_bytes();
+        // The piece ID string "q", then the piece type as a little-endian u32.
+        assert_eq!(bytes[..6], [1, b'q', 28, 0, 0, 0]);
+    }
+
+    #[test]
     fn login_skins_go_out_in_the_form_clients_read() {
         let mut data = client_data_json();
         data["PieceTintColors"] = json!([

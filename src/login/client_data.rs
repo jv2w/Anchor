@@ -25,7 +25,7 @@ const MAX_LANGUAGE_CODE: usize = 64;
 const MAX_HOST: usize = 253;
 /// The persona piece type names of the login data and their protocol types; any other name is
 /// [`PieceType::Unknown`].
-const PIECE_TYPES: [(&str, PieceType); 27] = [
+const PIECE_TYPES: [(&str, PieceType); 28] = [
     ("persona_skeleton", PieceType::Skeleton),
     ("persona_body", PieceType::Body),
     ("persona_skin", PieceType::Skin),
@@ -53,6 +53,7 @@ const PIECE_TYPES: [(&str, PieceType); 27] = [
     ("persona_capes", PieceType::Capes),
     ("persona_classic_skin", PieceType::ClassicSkin),
     ("persona_emote", PieceType::Emote),
+    ("persona_coco", PieceType::CoCo),
 ];
 /// The login tint piece types whose protocol name is not the login name without `persona_`: the
 /// protocol names a tint's piece by the `persona::PieceType` name in lower case (Mojang protocol

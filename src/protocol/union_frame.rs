@@ -295,6 +295,27 @@ mod tests {
     }
 
     #[test]
+    fn sound_data_updates_write_their_variant_index_before_the_type() {
+        use crate::protocol::types::SoundDataUpdate;
+        let fade = SoundDataUpdate {
+            r#type: 3,
+            duration: 1.0,
+            target_volume: 0.5,
+            ..SoundDataUpdate::default()
+        };
+        let b = bytes(|w| fade.encode(w));
+        assert_eq!(b, [3, 3, 0, 0, 0x80, 0x3f, 0, 0, 0, 0x3f]);
+        let mut r = reader(&b);
+        assert_eq!(SoundDataUpdate::decode(&mut r), Ok(fade));
+        assert!(r.remaining().is_empty());
+        let mut r = reader(&[2, 3, 0, 0, 0x80, 0x3f, 0, 0, 0, 0x3f]);
+        assert!(matches!(
+            SoundDataUpdate::decode(&mut r),
+            Err(Error::InvalidValue { .. })
+        ));
+    }
+
+    #[test]
     fn every_stack_request_action_round_trips_with_its_variant_index() {
         for id in 0..=ACTION_LAST {
             let Some(action) = StackRequestAction::from_id(id) else {

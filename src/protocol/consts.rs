@@ -3385,21 +3385,15 @@ pub enum EntityDataKey {
     AimAssistPriorityCategoryId = 137,
     /// gophertunnel `EntityDataKeyAimAssistPriorityActorID`.
     AimAssistPriorityActorId = 138,
-    /// gophertunnel `EntityDataKeyArrowShooterID`.
-    ArrowShooterId = 139,
-    /// gophertunnel `EntityDataKeyFireworkDirection`.
-    FireworkDirection = 140,
-    /// gophertunnel `EntityDataKeyFireworkShooterID`.
-    FireworkShooterId = 141,
     /// gophertunnel `EntityDataKeyReserved139`.
-    Reserved139 = 142,
+    Reserved139 = 139,
     /// gophertunnel `EntityDataKeyNameplateRenderDistanceMax`.
-    NameplateRenderDistanceMax = 143,
+    NameplateRenderDistanceMax = 140,
 }
 
 impl EntityDataKey {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 144] = [
+    pub const ALL: [Self; 141] = [
         Self::Flags,
         Self::StructuralIntegrity,
         Self::Variant,
@@ -3539,9 +3533,6 @@ impl EntityDataKey {
         Self::AimAssistPriorityPresetId,
         Self::AimAssistPriorityCategoryId,
         Self::AimAssistPriorityActorId,
-        Self::ArrowShooterId,
-        Self::FireworkDirection,
-        Self::FireworkShooterId,
         Self::Reserved139,
         Self::NameplateRenderDistanceMax,
     ];
@@ -3553,6 +3544,12 @@ impl EntityDataKey {
     pub const WITHER_SKULL_DANGEROUS: Self = Self::DisplayBlockState;
     /// gophertunnel `EntityDataKeyUnknownHorseInteger25`.
     pub const UNKNOWN_HORSE_INTEGER25: Self = Self::UsingItem;
+    /// gophertunnel `EntityDataKeyArrowShooterID`.
+    pub const ARROW_SHOOTER_ID: Self = Self::DisplayOffset;
+    /// gophertunnel `EntityDataKeyFireworkDirection`.
+    pub const FIREWORK_DIRECTION: Self = Self::DisplayOffset;
+    /// gophertunnel `EntityDataKeyFireworkShooterID`.
+    pub const FIREWORK_SHOOTER_ID: Self = Self::CustomDisplay;
 }
 
 impl TryFrom<u32> for EntityDataKey {
@@ -3703,11 +3700,8 @@ impl TryFrom<u32> for EntityDataKey {
             136 => Ok(Self::AimAssistPriorityPresetId),
             137 => Ok(Self::AimAssistPriorityCategoryId),
             138 => Ok(Self::AimAssistPriorityActorId),
-            139 => Ok(Self::ArrowShooterId),
-            140 => Ok(Self::FireworkDirection),
-            141 => Ok(Self::FireworkShooterId),
-            142 => Ok(Self::Reserved139),
-            143 => Ok(Self::NameplateRenderDistanceMax),
+            139 => Ok(Self::Reserved139),
+            140 => Ok(Self::NameplateRenderDistanceMax),
             _ => Err(Error::UnknownEnum {
                 name: "entity data key",
                 value: value.into(),
@@ -7137,13 +7131,15 @@ pub enum PieceType {
     ClassicSkin = 26,
     /// gophertunnel `PieceTypeEmote`.
     Emote = 27,
+    /// gophertunnel `PieceTypeCoCo`.
+    CoCo = 28,
     /// gophertunnel `PieceTypeUnsupported`.
-    Unsupported = 28,
+    Unsupported = 29,
 }
 
 impl PieceType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 30] = [
         Self::Unknown,
         Self::Skeleton,
         Self::Body,
@@ -7172,6 +7168,7 @@ impl PieceType {
         Self::Capes,
         Self::ClassicSkin,
         Self::Emote,
+        Self::CoCo,
         Self::Unsupported,
     ];
 }
@@ -7209,7 +7206,8 @@ impl TryFrom<u32> for PieceType {
             25 => Ok(Self::Capes),
             26 => Ok(Self::ClassicSkin),
             27 => Ok(Self::Emote),
-            28 => Ok(Self::Unsupported),
+            28 => Ok(Self::CoCo),
+            29 => Ok(Self::Unsupported),
             _ => Err(Error::UnknownEnum {
                 name: "piece type",
                 value: value.into(),
@@ -19023,9 +19021,6 @@ mod tests {
                 "protocol.EntityDataKeyAimAssistPriorityPresetID",
                 "protocol.EntityDataKeyAimAssistPriorityCategoryID",
                 "protocol.EntityDataKeyAimAssistPriorityActorID",
-                "protocol.EntityDataKeyArrowShooterID",
-                "protocol.EntityDataKeyFireworkDirection",
-                "protocol.EntityDataKeyFireworkShooterID",
                 "protocol.EntityDataKeyReserved139",
                 "protocol.EntityDataKeyNameplateRenderDistanceMax",
             ],
@@ -19051,6 +19046,21 @@ mod tests {
             "protocol.EntityDataKeyUnknownHorseInteger25",
             Value::Int(
                 i128::from(u32::from(EntityDataKey::UNKNOWN_HORSE_INTEGER25)),
+                32,
+            ),
+        ));
+        v.push((
+            "protocol.EntityDataKeyArrowShooterID",
+            Value::Int(i128::from(u32::from(EntityDataKey::ARROW_SHOOTER_ID)), 32),
+        ));
+        v.push((
+            "protocol.EntityDataKeyFireworkDirection",
+            Value::Int(i128::from(u32::from(EntityDataKey::FIREWORK_DIRECTION)), 32),
+        ));
+        v.push((
+            "protocol.EntityDataKeyFireworkShooterID",
+            Value::Int(
+                i128::from(u32::from(EntityDataKey::FIREWORK_SHOOTER_ID)),
                 32,
             ),
         ));
@@ -19857,6 +19867,7 @@ mod tests {
                 "protocol.PieceTypeCapes",
                 "protocol.PieceTypeClassicSkin",
                 "protocol.PieceTypeEmote",
+                "protocol.PieceTypeCoCo",
                 "protocol.PieceTypeUnsupported",
             ],
             &PieceType::ALL.map(|x| i128::from(u32::from(x))),
@@ -22767,7 +22778,7 @@ mod tests {
         int_enum(&DataStorePropertyType::ALL, Some(7_i32));
         int_enum(&EntityLink::ALL, Some(3_u8));
         int_enum(&PassengerOfBlockEmote::ALL, Some(3_u8));
-        int_enum(&EntityDataKey::ALL, Some(144_u32));
+        int_enum(&EntityDataKey::ALL, Some(141_u32));
         flag(&EntityDataFlag::ALL);
         int_enum(&EntityDataFlag::ALL, Some(131_u32));
         int_enum(&EntityDataType::ALL, Some(9_u32));
@@ -22799,7 +22810,7 @@ mod tests {
         int_enum(&ArmSize::ALL, Some(2_u8));
         int_enum(&SkinAnimation::ALL, Some(4_u32));
         int_enum(&ExpressionType::ALL, Some(2_u32));
-        int_enum(&PieceType::ALL, Some(29_u32));
+        int_enum(&PieceType::ALL, Some(30_u32));
         int_enum(&SoundDataUpdate::ALL, Some(7_i32));
         int_enum(&StructureMirror::ALL, Some(4_u8));
         int_enum(&StructureRotation::ALL, Some(4_u8));

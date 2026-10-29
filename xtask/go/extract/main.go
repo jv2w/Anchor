@@ -1,4 +1,5 @@
-// Command extract writes the protocol IR (see ir.go) of the pinned gophertunnel protocol and packet packages.
+// Command extract writes the protocol IR (see ir.go) of the pinned gophertunnel protocol and packet packages,
+// with the corrections of package fix.
 //
 // Usage: go run ./extract -out ../data/protocol.json (from the xtask/go module directory).
 // It fails with file:line and the construct on anything it does not understand.
@@ -20,6 +21,8 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/packages"
+
+	"anchor/xtask/go/fix"
 )
 
 const (
@@ -63,8 +66,17 @@ func run() (data []byte, err error) {
 			err = fmt.Errorf("%s", f.msg)
 		}
 	}()
+	tmp, err := os.MkdirTemp("", "extract")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	modfile, err := fix.Module(".", tmp)
+	if err != nil {
+		return nil, err
+	}
 	cfg := &packages.Config{Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
-		packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule}
+		packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule, BuildFlags: []string{"-modfile=" + modfile}}
 	pkgs, err := packages.Load(cfg, protocolPkg, packetPkg)
 	if err != nil {
 		return nil, err

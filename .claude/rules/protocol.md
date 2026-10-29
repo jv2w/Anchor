@@ -17,6 +17,8 @@ paths:
   - "xtask/go/go.mod"
   - "xtask/go/go.sum"
   - "xtask/go/extract/**"
+  - "xtask/go/fix/**"
+  - "xtask/go/fixmod/**"
   - "xtask/go/oracle/**"
   - "xtask/go/bot/issuer.go"
   - "xtask/go/bot/login.go"
@@ -29,6 +31,7 @@ paths:
 
 ## 정답 출처
 - 프로토콜 사실의 근거는 gophertunnel 코드, Mojang 문서, 공식 서버를 실행해 봇으로 관찰한 값뿐이다.
+- gophertunnel 결함을 판정할 때만 대조 출처(Endstone, CloudburstMC: `.claude/docs/protocol.md`)를 근거에 더한다.
 - `/versionup`은 쓰지 않는다.
 - gophertunnel이 공식 서버 대조(P6)와 다르면 외부 불신 절차로 처리한다(`.claude/docs/dependencies.md`).
 
@@ -60,6 +63,7 @@ paths:
 
 ## gophertunnel 결함 조치
 - 고정한 gophertunnel의 결함은 Anchor에서 고치고, 같은 형식을 유지해야 하는 곳은 시험 표본을 맞춘다.
+- 코덱이나 상수의 결함은 `xtask/go/fix`의 바꿈 표에 더하고 `cargo xtask gen`을 돈다. 생성 파일과 IR을 손으로 고치지 않는다. Go 도구는 `fixmod`의 go.mod로 빌드한다.
 - MaterialReducer는 `mix >> 16`, `mix & 0xffff`로 읽고, 범위를 넘는 쓰기는 오류다.
 - ordinal 없는 Event 타입은 쓰지 않고 오류로 낸다.
 - gophertunnel이 쓸 때 덮어쓰거나 읽고 버리는 값은 생성 코드에서 gophertunnel과 같게 두고, 클라이언트 패킷을 처리하는 틱 코드가 검사한다.
