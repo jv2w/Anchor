@@ -6,7 +6,8 @@
 //! - **Player data**: a serde type registered with
 //!   [`ServerBuilder::player_data`](crate::ServerBuilder::player_data). Every player has one value
 //!   of it ([`Player::data`](crate::player::Player::data), its [`Default`] for a new player),
-//!   saved in the player's record with the rest of the game in the same commit.
+//!   saved in the player's record with the rest of the game in the same commit. A player who is
+//!   not online has it in its saved record ([`Offline::data`](crate::player::Offline::data)).
 //! - **Server data**: a serde type registered with
 //!   [`ServerBuilder::server_data`](crate::ServerBuilder::server_data): one value for the server
 //!   ([`Context::data`](crate::Context::data)), loaded at start and saved in the same commit.

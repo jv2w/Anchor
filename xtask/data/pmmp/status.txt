@@ -1264,8 +1264,8 @@ pocketmine\player\Player::changeSkin merged Human::setSkin
 pocketmine\player\Player::getLeaveMessage merged PlayerQuitEvent::getQuitMessage
 pocketmine\player\PlayerInfo::getSkin merged Human::getSkin
 pocketmine\player\PlayerInfo::getExtraData differs typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept
-pocketmine\player\IPlayer skipped PMMP's interface over Player and OfflinePlayer: Anchor has no offline player objects (operator, ban and whitelist calls take names)
-pocketmine\player\OfflinePlayer** skipped no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before`
+pocketmine\player\IPlayer skipped PMMP's interface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`)
+pocketmine\player\OfflinePlayer** skipped no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before`
 pocketmine\player\GameMode::getAliases skipped the settings take one name per game mode
 pocketmine\entity\Entity::*TargetEntity* skipped mob AI targets and fishing hooks are out of scope
 pocketmine\permission\BanEntry::setCreated skipped a ban's creation time is the engine tick `Context::ban` adds it at
@@ -1349,7 +1349,8 @@ pocketmine\block\BaseSign::update*Text skipped a player's edit goes through the 
 
 # Entity, effect, animation and server rows.
 pocketmine\Server::getPlayerByRawUUID merged Server::getPlayerByUUID
-pocketmine\Server::*OfflinePlayer* skipped saved player data is in the server file the save thread owns: the tick does no blocking I/O and writes only whole-state commits; online players are `Context::players`
+pocketmine\Server::hasOfflinePlayerData merged Server::getOfflinePlayerData
+pocketmine\Server::*OfflinePlayer* skipped PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players`
 pocketmine\Server::*BroadcastChannel* skipped PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged
 pocketmine\entity\Entity::setGravity skipped an entity kind's physics are PMMP's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off
 pocketmine\entity\Entity::setStepHeight skipped an entity kind's physics are PMMP's constants per kind: `Entity::step_height` reads them

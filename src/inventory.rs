@@ -2,9 +2,10 @@
 //! changed through [`Editor`] (PMMP `pocketmine\inventory`).
 //!
 //! A player has six inventories ([`Kind`]); [`Player::inventory`](crate::player::Player) and
-//! `inventory_mut` lend them. A container block's slots (a chest, a double chest as one
-//! inventory of 54, a barrel, a shulker box, a hopper, a furnace, a brewing stand, a campfire)
-//! come from [`Context::block_inventory`](crate::Context) and `block_inventory_mut`.
+//! `inventory_mut` lend them, and [`Offline`](crate::player::Offline) those of a player who is
+//! not online. A container block's slots (a chest, a double chest as one inventory of 54, a
+//! barrel, a shulker box, a hopper, a furnace, a brewing stand, a campfire) come from
+//! [`Context::block_inventory`](crate::Context) and `block_inventory_mut`.
 //!
 //! Every write tells the clients that show the slot: the player's own client, or every player
 //! with the container's window open. A written slot gets a new stack network ID, so a request a
@@ -341,8 +342,8 @@ pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
         && (want.extra().is_none() || have.extra() == want.extra())
 }
 
-/// An inventory to change: a player's or a container block's, borrowed from the tick. Each
-/// write tells the clients that show the slot.
+/// An inventory to change: a player's, an offline player's or a container block's, borrowed from
+/// the tick. Each write tells the clients that show the slot.
 pub struct Editor<'a> {
     pub(crate) target: Target<'a>,
 }
@@ -351,6 +352,8 @@ pub struct Editor<'a> {
 pub(crate) enum Target<'a> {
     /// One of a player's inventories.
     Player(&'a mut crate::tick::Player, Kind),
+    /// One of an offline player's inventories, which no client shows.
+    Offline(&'a mut crate::tick::Offline, Kind),
     /// A container block (and a double chest's other half).
     Block(BlockSlots<'a>),
 }
@@ -371,6 +374,7 @@ impl fmt::Debug for Editor<'_> {
         let mut s = f.debug_struct("Editor");
         match &self.target {
             Target::Player(_, kind) => s.field("player", kind),
+            Target::Offline(_, kind) => s.field("offline", kind),
             Target::Block(b) => s
                 .field("world", &b.world)
                 .field("pos", &b.pos)

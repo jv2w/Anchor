@@ -1,21 +1,37 @@
 //! The public inventory API: a player's inventories, its hotbar selection and window on [`Player`],
-//! container blocks on [`Context`], and the writes of [`Editor`].
+//! an offline player's inventories on [`Offline`], container blocks on [`Context`], and the writes
+//! of [`Editor`].
 //!
 //! A write outside a request gives the slot a new stack network ID and sends it to the client
 //! that shows it ([`super::set_own`] for a player's slots; [`request::notify`] for every viewer of
-//! a container), so the next request of a client that still shows the old stack is refused.
-//! Writes raise no events.
+//! a container), so the next request of a client that still shows the old stack is refused. An
+//! offline player's slots have no client: a write only changes the record. Writes raise no
+//! events.
 
 use super::super::entity::Raise;
-use super::super::{Context, Player, State, block_entity};
+use super::super::{Context, Offline, Player, State, block_entity};
 use super::{
-    MAX_SAVED_PENDING, Notice, PublicWindow as Window, SlotRef, WINDOW_ID_OFF_HAND,
-    block_entity_halves, close_now, content_packet, public_window, request, select,
+    Inventory as Slots, MAX_SAVED_PENDING, Notice, PublicWindow as Window, Slot, SlotRef,
+    WINDOW_ID_OFF_HAND, block_entity_halves, close_now, content_packet, public_window, request,
+    select,
 };
 use crate::inventory::{BlockSlots, Editor, Error, Inventory, Kind, MAX_STACK, Result, Target};
 use crate::item::Stack;
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos};
+
+/// Inventory `kind` of a player's slots `inv`, to read.
+fn view_of(inv: &Slots, kind: Kind) -> Inventory<'_> {
+    let stacks: &[Stack] = match kind {
+        Kind::Main => &inv.main.stacks,
+        Kind::Armor => &inv.armor.stacks,
+        Kind::Offhand => &inv.offhand.stacks,
+        Kind::Cursor => &inv.cursor.stacks,
+        Kind::Crafting => &inv.grid.stacks,
+        Kind::EnderChest => &inv.ender.stacks,
+    };
+    Inventory::new(stacks, &[], MAX_STACK)
+}
 
 impl Player {
     /// One of the player's inventories, to read.
@@ -26,16 +42,7 @@ impl Player {
     #[doc(alias = "Player::getCraftingGrid")]
     #[doc(alias = "Human::getEnderInventory")]
     pub fn inventory(&self, kind: Kind) -> Inventory<'_> {
-        let inv = &self.inventory;
-        let stacks: &[Stack] = match kind {
-            Kind::Main => &inv.main.stacks,
-            Kind::Armor => &inv.armor.stacks,
-            Kind::Offhand => &inv.offhand.stacks,
-            Kind::Cursor => &inv.cursor.stacks,
-            Kind::Crafting => &inv.grid.stacks,
-            Kind::EnderChest => &inv.ender.stacks,
-        };
-        Inventory::new(stacks, &[], MAX_STACK)
+        view_of(&self.inventory, kind)
     }
 
     /// One of the player's inventories, to change; each write is sent to its client.
@@ -108,6 +115,22 @@ impl Player {
         ));
         self.send_packet(crate::entity::Animation::TotemUse.packet(self.runtime_id));
         self.send_packet(content_packet(WINDOW_ID_OFF_HAND, held));
+    }
+}
+
+impl Offline {
+    /// One of the player's inventories as saved, to read. What it held on the cursor, in the
+    /// crafting grid or in a window is saved as stacks waiting for room, which a join puts back,
+    /// so the cursor and the grid read empty.
+    pub fn inventory(&self, kind: Kind) -> Inventory<'_> {
+        view_of(&self.inventory, kind)
+    }
+
+    /// One of the player's inventories, to change.
+    pub fn inventory_mut(&mut self, kind: Kind) -> Editor<'_> {
+        Editor {
+            target: Target::Offline(self, kind),
+        }
     }
 }
 
@@ -273,6 +296,7 @@ impl Editor<'_> {
     pub fn view(&self) -> Inventory<'_> {
         match &self.target {
             Target::Player(p, kind) => p.inventory(*kind),
+            Target::Offline(o, kind) => o.inventory(*kind),
             Target::Block(b) => block_view(b.state, b.world, b.pos, b.pair, b.max),
         }
     }
@@ -290,6 +314,7 @@ impl Editor<'_> {
     pub fn set(&mut self, slot: usize, stack: Stack) -> Result<()> {
         match &mut self.target {
             Target::Player(p, kind) => put_player(p, *kind, slot, stack),
+            Target::Offline(o, kind) => put_offline(o, *kind, slot, stack),
             Target::Block(b) => put_block(b, slot, stack),
         }
     }
@@ -310,8 +335,12 @@ impl Editor<'_> {
         if stacks.iter().any(|s| view.refuses(s)) {
             return Err(Error::NotAccepted);
         }
-        if let Target::Player(p, Kind::Cursor | Kind::Crafting) = &self.target {
-            let inv = &p.inventory;
+        let held = match &self.target {
+            Target::Player(p, Kind::Cursor | Kind::Crafting) => Some(&p.inventory),
+            Target::Offline(o, Kind::Cursor | Kind::Crafting) => Some(&o.inventory),
+            Target::Player(..) | Target::Offline(..) | Target::Block(_) => None,
+        };
+        if let Some(inv) = held {
             let now = view.iter().filter(|s| !s.is_empty()).count();
             let after = stacks.iter().filter(|s| !s.is_empty()).count();
             if inv.pending.len() + held_outside(inv) - now + after > MAX_SAVED_PENDING {
@@ -424,6 +453,33 @@ enum Planned {
 
 /// Writes slot `slot` of a player's inventory `kind`.
 fn put_player(player: &mut Player, kind: Kind, slot: usize, stack: Stack) -> Result<()> {
+    if let Some(r) = own_slot(&player.inventory, kind, slot, &stack)? {
+        super::set_own(player, r, stack);
+    }
+    Ok(())
+}
+
+/// Writes slot `slot` of an offline player's inventory `kind`: its record only, with no stack
+/// network ID, which a join gives every stack.
+fn put_offline(record: &mut Offline, kind: Kind, slot: usize, stack: Stack) -> Result<()> {
+    if let Some(r) = own_slot(&record.inventory, kind, slot, &stack)?
+        && record.inventory.put(
+            r,
+            Slot {
+                stack,
+                id: super::StackId::default(),
+            },
+        )
+    {
+        record.change_inventory();
+    }
+    Ok(())
+}
+
+/// The slot of a player's slots `inv` that a write of `stack` into slot `slot` of inventory
+/// `kind` changes; `None` if it holds `stack` already. Fails for a slot the inventory does not
+/// have, and for a new stack on the cursor or grid past [`MAX_SAVED_PENDING`].
+fn own_slot(inv: &Slots, kind: Kind, slot: usize, stack: &Stack) -> Result<Option<SlotRef>> {
     let i = u8::try_from(slot)
         .ok()
         .filter(|&i| usize::from(i) < kind.size())
@@ -436,17 +492,15 @@ fn put_player(player: &mut Player, kind: Kind, slot: usize, stack: Stack) -> Res
         Kind::Crafting => SlotRef::Grid(i),
         Kind::EnderChest => SlotRef::Ender(i),
     };
-    let inv = &player.inventory;
     let before = inv.get(r).map(|s| s.stack).unwrap_or_default();
-    if before == stack {
-        return Ok(());
+    if before == *stack {
+        return Ok(None);
     }
     let held = matches!(kind, Kind::Cursor | Kind::Crafting);
     if held && before.is_empty() && inv.pending.len() + held_outside(inv) >= MAX_SAVED_PENDING {
         return Err(Error::Full);
     }
-    super::set_own(player, r, stack);
-    Ok(())
+    Ok(Some(r))
 }
 
 /// Writes window slot `slot` of a container block.

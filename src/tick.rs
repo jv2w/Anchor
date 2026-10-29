@@ -63,8 +63,8 @@ pub use hook::SentPacket;
 use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
-pub use task::Context;
 pub(crate) use task::Tasks;
+pub use task::{Context, Offline};
 
 /// The length of a tick: 20 ticks per second.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
@@ -363,9 +363,14 @@ enum PlayerKey {
 
 impl PlayerKey {
     fn of(identity: &Identity) -> Self {
-        match identity.xuid {
+        Self::new(identity.xuid, &identity.name)
+    }
+
+    /// The key of a player with Xbox user ID `xuid` (`None` without Xbox sign-in) and name `name`.
+    fn new(xuid: Option<u64>, name: &str) -> Self {
+        match xuid {
             Some(xuid) => Self::Xuid(xuid),
-            None => Self::Name(identity.name.to_ascii_lowercase()),
+            None => Self::Name(name.to_ascii_lowercase()),
         }
     }
 }
@@ -816,7 +821,7 @@ impl State {
         skin_budget.hash_into(&mut h);
         commands.hash_into(&mut h);
         forms.hash_into(&mut h);
-        tasks.hash_into(&mut h);
+        tasks.hash_into(data, &mut h);
         data.hash_into(players, &mut h);
         network.hash_into(&mut h);
         h.0
@@ -1111,13 +1116,15 @@ fn step_marked(
 }
 
 /// The tick boundary after a step and its delivery: a save snapshot for the save thread if one is
-/// due, then the tick's controls to the networking. It comes after the delivery because sessions
-/// dropped there change the state of the tick, and their quit listeners may ask for controls; none
-/// waits past the tick, where its checkpoint would not keep it.
+/// due, the offline player loads the tick asked for, then the tick's controls to the networking.
+/// It comes after the delivery because sessions dropped there change the state of the tick, and
+/// their quit listeners may ask for controls or loads; none waits past the tick, where its
+/// checkpoint would not keep it.
 pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
     if let Some(request) = save::snapshot(state, log, false) {
         output.requests.push(request);
     }
+    output.requests.extend(task::offline_requests(state));
     state.network.flush();
 }
 
@@ -1135,7 +1142,15 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
     log.response(&response);
     match response {
         Response::Chunk { world, pos, loaded } => view::loaded(state, world, pos, loaded),
-        Response::Player { key, data } => spawn::player_loaded(state, &key, data, output),
+        // A joining player and offline loads may wait on the same answer: the join takes it
+        // first, so the loads find the player joined, or its data damaged if that refused it.
+        Response::Player { key, data } => match task::take_offline_loads(state, &key) {
+            None => spawn::player_loaded(state, &key, data, output),
+            Some(loads) => {
+                spawn::player_loaded(state, &key, data.clone(), output);
+                task::answer_offline_loads(state, &key, loads, &data);
+            }
+        },
         Response::Committed { start } => save::committed(state, log, start),
         Response::CommitFailed { start } => {
             save::failed(start);

@@ -170,7 +170,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 명령 | `ServerBuilder::command(Command)`(타입 있는 인자, AvailableCommands 자동완성), `without_command`, `permission` |
 | UI | 폼, 메뉴 창(가짜 컨테이너), 스코어보드·보스바·타이틀, 가짜 블록 |
 | 예약·비동기 | `ctx.schedule`, `schedule_repeating`, `ServerBuilder::every`, 취소 핸들, `ctx.spawn_blocking(일, 끝 처리기)`(결과는 serde 직렬화되어 로그에 든다) |
-| 사용자 데이터 | 플레이어별 비영속 Extensions(타입 키, 64종), `ServerBuilder::player_data`·`server_data`(serde 타입, 같은 DB 커밋) |
+| 사용자 데이터 | 플레이어별 비영속 Extensions(타입 키, 64종), `ServerBuilder::player_data`·`server_data`(serde 타입, 같은 DB 커밋), 접속하지 않은 플레이어의 인벤토리와 데이터 `ctx.hold_offline_player(xuid, 이름, 끝 처리기)`(티켓 64개, `storage.md`) |
 | 커스텀 콘텐츠 | `custom_item`, `custom_block`(동작 trait `custom::Behaviour`), `custom_entity`(`entity::Behaviour`), `recipe`, 크리에이티브 인벤토리. 엔진이 StartGame 속성, ItemRegistry, 엔티티 식별자, 블록 해시 ID를 채운다. 텍스처는 리소스팩 |
 | 리소스팩 | `ServerBuilder::resource_pack`, 설정 `resource-packs` |
 | 월드 생성 | `Generator` trait, `ServerBuilder::generator`(이름으로 등록, flat·void 기본) |

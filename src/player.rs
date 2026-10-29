@@ -2,7 +2,10 @@
 //! changed on them, and the messages they can be shown.
 //!
 //! Code outside a tick keeps only an [`Id`]; [`Context::player`](crate::Context::player) and
-//! [`Context::player_mut`](crate::Context::player_mut) lend the [`Player`] itself.
+//! [`Context::player_mut`](crate::Context::player_mut) lend the [`Player`] itself. A player who
+//! is not online is reached through its saved data: a [`Ticket`] from
+//! [`Context::hold_offline_player`](crate::Context::hold_offline_player) and the [`Offline`]
+//! record it holds.
 
 use std::fmt;
 use std::time::Duration;
@@ -10,8 +13,8 @@ use std::time::Duration;
 use crate::protocol::consts::{TextType, TitleAction};
 use crate::protocol::packet::{Packet, SetTitle, Text, ToastRequest};
 use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE_NAME_MAX_LEN};
-pub use crate::tick::Player;
 use crate::tick::queue::SessionId;
+pub use crate::tick::{Offline, Player};
 
 /// A joined player. It stays valid until the player leaves; a later join of the same name is
 /// another player with another `Id`.
@@ -26,6 +29,25 @@ impl Id {
 
     /// The session of the player.
     pub(crate) const fn session(self) -> SessionId {
+        self.0
+    }
+}
+
+/// A hold on the saved data of a player who is not online: from
+/// [`Context::hold_offline_player`](crate::Context::hold_offline_player), it keeps the data in
+/// memory until [`Context::release_offline_player`](crate::Context::release_offline_player) lets
+/// it go or the player joins. A ticket is never given out twice while the server runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Ticket(u64);
+
+impl Ticket {
+    /// The ticket of number `n`.
+    pub(crate) const fn new(n: u64) -> Self {
+        Self(n)
+    }
+
+    /// Its number.
+    pub(crate) const fn get(self) -> u64 {
         self.0
     }
 }
@@ -48,10 +70,20 @@ pub enum Error {
     Leaving,
     /// A transfer address is empty or longer than 253 bytes (the longest host name).
     InvalidAddress,
-    /// A server setting turns the system off (`hunger`, `experience` or `drowning` false).
+    /// A server setting turns the system off (`hunger`, `experience` or `drowning` false, or
+    /// `save-player-data` false for an offline player).
     Disabled,
     /// A sound has no full-volume form: the client plays it from a level event.
     NoFullVolume,
+    /// The player is online or joining, so its data is the online player's
+    /// ([`Context::player`](crate::Context::player)), not a saved record.
+    Online,
+    /// No data is saved for the player: it never joined, or no player can have that name.
+    NotSaved,
+    /// The player's saved data is damaged; it stays as saved until an operator repairs it.
+    Damaged,
+    /// 64 offline players' tickets are held or asked for already.
+    Full,
 }
 
 impl fmt::Display for Error {
@@ -66,6 +98,10 @@ impl fmt::Display for Error {
             Self::InvalidAddress => "the transfer address is invalid",
             Self::Disabled => "a server setting turns this off",
             Self::NoFullVolume => "the sound has no full-volume form",
+            Self::Online => "the player is online",
+            Self::NotSaved => "no data is saved for the player",
+            Self::Damaged => "the player's saved data is damaged",
+            Self::Full => "too many offline players are held",
         })
     }
 }

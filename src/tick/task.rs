@@ -3,9 +3,9 @@
 //!
 //! Build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)) run in registration
 //! order after the tick's inputs, then the scheduled tasks due ([`schedule`]); blocking jobs
-//! ([`job`]) answer through the inputs; user data ([`data`]) rides the save snapshots. Every one
-//! of them runs only in the tick's serial step, so a replay of the input log runs them at the
-//! same points with the same state.
+//! ([`job`]) and offline player loads ([`offline`]) answer through the inputs; user data
+//! ([`data`]) rides the save snapshots. Every one of them runs only in the tick's serial step, so
+//! a replay of the input log runs them at the same points with the same state.
 //!
 //! The villager and game rule methods (`spawn_villager`, `set_random_tick_speed`) take the NPC
 //! and the game rule packet from the rule modules that own them.
@@ -14,6 +14,7 @@
 mod crash;
 mod data;
 mod job;
+mod offline;
 mod schedule;
 
 use std::fmt;
@@ -26,6 +27,11 @@ pub(crate) use self::data::UserData;
 use self::data::registered;
 pub(super) use self::data::{PlayerUser, placed, player_saved, save_player};
 pub(super) use self::job::finish;
+pub use self::offline::Offline;
+pub(super) use self::offline::{
+    answer_loads as answer_offline_loads, flush as flush_offline, joined as offline_joined,
+    requests as offline_requests, take_loads as take_offline_loads,
+};
 use super::queue::{Control, InputSender, SessionId};
 use super::{Phase, State, entity, player, survival, trade};
 use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED};
@@ -400,7 +406,7 @@ impl fmt::Debug for Context<'_> {
 /// A build-time task body.
 type Body = Box<dyn FnMut(&mut Context<'_>) + Send>;
 
-/// The user's tasks and blocking jobs.
+/// The user's tasks, blocking jobs and offline player holds.
 #[derive(Default)]
 pub(crate) struct Tasks {
     /// The build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)), in
@@ -410,6 +416,8 @@ pub(crate) struct Tasks {
     queue: schedule::Queue,
     /// The blocking jobs waiting for their result.
     jobs: job::Jobs,
+    /// The offline players' records held and the loads waiting for the save thread.
+    offline: offline::Holds,
 }
 
 impl Tasks {
@@ -451,9 +459,11 @@ impl Tasks {
             every: _,
             queue,
             jobs,
+            offline,
         } = self;
         queue.checkpoint(w);
         jobs.checkpoint(w);
+        offline.checkpoint(w);
     }
 
     /// Reads what [`Self::checkpoint`] wrote into the tasks registered at build.
@@ -462,7 +472,8 @@ impl Tasks {
         r: &mut super::checkpoint::Reader<'_>,
     ) -> super::checkpoint::Result<()> {
         self.queue.restore(r)?;
-        self.jobs.restore(r)
+        self.jobs.restore(r)?;
+        self.offline.restore(r)
     }
 
     /// The ids of the blocking jobs waiting for their result, in order.
@@ -472,14 +483,20 @@ impl Tasks {
     }
 
     #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self { every, queue, jobs } = self;
+    pub(super) fn hash_into(&self, data: &UserData, h: &mut super::Fnv) {
+        let Self {
+            every,
+            queue,
+            jobs,
+            offline,
+        } = self;
         h.usize(every.len());
         for (period, _) in every {
             h.u64(u64::from(period.get()));
         }
         queue.hash_into(h);
         jobs.hash_into(h);
+        offline.hash_into(data, h);
     }
 }
 
@@ -490,6 +507,7 @@ impl fmt::Debug for Tasks {
             .field("every", &every)
             .field("scheduled", &self.queue.len())
             .field("jobs", &self.jobs)
+            .field("offline", &self.offline)
             .finish()
     }
 }

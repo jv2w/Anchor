@@ -24,9 +24,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::{error, warn};
 
-use super::super::Player;
 use super::super::checkpoint::{self, Codec as _, Reader, Writer};
 use super::super::extra::PlayerExtra;
+use super::super::{Offline, Player};
 use super::Context;
 use crate::ServerBuilder;
 use crate::data::{
@@ -387,27 +387,32 @@ pub(in crate::tick) fn player_saved(extra: &mut PlayerExtra, saved: &Compound) {
     extra.keep_saved(DATA_KEY, saved);
 }
 
+impl PlayerUser {
+    /// The value of the registered player data type `T`, if it has one.
+    fn value<T: Any>(&self) -> Option<&T> {
+        self.data
+            .get(&TypeId::of::<T>())
+            .and_then(|v| v.downcast_ref())
+    }
+
+    /// [`Self::value`] to change.
+    fn value_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.data.get_mut(&TypeId::of::<T>())?.downcast_mut()
+    }
+}
+
 impl Player {
     /// The player's value of the registered player data type `T`
     /// ([`ServerBuilder::player_data`]): saved with the player, its [`Default`] for a new
     /// player. `None` if `T` is not registered, or if its saved value no longer deserializes
     /// into `T` (it is kept as saved).
     pub fn data<T: Any>(&self) -> Option<&T> {
-        self.extra
-            .user
-            .data
-            .get(&TypeId::of::<T>())
-            .and_then(|v| v.downcast_ref())
+        self.extra.user.value()
     }
 
     /// [`Self::data`] to change; the player is saved with the next snapshot.
     pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
-        let value = self
-            .extra
-            .user
-            .data
-            .get_mut(&TypeId::of::<T>())?
-            .downcast_mut()?;
+        let value = self.extra.user.value_mut()?;
         self.data_dirty = true;
         Some(value)
     }
@@ -447,6 +452,22 @@ impl Player {
     pub fn remove_extension<T: Any>(&mut self) -> Option<T> {
         let value = self.extra.user.extensions.remove(&TypeId::of::<T>())?;
         value.downcast().ok().map(|v| *v)
+    }
+}
+
+impl Offline {
+    /// The player's saved value of the registered player data type `T`, as
+    /// [`Player::data`] reads it.
+    pub fn data<T: Any>(&self) -> Option<&T> {
+        self.extra.user.value()
+    }
+
+    /// [`Self::data`] to change; the record is saved with the next snapshot.
+    pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
+        let value = self.extra.user.value_mut()?;
+        self.data_changed = true;
+        self.dirty = true;
+        Some(value)
     }
 }
 

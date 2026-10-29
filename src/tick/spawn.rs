@@ -901,6 +901,8 @@ fn enter(
     };
     let op = super::Context { state: &mut *state }.is_op(&player.identity.name);
     player.survival.set_operator(op);
+    // A held record of the player goes first, its changes to the departed players' data.
+    super::task::offline_joined(state, &stored);
     let request = if !state.saving.players {
         place(state, &mut player, None);
         None

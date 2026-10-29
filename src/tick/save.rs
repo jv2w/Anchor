@@ -283,7 +283,12 @@ pub(super) fn left(state: &mut State, player: &Player) {
     }
     let key = storage_key(&player.key);
     let data = data_of(state, player);
-    state.saving.offline.insert(
+    keep(&mut state.saving, key, data);
+}
+
+/// Keeps `data`, the newest of player `key` who is not online, in memory until a commit holds it.
+pub(super) fn keep(saving: &mut Saving, key: StoredPlayer, data: PlayerData) {
+    saving.offline.insert(
         key,
         Offline {
             data,
@@ -375,6 +380,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         }
     }
     if state.saving.players {
+        super::task::flush_offline(state);
         take_players(state, start, &mut snapshot, &mut held);
     }
     // Operators, bans and the whitelist live in memory for good, so nothing waits for their
