@@ -1182,8 +1182,8 @@ impl Context<'_> {
     /// [`Param::soft_enumeration`](command::Param::soft_enumeration), in order; every player's
     /// list follows at the end of the tick. Not saved: none at start. Fails with
     /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
-    /// value is empty or holds spaces, or there are more than 4,096 or more than 65,536 bytes of
-    /// them in all.
+    /// value is empty, or there are more than 4,096 or more than 65,536 bytes of them in all. A
+    /// value may hold spaces: the parameter takes it typed in double quotes.
     pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> command::Result<()> {
         let commands = &mut self.state.commands;
         let invalid = || Error::InvalidSoftEnum {
@@ -1196,9 +1196,7 @@ impl Context<'_> {
                 .map(|v| v.len())
                 .fold(0, usize::saturating_add)
                 > MAX_TEXT
-            || values
-                .iter()
-                .any(|v| v.is_empty() || v.chars().any(char::is_whitespace))
+            || values.iter().any(|v| v.is_empty())
         {
             return Err(invalid());
         }

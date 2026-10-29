@@ -1618,8 +1618,9 @@ fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
         })
     };
     assert_eq!(cx.set_soft_enum("Other", &["vip"]), invalid("Other"));
-    assert_eq!(cx.set_soft_enum("Tags", &["a b"]), invalid("Tags"));
     assert_eq!(cx.set_soft_enum("Tags", &[""]), invalid("Tags"));
+    // A parameter takes words in quotes, so a value may hold spaces.
+    cx.set_soft_enum("Tags", &["red team"]).unwrap();
     cx.set_soft_enum("Tags", &["vip", "red"]).unwrap();
     cx.set_soft_enum("Tags", &["vip", "red"]).unwrap();
     tick(&mut state, &mut vec![], &mut output);
