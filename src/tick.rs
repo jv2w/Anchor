@@ -146,6 +146,8 @@ pub(crate) struct Settings {
     show_coordinates: bool,
     /// Whether players see the others on the locator bar (`locator-bar`).
     locator_bar: bool,
+    /// Whether dead players respawn without the death screen (`immediate-respawn`).
+    immediate_respawn: bool,
     /// Whether a world without players runs one tick in every 100 (`slow-empty-worlds`).
     slow_empty_worlds: bool,
     /// Ticks between item pickup checks (`item-pickup-interval`).
@@ -208,6 +210,7 @@ impl Settings {
             movement_check: general.movement_check,
             show_coordinates: general.show_coordinates,
             locator_bar: general.locator_bar,
+            immediate_respawn: general.immediate_respawn,
             slow_empty_worlds: developer.slow_empty_worlds,
             item_pickup_interval: developer.item_pickup_interval,
             max_batch_bytes: developer.max_batch_bytes,
@@ -678,6 +681,7 @@ impl State {
             movement_check: _,
             show_coordinates: _,
             locator_bar: _,
+            immediate_respawn: _,
             slow_empty_worlds: _,
             item_pickup_interval: _,
             max_batch_bytes: _,

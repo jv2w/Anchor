@@ -2059,6 +2059,21 @@ fn show_coordinates_sets_the_rule_the_client_shows_them_by() {
     assert_eq!(shown(true), Some(Bool(true)));
 }
 
+/// The client skips the death screen by the rule and asks to respawn at once; the server's
+/// respawn flow stays the same.
+#[test]
+fn immediate_respawn_sets_the_rule_the_client_respawns_by() {
+    use crate::protocol::GameRuleValue::Bool;
+    let immediate = |on: bool| {
+        game_rule(
+            &spawn_window(|c| c.general.immediate_respawn = on),
+            "doImmediateRespawn",
+        )
+    };
+    assert_eq!(immediate(false), Some(Bool(false)));
+    assert_eq!(immediate(true), Some(Bool(true)));
+}
+
 #[test]
 fn movement_check_off_takes_moves_of_more_than_fifteen_blocks() {
     let moved = |on: bool| {
