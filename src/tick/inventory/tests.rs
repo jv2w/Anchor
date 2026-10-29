@@ -1994,6 +1994,84 @@ fn every_viewer_of_a_chest_sees_its_changes() {
     assert!(w.inv(a).window.is_none() && w.inv(b).window.is_none());
 }
 
+/// The names of the sounds in `packets`.
+fn sounds(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::LevelSoundEvent(s) => Some(s.sound_type.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn chest_like_blocks_sound_when_the_first_viewer_opens_and_the_last_closes() {
+    let cases = [
+        (blk::Kind::Chest, "chest.open", "chest.closed"),
+        (
+            blk::Kind::EnderChest,
+            "enderchest.open",
+            "enderchest.closed",
+        ),
+        (blk::Kind::Barrel, "block.barrel.open", "block.barrel.close"),
+        (
+            blk::Kind::ShulkerBox,
+            "shulkerbox.open",
+            "shulkerbox.closed",
+        ),
+    ];
+    for (kind, open, close) in cases {
+        let mut w = World::new(GameMode::Survival);
+        let pos = BlockPos::new(3, -60, 3);
+        w.place_block(pos, kind.default_state());
+        let a = w.join(1);
+        let b = w.join(2);
+        w.sent(a);
+        w.sent(b);
+        // The opener and the players near hear it (PMMP `AnimatedBlockInventoryTrait`).
+        w.open_block(a, pos);
+        assert_eq!(sounds(&w.sent(a)), [open], "{kind:?}");
+        assert_eq!(sounds(&w.sent(b)), [open], "{kind:?}");
+        w.open_block(b, pos);
+        w.close(a);
+        assert!(sounds(&w.sent(b)).is_empty(), "{kind:?}");
+        w.close(b);
+        assert_eq!(sounds(&w.sent(a)), [close], "{kind:?}");
+    }
+}
+
+#[test]
+fn a_double_chest_sounds_once_at_its_left_half() {
+    let mut w = World::new(GameMode::Survival);
+    let chest = BlockPos::new(3, -60, 3);
+    w.double_chest(chest);
+    let a = w.join(1);
+    w.sent(a);
+    w.open_block(a, chest);
+    let opened: Vec<_> = w
+        .sent(a)
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::LevelSoundEvent(s) => Some((s.sound_type, s.position)),
+            _ => None,
+        })
+        .collect();
+    let left = w
+        .inv(a)
+        .window
+        .as_ref()
+        .and_then(|win| win.kind.blocks()[0])
+        .map(|(_, p)| p)
+        .unwrap();
+    let centre = crate::math::Vec3::new(
+        f64::from(left.x) + 0.5,
+        f64::from(left.y) + 0.5,
+        f64::from(left.z) + 0.5,
+    );
+    assert_eq!(opened, [("chest.open".to_owned(), centre.to_f32())]);
+}
+
 #[test]
 fn a_broken_chest_spills_its_items_and_waits_while_the_world_is_full() {
     let mut w = World::new(GameMode::Survival);

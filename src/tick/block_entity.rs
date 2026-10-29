@@ -2638,6 +2638,34 @@ pub(super) fn animate(state: &mut State, world: WorldIndex, pos: BlockPos, viewe
     }
 }
 
+/// Plays the open sound (`viewers` above 0) or the close sound of the chest-like block at `pos`
+/// at its centre (PMMP `AnimatedBlockInventoryTrait`); other blocks play none.
+pub(super) fn lid_sound(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    viewers: usize,
+    raise: entity::Raise,
+) {
+    use crate::world::Sound as S;
+    let Some(block) = block_at(state, world, pos) else {
+        return;
+    };
+    let (open, close) = if block.is(Class::Chest) {
+        (S::ChestOpen, S::ChestClose)
+    } else if block.is(Class::EnderChest) {
+        (S::EnderChestOpen, S::EnderChestClose)
+    } else if block.is(Class::Barrel) {
+        (S::BarrelOpen, S::BarrelClose)
+    } else if block.is(Class::ShulkerBox) {
+        (S::ShulkerBoxOpen, S::ShulkerBoxClose)
+    } else {
+        return;
+    };
+    let sound = if viewers > 0 { open } else { close };
+    super::emit::sound_as(state, world, center(pos), sound, raise);
+}
+
 #[cfg(test)]
 pub(in crate::tick) mod tests {
     use super::*;

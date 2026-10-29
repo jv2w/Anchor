@@ -6,6 +6,7 @@
 //! a container), so the next request of a client that still shows the old stack is refused.
 //! Writes raise no events.
 
+use super::super::entity::Raise;
 use super::super::{Context, Player, State, block_entity};
 use super::{
     MAX_SAVED_PENDING, Notice, PublicWindow as Window, SlotRef, block_entity_halves, close_now,
@@ -194,7 +195,7 @@ impl Context<'_> {
             .get(&session)
             .is_some_and(|p| p.inventory.window.is_some());
         if open {
-            close_now(self.state, session, Notice::Send);
+            close_now(self.state, session, Notice::Send, Raise::Quiet);
         }
         open
     }

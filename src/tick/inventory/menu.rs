@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use super::super::entity::Raise;
 use super::super::survival::EYE_HEIGHT;
 use super::super::{Context, Phase, Player, SessionId, State, survival, view};
 use super::{Notice, StackId, Window, WindowKind, close_now, slot_packet};
@@ -143,7 +144,7 @@ impl Context<'_> {
         let n = u32::try_from(p.inventory.next_menu).map_err(|_| Error::Exhausted)?;
         let blocks = place(p, kind);
         if p.inventory.window.is_some() {
-            close_now(self.state, session, Notice::Send);
+            close_now(self.state, session, Notice::Send, Raise::Quiet);
         }
         let p = in_game(self.state, player).ok_or(Error::Offline)?;
         p.inventory.next_menu = p.inventory.next_menu.saturating_add(1);
@@ -337,7 +338,7 @@ pub(in crate::tick) fn tick(state: &mut State) {
         true
     });
     for session in far {
-        close_now(state, session, Notice::Send);
+        close_now(state, session, Notice::Send, Raise::Quiet);
     }
     for session in ready {
         super::announce(state, session);
@@ -460,6 +461,6 @@ pub(super) fn clicked(state: &mut State, session: SessionId, click: Click) {
     }
     state.menus.0.insert(session, (menu, handler));
     if response == Response::Close {
-        close_now(state, session, Notice::Send);
+        close_now(state, session, Notice::Send, Raise::Quiet);
     }
 }
