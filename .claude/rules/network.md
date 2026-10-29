@@ -37,6 +37,7 @@ paths:
 - 로그인 순서의 패킷(RequestNetworkSettings, Login, ClientToServerHandshake, ResourcePackClientResponse, ResourcePackChunkRequest)이 순서를 어기거나 디코드에 실패하면 끊는다. Login 전에는 Login이 아닌 패킷도 끊는다.
 - 그 밖의 패킷은 Login 뒤 Join 전에는 대기 큐에 두었다가 Join 뒤 순서대로 틱에 넘긴다(ClientCacheStatus는 받고 버린다).
 - 스폰 뒤 패킷 하나의 디코드 실패는 그 패킷만 버리고 warn으로 남긴다. 버린 패킷도 입력 예산에서 뺀다.
+- 클라이언트가 프레임마다 되풀이하는 패킷(누르고 있는 블록 우클릭)은 패킷 수 예산에 세지 않는다. 틱 결과가 같게 사본만 버린다.
 - 정상 종료 때 아직 Join하지 않은 세션과 틱이 처리하지 않은 Join의 세션에도 세션 층이 Disconnect(`shutdown-message`)를 보낸다.
 - 같은 플레이어의 두 번째 접속은 새 접속의 이름을 바꿔 받지 않고 기존 플레이어를 끊은 뒤 받으며(이벤트로 취소 가능), 로그인 직후가 아니라 틱의 Join에서 판정한다.
 

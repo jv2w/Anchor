@@ -26,6 +26,7 @@ use crate::bucket::{Bucket, Rate};
 use crate::clock;
 use crate::crypto::encryption::{CHECKSUM, Decryptor, Encryptor, Handshake};
 use crate::login::{self, Login, Mode};
+use crate::protocol::InventoryTransactionData;
 use crate::protocol::batch::{self, Header};
 use crate::protocol::consts;
 use crate::protocol::consts::InputMode;
@@ -66,6 +67,9 @@ const PACKET_RATE: Rate = Rate {
     capacity: queue::SESSION_INPUTS,
     per_second: 512,
 };
+/// A copy of the held click ([`Session::held_click`]) within this long of the last one forwarded
+/// is dropped: half a tick, so one still reaches every tick at any frame rate above 20.
+const HELD_CLICK_REPEAT: Duration = Duration::from_millis(25);
 /// Undelivered bytes ([`Transport::undelivered`]) at most before the session hands the
 /// connection the next batch of the tick's output. It is above the most either transport keeps
 /// in flight (RakNet 2048 datagrams of 1492 bytes and their frame cost, about 3.1 MiB; NetherNet
@@ -151,6 +155,12 @@ struct Session {
     budget_rate: Rate,
     /// Input packets, at [`PACKET_RATE`] on the time since `started`.
     packets: Bucket,
+    /// The last `InventoryTransaction` forwarded, while it is a right click held on a block
+    /// (`ClickBlock`, trigger `SimulationTick`), and when it went. The client sends that click
+    /// again every frame while the button is down, so its byte-for-byte copies are dropped
+    /// before the packet budget for [`HELD_CLICK_REPEAT`]: the tick ignores an identical click
+    /// within two ticks anyway. Any other use forwarded forgets it.
+    held_click: Option<(Header, Vec<u8>, Duration)>,
     pre_auth_bytes: usize,
     identity: Option<Identity>,
     deferred: VecDeque<(Packet, usize)>,
@@ -278,6 +288,7 @@ impl Session {
             budget: Bucket::full(budget_rate, Duration::ZERO),
             budget_rate,
             packets: Bucket::full(PACKET_RATE, Duration::ZERO),
+            held_click: None,
             pre_auth_bytes: 0,
             identity: None,
             deferred: VecDeque::new(),
@@ -475,19 +486,34 @@ impl Session {
             return Err(Error::Limit("input bytes per second"));
         }
         let packets = batch::split(payload).map_err(Error::Batch)?;
-        // Counted before decoding, so packets dropped below count as their bytes do.
-        if !self.packets.take(packets.len(), PACKET_RATE, now) {
-            return Err(Error::Limit("input packets per second"));
-        }
         // The whole batch shares one allocation budget, as in `batch::decode_packets`.
         let mut budget = self.shared.batch.decode_budget();
         for (header, bytes) in packets {
+            if self.held_click.as_ref().is_some_and(|(h, held, at)| {
+                *h == header && held == bytes && now.saturating_sub(*at) < HELD_CLICK_REPEAT
+            }) {
+                continue;
+            }
+            // Counted before decoding, so packets dropped below count as their bytes do.
+            if !self.packets.take(1, PACKET_RATE, now) {
+                return Err(Error::Limit("input packets per second"));
+            }
             let left = budget;
             match Packet::decode(header.id, bytes, &mut budget, SHIELD_ID) {
                 // The input log holds the decoded packet and writes its bytes, so it counts the
                 // larger of the two.
                 Ok(packet) => {
                     let size = bytes.len().max(left - budget);
+                    match &packet {
+                        Packet::InventoryTransaction(t) if is_held_click(t) => {
+                            self.held_click = Some((header, bytes.to_vec(), now));
+                        }
+                        Packet::InventoryTransaction(_) => self.held_click = None,
+                        Packet::PlayerAuthInput(input) if input.item_interaction_data.is_some() => {
+                            self.held_click = None;
+                        }
+                        _ => {}
+                    }
                     self.on_packet(packet, size).await?;
                 }
                 // After the spawn one bad packet is dropped; the batch length
@@ -955,6 +981,15 @@ fn bytes_of(batches: &SharedBatches) -> usize {
     batches.iter().map(Vec::len).sum()
 }
 
+/// Whether `transaction` is a right click held on a block (`facts.md`): a `ClickBlock` the
+/// client's simulation tick sends, not a press.
+fn is_held_click(transaction: &packet::InventoryTransaction) -> bool {
+    matches!(&transaction.transaction_data, InventoryTransactionData::UseItem(data)
+        if consts::UseItemAction::try_from(data.action_type) == Ok(consts::UseItemAction::ClickBlock)
+            && consts::TriggerType::try_from(data.trigger_type)
+                == Ok(consts::TriggerType::SimulationTick))
+}
+
 /// Whether `packet` is the tick's `PlayStatus(PlayerSpawn)`.
 fn is_spawn_status(packet: &Packet) -> bool {
     matches!(packet, Packet::PlayStatus(PlayStatus { status })
@@ -1083,7 +1118,7 @@ mod tests {
                 .on_message(vec![0xff, 0x02, 0x0a, 0x00])
                 .await
                 .expect("the other player's packet is queued");
-            assert!(matches!(ended, Some(Error::Limit(_))), "{ended:?}");
+            assert!(matches!(ended, Some(Error::Queue(_))), "{ended:?}");
             let mut reached = false;
             while let Ok(input) = queue.try_recv() {
                 reached |= input.session == SessionId::new(1)
@@ -1219,6 +1254,65 @@ mod tests {
             }
             assert!(allocated > body.len());
             assert_eq!(sizes, [allocated]);
+        });
+    }
+
+    /// A client holding use on a block sends its click again every frame, however high its
+    /// frame rate: the copies take no packet budget and reach the tick at most once in a while,
+    /// and a click of its own (a press) always reaches it.
+    #[test]
+    fn a_held_click_sent_every_frame_takes_no_packet_budget() {
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut player = joined(0, &shared).await;
+            player.spawned = true;
+            let click = |trigger: consts::TriggerType| {
+                let packet = Packet::InventoryTransaction(packet::InventoryTransaction {
+                    transaction_data: InventoryTransactionData::UseItem(Box::new(
+                        crate::protocol::UseItemTransactionData {
+                            action_type: u32::from(consts::UseItemAction::ClickBlock),
+                            trigger_type: u32::from(trigger),
+                            ..crate::protocol::UseItemTransactionData::default()
+                        },
+                    )),
+                    ..packet::InventoryTransaction::default()
+                });
+                let mut message = vec![0xff];
+                let header = Header {
+                    id: packet.id(),
+                    ..Header::default()
+                };
+                batch::encode_packets([(header, &packet)], SHIELD_ID, &mut Vec::new(), |p| {
+                    message.extend_from_slice(p);
+                    Ok(())
+                })
+                .unwrap();
+                message
+            };
+            let mut forwarded = || {
+                let mut count = 0;
+                while let Ok(input) = queue.try_recv() {
+                    count += usize::from(matches!(input.kind, InputKind::Packet { .. }));
+                }
+                count
+            };
+            let held = click(consts::TriggerType::SimulationTick);
+            for _ in 0..2 * PACKET_RATE.capacity {
+                player
+                    .on_message(held.clone())
+                    .await
+                    .expect("the copies take no packet budget");
+            }
+            assert_eq!(forwarded(), 1);
+            player.started = player.started.checked_sub(crate::tick::TICK).unwrap();
+            player.on_message(held.clone()).await.unwrap();
+            assert_eq!(forwarded(), 1, "a copy a tick later");
+            let press = click(consts::TriggerType::PlayerInput);
+            player.on_message(press.clone()).await.unwrap();
+            player.on_message(press).await.unwrap();
+            player.on_message(held).await.unwrap();
+            assert_eq!(forwarded(), 3, "presses, and the held click after them");
         });
     }
 
