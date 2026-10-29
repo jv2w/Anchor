@@ -192,9 +192,9 @@ const MAX_MTU_SIZE: RangeInclusive<u16> = 576..=1492;
 const SAVE_INTERVAL_MINUTES: RangeInclusive<u16> = 1..=1440;
 /// A fixed thread count; the runtime checks the total against the logical CPUs.
 const THREADS: RangeInclusive<u16> = 1..=u16::MAX;
-/// The RakNet pong carries `motd` and `level-name` in one datagram; 256 + 64 bytes and the other
-/// fields fit the 576-byte minimum MTU.
-const MAX_MOTD_BYTES: usize = 256;
+/// The longest `motd`, in bytes ([`is_motd`]). The RakNet pong carries `motd` and `level-name` in
+/// one datagram; 256 + 64 bytes and the other fields fit the 576-byte minimum MTU.
+pub const MAX_MOTD_BYTES: usize = 256;
 /// See [`MAX_MOTD_BYTES`].
 const MAX_LEVEL_NAME_BYTES: usize = 64;
 /// A disconnect message several lines long fits.
@@ -1518,9 +1518,9 @@ fn is_list_text(value: &str) -> bool {
     !value.is_empty() && !value.chars().any(|c| c == ';' || c.is_control())
 }
 
-/// Whether `motd` is one the `motd` setting takes: at most 256 bytes, not empty, without `;` or
-/// control characters.
-pub(crate) fn is_motd(motd: &str) -> bool {
+/// Whether `motd` is one the `motd` setting and [`Context::set_motd`](crate::Context::set_motd)
+/// take: at most [`MAX_MOTD_BYTES`], not empty, without `;` or control characters.
+pub fn is_motd(motd: &str) -> bool {
     motd.len() <= MAX_MOTD_BYTES && is_list_text(motd)
 }
 
