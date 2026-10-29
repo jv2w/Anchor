@@ -1767,8 +1767,12 @@ impl Context<'_> {
     /// [`Self::drop_item`] fails.
     pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
         let w = index(self.state, world).filter(|_| is_placeable(pos))?;
+        if !super::can_create(self.state, w, pos) {
+            return None;
+        }
         let seed = self.state.worlds.get(w).map_or(0, World::seed);
-        // The rocket takes this runtime ID, so no two launches share the stream.
+        // Opened once the rocket can be made: it takes this runtime ID, so no two launches share
+        // the stream.
         let key = random::key(LAUNCH_RANDOM, &[self.state.next_runtime_id]);
         let mut random = Random::new(seed, self.state.tick, key);
         let item = (object::DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
