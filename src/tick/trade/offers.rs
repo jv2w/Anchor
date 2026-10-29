@@ -564,6 +564,7 @@ impl Offers {
     }
 
     /// The experience each tier needs.
+    #[cfg(test)]
     pub(in crate::tick) fn tier_experience(&self) -> [u32; TIERS] {
         self.tier_experience
     }

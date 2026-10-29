@@ -95,13 +95,15 @@ impl Context<'_> {
     }
 
     /// The trade experience of the villager NPC `villager`; `None` if it is not one.
-    pub fn trade_experience(&self, villager: Id) -> Option<u32> {
+    #[cfg(test)]
+    pub(in crate::tick) fn trade_experience(&self, villager: Id) -> Option<u32> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.experience())
     }
 
-    /// The trade experience each tier of the villager NPC `villager` needs
-    /// ([`set_trade_tier_experience`](Self::set_trade_tier_experience)); `None` if it is not one.
-    pub fn trade_tier_experience(&self, villager: Id) -> Option<[u32; 5]> {
+    /// The trade experience each tier of the villager NPC `villager` needs; `None` if it is not
+    /// one.
+    #[cfg(test)]
+    pub(in crate::tick) fn trade_tier_experience(&self, villager: Id) -> Option<[u32; 5]> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
     }
 
