@@ -2471,8 +2471,8 @@ fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Optio
 /// `Living::attack`): [`EntityDamage`] before the health changes (cancelling keeps it, and no
 /// knockback follows) and [`EntityMotion`] for the knockback. An NPC hit after its cooldown is
 /// knocked back by `knock` and shows the hit, an NPC that dies shows its death (its drops follow
-/// at its next tick, [`died`]), anything else that dies is removed. Without listeners it is
-/// [`hurt_in`].
+/// at its next tick, [`died`]), anything else that dies is removed; an invulnerable NPC's hit by
+/// an entity raises the event cancelled ([`shielded`]). Without listeners it is [`hurt_in`].
 fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
     if !(dispatch::heard::<EntityDamage>(state) || dispatch::heard::<EntityMotion>(state)) {
         let result = hurt_in(
@@ -2489,6 +2489,7 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
         return result;
     }
     let Some(plan) = plan_of(state, id, blow) else {
+        shielded(state, id, blow, knock);
         return Hurt::Ignored;
     };
     let mut taken = Taken::of(plan, blow.amount);
@@ -2583,28 +2584,7 @@ fn damage_event(
     plan: Plan,
     knock: Option<Knock>,
 ) -> Option<(Taken, Option<Knock>, EntityDamage)> {
-    let mut modifiers = [None; DamageModifier::ALL.len()];
-    if let Some(previous) = plan.previous
-        && let Some(slot) = modifiers.get_mut(DamageModifier::PreviousDamageCooldown as usize)
-    {
-        *slot = Some(-previous);
-    }
-    let (force, vertical) = knock.map_or((KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT), |k| {
-        (k.force, k.vertical)
-    });
-    let mut e = EntityDamage {
-        entity: Actor::Entity(id),
-        cause: blow.cause.event_cause(),
-        source: blow.source,
-        base_damage: blow.amount,
-        original_base_damage: blow.amount,
-        modifiers,
-        original_modifiers: modifiers,
-        attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
-        knockback: force,
-        vertical_knockback_limit: vertical,
-        cancelled: false,
-    };
+    let mut e = damage_of(id, blow, plan.previous, knock, false);
     dispatch::call(state, &mut e);
     if e.cancelled
         || (dispatch::listened::<EntityDamage>(state) && plan_of(state, id, blow) != Some(plan))
@@ -2622,6 +2602,61 @@ fn damage_event(
         ..k
     });
     Some((taken, knock, e))
+}
+
+/// [`EntityDamage`] for `blow` on the entity `id`, starting `cancelled`: with the cooldown
+/// modifier of a hit within the cooldown of a `previous` one, and the knockback `knock` gives.
+fn damage_of(
+    id: Id,
+    blow: Blow,
+    previous: Option<f64>,
+    knock: Option<Knock>,
+    cancelled: bool,
+) -> EntityDamage {
+    let mut modifiers = [None; DamageModifier::ALL.len()];
+    if let Some(previous) = previous
+        && let Some(slot) = modifiers.get_mut(DamageModifier::PreviousDamageCooldown as usize)
+    {
+        *slot = Some(-previous);
+    }
+    let (force, vertical) = knock.map_or((KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT), |k| {
+        (k.force, k.vertical)
+    });
+    EntityDamage {
+        entity: Actor::Entity(id),
+        cause: blow.cause.event_cause(),
+        source: blow.source,
+        base_damage: blow.amount,
+        original_base_damage: blow.amount,
+        modifiers,
+        original_modifiers: modifiers,
+        attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
+        knockback: force,
+        vertical_knockback_limit: vertical,
+        cancelled,
+    }
+}
+
+/// An invulnerable NPC ignores `blow` (see [`hurt`]); one an entity dealt (a player's hit, a
+/// projectile) still raises [`EntityDamage`], already cancelled, so listeners learn who hit it,
+/// as PMMP raises the event of a hit that does not land cancelled. The NPC takes nothing
+/// whatever they do, and no monitor sees a cancelled event. A blow of nothing or a block (a
+/// fall, a cactus) raises nothing.
+fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
+    let dealt = matches!(
+        blow.source,
+        DamageSource::Entity(_) | DamageSource::Child { .. }
+    );
+    let invulnerable = state.rules.entities.get(id).is_some_and(|e| {
+        !e.flagged && matches!(&e.kind, Kind::Npc(c) if c.invulnerable && c.dead_ticks.is_none())
+    });
+    if dealt
+        && invulnerable
+        && (0.0..=MAX_DAMAGE).contains(&blow.amount)
+        && dispatch::heard::<EntityDamage>(state)
+    {
+        dispatch::call(state, &mut damage_of(id, blow, None, knock, true));
+    }
 }
 
 /// The NPC `id` died at `at` (PMMP `Living::onDeath`), seen at its first tick after the death,

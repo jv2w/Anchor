@@ -583,6 +583,48 @@ mod tests {
         assert_eq!(health(&h, id), 5.0);
     }
 
+    // pmmp: EntityDamageEvent
+    /// A player's hit on an invulnerable NPC raises [`crate::event::EntityDamage`] already
+    /// cancelled, naming the attacker (PMMP raises the event of a hit that does not land
+    /// cancelled); the NPC takes nothing, whatever the listeners do. A hit by nothing, such as a
+    /// fall, raises nothing.
+    #[test]
+    fn a_hit_on_an_invulnerable_npc_raises_a_cancelled_damage_event() {
+        use crate::event::{Actor, DamageCause, EntityDamage};
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            move |e: &mut EntityDamage, _: &mut crate::tick::Context<'_>| {
+                tx.try_send((e.entity(), e.source(), e.cause(), e.is_cancelled()))
+                    .unwrap();
+                e.uncancel();
+            },
+        );
+        let mut h = Harness::with_listeners(1, l);
+        h.spawn(1, standing(0.0, 0.0));
+        let s = SessionId::new(1);
+        calls(|c| c.look = (270.0, 0.0));
+        let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
+        h.entities();
+        attack_with(&mut h.state, s, guide, TEST_HOOKS);
+        let by = DamageSource::Entity(player_actor(s));
+        assert_eq!(
+            rx.try_recv(),
+            Ok((Actor::Entity(guide), by, DamageCause::EntityAttack, true))
+        );
+        assert_eq!(health(&h, guide), 20.0, "uncancelling hurts nothing");
+        landed(&mut h.state, guide, 10.0);
+        assert!(rx.try_recv().is_err(), "a fall raises nothing");
+        vulnerable(&mut h, guide);
+        attack_with(&mut h.state, s, guide, TEST_HOOKS);
+        assert_eq!(
+            rx.try_recv().map(|(.., cancelled)| cancelled),
+            Ok(false),
+            "a hit that lands"
+        );
+    }
+
     /// A hit on an NPC counts the attacker's Strength and the weapon's Sharpness as a hit on a
     /// player does; the viewers see the swing, hear the hit and see the enchanted hit on the NPC;
     /// a hit out of reach swings and sounds empty.

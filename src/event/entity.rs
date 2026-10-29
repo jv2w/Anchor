@@ -262,7 +262,9 @@ pub enum DamageSource {
 }
 
 /// Raised when a player or an entity takes damage, before its health changes. Cancelling keeps
-/// the health, and no knockback follows.
+/// the health, and no knockback follows. A hit by a player or an entity (a projectile included)
+/// on an invulnerable NPC is raised too, already cancelled, so a listener learns who hit it:
+/// uncancelling it does not hurt the NPC.
 #[doc(alias = "EntityDamageEvent")]
 #[doc(alias = "EntityDamageByBlockEvent")]
 #[doc(alias = "EntityDamageByEntityEvent")]
