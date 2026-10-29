@@ -23,9 +23,10 @@ pub(crate) mod table;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map};
 use std::ffi::OsString;
+use std::fmt;
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::ops::ControlFlow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use self::table::{Cursor, TableFile, Tables};
@@ -500,8 +501,16 @@ fn read_logs(files: &Files, logs: &[(u64, String, u64)]) -> Result<Vec<Logged>> 
         .collect())
 }
 
-/// An open database.
-pub(crate) struct Db {
+/// The LevelDB of a Bedrock world (its `db` folder), opened read-only: the world import's own
+/// reader, for the keys the import leaves out (players, entities, the scoreboard, ...). Mojang
+/// documents the keys and the little-endian NBT most values hold.
+///
+/// It reads the folder as it was when opened, and writes nothing to it: open a world no
+/// program is writing, or a copy. The import's limits hold ([`Error::TooLarge`] names each), the
+/// live logs included, which opening reads into memory (64 MiB at most). Opening and every read
+/// block the calling thread: run them before [`Server::run`](crate::Server::run) or in
+/// [`Context::spawn_blocking`](crate::Context::spawn_blocking).
+pub struct Db {
     /// Level 0 tables may overlap; the tables of each other level are sorted and disjoint.
     levels: [Vec<TableFile>; LEVELS],
     /// The live log writes, by key.
@@ -511,9 +520,23 @@ pub(crate) struct Db {
     listing: BTreeMap<OsString, Stamp>,
 }
 
+impl fmt::Debug for Db {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Db")
+            .field("files", &self.listing.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Db {
-    /// Opens the database in `files`, reading `CURRENT`, the `MANIFEST` and the live logs.
-    pub(crate) fn open(files: Files) -> Result<Self> {
+    /// Opens the database of the Bedrock world in folder `dir` (`dir/db`), reading `CURRENT`,
+    /// the `MANIFEST` and the live logs.
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
+        Self::from_files(Files::disk(dir.as_ref().join("db")))
+    }
+
+    /// Opens the database in `files`.
+    pub(crate) fn from_files(files: Files) -> Result<Self> {
         let listing = files.list()?;
         let current = files.read("CURRENT", MAX_CURRENT)?;
         let manifest = parse_current(&current).map_err(|e| files.fault("CURRENT", e))?;
@@ -676,9 +699,17 @@ impl Db {
         Ok(())
     }
 
-    /// The live value of `key` (the import reads chunks with [`Db::scan`] only).
-    #[cfg(test)]
-    pub(crate) fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    /// Calls `f` with each live key starting with `prefix` and its value, in key order.
+    pub fn scan_prefix(&mut self, prefix: &[u8], mut f: impl FnMut(&[u8], &[u8])) -> Result<()> {
+        let end = super::chunk::after(prefix);
+        self.scan(prefix, end.as_deref(), |key, value| {
+            f(key, value);
+            Ok(ControlFlow::Continue(()))
+        })
+    }
+
+    /// The live value of `key`, if any.
+    pub fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut end = Vec::with_capacity(key.len() + 1);
         end.extend_from_slice(key);
         end.push(0);

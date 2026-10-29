@@ -282,3 +282,25 @@ fn a_folder_that_is_not_a_bedrock_world_fails_and_writes_no_world() {
     assert!(matches!(err, Error::Import(_)), "{err:?}");
     assert!(!data.0.join("worlds").join(format!("{NAME}.redb")).exists());
 }
+
+#[test]
+fn the_world_database_reads_the_keys_the_import_leaves_out() {
+    let before = snapshot(Path::new(FIXTURE));
+    let mut db = import::Db::open(FIXTURE).expect("the database opens");
+    // The import counts 2 entities: one `actorprefix` key each.
+    let mut entities = Vec::new();
+    db.scan_prefix(b"actorprefix", |key, value| {
+        entities.push((key.to_vec(), value.to_vec()));
+    })
+    .expect("the scan");
+    assert_eq!(entities.len(), 2);
+    for (key, value) in &entities {
+        assert_eq!(db.get(key).expect("the read").as_ref(), Some(value));
+    }
+    let missing = [b"actorprefix".as_slice(), &[0xff; 8]].concat();
+    assert_eq!(db.get(&missing).expect("the read"), None);
+    assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
+
+    let err = import::Db::open(Path::new(FIXTURE).join("missing")).expect_err("not a world");
+    assert!(matches!(err, import::Error::File { .. }), "{err:?}");
+}

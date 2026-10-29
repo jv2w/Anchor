@@ -390,7 +390,7 @@ fn random_databases_read_like_the_model_of_their_writes() {
         for (count, flag) in reached.iter_mut().zip(flags) {
             *count += usize::from(flag);
         }
-        let mut db = Db::open(files).unwrap_or_else(|e| panic!("seed {seed}: {e:?}"));
+        let mut db = Db::from_files(files).unwrap_or_else(|e| panic!("seed {seed}: {e:?}"));
         let expected: Vec<(Vec<u8>, Vec<u8>)> =
             model.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         assert!(scan_all(&mut db) == expected, "seed {seed}: full scan");
@@ -478,7 +478,7 @@ fn small_entries() -> Vec<(Vec<u8>, Vec<u8>)> {
 }
 
 fn open_err(files: Files) -> Error {
-    match Db::open(files) {
+    match Db::from_files(files) {
         Ok(_) => panic!("opened"),
         Err(Error::File { source, .. }) => *source,
         Err(e) => e,
@@ -673,7 +673,7 @@ fn a_block_over_16_mib_is_refused_before_reading() {
     w.files.insert(format!("{number:06}.ldb"), bytes);
     w.edits.push(Writer::add(1, &file));
     w.edits.push(log_number(w.next + 1));
-    let mut db = Db::open(w.finish()).unwrap();
+    let mut db = Db::from_files(w.finish()).unwrap();
     let error = db.get(b"m").unwrap_err();
     let Error::File { source, .. } = error else {
         panic!("{error:?}")
@@ -717,7 +717,7 @@ fn held_blocks_are_bounded_while_level_0_tables_open() {
         w.edits.push(Writer::add(0, &file));
     }
     w.edits.push(log_number(w.next + 1));
-    let mut db = Db::open(w.finish()).unwrap();
+    let mut db = Db::from_files(w.finish()).unwrap();
     let error = db
         .scan(&[], None, |_, _| Ok(ControlFlow::Continue(())))
         .unwrap_err();
@@ -769,15 +769,15 @@ fn the_masked_crc_matches_leveldb() {
 #[test]
 fn source_changes_are_found() {
     let w = small(&small_entries(), &[]);
-    let db = Db::open(w.finish()).unwrap();
+    let db = Db::from_files(w.finish()).unwrap();
     assert!(db.unchanged().is_ok());
-    let mut changed = Db::open(small(&small_entries(), &[]).finish()).unwrap();
+    let mut changed = Db::from_files(small(&small_entries(), &[]).finish()).unwrap();
     memory_mut(&mut changed.tables.files).insert("new.log".to_owned(), Vec::new());
     assert!(matches!(
         changed.unchanged(),
         Err(Error::SourceChanged { .. })
     ));
-    let mut grown = Db::open(small(&small_entries(), &[]).finish()).unwrap();
+    let mut grown = Db::from_files(small(&small_entries(), &[]).finish()).unwrap();
     memory_mut(&mut grown.tables.files)
         .get_mut("CURRENT")
         .unwrap()
@@ -791,7 +791,7 @@ fn source_changes_are_found() {
 /// Opens and reads everything; any error is fine, a panic is not.
 fn open_and_read(files: Files) -> crate::protocol::Result<()> {
     let fail = |_| crate::protocol::Error::Size;
-    let mut db = Db::open(files).map_err(fail)?;
+    let mut db = Db::from_files(files).map_err(fail)?;
     db.scan(&[], None, |_, _| Ok(ControlFlow::Continue(())))
         .map_err(fail)?;
     db.get(b"key15").map_err(fail)?;
@@ -880,7 +880,7 @@ pub(crate) fn dump(db: &mut Db) -> String {
 #[test]
 fn the_bds_fixture_reads_like_goleveldb() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("xtask/data/import");
-    let mut db = Db::open(Files::disk(root.join("flat/db"))).unwrap();
+    let mut db = Db::open(root.join("flat")).unwrap();
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     let want = std::fs::read_to_string(root.join("flat.dump")).unwrap();
     assert!(
@@ -905,7 +905,7 @@ fn an_ldb_table_wins_over_an_sst_of_the_same_number() {
     let ldb = table_name(&w.files);
     let sst = ldb.replace(".ldb", ".sst");
     w.files.insert(sst, b"not a table".to_vec());
-    let mut db = Db::open(w.finish()).unwrap();
+    let mut db = Db::from_files(w.finish()).unwrap();
     assert_eq!(db.get(b"key05").unwrap(), Some(vec![1; 5]));
 }
 
@@ -928,7 +928,7 @@ fn tables_on_disk_are_read_through_at_most_64_open_files() {
         std::fs::write(dir.0.join(name), bytes).unwrap();
     }
     std::fs::write(dir.0.join("abc.ldb"), b"not a table").unwrap();
-    let mut db = Db::open(Files::disk(dir.0.clone())).unwrap();
+    let mut db = Db::from_files(Files::disk(dir.0.clone())).unwrap();
     let expected: Vec<(Vec<u8>, Vec<u8>)> = model.into_iter().collect();
     assert_eq!(scan_all(&mut db), expected);
     let Files::Disk { open, .. } = &db.tables.files else {

@@ -397,7 +397,7 @@ mod tests {
             .count();
         assert!(tables > 2, "{tables} tables");
 
-        let mut db = Db::open(Files::disk(dir.0.clone())).unwrap();
+        let mut db = Db::from_files(Files::disk(dir.0.clone())).unwrap();
         let mut read = BTreeMap::new();
         db.scan(&[], None, |key, value| {
             read.insert(key.to_vec(), value.to_vec());
@@ -413,7 +413,7 @@ mod tests {
         let dir = TempDir::new("export-leveldb-empty");
         assert!(blocks(&[]).unwrap().is_empty());
         Writer::new(dir.0.clone()).finish().unwrap();
-        let mut db = Db::open(Files::disk(dir.0.clone())).unwrap();
+        let mut db = Db::from_files(Files::disk(dir.0.clone())).unwrap();
         db.scan(&[], None, |_, _| panic!("a key in an empty database"))
             .unwrap();
         assert_eq!(

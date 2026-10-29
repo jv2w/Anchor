@@ -11,7 +11,8 @@
 //! since it was opened, so the world must not be open in another program.
 //!
 //! [`Server::import_world`](crate::Server::import_world) runs the import (`api`), upgrading old
-//! block states and items (`upgrade`), and returns a [`Report`].
+//! block states and items (`upgrade`), and returns a [`Report`]. [`Db`] opens the same LevelDB
+//! for the keys the import leaves out.
 
 mod api;
 pub(crate) mod chunk;
@@ -28,7 +29,8 @@ pub use self::api::Report;
 pub(crate) use self::api::run;
 use self::chunk::Entries;
 use self::level_dat::WorldData;
-use self::leveldb::{Db, Files, Stamp};
+pub use self::leveldb::Db;
+use self::leveldb::Stamp;
 // Decoding one chunk or `level.dat` allocates within the data files' own budget.
 pub(crate) use self::upgrade::BLOCK_STATE_VERSION;
 use crate::storage::seal::DECODE_BUDGET;
@@ -293,7 +295,7 @@ impl Source {
         let level_dat_stamp = stamp(&level_dat_path).map_err(located)?;
         let bytes = read_file(&level_dat_path, MAX_LEVEL_DAT).map_err(located)?;
         let world = level_dat::parse(&bytes).map_err(located)?;
-        let db = Db::open(Files::disk(dir.join("db")))?;
+        let db = Db::open(dir)?;
         Ok(Self {
             level_dat_path,
             level_dat_stamp,

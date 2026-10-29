@@ -114,7 +114,7 @@ fn write_indices(w: &mut Writer, bits: u8, words: &[u32], palette_len: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::import::leveldb::{Db, Files};
+    use crate::import::Db;
     use crate::protocol::{Rng, word_count};
     use crate::storage::codec::tests::{empty_chunk, random_chunk};
 
@@ -148,8 +148,11 @@ mod tests {
 
     #[test]
     fn plains_biomes_are_the_bytes_bds_writes() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat/db");
-        let mut db = Db::open(Files::disk(dir.into())).unwrap();
+        let mut db = Db::open(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/xtask/data/import/flat"
+        ))
+        .unwrap();
         let mut key = prefix(0, 0).to_vec();
         key.push(DATA_3D);
         let bds = db.get(&key).unwrap().unwrap();
