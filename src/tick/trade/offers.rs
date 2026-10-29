@@ -120,6 +120,8 @@ pub(in crate::tick) enum Error {
     Multiplier,
     /// Tier experience requirements that go down or exceed `TAG_Int`.
     TierExperience,
+    /// Trade experience above `TAG_Int`.
+    Experience,
     /// The list would hold more than [`MAX_OFFERS`].
     Full,
     /// The saved offers would take more than [`MAX_SAVED_BYTES`].
@@ -561,6 +563,11 @@ impl Offers {
         self.experience
     }
 
+    /// The experience each tier needs.
+    pub(in crate::tick) fn tier_experience(&self) -> [u32; TIERS] {
+        self.tier_experience
+    }
+
     /// Replaces the whole list. Every offer must pass [`Recipe::check`] and the saved list fit
     /// [`MAX_SAVED_BYTES`]; nothing changes otherwise.
     pub(in crate::tick) fn set(&mut self, recipes: Vec<Recipe>) -> Result<()> {
@@ -629,6 +636,16 @@ impl Offers {
             .ok_or(Error::Tier)?;
         self.tier = tier;
         self.experience = self.experience.max(need);
+        Ok(())
+    }
+
+    /// Sets the villager's trade experience (at most `i32::MAX`, as saved); the tier stays until
+    /// a trade reaches the next one.
+    pub(in crate::tick) fn set_experience(&mut self, experience: u32) -> Result<()> {
+        if experience > MAX_INT {
+            return Err(Error::Experience);
+        }
+        self.experience = experience;
         Ok(())
     }
 

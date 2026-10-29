@@ -17,6 +17,7 @@ impl Error {
             Self::Tier => offer("a tier above 4"),
             Self::Multiplier => offer("a price multiplier that is not finite"),
             Self::TierExperience => offer("tier experience that goes down or is above i32::MAX"),
+            Self::Experience => offer("trade experience above i32::MAX"),
             Self::Full => offer("more than 128 offers"),
             Self::TooLarge => offer("offers whose saved form is over 2 MiB"),
 
@@ -93,6 +94,17 @@ impl Context<'_> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier())
     }
 
+    /// The trade experience of the villager NPC `villager`; `None` if it is not one.
+    pub fn trade_experience(&self, villager: Id) -> Option<u32> {
+        (HOOKS.villager)(self.state, villager).map(|v| v.offers.experience())
+    }
+
+    /// The trade experience each tier of the villager NPC `villager` needs
+    /// ([`set_trade_tier_experience`](Self::set_trade_tier_experience)); `None` if it is not one.
+    pub fn trade_tier_experience(&self, villager: Id) -> Option<[u32; 5]> {
+        (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
+    }
+
     /// Replaces the offers of the villager NPC `villager` (at most 128; each needs a payment,
     /// a sale, uses at most its maximum, a tier up to 4 and finite price multipliers). Players
     /// trading with it see the new list at once. Nothing changes on failure.
@@ -142,6 +154,16 @@ impl Context<'_> {
         tier: u8,
     ) -> std::result::Result<(), custom::Error> {
         change(self.state, villager, |o| o.set_tier(tier))
+    }
+
+    /// Sets the villager's trade experience (at most `i32::MAX`); its tier stays until a trade
+    /// reaches the next one. Players who see it are shown the new value.
+    pub fn set_trade_experience(
+        &mut self,
+        villager: Id,
+        experience: u32,
+    ) -> std::result::Result<(), custom::Error> {
+        change(self.state, villager, |o| o.set_experience(experience))
     }
 
     /// Sets the trade experience each tier needs (never going down, at most `i32::MAX`; BDS's

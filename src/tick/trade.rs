@@ -463,8 +463,8 @@ fn tick_with(state: &mut State, hooks: Hooks) {
 }
 
 /// Changes the offers of the villager NPC `villager` with `change` (one of the [`Offers`]
-/// methods: `set`, `add`, `remove`, `replace`, `set_tier`, `set_tier_experience`, `reset_uses`)
-/// and shows the result to every player trading with it. The trade API and the P6 console wrap
+/// methods: `set`, `add`, `remove`, `replace`, `set_tier`, `set_experience`,
+/// `set_tier_experience`, `reset_uses`) and shows the result to every player trading with it. The trade API and the P6 console wrap
 /// it. Nothing changes if `change` fails.
 pub(super) fn change_offers<T>(
     state: &mut State,

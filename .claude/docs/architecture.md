@@ -209,7 +209,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 대응표에 없는 기능이다. AI 없는 주민형 NPC의 거래 목록을 서버가 정한다.
 
 - 소환: `Context::spawn_villager(world, pos, profession, &[Offer]) -> Result`. 생성 알·명령·API로 소환한 주민은 빈 목록이다.
-- 목록 API: `trade_offers`, `set_trade_offers`, `add_trade_offer`, `replace_trade_offer`, `remove_trade_offer`, `trade_tier`, `set_trade_tier`, `set_trade_tier_experience`, `reset_trade_uses`. 오퍼는 NBT 대신 타입 있는 `custom::Offer`(`new(buy, sell, max_uses)`, `with_second_payment`, `with_any_damage`, `with_tier`, `with_price_multipliers`, `with_demand` 등)다.
+- 목록 API: `trade_offers`, `set_trade_offers`, `add_trade_offer`, `replace_trade_offer`, `remove_trade_offer`, `trade_tier`, `set_trade_tier`, `trade_experience`, `set_trade_experience`, `trade_tier_experience`, `set_trade_tier_experience`, `reset_trade_uses`. 오퍼는 NBT 대신 타입 있는 `custom::Offer`(`new(buy, sell, max_uses)`, `with_second_payment`, `with_any_damage`, `with_tier`, `with_price_multipliers`, `with_demand` 등)다.
 - 이벤트: `TradeOpen`(창 열기), `Trade`(거래 1회).
 - 상한: 주민당 오퍼 128개, 저장 형태 합계 2 MiB.
 - 프로토콜 값(공식 서버 대조): 창 종류 15, 오퍼 NBT 키는 공식 서버 키(`Recipes`, `netId` 등), Trade2 입력 칸 4·5, 출력 50(ItemStackRequest에서는 지불 컨테이너 47·48, 결과는 created output 60:50). `netId`는 CraftingData 다음부터 서버 카운터로 처음 열 때 매기고 다시 열어도 유지한다. 거래 뒤에는 등급이 올라도 UpdateTrade를 다시 보내지 않고(공식 서버와 같다), API로 목록을 바꿀 때마다 다시 보낸다. 보상 구슬은 거래마다 3~6, Damage 32767은 아무 데미지다.

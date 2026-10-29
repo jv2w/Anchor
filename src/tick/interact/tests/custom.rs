@@ -250,15 +250,26 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
     assert_eq!(ctx.trade_offers(id).unwrap()[0].uses(), 4);
     ctx.reset_trade_uses(id).unwrap();
     assert_eq!(ctx.trade_offers(id).unwrap()[0].uses(), 0);
+    assert_eq!(ctx.trade_tier_experience(id), Some([0, 10, 70, 150, 250]));
+    assert_eq!(ctx.trade_experience(id), Some(0));
     ctx.set_trade_tier_experience(id, [0, 5, 20, 40, 80])
         .unwrap();
     ctx.set_trade_tier(id, 3).unwrap();
     assert_eq!(ctx.trade_tier(id), Some(3));
+    assert_eq!(ctx.trade_tier_experience(id), Some([0, 5, 20, 40, 80]));
+    assert_eq!(ctx.trade_experience(id), Some(40), "the tier's requirement");
+    ctx.set_trade_experience(id, 7).unwrap();
+    assert_eq!(ctx.trade_experience(id), Some(7));
+    assert_eq!(ctx.trade_tier(id), Some(3), "the tier stays");
+    assert!(ctx.set_trade_experience(id, u32::MAX).is_err());
+    assert_eq!(ctx.trade_experience(id), Some(7));
     ctx.add_trade_offer(id, &second).unwrap();
     assert_eq!(ctx.trade_offers(id).map(|o| o.len()), Some(2));
     // Not a villager.
     let gone = crate::entity::Id::new(4_000_000, 7);
     assert_eq!(ctx.trade_offers(gone), None);
+    assert_eq!(ctx.trade_experience(gone), None);
+    assert_eq!(ctx.trade_tier_experience(gone), None);
     assert_eq!(
         ctx.set_trade_offers(gone, &[]),
         Err(crate::custom::Error::NotVillager)
