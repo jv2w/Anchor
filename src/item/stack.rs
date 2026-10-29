@@ -523,16 +523,16 @@ impl Stack {
         out
     }
 
-    /// The stack a disk item compound holds: empty for air or a count of 0, `None` if Anchor does
-    /// not know the item, the compound is not an item or the stack is over a limit (only an
-    /// Anchor before the limits saved one). Counts above the stack size are cut to it. Vanilla
-    /// items only, so tests only: saved data is read with [`Stack::from_nbt_with`].
-    #[cfg(test)]
-    pub(crate) fn from_nbt(nbt: &Compound) -> Option<Self> {
+    /// The stack a disk item compound ([`Stack::to_nbt`]) holds, knowing the vanilla items and
+    /// blocks only, for code without a server such as a data converter run before it starts;
+    /// [`Context::stack_from_nbt`](crate::Context::stack_from_nbt) knows the server's custom ones
+    /// too. Empty for air or a count of 0; `None` for an unknown item, a compound that is no item
+    /// or a stack over a limit. A count above the item's stack size is cut to it.
+    pub fn from_nbt(nbt: &Compound) -> Option<Self> {
         Self::read_nbt(nbt, None)
     }
 
-    /// `Stack::from_nbt` knowing the server's custom items and blocks too: a custom item, a
+    /// [`Stack::from_nbt`] knowing the server's custom items and blocks too: a custom item, a
     /// custom block's item (its `Block` a custom state) and a vanilla block item read back.
     pub(crate) fn from_nbt_with(nbt: &Compound, custom: &crate::custom::Registry) -> Option<Self> {
         Self::read_nbt(nbt, Some(custom))

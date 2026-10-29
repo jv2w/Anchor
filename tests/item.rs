@@ -1,6 +1,8 @@
-//! Public item type lookups: known names resolve, unknown input is `None` without panicking.
+//! Public item type lookups: known names resolve, unknown input is `None` without panicking, and
+//! a vanilla stack reads back from its disk form.
 
-use anchor::item::Type;
+use anchor::block::ItemForm;
+use anchor::item::{Kind, Stack, Type};
 use anchor::nbt::{Compound, Value};
 
 /// Item names of the PMMP dump, as the lookup knows them, with a meta each type has.
@@ -93,4 +95,31 @@ fn unknown_names_are_none() {
             assert_eq!(found, None);
         }
     }
+}
+
+/// The disk form reads back without a server: vanilla items and block items, and the empty
+/// stack; an unknown item or a compound that is no item is `None`.
+#[test]
+fn a_vanilla_stack_reads_back_from_its_disk_form() {
+    let worn = Stack::new(Kind::DiamondSword.default_type(), 1)
+        .with_damage(42)
+        .unwrap();
+    let ItemForm::Item(stone) = anchor::block::Kind::Stone.default_state().item() else {
+        panic!("stone has an item");
+    };
+    for stack in [
+        Stack::new(Kind::Stick.default_type(), 5),
+        worn,
+        Stack::new(stone, 64),
+        Stack::EMPTY,
+    ] {
+        assert_eq!(Stack::from_nbt(&stack.to_nbt()), Some(stack));
+    }
+    let mut unknown = Stack::new(Kind::Stick.default_type(), 1).to_nbt();
+    unknown.insert(
+        "Name".to_owned(),
+        Value::String("minecraft:no_such_item".to_owned()),
+    );
+    assert_eq!(Stack::from_nbt(&unknown), None);
+    assert_eq!(Stack::from_nbt(&Compound::new()), None);
 }
