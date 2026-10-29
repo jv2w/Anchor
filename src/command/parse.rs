@@ -21,18 +21,33 @@ pub(crate) const MAX_LINE_CHARS: usize = 512;
 /// The namespace item and block names may carry.
 pub(crate) const NAMESPACE: &str = "minecraft:";
 
-/// A word of a line and where it starts (its opening quote, if quoted).
+/// A word of a command line ([`split`]) and where it starts (its opening quote, if quoted).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Word<'a> {
+pub struct Word<'a> {
+    /// Owned only for a quoted word, which has its quotes and escapes taken out.
     pub(crate) text: Cow<'a, str>,
     pub(crate) start: usize,
 }
 
-/// Splits `line` into words (PMMP `CommandStringHelper::parseQuoteAware`): whitespace separates
-/// words; a word that starts with `"` ends at the next `"` not escaped, and inside it `\"` and
-/// `\\` stand for `"` and `\`; a quote inside a word is kept as it is. An unclosed quote is an
-/// error (PMMP would split the rest at spaces). A line within the bounds has at most 256 words.
-pub(crate) fn split(line: &str) -> Result<Vec<Word<'_>>> {
+impl Word<'_> {
+    /// The word: a quoted one without its quotes, with `\"` and `\\` read as `"` and `\`.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Whether it was in double quotes: such a word is never a selector (`@a`).
+    pub fn is_quoted(&self) -> bool {
+        matches!(self.text, Cow::Owned(_))
+    }
+}
+
+/// Splits `line` into words as commands are split (PMMP `CommandStringHelper::parseQuoteAware`):
+/// whitespace separates words; a word that starts with `"` ends at the next `"` not escaped, and
+/// inside it `\"` and `\\` stand for `"` and `\`; a quote inside a word is kept as it is. Fails
+/// with [`Error::UnclosedQuote`] for an unclosed quote (PMMP would split the rest at spaces) and
+/// with [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
+/// A line within the bounds has at most 256 words.
+pub fn split(line: &str) -> Result<Vec<Word<'_>>> {
     if line.len() > MAX_LINE_BYTES || line.chars().count() > MAX_LINE_CHARS {
         return Err(Error::TooLong);
     }
@@ -388,9 +403,8 @@ fn number(text: &str) -> Option<f64> {
 /// A target word: `@s`, `@a`, `@p`, `@r` or a name. Other selectors and selector arguments do
 /// not fit.
 fn target(word: &Word<'_>) -> Option<Target> {
-    let text = word.text.as_ref();
-    let quoted = matches!(word.text, Cow::Owned(_));
-    if !quoted && text.starts_with('@') {
+    let text = word.text();
+    if !word.is_quoted() && text.starts_with('@') {
         return Some(match text {
             "@s" => Target::Sender,
             "@a" => Target::All,
@@ -454,6 +468,12 @@ mod tests {
         assert_eq!(texts(r#"a "x\\y" "\n""#), ["a", r"x\y", r"\n"]);
         assert_eq!(texts(r#"ab"cd "e"f"#), [r#"ab"cd"#, "e", "f"]);
         assert_eq!(texts("   "), Vec::<String>::new());
+        let quoted: Vec<bool> = split(r#"@a "@a" """#)
+            .unwrap()
+            .iter()
+            .map(Word::is_quoted)
+            .collect();
+        assert_eq!(quoted, [false, true, true]);
         assert_eq!(split(r#"say "open"#), Err(Error::UnclosedQuote));
         assert_eq!(split(r#"say "a\""#), Err(Error::UnclosedQuote));
     }

@@ -20,8 +20,8 @@
 //! ```
 //!
 //! A line is split into words like Bedrock does: spaces separate words, double quotes keep one
-//! word with spaces (`"Steve Jobs"`), and inside quotes `\"` and `\\` stand for `"` and `\`. The
-//! first overload whose parameters the words fit runs. Players get the result as a
+//! word with spaces (`"Steve Jobs"`), and inside quotes `\"` and `\\` stand for `"` and `\`
+//! ([`split`]). The first overload whose parameters the words fit runs. Players get the result as a
 //! `CommandOutput` packet; the console's goes to the log. Each player's client autocompletes the
 //! commands that player may use (`AvailableCommands`), sent again when its permissions change.
 //!
@@ -31,6 +31,8 @@
 //! [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) drops one.
 
 pub(crate) mod parse;
+
+pub use parse::{Word, split};
 
 use std::fmt;
 
