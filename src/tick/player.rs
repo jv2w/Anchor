@@ -720,6 +720,18 @@ impl Player {
         Ok(())
     }
 
+    /// [`add_sound`](Self::add_sound) heard at full volume however far `pos` is, so a sound
+    /// played where the player stands keeps up with it while it moves. Fails for a `pos` that is
+    /// not finite or outside the world border, and with [`Error::NoFullVolume`] for a sound the
+    /// client plays from a level event (an anvil's, a door's, a click), which has no full-volume
+    /// form.
+    pub fn add_full_volume_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
+        check_position(pos)?;
+        let packet = sound.full_volume_packet(pos).ok_or(Error::NoFullVolume)?;
+        self.send_packet(packet);
+        Ok(())
+    }
+
     /// Shows the particle effect named `name` (a vanilla or resource pack effect, such as
     /// `minecraft:totem_particle`) to this player alone at `pos`. [`Context::add_particle`] shows
     /// the world's particles to everyone who sees a place. Fails for a name longer than 65,536
@@ -1411,6 +1423,50 @@ pub(super) mod tests {
             "{got:?}"
         );
         assert!(effects(received(&mut rx2).0).is_empty(), "the other player");
+    }
+
+    /// A full-volume sound reaches one player as the world's sound with the global flag; a sound
+    /// sent as a level event, which has no such flag, and a position outside the world send
+    /// nothing.
+    #[test]
+    fn a_full_volume_sound_reaches_one_player_with_the_global_flag() {
+        use crate::world::{NoteInstrument, Sound};
+        let (mut state, [mut rx1, mut rx2]) = two();
+        let at = Vec3::new(1.5, -59.0, 2.5);
+        let note = Sound::Note {
+            instrument: NoteInstrument::Pling,
+            note: 12,
+        };
+        let p = player_mut(&mut state, 1);
+        p.add_full_volume_sound(at, note).unwrap();
+        assert_eq!(
+            p.add_full_volume_sound(at, Sound::AnvilFall),
+            Err(Error::NoFullVolume)
+        );
+        assert_eq!(
+            p.add_full_volume_sound(Vec3::new(f64::NAN, 0.0, 0.0), note),
+            Err(Error::OutsideWorld)
+        );
+        run(&mut state, Vec::new());
+        let sounds = |packets: Vec<Packet>| -> Vec<Packet> {
+            packets
+                .into_iter()
+                .filter(|p| matches!(p, Packet::LevelSoundEvent(_) | Packet::LevelEvent(_)))
+                .collect()
+        };
+        let got = sounds(received(&mut rx1).0);
+        let Packet::LevelSoundEvent(plain) = note.packet(at) else {
+            panic!("a note is a level sound event");
+        };
+        assert!(
+            matches!(&got[..], [Packet::LevelSoundEvent(s)]
+            if *s == crate::protocol::packet::LevelSoundEvent {
+                disable_relative_volume: true,
+                ..plain.clone()
+            }),
+            "{got:?}"
+        );
+        assert!(sounds(received(&mut rx2).0).is_empty(), "the other player");
     }
 
     // pmmp: Player::kick

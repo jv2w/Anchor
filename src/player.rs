@@ -50,6 +50,8 @@ pub enum Error {
     InvalidAddress,
     /// A server setting turns the system off (`hunger`, `experience` or `drowning` false).
     Disabled,
+    /// A sound has no full-volume form: the client plays it from a level event.
+    NoFullVolume,
 }
 
 impl fmt::Display for Error {
@@ -63,6 +65,7 @@ impl fmt::Display for Error {
             Self::Leaving => "the player is leaving",
             Self::InvalidAddress => "the transfer address is invalid",
             Self::Disabled => "a server setting turns this off",
+            Self::NoFullVolume => "the sound has no full-volume form",
         })
     }
 }

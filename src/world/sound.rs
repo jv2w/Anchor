@@ -467,6 +467,21 @@ impl Sound {
         }
     }
 
+    /// [`packet`](Self::packet) heard at full volume however far `at` is (the `LevelSoundEvent`
+    /// flag Mojang names Is Global); `None` for a sound sent as a `LevelEvent`, which has no such
+    /// flag.
+    pub(crate) fn full_volume_packet(self, at: Vec3) -> Option<Packet> {
+        match self.packet(at) {
+            Packet::LevelSoundEvent(sound) => {
+                Some(Packet::LevelSoundEvent(LevelSoundEventPacket {
+                    disable_relative_volume: true,
+                    ..sound
+                }))
+            }
+            _ => None,
+        }
+    }
+
     /// What the sound sends (the PMMP class's `encode`).
     #[expect(
         clippy::too_many_lines,
