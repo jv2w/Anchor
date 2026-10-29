@@ -43,7 +43,7 @@
 
 use std::fmt;
 
-use crate::event::SlotChange;
+use crate::event::{Inventory, SlotChange};
 use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
 use crate::item::Stack;
 
@@ -249,10 +249,11 @@ impl Click {
 /// runs, and the request is made once it returns, unless it refuses.
 ///
 /// The answer holds for the change heard: if the handler's own calls change what the request
-/// reads (a slot it names, through [`Context::set_menu_item`] or the player's inventory, or the
-/// menu itself, closed or replaced by another window, a teleport or another world), the change is
-/// refused although the handler kept it, and a warning is logged. Do such work with
-/// [`Context::defer`], which runs once the change is made, or answer [`Response::Close`].
+/// reads (a slot it names, changed or not: [`is_slot_named`](Self::is_slot_named), through
+/// [`Context::set_menu_item`] or the player's inventory, or the menu itself, closed or replaced by
+/// another window, a teleport or another world), the change is refused although the handler kept
+/// it, and a warning is logged. Do such work with [`Context::defer`], which runs once the change
+/// is made, or answer [`Response::Close`].
 ///
 /// [`Context::set_menu_item`]: crate::Context::set_menu_item
 /// [`Context::defer`]: crate::Context::defer
@@ -260,6 +261,7 @@ impl Click {
 pub struct Change {
     pub(crate) menu: Id,
     pub(crate) changes: Vec<SlotChange>,
+    pub(crate) named: Vec<(Inventory, u8)>,
 }
 
 impl Change {
@@ -272,6 +274,13 @@ impl Change {
     /// lists them: the menu's slots are [`Inventory::Window`](crate::event::Inventory::Window).
     pub fn changes(&self) -> &[SlotChange] {
         &self.changes
+    }
+
+    /// Whether the request names slot `slot` of `inventory` (named as in
+    /// [`changes`](Self::changes)): a slot the handler must leave as it is. A request may name a
+    /// slot it leaves as it was (items taken out and put back), which `changes` does not list.
+    pub fn is_slot_named(&self, inventory: Inventory, slot: u8) -> bool {
+        self.named.contains(&(inventory, slot))
     }
 }
 

@@ -213,6 +213,16 @@ pub(super) fn changes(plan: &Plan, window: Option<WindowKind>) -> Vec<SlotChange
         .collect()
 }
 
+/// Every slot `plan` names, changed or not, as events name them in the window `inv` has open; the
+/// created output is left out.
+pub(super) fn named(plan: &Plan, inv: &super::super::Inventory) -> Vec<(Inventory, u8)> {
+    let window = inv.window.as_ref().map(|w| w.kind);
+    plan.touched
+        .iter()
+        .filter_map(|&(container, slot)| place(inv.locate(container, slot)?, window))
+        .collect()
+}
+
 /// The change of request slot `r` from `before` to `after`, as events name it; `None` if it
 /// holds the same.
 fn change(

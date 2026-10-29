@@ -876,6 +876,81 @@ fn a_change_whose_handler_changes_a_slot_it_names_is_refused() {
 }
 
 #[test]
+fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
+    /// The player's slot the handler writes with each change, as a box keeps a menu's items.
+    const STORE: u8 = 0;
+    fn write_store(
+        cx: &mut Context<'_>,
+        player: crate::player::Id,
+        change: &m::Change,
+    ) -> Response {
+        let main = crate::inventory::Kind::Main;
+        if change.is_slot_named(crate::event::Inventory::Player(main), STORE) {
+            return Response::Refuse;
+        }
+        cx.player_mut(player)
+            .unwrap()
+            .inventory_mut(main)
+            .set(usize::from(STORE), sticks(1))
+            .unwrap();
+        Response::Keep
+    }
+    let run = |twice: bool| {
+        let mut w = World::new(GameMode::Survival);
+        let s = w.join(1);
+        w.give(s, sticks(3));
+        let menu = Menu::new(MenuKind::Chest).item(0, sword()).editable(0);
+        open_editable(&mut w, s, menu, write_store);
+        let stick = w.id(s, C::CombinedHotBarAndInventory, STORE);
+        let (_, net) = shown(&w, s, 0);
+        // A crafted request: a stick out of the store's slot and back, then the sword taken.
+        let actions = vec![
+            take(
+                1,
+                at(C::CombinedHotBarAndInventory, STORE, stick),
+                at(C::CombinedHotBarAndInventory, 1, 0),
+            ),
+            place(
+                1,
+                at(C::CombinedHotBarAndInventory, 1, -1),
+                at(C::CombinedHotBarAndInventory, STORE, -1),
+            ),
+            take_from_menu(0, net),
+        ];
+        assert!(!ok(&w.request_as(s, -1, actions.clone())));
+        if twice {
+            assert!(!ok(&w.request_as(s, -1, actions)));
+        }
+        let heard_changes = changes();
+        assert_eq!(heard_changes.len(), 1, "the handler hears it once");
+        let main = crate::event::Inventory::Player(crate::inventory::Kind::Main);
+        assert!(
+            heard_changes[0]
+                .changes()
+                .iter()
+                .all(|c| c.inventory() != main),
+            "no main slot changes"
+        );
+        assert_eq!(
+            w.inv(s).main.stack(STORE),
+            &sticks(3),
+            "the store is as it was"
+        );
+        assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sword());
+        // A change that does not name the store's slot is written and made.
+        let (_, net) = shown(&w, s, 0);
+        assert!(ok(&w.request_as(s, -3, vec![take_from_menu(0, net)])));
+        assert_eq!(w.inv(s).main.stack(STORE), &sticks(1));
+        assert_eq!(w.inv(s).cursor.stack(0), &sword());
+        w.close(s);
+        assert_eq!(w.state.menus.len(), 0);
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
 fn a_handler_refills_a_slot_once_the_change_is_made() {
     fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
         for c in change.changes() {

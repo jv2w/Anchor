@@ -537,19 +537,20 @@ fn offer(
     menu: crate::menu::Id,
     plan: &Plan,
 ) -> Result<Option<Response>> {
-    let window = state
-        .players
-        .get(&session)
-        .and_then(|p| p.inventory.window.as_ref())
-        .map(|w| w.kind);
-    let changes = events::changes(plan, window);
+    let inv = &state.players.get(&session).ok_or(Error::NoSlot)?.inventory;
+    let changes = events::changes(plan, inv.window.as_ref().map(|w| w.kind));
     if !changes
         .iter()
         .any(|c| c.inventory == crate::event::Inventory::Window)
     {
         return Ok(None);
     }
-    let change = Input::Change(Change { menu, changes });
+    let named = events::named(plan, inv);
+    let change = Input::Change(Change {
+        menu,
+        changes,
+        named,
+    });
     match menu::call(state, session, menu, change) {
         Some(Response::Refuse) | None => Err(Error::Menu),
         answer => Ok(answer),
