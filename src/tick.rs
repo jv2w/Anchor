@@ -884,20 +884,26 @@ impl State {
     /// packets the serial phases queued for it this tick, passed through the send hooks as the
     /// output phase passes them: what the player was sent in the step that removed it (before a
     /// kick, by a quit listener) reaches it, as PMMP flushes the queued packets ahead of the
-    /// disconnect packet.
+    /// disconnect packet. A player whose outbox overflowed this tick gets `packet` alone: its
+    /// outbox lost what came after it filled.
     fn close(&self, player: Player, packet: Packet, output: &mut Output) {
         let Player {
             session,
             outbound,
             outbox,
             shared_outbox,
+            overflowed,
             ..
         } = player;
-        let mut messages: Vec<Message> = outbox
-            .into_iter()
-            .map(Message::Packet)
-            .chain(shared_outbox.into_iter().map(Message::SharedPacket))
-            .collect();
+        let mut messages: Vec<Message> = if overflowed {
+            Vec::new()
+        } else {
+            outbox
+                .into_iter()
+                .map(Message::Packet)
+                .chain(shared_outbox.into_iter().map(Message::SharedPacket))
+                .collect()
+        };
         hook::send(self.hooks.send(), &self.settings, session, &mut messages);
         output.closes.push((outbound, messages, packet));
     }
@@ -1291,16 +1297,13 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
                 session = session.get(),
                 "too many packets queued in one tick; disconnecting"
             );
-            // Not `State::close`: the outbox lost what came after it filled, so none of it goes.
-            output.close(
-                p.outbound,
-                Packet::Disconnect(Disconnect {
-                    reason: i32::from(DisconnectReason::Unknown),
-                    hide_disconnection_screen: false,
-                    message: String::new(),
-                    filtered_message: String::new(),
-                }),
-            );
+            let disconnect = Packet::Disconnect(Disconnect {
+                reason: i32::from(DisconnectReason::Unknown),
+                hide_disconnection_screen: false,
+                message: String::new(),
+                filtered_message: String::new(),
+            });
+            state.close(p, disconnect, output);
         }
     }
 }

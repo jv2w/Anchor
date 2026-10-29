@@ -1519,6 +1519,22 @@ pub(super) mod tests {
         assert!(matches!(close, Some(Packet::Disconnect(_))));
     }
 
+    /// An outbox that overflowed lost what came after it filled, so none of it goes, kicked or
+    /// not: the player gets the `Disconnect` alone.
+    #[test]
+    fn a_player_kicked_with_an_overflowed_outbox_gets_only_its_disconnect() {
+        let (mut state, [mut rx1, _rx2]) = two();
+        let p = player_mut(&mut state, 1);
+        for _ in 0..=super::super::MAX_OUTBOX {
+            p.send(Message::Raw("spam".to_owned())).unwrap();
+        }
+        p.kick("bye").unwrap();
+        run(&mut state, Vec::new());
+        let (packets, close, _) = received(&mut rx1);
+        assert!(packets.is_empty(), "{} packets", packets.len());
+        assert!(matches!(close, Some(Packet::Disconnect(_))));
+    }
+
     // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight, Player::setScreenLineHeight, Player
     #[test]
     fn the_address_view_distance_and_line_height_read_the_session() {
