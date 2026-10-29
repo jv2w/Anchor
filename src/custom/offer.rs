@@ -8,6 +8,15 @@ use crate::item::Stack;
 
 /// The price multiplier BDS gives most offers (P6, `xtask/data/p6/facts.md`).
 pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
+/// The largest trade counter, as an NBT `TAG_Int` saves it: an offer's
+/// [`max_uses`](Offer::max_uses), [`uses`](Offer::uses) and
+/// [`trader_experience`](Offer::trader_experience), a villager's trade experience
+/// ([`Context::set_trade_experience`]) and each tier's need
+/// ([`Context::set_trade_tier_experience`]).
+///
+/// [`Context::set_trade_experience`]: crate::Context::set_trade_experience
+/// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience
+pub const MAX_TRADE_COUNTER: u32 = i32::MAX.cast_unsigned();
 
 /// One trade a villager offers: what the player pays (one or two stacks, their counts are the
 /// price) and what one trade gives, with its limits and rewards.

@@ -26,7 +26,7 @@
 
 use tracing::warn;
 
-use crate::custom::Registry;
+use crate::custom::{MAX_TRADE_COUNTER, Registry};
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
@@ -45,8 +45,6 @@ pub(in crate::tick) const MAX_OFFERS: usize = 128;
 pub(in crate::tick) const MAX_SAVED_BYTES: usize = 2 << 20;
 /// The experience each tier needs, as BDS sends it (P6).
 const DEFAULT_TIER_EXPERIENCE: [u32; TIERS] = [0, 10, 70, 150, 250];
-/// The largest value an NBT `TAG_Int` counter holds.
-const MAX_INT: u32 = i32::MAX.cast_unsigned();
 
 /// The offers (both forms).
 const RECIPES: &str = "Recipes";
@@ -225,7 +223,10 @@ impl Recipe {
         if self.sell.is_empty() {
             return Err(Error::NoSale);
         }
-        if self.max_uses > MAX_INT || self.uses > self.max_uses || self.trader_exp > MAX_INT {
+        if self.max_uses > MAX_TRADE_COUNTER
+            || self.uses > self.max_uses
+            || self.trader_exp > MAX_TRADE_COUNTER
+        {
             return Err(Error::Uses);
         }
         if self.tier > MAX_TIER {
@@ -643,7 +644,7 @@ impl Offers {
     /// Sets the villager's trade experience (at most `i32::MAX`, as saved); the tier stays until
     /// a trade reaches the next one.
     pub(in crate::tick) fn set_experience(&mut self, experience: u32) -> Result<()> {
-        if experience > MAX_INT {
+        if experience > MAX_TRADE_COUNTER {
             return Err(Error::Experience);
         }
         self.experience = experience;
@@ -652,7 +653,9 @@ impl Offers {
 
     /// Sets the experience each tier needs (non-decreasing, at most `i32::MAX`).
     pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TIERS]) -> Result<()> {
-        if tiers.windows(2).any(|w| w.first() > w.get(1)) || tiers.iter().any(|&x| x > MAX_INT) {
+        if tiers.windows(2).any(|w| w.first() > w.get(1))
+            || tiers.iter().any(|&x| x > MAX_TRADE_COUNTER)
+        {
             return Err(Error::TierExperience);
         }
         self.tier_experience = tiers;
@@ -673,10 +676,10 @@ impl Offers {
         if self.first_net_id.is_some() {
             return;
         }
-        let len = u32::try_from(self.recipes.len()).unwrap_or(MAX_INT);
+        let len = u32::try_from(self.recipes.len()).unwrap_or(MAX_TRADE_COUNTER);
         let start = (*next).max(first);
         let start = match start.checked_add(len) {
-            Some(end) if end <= MAX_INT => start,
+            Some(end) if end <= MAX_TRADE_COUNTER => start,
             _ => first,
         };
         *next = start.saturating_add(len);
@@ -710,7 +713,10 @@ impl Offers {
         recipe.uses = recipe.uses.saturating_add(times);
         let gained = recipe.trader_exp.saturating_mul(times);
         let reward_exp = recipe.reward_exp;
-        self.experience = self.experience.saturating_add(gained).min(MAX_INT);
+        self.experience = self
+            .experience
+            .saturating_add(gained)
+            .min(MAX_TRADE_COUNTER);
         while self.tier < MAX_TIER
             && self
                 .tier_experience
@@ -1269,7 +1275,7 @@ pub(in crate::tick) mod tests {
     #[test]
     fn network_ids_stay_in_int_range() {
         let mut offers = sample();
-        let mut next = MAX_INT - 1;
+        let mut next = MAX_TRADE_COUNTER - 1;
         offers.allocate_net_ids(&mut next, 4769);
         assert_eq!(offers.first_net_id, Some(4769), "the counter starts over");
         assert_eq!(next, 4772);
@@ -1310,9 +1316,9 @@ pub(in crate::tick) mod tests {
         assert!(offers.tradable(0).is_none());
         assert_eq!(offers.apply(0, 1).unwrap().times, 0);
         // Enough experience at once passes several tiers, up to 4.
-        offers.recipes[1].trader_exp = MAX_INT;
+        offers.recipes[1].trader_exp = MAX_TRADE_COUNTER;
         offers.apply(1, 2).unwrap();
-        assert_eq!((offers.tier, offers.experience), (4, MAX_INT));
+        assert_eq!((offers.tier, offers.experience), (4, MAX_TRADE_COUNTER));
         assert_eq!(offers.apply(9, 1), None);
     }
 

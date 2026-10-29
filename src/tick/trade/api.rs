@@ -158,8 +158,8 @@ impl Context<'_> {
         change(self.state, villager, |o| o.set_tier(tier))
     }
 
-    /// Sets the villager's trade experience (at most `i32::MAX`); its tier stays until a trade
-    /// reaches the next one. Players who see it are shown the new value.
+    /// Sets the villager's trade experience (at most [`custom::MAX_TRADE_COUNTER`]); its tier
+    /// stays until a trade reaches the next one. Players who see it are shown the new value.
     pub fn set_trade_experience(
         &mut self,
         villager: Id,
@@ -168,8 +168,8 @@ impl Context<'_> {
         change(self.state, villager, |o| o.set_experience(experience))
     }
 
-    /// Sets the trade experience each tier needs (never going down, at most `i32::MAX`; BDS's
-    /// are 0, 10, 70, 150 and 250).
+    /// Sets the trade experience each tier needs (never going down, at most
+    /// [`custom::MAX_TRADE_COUNTER`]; BDS's are 0, 10, 70, 150 and 250).
     pub fn set_trade_tier_experience(
         &mut self,
         villager: Id,
