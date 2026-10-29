@@ -308,7 +308,7 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
                 }
             }
             let (packet, quit_message) = leave.into_parts();
-            quit(state, session, &reason, quit_message, false);
+            quit(state, session, &reason, quit_message, QuitCause::Disconnect);
             if let Some(p) = state.remove(session) {
                 state.close(p, packet, output);
             }
@@ -335,20 +335,28 @@ fn apply_marks(state: &mut State, session: SessionId) {
     survival::sync(state, session);
 }
 
+/// Why a player quits, as [`PlayerQuit::is_shutdown`] tells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum QuitCause {
+    /// It left, was kicked or replaced, or its connection ended.
+    Disconnect,
+    /// The server stops.
+    Shutdown,
+}
+
 /// The player of `session` is about to leave for `reason` (PMMP `Player::onPostDisconnect`):
 /// the [`PlayerQuit`] listeners may change `quit_message`, then what the API marked on the
 /// player, the listeners' marks included, takes effect (PMMP saves after the event, so a teleport
 /// is the saved place and a kill dies with its drops), then every other online player sees the
 /// message in chat: [`LEFT`] as BDS's translated line with the player's name, an empty one not at
-/// all, any other as it is. `shutdown` tells a quit because the server stops. Call it just before
-/// the player is removed, in the tick's serial step. A player still loading its data has not
-/// joined, so it raises nothing.
+/// all, any other as it is. Call it just before the player is removed, in the tick's serial step.
+/// A player still loading its data has not joined, so it raises nothing.
 pub(super) fn quit(
     state: &mut State,
     session: SessionId,
     reason: &str,
     quit_message: String,
-    shutdown: bool,
+    cause: QuitCause,
 ) {
     let Some(name) = state
         .players
@@ -364,7 +372,7 @@ pub(super) fn quit(
             player: Id::new(session),
             quit_message,
             quit_reason: reason.to_owned(),
-            shutdown,
+            shutdown: cause == QuitCause::Shutdown,
         });
         dispatch::call(state, e);
         e.quit_message.clone()

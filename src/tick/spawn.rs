@@ -842,7 +842,7 @@ fn replace(
         existing,
         reason,
         super::player::LEFT.to_owned(),
-        false,
+        super::player::QuitCause::Disconnect,
     );
     if let Some(old) = state.remove(existing) {
         info!(
