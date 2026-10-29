@@ -21,7 +21,9 @@ use super::{Error, Result};
 /// (`save::seal_terrain`), and extras lists are in pages. The main file holds the operators,
 /// bans, whitelist and the user's server data; the players have a file of their own. A world
 /// record holds the world's spawn after its number and time. A read limit raised alone (more
-/// entries a list may hold) keeps the version: every file of the format still reads the same.
+/// entries a list may hold), or an optional key read where no file of the format has it (an
+/// entity key a new kind of entity takes), keeps the version: every file of the format still
+/// reads the same.
 pub(crate) const FORMAT_VERSION: u16 = 11;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5

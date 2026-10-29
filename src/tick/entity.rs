@@ -873,6 +873,7 @@ fn hash_character(h: &mut super::Fnv, c: &Character) {
         attack_time,
         last_damage,
         dead_ticks,
+        data,
     } = c;
     match form {
         Form::Villager {
@@ -903,12 +904,12 @@ fn hash_character(h: &mut super::Fnv, c: &Character) {
                 None => h.u64(u64::MAX),
             }
         }
-        Form::Custom(kind::Custom { spec, data }) => {
+        Form::Custom(kind::Custom { spec }) => {
             h.u64(2);
             h.u64(u64::from(spec.index));
-            super::extra::hash_nbt(h, data);
         }
     }
+    super::extra::hash_nbt(h, data);
     h.u64(u64::from(*invulnerable));
     h.u64(u64::from(*attack_time));
     h.u64(last_damage.to_bits());

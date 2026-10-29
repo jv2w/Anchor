@@ -256,7 +256,7 @@ impl Customs {
     }
 }
 
-/// Whether `data` may be a custom entity's: its saved form takes at most [`MAX_DATA_BYTES`].
+/// Whether `data` may be an NPC's: its saved form takes at most [`MAX_DATA_BYTES`].
 /// Writing stops as it passes the limit, so a huge compound costs no more than the limit.
 pub(super) fn fits(data: &Compound) -> bool {
     let mut w = Writer::new(Vec::with_capacity(MAX_DATA_BYTES), 0);
@@ -264,14 +264,15 @@ pub(super) fn fits(data: &Compound) -> bool {
         .is_ok()
 }
 
-/// The kind of a new custom entity of `spec` with `data`: alive, not invulnerable.
-pub(super) fn kind(spec: Arc<Spec>, data: Compound) -> Kind {
+/// The kind of a new custom entity of `spec`: alive, not invulnerable, with empty data.
+pub(super) fn kind(spec: Arc<Spec>) -> Kind {
     Kind::Npc(Character {
-        form: Form::Custom(Custom { spec, data }),
+        form: Form::Custom(Custom { spec }),
         invulnerable: false,
         attack_time: 0,
         last_damage: 0.0,
         dead_ticks: None,
+        data: Compound::new(),
     })
 }
 
@@ -384,7 +385,7 @@ impl Context<'_> {
         let w = index(self.state, world)
             .filter(|_| is_placeable(pos))
             .ok_or(Error::NotSpawned)?;
-        let kind = kind(spec, Compound::new());
+        let kind = kind(spec);
         create(self.state, w, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0)).ok_or(Error::NotSpawned)
     }
 }
@@ -395,24 +396,26 @@ impl Entity {
         self.kind.custom().map(|c| c.spec.identifier.as_str())
     }
 
-    /// A custom entity's data, saved with it (empty until set).
+    /// An NPC's data, saved with it (empty until set): a custom entity's, a villager's
+    /// ([`Context::spawn_villager`]), a human's ([`Context::spawn_human`]) or a zombie's. `None`
+    /// for another kind.
     pub fn custom_data(&self) -> Option<&Compound> {
-        self.kind.custom().map(|c| &c.data)
+        match &self.kind {
+            Kind::Npc(c) => Some(&c.data),
+            _ => None,
+        }
     }
 }
 
 impl Mut<'_> {
-    /// Sets a custom entity's data, saved with it. False, changing nothing, for another kind or
-    /// data whose saved form takes more than 4,096 bytes.
+    /// Sets an NPC's data ([`Entity::custom_data`]), saved with it. False, changing nothing, for
+    /// another kind or data whose saved form takes more than 4,096 bytes.
     pub fn set_custom_data(&mut self, data: Compound) -> bool {
-        if self.kind.custom().is_none() || !fits(&data) {
+        if !matches!(self.kind, Kind::Npc(_)) || !fits(&data) {
             return false;
         }
         match &mut self.entity().kind {
-            Kind::Npc(Character {
-                form: Form::Custom(c),
-                ..
-            }) => {
+            Kind::Npc(c) => {
                 c.data = data;
                 true
             }

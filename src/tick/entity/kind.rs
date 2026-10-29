@@ -268,6 +268,8 @@ pub(super) struct Character {
     pub(super) last_damage: f64,
     /// Ticks since it died (PMMP `deadTicks`); `None` while alive.
     pub(super) dead_ticks: Option<u8>,
+    /// The user's payload, saved (at most [`super::custom::MAX_DATA_BYTES`] encoded).
+    pub(super) data: Compound,
 }
 
 /// Ticks a dead NPC shows its death before it goes (PMMP `Living::$maxDeadTicks`).
@@ -307,8 +309,6 @@ pub(super) enum Form {
 pub(super) struct Custom {
     /// Its type.
     pub(super) spec: Arc<Spec>,
-    /// The user's payload, saved (at most [`super::custom::MAX_DATA_BYTES`] encoded).
-    pub(super) data: Compound,
 }
 
 variants!(Kind {
@@ -407,6 +407,7 @@ fields!(Character {
     attack_time,
     last_damage,
     dead_ticks,
+    data,
 });
 variants!(Form {
     0 => Villager {
@@ -422,9 +423,8 @@ variants!(Form {
 /// A custom entity's type by its identifier, found again among the server's custom types.
 impl Codec for Custom {
     fn encode(&self, w: &mut Writer) {
-        let Self { spec, data } = self;
+        let Self { spec } = self;
         spec.identifier.encode(w);
-        data.encode(w);
     }
 
     fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
@@ -434,10 +434,7 @@ impl Codec for Custom {
             .find(&identifier)
             .cloned()
             .ok_or(checkpoint::Error::Format("custom entity type"))?;
-        Ok(Self {
-            spec,
-            data: Codec::decode(r)?,
-        })
+        Ok(Self { spec })
     }
 }
 

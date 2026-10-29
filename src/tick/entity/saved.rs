@@ -29,12 +29,12 @@
 //! - firework rockets are never saved (PMMP `NeverSavedWithChunkEntity`);
 //! - clouds: PMMP's `AreaEffectCloud` keys; `SpawnTick` is minus the cloud's age (the world clock
 //!   is not at hand here; only the difference is read back);
-//! - NPCs: `Health` (float), `Invulnerable` (byte); villagers `Profession` (int) and `Offers`
+//! - NPCs: `Health` (float), `Invulnerable` (byte) and, when not empty, `AnchorData` (the user's
+//!   compound, at most [`custom::MAX_DATA_BYTES`]); villagers `Profession` (int) and `Offers`
 //!   (the offer list, [`Offers::to_nbt`]); human NPCs their name as the name tag and, with a skin,
 //!   PMMP's `Skin` compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin
 //!   that does not pass [`Skin`]'s checks loads as the default skin);
-//! - custom entities: the type's identifier, the NPC keys and, when not empty, `AnchorData` (the
-//!   user's compound, at most [`custom::MAX_DATA_BYTES`]). One whose type the server does not
+//! - custom entities: the type's identifier and the NPC keys. One whose type the server does not
 //!   register is not an entity here (like an unknown block) and stays as saved.
 //!
 //! Runtime and unique IDs are not saved: they are numbers of one run; so are the owner of a
@@ -83,8 +83,7 @@ pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
 pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
 /// The longest effect a cloud gives, in ticks (PMMP's longest potion is 9,600).
 const MAX_EFFECT_TICKS: i32 = 1_000_000;
-/// The key of a custom entity's data (Anchor's: PMMP keeps plugin data in the entity's own
-/// compound).
+/// The key of an NPC's data (Anchor's: PMMP keeps plugin data in the entity's own compound).
 pub(super) const DATA_KEY: &str = "AnchorData";
 /// What a saved compound describes, before the store gives it a slot.
 #[derive(Debug, Clone, PartialEq)]
@@ -203,11 +202,14 @@ pub(super) fn save(entity: &Entity) -> Compound {
     c
 }
 
-/// An NPC's keys: its health, `Invulnerable` and its form's own (PMMP `Living::saveNBT`,
-/// `Villager::saveNBT`, `Human::saveNBT`; a custom entity's data).
+/// An NPC's keys: its health, `Invulnerable`, its data and its form's own (PMMP
+/// `Living::saveNBT`, `Villager::saveNBT`, `Human::saveNBT`).
 fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
     put("Health", Value::Float(to_f32(health)));
     put("Invulnerable", Value::Byte(u8::from(npc.invulnerable)));
+    if !npc.data.is_empty() {
+        put(DATA_KEY, Value::Compound(npc.data.clone()));
+    }
     match &npc.form {
         Form::Villager {
             profession,
@@ -224,11 +226,7 @@ fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
                 put("Skin", Value::Compound(save_skin(skin)));
             }
         }
-        Form::Custom(custom) => {
-            if !custom.data.is_empty() {
-                put(DATA_KEY, Value::Compound(custom.data.clone()));
-            }
-        }
+        Form::Custom(_) => {}
     }
 }
 
@@ -494,8 +492,8 @@ fn load_kind(
                 },
                 baby: is_baby(c),
             },
-        )),
-        "minecraft:zombie" | "Zombie" => Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) })),
+        )?),
+        "minecraft:zombie" | "Zombie" => Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) })?),
         "Human" => Kind::Npc(load_npc(
             c,
             Form::Human {
@@ -505,7 +503,7 @@ fn load_kind(
                     _ => None,
                 },
             },
-        )),
+        )?),
         _ => load_custom(c, identifier, types)?,
     })
 }
@@ -785,16 +783,10 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
 }
 
 /// A custom entity of the registered type `identifier` (`None` for a type the server does not
-/// have, or data over [`custom::MAX_DATA_BYTES`]): an NPC's keys and its data.
+/// have): an NPC's keys.
 fn load_custom(c: &Compound, identifier: &str, types: &EntityTypes) -> Option<Kind> {
-    let spec = types.find(identifier)?;
-    let data = match c.get(DATA_KEY) {
-        Some(Value::Compound(data)) if custom::fits(data) => data.clone(),
-        Some(_) => return None,
-        None => Compound::new(),
-    };
-    let spec = Arc::clone(spec);
-    Some(Kind::Npc(load_npc(c, Form::Custom(Custom { spec, data }))))
+    let spec = Arc::clone(types.find(identifier)?);
+    Some(Kind::Npc(load_npc(c, Form::Custom(Custom { spec }))?))
 }
 
 /// Bedrock's baby flag of a mob (`IsBaby`).
@@ -805,15 +797,21 @@ fn is_baby(c: &Compound) -> bool {
     matches!(c.get(BABY), Some(Value::Byte(b)) if *b != 0)
 }
 
-/// An NPC's keys.
-fn load_npc(c: &Compound, form: Form) -> Character {
-    Character {
+/// An NPC's keys; `None` for data over [`custom::MAX_DATA_BYTES`].
+fn load_npc(c: &Compound, form: Form) -> Option<Character> {
+    let data = match c.get(DATA_KEY) {
+        Some(Value::Compound(data)) if custom::fits(data) => data.clone(),
+        Some(_) => return None,
+        None => Compound::new(),
+    };
+    Some(Character {
         form,
         invulnerable: matches!(c.get("Invulnerable"), Some(Value::Byte(b)) if *b != 0),
         attack_time: 0,
         last_damage: 0.0,
         dead_ticks: None,
-    }
+        data,
+    })
 }
 
 /// The despawn delay a saved `Age` gives (PMMP: `-32768` never, otherwise 6000 minus the age, at
@@ -1071,6 +1069,7 @@ pub(super) mod tests {
                 attack_time: 0,
                 last_damage: 0.0,
                 dead_ticks: None,
+                data: Compound::from([("npc".to_owned(), Value::String("shop".to_owned()))]),
             }),
             Kind::Npc(Character {
                 form: Form::Human {
@@ -1081,6 +1080,7 @@ pub(super) mod tests {
                 attack_time: 0,
                 last_damage: 0.0,
                 dead_ticks: None,
+                data: Compound::new(),
             }),
             Kind::Npc(Character {
                 form: Form::Zombie { baby: true },
@@ -1088,6 +1088,7 @@ pub(super) mod tests {
                 attack_time: 0,
                 last_damage: 0.0,
                 dead_ticks: None,
+                data: Compound::new(),
             }),
             Kind::Npc(Character {
                 form: Form::Zombie { baby: false },
@@ -1095,6 +1096,7 @@ pub(super) mod tests {
                 attack_time: 0,
                 last_damage: 0.0,
                 dead_ticks: None,
+                data: Compound::new(),
             }),
             Kind::Painting(Painting {
                 motive: PaintingMotive::Kebab,
@@ -1203,6 +1205,7 @@ pub(super) mod tests {
                 attack_time: 0,
                 last_damage: 0.0,
                 dead_ticks: Some(0),
+                data: Compound::new(),
             }),
             Vec3::new(5.25, -59.5, -3.75),
         );

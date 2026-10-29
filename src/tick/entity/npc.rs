@@ -32,6 +32,7 @@ use crate::config::GameMode;
 use crate::entity::Id;
 use crate::event::{CombustSource, DamageSource};
 use crate::math::Vec3;
+use crate::nbt::Compound;
 use crate::protocol::Uuid;
 use crate::protocol::consts::{AnimateAction, HandSlot};
 use crate::protocol::packet::{Animate, Packet};
@@ -70,6 +71,7 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
         attack_time: 0,
         last_damage: 0.0,
         dead_ticks: None,
+        data: Compound::new(),
     });
     let id = create(state, world, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0))?;
     with(state, id, |e| e.name_tag = name);
@@ -316,7 +318,7 @@ mod tests {
     use super::super::tests::{Harness, TEST_HOOKS, adds, at, calls, standing};
     use super::*;
     use crate::item::Enchantment;
-    use crate::nbt::{Compound, Value};
+    use crate::nbt::Value;
     use crate::protocol::MetadataValue::Int32;
     use crate::protocol::consts::EntityDataKey as K;
     use crate::protocol::consts::{ActorEvent, SoundEvent};
@@ -435,6 +437,39 @@ mod tests {
             first[1].get("CustomName"),
             Some(&Value::String("Guide".to_owned()))
         );
+    }
+
+    #[test]
+    fn villager_human_and_zombie_npcs_keep_their_custom_data_through_a_save() {
+        let mut h = Harness::new(1);
+        let npcs = [
+            villager(&mut h, at(1.5, -60.0, 1.5)),
+            human(&mut h, at(3.5, -60.0, 1.5), "Guide"),
+            zombie(&mut h, at(5.5, -60.0, 1.5)),
+        ];
+        let mark = Compound::from([("npc".to_owned(), Value::String("enforce".to_owned()))]);
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        for id in npcs {
+            assert_eq!(cx.entity(id).unwrap().custom_data(), Some(&Compound::new()));
+            assert!(cx.entity_mut(id).unwrap().set_custom_data(mark.clone()));
+            assert_eq!(cx.entity(id).unwrap().custom_data(), Some(&mark));
+        }
+        let key = (0, ChunkPos::new(0, 0));
+        let all = h.state.rules.entities.unload(key).expect("changed");
+        h.state
+            .rules
+            .entities
+            .load_list(key, &all, &crate::custom::Registry::default());
+        let entities = &h.state.rules.entities;
+        let loaded: Vec<_> = entities
+            .ids()
+            .filter_map(|id| entities.get(id))
+            .filter(|e| matches!(e.kind, Kind::Npc(_)))
+            .map(|e| e.custom_data().cloned())
+            .collect();
+        assert_eq!(loaded, vec![Some(mark); 3]);
     }
 
     // pmmp: Player::interactEntity
