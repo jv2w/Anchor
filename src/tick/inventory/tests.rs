@@ -1522,8 +1522,10 @@ fn open_model_menu(w: &mut World, s: SessionId, k: u32) {
         state: &mut w.state,
     }
     .open_menu(crate::player::Id::new(s), menu, |cx, player, input| {
-        let crate::menu::Input::Click(click) = input else {
-            panic!("no slot is editable: {input:?}");
+        let click = match input {
+            crate::menu::Input::Click(click) => click,
+            crate::menu::Input::Close(_) => return crate::menu::Response::Keep,
+            crate::menu::Input::Change(_) => panic!("no slot is editable: {input:?}"),
         };
         MENU_CLICKS.set(MENU_CLICKS.get() + 1);
         cx.set_menu_item(player, click.slot(), click.cursor().clone())

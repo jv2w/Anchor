@@ -183,7 +183,7 @@ fn open_shop(cx: &mut Context<'_>, id: player::Id) {
         shop = shop.item(slot, item(name, count));
     }
     or_log(cx.open_menu(id, shop, |cx, id, input| {
-        // The shop has no editable slots: every input is a click.
+        // The shop has no editable slots: every input but the close is a click.
         let Input::Click(click) = input else {
             return menu::Response::Keep;
         };

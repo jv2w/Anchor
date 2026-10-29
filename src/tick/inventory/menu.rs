@@ -15,9 +15,10 @@
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
-//! it; closing gives the cursor back, drops the menu's items (a copy of what its handler kept),
-//! shows the blocks it stood on again and calls nothing. Menus raise no events of their own; a
-//! change raises the request's events, the menu's slots as the window's.
+//! it; closing drops the menu's items (a copy of what its handler kept), shows the blocks it
+//! stood on again, hands the handler the cursor's stack ([`crate::menu::Close`], but for a direct
+//! call's close) and gives it back unless the handler took it. Menus raise no events of their
+//! own; a change raises the request's events, the menu's slots as the window's.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -52,7 +53,8 @@ const MAX_DISTANCE_SQUARED: f64 = 64.0;
 const BEHIND_HORIZONTAL: f64 = 1.6;
 const BEHIND_VERTICAL: f64 = 2.8;
 
-/// What runs when the player clicks a menu slot or changes its editable slots.
+/// What runs when the player clicks a menu slot or changes its editable slots, and when the menu
+/// closes.
 type Handler = Box<dyn FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send>;
 
 /// The click handlers of the open menus, by session: one per player with a menu open, kept in
@@ -141,13 +143,14 @@ impl Context<'_> {
     /// throws them) or between editable slots is checked as in a chest window, then calls
     /// `handler` once with its changes ([`Input::Change`]) before they are made. The handler's
     /// [`Response`] makes a change and keeps the menu open or closes it, or refuses the change. A
-    /// window the player had open closes first.
+    /// window the player had open closes first, as [`close_window`](Self::close_window) closes it.
     ///
     /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
     /// places them), and opens two ticks later, once the client has them. It closes as any
     /// window does ([`close_window`](Self::close_window) closes it from the server) and when the
-    /// player gets more than 8 blocks away; the blocks it stood on show again then. Neither
-    /// opening nor closing raises an event or calls the handler.
+    /// player gets more than 8 blocks away; the blocks it stood on show again then, and the
+    /// handler hears of the close ([`Input::Close`]) unless a direct call closed it. Neither
+    /// opening nor closing raises an event.
     ///
     /// Fails, opening nothing, if the player is not in the game, waits with stacks for room in its
     /// inventory, has 4,096 fake block changes waiting this tick or was given `u32::MAX` menus
@@ -373,24 +376,45 @@ pub(in crate::tick) fn tick(state: &mut State) {
         true
     });
     for session in far {
-        close_now(state, session, Notice::Send, Raise::Quiet);
+        close_now(state, session, Notice::Send, Raise::Events);
     }
     for session in ready {
         super::announce(state, session);
     }
 }
 
-/// A closed menu window: its handler goes (one that is running goes when it returns), and the
-/// blocks the menu stood on show again, with their block entity's data.
-pub(super) fn closed(state: &mut State, session: SessionId) {
-    state.menus.0.remove(&session);
+/// A closed menu window: the blocks the menu stood on show again, with their block entity's data,
+/// and its handler goes (one that is running, whose own call closed it, goes when it returns).
+/// Unless a direct call closed it (`raise`), the handler hears the close first with `cursor`, the
+/// stack taken off the player's cursor, and `by_player`. Gives what goes back to the player:
+/// `cursor`, or nothing if the handler took it.
+pub(super) fn closed(
+    state: &mut State,
+    session: SessionId,
+    cursor: Stack,
+    by_player: bool,
+    raise: Raise,
+) -> Stack {
+    let handler = state.menus.0.remove(&session);
     let Some(p) = state.players.get_mut(&session) else {
-        return;
+        return cursor;
     };
     p.inventory.menu = None;
     let old = p.view.set_menu_blocks([None, None]);
     for (pos, _) in old.into_iter().flatten() {
         view::restore_block_data(state, session, pos);
+    }
+    let (Raise::Events, Some((menu, mut handler))) = (raise, handler) else {
+        return cursor;
+    };
+    let close = Input::Close(crate::menu::Close {
+        menu,
+        cursor: cursor.clone(),
+        by_player,
+    });
+    match handler(&mut Context { state }, player::Id::new(session), close) {
+        Response::Refuse => Stack::EMPTY,
+        Response::Keep | Response::Close => cursor,
     }
 }
 
@@ -540,6 +564,6 @@ pub(super) fn clicked(state: &mut State, session: SessionId, click: Click) {
     if call(state, session, menu, Input::Click(click)) == Some(Response::Close)
         && is_open(state, session, menu)
     {
-        close_now(state, session, Notice::Send, Raise::Quiet);
+        close_now(state, session, Notice::Send, Raise::Events);
     }
 }

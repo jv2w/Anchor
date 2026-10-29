@@ -194,12 +194,13 @@ fn open(
 ) -> (m::Id, Vec<Packet>) {
     heard();
     let menu = cx(w)
-        .open_menu(id(s), menu, move |cx, player, input| {
-            let m::Input::Click(click) = input else {
-                panic!("no slot is editable: {input:?}");
-            };
-            record(&click);
-            response(cx, player, &click)
+        .open_menu(id(s), menu, move |cx, player, input| match input {
+            m::Input::Click(click) => {
+                record(&click);
+                response(cx, player, &click)
+            }
+            m::Input::Close(_) => Response::Keep,
+            m::Input::Change(_) => panic!("no slot is editable: {input:?}"),
         })
         .unwrap();
     let mut got = Vec::new();
@@ -624,6 +625,7 @@ fn open_editable(w: &mut World, s: SessionId, menu: Menu, answer: Answer) -> m::
                 CHANGES.set(c);
                 answer(cx, player, &change)
             }
+            m::Input::Close(_) => Response::Keep,
         })
         .unwrap();
     for _ in 0..3 {
@@ -1096,6 +1098,167 @@ fn closing_an_editable_menu_gives_the_cursor_back_and_leaves_the_items_to_the_ha
     assert_eq!(totals.get(&plain(it::Kind::DiamondSword)), Some(&1));
     assert_eq!(totals.get(&plain(it::Kind::Stick)), Some(&7));
     assert_eq!(w.state.menus.len(), 0);
+}
+
+thread_local! {
+    /// The closes the handlers of a test heard.
+    static CLOSES: Cell<Vec<m::Close>> = const { Cell::new(Vec::new()) };
+}
+
+/// How a test closes a menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Way {
+    Client,
+    Far,
+    OtherWindow,
+    Death,
+    Teleport,
+    Leave,
+    ChangeCloses,
+    ClickCloses,
+    CloseWindow,
+    OtherMenu,
+}
+
+/// Opens for `s` a menu with a sword in editable slot 0 and a stick in slot 1, a button: a click
+/// on it closes the menu, so does a change if `way` says so, and the handler records each close,
+/// answering `answer`. The sword is then taken onto the cursor.
+fn open_closing(w: &mut World, s: SessionId, way: Way, answer: Response) -> m::Id {
+    CLOSES.take();
+    let menu = Menu::new(MenuKind::Chest)
+        .item(0, sword())
+        .editable(0)
+        .item(1, sticks(1));
+    let menu = cx(w)
+        .open_menu(id(s), menu, move |cx, player, input| match input {
+            m::Input::Click(_) => Response::Close,
+            m::Input::Change(_) if way == Way::ChangeCloses => Response::Close,
+            m::Input::Change(_) => Response::Keep,
+            m::Input::Close(close) => {
+                assert_eq!(cx.menu(player), None, "the menu has closed");
+                let mut c = CLOSES.take();
+                c.push(close);
+                CLOSES.set(c);
+                answer
+            }
+        })
+        .unwrap();
+    for _ in 0..3 {
+        w.ack(s);
+        tick_each(w, Vec::new());
+    }
+    let (_, net) = shown(w, s, 0);
+    assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));
+    menu
+}
+
+/// Closes the menu of `s` as `way` says; `chest` is a chest beside it.
+fn close_by(w: &mut World, s: SessionId, way: Way, chest: BlockPos) {
+    match way {
+        Way::Client => w.close(s),
+        Way::Far => {
+            let eye = w.player(s).position;
+            w.player(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
+            tick_each(w, Vec::new());
+        }
+        Way::OtherWindow => w.open_block(s, chest),
+        Way::Death => {
+            // Only a spawned player dies; the test client never says it spawned.
+            w.player(s).phase = super::super::super::Phase::Spawned;
+            assert!(w.player(s).kill());
+            w.tick(Vec::new());
+        }
+        Way::Teleport => {
+            let eye = w.player(s).position;
+            let feet = Vec3::new(
+                eye.x,
+                eye.y - super::super::super::survival::EYE_HEIGHT,
+                eye.z,
+            );
+            w.player(s).teleport(crate::world::Id::of(0), feet).unwrap();
+            w.tick(Vec::new());
+        }
+        Way::Leave => {
+            // Back in, to count its items.
+            let player = w.state.remove(s).unwrap();
+            w.state.players.insert(s, player);
+        }
+        // The change that took the sword closed it.
+        Way::ChangeCloses => {}
+        Way::ClickCloses => {
+            let (_, net) = shown(w, s, 1);
+            assert!(!ok(&w.request(s, vec![take_from_menu(1, net)])));
+        }
+        Way::CloseWindow => assert!(cx(w).close_window(id(s))),
+        Way::OtherMenu => {
+            let other = Menu::new(MenuKind::Hopper);
+            cx(w)
+                .open_menu(id(s), other, |_, _, _| Response::Keep)
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_closing_menu_hands_its_handler_the_cursor_once_on_every_close_but_a_direct_call() {
+    let ways = [
+        Way::Client,
+        Way::Far,
+        Way::OtherWindow,
+        Way::Death,
+        Way::Teleport,
+        Way::Leave,
+        Way::ChangeCloses,
+        Way::ClickCloses,
+        Way::CloseWindow,
+        Way::OtherMenu,
+    ];
+    for way in ways {
+        for take in [false, true] {
+            let mut listeners = crate::event::Listeners::default();
+            listeners.push(
+                crate::event::Priority::Normal,
+                |e: &mut crate::event::PlayerDeath, _: &mut Context<'_>| {
+                    e.set_keep_inventory(true);
+                },
+            );
+            let mut w = World::with_listeners(GameMode::Survival, listeners);
+            let s = w.join(1);
+            let chest = BlockPos::new(3, -60, 3);
+            w.place_block(chest, blk::Kind::Chest.default_state());
+            let answer = if take {
+                Response::Refuse
+            } else {
+                Response::Keep
+            };
+            let menu = open_closing(&mut w, s, way, answer);
+            close_by(&mut w, s, way, chest);
+            let heard = CLOSES.take();
+            let direct = matches!(way, Way::CloseWindow | Way::OtherMenu);
+            if direct {
+                assert!(heard.is_empty(), "{way:?}: a direct call calls no handler");
+            } else {
+                let [close] = heard.as_slice() else {
+                    panic!("{way:?}: one close: {heard:?}");
+                };
+                assert_eq!(close.menu(), menu);
+                assert_eq!(close.cursor(), &sword(), "{way:?}");
+                assert_eq!(close.is_by_player(), way == Way::Client, "{way:?}");
+            }
+            assert_ne!(cx(&mut w).menu(id(s)), Some(menu), "{way:?}");
+            assert!(w.inv(s).cursor.stack(0).is_empty(), "{way:?}");
+            let swords = totals(&w.state)
+                .get(&plain(it::Kind::DiamondSword))
+                .copied()
+                .unwrap_or(0);
+            let taken = u64::from(take && !direct);
+            assert_eq!(
+                swords + taken,
+                1,
+                "{way:?}, taken {take}: the sword is the player's or the handler's, once"
+            );
+        }
+    }
 }
 
 #[test]

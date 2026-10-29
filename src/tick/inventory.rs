@@ -2358,14 +2358,16 @@ fn close(state: &mut State, session: SessionId, notice: Notice) {
 
 /// Closes the window of `session` (telling the client as `notice` says) and gives the cursor,
 /// the grid and the window's own slots back (PMMP `doCloseInventory`), raising no inventory
-/// event; a chest-like block's close sound raises `WorldSound` if `raise` says so.
+/// event; if `raise` says so, a chest-like block's close sound raises `WorldSound` and a menu's
+/// handler hears of the close ([`menu::closed`]).
 fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     let window = player.inventory.window.take();
+    // Out of the slots before a menu's handler runs, so nothing it calls reaches the stack.
+    let [cursor] = std::mem::take(&mut player.inventory.cursor).stacks;
     let mut back: Vec<Stack> = Vec::with_capacity(MAX_GIVE_BACK);
-    player.inventory.cursor.take_all(&mut back);
     player.inventory.grid.take_all(&mut back);
     if let Some(w) = &window {
         back.extend(
@@ -2382,7 +2384,7 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
             player.inventory.pending_close = Some(w.id);
         }
     }
-    if !back.is_empty() {
+    if !cursor.is_empty() || !back.is_empty() {
         // The client clears these slots itself when a window closes; say so anyway.
         let ui = ui_content(&player.inventory);
         player.send_packet(content_packet(WINDOW_ID_UI, ui));
@@ -2404,11 +2406,21 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
             block_entity::lid_sound(state, world, pos, 0, raise);
         }
     }
+    let kind = window.map(|w| w.kind);
+    let cursor = match kind {
+        // Only the client closes a menu without a notice.
+        Some(WindowKind::Menu { .. }) => {
+            menu::closed(state, session, cursor, notice == Notice::Skip, raise)
+        }
+        _ => cursor,
+    };
+    if !cursor.is_empty() {
+        // First, so that the cursor's stack takes the first room, then the grid's and the window's.
+        back.insert(0, cursor);
+    }
     give_back(state, session, back);
-    match window.map(|w| w.kind) {
-        Some(WindowKind::Trade { .. }) => trade::closed(state, session),
-        Some(WindowKind::Menu { .. }) => menu::closed(state, session),
-        _ => {}
+    if let Some(WindowKind::Trade { .. }) = kind {
+        trade::closed(state, session);
     }
 }
 

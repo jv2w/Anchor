@@ -223,7 +223,8 @@ impl Context<'_> {
 
     /// Closes the player's window, a menu too: the cursor, the crafting grid and the window's own
     /// slots go back to its inventory (what does not fit drops), and a menu's blocks show again.
-    /// False if the player has left or has no window open. Raises no event.
+    /// False if the player has left or has no window open. Raises no event and calls no menu
+    /// handler ([`menu::Close`](crate::menu::Close) says how to keep the cursor's stack).
     #[doc(alias = "Player::removeCurrentWindow")]
     pub fn close_window(&mut self, player: crate::player::Id) -> bool {
         let session = player.session();

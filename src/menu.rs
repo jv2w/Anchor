@@ -15,9 +15,10 @@
 //! Before a request that changes a menu slot is made, the handler hears of its changes with a
 //! [`Change`] and answers whether it is made ([`Response`]); a refused one changes nothing. The
 //! menu's items are a copy of what the handler keeps: no change reaches them unless the handler
-//! kept it, so the handler holds every item the menu holds, and closing the menu drops the copy
-//! without calling the handler. The cursor and the player's slots are the player's: closing gives
-//! the cursor back as any window does.
+//! kept it, so the handler holds every item the menu holds, and closing the menu drops the copy.
+//! The cursor and the player's slots are the player's: closing gives the cursor back as any window
+//! does, once the handler has heard of the close with a [`Close`] and has not taken the cursor's
+//! stack into what it keeps.
 //!
 //! ```
 //! use anchor::Context;
@@ -205,6 +206,10 @@ pub enum Input {
     Click(Click),
     /// A change of editable slots, not made yet.
     Change(Change),
+    /// The menu closed, for any reason but a direct call
+    /// ([`Context::close_window`](crate::Context::close_window), or
+    /// [`Context::open_menu`](crate::Context::open_menu) opening another menu in its place).
+    Close(Close),
 }
 
 /// A click on a menu slot that is not editable. Nothing moved: the menu and the player's slots
@@ -297,16 +302,55 @@ impl Change {
     }
 }
 
+/// A menu that closed, as its handler hears it once its window is gone: the stack the player
+/// held on its cursor is out of the player's slots, and goes back to the player as from any
+/// window when the handler returns, unless it answers [`Response::Refuse`], taking the stack
+/// into what it keeps. Nothing the handler does meanwhile reaches that stack, so whatever it
+/// answers, the stack is the player's or the handler's, once.
+///
+/// A direct call that closes the menu calls no handler: its caller takes the cursor's stack first
+/// if it keeps it ([`Player::inventory_mut`] of [`Kind::Cursor`]).
+///
+/// [`Player::inventory_mut`]: crate::player::Player::inventory_mut
+/// [`Kind::Cursor`]: crate::inventory::Kind::Cursor
+#[derive(Debug, Clone, PartialEq)]
+pub struct Close {
+    pub(crate) menu: Id,
+    pub(crate) cursor: Stack,
+    pub(crate) by_player: bool,
+}
+
+impl Close {
+    /// The menu closed.
+    pub fn menu(&self) -> Id {
+        self.menu
+    }
+
+    /// The stack on the player's cursor as the menu closed (empty if none).
+    pub fn cursor(&self) -> &Stack {
+        &self.cursor
+    }
+
+    /// Whether the player closed the menu itself; false for a close of the server's: its death,
+    /// leaving, a teleport, going more than 8 blocks away, another window, or the handler's own
+    /// [`Response::Close`].
+    pub fn is_by_player(&self) -> bool {
+        self.by_player
+    }
+}
+
 /// What a handler decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Response {
-    /// The menu stays open (a change is made).
+    /// The menu stays open (a change is made). For a close, the cursor's stack goes back to the
+    /// player.
     #[default]
     Keep,
-    /// The menu closes (a change is made first).
+    /// The menu closes (a change is made first). For a close, the same as [`Keep`](Self::Keep).
     Close,
     /// A change is not made: every slot stays as it was and the player's screen is put back. For
-    /// a click, the same as [`Keep`](Self::Keep).
+    /// a click, the same as [`Keep`](Self::Keep). For a close, the cursor's stack does not go back
+    /// to the player: the handler took it.
     Refuse,
 }
 

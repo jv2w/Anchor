@@ -352,7 +352,7 @@ fn run(
     if let (Some(Response::Close), Some(menu)) = (answer, edit)
         && menu::is_open(state, session, menu)
     {
-        close_now(state, session, Notice::Send, Raise::Quiet);
+        close_now(state, session, Notice::Send, Raise::Events);
     }
     Ok(())
 }
