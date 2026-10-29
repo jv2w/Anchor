@@ -4044,10 +4044,8 @@ fn player_viewers(state: &State) -> Vec<(SessionId, BTreeSet<SessionId>)> {
         .collect()
 }
 
-/// Shows players to each other: a player whose chunk another sees is added to it, moved, its
-/// equipment changes sent, and removed when it leaves the view, the world or the server, or is
-/// hidden from it.
-fn track_players(state: &mut State) {
+/// Removes the players no longer spawned from those who saw them.
+fn untrack_gone_players(state: &mut State) {
     let gone: Vec<SessionId> = state
         .rules
         .entities
@@ -4064,10 +4062,19 @@ fn track_players(state: &mut State) {
     for s in gone {
         if let Some(w) = state.rules.entities.watched.remove(&s) {
             send_to(&mut state.players, &w.viewers, &track::remove(w.runtime_id));
-            let bar = track::locator_removed(w.runtime_id);
-            send_to(&mut state.players, &w.viewers, &bar);
+            if state.settings.locator_bar {
+                let bar = track::locator_removed(w.runtime_id);
+                send_to(&mut state.players, &w.viewers, &bar);
+            }
         }
     }
+}
+
+/// Shows players to each other: a player whose chunk another sees is added to it, moved, its
+/// equipment changes sent, and removed when it leaves the view, the world or the server, or is
+/// hidden from it.
+fn track_players(state: &mut State) {
+    untrack_gone_players(state);
     let mut packets: Vec<(SessionId, Packet)> = Vec::new();
     let mut changes = Vec::new();
     for (t, want) in player_viewers(state) {
@@ -4110,14 +4117,18 @@ fn track_players(state: &mut State) {
             packets.push((s, add.clone()));
             packets.push((s, track::armour(now.runtime_id, &now.armour)));
             packets.push((s, track::off_hand(now.runtime_id, &now.off_hand)));
-            for p in track::locator_shown(now.runtime_id, target.position) {
-                packets.push((s, p));
+            if state.settings.locator_bar {
+                for p in track::locator_shown(now.runtime_id, target.position) {
+                    packets.push((s, p));
+                }
             }
         }
         if let Some(before) = &before {
             for &s in before.viewers.difference(&now.viewers) {
                 packets.push((s, track::remove(now.runtime_id)));
-                packets.push((s, track::locator_removed(now.runtime_id)));
+                if state.settings.locator_bar {
+                    packets.push((s, track::locator_removed(now.runtime_id)));
+                }
             }
             if before.position != now.position || before.rotation != now.rotation {
                 let (yaw, pitch) = now.rotation;
@@ -6456,6 +6467,29 @@ mod tests {
             .flatten()
             .collect();
         assert_eq!(gone, [(2, 0)]);
+    }
+
+    /// `locator-bar = false`: players are shown to each other and removed with no locator packet.
+    #[test]
+    fn without_the_locator_bar_players_see_each_other_without_it() {
+        let mut h = Harness::with_config(1, Listeners::default(), |c| {
+            c.general.locator_bar = false;
+        });
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(3.0, 3.0));
+        h.step(Vec::new());
+        let mut sent = h.take(2);
+        assert!(sent.iter().any(|p| matches!(p, Packet::AddPlayer(_))));
+        h.step(vec![leave(1, 99)]);
+        h.step(Vec::new());
+        sent.extend(h.take(2));
+        assert!(sent.iter().any(|p| matches!(p, Packet::RemoveActor(_))));
+        assert!(
+            !sent
+                .iter()
+                .any(|p| matches!(p, Packet::LocatorBar(_) | Packet::PlayerLocation(_))),
+            "{sent:?}"
+        );
     }
 
     /// Measures the entity tick with one player who sees every item: `cargo test --release --lib

@@ -325,7 +325,7 @@ mod tests {
             "# Settings for anyone opening a server.\n[general]\n"
         );
         let keys: Vec<_> = sections.iter().flat_map(|s| &s.keys).collect();
-        assert_eq!(keys.len(), 66);
+        assert_eq!(keys.len(), 67);
         assert_eq!(
             keys[0].lines,
             "# Name shown in the server list.\nmotd = \"Anchor Server\"\n"

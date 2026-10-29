@@ -2649,6 +2649,42 @@ mod tests {
         assert_eq!(waypoints(&server.take(1)), [(3, 2, Some(true))]);
     }
 
+    /// `locator-bar = false`: the rule tells the client there are no waypoints, and no locator
+    /// packet is made when a player the others see dies, respawns or leaves (seeing is
+    /// `entity::tests::without_the_locator_bar_players_see_each_other_without_it`).
+    #[test]
+    fn without_the_locator_bar_no_locator_packet_is_sent() {
+        let mut server = duel(|c| c.general.locator_bar = false);
+        let rule = match game_rules(&server.state.settings) {
+            Packet::GameRulesChanged(g) => g
+                .game_rules
+                .into_iter()
+                .find(|r| r.name == "playerWaypoints"),
+            _ => None,
+        };
+        assert_eq!(
+            rule.map(|r| r.value),
+            Some(crate::protocol::GameRuleValue::Uint32(0))
+        );
+        assert!(server.hurt(2, 100.0, Damage::Magic));
+        server.idle(1);
+        damage::respawn(&mut server.state, sid(2));
+        server.idle(1);
+        server.run(vec![leave(2, 99)]);
+        server.idle(1);
+        let seen = server.take(1);
+        assert!(
+            seen.iter().any(|p| matches!(p, Packet::RemoveActor(_))),
+            "player 1 saw player 2 go"
+        );
+        assert!(
+            !seen
+                .iter()
+                .any(|p| matches!(p, Packet::LocatorBar(_) | Packet::PlayerLocation(_))),
+            "{seen:?}"
+        );
+    }
+
     /// The client shrinks a dying player's box and only the box size keys bring it back: BDS sends
     /// 0.2 by 0.2 at the death and 0.6 by 1.8 after the respawn, to the player and its viewers (P6
     /// `others`). Without them the others see a respawned player with a small hit box and a low

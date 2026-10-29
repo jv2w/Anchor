@@ -81,6 +81,8 @@ break-time-check = true
 movement-check = true
 # Every player sees its coordinates on screen.
 show-coordinates = false
+# The other players on the locator bar. false sends no locator bar data.
+locator-bar = true
 # Main world. level-type fills the chunks never saved: "flat" or "void".
 level-name = "world"
 level-type = "flat"
@@ -214,6 +216,7 @@ console-input = true
 | `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |
 | `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지. `false`면 그런 이동의 땅 판정은 지나온 길 없이 도착 자리만 본다 |
 | `show-coordinates` | bool | `false` | | 모든 플레이어 화면에 자기 좌표를 보일지. 게임 규칙 `showCoordinates`의 값이다 |
+| `locator-bar` | bool | `true` | | 위치 표시줄에 다른 플레이어를 보일지. `false`면 `LocatorBar`, `PlayerLocation`을 만들지도 보내지도 않고 게임 규칙 `playerWaypoints`가 0이다(공식 서버가 그 규칙 0인 월드를 저장하는 값. `locatorbar` 규칙은 공식 서버가 월드에 저장하지 않아 그대로 `true`다) |
 | `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/worlds/<이름>.redb` |
 | `level-type` | 문자열 | `"flat"` | `flat`, `void` | 기본 월드에서 저장된 적 없는 청크를 채우는 생성기 |
 | `level-seed` | 문자열 | `""` | 빈 값 또는 i64 정수 문자열 | 기본 월드 시드. 비면 월드 이름에서 만들어 시작마다 같다 |
@@ -304,7 +307,7 @@ PMMP 설정 중 없는 것: PHP 전용(메모리, GC, async-workers, timings, �
 
 ## 기능 스위치
 
-`hunger`부터 `movement-check`까지의 bool과 `backups`처럼 기능을 켜고 끄는 키는, `false`면 그 기능의 코드가 아예 돌지 않는다: 틱 작업, 이벤트, 패킷, 그 기능의 표와 메모리가 없다.
+`hunger`부터 `movement-check`까지의 bool, `locator-bar`, `backups`처럼 기능을 켜고 끄는 키는, `false`면 그 기능의 코드가 아예 돌지 않는다: 틱 작업, 이벤트, 패킷, 그 기능의 표와 메모리가 없다.
 
 새 키가 생겨도 옛 파일은 키를 더하지 않고 같은 서버가 된다.
 

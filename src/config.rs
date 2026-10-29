@@ -87,6 +87,8 @@ break-time-check = true
 movement-check = true
 # Every player sees its coordinates on screen.
 show-coordinates = false
+# The other players on the locator bar. false sends no locator bar data.
+locator-bar = true
 # Main world. level-type fills the chunks never saved: "flat" or "void".
 level-name = "world"
 level-type = "flat"
@@ -597,6 +599,9 @@ pub struct General {
     /// `show-coordinates`: whether every player sees its coordinates on screen (the game rule
     /// `showCoordinates`).
     pub show_coordinates: bool,
+    /// `locator-bar`: whether players see the others on the locator bar; `false` sends no
+    /// locator bar packets and sets the game rule `playerWaypoints` to 0.
+    pub locator_bar: bool,
     /// `level-name`: the main world's name.
     pub level_name: String,
     /// `level-type`: the generator of the main world's chunks never saved.
@@ -666,6 +671,7 @@ impl General {
                 "break-time-check" => self.break_time_check = boolean(value, key)?,
                 "movement-check" => self.movement_check = boolean(value, key)?,
                 "show-coordinates" => self.show_coordinates = boolean(value, key)?,
+                "locator-bar" => self.locator_bar = boolean(value, key)?,
                 "level-name" => text(value, key)?.clone_into(&mut self.level_name),
                 "level-type" => self.level_type = choice(value, key, &LevelType::NAMES)?,
                 "level-seed" => {
@@ -721,6 +727,7 @@ impl Default for General {
             break_time_check: true,
             movement_check: true,
             show_coordinates: false,
+            locator_bar: true,
             level_name: "world".to_owned(),
             level_type: LevelType::Flat,
             level_seed: None,
@@ -1761,7 +1768,7 @@ old-key = false
         let config = Config::default().load_as(&path, true).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 66);
+        assert_eq!(update.added().len(), 67);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

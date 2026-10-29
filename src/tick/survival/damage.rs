@@ -1397,8 +1397,10 @@ pub(super) fn die(
         session,
         &attributes::size_data(runtime_id, attributes::DYING_SIZE),
     );
-    for packet in crate::tick::entity::locator_life(runtime_id, false) {
-        broadcast_to_viewers(state, session, &packet);
+    if state.settings.locator_bar {
+        for packet in crate::tick::entity::locator_life(runtime_id, false) {
+            broadcast_to_viewers(state, session, &packet);
+        }
     }
     let screen = event
         .as_ref()
@@ -1720,7 +1722,8 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     // The packets above carry all but the adventure settings, which a listener may have changed.
     player.survival.dirty &= attributes::ADVENTURE;
     player.survival.shown = now;
-    if let Some(runtime_id) = state.players.get(&session).map(|p| p.runtime_id) {
+    let runtime_id = state.players.get(&session).map(|p| p.runtime_id);
+    if let Some(runtime_id) = runtime_id.filter(|_| state.settings.locator_bar) {
         for packet in crate::tick::entity::locator_life(runtime_id, true) {
             broadcast_to_viewers(state, session, &packet);
         }

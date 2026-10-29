@@ -656,7 +656,8 @@ fn adventure_packet(auto_jump: bool) -> Packet {
 /// The 39 game rules BDS sends, in its order (P6), with the values Anchor's rules have: what Anchor
 /// does not simulate (mob spawning, weather, insomnia, freezing, command blocks, respawn anchors
 /// exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`, the day cycle,
-/// drowning, fall damage and the coordinates come from the settings, players respawn on the spawn block
+/// drowning, fall damage, the coordinates and the waypoints come from the settings, players
+/// respawn on the spawn block
 /// (`spawnRadius` 0) and death messages are not broadcast.
 pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     use GameRuleValue::{Bool, Uint32};
@@ -678,7 +679,9 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("mobGriefing", Bool(true)),
         ("pvp", Bool(settings.pvp)),
         ("showCoordinates", Bool(settings.show_coordinates)),
-        ("playerWaypoints", Uint32(1)),
+        // BDS saves 0 in a world without the others' waypoints, 1 by default; it saves no
+        // `locatorbar`.
+        ("playerWaypoints", Uint32(u32::from(settings.locator_bar))),
         ("locatorbar", Bool(true)),
         ("showDaysPlayed", Bool(false)),
         ("naturalRegeneration", Bool(true)),

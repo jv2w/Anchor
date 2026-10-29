@@ -202,6 +202,7 @@ critical-hits = "always"
 break-time-check = false
 movement-check = false
 show-coordinates = true
+locator-bar = false
 level-name = "lobby"
 level-type = "void"
 level-seed = "-42"
@@ -286,6 +287,7 @@ fn custom() -> Config {
     g.break_time_check = false;
     g.movement_check = false;
     g.show_coordinates = true;
+    g.locator_bar = false;
     g.level_name = "lobby".to_owned();
     g.level_type = LevelType::Void;
     g.level_seed = Some(-42);
@@ -438,6 +440,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.break-time-check", bools(), vec![]),
         ("general.movement-check", bools(), vec![]),
         ("general.show-coordinates", bools(), vec![]),
+        ("general.locator-bar", bools(), vec![]),
         (
             "general.level-name",
             vec![quoted("a"), quoted(&"w".repeat(64))],
@@ -644,7 +647,7 @@ fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
     let default = documented_default_file();
     let keys = key_lines(&default);
-    assert_eq!(keys.len(), 66, "the default file has 66 keys");
+    assert_eq!(keys.len(), 67, "the default file has 67 keys");
     for (_, key, value) in &keys {
         let line = format!("{key} = {value}\n");
         let text = default.replacen(&line, "", 1);
@@ -756,6 +759,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
         g.vanilla_recipes,
         g.break_time_check,
         g.movement_check,
+        g.locator_bar,
         g.backups,
         d.enable_encryption,
         d.hook_movement_packets,
@@ -1104,7 +1108,7 @@ fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
         .into_iter()
         .filter(|(path, _)| !path.starts_with('['))
         .collect();
-    assert_eq!(keys.len(), 66);
+    assert_eq!(keys.len(), 67);
     for (path, block) in keys {
         let text = default.replacen(&block, "", 1);
         assert_ne!(text, default, "{path}");
@@ -1152,12 +1156,12 @@ fn update_adds_missing_tables_at_the_end() {
         updated,
         format!("[general]\nmotd = \"x\"\n{rest}\n{developer}")
     );
-    assert_eq!(update.added().len(), 65);
+    assert_eq!(update.added().len(), 66);
 
     let (update, updated) = write_and_update(&file, "[developer]\nraknet = false\n");
     assert!(updated.starts_with("[developer]\n"));
     assert!(updated.ends_with(&format!("\nconsole-input = true\n\n{general}")));
-    assert_eq!(update.added().len(), 65);
+    assert_eq!(update.added().len(), 66);
 }
 
 #[test]
@@ -1171,7 +1175,7 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
                 disable-block-ticking = [\r\n    \"minecraft:grass_block\",\r\n]\r\n\r\n\
                 [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
     let (update, updated) = write_and_update(&file, text);
-    assert_eq!(update.added().len(), 63);
+    assert_eq!(update.added().len(), 64);
     for kept in [
         "general.motd",
         "general.shutdown-message",
