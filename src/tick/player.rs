@@ -310,7 +310,7 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
             let (packet, quit_message) = leave.into_parts();
             quit(state, session, &reason, quit_message, false);
             if let Some(p) = state.remove(session) {
-                output.close(p.outbound, packet);
+                state.close(p, packet, output);
             }
             continue;
         }
@@ -1276,6 +1276,49 @@ pub(super) mod tests {
         state.close_all(&mut Output::default());
         assert_eq!(quit.try_recv(), Ok(true), "the stop");
         assert!(state.players.is_empty());
+    }
+
+    // pmmp: Player::kick
+    /// What a player is sent in the step that removes it, before the kick or by a quit listener
+    /// (the stop's included), reaches it before the final `Disconnect`, as PMMP flushes the
+    /// queued packets ahead of the disconnect packet.
+    #[test]
+    fn messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect() {
+        let texts = |packets: Vec<Packet>| -> Vec<String> {
+            packets
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::Text(t) => Some(t.message),
+                    _ => None,
+                })
+                .collect()
+        };
+        let listeners = || {
+            let mut listeners = Listeners::default();
+            listeners.push(
+                crate::event::Priority::Normal,
+                |e: &mut PlayerQuit, cx: &mut Context<'_>| {
+                    let p = cx.player_mut(e.player()).unwrap();
+                    p.send(Message::Raw("quit".to_owned())).unwrap();
+                },
+            );
+            listeners
+        };
+        let (mut state, [mut rx1, _rx2]) = two_with(listeners());
+        let p = player_mut(&mut state, 1);
+        p.send(Message::Raw("before".to_owned())).unwrap();
+        p.kick("bye").unwrap();
+        run(&mut state, Vec::new());
+        let (packets, close, _) = received(&mut rx1);
+        assert_eq!(texts(packets), ["before", "quit"]);
+        assert!(matches!(close, Some(Packet::Disconnect(_))));
+        let (mut state, [mut rx1, _rx2]) = two_with(listeners());
+        let mut output = Output::default();
+        state.close_all(&mut output);
+        super::super::deliver(&mut state, &mut output, &mut InputLog::default());
+        let (packets, close, _) = received(&mut rx1);
+        assert_eq!(texts(packets), ["quit"], "the stop");
+        assert!(matches!(close, Some(Packet::Disconnect(_))));
     }
 
     // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight, Player::setScreenLineHeight, Player

@@ -867,6 +867,28 @@ impl State {
         Some(player)
     }
 
+    /// Closes the session of `player`, which [`Self::remove`] returned, with `packet` after the
+    /// packets the serial phases queued for it this tick, passed through the send hooks as the
+    /// output phase passes them: what the player was sent in the step that removed it (before a
+    /// kick, by a quit listener) reaches it, as PMMP flushes the queued packets ahead of the
+    /// disconnect packet.
+    fn close(&self, player: Player, packet: Packet, output: &mut Output) {
+        let Player {
+            session,
+            outbound,
+            outbox,
+            shared_outbox,
+            ..
+        } = player;
+        let mut messages: Vec<Message> = outbox
+            .into_iter()
+            .map(Message::Packet)
+            .chain(shared_outbox.into_iter().map(Message::SharedPacket))
+            .collect();
+        hook::send(self.hooks.send(), &self.settings, session, &mut messages);
+        output.closes.push((outbound, messages, packet));
+    }
+
     /// The player of `session`, if any, leaves for `reason` (PMMP `Player::disconnect` without a
     /// message to the client): [`player::quit`] with BDS's left line, then it is forgotten and its
     /// outbound queue closes.
@@ -911,7 +933,7 @@ impl State {
                 message: self.settings.shutdown_message.clone(),
                 filtered_message: String::new(),
             });
-            output.close(p.outbound, packet);
+            self.close(p, packet, output);
         }
         dispatch::run_deferred(self, &mut 0);
     }
@@ -922,8 +944,9 @@ impl State {
 pub(crate) struct Output {
     /// Messages per session from the output phase, in session order.
     packets: Vec<(SessionId, Vec<Message>)>,
-    /// Final packets for sessions the tick has already forgotten.
-    closes: Vec<(mpsc::Sender<Outbound>, Packet)>,
+    /// Final packets for sessions the tick has already forgotten, each after the messages that
+    /// go before it.
+    closes: Vec<(mpsc::Sender<Outbound>, Vec<Message>, Packet)>,
     /// Requests for the save thread, in order.
     requests: Vec<Request>,
     /// A commit or a chunk load failed: the server stops without saving.
@@ -935,7 +958,7 @@ pub(crate) struct Output {
 
 impl Output {
     fn close(&mut self, outbound: mpsc::Sender<Outbound>, packet: Packet) {
-        self.closes.push((outbound, packet));
+        self.closes.push((outbound, Vec::new(), packet));
     }
 
     #[cfg(test)]
@@ -1245,6 +1268,7 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
                 session = session.get(),
                 "too many packets queued in one tick; disconnecting"
             );
+            // Not `State::close`: the outbox lost what came after it filled, so none of it goes.
             output.close(
                 p.outbound,
                 Packet::Disconnect(Disconnect {
@@ -1277,10 +1301,12 @@ fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
         }
         dropped(state, log, session);
     }
-    for (outbound, packet) in output.closes.drain(..) {
-        // The session closes when the queue does; a full or closed queue only loses the reason.
-        if outbound.try_send(Outbound::Close(packet)).is_err() {
-            debug!("could not queue the final packet of a closed session");
+    for (outbound, messages, packet) in output.closes.drain(..) {
+        // The session closes when the queue does; a full or closed queue only loses what was
+        // left to send.
+        let queued = messages.is_empty() || outbound.try_send(Outbound::Send(messages)).is_ok();
+        if !queued || outbound.try_send(Outbound::Close(packet)).is_err() {
+            debug!("could not queue the last packets of a closed session");
         }
     }
 }

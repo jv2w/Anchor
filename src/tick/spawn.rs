@@ -851,7 +851,7 @@ fn replace(
             name = %old.identity.name,
             "player replaced by a new login"
         );
-        output.close(old.outbound, packet);
+        state.close(old, packet, output);
     }
 }
 
@@ -994,15 +994,13 @@ pub(super) fn player_loaded(
             );
             state.players.insert(session, player);
             if let Some(p) = state.remove(session) {
-                output.close(
-                    p.outbound,
-                    Packet::Disconnect(Disconnect {
-                        reason: i32::from(DisconnectReason::Unknown),
-                        hide_disconnection_screen: false,
-                        message: DAMAGED_DATA_MESSAGE.to_owned(),
-                        filtered_message: String::new(),
-                    }),
-                );
+                let packet = Packet::Disconnect(Disconnect {
+                    reason: i32::from(DisconnectReason::Unknown),
+                    hide_disconnection_screen: false,
+                    message: DAMAGED_DATA_MESSAGE.to_owned(),
+                    filtered_message: String::new(),
+                });
+                state.close(p, packet, output);
             }
             return;
         }
