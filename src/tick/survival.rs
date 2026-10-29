@@ -619,6 +619,38 @@ impl Context<'_> {
         watch(self.state, event.as_ref());
         changed
     }
+
+    /// Gives `player` `effect` through the game rules, with its [`EntityEffectAdd`](crate::event::EntityEffectAdd) event
+    /// (`/effect`, PMMP `EffectManager::add`); false if it was not added.
+    pub(crate) fn add_player_effect(&mut self, player: Id, effect: effect::Instance) -> bool {
+        let added = add_effect(self.state, player.session(), effect);
+        self.touch_player(player);
+        added
+    }
+
+    /// Ends `player`'s effect of type `effect` through the game rules, with its
+    /// [`EntityEffectRemove`](crate::event::EntityEffectRemove) event (`/effect`, PMMP
+    /// `EffectManager::remove`).
+    pub(crate) fn remove_player_effect(&mut self, player: Id, effect: effect::Type) {
+        effects::remove(self.state, player.session(), effect);
+        self.touch_player(player);
+    }
+
+    /// Ends every effect of `player` through the game rules, with an
+    /// [`EntityEffectRemove`](crate::event::EntityEffectRemove) event each (`/effect clear`, PMMP
+    /// `EffectManager::clear`).
+    pub(crate) fn clear_player_effects(&mut self, player: Id) {
+        effects::clear(self.state, player.session());
+        self.touch_player(player);
+    }
+
+    /// Sends what an effect changed (attributes) by the end of the tick, as the direct API does:
+    /// a command may run after the rules' flush.
+    fn touch_player(&mut self, player: Id) {
+        if let Some(p) = self.state.players.get_mut(&player.session()) {
+            p.survival.custom.touched = true;
+        }
+    }
 }
 
 /// One tick of the world clocks, then of every spawned player's survival state (PMMP

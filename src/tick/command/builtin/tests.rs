@@ -11,7 +11,8 @@ use crate::command::{self, Command};
 use crate::config::{Difficulty, GameMode};
 use crate::effect;
 use crate::event::{
-    EntityTeleport, Listeners, PlayerGameModeChange, PlayerKick, PlayerTransfer, Priority,
+    EntityEffectAdd, EntityEffectRemove, EntityTeleport, Listeners, PlayerGameModeChange,
+    PlayerKick, PlayerTransfer, Priority,
 };
 use crate::item::{self, Stack};
 use crate::math::Vec3;
@@ -682,6 +683,48 @@ fn effect_gives_takes_and_clears_with_pmmp_bounds() {
     ok(&mut state, id(1), "effect @s jump_boost infinite");
     let jump = player(&state, 1).effect(effect::Type::JumpBoost).unwrap();
     assert!(jump.is_infinite() && jump.is_visible());
+}
+
+// pmmp: EffectManager::add, EffectManager::remove
+/// PMMP `EffectCommand` goes through `EffectManager`, so its listeners decide: a cancelled add
+/// gives nothing and a cancelled removal keeps the effect, `clear` included.
+#[test]
+fn effect_raises_the_effect_events_and_their_listeners_decide() {
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |e: &mut EntityEffectAdd, _: &mut Context<'_>| {
+            if e.effect().effect() == effect::Type::Speed {
+                e.cancel();
+            }
+        },
+    );
+    listeners.push(
+        Priority::Normal,
+        |e: &mut EntityEffectRemove, _: &mut Context<'_>| {
+            if e.effect().effect() == effect::Type::Haste {
+                e.cancel();
+            }
+        },
+    );
+    let (mut state, _rx) = server_with(vec![], listeners);
+    let has = |state: &State, t: effect::Type| player(state, 1).has_effect(t);
+    ok(&mut state, Sender::Console, "effect player1 speed 10");
+    assert!(!has(&state, effect::Type::Speed), "the add was cancelled");
+    ok(&mut state, Sender::Console, "effect player1 haste 10");
+    ok(
+        &mut state,
+        Sender::Console,
+        "effect player1 regeneration 10",
+    );
+    ok(&mut state, Sender::Console, "effect player1 haste 0");
+    assert!(
+        has(&state, effect::Type::Haste),
+        "the removal was cancelled"
+    );
+    ok(&mut state, Sender::Console, "effect player1 clear");
+    assert!(has(&state, effect::Type::Haste));
+    assert!(!has(&state, effect::Type::Regeneration));
 }
 
 #[test]

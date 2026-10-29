@@ -337,7 +337,8 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 
 /// `/effect <player> clear` and `/effect <player> <effect> [seconds|infinite] [amplifier]
 /// [hideParticles]` (PMMP `EffectCommand`, in BDS's overloads): 0 seconds takes the effect away;
-/// no seconds gives its default duration; `infinite` never ends.
+/// no seconds gives its default duration; `infinite` never ends. It goes through the game rules,
+/// so the effect events' listeners decide.
 fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_EFFECT_SELF,
@@ -348,9 +349,7 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     let Some(kind) = args.effect("effect") else {
         for id in targets {
             let shown = display_name_of(cx, Sender::Player(id));
-            if let Some(p) = cx.player_mut(id) {
-                p.clear_effects();
-            }
+            cx.clear_player_effects(id);
             results.add(Ok(EFFECT_REMOVED_ALL.output(&[&shown])));
         }
         return results.finish();
@@ -373,19 +372,25 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     let effect_name = format!("%{}", kind.text());
     for id in targets {
         let shown = display_name_of(cx, Sender::Player(id));
-        let Some(p) = cx.player_mut(id) else {
+        let Some(p) = cx.player(id) else {
             continue;
         };
         if duration == 0 {
-            results.add(if p.remove_effect(kind) {
+            // PMMP: removed, though a listener may keep it.
+            let result = if p.has_effect(kind) {
                 Ok(EFFECT_REMOVED.output(&[&effect_name, &shown]))
             } else if p.effects().next().is_none() {
                 Err(EFFECT_NOT_ACTIVE_ALL.error(&[&shown]))
             } else {
                 Err(EFFECT_NOT_ACTIVE.error(&[&effect_name, &shown]))
-            });
+            };
+            if result.is_ok() {
+                cx.remove_player_effect(id, kind);
+            }
+            results.add(result);
         } else {
-            p.add_effect(given);
+            // PMMP's success line whether or not it was added.
+            cx.add_player_effect(id, given);
             let amplifier = amplifier.to_string();
             results.add(Ok(if infinite {
                 let params = [effect_name.as_str(), &amplifier, &shown];
