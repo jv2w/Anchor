@@ -892,6 +892,43 @@ fn the_same_menu_drop_twice_leaves_the_state_of_once() {
 }
 
 #[test]
+fn a_creative_destroy_of_an_editable_slot_is_a_change_made_only_once_kept() {
+    let menu = || Menu::new(MenuKind::Chest).item(0, sticks(4)).editable(0);
+    let mut w = World::new(GameMode::Creative);
+    let s = w.join(1);
+    open_editable(&mut w, s, menu(), refuse_change);
+    let (window, net) = shown(&w, s, 0);
+    assert!(!ok(
+        &w.request(s, vec![destroy(4, at(C::LevelEntity, 0, net))])
+    ));
+    let heard_changes = changes();
+    assert_eq!(heard_changes.len(), 1, "a change, not a click");
+    assert!(heard().is_empty());
+    assert_eq!(
+        described(&heard_changes[0]),
+        [(true, 0, sticks(4), Stack::EMPTY)]
+    );
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+    assert_eq!(shown(&w, s, 0), (window, net), "refused: nothing changed");
+    open_editable(&mut w, s, menu(), keep_change);
+    let (_, net) = shown(&w, s, 0);
+    let r = w.request(s, vec![destroy(4, at(C::LevelEntity, 0, net))]);
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(changes().len(), 1);
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], Stack::EMPTY);
+    // Outside creative mode it is refused before the handler hears of it.
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    open_editable(&mut w, s, menu(), keep_change);
+    let (_, net) = shown(&w, s, 0);
+    assert!(!ok(
+        &w.request(s, vec![destroy(4, at(C::LevelEntity, 0, net))])
+    ));
+    assert!(changes().is_empty());
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+}
+
+#[test]
 fn the_handler_hears_a_change_before_it_is_made() {
     fn look(cx: &mut Context<'_>, player: crate::player::Id, _: &m::Change) -> Response {
         let p = cx.state.players.get(&player.session()).unwrap();

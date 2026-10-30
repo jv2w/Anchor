@@ -7,7 +7,8 @@
 //! request that names a menu slot that is not editable is refused whole and the player's screen
 //! is sent again; the request's first take, place, swap or drop of such a slot becomes one
 //! [`Click`] for the handler. A request that names only editable slots and only takes, places,
-//! swaps and drops runs as in a chest window ([`super::request`]), with the handler as its last
+//! swaps, drops and destroys (creative mode) runs as in a chest window ([`super::request`]), with
+//! the handler as its last
 //! listener: it hears the changes ([`crate::menu::Change`]) after the request's events, and the
 //! request is checked again and made (a drop thrown) only if it keeps them. The handler runs in
 //! the input phase with the handler taken out of the state ([`Handlers`]). A repeated request ID
@@ -140,7 +141,8 @@ impl Context<'_> {
     /// cannot take, place or drop but in its editable slots. Each click on another slot is
     /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
     /// the player tried ([`Input::Click`]). Each request that moves items into, out of (a drop
-    /// throws them) or between editable slots is checked as in a chest window, then calls
+    /// throws them, a creative destroy deletes them) or between editable slots is checked as in a
+    /// chest window, then calls
     /// `handler` once with its changes ([`Input::Change`]) before they are made. The handler's
     /// [`Response`] makes a change and keeps the menu open or closes it, or refuses the change. A
     /// window the player had open closes first, as [`close_window`](Self::close_window) closes it.
@@ -423,11 +425,11 @@ pub(super) fn closed(
 pub(super) enum Touch {
     /// It names no slot of a shown menu.
     Nothing,
-    /// It only takes, places, swaps and drops, and names editable slots of the menu but no other:
-    /// it runs, and the handler hears of its changes.
+    /// It only takes, places, swaps, drops and destroys, and names editable slots of the menu but
+    /// no other: it runs, and the handler hears of its changes.
     Edit(Id),
-    /// It names a menu slot but clicks none, or does more than take, place, swap and drop with
-    /// an editable slot: it is refused.
+    /// It names a menu slot but clicks none, or does more than take, place, swap, drop and
+    /// destroy with an editable slot: it is refused.
     Refused,
     /// It clicks a slot that is not editable: it is refused, and the handler hears of the click.
     Click(Click),
@@ -456,8 +458,8 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
         return Touch::Nothing;
     };
     let mut touch = Touch::Nothing;
-    // Whether it names an editable slot, and whether each action only moves items (a drop moves
-    // them out, as from a chest).
+    // Whether it names an editable slot, and whether each action only moves items (a drop or a
+    // creative destroy moves them out, as from a chest).
     let (mut edits, mut moves_only) = (false, true);
     for action in &request.actions {
         let (named, moves) = match action {
@@ -481,7 +483,7 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
                 true,
             ),
             StackRequestAction::Drop(a) => ([menu(&a.source, Some(Action::Drop)), None], true),
-            StackRequestAction::Destroy(a) => ([menu(&a.source, None), None], false),
+            StackRequestAction::Destroy(a) => ([menu(&a.source, None), None], true),
             StackRequestAction::Consume(a) => (
                 [menu(&a.destroy_stack_request_action.source, None), None],
                 false,

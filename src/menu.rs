@@ -10,8 +10,8 @@
 //! its inventory.
 //!
 //! Slots made [`editable`](Menu::editable) work as a chest's instead: the player takes, places and
-//! swaps their items with its own slots and cursor and drops them, the requests checked as in a
-//! chest window.
+//! swaps their items with its own slots and cursor, drops them and, in creative mode, destroys
+//! them, the requests checked as in a chest window.
 //! Before a request that changes a menu slot is made, the handler hears of its changes with a
 //! [`Change`] and answers whether it is made ([`Response`]); a refused one changes nothing. The
 //! menu's items are a copy of what the handler keeps: no change reaches them unless the handler
@@ -253,7 +253,8 @@ impl Click {
 /// One item request's changes of a menu's editable slots and the player's slots, not made yet:
 /// the menu's slots, the player's and its cursor hold what they held before while the handler
 /// runs, and the request is made once it returns, unless it refuses. A drop from a menu slot
-/// leaves fewer items in it; once made, they are thrown as from a chest, by the player.
+/// leaves fewer items in it; once made, they are thrown as from a chest, by the player. A
+/// creative destroy leaves fewer items too, deleted once made.
 ///
 /// Once the handler returns, the request is checked again and made only if it still does what
 /// the handler heard. The handler's own calls can fail that check when they change what the
