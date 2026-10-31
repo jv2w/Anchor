@@ -50,6 +50,9 @@ const TAG_DAMAGE: &str = "Damage";
 /// The key in [`Extra::nbt`] that keeps an item that wears from wearing: a `TAG_Byte` other than
 /// 0 (PMMP `Durable::setUnbreakable`).
 pub const TAG_UNBREAKABLE: &str = "Unbreakable";
+/// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1 (PMMP
+/// `Item::setKeepOnDeath`).
+pub const TAG_KEEP_ON_DEATH: &str = "minecraft:keep_on_death";
 /// Block entity data of a block item; the client never reads it (PMMP strips it).
 const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 /// The items a container block item holds (a shulker box).

@@ -1559,7 +1559,7 @@ fn death_names(state: &State, session: SessionId, attacker: Option<SessionId>) -
 fn keeps_on_death(stack: &Stack) -> bool {
     stack.extra().is_some_and(|e| {
         matches!(
-            e.nbt.get("minecraft:keep_on_death"),
+            e.nbt.get(crate::item::TAG_KEEP_ON_DEATH),
             Some(crate::nbt::Value::Byte(1))
         )
     })
