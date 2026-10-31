@@ -69,7 +69,8 @@ const PACKET_RATE: Rate = Rate {
 };
 /// A copy of the held click ([`Session::held_click`]) within this long of the last one forwarded
 /// is dropped: half a tick, so one still reaches every tick at any frame rate above 20.
-const HELD_CLICK_REPEAT: Duration = Duration::from_millis(25);
+const HELD_CLICK_REPEAT: Duration =
+    Duration::from_millis(1000 / 2 / crate::Context::TICKS_PER_SECOND as u64);
 /// Undelivered bytes ([`Transport::undelivered`]) at most before the session hands the
 /// connection the next batch of the tick's output. It is above the most either transport keeps
 /// in flight (RakNet 2048 datagrams of 1492 bytes and their frame cost, about 3.1 MiB; NetherNet

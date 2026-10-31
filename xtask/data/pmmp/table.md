@@ -5222,10 +5222,10 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\projectile\Trident::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `pocketmine\entity\projectile\Trident::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `pocketmine\entity\projectile\Trident::setItem` | implemented | src/tick/entity/api.rs:1298 `set_item` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
-| `pocketmine\entity\utils\ExperienceUtils` | implemented | src/player.rs:126 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
-| `pocketmine\entity\utils\ExperienceUtils::getLevelFromXp` | implemented | src/player.rs:160 `level_from_xp` | src/player.rs::level_thresholds_follow_pmmp |  |
-| `pocketmine\entity\utils\ExperienceUtils::getXpToCompleteLevel` | implemented | src/player.rs:144 `xp_to_complete_level` | src/player.rs::level_thresholds_follow_pmmp |  |
-| `pocketmine\entity\utils\ExperienceUtils::getXpToReachLevel` | implemented | src/player.rs:127 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
+| `pocketmine\entity\utils\ExperienceUtils` | implemented | src/player.rs:128 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
+| `pocketmine\entity\utils\ExperienceUtils::getLevelFromXp` | implemented | src/player.rs:162 `level_from_xp` | src/player.rs::level_thresholds_follow_pmmp |  |
+| `pocketmine\entity\utils\ExperienceUtils::getXpToCompleteLevel` | implemented | src/player.rs:146 `xp_to_complete_level` | src/player.rs::level_thresholds_follow_pmmp |  |
+| `pocketmine\entity\utils\ExperienceUtils::getXpToReachLevel` | implemented | src/player.rs:129 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
 
 ## `pocketmine\event`
 

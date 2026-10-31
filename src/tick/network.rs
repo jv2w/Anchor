@@ -114,8 +114,8 @@ impl Network {
     }
 
     /// The ticks a second the latest tick time allows, at most
-    /// [`TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND) (PMMP
-    /// `Server::getTicksPerSecond`: `min(20, 1 / max(0.001, seconds))`).
+    /// [`TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND) (PMMP `Server::getTicksPerSecond`:
+    /// `min(20, 1 / max(0.001, seconds))`).
     pub(super) fn tps(&self) -> f64 {
         tps_of(self.tick_times.get(self.latest).copied().unwrap_or(0))
     }

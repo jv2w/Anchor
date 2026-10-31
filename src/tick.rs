@@ -1006,9 +1006,9 @@ impl Output {
 ///
 /// 1. Input (serial): the save thread's answers in arrival order (loaded chunks and player data,
 ///    commits), in a run's first tick [`ServerStart`](crate::event::ServerStart), then the
-///    session inputs in (session, seq) order, so the result does not depend
-///    on how sessions interleaved in the queue, each followed by the callbacks it deferred. Then
-///    the scheduled tasks.
+///    session inputs in (session, seq) order, so the result does not depend on how sessions
+///    interleaved in the queue, each followed by the callbacks it deferred. Then the scheduled
+///    tasks.
 /// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
 ///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
 ///    entities and light.
@@ -1021,7 +1021,7 @@ impl Output {
 ///    every marked player's packets, built on the CPU pool in player order, so the output does
 ///    not depend on the thread count.
 ///
-/// After the output is delivered, [`boundary`] takes a save snapshot if one is due.
+/// After the output is delivered, the tick ends with [`boundary`].
 pub(crate) fn step(
     state: &mut State,
     inputs: &mut Vec<Input>,

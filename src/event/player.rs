@@ -275,8 +275,8 @@ impl PlayerChat {
 }
 
 /// Raised before an online player's data goes into the next save of the server's state. Cancelling
-/// is ignored: the data is saved anyway, so the commit stays atomic; what listeners
-/// change before the snapshot is saved. A held offline record
+/// is ignored: the data is saved anyway, so the commit stays atomic; what listeners change before
+/// the snapshot is saved. A held offline record
 /// ([`Context::hold_offline_player`](crate::Context::hold_offline_player)) raises none: it changes
 /// only through the program's own calls, which raise no events.
 #[doc(alias = "PlayerDataSaveEvent")]

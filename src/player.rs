@@ -83,7 +83,9 @@ pub enum Error {
     NotSaved,
     /// The player's saved data is damaged; it stays as saved until an operator repairs it.
     Damaged,
-    /// 64 offline players' tickets are held or asked for already.
+    /// As many offline players' tickets as
+    /// [`Context::hold_offline_player`](crate::Context::hold_offline_player) allows are held or
+    /// asked for already.
     Full,
 }
 
