@@ -481,7 +481,7 @@ impl fmt::Debug for UnknownBlock {
 /// }
 ///
 /// # fn main() -> Result<(), anchor::Error> {
-/// let ten_minutes = NonZeroU32::new(20 * 60 * 10).expect("not zero");
+/// let ten_minutes = NonZeroU32::new(Context::TICKS_PER_SECOND * 60 * 10).expect("not zero");
 /// Server::builder()
 ///     .server_data::<Sky>("sky")
 ///     .every(ten_minutes, turn)

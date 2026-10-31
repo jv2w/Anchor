@@ -263,8 +263,9 @@ pub enum Message {
     },
 }
 
-/// How long a title fades in, stays and fades out. The client counts whole ticks (50 ms): each
-/// time is rounded down to them.
+/// How long a title fades in, stays and fades out. The client counts whole ticks
+/// ([`Context::TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND) a second): each time is
+/// rounded down to them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TitleTimes {
     /// How long the title takes to appear.

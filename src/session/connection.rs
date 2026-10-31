@@ -1025,6 +1025,7 @@ mod tests {
     use crate::pack::Offer;
     use crate::pack::tests::UUID;
     use crate::protocol::batch::MAX_PACKETS;
+    use crate::tick::TICK;
     use crate::tick::queue::{
         Input, InputReceiver, InputSender, SESSION_INPUTS, Skin, input_queue,
     };
@@ -1306,7 +1307,7 @@ mod tests {
                     .expect("the copies take no packet budget");
             }
             assert_eq!(forwarded(), 1);
-            player.started = player.started.checked_sub(crate::tick::TICK).unwrap();
+            player.started = player.started.checked_sub(TICK).unwrap();
             player.on_message(held.clone()).await.unwrap();
             assert_eq!(forwarded(), 1, "a copy a tick later");
             let press = click(consts::TriggerType::PlayerInput);
@@ -1465,7 +1466,6 @@ mod tests {
         /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
         const STEP_BYTES: usize = 64 * 1024;
         const STEP: Duration = Duration::from_millis(100);
-        const TICK: Duration = Duration::from_millis(50);
         const MOST_TICKS: usize = 4_000;
         assert!(usize::from(BATCHES) * BATCH_BYTES > MAX_PENDING_BYTES);
         run_paused(async {
@@ -1523,7 +1523,6 @@ mod tests {
     /// fills, and the connection never holds more than the send limit and one batch.
     #[test]
     fn a_link_that_delivers_nothing_ends_on_the_output_waiting_not_the_tick_queue() {
-        const TICK: Duration = Duration::from_millis(50);
         const MOST_TICKS: usize = 2_000;
         run_paused(async {
             let (inputs, mut queue) = input_queue(1);
@@ -1687,7 +1686,6 @@ mod tests {
         /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
         const STEP_BYTES: usize = 64 * 1024;
         const STEP: Duration = Duration::from_millis(100);
-        const TICK: Duration = Duration::from_millis(50);
         /// 200 seconds, past the spawn deadline and the most the output may add to it.
         const MOST_TICKS: usize = 4_000;
         run_paused(async {

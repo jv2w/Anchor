@@ -2,7 +2,7 @@
 //! dragonfly `block.Beacon`): every 80 ticks the pyramid of mineral blocks below is counted (0 to 4
 //! levels) and, under an open column, the players within range get the effects.
 
-use super::super::{State, survival};
+use super::super::{Context, State, survival};
 use crate::block;
 use crate::effect::{Instance, Type};
 use crate::item;
@@ -100,7 +100,7 @@ pub(in crate::tick) fn effects(level: u8, primary: i32, secondary: i32) -> Vec<I
     if level == MAX_LEVEL {
         seconds -= 1;
     }
-    let ticks = seconds * 20;
+    let ticks = seconds * Context::TICKS_PER_SECOND;
     let effect = |t: Type, amplifier: u8| Instance::new(t, ticks, amplifier, true, true);
     if level < MAX_LEVEL || secondary == 0 {
         return vec![effect(primary_type, 0)];

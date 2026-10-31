@@ -67,8 +67,8 @@ pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
 pub(crate) use task::Tasks;
 pub use task::{Context, Offline};
 
-/// The length of a tick: 20 ticks per second.
-pub(crate) const TICK: Duration = Duration::from_millis(50);
+/// The length of a tick at [`Context::TICKS_PER_SECOND`].
+pub(crate) const TICK: Duration = Duration::from_millis(1000 / Context::TICKS_PER_SECOND as u64);
 /// The most inputs one tick applies; the rest wait for the next tick. The batch buffer is
 /// allocated once at this size.
 pub(crate) const MAX_INPUTS_PER_TICK: usize = 8_192;

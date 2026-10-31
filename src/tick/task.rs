@@ -54,11 +54,16 @@ fn online(player: &Player) -> bool {
 }
 
 impl Context<'_> {
-    /// The engine time: ticks since the world was created (20 per second).
+    /// The engine time: ticks since the world was created
+    /// ([`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) a second).
     #[doc(alias = "Server::getTick")]
     pub fn tick(&self) -> u64 {
         self.state.tick
     }
+
+    /// The fixed tick rate: the ticks the server runs a second while no tick runs late.
+    #[doc(alias = "Server::TARGET_TICKS_PER_SECOND")]
+    pub const TICKS_PER_SECOND: u32 = 20;
 
     /// The server software's name.
     #[doc(alias = "Server::getName")]
@@ -129,8 +134,9 @@ impl Context<'_> {
         usize::try_from(self.state.network.connections().1).unwrap_or(usize::MAX)
     }
 
-    /// The ticks a second the latest measured tick allows: 20 unless it took longer than 50 ms
-    /// (PMMP's formula). Every tick's time is measured off the game logic and read as a logged
+    /// The ticks a second the latest measured tick allows:
+    /// [`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) unless it took longer than one tick at that
+    /// rate (PMMP's formula). Every tick's time is measured off the game logic and read as a logged
     /// input by the next tick, so a replay reads the same.
     #[doc(alias = "Server::getTicksPerSecond")]
     pub fn tps(&self) -> f64 {

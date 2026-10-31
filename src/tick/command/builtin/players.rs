@@ -356,11 +356,13 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     };
     let seconds = args
         .int("seconds")
-        .map(|s| bounded(s, 0, i32::MAX / 20))
+        .map(|s| bounded(s, 0, i32::MAX / Context::TICKS_PER_SECOND.cast_signed()))
         .transpose()?;
     let amplifier = bounded(args.int("amplifier").unwrap_or(0), 0, 255)?;
     let amplifier = u8::try_from(amplifier).unwrap_or(u8::MAX);
-    let duration = seconds.map_or(kind.default_duration_ticks(), |s| s.unsigned_abs() * 20);
+    let duration = seconds.map_or(kind.default_duration_ticks(), |s| {
+        s.unsigned_abs() * Context::TICKS_PER_SECOND
+    });
     // Only the `infinite` overload has a `Mode` with an effect.
     let infinite = args.has("Mode");
     let given = kind
@@ -396,7 +398,8 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
                 let params = [effect_name.as_str(), &amplifier, &shown];
                 announce(cx, *sender, EFFECT_SUCCESS_INFINITE, &params)
             } else {
-                let seconds = (f64::from(duration) / 20.0).to_string();
+                let seconds =
+                    (f64::from(duration) / f64::from(Context::TICKS_PER_SECOND)).to_string();
                 let params = [effect_name.as_str(), &amplifier, &shown, &seconds];
                 announce(cx, *sender, EFFECT_SUCCESS, &params)
             }));

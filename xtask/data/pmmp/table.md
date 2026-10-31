@@ -45,17 +45,17 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::addOnlinePlayer` | skipped |  |  | players join through the login flow |
 | `pocketmine\Server::addOp` | implemented | src/tick/command.rs:1421 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
 | `pocketmine\Server::addWhitelist` | implemented | src/tick/command.rs:1518 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\Server::broadcastMessage` | implemented | src/tick/task.rs:285 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
-| `pocketmine\Server::broadcastPopup` | implemented | src/tick/task.rs:287 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
-| `pocketmine\Server::broadcastTip` | implemented | src/tick/task.rs:286 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
-| `pocketmine\Server::broadcastTitle` | implemented | src/tick/task.rs:288 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
+| `pocketmine\Server::broadcastMessage` | implemented | src/tick/task.rs:291 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
+| `pocketmine\Server::broadcastPopup` | implemented | src/tick/task.rs:293 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
+| `pocketmine\Server::broadcastTip` | implemented | src/tick/task.rs:292 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
+| `pocketmine\Server::broadcastTitle` | implemented | src/tick/task.rs:294 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
 | `pocketmine\Server::crashDump` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
 | `pocketmine\Server::createPlayer` | skipped |  |  | players join through the login flow |
 | `pocketmine\Server::dispatchCommand` | implemented | src/tick/command.rs:1104 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `pocketmine\Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
 | `pocketmine\Server::forceShutdown` | merged | src/server.rs:920 `shutdown`<br>src/tick/command.rs:1570 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
-| `pocketmine\Server::getAllowedViewDistance` | merged | src/tick/task.rs:201 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
+| `pocketmine\Server::getAllowedViewDistance` | merged | src/tick/task.rs:207 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `pocketmine\Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getAsyncPool` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
 | `pocketmine\Server::getBroadcastChannelSubscribers` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -64,10 +64,10 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::getConfigGroup` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
 | `pocketmine\Server::getCraftingManager` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `pocketmine\Server::getDataPath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
-| `pocketmine\Server::getDifficulty` | implemented | src/tick/task.rs:175 `difficulty` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getDifficulty` | implemented | src/tick/task.rs:181 `difficulty` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getFilePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
-| `pocketmine\Server::getForceGamemode` | implemented | src/tick/task.rs:188 `is_game_mode_forced` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getGamemode` | implemented | src/tick/task.rs:181 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getForceGamemode` | implemented | src/tick/task.rs:194 `is_game_mode_forced` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getGamemode` | implemented | src/tick/task.rs:187 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getIPBans` | implemented | src/tick/command.rs:1512 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `pocketmine\Server::getIp` | implemented | src/config.rs:538 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
@@ -75,25 +75,25 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\Server::getLoader` | skipped |  |  | PHP class loader |
 | `pocketmine\Server::getLogger` | skipped |  |  | Anchor logs with `tracing` |
-| `pocketmine\Server::getMaxPlayers` | implemented | src/tick/task.rs:160 `max_players` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getMaxPlayers` | implemented | src/tick/task.rs:166 `max_players` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getMemoryManager` | skipped |  |  | PHP memory management |
-| `pocketmine\Server::getMotd` | implemented | src/tick/task.rs:77 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound<br>src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getName` | implemented | src/tick/task.rs:64 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getMotd` | implemented | src/tick/task.rs:82 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound<br>src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getName` | implemented | src/tick/task.rs:69 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getNameBans` | implemented | src/tick/command.rs:1506 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getNetwork` | skipped |  |  | protocol internals |
 | `pocketmine\Server::getOfflinePlayer` | skipped |  |  | PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
 | `pocketmine\Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:261 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
 | `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:558 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::getOnlinePlayers` | implemented | src/tick/task.rs:214 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_online |  |
+| `pocketmine\Server::getOnlinePlayers` | implemented | src/tick/task.rs:220 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_online |  |
 | `pocketmine\Server::getOps` | implemented | src/tick/command.rs:1449 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\Server::getPlayerByPrefix` | implemented | src/tick/task.rs:254 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
-| `pocketmine\Server::getPlayerByRawUUID` | merged | src/tick/task.rs:273 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_online | into `Server::getPlayerByUUID` |
-| `pocketmine\Server::getPlayerByUUID` | implemented | src/tick/task.rs:273 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_online |  |
-| `pocketmine\Server::getPlayerExact` | implemented | src/tick/task.rs:241 `player_exact` | src/tick/task.rs::players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox |  |
+| `pocketmine\Server::getPlayerByPrefix` | implemented | src/tick/task.rs:260 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
+| `pocketmine\Server::getPlayerByRawUUID` | merged | src/tick/task.rs:279 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_online | into `Server::getPlayerByUUID` |
+| `pocketmine\Server::getPlayerByUUID` | implemented | src/tick/task.rs:279 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_online |  |
+| `pocketmine\Server::getPlayerExact` | implemented | src/tick/task.rs:247 `player_exact` | src/tick/task.rs::players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox |  |
 | `pocketmine\Server::getPluginCommand` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getPluginManager` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getPluginPath` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `pocketmine\Server::getPocketMineVersion` | implemented | src/tick/task.rs:72 `ANCHOR_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getPocketMineVersion` | implemented | src/tick/task.rs:77 `ANCHOR_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getPort` | implemented | src/config.rs:547 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getPortV6` | implemented | src/config.rs:548 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getQueryInformation` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
@@ -101,20 +101,20 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::getResourcePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
 | `pocketmine\Server::getServerUniqueId` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::getStartTime` | skipped |  |  | game logic has no wall clock |
-| `pocketmine\Server::getTick` | implemented | src/tick/task.rs:58 `tick` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getTick` | implemented | src/tick/task.rs:59 `tick` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getTickSleeper` | skipped |  |  | PHP thread wake-ups: Anchor's tick loop is internal |
-| `pocketmine\Server::getTickUsage` | differs | src/tick/task.rs:147 `mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | a `Duration` (milliseconds per tick) instead of the percentage of 50 ms; the tick loop measures each tick off the game logic and the next tick reads it as a logged input |
-| `pocketmine\Server::getTickUsageAverage` | differs | src/tick/task.rs:154 `average_mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | a `Duration` (milliseconds per tick) instead of the percentage of 50 ms; the tick loop measures each tick off the game logic and the next tick reads it as a logged input |
-| `pocketmine\Server::getTicksPerSecond` | implemented | src/tick/task.rs:135 `tps` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same |  |
-| `pocketmine\Server::getTicksPerSecondAverage` | implemented | src/tick/task.rs:141 `average_tps` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same |  |
+| `pocketmine\Server::getTickUsage` | differs | src/tick/task.rs:153 `mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | a `Duration` (milliseconds per tick) instead of the percentage of 50 ms; the tick loop measures each tick off the game logic and the next tick reads it as a logged input |
+| `pocketmine\Server::getTickUsageAverage` | differs | src/tick/task.rs:160 `average_mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | a `Duration` (milliseconds per tick) instead of the percentage of 50 ms; the tick loop measures each tick off the game logic and the next tick reads it as a logged input |
+| `pocketmine\Server::getTicksPerSecond` | implemented | src/tick/task.rs:141 `tps` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same |  |
+| `pocketmine\Server::getTicksPerSecondAverage` | implemented | src/tick/task.rs:147 `average_tps` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same |  |
 | `pocketmine\Server::getUpdater` | skipped |  |  | PMMP update checker |
-| `pocketmine\Server::getVersion` | implemented | src/tick/task.rs:68 `VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getViewDistance` | implemented | src/tick/task.rs:201 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getVersion` | implemented | src/tick/task.rs:73 `VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::getViewDistance` | implemented | src/tick/task.rs:207 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getWhitelisted` | implemented | src/tick/command.rs:1543 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getWorldManager` | merged | src/tick/world_api.rs:56 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `pocketmine\Server::hasOfflinePlayerData` | merged | src/tick/task/offline.rs:261 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | into `Server::getOfflinePlayerData` |
 | `pocketmine\Server::hasWhitelist` | implemented | src/tick/command.rs:1549 `whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\Server::isHardcore` | implemented | src/tick/task.rs:194 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::isHardcore` | implemented | src/tick/task.rs:200 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::isLanguageForced` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\Server::isOp` | implemented | src/tick/command.rs:1443 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\Server::isRunning` | skipped |  |  | a `Context` exists only while the server runs |
@@ -125,7 +125,7 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:559 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:314 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
-| `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:207 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
+| `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:213 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::shutdown` | implemented | src/server.rs:920 `shutdown`<br>src/tick/command.rs:1570 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `pocketmine\Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `pocketmine\Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -3729,7 +3729,7 @@ implemented 21, differs 0, merged 29, skipped 69, blank 0 (of 119 rows)
 | `pocketmine\crafting\CraftingGrid::getIngredient` | merged | src/inventory.rs:165 `item` | src/inventory.rs::a_view_reads_both_halves_in_order | into `Inventory::getItem` |
 | `pocketmine\crafting\CraftingGrid::getRecipeHeight` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `pocketmine\crafting\CraftingGrid::getRecipeWidth` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
-| `pocketmine\crafting\CraftingGrid::setItem` | implemented | src/tick/inventory/api.rs:307 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\crafting\CraftingGrid::setItem` | implemented | src/tick/inventory/api.rs:308 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\crafting\CraftingManager` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `pocketmine\crafting\CraftingManager::__construct` | skipped |  |  | the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe` |
 | `pocketmine\crafting\CraftingManager::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -5684,52 +5684,52 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\inventory\InventoryTransactionEvent::uncancel` | implemented | src/event/inventory.rs:300 `TradeOpen` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
 | `pocketmine\event\player\PlayerBedEnterEvent` | implemented | src/event/player.rs:46 `PlayerBedEnter` | src/event/player.rs::bed_events_name_the_bed<br>src/tick/survival/wiring.rs::bed_listeners_keep_a_player_up_and_hear_it_leave |  |
 | `pocketmine\event\player\PlayerBedEnterEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerBedEnterEvent::cancel` | implemented | src/event/player.rs:1654 `PlayerBlockPick` | src/event/player.rs::bed_events_name_the_bed |  |
+| `pocketmine\event\player\PlayerBedEnterEvent::cancel` | implemented | src/event/player.rs:1655 `PlayerBlockPick` | src/event/player.rs::bed_events_name_the_bed |  |
 | `pocketmine\event\player\PlayerBedEnterEvent::getBed` | implemented | src/event/player.rs:61 `bed` | src/event/player.rs::bed_events_name_the_bed |  |
-| `pocketmine\event\player\PlayerBedEnterEvent::isCancelled` | implemented | src/event/player.rs:1656 `PlayerBlockPick` | src/event/player.rs::bed_events_name_the_bed |  |
-| `pocketmine\event\player\PlayerBedEnterEvent::uncancel` | implemented | src/event/player.rs:1655 `PlayerBlockPick` | src/event/player.rs::bed_events_name_the_bed |  |
+| `pocketmine\event\player\PlayerBedEnterEvent::isCancelled` | implemented | src/event/player.rs:1657 `PlayerBlockPick` | src/event/player.rs::bed_events_name_the_bed |  |
+| `pocketmine\event\player\PlayerBedEnterEvent::uncancel` | implemented | src/event/player.rs:1656 `PlayerBlockPick` | src/event/player.rs::bed_events_name_the_bed |  |
 | `pocketmine\event\player\PlayerBedLeaveEvent` | implemented | src/event/player.rs:66 `PlayerBedLeave` | src/event/player.rs::bed_events_name_the_bed<br>src/tick/survival/wiring.rs::bed_listeners_keep_a_player_up_and_hear_it_leave |  |
 | `pocketmine\event\player\PlayerBedLeaveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `pocketmine\event\player\PlayerBedLeaveEvent::getBed` | implemented | src/event/player.rs:80 `bed` | src/event/player.rs::bed_events_name_the_bed |  |
 | `pocketmine\event\player\PlayerBlockPickEvent` | implemented | src/event/player.rs:87 `PlayerBlockPick` | src/event/player.rs::block_pick_names_the_item<br>src/tick/inventory/tests/events.rs::pick_block_raises_block_pick_and_cancelling_gives_nothing |  |
 | `pocketmine\event\player\PlayerBlockPickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerBlockPickEvent::cancel` | implemented | src/event/player.rs:1658 `PlayerBucketEmpty` | src/event/player.rs::block_pick_names_the_item |  |
+| `pocketmine\event\player\PlayerBlockPickEvent::cancel` | implemented | src/event/player.rs:1659 `PlayerBucketEmpty` | src/event/player.rs::block_pick_names_the_item |  |
 | `pocketmine\event\player\PlayerBlockPickEvent::getBlock` | implemented | src/event/player.rs:106 `block` | src/event/player.rs::block_pick_names_the_item |  |
 | `pocketmine\event\player\PlayerBlockPickEvent::getResultItem` | implemented | src/event/player.rs:109 `result_item` | src/event/player.rs::block_pick_names_the_item |  |
-| `pocketmine\event\player\PlayerBlockPickEvent::isCancelled` | implemented | src/event/player.rs:1660 `PlayerBucketEmpty` | src/event/player.rs::block_pick_names_the_item |  |
-| `pocketmine\event\player\PlayerBlockPickEvent::uncancel` | implemented | src/event/player.rs:1659 `PlayerBucketEmpty` | src/event/player.rs::block_pick_names_the_item |  |
+| `pocketmine\event\player\PlayerBlockPickEvent::isCancelled` | implemented | src/event/player.rs:1661 `PlayerBucketEmpty` | src/event/player.rs::block_pick_names_the_item |  |
+| `pocketmine\event\player\PlayerBlockPickEvent::uncancel` | implemented | src/event/player.rs:1660 `PlayerBucketEmpty` | src/event/player.rs::block_pick_names_the_item |  |
 | `pocketmine\event\player\PlayerBucketEmptyEvent` | implemented | src/event/player.rs:115 `PlayerBucketEmpty` | src/event/player.rs::bucket_events_item_can_change<br>src/tick/interact/tests/events.rs::bucket_listeners_see_the_bucket_and_may_cancel_or_change_what_the_player_gets<br>src/tick/interact/tests/events.rs::a_listener_that_takes_the_bucket_or_the_dye_cancels_the_use |  |
 | `pocketmine\event\player\PlayerBucketEvent` | implemented | src/event/player.rs:116 `PlayerBucketEmpty` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerBucketEvent::cancel` | implemented | src/event/player.rs:1662 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change |  |
+| `pocketmine\event\player\PlayerBucketEvent::cancel` | implemented | src/event/player.rs:1663 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketEvent::getBlockClicked` | implemented | src/event/player.rs:134 `block_clicked` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketEvent::getBlockFace` | implemented | src/event/player.rs:137 `block_face` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketEvent::getBucket` | implemented | src/event/player.rs:140 `bucket` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketEvent::getItem` | implemented | src/event/player.rs:143 `item` | src/event/player.rs::bucket_events_item_can_change |  |
-| `pocketmine\event\player\PlayerBucketEvent::isCancelled` | implemented | src/event/player.rs:1664 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change |  |
+| `pocketmine\event\player\PlayerBucketEvent::isCancelled` | implemented | src/event/player.rs:1665 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketEvent::setItem` | implemented | src/event/player.rs:149 `set_item` | src/event/player.rs::bucket_events_item_can_change<br>src/tick/interact/tests/events.rs::bucket_listeners_see_the_bucket_and_may_cancel_or_change_what_the_player_gets |  |
-| `pocketmine\event\player\PlayerBucketEvent::uncancel` | implemented | src/event/player.rs:1663 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change |  |
+| `pocketmine\event\player\PlayerBucketEvent::uncancel` | implemented | src/event/player.rs:1664 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change |  |
 | `pocketmine\event\player\PlayerBucketFillEvent` | implemented | src/event/player.rs:155 `PlayerBucketFill` | src/event/player.rs::bucket_events_item_can_change<br>src/tick/interact/tests/events.rs::bucket_listeners_see_the_bucket_and_may_cancel_or_change_what_the_player_gets<br>src/tick/interact/tests/events.rs::a_listener_that_takes_the_bucket_or_the_dye_cancels_the_use |  |
 | `pocketmine\event\player\PlayerChangeSkinEvent` | implemented | src/event/player.rs:188 `PlayerChangeSkin` | src/event/player.rs::change_skin_new_skin_can_change<br>src/tick/survival/wiring.rs::skin_changes_reach_everyone_or_go_back_to_the_player |  |
 | `pocketmine\event\player\PlayerChangeSkinEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerChangeSkinEvent::cancel` | implemented | src/event/player.rs:1667 `PlayerChat` | src/event/player.rs::change_skin_new_skin_can_change |  |
+| `pocketmine\event\player\PlayerChangeSkinEvent::cancel` | implemented | src/event/player.rs:1668 `PlayerChat` | src/event/player.rs::change_skin_new_skin_can_change |  |
 | `pocketmine\event\player\PlayerChangeSkinEvent::getNewSkin` | implemented | src/event/player.rs:210 `new_skin` | src/event/player.rs::change_skin_new_skin_can_change |  |
 | `pocketmine\event\player\PlayerChangeSkinEvent::getOldSkin` | implemented | src/event/player.rs:204 `old_skin` | src/event/player.rs::change_skin_new_skin_can_change |  |
-| `pocketmine\event\player\PlayerChangeSkinEvent::isCancelled` | implemented | src/event/player.rs:1669 `PlayerChat` | src/event/player.rs::change_skin_new_skin_can_change |  |
+| `pocketmine\event\player\PlayerChangeSkinEvent::isCancelled` | implemented | src/event/player.rs:1670 `PlayerChat` | src/event/player.rs::change_skin_new_skin_can_change |  |
 | `pocketmine\event\player\PlayerChangeSkinEvent::setNewSkin` | implemented | src/event/player.rs:218 `set_new_skin` | src/event/player.rs::change_skin_new_skin_can_change |  |
-| `pocketmine\event\player\PlayerChangeSkinEvent::uncancel` | implemented | src/event/player.rs:1668 `PlayerChat` | src/event/player.rs::change_skin_new_skin_can_change |  |
+| `pocketmine\event\player\PlayerChangeSkinEvent::uncancel` | implemented | src/event/player.rs:1669 `PlayerChat` | src/event/player.rs::change_skin_new_skin_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent` | implemented | src/event/player.rs:225 `PlayerChat` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change<br>src/tick/survival/wiring.rs::chat_listeners_change_the_line_its_format_and_recipients |  |
 | `pocketmine\event\player\PlayerChatEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerChatEvent::cancel` | implemented | src/event/player.rs:1671 `PlayerDropItem` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
+| `pocketmine\event\player\PlayerChatEvent::cancel` | implemented | src/event/player.rs:1672 `PlayerDropItem` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::getFormatter` | implemented | src/event/player.rs:271 `format` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::getMessage` | implemented | src/event/player.rs:239 `message` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::getRecipients` | implemented | src/event/player.rs:242 `recipients` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
-| `pocketmine\event\player\PlayerChatEvent::isCancelled` | implemented | src/event/player.rs:1673 `PlayerDropItem` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
+| `pocketmine\event\player\PlayerChatEvent::isCancelled` | implemented | src/event/player.rs:1674 `PlayerDropItem` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::setFormatter` | implemented | src/event/player.rs:261 `set_format` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::setMessage` | implemented | src/event/player.rs:251 `set_message` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::setPlayer` | implemented | src/event/player.rs:248 `set_player` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerChatEvent::setRecipients` | implemented | src/event/player.rs:254 `set_recipients` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
-| `pocketmine\event\player\PlayerChatEvent::uncancel` | implemented | src/event/player.rs:1672 `PlayerDropItem` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
+| `pocketmine\event\player\PlayerChatEvent::uncancel` | implemented | src/event/player.rs:1673 `PlayerDropItem` | src/event/player.rs::chat_message_speaker_recipients_and_format_can_change |  |
 | `pocketmine\event\player\PlayerCreationEvent` | skipped |  |  | PHP player class choice: the player is Anchor's `Player` |
 | `pocketmine\event\player\PlayerCreationEvent::__construct` | skipped |  |  | PHP player class choice: the player is Anchor's `Player` |
 | `pocketmine\event\player\PlayerCreationEvent::getAddress` | skipped |  |  | PHP player class choice: the player is Anchor's `Player` |
@@ -5761,21 +5761,21 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\player\PlayerDeathEvent::setDeathScreenMessage` | implemented | src/event/player.rs:373 `set_death_screen_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
 | `pocketmine\event\player\PlayerDeathEvent::setKeepInventory` | implemented | src/event/player.rs:376 `set_keep_inventory` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
 | `pocketmine\event\player\PlayerDeathEvent::setKeepXp` | implemented | src/event/player.rs:379 `set_keep_xp` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `pocketmine\event\player\PlayerDisconnectEventTrait` | merged | src/event/player.rs:1105 `disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason | into `PlayerDisconnectEventTrait::getDisconnectReason` |
-| `pocketmine\event\player\PlayerDisconnectEventTrait::getDisconnectReason` | implemented | src/event/player.rs:1105 `disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerDisconnectEventTrait::getDisconnectScreenMessage` | implemented | src/event/player.rs:1129 `disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerDisconnectEventTrait::setDisconnectReason` | implemented | src/event/player.rs:1115 `set_disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerDisconnectEventTrait::setDisconnectScreenMessage` | implemented | src/event/player.rs:1119 `set_disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerDisconnectEventTrait` | merged | src/event/player.rs:1106 `disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason | into `PlayerDisconnectEventTrait::getDisconnectReason` |
+| `pocketmine\event\player\PlayerDisconnectEventTrait::getDisconnectReason` | implemented | src/event/player.rs:1106 `disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerDisconnectEventTrait::getDisconnectScreenMessage` | implemented | src/event/player.rs:1130 `disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerDisconnectEventTrait::setDisconnectReason` | implemented | src/event/player.rs:1116 `set_disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerDisconnectEventTrait::setDisconnectScreenMessage` | implemented | src/event/player.rs:1120 `set_disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
 | `pocketmine\event\player\PlayerDisplayNameChangeEvent` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `pocketmine\event\player\PlayerDisplayNameChangeEvent::__construct` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `pocketmine\event\player\PlayerDisplayNameChangeEvent::getNewName` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `pocketmine\event\player\PlayerDisplayNameChangeEvent::getOldName` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
-| `pocketmine\event\player\PlayerDropItemEvent` | implemented | src/event/player.rs:384 `PlayerDropItem` | src/event/player.rs::drop_item_names_the_item<br>src/tick/inventory/tests.rs::random_requests_with_random_listeners_keep_every_item_accounted_for<br>src/tick/inventory/tests/events.rs::drops_raise_player_drop_item_and_cancelling_keeps_the_item |  |
+| `pocketmine\event\player\PlayerDropItemEvent` | implemented | src/event/player.rs:384 `PlayerDropItem` | src/event/player.rs::drop_item_names_the_item<br>src/tick/inventory/tests.rs::random_requests_with_random_listeners_keep_every_item_accounted_for<br>src/tick/inventory/tests/events.rs::drops_raise_player_drop_item_and_cancelling_keeps_the_item<br>src/tick/inventory/tests/menu.rs::a_drop_from_an_editable_slot_is_a_change_thrown_once_kept |  |
 | `pocketmine\event\player\PlayerDropItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerDropItemEvent::cancel` | implemented | src/event/player.rs:1675 `PlayerEditBook` | src/event/player.rs::drop_item_names_the_item |  |
+| `pocketmine\event\player\PlayerDropItemEvent::cancel` | implemented | src/event/player.rs:1676 `PlayerEditBook` | src/event/player.rs::drop_item_names_the_item |  |
 | `pocketmine\event\player\PlayerDropItemEvent::getItem` | implemented | src/event/player.rs:396 `item` | src/event/player.rs::drop_item_names_the_item |  |
-| `pocketmine\event\player\PlayerDropItemEvent::isCancelled` | implemented | src/event/player.rs:1677 `PlayerEditBook` | src/event/player.rs::drop_item_names_the_item |  |
-| `pocketmine\event\player\PlayerDropItemEvent::uncancel` | implemented | src/event/player.rs:1676 `PlayerEditBook` | src/event/player.rs::drop_item_names_the_item |  |
+| `pocketmine\event\player\PlayerDropItemEvent::isCancelled` | implemented | src/event/player.rs:1678 `PlayerEditBook` | src/event/player.rs::drop_item_names_the_item |  |
+| `pocketmine\event\player\PlayerDropItemEvent::uncancel` | implemented | src/event/player.rs:1677 `PlayerEditBook` | src/event/player.rs::drop_item_names_the_item |  |
 | `pocketmine\event\player\PlayerDuplicateLoginEvent` | implemented | src/event/player.rs:409 `PlayerDuplicateLogin` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::duplicate_login_monitors_see_the_outcome_applied |  |
 | `pocketmine\event\player\PlayerDuplicateLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `pocketmine\event\player\PlayerDuplicateLoginEvent::cancel` | implemented | src/event/player.rs:482 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
@@ -5789,180 +5789,180 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\player\PlayerDuplicateLoginEvent::uncancel` | implemented | src/event/player.rs:489 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
 | `pocketmine\event\player\PlayerEditBookEvent` | implemented | src/event/player.rs:548 `PlayerEditBook` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
 | `pocketmine\event\player\PlayerEditBookEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerEditBookEvent::cancel` | implemented | src/event/player.rs:1679 `PlayerEmote` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `pocketmine\event\player\PlayerEditBookEvent::cancel` | implemented | src/event/player.rs:1680 `PlayerEmote` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
 | `pocketmine\event\player\PlayerEditBookEvent::getAction` | implemented | src/event/player.rs:563 `action` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
 | `pocketmine\event\player\PlayerEditBookEvent::getModifiedPages` | implemented | src/event/player.rs:572 `modified_pages` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
 | `pocketmine\event\player\PlayerEditBookEvent::getNewBook` | implemented | src/event/player.rs:569 `new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
 | `pocketmine\event\player\PlayerEditBookEvent::getOldBook` | implemented | src/event/player.rs:566 `old_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `pocketmine\event\player\PlayerEditBookEvent::isCancelled` | implemented | src/event/player.rs:1681 `PlayerEmote` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `pocketmine\event\player\PlayerEditBookEvent::isCancelled` | implemented | src/event/player.rs:1682 `PlayerEmote` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
 | `pocketmine\event\player\PlayerEditBookEvent::setNewBook` | implemented | src/event/player.rs:579 `set_new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `pocketmine\event\player\PlayerEditBookEvent::uncancel` | implemented | src/event/player.rs:1680 `PlayerEmote` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `pocketmine\event\player\PlayerEditBookEvent::uncancel` | implemented | src/event/player.rs:1681 `PlayerEmote` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
 | `pocketmine\event\player\PlayerEmoteEvent` | implemented | src/event/player.rs:597 `PlayerEmote` | src/event/player.rs::emote_can_change<br>src/tick/survival/wiring.rs::emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow |  |
 | `pocketmine\event\player\PlayerEmoteEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerEmoteEvent::cancel` | implemented | src/event/player.rs:1683 `PlayerEnchantingOptionsRequest` | src/event/player.rs::emote_can_change |  |
+| `pocketmine\event\player\PlayerEmoteEvent::cancel` | implemented | src/event/player.rs:1684 `PlayerEnchantingOptionsRequest` | src/event/player.rs::emote_can_change |  |
 | `pocketmine\event\player\PlayerEmoteEvent::getEmoteId` | implemented | src/event/player.rs:609 `emote_id` | src/event/player.rs::emote_can_change |  |
-| `pocketmine\event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:1685 `PlayerEnchantingOptionsRequest` | src/event/player.rs::emote_can_change |  |
+| `pocketmine\event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:1686 `PlayerEnchantingOptionsRequest` | src/event/player.rs::emote_can_change |  |
 | `pocketmine\event\player\PlayerEmoteEvent::setEmoteId` | implemented | src/event/player.rs:615 `set_emote_id` | src/event/player.rs::emote_can_change |  |
-| `pocketmine\event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:1684 `PlayerEnchantingOptionsRequest` | src/event/player.rs::emote_can_change |  |
+| `pocketmine\event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:1685 `PlayerEnchantingOptionsRequest` | src/event/player.rs::emote_can_change |  |
 | `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent` | implemented | src/event/player.rs:654 `PlayerEnchantingOptionsRequest` | src/event/player.rs::enchanting_options_are_at_most_three<br>src/tick/inventory/tests/events.rs::enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result |  |
 | `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::cancel` | implemented | src/event/player.rs:1687 `PlayerEntityInteract` | src/event/player.rs::enchanting_options_are_at_most_three |  |
+| `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::cancel` | implemented | src/event/player.rs:1688 `PlayerEntityInteract` | src/event/player.rs::enchanting_options_are_at_most_three |  |
 | `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::getInventory` | implemented | src/event/player.rs:670 `pos` | src/event/player.rs::enchanting_options_are_at_most_three |  |
 | `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::getOptions` | implemented | src/event/player.rs:673 `options` | src/event/player.rs::enchanting_options_are_at_most_three |  |
-| `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | implemented | src/event/player.rs:1689 `PlayerEntityInteract` | src/event/player.rs::enchanting_options_are_at_most_three |  |
+| `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | implemented | src/event/player.rs:1690 `PlayerEntityInteract` | src/event/player.rs::enchanting_options_are_at_most_three |  |
 | `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::setOptions` | implemented | src/event/player.rs:679 `set_options` | src/event/player.rs::enchanting_options_are_at_most_three |  |
-| `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::uncancel` | implemented | src/event/player.rs:1688 `PlayerEntityInteract` | src/event/player.rs::enchanting_options_are_at_most_three |  |
+| `pocketmine\event\player\PlayerEnchantingOptionsRequestEvent::uncancel` | implemented | src/event/player.rs:1689 `PlayerEntityInteract` | src/event/player.rs::enchanting_options_are_at_most_three |  |
 | `pocketmine\event\player\PlayerEntityInteractEvent` | implemented | src/event/player.rs:688 `PlayerEntityInteract` | src/event/player.rs::entity_interact_names_the_entity<br>src/tick/interact/tests/events.rs::an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade |  |
 | `pocketmine\event\player\PlayerEntityInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:1691 `PlayerEntityPick` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `pocketmine\event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:1692 `PlayerEntityPick` | src/event/player.rs::entity_interact_names_the_entity |  |
 | `pocketmine\event\player\PlayerEntityInteractEvent::getClickPosition` | implemented | src/event/player.rs:704 `click_position` | src/event/player.rs::entity_interact_names_the_entity |  |
 | `pocketmine\event\player\PlayerEntityInteractEvent::getEntity` | implemented | src/event/player.rs:701 `entity` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `pocketmine\event\player\PlayerEntityInteractEvent::isCancelled` | implemented | src/event/player.rs:1693 `PlayerEntityPick` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `pocketmine\event\player\PlayerEntityInteractEvent::uncancel` | implemented | src/event/player.rs:1692 `PlayerEntityPick` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `pocketmine\event\player\PlayerEntityInteractEvent::isCancelled` | implemented | src/event/player.rs:1694 `PlayerEntityPick` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `pocketmine\event\player\PlayerEntityInteractEvent::uncancel` | implemented | src/event/player.rs:1693 `PlayerEntityPick` | src/event/player.rs::entity_interact_names_the_entity |  |
 | `pocketmine\event\player\PlayerEntityPickEvent` | implemented | src/event/player.rs:710 `PlayerEntityPick` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::creative_players_get_the_entity_item_and_others_only_select_one_they_carry<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
 | `pocketmine\event\player\PlayerEntityPickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerEntityPickEvent::cancel` | implemented | src/event/player.rs:1695 `PlayerExhaust` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `pocketmine\event\player\PlayerEntityPickEvent::cancel` | implemented | src/event/player.rs:1696 `PlayerExhaust` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
 | `pocketmine\event\player\PlayerEntityPickEvent::getEntity` | implemented | src/event/player.rs:723 `entity` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
 | `pocketmine\event\player\PlayerEntityPickEvent::getResultItem` | implemented | src/event/player.rs:726 `result_item` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `pocketmine\event\player\PlayerEntityPickEvent::isCancelled` | implemented | src/event/player.rs:1697 `PlayerExhaust` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `pocketmine\event\player\PlayerEntityPickEvent::uncancel` | implemented | src/event/player.rs:1696 `PlayerExhaust` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `pocketmine\event\player\PlayerEvent` | merged | src/event/player.rs:1063 `player` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerEvent::getPlayer` |
-| `pocketmine\event\player\PlayerEvent::getPlayer` | implemented | src/event/player.rs:1063 `player` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `pocketmine\event\player\PlayerEntityPickEvent::isCancelled` | implemented | src/event/player.rs:1698 `PlayerExhaust` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `pocketmine\event\player\PlayerEntityPickEvent::uncancel` | implemented | src/event/player.rs:1697 `PlayerExhaust` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `pocketmine\event\player\PlayerEvent` | merged | src/event/player.rs:1064 `player` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerEvent::getPlayer` |
+| `pocketmine\event\player\PlayerEvent::getPlayer` | implemented | src/event/player.rs:1064 `player` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `pocketmine\event\player\PlayerExhaustEvent` | implemented | src/event/player.rs:763 `PlayerExhaust` | src/event/player.rs::exhaust_amount_can_change<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/survival/wiring.rs::exhaust_listeners_change_or_cancel_the_exhaustion |  |
 | `pocketmine\event\player\PlayerExhaustEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerExhaustEvent::cancel` | implemented | src/event/player.rs:1699 `PlayerExperienceChange` | src/event/player.rs::exhaust_amount_can_change |  |
+| `pocketmine\event\player\PlayerExhaustEvent::cancel` | implemented | src/event/player.rs:1700 `PlayerExperienceChange` | src/event/player.rs::exhaust_amount_can_change |  |
 | `pocketmine\event\player\PlayerExhaustEvent::getAmount` | implemented | src/event/player.rs:777 `amount` | src/event/player.rs::exhaust_amount_can_change |  |
 | `pocketmine\event\player\PlayerExhaustEvent::getCause` | implemented | src/event/player.rs:780 `cause` | src/event/player.rs::exhaust_amount_can_change |  |
 | `pocketmine\event\player\PlayerExhaustEvent::getPlayer` | implemented | src/event/player.rs:774 `player` | src/event/player.rs::exhaust_amount_can_change |  |
-| `pocketmine\event\player\PlayerExhaustEvent::isCancelled` | implemented | src/event/player.rs:1701 `PlayerExperienceChange` | src/event/player.rs::exhaust_amount_can_change |  |
+| `pocketmine\event\player\PlayerExhaustEvent::isCancelled` | implemented | src/event/player.rs:1702 `PlayerExperienceChange` | src/event/player.rs::exhaust_amount_can_change |  |
 | `pocketmine\event\player\PlayerExhaustEvent::setAmount` | implemented | src/event/player.rs:786 `set_amount` | src/event/player.rs::exhaust_amount_can_change |  |
-| `pocketmine\event\player\PlayerExhaustEvent::uncancel` | implemented | src/event/player.rs:1700 `PlayerExperienceChange` | src/event/player.rs::exhaust_amount_can_change |  |
+| `pocketmine\event\player\PlayerExhaustEvent::uncancel` | implemented | src/event/player.rs:1701 `PlayerExperienceChange` | src/event/player.rs::exhaust_amount_can_change |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent` | implemented | src/event/player.rs:795 `PlayerExperienceChange` | src/event/player.rs::experience_change_keeps_progress_in_range<br>src/tick/survival/wiring.rs::experience_listeners_choose_the_level_or_cancel_the_gain |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerExperienceChangeEvent::cancel` | implemented | src/event/player.rs:1703 `PlayerGameModeChange` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
+| `pocketmine\event\player\PlayerExperienceChangeEvent::cancel` | implemented | src/event/player.rs:1704 `PlayerGameModeChange` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::getNewLevel` | implemented | src/event/player.rs:816 `new_level` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::getNewProgress` | implemented | src/event/player.rs:819 `new_progress` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::getOldLevel` | implemented | src/event/player.rs:810 `old_level` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::getOldProgress` | implemented | src/event/player.rs:813 `old_progress` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
-| `pocketmine\event\player\PlayerExperienceChangeEvent::isCancelled` | implemented | src/event/player.rs:1705 `PlayerGameModeChange` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
+| `pocketmine\event\player\PlayerExperienceChangeEvent::isCancelled` | implemented | src/event/player.rs:1706 `PlayerGameModeChange` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::setNewLevel` | implemented | src/event/player.rs:825 `set_new_level` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerExperienceChangeEvent::setNewProgress` | implemented | src/event/player.rs:832 `set_new_progress` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
-| `pocketmine\event\player\PlayerExperienceChangeEvent::uncancel` | implemented | src/event/player.rs:1704 `PlayerGameModeChange` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
+| `pocketmine\event\player\PlayerExperienceChangeEvent::uncancel` | implemented | src/event/player.rs:1705 `PlayerGameModeChange` | src/event/player.rs::experience_change_keeps_progress_in_range |  |
 | `pocketmine\event\player\PlayerGameModeChangeEvent` | implemented | src/event/player.rs:843 `PlayerGameModeChange` | src/event/player.rs::game_mode_change_names_the_new_mode<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `pocketmine\event\player\PlayerGameModeChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerGameModeChangeEvent::cancel` | implemented | src/event/player.rs:1707 `PlayerInteract` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `pocketmine\event\player\PlayerGameModeChangeEvent::cancel` | implemented | src/event/player.rs:1708 `PlayerInteract` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
 | `pocketmine\event\player\PlayerGameModeChangeEvent::getNewGamemode` | implemented | src/event/player.rs:855 `new_game_mode` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `pocketmine\event\player\PlayerGameModeChangeEvent::isCancelled` | implemented | src/event/player.rs:1709 `PlayerInteract` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `pocketmine\event\player\PlayerGameModeChangeEvent::uncancel` | implemented | src/event/player.rs:1708 `PlayerInteract` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `pocketmine\event\player\PlayerGameModeChangeEvent::isCancelled` | implemented | src/event/player.rs:1710 `PlayerInteract` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `pocketmine\event\player\PlayerGameModeChangeEvent::uncancel` | implemented | src/event/player.rs:1709 `PlayerInteract` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
 | `pocketmine\event\player\PlayerInteractEvent` | implemented | src/event/player.rs:873 `PlayerInteract` | src/event/player.rs::interact_can_stop_the_item_or_the_block<br>src/tick/interact/tests/events.rs::a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting<br>src/tick/interact/tests/events.rs::a_cancelled_right_click_uses_neither_the_block_nor_the_item<br>src/tick/interact/tests/events.rs::a_cancelled_left_click_starts_no_breaking_and_keeps_the_dragon_egg<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items |  |
 | `pocketmine\event\player\PlayerInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerInteractEvent::cancel` | implemented | src/event/player.rs:1711 `PlayerItemConsume` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `pocketmine\event\player\PlayerInteractEvent::cancel` | implemented | src/event/player.rs:1712 `PlayerItemConsume` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::getAction` | implemented | src/event/player.rs:910 `action` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::getBlock` | implemented | src/event/player.rs:898 `block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::getFace` | implemented | src/event/player.rs:901 `face` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::getItem` | implemented | src/event/player.rs:904 `item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::getTouchVector` | implemented | src/event/player.rs:907 `touch_vector` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `pocketmine\event\player\PlayerInteractEvent::isCancelled` | implemented | src/event/player.rs:1713 `PlayerItemConsume` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `pocketmine\event\player\PlayerInteractEvent::isCancelled` | implemented | src/event/player.rs:1714 `PlayerItemConsume` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::setUseBlock` | implemented | src/event/player.rs:942 `set_use_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::setUseItem` | implemented | src/event/player.rs:939 `set_use_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `pocketmine\event\player\PlayerInteractEvent::uncancel` | implemented | src/event/player.rs:1712 `PlayerItemConsume` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `pocketmine\event\player\PlayerInteractEvent::uncancel` | implemented | src/event/player.rs:1713 `PlayerItemConsume` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::useBlock` | implemented | src/event/player.rs:931 `uses_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerInteractEvent::useItem` | implemented | src/event/player.rs:924 `uses_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
 | `pocketmine\event\player\PlayerItemConsumeEvent` | implemented | src/event/player.rs:948 `PlayerItemConsume` | src/event/player.rs::item_consume_residue_can_change<br>src/tick/survival/wiring.rs::consume_listeners_cancel_the_meal_or_replace_its_residue |  |
 | `pocketmine\event\player\PlayerItemConsumeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerItemConsumeEvent::cancel` | implemented | src/event/player.rs:1715 `PlayerItemEnchant` | src/event/player.rs::item_consume_residue_can_change |  |
+| `pocketmine\event\player\PlayerItemConsumeEvent::cancel` | implemented | src/event/player.rs:1716 `PlayerItemEnchant` | src/event/player.rs::item_consume_residue_can_change |  |
 | `pocketmine\event\player\PlayerItemConsumeEvent::getItem` | implemented | src/event/player.rs:961 `item` | src/event/player.rs::item_consume_residue_can_change |  |
 | `pocketmine\event\player\PlayerItemConsumeEvent::getResidue` | implemented | src/event/player.rs:964 `residue` | src/event/player.rs::item_consume_residue_can_change |  |
-| `pocketmine\event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:1717 `PlayerItemEnchant` | src/event/player.rs::item_consume_residue_can_change |  |
+| `pocketmine\event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:1718 `PlayerItemEnchant` | src/event/player.rs::item_consume_residue_can_change |  |
 | `pocketmine\event\player\PlayerItemConsumeEvent::setResidue` | implemented | src/event/player.rs:970 `set_residue` | src/event/player.rs::item_consume_residue_can_change |  |
-| `pocketmine\event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:1716 `PlayerItemEnchant` | src/event/player.rs::item_consume_residue_can_change |  |
+| `pocketmine\event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:1717 `PlayerItemEnchant` | src/event/player.rs::item_consume_residue_can_change |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent` | implemented | src/event/player.rs:976 `PlayerItemEnchant` | src/event/player.rs::item_enchant_names_the_option_and_items<br>src/tick/inventory/tests/events.rs::enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerItemEnchantEvent::cancel` | implemented | src/event/player.rs:1719 `PlayerItemHeld` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
+| `pocketmine\event\player\PlayerItemEnchantEvent::cancel` | implemented | src/event/player.rs:1720 `PlayerItemHeld` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent::getCost` | implemented | src/event/player.rs:1006 `cost` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent::getInputItem` | implemented | src/event/player.rs:1000 `input_item` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent::getOption` | implemented | src/event/player.rs:997 `option` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent::getOutputItem` | implemented | src/event/player.rs:1003 `output_item` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
 | `pocketmine\event\player\PlayerItemEnchantEvent::getTransaction` | merged | src/event/inventory.rs:232 `changes` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change | into `InventoryTransactionEvent::getTransaction` |
-| `pocketmine\event\player\PlayerItemEnchantEvent::isCancelled` | implemented | src/event/player.rs:1721 `PlayerItemHeld` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
-| `pocketmine\event\player\PlayerItemEnchantEvent::uncancel` | implemented | src/event/player.rs:1720 `PlayerItemHeld` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
+| `pocketmine\event\player\PlayerItemEnchantEvent::isCancelled` | implemented | src/event/player.rs:1722 `PlayerItemHeld` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
+| `pocketmine\event\player\PlayerItemEnchantEvent::uncancel` | implemented | src/event/player.rs:1721 `PlayerItemHeld` | src/event/player.rs::item_enchant_names_the_option_and_items |  |
 | `pocketmine\event\player\PlayerItemHeldEvent` | implemented | src/event/player.rs:1011 `PlayerItemHeld` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/inventory/tests/events.rs::hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot |  |
 | `pocketmine\event\player\PlayerItemHeldEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:1723 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:1724 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item |  |
 | `pocketmine\event\player\PlayerItemHeldEvent::getItem` | implemented | src/event/player.rs:1024 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
 | `pocketmine\event\player\PlayerItemHeldEvent::getSlot` | implemented | src/event/player.rs:1027 `slot` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemHeldEvent::isCancelled` | implemented | src/event/player.rs:1725 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemHeldEvent::uncancel` | implemented | src/event/player.rs:1724 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemUseEvent` | implemented | src/event/player.rs:1033 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/interact/tests/events.rs::a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction<br>src/tick/interact/tests/events.rs::an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armour_in_hand |  |
+| `pocketmine\event\player\PlayerItemHeldEvent::isCancelled` | implemented | src/event/player.rs:1726 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemHeldEvent::uncancel` | implemented | src/event/player.rs:1725 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemUseEvent` | implemented | src/event/player.rs:1034 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/interact/tests/events.rs::a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction<br>src/tick/interact/tests/events.rs::an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armour_in_hand |  |
 | `pocketmine\event\player\PlayerItemUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerItemUseEvent::cancel` | implemented | src/event/player.rs:1727 `PlayerKick` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemUseEvent::getDirectionVector` | implemented | src/event/player.rs:1049 `direction_vector` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:1046 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:1729 `PlayerKick` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:1728 `PlayerKick` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `pocketmine\event\player\PlayerJoinEvent` | implemented | src/event/player.rs:1054 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_bds_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
+| `pocketmine\event\player\PlayerItemUseEvent::cancel` | implemented | src/event/player.rs:1728 `PlayerKick` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemUseEvent::getDirectionVector` | implemented | src/event/player.rs:1050 `direction_vector` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:1047 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:1730 `PlayerKick` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:1729 `PlayerKick` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `pocketmine\event\player\PlayerJoinEvent` | implemented | src/event/player.rs:1055 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_bds_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
 | `pocketmine\event\player\PlayerJoinEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:1067 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `pocketmine\event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:1073 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `pocketmine\event\player\PlayerJumpEvent` | implemented | src/event/player.rs:1078 `PlayerJump` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:1068 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `pocketmine\event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:1074 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `pocketmine\event\player\PlayerJumpEvent` | implemented | src/event/player.rs:1079 `PlayerJump` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerJumpEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerKickEvent` | implemented | src/event/player.rs:1090 `PlayerKick` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `pocketmine\event\player\PlayerKickEvent` | implemented | src/event/player.rs:1091 `PlayerKick` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `pocketmine\event\player\PlayerKickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerKickEvent::cancel` | implemented | src/event/player.rs:1731 `PlayerMissSwing` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::getDisconnectReason` | implemented | src/event/player.rs:1104 `disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1128 `disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::getQuitMessage` | implemented | src/event/player.rs:1108 `quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::isCancelled` | implemented | src/event/player.rs:1733 `PlayerMissSwing` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::setDisconnectReason` | implemented | src/event/player.rs:1114 `set_disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:1118 `set_disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::setQuitMessage` | implemented | src/event/player.rs:1122 `set_quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerKickEvent::uncancel` | implemented | src/event/player.rs:1732 `PlayerMissSwing` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `pocketmine\event\player\PlayerLoginEvent` | implemented | src/event/player.rs:1182 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join |  |
+| `pocketmine\event\player\PlayerKickEvent::cancel` | implemented | src/event/player.rs:1732 `PlayerMissSwing` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::getDisconnectReason` | implemented | src/event/player.rs:1105 `disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1129 `disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::getQuitMessage` | implemented | src/event/player.rs:1109 `quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::isCancelled` | implemented | src/event/player.rs:1734 `PlayerMissSwing` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::setDisconnectReason` | implemented | src/event/player.rs:1115 `set_disconnect_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:1119 `set_disconnect_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::setQuitMessage` | implemented | src/event/player.rs:1123 `set_quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerKickEvent::uncancel` | implemented | src/event/player.rs:1733 `PlayerMissSwing` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `pocketmine\event\player\PlayerLoginEvent` | implemented | src/event/player.rs:1183 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join |  |
 | `pocketmine\event\player\PlayerLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerLoginEvent::cancel` | merged | src/event/player.rs:1226 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::setKickFlag` |
-| `pocketmine\event\player\PlayerLoginEvent::getKickMessage` | merged | src/event/player.rs:1286 `final_disconnect_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::getFinalDisconnectScreenMessage` |
+| `pocketmine\event\player\PlayerLoginEvent::cancel` | merged | src/event/player.rs:1227 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::setKickFlag` |
+| `pocketmine\event\player\PlayerLoginEvent::getKickMessage` | merged | src/event/player.rs:1287 `final_disconnect_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::getFinalDisconnectScreenMessage` |
 | `pocketmine\event\player\PlayerLoginEvent::isCancelled` | merged | src/event/player.rs:498 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `pocketmine\event\player\PlayerLoginEvent::setKickMessage` | merged | src/event/player.rs:1226 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::setKickFlag` |
-| `pocketmine\event\player\PlayerLoginEvent::uncancel` | merged | src/event/player.rs:1252 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::clearAllKickFlags` |
-| `pocketmine\event\player\PlayerMissSwingEvent` | implemented | src/event/player.rs:1302 `PlayerMissSwing` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerLoginEvent::setKickMessage` | merged | src/event/player.rs:1227 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::setKickFlag` |
+| `pocketmine\event\player\PlayerLoginEvent::uncancel` | merged | src/event/player.rs:1253 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::clearAllKickFlags` |
+| `pocketmine\event\player\PlayerMissSwingEvent` | implemented | src/event/player.rs:1303 `PlayerMissSwing` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerMissSwingEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerMissSwingEvent::cancel` | implemented | src/event/player.rs:1735 `PlayerMove` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMissSwingEvent::isCancelled` | implemented | src/event/player.rs:1737 `PlayerMove` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMissSwingEvent::uncancel` | implemented | src/event/player.rs:1736 `PlayerMove` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMoveEvent` | implemented | src/event/player.rs:1315 `PlayerMove` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::move_listeners_send_the_player_back_or_elsewhere |  |
+| `pocketmine\event\player\PlayerMissSwingEvent::cancel` | implemented | src/event/player.rs:1736 `PlayerMove` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMissSwingEvent::isCancelled` | implemented | src/event/player.rs:1738 `PlayerMove` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMissSwingEvent::uncancel` | implemented | src/event/player.rs:1737 `PlayerMove` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMoveEvent` | implemented | src/event/player.rs:1316 `PlayerMove` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::move_listeners_send_the_player_back_or_elsewhere |  |
 | `pocketmine\event\player\PlayerMoveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerMoveEvent::cancel` | implemented | src/event/player.rs:1739 `PlayerRespawnAnchorUse` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMoveEvent::getFrom` | implemented | src/event/player.rs:1328 `origin` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMoveEvent::getTo` | implemented | src/event/player.rs:1331 `target` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMoveEvent::isCancelled` | implemented | src/event/player.rs:1741 `PlayerRespawnAnchorUse` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMoveEvent::setTo` | implemented | src/event/player.rs:1338 `set_target` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerMoveEvent::uncancel` | implemented | src/event/player.rs:1740 `PlayerRespawnAnchorUse` | src/event/player.rs::move_target_can_change |  |
-| `pocketmine\event\player\PlayerPostChunkSendEvent` | implemented | src/event/player.rs:1347 `PlayerPostChunkSend` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `pocketmine\event\player\PlayerMoveEvent::cancel` | implemented | src/event/player.rs:1740 `PlayerRespawnAnchorUse` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMoveEvent::getFrom` | implemented | src/event/player.rs:1329 `origin` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMoveEvent::getTo` | implemented | src/event/player.rs:1332 `target` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMoveEvent::isCancelled` | implemented | src/event/player.rs:1742 `PlayerRespawnAnchorUse` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMoveEvent::setTo` | implemented | src/event/player.rs:1339 `set_target` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerMoveEvent::uncancel` | implemented | src/event/player.rs:1741 `PlayerRespawnAnchorUse` | src/event/player.rs::move_target_can_change |  |
+| `pocketmine\event\player\PlayerPostChunkSendEvent` | implemented | src/event/player.rs:1348 `PlayerPostChunkSend` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
 | `pocketmine\event\player\PlayerPostChunkSendEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerPostChunkSendEvent::getChunkX` | implemented | src/event/player.rs:1358 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
-| `pocketmine\event\player\PlayerPostChunkSendEvent::getChunkZ` | implemented | src/event/player.rs:1359 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
-| `pocketmine\event\player\PlayerPreLoginEvent` | implemented | src/event/player.rs:1181 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join<br>src/tick/spawn.rs::anchors_own_refusal_left_set_ends_as_without_listeners<br>src/tick/spawn.rs::a_plugin_kick_flag_refuses_the_join_and_changes_nothing<br>src/tick/spawn.rs::a_login_listener_that_bans_the_player_refuses_it<br>src/tick/spawn.rs::login_monitors_see_the_joined_player |  |
+| `pocketmine\event\player\PlayerPostChunkSendEvent::getChunkX` | implemented | src/event/player.rs:1359 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `pocketmine\event\player\PlayerPostChunkSendEvent::getChunkZ` | implemented | src/event/player.rs:1360 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `pocketmine\event\player\PlayerPreLoginEvent` | implemented | src/event/player.rs:1182 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join<br>src/tick/spawn.rs::anchors_own_refusal_left_set_ends_as_without_listeners<br>src/tick/spawn.rs::a_plugin_kick_flag_refuses_the_join_and_changes_nothing<br>src/tick/spawn.rs::a_login_listener_that_bans_the_player_refuses_it<br>src/tick/spawn.rs::login_monitors_see_the_joined_player |  |
 | `pocketmine\event\player\PlayerPreLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerPreLoginEvent::clearAllKickFlags` | implemented | src/event/player.rs:1252 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::clearKickFlag` | implemented | src/event/player.rs:1244 `clear_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:1264 `disconnect_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1270 `disconnect_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getFinalDisconnectReason` | implemented | src/event/player.rs:1276 `final_disconnect_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getFinalDisconnectScreenMessage` | implemented | src/event/player.rs:1286 `final_disconnect_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getIp` | implemented | src/event/player.rs:1198 `ip` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getKickFlags` | implemented | src/event/player.rs:1210 `kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getPlayerInfo` | implemented | src/event/player.rs:1192 `info` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::getPort` | implemented | src/event/player.rs:1204 `port` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
-| `pocketmine\event\player\PlayerPreLoginEvent::isAllowed` | implemented | src/event/player.rs:1258 `is_allowed` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::clearAllKickFlags` | implemented | src/event/player.rs:1253 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::clearKickFlag` | implemented | src/event/player.rs:1245 `clear_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:1265 `disconnect_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1271 `disconnect_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getFinalDisconnectReason` | implemented | src/event/player.rs:1277 `final_disconnect_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getFinalDisconnectScreenMessage` | implemented | src/event/player.rs:1287 `final_disconnect_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getIp` | implemented | src/event/player.rs:1199 `ip` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getKickFlags` | implemented | src/event/player.rs:1211 `kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getPlayerInfo` | implemented | src/event/player.rs:1193 `info` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::getPort` | implemented | src/event/player.rs:1205 `port` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::isAllowed` | implemented | src/event/player.rs:1259 `is_allowed` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `pocketmine\event\player\PlayerPreLoginEvent::isAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
-| `pocketmine\event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1219 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1220 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `pocketmine\event\player\PlayerPreLoginEvent::setAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
-| `pocketmine\event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1226 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `pocketmine\event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1366 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_bds_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `pocketmine\event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1227 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `pocketmine\event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1367 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_bds_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `pocketmine\event\player\PlayerQuitEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1379 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `pocketmine\event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1382 `quit_reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
-| `pocketmine\event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1388 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `pocketmine\event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1380 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `pocketmine\event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1383 `quit_reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
+| `pocketmine\event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1389 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:205 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:205 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
@@ -5972,64 +5972,64 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:636 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:636 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:205 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent` | implemented | src/event/player.rs:1445 `PlayerRespawnAnchorUse` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world<br>src/tick/interact/tests/events.rs::an_anchor_explosion_is_the_same_on_every_run<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent` | implemented | src/event/player.rs:1446 `PlayerRespawnAnchorUse` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world<br>src/tick/interact/tests/events.rs::an_anchor_explosion_is_the_same_on_every_run<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
 | `pocketmine\event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::cancel` | implemented | src/event/player.rs:1743 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::cancelling_an_anchor_event_stops_what_it_announces |  |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::getAction` | implemented | src/event/player.rs:1467 `action` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::getBlock` | implemented | src/event/player.rs:1464 `block` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::isCancelled` | implemented | src/event/player.rs:1745 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action |  |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::setAction` | implemented | src/event/player.rs:1473 `set_action` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once |  |
-| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::uncancel` | implemented | src/event/player.rs:1744 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action |  |
-| `pocketmine\event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1402 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::cancel` | implemented | src/event/player.rs:1744 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::cancelling_an_anchor_event_stops_what_it_announces |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::getAction` | implemented | src/event/player.rs:1468 `action` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::getBlock` | implemented | src/event/player.rs:1465 `block` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::isCancelled` | implemented | src/event/player.rs:1746 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::setAction` | implemented | src/event/player.rs:1474 `set_action` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once |  |
+| `pocketmine\event\player\PlayerRespawnAnchorUseEvent::uncancel` | implemented | src/event/player.rs:1745 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action |  |
+| `pocketmine\event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1403 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator |  |
 | `pocketmine\event\player\PlayerRespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1416 `position` | src/event/player.rs::respawn_position_can_change |  |
-| `pocketmine\event\player\PlayerRespawnEvent::setRespawnPosition` | implemented | src/event/player.rs:1422 `set_position` | src/event/player.rs::respawn_position_can_change |  |
-| `pocketmine\event\player\PlayerToggleFlightEvent` | implemented | src/event/player.rs:1478 `PlayerToggleFlight` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1417 `position` | src/event/player.rs::respawn_position_can_change |  |
+| `pocketmine\event\player\PlayerRespawnEvent::setRespawnPosition` | implemented | src/event/player.rs:1423 `set_position` | src/event/player.rs::respawn_position_can_change |  |
+| `pocketmine\event\player\PlayerToggleFlightEvent` | implemented | src/event/player.rs:1479 `PlayerToggleFlight` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerToggleFlightEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerToggleFlightEvent::cancel` | implemented | src/event/player.rs:1747 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleFlightEvent::isCancelled` | implemented | src/event/player.rs:1749 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleFlightEvent::isFlying` | implemented | src/event/player.rs:1530 `is_flying` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleFlightEvent::uncancel` | implemented | src/event/player.rs:1748 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleGlideEvent` | implemented | src/event/player.rs:1487 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerToggleFlightEvent::cancel` | implemented | src/event/player.rs:1748 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleFlightEvent::isCancelled` | implemented | src/event/player.rs:1750 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleFlightEvent::isFlying` | implemented | src/event/player.rs:1531 `is_flying` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleFlightEvent::uncancel` | implemented | src/event/player.rs:1749 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleGlideEvent` | implemented | src/event/player.rs:1488 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerToggleGlideEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerToggleGlideEvent::cancel` | implemented | src/event/player.rs:1751 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleGlideEvent::isCancelled` | implemented | src/event/player.rs:1753 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleGlideEvent::isGliding` | implemented | src/event/player.rs:1543 `is_gliding` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleGlideEvent::uncancel` | implemented | src/event/player.rs:1752 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSneakEvent` | implemented | src/event/player.rs:1496 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerToggleGlideEvent::cancel` | implemented | src/event/player.rs:1752 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleGlideEvent::isCancelled` | implemented | src/event/player.rs:1754 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleGlideEvent::isGliding` | implemented | src/event/player.rs:1544 `is_gliding` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleGlideEvent::uncancel` | implemented | src/event/player.rs:1753 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSneakEvent` | implemented | src/event/player.rs:1497 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerToggleSneakEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerToggleSneakEvent::cancel` | implemented | src/event/player.rs:1755 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSneakEvent::isCancelled` | implemented | src/event/player.rs:1757 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSneakEvent::isSneakPressed` | implemented | src/event/player.rs:1563 `is_sneak_pressed` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSneakEvent::isSneaking` | implemented | src/event/player.rs:1556 `is_sneaking` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSneakEvent::uncancel` | implemented | src/event/player.rs:1756 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSprintEvent` | implemented | src/event/player.rs:1506 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerToggleSneakEvent::cancel` | implemented | src/event/player.rs:1756 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSneakEvent::isCancelled` | implemented | src/event/player.rs:1758 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSneakEvent::isSneakPressed` | implemented | src/event/player.rs:1564 `is_sneak_pressed` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSneakEvent::isSneaking` | implemented | src/event/player.rs:1557 `is_sneaking` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSneakEvent::uncancel` | implemented | src/event/player.rs:1757 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSprintEvent` | implemented | src/event/player.rs:1507 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerToggleSprintEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerToggleSprintEvent::cancel` | implemented | src/event/player.rs:1759 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSprintEvent::isCancelled` | implemented | src/event/player.rs:1761 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSprintEvent::isSprinting` | implemented | src/event/player.rs:1576 `is_sprinting` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSprintEvent::uncancel` | implemented | src/event/player.rs:1760 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSwimEvent` | implemented | src/event/player.rs:1515 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `pocketmine\event\player\PlayerToggleSprintEvent::cancel` | implemented | src/event/player.rs:1760 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSprintEvent::isCancelled` | implemented | src/event/player.rs:1762 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSprintEvent::isSprinting` | implemented | src/event/player.rs:1577 `is_sprinting` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSprintEvent::uncancel` | implemented | src/event/player.rs:1761 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSwimEvent` | implemented | src/event/player.rs:1516 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `pocketmine\event\player\PlayerToggleSwimEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerToggleSwimEvent::cancel` | implemented | src/event/player.rs:1763 `PlayerTransfer` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSwimEvent::isCancelled` | implemented | src/event/player.rs:1765 `PlayerTransfer` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSwimEvent::isSwimming` | implemented | src/event/player.rs:1589 `is_swimming` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerToggleSwimEvent::uncancel` | implemented | src/event/player.rs:1764 `PlayerTransfer` | src/event/player.rs::toggles_name_the_new_state |  |
-| `pocketmine\event\player\PlayerTransferEvent` | implemented | src/event/player.rs:1596 `PlayerTransfer` | src/event/player.rs::transfer_target_can_change<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `pocketmine\event\player\PlayerToggleSwimEvent::cancel` | implemented | src/event/player.rs:1764 `PlayerTransfer` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSwimEvent::isCancelled` | implemented | src/event/player.rs:1766 `PlayerTransfer` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSwimEvent::isSwimming` | implemented | src/event/player.rs:1590 `is_swimming` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerToggleSwimEvent::uncancel` | implemented | src/event/player.rs:1765 `PlayerTransfer` | src/event/player.rs::toggles_name_the_new_state |  |
+| `pocketmine\event\player\PlayerTransferEvent` | implemented | src/event/player.rs:1597 `PlayerTransfer` | src/event/player.rs::transfer_target_can_change<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
 | `pocketmine\event\player\PlayerTransferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerTransferEvent::cancel` | implemented | src/event/player.rs:1767 `cfg` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::getAddress` | implemented | src/event/player.rs:1610 `address` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::getMessage` | implemented | src/event/player.rs:1616 `message` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::getPort` | implemented | src/event/player.rs:1613 `port` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::isCancelled` | implemented | src/event/player.rs:1769 `cfg` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::setAddress` | implemented | src/event/player.rs:1622 `set_address` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::setMessage` | implemented | src/event/player.rs:1628 `set_message` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::setPort` | implemented | src/event/player.rs:1625 `set_port` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerTransferEvent::uncancel` | implemented | src/event/player.rs:1768 `cfg` | src/event/player.rs::transfer_target_can_change |  |
-| `pocketmine\event\player\PlayerViewDistanceChangeEvent` | implemented | src/event/player.rs:1633 `PlayerViewDistanceChange` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/spawn.rs::a_view_distance_change_is_raised_once_per_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::cancel` | implemented | src/event/player.rs:1768 `cfg` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::getAddress` | implemented | src/event/player.rs:1611 `address` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::getMessage` | implemented | src/event/player.rs:1617 `message` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::getPort` | implemented | src/event/player.rs:1614 `port` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::isCancelled` | implemented | src/event/player.rs:1770 `cfg` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::setAddress` | implemented | src/event/player.rs:1623 `set_address` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::setMessage` | implemented | src/event/player.rs:1629 `set_message` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::setPort` | implemented | src/event/player.rs:1626 `set_port` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerTransferEvent::uncancel` | implemented | src/event/player.rs:1769 `cfg` | src/event/player.rs::transfer_target_can_change |  |
+| `pocketmine\event\player\PlayerViewDistanceChangeEvent` | implemented | src/event/player.rs:1634 `PlayerViewDistanceChange` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/spawn.rs::a_view_distance_change_is_raised_once_per_change |  |
 | `pocketmine\event\player\PlayerViewDistanceChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\player\PlayerViewDistanceChangeEvent::getNewDistance` | implemented | src/event/player.rs:1648 `new_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
-| `pocketmine\event\player\PlayerViewDistanceChangeEvent::getOldDistance` | implemented | src/event/player.rs:1645 `old_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
+| `pocketmine\event\player\PlayerViewDistanceChangeEvent::getNewDistance` | implemented | src/event/player.rs:1649 `new_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
+| `pocketmine\event\player\PlayerViewDistanceChangeEvent::getOldDistance` | implemented | src/event/player.rs:1646 `old_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
 | `pocketmine\event\plugin\PluginDisableEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\event\plugin\PluginEnableEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\event\plugin\PluginEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -6166,17 +6166,17 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\ArmorInventory::getHelmet` | implemented | src/inventory.rs:170 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\ArmorInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
 | `pocketmine\inventory\ArmorInventory::getLeggings` | implemented | src/inventory.rs:172 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\ArmorInventory::setBoots` | implemented | src/tick/inventory/api.rs:313 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\ArmorInventory::setChestplate` | implemented | src/tick/inventory/api.rs:311 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\ArmorInventory::setHelmet` | implemented | src/tick/inventory/api.rs:310 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\ArmorInventory::setLeggings` | implemented | src/tick/inventory/api.rs:312 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::setBoots` | implemented | src/tick/inventory/api.rs:314 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::setChestplate` | implemented | src/tick/inventory/api.rs:312 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::setHelmet` | implemented | src/tick/inventory/api.rs:311 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::setLeggings` | implemented | src/tick/inventory/api.rs:313 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory` | implemented | src/inventory.rs:96 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\BaseInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
-| `pocketmine\inventory\BaseInventory::addItem` | implemented | src/tick/inventory/api.rs:377 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::addItem` | implemented | src/tick/inventory/api.rs:378 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::all` | implemented | src/inventory.rs:240 `all` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\BaseInventory::canAddItem` | implemented | src/inventory.rs:273 `can_add` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\BaseInventory::clear` | implemented | src/tick/inventory/api.rs:309 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\BaseInventory::clearAll` | implemented | src/tick/inventory/api.rs:366 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::clear` | implemented | src/tick/inventory/api.rs:310 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::clearAll` | implemented | src/tick/inventory/api.rs:367 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::contains` | implemented | src/inventory.rs:212 `contains` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\BaseInventory::first` | implemented | src/inventory.rs:226 `first` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\BaseInventory::firstEmpty` | implemented | src/inventory.rs:233 `first_empty` | src/inventory.rs::finding_and_room_follow_pmmp |  |
@@ -6188,14 +6188,14 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\BaseInventory::isSlotEmpty` | implemented | src/inventory.rs:185 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\BaseInventory::onClose` | skipped |  |  | window rule code: listeners see InventoryClose |
 | `pocketmine\inventory\BaseInventory::onOpen` | skipped |  |  | window rule code: listeners see InventoryOpen |
-| `pocketmine\inventory\BaseInventory::remove` | implemented | src/tick/inventory/api.rs:395 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::remove` | implemented | src/tick/inventory/api.rs:396 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::removeAllViewers` | skipped |  |  | window rule code |
-| `pocketmine\inventory\BaseInventory::removeItem` | implemented | src/tick/inventory/api.rs:387 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\BaseInventory::setContents` | implemented | src/tick/inventory/api.rs:326 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\BaseInventory::setItem` | implemented | src/tick/inventory/api.rs:306 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::removeItem` | implemented | src/tick/inventory/api.rs:388 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::setContents` | implemented | src/tick/inventory/api.rs:327 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::setItem` | implemented | src/tick/inventory/api.rs:307 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::setMaxStackSize` | skipped |  |  | stack limits are per item type (`Item::getMaxStackSize`) and per slot rule |
 | `pocketmine\inventory\BaseInventory::slotExists` | implemented | src/inventory.rs:169 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\BaseInventory::swap` | implemented | src/tick/inventory/api.rs:405 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\BaseInventory::swap` | implemented | src/tick/inventory/api.rs:406 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\CallbackInventoryListener` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `pocketmine\inventory\CallbackInventoryListener::__construct` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `pocketmine\inventory\CallbackInventoryListener::onAnyChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
@@ -6237,11 +6237,11 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\DelegateInventory::getSize` | skipped |  |  | no inventory wrappers: `inventory::Inventory` reads every inventory |
 | `pocketmine\inventory\DelegateInventory::isSlotEmpty` | skipped |  |  | no inventory wrappers: `inventory::Inventory` reads every inventory |
 | `pocketmine\inventory\Inventory` | implemented | src/inventory.rs:99 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\Inventory::addItem` | implemented | src/tick/inventory/api.rs:376 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::addItem` | implemented | src/tick/inventory/api.rs:377 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\Inventory::all` | implemented | src/inventory.rs:239 `all` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\Inventory::canAddItem` | implemented | src/inventory.rs:272 `can_add` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\Inventory::clear` | implemented | src/tick/inventory/api.rs:308 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\Inventory::clearAll` | implemented | src/tick/inventory/api.rs:365 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::clear` | implemented | src/tick/inventory/api.rs:309 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::clearAll` | implemented | src/tick/inventory/api.rs:366 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\Inventory::contains` | implemented | src/inventory.rs:211 `contains` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\Inventory::first` | implemented | src/inventory.rs:225 `first` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\Inventory::firstEmpty` | implemented | src/inventory.rs:232 `first_empty` | src/inventory.rs::finding_and_room_follow_pmmp |  |
@@ -6255,13 +6255,13 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\Inventory::isSlotEmpty` | implemented | src/inventory.rs:184 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\Inventory::onClose` | skipped |  |  | window rule code: listeners see InventoryClose |
 | `pocketmine\inventory\Inventory::onOpen` | skipped |  |  | window rule code: listeners see InventoryOpen |
-| `pocketmine\inventory\Inventory::remove` | implemented | src/tick/inventory/api.rs:394 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\Inventory::removeItem` | implemented | src/tick/inventory/api.rs:386 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\Inventory::setContents` | implemented | src/tick/inventory/api.rs:325 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\Inventory::setItem` | implemented | src/tick/inventory/api.rs:305 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::remove` | implemented | src/tick/inventory/api.rs:395 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::removeItem` | implemented | src/tick/inventory/api.rs:387 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::setContents` | implemented | src/tick/inventory/api.rs:326 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::setItem` | implemented | src/tick/inventory/api.rs:306 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\Inventory::setMaxStackSize` | skipped |  |  | stack limits are per item type (`Item::getMaxStackSize`) and per slot rule |
 | `pocketmine\inventory\Inventory::slotExists` | implemented | src/inventory.rs:168 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\Inventory::swap` | implemented | src/tick/inventory/api.rs:404 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\Inventory::swap` | implemented | src/tick/inventory/api.rs:405 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\InventoryHolder` | merged | src/tick/inventory/api.rs:142 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `pocketmine\inventory\InventoryHolder::getInventory` | implemented | src/tick/inventory/api.rs:142 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer |  |
 | `pocketmine\inventory\InventoryListener` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
@@ -6286,7 +6286,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\PlayerInventory::getItemInHand` | implemented | src/tick/inventory/api.rs:75 `held_item` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\inventory\PlayerInventory::isHotbarSlot` | merged | src/inventory.rs:117 `HOTBAR_SIZE` | src/inventory.rs::the_hotbar_is_the_first_nine_main_slots | into `PlayerInventory::getHotbarSize` |
 | `pocketmine\inventory\PlayerInventory::setHeldItemIndex` | implemented | src/tick/inventory/api.rs:63 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
-| `pocketmine\inventory\PlayerInventory::setItemInHand` | merged | src/tick/inventory/api.rs:305 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids | into `Inventory::setItem` |
+| `pocketmine\inventory\PlayerInventory::setItemInHand` | merged | src/tick/inventory/api.rs:306 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids | into `Inventory::setItem` |
 | `pocketmine\inventory\PlayerOffHandInventory` | implemented | src/inventory.rs:29 `Offhand` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\PlayerOffHandInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
 | `pocketmine\inventory\PlayerOffHandInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
@@ -7520,23 +7520,23 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `pocketmine\network\FilterNoisyPacketException` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\Network` | skipped |  |  | the network object: its server name, blocks and connection counts are `Context` methods (`set_motd`, `block_address`, `connection_count`); interfaces, bandwidth and raw packets are internal |
 | `pocketmine\network\Network::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::blockAddress` | differs | src/tick/task.rs:107 `block_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound | the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; PMMP: a timeout of 0 or less); a new block replaces the old end (PMMP keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; at most 4,096 addresses at once |
+| `pocketmine\network\Network::blockAddress` | differs | src/tick/task.rs:112 `block_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound | the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; PMMP: a timeout of 0 or less); a new block replaces the old end (PMMP keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; at most 4,096 addresses at once |
 | `pocketmine\network\Network::getBandwidthTracker` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::getConnectionCount` | differs | src/tick/task.rs:121 `connection_count` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | the networking reports the count to the tick every second when it changed, as a logged input |
+| `pocketmine\network\Network::getConnectionCount` | differs | src/tick/task.rs:126 `connection_count` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | the networking reports the count to the tick every second when it changed, as a logged input |
 | `pocketmine\network\Network::getInterfaces` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::getName` | implemented | src/tick/task.rs:78 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `pocketmine\network\Network::getName` | implemented | src/tick/task.rs:83 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `pocketmine\network\Network::getSessionManager` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::getValidConnectionCount` | differs | src/tick/task.rs:127 `valid_connection_count` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | the networking reports the count to the tick every second when it changed, as a logged input |
+| `pocketmine\network\Network::getValidConnectionCount` | differs | src/tick/task.rs:132 `valid_connection_count` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | the networking reports the count to the tick every second when it changed, as a logged input |
 | `pocketmine\network\Network::processRawPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\Network::registerInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\Network::registerRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\Network::sendPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::setName` | implemented | src/tick/task.rs:87 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `pocketmine\network\Network::setName` | implemented | src/tick/task.rs:92 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `pocketmine\network\Network::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::unblockAddress` | implemented | src/tick/task.rs:114 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `pocketmine\network\Network::unblockAddress` | implemented | src/tick/task.rs:119 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `pocketmine\network\Network::unregisterInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\Network::unregisterRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\Network::updateName` | implemented | src/tick/task.rs:88 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `pocketmine\network\Network::updateName` | implemented | src/tick/task.rs:93 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `pocketmine\network\NetworkInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\NetworkInterface::setName` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\NetworkInterface::shutdown` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8452,7 +8452,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1484 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\player\Player::getLastPlayed` | differs | src/tick/player.rs:582 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
-| `pocketmine\player\Player::getLeaveMessage` | merged | src/event/player.rs:1379 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
+| `pocketmine\player\Player::getLeaveMessage` | merged | src/event/player.rs:1380 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
 | `pocketmine\player\Player::getLocale` | implemented | src/tick/player.rs:509 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `pocketmine\player\Player::getName` | implemented | src/tick/player.rs:427 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getNetworkSession` | skipped |  |  | protocol internals: `Player::send_packet` sends packets |
@@ -8510,7 +8510,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
 | `pocketmine\player\Player::releaseHeldItem` | merged | src/action/interact.rs:75 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
 | `pocketmine\player\Player::removeAttachment` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:227 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
+| `pocketmine\player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:228 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\player\Player::removeTitles` | implemented | src/tick/player.rs:687 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:941 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1464 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
@@ -8534,7 +8534,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::setBasePermission` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `pocketmine\player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `pocketmine\player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:186 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
-| `pocketmine\player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:156 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
+| `pocketmine\player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:161 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
 | `pocketmine\player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1337 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\player\Player::setDisplayName` | implemented | src/tick/player.rs:444 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1248 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
@@ -9480,7 +9480,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::getSunAngleDegrees` | skipped |  |  | sky light rule code |
 | `pocketmine\world\World::getSunAnglePercentage` | skipped |  |  | sky light rule code |
 | `pocketmine\world\World::getSunAngleRadians` | skipped |  |  | sky light rule code |
-| `pocketmine\world\World::getTickRateTime` | differs | src/tick/task.rs:148 `mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | `Context::mspt` is the whole tick's time: worlds tick together in one tick, measured off the game logic and read as a logged input |
+| `pocketmine\world\World::getTickRateTime` | differs | src/tick/task.rs:154 `mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | `Context::mspt` is the whole tick's time: worlds tick together in one tick, measured off the game logic and read as a logged input |
 | `pocketmine\world\World::getTickingChunks` | skipped |  |  | chunk ticking is the engine's |
 | `pocketmine\world\World::getTile` | implemented | src/tick/block_entity/api.rs:37 `block_entity` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `pocketmine\world\World::getTileAt` | implemented | src/tick/block_entity/api.rs:38 `block_entity` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
@@ -9510,7 +9510,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::removeRandomTickedBlock` | skipped |  |  | which states tick randomly is fixed by the block table (`State::ticks_randomly`) |
 | `pocketmine\world\World::requestChunkPopulation` | differs | src/tick/view.rs:1734 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `pocketmine\world\World::requestSafeSpawn` | merged | src/tick/world_api.rs:226 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column | into `World::getSafeSpawn` |
-| `pocketmine\world\World::save` | implemented | src/tick/task.rs:329 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
+| `pocketmine\world\World::save` | implemented | src/tick/task.rs:335 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `pocketmine\world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `pocketmine\world\World::scheduleDelayedBlockUpdate` | implemented | src/tick/update.rs:445 `schedule_block_update` | src/tick/update.rs::the_api_schedules_one_update_per_position_and_it_runs_when_due |  |
 | `pocketmine\world\World::setAutoSave` | merged | src/tick/command.rs:1583 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
@@ -9557,10 +9557,10 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\WorldManager::generateWorld` | implemented | src/server.rs:797 `world`<br>src/tick/world_api/lifecycle.rs:532 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
 | `pocketmine\world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:1592 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `pocketmine\world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
-| `pocketmine\world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:295 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
+| `pocketmine\world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:301 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `pocketmine\world\WorldManager::getProviderManager` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `pocketmine\world\WorldManager::getWorld` | implemented | src/tick/world_api.rs:56 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `pocketmine\world\WorldManager::getWorldByName` | implemented | src/tick/task.rs:315 `world_named` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
+| `pocketmine\world\WorldManager::getWorldByName` | implemented | src/tick/task.rs:321 `world_named` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `pocketmine\world\WorldManager::getWorlds` | implemented | src/tick/world_api.rs:69 `worlds` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `pocketmine\world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:676 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `pocketmine\world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:717 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |

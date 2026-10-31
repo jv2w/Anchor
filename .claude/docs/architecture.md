@@ -89,7 +89,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 
 ## 틱
 
-- 20 TPS(`tick::TICK` = 50 ms), 엔진 시계다. 늦은 틱은 곧바로 다음 틱을 시작해 따라잡고, 한 주기 이상 밀리면 놓친 틱을 버리고 경고한다.
+- 고정 틱 속도(`Context::TICKS_PER_SECOND`, 한 틱 길이는 거기서 나온 `tick::TICK`), 엔진 시계다. 늦은 틱은 곧바로 다음 틱을 시작해 따라잡고, 한 주기 이상 밀리면 놓친 틱을 버리고 경고한다.
 - Rust 1.98의 Windows `sleep`은 고해상도 대기 타이머(Windows 10 1803 이상)를 써서 실제 틱 간격 p99가 약 50.5 ms다. 기본 타이머(15.625 ms) 단위로 기다리면 46.9/62.5 ms로 흔들려 다른 플레이어 이동이 끊긴다. tokio `sleep_until`은 더 거칠고, 회전 대기는 CPU를 태운다.
 - 틱 함수는 `step(state, inputs, responses, pool, output, log)` 하나다.
 

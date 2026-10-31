@@ -13,6 +13,7 @@ use crate::player::Id;
 use crate::protocol;
 use crate::protocol::consts::EmoteFlag;
 use crate::protocol::packet::{Emote, Packet, PlayerSkin};
+use crate::tick::Context;
 use crate::tick::queue::Skin;
 
 /// Ticks that must pass between two emotes of a player: more than 5 (PMMP `Player::emote`).
@@ -21,18 +22,18 @@ const EMOTE_COOLDOWN: u64 = 5;
 const MAX_EMOTE_ID: usize = 128;
 /// Ticks between two skin changes of a player: one a second. PMMP has no limit, and each change
 /// sends a skin of up to 4 MiB to every player.
-const SKIN_COOLDOWN: u64 = 20;
-/// The skin bytes the server's skin budget ([`SkinBudget`]) gains each tick: 128 KiB a second at
-/// 20 ticks a second, about 1 Mbit/s. Every receiver gets every broadcast, so this is the most
-/// skin changes add to each player's link however many players change skins: well below a slow
-/// mobile link, next to the game's own traffic. A receiver that drains only 64 KiB/s (the floor
+const SKIN_COOLDOWN: u64 = Context::TICKS_PER_SECOND as u64;
+/// The skin bytes the server's skin budget ([`SkinBudget`]) gains each tick: 128 KiB a second,
+/// about 1 Mbit/s. Every receiver gets every broadcast, so this is the most skin changes add to
+/// each player's link however many players change skins: well below a slow mobile link, next to
+/// the game's own traffic. A receiver that drains only 64 KiB/s (the floor
 /// the spawn deadline allows) falls behind by skins alone by one full bucket (4 MiB) and then at
 /// most 64 KiB/s. A session counts every broadcast by its bytes against 32 MiB
 /// (`MAX_PENDING_BYTES` in `session/connection.rs`) as soon as it is queued, so from an empty
 /// queue skins alone take over 7 minutes of nonstop changes to reach it. Behind a spawn window's
 /// player list that is still going out nothing queued after it drains, so skins alone at this
 /// rate reach the bound after about 4 minutes (the trade-off in `.claude/docs/network.md`).
-const SKIN_REFILL_BYTES_PER_TICK: usize = (128 << 10) / 20;
+const SKIN_REFILL_BYTES_PER_TICK: usize = (128 << 10) / Context::TICKS_PER_SECOND as usize;
 
 /// The server's budget for skin broadcasts (PMMP sends every change at once): a token bucket of
 /// skin bytes that holds one skin of the largest size and refills by

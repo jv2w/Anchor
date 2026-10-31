@@ -43,7 +43,7 @@ use crate::protocol::consts::{ActorEvent, LevelEvent};
 use crate::protocol::packet::{Packet, TakeItemActor};
 use crate::random::{self, Random};
 use crate::tick::dispatch;
-use crate::tick::{Phase, inventory, survival};
+use crate::tick::{Context, Phase, inventory, survival};
 use crate::world::particle_id;
 
 /// An arrow's base damage (PMMP `Arrow::$damage`).
@@ -223,7 +223,7 @@ pub(super) fn release_bow_with(
     if finite && !(hooks.has_arrow)(player) {
         return false;
     }
-    let p = f64::from(used_ticks) / 20.0;
+    let p = f64::from(used_ticks) / f64::from(Context::TICKS_PER_SECOND);
     let force = crate::math::min((p * p + p * 2.0) / 3.0, 1.0);
     if force < BOW_MIN_FORCE || used_ticks < BOW_MIN_TICKS {
         return false;
@@ -318,7 +318,7 @@ pub(super) fn release_trident_with(
     if item.is_empty() {
         return false;
     }
-    let p = f64::from(used_ticks) / 20.0;
+    let p = f64::from(used_ticks) / f64::from(Context::TICKS_PER_SECOND);
     let force = crate::math::min((p * p + p * 2.0) / 3.0, 1.0) * TRIDENT_FORCE;
     let kind = Kind::Projectile(Projectile {
         shot: Shot::Trident(Trident {

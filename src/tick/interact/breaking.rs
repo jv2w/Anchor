@@ -5,7 +5,7 @@
 use crate::block::{Inert, State};
 use crate::item::{self, Enchantment, Stack};
 use crate::random::Random;
-use crate::tick::Settings;
+use crate::tick::{Context, Settings};
 
 use super::drops::level;
 
@@ -77,7 +77,7 @@ fn progress(seconds: Option<f64>, conditions: Conditions) -> f64 {
     let Some(seconds) = seconds else {
         return 0.0;
     };
-    let mut ticks = seconds * 20.0;
+    let mut ticks = seconds * f64::from(Context::TICKS_PER_SECOND);
     if !conditions.on_ground && !conditions.flying {
         ticks *= 5.0;
     }

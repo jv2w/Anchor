@@ -2077,7 +2077,7 @@ pub(in crate::nethernet) mod tests {
     }
 
     /// The driver task's cost for one peer: time inside the peer's calls for
-    /// bulk transfer each way, for a game-like exchange of one message each way per 50 ms tick,
+    /// bulk transfer each way, for a game-like exchange of one message each way per server tick,
     /// and while idle. Run: `cargo test --release --lib
     /// nethernet::peer::tests::driver_cost_per_peer -- --ignored --nocapture`
     #[test]
@@ -2090,7 +2090,6 @@ pub(in crate::nethernet) mod tests {
         const MIB: usize = 1024 * 1024;
         const BULK: u32 = 16;
         const TICKS: u32 = 1200;
-        const TICK: Duration = Duration::from_millis(50);
         fn report(what: &str, meter: &Meter, per: &str, count: u32) {
             let count = count.max(1);
             println!(
@@ -2137,7 +2136,7 @@ pub(in crate::nethernet) mod tests {
             h.peer.send(&down).unwrap();
             h.meter.as_mut().unwrap().busy += crate::clock::now() - start;
             h.client.send(&up);
-            h.run(TICK, |_| false);
+            h.run(crate::tick::TICK, |_| false);
         }
         assert!(h.run(Duration::from_secs(1), |h| h.received.len()
             == TICKS as usize
