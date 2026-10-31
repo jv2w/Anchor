@@ -17,6 +17,7 @@ use crate::config::GameMode;
 use crate::effect::MAX_DURATION;
 use crate::effect::Type as Effect;
 use crate::item::Stack;
+use crate::math::to_f32;
 use crate::nbt::{Compound, List, Value};
 use crate::world::BlockPos;
 
@@ -255,11 +256,6 @@ pub(in crate::tick) fn save_played((first, last): (i64, i64), extra: &mut Compou
     extra.insert(LAST_PLAYED.to_owned(), Value::Long(last));
 }
 
-/// Narrows a tick value to the `f32` the file keeps.
-fn f32_of(v: f64) -> f32 {
-    super::f32_of(v)
-}
-
 /// Writes the survival keys, replacing the ones read; keys of absent values are removed.
 pub(super) fn save(s: &Survival, extra: &mut Compound) {
     // A returning player's compound holds the keys already: no key string is made for them.
@@ -275,16 +271,16 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
         }
     };
     put(GAME_MODE, s.game_mode.map(|m| Value::Int(saved_mode(m))));
-    put(HEALTH, Some(Value::Float(f32_of(s.health))));
-    put(ABSORPTION, Some(Value::Float(f32_of(s.absorption))));
+    put(HEALTH, Some(Value::Float(to_f32(s.health))));
+    put(ABSORPTION, Some(Value::Float(to_f32(s.absorption))));
     #[expect(
         clippy::cast_possible_truncation,
         reason = "consistency: the food level, 0 to 20 and maybe fractional, is saved truncated as PMMP saves it"
     )]
     let food = s.food as i32;
     put(FOOD, Some(Value::Int(food)));
-    put(SATURATION, Some(Value::Float(f32_of(s.saturation))));
-    put(EXHAUSTION, Some(Value::Float(f32_of(s.exhaustion))));
+    put(SATURATION, Some(Value::Float(to_f32(s.saturation))));
+    put(EXHAUSTION, Some(Value::Float(to_f32(s.exhaustion))));
     put(
         FOOD_TIMER,
         Some(Value::Int(i32::try_from(s.food_timer).unwrap_or(0))),
@@ -293,7 +289,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
         XP_LEVEL,
         Some(Value::Int(i32::try_from(s.xp_level).unwrap_or(0))),
     );
-    put(XP_PROGRESS, Some(Value::Float(f32_of(s.xp_progress))));
+    put(XP_PROGRESS, Some(Value::Float(to_f32(s.xp_progress))));
     put(
         XP_TOTAL,
         Some(Value::Int(i32::try_from(s.xp_lifetime).unwrap_or(i32::MAX))),
@@ -331,7 +327,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
         )),
     );
     put(AIR, Some(Value::Short(s.air)));
-    put(FALL, Some(Value::Float(f32_of(s.fall_distance))));
+    put(FALL, Some(Value::Float(to_f32(s.fall_distance))));
     for (world, keys, point) in [
         (SPAWN_WORLD, SPAWN, &s.spawn),
         (DEATH_WORLD, DEATH, &s.death),

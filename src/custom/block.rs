@@ -6,7 +6,7 @@ use std::fmt;
 use super::{Category, Creative, ItemRef};
 use crate::Context;
 use crate::block::{self, BreakInfo, PropertyValue, ToolType};
-use crate::math::{Aabb, Vec3};
+use crate::math::{Aabb, Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::player;
 use crate::world::{self, BlockPos};
@@ -894,24 +894,15 @@ impl Block {
             && let Some(seconds) = breaking.break_time_secs(&crate::item::Stack::EMPTY)
         {
             // The seconds by hand: the client has no per-tool component (dragonfly).
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "consistency: the component is a float; break times are small"
-            )]
-            let seconds = seconds as f32;
             put(
                 "minecraft:destructible_by_mining",
-                Compound::from([("value".to_owned(), Value::Float(seconds))]),
+                Compound::from([("value".to_owned(), Value::Float(to_f32(seconds)))]),
             );
         }
         // Bedrock's friction is the other way round: 0.4 for PMMP's 0.6.
         let friction = self.info.friction_value();
         if friction != 0.6 {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "consistency: the component is a float in 0 to 1"
-            )]
-            let value = crate::math::clamp(1.0 - friction, 0.0, 0.9) as f32;
+            let value = to_f32(crate::math::clamp(1.0 - friction, 0.0, 0.9));
             put(
                 "minecraft:friction",
                 Compound::from([("value".to_owned(), Value::Float(value))]),
@@ -948,12 +939,8 @@ const fn is_full(b: Aabb) -> bool {
 }
 
 /// A coordinate in pixels (16 a block), as the box components take them.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "consistency: the components are floats; coordinates are 0 to 16"
-)]
 fn pixels(v: f64) -> f32 {
-    (v * 16.0) as f32
+    to_f32(v * 16.0)
 }
 
 /// The `minecraft:collision_box` component of a box (dragonfly `collisionBoxComponent`).

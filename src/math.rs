@@ -34,12 +34,8 @@ impl Vec3 {
     }
 
     /// The `f32` components a packet carries (rounded to nearest).
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "consistency: packets carry f32, and rounding f64 to f32 is exact IEEE behaviour"
-    )]
     pub fn to_f32(self) -> [f32; 3] {
-        [self.x as f32, self.y as f32, self.z as f32]
+        [to_f32(self.x), to_f32(self.y), to_f32(self.z)]
     }
 
     /// Whether every component is finite (tick state never holds NaN or infinity).
@@ -251,6 +247,15 @@ fn clip(min: f64, max: f64, lo: f64, hi: f64, d: f64) -> f64 {
         }
     }
     d
+}
+
+/// `v` as the `f32` a packet or a save carries (rounded to nearest).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "consistency: packets and saves carry f32, and rounding f64 to f32 is exact IEEE behaviour"
+)]
+pub(crate) const fn to_f32(v: f64) -> f32 {
+    v as f32
 }
 
 /// The smaller of `a` and `b`; `b` on a tie (including `-0.0` and `0.0`).

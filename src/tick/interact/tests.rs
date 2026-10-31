@@ -110,11 +110,7 @@ impl Harness {
             flags.insert(InputFlag::PerformItemInteraction);
         }
         let eye = [FEET[0], FEET[1] + EYE_HEIGHT, FEET[2]];
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "invariant: test coordinates are exact in f32"
-        )]
-        let position = eye.map(|c| c as f32);
+        let position = eye.map(crate::math::to_f32);
         let p = PlayerAuthInput {
             yaw: self.yaw,
             position,

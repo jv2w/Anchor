@@ -41,7 +41,7 @@ use crate::custom::Registry;
 use crate::event::{BrewItem, BrewingFuelUse, CampfireCook, ChestPair, FurnaceBurn, FurnaceSmelt};
 use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
 use crate::item::{self, Stack};
-use crate::math::Vec3;
+use crate::math::{Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::BlockEventType;
 use crate::protocol::packet::{BlockActorData, BlockEvent, Packet};
@@ -1543,12 +1543,7 @@ fn create(
             if face == Face::Up
                 && let Some(yaw) = yaw
             {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "consistency: the yaw is a finite angle from the client's f32"
-                )]
-                let yaw = yaw as f32;
-                *rotation = decor::skull_rotation(yaw);
+                *rotation = decor::skull_rotation(to_f32(yaw));
             }
         }
         _ => {}

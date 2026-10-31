@@ -63,7 +63,7 @@ use crate::custom::Registry;
 use crate::effect::{self, Potion};
 use crate::entity::{PaintingMotive, Skin};
 use crate::item::Stack;
-use crate::math::Vec3;
+use crate::math::{Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::Uuid;
 use crate::world::{BlockPos, ChunkPos, MAX_Y, MIN_Y};
@@ -876,15 +876,6 @@ fn age(despawn_delay: i32) -> i16 {
 )]
 fn health_short(health: f64) -> i16 {
     health.round() as i16
-}
-
-/// An `f32` of a tick value for the saved form (rounded to nearest).
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "consistency: the saved form keeps rotations, radii and fall distances as floats"
-)]
-fn to_f32(v: f64) -> f32 {
-    v as f32
 }
 
 /// A list of three doubles.

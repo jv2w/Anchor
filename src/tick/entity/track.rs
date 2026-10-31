@@ -10,7 +10,7 @@ use super::{EYE_HEIGHT, Entity, PLAYER_HEIGHT, PLAYER_WIDTH};
 use crate::config::GameMode;
 use crate::custom::MAX_TRADE_TIER;
 use crate::item::Stack;
-use crate::math::Vec3;
+use crate::math::{Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::{
     ABILITY_BASE_FLY_SPEED, ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability,
@@ -305,15 +305,6 @@ fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataVal
         EntityDataKey::DataPickupCount,
         MetadataValue::Int32(cloud.pickup_count),
     );
-}
-
-/// An `f32` for a packet (rounded to nearest).
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "consistency: packets carry f32, and rounding f64 to f32 is exact IEEE behaviour"
-)]
-fn to_f32(v: f64) -> f32 {
-    v as f32
 }
 
 /// Where the client draws the entity.

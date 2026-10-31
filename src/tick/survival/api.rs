@@ -20,7 +20,7 @@ use crate::config::GameMode;
 use crate::effect::{self, Instance};
 use crate::event::{DamageCause, DamageSource};
 use crate::item::{self, Stack};
-use crate::math::Vec3;
+use crate::math::{Vec3, to_f32};
 use crate::player::{Error, Id, MAX_TEXT, Result};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
@@ -963,7 +963,7 @@ impl Player {
     /// Whether [`set_rotation`](Self::set_rotation) takes `yaw` and `pitch` in degrees: both
     /// finite as floats, the pitch -90 (up) to 90 (down) as a float.
     pub fn is_rotation(yaw: f64, pitch: f64) -> bool {
-        super::is_float_angle(yaw) && (-90.0..=90.0).contains(&super::f32_of(pitch))
+        super::is_float_angle(yaw) && (-90.0..=90.0).contains(&to_f32(pitch))
     }
 
     /// Turns the player to `yaw` and `pitch` in degrees, kept to float precision as the client
@@ -976,7 +976,7 @@ impl Player {
         if !Self::is_rotation(yaw, pitch) {
             return Err(Error::OutOfRange);
         }
-        let (yaw, pitch) = (super::f32_of(yaw), super::f32_of(pitch));
+        let (yaw, pitch) = (to_f32(yaw), to_f32(pitch));
         super::movement::turn(&mut self.survival.motion, yaw, pitch);
         self.survival.custom.turned = true;
         Ok(())

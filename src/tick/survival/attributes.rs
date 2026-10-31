@@ -4,10 +4,11 @@
 
 use super::{
     DEFAULT_SATURATION, MAX_EXHAUSTION, MAX_FOOD, MAX_HEALTH, MAX_SATURATION, PLAYER_HEIGHT,
-    PLAYER_WIDTH, Survival, broadcast_to_viewers, effects, f32_of, first_session, next_session,
+    PLAYER_WIDTH, Survival, broadcast_to_viewers, effects, first_session, next_session,
 };
 use crate::config::GameMode;
 use crate::effect;
+use crate::math::to_f32;
 use crate::player::MAX_LEVEL;
 use crate::protocol::consts::{
     ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability, AbilityLayerType,
@@ -83,28 +84,28 @@ const DEFS: [Def; 17] = [
     Def::new(
         "minecraft:player.hunger",
         0.0,
-        f32_of(MAX_FOOD),
-        f32_of(MAX_FOOD),
+        to_f32(MAX_FOOD),
+        to_f32(MAX_FOOD),
         HUNGER,
     ),
     Def::new(
         "minecraft:player.saturation",
         0.0,
-        f32_of(MAX_SATURATION),
-        f32_of(DEFAULT_SATURATION),
+        to_f32(MAX_SATURATION),
+        to_f32(DEFAULT_SATURATION),
         SATURATION,
     ),
     Def::new(
         "minecraft:player.exhaustion",
         0.0,
-        f32_of(MAX_EXHAUSTION),
+        to_f32(MAX_EXHAUSTION),
         0.0,
         EXHAUSTION,
     ),
     Def::new(
         "minecraft:player.level",
         0.0,
-        f32_of(MAX_LEVEL as f64),
+        to_f32(MAX_LEVEL as f64),
         0.0,
         LEVEL,
     ),
@@ -112,8 +113,8 @@ const DEFS: [Def; 17] = [
     Def::new(
         "minecraft:health",
         0.0,
-        f32_of(MAX_HEALTH),
-        f32_of(MAX_HEALTH),
+        to_f32(MAX_HEALTH),
+        to_f32(MAX_HEALTH),
         HEALTH,
     ),
     Def::new("minecraft:follow_range", 0.0, 2048.0, 16.0, 0),
@@ -143,15 +144,15 @@ pub(super) fn movement_speed(s: &Survival) -> f64 {
 /// One attribute with its current value.
 fn attribute(def: &Def, s: &Survival) -> Attribute {
     let (value, max) = match def.bit {
-        HUNGER => (f32_of(s.food), def.max),
-        SATURATION => (f32_of(s.saturation), def.max),
-        EXHAUSTION => (f32_of(s.exhaustion), def.max),
-        LEVEL => (f32_of(f64::from(s.xp_level)), def.max),
-        EXPERIENCE => (f32_of(s.xp_progress), def.max),
-        HEALTH => (f32_of(s.health.ceil()), f32_of(s.max_health())),
-        MOVEMENT => (f32_of(movement_speed(s)), def.max),
+        HUNGER => (to_f32(s.food), def.max),
+        SATURATION => (to_f32(s.saturation), def.max),
+        EXHAUSTION => (to_f32(s.exhaustion), def.max),
+        LEVEL => (to_f32(f64::from(s.xp_level)), def.max),
+        EXPERIENCE => (to_f32(s.xp_progress), def.max),
+        HEALTH => (to_f32(s.health.ceil()), to_f32(s.max_health())),
+        MOVEMENT => (to_f32(movement_speed(s)), def.max),
         ABSORPTION => {
-            let value = f32_of(s.absorption);
+            let value = to_f32(s.absorption);
             (value, if value > def.max { value } else { def.max })
         }
         _ => (def.default, def.max),
@@ -337,13 +338,13 @@ pub(super) fn shown(player: &Player) -> Shown {
 /// `Living::recalculateSize`): 0.6 by 1.8, 1.49 high sneaking, as high as wide swimming or
 /// gliding.
 pub(super) fn size(s: &Survival) -> [f32; 2] {
-    let width = f32_of(PLAYER_WIDTH);
+    let width = to_f32(PLAYER_WIDTH);
     if s.motion.swimming || s.motion.gliding {
         [width, width]
     } else if s.motion.sneaking {
         [width, 1.49]
     } else {
-        [width, f32_of(PLAYER_HEIGHT)]
+        [width, to_f32(PLAYER_HEIGHT)]
     }
 }
 
@@ -420,7 +421,7 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
     }
     // The collision box (130) is the standing box, sent once at spawn; the pose's box goes in the
     // width and height (53, 54), as BDS and PMMP answer a sneak (P6 `sneak`).
-    let standing = [f32_of(PLAYER_WIDTH), f32_of(PLAYER_HEIGHT)];
+    let standing = [to_f32(PLAYER_WIDTH), to_f32(PLAYER_HEIGHT)];
     if old.is_none() {
         out.insert(
             EntityDataKey::CollisionBox.into(),

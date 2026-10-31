@@ -110,7 +110,7 @@ use crate::event::{
     ItemSpawn, MAX_DAMAGE, RegainReason,
 };
 use crate::item::Stack;
-use crate::math::{Aabb, Vec3};
+use crate::math::{Aabb, Vec3, to_f32};
 use crate::nbt::Compound;
 use crate::pool::Pool;
 use crate::protocol::consts::ActorEvent;
@@ -1926,15 +1926,6 @@ fn announce(state: &mut State) {
 /// A random yaw as PMMP picks one (`getRandomFloat() * 360`), kept to float precision as saved.
 fn random_yaw(random: &mut Random) -> f64 {
     f64::from(to_f32(random.unit() * 360.0))
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "consistency: rotations are floats in the saved form"
-)]
-/// An `f32` of a rotation (rounded to nearest).
-fn to_f32(v: f64) -> f32 {
-    v as f32
 }
 
 /// Drops `stack` as an item entity at `pos` with PMMP `World::dropItem`'s random motion and
@@ -6036,7 +6027,7 @@ mod tests {
         ));
         h.step(Vec::new());
         let (id, feet) = (h.live()[0].runtime_id, h.live()[0].body.position);
-        let shown = |p: Vec3| [p.x, p.y + 0.125, p.z].map(track_f32);
+        let shown = |p: Vec3| [p.x, p.y + 0.125, p.z].map(to_f32);
         let added = h.take(1).into_iter().find_map(|p| match p {
             Packet::AddItemActor(a) if a.entity_runtime_id == id => Some(a),
             _ => None,
@@ -6070,15 +6061,6 @@ mod tests {
                     && moved.position_z.is_none_or(|v| v == shown_z)
             );
         }
-    }
-
-    /// An `f32` as packets carry it.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "consistency: the test rounds as the packets do"
-    )]
-    fn track_f32(v: f64) -> f32 {
-        v as f32
     }
 
     #[test]
@@ -6421,7 +6403,7 @@ mod tests {
         };
         assert_eq!(
             turn.position,
-            [3.5, track_f32(-60.0 + 1.621), 0.5],
+            [3.5, to_f32(-60.0 + 1.621), 0.5],
             "at the eyes"
         );
         assert_eq!(turn.rotation, [0.0, 90.0, 90.0], "pitch, yaw, head yaw");

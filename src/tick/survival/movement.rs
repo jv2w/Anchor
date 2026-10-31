@@ -10,7 +10,7 @@
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
-use super::{Survival, attributes, f32_of, feet, food, sound};
+use super::{Survival, attributes, feet, food, sound};
 
 use crate::block::{self, Class, Face};
 use crate::effect::Type as Effect;
@@ -19,7 +19,7 @@ use crate::event::{
     MAX_FROST_WALKER_RADIUS, PlayerJump, PlayerMissSwing, PlayerMove, PlayerToggleFlight,
     PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
 };
-use crate::math::{Aabb, Vec3};
+use crate::math::{Aabb, Vec3, to_f32};
 use crate::player::Id;
 use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, SoundEvent};
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
@@ -1025,11 +1025,11 @@ pub(super) fn send_position(player: &mut Player, mode: MoveMode) {
 /// `MovePlayer` with the player's eye position and rotation in `mode`.
 pub(super) fn position_packet(player: &Player, mode: MoveMode) -> Packet {
     let m = &player.survival.motion;
-    let yaw = f32_of(m.yaw);
+    let yaw = to_f32(m.yaw);
     Packet::MovePlayer(MovePlayer {
         entity_runtime_id: player.runtime_id,
         position: player.position.to_f32(),
-        pitch: f32_of(m.pitch),
+        pitch: to_f32(m.pitch),
         yaw,
         head_yaw: yaw,
         mode: u8::from(mode),

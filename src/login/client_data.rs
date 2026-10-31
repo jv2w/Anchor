@@ -11,6 +11,7 @@ use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
 use crate::entity::{MAX_SKIN_BYTES, NO_CUSTOM_GEOMETRY};
+use crate::math::to_f32;
 use crate::protocol::consts::{ArmSize, PieceType};
 use crate::protocol::{self, Rgba};
 use crate::tick::queue::Skin;
@@ -195,18 +196,12 @@ impl ClientData {
         let dimension = |n: i64| u32::try_from(n).map_err(|_| Error::ClientData("Skin"));
         let mut animations = Vec::with_capacity(self.animated_image_data.len());
         for a in &self.animated_image_data {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "consistency: the protocol carries the frame count as f32; rounding is \
-                          IEEE behaviour and the value is checked finite after it"
-            )]
-            let frame_count = a.frames as f32;
             animations.push(protocol::SkinAnimation {
                 image_width: dimension(a.image_width)?,
                 image_height: dimension(a.image_height)?,
                 image_data: decode(&a.image)?,
                 animation_type: dimension(a.r#type)?,
-                frame_count,
+                frame_count: to_f32(a.frames),
                 expression_type: dimension(a.animation_expression)?,
             });
         }

@@ -24,7 +24,7 @@ use super::saved::{HEIGHT_MARGIN, MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTIL
 use super::{
     Cause, EYE_HEIGHT, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD,
     MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, actor_event, chunk_of, create, drop_stack,
-    hurt_in, is_valid_position, is_valid_scale, object, physics, projectile, send_to, to_f32,
+    hurt_in, is_valid_position, is_valid_scale, object, physics, projectile, send_to,
 };
 use crate::action;
 use crate::block::{self, Face};
@@ -32,7 +32,7 @@ use crate::effect::{Instance, Potion};
 use crate::entity::{Animation, ArrowPickup, Id, PaintingMotive, Skin, Type};
 use crate::event::Actor;
 use crate::item::Stack;
-use crate::math::{self, Aabb, Vec3};
+use crate::math::{self, Aabb, Vec3, to_f32};
 use crate::nbt::Compound;
 use crate::player;
 use crate::protocol::consts::ActorEvent;

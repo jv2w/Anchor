@@ -33,7 +33,7 @@ use crate::event::{
     RegainReason,
 };
 use crate::item::Stack;
-use crate::math::Vec3;
+use crate::math::{Vec3, to_f32};
 use crate::nbt::Compound;
 use crate::player::Id;
 use crate::protocol::consts::MoveMode;
@@ -954,20 +954,10 @@ pub(super) fn bounding_box(player: &Player) -> crate::math::Aabb {
     movement::bounding_box(&player.survival, feet(player))
 }
 
-/// `v` as the `f32` a packet carries.
-const fn f32_of(v: f64) -> f32 {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "consistency: packets carry f32, and rounding f64 to f32 is exact IEEE behaviour"
-    )]
-    let f = v as f32;
-    f
-}
-
 /// Whether `degrees` is an angle the tick keeps: finite as the `f32` packets and saves carry, so
 /// no rotation in tick state is infinite (a double past the float range rounds to one).
 pub(super) const fn is_float_angle(degrees: f64) -> bool {
-    f32_of(degrees).is_finite()
+    to_f32(degrees).is_finite()
 }
 
 /// Queues `packet` for the player of `session` and every player that sees it (its own view

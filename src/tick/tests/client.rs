@@ -771,11 +771,7 @@ fn auth(
     item: Option<UseItemTransactionData>,
     request: Option<ItemStackRequest>,
 ) -> Packet {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "invariant: a yaw is degrees below 360, exact enough in f32"
-    )]
-    let yaw = super::super::survival::rotation(player).0 as f32;
+    let yaw = crate::math::to_f32(super::super::survival::rotation(player).0);
     Packet::PlayerAuthInput(Box::new(PlayerAuthInput {
         yaw,
         position: player.position.to_f32(),
