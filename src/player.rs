@@ -13,6 +13,7 @@ use std::time::Duration;
 use crate::protocol::consts::{TextType, TitleAction};
 use crate::protocol::packet::{Packet, SetTitle, Text, ToastRequest};
 use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE_NAME_MAX_LEN};
+use crate::tick::TICK;
 use crate::tick::queue::SessionId;
 pub use crate::tick::{Offline, Player};
 
@@ -372,7 +373,8 @@ impl Message {
 impl TitleTimes {
     /// The `SetTitle` packet that sets the timing.
     fn packet(self) -> Packet {
-        let ticks = |d: Duration| i32::try_from(d.as_millis() / 50).unwrap_or(i32::MAX);
+        let ticks =
+            |d: Duration| i32::try_from(d.as_millis() / TICK.as_millis()).unwrap_or(i32::MAX);
         Packet::SetTitle(SetTitle {
             action_type: TitleAction::SetDurations.into(),
             fade_in_duration: ticks(self.fade_in),
