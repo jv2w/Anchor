@@ -3745,10 +3745,10 @@ implemented 21, differs 0, merged 29, skipped 69, blank 0 (of 119 rows)
 | `pocketmine\crafting\CraftingManager::matchBrewingRecipe` | implemented | src/tick/world_api/recipes.rs:66 `brewing_result` | src/custom/tests.rs::brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind<br>src/tick/world_api/recipes.rs::brewing_makes_what_the_reagent_makes_of_the_potion |  |
 | `pocketmine\crafting\CraftingManager::matchRecipe` | implemented | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes |  |
 | `pocketmine\crafting\CraftingManager::matchRecipeByOutputs` | skipped |  |  | recipe objects are internal: PMMP's recipes are generated static tables and a server's own are `custom::Recipe` values fixed at build; the lookups answer by items (`Context::crafting_result`, `furnace_result`, `brewing_result`) |
-| `pocketmine\crafting\CraftingManager::registerPotionContainerChangeRecipe` | implemented | src/custom.rs:218 `recipe` | src/custom/tests.rs::brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind |  |
-| `pocketmine\crafting\CraftingManager::registerPotionTypeRecipe` | implemented | src/custom.rs:217 `recipe` | src/custom/tests.rs::brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind |  |
-| `pocketmine\crafting\CraftingManager::registerShapedRecipe` | implemented | src/custom.rs:214 `recipe` | src/custom/tests.rs::custom_recipes_are_numbered_after_pmmps_and_judged_by_shape |  |
-| `pocketmine\crafting\CraftingManager::registerShapelessRecipe` | implemented | src/custom.rs:215 `recipe` | src/custom/tests.rs::custom_recipes_are_numbered_after_pmmps_and_judged_by_shape |  |
+| `pocketmine\crafting\CraftingManager::registerPotionContainerChangeRecipe` | implemented | src/custom.rs:216 `recipe` | src/custom/tests.rs::brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind |  |
+| `pocketmine\crafting\CraftingManager::registerPotionTypeRecipe` | implemented | src/custom.rs:215 `recipe` | src/custom/tests.rs::brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind |  |
+| `pocketmine\crafting\CraftingManager::registerShapedRecipe` | implemented | src/custom.rs:212 `recipe` | src/custom/tests.rs::custom_recipes_are_numbered_after_pmmps_and_judged_by_shape |  |
+| `pocketmine\crafting\CraftingManager::registerShapelessRecipe` | implemented | src/custom.rs:213 `recipe` | src/custom/tests.rs::custom_recipes_are_numbered_after_pmmps_and_judged_by_shape |  |
 | `pocketmine\crafting\CraftingManager::sort` | skipped |  |  | the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe` |
 | `pocketmine\crafting\CraftingManagerFromDataHelper` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
 | `pocketmine\crafting\CraftingManagerFromDataHelper::deserializeItemStack` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
@@ -3772,7 +3772,7 @@ implemented 21, differs 0, merged 29, skipped 69, blank 0 (of 119 rows)
 | `pocketmine\crafting\FurnaceRecipeManager::getAll` | skipped |  |  | recipe objects are internal: PMMP's recipes are generated static tables and a server's own are `custom::Recipe` values fixed at build; the lookups answer by items (`Context::crafting_result`, `furnace_result`, `brewing_result`) |
 | `pocketmine\crafting\FurnaceRecipeManager::getRecipeRegisteredCallbacks` | skipped |  |  | recipes are fixed at `build()` |
 | `pocketmine\crafting\FurnaceRecipeManager::match` | implemented | src/tick/world_api/recipes.rs:55 `furnace_result` | src/tick/world_api/recipes.rs::furnaces_cook_by_their_kind_and_the_servers_own_recipes |  |
-| `pocketmine\crafting\FurnaceRecipeManager::register` | implemented | src/custom.rs:216 `recipe` | src/custom/tests.rs::custom_recipes_are_numbered_after_pmmps_and_judged_by_shape |  |
+| `pocketmine\crafting\FurnaceRecipeManager::register` | implemented | src/custom.rs:214 `recipe` | src/custom/tests.rs::custom_recipes_are_numbered_after_pmmps_and_judged_by_shape |  |
 | `pocketmine\crafting\FurnaceType` | implemented | src/crafting.rs:85 `FurnaceType` | src/crafting.rs::furnace_cook_times_are_pmmp_values |  |
 | `pocketmine\crafting\FurnaceType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\crafting\FurnaceType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -6201,7 +6201,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\CallbackInventoryListener::onAnyChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `pocketmine\inventory\CallbackInventoryListener::onContentChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `pocketmine\inventory\CallbackInventoryListener::onSlotChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
-| `pocketmine\inventory\CreativeCategory` | implemented | src/custom.rs:44 `Category` | src/custom/tests.rs::the_creative_inventory_lists_custom_entries_after_pmmps |  |
+| `pocketmine\inventory\CreativeCategory` | implemented | src/custom.rs:42 `Category` | src/custom/tests.rs::the_creative_inventory_lists_custom_entries_after_pmmps |  |
 | `pocketmine\inventory\CreativeCategory::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\inventory\CreativeGroup` | implemented | src/custom/creative.rs:59 `CreativeGroup` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
 | `pocketmine\inventory\CreativeGroup::__construct` | implemented | src/custom/creative.rs:67 `new` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
@@ -6370,14 +6370,14 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 
 | PMMP | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `pocketmine\item\Apple` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Apple` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Apple::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Apple::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Armor` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Armor` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Armor::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
-| `pocketmine\item\Armor::clearCustomColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Armor::clearCustomColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Armor::getArmorSlot` | implemented | src/item.rs:543 `slot` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
-| `pocketmine\item\Armor::getCustomColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Armor::getCustomColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Armor::getDefensePoints` | merged | src/item.rs:1011 `defense_points` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getDefensePoints` |
 | `pocketmine\item\Armor::getEnchantability` | merged | src/item.rs:1077 `enchantability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getEnchantability` |
 | `pocketmine\item\Armor::getEnchantmentProtectionFactor` | skipped |  |  | enchantment rule code |
@@ -6386,12 +6386,12 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\Armor::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\Armor::isFireProof` | merged | src/item.rs:998 `is_fire_proof` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::isFireProof` |
 | `pocketmine\item\Armor::onClickAir` | skipped |  |  | item rule code: listeners see PlayerItemUse |
-| `pocketmine\item\Armor::setCustomColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Armor::setCustomColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\ArmorMaterial` | skipped |  |  | armour materials are a generated table |
 | `pocketmine\item\ArmorMaterial::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\ArmorMaterial::getEnchantability` | merged | src/item.rs:1077 `enchantability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getEnchantability` |
 | `pocketmine\item\ArmorMaterial::getEquipSound` | skipped |  |  | armour materials are a generated table |
-| `pocketmine\item\ArmorTypeInfo` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\ArmorTypeInfo` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ArmorTypeInfo::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\ArmorTypeInfo::getArmorSlot` | merged | src/item.rs:543 `slot` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Armor::getArmorSlot` |
 | `pocketmine\item\ArmorTypeInfo::getDefensePoints` | merged | src/item.rs:1011 `defense_points` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getDefensePoints` |
@@ -6399,38 +6399,38 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\ArmorTypeInfo::getMaxDurability` | merged | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
 | `pocketmine\item\ArmorTypeInfo::getToughness` | implemented | src/item.rs:549 `toughness` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\ArmorTypeInfo::isFireProof` | merged | src/item.rs:998 `is_fire_proof` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::isFireProof` |
-| `pocketmine\item\Arrow` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\Axe` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Arrow` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Axe` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Axe::getAttackPoints` | merged | src/item.rs:1005 `attack_points` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getAttackPoints` |
 | `pocketmine\item\Axe::getBlockToolHarvestLevel` | merged | src/item.rs:1024 `block_tool_harvest_level` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolHarvestLevel` |
 | `pocketmine\item\Axe::getBlockToolType` | merged | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolType` |
 | `pocketmine\item\Axe::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Axe::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
-| `pocketmine\item\BakedPotato` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\BakedPotato` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\BakedPotato::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\BakedPotato::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Bamboo` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Bamboo` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Bamboo::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\Bamboo::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\item\Banner` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Banner` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Banner::getColor` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\Banner::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\item\Banner::getPatterns` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Banner::getPatterns` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Banner::setColor` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
-| `pocketmine\item\Banner::setPatterns` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Beetroot` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Banner::setPatterns` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Beetroot` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Beetroot::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Beetroot::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\BeetrootSeeds` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\BeetrootSeeds` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\BeetrootSeeds::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\BeetrootSoup` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\BeetrootSoup` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\BeetrootSoup::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\BeetrootSoup::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\BeetrootSoup::getResidue` | merged | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `ConsumableItem::getResidue` |
 | `pocketmine\item\BeetrootSoup::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\BlazeRod` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\BlazeRod` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\BlazeRod::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\item\Boat` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Boat` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Boat::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\Boat::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\Boat::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -6444,64 +6444,64 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\BoatType::getWoodType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\BoatType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\BoatType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\item\Book` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\Bow` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Book` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Bow` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Bow::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Bow::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\Bow::getMaxDurability` | merged | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
 | `pocketmine\item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4249 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
-| `pocketmine\item\Bowl` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Bowl` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Bowl::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\item\Bread` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Bread` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Bread::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Bread::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Bucket` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Bucket` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Bucket::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\Bucket::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\Carrot` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Carrot` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Carrot::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\Carrot::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Carrot::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\ChorusFruit` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\ChorusFruit` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ChorusFruit::getCooldownTag` | merged | src/item.rs:641 `tag` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTag` |
 | `pocketmine\item\ChorusFruit::getCooldownTicks` | merged | src/item.rs:635 `ticks` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTicks` |
 | `pocketmine\item\ChorusFruit::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\ChorusFruit::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
 | `pocketmine\item\ChorusFruit::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `pocketmine\item\ChorusFruit::requiresHunger` | merged | src/item.rs:585 `requires_hunger` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::requiresHunger` |
-| `pocketmine\item\Clock` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\Clownfish` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Clock` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Clownfish` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Clownfish::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Clownfish::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Coal` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Coal` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Coal::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\item\CocoaBeans` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CocoaBeans` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CocoaBeans::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\Compass` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\ConsumableItem` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Compass` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\ConsumableItem` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ConsumableItem::getResidue` | implemented | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data |  |
-| `pocketmine\item\CookedChicken` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CookedChicken` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CookedChicken::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\CookedChicken::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\CookedFish` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CookedFish` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CookedFish::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\CookedFish::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\CookedMutton` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CookedMutton` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CookedMutton::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\CookedMutton::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\CookedPorkchop` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CookedPorkchop` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CookedPorkchop::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\CookedPorkchop::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\CookedRabbit` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CookedRabbit` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CookedRabbit::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\CookedRabbit::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\CookedSalmon` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CookedSalmon` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CookedSalmon::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\CookedSalmon::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Cookie` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Cookie` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Cookie::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Cookie::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\CoralFan` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\CoralFan` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\CoralFan::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\CoralFan::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's item types are a generated table |
 | `pocketmine\item\CoralFan::encodeCoralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's item types are a generated table |
@@ -6512,84 +6512,84 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\CoralFan::isDead` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\CoralFan::setCoralType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\CoralFan::setDead` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
-| `pocketmine\item\DriedKelp` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\DriedKelp` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\DriedKelp::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\DriedKelp::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Durable` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\Durable::applyDamage` | merged | src/item/stack.rs:267 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set | into `Durable::setDamage` |
-| `pocketmine\item\Durable::getDamage` | implemented | src/item/stack.rs:207 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Durable` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Durable::applyDamage` | merged | src/item/stack.rs:276 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set | into `Durable::setDamage` |
+| `pocketmine\item\Durable::getDamage` | implemented | src/item/stack.rs:216 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Durable::getMaxDurability` | implemented | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
-| `pocketmine\item\Durable::isBroken` | merged | src/item/stack.rs:207 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Durable::getDamage` |
-| `pocketmine\item\Durable::isUnbreakable` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Durable::setDamage` | implemented | src/item/stack.rs:267 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `pocketmine\item\Durable::setUnbreakable` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Dye` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Durable::isBroken` | merged | src/item/stack.rs:216 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Durable::getDamage` |
+| `pocketmine\item\Durable::isUnbreakable` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Durable::setDamage` | implemented | src/item/stack.rs:276 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Durable::setUnbreakable` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Dye` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Dye::getColor` | implemented | src/item.rs:1426 `dye_colour` | src/item.rs::dyes_have_pmmp_colour_ids |  |
 | `pocketmine\item\Dye::setColor` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
-| `pocketmine\item\Egg` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Egg` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Egg::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\Egg::getThrowForce` | merged | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `ProjectileItem::getThrowForce` |
-| `pocketmine\item\EnchantedBook` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\EnchantedBook` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\EnchantedBook::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\item\EndCrystal` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\EndCrystal` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\EndCrystal::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\EnderPearl` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\EnderPearl` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\EnderPearl::getCooldownTag` | merged | src/item.rs:641 `tag` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTag` |
 | `pocketmine\item\EnderPearl::getCooldownTicks` | merged | src/item.rs:635 `ticks` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTicks` |
 | `pocketmine\item\EnderPearl::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\EnderPearl::getThrowForce` | merged | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `ProjectileItem::getThrowForce` |
-| `pocketmine\item\ExperienceBottle` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\ExperienceBottle` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ExperienceBottle::getThrowForce` | merged | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `ProjectileItem::getThrowForce` |
-| `pocketmine\item\Fertilizer` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\FireCharge` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Fertilizer` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\FireCharge` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\FireCharge::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\FireworkRocket` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\FireworkRocket::getExplosions` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocket::getFlightTimeMultiplier` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocket` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\FireworkRocket::getExplosions` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocket::getFlightTimeMultiplier` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\FireworkRocket::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\FireworkRocket::setExplosions` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocket::setFlightTimeMultiplier` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocket::setExplosions` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocket::setFlightTimeMultiplier` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\FireworkRocketExplosion::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
-| `pocketmine\item\FireworkRocketExplosion::fromCompoundTag` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::getColorMix` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::getColors` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::getFadeColors` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::getFlashColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::getTrail` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::getType` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::toCompoundTag` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkRocketExplosion::willTwinkle` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::fromCompoundTag` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::getColorMix` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::getColors` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::getFadeColors` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::getFlashColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::getTrail` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::getType` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::toCompoundTag` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkRocketExplosion::willTwinkle` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\FireworkRocketType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\FireworkRocketType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\FireworkRocketType::getExplosionSound` | skipped |  |  | entity rule code: the burst sound is played by the firework rocket entity (`entity::Type::FireworkRocket`) |
-| `pocketmine\item\FireworkStar` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\FireworkStar` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\FireworkStar::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
-| `pocketmine\item\FireworkStar::getColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkStar::getCustomColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkStar::getExplosion` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkStar::setCustomColor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\FireworkStar::setExplosion` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkStar::getColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkStar::getCustomColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkStar::getExplosion` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkStar::setCustomColor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\FireworkStar::setExplosion` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\FishingRod` | skipped |  |  | fishing |
 | `pocketmine\item\FishingRod::getMaxDurability` | skipped |  |  | fishing |
 | `pocketmine\item\FishingRod::getMaxStackSize` | skipped |  |  | fishing |
-| `pocketmine\item\FlintSteel` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\FlintSteel` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\FlintSteel::getMaxDurability` | merged | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
 | `pocketmine\item\FlintSteel::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\Food` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Food` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Food::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Food::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\Food::getResidue` | merged | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `ConsumableItem::getResidue` |
 | `pocketmine\item\Food::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `pocketmine\item\Food::requiresHunger` | merged | src/item.rs:585 `requires_hunger` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::requiresHunger` |
-| `pocketmine\item\FoodSourceItem` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\GlassBottle` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\FoodSourceItem` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\GlassBottle` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\GlassBottle::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\GlowBerries` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\GlowBerries` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\GlowBerries::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\GlowBerries::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\GlowBerries::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\GoatHorn` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\GoatHorn` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\GoatHorn::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\GoatHorn::getCooldownTag` | merged | src/item.rs:641 `tag` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTag` |
 | `pocketmine\item\GoatHorn::getCooldownTicks` | merged | src/item.rs:635 `ticks` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTicks` |
@@ -6599,89 +6599,89 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\GoatHorn::setHornType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\GoatHornType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\GoatHornType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\item\GoldenApple` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\GoldenApple` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\GoldenApple::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\GoldenApple::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\GoldenApple::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
 | `pocketmine\item\GoldenApple::requiresHunger` | merged | src/item.rs:585 `requires_hunger` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::requiresHunger` |
-| `pocketmine\item\GoldenAppleEnchanted` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\GoldenAppleEnchanted` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\GoldenAppleEnchanted::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
-| `pocketmine\item\GoldenCarrot` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\GoldenCarrot` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\GoldenCarrot::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\GoldenCarrot::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\HangingSign` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\HangingSign` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\HangingSign::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\HangingSign::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\HangingSign::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\HangingSign::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\HangingSign::getPlacementTransaction` | skipped |  |  | item rule code: listeners see BlockPlace |
-| `pocketmine\item\Hoe` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Hoe` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Hoe::getBlockToolType` | merged | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolType` |
 | `pocketmine\item\Hoe::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Hoe::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
-| `pocketmine\item\HoneyBottle` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\HoneyBottle` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\HoneyBottle::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\HoneyBottle::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\HoneyBottle::getResidue` | merged | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `ConsumableItem::getResidue` |
 | `pocketmine\item\HoneyBottle::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
 | `pocketmine\item\HoneyBottle::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `pocketmine\item\HoneyBottle::requiresHunger` | merged | src/item.rs:585 `requires_hunger` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::requiresHunger` |
-| `pocketmine\item\IceBomb` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\IceBomb` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\IceBomb::getCooldownTicks` | merged | src/item.rs:635 `ticks` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTicks` |
 | `pocketmine\item\IceBomb::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\IceBomb::getThrowForce` | merged | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `ProjectileItem::getThrowForce` |
-| `pocketmine\item\Item` | implemented | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item` | implemented | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Item::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\item\Item::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\Item::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `pocketmine\item\Item::addEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::addEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `pocketmine\item\Item::canBePlaced` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\Item::canStackWith` | implemented | src/item/stack.rs:359 `can_stack_with` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `pocketmine\item\Item::clearCustomBlockData` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::clearCustomName` | merged | src/item/stack.rs:138 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
-| `pocketmine\item\Item::clearNamedTag` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::equals` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\Item::equalsExact` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Item::canStackWith` | implemented | src/item/stack.rs:368 `can_stack_with` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::clearCustomBlockData` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::clearCustomName` | merged | src/item/stack.rs:147 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
+| `pocketmine\item\Item::clearNamedTag` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::equals` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Item::equalsExact` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Item::getAttackPoints` | implemented | src/item.rs:1005 `attack_points` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\Item::getBlock` | implemented | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
 | `pocketmine\item\Item::getBlockToolHarvestLevel` | implemented | src/item.rs:1024 `block_tool_harvest_level` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\Item::getBlockToolType` | implemented | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
-| `pocketmine\item\Item::getCanDestroy` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::getCanPlaceOn` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::getCanDestroy` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::getCanPlaceOn` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Item::getCooldownTag` | implemented | src/item.rs:641 `tag` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
 | `pocketmine\item\Item::getCooldownTicks` | implemented | src/item.rs:635 `ticks` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
-| `pocketmine\item\Item::getCount` | implemented | src/item/stack.rs:200 `count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `pocketmine\item\Item::getCustomBlockData` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::getCustomName` | implemented | src/item/stack.rs:138 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::getCount` | implemented | src/item/stack.rs:209 `count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::getCustomBlockData` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::getCustomName` | implemented | src/item/stack.rs:147 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Item::getDefensePoints` | implemented | src/item.rs:1011 `defense_points` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\Item::getEnchantability` | implemented | src/item.rs:1077 `enchantability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
-| `pocketmine\item\Item::getEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\Item::getEnchantmentLevel` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::getEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::getEnchantmentLevel` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `pocketmine\item\Item::getEnchantmentTags` | merged | src/item.rs:1089 `enchantments` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `AvailableEnchantmentRegistry::getAllEnchantmentsForItem` |
-| `pocketmine\item\Item::getEnchantments` | implemented | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::getEnchantments` | implemented | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Item::getFuelResidue` | implemented | src/item.rs:1071 `fuel_residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data |  |
 | `pocketmine\item\Item::getFuelTime` | implemented | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data |  |
-| `pocketmine\item\Item::getLore` | implemented | src/item/stack.rs:141 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::getLore` | implemented | src/item/stack.rs:150 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Item::getMaxStackSize` | implemented | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\Item::getMiningEfficiency` | implemented | src/item.rs:1031 `mining_efficiency` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\Item::getName` | skipped |  |  | English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name |
-| `pocketmine\item\Item::getNamedTag` | implemented | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::getNamedTag` | implemented | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Item::getPlacementTransaction` | skipped |  |  | item rule code: listeners see BlockPlace |
 | `pocketmine\item\Item::getStateId` | skipped |  |  | PMMP's runtime state bit packing: Anchor's item types are a generated table |
 | `pocketmine\item\Item::getTypeId` | implemented | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\Item::getVanillaName` | skipped |  |  | English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name |
-| `pocketmine\item\Item::hasCustomBlockData` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::hasCustomName` | merged | src/item/stack.rs:138 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
-| `pocketmine\item\Item::hasEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\Item::hasEnchantments` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\Item::hasNamedTag` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::hasCustomBlockData` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::hasCustomName` | merged | src/item/stack.rs:147 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
+| `pocketmine\item\Item::hasEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::hasEnchantments` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::hasNamedTag` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Item::isFireProof` | implemented | src/item.rs:998 `is_fire_proof` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
-| `pocketmine\item\Item::isNull` | implemented | src/item/stack.rs:187 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::isNull` | implemented | src/item/stack.rs:196 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `pocketmine\item\Item::jsonSerialize` | skipped |  |  | PMMP's JSON item format (crafting data files): Anchor's recipe data is generated |
-| `pocketmine\item\Item::keepOnDeath` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::keepOnDeath` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Item::legacyJsonDeserialize` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `pocketmine\item\Item::nbtDeserialize` | implemented | src/tick/interact/custom.rs:39 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
-| `pocketmine\item\Item::nbtSerialize` | implemented | src/item/stack.rs:517 `to_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
+| `pocketmine\item\Item::nbtSerialize` | implemented | src/item/stack.rs:526 `to_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
 | `pocketmine\item\Item::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Item::onClickAir` | skipped |  |  | item rule code: listeners see PlayerItemUse |
 | `pocketmine\item\Item::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
@@ -6689,40 +6689,40 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\Item::onInteractEntity` | skipped |  |  | item rule code: listeners see PlayerEntityInteract |
 | `pocketmine\item\Item::onReleaseUsing` | skipped |  |  | item rule code: listeners see EntityShootBow |
 | `pocketmine\item\Item::onTickWorn` | skipped |  |  | item rule code |
-| `pocketmine\item\Item::pop` | merged | src/item/stack.rs:250 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::setCount` |
-| `pocketmine\item\Item::removeEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\Item::removeEnchantments` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::pop` | merged | src/item/stack.rs:259 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::setCount` |
+| `pocketmine\item\Item::removeEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\Item::removeEnchantments` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `pocketmine\item\Item::safeNbtDeserialize` | merged | src/tick/interact/custom.rs:39 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too | into `Item::nbtDeserialize` |
-| `pocketmine\item\Item::setCanDestroy` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::setCanPlaceOn` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::setCount` | implemented | src/item/stack.rs:250 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `pocketmine\item\Item::setCustomBlockData` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::setCustomName` | merged | src/item/stack.rs:138 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
-| `pocketmine\item\Item::setKeepOnDeath` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\Item::setLore` | merged | src/item/stack.rs:141 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getLore` |
-| `pocketmine\item\Item::setNamedTag` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\ItemBlock` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Item::setCanDestroy` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::setCanPlaceOn` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::setCount` | implemented | src/item/stack.rs:259 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `pocketmine\item\Item::setCustomBlockData` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::setCustomName` | merged | src/item/stack.rs:147 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
+| `pocketmine\item\Item::setKeepOnDeath` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\Item::setLore` | merged | src/item/stack.rs:150 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getLore` |
+| `pocketmine\item\Item::setNamedTag` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\ItemBlock` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ItemBlock::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\ItemBlock::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\ItemBlock::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\ItemBlock::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\ItemBlock::isFireProof` | merged | src/item.rs:998 `is_fire_proof` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::isFireProof` |
-| `pocketmine\item\ItemBlock::isNull` | merged | src/item/stack.rs:187 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::isNull` |
-| `pocketmine\item\ItemBlockWallOrFloor` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\ItemBlock::isNull` | merged | src/item/stack.rs:196 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::isNull` |
+| `pocketmine\item\ItemBlockWallOrFloor` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ItemBlockWallOrFloor::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\ItemBlockWallOrFloor::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\ItemBlockWallOrFloor::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\ItemBlockWallOrFloor::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\ItemCooldownTags` | merged | src/item.rs:641 `tag` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getCooldownTag` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::addEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::getEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::getEnchantmentLevel` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::getEnchantments` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::hasEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::hasEnchantments` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::removeEnchantment` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\ItemEnchantmentHandlingTrait::removeEnchantments` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::addEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::getEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::getEnchantmentLevel` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::getEnchantments` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::hasEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::hasEnchantments` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::removeEnchantment` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\ItemEnchantmentHandlingTrait::removeEnchantments` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `pocketmine\item\ItemIdentifier` | skipped |  |  | item types are generated from the PMMP dump |
 | `pocketmine\item\ItemIdentifier::__construct` | skipped |  |  | item types are generated from the PMMP dump |
 | `pocketmine\item\ItemIdentifier::fromBlock` | skipped |  |  | item types are generated from the PMMP dump |
@@ -6747,14 +6747,14 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\LegacyStringToItemParser::reset` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `pocketmine\item\LegacyStringToItemParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `pocketmine\item\LegacyStringToItemParserException` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
-| `pocketmine\item\LiquidBucket` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\LiquidBucket` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\LiquidBucket::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\LiquidBucket::getFuelResidue` | merged | src/item.rs:1071 `fuel_residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelResidue` |
 | `pocketmine\item\LiquidBucket::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\LiquidBucket::getLiquid` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\LiquidBucket::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\LiquidBucket::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\Medicine` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Medicine` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Medicine::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Medicine::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\Medicine::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -6771,45 +6771,45 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\MedicineType::getDisplayName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
 | `pocketmine\item\MedicineType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\MedicineType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\item\Melon` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Melon` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Melon::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Melon::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\MelonSeeds` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\MelonSeeds` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\MelonSeeds::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\MilkBucket` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\MilkBucket` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\MilkBucket::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\MilkBucket::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\MilkBucket::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\MilkBucket::getResidue` | merged | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `ConsumableItem::getResidue` |
 | `pocketmine\item\MilkBucket::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `pocketmine\item\Minecart` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Minecart` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Minecart::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\item\MushroomStew` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\MushroomStew` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\MushroomStew::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\MushroomStew::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\MushroomStew::getResidue` | merged | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `ConsumableItem::getResidue` |
 | `pocketmine\item\MushroomStew::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\NameTag` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\NameTag` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\NameTag::onInteractEntity` | skipped |  |  | item rule code: listeners see PlayerEntityInteract |
-| `pocketmine\item\PaintingItem` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\PaintingItem` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\PaintingItem::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\Pickaxe` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Pickaxe` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Pickaxe::getAttackPoints` | merged | src/item.rs:1005 `attack_points` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getAttackPoints` |
 | `pocketmine\item\Pickaxe::getBlockToolHarvestLevel` | merged | src/item.rs:1024 `block_tool_harvest_level` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolHarvestLevel` |
 | `pocketmine\item\Pickaxe::getBlockToolType` | merged | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolType` |
 | `pocketmine\item\Pickaxe::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Pickaxe::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
-| `pocketmine\item\PitcherPod` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\PitcherPod` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\PitcherPod::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\PoisonousPotato` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\PoisonousPotato` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\PoisonousPotato::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\PoisonousPotato::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\PoisonousPotato::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Potato` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Potato` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Potato::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\Potato::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Potato::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Potion` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Potion` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Potion::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Potion::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\Potion::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -6826,93 +6826,93 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\PotionType::getEffects` | implemented | src/effect.rs:349 `effects` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
 | `pocketmine\item\PotionType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\item\ProjectileItem` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\ProjectileItem` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ProjectileItem::getThrowForce` | implemented | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
 | `pocketmine\item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4241 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_pmmps_constants |  |
-| `pocketmine\item\Pufferfish` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Pufferfish` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\Pufferfish::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Pufferfish::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\PumpkinPie` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\PumpkinPie` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\PumpkinPie::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\PumpkinPie::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\PumpkinSeeds` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\PumpkinSeeds` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\PumpkinSeeds::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\RabbitStew` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RabbitStew` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RabbitStew::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RabbitStew::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\RabbitStew::getResidue` | merged | src/item.rs:607 `residue` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `ConsumableItem::getResidue` |
 | `pocketmine\item\RabbitStew::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawBeef` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawBeef` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawBeef::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawBeef::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawChicken` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawChicken` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawChicken::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\RawChicken::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawChicken::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawFish` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawFish` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawFish::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawFish::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawMutton` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawMutton` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawMutton::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawMutton::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawPorkchop` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawPorkchop` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawPorkchop::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawPorkchop::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawRabbit` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawRabbit` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawRabbit::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawRabbit::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\RawSalmon` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RawSalmon` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RawSalmon::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RawSalmon::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Record` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Record` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Record::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\Record::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\Record::getRecordType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
-| `pocketmine\item\Redstone` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Redstone` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Redstone::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\Releasable` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Releasable` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Releasable::canStartUsingItem` | skipped |  |  | item rule code |
-| `pocketmine\item\RottenFlesh` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\RottenFlesh` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\RottenFlesh::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\RottenFlesh::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\RottenFlesh::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Shears` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Shears` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Shears::getBlockToolHarvestLevel` | merged | src/item.rs:1024 `block_tool_harvest_level` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolHarvestLevel` |
 | `pocketmine\item\Shears::getBlockToolType` | merged | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolType` |
 | `pocketmine\item\Shears::getMaxDurability` | merged | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
 | `pocketmine\item\Shears::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
-| `pocketmine\item\Shovel` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Shovel` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Shovel::getAttackPoints` | merged | src/item.rs:1005 `attack_points` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getAttackPoints` |
 | `pocketmine\item\Shovel::getBlockToolHarvestLevel` | merged | src/item.rs:1024 `block_tool_harvest_level` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolHarvestLevel` |
 | `pocketmine\item\Shovel::getBlockToolType` | merged | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolType` |
 | `pocketmine\item\Shovel::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Shovel::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
-| `pocketmine\item\Snowball` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Snowball` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Snowball::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\Snowball::getThrowForce` | merged | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `ProjectileItem::getThrowForce` |
-| `pocketmine\item\SpawnEgg` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\SpawnEgg` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\SpawnEgg::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `pocketmine\item\SpiderEye` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\SpiderEye` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\SpiderEye::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\SpiderEye::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\SpiderEye::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\SplashPotion` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\SplashPotion` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\SplashPotion::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\SplashPotion::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\SplashPotion::getThrowForce` | merged | src/item.rs:1100 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `ProjectileItem::getThrowForce` |
 | `pocketmine\item\SplashPotion::getType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\SplashPotion::setType` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
 | `pocketmine\item\SplashPotion::willLinger` | merged | src/item.rs:944 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
-| `pocketmine\item\Spyglass` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Spyglass` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Spyglass::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Spyglass::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\item\Steak` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Steak` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Steak::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\Steak::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Stick` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Stick` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Stick::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\item\StringItem` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\StringItem` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\StringItem::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\StringToItemParser` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
 | `pocketmine\item\StringToItemParser::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
@@ -6924,7 +6924,7 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\StringToItemParser::registerBlock` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
 | `pocketmine\item\StringToItemParser::reset` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
 | `pocketmine\item\StringToItemParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `pocketmine\item\SuspiciousStew` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\SuspiciousStew` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\SuspiciousStew::getAdditionalEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\SuspiciousStew::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\SuspiciousStew::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -6941,25 +6941,25 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\SuspiciousStewType::getEffects` | merged | src/item.rs:614 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\SuspiciousStewType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\SuspiciousStewType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\item\SweetBerries` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\SweetBerries` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\SweetBerries::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
 | `pocketmine\item\SweetBerries::getFoodRestore` | merged | src/item.rs:573 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
 | `pocketmine\item\SweetBerries::getSaturationRestore` | merged | src/item.rs:579 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getSaturationRestore` |
-| `pocketmine\item\Sword` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Sword` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Sword::getAttackPoints` | merged | src/item.rs:1005 `attack_points` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getAttackPoints` |
 | `pocketmine\item\Sword::getBlockToolHarvestLevel` | merged | src/item.rs:1024 `block_tool_harvest_level` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolHarvestLevel` |
 | `pocketmine\item\Sword::getBlockToolType` | merged | src/item.rs:1017 `block_tool_type` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getBlockToolType` |
 | `pocketmine\item\Sword::getMiningEfficiency` | merged | src/item.rs:1031 `mining_efficiency` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMiningEfficiency` |
 | `pocketmine\item\Sword::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Sword::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
-| `pocketmine\item\TieredTool` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\TieredTool` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\TieredTool::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
 | `pocketmine\item\TieredTool::getEnchantability` | merged | src/item.rs:1077 `enchantability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getEnchantability` |
 | `pocketmine\item\TieredTool::getFuelTime` | merged | src/item.rs:1064 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\TieredTool::getMaxDurability` | merged | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
 | `pocketmine\item\TieredTool::getTier` | implemented | src/item.rs:1037 `tool_tier` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data |  |
 | `pocketmine\item\TieredTool::isFireProof` | merged | src/item.rs:998 `is_fire_proof` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::isFireProof` |
-| `pocketmine\item\Tool` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Tool` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Tool::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `pocketmine\item\Tool::getMiningEfficiency` | merged | src/item.rs:1031 `mining_efficiency` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMiningEfficiency` |
 | `pocketmine\item\ToolTier` | implemented | src/item/table.rs:15394 `ToolTier` | src/item.rs::item_data_are_pmmp_values |  |
@@ -6974,18 +6974,18 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\ToolTier::getMaxDurability` | implemented | src/item.rs:899 `max_durability` | src/item.rs::item_data_are_pmmp_values |  |
 | `pocketmine\item\ToolTier::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\ToolTier::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\item\TorchflowerSeeds` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\TorchflowerSeeds` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\TorchflowerSeeds::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\Totem` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Totem` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Totem::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\item\Trident` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\Trident` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Trident::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Trident::getAttackPoints` | merged | src/item.rs:1005 `attack_points` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getAttackPoints` |
 | `pocketmine\item\Trident::getMaxDurability` | merged | src/item.rs:991 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
 | `pocketmine\item\Trident::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Trident::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
 | `pocketmine\item\Trident::onReleaseUsing` | skipped |  |  | item rule code: listeners see EntityShootBow |
-| `pocketmine\item\TurtleHelmet` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\TurtleHelmet` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\TurtleHelmet::onTickWorn` | skipped |  |  | item rule code |
 | `pocketmine\item\VanillaArmorMaterials` | skipped |  |  | armour materials are a generated table |
 | `pocketmine\item\VanillaArmorMaterials::CHAINMAIL` | skipped |  |  | armour materials are a generated table |
@@ -7323,33 +7323,33 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\VanillaItems::WRITTEN_BOOK` | merged | src/item.rs:850 `default_type` | src/item.rs::every_type_has_its_data_and_tags_resolve | into `VanillaItems` |
 | `pocketmine\item\VanillaItems::ZOMBIE_SPAWN_EGG` | merged | src/item.rs:850 `default_type` | src/item.rs::every_type_has_its_data_and_tags_resolve | into `VanillaItems` |
 | `pocketmine\item\VanillaItems::getAll` | merged | src/item.rs:850 `default_type` | src/item.rs::every_type_has_its_data_and_tags_resolve | into `VanillaItems` |
-| `pocketmine\item\WheatSeeds` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\WheatSeeds` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\WheatSeeds::getBlock` | merged | src/item.rs:1119 `placed_block` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data | into `Item::getBlock` |
-| `pocketmine\item\WritableBook` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\WritableBookBase` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\WritableBook` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\WritableBookBase` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\WritableBookBase::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
-| `pocketmine\item\WritableBookBase::addPage` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::deletePage` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::addPage` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::deletePage` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\WritableBookBase::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\item\WritableBookBase::getPageText` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::getPages` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::insertPage` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::pageExists` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::setPageText` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::setPages` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookBase::swapPages` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookPage` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::getPageText` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::getPages` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::insertPage` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::pageExists` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::setPageText` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::setPages` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookBase::swapPages` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookPage` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\WritableBookPage::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
-| `pocketmine\item\WritableBookPage::getPhotoName` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WritableBookPage::getText` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WrittenBook` | merged | src/item/stack.rs:123 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `pocketmine\item\WrittenBook::getAuthor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WrittenBook::getGeneration` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookPage::getPhotoName` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WritableBookPage::getText` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WrittenBook` | merged | src/item/stack.rs:132 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
+| `pocketmine\item\WrittenBook::getAuthor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WrittenBook::getGeneration` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\WrittenBook::getMaxStackSize` | merged | src/item.rs:984 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\item\WrittenBook::getTitle` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WrittenBook::setAuthor` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WrittenBook::setGeneration` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `pocketmine\item\WrittenBook::setTitle` | merged | src/item/stack.rs:149 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WrittenBook::getTitle` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WrittenBook::setAuthor` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WrittenBook::setGeneration` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `pocketmine\item\WrittenBook::setTitle` | merged | src/item/stack.rs:158 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\enchantment\AvailableEnchantmentRegistry` | skipped |  |  | enchantment tables are generated and fixed |
 | `pocketmine\item\enchantment\AvailableEnchantmentRegistry::getAll` | skipped |  |  | enchantment tables are generated and fixed |
 | `pocketmine\item\enchantment\AvailableEnchantmentRegistry::getAllEnchantmentsForItem` | implemented | src/item.rs:1089 `enchantments` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
@@ -7390,10 +7390,10 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\enchantment\Enchantment::hasPrimaryItemType` | skipped |  |  | legacy item flags: Anchor uses the item tags |
 | `pocketmine\item\enchantment\Enchantment::hasSecondaryItemType` | skipped |  |  | legacy item flags: Anchor uses the item tags |
 | `pocketmine\item\enchantment\Enchantment::isCompatibleWith` | implemented | src/item.rs:766 `is_compatible_with` | src/item.rs::enchantments_are_pmmp_values |  |
-| `pocketmine\item\enchantment\EnchantmentInstance` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\enchantment\EnchantmentInstance::__construct` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\enchantment\EnchantmentInstance::getLevel` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\enchantment\EnchantmentInstance::getType` | merged | src/item/stack.rs:146 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\enchantment\EnchantmentInstance` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\enchantment\EnchantmentInstance::__construct` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\enchantment\EnchantmentInstance::getLevel` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `pocketmine\item\enchantment\EnchantmentInstance::getType` | merged | src/item/stack.rs:155 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `pocketmine\item\enchantment\FireAspectEnchantment` | merged | src/item/table.rs:14686 `Enchantment` | src/item.rs::enchantments_are_pmmp_values | into `Enchantment` |
 | `pocketmine\item\enchantment\FireAspectEnchantment::getDamageBonus` | skipped |  |  | enchantment rule code |
 | `pocketmine\item\enchantment\FireAspectEnchantment::isApplicableTo` | skipped |  |  | enchantment rule code |

@@ -53,6 +53,15 @@ pub const TAG_UNBREAKABLE: &str = "Unbreakable";
 /// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1 (PMMP
 /// `Item::setKeepOnDeath`).
 pub const TAG_KEEP_ON_DEATH: &str = "minecraft:keep_on_death";
+/// The key in [`Extra::nbt`] of an armour piece's trim: a compound of [`TAG_TRIM_MATERIAL`] and
+/// [`TAG_TRIM_PATTERN`], as smithing writes it.
+pub const TAG_TRIM: &str = "Trim";
+/// The trim's material in [`TAG_TRIM`]: a `TAG_String`, one of
+/// [`TRIM_MATERIALS`](super::TRIM_MATERIALS).
+pub const TAG_TRIM_MATERIAL: &str = "Material";
+/// The trim's pattern in [`TAG_TRIM`]: a `TAG_String`, one of
+/// [`TRIM_PATTERNS`](super::TRIM_PATTERNS).
+pub const TAG_TRIM_PATTERN: &str = "Pattern";
 /// Block entity data of a block item; the client never reads it (PMMP strips it).
 const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 /// The items a container block item holds (a shulker box).

@@ -394,13 +394,16 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
                 .ok_or(Error::Recipe)?;
             let mut extra = one.extra().cloned().unwrap_or_default();
             extra.nbt.insert(
-                "Trim".to_owned(),
+                item::TAG_TRIM.to_owned(),
                 Value::Compound(Compound::from([
                     (
-                        "Material".to_owned(),
+                        item::TAG_TRIM_MATERIAL.to_owned(),
                         Value::String(trim_material.to_owned()),
                     ),
-                    ("Pattern".to_owned(), Value::String(pattern.to_owned())),
+                    (
+                        item::TAG_TRIM_PATTERN.to_owned(),
+                        Value::String(pattern.to_owned()),
+                    ),
                 ])),
             );
             one.with_extra(Some(extra)).map_err(|_| Error::Recipe)?

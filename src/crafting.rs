@@ -886,8 +886,8 @@ pub(crate) fn smelt_experience(result: Type) -> f64 {
     }
 }
 
-/// The armour trim pattern IDs (the `Pattern` of an item's `Trim`), in the order BDS 1.26.52 sends
-/// them in `TrimData` (P6): each is the template
+/// The armour trim pattern IDs (an item's [`TAG_TRIM_PATTERN`](crate::item::TAG_TRIM_PATTERN)), in
+/// the order BDS 1.26.52 sends them in `TrimData` (P6): each is the template
 /// `minecraft:<pattern>_armor_trim_smithing_template`.
 pub const TRIM_PATTERNS: [&str; 18] = [
     "ward",
@@ -926,8 +926,9 @@ pub(crate) const TRIM_MATERIAL_TABLE: [(&str, &str, &str); 11] = [
     ("resin", "\u{a7}v", "minecraft:resin_brick"),
 ];
 
-/// The armour trim material IDs (the `Material` of an item's `Trim`), in the order BDS 1.26.52
-/// sends them in `TrimData` (P6).
+/// The armour trim material IDs (an item's
+/// [`TAG_TRIM_MATERIAL`](crate::item::TAG_TRIM_MATERIAL)), in the order BDS 1.26.52 sends them in
+/// `TrimData` (P6).
 #[expect(
     clippy::indexing_slicing,
     reason = "invariant: evaluated when the crate builds, so an index out of range fails the build"

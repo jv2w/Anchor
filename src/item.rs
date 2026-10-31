@@ -18,8 +18,8 @@ pub(crate) use registry::SHIELD_RUNTIME_ID;
 #[cfg(test)]
 pub(crate) use stack::MAX_STORED_BYTES;
 pub use stack::{
-    Error, Extra, MAX_ENCHANTMENT_LEVEL, MAX_NBT_BYTES, Result, Stack, TAG_KEEP_ON_DEATH,
-    TAG_UNBREAKABLE,
+    Error, Extra, MAX_ENCHANTMENT_LEVEL, MAX_NBT_BYTES, Result, Stack, TAG_KEEP_ON_DEATH, TAG_TRIM,
+    TAG_TRIM_MATERIAL, TAG_TRIM_PATTERN, TAG_UNBREAKABLE,
 };
 pub use table::{Class, Enchantment, Kind, ToolTier, Trait};
 
