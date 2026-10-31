@@ -1459,6 +1459,38 @@ fn a_leaving_player_s_menu_closes_after_the_quit_listeners_and_monitors_and_befo
 }
 
 #[test]
+fn a_quit_listener_s_teleport_closes_the_menu_before_the_quit_monitors() {
+    thread_local! {
+        /// How many closes the handler had heard as the quit's monitor ran.
+        static AT_MONITOR: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+    let mut listeners = crate::event::Listeners::default();
+    listeners.push(
+        crate::event::Priority::Normal,
+        |e: &mut crate::event::PlayerQuit, cx: &mut Context<'_>| {
+            let p = cx.player_mut(e.player()).unwrap();
+            let (world, feet) = (p.world(), p.position());
+            p.teleport(world, feet).unwrap();
+        },
+    );
+    listeners.push_monitor(|_: &crate::event::PlayerQuit, _: &Context<'_>| {
+        let closes = CLOSES.take();
+        AT_MONITOR.set(Some(closes.len()));
+        CLOSES.set(closes);
+    });
+    let mut w = World::with_listeners(GameMode::Survival, listeners);
+    let s = w.join(1);
+    let menu = open_closing(&mut w, s, Way::Leave, Response::Keep);
+    w.state.leave(s, "client disconnect");
+    assert_eq!(AT_MONITOR.get(), Some(1), "closed before the monitors");
+    let heard = CLOSES.take();
+    assert!(
+        matches!(heard.as_slice(), [close] if close.menu() == menu),
+        "closed once: {heard:?}"
+    );
+}
+
+#[test]
 fn an_inventory_transaction_names_menu_slots_as_the_window_and_may_cancel() {
     thread_local! {
         static HEARD: Cell<u32> = const { Cell::new(0) };
