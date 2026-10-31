@@ -11,21 +11,20 @@
 //!
 //! Slots made [`editable`](Menu::editable) work as a chest's instead: the player takes, places and
 //! swaps their items with its own slots and cursor, drops them and, in creative mode, destroys
-//! them, the requests checked as in a chest window.
-//! Before a request that changes a menu slot is made, the handler hears of its changes with a
-//! [`Change`] and answers whether it is made ([`Response`]); a refused one changes nothing. The
-//! menu's items are a copy of what the handler keeps: no change reaches them unless the handler
-//! kept it, so the handler holds every item the menu holds, and closing the menu drops the copy.
-//! The cursor and the player's slots are the player's: closing gives the cursor back as any window
-//! does, once the handler has heard of the close with a [`Close`] and has not taken the cursor's
-//! stack into what it keeps.
+//! them, the requests checked as in a chest window. Before a request that changes a menu slot is
+//! made, the handler hears of its changes with a [`Change`] and answers whether it is made
+//! ([`Response`]); a refused one changes nothing. The menu's items are a copy of what the handler
+//! keeps: no change reaches them unless the handler kept it, so the handler holds every item the
+//! menu holds, and closing the menu drops the copy. The cursor and the player's slots are the
+//! player's: closing gives the cursor back as any window does, once the handler has heard of the
+//! close with a [`Close`] and has not taken the cursor's stack into what it keeps.
 //!
 //! A menu that [lends](Menu::lend) leaves the items the player takes from its editable slots onto
 //! the cursor in what the handler keeps until they are put down: they are lent, the handler's and
 //! not the player's, so the player's saved data leaves them out and closing gives back only the
-//! cursor's other items. Each change tells how many of the cursor's items are lent before and after
-//! it ([`Change::lent_before`]), and so the handler keeps what it holds as it is when they are taken
-//! up and moves them out when they leave the cursor elsewhere than into the menu.
+//! cursor's other items. Each change tells how many of the cursor's items are lent before and
+//! after it ([`Change::lent_before`]), and so the handler keeps what it holds as it is when they
+//! are taken up and moves them out when they leave the cursor elsewhere than into the menu.
 //!
 //! ```
 //! use anchor::Context;
@@ -99,12 +98,9 @@ pub struct Menu {
 // Every slot of the largest menu has its bit.
 const _: () = assert!(Kind::DoubleChest.size() <= 64);
 
-/// Whether slot `slot` is editable in `editable` (bit `i` for slot `i`).
-pub(crate) fn is_editable(editable: u64, slot: usize) -> bool {
-    u32::try_from(slot)
-        .ok()
-        .and_then(|s| 1u64.checked_shl(s))
-        .is_some_and(|bit| editable & bit != 0)
+/// The bit of slot `slot` in a set of slots (bit `i` for slot `i`); `None` past bit 63.
+pub(crate) fn slot_bit(slot: usize) -> Option<u64> {
+    u32::try_from(slot).ok().and_then(|s| 1u64.checked_shl(s))
 }
 
 impl Menu {
@@ -145,10 +141,7 @@ impl Menu {
     /// makes the open fail ([`Error::NoSlot`]).
     #[must_use]
     pub fn editable(mut self, slot: usize) -> Self {
-        let bit = u32::try_from(slot)
-            .ok()
-            .and_then(|s| 1u64.checked_shl(s))
-            .filter(|_| slot < self.kind.size());
+        let bit = slot_bit(slot).filter(|_| slot < self.kind.size());
         match bit {
             Some(bit) => self.editable |= bit,
             None => {

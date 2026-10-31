@@ -60,7 +60,7 @@ const BEHIND_VERTICAL: f64 = 2.8;
 /// closes.
 type Handler = Box<dyn FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send>;
 
-/// The click handlers of the open menus, by session: one per player with a menu open, kept in
+/// The handlers of the open menus, by session: one per player with a menu open, kept in
 /// the state beside the players (the output phase shares the players between threads, and a
 /// handler need not be `Sync`). A handler is out of the table while it runs.
 #[derive(Default)]
@@ -104,7 +104,7 @@ impl Open {
 
     /// Whether requests move the items of slot `slot`.
     pub(super) fn is_editable(&self, slot: usize) -> bool {
-        crate::menu::is_editable(self.editable, slot)
+        crate::menu::slot_bit(slot).is_some_and(|bit| self.editable & bit != 0)
     }
 
     /// Whether it lends the items taken onto the cursor ([`Menu::lend`]).
@@ -523,8 +523,9 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
         for (info, action) in named.into_iter().flatten() {
             let slot = usize::from(info.slot);
             let editable = open.is_editable(slot);
-            edits |= editable && moves;
-            if (editable && moves) || matches!(touch, Touch::Click(_)) {
+            let edit = editable && moves;
+            edits |= edit;
+            if edit || matches!(touch, Touch::Click(_)) {
                 continue;
             }
             touch = Touch::Refused;

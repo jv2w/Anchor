@@ -2828,7 +2828,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\inventory\CampfireInventory` | merged | src/tick/inventory/api.rs:141 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\inventory\CampfireInventory::__construct` | skipped |  |  | block inventories are made with their block by the rules |
 | `pocketmine\block\inventory\CampfireInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
-| `pocketmine\block\inventory\CampfireInventory::getMaxStackSize` | implemented | src/inventory.rs:205 `max_stack_size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\block\inventory\CampfireInventory::getMaxStackSize` | implemented | src/inventory.rs:196 `max_stack_size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\block\inventory\CartographyTableInventory` | merged | src/tick/inventory/api.rs:82 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `Player::getCurrentWindow` |
 | `pocketmine\block\inventory\CartographyTableInventory::__construct` | skipped |  |  | block inventories are made with their block by the rules |
 | `pocketmine\block\inventory\CartographyTableInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
@@ -2844,15 +2844,15 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\inventory\CraftingTableInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
 | `pocketmine\block\inventory\DoubleChestInventory` | merged | src/tick/inventory/api.rs:141 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\inventory\DoubleChestInventory::__construct` | skipped |  |  | block inventories are made with their block by the rules |
-| `pocketmine\block\inventory\DoubleChestInventory::getContents` | implemented | src/inventory.rs:196 `iter` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\block\inventory\DoubleChestInventory::getContents` | implemented | src/inventory.rs:187 `iter` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\block\inventory\DoubleChestInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
 | `pocketmine\block\inventory\DoubleChestInventory::getInventory` | merged | src/tick/inventory/api.rs:142 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
-| `pocketmine\block\inventory\DoubleChestInventory::getItem` | implemented | src/inventory.rs:168 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\block\inventory\DoubleChestInventory::getItem` | implemented | src/inventory.rs:159 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\block\inventory\DoubleChestInventory::getLeftSide` | skipped |  |  | a double chest is one inventory at either half's position, left half first (`Context::block_inventory`) |
 | `pocketmine\block\inventory\DoubleChestInventory::getRightSide` | skipped |  |  | a double chest is one inventory at either half's position, left half first (`Context::block_inventory`) |
-| `pocketmine\block\inventory\DoubleChestInventory::getSize` | implemented | src/inventory.rs:160 `size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\block\inventory\DoubleChestInventory::getSize` | implemented | src/inventory.rs:151 `size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\block\inventory\DoubleChestInventory::getViewerCount` | merged | src/tick/inventory/api.rs:166 `block_inventory_viewers` | src/tick/inventory/tests/api.rs::block_inventory_viewers_are_the_players_with_its_window_open | into `Inventory::getViewers` |
-| `pocketmine\block\inventory\DoubleChestInventory::isSlotEmpty` | implemented | src/inventory.rs:188 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\block\inventory\DoubleChestInventory::isSlotEmpty` | implemented | src/inventory.rs:179 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\block\inventory\DoubleChestInventory::onClose` | skipped |  |  | block rule code: lid animation and viewers |
 | `pocketmine\block\inventory\DoubleChestInventory::onOpen` | skipped |  |  | block rule code: lid animation and viewers |
 | `pocketmine\block\inventory\EnchantInventory` | merged | src/tick/inventory/api.rs:82 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `Player::getCurrentWindow` |
@@ -2888,7 +2888,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\inventory\LoomInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
 | `pocketmine\block\inventory\ShulkerBoxInventory` | merged | src/tick/inventory/api.rs:141 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\inventory\ShulkerBoxInventory::__construct` | skipped |  |  | block inventories are made with their block by the rules |
-| `pocketmine\block\inventory\ShulkerBoxInventory::canAddItem` | implemented | src/inventory.rs:275 `can_add` | src/inventory.rs::a_shulker_box_takes_no_shulker_box |  |
+| `pocketmine\block\inventory\ShulkerBoxInventory::canAddItem` | implemented | src/inventory.rs:266 `can_add` | src/inventory.rs::a_shulker_box_takes_no_shulker_box |  |
 | `pocketmine\block\inventory\ShulkerBoxInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
 | `pocketmine\block\inventory\ShulkerBoxInventory::getViewerCount` | merged | src/tick/inventory/api.rs:166 `block_inventory_viewers` | src/tick/inventory/tests/api.rs::block_inventory_viewers_are_the_players_with_its_window_open | into `Inventory::getViewers` |
 | `pocketmine\block\inventory\ShulkerBoxInventory::onClose` | skipped |  |  | block rule code: lid animation and viewers |
@@ -3725,8 +3725,8 @@ implemented 21, differs 0, merged 29, skipped 69, blank 0 (of 119 rows)
 | `pocketmine\crafting\BrewingRecipe::getResultFor` | merged | src/tick/world_api/recipes.rs:66 `brewing_result` | src/custom/tests.rs::brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind<br>src/tick/world_api/recipes.rs::brewing_makes_what_the_reagent_makes_of_the_potion | into `CraftingManager::matchBrewingRecipe` |
 | `pocketmine\crafting\CraftingGrid` | merged | src/tick/inventory/api.rs:42 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids | into `Player::getCraftingGrid` |
 | `pocketmine\crafting\CraftingGrid::__construct` | skipped |  |  | the engine makes each player's crafting grid |
-| `pocketmine\crafting\CraftingGrid::getGridWidth` | merged | src/inventory.rs:158 `size` | src/inventory.rs::a_view_reads_both_halves_in_order | into `Inventory::getSize` |
-| `pocketmine\crafting\CraftingGrid::getIngredient` | merged | src/inventory.rs:166 `item` | src/inventory.rs::a_view_reads_both_halves_in_order | into `Inventory::getItem` |
+| `pocketmine\crafting\CraftingGrid::getGridWidth` | merged | src/inventory.rs:149 `size` | src/inventory.rs::a_view_reads_both_halves_in_order | into `Inventory::getSize` |
+| `pocketmine\crafting\CraftingGrid::getIngredient` | merged | src/inventory.rs:157 `item` | src/inventory.rs::a_view_reads_both_halves_in_order | into `Inventory::getItem` |
 | `pocketmine\crafting\CraftingGrid::getRecipeHeight` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `pocketmine\crafting\CraftingGrid::getRecipeWidth` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `pocketmine\crafting\CraftingGrid::setItem` | implemented | src/tick/inventory/api.rs:306 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -6161,11 +6161,11 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 |---|---|---|---|---|
 | `pocketmine\inventory\ArmorInventory` | implemented | src/inventory.rs:26 `Armor` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\ArmorInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
-| `pocketmine\inventory\ArmorInventory::getBoots` | implemented | src/inventory.rs:174 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\ArmorInventory::getChestplate` | implemented | src/inventory.rs:172 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\ArmorInventory::getHelmet` | implemented | src/inventory.rs:171 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::getBoots` | implemented | src/inventory.rs:165 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::getChestplate` | implemented | src/inventory.rs:163 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::getHelmet` | implemented | src/inventory.rs:162 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\ArmorInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
-| `pocketmine\inventory\ArmorInventory::getLeggings` | implemented | src/inventory.rs:173 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\ArmorInventory::getLeggings` | implemented | src/inventory.rs:164 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\ArmorInventory::setBoots` | implemented | src/tick/inventory/api.rs:312 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\ArmorInventory::setChestplate` | implemented | src/tick/inventory/api.rs:310 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\ArmorInventory::setHelmet` | implemented | src/tick/inventory/api.rs:309 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -6173,19 +6173,19 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\BaseInventory` | implemented | src/inventory.rs:97 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\BaseInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
 | `pocketmine\inventory\BaseInventory::addItem` | implemented | src/tick/inventory/api.rs:376 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\BaseInventory::all` | implemented | src/inventory.rs:241 `all` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\BaseInventory::canAddItem` | implemented | src/inventory.rs:274 `can_add` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\BaseInventory::all` | implemented | src/inventory.rs:232 `all` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\BaseInventory::canAddItem` | implemented | src/inventory.rs:265 `can_add` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\BaseInventory::clear` | implemented | src/tick/inventory/api.rs:308 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::clearAll` | implemented | src/tick/inventory/api.rs:365 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\BaseInventory::contains` | implemented | src/inventory.rs:213 `contains` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\BaseInventory::first` | implemented | src/inventory.rs:227 `first` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\BaseInventory::firstEmpty` | implemented | src/inventory.rs:234 `first_empty` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\BaseInventory::getAddableItemQuantity` | implemented | src/inventory.rs:251 `addable_quantity` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\BaseInventory::contains` | implemented | src/inventory.rs:204 `contains` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\BaseInventory::first` | implemented | src/inventory.rs:218 `first` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\BaseInventory::firstEmpty` | implemented | src/inventory.rs:225 `first_empty` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\BaseInventory::getAddableItemQuantity` | implemented | src/inventory.rs:242 `addable_quantity` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\BaseInventory::getListeners` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
-| `pocketmine\inventory\BaseInventory::getMaxStackSize` | implemented | src/inventory.rs:204 `max_stack_size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\BaseInventory::getMaxStackSize` | implemented | src/inventory.rs:195 `max_stack_size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\BaseInventory::getSlotValidators` | skipped |  |  | slot rules are the rule code's |
 | `pocketmine\inventory\BaseInventory::getViewers` | implemented | src/tick/inventory/api.rs:167 `block_inventory_viewers` | src/tick/inventory/tests/api.rs::block_inventory_viewers_are_the_players_with_its_window_open |  |
-| `pocketmine\inventory\BaseInventory::isSlotEmpty` | implemented | src/inventory.rs:186 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\BaseInventory::isSlotEmpty` | implemented | src/inventory.rs:177 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\BaseInventory::onClose` | skipped |  |  | window rule code: listeners see InventoryClose |
 | `pocketmine\inventory\BaseInventory::onOpen` | skipped |  |  | window rule code: listeners see InventoryOpen |
 | `pocketmine\inventory\BaseInventory::remove` | implemented | src/tick/inventory/api.rs:394 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -6194,7 +6194,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\BaseInventory::setContents` | implemented | src/tick/inventory/api.rs:325 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::setItem` | implemented | src/tick/inventory/api.rs:305 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\BaseInventory::setMaxStackSize` | skipped |  |  | stack limits are per item type (`Item::getMaxStackSize`) and per slot rule |
-| `pocketmine\inventory\BaseInventory::slotExists` | implemented | src/inventory.rs:170 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\BaseInventory::slotExists` | implemented | src/inventory.rs:161 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\BaseInventory::swap` | implemented | src/tick/inventory/api.rs:404 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\CallbackInventoryListener` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `pocketmine\inventory\CallbackInventoryListener::__construct` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
@@ -6238,21 +6238,21 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\DelegateInventory::isSlotEmpty` | skipped |  |  | no inventory wrappers: `inventory::Inventory` reads every inventory |
 | `pocketmine\inventory\Inventory` | implemented | src/inventory.rs:100 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\Inventory::addItem` | implemented | src/tick/inventory/api.rs:375 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\Inventory::all` | implemented | src/inventory.rs:240 `all` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\Inventory::canAddItem` | implemented | src/inventory.rs:273 `can_add` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\Inventory::all` | implemented | src/inventory.rs:231 `all` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\Inventory::canAddItem` | implemented | src/inventory.rs:264 `can_add` | src/inventory.rs::finding_and_room_follow_pmmp |  |
 | `pocketmine\inventory\Inventory::clear` | implemented | src/tick/inventory/api.rs:307 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\Inventory::clearAll` | implemented | src/tick/inventory/api.rs:364 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\inventory\Inventory::contains` | implemented | src/inventory.rs:212 `contains` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\Inventory::first` | implemented | src/inventory.rs:226 `first` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\Inventory::firstEmpty` | implemented | src/inventory.rs:233 `first_empty` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\Inventory::getAddableItemQuantity` | implemented | src/inventory.rs:250 `addable_quantity` | src/inventory.rs::finding_and_room_follow_pmmp |  |
-| `pocketmine\inventory\Inventory::getContents` | implemented | src/inventory.rs:194 `iter` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\Inventory::getItem` | implemented | src/inventory.rs:166 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\Inventory::contains` | implemented | src/inventory.rs:203 `contains` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\Inventory::first` | implemented | src/inventory.rs:217 `first` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\Inventory::firstEmpty` | implemented | src/inventory.rs:224 `first_empty` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\Inventory::getAddableItemQuantity` | implemented | src/inventory.rs:241 `addable_quantity` | src/inventory.rs::finding_and_room_follow_pmmp |  |
+| `pocketmine\inventory\Inventory::getContents` | implemented | src/inventory.rs:185 `iter` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\Inventory::getItem` | implemented | src/inventory.rs:157 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\Inventory::getListeners` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
-| `pocketmine\inventory\Inventory::getMaxStackSize` | implemented | src/inventory.rs:203 `max_stack_size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\Inventory::getSize` | implemented | src/inventory.rs:158 `size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\Inventory::getMaxStackSize` | implemented | src/inventory.rs:194 `max_stack_size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\Inventory::getSize` | implemented | src/inventory.rs:149 `size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\Inventory::getViewers` | implemented | src/tick/inventory/api.rs:166 `block_inventory_viewers` | src/tick/inventory/tests/api.rs::block_inventory_viewers_are_the_players_with_its_window_open |  |
-| `pocketmine\inventory\Inventory::isSlotEmpty` | implemented | src/inventory.rs:185 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\Inventory::isSlotEmpty` | implemented | src/inventory.rs:176 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\Inventory::onClose` | skipped |  |  | window rule code: listeners see InventoryClose |
 | `pocketmine\inventory\Inventory::onOpen` | skipped |  |  | window rule code: listeners see InventoryOpen |
 | `pocketmine\inventory\Inventory::remove` | implemented | src/tick/inventory/api.rs:393 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -6260,7 +6260,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\Inventory::setContents` | implemented | src/tick/inventory/api.rs:324 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\Inventory::setItem` | implemented | src/tick/inventory/api.rs:304 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\Inventory::setMaxStackSize` | skipped |  |  | stack limits are per item type (`Item::getMaxStackSize`) and per slot rule |
-| `pocketmine\inventory\Inventory::slotExists` | implemented | src/inventory.rs:169 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\Inventory::slotExists` | implemented | src/inventory.rs:160 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\Inventory::swap` | implemented | src/tick/inventory/api.rs:403 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\InventoryHolder` | merged | src/tick/inventory/api.rs:142 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `pocketmine\inventory\InventoryHolder::getInventory` | implemented | src/tick/inventory/api.rs:142 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer |  |
@@ -6282,7 +6282,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\PlayerInventory::getHeldItemIndexChangeListeners` | skipped |  |  | held slot changes are an event: PlayerItemHeld |
 | `pocketmine\inventory\PlayerInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
 | `pocketmine\inventory\PlayerInventory::getHotbarSize` | implemented | src/inventory.rs:118 `HOTBAR_SIZE` | src/inventory.rs::the_hotbar_is_the_first_nine_main_slots |  |
-| `pocketmine\inventory\PlayerInventory::getHotbarSlotItem` | implemented | src/inventory.rs:175 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `pocketmine\inventory\PlayerInventory::getHotbarSlotItem` | implemented | src/inventory.rs:166 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\inventory\PlayerInventory::getItemInHand` | implemented | src/tick/inventory/api.rs:75 `held_item` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\inventory\PlayerInventory::isHotbarSlot` | merged | src/inventory.rs:118 `HOTBAR_SIZE` | src/inventory.rs::the_hotbar_is_the_first_nine_main_slots | into `PlayerInventory::getHotbarSize` |
 | `pocketmine\inventory\PlayerInventory::setHeldItemIndex` | implemented | src/tick/inventory/api.rs:63 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
@@ -6292,10 +6292,10 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 | `pocketmine\inventory\PlayerOffHandInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
 | `pocketmine\inventory\SimpleInventory` | implemented | src/inventory.rs:98 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\SimpleInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
-| `pocketmine\inventory\SimpleInventory::getContents` | implemented | src/inventory.rs:195 `iter` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\SimpleInventory::getItem` | implemented | src/inventory.rs:167 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\SimpleInventory::getSize` | implemented | src/inventory.rs:159 `size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `pocketmine\inventory\SimpleInventory::isSlotEmpty` | implemented | src/inventory.rs:187 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\SimpleInventory::getContents` | implemented | src/inventory.rs:186 `iter` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\SimpleInventory::getItem` | implemented | src/inventory.rs:158 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\SimpleInventory::getSize` | implemented | src/inventory.rs:150 `size` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
+| `pocketmine\inventory\SimpleInventory::isSlotEmpty` | implemented | src/inventory.rs:178 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `pocketmine\inventory\SlotValidatedInventory` | skipped |  |  | slot rules are the rule code's |
 | `pocketmine\inventory\SlotValidatedInventory::getSlotValidators` | skipped |  |  | slot rules are the rule code's |
 | `pocketmine\inventory\TemporaryInventory` | skipped |  |  | window rule code |
