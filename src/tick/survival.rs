@@ -56,12 +56,10 @@ pub(super) use clock::{
 pub(super) use damage::{Damage, bds_cause, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
+pub(super) use crate::player::{HEIGHT as PLAYER_HEIGHT, WIDTH as PLAYER_WIDTH};
+
 /// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
 pub(super) const EYE_HEIGHT: f64 = 1.62;
-/// The width and height of a standing player's box (PMMP `Human` size 0.6 × 1.8); a human NPC's
-/// too.
-pub(super) const PLAYER_WIDTH: f64 = 0.6;
-pub(super) const PLAYER_HEIGHT: f64 = 1.8;
 /// How far a player reaches an entity or a player (PMMP
 /// `Player::MAX_REACH_DISTANCE_ENTITY_INTERACTION`).
 pub(super) const ENTITY_REACH: f64 = 8.0;

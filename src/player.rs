@@ -111,6 +111,12 @@ impl std::error::Error for Error {}
 /// A result with the player [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// The width and depth of a standing player's box in blocks (PMMP `Human` size); a human NPC's
+/// too.
+pub const WIDTH: f64 = 0.6;
+/// The height of a standing player's box in blocks (PMMP `Human` size); a human NPC's too.
+pub const HEIGHT: f64 = 1.8;
+
 /// The highest experience level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
 pub(crate) const MAX_LEVEL: u32 = 24_791;
 
