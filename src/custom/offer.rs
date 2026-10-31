@@ -32,6 +32,12 @@ pub fn is_tier_experience(tiers: [u32; TRADE_TIERS]) -> bool {
     tiers.windows(2).all(|w| w.first() <= w.get(1)) && tiers.iter().all(|&x| x <= MAX_TRADE_COUNTER)
 }
 
+/// Whether an offer list takes `multiplier` as one of an offer's price multipliers
+/// ([`Offer::with_price_multipliers`]): it is finite.
+pub fn is_price_multiplier(multiplier: f32) -> bool {
+    multiplier.is_finite()
+}
+
 /// One trade a villager offers: what the player pays (one or two stacks, their counts are the
 /// price) and what one trade gives, with its limits and rewards.
 ///
@@ -115,7 +121,8 @@ impl Offer {
         self
     }
 
-    /// The same offer sent with these price multipliers (they do not change the price).
+    /// The same offer sent with these price multipliers (they do not change the price; each must
+    /// pass [`is_price_multiplier`]).
     #[must_use]
     pub fn with_price_multipliers(mut self, first: f32, second: f32) -> Self {
         self.price_multipliers = (first, second);

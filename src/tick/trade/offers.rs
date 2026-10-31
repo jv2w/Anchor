@@ -26,7 +26,10 @@
 
 use tracing::warn;
 
-use crate::custom::{MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS, is_tier_experience};
+use crate::custom::{
+    MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS, is_price_multiplier,
+    is_tier_experience,
+};
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
@@ -228,7 +231,9 @@ impl Recipe {
         if self.tier > MAX_TRADE_TIER {
             return Err(Error::Tier);
         }
-        if !self.price_multiplier_a.is_finite() || !self.price_multiplier_b.is_finite() {
+        if !is_price_multiplier(self.price_multiplier_a)
+            || !is_price_multiplier(self.price_multiplier_b)
+        {
             return Err(Error::Multiplier);
         }
         Ok(())
