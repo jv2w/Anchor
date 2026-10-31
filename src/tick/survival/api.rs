@@ -963,8 +963,7 @@ impl Player {
     /// Whether [`set_rotation`](Self::set_rotation) takes `yaw` and `pitch` in degrees: both
     /// finite as floats, the pitch -90 (up) to 90 (down) as a float.
     pub fn is_rotation(yaw: f64, pitch: f64) -> bool {
-        let (yaw, pitch) = (super::f32_of(yaw), super::f32_of(pitch));
-        yaw.is_finite() && (-90.0..=90.0).contains(&pitch)
+        super::is_float_angle(yaw) && (-90.0..=90.0).contains(&super::f32_of(pitch))
     }
 
     /// Turns the player to `yaw` and `pitch` in degrees, kept to float precision as the client

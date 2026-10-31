@@ -964,6 +964,12 @@ const fn f32_of(v: f64) -> f32 {
     f
 }
 
+/// Whether `degrees` is an angle the tick keeps: finite as the `f32` packets and saves carry, so
+/// no rotation in tick state is infinite (a double past the float range rounds to one).
+pub(super) const fn is_float_angle(degrees: f64) -> bool {
+    f32_of(degrees).is_finite()
+}
+
 /// Queues `packet` for the player of `session` and every player that sees it (its own view
 /// includes its chunk).
 fn broadcast_from(state: &mut State, session: SessionId, packet: &Packet) {

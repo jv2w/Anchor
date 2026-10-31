@@ -38,7 +38,7 @@ use crate::player;
 use crate::protocol::consts::ActorEvent;
 use crate::random::{self, Random};
 use crate::tick::world_api::index;
-use crate::tick::{Context, Phase, Player};
+use crate::tick::{Context, Phase, Player, survival};
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
 
 impl Entity {
@@ -711,10 +711,10 @@ impl Mut<'_> {
     }
 
     /// Sets its yaw and pitch in degrees (kept to float precision, as saved). False for an angle
-    /// that is not finite.
+    /// that is not finite as a float.
     #[doc(alias = "Entity::setRotation")]
     pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> bool {
-        if !yaw.is_finite() || !pitch.is_finite() {
+        if !survival::is_float_angle(yaw) || !survival::is_float_angle(pitch) {
             return false;
         }
         let e = self.entity();

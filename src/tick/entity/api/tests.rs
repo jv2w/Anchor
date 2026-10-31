@@ -308,6 +308,10 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     assert!(e.set_rotation(90.25, -10.0));
     assert_eq!((e.yaw(), e.pitch()), (90.25, -10.0));
     assert!(!e.set_rotation(f64::INFINITY, 0.0));
+    // Finite as a double but past a float's range: refused, as no tick state holds an infinity.
+    assert!(!e.set_rotation(1e39, 0.0));
+    assert!(!e.set_rotation(0.0, -1e39));
+    assert_eq!((e.yaw(), e.pitch()), (90.25, -10.0));
     // A target straight south of the eyes: yaw 0, level.
     assert!(e.look_at(at(0.5, -60.0 + e.eye_height(), 13.5)));
     assert!(e.yaw().abs() < 1e-4 && e.pitch().abs() < 1e-4);
