@@ -703,12 +703,13 @@ impl Ticket {
     }
 }
 
-/// The most chunk tickets at once.
-const MAX_TICKETS: usize = 1024;
-/// The most chunks the tickets hold together (counted per ticket): the loads in flight times 4.
-const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
-/// The largest ticket radius: 17 × 17 chunks.
-const MAX_TICKET_RADIUS: u8 = 8;
+/// The most chunk tickets ([`Context::hold_chunks`]) held at once.
+pub const MAX_TICKETS: usize = 1024;
+/// The most chunks the chunk tickets hold together, a chunk counted once per ticket holding it:
+/// the save thread's chunk loads in flight times 4.
+pub const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
+/// The largest chunk ticket radius: 17 × 17 chunks.
+pub const MAX_TICKET_RADIUS: u8 = 8;
 
 /// Which chunk events someone listens to or monitors.
 #[derive(Debug, Default, Clone, Copy)]
@@ -1727,8 +1728,9 @@ impl Context<'_> {
     ///
     /// Fails, holding nothing, with [`world::Error::WorldNotLoaded`](crate::world::Error) for a
     /// world that is not loaded, [`OutOfRange`](crate::world::Error::OutOfRange) for a center
-    /// outside the world border, and [`Full`](crate::world::Error::Full) for a radius over 8,
-    /// past 1,024 tickets, or past 4,096 chunks the tickets hold together.
+    /// outside the world border, and [`Full`](crate::world::Error::Full) for a radius over
+    /// [`MAX_TICKET_RADIUS`], past [`MAX_TICKETS`] tickets, or past [`MAX_TICKET_CHUNKS`] chunks
+    /// the tickets hold together.
     #[doc(alias = "World::registerChunkLoader")]
     #[doc(alias = "World::loadChunk")]
     #[doc(alias = "World::requestChunkPopulation")]

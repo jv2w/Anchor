@@ -21,6 +21,7 @@ use std::fmt;
 
 use crate::block::{Facing, State};
 
+pub use crate::tick::{MAX_TICKET_CHUNKS, MAX_TICKET_RADIUS, MAX_TICKETS};
 pub use chunk::Chunk;
 pub use generator::{Flat, Generator, Void};
 pub use particle::Particle;
@@ -223,9 +224,9 @@ pub enum Error {
     /// A view value of the world's [`Options::settings`] is outside the range its
     /// `[worlds.<name>]` key allows.
     InvalidSettings,
-    /// A limit is reached: 1,024 worlds a run names (or the server file holds), 1,024 chunk
-    /// tickets or 4,096 chunks they hold, a ticket radius over 8, or the unknown states a chunk
-    /// can hold.
+    /// A limit is reached: 1,024 worlds a run names (or the server file holds), [`MAX_TICKETS`]
+    /// chunk tickets or [`MAX_TICKET_CHUNKS`] chunks they hold, a ticket radius over
+    /// [`MAX_TICKET_RADIUS`], or the unknown states a chunk can hold.
     Full,
 }
 

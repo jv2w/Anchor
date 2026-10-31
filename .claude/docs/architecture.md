@@ -224,7 +224,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 - 실행 중 수명주기(`Context`): `create_world(name, &Options)`, `load_world(name, &Options)`(시작 때 파일이 있던 영구 월드), `unload_world`(WorldUnload 리스너가 취소 가능), `force_unload_world`, `delete_world`(언로드된 영구 월드와 그 파일만, 백업은 남김), `set_default_world`, `is_world_generated`, `is_world_loaded`. 이벤트 `WorldInit`, `WorldLoad`, `WorldUnload`는 뷰 단계에서 난다.
 - 언로드: 그 월드의 플레이어는 기본 월드 안전 스폰으로 가고, 청크는 보통 경로로 내려가며, 다음 커밋이 월드와 플레이어를 한 스냅샷으로 함께 쓴다. 언로드된 월드도 `world::Id`와 색인을 유지해 같은 자리로 다시 로드된다. 월드는 실행당 최대 1,024개다.
 - 월드 파일은 청크, 시간, 스폰만 갖는다. 생성기·시드·난이도·시야 값은 다시 켤 때 설정이나 `world::Options`에서 온다. 설정과 `Options`의 스폰은 새 월드에만 쓴다. 시드가 없으면 월드 이름에서 만든다(SHA-256 앞 8바이트).
-- 월드별 값: 난이도(`set_world_difficulty`), 시간 정지(`stop_time`·`start_time`, 저장 안 함), 청크 붙들기(`hold_chunks`, 티켓 1,024·합계 4,096청크), 시야·전송 값(`[worlds.<이름>]`), 날씨.
+- 월드별 값: 난이도(`set_world_difficulty`), 시간 정지(`stop_time`·`start_time`, 저장 안 함), 청크 붙들기(`hold_chunks`, 상한 `world::MAX_TICKETS`·`MAX_TICKET_CHUNKS`·`MAX_TICKET_RADIUS`), 시야·전송 값(`[worlds.<이름>]`), 날씨.
 
 ## 알려진 한계와 위험
 
