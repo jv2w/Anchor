@@ -285,8 +285,8 @@ fn block_view(
     }
 }
 
-/// The stacks the player holds outside its slots ([`super::held_count`]).
-fn held_outside(inv: &super::Inventory) -> usize {
+/// How many stacks the player holds outside its slots now ([`super::held_count`]).
+fn held_now(inv: &super::Inventory) -> usize {
     super::held_count(inv, |r| inv.get(r).is_some_and(|s| !s.stack.is_empty()))
 }
 
@@ -342,7 +342,7 @@ impl Editor<'_> {
         if let Some(inv) = held {
             let now = view.iter().filter(|s| !s.is_empty()).count();
             let after = stacks.iter().filter(|s| !s.is_empty()).count();
-            if inv.pending.len() + held_outside(inv) - now + after > MAX_SAVED_PENDING {
+            if inv.pending.len() + held_now(inv) - now + after > MAX_SAVED_PENDING {
                 return Err(Error::Full);
             }
         }
@@ -502,7 +502,7 @@ fn own_slot(inv: &Slots, kind: Kind, slot: usize, stack: &Stack) -> Result<Optio
         return Ok(None);
     }
     let held = matches!(kind, Kind::Cursor | Kind::Crafting);
-    if held && before.is_empty() && inv.pending.len() + held_outside(inv) >= MAX_SAVED_PENDING {
+    if held && before.is_empty() && inv.pending.len() + held_now(inv) >= MAX_SAVED_PENDING {
         return Err(Error::Full);
     }
     Ok(Some(r))
