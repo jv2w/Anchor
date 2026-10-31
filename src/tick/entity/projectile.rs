@@ -201,6 +201,13 @@ fn shooter(
     Some((player.world, player.position, player.runtime_id, yaw, pitch))
 }
 
+/// The force of a bow or trident drawn for `used_ticks`, 0 to 1 (PMMP `onReleaseUsing`:
+/// `min((p² + 2p) / 3, 1)` for `p` seconds).
+fn draw_force(used_ticks: u32) -> f64 {
+    let p = f64::from(used_ticks) / f64::from(Context::TICKS_PER_SECOND);
+    crate::math::min((p * p + p * 2.0) / 3.0, 1.0)
+}
+
 /// Releases a bow ([`super::release_bow`]) with the given hooks.
 pub(super) fn release_bow_with(
     state: &mut State,
@@ -223,8 +230,7 @@ pub(super) fn release_bow_with(
     if finite && !(hooks.has_arrow)(player) {
         return false;
     }
-    let p = f64::from(used_ticks) / f64::from(Context::TICKS_PER_SECOND);
-    let force = crate::math::min((p * p + p * 2.0) / 3.0, 1.0);
+    let force = draw_force(used_ticks);
     if force < BOW_MIN_FORCE || used_ticks < BOW_MIN_TICKS {
         return false;
     }
@@ -318,8 +324,7 @@ pub(super) fn release_trident_with(
     if item.is_empty() {
         return false;
     }
-    let p = f64::from(used_ticks) / f64::from(Context::TICKS_PER_SECOND);
-    let force = crate::math::min((p * p + p * 2.0) / 3.0, 1.0) * TRIDENT_FORCE;
+    let force = draw_force(used_ticks) * TRIDENT_FORCE;
     let kind = Kind::Projectile(Projectile {
         shot: Shot::Trident(Trident {
             item,

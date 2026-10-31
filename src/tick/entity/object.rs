@@ -416,14 +416,13 @@ pub(super) fn launch_firework(
     item: &Stack,
     random: &mut Random,
 ) -> bool {
-    let (multiplier, explosions) = firework_item(item);
     let owner = state.players.get(&session).map(|p| (session, p.runtime_id));
-    launch(state, world, at, (multiplier, explosions), owner, random).is_some()
+    launch(state, world, at, firework_item(item), owner, random).is_some()
 }
 
-/// Launches a firework rocket of flight multiplier and explosions `item` at `at` as a used
-/// rocket item does: a flight of (multiplier + 1) × 10 ticks and up to 12 more, a slow start up
-/// with a little random drift, looking straight up with a random yaw (all from `random`).
+/// Launches a firework rocket of flight `multiplier` and `explosions` at `at` as a used rocket
+/// item does: a flight of (multiplier + 1) × 10 ticks and up to 12 more, a slow start up with a
+/// little random drift, looking straight up with a random yaw (all from `random`).
 pub(super) fn launch(
     state: &mut State,
     world: WorldIndex,

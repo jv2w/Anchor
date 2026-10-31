@@ -3385,15 +3385,7 @@ fn falling_tick(state: &mut State, id: Id) {
         land(state, id, world, pos, before, result)
     } else {
         match falling.block.item() {
-            block::ItemForm::Item(t) => drop_item_with(
-                state,
-                world,
-                position,
-                Stack::new(t, 1),
-                None,
-                DROP_PICKUP_DELAY,
-                String::new(),
-            ),
+            block::ItemForm::Item(t) => drop_item(state, world, position, Stack::new(t, 1)),
             block::ItemForm::None | block::ItemForm::BlockEntity => true,
         }
     };
