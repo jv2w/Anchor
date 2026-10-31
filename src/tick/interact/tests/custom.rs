@@ -344,7 +344,7 @@ fn an_offer_list_check_refuses_what_spawning_a_villager_refuses() {
         vec![Offer::new(Stack::EMPTY, bread, 1)],
         vec![good.clone().with_tier(5)],
         vec![good.clone().with_price_multipliers(0.0, f32::NAN)],
-        vec![good; 129],
+        vec![good; crate::custom::MAX_OFFERS + 1],
     ];
     let mut ctx = Ctx {
         state: &mut h.state,

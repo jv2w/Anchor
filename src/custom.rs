@@ -32,7 +32,8 @@ pub use self::creative::{CreativeGroup, CreativeInventory, CreativeItem};
 pub use self::item::Item;
 pub(crate) use self::offer::DEFAULT_PRICE_MULTIPLIER;
 pub use self::offer::{
-    MAX_TRADE_COUNTER, MAX_TRADE_TIER, Offer, TRADE_TIERS, is_price_multiplier, is_tier_experience,
+    MAX_OFFERS, MAX_TRADE_COUNTER, MAX_TRADE_TIER, Offer, TRADE_TIERS, is_price_multiplier,
+    is_tier_experience,
 };
 pub use self::recipe::{Ingredient, Recipe};
 pub(crate) use self::registry::{Registry, is_identifier};

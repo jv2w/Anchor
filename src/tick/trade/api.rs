@@ -64,8 +64,8 @@ fn to_offer(r: &Recipe) -> Offer {
 }
 
 /// Whether [`Context::spawn_villager`] takes `offers`, failing with the
-/// [`custom::Error::Offer`] it would: at most 128 offers, each with a payment, a sale, uses at
-/// most its maximum, counters at most [`custom::MAX_TRADE_COUNTER`], a tier at most
+/// [`custom::Error::Offer`] it would: at most [`custom::MAX_OFFERS`] offers, each with a payment,
+/// a sale, uses at most its maximum, counters at most [`custom::MAX_TRADE_COUNTER`], a tier at most
 /// [`custom::MAX_TRADE_TIER`] and price multipliers passing [`custom::is_price_multiplier`],
 /// whose saved form takes at most 2 MiB. [`Context::set_trade_offers`] checks the same, but counts
 /// towards the 2 MiB the offer data a villager loaded from a saved world keeps unread.
@@ -120,7 +120,8 @@ impl Context<'_> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
     }
 
-    /// Replaces the offers of the villager NPC `villager` (refused as [`check_offers`] says).
+    /// Replaces the offers of the villager NPC `villager` (refused as [`check_offers`] says, more
+    /// than [`custom::MAX_OFFERS`] among them).
     /// Players trading with it see the new list at once. Nothing changes on failure.
     pub fn set_trade_offers(
         &mut self,
@@ -202,8 +203,9 @@ impl Context<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::offers::{MAX_OFFERS, MAX_SAVED_BYTES};
+    use super::super::offers::MAX_SAVED_BYTES;
     use super::*;
+    use crate::custom::MAX_OFFERS;
 
     /// The reason of `error`'s public form.
     fn reason(error: Error) -> &'static str {

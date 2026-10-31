@@ -668,7 +668,8 @@ fn changes_are_all_or_nothing_and_reach_the_traders() {
     assert!(server.open(1, v));
     server.screens(1);
     let before = server.state.hash();
-    let full: Vec<Recipe> = std::iter::repeat_n(sample().recipes()[0].clone(), 129).collect();
+    let full: Vec<Recipe> =
+        std::iter::repeat_n(sample().recipes()[0].clone(), crate::custom::MAX_OFFERS + 1).collect();
     assert_eq!(
         change_offers_with(&mut server.state, v, |o| o.set(full), TEST_HOOKS),
         Err(Error::Full)

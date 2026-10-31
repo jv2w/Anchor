@@ -27,18 +27,15 @@
 use tracing::warn;
 
 use crate::custom::{
-    MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS, is_price_multiplier,
+    MAX_OFFERS, MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS, is_price_multiplier,
     is_tier_experience,
 };
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
 
-/// The most offers one villager holds: well above the largest vanilla list (about 20), and one
-/// `UpdateTrade` stays far below the 4 MiB NBT limit.
-pub(in crate::tick) const MAX_OFFERS: usize = 128;
 /// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
-/// reader's budget to read back: 128 offers of three stacks could take 36 MiB
+/// reader's budget to read back: [`MAX_OFFERS`] offers of three stacks could take 36 MiB
 /// (`item::MAX_NBT_BYTES` each), but the villager's entity must fit one NBT root (4 MiB) and its
 /// `UpdateTrade` one packet NBT root. PMMP has no such limit.
 pub(in crate::tick) const MAX_SAVED_BYTES: usize = 2 << 20;
@@ -1321,9 +1318,9 @@ pub(in crate::tick) mod tests {
         assert_eq!(offers.apply(9, 1), None);
     }
 
-    /// Offers whose saved form would pass 2 MiB are refused and change nothing: 128 offers each
-    /// selling a stack of 60 KB would make the villager too large for one NBT root, so its chunk
-    /// could not be committed. What is accepted saves.
+    /// Offers whose saved form would pass 2 MiB are refused and change nothing: [`MAX_OFFERS`]
+    /// offers each selling a stack of 60 KB would make the villager too large for one NBT root, so
+    /// its chunk could not be committed. What is accepted saves.
     #[test]
     fn offers_too_large_to_save_are_refused_and_change_nothing() {
         let big = stack(Kind::Stick, 1)
@@ -1335,7 +1332,10 @@ pub(in crate::tick) mod tests {
         let recipe = Recipe::new(stack(Kind::Emerald, 1), Stack::EMPTY, big, 1);
         let mut offers = sample();
         let before = offers.to_nbt();
-        assert_eq!(offers.set(vec![recipe.clone(); 128]), Err(Error::TooLarge));
+        assert_eq!(
+            offers.set(vec![recipe.clone(); MAX_OFFERS]),
+            Err(Error::TooLarge)
+        );
         assert_eq!(offers.to_nbt(), before);
         let mut added = 0;
         while offers.add(recipe.clone()).is_ok() {
