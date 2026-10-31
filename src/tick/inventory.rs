@@ -2629,19 +2629,16 @@ pub(super) fn block_changed(
 }
 
 /// Empties everything the player carries (death without `keepInventory`) and returns it: the
-/// main slots, armour, off hand, cursor but its lent items, grids, the open window's own slots and
-/// the stacks waiting for room.
+/// main slots, armour, off hand, cursor, grids, the open window's own slots and the stacks
+/// waiting for room. None of the cursor's items is lent: a death closes the window first, and
+/// only a request lends.
 pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
     let inv = &mut player.inventory;
     let mut out = Vec::new();
     inv.main.take_all(&mut out);
     inv.armor.take_all(&mut out);
     inv.offhand.take_all(&mut out);
-    let [cursor] = std::mem::take(&mut inv.cursor).stacks;
-    let cursor = own_part(&cursor, std::mem::take(&mut inv.lent));
-    if !cursor.is_empty() {
-        out.push(cursor);
-    }
+    inv.cursor.take_all(&mut out);
     inv.grid.take_all(&mut out);
     if let Some(window) = inv.window.as_mut() {
         for s in &mut window.ui {
