@@ -21,7 +21,7 @@ use super::queue::SessionId;
 use super::{Context, Output, Phase, Player, State, dispatch, inside_border, inventory, survival};
 use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, TeleportCause};
 use crate::math::Vec3;
-use crate::player::{Error, Id, MAX_TEXT, Message, Packets, Result};
+use crate::player::{Error, Id, Message, Packets, Result};
 use crate::protocol::Uuid;
 use crate::protocol::consts::{DeviceOs, DisconnectReason, InputMode};
 use crate::protocol::packet::{Disconnect, Packet, PlaySound, SpawnParticleEffect, Transfer};
@@ -836,7 +836,11 @@ impl Context<'_> {
             quit_message.clone_from(&e.quit_message);
         }
         let texts = [Some(&reason), screen_message.as_ref(), Some(&quit_message)];
-        if texts.into_iter().flatten().any(|t| t.len() > MAX_TEXT) {
+        if texts
+            .into_iter()
+            .flatten()
+            .any(|t| crate::player::check_text(t).is_err())
+        {
             return false;
         }
         if let Some(p) = self.state.players.get_mut(&session) {
@@ -892,7 +896,7 @@ impl Context<'_> {
             leave = (e.address.clone(), e.port, e.message.clone());
         }
         let (address, port, message) = leave;
-        if !is_valid_address(&address) || message.len() > MAX_TEXT {
+        if !is_valid_address(&address) || crate::player::check_text(&message).is_err() {
             return false;
         }
         if let Some(p) = self.state.players.get_mut(&session) {
@@ -971,7 +975,7 @@ pub(super) mod tests {
     use super::*;
     use crate::event::Listeners;
     use crate::nbt::Value;
-    use crate::player::TitleTimes;
+    use crate::player::{MAX_TEXT, TitleTimes};
     use crate::tick::Context;
     use crate::tick::log::{EntryKind, InputLog};
     use crate::tick::queue::{Client, Identity, Input, InputKind, Measure, Outbound, SessionId};

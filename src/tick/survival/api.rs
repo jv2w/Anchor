@@ -21,7 +21,7 @@ use crate::effect::{self, Instance};
 use crate::event::{DamageCause, DamageSource};
 use crate::item::{self, Stack};
 use crate::math::{Vec3, to_f32};
-use crate::player::{Error, Id, MAX_TEXT, Result};
+use crate::player::{Error, Id, Result, check_text};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
 use crate::tick::queue::Skin;
@@ -268,15 +268,6 @@ fn within(value: f64, range: std::ops::RangeInclusive<f64>) -> Result<()> {
 /// Fails with [`Error::Disabled`] unless the system is `on`.
 fn enabled(on: bool) -> Result<()> {
     if on { Ok(()) } else { Err(Error::Disabled) }
-}
-
-/// Fails for a text longer than a client decodes.
-fn short(text: &str) -> Result<()> {
-    if text.len() > MAX_TEXT {
-        Err(Error::TooLong)
-    } else {
-        Ok(())
-    }
 }
 
 /// Fails for a world name longer than a world's name may be, which no world has and the
@@ -1374,7 +1365,7 @@ impl Player {
     #[doc(alias = "Entity::setNameTag")]
     pub fn set_name_tag(&mut self, tag: impl Into<String>) -> Result<()> {
         let tag = tag.into();
-        short(&tag)?;
+        check_text(&tag)?;
         let s = &mut self.survival;
         s.custom.name_tag = Some(tag);
         s.touch(TAGS);
@@ -1391,7 +1382,7 @@ impl Player {
     #[doc(alias = "Entity::setScoreTag")]
     pub fn set_score_tag(&mut self, tag: impl Into<String>) -> Result<()> {
         let tag = tag.into();
-        short(&tag)?;
+        check_text(&tag)?;
         let s = &mut self.survival;
         s.custom.score_tag = tag;
         s.touch(TAGS);
@@ -1689,6 +1680,7 @@ mod tests {
     use super::*;
     use crate::item::{Kind as ItemKind, Stack};
     use crate::nbt::Compound;
+    use crate::player::MAX_TEXT;
     use crate::protocol::consts::{Ability, EntityDataFlag, EntityDataKey};
     use crate::protocol::{FlagSet, MetadataValue};
     use crate::tick::inventory;

@@ -1422,7 +1422,7 @@ pub(super) fn die(
     let screen = event
         .as_ref()
         .map(|e| e.death_screen_message.clone())
-        .filter(|m| !m.is_empty() && m.len() <= crate::player::MAX_TEXT);
+        .filter(|m| !m.is_empty() && player::check_text(m).is_ok());
     show_death(state, session, message, attacker, screen);
     super::watch(state, event.as_ref());
 }
