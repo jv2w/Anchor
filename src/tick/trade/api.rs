@@ -173,8 +173,8 @@ impl Context<'_> {
         change(self.state, villager, |o| o.set_experience(experience))
     }
 
-    /// Sets the trade experience each tier needs (never going down, at most
-    /// [`custom::MAX_TRADE_COUNTER`]; BDS's are 0, 10, 70, 150 and 250).
+    /// Sets the trade experience each tier needs ([`custom::is_tier_experience`]; BDS's are 0,
+    /// 10, 70, 150 and 250).
     pub fn set_trade_tier_experience(
         &mut self,
         villager: Id,

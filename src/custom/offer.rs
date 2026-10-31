@@ -23,6 +23,15 @@ pub const MAX_TRADE_TIER: u8 = 4;
 /// The number of villager tiers, 0 to [`MAX_TRADE_TIER`].
 pub const TRADE_TIERS: usize = MAX_TRADE_TIER as usize + 1;
 
+/// Whether `tiers` is the trade experience each tier needs as
+/// [`Context::set_trade_tier_experience`] takes it: never going down, each at most
+/// [`MAX_TRADE_COUNTER`].
+///
+/// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience
+pub fn is_tier_experience(tiers: [u32; TRADE_TIERS]) -> bool {
+    tiers.windows(2).all(|w| w.first() <= w.get(1)) && tiers.iter().all(|&x| x <= MAX_TRADE_COUNTER)
+}
+
 /// One trade a villager offers: what the player pays (one or two stacks, their counts are the
 /// price) and what one trade gives, with its limits and rewards.
 ///

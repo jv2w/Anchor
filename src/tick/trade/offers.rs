@@ -26,7 +26,7 @@
 
 use tracing::warn;
 
-use crate::custom::{MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS};
+use crate::custom::{MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS, is_tier_experience};
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
@@ -647,11 +647,9 @@ impl Offers {
         Ok(())
     }
 
-    /// Sets the experience each tier needs (non-decreasing, at most [`MAX_TRADE_COUNTER`]).
+    /// Sets the experience each tier needs ([`is_tier_experience`]).
     pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TRADE_TIERS]) -> Result<()> {
-        if tiers.windows(2).any(|w| w.first() > w.get(1))
-            || tiers.iter().any(|&x| x > MAX_TRADE_COUNTER)
-        {
+        if !is_tier_experience(tiers) {
             return Err(Error::TierExperience);
         }
         self.tier_experience = tiers;
@@ -833,7 +831,7 @@ fn float(c: &Compound, key: &str) -> std::result::Result<f32, &'static str> {
 }
 
 /// The tier requirements of a `TierExpRequirements` list: exactly one compound per tier, the
-/// `i`-th holding only the int key `"i"`, never going down; `None` otherwise.
+/// `i`-th holding only the int key `"i"`, as [`is_tier_experience`] takes them; `None` otherwise.
 fn tier_experience(value: &Value) -> Option<[u32; TRADE_TIERS]> {
     let Value::List(List::Compound(list)) = value else {
         return None;
@@ -852,7 +850,7 @@ fn tier_experience(value: &Value) -> Option<[u32; TRADE_TIERS]> {
         }
         *slot = u32::try_from(*x).ok()?;
     }
-    out.windows(2).all(|w| w.first() <= w.get(1)).then_some(out)
+    is_tier_experience(out).then_some(out)
 }
 
 #[cfg(test)]
