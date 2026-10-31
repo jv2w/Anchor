@@ -1947,6 +1947,89 @@ fn the_same_request_onto_a_lent_cursor_twice_leaves_the_state_of_once() {
 }
 
 #[test]
+fn a_creative_destroy_off_a_lent_cursor_deletes_the_player_s_own_first() {
+    let mut w = World::new(GameMode::Creative);
+    let s = w.join(1);
+    w.give(s, sticks(2));
+    open_lending(&mut w, s, &[sticks(3)], false, Response::Keep);
+    let own = w.id(s, C::CombinedHotBarAndInventory, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![take(
+            2,
+            at(C::CombinedHotBarAndInventory, 0, own),
+            at(C::Cursor, 0, 0),
+        )],
+    )));
+    let (cursor, (_, net)) = (w.id(s, C::Cursor, 0), shown(&w, s, 0));
+    assert!(ok(&w.request(
+        s,
+        vec![take(
+            3,
+            at(C::LevelEntity, 0, net),
+            at(C::Cursor, 0, cursor)
+        )],
+    )));
+    assert_eq!(lent_heard(), [(0, 3)]);
+    // Four destroyed are the player's own two, then two lent.
+    for (answer, after, store) in [(Response::Refuse, (5, 3), 3), (Response::Keep, (1, 1), 1)] {
+        ANSWER.set(answer);
+        let net = w.id(s, C::Cursor, 0);
+        let r = w.request(s, vec![destroy(4, at(C::Cursor, 0, net))]);
+        assert_eq!(ok(&r), answer == Response::Keep, "{answer:?}");
+        assert_eq!(lent_heard(), [(3, 1)], "{answer:?}");
+        let inv = w.inv(s);
+        assert_eq!((inv.cursor.stack(0).count(), inv.lent), after, "{answer:?}");
+        assert_eq!(STORE.get(), store, "{answer:?}");
+    }
+}
+
+#[test]
+fn a_craft_from_lent_items_naming_no_menu_slot_is_heard() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let plank = block_item(blk::Kind::OakPlanks);
+    let (recipe, _) = recipe_for(item(it::Kind::Stick), &[plank]);
+    open_lending(&mut w, s, &[Stack::new(plank, 2)], false, Response::Keep);
+    let (_, net) = shown(&w, s, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![take(2, at(C::LevelEntity, 0, net), at(C::Cursor, 0, 0))],
+    )));
+    assert_eq!(lent_heard(), [(0, 2)]);
+    // The two lent planks laid out in the grid and crafted into sticks for the player.
+    for (answer, sticks_had) in [(Response::Refuse, 0), (Response::Keep, 4)] {
+        ANSWER.set(answer);
+        let (cursor, id) = (w.id(s, C::Cursor, 0), w.next_id(s));
+        let r = w.request_as(
+            s,
+            id,
+            vec![
+                place(1, at(C::Cursor, 0, cursor), at(C::CraftingInput, 28, 0)),
+                place(1, at(C::Cursor, 0, id), at(C::CraftingInput, 30, 0)),
+                craft(recipe, 1),
+                deprecated(),
+                consume(1, at(C::CraftingInput, 28, id)),
+                consume(1, at(C::CraftingInput, 30, id)),
+                place(4, created(id), at(C::CombinedHotBarAndInventory, 0, 0)),
+            ],
+        );
+        assert_eq!(ok(&r), answer == Response::Keep, "{answer:?}: {r:?}");
+        assert_eq!(lent_heard(), [(2, 0)], "{answer:?}");
+        let player = totals(&w.state)
+            .get(&plain(it::Kind::Stick))
+            .copied()
+            .unwrap_or(0);
+        assert_eq!(player, sticks_had, "{answer:?}");
+        assert_eq!(
+            STORE.get(),
+            if sticks_had == 0 { 2 } else { 0 },
+            "{answer:?}"
+        );
+    }
+}
+
+#[test]
 fn a_lending_menu_s_lent_items_stay_the_handler_s_on_every_close() {
     let ways = [
         Way::Client,
