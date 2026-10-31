@@ -371,14 +371,18 @@ pub(in crate::tick) fn tick(state: &mut State) {
             f64::from(pos.z) + 0.5,
         );
         if p.position.distance_squared(centre) > MAX_DISTANCE_SQUARED {
-            far.push(session);
+            far.push((session, open.id));
         } else if window.id == 0 && p.inventory.pending_close.is_none() && open.ready <= tick {
             ready.push(session);
         }
         true
     });
-    for session in far {
-        close_now(state, session, Notice::Send, Raise::Events);
+    for (session, menu) in far {
+        // An earlier close's handler may have closed or replaced this menu (with one beside the
+        // player); a menu still open is still far, as a handler's teleport waits for the marks.
+        if is_open(state, session, menu) {
+            close_now(state, session, Notice::Send, Raise::Events);
+        }
     }
     for session in ready {
         super::announce(state, session);

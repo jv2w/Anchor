@@ -1342,6 +1342,41 @@ fn a_closing_menu_hands_its_handler_the_cursor_once_on_every_close_but_a_direct_
 }
 
 #[test]
+fn a_menu_a_far_close_s_handler_opens_for_another_far_player_stays_open() {
+    let mut w = World::new(GameMode::Survival);
+    let (a, b) = (w.join(1), w.join(2));
+    let opens_for_b = move |cx: &mut Context<'_>, _: crate::player::Id, input: m::Input| {
+        if let m::Input::Close(_) = input {
+            cx.open_menu(id(b), Menu::new(MenuKind::Hopper), |_, _, _| Response::Keep)
+                .unwrap();
+        }
+        Response::Keep
+    };
+    cx(&mut w)
+        .open_menu(id(a), Menu::new(MenuKind::Chest), opens_for_b)
+        .unwrap();
+    let old = cx(&mut w)
+        .open_menu(id(b), Menu::new(MenuKind::Chest), |_, _, _| Response::Keep)
+        .unwrap();
+    for _ in 0..3 {
+        w.ack(a);
+        w.ack(b);
+        tick_each(&mut w, Vec::new());
+    }
+    for s in [a, b] {
+        let eye = w.player(s).position;
+        w.player(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
+    }
+    tick_each(&mut w, Vec::new());
+    assert_eq!(cx(&mut w).menu(id(a)), None, "far away, A's menu closed");
+    let new = cx(&mut w).menu(id(b));
+    assert!(
+        new.is_some_and(|m| m != old),
+        "B's new menu, opened beside it, stays open: {new:?}"
+    );
+}
+
+#[test]
 fn a_leaving_player_s_menu_closes_after_the_quit_listeners_and_monitors_and_before_the_save() {
     thread_local! {
         static QUITS: Cell<u32> = const { Cell::new(0) };
