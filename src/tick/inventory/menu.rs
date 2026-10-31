@@ -11,14 +11,17 @@
 //! the handler as its last listener: it hears the changes ([`crate::menu::Change`]) after the
 //! request's events, and the request is checked again and made (a drop thrown) only if it keeps
 //! them. The handler runs in the input phase with the handler taken out of the state
-//! ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes once.
+//! ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes once. A menu
+//! that lends ([`crate::menu::Menu::lend`]) has the request executor count the items its slots
+//! move onto the cursor as lent (`Inventory::lent`); while the cursor holds some, every request
+//! runs so, and its handler hears those that change them.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
 //! it; closing drops the menu's items (a copy of what its handler kept), shows the blocks it
 //! stood on again, hands the handler the cursor's stack ([`crate::menu::Close`], but for a direct
-//! call's close) and gives it back unless the handler took it. Menus raise no events of their
-//! own; a change raises the request's events, the menu's slots as the window's.
+//! call's close) and gives it back but its lent items unless the handler took it. Menus raise no
+//! events of their own; a change raises the request's events, the menu's slots as the window's.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -87,6 +90,8 @@ pub(in crate::tick) struct Open {
     pub(super) stacks: Vec<Stack>,
     /// The editable slots, bit `i` for slot `i`.
     editable: u64,
+    /// Whether it lends the items taken onto the cursor ([`Menu::lend`]).
+    lends: bool,
     /// The tick from which the window may open.
     ready: u64,
 }
@@ -102,12 +107,18 @@ impl Open {
         crate::menu::is_editable(self.editable, slot)
     }
 
+    /// Whether it lends the items taken onto the cursor ([`Menu::lend`]).
+    pub(super) fn lends(&self) -> bool {
+        self.lends
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
         let Self {
             id,
             stacks,
             editable,
+            lends,
             ready,
         } = self;
         h.u64(u64::from(id.get()));
@@ -116,6 +127,7 @@ impl Open {
             super::hash_stack(h, s);
         }
         h.u64(*editable);
+        h.u64(u64::from(*lends));
         h.u64(*ready);
     }
 }
@@ -124,6 +136,7 @@ crate::tick::checkpoint::fields!(Open {
     id,
     stacks,
     editable,
+    lends,
     ready
 });
 
@@ -164,7 +177,7 @@ impl Context<'_> {
         menu: Menu,
         handler: impl FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send + 'static,
     ) -> Result<Id> {
-        let (kind, title, stacks, editable) = menu.prepare()?;
+        let (kind, title, stacks, editable, lends) = menu.prepare()?;
         let session = player.session();
         let tick = self.state.tick;
         let p = in_game(self.state, player).ok_or(Error::Offline)?;
@@ -197,6 +210,7 @@ impl Context<'_> {
             id,
             stacks,
             editable,
+            lends,
             ready: tick.saturating_add(OPEN_DELAY),
         });
         self.state.menus.0.insert(session, (id, Box::new(handler)));
@@ -391,18 +405,20 @@ pub(in crate::tick) fn tick(state: &mut State) {
 /// A closed menu window: the blocks the menu stood on show again, with their block entity's data,
 /// and its handler goes (one that is running, whose own call closed it, goes when it returns).
 /// Unless a direct call closed it (`raise`), the handler hears the close first with `cursor`, the
-/// stack taken off the player's cursor, and `by_player`. Gives what goes back to the player:
-/// `cursor`, or nothing if the handler took it.
+/// stack taken off the player's cursor, of which `lent` items are lent, and `by_player`. Gives
+/// what goes back to the player: `cursor` but its lent items, or nothing if the handler took it.
 pub(super) fn closed(
     state: &mut State,
     session: SessionId,
     cursor: Stack,
+    lent: u8,
     by_player: bool,
     raise: Raise,
 ) -> Stack {
+    let own = super::own_part(&cursor, lent);
     let handler = state.menus.0.remove(&session);
     let Some(p) = state.players.get_mut(&session) else {
-        return cursor;
+        return own;
     };
     p.inventory.menu = None;
     let old = p.view.set_menu_blocks([None, None]);
@@ -410,16 +426,17 @@ pub(super) fn closed(
         view::restore_block_data(state, session, pos);
     }
     let (Raise::Events, Some((menu, mut handler))) = (raise, handler) else {
-        return cursor;
+        return own;
     };
     let close = Input::Close(crate::menu::Close {
         menu,
-        cursor: cursor.clone(),
+        cursor,
+        lent,
         by_player,
     });
     match handler(&mut Context { state }, player::Id::new(session), close) {
         Response::Refuse => Stack::EMPTY,
-        Response::Keep | Response::Close => cursor,
+        Response::Keep | Response::Close => own,
     }
 }
 
@@ -429,7 +446,8 @@ pub(super) enum Touch {
     /// It names no slot of a shown menu.
     Nothing,
     /// It only takes, places, swaps, drops and destroys, and names editable slots of the menu but
-    /// no other: it runs, and the handler hears of its changes.
+    /// no other, or it names no menu slot while the cursor holds lent items: it runs, and the
+    /// handler hears of its changes.
     Edit(Id),
     /// It names a menu slot but clicks none, or does more than take, place, swap, drop and
     /// destroy with an editable slot: it is refused.
@@ -528,6 +546,8 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
     match touch {
         Touch::Nothing if edits && moves_only => Touch::Edit(open.id),
         Touch::Nothing if edits => Touch::Refused,
+        // The handler hears it if it moves lent items off the cursor.
+        Touch::Nothing if inv.lent > 0 => Touch::Edit(open.id),
         touch => touch,
     }
 }

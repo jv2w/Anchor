@@ -1532,3 +1532,444 @@ fn an_editable_slot_past_the_end_opens_nothing() {
     );
     assert_eq!(w.state.menus.len(), 0);
 }
+
+thread_local! {
+    /// The sticks a lending menu's handler keeps: its menu's slots and the lent ones.
+    static STORE: Cell<i64> = const { Cell::new(0) };
+    /// What a lending menu's handler answers a change with.
+    static ANSWER: Cell<Response> = const { Cell::new(Response::Keep) };
+}
+
+/// Opens for `s` a lending menu holding `stacks` in editable slots and a sword button in slot 26,
+/// and runs the ticks until its window opens. Its handler keeps its sticks in [`STORE`] as the
+/// lent counts say ([`m::Change::lent_before`]), records each change and close, answers a change
+/// with [`ANSWER`] (or closes the menu if `closes`) and a close with `on_close`, taking the
+/// cursor's own sticks on [`Response::Refuse`]; a click closes the menu.
+fn open_lending(
+    w: &mut World,
+    s: SessionId,
+    stacks: &[Stack],
+    closes: bool,
+    on_close: Response,
+) -> m::Id {
+    changes();
+    CLOSES.take();
+    ANSWER.set(Response::Keep);
+    let held: u8 = stacks.iter().map(Stack::count).sum();
+    STORE.set(i64::from(held));
+    let menu = stacks
+        .iter()
+        .enumerate()
+        .fold(Menu::new(MenuKind::Chest).lend(), |menu, (i, stack)| {
+            menu.item(i, stack.clone()).editable(i)
+        })
+        .item(26, sword());
+    let menu = cx(w)
+        .open_menu(id(s), menu, move |_, _, input| match input {
+            m::Input::Click(_) => Response::Close,
+            m::Input::Change(change) => {
+                let answer = ANSWER.get();
+                if answer != Response::Refuse {
+                    let window: i64 = change
+                        .changes()
+                        .iter()
+                        .filter(|c| c.inventory() == crate::event::Inventory::Window)
+                        .map(|c| i64::from(c.after().count()) - i64::from(c.before().count()))
+                        .sum();
+                    let lent = i64::from(change.lent_after()) - i64::from(change.lent_before());
+                    STORE.set(STORE.get() + window + lent);
+                }
+                let mut c = CHANGES.take();
+                c.push(change);
+                CHANGES.set(c);
+                if closes { Response::Close } else { answer }
+            }
+            m::Input::Close(close) => {
+                if on_close == Response::Refuse {
+                    let own = close.cursor().count() - close.lent();
+                    STORE.set(STORE.get() + i64::from(own));
+                }
+                let mut c = CLOSES.take();
+                c.push(close);
+                CLOSES.set(c);
+                on_close
+            }
+        })
+        .unwrap();
+    for _ in 0..3 {
+        w.ack(s);
+        tick_each(w, Vec::new());
+    }
+    menu
+}
+
+/// How many sticks `stacks` hold.
+fn count_sticks<'a>(stacks: impl IntoIterator<Item = &'a Stack>) -> u64 {
+    stacks
+        .into_iter()
+        .filter(|st| st.can_stack_with(&sticks(1)))
+        .map(|st| u64::from(st.count()))
+        .sum()
+}
+
+/// The sticks the player's saved data holds, and those a player loaded from it holds: what a
+/// commit keeps and a restart finds.
+fn saved_sticks(w: &World, s: SessionId) -> (u64, u64) {
+    let mut extra = Compound::new();
+    super::super::save(w.inv(s), &mut extra);
+    let saved: Vec<Stack> = extra
+        .values()
+        .filter_map(|v| match v {
+            Value::List(List::Compound(list)) => Some(list),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(Stack::from_nbt)
+        .collect();
+    let mut loaded = Inventory::default();
+    super::super::load(&mut loaded, &extra, &w.state.custom);
+    super::super::restore(&mut loaded);
+    let restored = count_sticks(loaded.main.stacks.iter().chain(&loaded.pending));
+    (count_sticks(&saved), restored)
+}
+
+/// Checks that the sticks are `total`, each once: those the player's saved data holds, those it
+/// threw and the handler's; and that the handler keeps the menu's sticks and the lent ones.
+fn check_once(w: &mut World, s: SessionId, total: i64) {
+    let (saved, restored) = saved_sticks(w, s);
+    assert_eq!(saved, restored, "a restart finds what was saved");
+    let thrown = count_sticks(&dropped());
+    let player = i64::try_from(saved + thrown).unwrap();
+    assert_eq!(player + STORE.get(), total, "every stick once");
+    let lent = w.inv(s).lent;
+    if let Some(items) = cx(w).menu_items(id(s)) {
+        let shown = i64::try_from(count_sticks(items)).unwrap();
+        assert_eq!(
+            shown + i64::from(lent),
+            STORE.get(),
+            "the handler keeps the menu's sticks and the lent ones"
+        );
+    }
+}
+
+/// The lent counts of the changes the handler heard since the last call.
+fn lent_heard() -> Vec<(u8, u8)> {
+    changes()
+        .iter()
+        .map(|c| (c.lent_before(), c.lent_after()))
+        .collect()
+}
+
+#[test]
+fn a_lending_menu_keeps_taken_items_the_handler_s_until_they_leave_the_cursor() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, sticks(4));
+    open_lending(&mut w, s, &[sticks(8), Stack::EMPTY], false, Response::Keep);
+    check_once(&mut w, s, 12);
+    let cursor = |w: &World| (w.inv(s).cursor.stack(0).count(), w.inv(s).lent);
+    // Five taken up are lent: the handler keeps them, the player's data does not.
+    let (_, net) = shown(&w, s, 0);
+    let r = w.request(
+        s,
+        vec![take(5, at(C::LevelEntity, 0, net), at(C::Cursor, 0, 0))],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(lent_heard(), [(0, 5)], "a pickup is heard");
+    assert_eq!(cursor(&w), (5, 5));
+    check_once(&mut w, s, 12);
+    // Two put into the menu are lent ones.
+    let net = w.id(s, C::Cursor, 0);
+    let r = w.request(
+        s,
+        vec![place(2, at(C::Cursor, 0, net), at(C::LevelEntity, 1, 0))],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(lent_heard(), [(5, 3)]);
+    assert_eq!(cursor(&w), (3, 3));
+    check_once(&mut w, s, 12);
+    // The player's own four join them, unheard.
+    let (own, net) = (
+        w.id(s, C::CombinedHotBarAndInventory, 0),
+        w.id(s, C::Cursor, 0),
+    );
+    let r = w.request(
+        s,
+        vec![take(
+            4,
+            at(C::CombinedHotBarAndInventory, 0, own),
+            at(C::Cursor, 0, net),
+        )],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert!(lent_heard().is_empty(), "nothing lent moved");
+    assert_eq!(cursor(&w), (7, 3));
+    check_once(&mut w, s, 12);
+    // Five put into the inventory are the player's own four, then one lent.
+    let net = w.id(s, C::Cursor, 0);
+    let r = w.request(
+        s,
+        vec![place(
+            5,
+            at(C::Cursor, 0, net),
+            at(C::CombinedHotBarAndInventory, 1, 0),
+        )],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(lent_heard(), [(3, 2)], "a request naming no menu slot");
+    assert_eq!(cursor(&w), (2, 2));
+    check_once(&mut w, s, 12);
+    // A refused drop of a lent one throws nothing.
+    ANSWER.set(Response::Refuse);
+    let net = w.id(s, C::Cursor, 0);
+    assert!(!ok(
+        &w.request(s, vec![drop_action(1, at(C::Cursor, 0, net))])
+    ));
+    assert_eq!(lent_heard(), [(2, 1)]);
+    assert_eq!(cursor(&w), (2, 2));
+    assert!(dropped().is_empty());
+    check_once(&mut w, s, 12);
+    ANSWER.set(Response::Keep);
+    let net = w.id(s, C::Cursor, 0);
+    assert!(ok(
+        &w.request(s, vec![drop_action(1, at(C::Cursor, 0, net))])
+    ));
+    assert_eq!(lent_heard(), [(2, 1)]);
+    assert_eq!(cursor(&w), (1, 1));
+    check_once(&mut w, s, 12);
+    // The lent one stays the handler's as the player closes the menu.
+    w.close(s);
+    let heard = CLOSES.take();
+    assert!(
+        matches!(heard.as_slice(), [close] if close.lent() == 1 && close.cursor() == &sticks(1)),
+        "{heard:?}"
+    );
+    assert_eq!(cursor(&w), (0, 0));
+    check_once(&mut w, s, 12);
+}
+
+#[test]
+fn a_swap_of_the_cursor_lends_a_menu_slot_s_stack_and_no_other() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, sticks(5));
+    open_lending(&mut w, s, &[sticks(3)], false, Response::Keep);
+    let cursor = |w: &World| (w.inv(s).cursor.stack(0).count(), w.inv(s).lent);
+    let own = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let r = w.request(
+        s,
+        vec![take(
+            5,
+            at(C::CombinedHotBarAndInventory, 0, own),
+            at(C::Cursor, 0, 0),
+        )],
+    );
+    assert!(ok(&r), "{r:?}");
+    let (net, menu_net) = (w.id(s, C::Cursor, 0), shown(&w, s, 0).1);
+    let r = w.request(
+        s,
+        vec![swap(at(C::Cursor, 0, net), at(C::LevelEntity, 0, menu_net))],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(lent_heard(), [(0, 3)], "the player's five went in");
+    assert_eq!(cursor(&w), (3, 3));
+    check_once(&mut w, s, 8);
+    // A checkpoint keeps the lent count.
+    let mut writer = checkpoint::Writer::default();
+    w.inv(s).encode(&mut writer);
+    let (bytes, opaque) = writer.into_parts();
+    assert!(opaque.is_none());
+    let entities = super::super::super::entity::Customs::default();
+    let mut reader = checkpoint::Reader::new(&bytes, &w.state.custom, &entities);
+    assert_eq!(Inventory::decode(&mut reader).unwrap().lent, 3);
+    let net = w.id(s, C::Cursor, 0);
+    let r = w.request(
+        s,
+        vec![swap(
+            at(C::Cursor, 0, net),
+            at(C::CombinedHotBarAndInventory, 0, 0),
+        )],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(
+        lent_heard(),
+        [(3, 0)],
+        "the three left for the player's slot"
+    );
+    assert_eq!(cursor(&w), (0, 0));
+    check_once(&mut w, s, 8);
+}
+
+#[test]
+fn a_lending_menu_s_lent_items_stay_the_handler_s_on_every_close() {
+    let ways = [
+        Way::Client,
+        Way::Far,
+        Way::OtherWindow,
+        Way::Death,
+        Way::Teleport,
+        Way::Leave,
+        Way::ChangeCloses,
+        Way::ClickCloses,
+        Way::CloseWindow,
+        Way::OtherMenu,
+    ];
+    for way in ways {
+        for on_close in [Response::Keep, Response::Refuse] {
+            let mut listeners = crate::event::Listeners::default();
+            listeners.push(
+                crate::event::Priority::Normal,
+                |e: &mut crate::event::PlayerDeath, _: &mut Context<'_>| {
+                    e.set_keep_inventory(true);
+                },
+            );
+            let mut w = World::with_listeners(GameMode::Survival, listeners);
+            let s = w.join(1);
+            let chest = BlockPos::new(3, -60, 3);
+            w.place_block(chest, blk::Kind::Chest.default_state());
+            w.give(s, sticks(2));
+            open_lending(&mut w, s, &[sticks(3)], way == Way::ChangeCloses, on_close);
+            // The player's own two onto the cursor, then the menu's three, lent.
+            let own = w.id(s, C::CombinedHotBarAndInventory, 0);
+            assert!(ok(&w.request(
+                s,
+                vec![take(
+                    2,
+                    at(C::CombinedHotBarAndInventory, 0, own),
+                    at(C::Cursor, 0, 0),
+                )],
+            )));
+            let (cursor, (_, net)) = (w.id(s, C::Cursor, 0), shown(&w, s, 0));
+            assert!(ok(&w.request(
+                s,
+                vec![take(
+                    3,
+                    at(C::LevelEntity, 0, net),
+                    at(C::Cursor, 0, cursor)
+                )],
+            )));
+            if way == Way::ClickCloses {
+                let (_, button) = shown(&w, s, 26);
+                assert!(!ok(&w.request(s, vec![take_from_menu(26, button)])));
+            } else {
+                close_by(&mut w, s, way, chest);
+            }
+            let heard = CLOSES.take();
+            let direct = matches!(way, Way::CloseWindow | Way::OtherMenu);
+            if direct {
+                assert!(heard.is_empty(), "{way:?}: a direct call calls no handler");
+            } else {
+                let [close] = heard.as_slice() else {
+                    panic!("{way:?}: one close: {heard:?}");
+                };
+                assert_eq!((close.cursor(), close.lent()), (&sticks(5), 3), "{way:?}");
+            }
+            assert_eq!(
+                (w.inv(s).cursor.stack(0), w.inv(s).lent),
+                (&Stack::EMPTY, 0),
+                "{way:?}"
+            );
+            let player = totals(&w.state)
+                .get(&plain(it::Kind::Stick))
+                .copied()
+                .unwrap_or(0);
+            let own = if on_close == Response::Refuse && !direct {
+                0
+            } else {
+                2
+            };
+            assert_eq!(
+                player, own,
+                "{way:?}, {on_close:?}: the player's own sticks only"
+            );
+            assert_eq!(
+                i64::try_from(player).unwrap() + STORE.get(),
+                5,
+                "{way:?}, {on_close:?}: every stick once"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_same_lending_take_twice_leaves_the_state_of_once() {
+    let run = |twice: bool| {
+        let mut w = World::new(GameMode::Survival);
+        let s = w.join(1);
+        open_lending(&mut w, s, &[sticks(3)], false, Response::Keep);
+        let (_, net) = shown(&w, s, 0);
+        assert!(ok(&w.request_as(s, -1, vec![take_from_menu(0, net)])));
+        if twice {
+            assert!(!ok(&w.request_as(s, -1, vec![take_from_menu(0, net)])));
+        }
+        assert_eq!(lent_heard(), [(0, 1)], "the handler hears it once");
+        assert_eq!(w.inv(s).lent, 1);
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
+fn a_cursor_write_keeps_lent_only_what_it_still_holds_of_their_item() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    open_lending(&mut w, s, &[sticks(5)], false, Response::Keep);
+    let (_, net) = shown(&w, s, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![take(5, at(C::LevelEntity, 0, net), at(C::Cursor, 0, 0))],
+    )));
+    let write = |w: &mut World, stack: Stack| {
+        w.player(s)
+            .inventory_mut(crate::inventory::Kind::Cursor)
+            .set(0, stack)
+            .unwrap();
+        (w.inv(s).lent, saved_sticks(w, s).0)
+    };
+    assert_eq!(
+        write(&mut w, sticks(7)),
+        (5, 2),
+        "two more are the player's"
+    );
+    assert_eq!(
+        write(&mut w, sticks(3)),
+        (3, 0),
+        "the player's own go first"
+    );
+    assert_eq!(write(&mut w, sword()), (0, 0), "another item lends none");
+    assert_eq!(write(&mut w, sticks(3)), (0, 3));
+}
+
+#[test]
+fn lending_menus_opened_taken_and_closed_leave_every_table_at_its_start() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    tick_each(&mut w, Vec::new());
+    for i in 0..60u8 {
+        open_lending(&mut w, s, &[sticks(1)], false, Response::Keep);
+        let net = shown(&w, s, 0).1;
+        assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));
+        assert_eq!(w.inv(s).lent, 1);
+        if i % 2 == 0 {
+            w.close(s);
+        } else {
+            assert!(cx(&mut w).close_window(id(s)));
+            w.ack(s);
+        }
+        tick_each(&mut w, Vec::new());
+        assert_eq!(STORE.get(), 1, "the handler kept its stick");
+    }
+    assert!(w.inv(s).menu.is_none() && w.inv(s).window.is_none());
+    assert_eq!(w.inv(s).lent, 0);
+    assert_eq!(w.player(s).view.menu_blocks(), [None, None]);
+    assert_eq!(w.player(s).view.fake_count(), 0);
+    assert_eq!(w.state.menus.len(), 0);
+    assert!(w.player(s).view.out.is_empty());
+    assert!(w.inv(s).pending.is_empty());
+    assert_eq!(
+        totals(&w.state).get(&plain(it::Kind::Stick)),
+        None,
+        "a lent stick never became the player's"
+    );
+}

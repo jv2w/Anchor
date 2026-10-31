@@ -186,6 +186,8 @@ pub(super) struct Exec<'a> {
     /// What consume actions took, and from where (`None`: the created output).
     pub(super) consumed: Vec<(Option<SlotRef>, Stack)>,
     drop: Option<Stack>,
+    /// How many of the cursor's items are lent so far ([`Inventory::lent`]).
+    lent: u8,
     /// Whether the plan describes itself for the events (the slots before, what is made).
     pub(super) describe: bool,
     /// What the request makes, when it describes itself.
@@ -238,11 +240,13 @@ pub(super) struct Plan {
     drop: Option<Stack>,
     effects: Vec<station::Effect>,
     made: Option<Made>,
+    /// How many of the cursor's items are lent afterwards ([`Inventory::lent`]).
+    lent: u8,
 }
 
 impl Plan {
-    /// Whether `other` does the same: the same slots to the same stacks, the same drop and the
-    /// same station effects (stack network IDs aside).
+    /// Whether `other` does the same: the same slots to the same stacks, the same drop, the same
+    /// station effects and the same lent items (stack network IDs aside).
     fn same(&self, other: &Self) -> bool {
         self.writes.len() == other.writes.len()
             && self
@@ -252,6 +256,7 @@ impl Plan {
                 .all(|((ra, a), (rb, b))| ra == rb && a.stack == b.stack)
             && self.drop == other.drop
             && self.effects == other.effects
+            && self.lent == other.lent
     }
 }
 
@@ -516,6 +521,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
         }
     }
     player.inventory.next_id = plan.next_id;
+    player.inventory.lent = plan.lent;
     player.data_dirty = true;
     let response = response(
         &player.inventory,
@@ -553,9 +559,10 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
 }
 
 /// Hands the handler of the open menu `menu` the changes the described `plan` would make, before
-/// they are made, and gives its answer; `None` if the plan changes no menu slot, so no handler
-/// ran. Refused if the handler refuses. A listener that closed the menu never gets here: the check
-/// after the listeners refuses the request first (its menu slots are gone or renumbered).
+/// they are made, and gives its answer; `None` if the plan changes no menu slot nor the lent
+/// items, so no handler ran. Refused if the handler refuses. A listener that closed the menu never
+/// gets here: the check after the listeners refuses the request first (its menu slots are gone or
+/// renumbered).
 fn offer(
     state: &mut State,
     session: SessionId,
@@ -564,9 +571,11 @@ fn offer(
 ) -> Result<Option<Response>> {
     let inv = &state.players.get(&session).ok_or(Error::NoSlot)?.inventory;
     let changes = events::changes(plan, inv.window.as_ref().map(|w| w.kind));
-    if !changes
-        .iter()
-        .any(|c| c.inventory == crate::event::Inventory::Window)
+    let lent = [inv.lent, plan.lent];
+    if lent[0] == lent[1]
+        && !changes
+            .iter()
+            .any(|c| c.inventory == crate::event::Inventory::Window)
     {
         return Ok(None);
     }
@@ -575,6 +584,7 @@ fn offer(
         menu,
         changes,
         named,
+        lent,
     });
     match menu::call(state, session, menu, change) {
         Some(Response::Refuse) | None => Err(Error::Menu),
@@ -744,6 +754,7 @@ impl<'a> Exec<'a> {
             effects: Vec::new(),
             consumed: Vec::new(),
             drop: None,
+            lent: inv.lent,
             describe: false,
             made: None,
         }
@@ -774,6 +785,7 @@ impl<'a> Exec<'a> {
             drop: self.drop,
             effects: self.effects,
             made: self.made,
+            lent: self.lent,
         })
     }
 
@@ -991,6 +1003,7 @@ impl<'a> Exec<'a> {
         }
         let taken = slot.stack.with_count(count);
         self.set(r, slot.stack.with_count(have - count), slot.id.net);
+        self.follow_lent(r, have, count, None);
         Ok((Some(r), taken))
     }
 
@@ -1000,8 +1013,8 @@ impl<'a> Exec<'a> {
         if count == 0 {
             return Err(Error::Count);
         }
-        let (moved, keep) = if is_created_output(&a.source) {
-            (self.take_created(count)?, None)
+        let (moved, keep, from) = if is_created_output(&a.source) {
+            (self.take_created(count)?, None, None)
         } else {
             let r = self.resolve(&a.source)?;
             let slot = self.slot(r)?;
@@ -1011,9 +1024,16 @@ impl<'a> Exec<'a> {
             }
             self.set(r, slot.stack.with_count(have - count), slot.id.net);
             // A whole stack keeps its ID where it goes.
-            (slot.stack, (have == count).then_some(slot.id.net))
+            (
+                slot.stack,
+                (have == count).then_some(slot.id.net),
+                Some((r, have)),
+            )
         };
         let r = self.resolve(&a.destination)?;
+        if let Some((from, have)) = from {
+            self.follow_lent(from, have, count, Some(r));
+        }
         self.accepts(r, &moved)?;
         let there = self.slot(r)?;
         let total = u16::from(there.stack.count()) + u16::from(count);
@@ -1042,9 +1062,41 @@ impl<'a> Exec<'a> {
         let (sa, sb) = (self.slot(ra)?, self.slot(rb)?);
         self.accepts(ra, &sb.stack)?;
         self.accepts(rb, &sa.stack)?;
+        // The cursor's stack goes whole: what it gets is lent if a lending menu's slot held it.
+        let onto_cursor = match (ra, rb) {
+            (SlotRef::Cursor, _) => Some((rb, sb.stack.count())),
+            (_, SlotRef::Cursor) => Some((ra, sa.stack.count())),
+            _ => None,
+        };
+        if let Some((other, count)) = onto_cursor {
+            self.lent = if self.lends_from(other) { count } else { 0 };
+        }
         self.set(ra, sb.stack, sb.id.net);
         self.set(rb, sa.stack, sa.id.net);
         Ok(())
+    }
+
+    /// Whether items moving from `r` onto the cursor are lent: `r` is a slot of a menu that lends.
+    fn lends_from(&self, r: SlotRef) -> bool {
+        matches!(r, SlotRef::Menu(_)) && self.inv.menu.as_ref().is_some_and(menu::Open::lends)
+    }
+
+    /// Follows the lent items ([`Inventory::lent`]) through `count` items moving from `from`,
+    /// which held `had` before, to `to` (`None`: out of the slots, dropped, destroyed or used up).
+    /// Of the cursor's items, those going into a menu slot are the lent ones first, those going
+    /// anywhere else the player's own first, as the handler keeps the lent ones until they leave
+    /// for elsewhere.
+    fn follow_lent(&mut self, from: SlotRef, had: u8, count: u8, to: Option<SlotRef>) {
+        if from == SlotRef::Cursor {
+            let leaving = match to {
+                Some(SlotRef::Menu(_)) => count,
+                _ => count.saturating_sub(had.saturating_sub(self.lent)),
+            };
+            self.lent = self.lent.saturating_sub(leaving);
+        }
+        if to == Some(SlotRef::Cursor) && self.lends_from(from) {
+            self.lent = self.lent.saturating_add(count);
+        }
     }
 
     /// Puts items into the created output; the previous ones must all have been taken, unless

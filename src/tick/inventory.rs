@@ -296,6 +296,10 @@ pub(super) struct Inventory {
     /// The stacks closes took out while their menu's handlers hear them ([`close_now`]): held
     /// outside the slots ([`MAX_SAVED_PENDING`]). 0 but while such a handler runs.
     closing: usize,
+    /// How many of the cursor's items the open menu lends ([`crate::menu::Menu::lend`]): its
+    /// handler's, which the player's saved data leaves out. 0 but while a menu that lends is open
+    /// (its close takes them), and at most the cursor's count, all of its item.
+    lent: u8,
 }
 
 impl Default for Inventory {
@@ -325,6 +329,7 @@ impl Default for Inventory {
             next_menu: 0,
             creative: 0,
             closing: 0,
+            lent: 0,
         }
     }
 }
@@ -675,6 +680,12 @@ fn held_outside(inv: &Inventory) -> impl Iterator<Item = SlotRef> {
         .chain((0..ui).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Ui)))
 }
 
+/// What of `cursor`, a cursor's stack of which `lent` items are lent ([`Inventory::lent`]), is
+/// the player's own.
+fn own_part(cursor: &Stack, lent: u8) -> Stack {
+    cursor.with_count(cursor.count().saturating_sub(lent))
+}
+
 impl Inventory {
     /// The stack in the selected hotbar slot.
     pub(super) fn held(&self) -> &Stack {
@@ -910,6 +921,7 @@ impl Inventory {
             creative,
             // 0 but while a menu's handler hears a close.
             closing: _,
+            lent,
         } = self;
         let mut slots = |stacks: &[Stack], ids: &[StackId]| {
             for (s, id) in stacks.iter().zip(ids) {
@@ -965,6 +977,7 @@ impl Inventory {
         }
         h.u64(*next_menu);
         h.u64(u64::from(*creative));
+        h.u64(u64::from(*lent));
     }
 }
 
@@ -1048,6 +1061,7 @@ impl Codec for Inventory {
             next_menu,
             creative,
             closing: _,
+            lent,
         } = self;
         main.encode(w);
         armor.encode(w);
@@ -1068,6 +1082,7 @@ impl Codec for Inventory {
         menu.encode(w);
         next_menu.encode(w);
         creative.encode(w);
+        lent.encode(w);
     }
 
     fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
@@ -1109,6 +1124,7 @@ impl Codec for Inventory {
             next_menu: Codec::decode(r)?,
             creative: Codec::decode(r)?,
             closing: 0,
+            lent: Codec::decode(r)?,
         })
     }
 }
@@ -1178,8 +1194,17 @@ fn client_slot(inv: &Inventory, r: SlotRef) -> Option<(u32, u32)> {
 }
 
 /// Gives the player's slot `r` a new stack changed outside a request: a new stack network ID,
-/// sent to the client, and the player's data is to be saved.
+/// sent to the client, and the player's data is to be saved. A new stack on the cursor keeps lent
+/// as many of the lent items as it holds of their item, the player's own going first.
 fn set_own(player: &mut Player, r: SlotRef, stack: Stack) {
+    if r == SlotRef::Cursor {
+        let inv = &mut player.inventory;
+        inv.lent = if inv.cursor().can_stack_with(&stack) {
+            inv.lent.min(stack.count())
+        } else {
+            0
+        };
+    }
     let net = if stack.is_empty() {
         0
     } else {
@@ -1501,8 +1526,9 @@ pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::
 /// its slots: the cursor, the 2x2 grid and the open window's own slots (the crafting table grid,
 /// station inputs, trade payments). A commit thus holds every item the player carries exactly once,
 /// and a crash before the window closes loses none (PMMP saves none of them). A block container's
-/// slots are its block entity's, saved with its chunk, so they are not here. A loaded player has no
-/// window open: the list comes back as waiting stacks ([`restore`]).
+/// slots are its block entity's, saved with its chunk, so they are not here, nor are the cursor's
+/// lent items, which the menu's handler keeps ([`crate::menu::Menu::lend`]). A loaded player has
+/// no window open: the list comes back as waiting stacks ([`restore`]).
 pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
     let by_slot = |stacks: &[Stack]| {
         let list = (0u8..)
@@ -1533,10 +1559,11 @@ pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
         .window
         .as_ref()
         .map_or(&[][..], |w| w.ui.as_slice());
+    let cursor = own_part(inventory.cursor(), inventory.lent);
     let held: Vec<Compound> = inventory
         .pending
         .iter()
-        .chain(&inventory.cursor.stacks)
+        .chain([&cursor])
         .chain(&inventory.grid.stacks)
         .chain(window.iter().map(|s| &s.stack))
         .filter(|s| !s.is_empty())
@@ -2376,6 +2403,7 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
     let window = player.inventory.window.take();
     // Out of the slots before a menu's handler runs, so nothing it calls reaches the stack.
     let [cursor] = std::mem::take(&mut player.inventory.cursor).stacks;
+    let menu_lent = std::mem::take(&mut player.inventory.lent);
     let mut back: Vec<Stack> = Vec::with_capacity(MAX_GIVE_BACK);
     player.inventory.grid.take_all(&mut back);
     if let Some(w) = &window {
@@ -2425,12 +2453,14 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
             if let Some(p) = state.players.get_mut(&session) {
                 p.inventory.closing = p.inventory.closing.saturating_add(out);
             }
-            let cursor = menu::closed(state, session, cursor, notice == Notice::Skip, raise);
+            let by_player = notice == Notice::Skip;
+            let cursor = menu::closed(state, session, cursor, menu_lent, by_player, raise);
             if let Some(p) = state.players.get_mut(&session) {
                 p.inventory.closing = p.inventory.closing.saturating_sub(out);
             }
             cursor
         }
+        // Only a menu lends.
         _ => cursor,
     };
     if !cursor.is_empty() {
@@ -2592,15 +2622,19 @@ pub(super) fn block_changed(
 }
 
 /// Empties everything the player carries (death without `keepInventory`) and returns it: the
-/// main slots, armour, off hand, cursor, grids, the open window's own slots and the stacks
-/// waiting for room.
+/// main slots, armour, off hand, cursor but its lent items, grids, the open window's own slots and
+/// the stacks waiting for room.
 pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
     let inv = &mut player.inventory;
     let mut out = Vec::new();
     inv.main.take_all(&mut out);
     inv.armor.take_all(&mut out);
     inv.offhand.take_all(&mut out);
-    inv.cursor.take_all(&mut out);
+    let [cursor] = std::mem::take(&mut inv.cursor).stacks;
+    let cursor = own_part(&cursor, std::mem::take(&mut inv.lent));
+    if !cursor.is_empty() {
+        out.push(cursor);
+    }
     inv.grid.take_all(&mut out);
     if let Some(window) = inv.window.as_mut() {
         for s in &mut window.ui {

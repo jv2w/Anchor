@@ -20,6 +20,13 @@
 //! does, once the handler has heard of the close with a [`Close`] and has not taken the cursor's
 //! stack into what it keeps.
 //!
+//! A menu that [lends](Menu::lend) leaves the items the player takes from its editable slots onto
+//! the cursor in what the handler keeps until they are put down: they are lent, the handler's and
+//! not the player's, so the player's saved data leaves them out and closing gives back only the
+//! cursor's other items. Each change tells how many of the cursor's items are lent before and after
+//! it ([`Change::lent_before`]), and so the handler keeps what it holds as it is when they are taken
+//! up and moves them out when they leave the cursor elsewhere than into the menu.
+//!
 //! ```
 //! use anchor::Context;
 //! use anchor::item::Stack;
@@ -82,6 +89,8 @@ pub struct Menu {
     items: Vec<Stack>,
     /// The editable slots, bit `i` for slot `i`.
     editable: u64,
+    /// Whether it [lends](Self::lend) the items taken onto the cursor.
+    lends: bool,
     /// The first slot an [`item`](Self::item) or [`editable`](Self::editable) call named past
     /// the end, reported on open.
     bad_slot: Option<usize>,
@@ -106,6 +115,7 @@ impl Menu {
             title: String::new(),
             items: vec![Stack::EMPTY; kind.size()],
             editable: 0,
+            lends: false,
             bad_slot: None,
         }
     }
@@ -148,6 +158,25 @@ impl Menu {
         self
     }
 
+    /// The menu lending the items the player takes from its editable slots onto its cursor: they
+    /// stay in what the handler keeps, which holds the menu's items and the lent ones, until they
+    /// leave the cursor. Items going from the cursor into a menu slot are the lent ones first, and
+    /// items going anywhere else (the player's slots, a drop, a creative destroy) are the player's
+    /// own first; a swap of the cursor with a menu slot lends the slot's stack, a swap with another
+    /// slot lends none. A write of the cursor through the inventory API keeps lent as many of
+    /// them as the new stack holds of their item, the player's own going first.
+    ///
+    /// The cursor's stack, as the inventory API reads it, holds the lent items, but the player's
+    /// saved data does not: a commit holds them in what the handler keeps only, so a crash
+    /// neither loses nor doubles them as long as the handler saves what it keeps with the same
+    /// commits (the server's or a player's data, a block's items). On a close, they stay the
+    /// handler's ([`Close::lent`]), whether it hears of the close or not.
+    #[must_use]
+    pub fn lend(mut self) -> Self {
+        self.lends = true;
+        self
+    }
+
     /// What the menu looks like.
     pub fn kind(&self) -> Kind {
         self.kind
@@ -158,16 +187,16 @@ impl Menu {
         &self.items
     }
 
-    /// Checks the menu before it opens and gives its parts: the kind, the title, the items and
-    /// the editable slots.
-    pub(crate) fn prepare(self) -> Result<(Kind, String, Vec<Stack>, u64)> {
+    /// Checks the menu before it opens and gives its parts: the kind, the title, the items, the
+    /// editable slots and whether it lends.
+    pub(crate) fn prepare(self) -> Result<(Kind, String, Vec<Stack>, u64, bool)> {
         if self.bad_slot.is_some() {
             return Err(Error::NoSlot);
         }
         if self.title.len() > MAX_TITLE_BYTES {
             return Err(Error::TitleTooLong);
         }
-        Ok((self.kind, self.title, self.items, self.editable))
+        Ok((self.kind, self.title, self.items, self.editable, self.lends))
     }
 }
 
@@ -281,6 +310,7 @@ pub struct Change {
     pub(crate) menu: Id,
     pub(crate) changes: Vec<SlotChange>,
     pub(crate) named: Vec<(Inventory, u8)>,
+    pub(crate) lent: [u8; 2],
 }
 
 impl Change {
@@ -303,12 +333,29 @@ impl Change {
     pub fn is_slot_named(&self, inventory: Inventory, slot: u8) -> bool {
         self.named.contains(&(inventory, slot))
     }
+
+    /// How many of the items on the player's cursor before the change are lent ([`Menu::lend`]);
+    /// 0 for a menu that does not lend. What the handler keeps changes as the menu's slots do,
+    /// plus the lent items after the change, less those before: none for items taken up onto the
+    /// cursor or put back into the menu, and the items that leave the cursor for the player's
+    /// slots or the world. The handler hears every request that changes the lent items, whether
+    /// it names a menu slot or not.
+    pub fn lent_before(&self) -> u8 {
+        self.lent[0]
+    }
+
+    /// How many of the items on the player's cursor after the change are lent
+    /// ([`lent_before`](Self::lent_before)).
+    pub fn lent_after(&self) -> u8 {
+        self.lent[1]
+    }
 }
 
 /// A menu that closed, as its handler hears it once its window is gone: the stack the player
 /// held on its cursor is out of the player's slots, and goes back to the player as from any
 /// window when the handler returns, unless it answers [`Response::Refuse`], taking the stack
-/// into what it keeps. Nothing the handler does meanwhile reaches that stack, so whatever it
+/// into what it keeps. The stack's lent items ([`lent`](Self::lent)) are the handler's already
+/// and never go back. Nothing the handler does meanwhile reaches that stack, so whatever it
 /// answers, the stack is the player's or the handler's, once.
 ///
 /// A leaving player's menu closes after the [`PlayerQuit`] listeners, and after its monitors
@@ -316,7 +363,8 @@ impl Change {
 /// what goes back to it is saved with it.
 ///
 /// A direct call that closes the menu calls no handler: its caller takes the cursor's stack first
-/// if it keeps it ([`Player::inventory_mut`] of [`Kind::Cursor`]).
+/// if it keeps it ([`Player::inventory_mut`] of [`Kind::Cursor`]), and its lent items stay the
+/// handler's.
 ///
 /// [`PlayerQuit`]: crate::event::PlayerQuit
 /// [`Player::inventory_mut`]: crate::player::Player::inventory_mut
@@ -325,6 +373,7 @@ impl Change {
 pub struct Close {
     pub(crate) menu: Id,
     pub(crate) cursor: Stack,
+    pub(crate) lent: u8,
     pub(crate) by_player: bool,
 }
 
@@ -339,6 +388,12 @@ impl Close {
         &self.cursor
     }
 
+    /// How many of the cursor's items are lent ([`Menu::lend`]): still in what the handler keeps,
+    /// they do not go back to the player. 0 for a menu that does not lend.
+    pub fn lent(&self) -> u8 {
+        self.lent
+    }
+
     /// Whether the player closed the menu itself; false for a close of the server's: its death,
     /// leaving, a teleport, going more than 8 blocks away, another window, its chat, its breaking
     /// a block, or the handler's own [`Response::Close`].
@@ -350,15 +405,15 @@ impl Close {
 /// What a handler decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Response {
-    /// The menu stays open (a change is made). For a close, the cursor's stack goes back to the
-    /// player.
+    /// The menu stays open (a change is made). For a close, the cursor's stack but its lent items
+    /// goes back to the player.
     #[default]
     Keep,
     /// The menu closes (a change is made first). For a close, the same as [`Keep`](Self::Keep).
     Close,
     /// A change is not made: every slot stays as it was and the player's screen is put back. For
-    /// a click, the same as [`Keep`](Self::Keep). For a close, the cursor's stack does not go back
-    /// to the player: the handler took it.
+    /// a click, the same as [`Keep`](Self::Keep). For a close, nothing of the cursor's stack goes
+    /// back to the player: the handler took it.
     Refuse,
 }
 
