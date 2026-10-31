@@ -33,7 +33,9 @@ use crate::tick::entity::{
     ATTACK_COOLDOWN, FIRE_DAMAGE_TICKS, KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT, SAFE_FALL,
     SUFFOCATION_DAMAGE, VOID_DAMAGE, VOID_Y,
 };
-use crate::tick::{Phase, Player, SessionId, State, dispatch, entity, interact, inventory};
+use crate::tick::{
+    Context, Phase, Player, SessionId, State, dispatch, entity, interact, inventory,
+};
 use crate::world::{self, BlockPos, Sound};
 
 /// Why a player takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
@@ -842,9 +844,9 @@ fn holds_totem(player: &Player) -> bool {
 /// animation and sound; the totem in the main hand, else the one in the off hand, is used up.
 fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
     let given = [
-        (Effect::Regeneration, 40 * 20),
-        (Effect::FireResistance, 40 * 20),
-        (Effect::Absorption, 5 * 20),
+        (Effect::Regeneration, 40 * Context::TICKS_PER_SECOND),
+        (Effect::FireResistance, 40 * Context::TICKS_PER_SECOND),
+        (Effect::Absorption, 5 * Context::TICKS_PER_SECOND),
     ];
     match raise {
         entity::Raise::Events => {
