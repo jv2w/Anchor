@@ -960,17 +960,24 @@ impl Player {
         super::rotation(self).1
     }
 
+    /// Whether [`set_rotation`](Self::set_rotation) takes `yaw` and `pitch` in degrees: both
+    /// finite as floats, the pitch -90 (up) to 90 (down) as a float.
+    pub fn is_rotation(yaw: f64, pitch: f64) -> bool {
+        let (yaw, pitch) = (super::f32_of(yaw), super::f32_of(pitch));
+        yaw.is_finite() && (-90.0..=90.0).contains(&pitch)
+    }
+
     /// Turns the player to `yaw` and `pitch` in degrees, kept to float precision as the client
     /// sends them: [`yaw`](Self::yaw) and [`pitch`](Self::pitch) read the new rotation at once,
     /// and by the end of the tick the client and the viewers see it, in the tick's teleport if
-    /// there is one (BDS `/tp` with a rotation). Fails for an angle that is not finite as a float
-    /// or a pitch outside -90 to 90.
+    /// there is one (BDS `/tp` with a rotation). Fails for a rotation
+    /// [`is_rotation`](Self::is_rotation) refuses.
     #[doc(alias = "Entity::setRotation")]
     pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> Result<()> {
-        let (yaw, pitch) = (super::f32_of(yaw), super::f32_of(pitch));
-        if !yaw.is_finite() || !(-90.0..=90.0).contains(&pitch) {
+        if !Self::is_rotation(yaw, pitch) {
             return Err(Error::OutOfRange);
         }
+        let (yaw, pitch) = (super::f32_of(yaw), super::f32_of(pitch));
         super::movement::turn(&mut self.survival.motion, yaw, pitch);
         self.survival.custom.turned = true;
         Ok(())
