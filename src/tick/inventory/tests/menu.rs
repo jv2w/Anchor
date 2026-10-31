@@ -1720,7 +1720,7 @@ fn a_lending_menu_keeps_taken_items_the_handler_s_until_they_leave_the_cursor() 
     assert_eq!(lent_heard(), [(5, 3)]);
     assert_eq!(cursor(&w), (3, 3));
     check_once(&mut w, s, 12);
-    // The player's own four join them, unheard.
+    // The player's own four join them, heard as the cursor holds lent items.
     let (own, net) = (
         w.id(s, C::CombinedHotBarAndInventory, 0),
         w.id(s, C::Cursor, 0),
@@ -1734,7 +1734,7 @@ fn a_lending_menu_keeps_taken_items_the_handler_s_until_they_leave_the_cursor() 
         )],
     );
     assert!(ok(&r), "{r:?}");
-    assert!(lent_heard().is_empty(), "nothing lent moved");
+    assert_eq!(lent_heard(), [(3, 3)], "nothing lent moved");
     assert_eq!(cursor(&w), (7, 3));
     check_once(&mut w, s, 12);
     // Five put into the inventory are the player's own four, then one lent.
@@ -1868,6 +1868,82 @@ fn a_move_or_swap_of_the_cursor_with_itself_keeps_its_lent_items() {
         assert_eq!((w.inv(s).cursor.stack(0), w.inv(s).lent), (&sticks(5), 3));
         check_once(&mut w, s, 5);
     }
+}
+
+/// Opens a lending menu of three sticks for a player with four of its own in main slot 0, and
+/// takes the three onto its cursor.
+fn lend_three(w: &mut World) -> SessionId {
+    let s = w.join(1);
+    w.give(s, sticks(4));
+    open_lending(w, s, &[sticks(3)], false, Response::Keep);
+    let (_, net) = shown(w, s, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![take(3, at(C::LevelEntity, 0, net), at(C::Cursor, 0, 0))],
+    )));
+    assert_eq!(lent_heard(), [(0, 3)]);
+    s
+}
+
+/// The player's four sticks onto a cursor of three lent ones.
+fn take_own_onto_lent(w: &World, s: SessionId) -> StackRequestAction {
+    take(
+        4,
+        at(
+            C::CombinedHotBarAndInventory,
+            0,
+            w.id(s, C::CombinedHotBarAndInventory, 0),
+        ),
+        at(C::Cursor, 0, w.id(s, C::Cursor, 0)),
+    )
+}
+
+#[test]
+fn a_request_changing_a_cursor_with_lent_items_is_heard_and_may_be_refused() {
+    let mut w = World::new(GameMode::Survival);
+    let s = lend_three(&mut w);
+    let cursor = |w: &World| (w.inv(s).cursor.stack(0).count(), w.inv(s).lent);
+    for (answer, after) in [(Response::Refuse, (3, 3)), (Response::Keep, (7, 3))] {
+        ANSWER.set(answer);
+        let r = w.request(s, vec![take_own_onto_lent(&w, s)]);
+        assert_eq!(ok(&r), answer == Response::Keep, "{answer:?}");
+        assert_eq!(lent_heard(), [(3, 3)], "{answer:?}: the player's own join");
+        assert_eq!(cursor(&w), after, "{answer:?}");
+        check_once(&mut w, s, 7);
+    }
+    // A swap with a player's slot gives the lent ones to the player.
+    for (answer, after) in [(Response::Refuse, (7, 3)), (Response::Keep, (0, 0))] {
+        ANSWER.set(answer);
+        let net = w.id(s, C::Cursor, 0);
+        let r = w.request(
+            s,
+            vec![swap(
+                at(C::Cursor, 0, net),
+                at(C::CombinedHotBarAndInventory, 1, 0),
+            )],
+        );
+        assert_eq!(ok(&r), answer == Response::Keep, "{answer:?}");
+        assert_eq!(lent_heard(), [(3, 0)], "{answer:?}");
+        assert_eq!(cursor(&w), after, "{answer:?}");
+        check_once(&mut w, s, 7);
+    }
+}
+
+#[test]
+fn the_same_request_onto_a_lent_cursor_twice_leaves_the_state_of_once() {
+    let run = |twice: bool| {
+        let mut w = World::new(GameMode::Survival);
+        let s = lend_three(&mut w);
+        let action = take_own_onto_lent(&w, s);
+        assert!(ok(&w.request_as(s, -9, vec![action.clone()])));
+        if twice {
+            assert!(!ok(&w.request_as(s, -9, vec![action])));
+        }
+        assert_eq!(lent_heard(), [(3, 3)], "the handler hears it once");
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
 }
 
 #[test]

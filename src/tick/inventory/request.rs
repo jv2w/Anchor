@@ -559,8 +559,9 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
 }
 
 /// Hands the handler of the open menu `menu` the changes the described `plan` would make, before
-/// they are made, and gives its answer; `None` if the plan changes no menu slot nor the lent
-/// items, so no handler ran. Refused if the handler refuses. A listener that closed the menu never
+/// they are made, and gives its answer; `None` if the plan changes no menu slot, nor the lent
+/// items, nor a cursor that holds lent items, so no handler ran. Refused if the handler refuses.
+/// A listener that closed the menu never
 /// gets here: the check after the listeners refuses the request first (its menu slots are gone or
 /// renumbered).
 fn offer(
@@ -572,11 +573,12 @@ fn offer(
     let inv = &state.players.get(&session).ok_or(Error::NoSlot)?.inventory;
     let changes = events::changes(plan, inv.window.as_ref().map(|w| w.kind));
     let lent = [inv.lent, plan.lent];
-    if lent[0] == lent[1]
-        && !changes
-            .iter()
-            .any(|c| c.inventory == crate::event::Inventory::Window)
-    {
+    let heard = |c: &crate::event::SlotChange| match c.inventory {
+        crate::event::Inventory::Window => true,
+        crate::event::Inventory::Player(crate::inventory::Kind::Cursor) => lent[0] > 0,
+        _ => false,
+    };
+    if lent[0] == lent[1] && !changes.iter().any(heard) {
         return Ok(None);
     }
     let named = events::named(plan, inv);

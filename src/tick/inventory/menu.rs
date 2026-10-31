@@ -14,7 +14,7 @@
 //! ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes once. A menu
 //! that lends ([`crate::menu::Menu::lend`]) has the request executor count the items its slots
 //! move onto the cursor as lent (`Inventory::lent`); while the cursor holds some, every request
-//! runs so, and its handler hears those that change them.
+//! runs so, and its handler hears those that change them or the cursor.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
@@ -554,7 +554,7 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
     match touch {
         Touch::Nothing if edits && moves_only => Touch::Edit(open.id),
         Touch::Nothing if edits => Touch::Refused,
-        // The handler hears it if it moves lent items off the cursor.
+        // The handler hears it if it changes the cursor that holds the lent items.
         Touch::Nothing if inv.lent > 0 => Touch::Edit(open.id),
         touch => touch,
     }

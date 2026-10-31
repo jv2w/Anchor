@@ -342,8 +342,9 @@ impl Change {
     /// 0 for a menu that does not lend. What the handler keeps changes as the menu's slots do,
     /// plus the lent items after the change, less those before: none for items taken up onto the
     /// cursor or put back into the menu, and the items that leave the cursor for the player's
-    /// slots or the world. The handler hears every request that changes the lent items, whether
-    /// it names a menu slot or not.
+    /// slots or the world. The handler hears every request that changes the lent items, or the
+    /// cursor while it holds lent items (the player's own items joining them), whether it names
+    /// a menu slot or not, and may refuse it.
     pub fn lent_before(&self) -> u8 {
         self.lent[0]
     }
