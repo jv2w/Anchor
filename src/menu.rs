@@ -166,11 +166,13 @@ impl Menu {
     /// slot lends none. A write of the cursor through the inventory API keeps lent as many of
     /// them as the new stack holds of their item, the player's own going first.
     ///
-    /// The cursor's stack, as the inventory API reads it, holds the lent items, but the player's
-    /// saved data does not: a commit holds them in what the handler keeps only, so a crash
+    /// The cursor's stack, as the inventory API reads it, holds the lent items
+    /// ([`Context::menu_lent`] says how many), but the player's saved data does not: a commit holds them in what the handler keeps only, so a crash
     /// neither loses nor doubles them as long as the handler saves what it keeps with the same
     /// commits (the server's or a player's data, a block's items). On a close, they stay the
     /// handler's ([`Close::lent`]), whether it hears of the close or not.
+    ///
+    /// [`Context::menu_lent`]: crate::Context::menu_lent
     #[must_use]
     pub fn lend(mut self) -> Self {
         self.lends = true;
@@ -270,7 +272,9 @@ impl Click {
         &self.item
     }
 
-    /// The stack on the player's cursor.
+    /// The stack on the player's cursor, its lent items included ([`Context::menu_lent`]).
+    ///
+    /// [`Context::menu_lent`]: crate::Context::menu_lent
     pub fn cursor(&self) -> &Stack {
         &self.cursor
     }
@@ -362,10 +366,14 @@ impl Change {
 /// unless a listener's call closed it first (a teleport): the player is still in the game, and
 /// what goes back to it is saved with it.
 ///
-/// A direct call that closes the menu calls no handler: its caller takes the cursor's stack first
-/// if it keeps it ([`Player::inventory_mut`] of [`Kind::Cursor`]), and its lent items stay the
-/// handler's.
+/// A direct call that closes the menu calls no handler: the cursor's lent items
+/// ([`Context::menu_lent`]) stay the handler's, and its other items go back to the player. A caller
+/// that keeps those takes them first, writing the cursor down to the lent items
+/// ([`Player::inventory_mut`] of [`Kind::Cursor`]; a write keeps lent what the stack still holds
+/// of their item, [`Menu::lend`]): taking the whole stack would take the lent items too, which
+/// the handler keeps already.
 ///
+/// [`Context::menu_lent`]: crate::Context::menu_lent
 /// [`PlayerQuit`]: crate::event::PlayerQuit
 /// [`Player::inventory_mut`]: crate::player::Player::inventory_mut
 /// [`Kind::Cursor`]: crate::inventory::Kind::Cursor

@@ -230,6 +230,14 @@ impl Context<'_> {
         p.inventory.menu.as_ref().map(|m| m.stacks.as_slice())
     }
 
+    /// How many of the items on the cursor of `player` the menu it has open lends
+    /// ([`Menu::lend`]): the handler's, though the cursor's stack holds them; 0 for a menu that
+    /// does not lend.
+    pub fn menu_lent(&self, player: player::Id) -> Option<u8> {
+        let p = self.state.players.get(&player.session())?;
+        p.inventory.menu.as_ref().map(|_| p.inventory.lent)
+    }
+
     /// Puts `stack` into `slot` of the menu `player` has open (an empty stack clears it) and
     /// shows it to the player.
     ///

@@ -1924,6 +1924,52 @@ fn a_lending_menu_s_lent_items_stay_the_handler_s_on_every_close() {
 }
 
 #[test]
+fn a_direct_close_after_taking_the_cursor_s_own_items_doubles_none() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    assert_eq!(cx(&mut w).menu_lent(id(s)), None, "no menu open");
+    w.give(s, sticks(2));
+    open_lending(&mut w, s, &[sticks(3)], false, Response::Keep);
+    assert_eq!(cx(&mut w).menu_lent(id(s)), Some(0));
+    // The player's own two onto the cursor, then the menu's three, lent.
+    let own = w.id(s, C::CombinedHotBarAndInventory, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![take(
+            2,
+            at(C::CombinedHotBarAndInventory, 0, own),
+            at(C::Cursor, 0, 0),
+        )],
+    )));
+    let (cursor, (_, net)) = (w.id(s, C::Cursor, 0), shown(&w, s, 0));
+    assert!(ok(&w.request(
+        s,
+        vec![take(
+            3,
+            at(C::LevelEntity, 0, net),
+            at(C::Cursor, 0, cursor)
+        )],
+    )));
+    // The caller keeps the cursor's own items, leaving it the lent ones, and closes the menu.
+    let lent = cx(&mut w).menu_lent(id(s)).unwrap();
+    assert_eq!(lent, 3);
+    let stack = w.inv(s).cursor.stack(0).clone();
+    let kept = stack.count() - lent;
+    w.player(s)
+        .inventory_mut(crate::inventory::Kind::Cursor)
+        .set(0, stack.with_count(lent))
+        .unwrap();
+    assert!(cx(&mut w).close_window(id(s)));
+    assert_eq!(cx(&mut w).menu_lent(id(s)), None);
+    let player = totals(&w.state)
+        .get(&plain(it::Kind::Stick))
+        .copied()
+        .unwrap_or(0);
+    assert_eq!(player, 0, "the caller took the player's own sticks");
+    assert_eq!(i64::from(kept) + STORE.get(), 5, "every stick once");
+}
+
+#[test]
 fn the_same_lending_take_twice_leaves_the_state_of_once() {
     let run = |twice: bool| {
         let mut w = World::new(GameMode::Survival);
