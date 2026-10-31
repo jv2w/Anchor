@@ -384,7 +384,7 @@ impl TitleTimes {
 }
 
 /// Fails for a text longer than a client decodes.
-fn check(text: &str) -> Result<()> {
+pub(crate) fn check(text: &str) -> Result<()> {
     if text.len() > MAX_TEXT {
         return Err(Error::TooLong);
     }

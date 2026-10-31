@@ -701,7 +701,7 @@ impl Player {
     /// name longer than 65,536 bytes, a `pos` that is not finite or outside the world border, or
     /// a volume or pitch that is negative or not finite.
     pub fn play_sound(&mut self, name: &str, pos: Vec3, volume: f32, pitch: f32) -> Result<()> {
-        check_name(name)?;
+        crate::player::check(name)?;
         check_position(pos)?;
         if ![volume, pitch].iter().all(|v| v.is_finite() && *v >= 0.0) {
             return Err(Error::OutOfRange);
@@ -745,7 +745,7 @@ impl Player {
     /// the world's particles to everyone who sees a place. Fails for a name longer than 65,536
     /// bytes or a `pos` that is not finite or outside the world border.
     pub fn show_particle(&mut self, name: &str, pos: Vec3) -> Result<()> {
-        check_name(name)?;
+        crate::player::check(name)?;
         check_position(pos)?;
         self.send_packet(Packet::SpawnParticleEffect(SpawnParticleEffect {
             // The overworld (`Dimension::Overworld`), every world's dimension.
@@ -958,14 +958,6 @@ impl Context<'_> {
 /// 253 bytes.
 pub(super) fn is_valid_address(address: &str) -> bool {
     !address.is_empty() && address.len() <= MAX_ADDRESS
-}
-
-/// A sound's or particle's name, at most [`MAX_TEXT`] bytes.
-fn check_name(name: &str) -> Result<()> {
-    if name.len() > MAX_TEXT {
-        return Err(Error::TooLong);
-    }
-    Ok(())
 }
 
 /// A position finite and inside the world border.
