@@ -167,10 +167,12 @@ impl Menu {
     /// them as the new stack holds of their item, the player's own going first.
     ///
     /// The cursor's stack, as the inventory API reads it, holds the lent items
-    /// ([`Context::menu_lent`] says how many), but the player's saved data does not: a commit holds them in what the handler keeps only, so a crash
-    /// neither loses nor doubles them as long as the handler saves what it keeps with the same
-    /// commits (the server's or a player's data, a block's items). On a close, they stay the
-    /// handler's ([`Close::lent`]), whether it hears of the close or not.
+    /// ([`Context::menu_lent`] says how many), but the player's saved data does not: a commit
+    /// holds them in what the handler keeps only. A handler that keeps them in the players' file
+    /// (another player's data) commits with the player, so a crash neither loses nor doubles
+    /// them; in another file (the server's data, a block's items), a crash between the two
+    /// files' commits is a mismatch the next start reports (`.claude/docs/storage.md`). On a
+    /// close, they stay the handler's ([`Close::lent`]), whether it hears of the close or not.
     ///
     /// [`Context::menu_lent`]: crate::Context::menu_lent
     #[must_use]
