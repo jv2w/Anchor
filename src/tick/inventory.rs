@@ -680,6 +680,13 @@ fn held_outside(inv: &Inventory) -> impl Iterator<Item = SlotRef> {
         .chain((0..ui).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Ui)))
 }
 
+/// How many stacks the player holds outside its slots, the count the invariant of
+/// [`MAX_SAVED_PENDING`] bounds: those of [`held_outside`] that `holds` says hold a stack, and
+/// those a close took out while its menu's handler hears it (`Inventory::closing`).
+fn held_count(inv: &Inventory, holds: impl Fn(SlotRef) -> bool) -> usize {
+    held_outside(inv).filter(|r| holds(*r)).count() + inv.closing
+}
+
 /// What of `cursor`, a cursor's stack of which `lent` items are lent ([`Inventory::lent`]), is
 /// the player's own.
 fn own_part(cursor: &Stack, lent: u8) -> Stack {

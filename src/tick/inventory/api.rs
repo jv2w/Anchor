@@ -285,13 +285,9 @@ fn block_view(
     }
 }
 
-/// The stacks the player holds outside its slots: the cursor, the 2x2 grid, the window's own
-/// slots and those of a close its menu's handler hears (the invariant of [`MAX_SAVED_PENDING`]).
+/// The stacks the player holds outside its slots ([`super::held_count`]).
 fn held_outside(inv: &super::Inventory) -> usize {
-    super::held_outside(inv)
-        .filter(|r| inv.get(*r).is_some_and(|s| !s.stack.is_empty()))
-        .count()
-        + inv.closing
+    super::held_count(inv, |r| inv.get(r).is_some_and(|s| !s.stack.is_empty()))
 }
 
 impl Editor<'_> {

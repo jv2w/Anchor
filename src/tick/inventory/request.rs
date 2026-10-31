@@ -1208,15 +1208,13 @@ impl<'a> Exec<'a> {
         super::station::finish(self)
     }
 
-    /// Whether the stacks held outside the slots afterwards (the cursor, the 2x2 grid, the
-    /// window's own slots, those of a close a menu's handler hears) and the waiting stacks keep
-    /// the invariant of [`super::MAX_SAVED_PENDING`]: a close can turn each held stack into a
-    /// waiting one.
+    /// Whether the stacks held outside the slots afterwards ([`super::held_count`]) and the
+    /// waiting stacks keep the invariant of [`super::MAX_SAVED_PENDING`]: a close can turn each
+    /// held stack into a waiting one.
     fn check_returnable(&self) -> Result<()> {
-        let held = super::held_outside(self.inv)
-            .filter(|r| self.slot(*r).is_ok_and(|s| !s.stack.is_empty()))
-            .count()
-            + self.inv.closing;
+        let held = super::held_count(self.inv, |r| {
+            self.slot(r).is_ok_and(|s| !s.stack.is_empty())
+        });
         if self.inv.pending.len() + held > super::MAX_SAVED_PENDING {
             return Err(Error::Unreturnable);
         }
