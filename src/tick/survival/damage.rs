@@ -1311,18 +1311,17 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
 }
 
 /// The player died (PMMP `Player::onDeath`): its window closes, its breaking and item use stop,
-/// the [`PlayerDeath`] listeners
-/// may change what drops, the experience dropped and the messages, it drops what it carries and
-/// its experience, every player sees the chat death message (`message` with `show-death-messages`,
-/// as the death screen translates it, or a listener's own), viewers see it die and it sees the
-/// death screen with `message` (a translation key) naming the player and its `attacker`.
+/// the [`PlayerDeath`] listeners may change what drops, the experience dropped and the messages,
+/// it drops what it carries and its experience, every player sees the chat death message
+/// ([`broadcast_death_message`]), viewers see it die and it sees the death screen with `message`
+/// (a translation key) naming the player and its `attacker`.
 ///
 /// While earlier drops still wait for room, the player keeps what it carries and nothing more
 /// drops: the waiting list then never holds more than one death's drops
 /// ([`MAX_HELD_BACK`](super::MAX_HELD_BACK)). Drops a listener replaced are checked like external
-/// input: at most one inventory of stacks
-/// ([`MAX_LISTENER_DROPS`](super::MAX_LISTENER_DROPS)), each within its item's stack size; the
-/// player's own stacks they replace are gone, but those kept on death.
+/// input: at most one inventory of stacks ([`MAX_LISTENER_DROPS`](super::MAX_LISTENER_DROPS)),
+/// each within its item's stack size; the player's own stacks they replace are gone, but those
+/// kept on death.
 pub(super) fn die(
     state: &mut State,
     session: SessionId,
@@ -1351,7 +1350,11 @@ pub(super) fn die(
     player.breaking.forget_attacked();
     player.data_dirty = true;
     let world = player.world;
-    let shown = state.settings.show_death_messages;
+    let default_chat = if state.settings.show_death_messages {
+        message
+    } else {
+        ""
+    };
     let mut event = heard.then(|| {
         let drops = if finite && player.survival.held_back.is_empty() {
             carried(player)
@@ -1362,11 +1365,7 @@ pub(super) fn die(
             player: player::Id::new(session),
             drops,
             xp_drop_amount: food::death_xp(&player.survival, finite),
-            death_message: if shown {
-                message.to_owned()
-            } else {
-                String::new()
-            },
+            death_message: default_chat.to_owned(),
             death_screen_message: String::new(),
             keep_inventory: false,
             keep_xp: false,
@@ -1384,24 +1383,10 @@ pub(super) fn die(
         finite,
         event.as_ref().zip(original.as_deref()),
     );
-    let chat = match &event {
-        Some(e) => e.death_message.clone(),
-        None if shown => message.to_owned(),
-        None => String::new(),
-    };
-    if !chat.is_empty() {
-        let line = if shown && chat == message {
-            crate::player::Message::Translation {
-                key: chat,
-                parameters: death_names(state, session, attacker),
-            }
-        } else {
-            crate::player::Message::Raw(chat)
-        };
-        if let Err(err) = crate::tick::player::broadcast(state, line) {
-            debug!(session = session.get(), error = %err, "death message not sent");
-        }
-    }
+    let chat = event
+        .as_ref()
+        .map_or_else(|| default_chat.to_owned(), |e| e.death_message.clone());
+    broadcast_death_message(state, session, message, attacker, chat);
     clock::wake(state, session);
     let runtime_id = player_runtime_id(state, session);
     broadcast_from(
@@ -1425,6 +1410,32 @@ pub(super) fn die(
         .filter(|m| !m.is_empty() && player::check_text(m).is_ok());
     show_death(state, session, message, attacker, screen);
     super::watch(state, event.as_ref());
+}
+
+/// Tells every player the chat death message `chat` of the player of `session` (none if empty):
+/// with `show-death-messages`, the death screen's `message` translated as the death screen does,
+/// naming the player and its `attacker`; any other text (a listener's own) as it is.
+fn broadcast_death_message(
+    state: &mut State,
+    session: SessionId,
+    message: &'static str,
+    attacker: Option<SessionId>,
+    chat: String,
+) {
+    if chat.is_empty() {
+        return;
+    }
+    let line = if state.settings.show_death_messages && chat == message {
+        crate::player::Message::Translation {
+            key: chat,
+            parameters: death_names(state, session, attacker),
+        }
+    } else {
+        crate::player::Message::Raw(chat)
+    };
+    if let Err(err) = crate::tick::player::broadcast(state, line) {
+        debug!(session = session.get(), error = %err, "death message not sent");
+    }
 }
 
 /// Drops what a dead player carries and its experience at `place` (PMMP `Player::onDeath`), as
