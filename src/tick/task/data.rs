@@ -532,7 +532,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::sync::Arc;
 
     use serde::Deserialize;
@@ -584,7 +584,7 @@ mod tests {
     }
 
     /// The snapshot the next tick boundary takes, then its commit.
-    fn snapshot(state: &mut State) -> Snapshot {
+    pub(in crate::tick::task) fn snapshot(state: &mut State) -> Snapshot {
         state.saving.requested = true;
         let mut output = Output::default();
         let mut log = super::super::super::InputLog::default();

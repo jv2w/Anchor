@@ -243,12 +243,12 @@ impl fmt::Debug for Holds {
 impl Context<'_> {
     /// Loads the saved data of the player with Xbox user ID `xuid`, or, without Xbox sign-in
     /// (`None`), named `name` in any ASCII case: the key Anchor saves a player under
-    /// ([`Player::xuid`](crate::player::Player::xuid), [`Player::name`](crate::player::Player::name));
-    /// `name` is not looked at with a `xuid`. The save thread reads it, and in a later tick `done`
-    /// gets a ticket that holds the record in memory, to read and change through
-    /// [`offline_player`](Self::offline_player) and [`offline_player_mut`](Self::offline_player_mut),
-    /// until [`release_offline_player`](Self::release_offline_player) lets it go or the player
-    /// joins. Every ticket of one player holds the same record. Changes are saved by the next
+    /// ([`Player::xuid`](crate::player::Player::xuid),
+    /// [`Player::name`](crate::player::Player::name)); `name` is not looked at with a `xuid`. The
+    /// save thread reads it, and in a later tick `done` gets a ticket that holds the record in
+    /// memory, to read and change through [`offline_player`](Self::offline_player) and
+    /// [`offline_player_mut`](Self::offline_player_mut), until
+    /// [`release_offline_player`](Self::release_offline_player) lets it go or the player joins. Every ticket of one player holds the same record. Changes are saved by the next
     /// snapshot, in the same commit as the rest of the game, and a player who joins first joins
     /// with them. The answer is recorded in the input log, so a replay gives `done` the same
     /// record without reading the file.
@@ -458,15 +458,16 @@ mod tests {
 
     use super::super::super::queue::{Input, SessionId};
     use super::super::super::tests::{join, new_state, settings, tick};
-    use super::super::super::{InputLog, Output, Phase, boundary};
+    use super::super::super::{Output, Phase};
     use super::super::data::DATA_KEY;
+    use super::super::data::tests::snapshot;
     use super::super::registered;
     use super::*;
     use crate::event::Listeners;
     use crate::inventory::Kind;
     use crate::item::{Kind as ItemKind, Stack};
     use crate::nbt::{Compound, List, Value};
-    use crate::save::{Response, Snapshot};
+    use crate::save::Response;
 
     #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
     struct Kills(u32);
@@ -550,24 +551,6 @@ mod tests {
             [Ok(ticket)] => ticket,
             ref other => panic!("{other:?}"),
         }
-    }
-
-    /// The snapshot the next tick boundary takes, then its commit.
-    fn snapshot(state: &mut State) -> Snapshot {
-        state.saving.requested = true;
-        let mut output = Output::default();
-        let mut log = InputLog::default();
-        boundary(state, &mut output, &mut log);
-        let snapshot = output
-            .requests
-            .into_iter()
-            .find_map(|r| match r {
-                Request::Commit(s) => Some(*s),
-                _ => None,
-            })
-            .expect("a snapshot");
-        save::committed(state, &mut log, snapshot.start);
-        snapshot
     }
 
     // pmmp: Server::getOfflinePlayerData, Server::saveOfflinePlayerData
