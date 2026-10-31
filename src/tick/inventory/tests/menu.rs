@@ -1930,6 +1930,27 @@ fn a_request_changing_a_cursor_with_lent_items_is_heard_and_may_be_refused() {
 }
 
 #[test]
+fn a_request_not_touching_a_cursor_with_lent_items_is_not_heard() {
+    let mut w = World::new(GameMode::Survival);
+    let s = lend_three(&mut w);
+    // A handler that heard it would refuse it.
+    ANSWER.set(Response::Refuse);
+    let own = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let r = w.request(
+        s,
+        vec![place(
+            4,
+            at(C::CombinedHotBarAndInventory, 0, own),
+            at(C::CombinedHotBarAndInventory, 1, 0),
+        )],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert!(lent_heard().is_empty());
+    assert_eq!(w.inv(s).lent, 3);
+    check_once(&mut w, s, 7);
+}
+
+#[test]
 fn the_same_request_onto_a_lent_cursor_twice_leaves_the_state_of_once() {
     let run = |twice: bool| {
         let mut w = World::new(GameMode::Survival);
