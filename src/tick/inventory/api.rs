@@ -221,11 +221,11 @@ impl Context<'_> {
         Some(custom.creatives().get(usize::from(index))?.stacks())
     }
 
-    /// Closes the player's window, a menu too: the cursor, the crafting grid and the window's own
-    /// slots go back to its inventory (the player throws what does not fit), and a menu's blocks
-    /// show again.
-    /// False if the player has left or has no window open. Raises no event and calls no menu
-    /// handler ([`menu::Close`](crate::menu::Close) says how to keep the cursor's stack).
+    /// Closes the player's window, a menu too: the cursor (but a lending menu's lent items, which
+    /// stay its handler's), the crafting grid and the window's own slots go back to its inventory
+    /// (the player throws what does not fit), and a menu's blocks show again. False if the player
+    /// has left or has no window open. Raises no event and calls no menu handler
+    /// ([`menu::Close`](crate::menu::Close) says how to keep the cursor's own items).
     #[doc(alias = "Player::removeCurrentWindow")]
     pub fn close_window(&mut self, player: crate::player::Id) -> bool {
         let session = player.session();

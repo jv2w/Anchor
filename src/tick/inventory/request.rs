@@ -561,9 +561,8 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
 /// Hands the handler of the open menu `menu` the changes the described `plan` would make, before
 /// they are made, and gives its answer; `None` if the plan changes no menu slot, nor the lent
 /// items, nor a cursor that holds lent items, so no handler ran. Refused if the handler refuses.
-/// A listener that closed the menu never
-/// gets here: the check after the listeners refuses the request first (its menu slots are gone or
-/// renumbered).
+/// A listener that closed the menu never gets here: the check after the listeners refuses the
+/// request first (its menu slots are gone or renumbered).
 fn offer(
     state: &mut State,
     session: SessionId,
