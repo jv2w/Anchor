@@ -497,7 +497,14 @@ fn own_slot(inv: &Slots, kind: Kind, slot: usize, stack: &Stack) -> Result<Optio
         Kind::Crafting => SlotRef::Grid(i),
         Kind::EnderChest => SlotRef::Ender(i),
     };
-    let before = inv.get(r).map(|s| s.stack).unwrap_or_default();
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a slot below kind's size is one of the player's own slots"
+    )]
+    let before = inv
+        .get(r)
+        .expect("invariant: own_slot's slot is an own slot")
+        .stack;
     if before == *stack {
         return Ok(None);
     }

@@ -219,9 +219,15 @@ impl Commands {
             *registered = Permission::new(name, default);
         }
         for p in self.list.iter_mut().flat_map(|c| c.permissions.iter_mut()) {
-            if let Some(&registered) = self.permissions.get(p.name()) {
-                *p = registered;
-            }
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: register adds every permission of a command it keeps, and a conflict returned above"
+            )]
+            let registered = self
+                .permissions
+                .get(p.name())
+                .expect("invariant: a command's permission is registered");
+            *p = *registered;
         }
         self.catalog = available::Catalog::new(&self.list, &self.names)?;
         self.soft_values = vec![Vec::new(); self.catalog.soft_count()];

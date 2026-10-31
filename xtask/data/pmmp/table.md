@@ -43,24 +43,24 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::__serialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\Server::__unserialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\Server::addOnlinePlayer` | skipped |  |  | players join through the login flow |
-| `pocketmine\Server::addOp` | implemented | src/tick/command.rs:1421 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
-| `pocketmine\Server::addWhitelist` | implemented | src/tick/command.rs:1518 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::addOp` | implemented | src/tick/command.rs:1427 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
+| `pocketmine\Server::addWhitelist` | implemented | src/tick/command.rs:1524 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::broadcastMessage` | implemented | src/tick/task.rs:291 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
 | `pocketmine\Server::broadcastPopup` | implemented | src/tick/task.rs:293 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
 | `pocketmine\Server::broadcastTip` | implemented | src/tick/task.rs:292 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
 | `pocketmine\Server::broadcastTitle` | implemented | src/tick/task.rs:294 `broadcast` | src/tick/task.rs::broadcasts_reach_every_online_player_once |  |
 | `pocketmine\Server::crashDump` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
 | `pocketmine\Server::createPlayer` | skipped |  |  | players join through the login flow |
-| `pocketmine\Server::dispatchCommand` | implemented | src/tick/command.rs:1104 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `pocketmine\Server::dispatchCommand` | implemented | src/tick/command.rs:1110 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `pocketmine\Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `pocketmine\Server::forceShutdown` | merged | src/server.rs:920 `shutdown`<br>src/tick/command.rs:1570 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `pocketmine\Server::forceShutdown` | merged | src/server.rs:920 `shutdown`<br>src/tick/command.rs:1576 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `pocketmine\Server::getAllowedViewDistance` | merged | src/tick/task.rs:207 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `pocketmine\Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getAsyncPool` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
 | `pocketmine\Server::getBroadcastChannelSubscribers` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `pocketmine\Server::getCommandAliases` | skipped |  |  | PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`) |
-| `pocketmine\Server::getCommandMap` | merged | src/tick/command.rs:1212 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::getCommand` |
+| `pocketmine\Server::getCommandMap` | merged | src/tick/command.rs:1218 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::getCommand` |
 | `pocketmine\Server::getConfigGroup` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
 | `pocketmine\Server::getCraftingManager` | merged | src/tick/world_api/recipes.rs:21 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `pocketmine\Server::getDataPath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
@@ -68,7 +68,7 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::getFilePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
 | `pocketmine\Server::getForceGamemode` | implemented | src/tick/task.rs:194 `is_game_mode_forced` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getGamemode` | implemented | src/tick/task.rs:187 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getIPBans` | implemented | src/tick/command.rs:1512 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::getIPBans` | implemented | src/tick/command.rs:1518 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `pocketmine\Server::getIp` | implemented | src/config.rs:538 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getIpV6` | implemented | src/config.rs:541 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
@@ -79,13 +79,13 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::getMemoryManager` | skipped |  |  | PHP memory management |
 | `pocketmine\Server::getMotd` | implemented | src/tick/task.rs:82 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound<br>src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getName` | implemented | src/tick/task.rs:69 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getNameBans` | implemented | src/tick/command.rs:1506 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::getNameBans` | implemented | src/tick/command.rs:1512 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getNetwork` | skipped |  |  | protocol internals |
 | `pocketmine\Server::getOfflinePlayer` | skipped |  |  | PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
 | `pocketmine\Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:262 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
 | `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:558 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getOnlinePlayers` | implemented | src/tick/task.rs:220 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_online |  |
-| `pocketmine\Server::getOps` | implemented | src/tick/command.rs:1449 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\Server::getOps` | implemented | src/tick/command.rs:1455 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\Server::getPlayerByPrefix` | implemented | src/tick/task.rs:260 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
 | `pocketmine\Server::getPlayerByRawUUID` | merged | src/tick/task.rs:279 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_online | into `Server::getPlayerByUUID` |
 | `pocketmine\Server::getPlayerByUUID` | implemented | src/tick/task.rs:279 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_online |  |
@@ -110,23 +110,23 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::getUpdater` | skipped |  |  | PMMP update checker |
 | `pocketmine\Server::getVersion` | implemented | src/tick/task.rs:73 `VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getViewDistance` | implemented | src/tick/task.rs:207 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getWhitelisted` | implemented | src/tick/command.rs:1543 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::getWhitelisted` | implemented | src/tick/command.rs:1549 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getWorldManager` | merged | src/tick/world_api.rs:56 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `pocketmine\Server::hasOfflinePlayerData` | merged | src/tick/task/offline.rs:262 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | into `Server::getOfflinePlayerData` |
-| `pocketmine\Server::hasWhitelist` | implemented | src/tick/command.rs:1549 `whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::hasWhitelist` | implemented | src/tick/command.rs:1555 `whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::isHardcore` | implemented | src/tick/task.rs:200 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::isLanguageForced` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `pocketmine\Server::isOp` | implemented | src/tick/command.rs:1443 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\Server::isOp` | implemented | src/tick/command.rs:1449 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\Server::isRunning` | skipped |  |  | a `Context` exists only while the server runs |
-| `pocketmine\Server::isWhitelisted` | implemented | src/tick/command.rs:1536 `is_whitelisted` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::isWhitelisted` | implemented | src/tick/command.rs:1542 `is_whitelisted` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::removeOnlinePlayer` | skipped |  |  | players join through the login flow |
-| `pocketmine\Server::removeOp` | implemented | src/tick/command.rs:1432 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
-| `pocketmine\Server::removeWhitelist` | implemented | src/tick/command.rs:1527 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\Server::removeOp` | implemented | src/tick/command.rs:1438 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
+| `pocketmine\Server::removeWhitelist` | implemented | src/tick/command.rs:1533 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:559 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:315 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
+| `pocketmine\Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:314 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:213 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::shutdown` | implemented | src/server.rs:920 `shutdown`<br>src/tick/command.rs:1570 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `pocketmine\Server::shutdown` | implemented | src/server.rs:920 `shutdown`<br>src/tick/command.rs:1576 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `pocketmine\Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `pocketmine\Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `pocketmine\Server::unsubscribeFromBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -3505,7 +3505,7 @@ implemented 24, differs 0, merged 130, skipped 26, blank 0 (of 180 rows)
 | `pocketmine\command\Command` | implemented | src/command.rs:83 `Command` | tests/server.rs::a_server_builds_with_a_command_of_the_users |  |
 | `pocketmine\command\Command::__construct` | merged | src/command.rs:82 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `pocketmine\command\Command::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `pocketmine\command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:1157 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `pocketmine\command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:1163 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `pocketmine\command\Command::execute` | merged | src/command.rs:82 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `pocketmine\command\Command::getAliases` | implemented | src/command.rs:178 `aliases` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `pocketmine\command\Command::getDescription` | implemented | src/command.rs:172 `description` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
@@ -3523,162 +3523,162 @@ implemented 24, differs 0, merged 130, skipped 26, blank 0 (of 180 rows)
 | `pocketmine\command\Command::setPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as BDS sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
 | `pocketmine\command\Command::setPermissions` | implemented | src/command.rs:130 `permission` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads |  |
 | `pocketmine\command\Command::setUsage` | implemented | src/command.rs:141 `usage` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\Command::testPermission` | merged | src/tick/command.rs:1203 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
-| `pocketmine\command\Command::testPermissionSilent` | implemented | src/tick/command.rs:1203 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\command\Command::testPermission` | merged | src/tick/command.rs:1209 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
+| `pocketmine\command\Command::testPermissionSilent` | implemented | src/tick/command.rs:1209 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\command\Command::unregister` | skipped |  |  | commands are fixed at `build()` |
 | `pocketmine\command\CommandExecutor` | merged | src/command.rs:82 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `pocketmine\command\CommandExecutor::onCommand` | merged | src/command.rs:82 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `pocketmine\command\CommandMap` | merged | src/tick/command.rs:494 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `CommandMap::register` |
+| `pocketmine\command\CommandMap` | merged | src/tick/command.rs:500 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `CommandMap::register` |
 | `pocketmine\command\CommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
-| `pocketmine\command\CommandMap::dispatch` | implemented | src/tick/command.rs:1105 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
-| `pocketmine\command\CommandMap::getCommand` | implemented | src/tick/command.rs:1211 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\CommandMap::register` | implemented | src/tick/command.rs:494 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\CommandMap::registerAll` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\CommandMap::dispatch` | implemented | src/tick/command.rs:1111 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `pocketmine\command\CommandMap::getCommand` | implemented | src/tick/command.rs:1217 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\command\CommandMap::register` | implemented | src/tick/command.rs:500 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\command\CommandMap::registerAll` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\CommandSender` | implemented | src/command.rs:480 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\command\CommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `pocketmine\command\CommandSender::getName` | implemented | src/tick/command.rs:1127 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `pocketmine\command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:607 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
+| `pocketmine\command\CommandSender::getName` | implemented | src/tick/command.rs:1133 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `pocketmine\command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:606 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
 | `pocketmine\command\CommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `pocketmine\command\CommandSender::sendMessage` | implemented | src/tick/command.rs:1139 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `pocketmine\command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:614 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
-| `pocketmine\command\SimpleCommandMap` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\CommandSender::sendMessage` | implemented | src/tick/command.rs:1145 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `pocketmine\command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:613 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
+| `pocketmine\command\SimpleCommandMap` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\SimpleCommandMap::__construct` | skipped |  |  | the command table is built by `ServerBuilder::command` |
 | `pocketmine\command\SimpleCommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
-| `pocketmine\command\SimpleCommandMap::dispatch` | implemented | src/tick/command.rs:1106 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
-| `pocketmine\command\SimpleCommandMap::getCommand` | implemented | src/tick/command.rs:1212 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:1223 `commands` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\SimpleCommandMap::register` | implemented | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\SimpleCommandMap::dispatch` | implemented | src/tick/command.rs:1112 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `pocketmine\command\SimpleCommandMap::getCommand` | implemented | src/tick/command.rs:1218 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:1229 `commands` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\command\SimpleCommandMap::register` | implemented | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\SimpleCommandMap::registerServerAliases` | skipped |  |  | PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`) |
-| `pocketmine\command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:503 `without_command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `pocketmine\command\defaults\BanCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanIpCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanIpCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanIpCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanListCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanListCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\BanListCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ClearCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ClearCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ClearCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DefaultGamemodeCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DefaultGamemodeCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DefaultGamemodeCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DeopCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DeopCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DeopCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DifficultyCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DifficultyCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\DifficultyCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:509 `without_command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\command\defaults\BanCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanIpCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanIpCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanIpCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanListCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanListCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\BanListCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ClearCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ClearCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ClearCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DefaultGamemodeCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DefaultGamemodeCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DefaultGamemodeCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DeopCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DeopCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DeopCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DifficultyCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DifficultyCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\DifficultyCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\defaults\DumpMemoryCommand` | skipped |  |  | PHP memory dump tooling |
 | `pocketmine\command\defaults\DumpMemoryCommand::__construct` | skipped |  |  | PHP memory dump tooling |
 | `pocketmine\command\defaults\DumpMemoryCommand::execute` | skipped |  |  | PHP memory dump tooling |
-| `pocketmine\command\defaults\EffectCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\EffectCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\EffectCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\EnchantCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\EnchantCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\EnchantCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\GamemodeCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\GamemodeCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\GamemodeCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\EffectCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\EffectCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\EffectCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\EnchantCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\EnchantCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\EnchantCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\GamemodeCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\GamemodeCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\GamemodeCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\defaults\GarbageCollectorCommand` | skipped |  |  | PHP garbage collector control |
 | `pocketmine\command\defaults\GarbageCollectorCommand::__construct` | skipped |  |  | PHP garbage collector control |
 | `pocketmine\command\defaults\GarbageCollectorCommand::execute` | skipped |  |  | PHP garbage collector control |
-| `pocketmine\command\defaults\GiveCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\GiveCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\GiveCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\HelpCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\HelpCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\HelpCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\KickCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\KickCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\KickCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\KillCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\KillCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\KillCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ListCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ListCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ListCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\MeCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\MeCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\MeCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\OpCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\OpCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\OpCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\PardonCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\PardonCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\PardonCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\PardonIpCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\PardonIpCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\PardonIpCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ParticleCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ParticleCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\ParticleCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\GiveCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\GiveCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\GiveCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\HelpCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\HelpCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\HelpCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\KickCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\KickCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\KickCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\KillCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\KillCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\KillCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ListCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ListCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ListCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\MeCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\MeCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\MeCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\OpCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\OpCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\OpCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\PardonCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\PardonCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\PardonCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\PardonIpCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\PardonIpCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\PardonIpCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ParticleCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ParticleCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\ParticleCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\defaults\PluginsCommand` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\command\defaults\PluginsCommand::__construct` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\command\defaults\PluginsCommand::execute` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `pocketmine\command\defaults\SaveCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveOffCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveOffCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveOffCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveOnCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveOnCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SaveOnCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SayCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SayCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SayCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SeedCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SeedCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SeedCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SetWorldSpawnCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SetWorldSpawnCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SetWorldSpawnCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SpawnpointCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SpawnpointCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\SpawnpointCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\StatusCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\StatusCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\StatusCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\StopCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\StopCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\StopCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TeleportCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TeleportCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TeleportCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TellCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TellCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TellCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TimeCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TimeCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TimeCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveOffCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveOffCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveOffCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveOnCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveOnCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SaveOnCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SayCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SayCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SayCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SeedCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SeedCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SeedCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SetWorldSpawnCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SetWorldSpawnCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SetWorldSpawnCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SpawnpointCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SpawnpointCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\SpawnpointCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\StatusCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\StatusCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\StatusCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\StopCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\StopCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\StopCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TeleportCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TeleportCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TeleportCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TellCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TellCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TellCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TimeCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TimeCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TimeCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `pocketmine\command\defaults\TimingsCommand` | skipped |  |  | PHP timings profiler |
 | `pocketmine\command\defaults\TimingsCommand::__construct` | skipped |  |  | PHP timings profiler |
 | `pocketmine\command\defaults\TimingsCommand::execute` | skipped |  |  | PHP timings profiler |
-| `pocketmine\command\defaults\TitleCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TitleCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TitleCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TransferServerCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TransferServerCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\TransferServerCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\VanillaCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\VersionCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\VersionCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\VersionCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\WhitelistCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\WhitelistCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\WhitelistCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\XpCommand` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\XpCommand::__construct` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\defaults\XpCommand::execute` | merged | src/tick/command.rs:495 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `pocketmine\command\utils\CommandException` | merged | src/tick/command.rs:1105 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
+| `pocketmine\command\defaults\TitleCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TitleCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TitleCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TransferServerCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TransferServerCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\TransferServerCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\VanillaCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\VersionCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\VersionCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\VersionCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\WhitelistCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\WhitelistCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\WhitelistCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\XpCommand` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\XpCommand::__construct` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\defaults\XpCommand::execute` | merged | src/tick/command.rs:501 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `pocketmine\command\utils\CommandException` | merged | src/tick/command.rs:1111 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
 | `pocketmine\command\utils\CommandStringHelper` | skipped |  |  | command line parsing is the engine's; handlers get typed `Args` |
 | `pocketmine\command\utils\CommandStringHelper::parseQuoteAware` | skipped |  |  | command line parsing is the engine's; handlers get typed `Args` |
-| `pocketmine\command\utils\InvalidCommandSyntaxException` | merged | src/tick/command.rs:1105 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
+| `pocketmine\command\utils\InvalidCommandSyntaxException` | merged | src/tick/command.rs:1111 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
 
 ## `pocketmine\console`
 
@@ -3688,18 +3688,18 @@ implemented 3, differs 0, merged 5, skipped 20, blank 0 (of 28 rows)
 |---|---|---|---|---|
 | `pocketmine\console\ConsoleCommandSender` | implemented | src/command.rs:486 `Console` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::console_lines_run_in_the_tick_and_replay_from_the_input_log |  |
 | `pocketmine\console\ConsoleCommandSender::__construct` | skipped |  |  | the console sender is `command::Sender`'s console case |
-| `pocketmine\console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `pocketmine\console\ConsoleCommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `pocketmine\console\ConsoleCommandSender::getName` | implemented | src/tick/command.rs:1128 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `pocketmine\console\ConsoleCommandSender::getName` | implemented | src/tick/command.rs:1134 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `pocketmine\console\ConsoleCommandSender::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
 | `pocketmine\console\ConsoleCommandSender::getScreenLineHeight` | skipped |  |  | the console's output goes to the log, which pages nothing |
 | `pocketmine\console\ConsoleCommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `pocketmine\console\ConsoleCommandSender::hasPermission` | merged | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `pocketmine\console\ConsoleCommandSender::isPermissionSet` | merged | src/tick/command.rs:1285 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `pocketmine\console\ConsoleCommandSender::hasPermission` | merged | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `pocketmine\console\ConsoleCommandSender::isPermissionSet` | merged | src/tick/command.rs:1291 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `pocketmine\console\ConsoleCommandSender::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `pocketmine\console\ConsoleCommandSender::removeAttachment` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\console\ConsoleCommandSender::sendMessage` | implemented | src/tick/command.rs:1140 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `pocketmine\console\ConsoleCommandSender::removeAttachment` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\console\ConsoleCommandSender::sendMessage` | implemented | src/tick/command.rs:1146 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `pocketmine\console\ConsoleCommandSender::setBasePermission` | skipped |  |  | the console counts as an operator: its permissions are the operators' defaults |
 | `pocketmine\console\ConsoleCommandSender::setScreenLineHeight` | skipped |  |  | the console's output goes to the log, which pages nothing |
 | `pocketmine\console\ConsoleCommandSender::unsetBasePermission` | skipped |  |  | the console counts as an operator: its permissions are the operators' defaults |
@@ -4613,7 +4613,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:118 `direction`<br>src/tick/survival/api.rs:977 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
 | `pocketmine\entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:118 `direction`<br>src/tick/survival/api.rs:977 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:98 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
-| `pocketmine\entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:112 `eye_position`<br>src/tick/player.rs:652 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `pocketmine\entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:112 `eye_position`<br>src/tick/player.rs:651 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:161 `fall_distance`<br>src/tick/survival/api.rs:915 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:143 `fire_ticks`<br>src/tick/survival/api.rs:818 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:467 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
@@ -4621,7 +4621,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:983 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\entity\Entity::getId` | implemented | src/tick/entity/api.rs:47 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:1090 `last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
-| `pocketmine\entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:73 `position`<br>src/tick/player.rs:646 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `pocketmine\entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:73 `position`<br>src/tick/player.rs:645 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:130 `max_health`<br>src/tick/survival/api.rs:381 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:91 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:173 `name_tag`<br>src/tick/survival/api.rs:1354 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4631,7 +4631,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:354 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `pocketmine\entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:355 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `pocketmine\entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:308 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
-| `pocketmine\entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:72 `position`<br>src/tick/player.rs:645 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `pocketmine\entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:72 `position`<br>src/tick/player.rs:644 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getScale` | implemented | src/tick/entity/api.rs:191 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:1376 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::getSize` | merged | src/tick/entity.rs:451 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
@@ -4639,7 +4639,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `pocketmine\entity\Entity::getTargetEntityId` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `pocketmine\entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:228 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `pocketmine\entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:65 `world`<br>src/tick/player.rs:638 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `pocketmine\entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:65 `world`<br>src/tick/player.rs:637 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:203 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `pocketmine\entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:1424 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4695,7 +4695,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `pocketmine\entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `pocketmine\entity\Entity::spawnToAll` | implemented | src/tick/entity/custom.rs:376 `spawn_custom_entity` | src/tick/entity/custom/tests.rs::custom_entities_are_shown_with_their_identifier_health_and_box_and_removed |  |
-| `pocketmine\entity\Entity::teleport` | implemented | src/action/survival.rs:113 `Teleport`<br>src/tick/entity/api.rs:749 `teleport`<br>src/tick/player.rs:665 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `pocketmine\entity\Entity::teleport` | implemented | src/action/survival.rs:113 `Teleport`<br>src/tick/entity/api.rs:749 `teleport`<br>src/tick/player.rs:664 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\EntityDataHelper` | skipped |  |  | entity NBT is internal to the chunk store |
 | `pocketmine\entity\EntityDataHelper::parseLocation` | skipped |  |  | entity NBT is internal to the chunk store |
 | `pocketmine\entity\EntityDataHelper::parseVec3` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4753,13 +4753,13 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Human::getEnderInventory` | implemented | src/tick/inventory/api.rs:43 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\entity\Human::getHungerManager` | merged | src/tick/survival/api.rs:465 `food` | src/tick/survival/api.rs::hunger_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `pocketmine\entity\Human::getInventory` | implemented | src/tick/inventory/api.rs:38 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\entity\Human::getName` | merged | src/tick/player.rs:427 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `pocketmine\entity\Human::getName` | merged | src/tick/player.rs:426 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `pocketmine\entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:58 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `pocketmine\entity\Human::getOffHandInventory` | implemented | src/tick/inventory/api.rs:40 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\entity\Human::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `pocketmine\entity\Human::getSkin` | implemented | src/tick/player.rs:471 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\entity\Human::getSkin` | implemented | src/tick/player.rs:470 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\entity\Human::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
-| `pocketmine\entity\Human::getUniqueId` | merged | src/tick/player.rs:465 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getUniqueId` |
+| `pocketmine\entity\Human::getUniqueId` | merged | src/tick/player.rs:464 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getUniqueId` |
 | `pocketmine\entity\Human::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
 | `pocketmine\entity\Human::getXpManager` | merged | src/tick/survival/api.rs:575 `xp_level` | src/tick/survival/api.rs::experience_and_the_enchanting_seed_follow_pmmp | into `ExperienceManager::getXpLevel` |
 | `pocketmine\entity\Human::jump` | skipped |  |  | movement rule code: listeners see PlayerJump |
@@ -4800,7 +4800,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Living::getAirSupplyTicks` | implemented | src/tick/survival/api.rs:849 `air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Living::getArmorInventory` | implemented | src/tick/inventory/api.rs:39 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\entity\Living::getArmorPoints` | implemented | src/tick/survival/api.rs:1073 `armor_points` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
-| `pocketmine\entity\Living::getDisplayName` | merged | src/tick/player.rs:434 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
+| `pocketmine\entity\Living::getDisplayName` | merged | src/tick/player.rs:433 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `pocketmine\entity\Living::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
 | `pocketmine\entity\Living::getEffects` | implemented | src/tick/survival/api.rs:741 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\Living::getFrostWalkerLevel` | implemented | src/tick/survival/api.rs:1080 `frost_walker_level` | src/tick/survival/movement.rs::frost_walker_freezes_the_water_sources_around_the_feet_with_air_above_and_nobody_in |  |
@@ -4810,7 +4810,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:873 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `pocketmine\entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:131 `max_health`<br>src/tick/survival/api.rs:382 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:1054 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `pocketmine\entity\Living::getName` | merged | src/tick/player.rs:427 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `pocketmine\entity\Living::getName` | merged | src/tick/player.rs:426 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `pocketmine\entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
 | `pocketmine\entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1561 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
@@ -7482,14 +7482,14 @@ implemented 0, differs 0, merged 8, skipped 10, blank 0 (of 18 rows)
 | `pocketmine\lang\Language::translate` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\lang\Language::translateString` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\lang\LanguageNotFoundException` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `pocketmine\lang\Translatable` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::__construct` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::format` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::getParameter` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::getParameters` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::getText` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::postfix` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\lang\Translatable::prefix` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::__construct` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::format` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::getParameter` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::getParameters` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::getText` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::postfix` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\lang\Translatable::prefix` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
 
 ## `pocketmine\network`
 
@@ -7629,49 +7629,49 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `pocketmine\network\mcpe\NetworkBroadcastUtils::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:764 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `pocketmine\network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:763 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `pocketmine\network\mcpe\NetworkSession::disconnectIncompatibleProtocol` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:764 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `pocketmine\network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:763 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `pocketmine\network\mcpe\NetworkSession::getBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::getCompressor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:434 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
+| `pocketmine\network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:433 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `pocketmine\network\mcpe\NetworkSession::getEntityEventBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::getHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::getInvManager` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::getIp` | implemented | src/tick/player.rs:484 `ip` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `pocketmine\network\mcpe\NetworkSession::getIp` | implemented | src/tick/player.rs:483 `ip` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\network\mcpe\NetworkSession::getLogger` | skipped |  |  | Anchor logs with `tracing` |
-| `pocketmine\network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:499 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
+| `pocketmine\network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:498 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
 | `pocketmine\network\mcpe\NetworkSession::getPlayer` | skipped |  |  | the session is the player: `Context::player` |
 | `pocketmine\network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:27 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
-| `pocketmine\network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:491 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `pocketmine\network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:490 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `pocketmine\network\mcpe\NetworkSession::getTypeConverter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::handleAckReceipt` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::handleDataPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::handleEncoded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:626 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
+| `pocketmine\network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:625 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
 | `pocketmine\network\mcpe\NetworkSession::notifyTerrainReady` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:682 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
-| `pocketmine\network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `pocketmine\network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:685 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
+| `pocketmine\network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:681 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
+| `pocketmine\network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `pocketmine\network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:684 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
 | `pocketmine\network\mcpe\NetworkSession::onClientDisconnect` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::onCloseAllForms` | merged | src/tick/form.rs:161 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them | into `Player::closeAllForms` |
 | `pocketmine\network\mcpe\NetworkSession::onEnterWorld` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::onFormSent` | merged | src/tick/form.rs:129 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase | into `Player::sendForm` |
 | `pocketmine\network\mcpe\NetworkSession::onItemCooldownChanged` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:681 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
+| `pocketmine\network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:680 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
 | `pocketmine\network\mcpe\NetworkSession::onOpenSignEditor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::onPlayerAdded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::onPlayerDestroyed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::onPlayerRemoved` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:680 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
-| `pocketmine\network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:686 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
+| `pocketmine\network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:679 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
+| `pocketmine\network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:685 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
 | `pocketmine\network\mcpe\NetworkSession::onServerDeath` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::onServerRespawn` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:684 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
-| `pocketmine\network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:679 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
-| `pocketmine\network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:683 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
-| `pocketmine\network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:687 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
-| `pocketmine\network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:688 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
+| `pocketmine\network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:683 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
+| `pocketmine\network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
+| `pocketmine\network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:682 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
+| `pocketmine\network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:686 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
+| `pocketmine\network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:687 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `pocketmine\network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:442 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
@@ -7692,7 +7692,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `pocketmine\network\mcpe\NetworkSession::syncWorldSpawnPoint` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::syncWorldTime` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:213 `Transfer`<br>src/tick/player.rs:782 `transfer` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
+| `pocketmine\network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:213 `Transfer`<br>src/tick/player.rs:781 `transfer` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
 | `pocketmine\network\mcpe\PacketBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\PacketBroadcaster::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\PacketRateLimiter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8268,7 +8268,7 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | PMMP | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
 | `pocketmine\permission\BanEntry` | implemented | src/permission.rs:115 `BanEntry` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `pocketmine\permission\BanEntry::__construct` | merged | src/tick/command.rs:1458 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
+| `pocketmine\permission\BanEntry::__construct` | merged | src/tick/command.rs:1464 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
 | `pocketmine\permission\BanEntry::fromString` | skipped |  |  | PMMP's banned-players.txt line format: bans live in redb |
 | `pocketmine\permission\BanEntry::getCreated` | implemented | src/permission.rs:197 `created` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `pocketmine\permission\BanEntry::getExpires` | implemented | src/permission.rs:203 `expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
@@ -8281,53 +8281,53 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `pocketmine\permission\BanEntry::setExpires` | implemented | src/permission.rs:166 `with_expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `pocketmine\permission\BanEntry::setReason` | implemented | src/permission.rs:150 `with_reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `pocketmine\permission\BanEntry::setSource` | implemented | src/permission.rs:158 `with_source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `pocketmine\permission\BanList` | merged | src/tick/command.rs:1458 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
+| `pocketmine\permission\BanList` | merged | src/tick/command.rs:1464 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
 | `pocketmine\permission\BanList::__construct` | skipped |  |  | bans live in redb and commit with the world |
-| `pocketmine\permission\BanList::add` | implemented | src/tick/command.rs:1459 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\permission\BanList::addBan` | implemented | src/tick/command.rs:1458 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\permission\BanList::getEntries` | implemented | src/tick/command.rs:1505 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\permission\BanList::getEntry` | implemented | src/tick/command.rs:1494 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\permission\BanList::isBanned` | implemented | src/tick/command.rs:1483 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\permission\BanList::add` | implemented | src/tick/command.rs:1465 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\permission\BanList::addBan` | implemented | src/tick/command.rs:1464 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\permission\BanList::getEntries` | implemented | src/tick/command.rs:1511 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\permission\BanList::getEntry` | implemented | src/tick/command.rs:1500 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\permission\BanList::isBanned` | implemented | src/tick/command.rs:1489 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\permission\BanList::isEnabled` | skipped |  |  | bans always apply: nothing in PMMP turns a ban list off either |
 | `pocketmine\permission\BanList::load` | skipped |  |  | bans live in redb and commit with the world |
-| `pocketmine\permission\BanList::remove` | implemented | src/tick/command.rs:1468 `pardon` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `pocketmine\permission\BanList::remove` | implemented | src/tick/command.rs:1474 `pardon` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\permission\BanList::removeExpired` | skipped |  |  | ended bans never apply, and `Context::ban` drops them |
 | `pocketmine\permission\BanList::save` | skipped |  |  | bans live in redb and commit with the world |
 | `pocketmine\permission\BanList::setEnabled` | skipped |  |  | bans always apply: nothing in PMMP turns a ban list off either |
 | `pocketmine\permission\DefaultPermissionNames` | implemented | src/permission.rs:304 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor |  |
 | `pocketmine\permission\DefaultPermissions` | merged | src/permission.rs:304 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor | into `DefaultPermissionNames` |
 | `pocketmine\permission\DefaultPermissions::registerCorePermissions` | skipped |  |  | the default permissions are registered by `build()` |
-| `pocketmine\permission\DefaultPermissions::registerPermission` | merged | src/tick/command.rs:516 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
-| `pocketmine\permission\Permissible` | merged | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `pocketmine\permission\Permissible::addAttachment` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\Permissible::getEffectivePermissions` | implemented | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `pocketmine\permission\DefaultPermissions::registerPermission` | merged | src/tick/command.rs:522 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
+| `pocketmine\permission\Permissible` | merged | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `pocketmine\permission\Permissible::addAttachment` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\Permissible::getEffectivePermissions` | implemented | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `pocketmine\permission\Permissible::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `pocketmine\permission\Permissible::hasPermission` | implemented | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\permission\Permissible::isPermissionSet` | implemented | src/tick/command.rs:1285 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\permission\Permissible::hasPermission` | implemented | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\permission\Permissible::isPermissionSet` | implemented | src/tick/command.rs:1291 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\permission\Permissible::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `pocketmine\permission\Permissible::removeAttachment` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\permission\PermissibleBase` | merged | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `pocketmine\permission\Permissible::removeAttachment` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\permission\PermissibleBase` | merged | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
 | `pocketmine\permission\PermissibleBase::__construct` | skipped |  |  | permission holders are players and the console (`command::Sender`) |
 | `pocketmine\permission\PermissibleBase::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `pocketmine\permission\PermissibleBase::addAttachment` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissibleBase::getEffectivePermissions` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\permission\PermissibleBase::addAttachment` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissibleBase::getEffectivePermissions` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `pocketmine\permission\PermissibleBase::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `pocketmine\permission\PermissibleBase::hasPermission` | merged | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `pocketmine\permission\PermissibleBase::isPermissionSet` | merged | src/tick/command.rs:1285 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `pocketmine\permission\PermissibleBase::hasPermission` | merged | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `pocketmine\permission\PermissibleBase::isPermissionSet` | merged | src/tick/command.rs:1291 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `pocketmine\permission\PermissibleBase::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `pocketmine\permission\PermissibleBase::removeAttachment` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\permission\PermissibleBase::setBasePermission` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissibleBase::unsetBasePermission` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\permission\PermissibleDelegateTrait` | merged | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `pocketmine\permission\PermissibleDelegateTrait::addAttachment` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissibleDelegateTrait::getEffectivePermissions` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\permission\PermissibleBase::removeAttachment` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\permission\PermissibleBase::setBasePermission` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissibleBase::unsetBasePermission` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait` | merged | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait::addAttachment` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait::getEffectivePermissions` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `pocketmine\permission\PermissibleDelegateTrait::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `pocketmine\permission\PermissibleDelegateTrait::hasPermission` | merged | src/tick/command.rs:1278 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `pocketmine\permission\PermissibleDelegateTrait::isPermissionSet` | merged | src/tick/command.rs:1285 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `pocketmine\permission\PermissibleDelegateTrait::hasPermission` | merged | src/tick/command.rs:1284 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait::isPermissionSet` | merged | src/tick/command.rs:1291 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `pocketmine\permission\PermissibleDelegateTrait::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `pocketmine\permission\PermissibleDelegateTrait::removeAttachment` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\permission\PermissibleDelegateTrait::setBasePermission` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissibleDelegateTrait::unsetBasePermission` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait::removeAttachment` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait::setBasePermission` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissibleDelegateTrait::unsetBasePermission` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `pocketmine\permission\Permission` | implemented | src/permission.rs:40 `Permission` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor |  |
 | `pocketmine\permission\Permission::__construct` | implemented | src/permission.rs:48 `new` | src/permission.rs::defaults_parse_pmmp_spellings_and_decide_by_operator_status |  |
 | `pocketmine\permission\Permission::addChild` | skipped |  |  | permissions are fixed at `build()` |
@@ -8338,29 +8338,29 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `pocketmine\permission\Permission::recalculatePermissibles` | skipped |  |  | permissions are fixed at `build()` |
 | `pocketmine\permission\Permission::removeChild` | skipped |  |  | permissions are fixed at `build()` |
 | `pocketmine\permission\Permission::setDescription` | skipped |  |  | a permission is a name and a default, fixed at `build()` |
-| `pocketmine\permission\PermissionAttachment` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissionAttachment::__construct` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:1341 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
-| `pocketmine\permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:1353 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `pocketmine\permission\PermissionAttachment` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissionAttachment::__construct` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:1347 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `pocketmine\permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:1359 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `pocketmine\permission\PermissionAttachment::getPlugin` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\permission\PermissionAttachment::getSubscribers` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `pocketmine\permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `pocketmine\permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\permission\PermissionAttachment::unsetPermissions` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `pocketmine\permission\PermissionAttachmentInfo` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `pocketmine\permission\PermissionAttachmentInfo::__construct` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\permission\PermissionAttachment::unsetPermissions` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\permission\PermissionAttachmentInfo` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\permission\PermissionAttachmentInfo::__construct` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `pocketmine\permission\PermissionAttachmentInfo::getAttachment` | skipped |  |  | grants are entries of a per-player table, not attachment objects |
 | `pocketmine\permission\PermissionAttachmentInfo::getGroupPermissionInfo` | skipped |  |  | no permission groups or child permissions |
-| `pocketmine\permission\PermissionAttachmentInfo::getPermission` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `pocketmine\permission\PermissionAttachmentInfo::getValue` | merged | src/tick/command.rs:1370 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `pocketmine\permission\PermissionManager` | merged | src/tick/command.rs:516 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
-| `pocketmine\permission\PermissionManager::addPermission` | implemented | src/tick/command.rs:516 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\permission\PermissionAttachmentInfo::getPermission` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\permission\PermissionAttachmentInfo::getValue` | merged | src/tick/command.rs:1376 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `pocketmine\permission\PermissionManager` | merged | src/tick/command.rs:522 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
+| `pocketmine\permission\PermissionManager::addPermission` | implemented | src/tick/command.rs:522 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `pocketmine\permission\PermissionManager::clearPermissions` | skipped |  |  | permissions are fixed at `build()` |
 | `pocketmine\permission\PermissionManager::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `pocketmine\permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:1263 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:1269 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `pocketmine\permission\PermissionManager::getPermissionSubscriptions` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `pocketmine\permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:1269 `permissions` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `pocketmine\permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:1275 `permissions` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `pocketmine\permission\PermissionManager::removePermission` | skipped |  |  | permissions are fixed at `build()` |
 | `pocketmine\permission\PermissionManager::subscribeToPermission` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `pocketmine\permission\PermissionManager::unsubscribeFromAllPermissions` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
@@ -8395,10 +8395,10 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\GameMode::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\player\GameMode::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\player\IPlayer` | skipped |  |  | PMMP's interface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`) |
-| `pocketmine\player\IPlayer::getFirstPlayed` | differs | src/tick/player.rs:572 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
-| `pocketmine\player\IPlayer::getLastPlayed` | differs | src/tick/player.rs:581 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
-| `pocketmine\player\IPlayer::getName` | merged | src/tick/player.rs:427 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
-| `pocketmine\player\IPlayer::hasPlayedBefore` | implemented | src/tick/player.rs:589 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
+| `pocketmine\player\IPlayer::getFirstPlayed` | differs | src/tick/player.rs:571 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
+| `pocketmine\player\IPlayer::getLastPlayed` | differs | src/tick/player.rs:580 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
+| `pocketmine\player\IPlayer::getName` | merged | src/tick/player.rs:426 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `pocketmine\player\IPlayer::hasPlayedBefore` | implemented | src/tick/player.rs:588 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `pocketmine\player\OfflinePlayer` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `pocketmine\player\OfflinePlayer::__construct` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `pocketmine\player\OfflinePlayer::getFirstPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
@@ -8409,7 +8409,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `pocketmine\player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `pocketmine\player\Player::addAttachment` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\player\Player::addAttachment` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `pocketmine\player\Player::attack` | implemented | src/action/survival.rs:20 `Damage`<br>src/tick/survival/api.rs:1583 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `pocketmine\player\Player::attackBlock` | implemented | src/action/interact.rs:16 `AttackBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `pocketmine\player\Player::attackEntity` | implemented | src/action/entity.rs:15 `Attack`<br>src/tick/entity.rs:4335 `attack` | src/tick/entity/npc.rs::hits_on_npcs_follow_pmmps_living_rules<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
@@ -8430,7 +8430,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::closeAllForms` | implemented | src/tick/form.rs:161 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `pocketmine\player\Player::consumeHeldItem` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `pocketmine\player\Player::continueBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
-| `pocketmine\player\Player::disconnect` | implemented | src/tick/player.rs:764 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `pocketmine\player\Player::disconnect` | implemented | src/tick/player.rs:763 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's |
 | `pocketmine\player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's |
 | `pocketmine\player\Player::dropItem` | implemented | src/tick/survival/api.rs:1493 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
@@ -8441,52 +8441,52 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::getCurrentWindow` | implemented | src/tick/inventory/api.rs:82 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\player\Player::getCursorInventory` | implemented | src/tick/inventory/api.rs:41 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:1324 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `pocketmine\player\Player::getDisplayName` | implemented | src/tick/player.rs:434 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\player\Player::getDisplayName` | implemented | src/tick/player.rs:433 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getDrops` | skipped |  |  | player rule code: listeners see and change the drops in PlayerDeath |
-| `pocketmine\player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:1371 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
-| `pocketmine\player\Player::getFirstPlayed` | differs | src/tick/player.rs:571 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
+| `pocketmine\player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:1377 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `pocketmine\player\Player::getFirstPlayed` | differs | src/tick/player.rs:570 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
 | `pocketmine\player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1238 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::getGamemode` | implemented | src/tick/survival/api.rs:285 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:939 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1452 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1481 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `pocketmine\player\Player::getLastPlayed` | differs | src/tick/player.rs:580 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
+| `pocketmine\player\Player::getLastPlayed` | differs | src/tick/player.rs:579 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
 | `pocketmine\player\Player::getLeaveMessage` | merged | src/event/player.rs:1382 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
-| `pocketmine\player\Player::getLocale` | implemented | src/tick/player.rs:507 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
-| `pocketmine\player\Player::getName` | implemented | src/tick/player.rs:427 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\player\Player::getLocale` | implemented | src/tick/player.rs:506 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `pocketmine\player\Player::getName` | implemented | src/tick/player.rs:426 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getNetworkSession` | skipped |  |  | protocol internals: `Player::send_packet` sends packets |
 | `pocketmine\player\Player::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
 | `pocketmine\player\Player::getPlayerInfo` | merged | src/event/player.rs:27 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `pocketmine\player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world; user values are `Player::data` |
-| `pocketmine\player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:607 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `pocketmine\player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:606 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `pocketmine\player\Player::getSpawn` | implemented | src/tick/survival/api.rs:1295 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `pocketmine\player\Player::getUniqueId` | implemented | src/tick/player.rs:465 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\player\Player::getUniqueId` | implemented | src/tick/player.rs:464 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getUsedChunkStatus` | skipped |  |  | chunk sending is the engine's |
 | `pocketmine\player\Player::getUsedChunks` | skipped |  |  | chunk sending is the engine's |
-| `pocketmine\player\Player::getViewDistance` | implemented | src/tick/player.rs:600 `view_distance` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `pocketmine\player\Player::getViewDistance` | implemented | src/tick/player.rs:599 `view_distance` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::getXpDropAmount` | skipped |  |  | player rule code: listeners see and change the experience in PlayerDeath |
-| `pocketmine\player\Player::getXuid` | implemented | src/tick/player.rs:453 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\player\Player::getXuid` | implemented | src/tick/player.rs:452 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::handleMovement` | skipped |  |  | movement rule code: listeners see PlayerMove |
 | `pocketmine\player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:1129 `auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:1259 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:344 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `pocketmine\player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1445 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `pocketmine\player\Player::hasPermission` | implemented | src/tick/command.rs:1279 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:588 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
+| `pocketmine\player\Player::hasPermission` | implemented | src/tick/command.rs:1285 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:587 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `pocketmine\player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
 | `pocketmine\player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:1296 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1838 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `pocketmine\player\Player::interactBlock` | implemented | src/action/interact.rs:51 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `pocketmine\player\Player::interactEntity` | implemented | src/action/interact.rs:91 `InteractEntity`<br>src/tick/entity.rs:4343 `interact` | src/tick/entity/npc.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `pocketmine\player\Player::isAdventure` | implemented | src/tick/survival/api.rs:332 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `pocketmine\player\Player::isAuthenticated` | implemented | src/tick/player.rs:459 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
-| `pocketmine\player\Player::isConnected` | implemented | src/tick/player.rs:626 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `pocketmine\player\Player::isAuthenticated` | implemented | src/tick/player.rs:458 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\player\Player::isConnected` | implemented | src/tick/player.rs:625 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isCreative` | implemented | src/tick/survival/api.rs:326 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::isFlying` | implemented | src/tick/survival/api.rs:1204 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `pocketmine\player\Player::isOnline` | implemented | src/tick/player.rs:625 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
-| `pocketmine\player\Player::isPermissionSet` | implemented | src/tick/command.rs:1286 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `pocketmine\player\Player::isOnline` | implemented | src/tick/player.rs:624 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `pocketmine\player\Player::isPermissionSet` | implemented | src/tick/command.rs:1292 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\player\Player::isSleeping` | implemented | src/tick/survival/api.rs:1276 `is_sleeping` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:1011 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\player\Player::isSpectator` | implemented | src/tick/survival/api.rs:338 `is_spectator` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8495,7 +8495,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:1198 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\player\Player::isValidUserName` | skipped |  |  | login checks the name |
 | `pocketmine\player\Player::jump` | skipped |  |  | player rule code: listeners see PlayerJump |
-| `pocketmine\player\Player::kick` | implemented | src/action/survival.rs:156 `Kick`<br>src/tick/player.rs:763 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `pocketmine\player\Player::kick` | implemented | src/action/survival.rs:156 `Kick`<br>src/tick/player.rs:762 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `pocketmine\player\Player::missSwing` | skipped |  |  | player rule code: listeners see PlayerMissSwing |
 | `pocketmine\player\Player::onBlockChanged` | skipped |  |  | chunk sending is the engine's |
 | `pocketmine\player\Player::onChunkChanged` | skipped |  |  | chunk sending is the engine's |
@@ -8509,43 +8509,43 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::pickEntity` | skipped |  |  | player rule code: listeners see PlayerEntityPick |
 | `pocketmine\player\Player::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
 | `pocketmine\player\Player::releaseHeldItem` | merged | src/action/interact.rs:75 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
-| `pocketmine\player\Player::removeAttachment` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\player\Player::removeAttachment` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `pocketmine\player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:229 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
-| `pocketmine\player\Player::removeTitles` | implemented | src/tick/player.rs:685 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::removeTitles` | implemented | src/tick/player.rs:684 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:932 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1461 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `pocketmine\player\Player::resetTitles` | implemented | src/tick/player.rs:686 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::resetTitles` | implemented | src/tick/player.rs:685 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::respawn` | implemented | src/tick/survival/api.rs:437 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `pocketmine\player\Player::save` | skipped |  |  | player records commit with the world |
 | `pocketmine\player\Player::selectHotbarSlot` | merged | src/tick/inventory/api.rs:63 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `PlayerInventory::setHeldItemIndex` |
-| `pocketmine\player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:682 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:681 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
 | `pocketmine\player\Player::sendForm` | implemented | src/tick/form.rs:129 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase |  |
-| `pocketmine\player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:681 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::sendMessage` | implemented | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::sendPopup` | implemented | src/tick/player.rs:680 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:680 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendMessage` | implemented | src/tick/player.rs:677 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendPopup` | implemented | src/tick/player.rs:679 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
-| `pocketmine\player\Player::sendSubTitle` | implemented | src/tick/player.rs:684 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::sendTip` | implemented | src/tick/player.rs:679 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::sendTitle` | implemented | src/tick/player.rs:683 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::sendToastNotification` | implemented | src/tick/player.rs:688 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendSubTitle` | implemented | src/tick/player.rs:683 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendTip` | implemented | src/tick/player.rs:678 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendTitle` | implemented | src/tick/player.rs:682 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::sendToastNotification` | implemented | src/tick/player.rs:687 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1228 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:1135 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `pocketmine\player\Player::setBasePermission` | merged | src/tick/command.rs:1298 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `pocketmine\player\Player::setBasePermission` | merged | src/tick/command.rs:1304 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `pocketmine\player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `pocketmine\player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:186 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `pocketmine\player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:173 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
 | `pocketmine\player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1334 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `pocketmine\player\Player::setDisplayName` | implemented | src/tick/player.rs:444 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `pocketmine\player\Player::setDisplayName` | implemented | src/tick/player.rs:443 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1245 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setFlying` | implemented | src/tick/survival/api.rs:1211 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setGamemode` | implemented | src/action/survival.rs:60 `SetGameMode`<br>src/tick/survival/api.rs:294 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `pocketmine\player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1266 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setMotion` | implemented | src/tick/survival/api.rs:1148 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `pocketmine\player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:614 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `pocketmine\player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:613 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::setSneakPressed` | skipped |  |  | the client's input sets it |
 | `pocketmine\player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1306 `set_spawn` | src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once<br>src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `pocketmine\player\Player::setTitleDuration` | implemented | src/tick/player.rs:687 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\player\Player::setTitleDuration` | implemented | src/tick/player.rs:686 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `pocketmine\player\Player::setViewDistance` | implemented | src/tick/spawn.rs:1224 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
 | `pocketmine\player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1860 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
@@ -8553,14 +8553,14 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `pocketmine\player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `pocketmine\player\Player::stopSleep` | implemented | src/tick/survival/api.rs:1283 `stop_sleep` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
-| `pocketmine\player\Player::teleport` | implemented | src/action/survival.rs:114 `Teleport`<br>src/tick/player.rs:664 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty |  |
+| `pocketmine\player\Player::teleport` | implemented | src/action/survival.rs:114 `Teleport`<br>src/tick/player.rs:663 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty |  |
 | `pocketmine\player\Player::toggleFlight` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `pocketmine\player\Player::toggleGlide` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `pocketmine\player\Player::toggleSneak` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `pocketmine\player\Player::toggleSprint` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `pocketmine\player\Player::toggleSwim` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
-| `pocketmine\player\Player::transfer` | implemented | src/action/survival.rs:213 `Transfer`<br>src/tick/player.rs:782 `transfer` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
-| `pocketmine\player\Player::unsetBasePermission` | merged | src/tick/command.rs:1322 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `pocketmine\player\Player::transfer` | implemented | src/action/survival.rs:213 `Transfer`<br>src/tick/player.rs:781 `transfer` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `pocketmine\player\Player::unsetBasePermission` | merged | src/tick/command.rs:1328 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `pocketmine\player\Player::useHeldItem` | implemented | src/action/interact.rs:75 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `pocketmine\player\PlayerDataLoadException` | skipped |  |  | a corrupt record keeps its original and reports through `Result` |
 | `pocketmine\player\PlayerDataProvider` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
@@ -8570,9 +8570,9 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\PlayerDataSaveException` | skipped |  |  | player records commit with the world |
 | `pocketmine\player\PlayerInfo` | implemented | src/event/player.rs:21 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
 | `pocketmine\player\PlayerInfo::__construct` | skipped |  |  | login makes it |
-| `pocketmine\player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:477 `device_os`<br>src/tick/player.rs:516 `input_mode`<br>src/tick/player.rs:522 `device_model`<br>src/tick/player.rs:528 `device_id`<br>src/tick/player.rs:535 `self_signed_id`<br>src/tick/player.rs:542 `client_random_id`<br>src/tick/player.rs:550 `playfab_id`<br>src/tick/player.rs:557 `game_version`<br>src/tick/player.rs:564 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
-| `pocketmine\player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:508 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
-| `pocketmine\player\PlayerInfo::getSkin` | merged | src/tick/player.rs:471 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
+| `pocketmine\player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:476 `device_os`<br>src/tick/player.rs:515 `input_mode`<br>src/tick/player.rs:521 `device_model`<br>src/tick/player.rs:527 `device_id`<br>src/tick/player.rs:534 `self_signed_id`<br>src/tick/player.rs:541 `client_random_id`<br>src/tick/player.rs:549 `playfab_id`<br>src/tick/player.rs:556 `game_version`<br>src/tick/player.rs:563 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
+| `pocketmine\player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:507 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `pocketmine\player\PlayerInfo::getSkin` | merged | src/tick/player.rs:470 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
 | `pocketmine\player\PlayerInfo::getUsername` | implemented | src/event/player.rs:27 `name` | src/event/player.rs::player_info_reads_the_identity |  |
 | `pocketmine\player\PlayerInfo::getUuid` | implemented | src/event/player.rs:39 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `pocketmine\player\SurvivalBlockBreakHandler` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
@@ -9426,7 +9426,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::dropExperience` | implemented | src/tick/entity/api.rs:1547 `drop_experience` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `pocketmine\world\World::dropItem` | implemented | src/tick/entity/api.rs:1523 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `pocketmine\world\World::getAdjacentChunks` | merged | src/world.rs:1055 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
-| `pocketmine\world\World::getAutoSave` | merged | src/tick/command.rs:1592 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::getAutoSave` |
+| `pocketmine\world\World::getAutoSave` | merged | src/tick/command.rs:1598 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::getAutoSave` |
 | `pocketmine\world\World::getBiome` | implemented | src/world.rs:913 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::getBiomeId` | implemented | src/world.rs:912 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::getBlock` | implemented | src/world.rs:766 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
@@ -9513,7 +9513,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::save` | implemented | src/tick/task.rs:335 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `pocketmine\world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `pocketmine\world\World::scheduleDelayedBlockUpdate` | implemented | src/tick/update.rs:445 `schedule_block_update` | src/tick/update.rs::the_api_schedules_one_update_per_position_and_it_runs_when_due |  |
-| `pocketmine\world\World::setAutoSave` | merged | src/tick/command.rs:1583 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
+| `pocketmine\world\World::setAutoSave` | merged | src/tick/command.rs:1589 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
 | `pocketmine\world\World::setBiomeId` | implemented | src/world.rs:921 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::setBlock` | implemented | src/world.rs:782 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `pocketmine\world\World::setBlockAt` | implemented | src/world.rs:781 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
@@ -9555,7 +9555,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
 | `pocketmine\world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1439 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `pocketmine\world\WorldManager::generateWorld` | implemented | src/server.rs:797 `world`<br>src/tick/world_api/lifecycle.rs:532 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
-| `pocketmine\world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:1592 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
+| `pocketmine\world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:1598 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `pocketmine\world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `pocketmine\world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:301 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `pocketmine\world\WorldManager::getProviderManager` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
@@ -9565,7 +9565,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:676 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `pocketmine\world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:717 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `pocketmine\world\WorldManager::loadWorld` | implemented | src/tick/world_api/lifecycle.rs:598 `load_world` | src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
-| `pocketmine\world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:1583 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
+| `pocketmine\world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:1589 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `pocketmine\world\WorldManager::setAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `pocketmine\world\WorldManager::setDefaultWorld` | implemented | src/tick/world_api/lifecycle.rs:727 `set_default_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `pocketmine\world\WorldManager::tick` | skipped |  |  | the tick loop ticks every world |

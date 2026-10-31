@@ -523,7 +523,7 @@ impl Offers {
             Form::Wire => &[],
         };
         let mut recipes: Vec<Compound> = Vec::with_capacity(self.recipes.len() + skipped.len());
-        for (i, r) in self.recipes.iter().enumerate() {
+        for (r, i) in self.recipes.iter().zip(0u32..) {
             recipes.push(r.to_nbt(match form {
                 Form::Saved => None,
                 Form::Wire => self.net_id(i),
@@ -672,7 +672,12 @@ impl Offers {
         if self.first_net_id.is_some() {
             return;
         }
-        let len = u32::try_from(self.recipes.len()).unwrap_or(MAX_TRADE_COUNTER);
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the list holds at most MAX_OFFERS (128) offers"
+        )]
+        let len =
+            u32::try_from(self.recipes.len()).expect("invariant: the offers count fits a u32");
         let start = (*next).max(first);
         let start = match start.checked_add(len) {
             Some(end) if end <= MAX_TRADE_COUNTER => start,
@@ -683,8 +688,8 @@ impl Offers {
     }
 
     /// The network ID of the offer at `index`, while the list has IDs.
-    fn net_id(&self, index: usize) -> Option<u32> {
-        self.first_net_id?.checked_add(u32::try_from(index).ok()?)
+    fn net_id(&self, index: u32) -> Option<u32> {
+        self.first_net_id?.checked_add(index)
     }
 
     /// The index of the offer the client knows as `net_id`, if the list still has that ID.

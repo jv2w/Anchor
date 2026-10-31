@@ -2461,15 +2461,27 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
             // Still held while the handler runs, out of the slots: what it writes there counts
             // them (MAX_SAVED_PENDING).
             let out = usize::from(!cursor.is_empty()) + back.len();
-            if let Some(p) = state.players.get_mut(&session) {
-                p.inventory.closing = p.inventory.closing.saturating_add(out);
-            }
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: found above, and a menu window has no blocks whose close runs a callback"
+            )]
+            let p = state
+                .players
+                .get_mut(&session)
+                .expect("invariant: a closing menu's player is in the game");
+            p.inventory.closing = p.inventory.closing.saturating_add(out);
             // Only the client closes a menu without a notice.
             let by_player = notice == Notice::Skip;
             let cursor = menu::closed(state, session, cursor, menu_lent, by_player, raise);
-            if let Some(p) = state.players.get_mut(&session) {
-                p.inventory.closing = p.inventory.closing.saturating_sub(out);
-            }
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: players leave only at the tick's own places, never in a handler"
+            )]
+            let p = state
+                .players
+                .get_mut(&session)
+                .expect("invariant: a closed menu's player is in the game");
+            p.inventory.closing = p.inventory.closing.saturating_sub(out);
             cursor
         }
         // Only a menu lends.

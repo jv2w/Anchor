@@ -333,7 +333,8 @@ fn run(
     let describe = edit.is_some() || events::heard(state);
     let plan = check(state, session, request, describe)?;
     if !describe {
-        return commit(state, session, request.request_id, plan);
+        commit(state, session, request.request_id, plan);
+        return Ok(());
     }
     let mut raised = events::Raised::of(state, session, &plan);
     raised.call(state)?;
@@ -365,7 +366,7 @@ fn run(
             })?,
         None => plan,
     };
-    commit(state, session, request.request_id, plan)?;
+    commit(state, session, request.request_id, plan);
     raised.watch(state);
     if let Some((menu, Response::Close)) = answer
         && menu::is_open(state, session, menu)
@@ -456,7 +457,7 @@ fn refuse(state: &mut State, session: SessionId, request: i32) {
 
 /// Applies a request checked on the game as it is: the drop, every slot, the response, the
 /// other viewers of a changed container, and the stacks waiting for room.
-fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Result<()> {
+fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
     if let Some(stack) = plan.drop.clone() {
         #[expect(
             clippy::expect_used,
@@ -467,7 +468,10 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
             .expect("invariant: a checked drop has room in the world");
     }
     let State { players, rules, .. } = state;
-    let player = players.get_mut(&session).ok_or(Error::NoSlot)?;
+    #[expect(clippy::expect_used, reason = "invariant: run's last check found it")]
+    let player = players
+        .get_mut(&session)
+        .expect("invariant: a checked player");
     let kind = player.inventory.window.as_ref().map(|w| w.kind);
     let mut changed_blocks = Vec::new();
     let mut enchant_input = false;
@@ -556,7 +560,6 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
         }
     }
     station::apply(state, session, request, plan.effects, enchant_input);
-    Ok(())
 }
 
 /// Hands the handler of the open menu `menu` the changes the described `plan` would make, before
@@ -570,7 +573,12 @@ fn offer(
     menu: crate::menu::Id,
     plan: &Plan,
 ) -> Result<Option<Response>> {
-    let inv = &state.players.get(&session).ok_or(Error::NoSlot)?.inventory;
+    #[expect(clippy::expect_used, reason = "invariant: run's checks found it")]
+    let inv = &state
+        .players
+        .get(&session)
+        .expect("invariant: a checked player")
+        .inventory;
     let changes = events::changes(plan, inv.window.as_ref().map(|w| w.kind));
     let lent = [inv.lent, plan.lent];
     let heard = |c: &crate::event::SlotChange| match c.inventory {

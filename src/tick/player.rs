@@ -282,21 +282,20 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
     let mut after = Bound::Unbounded;
     // Changed skins go out in turn once the pass is done, on the ticks it met one.
     let mut skins_wait = false;
-    while let Some(session) = state
-        .players
-        .range((after, Bound::Unbounded))
-        .find(|(_, p)| {
-            p.marks.leave.is_some()
-                || inventory::held_unanswered(p)
-                || p.marks.teleport.is_some()
-                || survival::marked(p)
-        })
-        .map(|(&s, _)| s)
-    {
-        after = Bound::Excluded(session);
-        let Some(player) = state.players.get_mut(&session) else {
-            continue;
+    loop {
+        let marked = state
+            .players
+            .range_mut((after, Bound::Unbounded))
+            .find(|(_, p)| {
+                p.marks.leave.is_some()
+                    || inventory::held_unanswered(p)
+                    || p.marks.teleport.is_some()
+                    || survival::marked(p)
+            });
+        let Some((&session, player)) = marked else {
+            break;
         };
+        after = Bound::Excluded(session);
         if let Some(leave) = player.marks.leave.take() {
             let reason = leave.reason().to_owned();
             match &leave {

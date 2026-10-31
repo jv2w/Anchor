@@ -186,7 +186,7 @@ impl Context<'_> {
             return Err(Error::Busy);
         }
         let n = u32::try_from(p.inventory.next_menu).map_err(|_| Error::Exhausted)?;
-        let blocks = place(p, kind);
+        let (first, second) = place(p, kind);
         if p.inventory.window.is_some() {
             close_now(self.state, session, Notice::Send, Raise::Quiet);
         }
@@ -194,11 +194,11 @@ impl Context<'_> {
         p.inventory.next_menu = p.inventory.next_menu.saturating_add(1);
         let id = Id::new(n);
         // The old menu, if any, closed above: no menu blocks were shown.
-        let _none = p.view.set_menu_blocks(blocks);
-        for packet in block_data(kind, &title, blocks) {
+        let _none = p.view.set_menu_blocks([Some(first), second]);
+        let pos = first.0;
+        for packet in block_data(kind, &title, pos, second.map(|(pos, _)| pos)) {
             p.send_packet(packet);
         }
-        let pos = blocks[0].map(|(pos, _)| pos).unwrap_or_default();
         p.inventory.window = Some(Window {
             id: 0,
             kind: WindowKind::Menu { pos, kind },
@@ -249,12 +249,15 @@ impl Context<'_> {
             .get_mut(&player.session())
             .ok_or(Error::Offline)?;
         let inv = &mut p.inventory;
-        let there = inv
+        // Numbered as it goes: the slot's packet index without a conversion that could fail.
+        let (there, at) = inv
             .menu
-            .as_ref()
+            .as_mut()
             .ok_or(Error::NotOpen)?
             .stacks
-            .get(slot)
+            .iter_mut()
+            .zip(0u32..)
+            .nth(slot)
             .ok_or(Error::NoSlot)?;
         if *there == stack {
             return Ok(());
@@ -262,20 +265,17 @@ impl Context<'_> {
         // `None` while the window waits to open: it opens with the new stack.
         let shown = inv.window.as_ref().filter(|w| w.id != 0).map(|w| w.id);
         let net = match shown {
-            Some(_) if !stack.is_empty() => inv.new_id(),
+            Some(_) if !stack.is_empty() => super::take_stack_id(&mut inv.next_id),
             _ => 0,
         };
         let item = stack.to_instance(net);
-        if let Some(there) = inv.menu.as_mut().and_then(|m| m.stacks.get_mut(slot)) {
-            *there = stack;
-        }
+        *there = stack;
         let Some(window_id) = shown else {
             return Ok(());
         };
         if let Some(id) = inv.window.as_mut().and_then(|w| w.ids.get_mut(slot)) {
             *id = StackId { net, request: None };
         }
-        let at = u32::try_from(slot).unwrap_or(u32::MAX);
         p.send_packet(slot_packet(u32::from(window_id), at, item));
         Ok(())
     }
@@ -284,7 +284,10 @@ impl Context<'_> {
 /// Where a menu's container blocks stand for `player` and what they are: behind the player
 /// (`InvMenu`), inside the world height; a double chest's second half beside the first, along
 /// the side its facing leaves free.
-fn place(player: &Player, kind: Kind) -> [Option<(BlockPos, block::State)>; 2] {
+fn place(
+    player: &Player,
+    kind: Kind,
+) -> ((BlockPos, block::State), Option<(BlockPos, block::State)>) {
     let eye = player.position;
     let look = survival::look_direction(player);
     let feet_y = eye.y - EYE_HEIGHT;
@@ -299,8 +302,8 @@ fn place(player: &Player, kind: Kind) -> [Option<(BlockPos, block::State)>; 2] {
         behind.z,
     );
     match kind {
-        Kind::Hopper => [Some((pos, block::Kind::Hopper.default_state())), None],
-        Kind::Chest => [Some((pos, block::Kind::Chest.default_state())), None],
+        Kind::Hopper => ((pos, block::Kind::Hopper.default_state()), None),
+        Kind::Chest => ((pos, block::Kind::Chest.default_state()), None),
         Kind::DoubleChest => {
             let chest = block::Kind::Chest.default_state();
             let along_z = matches!(
@@ -312,28 +315,21 @@ fn place(player: &Player, kind: Kind) -> [Option<(BlockPos, block::State)>; 2] {
             } else {
                 BlockPos::new(pos.x.saturating_add(1), pos.y, pos.z)
             };
-            [Some((pos, chest)), Some((pair, chest))]
+            ((pos, chest), Some((pair, chest)))
         }
     }
 }
 
 /// The client data of a menu's container blocks: their kind, the title as `CustomName` and a
 /// double chest's pair (PMMP `Chest` and `Nameable` spawn data).
-fn block_data(
-    kind: Kind,
-    title: &str,
-    blocks: [Option<(BlockPos, block::State)>; 2],
-) -> Vec<Packet> {
+fn block_data(kind: Kind, title: &str, first: BlockPos, second: Option<BlockPos>) -> Vec<Packet> {
     let id = match kind {
         Kind::Hopper => "Hopper",
         Kind::Chest | Kind::DoubleChest => "Chest",
     };
-    let [first, second] = blocks.map(|b| b.map(|(pos, _)| pos));
     let mut out = Vec::with_capacity(2);
-    for (pos, pair) in [(first, second), (second, first)] {
-        let Some(pos) = pos else {
-            continue;
-        };
+    let pairs = std::iter::once((first, second)).chain(second.map(|pos| (pos, Some(first))));
+    for (pos, pair) in pairs {
         let mut nbt = Compound::from([
             ("id".to_owned(), Value::String(id.to_owned())),
             ("x".to_owned(), Value::Int(pos.x)),
@@ -425,9 +421,14 @@ pub(super) fn closed(
 ) -> Stack {
     let own = super::own_part(&cursor, lent);
     let handler = state.menus.0.remove(&session);
-    let Some(p) = state.players.get_mut(&session) else {
-        return own;
-    };
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: close_now found the player, and players leave only at the tick's own places"
+    )]
+    let p = state
+        .players
+        .get_mut(&session)
+        .expect("invariant: a closing menu's player is in the game");
     p.inventory.menu = None;
     let old = p.view.set_menu_blocks([None, None]);
     for (pos, _) in old.into_iter().flatten() {

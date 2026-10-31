@@ -280,8 +280,7 @@ impl Context<'_> {
             return Err(Error::Full);
         }
         let n = holds.next_ticket;
-        // 2^64 tickets never go out; refuse rather than reuse one.
-        holds.next_ticket = n.checked_add(1).ok_or(Error::Full)?;
+        holds.next_ticket = n.saturating_add(1);
         let stored = save::storage_key(&key);
         holds.tickets.insert(n, stored.clone());
         let load: (u64, Done) = (n, Box::new(done));
@@ -333,15 +332,15 @@ impl Context<'_> {
         let Some(key) = holds.tickets.get(&n).cloned() else {
             return false;
         };
-        let Some(held) = holds.held.get_mut(&key) else {
+        let Entry::Occupied(mut held) = holds.held.entry(key) else {
             return false;
         };
-        if !held.tickets.remove(&n) {
+        if !held.get_mut().tickets.remove(&n) {
             return false;
         }
-        let empty = held.tickets.is_empty();
         holds.tickets.remove(&n);
-        if empty && let Some(held) = holds.held.remove(&key) {
+        if held.get().tickets.is_empty() {
+            let (key, held) = held.remove_entry();
             let_go(state, key, &held.record);
         }
         true
