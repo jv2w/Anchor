@@ -444,9 +444,7 @@ impl Player {
     #[doc(alias = "Player::setDisplayName")]
     pub fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
         let name = name.into();
-        if name.len() > MAX_TEXT {
-            return Err(Error::TooLong);
-        }
+        crate::player::check_text(&name)?;
         self.marks.display_name = Some(name);
         Ok(())
     }
@@ -701,7 +699,7 @@ impl Player {
     /// name longer than 65,536 bytes, a `pos` that is not finite or outside the world border, or
     /// a volume or pitch that is negative or not finite.
     pub fn play_sound(&mut self, name: &str, pos: Vec3, volume: f32, pitch: f32) -> Result<()> {
-        crate::player::check(name)?;
+        crate::player::check_text(name)?;
         check_position(pos)?;
         if ![volume, pitch].iter().all(|v| v.is_finite() && *v >= 0.0) {
             return Err(Error::OutOfRange);
@@ -745,7 +743,7 @@ impl Player {
     /// the world's particles to everyone who sees a place. Fails for a name longer than 65,536
     /// bytes or a `pos` that is not finite or outside the world border.
     pub fn show_particle(&mut self, name: &str, pos: Vec3) -> Result<()> {
-        crate::player::check(name)?;
+        crate::player::check_text(name)?;
         check_position(pos)?;
         self.send_packet(Packet::SpawnParticleEffect(SpawnParticleEffect {
             // The overworld (`Dimension::Overworld`), every world's dimension.
@@ -769,9 +767,7 @@ impl Player {
             return Err(Error::Leaving);
         }
         let reason = reason.into();
-        if reason.len() > MAX_TEXT {
-            return Err(Error::TooLong);
-        }
+        crate::player::check_text(&reason)?;
         self.marks.leave = Some(Leave::Kick {
             reason,
             screen_message: None,

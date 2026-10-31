@@ -291,23 +291,23 @@ impl Message {
     /// decodes.
     pub(crate) fn into_packets(self) -> Result<Packets> {
         let text = |kind: TextType, message: String| {
-            check(&message)?;
+            check_text(&message)?;
             Ok(text_packet(kind, String::new(), message, Vec::new()))
         };
         let spoken = |kind: TextType, source: String, message: String| {
-            check(&message)?;
+            check_text(&message)?;
             if source.len() > MAX_SOURCE {
                 return Err(Error::TooLong);
             }
             Ok(text_packet(kind, source, message, Vec::new()))
         };
         let translated = |kind: TextType, key: String, parameters: Vec<String>| {
-            check(&key)?;
+            check_text(&key)?;
             if parameters.len() > MAX_PARAMETERS {
                 return Err(Error::TooManyParameters);
             }
             for p in &parameters {
-                check(p)?;
+                check_text(p)?;
             }
             let mut packet = text_packet(kind, String::new(), key, parameters);
             if let Packet::Text(t) = &mut packet {
@@ -337,8 +337,8 @@ impl Message {
                 subtitle,
                 times,
             } => {
-                check(&title)?;
-                check(&subtitle)?;
+                check_text(&title)?;
+                check_text(&subtitle)?;
                 let subtitle = (!subtitle.is_empty())
                     .then(|| title_packet(TitleAction::SetSubtitle, subtitle));
                 Ok([
@@ -348,19 +348,19 @@ impl Message {
                 ])
             }
             Self::Subtitle(m) => {
-                check(&m)?;
+                check_text(&m)?;
                 one(Ok(title_packet(TitleAction::SetSubtitle, m)))
             }
             Self::ActionBar(m) => {
-                check(&m)?;
+                check_text(&m)?;
                 one(Ok(title_packet(TitleAction::SetActionBar, m)))
             }
             Self::TitleTimes(times) => one(Ok(times.packet())),
             Self::ClearTitle => one(Ok(title_packet(TitleAction::Clear, String::new()))),
             Self::ResetTitle => one(Ok(title_packet(TitleAction::Reset, String::new()))),
             Self::Toast { title, body } => {
-                check(&title)?;
-                check(&body)?;
+                check_text(&title)?;
+                check_text(&body)?;
                 one(Ok(Packet::ToastRequest(ToastRequest {
                     title,
                     message: body,
@@ -386,7 +386,7 @@ impl TitleTimes {
 }
 
 /// Fails for a text longer than a client decodes.
-pub(crate) fn check(text: &str) -> Result<()> {
+pub(crate) fn check_text(text: &str) -> Result<()> {
     if text.len() > MAX_TEXT {
         return Err(Error::TooLong);
     }
