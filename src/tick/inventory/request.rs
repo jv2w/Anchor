@@ -1062,8 +1062,10 @@ impl<'a> Exec<'a> {
         let (sa, sb) = (self.slot(ra)?, self.slot(rb)?);
         self.accepts(ra, &sb.stack)?;
         self.accepts(rb, &sa.stack)?;
-        // The cursor's stack goes whole: what it gets is lent if a lending menu's slot held it.
+        // The cursor's stack goes whole: what it gets is lent if a lending menu's slot held it. A
+        // swap of a slot with itself (a crafted request) changes nothing.
         let onto_cursor = match (ra, rb) {
+            _ if ra == rb => None,
             (SlotRef::Cursor, _) => Some((rb, sb.stack.count())),
             (_, SlotRef::Cursor) => Some((ra, sa.stack.count())),
             _ => None,
@@ -1085,8 +1087,11 @@ impl<'a> Exec<'a> {
     /// which held `had` before, to `to` (`None`: out of the slots, dropped, destroyed or used up).
     /// Of the cursor's items, those going into a menu slot are the lent ones first, those going
     /// anywhere else the player's own first, as the handler keeps the lent ones until they leave
-    /// for elsewhere.
+    /// for elsewhere. Items put back where they were (a crafted request) stay as they are.
     fn follow_lent(&mut self, from: SlotRef, had: u8, count: u8, to: Option<SlotRef>) {
+        if to == Some(from) {
+            return;
+        }
         if from == SlotRef::Cursor {
             let leaving = match to {
                 Some(SlotRef::Menu(_)) => count,

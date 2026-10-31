@@ -1833,6 +1833,44 @@ fn a_swap_of_the_cursor_lends_a_menu_slot_s_stack_and_no_other() {
 }
 
 #[test]
+fn a_move_or_swap_of_the_cursor_with_itself_keeps_its_lent_items() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, sticks(2));
+    open_lending(&mut w, s, &[sticks(3)], false, Response::Keep);
+    let own = w.id(s, C::CombinedHotBarAndInventory, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![take(
+            2,
+            at(C::CombinedHotBarAndInventory, 0, own),
+            at(C::Cursor, 0, 0),
+        )],
+    )));
+    let (cursor, (_, net)) = (w.id(s, C::Cursor, 0), shown(&w, s, 0));
+    assert!(ok(&w.request(
+        s,
+        vec![take(
+            3,
+            at(C::LevelEntity, 0, net),
+            at(C::Cursor, 0, cursor)
+        )],
+    )));
+    assert_eq!(lent_heard(), [(0, 3)]);
+    let net = w.id(s, C::Cursor, 0);
+    for action in [
+        take(5, at(C::Cursor, 0, net), at(C::Cursor, 0, net)),
+        swap(at(C::Cursor, 0, net), at(C::Cursor, 0, net)),
+    ] {
+        let r = w.request(s, vec![action]);
+        assert!(ok(&r), "{r:?}");
+        assert!(lent_heard().is_empty(), "nothing lent moved");
+        assert_eq!((w.inv(s).cursor.stack(0), w.inv(s).lent), (&sticks(5), 3));
+        check_once(&mut w, s, 5);
+    }
+}
+
+#[test]
 fn a_lending_menu_s_lent_items_stay_the_handler_s_on_every_close() {
     let ways = [
         Way::Client,
