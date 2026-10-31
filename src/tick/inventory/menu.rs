@@ -8,11 +8,10 @@
 //! is sent again; the request's first take, place, swap or drop of such a slot becomes one
 //! [`Click`] for the handler. A request that names only editable slots and only takes, places,
 //! swaps, drops and destroys (creative mode) runs as in a chest window ([`super::request`]), with
-//! the handler as its last
-//! listener: it hears the changes ([`crate::menu::Change`]) after the request's events, and the
-//! request is checked again and made (a drop thrown) only if it keeps them. The handler runs in
-//! the input phase with the handler taken out of the state ([`Handlers`]). A repeated request ID
-//! is refused before, so it clicks or changes once.
+//! the handler as its last listener: it hears the changes ([`crate::menu::Change`]) after the
+//! request's events, and the request is checked again and made (a drop thrown) only if it keeps
+//! them. The handler runs in the input phase with the handler taken out of the state
+//! ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes once.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
@@ -142,10 +141,10 @@ impl Context<'_> {
     /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
     /// the player tried ([`Input::Click`]). Each request that moves items into, out of (a drop
     /// throws them, a creative destroy deletes them) or between editable slots is checked as in a
-    /// chest window, then calls
-    /// `handler` once with its changes ([`Input::Change`]) before they are made. The handler's
-    /// [`Response`] makes a change and keeps the menu open or closes it, or refuses the change. A
-    /// window the player had open closes first, as [`close_window`](Self::close_window) closes it.
+    /// chest window, then calls `handler` once with its changes ([`Input::Change`]) before they
+    /// are made. The handler's [`Response`] makes a change and keeps the menu open or closes it,
+    /// or refuses the change. A window the player had open closes first, as
+    /// [`close_window`](Self::close_window) closes it.
     ///
     /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
     /// places them), and opens two ticks later, once the client has them. It closes as any

@@ -1342,6 +1342,45 @@ fn a_closing_menu_hands_its_handler_the_cursor_once_on_every_close_but_a_direct_
 }
 
 #[test]
+fn a_close_s_handler_cannot_hold_more_than_the_waiting_bound_allows() {
+    thread_local! {
+        static WROTE: Cell<Option<crate::inventory::Result<()>>> = const { Cell::new(None) };
+    }
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(0, sword()).editable(0);
+    let fills_cursor = |cx: &mut Context<'_>, player: crate::player::Id, input: m::Input| {
+        if let m::Input::Close(_) = input {
+            let p = cx.player_mut(player).unwrap();
+            let wrote = p
+                .inventory_mut(crate::inventory::Kind::Cursor)
+                .set(0, sticks(1));
+            WROTE.set(Some(wrote));
+        }
+        Response::Keep
+    };
+    cx(&mut w).open_menu(id(s), menu, fills_cursor).unwrap();
+    for _ in 0..3 {
+        w.ack(s);
+        tick_each(&mut w, Vec::new());
+    }
+    let (_, net) = shown(&w, s, 0);
+    assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));
+    // The sword on the cursor and the waiting stacks fill the bound.
+    let waiting = MAX_SAVED_PENDING - 1;
+    w.player(s).inventory.pending = vec![sticks(1); waiting];
+    w.close(s);
+    assert_eq!(
+        WROTE.take(),
+        Some(Err(crate::inventory::Error::Full)),
+        "the sword the close took out still counts"
+    );
+    let inv = w.inv(s);
+    assert!(inv.cursor.stack(0).is_empty());
+    assert_eq!(inv.pending.len(), waiting);
+}
+
+#[test]
 fn a_menu_a_far_close_s_handler_opens_for_another_far_player_stays_open() {
     let mut w = World::new(GameMode::Survival);
     let (a, b) = (w.join(1), w.join(2));

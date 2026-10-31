@@ -134,11 +134,12 @@ const MAX_GIVE_BACK: usize = 1 + GRID + 9;
 /// `PendingItems` list (the waiting stacks and everything held outside the slots, [`save`]).
 ///
 /// Invariant: the waiting stacks plus the non-empty stacks held outside the slots (the cursor,
-/// the 2x2 grid, the open window's own slots) are at most this many. It holds after a load (the
-/// saved list is cut to this and nothing is held), a request that would break it is refused
-/// (`request::Error::Unreturnable`), and only a close turns a held stack into at most one
-/// waiting stack (what [`give`] leaves of it). So the waiting list never passes this bound and
-/// no item a player holds is ever lost for want of room.
+/// the 2x2 grid, the open window's own slots, and those a close took out while its menu's
+/// handler hears it, `Inventory::closing`) are at most this many. It holds after a load (the
+/// saved list is cut to this and nothing is held), a request or API write that would break it is
+/// refused (`request::Error::Unreturnable`, `Error::Full`), and only a close turns a held stack
+/// into at most one waiting stack (what [`give`] leaves of it). So the waiting list never passes
+/// this bound and no item a player holds is ever lost for want of room.
 pub(super) const MAX_SAVED_PENDING: usize = MAX_PENDING + MAX_GIVE_BACK;
 /// Where a player drops items: PMMP `Player::dropItem` drops 1.3 above the feet, and the tick
 /// keeps the eye position, 1.62 above the feet.
@@ -292,6 +293,9 @@ pub(super) struct Inventory {
     next_menu: u64,
     /// The creative inventory the player sees: its index in `custom::Registry::creatives`.
     pub(super) creative: u16,
+    /// The stacks closes took out while their menu's handlers hear them ([`close_now`]): held
+    /// outside the slots ([`MAX_SAVED_PENDING`]). 0 but while such a handler runs.
+    closing: usize,
 }
 
 impl Default for Inventory {
@@ -320,6 +324,7 @@ impl Default for Inventory {
             menu: None,
             next_menu: 0,
             creative: 0,
+            closing: 0,
         }
     }
 }
@@ -903,6 +908,8 @@ impl Inventory {
             menu,
             next_menu,
             creative,
+            // 0 but while a menu's handler hears a close.
+            closing: _,
         } = self;
         let mut slots = |stacks: &[Stack], ids: &[StackId]| {
             for (s, id) in stacks.iter().zip(ids) {
@@ -1012,8 +1019,8 @@ impl<const N: usize> Codec for Slots<N> {
 }
 
 /// Every field but the set of recent request IDs, which is `recent` again, and the held answer,
-/// the block picks and the client's window open, which only count in their own tick: a checkpoint
-/// is taken after its tick.
+/// the block picks, the client's window open and the stacks of a close a handler hears, which
+/// only count in their own tick: a checkpoint is taken after its tick.
 impl Codec for Inventory {
     fn encode(&self, w: &mut Writer) {
         let Self {
@@ -1040,6 +1047,7 @@ impl Codec for Inventory {
             menu,
             next_menu,
             creative,
+            closing: _,
         } = self;
         main.encode(w);
         armor.encode(w);
@@ -1100,6 +1108,7 @@ impl Codec for Inventory {
             menu: Codec::decode(r)?,
             next_menu: Codec::decode(r)?,
             creative: Codec::decode(r)?,
+            closing: 0,
         })
     }
 }
@@ -2410,7 +2419,17 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
     let cursor = match kind {
         // Only the client closes a menu without a notice.
         Some(WindowKind::Menu { .. }) => {
-            menu::closed(state, session, cursor, notice == Notice::Skip, raise)
+            // Still held while the handler runs, out of the slots: what it writes there counts
+            // them (MAX_SAVED_PENDING).
+            let out = usize::from(!cursor.is_empty()) + back.len();
+            if let Some(p) = state.players.get_mut(&session) {
+                p.inventory.closing = p.inventory.closing.saturating_add(out);
+            }
+            let cursor = menu::closed(state, session, cursor, notice == Notice::Skip, raise);
+            if let Some(p) = state.players.get_mut(&session) {
+                p.inventory.closing = p.inventory.closing.saturating_sub(out);
+            }
+            cursor
         }
         _ => cursor,
     };
@@ -2458,7 +2477,8 @@ fn give_back(state: &mut State, session: SessionId, stacks: Vec<Stack>) {
 }
 
 /// Closes whatever window `session` has open and returns the cursor, crafting grid and input
-/// slots to its inventory (dropping what does not fit), as on leaving, dying or a server close.
+/// slots to its inventory (the player throws what does not fit), as on leaving, dying or a server
+/// close.
 pub(super) fn close_window(state: &mut State, session: SessionId) {
     close(state, session, Notice::Send);
 }

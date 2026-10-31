@@ -222,7 +222,8 @@ impl Context<'_> {
     }
 
     /// Closes the player's window, a menu too: the cursor, the crafting grid and the window's own
-    /// slots go back to its inventory (what does not fit drops), and a menu's blocks show again.
+    /// slots go back to its inventory (the player throws what does not fit), and a menu's blocks
+    /// show again.
     /// False if the player has left or has no window open. Raises no event and calls no menu
     /// handler ([`menu::Close`](crate::menu::Close) says how to keep the cursor's stack).
     #[doc(alias = "Player::removeCurrentWindow")]
@@ -284,12 +285,13 @@ fn block_view(
     }
 }
 
-/// The stacks the player holds outside its slots: the cursor, the 2x2 grid and the window's own
-/// slots (the invariant of [`MAX_SAVED_PENDING`]).
+/// The stacks the player holds outside its slots: the cursor, the 2x2 grid, the window's own
+/// slots and those of a close its menu's handler hears (the invariant of [`MAX_SAVED_PENDING`]).
 fn held_outside(inv: &super::Inventory) -> usize {
     super::held_outside(inv)
         .filter(|r| inv.get(*r).is_some_and(|s| !s.stack.is_empty()))
         .count()
+        + inv.closing
 }
 
 impl Editor<'_> {

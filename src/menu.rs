@@ -208,7 +208,9 @@ pub enum Input {
     Change(Change),
     /// The menu closed, for any reason but a direct call
     /// ([`Context::close_window`](crate::Context::close_window), or
-    /// [`Context::open_menu`](crate::Context::open_menu) opening another menu in its place).
+    /// [`Context::open_menu`](crate::Context::open_menu) opening another menu in its place). A
+    /// menu that closes while its handler runs, through the handler's own calls (an action that
+    /// chats or breaks a block), is not heard either.
     Close(Close),
 }
 
@@ -338,8 +340,8 @@ impl Close {
     }
 
     /// Whether the player closed the menu itself; false for a close of the server's: its death,
-    /// leaving, a teleport, going more than 8 blocks away, another window, or the handler's own
-    /// [`Response::Close`].
+    /// leaving, a teleport, going more than 8 blocks away, another window, its chat, its breaking
+    /// a block, or the handler's own [`Response::Close`].
     pub fn is_by_player(&self) -> bool {
         self.by_player
     }

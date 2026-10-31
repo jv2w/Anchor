@@ -64,8 +64,9 @@ pub enum Error {
     NoSlot,
     /// The stack holds more than the slot takes (a campfire takes one item per slot).
     TooMany,
-    /// The player holds as many stacks outside its slots (cursor, crafting grid, window) as can
-    /// be given back when its window closes, so the cursor or grid takes no new stack.
+    /// The player holds as many stacks outside its slots (cursor, crafting grid, window, a
+    /// closing menu's while its handler hears the close) as can be given back when its window
+    /// closes, so the cursor or grid takes no new stack.
     Full,
     /// The contents are longer than the inventory.
     TooLong,
