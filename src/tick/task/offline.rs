@@ -248,10 +248,11 @@ impl Context<'_> {
     /// save thread reads it, and in a later tick `done` gets a ticket that holds the record in
     /// memory, to read and change through [`offline_player`](Self::offline_player) and
     /// [`offline_player_mut`](Self::offline_player_mut), until
-    /// [`release_offline_player`](Self::release_offline_player) lets it go or the player joins. Every ticket of one player holds the same record. Changes are saved by the next
-    /// snapshot, in the same commit as the rest of the game, and a player who joins first joins
-    /// with them. The answer is recorded in the input log, so a replay gives `done` the same
-    /// record without reading the file.
+    /// [`release_offline_player`](Self::release_offline_player) lets it go or the player joins.
+    /// Every ticket of one player holds the same record. Changes are saved by the next snapshot,
+    /// in the same commit as the rest of the game, and a player who joins first joins with them.
+    /// The answer is recorded in the input log, so a replay gives `done` the same record without
+    /// reading the file.
     ///
     /// `done` gets [`Error::Online`] if the player joined meanwhile, [`Error::NotSaved`] if no data
     /// is saved for it, and [`Error::Damaged`] if its data is damaged (it stays as saved). Fails,

@@ -30,9 +30,9 @@ const SKIN_COOLDOWN: u64 = Context::TICKS_PER_SECOND as u64;
 /// allows) falls behind by skins alone by one full bucket (4 MiB) and then at most 64 KiB/s. A
 /// session counts every broadcast by its bytes against 32 MiB (`MAX_PENDING_BYTES` in
 /// `session/connection.rs`) as soon as it is queued, so from an empty queue skins alone take
-/// over 7 minutes of nonstop changes to reach it. Behind a spawn window's
-/// player list that is still going out nothing queued after it drains, so skins alone at this
-/// rate reach the bound after about 4 minutes (the trade-off in `.claude/docs/network.md`).
+/// over 7 minutes of nonstop changes to reach it. Behind a spawn window's player list that is
+/// still going out nothing queued after it drains, so skins alone at this rate reach the bound
+/// after about 4 minutes (the trade-off in `.claude/docs/network.md`).
 const SKIN_REFILL_BYTES_PER_TICK: usize = (128 << 10) / Context::TICKS_PER_SECOND as usize;
 
 /// The server's budget for skin broadcasts (PMMP sends every change at once): a token bucket of
