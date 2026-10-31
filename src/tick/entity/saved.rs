@@ -31,10 +31,10 @@
 //!   is not at hand here; only the difference is read back);
 //! - NPCs: `Health` (float), `Invulnerable` (byte) and, when not empty, `AnchorData` (the user's
 //!   compound, at most [`custom::MAX_DATA_BYTES`]) and Bedrock's `Mainhand` (the held item, a
-//!   list of one [`Stack::to_nbt`]); villagers `Profession` (int) and `Offers`
-//!   (the offer list, [`Offers::to_nbt`]); human NPCs their name as the name tag and, with a skin,
-//!   PMMP's `Skin` compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin
-//!   that does not pass [`Skin`]'s checks loads as the default skin);
+//!   list of one [`Stack::to_nbt`]); villagers `Profession` (int) and `Offers` (the offer list,
+//!   [`Offers::to_nbt`]); human NPCs their name as the name tag and, with a skin, PMMP's `Skin`
+//!   compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin that does not
+//!   pass [`Skin`]'s checks loads as the default skin);
 //! - custom entities: the type's identifier and the NPC keys. One whose type the server does not
 //!   register is not an entity here (like an unknown block) and stays as saved.
 //!
@@ -796,8 +796,8 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
     })
 }
 
-/// A custom entity of the registered type `identifier` (`None` for a type the server does not
-/// have): an NPC's keys.
+/// A custom entity of the registered type `identifier`: an NPC's keys; `None` for a type the
+/// server does not have or keys [`load_npc`] refuses.
 fn load_custom(
     c: &Compound,
     identifier: &str,
@@ -805,11 +805,7 @@ fn load_custom(
     content: &Registry,
 ) -> Option<Kind> {
     let spec = Arc::clone(types.find(identifier)?);
-    Some(Kind::Npc(load_npc(
-        c,
-        Form::Custom(Custom { spec }),
-        content,
-    )?))
+    load_npc(c, Form::Custom(Custom { spec }), content).map(Kind::Npc)
 }
 
 /// Bedrock's baby flag of a mob (`IsBaby`).

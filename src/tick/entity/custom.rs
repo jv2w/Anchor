@@ -425,13 +425,10 @@ impl Mut<'_> {
         if !matches!(self.kind, Kind::Npc(_)) || !fits(&data) {
             return false;
         }
-        match &mut self.entity().kind {
-            Kind::Npc(c) => {
-                c.data = data;
-                true
-            }
-            _ => false,
+        if let Kind::Npc(c) = &mut self.entity().kind {
+            c.data = data;
         }
+        true
     }
 
     /// Puts `stack` in an NPC's hand ([`Entity::held_item`]; [`Stack::EMPTY`] empties it): its
@@ -440,13 +437,10 @@ impl Mut<'_> {
         if !matches!(self.kind, Kind::Npc(_)) {
             return false;
         }
-        match &mut self.shown().kind {
-            Kind::Npc(c) => {
-                c.held = stack;
-                true
-            }
-            _ => false,
+        if let Kind::Npc(c) = &mut self.shown().kind {
+            c.held = stack;
         }
+        true
     }
 }
 

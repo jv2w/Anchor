@@ -306,7 +306,7 @@ pub(super) enum Form {
     Custom(Custom),
 }
 
-/// A custom entity's own data.
+/// What a custom entity is.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Custom {
     /// Its type.
@@ -930,7 +930,7 @@ impl Kind {
         matches!(self, Self::Npc(n) if n.dead_ticks.is_none())
     }
 
-    /// A custom entity's own data.
+    /// What a custom entity is; `None` for another kind.
     pub(super) fn custom(&self) -> Option<&Custom> {
         match self {
             Self::Npc(Character {
