@@ -13,7 +13,7 @@ mod custom;
 mod painting;
 mod skin;
 
-pub use crate::tick::{Entity, MAX_ENTITIES_PER_WORLD, Mut};
+pub use crate::tick::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
 pub use animation::Animation;
 pub use custom::{Behaviour, Custom, Error};
 pub use painting::PaintingMotive;

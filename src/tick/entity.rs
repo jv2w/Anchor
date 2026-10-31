@@ -81,6 +81,7 @@ use tracing::{debug, warn};
 pub use self::api::Mut;
 pub(crate) use self::custom::{Customs, EntityTypes};
 pub(super) use self::explosion::Blast;
+pub use self::kind::MAX_NAME_TAG_BYTES;
 use self::kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind, NEVER, Orb};
 #[cfg(test)]
 use self::kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};

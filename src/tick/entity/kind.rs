@@ -441,8 +441,10 @@ impl Codec for Custom {
     }
 }
 
-/// The longest name tag, in bytes (a player name is at most 16 characters).
-pub(super) const MAX_NAME_TAG_BYTES: usize = 1024;
+/// The longest name tag, in bytes: an entity's ([`Mut::set_name_tag`](super::Mut::set_name_tag)),
+/// a human NPC's name and a dropped item's owner or thrower (a player name is at most 16
+/// characters).
+pub const MAX_NAME_TAG_BYTES: usize = 1024;
 
 /// "Never" for a pickup or despawn delay (PMMP `NEVER_DESPAWN`).
 pub(super) const NEVER: i16 = -1;

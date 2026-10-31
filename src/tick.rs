@@ -59,7 +59,7 @@ pub(crate) use self::log::{
 pub(crate) use entity::Customs;
 pub(crate) use entity::EntityTypes;
 pub(crate) use entity::bounded_motion;
-pub use entity::{Entity, MAX_ENTITIES_PER_WORLD, Mut};
+pub use entity::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
 pub use hook::SentPacket;
 use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;

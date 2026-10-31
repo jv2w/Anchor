@@ -775,7 +775,7 @@ impl Mut<'_> {
         true
     }
 
-    /// Sets its name tag (a human NPC's name). False over 1,024 bytes.
+    /// Sets its name tag (a human NPC's name). False over [`MAX_NAME_TAG_BYTES`].
     #[doc(alias = "Entity::setNameTag")]
     pub fn set_name_tag(&mut self, name: &str) -> bool {
         if name.len() > MAX_NAME_TAG_BYTES {
@@ -986,7 +986,7 @@ impl Mut<'_> {
         }
     }
 
-    /// Sets a dropped item's owner (a player name, at most 1,024 bytes).
+    /// Sets a dropped item's owner (a player name, at most [`MAX_NAME_TAG_BYTES`]).
     #[doc(alias = "ItemEntity::setOwner")]
     pub fn set_owner(&mut self, owner: &str) -> bool {
         if owner.len() > MAX_NAME_TAG_BYTES {
@@ -1001,7 +1001,7 @@ impl Mut<'_> {
         }
     }
 
-    /// Sets who threw a dropped item (a player name, at most 1,024 bytes).
+    /// Sets who threw a dropped item (a player name, at most [`MAX_NAME_TAG_BYTES`]).
     #[doc(alias = "ItemEntity::setThrower")]
     pub fn set_thrower(&mut self, thrower: &str) -> bool {
         if thrower.len() > MAX_NAME_TAG_BYTES {
@@ -1651,10 +1651,10 @@ impl Context<'_> {
         self.spawn(world, pos, kind, motion)
     }
 
-    /// Spawns a human NPC named `name` (at most 1,024 bytes) at `pos` (its feet) in `world`, with
-    /// `skin` or the default skin, and its name always showing. Like every NPC Anchor spawns it is
-    /// invulnerable ([`Mut::set_invulnerable`]) and has no AI. `None` for a longer name, or
-    /// where [`Self::drop_item`] fails.
+    /// Spawns a human NPC named `name` (at most [`MAX_NAME_TAG_BYTES`]) at `pos` (its feet) in
+    /// `world`, with `skin` or the default skin, and its name always showing. Like every NPC Anchor
+    /// spawns it is invulnerable ([`Mut::set_invulnerable`]) and has no AI. `None` for a longer
+    /// name, or where [`Self::drop_item`] fails.
     #[doc(alias = "Human::__construct")]
     pub fn spawn_human(
         &mut self,

@@ -127,7 +127,8 @@ impl Custom {
         Self { max_health, ..self }
     }
 
-    /// This type with the name tag new entities start with (at most 1,024 bytes).
+    /// This type with the name tag new entities start with (at most
+    /// [`MAX_NAME_TAG_BYTES`](super::MAX_NAME_TAG_BYTES)).
     #[must_use]
     pub fn with_name_tag(self, name_tag: impl Into<String>) -> Self {
         Self {
