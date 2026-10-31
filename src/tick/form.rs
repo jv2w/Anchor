@@ -167,6 +167,15 @@ impl Context<'_> {
         p.send_packet(Packet::ClientBoundCloseForm(ClientBoundCloseForm {}));
         true
     }
+
+    /// Whether `player` has a form waiting for an answer. False if the player is not in the game.
+    pub fn has_form_open(&self, player: player::Id) -> bool {
+        self.state
+            .forms
+            .players
+            .get(&player.session())
+            .is_some_and(|open| !open.pending.is_empty())
+    }
 }
 
 /// Handles a `ModalFormResponse` of `session`: an answer to a form it was sent runs the form's

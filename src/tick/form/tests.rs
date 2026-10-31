@@ -352,6 +352,31 @@ fn closing_forms_sends_the_close_and_forgets_them() {
 }
 
 #[test]
+fn a_form_is_open_from_sending_until_it_is_answered_closed_or_closed_by_the_server() {
+    let (mut state, _rx) = server();
+    let is_open = |state: &mut State, session| Context { state }.has_form_open(id(session));
+    assert!(!is_open(&mut state, 1), "nothing sent yet");
+    assert!(!is_open(&mut state, 9), "not in the game");
+
+    let _a = send(&mut state, 1, menu());
+    let _b = send(&mut state, 1, menu());
+    assert!(is_open(&mut state, 1));
+    assert!(!is_open(&mut state, 2), "another player's form");
+    run(&mut state, vec![answer(1, 1, 0, Some(b"0"), None)]);
+    assert!(is_open(&mut state, 1), "one of two answered");
+    run(&mut state, vec![answer(1, 2, 1, None, Some(0))]);
+    assert!(!is_open(&mut state, 1), "the last closed by the player");
+
+    let _c = send(&mut state, 1, menu());
+    assert!(Context { state: &mut state }.close_forms(id(1)));
+    assert!(!is_open(&mut state, 1), "closed by the server");
+
+    let _d = send(&mut state, 1, menu());
+    run(&mut state, vec![leave(1, 3)]);
+    assert!(!is_open(&mut state, 1), "left");
+}
+
+#[test]
 fn forms_sent_and_answered_repeatedly_leave_the_tables_as_they_started() {
     let (mut state, _rx) = server();
     assert_eq!(state.forms.counts(), (0, 0));
