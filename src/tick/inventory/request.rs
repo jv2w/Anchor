@@ -36,7 +36,6 @@ use super::{
 };
 use crate::block::{self, Class};
 use crate::crafting::{self, Recipe, ShapelessType};
-use crate::inventory::{MAX_REQUEST_ACTIONS, RECENT_REQUESTS};
 use crate::item::{ArmorSlot, Stack};
 use crate::menu::{Change, Input, Response};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
@@ -49,6 +48,8 @@ use crate::protocol::{
 
 /// The most requests a player has handled per tick (PMMP: 80 per packet); more are refused.
 pub(super) const MAX_REQUESTS_PER_TICK: u16 = 80;
+/// The most actions in one request (PMMP: the recipe book's largest craft needs about 53).
+pub(super) const MAX_ACTIONS: usize = 60;
 /// The most entries of a recipe book craft's ingredient list (a recipe has at most 9).
 const MAX_INGREDIENT_ENTRIES: usize = crafting::GRID_CELLS;
 
@@ -57,7 +58,7 @@ const MAX_INGREDIENT_ENTRIES: usize = crafting::GRID_CELLS;
 pub(super) enum Error {
     /// More requests this tick than [`MAX_REQUESTS_PER_TICK`].
     Busy,
-    /// More actions than [`MAX_REQUEST_ACTIONS`] or ingredient entries than a recipe has.
+    /// More actions than [`MAX_ACTIONS`] or ingredient entries than a recipe has.
     TooLarge,
     /// A request ID the player used recently.
     Repeat,
@@ -132,7 +133,7 @@ impl fmt::Display for Error {
             Self::Unsupported => "station action not available",
             Self::Cancelled => "cancelled by a listener",
             Self::MenuChanged => "changed by the menu handler",
-            Self::Menu => "menu slots are the server's",
+            Self::Menu => "menu slot not editable or change refused by its handler",
         })
     }
 }
@@ -281,7 +282,7 @@ pub(in crate::tick) fn on_item_stack_request(
     }
     let refusal = if inv.budget.1 >= MAX_REQUESTS_PER_TICK {
         Some(Error::Busy)
-    } else if request.actions.len() > MAX_REQUEST_ACTIONS {
+    } else if request.actions.len() > MAX_ACTIONS {
         Some(Error::TooLarge)
     } else if inv.recent_set.contains(&request.request_id) {
         Some(Error::Repeat)
@@ -349,7 +350,7 @@ fn run(
         plan
     };
     let answer = match edit {
-        Some(menu) => offer(state, session, menu, &plan)?,
+        Some(menu) => offer(state, session, menu, &plan)?.map(|r| (menu, r)),
         None => None,
     };
     let plan = match answer {
@@ -366,7 +367,7 @@ fn run(
     };
     commit(state, session, request.request_id, plan)?;
     raised.watch(state);
-    if let (Some(Response::Close), Some(menu)) = (answer, edit)
+    if let Some((menu, Response::Close)) = answer
         && menu::is_open(state, session, menu)
     {
         close_now(state, session, Notice::Send, Raise::Events);
@@ -1334,9 +1335,9 @@ fn is_created_output(info: &StackRequestSlotInfo) -> bool {
 }
 
 impl Inventory {
-    /// Remembers a request ID, forgetting the oldest beyond [`RECENT_REQUESTS`].
+    /// Remembers a request ID, forgetting the oldest beyond [`super::RECENT_REQUESTS`].
     fn remember(&mut self, request: i32) {
-        if self.recent.len() >= RECENT_REQUESTS
+        if self.recent.len() >= super::RECENT_REQUESTS
             && let Some(old) = self.recent.pop_front()
         {
             self.recent_set.remove(&old);
@@ -1347,4 +1348,4 @@ impl Inventory {
 }
 
 const _: () = assert!(GRID <= crafting::GRID_CELLS);
-const _: () = assert!(MAX_REQUEST_ACTIONS <= crafting::MAX_PROVIDED);
+const _: () = assert!(MAX_ACTIONS <= crafting::MAX_PROVIDED);

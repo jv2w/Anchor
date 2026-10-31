@@ -51,7 +51,7 @@ use crate::event::{
     InventoryClose, InventoryOpen, PlayerBlockPick, PlayerDropItem, PlayerItemHeld,
     Window as PublicWindow,
 };
-use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS, RECENT_REQUESTS};
+use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -124,6 +124,9 @@ const WINDOW_FIRST: u8 = 1;
 const WINDOW_LAST: u8 = 100;
 /// The window ID a client closes "the last window" with (-1).
 const WINDOW_NONE: u8 = 255;
+/// Request IDs remembered per player to refuse a repeat; clients number requests -1, -3, -5…,
+/// so a repeat within this many is a replay, not a new request.
+const RECENT_REQUESTS: usize = 256;
 /// Windows do not open while more than this many stacks wait for room less [`MAX_GIVE_BACK`]
 /// (the waiting list leaves room for what a window may hold).
 const MAX_PENDING: usize = 64;
@@ -2454,7 +2457,6 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
     }
     let kind = window.map(|w| w.kind);
     let cursor = match kind {
-        // Only the client closes a menu without a notice.
         Some(WindowKind::Menu { .. }) => {
             // Still held while the handler runs, out of the slots: what it writes there counts
             // them (MAX_SAVED_PENDING).
@@ -2462,6 +2464,7 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
             if let Some(p) = state.players.get_mut(&session) {
                 p.inventory.closing = p.inventory.closing.saturating_add(out);
             }
+            // Only the client closes a menu without a notice.
             let by_player = notice == Notice::Skip;
             let cursor = menu::closed(state, session, cursor, menu_lent, by_player, raise);
             if let Some(p) = state.players.get_mut(&session) {
@@ -2748,9 +2751,9 @@ pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -
     if let Some(dropped) = tests::stand_in_drop(&stack) {
         return dropped;
     }
-    let (motion, thrower) = (Some(motion), player.identity.name.clone());
+    let thrower = player.identity.name.clone();
     let delay = THROW_PICKUP_DELAY;
-    if !super::entity::drop_item_with(state, world, at, stack, motion, delay, thrower) {
+    if !super::entity::drop_item_with(state, world, at, stack, Some(motion), delay, thrower) {
         return false;
     }
     super::survival::swing(state, session);
