@@ -360,8 +360,7 @@ impl Context<'_> {
     /// feet) in `world`, showing `profession` (the actor variant) and trading `offers` in screen
     /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
     /// [`custom::Error::Offer`](crate::custom::Error::Offer) for offers
-    /// [`custom::check_offers`](crate::custom::check_offers) refuses (more than
-    /// [`custom::MAX_OFFERS`](crate::custom::MAX_OFFERS) among them), and with
+    /// [`custom::check_offers`](crate::custom::check_offers) refuses, and with
     /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not exist,
     /// `pos` is not finite, outside the world border or more than 64 blocks above or below the
     /// world height, its chunk is not loaded, or the world is at its entity limit.

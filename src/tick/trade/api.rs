@@ -120,9 +120,8 @@ impl Context<'_> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
     }
 
-    /// Replaces the offers of the villager NPC `villager` (refused as [`check_offers`] says, more
-    /// than [`custom::MAX_OFFERS`] among them).
-    /// Players trading with it see the new list at once. Nothing changes on failure.
+    /// Replaces the offers of the villager NPC `villager`; players trading with it see the new list
+    /// at once. Fails, changing nothing, for offers [`check_offers`] refuses.
     pub fn set_trade_offers(
         &mut self,
         villager: Id,
