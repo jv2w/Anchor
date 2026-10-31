@@ -1063,16 +1063,23 @@ impl<'a> Exec<'a> {
         let (sa, sb) = (self.slot(ra)?, self.slot(rb)?);
         self.accepts(ra, &sb.stack)?;
         self.accepts(rb, &sa.stack)?;
-        // The cursor's stack goes whole: what it gets is lent if a lending menu's slot held it. A
-        // swap of a slot with itself (a crafted request) changes nothing.
+        // The cursor's stack goes whole: what it gets is lent if a lending menu's slot held it,
+        // unless the cursor gave only the player's own items for it, as in a container (an empty
+        // cursor takes it lent, as a take would). A swap of a slot with itself (a crafted
+        // request) changes nothing.
         let onto_cursor = match (ra, rb) {
             _ if ra == rb => None,
-            (SlotRef::Cursor, _) => Some((rb, sb.stack.count())),
-            (_, SlotRef::Cursor) => Some((ra, sa.stack.count())),
+            (SlotRef::Cursor, _) => Some((rb, &sa.stack, sb.stack.count())),
+            (_, SlotRef::Cursor) => Some((ra, &sb.stack, sa.stack.count())),
             _ => None,
         };
-        if let Some((other, count)) = onto_cursor {
-            self.lent = if self.lends_from(other) { count } else { 0 };
+        if let Some((other, given, count)) = onto_cursor {
+            let bought = self.lent == 0 && !given.is_empty();
+            self.lent = if self.lends_from(other) && !bought {
+                count
+            } else {
+                0
+            };
         }
         self.set(ra, sb.stack, sb.id.net);
         self.set(rb, sa.stack, sa.id.net);

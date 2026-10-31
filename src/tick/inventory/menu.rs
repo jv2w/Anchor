@@ -12,9 +12,9 @@
 //! request's events, and the request is checked again and made (a drop thrown) only if it keeps
 //! them. The handler runs in the input phase with the handler taken out of the state
 //! ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes once. A menu
-//! that lends ([`crate::menu::Menu::lend`]) has the request executor count the items its slots
-//! move onto the cursor as lent (`Inventory::lent`); while the cursor holds some, every request
-//! runs so, and its handler hears those that change them or the cursor.
+//! that lends has the request executor count the items its slots move onto the cursor as lent
+//! (`Inventory::lent`), as [`crate::menu::Menu::lend`] says; while the cursor holds some, every
+//! request runs so, and its handler hears those that change them or the cursor.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from

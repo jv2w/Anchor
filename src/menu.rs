@@ -162,9 +162,11 @@ impl Menu {
     /// stay in what the handler keeps, which holds the menu's items and the lent ones, until they
     /// leave the cursor. Items going from the cursor into a menu slot are the lent ones first, and
     /// items going anywhere else (the player's slots, a drop, a creative destroy) are the player's
-    /// own first; a swap of the cursor with a menu slot lends the slot's stack, a swap with another
-    /// slot lends none. A write of the cursor through the inventory API keeps lent as many of
-    /// them as the new stack holds of their item, the player's own going first.
+    /// own first. A swap of the cursor with a menu slot lends the slot's stack, unless the cursor
+    /// held only the player's own items: then, as in a container, they go into the slot and the
+    /// slot's stack is the player's. A swap with another slot lends none. A write of the cursor
+    /// through the inventory API keeps lent as many of them as the new stack holds of their
+    /// item, the player's own going first.
     ///
     /// The cursor's stack, as the inventory API reads it, holds the lent items
     /// ([`Context::menu_lent`] says how many), but the player's saved data does not: a commit

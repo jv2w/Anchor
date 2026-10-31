@@ -1781,7 +1781,7 @@ fn a_lending_menu_keeps_taken_items_the_handler_s_until_they_leave_the_cursor() 
 }
 
 #[test]
-fn a_swap_of_the_cursor_lends_a_menu_slot_s_stack_and_no_other() {
+fn a_swap_of_the_cursor_lends_a_menu_slot_s_stack_only_for_lent_items() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     w.give(s, sticks(5));
@@ -1797,13 +1797,33 @@ fn a_swap_of_the_cursor_lends_a_menu_slot_s_stack_and_no_other() {
         )],
     );
     assert!(ok(&r), "{r:?}");
-    let (net, menu_net) = (w.id(s, C::Cursor, 0), shown(&w, s, 0).1);
+    let swap_with_menu = |w: &mut World| {
+        let (net, menu_net) = (w.id(s, C::Cursor, 0), shown(w, s, 0).1);
+        let r = w.request(
+            s,
+            vec![swap(at(C::Cursor, 0, net), at(C::LevelEntity, 0, menu_net))],
+        );
+        assert!(ok(&r), "{r:?}");
+    };
+    // The player's own five for the menu's three, as in a container: nothing lent.
+    swap_with_menu(&mut w);
+    assert_eq!(lent_heard(), [(0, 0)]);
+    assert_eq!(cursor(&w), (3, 0));
+    check_once(&mut w, s, 8);
+    // With lent ones on the cursor, the stack it gets is lent.
+    let (_, net) = shown(&w, s, 0);
     let r = w.request(
         s,
-        vec![swap(at(C::Cursor, 0, net), at(C::LevelEntity, 0, menu_net))],
+        vec![take(
+            2,
+            at(C::LevelEntity, 0, net),
+            at(C::Cursor, 0, w.id(s, C::Cursor, 0)),
+        )],
     );
     assert!(ok(&r), "{r:?}");
-    assert_eq!(lent_heard(), [(0, 3)], "the player's five went in");
+    assert_eq!(lent_heard(), [(0, 2)]);
+    swap_with_menu(&mut w);
+    assert_eq!(lent_heard(), [(2, 3)]);
     assert_eq!(cursor(&w), (3, 3));
     check_once(&mut w, s, 8);
     // A checkpoint keeps the lent count.
