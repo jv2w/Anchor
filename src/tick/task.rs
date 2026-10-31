@@ -359,8 +359,8 @@ impl Context<'_> {
     /// Spawns a villager-type NPC (no AI, network actor `minecraft:villager_v2`) at `pos` (its
     /// feet) in `world`, showing `profession` (the actor variant) and trading `offers` in screen
     /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
-    /// [`custom::Error::Offer`](crate::custom::Error::Offer) for an offer
-    /// [`set_trade_offers`](Self::set_trade_offers) refuses, and with
+    /// [`custom::Error::Offer`](crate::custom::Error::Offer) for offers
+    /// [`custom::check_offers`](crate::custom::check_offers) refuses, and with
     /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not exist,
     /// `pos` is not finite, outside the world border or more than 64 blocks above or below the
     /// world height, its chunk is not loaded, or the world is at its entity limit.

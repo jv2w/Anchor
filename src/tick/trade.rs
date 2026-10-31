@@ -42,6 +42,7 @@ use crate::protocol::packet::{Packet, UpdateTrade};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 
+pub use self::api::check_offers;
 pub(super) use self::api::new_offers;
 pub(super) use self::offers::{Damage, Error, Offers, Recipe, Result};
 

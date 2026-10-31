@@ -1,7 +1,7 @@
 //! Tick tests of custom content: a custom block placed, used and broken with its behaviour hooks
-//! and drops, a villager's offers read and changed as typed values, custom furnace recipes cooked,
-//! custom items kept through a save and a restart, and a custom item that breaks nothing in
-//! creative mode.
+//! and drops, a villager's offers read, changed and checked as typed values, custom furnace recipes
+//! cooked, custom items kept through a save and a restart, and a custom item that breaks nothing
+//! in creative mode.
 
 use super::*;
 use crate::Context as Ctx;
@@ -329,6 +329,42 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
     assert_eq!(
         ctx.set_trade_offers(gone, &[]),
         Err(crate::custom::Error::NotVillager)
+    );
+}
+
+#[test]
+fn an_offer_list_check_refuses_what_spawning_a_villager_refuses() {
+    let mut h = Harness::new(|_| {});
+    let emerald = Stack::new(crate::item::Kind::Emerald.default_type(), 3);
+    let bread = Stack::new(crate::item::Kind::Bread.default_type(), 6);
+    let good = Offer::new(emerald, bread.clone(), 4).with_uses(4);
+    let lists = [
+        vec![good.clone()],
+        vec![good.clone().with_uses(5)],
+        vec![Offer::new(Stack::EMPTY, bread, 1)],
+        vec![good.clone().with_tier(5)],
+        vec![good.clone().with_price_multipliers(0.0, f32::NAN)],
+        vec![good; 129],
+    ];
+    let mut ctx = Ctx {
+        state: &mut h.state,
+    };
+    for offers in &lists {
+        let spawned = ctx
+            .spawn_villager(
+                crate::world::Id::DEFAULT,
+                Vec3::new(4.5, -60.0, 4.5),
+                1,
+                offers,
+            )
+            .map(drop);
+        assert_eq!(crate::custom::check_offers(offers), spawned);
+    }
+    assert_eq!(crate::custom::check_offers(&lists[0]), Ok(()));
+    assert!(
+        lists[1..]
+            .iter()
+            .all(|l| crate::custom::check_offers(l).is_err())
     );
 }
 

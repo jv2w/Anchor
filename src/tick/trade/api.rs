@@ -63,8 +63,17 @@ fn to_offer(r: &Recipe) -> Offer {
     }
 }
 
-/// The stored offers of a new villager trading `offers`, checked as
-/// [`Context::set_trade_offers`] checks them.
+/// Whether [`Context::spawn_villager`] takes `offers`, failing with the
+/// [`custom::Error::Offer`] it would: at most 128 offers, each with a payment, a sale, uses at
+/// most its maximum, counters at most [`custom::MAX_TRADE_COUNTER`], a tier at most
+/// [`custom::MAX_TRADE_TIER`] and price multipliers passing [`custom::is_price_multiplier`],
+/// whose saved form takes at most 2 MiB. [`Context::set_trade_offers`] checks the same, but counts
+/// towards the 2 MiB the offer data a villager loaded from a saved world keeps unread.
+pub fn check_offers(offers: &[Offer]) -> std::result::Result<(), custom::Error> {
+    new_offers(offers).map(drop)
+}
+
+/// The stored offers of a new villager trading `offers` ([`check_offers`]).
 pub(in crate::tick) fn new_offers(offers: &[Offer]) -> std::result::Result<Offers, custom::Error> {
     let mut stored = Offers::default();
     stored
@@ -111,9 +120,8 @@ impl Context<'_> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
     }
 
-    /// Replaces the offers of the villager NPC `villager` (at most 128; each needs a payment,
-    /// a sale, uses at most its maximum, a tier up to [`custom::MAX_TRADE_TIER`] and finite price
-    /// multipliers). Players trading with it see the new list at once. Nothing changes on failure.
+    /// Replaces the offers of the villager NPC `villager` (refused as [`check_offers`] says).
+    /// Players trading with it see the new list at once. Nothing changes on failure.
     pub fn set_trade_offers(
         &mut self,
         villager: Id,

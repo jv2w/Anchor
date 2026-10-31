@@ -66,6 +66,7 @@ pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
 pub(crate) use task::Tasks;
 pub use task::{Context, Offline};
+pub use trade::check_offers;
 
 /// The length of a tick at [`Context::TICKS_PER_SECOND`].
 pub(crate) const TICK: Duration = Duration::from_millis(1000 / Context::TICKS_PER_SECOND as u64);

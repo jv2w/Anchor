@@ -37,6 +37,7 @@ pub use self::offer::{
 pub use self::recipe::{Ingredient, Recipe};
 pub(crate) use self::registry::{Registry, is_identifier};
 pub use crate::crafting::{FurnaceType, ShapelessType};
+pub use crate::tick::check_offers;
 
 use crate::ServerBuilder;
 
