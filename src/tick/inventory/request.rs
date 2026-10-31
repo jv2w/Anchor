@@ -97,6 +97,9 @@ pub(super) enum Error {
     /// A listener cancelled the request, or changed the game so that it no longer does what
     /// the listeners saw.
     Cancelled,
+    /// The open menu's handler changed the game so that a change it kept no longer does what it
+    /// heard.
+    MenuChanged,
     /// A slot of the open menu that is not editable, or a change of its editable slots that its
     /// handler refused ([`super::menu`]).
     Menu,
@@ -128,6 +131,7 @@ impl fmt::Display for Error {
             Self::Unreturnable => "held items could not go back",
             Self::Unsupported => "station action not available",
             Self::Cancelled => "cancelled by a listener",
+            Self::MenuChanged => "changed by the menu handler",
             Self::Menu => "menu slots are the server's",
         })
     }
@@ -328,7 +332,14 @@ fn run(
     let mut raised = events::Raised::of(state, session, &plan);
     raised.call(state)?;
     let plan = if raised.listened(state) {
-        check_again(state, session, request, &plan, edit.is_some())?
+        check_again(
+            state,
+            session,
+            request,
+            &plan,
+            edit.is_some(),
+            Error::Cancelled,
+        )?
     } else {
         plan
     };
@@ -337,14 +348,15 @@ fn run(
         None => None,
     };
     let plan = match answer {
-        Some(_) => check_again(state, session, request, &plan, false).inspect_err(|e| {
-            warn!(
-                session = session.get(),
-                request = request.request_id,
-                error = %e,
-                "menu handler changed what the change it kept reads; change refused"
-            );
-        })?,
+        Some(_) => check_again(state, session, request, &plan, false, Error::MenuChanged)
+            .inspect_err(|e| {
+                warn!(
+                    session = session.get(),
+                    request = request.request_id,
+                    error = %e,
+                    "menu handler changed what the change it kept reads; change refused"
+                );
+            })?,
         None => plan,
     };
     commit(state, session, request.request_id, plan)?;
@@ -358,19 +370,20 @@ fn run(
 }
 
 /// Checks a request again on the game as the callbacks left it: refused unless it still does
-/// exactly what `plan` does.
+/// exactly what `plan` does, with `changed` if it checks but does otherwise.
 fn check_again(
     state: &State,
     session: SessionId,
     request: &ItemStackRequest,
     plan: &Plan,
     describe: bool,
+    changed: Error,
 ) -> Result<Plan> {
     let again = check(state, session, request, describe)?;
     if again.same(plan) {
         Ok(again)
     } else {
-        Err(Error::Cancelled)
+        Err(changed)
     }
 }
 
@@ -541,7 +554,8 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
 
 /// Hands the handler of the open menu `menu` the changes the described `plan` would make, before
 /// they are made, and gives its answer; `None` if the plan changes no menu slot, so no handler
-/// ran. Refused if the handler refuses, or if the menu has no handler (a listener closed it).
+/// ran. Refused if the handler refuses. A listener that closed the menu never gets here: the check
+/// after the listeners refuses the request first (its menu slots are gone or renumbered).
 fn offer(
     state: &mut State,
     session: SessionId,

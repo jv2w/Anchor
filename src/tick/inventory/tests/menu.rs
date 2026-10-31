@@ -992,6 +992,49 @@ fn a_change_whose_handler_changes_a_slot_it_names_is_refused() {
 }
 
 #[test]
+fn a_kept_change_the_handler_made_do_otherwise_is_logged_as_the_handlers() {
+    /// The main slot the request puts a stick into, named by the request's own ID (no stack
+    /// network ID to go stale).
+    const TO: u8 = 5;
+    fn fill(cx: &mut Context<'_>, player: crate::player::Id, _: &m::Change) -> Response {
+        cx.player_mut(player)
+            .unwrap()
+            .inventory_mut(crate::inventory::Kind::Main)
+            .set(usize::from(TO), sticks(1))
+            .unwrap();
+        Response::Keep
+    }
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    open_editable(
+        &mut w,
+        s,
+        Menu::new(MenuKind::Chest).item(0, sticks(4)).editable(0),
+        fill,
+    );
+    let (_, net) = shown(&w, s, 0);
+    let request = -5;
+    let actions = vec![take(
+        1,
+        at(C::LevelEntity, 0, net),
+        at(C::CombinedHotBarAndInventory, TO, request),
+    )];
+    let logged = crate::console::log::tests::captured(|| {
+        assert!(!ok(&w.request_as(s, request, actions)));
+    });
+    let warned: Vec<_> = logged.iter().filter(|l| l.contains("WARN")).collect();
+    let [line] = warned.as_slice() else {
+        panic!("one warning: {logged:?}");
+    };
+    assert!(
+        line.contains("error=changed by the menu handler"),
+        "the handler's, not a listener's: {line}"
+    );
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+    assert_eq!(w.inv(s).main.stack(TO), &sticks(1));
+}
+
+#[test]
 fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
     /// The player's slot the handler writes with each change, as a box keeps a menu's items.
     const STORE: u8 = 0;
