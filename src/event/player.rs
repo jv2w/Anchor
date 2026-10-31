@@ -1363,7 +1363,9 @@ getters!(PlayerPostChunkSend {
 
 /// Raised when a player leaves, before the player is saved and removed: what a listener does to
 /// the player through the API takes effect before the save (a teleport is the saved place, a kill
-/// dies with its drops and [`PlayerDeath`]).
+/// dies with its drops and [`PlayerDeath`]). Its open window closes after the listeners and
+/// monitors, or once the listeners return when one's call closes it (a teleport); a menu's
+/// handler hears [`Close`](crate::menu::Close) then.
 #[doc(alias = "PlayerQuitEvent")]
 #[derive(Debug)]
 pub struct PlayerQuit {

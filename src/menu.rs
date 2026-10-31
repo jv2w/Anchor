@@ -309,9 +309,14 @@ impl Change {
 /// into what it keeps. Nothing the handler does meanwhile reaches that stack, so whatever it
 /// answers, the stack is the player's or the handler's, once.
 ///
+/// A leaving player's menu closes after the [`PlayerQuit`] listeners, and after its monitors
+/// unless a listener's call closed it first (a teleport): the player is still in the game, and
+/// what goes back to it is saved with it.
+///
 /// A direct call that closes the menu calls no handler: its caller takes the cursor's stack first
 /// if it keeps it ([`Player::inventory_mut`] of [`Kind::Cursor`]).
 ///
+/// [`PlayerQuit`]: crate::event::PlayerQuit
 /// [`Player::inventory_mut`]: crate::player::Player::inventory_mut
 /// [`Kind::Cursor`]: crate::inventory::Kind::Cursor
 #[derive(Debug, Clone, PartialEq)]

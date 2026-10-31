@@ -1342,6 +1342,49 @@ fn a_closing_menu_hands_its_handler_the_cursor_once_on_every_close_but_a_direct_
 }
 
 #[test]
+fn a_leaving_player_s_menu_closes_after_the_quit_listeners_and_monitors_and_before_the_save() {
+    thread_local! {
+        static QUITS: Cell<u32> = const { Cell::new(0) };
+    }
+    fn quit_heard() {
+        assert!(CLOSES.take().is_empty(), "the menu is still open");
+        QUITS.set(QUITS.get() + 1);
+    }
+    let mut listeners = crate::event::Listeners::default();
+    listeners.push(
+        crate::event::Priority::Normal,
+        |_: &mut crate::event::PlayerQuit, _: &mut Context<'_>| quit_heard(),
+    );
+    listeners.push_monitor(|_: &crate::event::PlayerQuit, _: &Context<'_>| quit_heard());
+    let mut w = World::with_listeners(GameMode::Survival, listeners);
+    let s = w.join(1);
+    w.state.saving.players = true;
+    let menu = open_closing(&mut w, s, Way::Leave, Response::Keep);
+    w.state.leave(s, "client disconnect");
+    assert_eq!(
+        QUITS.get(),
+        2,
+        "the listener and the monitor heard the quit"
+    );
+    let heard = CLOSES.take();
+    assert!(
+        matches!(heard.as_slice(), [close] if close.menu() == menu),
+        "{heard:?}"
+    );
+    let saved = &w.state.saving.offline.values().next().unwrap().data;
+    let Some(Value::List(List::Compound(stacks))) = saved.extra.get("Inventory") else {
+        panic!("{:?}", saved.extra.get("Inventory"));
+    };
+    assert!(
+        stacks
+            .iter()
+            .filter_map(Stack::from_nbt)
+            .any(|s| s == sword()),
+        "the sword the handler kept is saved with the player"
+    );
+}
+
+#[test]
 fn an_inventory_transaction_names_menu_slots_as_the_window_and_may_cancel() {
     thread_local! {
         static HEARD: Cell<u32> = const { Cell::new(0) };
