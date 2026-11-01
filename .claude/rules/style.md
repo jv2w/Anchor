@@ -26,23 +26,23 @@ Every `.rs` file has exactly this order:
 1. `//!` module documentation.
 2. `mod` declarations, alphabetical.
 3. `pub use` re-exports.
-4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::`.
+4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::` and child modules (`use kind::Kind;`). Macros of an external crate are imported (`use tracing::warn;`, `use serde::Deserialize;`), never written with their crate path.
 5. Constants and statics.
-6. Types, each followed directly by its inherent `impl` and then its trait `impl`s.
+6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro (`checkpoint::fields!`, `variants!`) counts as a trait `impl`. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type.
 7. Free functions.
 8. `#[cfg(test)] mod tests` as the last item.
 
 Items are ordered top-down: the module's main item first, every caller above the items it calls.
 
 ## Inside an `impl`
-- Order: associated constants → constructors (`new`, `with_*`, `from_*`) → queries (getters, `is_*`, `has_*`, `can_*`) → mutators (`set_*`, `*_mut`, other `&mut self` methods) → conversions (`as_*`, `to_*`, `into_*`) → private helpers.
+- Order: associated constants → constructors (`new`, `with_*`, `from_*`) → queries (getters, `is_*`, `has_*`, `can_*`) → mutators (`set_*`, `*_mut`, other `&mut self` methods) → conversions (`as_*`, `to_*`, `into_*`) → private helpers. Private helpers are every private method, in the same kind order.
 - Trait implementations of one type: `Default`, `Debug`, `Display`, `std::error::Error`, `From`, `TryFrom`, operator traits, then all other traits alphabetically.
 
 ## Derives
 Always in this order, leaving out what is not derived: `Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize`.
 
 ## Lists of the same things
-- An enum's declaration order is canonical: every `match`, table, doc list, serialization, and configuration listing of its variants follows it.
+- An enum's declaration order is canonical: every `match`, table, doc list, serialization, and configuration listing of its variants follows it. An arm of several variants takes the place of its first; `Option` and `Result` arms put `Some` and `Ok` first.
 - A struct's field declaration order is canonical: every struct literal, destructuring pattern, manual `Debug`, state hash and checkpoint destructuring, doc table, and serialization follows it.
 - The key order of `DEFAULT_FILE` is the key order of `.claude/docs/config.md` and of the configuration struct.
 - Where no order carries meaning, the order is alphabetical.
@@ -62,7 +62,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Messages (errors, `expect`, test assertions, logs) start lowercase and have no final period. An `expect` message states what must hold; the `invariant` tag lives in the `#[expect]` reason, never in the message.
 
 ## Logging
-- `tracing` with structured fields: `level!(field = value, ..., "message")`. Fields first, the message last, values only in fields.
+- `tracing` with structured fields: `level!(field = value, ..., "message")`. Fields first, the message last, values only in fields. A field named like its variable is written short (`%name`, `?tick`).
 - A concept has one field name across the crate (`session`, `player`, `world`, `error`). An error is `error = %e`.
 - Levels: error is operator action, warn a recovered anomaly, info startup, shutdown, and connections, debug per connection, trace per packet.
 - Secrets (tokens, keys) are never logged. Anchor sets no global subscriber and attaches its default console writer only to its own threads.
@@ -78,7 +78,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Literals and values
 - A decimal literal of five or more digits groups thousands with `_` (`16_384`); one of four digits or fewer is never grouped (`4096`).
 - A literal whose meaning is not obvious at its use site, or that several places share, is a named constant.
-- A constant that describes one type's values is an associated constant of that type; every other constant is a module `const`. A closed set of related values is an enum, never a group of constants.
+- A constant that describes one type's values is an associated constant of that type; every other constant is a module `const`. A closed set of related values is an enum, never a group of constants; the tag bytes of a written format are module constants `<GROUP>_<VARIANT>`, since the enum rule covers Rust values, not bytes.
 - A `String` from a string literal is `"…".to_owned()`. An empty vector is `Vec::new()` or `Vec::with_capacity(n)`; `vec![…]` only with elements. A default value names its type (`Type::default()`, `..Type::default()`); `Default::default()` only where the type has no name to write (arrays, tuples).
 
 ## Control flow
@@ -89,16 +89,16 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Comments say only what the code cannot: reasons, ordering, the trap avoided, the invariant kept. Never restate the code; never write history, work process, previous states, authors, or schedules.
 - A wrong comment is worse than none; changing code changes its comments in the same change.
 - Outside explanation points to `.claude/docs/<file>.md` by file name only, never by section.
-- The first line of every rustdoc is one sentence ending with a period. Functions start with a third-person verb ("Reads", "Sets"); types, fields, variants, constants, and getters and queries (`&self` methods that only read) with a noun phrase ("The chunks written.", "Whether the file is new."). A test's rustdoc states the behavior it checks, never "Checks that".
+- The first line of every rustdoc is one sentence ending with a period. Functions start with a third-person verb ("Reads", "Sets"); types, fields, variants, constants, constructors, getters, `_mut` lenders, and queries (methods and free functions that only read) with a noun phrase ("A new empty chunk.", "The chunks written.", "The chunk, to change it.", "Whether the file is new."). A test's rustdoc states the behavior it checks, never "Checks that".
 
 ## Language and names in documents
 - Identifiers, comments, rustdoc, logs, `CLAUDE.md`, and everything under `.claude/` are English. Reports to the user are Korean (`CLAUDE.md`).
 - Documents never name external servers. Use "the official server" (the server program Mojang distributes), "the dump" or "the dump source" (data source), "the API table" (API parity), "the reference list source". Names stay only where unavoidable: the pinned-source and `.cache/` tables in `.claude/docs/data.md`, the configuration migration table in `.claude/docs/config.md`, literal paths, commands, and markers (`xtask/data/pmmp/`, `.cache/bds`, `p6 bds`, `// pmmp:`), and Go library names (gophertunnel, go-raknet, go-nethernet). This rule covers documents (`CLAUDE.md`, `README.md`, `.claude/`, `xtask/data/p6/facts.md`) only; code comments, tool data (`intended.txt`, `deferred.txt`, `fields.txt`), and generated files are outside it.
 
 ## Tests
-- Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`.
+- Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`.
 - In a test module, a helper sits directly above the first test that uses it.
-- Test names describe the behavior as a phrase (no `test_` prefix). Tests fail with `expect` and `assert`. Equality is `assert_eq!(actual, expected)`, actual first.
+- Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// pmmp:` line comes before its `///` documentation.
 
 ## Lints and formatting
 - The canonical sources are `[workspace.lints]` in Cargo.toml, `.clippy.toml`, and `.rustfmt.toml`. Formatting is rustfmt only. Exceptions follow `CLAUDE.md`.
