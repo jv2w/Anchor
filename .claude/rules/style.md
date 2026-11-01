@@ -18,7 +18,7 @@ Every kind of code has exactly one form, written here. Two forms for one kind is
 - Modules are `foo.rs` and `foo/bar.rs`; `mod.rs` is forbidden. Module placement is in `.claude/rules/architecture.md`.
 - The first line of every module is a `//!` comment stating its responsibility.
 - Visibility is private by default, `pub(crate)` when split inside the crate, `pub` only for API reachable from the crate root. Every public item has `///` documentation and a `Debug` implementation.
-- Re-exports (`pub use`, `pub(crate) use`) form one block in rustfmt's path order and name a submodule without `self::` (`pub use stack::Stack;`).
+- Re-exports (`pub use`, `pub(crate) use`) form one block in rustfmt's path order. No `use` path starts with `self::` (`pub use stack::Stack;`, `use stack::Slot;`).
 - Paths: `super::` names only the parent module and what it holds (`super::Item`, `super::sibling::Item`, and `use super::*;` in tests). Every other crate item is named from `crate::`; never `super::super::`.
 
 ## File layout
@@ -57,7 +57,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Errors
 - Every module that can fail has one hand-written `Error` enum and exactly this alias, with the module's visibility: `pub type Result<T, E = Error> = std::result::Result<T, E>;`.
 - `Display` is `impl fmt::Display for Error` after `use std::fmt;`, with `f: &mut fmt::Formatter<'_>`. Public errors are `std::error::Error + Send + Sync`. Variants never end in `Error`; the cause is given only through `source()`.
-- A variant wrapping a cause is a tuple variant `Variant(Cause)`; conversion is `.map_err(Error::Variant)`, never a closure that only wraps. Only the crate-root `anchor::Error` implements `From`, for the module errors that reach it through `?`.
+- A variant wrapping a cause is a tuple variant `Variant(Cause)`; conversion is `.map_err(Error::Variant)`, never a closure that only wraps. A variant that carries context besides its cause is a struct variant with the cause in a field named `source`. Only the crate-root `anchor::Error` implements `From`, for the module errors that reach it through `?`.
 - `Display` writes fixed text with `f.write_str("…")` and text with arguments with `write!(f, "…", …)`.
 - Messages (errors, `expect`, test assertions, logs) start lowercase and have no final period. An `expect` message states what must hold; the `invariant` tag lives in the `#[expect]` reason, never in the message.
 
@@ -76,7 +76,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - API-table conversion: `getX/setX/isX` → `x/set_x/is_x`; singleton → a `&Server` or `Context` argument; `null`, exceptions, `-1` → `Option` or `Result`; constant groups → an enum; mutable `Vector3` → a `Copy` value; twin methods → one.
 
 ## Literals and values
-- A decimal literal of five or more digits groups thousands with `_` (`16_384`).
+- A decimal literal of five or more digits groups thousands with `_` (`16_384`); one of four digits or fewer is never grouped (`4096`).
 - A literal whose meaning is not obvious at its use site, or that several places share, is a named constant.
 - A constant that describes one type's values is an associated constant of that type; every other constant is a module `const`. A closed set of related values is an enum, never a group of constants.
 - A `String` from a string literal is `"…".to_owned()`. An empty vector is `Vec::new()` or `Vec::with_capacity(n)`; `vec![…]` only with elements. A default value names its type (`Type::default()`, `..Type::default()`); `Default::default()` only where the type has no name to write (arrays, tuples).
@@ -89,14 +89,15 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Comments say only what the code cannot: reasons, ordering, the trap avoided, the invariant kept. Never restate the code; never write history, work process, previous states, authors, or schedules.
 - A wrong comment is worse than none; changing code changes its comments in the same change.
 - Outside explanation points to `.claude/docs/<file>.md` by file name only, never by section.
-- The first line of every rustdoc is one sentence ending with a period. Functions start with a third-person verb ("Reads", "Returns"); types, fields, and variants with a noun phrase.
+- The first line of every rustdoc is one sentence ending with a period. Functions start with a third-person verb ("Reads", "Sets"); types, fields, variants, constants, and getters and queries (`&self` methods that only read) with a noun phrase ("The chunks written.", "Whether the file is new."). A test's rustdoc states the behavior it checks, never "Checks that".
 
 ## Language and names in documents
 - Identifiers, comments, rustdoc, logs, `CLAUDE.md`, and everything under `.claude/` are English. Reports to the user are Korean (`CLAUDE.md`).
 - Documents never name external servers. Use "the official server" (the server program Mojang distributes), "the dump" or "the dump source" (data source), "the API table" (API parity), "the reference list source". Names stay only where unavoidable: the pinned-source and `.cache/` tables in `.claude/docs/data.md`, the configuration migration table in `.claude/docs/config.md`, literal paths, commands, and markers (`xtask/data/pmmp/`, `.cache/bds`, `p6 bds`, `// pmmp:`), and Go library names (gophertunnel, go-raknet, go-nethernet). This rule covers documents (`CLAUDE.md`, `README.md`, `.claude/`, `xtask/data/p6/facts.md`) only; code comments, tool data (`intended.txt`, `deferred.txt`, `fields.txt`), and generated files are outside it.
 
 ## Tests
-- Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`. They move to `<module>/tests.rs` only when longer than the code they test. Public API tests are `tests/<topic>.rs`.
+- Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`.
+- In a test module, a helper sits directly above the first test that uses it.
 - Test names describe the behavior as a phrase (no `test_` prefix). Tests fail with `expect` and `assert`. Equality is `assert_eq!(actual, expected)`, actual first.
 
 ## Lints and formatting
