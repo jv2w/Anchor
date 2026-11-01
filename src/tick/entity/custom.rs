@@ -17,7 +17,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use super::api::is_placeable;
 use super::kind::{Character, Custom, Form, Kind, MAX_NAME_TAG_BYTES, Physics};
 use super::{Entities, Entity, Mut, SessionId, State, create};
 use crate::ServerBuilder;
@@ -386,7 +385,7 @@ impl Context<'_> {
             });
         };
         let w = index(self.state, world)
-            .filter(|_| is_placeable(pos))
+            .filter(|_| super::is_valid_position(pos))
             .ok_or(Error::NotSpawned)?;
         let kind = kind(spec);
         create(self.state, w, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0)).ok_or(Error::NotSpawned)

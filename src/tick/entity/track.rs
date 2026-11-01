@@ -6,7 +6,7 @@
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;
-use super::{EYE_HEIGHT, Entity, PLAYER_HEIGHT, PLAYER_WIDTH};
+use super::{Entity, PLAYER_HEIGHT, PLAYER_WIDTH, survival};
 use crate::config::GameMode;
 use crate::custom::MAX_TRADE_TIER;
 use crate::item::Stack;
@@ -661,7 +661,7 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
     ] {
         m.insert(k as u32, v);
     }
-    let feet = p.eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let feet = survival::feet_at(p.eye);
     Packet::AddPlayer(Box::new(AddPlayer {
         uuid: p.uuid,
         username: p.name.to_owned(),

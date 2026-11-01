@@ -322,7 +322,7 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     assert_eq!(e.motion(), Vec3::ZERO);
     assert!(!e.teleport(WORLD, at(4000.5, -60.0, 0.5)));
     assert!(!e.teleport(world::Id::of(1), at(0.5, -60.0, 0.5)));
-    assert!(!e.teleport(WORLD, at(0.5, 1000.0, 0.5)));
+    assert!(!e.teleport(WORLD, at(0.5, 30_000_001.0, 0.5)));
     assert!(!e.teleport(WORLD, at(0.5, f64::NAN, 0.5)));
     let found = ctx.entities_in(
         WORLD,
@@ -652,7 +652,7 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
     assert_eq!(ctx.drop_experience(world::Id::of(9), ok, 50), 0);
     assert!(ctx.spawn_experience_orb(WORLD, ok, 0).is_none());
     assert!(ctx.spawn_tnt(WORLD, ok, 40_000).is_none());
-    let high = at(0.5, 400.0, 0.5);
+    let high = at(0.5, 30_000_001.0, 0.5);
     assert!(ctx.spawn_tnt(WORLD, high, 10).is_none());
     assert!(ctx.spawn_human(WORLD, high, "up", None).is_none());
     assert_eq!(ctx.drop_experience(WORLD, high, 5), 0);

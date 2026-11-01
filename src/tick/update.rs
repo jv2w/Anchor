@@ -798,13 +798,15 @@ fn refill(state: &mut State, world: WorldIndex) {
         return;
     };
     let queue = rules.updates.neighbours_mut(world);
-    // Allocates only when a changed block has a block entity.
+    // Allocates only when a changed block has or takes a block entity.
     let mut with_entity = Vec::new();
     while queue.fifo.len() + 7 <= MAX_NEIGHBOUR_QUEUE {
         let Some(pos) = w.next_changed() else {
             break;
         };
-        if rules.block_entities.get(world, pos).is_some() {
+        if rules.block_entities.get(world, pos).is_some()
+            || w.block(pos).is_some_and(block_entity::takes_entity)
+        {
             with_entity.push(pos);
         }
         let around = std::iter::once(Some(pos)).chain(Face::ALL.map(|f| pos.step(f)));

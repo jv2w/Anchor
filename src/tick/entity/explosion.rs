@@ -31,8 +31,8 @@ use tracing::debug;
 
 use super::kind::{Kind, MAX_FUSE, Tnt};
 use super::{
-    Blow, Budget, Cause, EYE_HEIGHT, Hooks, Knock, Raise, State, create, hurt, hurt_in, is_live,
-    is_valid_explosion, level_event, level_of, physics, push_entity, survival, targetable, with,
+    Blow, Budget, Cause, Hooks, Knock, Raise, State, create, hurt, hurt_in, is_live,
+    is_valid_explosion, level_event, level_of, physics, push_entity, survival, with,
 };
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
@@ -611,15 +611,12 @@ fn hit_entities(
         }
     }
     let mut players: Vec<(SessionId, f64, Vec3)> = Vec::new();
-    for (&s, p) in &state.players {
+    super::each_player_in(state, world, area, hooks, |s, p| {
         let bounds = survival::bounding_box(p);
-        if !targetable(state, p, world, hooks) || !bounds.overlaps(area, super::EPSILON) {
-            continue;
-        }
         if let Some(impact) = impact(w, center, reach, survival::feet(p), bounds) {
             players.push((s, impact.0, impact.1));
         }
-    }
+    });
     let by = source.damage_source();
     // PMMP: `CAUSE_ENTITY_EXPLOSION` for an entity's, `CAUSE_BLOCK_EXPLOSION` otherwise.
     let (entity_cause, player_cause) = match source {
@@ -648,7 +645,7 @@ fn hit_entities(
             && let Some(f) = from
             && let Some(p) = state.players.get(&session)
         {
-            let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+            let feet = survival::feet(p);
             let blast = p
                 .inventory
                 .armor()

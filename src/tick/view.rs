@@ -214,6 +214,11 @@ impl View {
         self.out.shown.len().saturating_add(n) <= MAX_FAKE_BLOCKS
     }
 
+    /// Whether `pos` is marked to be sent again this tick ([`Self::resync`]).
+    pub(super) fn is_resynced(&self, pos: BlockPos) -> bool {
+        self.out.resynced.contains(&pos)
+    }
+
     /// Marks `pos` for the output phase to send again with what it shows then (a refused change);
     /// false if [`MAX_RESYNCS`] other positions are marked this tick already.
     pub(super) fn resync(&mut self, pos: BlockPos) -> bool {
@@ -559,6 +564,10 @@ pub(super) struct Chunks {
     /// ticket and chunk (at most [`MAX_TICKET_CHUNKS`]): derived from `tickets`, so neither
     /// saved nor hashed.
     by_chunk: BTreeSet<(Key, u64)>,
+    /// The sessions whose view has each chunk position ([`View::sees`]), in whatever world they
+    /// are (at most the chunks the views have): derived from the views, so neither saved nor
+    /// hashed. Who sees a chunk is looked up here rather than by asking every player.
+    viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>>,
     /// Chunks the tickets hold that are not loaded yet: asked for in the view phase until they
     /// load (or nobody holds them).
     waiting: BTreeSet<Key>,
@@ -590,6 +599,7 @@ impl Chunks {
             tickets,
             next_ticket,
             by_chunk: _,
+            viewers: _,
             waiting,
             stale,
             disc: _,
@@ -649,6 +659,8 @@ impl Chunks {
             tickets: Codec::decode(r)?,
             next_ticket: Codec::decode(r)?,
             by_chunk: BTreeSet::new(),
+            // Filled from the players' views once they are back ([`Self::index_views`]).
+            viewers: BTreeMap::new(),
             waiting: Codec::decode(r)?,
             stale: Codec::decode(r)?,
             // Moved over rather than built again.
@@ -662,6 +674,53 @@ impl Chunks {
                 .extend(ticket.area().map(|pos| ((ticket.world, pos), n)));
         }
         Ok(())
+    }
+
+    /// Notes the chunks every view of `players` has ([`Self::viewers`]), after a restore.
+    pub(super) fn index_views(&mut self, players: &BTreeMap<SessionId, Player>) {
+        for (&session, player) in players {
+            for &pos in &player.view.sent {
+                self.see(session, pos);
+            }
+        }
+    }
+
+    /// The chunk positions some view has ([`Self::viewers`]), for leak tests.
+    #[cfg(test)]
+    pub(super) fn viewed(&self) -> usize {
+        self.viewers.len()
+    }
+
+    /// Whether [`Self::viewers`] holds exactly the chunks each view of `players` has (tests).
+    #[cfg(test)]
+    pub(super) fn viewers_match(&self, players: &BTreeMap<SessionId, Player>) -> bool {
+        let mut viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>> = BTreeMap::new();
+        for (&session, player) in players {
+            for &pos in &player.view.sent {
+                viewers.entry(pos).or_default().insert(session);
+            }
+        }
+        viewers == self.viewers
+    }
+
+    /// The sessions whose view has chunk `pos`, in whatever world they are, in session order.
+    pub(super) fn viewers_of(&self, pos: ChunkPos) -> impl Iterator<Item = SessionId> + Clone + '_ {
+        self.viewers.get(&pos).into_iter().flatten().copied()
+    }
+
+    /// Notes that the view of `session` has chunk `pos` now.
+    fn see(&mut self, session: SessionId, pos: ChunkPos) {
+        self.viewers.entry(pos).or_default().insert(session);
+    }
+
+    /// Notes that the view of `session` lost chunk `pos`.
+    fn unsee(&mut self, session: SessionId, pos: ChunkPos) {
+        if let Some(sessions) = self.viewers.get_mut(&pos) {
+            sessions.remove(&session);
+            if sessions.is_empty() {
+                self.viewers.remove(&pos);
+            }
+        }
     }
 
     /// Whether no chunk is held, wanted, in flight or unsaved (for leak tests).
@@ -720,6 +779,7 @@ impl Chunks {
             tickets,
             next_ticket,
             by_chunk: _,
+            viewers: _,
             waiting,
             stale,
             disc: _,
@@ -1149,11 +1209,11 @@ fn set_view(
     worlds: &mut [World],
     chunks: &mut Chunks,
     rules: &mut Rules,
-    world: WorldIndex,
-    view: &mut View,
+    player: &mut Player,
     center: ChunkPos,
     radius: u8,
 ) {
+    let (world, session, view) = (player.world, player.session, &mut player.view);
     let old = view.is_open().then_some((view.center, view.radius));
     let size = chunks.disc.size(radius);
     let from = view.first_word;
@@ -1195,7 +1255,9 @@ fn set_view(
         for_each_outside(old_center, old_radius, Some((center, radius)), |offset| {
             let pos = at(old_center, offset);
             release(chunks, (world, pos));
-            view.sent.remove(&pos);
+            if view.sent.remove(&pos) {
+                chunks.unsee(session, pos);
+            }
         });
     }
     view.center = center;
@@ -1212,6 +1274,9 @@ pub(super) fn close(state: &mut State, player: &mut Player) {
             release(&mut state.chunks, (world, at(view.center, offset)));
         });
     }
+    for &pos in &view.sent {
+        state.chunks.unsee(player.session, pos);
+    }
     player.view = View::default();
 }
 
@@ -1222,16 +1287,17 @@ pub(super) fn set_radius(state: &mut State, player: &mut Player, radius: u8) {
         &mut state.worlds,
         &mut state.chunks,
         &mut state.rules,
-        player.world,
-        &mut player.view,
+        player,
         center,
         radius,
     );
 }
 
 /// Sends `session` the client data of the block entity at `pos` once the player sees the world's
-/// block there again (after a fake block over it is cleared): the client lost it when the fake
-/// block replaced the block. It goes out after the block itself, which the output phase sends.
+/// block there again (after a fake block over it is cleared, or a refused change sends it
+/// again): the client lost it when the fake block replaced the block, or when it foresaw the
+/// change (a break, a sign's new text). It goes out after the block itself, which the output
+/// phase sends.
 pub(super) fn restore_block_data(state: &mut State, session: SessionId, pos: BlockPos) {
     let State { players, rules, .. } = state;
     let Some(player) = players.get_mut(&session) else {
@@ -1387,15 +1453,7 @@ fn update_player(
         // The radius granted since the last view phase (`spawn::request_chunk_radius`).
         let radius = player.chunk_radius.unwrap_or(player.view.radius);
         if center != player.view.center || radius != player.view.radius {
-            set_view(
-                worlds,
-                chunks,
-                rules,
-                player.world,
-                &mut player.view,
-                center,
-                radius,
-            );
+            set_view(worlds, chunks, rules, player, center, radius);
         }
         // BDS sends a publisher update every tick (P6), so the client's chunk area follows the
         // player block by block rather than a chunk at a time; repeats of a block are left out.
@@ -1591,6 +1649,7 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
             if world.is_chunk_loaded(pos) || world.is_quarantined(pos) {
                 out.chunks.push(pos);
                 sent.insert(pos);
+                chunks.see(session, pos);
                 *word &= !(1 << bit);
                 if chunks.heard.sent {
                     chunks.sent.push((session, pos));
@@ -2819,7 +2878,7 @@ mod tests {
                 lost.sort_unstable();
                 released.sort_unstable();
                 assert_eq!(lost, released);
-                set_view(worlds, chunks, rules, 0, &mut player.view, to, r);
+                set_view(worlds, chunks, rules, player, to, r);
                 (center, radius) = (to, r);
                 moves += 1;
             }

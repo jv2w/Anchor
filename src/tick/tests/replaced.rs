@@ -141,7 +141,7 @@ fn a_task_replacing_containers_and_decorations_drops_what_they_held_once() {
     let (mut state, mut output, _rx) = server();
     let stick = ItemKind::Stick.default_type();
     // A chest replaced by stone, a shulker box by air, a jukebox by water, a furnace (its lit
-    // form keeps the block entity) by a chest.
+    // form keeps the block entity) by a chest, which takes a new one.
     let chest = AT;
     let shulker = BlockPos::new(10, -60, 8);
     let jukebox = BlockPos::new(12, -60, 8);
@@ -180,12 +180,16 @@ fn a_task_replacing_containers_and_decorations_drops_what_they_held_once() {
         .set_block(furnace, BlockKind::Chest.default_state())
         .unwrap();
     tick(&mut state, &mut Vec::new(), &mut output);
-    for pos in [chest, shulker, jukebox, furnace] {
+    for pos in [chest, shulker, jukebox] {
         assert!(
             state.rules.block_entities.get(0, pos).is_none(),
             "{pos:?} keeps a block entity"
         );
     }
+    // The chest in the furnace's place gets an empty block entity of its own.
+    let new = state.rules.block_entities.get(0, furnace).unwrap();
+    assert!(matches!(new.kind, block_entity::Kind::Chest { .. }));
+    assert!(new.items.iter().all(Stack::is_empty));
     assert_eq!(on_ground(&mut state, stick), 3 * 4);
     assert_eq!(on_ground(&mut state, disc), 1);
     // Nothing more drops later.

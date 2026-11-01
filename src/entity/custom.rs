@@ -231,9 +231,8 @@ pub enum Error {
         /// The identifier.
         identifier: String,
     },
-    /// The world does not exist, the position is not finite, outside the world border, more than
-    /// 64 blocks above or below the world height or not loaded, or the world is at its entity
-    /// limit.
+    /// The world does not exist, the position is not finite, outside the world border or not
+    /// loaded, or the world is at its entity limit.
     NotSpawned,
 }
 

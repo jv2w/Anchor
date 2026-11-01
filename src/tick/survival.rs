@@ -957,12 +957,18 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
     player.survival.using = None;
 }
 
-/// The player's feet position (the tick keeps the eye position), rounded to 4 decimals as PMMP
-/// keeps it (`InGamePacketHandler`: `round(4)` of the eye - 1.62). Unrounded, the `f32` eye of a
-/// player on a block is a hair below it and its feet floor to the block under that.
+/// The player's feet position (the tick keeps the eye position): [`feet_at`] its eyes.
 pub(super) fn feet(player: &Player) -> Vec3 {
+    feet_at(player.position)
+}
+
+/// The feet position of a player whose eyes are at `eye`, rounded to 4 decimals as PMMP keeps it
+/// (`InGamePacketHandler`: `round(4)` of the eye - 1.62): the one rule every feet position the
+/// tick and the API use follows. Unrounded, the `f32` eye of a player on a block is a hair below
+/// it and its feet floor to the block under that.
+pub(super) fn feet_at(eye: Vec3) -> Vec3 {
     let round = |v: f64| (v * 10_000.0).round() / 10_000.0;
-    let f = player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let f = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     Vec3::new(round(f.x), round(f.y), round(f.z))
 }
 
@@ -988,23 +994,15 @@ pub(super) const fn is_float_angle(degrees: f64) -> bool {
     to_f32(degrees).is_finite()
 }
 
-/// Queues `packet` for the player of `session` and every player that sees it (its own view
-/// includes its chunk).
+/// Queues `packet` for the player of `session` and every player shown it
+/// ([`entity::send_about_player`]).
 fn broadcast_from(state: &mut State, session: SessionId, packet: &Packet) {
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    let (world, chunk) = (player.world, super::view::chunk_of(player.position));
-    state.broadcast(world, chunk, packet, None);
+    super::entity::send_about_player(state, session, super::entity::Audience::Itself, packet);
 }
 
-/// Queues `packet` for the players that see the player of `session`, except that player.
+/// Queues `packet` for the players shown the player of `session`, except that player.
 fn broadcast_to_viewers(state: &mut State, session: SessionId, packet: &Packet) {
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    let (world, chunk) = (player.world, super::view::chunk_of(player.position));
-    state.broadcast(world, chunk, packet, Some(session));
+    super::entity::send_about_player(state, session, super::entity::Audience::Viewers, packet);
 }
 
 /// The difficulty the rules of the world at `world` use: its own, or the server's.
@@ -1033,13 +1031,14 @@ pub(super) fn add_effect(state: &mut State, session: SessionId, effect: effect::
 /// (its blocks stand in the old world), closes the view of the old world, opens it around `pos`
 /// in the new one (its chunks are sent again from the next view phase) and the client gets the
 /// new world's clock. Nothing happens for a position that is not finite or lies outside the
-/// world border, a world that is not loaded, or a player whose data is still loading.
+/// world border or a world that is not loaded ([`check_destination`], which the callers that
+/// must know ask first), or a player whose data is still loading.
 pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
-    let inside = super::inside_border(pos);
+    let allowed = check_destination(state, world, pos).is_ok();
     let Some(player) = state.players.get(&session) else {
         return;
     };
-    if !inside || !state.catalog.is_loaded(world) || player.phase == Phase::Loading {
+    if !allowed || player.phase == Phase::Loading {
         return;
     }
     let other_world = player.world != world;
@@ -1051,6 +1050,7 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
         switch_world(state, session, world, pos);
     }
     movement::teleport(state, session, pos);
+    super::entity::player_moved(state);
     let packet = state.players.get_mut(&session).map(|p| {
         // The teleport shows a rotation the API set too.
         p.survival.custom.turned = false;
@@ -1059,6 +1059,24 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
     if let Some(packet) = packet {
         broadcast_to_viewers(state, session, &packet);
     }
+}
+
+/// Checks that a player's eyes may be moved to `eye` in `world`: the one destination rule of every
+/// teleport (the API, commands, ender pearls, chorus fruit, respawns). Fails for a world that is
+/// not loaded (unloaded, or an ID of another server) and a position that is not finite or lies
+/// outside the world border.
+pub(super) fn check_destination(
+    state: &State,
+    world: WorldIndex,
+    eye: Vec3,
+) -> crate::player::Result<()> {
+    if !state.catalog.is_loaded(world) {
+        return Err(crate::player::Error::WorldNotLoaded);
+    }
+    if !super::inside_border(eye) {
+        return Err(crate::player::Error::OutsideWorld);
+    }
+    Ok(())
 }
 
 /// Shows the player and the players that see it the rotation the API set, as a teleport where it

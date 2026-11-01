@@ -502,7 +502,7 @@ fn the_entity_cap_and_the_spawn_checks_apply_to_custom_entities() {
     );
     for bad in [
         at(f64::NAN, -60.0, 2.5),
-        at(2.5, 1000.0, 2.5),
+        at(2.5, 30_000_001.0, 2.5),
         at(5000.5, -60.0, 2.5),
     ] {
         assert_eq!(

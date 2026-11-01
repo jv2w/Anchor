@@ -1306,10 +1306,11 @@ pub(super) fn placed(
     }
 }
 
-/// A window opens on a container block, or an editor on a sign, without its block entity (a
-/// block a task or a console set): creates an empty one. Clients are not sent it: the client makes a block's block entity
-/// with the block, and BDS sends no `BlockActorData` when a window opens (P6); a chest that
-/// pairs sends both halves as on placing.
+/// A block without its block entity takes one ([`block_changed`]), or a window opens on a
+/// container block, or an editor on a sign, without it (a block a generator made): creates an
+/// empty one. Clients are not sent it: the client makes a block's block entity with the block,
+/// and BDS sends no `BlockActorData` when a window opens (P6); a chest that pairs sends both
+/// halves as on placing.
 pub(super) fn missing(state: &mut State, world: WorldIndex, pos: BlockPos) {
     create(state, world, pos, None, &Stack::EMPTY, Face::Up);
 }
@@ -1489,28 +1490,35 @@ fn chests_pair(state: &State, world: WorldIndex, pos: BlockPos, other: BlockPos)
         && cardinal(other_block) == Some(facing)
 }
 
-/// The block at `pos` changed (the world's change feed, before its neighbour updates): a block
-/// entity the new block does not take is removed (PMMP `Block::writeStateToWorld` closes a tile
-/// whose class the new block's type does not register) and everything it held drops: its slots,
-/// a shulker box's items, a framed item, a record, a lectern's book, a potted plant. PMMP's
+/// The block at `pos` changed (the world's change feed, before its neighbour updates), as PMMP
+/// `Block::writeStateToWorld` handles a tile: a block entity the new block does not take is
+/// removed (the type registers another tile class, or none) and everything it held drops: its
+/// slots, a shulker box's items, a framed item, a record, a lectern's book, a potted plant; a
+/// new block that takes one and has none gets an empty one, as [`missing`] makes it. PMMP's
 /// `Tile::close` drops nothing, so a chest burnt or replaced loses its items there: fixed, no
 /// item is lost.
 ///
-/// Breaking ([`interact::destroy`]) removes block entities itself; this catches every other
-/// change: fire, liquids, falling blocks, a task's `World::set_block`. A block entity of a kind
-/// Anchor does not type ([`Kind::Other`]) belongs to blocks Anchor cannot tell, so it goes only
-/// when its block becomes air.
+/// Breaking ([`interact::destroy`]) and placing ([`placed`]) do their block entities
+/// themselves; this catches every other change: fire, liquids, falling blocks, a task's or a
+/// command's `World::set_block`. A block entity of a kind Anchor does not type ([`Kind::Other`])
+/// belongs to blocks Anchor cannot tell, so it goes only when its block becomes air.
 pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let Some(entity) = state.rules.block_entities.get(world, pos) else {
-        return;
-    };
     let Some(block) = block_at(state, world, pos) else {
         return;
     };
-    if fits(&entity.kind, block) {
-        return;
+    match state.rules.block_entities.get(world, pos) {
+        Some(entity) if fits(&entity.kind, block) => {}
+        Some(_) => {
+            discard(state, world, pos);
+            missing(state, world, pos);
+        }
+        None => missing(state, world, pos),
     }
-    discard(state, world, pos);
+}
+
+/// Whether `block` has a block entity (PMMP: its type registers a tile class).
+pub(super) fn takes_entity(block: block::State) -> bool {
+    Kind::of(block).is_some()
 }
 
 /// Removes the block entity at `pos` whose block is gone, dropping everything it held (its

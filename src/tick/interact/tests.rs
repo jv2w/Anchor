@@ -1278,14 +1278,14 @@ fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
 }
 
 // pmmp: Player::openSignEditor
-/// A sign set by code, without a block entity, takes the edit of an editor the API opens; a dead
-/// player, who could send no edit, gets no editor.
+/// A sign set by code, which the block updates gave its block entity, takes the edit of an
+/// editor the API opens; a dead player, who could send no edit, gets no editor.
 #[test]
 fn a_sign_set_by_code_takes_the_edit_of_an_editor_the_api_opens() {
     let mut h = Harness::new(|_| {});
     h.set(TARGET, Kind::OakSign.default_state());
     h.run(Vec::new());
-    assert!(h.state.rules.block_entities.get(0, TARGET).is_none());
+    assert!(h.state.rules.block_entities.get(0, TARGET).is_some());
     let id = crate::player::Id::new(SessionId::new(1));
     let mut cx = Context {
         state: &mut h.state,

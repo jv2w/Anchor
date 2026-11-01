@@ -13,7 +13,7 @@
 //! listeners ([`ServerBuilder::on`]) for [`PlayerItemUse`], [`PlayerInteract`],
 //! [`PlayerExhaust`] and [`EntityDamage`], [`Context::send_form`] with a [`form::Menu`],
 //! [`Context::open_menu`] with a [`menu::Menu`], [`Player::inventory_mut`],
-//! [`Player::teleport`], [`Player::send`], [`Context::set_scoreboard`] and
+//! [`Context::teleport`], [`Player::send`], [`Context::set_scoreboard`] and
 //! [`Context::set_boss_bar`].
 //!
 //! New players are noticed by the once-a-second loop, which marks them with a player extension:
@@ -80,11 +80,7 @@ fn main() -> Result<(), anchor::Error> {
                 let id = player_of(sender)?;
                 let lobby = cx.default_world();
                 let (world, spawn) = (lobby.id(), lobby.spawn());
-                let player = cx
-                    .player_mut(id)
-                    .ok_or_else(|| command::Error::failed("You are not in the game"))?;
-                player
-                    .teleport(world, feet(spawn))
+                cx.teleport(id, world, feet(spawn))
                     .map_err(|e| command::Error::failed(e.to_string()))?;
                 Ok(Output::from("Back at the lobby spawn"))
             }),
@@ -170,8 +166,8 @@ fn to_arena(cx: &mut Context<'_>, id: player::Id) {
     let Some(arena) = cx.world_named(ARENA).map(world::World::id) else {
         return;
     };
+    or_log(cx.teleport(id, arena, feet(ARENA_START)));
     if let Some(player) = cx.player_mut(id) {
-        or_log(player.teleport(arena, feet(ARENA_START)));
         or_log(player.send(Message::Tip("§aArena! /spawn takes you back".to_owned())));
     }
 }

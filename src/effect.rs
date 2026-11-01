@@ -6,6 +6,8 @@ mod table;
 
 pub use table::{Potion, Type};
 
+use crate::nbt::{Compound, Value};
+
 /// A row of the effect table.
 #[derive(Debug)]
 struct Data {
@@ -62,6 +64,13 @@ pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
 
 /// The number of effect types ([`Type::all`]).
 pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
+/// The saved duration of an infinite instance (PMMP `Living::saveNBT`).
+const INFINITE_DURATION: i32 = -1;
+const ID: &str = "Id";
+const AMPLIFIER: &str = "Amplifier";
+const DURATION: &str = "Duration";
+const AMBIENT: &str = "Ambient";
+const PARTICLES: &str = "ShowParticles";
 
 /// An effect with its duration and strength, as a potion or food gives it (PMMP
 /// `EffectInstance`). A `Copy` value: the `with_*` methods return a changed copy (PMMP's setters
@@ -94,6 +103,35 @@ impl Instance {
             ambient,
             infinite: false,
         }
+    }
+
+    /// The instance a saved compound holds ([`Self::to_nbt`]; PMMP `Living::initEntity`,
+    /// `AreaEffectCloud::initEntity`); `None` for an unknown ID, a missing ID, amplifier or
+    /// duration, or a negative duration other than -1 (infinite), which PMMP skips too. An
+    /// infinite instance lasts [`MAX_DURATION`].
+    pub(crate) fn from_nbt(c: &Compound) -> Option<Self> {
+        let byte = |key| match c.get(key) {
+            Some(Value::Byte(b)) => Some(*b),
+            _ => None,
+        };
+        let effect = Type::from_id(i32::from(byte(ID)?))?;
+        let Some(Value::Int(saved)) = c.get(DURATION) else {
+            return None;
+        };
+        let infinite = *saved == INFINITE_DURATION;
+        let duration = if infinite {
+            MAX_DURATION
+        } else {
+            u32::try_from(*saved).ok()?
+        };
+        let instance = Self::new(
+            effect,
+            duration,
+            byte(AMPLIFIER)?,
+            byte(PARTICLES).unwrap_or(1) != 0,
+            byte(AMBIENT).unwrap_or(0) != 0,
+        );
+        Some(instance.with_infinite(infinite))
     }
 
     /// The same instance lasting `ticks`, at most [`MAX_DURATION`] (PMMP `setDuration`, which
@@ -198,6 +236,24 @@ impl Instance {
     pub fn can_replace(self, old: Self) -> bool {
         !(self.amplifier < old.amplifier
             || (self.amplifier == old.amplifier && self.duration < old.duration))
+    }
+
+    /// The saved form of the instance, one for players and clouds (PMMP `Living::saveNBT`,
+    /// `AreaEffectCloud::saveNBT`): `Id` and `Amplifier` (bytes), `Duration` (int; -1 for an
+    /// infinite instance), `Ambient` and `ShowParticles` (bytes).
+    pub(crate) fn to_nbt(self) -> Compound {
+        let duration = if self.infinite {
+            INFINITE_DURATION
+        } else {
+            i32::try_from(self.duration).unwrap_or(i32::MAX)
+        };
+        Compound::from([
+            (ID.to_owned(), Value::Byte(self.effect.id())),
+            (AMPLIFIER.to_owned(), Value::Byte(self.amplifier)),
+            (DURATION.to_owned(), Value::Int(duration)),
+            (AMBIENT.to_owned(), Value::Byte(u8::from(self.ambient))),
+            (PARTICLES.to_owned(), Value::Byte(u8::from(self.visible))),
+        ])
     }
 }
 

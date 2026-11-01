@@ -33,7 +33,8 @@ const POTIONS: [&str; 3] = [
 
 impl Context<'_> {
     /// The block entity at `pos` in `world` to read; `None` if its chunk is not loaded or the
-    /// block has none.
+    /// block has none (a block [`World::set_block`](crate::world::World::set_block) placed gets
+    /// its block entity in the tick's next block update phase).
     #[doc(alias = "World::getTile")]
     #[doc(alias = "World::getTileAt")]
     #[doc(alias = "Chunk::getTile")]
@@ -47,8 +48,8 @@ impl Context<'_> {
         })
     }
 
-    /// The block entity at `pos` in `world` to change; `None` if its chunk is not loaded or the
-    /// block has none.
+    /// The block entity at `pos` in `world` to change; `None` where
+    /// [`block_entity`](Self::block_entity) is.
     pub fn block_entity_mut(&mut self, world: world::Id, pos: BlockPos) -> Option<Mut<'_>> {
         let world = world.index();
         self.state.rules.block_entities.get(world, pos)?;
@@ -966,6 +967,43 @@ mod tests {
             Some(Value::Compound(c)) => c,
             other => panic!("{key}: {other:?}"),
         }
+    }
+
+    // pmmp: World::setBlock
+    /// A block with a block entity that a task sets gets an empty one in the tick's block update
+    /// phase, as a placed one does, without packets: its text and slots can be set; a block that
+    /// replaces it with another kind's swaps it, and air takes it away.
+    #[test]
+    fn a_block_a_task_sets_gets_its_block_entity_in_the_block_updates() {
+        let mut h = Harness::new();
+        let (sign_at, chest_at) = (h.spot(1), h.spot(3));
+        let sign = block::Kind::OakSign.default_state();
+        let chest = block::Kind::Chest.default_state();
+        h.state.worlds[0].set_block(sign_at, sign).unwrap();
+        h.state.worlds[0].set_block(chest_at, chest).unwrap();
+        assert!(h.cx().block_entity(WORLD, sign_at).is_none(), "not yet");
+        h.tick(Vec::new());
+        assert!(h.actor_data(sign_at).is_empty(), "the client makes its own");
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, sign_at).unwrap();
+        t.set_sign_text(Side::Front, text(["Set", "", "", ""], 0xff00_ff00))
+            .unwrap();
+        let bread = Stack::new(crate::item::Kind::Bread.default_type(), 3);
+        let mut slots = cx.block_inventory_mut(WORLD, chest_at).unwrap();
+        assert!(slots.add(&bread).is_empty());
+        let furnace = block::Kind::Furnace.default_state();
+        h.state.worlds[0].set_block(sign_at, furnace).unwrap();
+        h.tick(Vec::new());
+        let cx = h.cx();
+        assert_eq!(
+            cx.block_entity(WORLD, sign_at)
+                .unwrap()
+                .sign_text(Side::Front),
+            None
+        );
+        h.state.worlds[0].set_block(sign_at, block::AIR).unwrap();
+        h.tick(Vec::new());
+        assert!(h.cx().block_entity(WORLD, sign_at).is_none());
     }
 
     // pmmp: World::getTile, World::getTileAt, Chunk::getTile, Tile, Tile::getPosition, Tile::getBlock, BaseSign::getText, BaseSign::getFaceText, Sign::getText, Sign::getBackText, BaseSign::setText, BaseSign::setFaceText, Sign::setText, Sign::setBackText, BaseSign::isWaxed, Sign::isWaxed, BaseSign::setWaxed, Sign::setWaxed

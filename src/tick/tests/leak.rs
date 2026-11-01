@@ -74,6 +74,8 @@ struct Tables {
     runtime_ids: usize,
     loading: usize,
     held_chunks: usize,
+    /// The chunk positions the index of who sees each chunk holds.
+    viewed_chunks: usize,
     chunks_idle: bool,
     extras: usize,
     saving_idle: bool,
@@ -121,6 +123,7 @@ fn tables(state: &State) -> Tables {
         runtime_ids: state.runtime_ids.len(),
         loading: state.loading.len(),
         held_chunks: state.chunks.held(),
+        viewed_chunks: state.chunks.viewed(),
         chunks_idle: state.chunks.is_idle(),
         extras: state.chunks.extras.len(),
         saving_idle: state.saving.is_idle(),

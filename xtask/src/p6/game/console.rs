@@ -552,13 +552,15 @@ fn execute(
     let not_joined = |player: &str| Outcome::Wait(format!("{player} has not joined"));
     match command {
         Command::Teleport { player, feet } => {
-            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
+            let Some((id, world)) = ctx
+                .player_exact(player)
+                .and_then(|id| Some((id, ctx.player(id)?.world())))
+            else {
                 return not_joined(player);
             };
-            let world = p.world();
-            match p.teleport(world, *feet) {
+            match ctx.teleport(id, world, *feet) {
                 Ok(()) => Outcome::Done(None),
-                Err(_) => Outcome::Failed("the position is outside the world".to_owned()),
+                Err(e) => Outcome::Failed(e.to_string()),
             }
         }
         Command::Give { player, stacks } => {

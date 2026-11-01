@@ -1332,6 +1332,7 @@ impl State {
         self.commands.restore(&mut r)?;
         self.forms = Codec::decode(&mut r)?;
         self.chunks.restore(&mut r, ground)?;
+        self.chunks.index_views(&self.players);
         self.saving = Codec::decode(&mut r)?;
         self.loading = Codec::decode(&mut r)?;
         self.rules.restore(&mut r)?;

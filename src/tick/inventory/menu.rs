@@ -27,7 +27,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use super::super::entity::Raise;
-use super::super::survival::EYE_HEIGHT;
 use super::super::{Context, Phase, Player, SessionId, State, survival, view};
 use super::{Notice, StackId, Window, WindowKind, close_now, slot_packet};
 use crate::block;
@@ -290,7 +289,7 @@ fn place(
 ) -> ((BlockPos, block::State), Option<(BlockPos, block::State)>) {
     let eye = player.position;
     let look = survival::look_direction(player);
-    let feet_y = eye.y - EYE_HEIGHT;
+    let feet_y = survival::feet(player).y;
     let behind = BlockPos::containing(Vec3::new(
         eye.x - look.x * BEHIND_HORIZONTAL,
         feet_y - look.y * BEHIND_VERTICAL,

@@ -885,7 +885,8 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
     );
     assert_eq!(front_lines(&h), ["a", "b", "§cc", "d"]);
     assert_eq!(h.player().breaking.sign_editor, None);
-    // Cancelled, or text that fails the checks: the old text stays and the client gets it back.
+    // Cancelled, or text that fails the checks: the old text stays and the client gets it back,
+    // the sign's data after the block, as the client foresaw its new text.
     let newline = listen(|e: &mut SignChange, _: &mut Context<'_>| {
         e.set_new_text(["a\nb", "", "", ""].map(String::from));
     });
@@ -904,7 +905,16 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
         h.packets();
         sign_edit(&mut h, "hello");
         assert_eq!(front_lines(&h), empty);
-        assert!(updates(&h.packets()).contains(&TARGET));
+        let packets = h.packets();
+        assert!(updates(&packets).contains(&TARGET));
+        let at = [TARGET.x, TARGET.y, TARGET.z];
+        let block = packets
+            .iter()
+            .position(|p| matches!(p, Packet::UpdateBlock(u) if u.position == at));
+        let data = packets
+            .iter()
+            .position(|p| matches!(p, Packet::BlockActorData(d) if d.position == at));
+        assert!(data.is_some() && block < data, "{packets:?}");
     }
     assert_eq!(cancels(), 1);
 }

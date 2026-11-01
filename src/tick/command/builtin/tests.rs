@@ -1476,9 +1476,7 @@ fn coordinates_name_a_place_in_the_senders_world() {
     let arena = add_arena(&mut state);
     let two = crate::player::Id::new(SessionId::new(2));
     Context { state: &mut state }
-        .player_mut(two)
-        .unwrap()
-        .teleport(arena, Vec3::new(0.5, 64.0, 0.5))
+        .teleport(two, arena, Vec3::new(0.5, 64.0, 0.5))
         .unwrap();
     ok(&mut state, id(1), "spawnpoint player2 ~ ~ ~");
     assert_eq!(

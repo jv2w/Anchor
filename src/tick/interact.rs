@@ -38,7 +38,7 @@ use super::entity::Raise;
 use super::view::chunk_of;
 use super::{
     Context, Phase, Player, SessionId, State, block_entity, dispatch, emit, entity, inventory,
-    survival,
+    survival, view,
 };
 use crate::action;
 use crate::block::{self, Class, Face, Kind, TypeTag};
@@ -806,17 +806,23 @@ pub(super) fn level_event(state: &mut State, world: WorldIndex, at: Vec3, event:
 /// Sends `session` again the blocks at `positions` as it is shown them at the end of the tick (a
 /// refused change): the output phase sends the fake block where it has one (its open menu's or
 /// the user's), otherwise the real block (a state Anchor does not know as the chunk sends it),
-/// once per position, so a later change in the same tick is not undone on the client. More
-/// than [`super::view::MAX_RESYNCS`] positions in one tick disconnect the player, as a full
-/// outbox does.
+/// once per position, so a later change in the same tick is not undone on the client; a real
+/// block's block entity follows it ([`view::restore_block_data`]: the client foresaw the change
+/// and lost it). More than [`super::view::MAX_RESYNCS`] positions in one tick disconnect the
+/// player, as a full outbox does.
 fn resync(state: &mut State, session: SessionId, positions: impl IntoIterator<Item = BlockPos>) {
-    let Some(player) = state.players.get_mut(&session) else {
-        return;
-    };
     for pos in positions {
-        if player.view.sees(pos.chunk()) && !player.view.resync(pos) {
-            player.overflowed = true;
+        let Some(player) = state.players.get_mut(&session) else {
+            return;
+        };
+        if !player.view.sees(pos.chunk()) || player.view.is_resynced(pos) {
+            continue;
         }
+        if !player.view.resync(pos) {
+            player.overflowed = true;
+            continue;
+        }
+        view::restore_block_data(state, session, pos);
     }
 }
 

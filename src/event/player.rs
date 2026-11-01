@@ -1336,7 +1336,8 @@ getters!(PlayerMove {
 
 impl PlayerMove {
     /// Moves the player elsewhere instead (the player is teleported there). A position that is
-    /// not finite is ignored.
+    /// not finite is ignored; one whose eyes lie outside the world border sends the player back,
+    /// as a cancel does.
     #[doc(alias = "PlayerMoveEvent::setTo")]
     pub fn set_target(&mut self, target: Vec3) {
         if target.is_finite() {

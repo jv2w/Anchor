@@ -844,6 +844,34 @@ fn move_listeners_send_the_player_back_or_elsewhere() {
     assert_eq!(drain(&mut watched), [elsewhere]);
 }
 
+// pmmp: PlayerMoveEvent::setTo
+/// A move a listener sends past the world border sends the player back, as a cancel does: the
+/// monitors hear nothing, and the next move is the one asked about.
+#[test]
+fn a_move_sent_past_the_world_border_sends_the_player_back() {
+    let (mtx, mut watched) = record();
+    let mut listeners = on(move |e: &mut PlayerMove, _: &mut Context<'_>| {
+        e.set_target(Vec3::new(4.0e7, e.target().y, e.target().z));
+    });
+    listeners.push_monitor(move |e: &PlayerMove, _: &Context<'_>| {
+        mtx.try_send(e.target()).unwrap();
+    });
+    let mut game = Game::new(1, listeners);
+    let start = game.player(1).position;
+    let moved = p::PlayerAuthInput {
+        position: (start + Vec3::new(1.0, 0.0, 0.0)).to_f32(),
+        ..Default::default()
+    };
+    let input = game.send(1, Packet::PlayerAuthInput(Box::new(moved)));
+    game.run(vec![input]);
+    assert_eq!(game.player(1).position, start, "back to the start");
+    assert!(game.take(1).iter().any(|p| matches!(
+        p,
+        Packet::MovePlayer(m) if m.mode == u8::from(MoveMode::Reset)
+    )));
+    assert!(drain(&mut watched).is_empty(), "no monitor");
+}
+
 /// Listeners of the movement toggles that record their names in `tx`: sneaking, swimming,
 /// flying and missed swings are cancelled.
 fn toggle_listeners(tx: mpsc::Sender<&'static str>) -> Listeners {

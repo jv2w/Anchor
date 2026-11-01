@@ -494,11 +494,13 @@ impl State {
         h.0
     }
 
-    /// Whether the indexes hold exactly the key, name, UUID and session of every player.
+    /// Whether the indexes hold exactly the key, name, UUID and session of every player, and the
+    /// chunks every view has.
     #[cfg(test)]
     pub(crate) fn index_matches_players(&self) -> bool {
         let n = self.players.len();
-        self.index.len() == n
+        self.chunks.viewers_match(&self.players)
+            && self.index.len() == n
             && self.runtime_ids.len() == n
             && self.names.len() == n
             && self.uuids.len() == n
@@ -659,11 +661,29 @@ impl State {
         packet: &Packet,
         except: Option<SessionId>,
     ) {
-        for (&session, player) in &mut self.players {
-            if Some(session) != except && player.world == world && player.view.sees(chunk) {
+        let Self {
+            players, chunks, ..
+        } = self;
+        for session in chunks.viewers_of(chunk) {
+            if Some(session) != except
+                && let Some(player) = players.get_mut(&session)
+                && player.world == world
+            {
                 player.send_to_viewer(packet.clone());
             }
         }
+    }
+
+    /// The players who see chunk `chunk` of `world`, in session order: a lookup of the index of
+    /// who sees each chunk ([`view::Chunks::viewers_of`]), where a view is only while it is open.
+    fn chunk_viewers(
+        &self,
+        world: WorldIndex,
+        chunk: crate::world::ChunkPos,
+    ) -> impl Iterator<Item = SessionId> + Clone + '_ {
+        self.chunks
+            .viewers_of(chunk)
+            .filter(move |s| self.players.get(s).is_some_and(|p| p.world == world))
     }
 }
 

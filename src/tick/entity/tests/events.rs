@@ -1105,6 +1105,8 @@ fn projectile_hits_name_what_they_hit() {
 }
 
 // pmmp: EntityTeleportEvent
+/// An ender pearl's landing asks the teleport listeners: a cancel, or a place no teleport may
+/// go, keeps the thrower where it is and unhurt; another place takes it there.
 #[test]
 fn an_ender_pearl_landing_teleports_through_its_listeners() {
     let switch = Mode::new();
@@ -1120,10 +1122,11 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
             );
             assert_eq!(e.cause(), TeleportCause::EnderPearl);
             sink.push((e.entity(), e.origin(), e.target()));
-            if mode(sw) == 0 {
-                e.cancel();
-            } else {
-                e.set_target(world::Id::DEFAULT, Vec3::new(5.5, -60.0, 5.5));
+            match mode(sw) {
+                0 => e.cancel(),
+                1 => e.set_target(world::Id::DEFAULT, Vec3::new(5.5, -60.0, 5.5)),
+                // The feet inside the world border, the eyes past it.
+                _ => e.set_target(world::Id::DEFAULT, Vec3::new(5.5, 30_000_000.0, 5.5)),
             }
         },
     );
@@ -1165,6 +1168,11 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
         [(1, 0, Vec3::new(5.5, -60.0 + EYE_HEIGHT, 5.5))],
         "the listener's place"
     );
+    assert_eq!(calls(|c| c.damage.len()), 1);
+    // A place no teleport may go counts as a cancel: no teleport, no damage.
+    set(switch, 2);
+    land(&mut h);
+    assert_eq!(calls(|c| c.teleports.clone()), teleports);
     assert_eq!(calls(|c| c.damage.len()), 1);
 }
 

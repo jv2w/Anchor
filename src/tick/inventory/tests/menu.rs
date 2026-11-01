@@ -1255,7 +1255,12 @@ fn close_by(w: &mut World, s: SessionId, way: Way, chest: BlockPos) {
                 eye.y - super::super::super::survival::EYE_HEIGHT,
                 eye.z,
             );
-            w.player(s).teleport(crate::world::Id::of(0), feet).unwrap();
+            let id = crate::player::Id::new(s);
+            Context {
+                state: &mut w.state,
+            }
+            .teleport(id, crate::world::Id::of(0), feet)
+            .unwrap();
             w.tick(Vec::new());
         }
         Way::Leave => {
@@ -1468,9 +1473,9 @@ fn a_quit_listener_s_teleport_closes_the_menu_before_the_quit_monitors() {
     listeners.push(
         crate::event::Priority::Normal,
         |e: &mut crate::event::PlayerQuit, cx: &mut Context<'_>| {
-            let p = cx.player_mut(e.player()).unwrap();
+            let p = cx.player(e.player()).unwrap();
             let (world, feet) = (p.world(), p.position());
-            p.teleport(world, feet).unwrap();
+            cx.teleport(e.player(), world, feet).unwrap();
         },
     );
     listeners.push_monitor(|_: &crate::event::PlayerQuit, _: &Context<'_>| {

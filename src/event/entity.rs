@@ -944,7 +944,9 @@ getters!(EntityTeleport {
 });
 
 impl EntityTeleport {
-    /// Sends it elsewhere. A position that is not finite is ignored.
+    /// Sends it elsewhere. A position that is not finite is ignored. A world that is not loaded,
+    /// or a place whose eyes lie outside the world border, keeps the player where it is, as a
+    /// cancel does ([`Context::teleport`](crate::Context::teleport) fails there).
     #[doc(alias = "EntityTeleportEvent::setTo")]
     pub fn set_target(&mut self, world: world::Id, target: Vec3) {
         if target.is_finite() {

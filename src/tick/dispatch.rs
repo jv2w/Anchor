@@ -101,7 +101,7 @@ impl Context<'_> {
 
     /// Does `action` the way a player or the game would, through the game rules and with its
     /// events, after the running callback has returned ([`defer`](Self::defer)). Direct calls
-    /// such as [`Player::teleport`](crate::player::Player) raise no events; this does.
+    /// such as [`teleport`](Self::teleport) raise no events; this does.
     ///
     /// Fails, queueing nothing, while 4,096 callbacks wait.
     pub fn perform(&mut self, action: impl Action) -> action::Result<()> {

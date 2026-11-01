@@ -73,9 +73,6 @@ use crate::world::{BlockPos, ChunkPos};
 
 /// `Age` that means "never despawns" (PMMP).
 const AGE_NEVER: i16 = i16::MIN;
-/// How far below and above the world height a saved position may be: entities fall out of the
-/// world and die 16 blocks under it.
-pub(super) const HEIGHT_MARGIN: f64 = 64.0;
 /// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
 pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
     super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL);
@@ -83,8 +80,6 @@ pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
 pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
 /// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
 pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
-/// The longest effect a cloud gives, in ticks (PMMP's longest potion is 9,600).
-const MAX_EFFECT_TICKS: i32 = 1_000_000;
 /// The key of an NPC's data (Anchor's: PMMP keeps plugin data in the entity's own compound).
 pub(super) const DATA_KEY: &str = "AnchorData";
 /// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
@@ -324,25 +319,7 @@ fn save_cloud(cloud: &Cloud, put: &mut impl FnMut(&str, Value)) {
     put("RadiusOnUse", Value::Float(to_f32(cloud.radius_on_use)));
     put("RadiusPerTick", Value::Float(to_f32(cloud.radius_per_tick)));
     if !cloud.effects.is_empty() {
-        let effects = cloud
-            .effects
-            .iter()
-            .map(|e| {
-                Compound::from([
-                    ("Id".to_owned(), Value::Byte(e.effect().id())),
-                    ("Amplifier".to_owned(), Value::Byte(e.amplifier())),
-                    (
-                        "Duration".to_owned(),
-                        Value::Int(i32::try_from(e.duration_ticks()).unwrap_or(i32::MAX)),
-                    ),
-                    ("Ambient".to_owned(), Value::Byte(u8::from(e.is_ambient()))),
-                    (
-                        "ShowParticles".to_owned(),
-                        Value::Byte(u8::from(e.is_visible())),
-                    ),
-                ])
-            })
-            .collect();
+        let effects = cloud.effects.iter().map(|e| e.to_nbt()).collect();
         put("mobEffects", Value::List(List::Compound(effects)));
     }
 }
@@ -362,7 +339,7 @@ pub(super) fn load(
         _ => return None,
     };
     let position = vector(c.get("Pos"))?;
-    if !super::api::is_placeable(position) || super::chunk_of(position) != chunk {
+    if !super::is_valid_position(position) || super::chunk_of(position) != chunk {
         return None;
     }
     let motion = match c.get("Motion") {
@@ -769,28 +746,11 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
     let mut effects = Vec::new();
     match c.get("mobEffects") {
         Some(Value::List(List::Compound(list))) => {
-            for e in list.iter().take(MAX_CLOUD_EFFECTS) {
-                let (Some(Value::Byte(id)), Some(Value::Byte(amp)), Some(Value::Int(d))) =
-                    (e.get("Id"), e.get("Amplifier"), e.get("Duration"))
-                else {
-                    continue;
-                };
-                let Some(t) = effect::Type::from_id(i32::from(*id)) else {
-                    continue;
-                };
-                let flag = |k: &str, default: bool| match e.get(k) {
-                    Some(Value::Byte(b)) => *b != 0,
-                    _ => default,
-                };
-                let duration = u32::try_from((*d).clamp(0, MAX_EFFECT_TICKS)).unwrap_or(0);
-                effects.push(effect::Instance::new(
-                    t,
-                    duration,
-                    *amp,
-                    flag("ShowParticles", true),
-                    flag("Ambient", false),
-                ));
-            }
+            effects.extend(
+                list.iter()
+                    .take(MAX_CLOUD_EFFECTS)
+                    .filter_map(effect::Instance::from_nbt),
+            );
         }
         Some(Value::List(List::End)) | None => {}
         Some(_) => return None,
@@ -1254,6 +1214,50 @@ pub(super) mod tests {
             assert_eq!(resaved, saved, "the saved form is stable");
             assert_eq!(bytes(&resaved), bytes(&saved), "byte for byte");
         }
+    }
+
+    /// A cloud's effects keep their saved form through a save and load as a player's do: an
+    /// infinite one stays infinite (saved as -1), a long one keeps its duration.
+    #[test]
+    fn a_clouds_infinite_and_long_effects_round_trip() {
+        let Some(Kind::Cloud(mut cloud)) =
+            kinds().into_iter().find(|k| matches!(k, Kind::Cloud(_)))
+        else {
+            panic!("a cloud kind");
+        };
+        let speed = effect::Instance::new(effect::Type::Speed, 0, 1, true, false);
+        cloud.effects = vec![
+            speed
+                .with_infinite(true)
+                .with_duration_ticks(effect::MAX_DURATION),
+            speed.with_duration_ticks(2_000_000),
+        ];
+        let e = entity(Kind::Cloud(cloud.clone()), Vec3::new(5.25, -59.5, -3.75));
+        let saved = save(&e);
+        let loaded = vanilla_load(&saved, ChunkPos::new(0, -1)).expect("loads");
+        assert_eq!(loaded.kind, Kind::Cloud(cloud));
+        let Some(Value::List(List::Compound(effects))) = saved.get("mobEffects") else {
+            panic!("the effects are saved");
+        };
+        assert_eq!(effects[0].get("Duration"), Some(&Value::Int(-1)));
+    }
+
+    /// An entity the tick holds far above or below the world height (an item a flying player
+    /// dropped, one shot upwards) loads back with its chunk: the saved form reads every place
+    /// an entity may be.
+    #[test]
+    fn an_entity_far_above_or_below_the_world_loads_back() {
+        let kind = kinds()
+            .into_iter()
+            .find(|k| matches!(k, Kind::Item(_)))
+            .expect("an item kind");
+        for y in [f64::from(crate::world::MAX_Y) + 100.0, -1000.0] {
+            let e = entity(kind.clone(), Vec3::new(5.25, y, -3.75));
+            let loaded = vanilla_load(&save(&e), ChunkPos::new(0, -1)).expect("loads");
+            assert_eq!(loaded.body, e.body);
+        }
+        let past = entity(kind, Vec3::new(5.25, 30_000_001.0, -3.75));
+        assert!(vanilla_load(&save(&past), ChunkPos::new(0, -1)).is_none());
     }
 
     // pmmp: Entity::setHealth

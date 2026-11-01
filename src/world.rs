@@ -313,7 +313,9 @@ impl Options {
         &self.generator
     }
 
-    /// The options with the generator named `name`.
+    /// The options with the generator named `name`: the first value registered under it, or,
+    /// for a world of [`ServerBuilder::world`](crate::ServerBuilder::world) whose generator has
+    /// the name, that world's own value.
     #[doc(alias = "WorldCreationOptions::setGeneratorClass")]
     #[must_use]
     pub fn with_generator(mut self, name: impl Into<String>) -> Self {
@@ -796,6 +798,11 @@ impl World {
     /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire),
     /// so the block may end up in a state that differs from `state` in those properties.
     /// Neighbours in chunks that are not loaded read as air and are not changed.
+    ///
+    /// The block entity follows in the tick's next block update phase, as PMMP's tiles follow
+    /// their block: a block that has one (a chest, a sign, a furnace) gets an empty one there,
+    /// which [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a
+    /// block entity the new block does not take goes, dropping what it held as items.
     #[doc(alias = "World::setBlockAt")]
     #[doc(alias = "World::setBlock")]
     pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {

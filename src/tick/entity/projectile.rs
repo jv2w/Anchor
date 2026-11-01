@@ -32,7 +32,7 @@ use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS};
 use super::{
     Blow, Cause, EYE_HEIGHT, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust,
     create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
-    player_actor, push_entity, send_to, targetable, with, worn,
+    player_actor, push_entity, send_to, with, worn,
 };
 use crate::block::{self, Face, TypeTag};
 use crate::config::GameMode;
@@ -232,7 +232,7 @@ pub(super) fn throw_with(
     if !launch(state, id, still) {
         return false;
     }
-    let feet = s.eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let feet = survival::feet_at(s.eye);
     super::play(state, s.world, feet, crate::world::Sound::Throw);
     true
 }
@@ -340,7 +340,7 @@ pub(super) fn release_bow_with(
     if !launch(state, id, still) {
         return false;
     }
-    let feet = s.eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let feet = survival::feet_at(s.eye);
     super::play(state, s.world, feet, crate::world::Sound::BowShoot);
     if finite {
         let seed = state
@@ -427,7 +427,7 @@ pub(super) fn release_trident_with(
         return false;
     }
     // BDS plays it at the middle of the thrower's body (P6 `itemuse`).
-    let middle = s.eye - Vec3::new(0.0, EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
+    let middle = survival::feet_at(s.eye) + Vec3::new(0.0, PLAYER_HEIGHT / 2.0, 0.0);
     super::play(state, s.world, middle, crate::world::Sound::TridentThrow);
     true
 }
@@ -547,12 +547,9 @@ pub(super) fn hit(
                 }
             }
         });
-        for (&session, player) in &state.players {
-            if !targetable(state, player, world, hooks)
-                || !survival::bounding_box(player).overlaps(area, super::EPSILON)
-                || (owner == Some(session) && (trident || age < OWNER_GRACE_TICKS))
-            {
-                continue;
+        super::each_player_in(state, world, area, hooks, |session, player| {
+            if owner == Some(session) && (trident || age < OWNER_GRACE_TICKS) {
+                return;
             }
             let reach =
                 survival::bounding_box(player).grow(Vec3::new(HIT_REACH, HIT_REACH, HIT_REACH));
@@ -564,7 +561,7 @@ pub(super) fn hit(
                     struck = Some(Struck::Player(session));
                 }
             }
-        }
+        });
     }
     let struck = match (struck, block) {
         (Some(target), _) => {
@@ -952,8 +949,8 @@ fn hit_player(
 
 /// An ender pearl lands at `at` (PMMP `EnderPearl::onHit`): its thrower, if still in the world
 /// and alive, is moved there and takes 5 fall damage. [`EntityTeleport`] comes first: cancelling
-/// keeps the thrower where it is (and unhurt), and a listener may send it elsewhere (a world the
-/// server has, a position inside the world border).
+/// keeps the thrower where it is (and unhurt), and a listener may send it elsewhere; a place no
+/// teleport may go (`survival::check_destination`) counts as a cancel.
 fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, hooks: Hooks) {
     let Some(owner) = owner else {
         return;
@@ -961,7 +958,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     let origin = |state: &State| {
         let player = state.players.get(&owner)?;
         (player.world == world && player.phase == Phase::Spawned && (hooks.is_alive)(player))
-            .then(|| player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0))
+            .then(|| survival::feet(player))
     };
     let Some(from) = origin(state) else {
         return;
@@ -984,10 +981,11 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
         }
         to_world = e.target_world.index();
         to = e.target;
-        if to_world >= state.worlds.len() || !super::is_valid_position(to) {
-            return;
-        }
         event = Some(e);
+    }
+    let eye = to + Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    if survival::check_destination(state, to_world, eye).is_err() {
+        return;
     }
     let Some(from) = origin(state) else {
         return;
@@ -995,7 +993,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     let teleported = crate::world::Particle::EndermanTeleport;
     crate::tick::emit::particle(state, world, from, teleported);
     super::play(state, world, from, crate::world::Sound::EndermanTeleport);
-    (hooks.teleport)(state, owner, to_world, to + Vec3::new(0.0, EYE_HEIGHT, 0.0));
+    (hooks.teleport)(state, owner, to_world, eye);
     super::play(state, to_world, to, crate::world::Sound::EndermanTeleport);
     (hooks.damage)(
         state,
@@ -1147,16 +1145,9 @@ fn living_in(state: &State, world: usize, area: Aabb, except: Id, hooks: Hooks) 
         .filter(|&o| o != except && entities.get(o).is_some_and(|e| e.kind.is_living()))
         .map(Struck::Entity)
         .collect();
-    out.extend(
-        state
-            .players
-            .iter()
-            .filter(|(_, p)| {
-                targetable(state, p, world, hooks)
-                    && survival::bounding_box(p).overlaps(area, super::EPSILON)
-            })
-            .map(|(&s, _)| Struck::Player(s)),
-    );
+    super::each_player_in(state, world, area, hooks, |s, _| {
+        out.push(Struck::Player(s));
+    });
     out
 }
 
@@ -1197,10 +1188,7 @@ fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
 /// The feet position of a player or NPC.
 fn feet_of(state: &State, target: Struck) -> Option<Vec3> {
     match target {
-        Struck::Player(s) => state
-            .players
-            .get(&s)
-            .map(|p| p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0)),
+        Struck::Player(s) => state.players.get(&s).map(survival::feet),
         Struck::Entity(id) => state.rules.entities.get(id).map(|e| e.body.position),
         Struck::Block(_) => None,
     }

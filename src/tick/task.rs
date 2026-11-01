@@ -714,8 +714,8 @@ mod tests {
             Vec3::new(0.0, f64::INFINITY, 0.0),
             Vec3::new(30_000_001.0, 0.0, 0.0),
             Vec3::new(0.0, 0.0, -30_000_001.0),
-            Vec3::new(0.0, f64::from(crate::world::MAX_Y) + 65.0, 0.0),
-            Vec3::new(0.0, f64::from(crate::world::MIN_Y) - 65.0, 0.0),
+            Vec3::new(0.0, 30_000_001.0, 0.0),
+            Vec3::new(0.0, -30_000_001.0, 0.0),
         ] {
             assert_eq!(
                 ctx.spawn_villager(WorldId::DEFAULT, feet, FARMER, &[]),

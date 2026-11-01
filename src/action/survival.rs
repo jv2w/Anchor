@@ -109,7 +109,7 @@ impl Action for Chat {}
 
 /// Teleports a player as the game would (PMMP `Entity::teleport`): the
 /// [`EntityTeleport`](crate::event::EntityTeleport) listeners may keep it where it is or send it
-/// elsewhere. [`Player::teleport`](crate::player::Player::teleport) moves it without asking.
+/// elsewhere. [`Context::teleport`] moves it without asking.
 #[doc(alias = "Entity::teleport")]
 #[doc(alias = "Player::teleport")]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -121,8 +121,7 @@ pub struct Teleport {
 }
 
 impl Teleport {
-    /// Moves `player`'s feet to `feet` in `world`; nothing for a position that is not finite or
-    /// lies outside the world border.
+    /// Moves `player`'s feet to `feet` in `world`; nothing where [`Context::teleport`] fails.
     pub fn new(player: Id, world: world::Id, feet: Vec3) -> Self {
         Self {
             player,

@@ -18,7 +18,7 @@
 use super::kind::{Crystal, Firework, Kind, MAX_EXPLOSIONS, Painting};
 use super::{
     Blow, Cause, Hooks, Knock, Raise, SessionId, State, create, drop_item, hurt, physics,
-    push_player, send_to, survival, targetable, with,
+    push_player, send_to, survival, with,
 };
 use crate::block::{self, Face};
 use crate::entity::{Animation, Id, PaintingMotive};
@@ -537,15 +537,12 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
         }
     }
     let mut players = Vec::new();
-    for (&s, p) in &state.players {
+    super::each_player_in(state, world, area, hooks, |s, p| {
         let (feet, bounds) = (survival::feet(p), survival::bounding_box(p));
-        if targetable(state, p, world, hooks)
-            && bounds.overlaps(area, super::EPSILON)
-            && reached(feet, bounds.max.y - bounds.min.y)
-        {
+        if reached(feet, bounds.max.y - bounds.min.y) {
             players.push((s, feet, damage_at(feet)));
         }
-    }
+    });
     let by = DamageSource::Entity(Actor::Entity(id));
     for (other, feet, damage) in npcs {
         let knock = Knock::new(feet.x - at.x, feet.z - at.z);

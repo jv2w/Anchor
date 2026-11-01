@@ -790,13 +790,17 @@ impl ServerBuilder {
     /// made from its name at every start. When the world is new, its spawn is the generator's,
     /// or `spawn` of its `[worlds.<name>]` table; a persistent world's file then keeps its spawn.
     /// Players join the default world. Its generator is registered as
-    /// [`generator`](Self::generator) registers one.
+    /// [`generator`](Self::generator) registers one, and the world keeps this value wherever it
+    /// is made or loaded under its name with that generator's name (a crash replay, a
+    /// [`Context::load_world`] after an unload), even when another value of the type has the
+    /// name.
     #[doc(alias = "WorldManager::generateWorld")]
     #[must_use]
     pub fn world(mut self, name: impl Into<String>, kind: Kind, generator: impl Generator) -> Self {
-        let generator = self.setup.generators.add_typed(generator);
+        let name = name.into();
+        let generator = self.setup.generators.add_world(&name, generator);
         self.worlds.push(WorldSpec {
-            name: name.into(),
+            name,
             kind,
             generator,
             seed: None,
@@ -822,8 +826,9 @@ impl ServerBuilder {
     /// Registers `generator` under its [`name`](Generator::name), for the worlds
     /// [`Context::create_world`] makes and the stored worlds [`Context::load_world`] loads (PMMP
     /// `GeneratorManager::addGenerator`). The built-in `flat` and `void` are always registered.
-    /// Two generators of one type with one name count as one; two types with one name fail the
-    /// build with [`Error::DuplicateGenerator`].
+    /// Two generators of one type with one name count as one, the first registered (a world of
+    /// [`world`](Self::world) keeps its own); two types with one name fail the build with
+    /// [`Error::DuplicateGenerator`].
     #[doc(alias = "GeneratorManager::addGenerator")]
     #[must_use]
     pub fn generator(mut self, generator: impl Generator) -> Self {

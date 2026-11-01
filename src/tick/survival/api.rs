@@ -1875,10 +1875,11 @@ mod tests {
             .to_f32();
         assert_eq!(moves(received(&mut rx1).0), [(270.0, 30.0, at)]);
         assert_eq!(moves(received(&mut rx2).0), [(270.0, 30.0, at)]);
-        let p = player_mut(&mut state, 1);
         let feet = Vec3::new(3.5, -60.0, 2.5);
-        p.teleport(crate::world::Id::DEFAULT, feet).unwrap();
-        p.set_rotation(90.0, -10.0).unwrap();
+        let id = Id::new(crate::tick::SessionId::new(1));
+        let mut cx = crate::tick::Context { state: &mut state };
+        cx.teleport(id, crate::world::Id::DEFAULT, feet).unwrap();
+        player_mut(&mut state, 1).set_rotation(90.0, -10.0).unwrap();
         run(&mut state, Vec::new());
         let eye = (feet + Vec3::new(0.0, super::super::EYE_HEIGHT, 0.0)).to_f32();
         assert_eq!(moves(received(&mut rx1).0), [(90.0, -10.0, eye)]);

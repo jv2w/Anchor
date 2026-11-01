@@ -137,6 +137,10 @@ pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
 /// takes; the rest wait (a view entering a chunk full of items, or a crowd teleported together,
 /// fills in over ticks instead of overflowing the outbox).
 const MAX_SPAWNS_PER_PLAYER: u32 = 512;
+/// The most chunk columns a lookup of the players in an area asks the players' index about
+/// ([`each_player_in`]): a larger area (a wide cloud) passes over every player instead, which
+/// costs no more than that many index searches.
+const MAX_PLAYER_COLUMNS: usize = 16;
 /// Entities whose movement is sent per tick (each up to four packets per viewer); the others
 /// keep their last sent state and are sent in a later tick, in turn.
 const MAX_MOVEMENTS_PER_TICK: usize = 256;
@@ -363,6 +367,15 @@ pub(super) enum Raise {
     Events,
     /// The rule raises none.
     Quiet,
+}
+
+/// Who gets a packet about a player ([`send_about_player`]) besides the players shown it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Audience {
+    /// The player itself too.
+    Itself,
+    /// Only the players shown it.
+    Viewers,
 }
 
 /// An entity, as a [`Context`](crate::Context) lends it (PMMP `Entity`): what it is and where;
@@ -942,6 +955,13 @@ pub(super) struct Entities {
     /// (viewer, player) pairs where the viewer is not shown the player (PMMP `hidePlayer`): at
     /// most [`MAX_HIDDEN_PER_PLAYER`] per viewer, dropped when either leaves.
     hidden: BTreeSet<(SessionId, SessionId)>,
+    /// Every player by world, chunk and session, sorted, while [`Self::players_fresh`]: built at
+    /// the start of each entity tick so a lookup of the players in an area asks only the chunks
+    /// it covers ([`each_player_in`]); emptied at its end (at most every player).
+    players: Vec<(WorldIndex, ChunkPos, SessionId)>,
+    /// Whether [`Self::players`] holds where every player is: from its build until the end of
+    /// the entity tick or a player moving in it (a pearl's teleport, [`player_moved`]).
+    players_fresh: bool,
     /// Flagged entities waiting for their removal (at most every entity).
     doomed: BTreeSet<Id>,
     /// The slot where the next movement pass starts, so every entity is sent in turn.
@@ -974,6 +994,22 @@ pub(super) struct Entities {
 }
 
 impl Entities {
+    /// Whether the player of session `viewer`, in world `viewer_world` with `view`, is shown the
+    /// player of session `target` standing in chunk `chunk` of `world`: their worlds are the
+    /// same, the view has the chunk, and the viewer does not hide the target. The one rule of who
+    /// gets a player's packets: its tracking and every packet the rules send about it.
+    pub(super) fn shows(
+        &self,
+        viewer: SessionId,
+        viewer_world: WorldIndex,
+        view: &View,
+        target: SessionId,
+        world: WorldIndex,
+        chunk: ChunkPos,
+    ) -> bool {
+        viewer_world == world && view.sees(chunk) && !self.hidden.contains(&(viewer, target))
+    }
+
     /// The live entity `id` names, if it still exists.
     fn get(&self, id: Id) -> Option<&Entity> {
         live(&self.slots, id)
@@ -1362,6 +1398,9 @@ impl Entities {
             departed,
             watched,
             hidden,
+            // Empty and stale between ticks: built in each entity tick from the players.
+            players: _,
+            players_fresh: _,
             doomed,
             cursor,
             restep,
@@ -1486,6 +1525,9 @@ impl Entities {
             departed,
             watched,
             hidden,
+            // Empty and stale between ticks: built in each entity tick from the players.
+            players: _,
+            players_fresh: _,
             doomed,
             cursor,
             restep,
@@ -1538,6 +1580,8 @@ impl Entities {
             departed: Codec::decode(r)?,
             watched: Codec::decode(r)?,
             hidden: Codec::decode(r)?,
+            players: Vec::new(),
+            players_fresh: false,
             doomed: Codec::decode(r)?,
             cursor: Codec::decode(r)?,
             restep: Codec::decode(r)?,
@@ -2066,7 +2110,11 @@ fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
     assign_runtime_ids(state);
     announce(state);
     let steps = compute(state, pool);
+    index_players(state);
     apply_steps(state, steps, hooks);
+    let entities = &mut state.rules.entities;
+    entities.players.clear();
+    entities.players_fresh = false;
     pick_up(state, hooks);
     announce(state);
     remove_flagged(state);
@@ -3187,6 +3235,106 @@ fn collects(state: &State, player: &Player, hooks: Hooks) -> bool {
         && survival::game_mode(state, player) != GameMode::Spectator
 }
 
+/// Builds the players' index of this entity tick ([`Entities::players`]): one sort of every
+/// player, so each lookup of the players in an area costs the chunks it covers, not a pass over
+/// every player.
+fn index_players(state: &mut State) {
+    let State { players, rules, .. } = state;
+    let index = &mut rules.entities.players;
+    index.clear();
+    index.extend(
+        players
+            .iter()
+            .map(|(&s, p)| (p.world, chunk_of(p.position), s)),
+    );
+    index.sort_unstable();
+    rules.entities.players_fresh = true;
+}
+
+/// A player moved during the entity tick (a pearl's teleport): the players' index no longer
+/// says where everyone is, so the lookups of the rest of the tick pass over every player.
+pub(super) fn player_moved(state: &mut State) {
+    state.rules.entities.players_fresh = false;
+}
+
+/// Calls `f` with each player [`targetable`] in `world` whose box overlaps `area` by more than
+/// [`EPSILON`], in session order (PMMP `World::getNearbyEntities` for players). With the players'
+/// index of the entity tick it asks the chunks within a block of `area` (a box is at most 0.6
+/// wide; the feet round by less than 1e-4), at most [`MAX_PLAYER_COLUMNS`] of them; otherwise it
+/// passes over every player, with the same result.
+fn each_player_in(
+    state: &State,
+    world: WorldIndex,
+    area: Aabb,
+    hooks: Hooks,
+    mut f: impl FnMut(SessionId, &Player),
+) {
+    let wanted = |p: &Player| {
+        targetable(state, p, world, hooks) && survival::bounding_box(p).overlaps(area, EPSILON)
+    };
+    let entities = &state.rules.entities;
+    let margin = Vec3::new(1.0, 0.0, 1.0);
+    let (low, high) = (chunk_of(area.min - margin), chunk_of(area.max + margin));
+    let columns = (i64::from(high.x) - i64::from(low.x) + 1)
+        .saturating_mul(i64::from(high.z) - i64::from(low.z) + 1);
+    let indexed = usize::try_from(columns).is_ok_and(|c| c <= MAX_PLAYER_COLUMNS);
+    if !entities.players_fresh || !indexed {
+        for (&s, p) in &state.players {
+            if wanted(p) {
+                f(s, p);
+            }
+        }
+        return;
+    }
+    let index = entities.players.as_slice();
+    let mut slices: [&[(WorldIndex, ChunkPos, SessionId)]; MAX_PLAYER_COLUMNS] =
+        [&[]; MAX_PLAYER_COLUMNS];
+    let positions =
+        (low.x..=high.x).flat_map(|x| (low.z..=high.z).map(move |z| ChunkPos::new(x, z)));
+    for (slice, pos) in slices.iter_mut().zip(positions) {
+        let key = (world, pos);
+        let (_, rest) = index.split_at(index.partition_point(|&(w, c, _)| (w, c) < key));
+        let (column, _) = rest.split_at(rest.partition_point(|&(w, c, _)| (w, c) == key));
+        *slice = column;
+    }
+    #[cfg(test)]
+    let mut found = Vec::new();
+    // Each column is in session order and holds a player at most once: merged, they are too.
+    while let Some(s) = slices
+        .iter()
+        .filter_map(|slice| slice.first().map(|&(_, _, s)| s))
+        .min()
+    {
+        for slice in &mut slices {
+            if let Some((&(_, _, first), rest)) = slice.split_first()
+                && first == s
+            {
+                *slice = rest;
+            }
+        }
+        if let Some(p) = state.players.get(&s)
+            && wanted(p)
+        {
+            #[cfg(test)]
+            found.push(s);
+            f(s, p);
+        }
+    }
+    #[cfg(test)]
+    {
+        let all: Vec<SessionId> = state
+            .players
+            .iter()
+            .filter(|(_, p)| wanted(p))
+            .map(|(&s, _)| s)
+            .collect();
+        assert_eq!(
+            found, all,
+            "the index finds the players a pass over all finds"
+        );
+    }
+}
+
 /// Whether projectiles, potions, clouds and falling anvils reach a player (PMMP
 /// `canBeCollidedWith`: alive and not a spectator), in `world`.
 fn targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -> bool {
@@ -3420,13 +3568,9 @@ fn landed(
     let fallen = fall.round() - 1.0;
     if fallen > 0.0 {
         let damage = crate::math::min(fallen * ANVIL_DAMAGE_PER_BLOCK, ANVIL_MAX_DAMAGE);
-        for (&s, p) in &state.players {
-            if targetable(state, p, world, hooks)
-                && survival::bounding_box(p).overlaps(bounds, EPSILON)
-            {
-                hits.push((s, damage, id));
-            }
-        }
+        each_player_in(state, world, bounds, hooks, |s, _| {
+            hits.push((s, damage, id));
+        });
         let at = e.body.position;
         for other in state.rules.entities.nearby(world, bounds) {
             let Some(o) = state.rules.entities.get(other) else {
@@ -3688,17 +3832,6 @@ fn remove_flagged(state: &mut State) {
     }
 }
 
-/// The players who may see entities and other players (their view is open), in session order,
-/// with their world and view.
-fn watchers(state: &State) -> Vec<(SessionId, WorldIndex, &View)> {
-    state
-        .players
-        .iter()
-        .filter(|(_, p)| p.view.is_open())
-        .map(|(&s, p)| (s, p.world, &p.view))
-        .collect()
-}
-
 /// Each player's bound of this tick's spawns and removals ([`MAX_SPAWNS_PER_PLAYER`]), which the
 /// tracking of entities and then of players spend.
 fn spawn_budget(state: &State) -> BTreeMap<SessionId, u32> {
@@ -3728,21 +3861,17 @@ fn track_entities(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
         }
     }
     // The players of each column are worked out before anything is sent (sending changes no
-    // view); only the columns with arrivals and those whose players changed are kept. `watchers`
-    // is in session order, as a column's players are, so comparing the sequences compares the
-    // sets. A column whose players changed compares every entity; any other only its arrivals,
-    // in `Id` order as the whole column would be.
-    let watchers = watchers(state);
+    // view); only the columns with arrivals and those whose players changed are kept. Who sees a
+    // chunk comes in session order, as a column's players are, so comparing the sequences
+    // compares the sets. A column whose players changed compares every entity; any other only
+    // its arrivals, in `Id` order as the whole column would be.
     let pending: Vec<(Key, BTreeSet<SessionId>, bool)> = state
         .rules
         .entities
         .columns
         .iter()
         .filter_map(|(&key, column)| {
-            let want = watchers
-                .iter()
-                .filter(|&&(_, w, view)| w == key.0 && view.sees(key.1))
-                .map(|&(s, _, _)| s);
+            let want = state.chunk_viewers(key.0, key.1);
             let changed = !column.viewers.iter().copied().eq(want.clone());
             (changed || !column.arrived.is_empty()).then(|| (key, want.collect(), changed))
         })
@@ -3921,24 +4050,63 @@ fn commit_movement(e: &mut Entity, change: Change) {
 /// anything is sent (sending changes no view), and each watcher's view is looked up once, not
 /// once per pair.
 fn player_viewers(state: &State) -> Vec<(SessionId, BTreeSet<SessionId>)> {
-    let views = watchers(state);
-    let hidden = &state.rules.entities.hidden;
+    let entities = &state.rules.entities;
     state
         .players
         .iter()
         .filter(|(_, p)| p.phase == Phase::Spawned)
         .map(|(&t, target)| {
             let (world, chunk) = (target.world, chunk_of(target.position));
-            let want = views
-                .iter()
-                .filter(|&&(s, w, view)| {
-                    s != t && w == world && view.sees(chunk) && !hidden.contains(&(s, t))
+            let want = state
+                .chunks
+                .viewers_of(chunk)
+                .filter(|&s| {
+                    s != t
+                        && state
+                            .players
+                            .get(&s)
+                            .is_some_and(|p| entities.shows(s, p.world, &p.view, t, world, chunk))
                 })
-                .map(|&(s, _, _)| s)
                 .collect();
             (t, want)
         })
         .collect()
+}
+
+/// Queues `packet` for the players shown the player of `session` ([`Entities::shows`]), and for
+/// that player too with [`Audience::Itself`] when its own view has its chunk: every packet the
+/// rules send about a player, so one who hides it gets none.
+pub(super) fn send_about_player(
+    state: &mut State,
+    session: SessionId,
+    audience: Audience,
+    packet: &Packet,
+) {
+    let State {
+        players,
+        rules,
+        chunks,
+        ..
+    } = state;
+    let Some(player) = players.get(&session) else {
+        return;
+    };
+    let (world, chunk) = (player.world, chunk_of(player.position));
+    for s in chunks.viewers_of(chunk) {
+        let Some(p) = players.get_mut(&s) else {
+            continue;
+        };
+        let to = if s == session {
+            audience == Audience::Itself
+        } else {
+            rules
+                .entities
+                .shows(s, p.world, &p.view, session, world, chunk)
+        };
+        if to {
+            p.send_to_viewer(packet.clone());
+        }
+    }
 }
 
 /// Removes the players no longer spawned from those who saw them.
@@ -4230,13 +4398,12 @@ pub(super) fn reaches(state: &State, session: SessionId, id: Id) -> bool {
     npc::reaches(state, session, id, HOOKS).is_some()
 }
 
-/// Spawns `npc` at `pos` (feet); `None` where the API may not put an entity
-/// ([`api::is_placeable`]: not finite, outside the world border or too far above or below the
-/// world), at the entity limit, in an unloaded chunk, or for a human name over
+/// Spawns `npc` at `pos` (feet); `None` where no entity may be ([`is_valid_position`]: not finite
+/// or outside the world border), at the entity limit, in an unloaded chunk, or for a human name over
 /// [`MAX_NAME_TAG_BYTES`] bytes. NPCs
 /// spawned here are invulnerable (only the void hurts them), except zombies (see [`npc`]).
 pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
-    if !api::is_placeable(pos) {
+    if !is_valid_position(pos) {
         return None;
     }
     npc::spawn(state, world, pos, npc)
@@ -4938,6 +5105,7 @@ mod tests {
         if let Some(p) = state.players.get_mut(&session) {
             p.position = eye;
         }
+        player_moved(state);
     }
 
     fn is_alive(player: &Player) -> bool {
@@ -5910,6 +6078,8 @@ mod tests {
             departed,
             watched,
             hidden,
+            players,
+            players_fresh,
             doomed,
             cursor: _,
             restep,
@@ -5921,6 +6091,7 @@ mod tests {
             custom: _,
             experience: _,
         } = &h.state.rules.entities;
+        assert!(players.is_empty() && !players_fresh);
         assert!(slots.is_empty() && free.is_empty() && counts.is_empty() && bolts.is_empty());
         assert!(columns.is_empty() && runtime_ids.is_empty() && unassigned.is_empty());
         assert!(changed.is_empty() && departed.is_empty() && hidden.is_empty());
@@ -6488,6 +6659,46 @@ mod tests {
                 .count()
         };
         assert_eq!((motions(1), motions(2), motions(3)), (1, 0, 1));
+    }
+
+    /// The packets the survival rules send about a player (its hurt animation, a teleport) skip
+    /// a player who hides it, as its tracking does.
+    #[test]
+    fn survival_packets_about_a_player_skip_a_player_who_hides_it() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(3.0, 3.0));
+        h.spawn(3, standing(-3.0, 3.0));
+        let one = h.runtime_id(1);
+        h.state
+            .rules
+            .entities
+            .hidden
+            .insert((SessionId::new(2), SessionId::new(1)));
+        h.entities();
+        for n in 1..=3 {
+            h.take(n);
+        }
+        assert!(survival::damage_quiet(
+            &mut h.state,
+            SessionId::new(1),
+            1.0,
+            survival::Damage::Fall
+        ));
+        let eye = h.state.players[&SessionId::new(1)].position + Vec3::new(1.0, 0.0, 0.0);
+        survival::teleport(&mut h.state, SessionId::new(1), 0, eye);
+        let about_one = |n: u64| {
+            h.state.players[&SessionId::new(n)]
+                .outbox
+                .iter()
+                .filter(|p| match p {
+                    Packet::ActorEvent(e) => e.entity_runtime_id == one,
+                    Packet::MovePlayer(m) => m.entity_runtime_id == one,
+                    _ => false,
+                })
+                .count()
+        };
+        assert_eq!((about_one(2), about_one(3)), (0, 2));
     }
 
     /// Another player's walk and look reach those who see it as `MoveActorAbsolute` at its eyes

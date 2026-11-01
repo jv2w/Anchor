@@ -20,7 +20,7 @@ use super::kind::{
     MAX_FUSE, MAX_NAME_TAG_BYTES, NEVER, Orb, Pickup, Projectile, Shot, TRIDENT_DAMAGE, Tnt,
     Trident,
 };
-use super::saved::{HEIGHT_MARGIN, MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
+use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
 use super::{
     Cause, EYE_HEIGHT, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD,
     MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, actor_event, chunk_of, create, drop_stack,
@@ -39,7 +39,7 @@ use crate::protocol::consts::ActorEvent;
 use crate::random::{self, Random};
 use crate::tick::world_api::index;
 use crate::tick::{Context, Phase, Player, survival};
-use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
+use crate::world::{self, BlockPos, ChunkPos, World};
 
 impl Entity {
     /// The runtime ID clients know it by (PMMP `getId`); `None` for an entity whose chunk loaded
@@ -609,13 +609,6 @@ const STEP_HEIGHT: f64 = 0.0;
 /// The random stream of a rocket the API launches.
 const LAUNCH_RANDOM: u64 = random::tag("api-firework-launch");
 
-/// Whether the API may put an entity at `pos`: finite, inside the world border, and at most 64
-/// blocks above or below the world height (as the saved form reads it back).
-pub(super) fn is_placeable(pos: Vec3) -> bool {
-    let height = f64::from(MIN_Y) - HEIGHT_MARGIN..=f64::from(MAX_Y) + HEIGHT_MARGIN;
-    is_valid_position(pos) && height.contains(&pos.y)
-}
-
 /// An arrow's own data.
 fn arrow(kind: &Kind) -> Option<&Arrow> {
     match kind {
@@ -743,8 +736,7 @@ impl Mut<'_> {
 
     /// Moves it to `pos` in `world`, at rest (PMMP `Entity::teleport`: no motion, no fall
     /// distance; the rotation stays). False, moving nothing, if the world does not exist, `pos` is
-    /// not finite, outside the world border or more than 64 blocks above or below the world
-    /// height, its chunk is not loaded, another world is at its entity limit, or it is a painting
+    /// not finite or outside the world border, its chunk is not loaded, another world is at its entity limit, or it is a painting
     /// (it hangs on its wall: PMMP never moves a painting on clients either).
     #[doc(alias = "Entity::teleport")]
     pub fn teleport(&mut self, world: world::Id, pos: Vec3) -> bool {
@@ -755,7 +747,7 @@ impl Mut<'_> {
         let loaded = self
             .worlds
             .get(to)
-            .is_some_and(|w| is_placeable(pos) && w.is_chunk_loaded(chunk_of(pos)));
+            .is_some_and(|w| is_valid_position(pos) && w.is_chunk_loaded(chunk_of(pos)));
         let from = self.world;
         if !loaded || (to != from && self.entities.count(to) >= MAX_ENTITIES_PER_WORLD) {
             return false;
@@ -1518,8 +1510,7 @@ impl Context<'_> {
     /// Drops `stack` as an item entity at `pos` in `world` (PMMP `World::dropItem`): with
     /// `motion`, or PMMP's random one for `None`, and a pickup delay of 10 ticks. `Err` gives the
     /// stack back when it is empty, the world does not exist, `pos` is not finite, outside the
-    /// world border, more than 64 blocks above or below the world height or not loaded, or the
-    /// world is at its entity limit.
+    /// world border or not loaded, or the world is at its entity limit.
     #[doc(alias = "World::dropItem")]
     pub fn drop_item(
         &mut self,
@@ -1531,7 +1522,7 @@ impl Context<'_> {
         let Some(w) = index(self.state, world) else {
             return Err(stack);
         };
-        if stack.is_empty() || !is_placeable(pos) || motion.is_some_and(|m| !m.is_finite()) {
+        if stack.is_empty() || !is_valid_position(pos) || motion.is_some_and(|m| !m.is_finite()) {
             return Err(stack);
         }
         let back = stack.clone();
@@ -1547,7 +1538,7 @@ impl Context<'_> {
     #[doc(alias = "World::dropExperience")]
     pub fn drop_experience(&mut self, world: world::Id, pos: Vec3, amount: u32) -> u32 {
         match index(self.state, world) {
-            Some(w) if is_placeable(pos) => super::drop_orbs(self.state, w, pos, amount),
+            Some(w) if is_valid_position(pos) => super::drop_orbs(self.state, w, pos, amount),
             _ => 0,
         }
     }
@@ -1766,7 +1757,7 @@ impl Context<'_> {
     /// upwards with a little random drift. It has no owner and is never saved. `None` where
     /// [`Self::drop_item`] fails.
     pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
-        let w = index(self.state, world).filter(|_| is_placeable(pos))?;
+        let w = index(self.state, world).filter(|_| is_valid_position(pos))?;
         if !super::can_create(self.state, w, pos) {
             return None;
         }
@@ -1880,7 +1871,7 @@ impl Context<'_> {
 
     /// Creates an entity of `kind` at `pos` in `world` with `motion` and no rotation.
     fn spawn(&mut self, world: world::Id, pos: Vec3, kind: Kind, motion: Vec3) -> Option<Id> {
-        let w = index(self.state, world).filter(|_| is_placeable(pos))?;
+        let w = index(self.state, world).filter(|_| is_valid_position(pos))?;
         create(self.state, w, pos, kind, |_| (motion, 0.0, 0.0))
     }
 }

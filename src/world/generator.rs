@@ -9,6 +9,7 @@ use std::sync::Arc;
 use super::sub_chunk::Entry;
 use super::{BlockPos, Chunk, ChunkPos};
 use crate::block;
+use crate::storage::world_name_key;
 
 /// Fills the chunks of a world that were never saved.
 ///
@@ -35,9 +36,11 @@ pub trait Generator: Send + Sync + 'static {
     /// The name worlds pick this generator by
     /// ([`Options::with_generator`](super::Options::with_generator)); it is not saved with the
     /// world. Two values of one type with one name are one generator: a world picked by the name
-    /// gets the first registered. The default is the type's name ([`std::any::type_name`]), which
-    /// is not fixed across compiler versions: a generator that worlds pick by name, or that the
-    /// replay of a crash log must find again, returns a name of its own.
+    /// gets the first registered, except a world of
+    /// [`ServerBuilder::world`](crate::ServerBuilder::world), which keeps its own value. The
+    /// default is the type's name ([`std::any::type_name`]), which is not fixed across compiler
+    /// versions: a generator that worlds pick by name, or that the replay of a crash log must
+    /// find again, returns a name of its own.
     fn name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
@@ -49,6 +52,9 @@ pub trait Generator: Send + Sync + 'static {
 #[derive(Clone)]
 pub(crate) struct Generators {
     by_name: BTreeMap<&'static str, (TypeId, Arc<dyn Generator>)>,
+    /// The values [`ServerBuilder::world`](crate::ServerBuilder::world) gave its worlds, by
+    /// [`world_name_key`]: [`Self::of_world`] picks them over the first value of their name.
+    by_world: BTreeMap<String, Arc<dyn Generator>>,
     /// A name two generator types share: the build fails with it.
     clash: Option<&'static str>,
 }
@@ -59,14 +65,33 @@ impl Generators {
         self.clash
     }
 
-    /// The generator named `name`.
-    pub(crate) fn get(&self, name: &str) -> Option<&Arc<dyn Generator>> {
-        self.by_name.get(name).map(|(_, g)| g)
+    /// The generator a world named `world` that picks the generator named `name` fills its chunks
+    /// with, at its start, a load, a remaking or the replay of a crash log alike: the value the
+    /// builder gave the world of that name when its generator has that name, else the first
+    /// registered under `name`.
+    pub(crate) fn of_world(&self, world: &str, name: &str) -> Option<&Arc<dyn Generator>> {
+        self.by_world
+            .get(&world_name_key(world))
+            .filter(|g| g.name() == name)
+            .or_else(|| self.by_name.get(name).map(|(_, g)| g))
     }
 
     /// The names, in order.
     pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.by_name.keys().copied()
+    }
+
+    /// Adds `generator`, the value of the builder's world `world` ([`Self::of_world`]), as
+    /// [`Self::add_typed`] does.
+    pub(crate) fn add_world<G: Generator>(
+        &mut self,
+        world: &str,
+        generator: G,
+    ) -> Arc<dyn Generator> {
+        let generator = self.add_typed(generator);
+        self.by_world
+            .insert(world_name_key(world), Arc::clone(&generator));
+        generator
     }
 
     /// Adds a generator of type `G`.
@@ -98,6 +123,7 @@ impl Default for Generators {
     fn default() -> Self {
         let mut generators = Self {
             by_name: BTreeMap::new(),
+            by_world: BTreeMap::new(),
             clash: None,
         };
         generators.add_typed(Flat);
@@ -159,5 +185,47 @@ impl Generator for Void {
     /// `void`, the `level-type` value.
     fn name(&self) -> &'static str {
         "void"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A generator with a value: the height of its one layer of bedrock.
+    struct Layer(i32);
+
+    impl Generator for Layer {
+        fn generate(&self, _seed: i64, _pos: ChunkPos, chunk: &mut Chunk) {
+            for x in 0..16 {
+                for z in 0..16 {
+                    chunk.put(x, self.0, z, Entry::Known(block::BEDROCK));
+                }
+            }
+        }
+
+        fn name(&self) -> &'static str {
+            "layer"
+        }
+    }
+
+    /// Two builder worlds with values of one generator type under one name each keep their own
+    /// value whenever they are picked by that name (a load, a crash replay); any other world
+    /// picking the name gets the first value registered.
+    #[test]
+    fn a_builder_world_keeps_its_own_value_of_a_shared_generator_name() {
+        let mut generators = Generators::default();
+        let low = generators.add_world("low", Layer(-60));
+        let high = generators.add_world("High", Layer(10));
+        assert!(generators.clash().is_none());
+        let of = |world: &str, name: &str| Arc::clone(generators.of_world(world, name).unwrap());
+        assert!(Arc::ptr_eq(&of("high", "layer"), &high), "any letter case");
+        assert!(Arc::ptr_eq(&of("low", "layer"), &low));
+        assert!(
+            Arc::ptr_eq(&of("other", "layer"), &low),
+            "the first registered"
+        );
+        assert_eq!(of("high", "flat").name(), "flat", "another name it picks");
+        assert!(generators.of_world("high", "nothing").is_none());
     }
 }

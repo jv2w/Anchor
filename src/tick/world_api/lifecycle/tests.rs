@@ -195,7 +195,7 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     let eye = on_spawn(&state, 1);
     let mut c = cx(&mut state);
     let player = crate::player::Id::new(SessionId::new(1));
-    c.player_mut(player).unwrap().teleport(id, eye).unwrap();
+    c.teleport(player, id, eye).unwrap();
     ticks(&mut state, &mut output, 2);
     assert_eq!(state.players[&SessionId::new(1)].world, 1);
     received(&mut rx);
@@ -265,6 +265,40 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
         Ok(world::Id::DEFAULT)
     );
     assert!(c.world(world::Id::DEFAULT).is_some(), "loaded in its place");
+}
+
+// pmmp: Player::teleport
+/// A teleport into a world that is not loaded fails at once, and one an unload listener marks
+/// into the unloading world sends the player where the world's players go: no teleport that
+/// succeeded is dropped.
+#[test]
+fn a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload() {
+    let player = crate::player::Id::new(SessionId::new(1));
+    let (mut state, mut output, _rx) = server(on(move |e: &mut WorldUnload, cx| {
+        cx.teleport(player, e.world(), Vec3::new(0.5, -60.0, 0.5))
+            .unwrap();
+    }));
+    let id = cx(&mut state).create_world("arena", &arena(3)).unwrap();
+    ticks(&mut state, &mut output, 2);
+    let aside = on_spawn(&state, 0) + Vec3::new(3.0, 0.0, 3.0);
+    cx(&mut state)
+        .teleport(player, world::Id::DEFAULT, aside)
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    assert_eq!(cx(&mut state).unload_world(id), Ok(()));
+    tick(&mut state, &mut Vec::new(), &mut output);
+    let home = state.worlds[0].safe_spawn(state.worlds[0].spawn());
+    let mut c = cx(&mut state);
+    assert_eq!(
+        c.teleport(player, id, Vec3::new(0.5, -60.0, 0.5)),
+        Err(crate::player::Error::WorldNotLoaded)
+    );
+    let p = c.player(player).unwrap();
+    assert_eq!(p.world(), world::Id::DEFAULT);
+    assert_eq!(BlockPos::containing(p.position()), home);
+    tick(&mut state, &mut Vec::new(), &mut output);
+    let p = &state.players[&SessionId::new(1)];
+    assert_eq!((p.world, BlockPos::containing(p.position())), (0, home));
 }
 
 /// A listener that makes the unloading world the default one keeps it, even from a forced
@@ -799,17 +833,14 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
         ticks(&mut state, &mut output, 2);
         let eye = on_spawn(&state, 1);
         let mut c = cx(&mut state);
-        c.player_mut(player).unwrap().teleport(id, eye).unwrap();
+        c.teleport(player, id, eye).unwrap();
         c.world_mut(lobby)
             .unwrap()
             .set_block(BlockPos::new(30 * 16, -60, -30 * 16), stone())
             .unwrap();
         ticks(&mut state, &mut output, 3);
         let mut c = cx(&mut state);
-        c.player_mut(player)
-            .unwrap()
-            .teleport(world::Id::DEFAULT, home)
-            .unwrap();
+        c.teleport(player, world::Id::DEFAULT, home).unwrap();
         if round % 2 == 0 {
             c.release_chunks(ticket);
         }

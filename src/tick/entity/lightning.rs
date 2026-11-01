@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 
 use super::explosion::set_fire;
 use super::kind::Cause;
-use super::{EPSILON, HOOKS, chunk_of, hurt_in, is_valid_position, targetable, with};
+use super::{HOOKS, chunk_of, each_player_in, hurt_in, is_valid_position, with};
 use crate::block;
 use crate::config::Difficulty;
 use crate::entity::Id;
@@ -210,14 +210,10 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
             None,
         );
     }
-    let struck: Vec<SessionId> = state
-        .players
-        .iter()
-        .filter(|(_, p)| {
-            targetable(state, p, world, HOOKS) && survival::bounding_box(p).overlaps(area, EPSILON)
-        })
-        .map(|(&s, _)| s)
-        .collect();
+    let mut struck: Vec<SessionId> = Vec::new();
+    each_player_in(state, world, area, HOOKS, |s, _| {
+        struck.push(s);
+    });
     for session in struck {
         if let Some(p) = state.players.get_mut(&session) {
             p.set_on_fire(BURN_SECONDS.unsigned_abs().into());

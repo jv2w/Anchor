@@ -2,7 +2,7 @@
 //! leaving (its survival state is in `survival::api`); and the per-tick sync that does what the
 //! setters marked.
 //!
-//! A setter changes the value at once (after [`Player::teleport`], [`Player::position`] is the
+//! A setter changes the value at once (after [`Context::teleport`], [`Player::position`] is the
 //! new place) and marks what the world and the other players must see. [`sync`] runs after the
 //! inputs, tasks and rules and before the views move: it disconnects the players that were kicked
 //! or transferred, moves the teleported ones and sends what the survival setters changed. No call
@@ -244,12 +244,14 @@ impl Player {
         world::Id::of(self.marks.teleport.map_or(self.world, |(world, _)| world))
     }
 
-    /// Where the player's feet are; with [`world`](Self::world), [`yaw`](Self::yaw) and
+    /// Where the player's feet are: 1.62 below its eyes, rounded to 4 decimals as PMMP keeps it,
+    /// so the feet of a player standing on a block are on it (its client sends the eyes as
+    /// floats, a hair off). With [`world`](Self::world), [`yaw`](Self::yaw) and
     /// [`pitch`](Self::pitch) its PMMP location.
     #[doc(alias = "Entity::getPosition")]
     #[doc(alias = "Entity::getLocation")]
     pub fn position(&self) -> Vec3 {
-        self.eye_position() - Vec3::new(0.0, survival::EYE_HEIGHT, 0.0)
+        survival::feet_at(self.eye_position())
     }
 
     /// Where the player's eyes are: 1.62 above its feet.
@@ -276,22 +278,6 @@ impl Player {
             return Err(Error::OutOfRange);
         }
         self.marks.line_height = height;
-        Ok(())
-    }
-
-    /// Moves the player's feet to `feet` in `world`: by the end of the tick its window closes,
-    /// it wakes, its breaking stops, its fall ends, and its client and viewers see it there;
-    /// another world sends its chunks again. [`position`](Self::position) is the new place at
-    /// once; a second teleport in the tick wins. The player keeps its rotation unless
-    /// [`set_rotation`](Self::set_rotation) turns it. Fails for a position that is not finite or
-    /// lies outside the world border. A world that is not loaded at the end of the tick (one
-    /// unloaded since, or a world ID of another server) is ignored there.
-    #[doc(alias = "Player::teleport")]
-    #[doc(alias = "Entity::teleport")]
-    pub fn teleport(&mut self, world: world::Id, feet: Vec3) -> Result<()> {
-        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
-        check_position(eye)?;
-        self.marks.teleport = Some((world.index(), eye));
         Ok(())
     }
 
@@ -422,6 +408,26 @@ impl Player {
 }
 
 impl Context<'_> {
+    /// Moves `player`'s feet to `feet` in `world`: by the end of the tick its window closes, it
+    /// wakes, its breaking stops, its fall ends, and its client and viewers see it there; another
+    /// world sends its chunks again. [`Player::position`] is the new place at once; a second
+    /// teleport in the tick wins, and a world that unloads before the player moves sends it to
+    /// the default world's spawn as it sends the world's players. The player keeps its rotation
+    /// unless [`Player::set_rotation`] turns it. Fails, changing nothing, with
+    /// [`Error::Offline`] if the player is not in the game, [`Error::WorldNotLoaded`] for a world
+    /// that is not loaded (unloaded, or an ID of another server) and [`Error::OutsideWorld`] for
+    /// a position that is not finite or lies outside the world border.
+    #[doc(alias = "Player::teleport")]
+    #[doc(alias = "Entity::teleport")]
+    pub fn teleport(&mut self, player: Id, world: world::Id, feet: Vec3) -> Result<()> {
+        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        let checked = survival::check_destination(self.state, world.index(), eye);
+        let p = self.player_mut(player).ok_or(Error::Offline)?;
+        checked?;
+        p.marks.teleport = Some((world.index(), eye));
+        Ok(())
+    }
+
     /// Kicks `player` as [`Player::kick`] does, after asking the [`PlayerKick`] listeners, which
     /// may keep it or change the reason, the screen message and the quit message the other
     /// players see (`quit_message` `None` is the usual "left the game" line, an empty one shows
@@ -548,10 +554,10 @@ impl Context<'_> {
         }
     }
 
-    /// Moves `player`'s feet to `feet` in `world` as [`Player::teleport`] does, after asking the
-    /// [`EntityTeleport`] listeners, which may keep it where it is or send it elsewhere. Nothing
-    /// happens if the player is gone or the place is not finite or lies outside the world border,
-    /// before the listeners are asked or after they changed it, or if a listener cancels it.
+    /// Moves `player`'s feet to `feet` in `world` as [`teleport`](Self::teleport) does, after
+    /// asking the [`EntityTeleport`] listeners, which may keep it where it is or send it
+    /// elsewhere. Nothing happens, and the monitors hear nothing, if the teleport fails before
+    /// the listeners are asked or after they changed it, or if a listener cancels it.
     pub(crate) fn teleport_player(
         &mut self,
         player: Id,
@@ -562,7 +568,8 @@ impl Context<'_> {
         let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
             return;
         };
-        if !inside_border(feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0)) {
+        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        if survival::check_destination(self.state, world.index(), eye).is_err() {
             return;
         }
         let (mut world, mut feet) = (world, feet);
@@ -583,9 +590,7 @@ impl Context<'_> {
             }
             (world, feet) = (e.target_world, e.target);
         }
-        let moved = self
-            .player_mut(player)
-            .is_some_and(|p| p.teleport(world, feet).is_ok());
+        let moved = self.teleport(player, world, feet).is_ok();
         if moved && let Some(e) = &event {
             dispatch::watch(self.state, e);
         }
@@ -876,6 +881,19 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
     }
 }
 
+/// The world `from` unloads and sends its players to `eye` in the world `to`: a teleport into it
+/// that waits for the end of a tick (marked by a listener of the view phase) goes there too, so
+/// a teleport that succeeded is never dropped.
+pub(super) fn redirect_teleports(state: &mut State, from: WorldIndex, to: WorldIndex, eye: Vec3) {
+    for player in state.players.values_mut() {
+        if let Some(mark) = &mut player.marks.teleport
+            && mark.0 == from
+        {
+            *mark = (to, eye);
+        }
+    }
+}
+
 /// Moves the player of `session` if it was teleported and does its survival marks.
 fn apply_marks(state: &mut State, session: SessionId) {
     if let Some((world, eye)) = state
@@ -1145,23 +1163,36 @@ pub(super) mod tests {
     #[test]
     fn a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick() {
         let (mut state, [mut rx1, mut rx2]) = two();
-        let p = player_mut(&mut state, 1);
-        let start = p.position();
+        let id = Id::new(SessionId::new(1));
+        let start = player_mut(&mut state, 1).position();
+        let mut cx = Context { state: &mut state };
         for feet in [
             Vec3::new(f64::NAN, 0.0, 0.0),
             Vec3::new(30_000_001.0, -60.0, 0.0),
             Vec3::new(0.0, f64::INFINITY, 0.0),
         ] {
             assert_eq!(
-                p.teleport(world::Id::DEFAULT, feet),
+                cx.teleport(id, world::Id::DEFAULT, feet),
                 Err(Error::OutsideWorld)
             );
         }
-        assert_eq!(p.position(), start);
+        let gone = Id::new(SessionId::new(9));
+        assert_eq!(
+            cx.teleport(gone, world::Id::DEFAULT, start),
+            Err(Error::Offline)
+        );
+        let elsewhere = world::Id::of(7);
+        assert_eq!(
+            cx.teleport(id, elsewhere, start),
+            Err(Error::WorldNotLoaded)
+        );
+        assert_eq!(player_mut(&mut state, 1).position(), start);
         let to = Vec3::new(3.5, -60.0, 2.5);
-        p.teleport(world::Id::DEFAULT, Vec3::new(9.5, -60.0, 9.5))
+        let mut cx = Context { state: &mut state };
+        cx.teleport(id, world::Id::DEFAULT, Vec3::new(9.5, -60.0, 9.5))
             .unwrap();
-        p.teleport(world::Id::DEFAULT, to).unwrap();
+        cx.teleport(id, world::Id::DEFAULT, to).unwrap();
+        let p = player_mut(&mut state, 1);
         assert_eq!(p.position(), to);
         assert_eq!(
             p.eye_position(),
@@ -1181,6 +1212,22 @@ pub(super) mod tests {
         let p = &state.players[&SessionId::new(1)];
         assert_eq!(p.position(), to);
         assert!(p.marks.teleport.is_none());
+    }
+
+    // pmmp: Entity::getPosition
+    /// The feet of a player standing on a block are on it: its client sends the eyes as floats,
+    /// a hair below 1.62 above the block, and the feet are rounded as the survival rules round
+    /// them.
+    #[test]
+    fn the_feet_of_a_player_on_a_block_are_on_that_block() {
+        let (mut state, _rx) = two();
+        let p = player_mut(&mut state, 1);
+        for y in [-60, 31, 32, 64] {
+            let eye = Vec3::new(0.5, f64::from(y) + survival::EYE_HEIGHT, 0.5);
+            p.position = Vec3::from_f32(eye.to_f32());
+            assert_eq!(p.position().y, f64::from(y));
+            assert_eq!(crate::world::BlockPos::containing(p.position()).y, y);
+        }
     }
 
     // pmmp: Player::sendMessage, Player::sendTip, Player::sendPopup, Player::sendJukeboxPopup, Player::sendActionBarMessage, Player::sendTitle, Player::sendSubTitle, Player::removeTitles, Player::resetTitles, Player::setTitleDuration, Player::sendToastNotification, NetworkSession::sendDataPacket
@@ -1351,9 +1398,8 @@ pub(super) mod tests {
         listeners.push(
             crate::event::Priority::Normal,
             move |e: &mut PlayerQuit, cx: &mut Context<'_>| {
-                let p = cx.player_mut(e.player()).unwrap();
-                p.teleport(world::Id::DEFAULT, to).unwrap();
-                assert!(p.kill());
+                cx.teleport(e.player(), world::Id::DEFAULT, to).unwrap();
+                assert!(cx.player_mut(e.player()).unwrap().kill());
             },
         );
         listeners.push_monitor(move |e: &crate::event::PlayerDeath, _: &Context<'_>| {
@@ -1843,8 +1889,39 @@ pub(super) mod tests {
         ctx.transfer_player(id, String::new(), 19132, None);
         let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
         ctx.teleport_player(id, world::Id::DEFAULT, nowhere, TeleportCause::Action);
+        let unloaded = world::Id::of(7);
+        let feet = Vec3::new(0.5, -60.0, 0.5);
+        ctx.teleport_player(id, unloaded, feet, TeleportCause::Action);
         assert!(events.try_recv().is_err(), "no listener was asked");
         let p = &state.players[&SessionId::new(1)];
         assert!(p.is_online() && p.marks.teleport.is_none());
+    }
+
+    /// A teleport a listener sends to a world that is not loaded does not happen: the monitors
+    /// hear nothing, and the player stays.
+    #[test]
+    fn a_teleport_a_listener_sends_to_an_unloaded_world_does_not_happen() {
+        let (heard, mut monitors) = mpsc::channel(8);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            crate::event::Priority::Normal,
+            |e: &mut EntityTeleport, _: &mut Context<'_>| {
+                e.set_target(world::Id::of(7), e.target());
+            },
+        );
+        listeners.push_monitor(move |_: &EntityTeleport, _: &Context<'_>| {
+            heard.try_send(()).unwrap();
+        });
+        let (mut state, _rx) = two_with(listeners);
+        let id = Id::new(SessionId::new(1));
+        let feet = Vec3::new(3.5, -60.0, 2.5);
+        Context { state: &mut state }.teleport_player(
+            id,
+            world::Id::DEFAULT,
+            feet,
+            TeleportCause::Action,
+        );
+        assert!(monitors.try_recv().is_err(), "no monitor");
+        assert!(state.players[&SessionId::new(1)].marks.teleport.is_none());
     }
 }

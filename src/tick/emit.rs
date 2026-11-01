@@ -69,12 +69,9 @@ pub(super) fn particle(state: &mut State, world: WorldIndex, at: Vec3, particle:
 
 /// The players who see the chunk of `at` in `world`, in session order.
 fn viewers(state: &State, world: WorldIndex, at: Vec3) -> Vec<crate::player::Id> {
-    let chunk = chunk_of(at);
     state
-        .players
-        .iter()
-        .filter(|(_, p)| p.world == world && p.view.sees(chunk))
-        .map(|(&s, _)| crate::player::Id::new(s))
+        .chunk_viewers(world, chunk_of(at))
+        .map(crate::player::Id::new)
         .collect()
 }
 

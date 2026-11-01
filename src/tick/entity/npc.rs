@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 use super::kind::{Character, Form, Kind, MAX_NAME_TAG_BYTES};
 use super::{
-    Blow, Cause, EYE_HEIGHT, Hooks, Hurt, Knock, Npc, SAFE_FALL, SUFFOCATION_DAMAGE, State,
-    combust, create, hurt, is_inside_solid, player_actor, push_entity, send_to, with,
+    Blow, Cause, Hooks, Hurt, Knock, Npc, SAFE_FALL, SUFFOCATION_DAMAGE, State, combust, create,
+    hurt, is_inside_solid, player_actor, push_entity, send_to, with,
 };
 use crate::config::GameMode;
 use crate::entity::Id;
@@ -164,7 +164,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     let reached = reaches(state, session, target, hooks);
     let result = match reached {
         Some((eye, at)) => {
-            let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+            let feet = survival::feet_at(eye);
             let knock = Knock::new(at.x - feet.x, at.z - feet.z);
             let by = DamageSource::Entity(player_actor(session));
             hurt(
@@ -207,7 +207,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
             send_to(&mut state.players, &viewers, &packet);
         }
     }
-    let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let feet = survival::feet_at(eye);
     let (dx, dz) = (at.x - feet.x, at.z - feet.z);
     survival::after_melee(state, session, &held, |state, knockback, fire| {
         if living {

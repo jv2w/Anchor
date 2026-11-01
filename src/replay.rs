@@ -277,7 +277,8 @@ pub(crate) fn run(
 }
 
 /// The worlds the run had at `checkpoint`, the ones it made or loaded included, each with the
-/// generator `setup` registered under the name it was made with.
+/// generator `setup` gives it for the name it was made with ([`crate::world::Generators::of_world`]), as the
+/// run picked it.
 fn checkpoint_worlds(checkpoint: &Checkpoint, setup: &Setup) -> Result<Vec<WorldSpec>> {
     checkpoint
         .worlds()
@@ -289,7 +290,7 @@ fn checkpoint_worlds(checkpoint: &Checkpoint, setup: &Setup) -> Result<Vec<World
                 generator: Arc::clone(
                     setup
                         .generators
-                        .get(&w.generator)
+                        .of_world(&w.name, &w.generator)
                         .ok_or(Error::RegistrationsDiffer)?,
                 ),
                 seed: None,

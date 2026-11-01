@@ -152,9 +152,9 @@ impl Game {
                 cx.remove_boss_bar(id);
                 if let Some(player) = cx.player_mut(id) {
                     or_log(player.send(title("Go!", "Break blocks in the arena")));
-                    or_log(player.teleport(arena, feet(ARENA_CENTRE)));
                     or_log(player.insert_extension(Tally::default()));
                 }
+                or_log(cx.teleport(id, arena, feet(ARENA_CENTRE)));
             }
             return Phase::Round(ROUND_SECS);
         }
@@ -232,9 +232,7 @@ fn after_round(cx: &mut Context<'_>, id: player::Id, answer: &Response) {
     or_log(cx.schedule(LOBBY_DELAY_TICKS, move |cx| {
         let lobby = cx.default_world();
         let (world, spawn) = (lobby.id(), lobby.spawn());
-        if let Some(player) = cx.player_mut(id) {
-            or_log(player.teleport(world, feet(spawn)));
-        }
+        or_log(cx.teleport(id, world, feet(spawn)));
     }));
 }
 

@@ -31,7 +31,7 @@ use crate::protocol::packet::{Packet, SetDifficulty};
 use crate::save::{self, DeletedWorld, NewWorld, WorldIndex};
 use crate::storage::codec::WorldRecord;
 use crate::storage::{MAX_WORLDS, world_name_key};
-use crate::tick::{Context, Phase, Settings, State, dispatch, entity, survival, view};
+use crate::tick::{Context, Phase, Settings, State, dispatch, entity, player, survival, view};
 use crate::world::{self, ChunkPos, Generators, Kind, World};
 
 /// What the tick knows of its worlds besides the [`World`]s themselves.
@@ -343,7 +343,7 @@ impl Context<'_> {
         if name_taken(state, name) {
             return Err(world::Error::WorldExists);
         }
-        let generator = generator_of(state, options)?;
+        let generator = generator_of(state, name, options)?;
         let persistent = options.kind() == Kind::Persistent;
         if (place.is_none() && state.worlds.len() >= MAX_WORLDS)
             || (persistent && persistent_count(state) >= MAX_WORLDS)
@@ -400,7 +400,7 @@ impl Context<'_> {
             return Err(world::Error::NotGenerated);
         };
         check_view(options)?;
-        let generator = generator_of(state, options)?;
+        let generator = generator_of(state, name, options)?;
         if state.worlds.len() >= MAX_WORLDS {
             return Err(world::Error::Full);
         }
@@ -653,7 +653,7 @@ pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
             let generator = state
                 .catalog
                 .generators
-                .get(world.generator())
+                .of_world(world.name(), world.generator())
                 .expect("a world's generator is registered");
             NewWorld {
                 index,
@@ -694,15 +694,17 @@ fn named(state: &State, name: &str) -> Option<WorldIndex> {
     state.catalog.named(name)
 }
 
-/// The registered generator `options` names: the first registered under that name.
+/// The registered generator the world `name` gets from the generator name `options` give
+/// ([`world::Generators::of_world`]).
 fn generator_of<'a>(
     state: &'a State,
+    name: &str,
     options: &world::Options,
 ) -> world::Result<&'a Arc<dyn world::Generator>> {
     state
         .catalog
         .generators
-        .get(options.generator())
+        .of_world(name, options.generator())
         .ok_or(world::Error::UnknownGenerator)
 }
 
@@ -799,6 +801,7 @@ fn unload(state: &mut State, index: WorldIndex) {
     for session in players {
         survival::teleport(state, session, default, eye);
     }
+    player::redirect_teleports(state, index, default, eye);
     view::unload_world(state, index);
     *state.catalog.loaded_mut(index) = false;
     let world = super::world_at_mut(state, index);

@@ -65,8 +65,10 @@ pub enum Error {
     OutOfRange,
     /// A position is not finite or lies outside the world border.
     OutsideWorld,
-    /// The server has no world with that ID.
-    UnknownWorld,
+    /// The world is not loaded: it was unloaded, or the ID is of another server.
+    WorldNotLoaded,
+    /// The player is not in the game: it has left, or has not joined yet.
+    Offline,
     /// The player is already leaving: it was kicked or transferred this tick.
     Leaving,
     /// A transfer address is empty or longer than 253 bytes (the longest host name).
@@ -96,7 +98,8 @@ impl fmt::Display for Error {
             Self::TooManyParameters => "a translation takes at most 4 parameters",
             Self::OutOfRange => "the value is out of range",
             Self::OutsideWorld => "the position is outside the world",
-            Self::UnknownWorld => "the server has no such world",
+            Self::WorldNotLoaded => "the world is not loaded",
+            Self::Offline => "the player is not in the game",
             Self::Leaving => "the player is leaving",
             Self::InvalidAddress => "the transfer address is invalid",
             Self::Disabled => "a server setting turns this off",

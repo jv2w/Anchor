@@ -957,8 +957,9 @@ pub(super) fn bounding_box(s: &Survival, feet: Vec3) -> Aabb {
 }
 
 /// The movement of a tick (PMMP `Player::processMostRecentMovements`): the rate limit refills,
-/// the tick's move asks [`PlayerMove`] (cancelled, the player goes back to where the tick
-/// started; sent elsewhere, it is teleported there), and a horizontal move costs 0.01 exhaustion
+/// the tick's move asks [`PlayerMove`] (cancelled, or sent where no teleport may go, the player
+/// goes back to where the tick started; sent elsewhere, it is teleported there), and a
+/// horizontal move costs 0.01 exhaustion
 /// per block while sprinting (PMMP announces walking with 0). A player beyond the rate limit is
 /// sent back to its accepted position.
 pub(super) fn process(state: &mut State, session: SessionId) {
@@ -973,6 +974,13 @@ pub(super) fn process(state: &mut State, session: SessionId) {
     let (dx, dz) = (now.x - from.x, now.z - from.z);
     if now.distance_squared(from) > 0.0001 {
         let world = player.world;
+        let send_back = move |state: &mut State| {
+            if let Some(player) = state.players.get_mut(&session) {
+                player.position = from + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
+                player.data_dirty = true;
+                send_position(player, MoveMode::Reset);
+            }
+        };
         let Ok(event) = super::ask(
             state,
             || PlayerMove {
@@ -988,17 +996,17 @@ pub(super) fn process(state: &mut State, session: SessionId) {
                 })
             },
         ) else {
-            if let Some(player) = state.players.get_mut(&session) {
-                player.position = from + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
-                player.data_dirty = true;
-                send_position(player, MoveMode::Reset);
-            }
+            send_back(state);
             return;
         };
         if let Some(e) = &event
             && e.target.distance_squared(now) > 0.01
         {
             let eye = e.target + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
+            if super::check_destination(state, world, eye).is_err() {
+                send_back(state);
+                return;
+            }
             super::teleport(state, session, world, eye);
             super::watch(state, event.as_ref());
             return;

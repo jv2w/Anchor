@@ -149,9 +149,8 @@ pub enum Error {
     },
     /// The entity is not a villager NPC.
     NotVillager,
-    /// The villager was not spawned: the world does not exist, the position is not finite,
-    /// outside the world border or more than 64 blocks above or below the world height, its
-    /// chunk is not loaded, or the world is at its entity limit.
+    /// The villager was not spawned: the world does not exist, the position is not finite or
+    /// outside the world border, its chunk is not loaded, or the world is at its entity limit.
     NotSpawned,
     /// An offer or an offer list change breaks a rule.
     Offer {

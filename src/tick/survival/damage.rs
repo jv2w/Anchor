@@ -1741,15 +1741,15 @@ fn respawn_point(state: &State, session: SessionId) -> (WorldIndex, Vec3) {
     };
     let at = |index: WorldIndex, spawn: BlockPos| {
         let eye = super::standing_eye(state.worlds.get(index)?.safe_spawn(spawn));
-        crate::tick::inside_border(eye).then_some((index, eye))
+        super::check_destination(state, index, eye)
+            .is_ok()
+            .then_some((index, eye))
     };
-    let own = player.survival.spawn.as_ref().and_then(|p| {
-        let index = state
-            .catalog
-            .named(&p.world)
-            .filter(|&index| state.catalog.is_loaded(index))?;
-        at(index, p.pos)
-    });
+    let own = player
+        .survival
+        .spawn
+        .as_ref()
+        .and_then(|p| at(state.catalog.named(&p.world)?, p.pos));
     let default = state.catalog.default_world();
     own.or_else(|| at(default, state.worlds.get(default)?.spawn()))
         .unwrap_or((player.world, player.position))
@@ -1885,7 +1885,7 @@ fn revive(
         hardcore_spectator(state, session);
     }
     let (world, position) = respawn_point(state, session);
-    let feet_at = position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let feet_at = super::feet_at(position);
     let world_id = world::Id::of(world);
     let mut event = super::ask(
         state,
@@ -1955,9 +1955,10 @@ fn hardcore_spectator(state: &mut State, session: SessionId) {
 /// Where a [`PlayerRespawn`] listener sends the player: the world's index and the eye position;
 /// `None` for a world the server does not run (or unloaded) or a place outside the world border.
 fn respawn_target(state: &State, world: world::Id, feet: Vec3) -> Option<(WorldIndex, Vec3)> {
-    let index = crate::tick::world_api::index(state, world)?;
     let eye = feet + Vec3::new(0.0, EYE_HEIGHT, 0.0);
-    crate::tick::inside_border(eye).then_some((index, eye))
+    super::check_destination(state, world.index(), eye)
+        .is_ok()
+        .then_some((world.index(), eye))
 }
 
 /// The void, burning and the respawn invulnerability, each tick (PMMP `Entity::entityBaseTick`,

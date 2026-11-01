@@ -16,8 +16,7 @@ use super::{
     MAX_AIR, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, MIN_AIR, Point, Survival,
 };
 use crate::config::GameMode;
-use crate::effect::MAX_DURATION;
-use crate::effect::Type as Effect;
+use crate::effect::Instance;
 use crate::item::Stack;
 use crate::math::to_f32;
 use crate::nbt::{Compound, List, Value};
@@ -46,12 +45,6 @@ const SLEEPING: &str = "SleepingPos";
 const HELD_BACK: &str = "PendingDeathDrops";
 const FIRST_PLAYED: &str = "firstPlayed";
 const LAST_PLAYED: &str = "lastPlayed";
-
-const EFFECT_ID: &str = "Id";
-const EFFECT_AMPLIFIER: &str = "Amplifier";
-const EFFECT_DURATION: &str = "Duration";
-const EFFECT_AMBIENT: &str = "Ambient";
-const EFFECT_PARTICLES: &str = "ShowParticles";
 
 /// The most falling distance kept (a longer fall kills anyway).
 const MAX_FALL: f64 = 4096.0;
@@ -100,13 +93,6 @@ fn short(extra: &Compound, key: &str) -> Option<i16> {
     }
 }
 
-fn byte(extra: &Compound, key: &str) -> Option<u8> {
-    match extra.get(key) {
-        Some(Value::Byte(v)) => Some(*v),
-        _ => None,
-    }
-}
-
 /// A float key that is finite and within `lo..=hi`.
 fn float(extra: &Compound, key: &str, lo: f64, hi: f64) -> Option<f64> {
     match extra.get(key) {
@@ -147,8 +133,8 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
         .map(|&(mode, _)| mode);
     if let Some(Value::List(List::Compound(list))) = extra.get(EFFECTS) {
         for e in list.iter().take(MAX_EFFECTS) {
-            if let Some((effect, active)) = load_effect(e) {
-                s.effects.insert(effect, active);
+            if let Some(instance) = Instance::from_nbt(e) {
+                s.effects.insert(instance.effect(), Active::of(instance));
             }
         }
     }
@@ -222,29 +208,6 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     };
 }
 
-/// One saved effect (PMMP `Living::initEntity`): an unknown ID, or a negative duration other
-/// than -1 (infinite), is skipped.
-fn load_effect(e: &Compound) -> Option<(Effect, Active)> {
-    let effect = Effect::from_id(i32::from(byte(e, EFFECT_ID)?))?;
-    let duration = int(e, EFFECT_DURATION)?;
-    let infinite = duration == -1;
-    let duration = if infinite {
-        MAX_DURATION
-    } else {
-        u32::try_from(duration).ok()?
-    };
-    Some((
-        effect,
-        Active {
-            duration,
-            amplifier: byte(e, EFFECT_AMPLIFIER)?,
-            visible: byte(e, EFFECT_PARTICLES).unwrap_or(1) != 0,
-            ambient: byte(e, EFFECT_AMBIENT).unwrap_or(0) != 0,
-            infinite,
-        },
-    ))
-}
-
 /// The saved play history (PMMP `Player::TAG_FIRST_PLAYED`, `Player::TAG_LAST_PLAYED`: longs of
 /// milliseconds since the Unix epoch): the first join and the last save, each `None` when
 /// missing or not a long.
@@ -308,23 +271,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     let effects: Vec<Compound> = s
         .effects
         .iter()
-        .map(|(effect, a)| {
-            let mut c = Compound::new();
-            c.insert(EFFECT_ID.to_owned(), Value::Byte(effect.id()));
-            c.insert(EFFECT_AMPLIFIER.to_owned(), Value::Byte(a.amplifier));
-            let duration = if a.infinite {
-                -1
-            } else {
-                i32::try_from(a.duration).unwrap_or(i32::MAX)
-            };
-            c.insert(EFFECT_DURATION.to_owned(), Value::Int(duration));
-            c.insert(EFFECT_AMBIENT.to_owned(), Value::Byte(u8::from(a.ambient)));
-            c.insert(
-                EFFECT_PARTICLES.to_owned(),
-                Value::Byte(u8::from(a.visible)),
-            );
-            c
-        })
+        .map(|(&effect, a)| a.instance(effect).to_nbt())
         .collect();
     put(
         EFFECTS,
@@ -368,6 +315,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::effect::{MAX_DURATION, Type as Effect};
     use crate::tick::extra::hash_nbt;
 
     /// A state with a value in every saved field.
@@ -479,14 +427,14 @@ mod tests {
         extra.insert(SPAWN[0].to_owned(), Value::Int(1));
         let mut list = Vec::new();
         let mut bad = Compound::new();
-        bad.insert(EFFECT_ID.to_owned(), Value::Byte(250));
-        bad.insert(EFFECT_DURATION.to_owned(), Value::Int(10));
-        bad.insert(EFFECT_AMPLIFIER.to_owned(), Value::Byte(0));
+        bad.insert("Id".to_owned(), Value::Byte(250));
+        bad.insert("Duration".to_owned(), Value::Int(10));
+        bad.insert("Amplifier".to_owned(), Value::Byte(0));
         list.push(bad);
         let mut negative = Compound::new();
-        negative.insert(EFFECT_ID.to_owned(), Value::Byte(Effect::Speed.id()));
-        negative.insert(EFFECT_DURATION.to_owned(), Value::Int(-7));
-        negative.insert(EFFECT_AMPLIFIER.to_owned(), Value::Byte(0));
+        negative.insert("Id".to_owned(), Value::Byte(Effect::Speed.id()));
+        negative.insert("Duration".to_owned(), Value::Int(-7));
+        negative.insert("Amplifier".to_owned(), Value::Byte(0));
         list.push(negative);
         list.extend(std::iter::repeat_n(Compound::new(), 1000));
         extra.insert(EFFECTS.to_owned(), Value::List(List::Compound(list)));

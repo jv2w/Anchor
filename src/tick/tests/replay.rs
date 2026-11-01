@@ -679,7 +679,6 @@ fn tour_setup(hashes: mpsc::Sender<(u64, u64)>, seen: mpsc::Sender<(u64, u32, us
         let leg = tick.checked_sub(TOUR_START).filter(|t| t % STOP_TICKS == 0);
         if let Some(i) = leg.map(|t| t / STOP_TICKS)
             && i < STOPS
-            && let Some(player) = ctx.player_mut(crate::player::Id::new(SessionId::new(1)))
         {
             let center = stop(i);
             let feet = Vec3::new(
@@ -687,7 +686,10 @@ fn tour_setup(hashes: mpsc::Sender<(u64, u64)>, seen: mpsc::Sender<(u64, u32, us
                 -60.0,
                 f64::from(center.z * 16) + 8.5,
             );
-            player.teleport(world, feet).unwrap();
+            let id = crate::player::Id::new(SessionId::new(1));
+            if ctx.player(id).is_some() {
+                ctx.teleport(id, world, feet).unwrap();
+            }
         }
     });
     Setup {

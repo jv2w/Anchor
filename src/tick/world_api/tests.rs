@@ -352,10 +352,7 @@ fn a_player_teleported_this_tick_is_in_its_new_world_for_every_query() {
     let id = player::Id::new(SessionId::new(1));
     let in_world = |ctx: &Context<'_>, w: world::Id| ctx.players_in(w).any(|p| p == id);
     let mut ctx = context(&mut state);
-    ctx.player_mut(id)
-        .unwrap()
-        .teleport(arena, Vec3::new(0.5, -60.0, 0.5))
-        .unwrap();
+    ctx.teleport(id, arena, Vec3::new(0.5, -60.0, 0.5)).unwrap();
     assert_eq!(ctx.player(id).unwrap().world(), arena);
     assert!(in_world(&ctx, arena), "in the arena");
     assert!(!in_world(&ctx, WORLD), "not in the old world");
