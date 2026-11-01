@@ -51,7 +51,8 @@ pub(super) use attributes::{
     update_abilities,
 };
 pub(super) use clock::{
-    Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
+    Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
+    sleeping_players,
 };
 pub(super) use damage::{Damage, bds_cause, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
@@ -1597,22 +1598,23 @@ mod tests {
             _ => None,
         });
         let metadata = &data[0].entity_metadata;
-        assert_eq!(metadata.len(), 72);
+        assert_eq!(metadata.len(), 73);
         assert_eq!(metadata[&0], MetadataValue::Int64(844_424_930_656_256));
         assert_eq!(metadata[&92], MetadataValue::Int64(35_184_405_643_264));
         assert_eq!(metadata[&7], MetadataValue::Int16(300));
         assert_eq!(metadata[&130], MetadataValue::Vec3([0.6, 1.8, 0.0]));
         assert_eq!(metadata[&4], MetadataValue::String("player1".to_owned()));
-        // BDS's types of keys 136 to 140 (P6 `others` data types); 139 is not sent.
+        // BDS's types of keys 136 to 141 (P6 `others` data types); 139 is not sent.
         assert_eq!(metadata[&136], MetadataValue::Int32(-1));
         assert_eq!(metadata[&137], MetadataValue::Int32(-1));
         assert_eq!(metadata[&138], MetadataValue::Int32(-1));
         assert_eq!(metadata[&140], MetadataValue::Float32(64.0));
+        assert_eq!(metadata[&141], MetadataValue::Byte(0));
         // BDS: the last death position in block coordinates, the bed entry as floats.
         assert_eq!(metadata[&127], MetadataValue::BlockPos([0, 0, 0]));
         assert_eq!(metadata[&133], MetadataValue::Vec3([0.0, 0.0, 0.0]));
-        // BDS's SetActorData for "AnchorBot" is 395 payload bytes (P6); this name is 2 shorter.
-        assert_eq!(size(&Packet::SetActorData(data[0].clone())), 395 - 2);
+        // BDS's SetActorData for "AnchorBot" is 400 payload bytes (P6); this name is 2 shorter.
+        assert_eq!(size(&Packet::SetActorData(data[0].clone())), 400 - 2);
         assert!(packets.contains(&Packet::SetHealth(p::SetHealth { health: 20 })));
     }
 
@@ -1716,7 +1718,7 @@ mod tests {
 
     #[test]
     fn spawn_window_packets_have_the_bds_sizes() {
-        // Payload sizes of BDS 1.26.52's packets (P6 capture sizes minus the packet header).
+        // Payload sizes of BDS 1.26.60's packets (P6 capture sizes minus the packet header).
         let server = Server::new(1, |_| {});
         let settings = &server.state.settings;
         assert_eq!(size(&game_rules(settings)), 749);

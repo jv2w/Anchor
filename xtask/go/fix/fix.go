@@ -51,12 +51,13 @@ var replacements = []replacement{
 		new:  "\tPieceTypeEmote\n\tPieceTypeCoCo\n\tPieceTypeUnsupported\n",
 	},
 	// Entity data keys: 139 is reserved and 140 is the name tag render distance. The arrow and firework
-	// shooter keys are actor-specific meanings of 17 and 18.
+	// shooter keys are actor-specific meanings of 17 and 18. 141 is a byte BDS 1.26.60 sends players
+	// (P6), with no public name.
 	{
 		file: "entity_metadata.go",
 		old: "\tEntityDataKeyArrowShooterID\n\tEntityDataKeyFireworkDirection\n\tEntityDataKeyFireworkShooterID\n" +
 			"\tEntityDataKeyReserved139\n\tEntityDataKeyNameplateRenderDistanceMax\n)\n",
-		new: "\tEntityDataKeyReserved139\n\tEntityDataKeyNameplateRenderDistanceMax\n)\n",
+		new: "\tEntityDataKeyReserved139\n\tEntityDataKeyNameplateRenderDistanceMax\n\tEntityDataKeyReserved141\n)\n",
 	},
 	{
 		file: "entity_metadata.go",

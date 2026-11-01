@@ -194,10 +194,12 @@ type game struct {
 	// flags is the bot's own entity flags (entity data key 0) as last sent.
 	flags int64
 	// available is the last AvailableCommands, displays the forms, scoreboards and boss bar shown, and
-	// lastOutput the output of the last player command (api.go).
+	// lastOutput the output of the last player command (api.go), and clock the world time the server
+	// last sent.
 	available  *packet.AvailableCommands
 	displays   *displays
 	lastOutput *packet.CommandOutput
+	clock      any
 	// weather is what the weather scenarios saw since their last check (weather.go).
 	weather weatherLog
 	// verify is what the verification scenarios keep (verify.go).
@@ -521,6 +523,14 @@ func (g *game) observe(pk packet.Packet) {
 		g.options = pk.Options
 	case *packet.UpdateTrade:
 		g.trade = pk
+	case *packet.SetTime:
+		g.clock = pk.Time
+	case *packet.SyncWorldClocks:
+		if len(pk.SyncStates) > 0 {
+			g.clock = pk.SyncStates[0].Time
+		} else if len(pk.Clocks) > 0 {
+			g.clock = pk.Clocks[0].Time
+		}
 	case *packet.SetActorData:
 		if f, ok := pk.EntityMetadata[protocol.EntityDataKeyFlags].(int64); ok && pk.EntityRuntimeID == g.runtimeID {
 			g.flags = f

@@ -900,32 +900,244 @@ fn spawnpoint_and_setworldspawn_take_the_senders_block_or_a_position() {
     );
 }
 
+/// The clock `/time` names: every world's.
+const CLOCK: &str = "minecraft:overworld";
+/// `/time`'s answer when a clock would go below 0.
+const CLOCK_TOO_SMALL: &str = "commands.time.clock.num.tooSmall";
+
+/// A key and its parameters.
+type Said = (String, Vec<String>);
+
+/// What the console's `line` answers: the key and parameters of its first line, or of its
+/// failure.
+fn answer(state: &mut State, line: &str) -> Result<Said, Said> {
+    match run(state, Sender::Console, line) {
+        Ok(out) => Ok((out.lines[0].text.clone(), out.lines[0].params.clone())),
+        Err(e) => {
+            let line = e.line();
+            Err((line.text, line.params))
+        }
+    }
+}
+
+/// `key` and `params` as [`answer`] gives them.
+fn said(key: &str, params: &[&str]) -> Said {
+    (
+        key.to_owned(),
+        params.iter().map(|p| (*p).to_owned()).collect(),
+    )
+}
+
+/// The world `arena`, added to the server.
+fn add_arena(state: &mut State) -> crate::world::Id {
+    state.add_world(crate::world::World::new(
+        "arena",
+        crate::world::Kind::Temporary,
+        0,
+        BlockPos::new(0, 0, 0),
+    ));
+    crate::world::Id::of(1)
+}
+
+/// The clock states (time, paused) of the `SyncWorldClocks` `rx` got after a tick, each packet's.
+fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<(i32, bool)>> {
+    tick(state, &mut vec![], &mut TickOutput::default());
+    received(rx)
+        .0
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::SyncWorldClocks(c) => {
+                Some(c.sync_states.iter().map(|s| (s.time, s.paused)).collect())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// BDS 1.26.60's `/time set <n>` and `/time add <n>` (P6 `clocks`): the clock takes 0 to
+/// 2,147,483,647, counts on past a day and never goes below 0, which a failure names.
 #[test]
-fn time_sets_adds_and_queries_with_a_permission_each() {
+fn time_set_and_add_move_the_clock_as_bds_does() {
     let (mut state, _rx) = with_op();
+    let set = "commands.time.clock.set";
     assert_eq!(
-        ok(&mut state, Sender::Console, "time set noon"),
-        ["commands.time.set"]
+        answer(&mut state, "time set 1000"),
+        Ok(said(set, &[CLOCK, "1000"]))
     );
-    assert_eq!(state.worlds[0].time_ticks(), 6000);
-    ok(&mut state, Sender::Console, "time add 100");
-    assert_eq!(state.worlds[0].time_ticks(), 6100);
-    ok(&mut state, Sender::Console, "time set -5");
-    assert_eq!(state.worlds[0].time_ticks(), 0, "PMMP takes 0 at least");
-    // The query reads as BDS's: the time of day, the clock and the days passed.
-    ok(&mut state, Sender::Console, "time set 30000");
-    for (what, key, value) in [
-        ("daytime", "commands.time.query.daytime", "6000"),
-        ("gametime", "commands.time.query.gametime", "30000"),
-        ("day", "commands.time.query.day", "1"),
+    assert_eq!(
+        answer(&mut state, "time add 500"),
+        Ok(said("commands.time.clock.added", &["500", CLOCK, "1500"]))
+    );
+    assert_eq!(state.worlds[0].time_ticks(), 1500);
+    assert_eq!(
+        answer(&mut state, "time add -2000"),
+        Err(said(CLOCK_TOO_SMALL, &["-1500"])),
+        "the smallest amount allowed"
+    );
+    assert_eq!(
+        state.worlds[0].time_ticks(),
+        1500,
+        "a failure changes nothing"
+    );
+    assert_eq!(
+        answer(&mut state, "time set -5"),
+        Err(said(CLOCK_TOO_SMALL, &["0"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time set 30000"),
+        Ok(said(set, &[CLOCK, "30000"]))
+    );
+    assert_eq!(state.worlds[0].time_ticks(), 30_000, "no wrap at a day");
+    assert_eq!(
+        answer(&mut state, "time set 2147483647"),
+        Ok(said(set, &[CLOCK, "2147483647"]))
+    );
+    assert_eq!(state.worlds[0].time_ticks(), i64::from(i32::MAX));
+    answer(&mut state, "time set 0").unwrap();
+    assert_eq!(
+        answer(&mut state, "time add -1"),
+        Err(said(CLOCK_TOO_SMALL, &["0"]))
+    );
+}
+
+/// BDS 1.26.60's `/time set <marker> [next|previous|stay]` (P6 `clocks`): `next` (the default)
+/// is the first marker time at or after the clock, `previous` the last at or before it, `stay`
+/// the one of the clock's day; a marker is named with or without `minecraft:`, in its case.
+#[test]
+fn time_set_takes_a_time_marker_as_bds_does() {
+    let (mut state, _rx) = with_op();
+    for (from, line, to) in [
+        (6000, "time set noon", 6000),
+        (1500, "time set day", 25_000),
+        (25_000, "time set minecraft:noon", 30_000),
+        (30_000, "time set sunset next", 36_000),
+        (36_000, "time set midnight previous", 18_000),
+        (6000, "time set noon previous", 6000),
+        (18_000, "time set night stay", 13_000),
+        (6000, "time set noon stay", 6000),
     ] {
-        let out = run(&mut state, Sender::Console, &format!("time query {what}")).unwrap();
+        answer(&mut state, &format!("time set {from}")).unwrap();
+        let shown = to.to_string();
         assert_eq!(
-            (out.lines[0].text.as_str(), out.lines[0].params.as_slice()),
-            (key, [value.to_owned()].as_slice())
+            answer(&mut state, line),
+            Ok(said("commands.time.clock.set", &[CLOCK, &shown])),
+            "{line} at {from}"
+        );
+        assert_eq!(state.worlds[0].time_ticks(), to, "{line} at {from}");
+    }
+    for marker in ["abc", "Noon"] {
+        assert_eq!(
+            answer(&mut state, &format!("time set {marker}")),
+            Err(said(
+                "commands.time.clock.timemarker.failed",
+                &[marker, CLOCK]
+            ))
         );
     }
+    assert_eq!(
+        state.worlds[0].time_ticks(),
+        6000,
+        "a failure changes nothing"
+    );
+}
+
+/// BDS 1.26.60's `/time query` (P6 `clocks`): the clock, the time of day, the world's age (not
+/// the clock) and the clock's days.
+#[test]
+fn time_query_reads_the_clock_and_the_age_as_bds_does() {
+    let (mut state, _rx) = with_op();
+    answer(&mut state, "time set 13000").unwrap();
+    assert_eq!(
+        answer(&mut state, "time query time"),
+        Ok(said("commands.time.clock.query.time", &[CLOCK, "13000"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time query daytime"),
+        Ok(said("commands.time.query.daytime", &["13000"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time query day"),
+        Ok(said("commands.time.query.day", &["0"]))
+    );
+    answer(&mut state, "time set 30000").unwrap();
+    assert_eq!(
+        answer(&mut state, "time query daytime"),
+        Ok(said("commands.time.query.daytime", &["6000"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time query day"),
+        Ok(said("commands.time.query.day", &["1"]))
+    );
+    let age = state.worlds[0].age_ticks().to_string();
+    assert_ne!(age, "30000");
+    assert_eq!(
+        answer(&mut state, "time query gametime"),
+        Ok(said("commands.time.query.gametime", &[&age]))
+    );
     assert!(is_usage(&run(&mut state, Sender::Console, "time query")));
+}
+
+/// The world's age counts every tick the world runs, its clock paused or moved.
+#[test]
+fn the_world_age_goes_on_while_the_clock_is_paused_or_moved() {
+    let (mut state, _rx) = with_op();
+    answer(&mut state, "time pause").unwrap();
+    let (time, age) = (state.worlds[0].time_ticks(), state.worlds[0].age_ticks());
+    for _ in 0..3 {
+        tick(&mut state, &mut vec![], &mut TickOutput::default());
+    }
+    assert_eq!(state.worlds[0].time_ticks(), time);
+    assert_eq!(state.worlds[0].age_ticks(), age + 3);
+    answer(&mut state, "time set 50000").unwrap();
+    assert_eq!(state.worlds[0].age_ticks(), age + 3);
+    let age = (age + 3).to_string();
+    assert_eq!(
+        answer(&mut state, "time query gametime"),
+        Ok(said("commands.time.query.gametime", &[&age]))
+    );
+}
+
+/// BDS 1.26.60's `/time pause` and `/time resume` (P6 `clocks`) stop and start the clock of every
+/// world and tell its players; they take PMMP's `/time stop` and `/time start` permissions.
+#[test]
+fn time_pause_and_resume_stop_and_start_every_worlds_clock() {
+    let (mut state, mut rx) = with_op();
+    add_arena(&mut state);
+    let stopped = |state: &mut State| {
+        Context { state }
+            .worlds()
+            .map(crate::world::World::is_time_stopped)
+            .collect::<Vec<_>>()
+    };
+    answer(&mut state, "time set 13000").unwrap();
+    clock_syncs(&mut state, &mut rx[0]);
+    assert_eq!(
+        answer(&mut state, "time pause"),
+        Ok(said("commands.time.clock.paused", &[CLOCK, "13001"]))
+    );
+    assert_eq!(stopped(&mut state), [true, true]);
+    assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(13_001, true)]]);
+    assert_eq!(
+        answer(&mut state, "time resume"),
+        Ok(said("commands.time.clock.resumed", &[CLOCK, "13001"]))
+    );
+    assert_eq!(stopped(&mut state), [false, false]);
+    assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(13_001, false)]]);
+    assert!(is_refused(&run(&mut state, id(2), "time pause")));
+    let player2 = crate::player::Id::new(SessionId::new(2));
+    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_STOP, true);
+    run(&mut state, id(2), "time pause").unwrap();
+    assert_eq!(stopped(&mut state), [true, true]);
+    assert!(is_refused(&run(&mut state, id(2), "time resume")));
+    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_START, true);
+    run(&mut state, id(2), "time resume").unwrap();
+    assert_eq!(stopped(&mut state), [false, false]);
+}
+
+/// Each of `/time`'s actions has its own permission.
+#[test]
+fn time_set_add_and_query_need_a_permission_each() {
+    let (mut state, _rx) = with_op();
     let player2 = crate::player::Id::new(SessionId::new(2));
     Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_QUERY, true);
     assert_eq!(
@@ -933,40 +1145,120 @@ fn time_sets_adds_and_queries_with_a_permission_each() {
         ["commands.time.query.day"]
     );
     assert!(is_refused(&run(&mut state, id(2), "time set day")));
+    assert!(is_refused(&run(&mut state, id(2), "time add 5")));
+    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_ADD, true);
+    assert_eq!(
+        ok(&mut state, id(2), "time add 5"),
+        ["commands.time.clock.added"]
+    );
 }
 
-// `/time start` and `/time stop` act on every world, each with its own permission (as PMMP TimeCommand).
+/// BDS 1.26.60's `/time of <clock> ...` (P6 `clocks`): the same forms on the clock named with or
+/// without `minecraft:`, in its case; `query` reads the time only.
 #[test]
-fn time_stop_and_start_stop_and_start_every_worlds_time() {
+fn time_of_names_the_clock_as_bds_does() {
     let (mut state, _rx) = with_op();
-    state.add_world(crate::world::World::new(
-        "arena",
-        crate::world::Kind::Temporary,
-        0,
-        BlockPos::new(0, 0, 0),
-    ));
-    let stopped = |state: &mut State| {
-        Context { state }
-            .worlds()
-            .map(crate::world::World::is_time_stopped)
-            .collect::<Vec<_>>()
-    };
     assert_eq!(
-        ok(&mut state, Sender::Console, "time stop"),
-        ["The time stands still in every world"]
+        answer(&mut state, "time of minecraft:overworld set 3000"),
+        Ok(said("commands.time.clock.set", &[CLOCK, "3000"]))
     );
-    assert_eq!(stopped(&mut state), [true, true]);
     assert_eq!(
-        ok(&mut state, id(1), "time start"),
-        ["The time runs again in every world"]
+        answer(&mut state, "time of minecraft:overworld add 100"),
+        Ok(said("commands.time.clock.added", &["100", CLOCK, "3100"]))
     );
-    assert_eq!(stopped(&mut state), [false, false]);
-    assert!(is_refused(&run(&mut state, id(2), "time stop")));
-    let player2 = crate::player::Id::new(SessionId::new(2));
-    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_STOP, true);
-    ok(&mut state, id(2), "time stop");
-    assert_eq!(stopped(&mut state), [true, true]);
-    assert!(is_refused(&run(&mut state, id(2), "time start")));
+    assert_eq!(
+        answer(&mut state, "time of minecraft:overworld set noon"),
+        Ok(said("commands.time.clock.set", &[CLOCK, "6000"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time of overworld query time"),
+        Ok(said("commands.time.clock.query.time", &[CLOCK, "6000"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time of minecraft:overworld pause"),
+        Ok(said("commands.time.clock.paused", &[CLOCK, "6000"]))
+    );
+    assert_eq!(
+        answer(&mut state, "time of minecraft:overworld resume"),
+        Ok(said("commands.time.clock.resumed", &[CLOCK, "6000"]))
+    );
+    for clock in ["no_such_clock", "MINECRAFT:OVERWORLD"] {
+        assert_eq!(
+            answer(&mut state, &format!("time of {clock} set 1")),
+            Err(said("commands.time.clock.failed", &[clock]))
+        );
+    }
+    assert_eq!(
+        state.worlds[0].time_ticks(),
+        6000,
+        "a failure changes nothing"
+    );
+    assert!(is_usage(&run(
+        &mut state,
+        Sender::Console,
+        "time of overworld query daytime"
+    )));
+}
+
+/// Each change of the clock is told with one `SyncWorldClocks` state; a `/time set` to the time
+/// the clock has sends none (P6 `clocks`).
+#[test]
+fn time_tells_the_players_each_change_of_the_clock() {
+    let (mut state, mut rx) = with_op();
+    // Paused, so the ticks between leave the clock where it is.
+    answer(&mut state, "time pause").unwrap();
+    clock_syncs(&mut state, &mut rx[0]);
+    answer(&mut state, "time set 6000").unwrap();
+    assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(6000, true)]]);
+    answer(&mut state, "time set 7000").unwrap();
+    answer(&mut state, "time set noon stay").unwrap();
+    assert_eq!(
+        clock_syncs(&mut state, &mut rx[0]),
+        [[(7000, true)], [(6000, true)]]
+    );
+    answer(&mut state, "time set 6000").unwrap();
+    answer(&mut state, "time set noon").unwrap();
+    assert_eq!(
+        clock_syncs(&mut state, &mut rx[0]),
+        Vec::<Vec<_>>::new(),
+        "no change"
+    );
+}
+
+/// `/time` moves every world's clock, each from its own time, and answers and queries with the
+/// sender's world's.
+#[test]
+fn time_acts_on_every_world_and_answers_with_the_senders() {
+    let (mut state, _rx) = with_op();
+    let arena = add_arena(&mut state);
+    answer(&mut state, "time set 5000").unwrap();
+    assert!(Context { state: &mut state }.set_time(arena, 1000));
+    assert_eq!(
+        answer(&mut state, "time add -2000"),
+        Err(said(CLOCK_TOO_SMALL, &["-1000"])),
+        "no clock goes below 0"
+    );
+    assert_eq!(
+        answer(&mut state, "time add -1000"),
+        Ok(said("commands.time.clock.added", &["-1000", CLOCK, "4000"]))
+    );
+    assert_eq!(
+        (state.worlds[0].time_ticks(), state.worlds[1].time_ticks()),
+        (4000, 0)
+    );
+    assert!(Context { state: &mut state }.set_time(arena, 30_000));
+    assert_eq!(
+        answer(&mut state, "time set noon"),
+        Ok(said("commands.time.clock.set", &[CLOCK, "6000"]))
+    );
+    assert_eq!(
+        (state.worlds[0].time_ticks(), state.worlds[1].time_ticks()),
+        (6000, 30_000)
+    );
+    assert_eq!(
+        answer(&mut state, "time query time"),
+        Ok(said("commands.time.clock.query.time", &[CLOCK, "6000"]))
+    );
 }
 
 /// The console's world is the default world, also after `set_default_world` named another
@@ -1491,10 +1783,10 @@ fn transferserver_sends_the_sending_player_only() {
     assert_eq!((t.address.as_str(), t.port), ("example.com", 19132));
 }
 
-/// BDS 1.26.52.3's overloads of the commands Anchor shares with it, from the `AvailableCommands`
+/// BDS 1.26.60's overloads of the commands Anchor shares with it, from the `AvailableCommands`
 /// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
-/// optional parameter.
-const BDS_OVERLOADS: [&str; 42] = [
+/// optional parameter, `soft:` for a soft enum.
+const BDS_OVERLOADS: [&str; 50] = [
     "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
     "deop player=target",
     "difficulty difficulty=enum:Difficulty",
@@ -1529,8 +1821,16 @@ const BDS_OVERLOADS: [&str; 42] = [
     "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
     "time mode=enum:TimeModeAdd amount=int",
     "time mode=enum:TimeModeSet amount=int",
-    "time mode=enum:TimeModeSet time=enum:TimeSpec",
-    "time mode=enum:TimeModeQuery time=enum:TimeQuery",
+    "time mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
+    "time mode=enum:TimeModeQuery time=enum:TimeQuery2",
+    "time mode=enum:TimeModePause",
+    "time mode=enum:TimeModeResume",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeAdd amount=int",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet amount=int",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeQuery clockQuery=enum:ClockTimeQuery",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModePause",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeResume",
     "title player=target clear=enum:TitleClear",
     "title player=target reset=enum:TitleReset",
     "title player=target titleLocation=enum:TitleSet titleText=message",
@@ -1540,10 +1840,11 @@ const BDS_OVERLOADS: [&str; 42] = [
 ];
 
 /// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
-const BDS_ENUMS: [(&str, &[&str]); 16] = [
+const BDS_ENUMS: [(&str, &[&str]); 20] = [
     ("AddInfiniteEffect", &["infinite"]),
     ("Boolean", &["true", "false"]),
     ("ClearEffects", &["clear"]),
+    ("ClockTimeQuery", &["time"]),
     (
         "Difficulty",
         &["normal", "peaceful", "easy", "hard", "p", "e", "n", "h"],
@@ -1552,6 +1853,7 @@ const BDS_ENUMS: [(&str, &[&str]); 16] = [
         "Effect",
         &[
             "wither",
+            "freezing",
             "speed",
             "slowness",
             "haste",
@@ -1651,19 +1953,22 @@ const BDS_ENUMS: [(&str, &[&str]); 16] = [
             "a",
         ],
     ),
+    ("TimeMarkerOccurrence", &["next", "previous", "stay"]),
     ("TimeModeAdd", &["add"]),
+    ("TimeModePause", &["pause"]),
     ("TimeModeQuery", &["query"]),
+    ("TimeModeResume", &["resume"]),
     ("TimeModeSet", &["set"]),
-    ("TimeQuery", &["daytime", "gametime", "day"]),
-    (
-        "TimeSpec",
-        &["day", "sunrise", "noon", "sunset", "night", "midnight"],
-    ),
+    ("TimeOfCommand", &["of"]),
+    ("TimeQuery2", &["time", "daytime", "gametime", "day"]),
     ("TitleClear", &["clear"]),
     ("TitleReset", &["reset"]),
     ("TitleSet", &["title", "subtitle", "actionbar"]),
     ("TitleTimes", &["times"]),
 ];
+
+/// BDS's values of the soft enums of [`BDS_OVERLOADS`] when a player joins, from the same packet.
+const BDS_SOFT_ENUMS: [(&str, &[&str]); 1] = [("WorldClocks", &["minecraft:overworld"])];
 
 /// The record form of the overloads of an `AvailableCommands`: `command name=type ...`.
 fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
@@ -1677,6 +1982,7 @@ fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
         (T::MessageRoot, "message"),
         (T::RawText, "raw_text"),
         (T::Json, "json"),
+        (T::ClockTimeMarker, "clock_time_marker"),
     ];
     let mut out = Vec::new();
     for c in &p.commands {
@@ -1688,6 +1994,8 @@ fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
                 let index = usize::try_from(t & 0xffff).unwrap();
                 let ty = if t & u32::from(CommandArg::Suffixed) != 0 {
                     format!("suffix:{}", p.suffixes[index])
+                } else if t & u32::from(CommandArg::SoftEnum) != 0 {
+                    format!("soft:{}", p.dynamic_enums[index].r#type)
                 } else if t & u32::from(CommandArg::Enum) != 0 {
                     format!("enum:{}", p.enums[index].r#type)
                 } else {
@@ -1735,8 +2043,7 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
             .iter()
             .filter(|b| b.split(' ').next() == Some(command))
             .collect();
-        // PMMP's `/time start|stop`, which BDS does not have.
-        if bds.is_empty() || line.contains("TimeModeStart") || line.contains("TimeModeStop") {
+        if bds.is_empty() {
             continue;
         }
         // Each overload is one of BDS's, perhaps without optional parameters at the end. A
@@ -1773,6 +2080,14 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
         } else {
             assert_eq!(ours, values, "{name}");
         }
+    }
+    for (name, values) in &BDS_SOFT_ENUMS {
+        let ours: Option<Vec<&str>> = p
+            .dynamic_enums
+            .iter()
+            .find(|e| e.r#type == *name)
+            .map(|e| e.values.iter().map(String::as_str).collect());
+        assert_eq!(ours.as_deref(), Some(*values), "{name}");
     }
     let item = &enums["Item"];
     for name in [
@@ -1819,7 +2134,7 @@ fn bds_forms_of_the_shared_commands_run() {
     assert!(run(&mut state, me, "xp 3x").is_err());
     assert_eq!(
         ok(&mut state, me, "time set sunrise"),
-        ["commands.time.set"]
+        ["commands.time.clock.set"]
     );
     assert_eq!(
         ok(&mut state, Sender::Console, "op player2"),

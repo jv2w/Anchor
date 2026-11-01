@@ -9,11 +9,12 @@ use super::{
     Msg, PLAYER_USER_ONLY, announce, display_name_of, game_mode_name, in_world, infallible,
     require, usage,
 };
+use crate::command::parse::NAMESPACE;
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::config::Difficulty;
 use crate::item::{self, Kind as ItemKind};
 use crate::math::Vec3;
-use crate::permission;
+use crate::permission::{self, Permission};
 use crate::player::{Message, Player};
 use crate::protocol::Rgba;
 use crate::protocol::packet::PROTOCOL_VERSION;
@@ -21,13 +22,10 @@ use crate::random::{self, Random};
 use crate::runtime::ThreadTotals;
 use crate::tick::Context;
 use crate::tick::queue::SessionId;
-use crate::world::{self, BlockPos, Particle};
+use crate::tick::survival::{MARKERS, OVERWORLD_CLOCK_NAME};
+use crate::world::{self, BlockPos, DAY, Particle, World};
 
 /// Adds the commands of this module.
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: the commands read as one table, one entry per PMMP class"
-)]
 pub(super) fn add(commands: &mut Vec<Command>) {
     commands.extend([
         Command::new("help", "commands.help.description")
@@ -65,36 +63,14 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 difficulty,
             )
             .overload(&[Param::int("difficulty")], difficulty),
-        Command::new("time", "commands.time.description")
-            .permission(permission::COMMAND_TIME_ADD)
-            .permission(permission::COMMAND_TIME_SET)
-            .permission(permission::COMMAND_TIME_QUERY)
-            .permission(permission::COMMAND_TIME_START)
-            .permission(permission::COMMAND_TIME_STOP)
-            .overload(
-                &[time_mode("TimeModeAdd", "add"), Param::int("amount")],
-                time,
-            )
-            .overload(
-                &[time_mode("TimeModeSet", "set"), Param::int("amount")],
-                time,
-            )
-            .overload(
-                &[
-                    time_mode("TimeModeSet", "set"),
-                    Param::enumeration("time", "TimeSpec", &TIME_NAMES.map(|(name, _)| name)),
-                ],
-                time,
-            )
-            .overload(
-                &[
-                    time_mode("TimeModeQuery", "query"),
-                    Param::enumeration("time", "TimeQuery", &TIME_QUERIES),
-                ],
-                time,
-            )
-            .overload(&[time_mode("TimeModeStart", "start")], time)
-            .overload(&[time_mode("TimeModeStop", "stop")], time),
+        with_time_forms(
+            Command::new("time", "commands.time.description")
+                .permission(permission::COMMAND_TIME_ADD)
+                .permission(permission::COMMAND_TIME_SET)
+                .permission(permission::COMMAND_TIME_QUERY)
+                .permission(permission::COMMAND_TIME_START)
+                .permission(permission::COMMAND_TIME_STOP),
+        ),
         Command::new("particle", "commands.particle.description")
             .permission(permission::COMMAND_PARTICLE)
             .overload(
@@ -148,15 +124,17 @@ const SEED_SUCCESS: Msg = Msg::client("commands.seed.success");
 const SETWORLDSPAWN_SUCCESS: Msg = Msg::client("commands.setworldspawn.success");
 const DEFAULTGAMEMODE_SUCCESS: Msg = Msg::client("commands.defaultgamemode.success");
 const DIFFICULTY_SUCCESS: Msg = Msg::client("commands.difficulty.success");
-const TIME_ADDED: Msg = Msg::client("commands.time.added");
+const CLOCK_SET: Msg = Msg::client("commands.time.clock.set");
+const CLOCK_ADDED: Msg = Msg::client("commands.time.clock.added");
+const CLOCK_TOO_SMALL: Msg = Msg::client("commands.time.clock.num.tooSmall");
+const CLOCK_MARKER_UNKNOWN: Msg = Msg::client("commands.time.clock.timemarker.failed");
+const CLOCK_UNKNOWN: Msg = Msg::client("commands.time.clock.failed");
+const CLOCK_QUERY_TIME: Msg = Msg::client("commands.time.clock.query.time");
+const CLOCK_PAUSED: Msg = Msg::client("commands.time.clock.paused");
+const CLOCK_RESUMED: Msg = Msg::client("commands.time.clock.resumed");
 const TIME_QUERY_DAYTIME: Msg = Msg::client("commands.time.query.daytime");
 const TIME_QUERY_GAMETIME: Msg = Msg::client("commands.time.query.gametime");
 const TIME_QUERY_DAY: Msg = Msg::client("commands.time.query.day");
-const TIME_SET: Msg = Msg::client("commands.time.set");
-/// `/time stop`: the client has no key for it.
-const TIME_STOPPED: Msg = Msg::own("The time stands still in every world");
-/// `/time start`: the client has no key for it.
-const TIME_STARTED: Msg = Msg::own("The time runs again in every world");
 const PARTICLE_SUCCESS: Msg = Msg::client("commands.particle.success");
 const SAVE_START: Msg = Msg::client("commands.save.start");
 /// PMMP has no backup command.
@@ -189,17 +167,13 @@ const DIFFICULTIES: [(&str, Difficulty); 8] = [
     ("n", Difficulty::Normal),
     ("h", Difficulty::Hard),
 ];
-/// Times of day, as BDS's `TimeSpec` enum names them, and their ticks (PMMP `TimeCommand`).
-const TIME_NAMES: [(&str, i32); 6] = [
-    ("day", 1000),
-    ("sunrise", 23_000),
-    ("noon", 6000),
-    ("sunset", 12_000),
-    ("night", 13_000),
-    ("midnight", 18_000),
-];
-/// What `/time query` reads, as BDS names it (its `TimeQuery` enum).
-const TIME_QUERIES: [&str; 3] = ["daytime", "gametime", "day"];
+/// What `/time query` reads, as BDS 1.26.60 names it (its `TimeQuery2` enum).
+const TIME_QUERIES: [&str; 4] = ["time", "daytime", "gametime", "day"];
+/// Which occurrence of a time marker `/time set <marker>` takes, `next` when left out (BDS
+/// 1.26.60's `TimeMarkerOccurrence` enum).
+const MARKER_OCCURRENCES: [&str; 3] = ["next", "previous", "stay"];
+/// The soft enum of the clocks `/time of` names (BDS 1.26.60's).
+pub(in crate::tick::command) const WORLD_CLOCKS: &str = "WorldClocks";
 /// PMMP's particle names (`ParticleCommand::getParticle`).
 const PARTICLE_NAMES: [&str; 35] = [
     "explode",
@@ -239,10 +213,48 @@ const PARTICLE_NAMES: [&str; 35] = [
     "sonicexplosion",
 ];
 
-/// The first word of a `/time` form: `word`, BDS's enum `type_name` (`TimeModeStart` and
-/// `TimeModeStop` are Anchor's names for PMMP's forms BDS lacks).
+/// The word of a `/time` form: `word`, BDS's enum `type_name`.
 fn time_mode(type_name: &str, word: &str) -> Param {
     Param::enumeration("mode", type_name, &[word])
+}
+
+/// `command` with BDS 1.26.60's `/time` forms (P6 `commands`): `add`, `set` a number, `set` a time
+/// marker, `query`, `pause` and `resume`, then the same six after `of <clock>`, whose `query`
+/// reads the time only.
+fn with_time_forms(mut command: Command) -> Command {
+    let of = [
+        Param::enumeration("command", "TimeOfCommand", &["of"]),
+        Param::soft_enumeration("clockName", WORLD_CLOCKS),
+    ];
+    for prefix in [&[][..], &of[..]] {
+        let query = if prefix.is_empty() {
+            Param::enumeration("time", "TimeQuery2", &TIME_QUERIES)
+        } else {
+            Param::enumeration("clockQuery", "ClockTimeQuery", &["time"])
+        };
+        let forms = [
+            vec![time_mode("TimeModeAdd", "add"), Param::int("amount")],
+            vec![time_mode("TimeModeSet", "set"), Param::int("amount")],
+            vec![
+                time_mode("TimeModeSet", "set"),
+                Param::clock_time_marker("timeMarkerName"),
+                Param::enumeration(
+                    "timeMarkerOccurrence",
+                    "TimeMarkerOccurrence",
+                    &MARKER_OCCURRENCES,
+                )
+                .optional(),
+            ],
+            vec![time_mode("TimeModeQuery", "query"), query],
+            vec![time_mode("TimeModePause", "pause")],
+            vec![time_mode("TimeModeResume", "resume")],
+        ];
+        for form in forms {
+            let params: Vec<Param> = prefix.iter().cloned().chain(form).collect();
+            command = command.overload(&params, time);
+        }
+    }
+    command
 }
 
 /// `/help [page]` and `/help <command>` (alias `/?`; PMMP `HelpCommand`, in Anchor's layout):
@@ -400,63 +412,189 @@ fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
     Ok(announce(cx, *sender, DIFFICULTY_SUCCESS, &[&number]))
 }
 
-/// `/time set <day|noon|...|ticks>`, `/time add <ticks>`, `/time stop` and `/time start` (PMMP
-/// `TimeCommand`) on every world, and `/time query <daytime|gametime|day>` on the sender's world,
-/// as BDS reads it: the time of day, the world's clock (Anchor keeps one clock, which `/time set`
-/// moves) or the days passed. Each action has its own permission. A number is taken from 0 to
-/// 30,000,000.
+/// What one form of `/time` does, after its permission and clock are checked.
+type TimeAction = fn(&mut Context<'_>, Sender, &Args) -> Result<Output>;
+
+/// `/time` as BDS 1.26.60 has it (P6 `clocks`; PMMP `TimeCommand`'s `start` and `stop` are its
+/// `resume` and `pause`), on the clock every world has (`minecraft:overworld`; `of` names it with
+/// or without `minecraft:`, in its case): `add`, `set`, `pause` and `resume` act on every world,
+/// `query` reads the sender's. Each action has its own permission: `pause` that of PMMP's
+/// `/time stop`, `resume` that of `/time start`.
 fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let mode = args.string("mode").unwrap_or_default();
-    if mode == "query" {
-        require(cx, *sender, permission::COMMAND_TIME_QUERY, "time")?;
-        let world = sender_world(cx, *sender);
-        let now = cx.world(world).map_or(0, world::World::time_ticks);
-        let (msg, value) = match args.string("time").unwrap_or_default() {
-            "daytime" => (TIME_QUERY_DAYTIME, now.rem_euclid(world::DAY)),
-            "gametime" => (TIME_QUERY_GAMETIME, now),
-            _ => (TIME_QUERY_DAY, now.div_euclid(world::DAY)),
-        };
-        return Ok(msg.output(&[&value.to_string()]));
+    let (needed, action): (Permission, TimeAction) = match args.string("mode") {
+        Some("add") => (permission::COMMAND_TIME_ADD, time_add),
+        Some("set") => (permission::COMMAND_TIME_SET, time_set),
+        Some("query") => (permission::COMMAND_TIME_QUERY, time_query),
+        Some("pause") => (permission::COMMAND_TIME_STOP, time_pause),
+        Some("resume") => (permission::COMMAND_TIME_START, time_resume),
+        _ => return Err(usage(cx, "time")),
+    };
+    require(cx, *sender, needed, "time")?;
+    if let Some(clock) = args.string("clockName")
+        && !is_named(clock, OVERWORLD_CLOCK_NAME)
+    {
+        return Err(CLOCK_UNKNOWN.error(&[clock]));
     }
-    let amount = args.int("amount").map(|n| n.clamp(0, super::MAX_COORD));
-    let worlds: Vec<(world::Id, i64)> = cx.worlds().map(|w| (w.id(), w.time_ticks())).collect();
-    if mode == "stop" || mode == "start" {
-        let stop = mode == "stop";
-        let (needed, msg) = if stop {
-            (permission::COMMAND_TIME_STOP, TIME_STOPPED)
-        } else {
-            (permission::COMMAND_TIME_START, TIME_STARTED)
-        };
-        require(cx, *sender, needed, "time")?;
-        for (id, _) in worlds {
-            if stop {
-                cx.stop_time(id);
-            } else {
-                cx.start_time(id);
+    action(cx, *sender, args)
+}
+
+/// Whether `typed` names `name`, a namespaced name, with or without its `minecraft:`, in its
+/// case (BDS's clocks and time markers).
+fn is_named(typed: &str, name: &str) -> bool {
+    typed == name || name.strip_prefix(NAMESPACE) == Some(typed)
+}
+
+/// The world `sender` is in ([`sender_world`]).
+fn world_of<'a>(cx: &'a Context<'_>, sender: Sender) -> Result<&'a World> {
+    cx.world(sender_world(cx, sender))
+        .ok_or_else(|| Error::failed(world::Error::WorldNotLoaded.to_string()))
+}
+
+/// Every loaded world and its time.
+fn world_times(cx: &Context<'_>) -> Vec<(world::Id, i64)> {
+    cx.worlds().map(|w| (w.id(), w.time_ticks())).collect()
+}
+
+/// Moves the clock of `world` from `now` to `to`; its players hear of a change only, as BDS
+/// tells them (P6 `clocks`).
+fn move_clock(cx: &mut Context<'_>, world: world::Id, now: i64, to: i64) {
+    if to != now {
+        cx.set_time(world, to);
+    }
+}
+
+/// `/time add <amount>`: every world's clock moves by `amount`, unless that takes one below 0
+/// (BDS then names the smallest amount it takes). The answer has the sender's world's new time.
+fn time_add(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output> {
+    let amount = i64::from(args.int("amount").ok_or_else(|| usage(cx, "time"))?);
+    let sender_now = world_of(cx, sender)?.time_ticks();
+    let worlds = world_times(cx);
+    let smallest = worlds
+        .iter()
+        .map(|&(_, now)| now)
+        .fold(sender_now, Ord::min)
+        .saturating_neg();
+    if amount < smallest {
+        return Err(CLOCK_TOO_SMALL.error(&[&smallest.to_string()]));
+    }
+    for (id, now) in worlds {
+        move_clock(cx, id, now, now.saturating_add(amount));
+    }
+    let new = sender_now.saturating_add(amount).to_string();
+    Ok(announce(
+        cx,
+        sender,
+        CLOCK_ADDED,
+        &[&amount.to_string(), OVERWORLD_CLOCK_NAME, &new],
+    ))
+}
+
+/// Where `/time set` puts a clock.
+#[derive(Debug, Clone, Copy)]
+enum SetTo<'a> {
+    /// That time.
+    Ticks(i64),
+    /// A time marker at this time of day, at its occurrence `next`, `previous` or `stay`.
+    Marker(i64, &'a str),
+}
+
+impl SetTo<'_> {
+    /// The time a clock at `now` goes to: the marker's first time at or after `now` (`next`), its
+    /// last at or before it (`previous`) or its time on `now`'s day (`stay`).
+    fn time_from(self, now: i64) -> i64 {
+        match self {
+            Self::Ticks(ticks) => ticks,
+            Self::Marker(time_of_day, occurrence) => {
+                let today = now
+                    .saturating_sub(now.rem_euclid(DAY))
+                    .saturating_add(time_of_day);
+                match occurrence {
+                    "next" if today < now => today.saturating_add(DAY),
+                    "previous" if today > now => today.saturating_sub(DAY),
+                    _ => today,
+                }
             }
         }
-        return Ok(announce(cx, *sender, msg, &[]));
     }
-    if mode == "add" {
-        require(cx, *sender, permission::COMMAND_TIME_ADD, "time")?;
-        let added = amount.unwrap_or(0);
-        for (id, now) in worlds {
-            cx.set_time(id, now.saturating_add(i64::from(added)));
+}
+
+/// `/time set <amount>` and `/time set <marker> [next|previous|stay]` (`next` when left out):
+/// every world's clock goes to `amount`, or to the marker's time from its own time now. No clock
+/// goes below 0. The answer has the sender's world's new time.
+fn time_set(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output> {
+    let to = match (args.int("amount"), args.string("timeMarkerName")) {
+        (Some(amount), _) => SetTo::Ticks(i64::from(amount)),
+        (None, Some(typed)) => {
+            let Some(&(_, _, time_of_day)) =
+                MARKERS.iter().find(|&&(_, name, _)| is_named(typed, name))
+            else {
+                return Err(CLOCK_MARKER_UNKNOWN.error(&[typed, OVERWORLD_CLOCK_NAME]));
+            };
+            let occurrence = args.string("timeMarkerOccurrence").unwrap_or("next");
+            SetTo::Marker(i64::from(time_of_day), occurrence)
         }
-        return Ok(announce(cx, *sender, TIME_ADDED, &[&added.to_string()]));
-    }
-    require(cx, *sender, permission::COMMAND_TIME_SET, "time")?;
-    let named = args
-        .string("time")
-        .and_then(|t| TIME_NAMES.iter().find(|(name, _)| *name == t))
-        .map(|&(_, ticks)| ticks);
-    let Some(value) = named.or(amount) else {
-        return Err(usage(cx, "time"));
+        (None, None) => return Err(usage(cx, "time")),
     };
-    for (id, _) in worlds {
-        cx.set_time(id, i64::from(value));
+    let shown = to.time_from(world_of(cx, sender)?.time_ticks());
+    let worlds = world_times(cx);
+    if shown < 0 || worlds.iter().any(|&(_, now)| to.time_from(now) < 0) {
+        return Err(CLOCK_TOO_SMALL.error(&["0"]));
     }
-    Ok(announce(cx, *sender, TIME_SET, &[&value.to_string()]))
+    for (id, now) in worlds {
+        move_clock(cx, id, now, to.time_from(now));
+    }
+    Ok(announce(
+        cx,
+        sender,
+        CLOCK_SET,
+        &[OVERWORLD_CLOCK_NAME, &shown.to_string()],
+    ))
+}
+
+/// `/time query <time|daytime|gametime|day>` (`of`: `time` only) on the sender's world: its
+/// clock, the time of day, its age ([`World::age_ticks`]) or the days passed.
+fn time_query(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output> {
+    let world = world_of(cx, sender)?;
+    let now = world.time_ticks();
+    Ok(
+        match args.string("time").or_else(|| args.string("clockQuery")) {
+            Some("time") => CLOCK_QUERY_TIME.output(&[OVERWORLD_CLOCK_NAME, &now.to_string()]),
+            Some("daytime") => TIME_QUERY_DAYTIME.output(&[&now.rem_euclid(DAY).to_string()]),
+            Some("gametime") => TIME_QUERY_GAMETIME.output(&[&world.age_ticks().to_string()]),
+            Some("day") => TIME_QUERY_DAY.output(&[&now.div_euclid(DAY).to_string()]),
+            _ => return Err(usage(cx, "time")),
+        },
+    )
+}
+
+/// `/time pause`: every world's clock stands still ([`Context::stop_time`]). The answer has the
+/// sender's world's time.
+fn time_pause(cx: &mut Context<'_>, sender: Sender, _: &Args) -> Result<Output> {
+    let now = world_of(cx, sender)?.time_ticks().to_string();
+    for (id, _) in world_times(cx) {
+        cx.stop_time(id);
+    }
+    Ok(announce(
+        cx,
+        sender,
+        CLOCK_PAUSED,
+        &[OVERWORLD_CLOCK_NAME, &now],
+    ))
+}
+
+/// `/time resume`: every world's clock runs again ([`Context::start_time`]). The answer has the
+/// sender's world's time.
+fn time_resume(cx: &mut Context<'_>, sender: Sender, _: &Args) -> Result<Output> {
+    let now = world_of(cx, sender)?.time_ticks().to_string();
+    for (id, _) in world_times(cx) {
+        cx.start_time(id);
+    }
+    Ok(announce(
+        cx,
+        sender,
+        CLOCK_RESUMED,
+        &[OVERWORLD_CLOCK_NAME, &now],
+    ))
 }
 
 /// A number PHP reads from `data` (`(int)`): 0 when it is not one.

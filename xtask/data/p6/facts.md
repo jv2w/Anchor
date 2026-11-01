@@ -1,6 +1,6 @@
-# P6 사실 (공식 서버 1.26.52.3)
+# P6 사실 (공식 서버 1.26.60.6)
 
-공식 서버 1.26.52.3(프로토콜 2193)이 봇에게 보내는 값과, Anchor가 각 값에 대해 하는 일이다. 값은 같은 시나리오를 두 번 이상 돌려 같게 나온 것만 적는다. 실행마다 다른 값은 "무작위"라고 적는다. 시나리오와 비교 방법은 `.claude/docs/testing.md`에 있다.
+공식 서버 1.26.60.6(프로토콜 2225)이 봇에게 보내는 값과, Anchor가 각 값에 대해 하는 일이다. 값은 같은 시나리오를 두 번 이상 돌려 같게 나온 것만 적는다. 1.26.52.3(프로토콜 2193)에서 처음 적은 값은 1.26.60.6 캡처로 다시 대조했고, 판에 따라 다른 값은 그 판을 적는다. 실행마다 다른 값은 "무작위"라고 적는다. 시나리오와 비교 방법은 `.claude/docs/testing.md`에 있다.
 
 ## 캡처 조건
 - 게임 시나리오: `cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]...` → `target/p6/bds-game/`. RakNet, zlib, 새 평지 월드.
@@ -106,7 +106,7 @@
 - GameRulesChanged 39개(이름, 값, CanBeModifiedByPlayer true): commandBlockOutput, doDayLightCycle, doEntityDrops, doFireTick, recipesUnlock, doLimitedCrafting(false), doMobLoot, doMobSpawning, doTileDrops, doWeatherCycle, drowningDamage, fallDamage, fireDamage, keepInventory(false), mobGriefing, pvp, showCoordinates(false), playerWaypoints(int 1), locatorbar, showDaysPlayed(false), naturalRegeneration, tntExplodes, sendCommandFeedback, maxCommandChainLength(65535), doInsomnia, commandBlocksEnabled, randomTickSpeed(1), doImmediateRespawn(false), showDeathMessages, functionCommandLimit(10000), spawnRadius(10), showTags, freezeDamage, respawnBlocksExplode, showBorderEffect, showRecipeMessages, playersSleepingPercentage(100), projectilesCanBreakBlocks, tntExplosionDropDecay(false). 나머지 bool은 true.
 - UpdateAttributes 첫째(Tick 0) 17개: player.hunger 20/0~20, saturation 5, exhaustion 0, level 0/0~24791, experience 0/0~1, health 20, follow_range 16/0~2048, knockback_resistance 0/-2~1, movement 0.1, underwater_movement 0.02, lava_movement 0.02, attack_damage 1/1~1, absorption 0/0~16, luck 0/-1024~1024, friction_modifier 1/0~256, bounciness 0/0~1, air_drag_modifier 1/0~256(Default = 값, 수정자 없음). 둘째는 같은 속성이 겹친 57항목이다(공식 서버 특성, Anchor는 따라 하지 않음).
 - SetHealth 20(PlayStatus(3) 바로 앞). PlayerFog 빈 스택. Respawn 세 번: (State 0, y 32769.62), (State 0, y 32768), (State 1, 실제 눈 위치), EntityRuntimeID 0.
-- 플레이어 SetActorData(Tick 0) 72개 키: 0 flags 844424930656256, 1 1, 2 0, 3 0, 4 이름, 5 -1, 6 0, 7 300, 22 0, 26 0, 27 1, 28 [0,0,0], 37 0, 39 0, 42 300, 43~46 0, 55 -1, 57~60 0, 70 0, 71 "", 72 "", 73 1, 75~77 0, 78 -1, 81 1, 82 0, 84 "", 88 -1, 91 0, 92 35184405643264, 100 "", 101~104 0, 106 3, 107 1, 108 8, 109 16, 110 "ambient", 111 1, 114~117 0, 118 {}, 119 0, 120 0, 124 1, 125 20, 126 614, 127 [0,0,0], 128 0, 129 0, 130 [0.6,1.8,0], 131 0, 132 "", 133 [0,0,0], 134 0, 135 0, 136~138 -1, 140 64.
+- 플레이어 SetActorData(Tick 0) 73개 키: 0 flags 844424930656256, 1 1, 2 0, 3 0, 4 이름, 5 -1, 6 0, 7 300, 22 0, 26 0, 27 1, 28 [0,0,0], 37 0, 39 0, 42 300, 43~46 0, 55 -1, 57~60 0, 70 0, 71 "", 72 "", 73 1, 75~77 0, 78 -1, 81 1, 82 0, 84 "", 88 -1, 91 0, 92 35184405643264, 100 "", 101~104 0, 106 3, 107 1, 108 8, 109 16, 110 "ambient", 111 1, 114~117 0, 118 {}, 119 0, 120 0, 124 1, 125 20, 126 614, 127 [0,0,0], 128 0, 129 0, 130 [0.6,1.8,0], 131 0, 132 "", 133 [0,0,0], 134 0, 135 0, 136~138 -1, 140 64, 141 0(u8, 1.26.60에서 더해짐, 공개된 이름 없음).
 - InventoryContent 4개: 창 0(36칸), 120(갑옷 5칸), 124(UI 54칸), 119(왼손 1칸), 모두 빈 칸. PlayerHotBar {0, 창 0, select true}.
 - TrimData: 무늬 18개(ward, sentry, snout, dune, spire, tide, wild, rib, coast, shaper, eye, vex, silence, wayfinder, raiser, host, flow, bolt; ItemName `minecraft:<무늬>_armor_trim_smithing_template`), 재료 11개(quartz §h, iron §i, netherite §j, redstone §m, copper §n, gold §p, emerald §q, diamond §s, lapis §t, amethyst §u, resin §v; ItemName은 재료 아이템). Anchor는 같은 목록(`crafting::TRIM_*`)을 보낸다.
 - MobEquipment, MobArmourEquipment는 스폰 창에 오지 않는다(주민·몹이 보일 때만). 스폰 창의 AddActor, RemoveActor, MoveActorDelta 등은 평지의 바닐라 몹(닭, 소, 양)이다. 참가 플레이어의 entity spawn 소리(LevelSoundEvent)도 온다. 이 패킷들은 유예표(`deferred.txt`)에 있다.
@@ -119,9 +119,9 @@
 - AvailableCommands(구성원): 공식 서버는 권한과 상관없이 82개 명령을 모두 보낸다(PermissionLevel 0: 4, 1: 60, 2: 7, 3: 1, 4: 10). 클라이언트가 자기 권한으로 숨긴다. 순서는 SetDifficulty 뒤 SetCommandsEnabled, CraftingData 뒤 AvailableCommands.
   - Anchor: 권한 있는 명령만 보낸다. 그래서 op·deop 뒤에는 AvailableCommands를 다시 보낸다. `help`는 명령으로 보내지 않는다(클라이언트 자체 명령, 공식 서버와 같음).
 - 매개변수 형 번호: int 1, float 3, target 8, string 56, position 65, message 68(MessageRoot: say, me, tell, kick), raw_text 70, json 74. gophertunnel의 `CommandArgTypeMessage`는 67이다. Anchor는 관찰한 값 68을 쓴다.
-- 공식 서버 명령 모양(권한 단계, 플래그, 오버로드): give 1 0 `target enum:Item int? int? json?` / effect 1 0 `target enum:ClearEffects enum:Effect?`, `target enum:Effect int? int? enum:Boolean?`, `target enum:Effect enum:AddInfiniteEffect int? enum:Boolean?` / gamemode 1 0 `enum:GameMode target?`, `int target?` / time 1 0 `enum:TimeModeAdd int`, `enum:TimeModeSet int`, `enum:TimeModeSet enum:TimeSpec`, `enum:TimeModeQuery enum:TimeQuery` / xp 1 0 `int target?`, `suffix:L target?`(접미사 매개변수는 Valid 비트 없이 접미사 번호) / say 1 192 `message` / kick 1 128 `target message` / op 2 1152 `target` / particle 1 0 `string position?` / tell 0 192 별칭 `tell w msg` `target message` / tp는 `teleport`의 별칭.
+- 공식 서버 명령 모양(권한 단계, 플래그, 오버로드): give 1 0 `target enum:Item int? int? json?` / effect 1 0 `target enum:ClearEffects enum:Effect?`, `target enum:Effect int? int? enum:Boolean?`, `target enum:Effect enum:AddInfiniteEffect int? enum:Boolean?` / gamemode 1 0 `enum:GameMode target?`, `int target?` / time 1 0 (1.26.60: "월드 시계 명령"의 12가지) / xp 1 0 `int target?`, `suffix:L target?`(접미사 매개변수는 Valid 비트 없이 접미사 번호) / say 1 192 `message` / kick 1 128 `target message` / op 2 1152 `target` / particle 1 0 `string position?` / tell 0 192 별칭 `tell w msg` `target message` / tp는 `teleport`의 별칭.
 - 별칭이 없는 명령의 AliasesOffset은 0xFFFFFFFF. 별칭 enum은 `<이름>CommandAliases`이고 이름을 맨 앞에 넣는다(`teleport`: `["teleport","tp"]`, `allowlist`: `["allowlist","whitelist"]`). Anchor도 같다.
-- Anchor의 기본 명령 21개(give, effect, enchant, gamemode, tp, kill, tell, clear, difficulty, kick, op, deop, me, say, list, stop, time, title, xp, spawnpoint, setworldspawn)는 인자 형, 이름, enum이 공식 서버와 같다. `particle`, `whitelist`, `transferserver`, `time start|stop`은 덤프 원본의 명령 모양을 따라 공식 서버와 다르다. 명령 목록 비교는 둘 다 가진 명령만 메모로 본다.
+- Anchor의 기본 명령 21개(give, effect, enchant, gamemode, tp, kill, tell, clear, difficulty, kick, op, deop, me, say, list, stop, time, title, xp, spawnpoint, setworldspawn)는 인자 형, 이름, enum이 공식 서버와 같다. `particle`, `whitelist`, `transferserver`는 덤프 원본의 명령 모양을 따라 공식 서버와 다르다. `time`은 1.26.60의 모양 전체(아래 "월드 시계 명령")를 따른다. 명령 목록 비교는 둘 다 가진 명령만 메모로 본다.
 - op: 콘솔 `op <이름>` 뒤 공식 서버는 AvailableCommands를 다시 보내지 않고 Text(종류 10, rawtext `commands.op.message`)와 UpdateAbilities(CommandPermissions 1, PlayerPermissions 2, 층 하나 Abilities 1048575, Values 255, FlySpeed 0.05, WalkSpeed 0.1, VerticalFlySpeed 1)를 보낸다.
   - Anchor: op면 CommandPermissions 1, PlayerPermissions 2, Values에 OperatorCommands·Teleport(생존 255), deop면 0·1·63. 같은 상태로 다시 op하면 보내지 않는다. op인 플레이어는 들어올 때 StartGame `PlayerPermissions`부터 op 값이다.
 - CommandOutput 공통: 원점은 요청 그대로(Origin 0 player, 같은 UUID, RequestID "", PlayerUniqueID 0), OutputType 3(AllOutput), DataSet 없음. 성공이면 SuccessCount 1과 메시지 Success true, 실패면 0과 false. 메시지는 번역 키와 매개변수다.
@@ -131,7 +131,7 @@
   - `give @s stone 3`: `commands.give.success` `["Stone","3","P6Commands"]`. 받는 이에게 Text(종류 10, rawtext `commands.give.successRecipient` `["Stone","3"]`), InventoryTransaction, InventoryContent 4창, PlayerHotBar, 소리 `pop`.
   - `tp ~ ~1 ~`: `commands.tp.success.coordinates` `["P6Commands","-3.50","-59.00","-11.50"]`(발 좌표, 소수 둘째 자리). MovePlayer(Mode 2 Teleport, TeleportCause 3, 눈 높이 +1), Text(종류 10, `commands.tp.successVictim` `["-3.50, -59.00, -11.50"]`). 떠 있는 봇에게 곧 CorrectPlayerMovePrediction을 보낸다.
   - `gamemode creative`: `commands.gamemode.success.self` `["%createWorldScreen.gameMode.creative"]`. UpdatePlayerGameType(GameType 1, PlayerUniqueID 자신, Tick 서버 틱)만 보내고 SetPlayerGameType, UpdateAbilities는 보내지 않는다. Text(종류 10, `gameMode.changed` `["%createWorldScreen.gameMode.creative"]`).
-  - `time set 1000`: `commands.time.set` `["1000"]`. SetTime이 아니라 SyncWorldClocks(SyncStates 하나, Time 1000, Paused false)로 알린다. 시각이 흐를 때도 몇 초마다 SyncWorldClocks를 보낸다.
+  - `time set 1000`: `commands.time.clock.set` `["minecraft:overworld","1000"]`(1.26.52는 `commands.time.set` `["1000"]`). SetTime이 아니라 SyncWorldClocks(SyncStates 하나, Time 1000, Paused false)로 알린다. 시각이 흐를 때도 몇 초마다 SyncWorldClocks를 보낸다. 1.26.60 `/time`의 형태와 답 전체는 `clocks` 시나리오(아래 "월드 시계 명령").
   - `effect @s speed 10 1`: `commands.effect.success` `["%potion.moveSpeed","1","P6Commands","10"]`. MobEffect(Operation 1 Add, EffectType 1, Amplifier 1, Duration 200, Particles true, Ambient false), UpdateAttributes(이동 속도), SetActorData.
   - `xp 10`: `commands.xp.success` `["10","P6Commands"]`. UpdateAttributes(레벨 1, 진행 0.33).
   - `give @s no_such_item`: `commands.generic.syntax` `["/give @s ","no_such_item",""]`.
@@ -148,6 +148,14 @@
   - 지금과 같은 게임 모드로 `/gamemode`: 실패한다(공식 서버는 성공).
   - UpdatePlayerGameType `Tick`: 공식 서버는 서버 틱(예 333), Anchor는 0이다(비교 필드 아님).
   - `/particle`: 번호 입자 모양(`<name> <position> <xd> <yd> <zd> [count] [data]`)이라 공식 서버 오버로드 `string position?`와 다르다(사실 기록 시나리오).
+
+## 월드 시계 명령 (`clocks`)
+- 1.26.60 `/time`의 형태: `add <amount>`, `set <amount>`, `set <시각 표시> [next|previous|stay]`(인자 종류 86 ClockTimeMarker), `query <time|daytime|gametime|day>`, `pause`, `resume`, 그리고 같은 여섯 가지 앞에 `of <시계>`(소프트 enum `WorldClocks` `["minecraft:overworld"]`, query는 `time`만). 1.26.52의 `TimeSpec`, `TimeQuery`는 없다.
+- 시계는 `minecraft:overworld` 하나이고 시각은 24000에서 돌지 않는다(`time set 30000` 뒤 30000, `query day`는 시각 / 24000). 2147483647까지 받는다.
+- 답: `set` `commands.time.clock.set` [시계, 시각]. `add` `commands.time.clock.added` [더한 값, 시계, 새 시각]. 음수 시각이 되면 `commands.time.clock.num.tooSmall` [받을 수 있는 가장 작은 값](`set -5` → "0", 1500에서 `add -2000` → "-1500"). `query time` `commands.time.clock.query.time` [시계, 시각], `daytime` `commands.time.query.daytime` [시각 mod 24000], `gametime` `commands.time.query.gametime` [월드 나이 틱], `day` `commands.time.query.day` [시각 / 24000]. `pause`·`resume` `commands.time.clock.paused`·`resumed` [시계, 시각](SyncWorldClocks Paused true·false).
+- 시각 표시: `minecraft:`를 붙여도 떼어도 되고 대소문자를 가린다(`Noon` 실패). next는 지금 이후(같으면 지금) 첫 표시, previous는 지금 이전(같으면 지금) 마지막 표시, stay는 오늘의 표시. 모르는 표시는 `commands.time.clock.timemarker.failed` [입력 그대로, 시계], 모르는 시계는 `commands.time.clock.failed` [입력 그대로](`overworld`는 됨, `MINECRAFT:OVERWORLD`는 실패).
+- 바꿀 때마다 SyncWorldClocks(SyncStates 하나)를 보낸다.
+- Anchor: 같은 형태와 답이다(`clocks` 비교 같음). 여러 월드에서는 `set`·`add`·`pause`·`resume`이 모든 월드에, `query`가 보낸 사람의 월드에 걸린다. `gametime`은 월드 나이(`World::age_ticks`)이고 저장하지 않아 다시 시작하면 0부터다(공식 서버는 월드와 함께 저장). 비교에서는 뺀다: 봇이 들어오기 전 서버가 돈 시간에 달렸다. 공식 서버는 2147483647에서 `add 1`을 하면 알 수 없는 값(11649)이 되고, Anchor는 2147483648이 된다. API 세션은 시작 설정이 공식 서버의 낮 주기를 끄므로 Anchor도 `daylight-cycle = false`로 띄운다.
 
 ## 채팅과 문자열 상한
 - 클라이언트 Text(Chat)에 공식 서버는 모두에게 Text(종류 1 Chat, SourceName `이름§r`, Message 원문, Parameters 없음, NeedsTranslation false)를 보낸다.
@@ -200,7 +208,7 @@
 ## 엔티티와 메타데이터
 - 다른 플레이어의 이동: 공식 서버는 걷기, 제자리 돌기, 고개 들기 모두 MovePlayer mode 0으로 보낸다(MoveActorDelta 아님). tp는 mode 2. 리스폰 뒤 이동도 mode 0.
   - Anchor: 위치나 회전이 바뀐 틱에 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전 [pitch, yaw, yaw])로 보낸다. 클라이언트가 보간하므로 끊기지 않는다. MovePlayer는 본인 위치 보정과 순간이동(mode 2)에만 쓴다(`intended.txt`). 텔레포트의 땅 플래그와 mode 2는 입력 도착 시각에 따라 두 서버 모두 흔들려 비교하지 않는다.
-- 다른 플레이어 AddPlayer: 키 집합은 그 플레이어 자신의 SetActorData 72키 + 10(u8 0), 38(f32 1), 53·54(f32 너비·높이), 56(Vec3 0), 74(u8 0), 139(i64 0) = 79키. 플래그는 그때 상태(갓 들어온 플레이어는 Breathing 없음, 이미 있던 플레이어는 있음). GameType 5, BuildPlatform·DeviceID는 그 클라이언트 값, 능력 층은 base(로딩 중인 플레이어에게는 Type 5 로딩 화면 층이 하나 더 있음). PlayerIndex(27)는 들어온 순서(1, 2). 플레이어 목록 색은 첫 플레이어 #EDEDED, 둘째 #54FFFF.
+- 다른 플레이어 AddPlayer: 키 집합은 그 플레이어 자신의 SetActorData 73키 + 10(u8 0), 38(f32 1), 53·54(f32 너비·높이), 56(Vec3 0), 74(u8 0), 139(i64 0) = 80키. 플래그는 그때 상태(갓 들어온 플레이어는 Breathing 없음, 이미 있던 플레이어는 있음). GameType 5, BuildPlatform·DeviceID는 그 클라이언트 값, 능력 층은 base(로딩 중인 플레이어에게는 Type 5 로딩 화면 층이 하나 더 있음). PlayerIndex(27)는 들어온 순서(1, 2). 플레이어 목록 색은 첫 플레이어 #EDEDED, 둘째 #54FFFF.
   - Anchor: 공식 서버 키 집합, 타입, 장치 값을 보낸다. 다른 점: 로딩 화면 층은 보내지 않고, 목록 색은 모두 #EDEDED다. 사람 NPC는 공식 서버에 대응이 없다.
 - 메타데이터 타입: 136 int32, 137 int32, 138 int32, 139 int64(다른 플레이어 AddPlayer에만), 140 float32. 127(마지막 사망 위치)은 BlockPos, 133(침대 들어간 위치)은 Vec3. Anchor도 같다.
 - 잔류형 재생 물약 구름 AddActor: 61 반경 3.0, 8 색, 63 입자 35, 95 지속 600, 98 줍기당 반경 -0.5, 99 줍기 수 0(int32), 97 0.00083333, 36 물약 ID 28(int16), 플래그 HasGravity+FireImmune, 그 밖에 모든 액터 공통 키.
@@ -214,7 +222,8 @@
 - 그림: 블록 서쪽 면에 걸면 Direction 1, 위치는 그림 가운데(벽에서 1/32 앞, 예 `[13.96875, -58, 13]`). 공식 서버는 맞는 가장 큰 무늬 중 하나를 고른다. Anchor와 위치·방향이 같다.
 - 폭죽(폭발 없음, Flight 1): 16 `{Fireworks:{Explosions:[], Flight:1}}`, 17 Vec3 `[0,1,0]`, 18 int64 -1, 5(owner) -1. 폭발이 없어도 터질 때 ActorEvent 25(데이터 0). Anchor도 같다(Flight는 비행 시간에서 계산).
 - 엔드 크리스털(`summon ender_crystal`): 47 BlockTarget `[0,0,0]`, 플래그 FireImmune. Anchor와 47이 같다.
-- 삼지창: 맞은 주민에게 ActorEvent 2 데이터 3(투사체). 삼지창은 수평 속도가 반대로(약 -0.01배) 튕기고 `item.trident.hit` 뒤 땅에 떨어진다. Anchor도 튕긴다.
+- 삼지창: 맞은 주민에게 ActorEvent 2 데이터 3(투사체). 삼지창은 x 방향으로 되돌아 튕기고(MoveActorDelta 위치) `item.trident.hit` 뒤 땅에 떨어진다. Anchor도 튕긴다.
+- SetActorMotion: 1.26.60은 플레이어(넉백)에게만 보낸다. 화살·삼지창·눈덩이·물약·폭죽·경험치 구슬 같은 엔티티의 속도는 AddActor `Velocity`뿐이고, 그 뒤는 MoveActorDelta 위치만 보낸다(1.26.52는 엔티티에도 보냈다). Anchor도 같다.
 
 ## 아이템 사용
 - 재현: `cargo xtask p6 api bds itemuse`(봇 `xtask/go/bot/itemuse.go`). Anchor 쪽은 확인 줄만 비교한다.
@@ -246,6 +255,12 @@
 ## 블록 충돌 상자
 - 벽걸이 간판(`*_hanging_sign` `hanging=0`): facing 2·3 → `[0, 0.875, 0.375, 1, 1, 0.625]`, facing 4·5 → `[0.375, 0.875, 0, 0.625, 1, 1]`(기준 목록 출처 `blocks.json`의 `collisionShape`, 공식 서버에서 뽑은 값). 덤프 원본은 양쪽을 3/4씩 깎아 뒤집힌 상자(`[0, 0.875, 0.75, 1, 1, 0.25]`)를 만든다(3/8이 의도).
 - Anchor: 생성기가 뒤집힌 축을 `min/2 ..= 1 - min/2`로 다시 만들어 공식 서버와 같다.
+
+## NetherNet 신원
+- 공식 서버 1.26.60은 클라이언트 offer `a=identity` 토큰의 `cpk`가 base64 SPKI일 때 받고, JWK 객체이면 시그널링 오류 37(go-nethernet `ErrorCodeIdentityNotAllowed`)로 거절한다(go-nethernet v1.0.25 봇은 JWK, v1.0.26은 base64). 서버 자신의 답 토큰 `cpk`는 JWK다. Anchor는 클라이언트의 두 모양을 모두 받는다.
+
+## 월드 파일
+- 1.26.60이 만든 평지 월드 `level.dat`: `NetworkVersion` 2225, `StorageVersion` 10, `FlatWorldLayers`에서 1.26.52의 `"preset_id":null`이 빠졌다. Anchor의 내보내기도 같다(`xtask/data/export/level.dat`이 그 파일).
 
 ## 공식 서버 함정
 - 재료에 태그 디스크립터 하나를 개수 2로 넣은 CraftRecipeAuto(`[Tag planks ×2]`)를 보내면 공식 서버가 응답하지 않고 멈춘다(`stop`도 듣지 않아 PID로 끝내야 함). 두 번 재현했다.

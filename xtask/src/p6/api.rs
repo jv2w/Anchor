@@ -39,7 +39,7 @@ use super::compare::{self, Received, field};
 use super::game;
 
 /// The API scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 47] = [
+pub(crate) const SCENARIOS: [&str; 48] = [
     "commands",
     "particles",
     "kick",
@@ -58,6 +58,7 @@ pub(crate) const SCENARIOS: [&str; 47] = [
     "villagers",
     "numbers",
     "syntax",
+    "clocks",
     "limits",
     "limitchat",
     "line256",
@@ -320,32 +321,42 @@ pub(crate) fn anchor_session(
     let dir = root.join(super::OUT_DIR).join("anchor-api");
     let (mut console, task) = game::console::console();
     let with_console = |b: anchor::ServerBuilder| b.every(game::console::EVERY_TICK, task);
-    let played = super::anchor_session(&dir, "zlib", None, with_console, out, |addr, _, out| {
-        for line in game::SESSION_SETUP {
-            console.send(line)?;
-        }
-        let mut passed = console.settle(out)?;
-        for scenario in scenarios {
-            let script = script_of(root, scenario);
-            let send = |l: &str| console.send(l);
-            passed &= game::run_scenarios(
-                bot,
-                addr,
-                &dir,
-                scenario,
-                script.as_deref(),
-                companion(scenario),
-                send,
-                out,
-            )?;
-            passed &= console.settle(out)?;
-            write_report(&dir, scenario)?;
-            if let Some(c) = companion(scenario) {
-                write_report(&dir, c)?;
+    // The session setup turns BDS's day cycle off before the first bot joins; Anchor takes it
+    // from its settings.
+    let no_day_cycle = |c: &mut anchor::Config| c.general.daylight_cycle = false;
+    let played = super::anchor_session(
+        &dir,
+        "zlib",
+        no_day_cycle,
+        with_console,
+        out,
+        |addr, _, out| {
+            for line in game::SESSION_SETUP {
+                console.send(line)?;
             }
-        }
-        Ok(passed)
-    })?;
+            let mut passed = console.settle(out)?;
+            for scenario in scenarios {
+                let script = script_of(root, scenario);
+                let send = |l: &str| console.send(l);
+                passed &= game::run_scenarios(
+                    bot,
+                    addr,
+                    &dir,
+                    scenario,
+                    script.as_deref(),
+                    companion(scenario),
+                    send,
+                    out,
+                )?;
+                passed &= console.settle(out)?;
+                write_report(&dir, scenario)?;
+                if let Some(c) = companion(scenario) {
+                    write_report(&dir, c)?;
+                }
+            }
+            Ok(passed)
+        },
+    )?;
     let mut report = Vec::new();
     super::say(&mut report, "compare bds-api anchor-api:")?;
     let bds = root.join(super::OUT_DIR).join("bds-api");

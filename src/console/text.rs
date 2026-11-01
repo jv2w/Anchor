@@ -7,7 +7,7 @@
 use crate::player::Message;
 
 /// Anchor's sentences by translation key, in key order; `{%0}`, `{%1}`... are the parameters.
-const TEXTS: [(&str, &str); 140] = [
+const TEXTS: [(&str, &str); 146] = [
     ("chat.type.admin", "[{%0}: {%1}]"),
     ("chat.type.announcement", "[{%0}] {%1}"),
     ("chat.type.emote", "* {%0} {%1}"),
@@ -181,12 +181,24 @@ const TEXTS: [(&str, &str); 140] = [
     ("commands.stop.description", "Stops the server"),
     ("commands.stop.start", "Stopping the server"),
     ("commands.tell.description", "Whispers to players"),
-    ("commands.time.added", "The time moved on by {%0}"),
+    ("commands.time.clock.added", "{%1} moved on by {%0} to {%2}"),
+    ("commands.time.clock.failed", "No clock is named {%0}"),
+    (
+        "commands.time.clock.num.tooSmall",
+        "The number must be at least {%0}",
+    ),
+    ("commands.time.clock.paused", "{%0} stands still at {%1}"),
+    ("commands.time.clock.query.time", "{%0} is at {%1}"),
+    ("commands.time.clock.resumed", "{%0} runs again from {%1}"),
+    ("commands.time.clock.set", "{%0} is at {%1} now"),
+    (
+        "commands.time.clock.timemarker.failed",
+        "{%1} has no time marker {%0}",
+    ),
     ("commands.time.description", "Changes or shows the time"),
     ("commands.time.query.day", "Days passed: {%0}"),
     ("commands.time.query.daytime", "Time of day: {%0}"),
-    ("commands.time.query.gametime", "World clock: {%0}"),
-    ("commands.time.set", "The time is {%0} now"),
+    ("commands.time.query.gametime", "World age: {%0} ticks"),
     ("commands.title.description", "Shows players a title"),
     ("commands.title.success", "Title sent"),
     ("commands.tp.description", "Moves players"),

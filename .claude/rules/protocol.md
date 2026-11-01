@@ -76,7 +76,7 @@ paths:
 
 ## 버전업 절차
 새 프로토콜 버전으로 옮길 때 차례대로 한다. 단계마다 앞 단계가 통과해야 넘어간다.
-1. 출처 고르기: gophertunnel의 최신 정식 태그를 고른다(프리뷰 브랜치는 쓰지 않는다). 태그 뒤 master의 커밋을 읽고 같은 프로토콜의 형식 수정이 있으면 그 커밋으로 고정한다. go-raknet, go-nethernet은 그 go.mod를 따라간다.
+1. 출처 고르기: gophertunnel의 최신 정식 태그를 고른다(프리뷰 브랜치는 쓰지 않는다). 태그 뒤 master의 커밋을 읽고 같은 프로토콜의 형식 수정이 있으면 그 커밋으로 고정한다. go-raknet, go-nethernet은 그 go.mod를 따라가되, 그 판의 결함을 고친 릴리스가 있으면 그 릴리스로 고정한다(`.claude/docs/dependencies.md`).
 2. 외부 불신 검토: 바뀐 Go 코드(`protocol`, `packet`, `login`, 압축, go-raknet, go-nethernet)를 직접 읽고 결함을 적고 없앤다(`.claude/docs/dependencies.md`). gophertunnel 결함 목록(`.claude/docs/protocol.md`)이 아직 맞는지 다시 본다.
 3. 고정: Go 쪽 버전은 `xtask/go/go.mod`(와 `go.sum`)에 태그나 의사 버전으로 고정하고, 추출기(`xtask/go/extract`)의 판과 커밋도 같은 값으로 고친다.
 4. 생성: `cargo xtask gen`. 추출이 모르는 구문으로 실패하면 추출기를 넓힌다. IR diff(`xtask/data/protocol.json`)를 읽어 새·바뀐·사라진 패킷, 필드, union, 상수를 확인하고, 손 코덱과 이를 쓰는 엔진 코드를 맞춘다.

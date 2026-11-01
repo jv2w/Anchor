@@ -98,27 +98,34 @@ pub(crate) fn anchor_session(
     let dir = root.join(super::OUT_DIR).join("anchor-game");
     let (mut console, task) = console::console();
     let with_console = |b: anchor::ServerBuilder| b.every(console::EVERY_TICK, task);
-    let played = super::anchor_session(&dir, "zlib", None, with_console, out, |addr, _, out| {
-        let mut passed = run_spawn(bot, addr, &dir, out)?;
-        for line in SESSION_SETUP {
-            console.send(line)?;
-        }
-        passed &= console.settle(out)?;
-        for scenario in scenarios {
-            passed &= run_scenario(
-                bot,
-                addr,
-                &dir,
-                scenario,
-                None,
-                |line| console.send(line),
-                out,
-            )?;
+    let played = super::anchor_session(
+        &dir,
+        "zlib",
+        |_| {},
+        with_console,
+        out,
+        |addr, _, out| {
+            let mut passed = run_spawn(bot, addr, &dir, out)?;
+            for line in SESSION_SETUP {
+                console.send(line)?;
+            }
             passed &= console.settle(out)?;
-            write_report(&dir, scenario, &blocks)?;
-        }
-        Ok(passed)
-    })?;
+            for scenario in scenarios {
+                passed &= run_scenario(
+                    bot,
+                    addr,
+                    &dir,
+                    scenario,
+                    None,
+                    |line| console.send(line),
+                    out,
+                )?;
+                passed &= console.settle(out)?;
+                write_report(&dir, scenario, &blocks)?;
+            }
+            Ok(passed)
+        },
+    )?;
     let bds = root.join(super::OUT_DIR).join("bds-game");
     let mut report = Vec::new();
     super::say(&mut report, "compare bds-game anchor-game:")?;

@@ -210,7 +210,6 @@ impl Running {
         config.general.enable_ipv6 = false;
         config.general.level_name = name.to_owned();
         config.general.server_port = 0;
-        config.general.nethernet_port = 0;
         let server = edit(Server::builder().config(config).data_dir(data_dir))
             .without_console_log()
             .build()

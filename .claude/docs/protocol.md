@@ -16,7 +16,7 @@
 |---|---|
 | github.com/sandertv/gophertunnel | `v1.63.0`(태그, 커밋 `8c30047d86617a56e1f1871e3a1d47ec4f670d99`, 프로토콜 2225, 1.26.60) |
 | github.com/sandertv/go-raknet | `v1.15.2-0.20260705184311-0d1fd09e2cf6` |
-| github.com/df-mc/go-nethernet | `v1.0.25` |
+| github.com/df-mc/go-nethernet | `v1.0.26`(gophertunnel go.mod의 v1.0.25를 고친 릴리스) |
 | Mojang bedrock-protocol-docs(필드 상한) | 커밋 `0879ab5c4c70be1bd520e32a8c49ea4a155616d6`(v1.26.60 릴리스, 프로토콜 2225) |
 
 결함 판정에만 쓰는 대조 출처(코드에 들이지 않는다):
@@ -27,7 +27,7 @@
 | CloudburstMC/Protocol | 브랜치 `3.0` codec `v2225`, 커밋 `17a89ac156ff874fc8773e42a96bbc0635be9eed` |
 
 - v1.63.0 태그 뒤 master에 형식 수정 커밋이 없어 태그로 고정한다. 태그는 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
-- 기준 서버는 같은 프로토콜(2225)의 공식 서버다. 출처 표(`data.md`)의 공식 서버 1.26.52.3은 프로토콜 2193이라, 2225 공식 서버로 바꾸기 전에는 P6 대조가 이 버전과 맞지 않는다.
+- 기준 서버는 같은 프로토콜(2225)의 공식 서버 1.26.60.6이다(출처 표 `data.md`).
 - gophertunnel도 형식 버그를 자주 고친다. P3 통과는 "gophertunnel과 같다"는 뜻일 뿐이다.
 
 ## 파이프라인: Go 추출 → IR → Rust 생성

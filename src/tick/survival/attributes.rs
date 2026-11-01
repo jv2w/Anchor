@@ -449,7 +449,7 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
     }
 }
 
-/// The whole entity data of a player as BDS sends it at spawn (P6: 72 keys; the types match BDS's
+/// The whole entity data of a player as BDS sends it at spawn (P6: 73 keys; the types match BDS's
 /// packet size). The settings argument is the spawn module's calling form.
 pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> EntityMetadata {
     use EntityDataKey as K;
@@ -522,6 +522,8 @@ pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> E
     // BDS sends this key as an int32 (P6 `others` data types).
     put(K::AimAssistPriorityActorId, V::Int32(-1));
     put(K::NameplateRenderDistanceMax, V::Float32(64.0));
+    // BDS 1.26.60 sends players this byte, 0 (P6 `spawn` and `others`).
+    put(K::Reserved141, V::Byte(0));
     changed_metadata(&shown(player), None, &mut m);
     m
 }

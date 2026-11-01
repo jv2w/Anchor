@@ -4,6 +4,7 @@ paths:
   - "src/raknet/**"
   - "src/nethernet.rs"
   - "src/nethernet/**"
+  - "src/udp.rs"
   - "src/session.rs"
   - "src/session/**"
   - "src/login.rs"
@@ -22,13 +23,13 @@ paths:
 
 ## 공통
 - 두 전송(RakNet, NetherNet)은 같은 세션 상태 기계(`session`)에 싣는다. 로그인, 암호화, 압축, 상한은 전송과 무관하게 세션 위 한 곳에 둔다.
-- 전송마다 IPv4 소켓 하나와 IPv6 전용 소켓 하나를 같은 포트로 연다.
-- 전송마다 구동부 작업 하나가 두 UDP 소켓과 모든 연결(피어) 상태를 가진다. 잠금을 쓰지 않는다.
+- UDP는 `server-port` 하나만 연다: IPv4 소켓 하나와 IPv6 전용 소켓 하나를 두 전송이 나눠 쓴다. 전송마다 포트를 따로 두지 않는다.
+- UDP 작업(`udp.rs`) 하나가 두 소켓, RakNet 구동부, NetherNet 구동부를 가지고 데이터그램을 첫 바이트로 나눠 넘긴다. 잠금을 쓰지 않고, 데이터그램을 다른 작업으로 복사하지 않는다.
 - 두 전송의 구동부는 닫기 전에 큐의 명령을 처리한다. NetherNet 구동부는 닫힘 신호보다 큐의 명령을 먼저 처리한다.
 - Windows UDP의 WSAECONNRESET은 무시하고 계속 읽는다.
 - IP별 상한의 키는 함수 하나로 만들고 RakNet, 시그널링, NetherNet 피어가 함께 쓴다.
 - NetherNet의 TCP 시그널링을 유지한다.
-- NetherNet 게임 데이터는 연결마다 소켓을 열지 않는다. `nethernet-port` 소켓 하나를 모든 피어가 나눠 쓴다.
+- NetherNet 게임 데이터는 연결마다 소켓을 열지 않는다. `server-port` 소켓을 모든 피어가 나눠 쓴다.
 - RakNet 코드는 늘 유지한다. `raknet = false`면 RakNet 연결은 받지 않지만 서버 목록 핑에는 답한다.
 
 ## 세션
@@ -66,12 +67,12 @@ paths:
 - 메시지는 비신뢰 채널로 보내지 않고, 클라이언트 첫 메시지 전에는 보내지 않는다.
 - 피어 마감은 str0m에 맡기지 않고 피어가 직접 센다.
 - str0m 계열의 패닉은 피어마다 `catch_unwind`로 잡아 그 피어만 닫는다.
-- 구동부 작업 하나로 모자라면 받는 작업 하나가 분배하고 피어를 여러 작업에 나눈다.
+- UDP 작업 하나로 모자라면 받는 작업 하나가 분배하고 피어를 여러 작업에 나눈다.
 - 피어 비용은 `#[ignore]` 시험 `nethernet::peer::tests::driver_cost_per_peer`, `handshake_under_random_loss`로 다시 잰다.
 
 ## RakNet
 - RakNet은 서버 쪽만 직접 구현한다.
-- sans-IO 핵심(`raknet/wire.rs`, `raknet/peer.rs`)과 tokio UDP 구동부를 나눈다.
+- sans-IO 핵심(`raknet/wire.rs`, `raknet/peer.rs`)과 구동부를 나눈다.
 - 0xfe 바이트는 RakNet 층이 떼고 붙인다. 세션은 전송과 무관하게 둔다.
 - RakNet 시계는 단조 시계를 쓴다.
 - 쿠키(security)는 쓰지 않는다.

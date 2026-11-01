@@ -118,7 +118,7 @@ func getJoin(ctx context.Context, client *http.Client, base string, rec map[stri
 
 // clientIdentity is the offer's a=identity: the test issuer's token for the online scenario (the token
 // the Login carries), otherwise a self-signed ES384 token whose cpk is the base64 SPKI of the key, made
-// by go-nethernet's GenerateServerIdentity (which builds exactly that token, with exp and iat). The
+// by go-nethernet's SelfSignedIdentity (which builds exactly that token, with exp and iat). The
 // bind-mismatch scenario signs it with a second key, so the offer and the Login prove different keys.
 func clientIdentity(c config, key *ecdsa.PrivateKey, token string) (*nethernet.Identity, error) {
 	switch c.scenario {
@@ -129,9 +129,9 @@ func clientIdentity(c config, key *ecdsa.PrivateKey, token string) (*nethernet.I
 		if err != nil {
 			return nil, err
 		}
-		return nethernet.GenerateServerIdentity(other, "self")
+		return nethernet.SelfSignedIdentity(other, "self")
 	}
-	return nethernet.GenerateServerIdentity(key, "self")
+	return nethernet.SelfSignedIdentity(key, "self")
 }
 
 // capture wraps a Signaling to keep the offer the Dialer sends and the answer it is notified of.

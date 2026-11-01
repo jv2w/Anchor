@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/coreos/go-oidc/v3 v3.17.0
-	github.com/df-mc/go-nethernet v1.0.25
+	github.com/df-mc/go-nethernet v1.0.26
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/go-gl/mathgl v1.1.0
 	github.com/go-jose/go-jose/v4 v4.1.4

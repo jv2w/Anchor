@@ -128,7 +128,7 @@ Anchor 빌드에는 들지 않는다. `xtask/go/go.mod`가 판을 고정한다.
 | 모듈 | 고정 | 용도 | 결함과 조치 |
 |---|---|---|---|
 | sandertv/gophertunnel (MIT) | `protocol.md`의 고정 버전 표 | 프로토콜 정답, 추출기, 봇 | 주석과 코드 불일치, NBT map 쓰기 순서가 무작위 → 시험 도구가 정렬해 씀. 로그인 검사가 느슨함(앵커 없는 정규식, 블로킹 DNS, 무작위 오프라인 UUID, 느슨한 base64) → Anchor는 엄격하게 고쳐 구현(`protocol.md`, `network.md`) |
-| sandertv/go-raknet, df-mc/go-nethernet | gophertunnel `go.mod`가 정한 판 | 봇 | 봇 전용. go-nethernet은 후보 줄을 두 번 접두하고 채널 열림 확인 전에 보냄 → Anchor가 둘 다 받음 |
+| sandertv/go-raknet, df-mc/go-nethernet | gophertunnel `go.mod`가 정한 판, 결함을 고친 릴리스가 있으면 그 판(`protocol.md`의 고정 버전 표) | 봇 | 봇 전용. go-nethernet은 후보 줄을 두 번 접두하고 채널 열림 확인 전에 보냄 → Anchor가 둘 다 받음. go-nethernet v1.0.25는 `SelfSignedIdentity`도 `cpk`를 JWK로 써서 공식 서버 1.26.60이 클라이언트 offer를 37(`ErrorCodeIdentityNotAllowed`)로 거절함 → v1.0.26(base64 SPKI로 고침) |
 | go-jose, go-oidc | `go.mod` 판 | 봇 토큰 | 개발 도구 |
 | df-mc/goleveldb (BSD-2) | v1.1.9 | 가져오기 리더 대조 | 압축 2(zlib 헤더)가 없고 열 때 폴더에 씀 → 사본을 열어 읽음 |
 | golang.org/x/tools (BSD-3) | v0.42.0 | 추출기 타입 정보 | gophertunnel 의존성 판을 바꾸지 않는 판 |

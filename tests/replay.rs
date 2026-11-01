@@ -54,7 +54,6 @@ fn local_config(backups: bool) -> Config {
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
     config.general.server_port = 0;
-    config.general.nethernet_port = 0;
     config.general.backups = backups;
     config
 }

@@ -21,7 +21,7 @@ fn main() -> anchor::Result<()> {
 - The binary must keep `panic = "unwind"`, the default.
 - The server creates only `anchor.toml` and `data/` in its working directory.
 - The binary also accepts `update-config`, `import <world folder> [name]` and `export <world folder> [name]`, which run without starting the server.
-- Windows and Linux (x86_64, aarch64) are supported. Open UDP ports 19132 and 19133 and TCP port 19132 by default; on hosts without IPv6, set `enable-ipv6 = false` under `[general]`.
+- Windows and Linux (x86_64, aarch64) are supported. Open port 19132 (`server-port`) for both UDP and TCP; it is the only port the server uses; on hosts without IPv6, set `enable-ipv6 = false` under `[general]`.
 
 ## Documentation
 

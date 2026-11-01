@@ -36,10 +36,9 @@ motd = "Anchor Server"
 server-ip = "0.0.0.0"
 server-ipv6 = "::"
 enable-ipv6 = true
-# UDP: RakNet and server list ping. TCP: NetherNet signaling. Both use this port.
+# The one port players reach: UDP carries RakNet, NetherNet game data and server list pings;
+# TCP carries NetherNet signaling.
 server-port = 19132
-# UDP port for NetherNet game data, shared by every player.
-nethernet-port = 19133
 # Address players use to reach this server, if it differs from the local one (NAT).
 # Empty: advertise the addresses of the local interfaces.
 public-ip = ""
@@ -542,13 +541,11 @@ pub struct General {
     pub server_ipv6: Ipv6Addr,
     /// `enable-ipv6`: whether to listen on `server_ipv6` too.
     pub enable_ipv6: bool,
-    /// `server-port`: UDP for RakNet and server list pings, TCP for NetherNet signaling, on
-    /// IPv4 and IPv6 alike.
+    /// `server-port`: UDP for RakNet, NetherNet game data and server list pings, TCP for
+    /// NetherNet signaling, on IPv4 and IPv6 alike.
     #[doc(alias = "Server::getPort")]
     #[doc(alias = "Server::getPortV6")]
     pub server_port: u16,
-    /// `nethernet-port`: the UDP port for NetherNet game data.
-    pub nethernet_port: u16,
     /// `public-ip`: the address players use to reach this server; `None` advertises the local
     /// interfaces.
     pub public_ip: Option<IpAddr>,
@@ -651,7 +648,6 @@ impl General {
                 "server-ipv6" => self.server_ipv6 = parsed(value, key, "an IPv6 address")?,
                 "enable-ipv6" => self.enable_ipv6 = boolean(value, key)?,
                 "server-port" => self.server_port = int(value, key, u16::MIN..=u16::MAX)?,
-                "nethernet-port" => self.nethernet_port = int(value, key, u16::MIN..=u16::MAX)?,
                 "public-ip" => {
                     self.public_ip = optional(value, key, "empty or an IP address")?;
                 }
@@ -713,7 +709,6 @@ impl Default for General {
             server_ipv6: Ipv6Addr::UNSPECIFIED,
             enable_ipv6: true,
             server_port: 19132,
-            nethernet_port: 19133,
             public_ip: None,
             max_players: 20,
             xbox_auth: true,
@@ -1782,7 +1777,7 @@ old-key = false
         let config = Config::default().load_as(&path, true).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 69);
+        assert_eq!(update.added().len(), 68);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

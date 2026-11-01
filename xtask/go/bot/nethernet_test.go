@@ -25,7 +25,7 @@ func TestSDPStructureKeepsLineKeysOnly(t *testing.T) {
 
 func TestIdentityRecordDecodesTheAnswerIdentity(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-	server, err := nethernet.GenerateServerIdentity(key, "self")
+	server, err := nethernet.ServerIdentity(key, "self")
 	if err != nil {
 		t.Fatal(err)
 	}

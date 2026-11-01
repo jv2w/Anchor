@@ -387,9 +387,9 @@ builtin! {
     COMMAND_TIME_QUERY = "anchor.command.time.query", Op;
     /// Set the world time (`/time set`).
     COMMAND_TIME_SET = "anchor.command.time.set", Op;
-    /// Start the day cycle (`/time start`).
+    /// Start the day cycle again (`/time resume`, PMMP's `/time start`).
     COMMAND_TIME_START = "anchor.command.time.start", Op;
-    /// Stop the day cycle (`/time stop`).
+    /// Stop the day cycle (`/time pause`, PMMP's `/time stop`).
     COMMAND_TIME_STOP = "anchor.command.time.stop", Op;
     /// Show titles to other players (`/title`).
     COMMAND_TITLE_OTHER = "anchor.command.title.other", Op;

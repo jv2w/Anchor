@@ -174,7 +174,6 @@ const SETTINGS: &str = "[general]\n\
     server-ip = \"127.0.0.1\"\n\
     enable-ipv6 = false\n\
     server-port = 0\n\
-    nethernet-port = 0\n\
     xbox-auth = false\n\
     view-distance = 4\n\
     \n\

@@ -1,7 +1,7 @@
 //! Connection sessions: batches, encryption, the login sequence and the tick queues.
 //!
-//! [`start`] opens both transports (NetherNet, then RakNet; both serve at once) and spawns the
-//! accept task. The
+//! [`start`] opens both transports (one UDP port for both, and NetherNet's TCP signaling on the
+//! same port number) and spawns the accept task. The
 //! accept task numbers new connections of both in arrival order (the one place that allocates
 //! [`SessionId`]s, so no shared counter is needed), spawns a session task for each and keeps the
 //! server-list status current (the RakNet pong and the NetherNet JSON).
@@ -38,6 +38,7 @@ use crate::protocol::batch;
 use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
 use crate::tick::queue::{Control, InputKind, InputSender, Measure, SessionId, SessionInputs};
+use crate::udp;
 
 use transport::Transport;
 
@@ -62,7 +63,7 @@ const SPAWN_PLAYER_LISTS: usize = 2;
 /// Running networking: the transports, the accept task and every session.
 #[derive(Debug)]
 pub(crate) struct Network {
-    raknet: raknet::Handle,
+    udp: udp::Handle,
     nethernet: nethernet::Handle,
     stop: oneshot::Sender<()>,
     accept: JoinHandle<()>,
@@ -147,8 +148,6 @@ pub(crate) async fn start(
     let v4 = Some(general.server_ip);
     let v6 = general.enable_ipv6.then_some(general.server_ipv6);
     let settings = raknet::Settings {
-        v4: v4.map(|ip| SocketAddrV4::new(ip, general.server_port)),
-        v6: v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0)),
         max_mtu: config.developer.max_mtu_size,
         // An encrypted RakNet message adds the checksum to the batch.
         max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM),
@@ -159,12 +158,13 @@ pub(crate) async fn start(
     let (pong_tx, pong_rx) = watch::channel(status.pong(0));
     let (json_tx, json_rx) = watch::channel(status.json(0));
 
-    // NetherNet opens first: a RakNet pong then means that every listener is ready.
+    let v4 = v4.map(|ip| SocketAddrV4::new(ip, general.server_port));
+    let v6 = v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0));
+    let sockets = udp::Sockets::bind(v4, v6).map_err(Error::Network)?;
+    // The UDP task starts last: a pong then means that every listener is ready.
     let nethernet_settings = nethernet::Settings {
-        signaling_v4: v4.map(|ip| SocketAddrV4::new(ip, general.server_port)),
-        signaling_v6: v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0)),
-        udp_v4: v4.map(|ip| SocketAddrV4::new(ip, general.nethernet_port)),
-        udp_v6: v6.map(|ip| SocketAddrV6::new(ip, general.nethernet_port, 0, 0)),
+        signaling_v4: v4,
+        signaling_v6: v6,
         public_ip: general.public_ip,
         max_message: max_message(&batch),
         tls: config
@@ -174,35 +174,34 @@ pub(crate) async fn start(
             .zip(config.developer.nethernet_tls_key.clone()),
     };
     let (nethernet_tx, nethernet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let nethernet = nethernet::start(
+    let (nethernet, nethernet_driver) = nethernet::start(
         nethernet_settings,
         data_dir,
         json_rx,
         auth.clone(),
         nethernet_tx,
+        Arc::clone(&sockets),
     )
     .await?;
     for addr in nethernet.signaling_addrs() {
         info!(%addr, "listening for NetherNet signaling on TCP");
     }
-    for addr in nethernet.udp_addrs() {
-        info!(%addr, "listening for NetherNet game data on UDP");
-    }
     let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = match raknet::spawn(settings, pong_rx, raknet_tx) {
+    let raknet = match raknet::Driver::new(settings, pong_rx, raknet_tx, Arc::clone(&sockets)) {
         Ok(raknet) => raknet,
         Err(e) => {
             nethernet.shutdown().await;
             return Err(Error::Network(e));
         }
     };
-    let raknet_use = if config.developer.raknet {
-        "listening for RakNet and server list pings on UDP"
+    let udp = udp::spawn(sockets, raknet, nethernet_driver);
+    let udp_use = if config.developer.raknet {
+        "listening for RakNet, NetherNet game data and server list pings on UDP"
     } else {
-        "listening for server list pings only on UDP (raknet = false)"
+        "listening for NetherNet game data and server list pings on UDP (raknet = false)"
     };
-    for addr in raknet.local_addrs() {
-        info!(%addr, "{raknet_use}");
+    for addr in udp.local_addrs() {
+        info!(%addr, "{udp_use}");
     }
 
     let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
@@ -242,7 +241,7 @@ pub(crate) async fn start(
     };
     let accept = tokio::spawn(accept.run(stop_rx));
     Ok(Network {
-        raknet,
+        udp,
         nethernet,
         stop: stop_tx,
         accept,
@@ -260,8 +259,9 @@ impl Network {
         if let Err(e) = self.accept.await {
             warn!(error = %e, "accept task failed");
         }
-        // Each transport lingers for its peers' last messages; together the wait is the longer.
-        tokio::join!(self.raknet.shutdown(), self.nethernet.shutdown());
+        // Signaling stops while the UDP task lets both transports' connections deliver their
+        // last messages.
+        tokio::join!(self.udp.shutdown(), self.nethernet.shutdown());
     }
 }
 
@@ -669,7 +669,6 @@ mod tests {
         config.general.enable_ipv6 = false;
         config.general.server_ip = Ipv4Addr::LOCALHOST;
         config.general.server_port = 0;
-        config.general.nethernet_port = 0;
         let localhost = IpAddr::from(Ipv4Addr::LOCALHOST);
         crate::raknet::tests::run(async {
             let (inputs, mut queue) = input_queue(1);
@@ -677,7 +676,7 @@ mod tests {
             let network = start(Arc::new(config), Vec::new(), &dir, inputs, control_queue)
                 .await
                 .unwrap();
-            let raknet: SocketAddr = network.raknet.local_addrs()[0];
+            let raknet: SocketAddr = network.udp.local_addrs()[0];
             let signaling: SocketAddr = network.nethernet.signaling_addrs()[0];
             let socket = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
                 .await

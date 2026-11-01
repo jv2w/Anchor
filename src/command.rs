@@ -262,6 +262,8 @@ pub(crate) enum Kind {
     Enum { name: String, values: Vec<String> },
     /// Any word; the client suggests the values the server last set for the type `name`.
     SoftEnum { name: String },
+    /// Any word, as a time marker of a world clock such as `noon` (BDS's `/time set`).
+    ClockTimeMarker,
     /// An item name.
     Item,
     /// A block name.
@@ -355,9 +357,10 @@ impl Param {
     /// [`Error::ConflictingEnum`]. Anchor's own commands use BDS's names and values: `Boolean`,
     /// `Item`, `Block`, `Effect`, `Enchant`, `GameMode`, `Difficulty`, `ClearEffects`,
     /// `AddInfiniteEffect`, `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`, `TimeModeSet`,
-    /// `TimeModeQuery`, `TimeSpec`, `TimeQuery` and `<name>CommandAliases` for a command with
-    /// aliases, and Anchor's `TimeModeStart`, `TimeModeStop`, `BanListType`, `WhitelistAction`,
-    /// `WhitelistEdit` and `ParticleName`, unless the user replaces or drops the command.
+    /// `TimeModeQuery`, `TimeModePause`, `TimeModeResume`, `TimeOfCommand`, `TimeMarkerOccurrence`,
+    /// `TimeQuery2`, `ClockTimeQuery` and `<name>CommandAliases` for a command with aliases, and
+    /// Anchor's `BanListType`, `WhitelistAction`, `WhitelistEdit` and `ParticleName`, unless the
+    /// user replaces or drops the command.
     /// `CommandName` is the client's list of command names: no parameter may take it.
     pub fn enumeration(
         name: impl Into<String>,
@@ -375,7 +378,8 @@ impl Param {
 
     /// One word, or words in double quotes, as typed ([`Args::string`]); the client suggests the
     /// values [`Context::set_soft_enum`] last set for the enum type `type_name`, none at first
-    /// (a BDS soft enum, as `/scoreboard` objectives). The handler checks the word: the client
+    /// but `minecraft:overworld` for `WorldClocks`, `/time`'s as BDS lists it (a BDS soft enum,
+    /// as `/scoreboard` objectives). The handler checks the word: the client
     /// sends words it does not suggest. `type_name` may not be the type name of an
     /// [`enumeration`](Self::enumeration), or [`build`](crate::ServerBuilder::build) fails with
     /// [`Error::ConflictingEnum`]; an empty one refuses the build ([`Error::InvalidOverload`]).
@@ -386,6 +390,12 @@ impl Param {
                 name: type_name.into(),
             },
         )
+    }
+
+    /// One word as typed ([`Args::string`]): a time marker of a world clock, which the handler
+    /// looks up (BDS's `ClockTimeMarker`).
+    pub(crate) fn clock_time_marker(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::ClockTimeMarker)
     }
 
     /// The word `word` itself, as in `/whitelist add <player>`: an enum of one value named
@@ -458,6 +468,7 @@ impl Param {
                 return;
             }
             Kind::Enum { name, .. } | Kind::SoftEnum { name } => name,
+            Kind::ClockTimeMarker => "ClockTimeMarker",
             Kind::Item => ITEM_ENUM,
             Kind::Block => BLOCK_ENUM,
             Kind::Effect => EFFECT_ENUM,

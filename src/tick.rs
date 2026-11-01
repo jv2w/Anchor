@@ -785,6 +785,7 @@ impl State {
             }
             h.u64(world.time_ticks().cast_unsigned());
             h.u64(u64::from(world.is_time_stopped()));
+            h.u64(world.age_ticks());
             h.u64(world.difficulty().map_or(0, |d| {
                 u64::from(spawn::difficulty_id(d).cast_unsigned()) + 1
             }));

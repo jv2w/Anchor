@@ -15,18 +15,18 @@ use crate::world::{Flat, Generator};
 
 /// The `Generator` of a flat world.
 const FLAT_GENERATOR: i32 = 2;
-/// `FlatWorldLayers` as BDS 1.26.52 writes it for its default flat world: bedrock at y -64,
+/// `FlatWorldLayers` as BDS 1.26.60 writes it for its default flat world: bedrock at y -64,
 /// dirt at -63 and -62, grass at -61, plains.
 const FLAT_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     {\"block_name\":\"minecraft:bedrock\",\"count\":1},\
     {\"block_name\":\"minecraft:dirt\",\"count\":2},\
     {\"block_name\":\"minecraft:grass_block\",\"count\":1}],\
-    \"encoding_version\":6,\"preset_id\":null,\"structure_options\":null,\
+    \"encoding_version\":6,\"structure_options\":null,\
     \"world_version\":\"version.post_1_18\"}\n";
 /// The same with one layer of air: chunks of nothing but plains.
 const AIR_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     {\"block_name\":\"minecraft:air\",\"count\":1}],\
-    \"encoding_version\":6,\"preset_id\":null,\"structure_options\":null,\
+    \"encoding_version\":6,\"structure_options\":null,\
     \"world_version\":\"version.post_1_18\"}\n";
 
 /// The `level.dat` of the world `name` with the state `record`, made with `generator`.
@@ -83,10 +83,8 @@ mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_flat_world_has_the_layers_bds_writes_and_any_other_air() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/xtask/data/import/flat/level.dat"
-        );
+        // The level.dat BDS 1.26.60 wrote for its P6 flat world (`cargo xtask p6 bds`).
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/export/level.dat");
         let bds = root(&std::fs::read(path).unwrap());
         let record = WorldRecord {
             number: 0,

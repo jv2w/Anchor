@@ -30,10 +30,9 @@ motd = "Anchor Server"
 server-ip = "0.0.0.0"
 server-ipv6 = "::"
 enable-ipv6 = true
-# UDP: RakNet and server list ping. TCP: NetherNet signaling. Both use this port.
+# The one port players reach: UDP carries RakNet, NetherNet game data and server list pings;
+# TCP carries NetherNet signaling.
 server-port = 19132
-# UDP port for NetherNet game data, shared by every player.
-nethernet-port = 19133
 # Address players use to reach this server, if it differs from the local one (NAT).
 # Empty: advertise the addresses of the local interfaces.
 public-ip = ""
@@ -193,8 +192,7 @@ console-input = true
 | `server-ip` | 문자열 | `"0.0.0.0"` | IPv4 주소 | 받을 IPv4 주소. `0.0.0.0`은 모든 인터페이스 |
 | `server-ipv6` | 문자열 | `"::"` | IPv6 주소 | 받을 IPv6 주소 |
 | `enable-ipv6` | bool | `true` | | IPv6에서도 받을지 |
-| `server-port` | 정수 | `19132` | 0~65535 | UDP는 RakNet과 서버 목록 핑, TCP는 NetherNet 시그널링. IPv4와 IPv6 모두 |
-| `nethernet-port` | 정수 | `19133` | 0~65535 | NetherNet 게임 데이터 UDP 포트. 모든 플레이어가 함께 쓴다 |
+| `server-port` | 정수 | `19132` | 0~65535 | 서버가 여는 유일한 포트. UDP는 RakNet, NetherNet 게임 데이터, 서버 목록 핑, TCP는 NetherNet 시그널링. IPv4와 IPv6 모두 |
 | `public-ip` | 문자열 | `""` | 빈 값 또는 IP 주소 | 플레이어가 이 서버에 닿는 주소(NAT 뒤). 비면 로컬 인터페이스 주소를 알린다 |
 | `max-players` | 정수 | `20` | 1~10000 | 동시 접속 상한. 플레이어와 세션 표의 크기를 정한다 |
 | `xbox-auth` | bool | `true` | | Xbox Live 로그인을 요구할지. `false`면 누구나 아무 이름으로 들어온다 |

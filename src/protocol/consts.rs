@@ -3389,11 +3389,13 @@ pub enum EntityDataKey {
     Reserved139 = 139,
     /// gophertunnel `EntityDataKeyNameplateRenderDistanceMax`.
     NameplateRenderDistanceMax = 140,
+    /// gophertunnel `EntityDataKeyReserved141`.
+    Reserved141 = 141,
 }
 
 impl EntityDataKey {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 141] = [
+    pub const ALL: [Self; 142] = [
         Self::Flags,
         Self::StructuralIntegrity,
         Self::Variant,
@@ -3535,6 +3537,7 @@ impl EntityDataKey {
         Self::AimAssistPriorityActorId,
         Self::Reserved139,
         Self::NameplateRenderDistanceMax,
+        Self::Reserved141,
     ];
     /// gophertunnel `EntityDataKeyDisplayFirework`.
     pub const DISPLAY_FIREWORK: Self = Self::DisplayBlockState;
@@ -3702,6 +3705,7 @@ impl TryFrom<u32> for EntityDataKey {
             138 => Ok(Self::AimAssistPriorityActorId),
             139 => Ok(Self::Reserved139),
             140 => Ok(Self::NameplateRenderDistanceMax),
+            141 => Ok(Self::Reserved141),
             _ => Err(Error::UnknownEnum {
                 name: "entity data key",
                 value: value.into(),
@@ -19023,6 +19027,7 @@ mod tests {
                 "protocol.EntityDataKeyAimAssistPriorityActorID",
                 "protocol.EntityDataKeyReserved139",
                 "protocol.EntityDataKeyNameplateRenderDistanceMax",
+                "protocol.EntityDataKeyReserved141",
             ],
             &EntityDataKey::ALL.map(|x| i128::from(u32::from(x))),
             32,
@@ -22778,7 +22783,7 @@ mod tests {
         int_enum(&DataStorePropertyType::ALL, Some(7_i32));
         int_enum(&EntityLink::ALL, Some(3_u8));
         int_enum(&PassengerOfBlockEmote::ALL, Some(3_u8));
-        int_enum(&EntityDataKey::ALL, Some(141_u32));
+        int_enum(&EntityDataKey::ALL, Some(142_u32));
         flag(&EntityDataFlag::ALL);
         int_enum(&EntityDataFlag::ALL, Some(131_u32));
         int_enum(&EntityDataType::ALL, Some(9_u32));

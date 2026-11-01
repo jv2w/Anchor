@@ -59,7 +59,7 @@ use serde_json::Value;
 use crate::dump::{CLOUDBURST, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, is_file, write};
 
 /// The BDS copy, relative to the repository root. The original download is never run.
-const BDS_DIR: &str = ".cache/bds/1.26.52.3";
+const BDS_DIR: &str = ".cache/bds/1.26.60.6";
 /// Captures and logs, relative to the repository root.
 const OUT_DIR: &str = "target/p6";
 /// Scenarios every server must pass, over each transport.
@@ -454,7 +454,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             passed &= anchor_session(
                 &out_dir,
                 compression,
-                None,
+                |_| {},
                 with_steps,
                 out,
                 |addr, signaling, out| {
@@ -477,7 +477,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
     passed &= anchor_session(
         &out_dir,
         first,
-        Some(UNREACHABLE),
+        |c| c.general.public_ip = Some(UNREACHABLE),
         |b| b,
         out,
         |addr, signaling, out| {
@@ -492,13 +492,13 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
     Ok(passed)
 }
 
-/// Starts Anchor on a thread of this process with the P6 settings and what `setup` adds to the
-/// builder, calls `run` with its RakNet and NetherNet signaling addresses and shuts it down.
-/// `public_ip` is the NetherNet address Anchor advertises.
+/// Starts Anchor on a thread of this process with the P6 settings as `settings` changes them and
+/// what `setup` adds to the builder, calls `run` with its RakNet and NetherNet signaling addresses
+/// and shuts it down.
 fn anchor_session<W: Write>(
     out_dir: &Path,
     compression: &str,
-    public_ip: Option<IpAddr>,
+    settings: impl FnOnce(&mut anchor::Config),
     setup: impl FnOnce(anchor::ServerBuilder) -> anchor::ServerBuilder,
     out: &mut W,
     run: impl FnOnce(&str, &str, &mut W) -> Result<bool, String>,
@@ -507,13 +507,13 @@ fn anchor_session<W: Write>(
     remove_dir(&data_dir)?;
     create_dir(&data_dir)?;
     let mut config = anchor_config();
-    config.general.public_ip = public_ip;
     "p6".clone_into(&mut config.general.level_name);
     config.general.level_seed = Some(1);
     config.developer.compression = match compression {
         "zlib" => anchor::protocol::compression::Compression::Zlib,
         _ => anchor::protocol::compression::Compression::Snappy,
     };
+    settings(&mut config);
     say(
         out,
         &format!("{}: starting Anchor ({compression})", name(out_dir)),
@@ -548,7 +548,6 @@ fn anchor_config() -> anchor::Config {
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
     config.general.server_port = 0;
-    config.general.nethernet_port = 0;
     config
 }
 
@@ -1969,7 +1968,7 @@ mod tests {
         let passed = anchor_session(
             &dir,
             "zlib",
-            None,
+            |_| {},
             |b| b,
             &mut out,
             |addr, _, _| {

@@ -231,6 +231,14 @@ impl Commands {
         }
         self.catalog = available::Catalog::new(&self.list, &self.names)?;
         self.soft_values = vec![Vec::new(); self.catalog.soft_count()];
+        // BDS lists its one clock from the start.
+        if let Some(clocks) = self
+            .catalog
+            .soft_enum(builtin::WORLD_CLOCKS)
+            .and_then(|index| self.soft_values.get_mut(index))
+        {
+            *clocks = vec![super::survival::OVERWORLD_CLOCK_NAME.to_owned()];
+        }
         Ok(())
     }
 
@@ -528,7 +536,7 @@ impl ServerBuilder {
 
     /// Makes `default` who has `permission` unless a grant says otherwise, in place of the
     /// default it was made with: how one of Anchor's own permissions (the
-    /// [`permission`](crate::permission) constants) gets another default, such as `/kill` for
+    /// [`permission`] constants) gets another default, such as `/kill` for
     /// operators only, `.permission_default(permission::COMMAND_KILL_SELF, Default::Op)`. Every
     /// check of the permission follows it, a check with the constant included, and
     /// [`Context::permission`] returns it so. Set again for the same permission, the last wins.
@@ -1233,7 +1241,8 @@ impl Context<'_> {
 
     /// Sets the values the client suggests for the soft enum type `name` of a
     /// [`Param::soft_enumeration`](command::Param::soft_enumeration), in order; every player's
-    /// list follows at the end of the tick. Not saved: none at start. Fails with
+    /// list follows at the end of the tick. Not saved: none at start (`WorldClocks`:
+    /// `minecraft:overworld`). Fails with
     /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
     /// value is empty, or there are more than 4,096 or more than 65,536 bytes of them in all. A
     /// value may hold spaces: the parameter takes it typed in double quotes.

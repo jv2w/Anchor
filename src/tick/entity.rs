@@ -3944,7 +3944,8 @@ fn send_movements(state: &mut State) {
 
 /// Puts in `packets` the packets an entity's change since it was last sent needs (PMMP
 /// `updateMovement`): the flags (no client prediction while it rests, burning), or all its
-/// metadata (and an NPC's held item) after an API change, the position, the speed.
+/// metadata (and an NPC's held item) after an API change, the position. Its speed goes only in
+/// its spawn packet: BDS 1.26.60 sends no `SetActorMotion` for entities but players (P6).
 fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
     if e.resend {
         packets.push(track::all_data(e, change.flags));
@@ -3956,9 +3957,6 @@ fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
     }
     if change.moved {
         packets.push(track::movement(e));
-    }
-    if change.sped {
-        packets.push(track::motion(e));
     }
     if change.health
         && let Some(packet) = track::health_update(e)
@@ -3976,7 +3974,8 @@ struct Change {
     flags: u64,
     /// The position or rotation is to be sent.
     moved: bool,
-    /// The speed is to be sent.
+    /// The speed changed enough to record as the last seen one, which tells when the entity
+    /// comes to rest.
     sped: bool,
     /// A cloud's radius to send (it changed by [`RADIUS_STEP`] or more).
     radius: Option<f64>,
@@ -4360,7 +4359,7 @@ pub(super) fn reaches(state: &State, session: SessionId, id: Id) -> bool {
 /// Spawns `npc` at `pos` (feet); `None` where the API may not put an entity
 /// ([`api::is_placeable`]: not finite, outside the world border or too far above or below the
 /// world), at the entity limit, in an unloaded chunk, or for a human name over
-/// [`MAX_NAME_TAG_BYTES`](kind::MAX_NAME_TAG_BYTES) bytes. NPCs
+/// [`MAX_NAME_TAG_BYTES`] bytes. NPCs
 /// spawned here are invulnerable (only the void hurts them), except zombies (see [`npc`]).
 pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
     if !api::is_placeable(pos) {
@@ -6426,7 +6425,7 @@ mod tests {
         };
         let mut keys: Vec<u32> = add.entity_metadata.keys().copied().collect();
         keys.sort_unstable();
-        assert_eq!(keys.len(), 79, "{keys:?}");
+        assert_eq!(keys.len(), 80, "{keys:?}");
         for (key, value) in [
             (10, crate::protocol::MetadataValue::Byte(0)),
             (38, crate::protocol::MetadataValue::Float32(1.0)),

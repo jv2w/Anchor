@@ -498,6 +498,7 @@ impl Builder {
                 Type::Enum(self.enumeration(command::ENCHANT_ENUM, names.enchantment_names()))
             }
             Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
+            Kind::ClockTimeMarker => Type::Basic(CommandArgType::ClockTimeMarker),
         }
     }
 }

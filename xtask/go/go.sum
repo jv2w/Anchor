@@ -1,7 +1,7 @@
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=
 github.com/coreos/go-oidc/v3 v3.17.0/go.mod h1:wqPbKFrVnE90vty060SB40FCJ8fTHTxSwyXJqZH+sI8=
-github.com/df-mc/go-nethernet v1.0.25 h1:FEgn/SRWAZ19B62Npak5dGuK19g5HOBFZPjTkSAeykw=
-github.com/df-mc/go-nethernet v1.0.25/go.mod h1:SFH4cfiLRWUUNGMvQeaOjFfFX4eexTkIfBtp55vJNqY=
+github.com/df-mc/go-nethernet v1.0.26 h1:wO0PVPlBTEJI75YdA0eQ8DdDgeSYO6blZdnyYZrGg54=
+github.com/df-mc/go-nethernet v1.0.26/go.mod h1:SFH4cfiLRWUUNGMvQeaOjFfFX4eexTkIfBtp55vJNqY=
 github.com/df-mc/goleveldb v1.1.9 h1:ihdosZyy5jkQKrxucTQmN90jq/2lUwQnJZjIYIC/9YU=
 github.com/df-mc/goleveldb v1.1.9/go.mod h1:+NHCup03Sci5q84APIA21z3iPZCuk6m6ABtg4nANCSk=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=

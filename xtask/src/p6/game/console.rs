@@ -11,8 +11,8 @@
 //!
 //! Where Anchor has no counterpart, the command is accepted with a note: villager NPCs have no AI
 //! (`effect` on them changes nothing), and Anchor spawns no mobs and its weather has no cycle
-//! (`domobspawning`, `doweathercycle`). `dodaylightcycle` is accepted with a note too: the harness
-//! leaves Anchor's clock running.
+//! (`domobspawning`, `doweathercycle`). `dodaylightcycle` is accepted with a note too: Anchor
+//! takes it from its settings, which the API session turns off and the game session leaves on.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -328,7 +328,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             ("domobspawning", "false") => Ok(Command::Accepted("Anchor spawns no mobs")),
             ("doweathercycle", "false") => Ok(Command::Accepted("Anchor's weather has no cycle")),
             ("dodaylightcycle", "false") => Ok(Command::Accepted(
-                "the harness leaves Anchor's clock running",
+                "Anchor takes the day cycle from its settings (daylight-cycle)",
             )),
             ("falldamage" | "drowningdamage", "false" | "true") => Ok(Command::Accepted(
                 "Anchor takes these rules from its settings (fall-damage, drowning), not a command",

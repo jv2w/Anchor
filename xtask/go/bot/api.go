@@ -241,8 +241,6 @@ func (g *game) playerCommand(line string) error {
 	var output *packet.CommandOutput
 	// The first move of the player the server sends: later corrections pull a hovering bot back down.
 	var moved *mgl32.Vec3
-	// The first world time the server sends (SetTime or a clock sync).
-	var clock any
 	seen := func(pk packet.Packet) {
 		names = append(names, packetName(pk))
 		switch pk := pk.(type) {
@@ -250,14 +248,6 @@ func (g *game) playerCommand(line string) error {
 			if pk.EntityRuntimeID == g.runtimeID && moved == nil {
 				d := pk.Position.Sub(feet)
 				moved = &d
-			}
-		case *packet.SetTime:
-			if clock == nil {
-				clock = pk.Time
-			}
-		case *packet.SyncWorldClocks:
-			if clock == nil && len(pk.SyncStates) > 0 {
-				clock = pk.SyncStates[0].Time
 			}
 		}
 	}
@@ -292,10 +282,11 @@ func (g *game) playerCommand(line string) error {
 		"level": round2(g.attrs["minecraft:player.level"] - attrs),
 		"xp":    round2(g.attrs["minecraft:player.experience"]),
 	}
-	// Servers sync their clocks now and then; only the step of a time command that succeeded compares
-	// the time.
+	// Servers sync their clocks now and then, with the time they hold: the step of a time command that
+	// succeeded compares the time last sent, which is the one before it when the command changed none
+	// (BDS then sends no sync).
 	if strings.HasPrefix(line, "time ") && line != memberLine && output != nil && output.SuccessCount > 0 {
-		changed["clock"] = clock
+		changed["clock"] = g.clock
 	}
 	g.lastOutput = output
 	rec := map[string]any{"line": line, "packets": names, "state": changed, "output": nil}

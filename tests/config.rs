@@ -176,7 +176,6 @@ server-ip = "127.0.0.1"
 server-ipv6 = "::1"
 enable-ipv6 = false
 server-port = 19140
-nethernet-port = 19141
 public-ip = "203.0.113.7"
 max-players = 100
 xbox-auth = false
@@ -263,7 +262,6 @@ fn custom() -> Config {
     g.server_ipv6 = Ipv6Addr::LOCALHOST;
     g.enable_ipv6 = false;
     g.server_port = 19140;
-    g.nethernet_port = 19141;
     g.public_ip = Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
     g.max_players = 100;
     g.xbox_auth = false;
@@ -381,11 +379,6 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.enable-ipv6", bools(), vec![]),
         (
             "general.server-port",
-            s(&["0", "65535"]),
-            s(&["-1", "65536"]),
-        ),
-        (
-            "general.nethernet-port",
             s(&["0", "65535"]),
             s(&["-1", "65536"]),
         ),
@@ -653,7 +646,7 @@ fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
     let default = documented_default_file();
     let keys = key_lines(&default);
-    assert_eq!(keys.len(), 69, "the default file has 69 keys");
+    assert_eq!(keys.len(), 68, "the default file has 68 keys");
     for (_, key, value) in &keys {
         let line = format!("{key} = {value}\n");
         let text = default.replacen(&line, "", 1);
@@ -1116,7 +1109,7 @@ fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
         .into_iter()
         .filter(|(path, _)| !path.starts_with('['))
         .collect();
-    assert_eq!(keys.len(), 69);
+    assert_eq!(keys.len(), 68);
     for (path, block) in keys {
         let text = default.replacen(&block, "", 1);
         assert_ne!(text, default, "{path}");
@@ -1164,12 +1157,12 @@ fn update_adds_missing_tables_at_the_end() {
         updated,
         format!("[general]\nmotd = \"x\"\n{rest}\n{developer}")
     );
-    assert_eq!(update.added().len(), 68);
+    assert_eq!(update.added().len(), 67);
 
     let (update, updated) = write_and_update(&file, "[developer]\nraknet = false\n");
     assert!(updated.starts_with("[developer]\n"));
     assert!(updated.ends_with(&format!("\nconsole-input = true\n\n{general}")));
-    assert_eq!(update.added().len(), 68);
+    assert_eq!(update.added().len(), 67);
 }
 
 #[test]
@@ -1183,7 +1176,7 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
                 disable-block-ticking = [\r\n    \"minecraft:grass_block\",\r\n]\r\n\r\n\
                 [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
     let (update, updated) = write_and_update(&file, text);
-    assert_eq!(update.added().len(), 66);
+    assert_eq!(update.added().len(), 65);
     for kept in [
         "general.motd",
         "general.shutdown-message",

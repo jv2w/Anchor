@@ -44,7 +44,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 
 | 영역 | 모듈 | 하는 일 |
 |---|---|---|
-| 전송 | `raknet`, `nethernet`(`signaling`, `peer`, `sdp`, `identity`) | UDP RakNet, NetherNet(WebRTC) 과 HTTP 시그널링 |
+| 전송 | `udp`, `raknet`, `nethernet`(`signaling`, `peer`, `sdp`, `identity`) | 두 전송이 나눠 쓰는 UDP 포트와 그 작업, UDP RakNet, NetherNet(WebRTC) 과 HTTP 시그널링 |
 | 세션 | `session`(`connection`, `transport`, `packs`), `login`, `auth`, `crypto` | 배치 해독, 압축, 암호화, 로그인 순서, 리소스팩 전송, 틱 큐 중계 |
 | 프로토콜 | `protocol`(`packet`, `types`, `consts` 생성, `io`, `batch`, `compression`) | 패킷 코덱, 배치, 압축 |
 | 틱 규칙 | `tick` 아래 `survival`, `interact`, `inventory`, `update`, `entity`, `trade`, `block_entity`, `view`, `spawn`, `command`, `form`, `chat`, `weather`, `world_api`, `dispatch`, `hook`, `task`, `log`, `checkpoint`, `queue` | 게임 상태 `State`와 그것을 바꾸는 유일한 코드 |
@@ -231,7 +231,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 - 크래시 때 외부 시스템에 쓴 사용자 효과는 돌아가지 않는다. 재생은 그 효과를 다시 일으킨다.
 - 클로저나 Extensions가 살아 있는 구간은 재생할 수 없다. 예약 작업은 재시작하면 사라진다.
 - 실행 중 바꾼 설정 값은 저장하지 않아 재시작하면 돌아간다(`storage.md`).
-- NetherNet 구동 작업은 하나다. 측정으로 약 500명까지 충분하고, 넘으면 피어를 여러 작업에 나눠야 한다.
+- UDP 작업은 하나이고 RakNet과 NetherNet 구동부가 함께 돈다. NetherNet 피어 측정으로 약 500명까지 충분하고, 넘으면 피어를 여러 작업에 나눠야 한다.
 - 같은 차원의 다른 월드로 텔레포트할 때 ChangeDimension을 보내지 않는다. 공식 클라이언트에 옛 청크가 남는지는 실제 접속으로만 확인할 수 있다(`testing.md`).
 - 블록 상태 16바이트 enum은 1명 p99에 조금 손해다. 4바이트 + 서버 표는 커스텀 상태에 전역 레지스트리나 API 변경이 필요하다.
 - 결정성 시험은 디버그에서 길다(1~2분대).

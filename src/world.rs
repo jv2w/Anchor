@@ -527,10 +527,12 @@ pub struct World {
     kind: Kind,
     seed: i64,
     spawn: BlockPos,
-    /// Ticks since the world was created (PMMP `World::$time`); the day cycle follows it.
+    /// The world's clock in ticks (PMMP `World::$time`); the day cycle follows it.
     time: i64,
     /// The time stands still (PMMP `World::$stopTime`), until the server stops.
     time_stopped: bool,
+    /// Ticks the world has run since it was made or loaded ([`Self::age_ticks`]).
+    age: u64,
     /// The world's own difficulty; `None` follows the server's.
     difficulty: Option<crate::config::Difficulty>,
     /// The weather, clear at start.
@@ -579,6 +581,7 @@ impl World {
             spawn,
             time: 0,
             time_stopped: false,
+            age: 0,
             difficulty: None,
             weather: Weather::Clear,
             number: None,
@@ -662,10 +665,23 @@ impl World {
     /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
     /// setting. It goes up by one
     /// each tick the world is loaded and awake, unless its time is stopped or `daylight-cycle` is
-    /// off, and jumps when everyone sleeps through the night.
+    /// off, and jumps when everyone sleeps through the night or `/time` moves it. It counts on
+    /// past a day, as BDS's clock does (the time of day is [`Self::time_of_day`]).
     #[doc(alias = "World::getTime")]
     pub fn time_ticks(&self) -> i64 {
         self.time
+    }
+
+    /// Ticks the world has run since it was made or loaded, its clock stopped or not: BDS's game
+    /// time (`/time query gametime`), which moving the clock does not change. Not saved, so it
+    /// starts at 0 at every load.
+    pub(crate) fn age_ticks(&self) -> u64 {
+        self.age
+    }
+
+    /// One more tick of [`Self::age_ticks`]: the clock's tick.
+    pub(crate) fn add_age_tick(&mut self) {
+        self.age = self.age.saturating_add(1);
     }
 
     /// The time of the day cycle, 0 to 23,999: 1,000 is day, 6,000 noon, 13,000 night, 18,000
@@ -1186,6 +1202,7 @@ pub(crate) struct Saved {
     spawn: BlockPos,
     time: i64,
     time_stopped: bool,
+    age: u64,
     difficulty: Option<crate::config::Difficulty>,
     weather: Weather,
     /// The loaded chunks, in order.
@@ -1200,6 +1217,7 @@ crate::tick::checkpoint::fields!(Saved {
     spawn,
     time,
     time_stopped,
+    age,
     difficulty,
     weather,
     loaded,
@@ -1221,6 +1239,7 @@ impl World {
             spawn,
             time,
             time_stopped,
+            age,
             difficulty,
             weather,
             number: _,
@@ -1249,6 +1268,7 @@ impl World {
             spawn: *spawn,
             time: *time,
             time_stopped: *time_stopped,
+            age: *age,
             difficulty: *difficulty,
             weather: *weather,
             loaded: loaded.clone(),
@@ -1267,6 +1287,7 @@ impl World {
             spawn,
             time,
             time_stopped,
+            age,
             difficulty,
             weather,
             loaded,
@@ -1295,6 +1316,7 @@ impl World {
         self.spawn = spawn;
         self.time = time;
         self.time_stopped = time_stopped;
+        self.age = age;
         self.difficulty = difficulty;
         self.weather = weather;
         self.chunks = chunks;
@@ -1316,6 +1338,7 @@ impl fmt::Debug for World {
             .field("spawn", &self.spawn)
             .field("time", &self.time)
             .field("time_stopped", &self.time_stopped)
+            .field("age", &self.age)
             .field("difficulty", &self.difficulty)
             .field("weather", &self.weather)
             .field("generator", &self.generator)

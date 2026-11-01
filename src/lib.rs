@@ -120,6 +120,7 @@ mod storage;
 pub mod task;
 mod tick;
 pub mod tile;
+mod udp;
 pub mod world;
 
 pub use config::Config;

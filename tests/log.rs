@@ -39,7 +39,6 @@ fn local_config() -> Config {
     config.general.enable_ipv6 = false;
     config.general.server_ip = std::net::Ipv4Addr::LOCALHOST;
     config.general.server_port = 0;
-    config.general.nethernet_port = 0;
     config.developer.console_input = false;
     config
 }
@@ -205,8 +204,7 @@ fn the_console_log_writes_start_listening_world_and_stop_lines_at_its_level() {
     for wanted in [
         version.as_str(),
         "listening for NetherNet signaling on TCP (addr=127.0.0.1:",
-        "listening for NetherNet game data on UDP (addr=127.0.0.1:",
-        "listening for RakNet and server list pings on UDP (addr=127.0.0.1:",
+        "listening for RakNet, NetherNet game data and server list pings on UDP (addr=127.0.0.1:",
         "world loaded (world=world kind=Persistent",
         "server started",
         "stop asked for by a command or callback",

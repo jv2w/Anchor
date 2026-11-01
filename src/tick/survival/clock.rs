@@ -1,11 +1,13 @@
 //! World clocks and sleeping (PMMP `World::$time`, `World::actuallyDoTick`, `World::checkSleep`,
 //! `Bed::onInteract`, `Player::sleepOn`, `Player::stopSleep`).
 //!
-//! A world's time ([`time_ticks`](crate::world::World::time_ticks)) counts ticks from its creation
-//! (BDS starts a new world at 0) and is saved with the world record at every commit, so a restart
-//! continues the day cycle at the tick it was saved. Clients run the day cycle themselves; BDS
-//! 1.26.52 corrects them with `SyncWorldClocks` every 256 ticks or so and never sends `SetTime`
-//! (P6), so Anchor does the same, and again whenever time jumps.
+//! A world's time ([`time_ticks`](crate::world::World::time_ticks)) is BDS's `minecraft:overworld`
+//! clock: it starts at 0 in a new world, counts on past a day, and is saved with the world record
+//! at every commit, so a restart continues the day cycle at the tick it was saved. Its age
+//! ([`age_ticks`](crate::world::World::age_ticks)), BDS's game time, counts every tick the world
+//! runs. Clients run the day cycle themselves; BDS 1.26.52 corrects them with `SyncWorldClocks`
+//! every 256 ticks or so and never sends `SetTime` (P6), so Anchor does the same, and again
+//! whenever time jumps.
 
 use super::{Point, feet, first_session, next_session};
 use tracing::debug;
@@ -33,8 +35,10 @@ const SLEEP_DELAY: u32 = 60;
 const BED_REACH_SQUARED: f64 = 4.0;
 /// The overworld clock's ID, as BDS sends it in every run (P6).
 const OVERWORLD_CLOCK: u64 = 7_194_480_507_151_251_734;
+/// The name of the overworld clock, every world's (BDS's one clock).
+pub(in crate::tick) const OVERWORLD_CLOCK_NAME: &str = "minecraft:overworld";
 /// The overworld clock's time markers: ID, name, time of day (P6, fixed in every run).
-const MARKERS: [(u64, &str, i32); 6] = [
+pub(in crate::tick) const MARKERS: [(u64, &str, i32); 6] = [
     (2_625_810_911_898_139_949, "minecraft:sunrise", 23_000),
     (4_918_950_784_056_990_566, "minecraft:night", 13_000),
     (6_827_470_627_776_846_754, "minecraft:noon", 6_000),
@@ -131,9 +135,10 @@ fn packet_time(time: i64) -> i32 {
     i32::try_from(time.rem_euclid(1 << 31)).unwrap_or(0)
 }
 
-/// One tick of every loaded world's clock (PMMP `World::actuallyDoTick`): time advances unless it
-/// is stopped, a pending sleep check runs, and clients are corrected now and then. With
-/// `daylight-cycle = false` no time passes anywhere; clients are still corrected, as BDS does.
+/// One tick of every loaded world's clock (PMMP `World::actuallyDoTick`): the world ages, time
+/// advances unless it is stopped, a pending sleep check runs, and clients are corrected now and
+/// then. With `daylight-cycle = false` no time passes anywhere, as with BDS's `doDayLightCycle`
+/// false, whose game time still goes on (P6 `clocks`); clients are still corrected, as BDS does.
 pub(super) fn tick(state: &mut State) {
     let count = state.worlds.len();
     let daylight = state.settings.daylight_cycle;
@@ -143,11 +148,11 @@ pub(super) fn tick(state: &mut State) {
         if !state.catalog.is_loaded(world) || !state.is_awake(world) {
             continue;
         }
-        if daylight
-            && let Some(w) = state.worlds.get_mut(world)
-            && !w.is_time_stopped()
-        {
-            w.set_time(w.time_ticks().wrapping_add(1));
+        if let Some(w) = state.worlds.get_mut(world) {
+            w.add_age_tick();
+            if daylight && !w.is_time_stopped() {
+                w.set_time(w.time_ticks().wrapping_add(1));
+            }
         }
         let Some(c) = state.clock.worlds.get_mut(world) else {
             continue;
@@ -219,7 +224,7 @@ pub(in crate::tick) fn clock_definition(state: &State, world: WorldIndex) -> Pac
         payload_type: u32::from(ClockPayloadType::InitializeRegistry),
         clocks: vec![WorldClockData {
             id: OVERWORLD_CLOCK,
-            name: "minecraft:overworld".to_owned(),
+            name: OVERWORLD_CLOCK_NAME.to_owned(),
             time: packet_time(time(state, world)),
             paused: is_stopped(state, world),
             time_markers: MARKERS

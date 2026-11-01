@@ -2,10 +2,11 @@
 //!
 //! The signaling server hands each offer to an offer task, which parses it, verifies its
 //! identity and asks the driver for a peer; the answer goes back signed with the server identity.
-//! One driver task owns both UDP sockets (`nethernet-port`, IPv4 and IPv6) and every peer, so
-//! peer state needs no locks, as in RakNet. Datagrams find their peer through two indexes: the
-//! server ICE ufrag of a STUN request, then the source addresses that request proved. When both
-//! data channels are open the driver hands a [`Connection`] to the session layer.
+//! The driver holds every peer and runs in the UDP task (`udp`) beside RakNet's, on the same
+//! `server-port` sockets, so peer state needs no locks. Datagrams find their peer through two
+//! indexes: the server ICE ufrag of a STUN request, then the source addresses that request
+//! proved. When both data channels are open the driver hands a [`Connection`] to the session
+//! layer.
 
 mod identity;
 mod message;
@@ -21,21 +22,22 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
-use tokio::time::MissedTickBehavior;
 use tracing::{debug, trace, warn};
 
 use crate::auth::Auth;
 use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
-use crate::raknet::{Flags, Inbound, Inbox, bind, ip_key, readable, report_undelivered};
+use crate::raknet::{Flags, Inbound, Inbox, ip_key, report_undelivered};
+use crate::udp::Sockets;
 
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
 use signaling::{CODE_BAD_OFFER, CODE_INTERNAL, Offer, Reply};
+
+pub(crate) use peer::MAX_DATAGRAM;
 
 /// The identity key file in the data folder.
 const IDENTITY_FILE: &str = "identity.key";
@@ -53,30 +55,22 @@ const UFRAG_TRIES: usize = 3;
 /// Source addresses one peer may be reached from: one per client candidate pair it checks, which
 /// the offer's candidate limit already bounds.
 const MAX_PEER_ADDRS: usize = 8;
-/// Datagrams read from one socket before the task serves its other inputs.
-const RECV_BATCH: usize = 256;
-/// Commands handled before the task serves its other inputs.
+/// Commands handled before the UDP task serves its other inputs.
 const COMMAND_BATCH: usize = 256;
-/// How often timers run: str0m timeouts, deadlines and session flags.
-const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 /// How long a closed connection may take to deliver what it has sent, as RakNet allows.
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
-/// Larger than any datagram a peer accepts, so that an oversized one is seen and dropped.
-const RECV_BUFFER: usize = 2048;
-const _: () = assert!(RECV_BUFFER > peer::MAX_DATAGRAM);
+/// The STUN magic cookie (RFC 5389), bytes 4 to 7 of every STUN message.
+const STUN_MAGIC_COOKIE: [u8; 4] = [0x21, 0x12, 0xa4, 0x42];
 /// Signaling answer code (go-nethernet `ErrorCodeIdentityVerificationFailed`) for an offer
 /// identity that fails.
 const CODE_IDENTITY: u32 = 37;
 
-/// Ports, addresses and limits for [`start`].
+/// Addresses and limits for [`start`].
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {
     /// TCP signaling addresses (`server-port`).
     pub(crate) signaling_v4: Option<SocketAddrV4>,
     pub(crate) signaling_v6: Option<SocketAddrV6>,
-    /// UDP game data addresses (`nethernet-port`).
-    pub(crate) udp_v4: Option<SocketAddrV4>,
-    pub(crate) udp_v6: Option<SocketAddrV6>,
     /// The address advertised to clients instead of the one they reached (`public-ip`).
     pub(crate) public_ip: Option<IpAddr>,
     /// Largest game message a client may send.
@@ -147,17 +141,18 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Loads the identity key and the TLS certificate, binds the sockets and spawns the signaling
-/// server, the offer task and the driver on the current runtime. `status` is the `GET /v1/join`
-/// body; `auth` verifies online offers; `accepted` receives connections whose channels opened
-/// (when it is full, the new connection is closed).
+/// Loads the identity key and the TLS certificate and spawns the signaling server and the offer
+/// task on the current runtime; the driver they return sends on `sockets` and is the UDP task's
+/// to run. `status` is the `GET /v1/join` body; `auth` verifies online offers; `accepted`
+/// receives connections whose channels opened (when it is full, the new connection is closed).
 pub(crate) async fn start(
     settings: Settings,
     data_dir: &Path,
     status: watch::Receiver<Arc<[u8]>>,
     auth: Option<Auth>,
     accepted: mpsc::Sender<Connection>,
-) -> std::result::Result<Handle, StartError> {
+    sockets: Arc<Sockets>,
+) -> std::result::Result<(Handle, Driver), StartError> {
     let path = data_dir.join(IDENTITY_FILE);
     let identity = tokio::task::spawn_blocking(move || ServerIdentity::load_or_create(&path))
         .await
@@ -174,15 +169,7 @@ pub(crate) async fn start(
     };
     // One certificate for every peer, made now so that no join pays for it.
     let certificate = Certificate::generate().map_err(StartError::Certificate)?;
-    let v4 = settings.udp_v4.map(|a| bind(a.into())).transpose();
-    let v6 = settings.udp_v6.map(|a| bind(a.into())).transpose();
-    let (v4, v6) = (v4.map_err(StartError::Bind)?, v6.map_err(StartError::Bind)?);
-    let udp_addrs = v4
-        .iter()
-        .chain(&v6)
-        .map(UdpSocket::local_addr)
-        .collect::<io::Result<Vec<_>>>()
-        .map_err(StartError::Bind)?;
+    let udp_addrs = sockets.local_addrs().to_vec();
     let (offers_tx, offers_rx) = mpsc::channel(OFFER_QUEUE);
     let signaling = signaling::spawn(
         signaling::Settings {
@@ -194,41 +181,22 @@ pub(crate) async fn start(
         offers_tx,
     )
     .map_err(StartError::Bind)?;
-    let (commands_tx, commands_rx) = mpsc::channel(COMMAND_QUEUE);
-    let (stop, stopped) = oneshot::channel();
-    let driver = Driver::new(
-        v4,
-        v6,
-        certificate,
-        settings.max_message,
-        accepted,
-        commands_tx.clone(),
-    );
-    let driver = tokio::spawn(driver.run(commands_rx, stopped));
+    let driver = Driver::new(sockets, certificate, settings.max_message, accepted);
     let offers = Offers {
         identity: Arc::new(identity),
         auth,
         public_ip: settings.public_ip,
-        udp_addrs: udp_addrs.clone(),
-        driver: commands_tx,
+        udp_addrs,
+        driver: driver.commands.clone(),
     };
     let offers = tokio::spawn(offers.run(offers_rx));
-    Ok(Handle {
-        signaling,
-        udp_addrs,
-        stop,
-        driver,
-        offers,
-    })
+    Ok((Handle { signaling, offers }, driver))
 }
 
-/// Controls the NetherNet tasks.
+/// Controls the signaling server and the offer task; the UDP task stops the driver.
 #[derive(Debug)]
 pub(crate) struct Handle {
     signaling: signaling::Handle,
-    udp_addrs: Vec<SocketAddr>,
-    stop: oneshot::Sender<()>,
-    driver: JoinHandle<()>,
     offers: JoinHandle<()>,
 }
 
@@ -238,22 +206,11 @@ impl Handle {
         self.signaling.local_addrs()
     }
 
-    /// The bound UDP addresses (IPv4 first).
-    pub(crate) fn udp_addrs(&self) -> &[SocketAddr] {
-        &self.udp_addrs
-    }
-
-    /// Stops signaling, closes every peer (each connection gets up to 5 s to deliver what it
-    /// queued, as on RakNet) and waits for the tasks to end.
+    /// Stops signaling and every negotiation. A peer request still on its way to the driver is
+    /// refused there once the driver stops.
     pub(crate) async fn shutdown(self) {
         self.signaling.shutdown().await;
         self.offers.abort();
-        if self.stop.send(()).is_err() {
-            debug!("nethernet driver already stopped");
-        }
-        if let Err(error) = self.driver.await {
-            warn!(%error, "nethernet driver failed");
-        }
     }
 }
 
@@ -533,10 +490,9 @@ struct Entry {
     closing: Option<Instant>,
 }
 
-/// The driver task: both sockets, every peer and their indexes.
-struct Driver {
-    v4: Option<UdpSocket>,
-    v6: Option<UdpSocket>,
+/// The driver, run by the UDP task: every peer and their indexes.
+pub(crate) struct Driver {
+    sockets: Arc<Sockets>,
     certificate: Certificate,
     max_message: usize,
     peers: BTreeMap<u64, Entry>,
@@ -547,26 +503,24 @@ struct Driver {
     pre_login_total: usize,
     next_id: u64,
     accepted: mpsc::Sender<Connection>,
+    /// Handed to each connection and the offer task.
     commands: mpsc::Sender<Command>,
-    buf: Vec<u8>,
+    pending: mpsc::Receiver<Command>,
     doomed: Vec<u64>,
-    /// Set once the driver is stopping: new offers are refused, and it ends when the last
-    /// peer is gone.
+    /// Set once the driver is stopping: new offers are refused.
     stopping: bool,
 }
 
 impl Driver {
     fn new(
-        v4: Option<UdpSocket>,
-        v6: Option<UdpSocket>,
+        sockets: Arc<Sockets>,
         certificate: Certificate,
         max_message: usize,
         accepted: mpsc::Sender<Connection>,
-        commands: mpsc::Sender<Command>,
     ) -> Self {
+        let (commands, pending) = mpsc::channel(COMMAND_QUEUE);
         Self {
-            v4,
-            v6,
+            sockets,
             certificate,
             max_message,
             peers: BTreeMap::new(),
@@ -577,61 +531,55 @@ impl Driver {
             next_id: 0,
             accepted,
             commands,
-            buf: vec![0; RECV_BUFFER],
+            pending,
             doomed: Vec::new(),
             stopping: false,
         }
     }
 
-    async fn run(
-        mut self,
-        mut commands: mpsc::Receiver<Command>,
-        mut stopped: oneshot::Receiver<()>,
-    ) {
-        let mut interval = tokio::time::interval(UPDATE_INTERVAL);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        loop {
-            tokio::select! {
-                _ = readable(self.v4.as_ref()) => self.receive(false),
-                _ = readable(self.v6.as_ref()) => self.receive(true),
-                Some(command) = commands.recv() => {
-                    self.command(command);
-                    for _ in 1..COMMAND_BATCH {
-                        let Ok(command) = commands.try_recv() else { break };
-                        self.command(command);
-                    }
-                }
-                _ = interval.tick() => {
-                    self.drain(&mut commands);
-                    self.update();
-                }
-                _ = &mut stopped, if !self.stopping => {
-                    self.drain(&mut commands);
-                    self.stop();
-                }
-            }
-            if self.stopping && self.peers.is_empty() {
-                debug!("nethernet driver stopped");
-                return;
-            }
+    /// Waits for a command, then applies it and those queued behind it, at most a batch;
+    /// `false` once nothing can queue more. Cancel-safe: it waits only for the first.
+    pub(crate) async fn serve(&mut self) -> bool {
+        let Some(command) = self.pending.recv().await else {
+            return false;
+        };
+        self.command(command);
+        for _ in 1..COMMAND_BATCH {
+            let Ok(command) = self.pending.try_recv() else {
+                break;
+            };
+            self.command(command);
         }
+        true
+    }
+
+    /// The timer handler.
+    pub(crate) fn tick(&mut self) {
+        self.drain();
+        self.update();
+    }
+
+    /// Whether no peer is left.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.peers.is_empty()
     }
 
     /// Applies what sessions queued, at most a full queue. A session queues its last packets
     /// before it sets its close flag, so the timer and stop handlers call this first: a closing
     /// peer is not judged drained before it has them.
-    fn drain(&mut self, commands: &mut mpsc::Receiver<Command>) {
+    fn drain(&mut self) {
         for _ in 0..COMMAND_QUEUE {
-            let Ok(command) = commands.try_recv() else {
+            let Ok(command) = self.pending.try_recv() else {
                 break;
             };
             self.command(command);
         }
     }
 
-    /// Starts stopping: peers without a connection go at once, the others close as a session
-    /// close does, with the same linger.
-    fn stop(&mut self) {
+    /// The stop handler: new offers are refused, peers without a connection go at once, the
+    /// others close as a session close does, with the same linger.
+    pub(crate) fn stop(&mut self) {
+        self.drain();
         self.stopping = true;
         let now = clock::now();
         let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
@@ -645,45 +593,28 @@ impl Driver {
         self.reap();
     }
 
-    fn receive(&mut self, v6: bool) {
-        let now = clock::now();
-        for _ in 0..RECV_BATCH {
-            let socket = if v6 { &self.v6 } else { &self.v4 };
-            let Some(socket) = socket else { return };
-            let (len, from) = match socket.try_recv_from(&mut self.buf) {
-                Ok(received) => received,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
-                // Windows reports ICMP port unreachable as WSAECONNRESET on the next receive
-                // (tokio-rs/tokio#2017); that and other per-datagram errors are skipped.
-                Err(error) => {
-                    trace!(%error, "nethernet receive error skipped");
-                    continue;
-                }
-            };
-            let from = SocketAddr::new(from.ip().to_canonical(), from.port());
-            let Some(data) = self.buf.get(..len).filter(|_| len < RECV_BUFFER) else {
-                trace!(%from, len, "nethernet oversized datagram dropped");
-                continue;
-            };
-            let id = match peer::stun_server_ufrag(data) {
-                Some(ufrag) => self.by_ufrag.get(ufrag).copied(),
-                None => self.by_addr.get(&from).copied(),
-            };
-            let Some(id) = id else {
-                trace!(%from, "nethernet datagram for no peer dropped");
-                continue;
-            };
-            let Some(entry) = self.peers.get_mut(&id) else {
-                continue;
-            };
-            if !admit(&mut self.by_addr, &mut entry.addrs, id, from) {
-                trace!(%from, "nethernet datagram from a refused address dropped");
-                continue;
-            }
-            // The peer must be polled before the next datagram reaches it (peer.rs).
-            entry.peer.receive(now, from, data);
-            self.drive(id, now);
+    /// Handles a datagram from `from`.
+    pub(crate) fn receive(&mut self, from: SocketAddr, datagram: &[u8]) {
+        let from = SocketAddr::new(from.ip().to_canonical(), from.port());
+        let id = match peer::stun_server_ufrag(datagram) {
+            Some(ufrag) => self.by_ufrag.get(ufrag).copied(),
+            None => self.by_addr.get(&from).copied(),
+        };
+        let Some(id) = id else {
+            trace!(%from, "nethernet datagram for no peer dropped");
+            return;
+        };
+        let Some(entry) = self.peers.get_mut(&id) else {
+            return;
+        };
+        if !admit(&mut self.by_addr, &mut entry.addrs, id, from) {
+            trace!(%from, "nethernet datagram from a refused address dropped");
+            return;
         }
+        let now = clock::now();
+        // The peer must be polled before the next datagram reaches it (peer.rs).
+        entry.peer.receive(now, from, datagram);
+        self.drive(id, now);
         self.reap();
     }
 
@@ -781,11 +712,8 @@ impl Driver {
         loop {
             match entry.peer.poll(now) {
                 peer::Output::Transmit { to, data } => {
-                    let socket = if to.is_ipv4() { &self.v4 } else { &self.v6 };
                     // A full send buffer drops the datagram; SCTP resends what matters.
-                    if let Some(socket) = socket
-                        && let Err(error) = socket.try_send_to(&data, to)
-                    {
+                    if let Err(error) = self.sockets.send(to, &data) {
                         trace!(%to, %error, "nethernet datagram not sent");
                     }
                 }
@@ -895,10 +823,7 @@ impl Driver {
         let now = clock::now();
         // Flush what closing produced (SCTP abort, DTLS close notify) without keeping the peer.
         while let peer::Output::Transmit { to, data } = entry.peer.poll(now) {
-            let socket = if to.is_ipv4() { &self.v4 } else { &self.v6 };
-            if let Some(socket) = socket
-                && let Err(error) = socket.try_send_to(&data, to)
-            {
+            if let Err(error) = self.sockets.send(to, &data) {
                 trace!(%to, %error, "nethernet datagram not sent");
             }
         }
@@ -907,6 +832,26 @@ impl Driver {
         if let Some(key) = entry.pre_login {
             release(&mut self.pre_login, &mut self.pre_login_total, key);
         }
+    }
+}
+
+/// Whether a datagram on the shared UDP port is NetherNet's (RFC 7983 demultiplexing): DTLS,
+/// first byte 20 to 63, or STUN, first byte 0 or 1 with the magic cookie and a length that
+/// matches. A datagram RakNet takes never starts with 20 to 63 or 0; its ping, the one starting
+/// with 1, passes as STUN only if the client's timestamp spells the cookie and the length, and a
+/// client that crafts that loses only its own ping. A real ping is 33 bytes, a length STUN's
+/// 4-byte attribute padding never gives.
+pub(crate) fn is_nethernet(datagram: &[u8]) -> bool {
+    match datagram {
+        [20..=63, ..] => true,
+        [0..=1, _, l0, l1, c0, c1, c2, c3, rest @ ..] => {
+            const TRANSACTION_ID: usize = 12;
+            let length = usize::from(u16::from_be_bytes([*l0, *l1]));
+            [*c0, *c1, *c2, *c3] == STUN_MAGIC_COOKIE
+                && length % 4 == 0
+                && rest.len().checked_sub(TRANSACTION_ID) == Some(length)
+        }
+        _ => false,
     }
 }
 
@@ -987,17 +932,26 @@ fn accept(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::net::Ipv4Addr;
 
     use str0m::net::{Protocol, Receive};
     use str0m::{DATAGRAM_MTU_TARGET, Input};
+    use tokio::net::UdpSocket;
 
     use super::*;
     use crate::raknet::tests::run;
+    use crate::udp::{self, RECV_BUFFER, UPDATE_INTERVAL};
     use peer::tests::{Client, MAX_MESSAGE, certificates, reliable, unreliable};
 
     const WAIT: Duration = Duration::from_secs(20);
+
+    /// A driver on `sockets`, and the connections it accepts.
+    pub(crate) fn driver(sockets: Arc<Sockets>) -> (Driver, mpsc::Receiver<Connection>) {
+        let (accepted, connections) = mpsc::channel(1);
+        let driver = Driver::new(sockets, certificates().0, MAX_MESSAGE, accepted);
+        (driver, connections)
+    }
 
     /// Sends the client's output until it waits for time or input; `false` once the client
     /// failed (after the peer went).
@@ -1070,23 +1024,32 @@ mod tests {
         run(shutdown_delivers_the_last_message());
     }
 
-    async fn shutdown_delivers_the_last_message() {
-        let (server_cert, client_cert) = certificates();
-        let udp = bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
-        let server = udp.local_addr().unwrap();
-        let (accepted, mut connections) = mpsc::channel(1);
-        let (commands, receiver) = mpsc::channel(COMMAND_QUEUE);
-        let (stop, stopped) = oneshot::channel();
-        let driver = Driver::new(
-            Some(udp),
-            None,
-            server_cert,
-            MAX_MESSAGE,
-            accepted,
-            commands.clone(),
-        );
-        let task = tokio::spawn(driver.run(receiver, stopped));
+    /// The UDP task on a loopback port with both drivers: its handle, the port, the NetherNet
+    /// driver's command queue and the NetherNet connections it accepts.
+    fn spawn_both() -> (
+        udp::Handle,
+        SocketAddr,
+        mpsc::Sender<Command>,
+        mpsc::Receiver<Connection>,
+    ) {
+        let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+        let sockets = Sockets::bind(Some(localhost), None).unwrap();
+        let server = sockets.local_addrs()[0];
+        let (nethernet, connections) = driver(Arc::clone(&sockets));
+        let commands = nethernet.commands.clone();
+        let (raknet, _) = crate::raknet::tests::driver(Arc::clone(&sockets));
+        let handle = udp::spawn(sockets, raknet, nethernet);
+        (handle, server, commands, connections)
+    }
 
+    /// A test client on a loopback socket of its own, connected through the driver behind
+    /// `commands` at `server`, and the connection the driver accepted for it.
+    async fn connect(
+        commands: &mpsc::Sender<Command>,
+        connections: &mut mpsc::Receiver<Connection>,
+        server: SocketAddr,
+    ) -> (Client, UdpSocket, Connection) {
+        let (_, client_cert) = certificates();
         let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let addr = socket.local_addr().unwrap();
         let start = clock::now();
@@ -1111,12 +1074,19 @@ mod tests {
             assert!(clock::now() < start + WAIT, "no connection");
             assert!(step(&mut client, &socket).await, "client failed");
         };
+        (client, socket, connection)
+    }
+
+    async fn shutdown_delivers_the_last_message() {
+        let start = clock::now();
+        let (udp, server, commands, mut connections) = spawn_both();
+        let (mut client, socket, connection) = connect(&commands, &mut connections, server).await;
 
         // The session's last packets, then the server stops at once.
         let big = vec![7; 1 << 20];
         connection.send(big.clone()).await.unwrap();
         connection.send(b"bye".to_vec()).await.unwrap();
-        stop.send(()).unwrap();
+        let task = tokio::spawn(udp.shutdown());
         while client.received.len() < 2 {
             assert!(clock::now() < start + WAIT, "timed out");
             // The stopped driver sends nothing more: what it sent is already on the loopback
@@ -1198,5 +1168,71 @@ mod tests {
         assert_eq!(by_addr.get(&victim), Some(&A));
         // A's address stays usable by A.
         assert!(admit(&mut by_addr, &mut a_addrs, A, victim));
+    }
+
+    /// A NetherNet peer and a RakNet ping reach their own drivers through the one UDP port, so
+    /// a server needs only `server-port` open.
+    #[test]
+    fn nethernet_and_raknet_share_the_udp_port() {
+        run(share_the_udp_port());
+    }
+
+    async fn share_the_udp_port() {
+        let start = clock::now();
+        let (udp, server, commands, mut connections) = spawn_both();
+        // The channels open only if every STUN, DTLS and SCTP datagram reached the peer.
+        let (mut client, socket, connection) = connect(&commands, &mut connections, server).await;
+        let pinger = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let pong = crate::raknet::tests::ping(&pinger, server).await;
+        assert_eq!(pong.first(), Some(&0x1c), "an unconnected pong");
+
+        connection
+            .send(b"over the shared port".to_vec())
+            .await
+            .unwrap();
+        while client.received.is_empty() {
+            assert!(clock::now() < start + WAIT, "timed out");
+            assert!(step(&mut client, &socket).await, "client failed");
+        }
+        assert_eq!(client.received, [b"over the shared port"]);
+        drop(connection);
+        udp.shutdown().await;
+    }
+
+    /// STUN and DTLS go to the NetherNet driver; everything a RakNet client sends goes to
+    /// RakNet, even a ping whose timestamp spells the STUN cookie.
+    #[test]
+    fn datagrams_go_to_the_transport_their_first_bytes_name() {
+        let stun = |length: u16, attributes: usize| {
+            let mut datagram = vec![0x00, 0x01];
+            datagram.extend_from_slice(&length.to_be_bytes());
+            datagram.extend_from_slice(&STUN_MAGIC_COOKIE);
+            datagram.extend_from_slice(&[7; 12]);
+            datagram.resize(datagram.len() + attributes, 0);
+            datagram
+        };
+        assert!(is_nethernet(&stun(0, 0)));
+        assert!(is_nethernet(&stun(8, 8)));
+        assert!(!is_nethernet(&stun(8, 4)));
+        for first in 20..=63 {
+            assert!(is_nethernet(&[first, 0xfe, 0xfd]));
+        }
+
+        let ping = crate::raknet::tests::unconnected_ping();
+        assert_eq!(ping.len(), 33);
+        let mut cookie = ping.clone();
+        cookie[4..8].copy_from_slice(&STUN_MAGIC_COOKIE);
+        for raknet in [
+            ping,
+            cookie,
+            vec![0x05; 1464],
+            vec![0x07; 34],
+            vec![0x84, 0, 0, 0],
+            vec![0xc0, 0, 1],
+            vec![0xa0, 0, 1],
+            Vec::new(),
+        ] {
+            assert!(!is_nethernet(&raknet), "{raknet:02x?}");
+        }
     }
 }

@@ -663,7 +663,7 @@ func (g *game) takeOffer(o offer) error {
 	return err
 }
 
-// farmerSummon summons an adult farmer villager (a villager_v2 in BDS 1.26.52). The summon event
+// farmerSummon summons an adult farmer villager (a villager_v2 in BDS 1.26.60). The summon event
 // replaces the random spawn event, and minecraft:become_farmer is the villager_v2 event that sets one
 // profession: minecraft:spawn_farmer picks one of five professions at random, and a fisherman's first
 // tier may hold no offer the bot can pay for.

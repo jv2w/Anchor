@@ -23,6 +23,8 @@ mod server;
 #[cfg(test)]
 mod tests;
 
+pub(super) use server::WORLD_CLOCKS;
+
 use serde_json::{Value as Json, json};
 use tracing::{debug, info};
 

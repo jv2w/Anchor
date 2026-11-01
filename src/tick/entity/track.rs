@@ -1,7 +1,7 @@
 //! What players are sent of entities and of each other: the spawn packets (`AddItemActor`,
 //! `AddActor`, `AddPlayer` with their metadata, `AddPainting`; a human NPC also goes through the
-//! player list, as PMMP `Human::sendSpawnPacket` does), movement (`MoveActorDelta` as BDS sends it,
-//! `SetActorMotion`; `MoveActorAbsolute` for players and human NPCs, as PMMP sends it),
+//! player list, as PMMP `Human::sendSpawnPacket` does), movement (`MoveActorDelta` as BDS sends it;
+//! `MoveActorAbsolute` for players and human NPCs, as PMMP sends it),
 //! `SetActorData` when the flags or a cloud's radius change, equipment, and `RemoveActor`.
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
@@ -20,7 +20,7 @@ use crate::protocol::consts::{
 use crate::protocol::packet::{
     AddActor, AddItemActor, AddPainting, AddPlayer, LocatorBar, MobArmourEquipment, MobEquipment,
     MoveActorAbsolute, MoveActorDelta, Packet, PlayerList, PlayerLocation, RemoveActor,
-    SetActorData, SetActorMotion, UpdateAttributes,
+    SetActorData, UpdateAttributes,
 };
 use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, FlagSet, ItemInstance,
@@ -582,15 +582,6 @@ pub(super) fn movement(entity: &Entity) -> Packet {
         force_move_local_entity: false,
         force_completion: false,
         ticks: MOVE_TICKS,
-    })
-}
-
-/// The speed of an entity (PMMP `broadcastMotion`).
-pub(super) fn motion(entity: &Entity) -> Packet {
-    Packet::SetActorMotion(SetActorMotion {
-        entity_runtime_id: entity.runtime_id,
-        velocity: entity.body.motion.to_f32(),
-        tick: 0,
     })
 }
 

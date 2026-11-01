@@ -684,6 +684,7 @@ func playEntities(g *game) error {
 	}
 	g.check("trident", g.actorFacts(trident))
 	var flight []any
+	x := trident.Position[0]
 	end := time.Now().Add(4 * time.Second)
 	for left := time.Until(end); left > 0; left = time.Until(end) {
 		pk, err := g.next(left)
@@ -694,9 +695,11 @@ func playEntities(g *game) error {
 			return err
 		}
 		switch pk := pk.(type) {
-		case *packet.SetActorMotion:
-			if pk.EntityRuntimeID == trident.EntityRuntimeID {
-				flight = append(flight, map[string]any{"motion": [3]int{sign(pk.Velocity[0]), sign(pk.Velocity[1]), sign(pk.Velocity[2])}})
+		case *packet.MoveActorDelta:
+			// BDS 1.26.60 sends a thrown trident no SetActorMotion: its moves show its course.
+			if now, ok := pk.PositionX.Value(); ok && pk.EntityRuntimeID == trident.EntityRuntimeID {
+				flight = append(flight, map[string]any{"x step": sign(now - x)})
+				x = now
 			}
 		case *packet.ActorEvent:
 			if pk.EntityRuntimeID == target.EntityRuntimeID {
@@ -709,16 +712,16 @@ func playEntities(g *game) error {
 		}
 	}
 	g.record("fact", map[string]any{"name": "trident flight", "value": flight})
-	// The trident bounces off what it hits: its horizontal motion turns back.
+	// The trident bounces off what it hits: its course along x turns back.
 	bounced, first := false, 0
 	for _, f := range flight {
-		m, ok := f.(map[string]any)["motion"].([3]int)
-		if !ok || m[0] == 0 {
+		step, ok := f.(map[string]any)["x step"].(int)
+		if !ok || step == 0 {
 			continue
 		}
 		if first == 0 {
-			first = m[0]
-		} else if m[0] == -first {
+			first = step
+		} else if step == -first {
 			bounced = true
 		}
 	}
