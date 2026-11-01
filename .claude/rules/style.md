@@ -18,6 +18,8 @@ Every kind of code has exactly one form, written here. Two forms for one kind is
 - Modules are `foo.rs` and `foo/bar.rs`; `mod.rs` is forbidden. Module placement is in `.claude/rules/architecture.md`.
 - The first line of every module is a `//!` comment stating its responsibility.
 - Visibility is private by default, `pub(crate)` when split inside the crate, `pub` only for API reachable from the crate root. Every public item has `///` documentation and a `Debug` implementation.
+- Re-exports (`pub use`, `pub(crate) use`) form one block in rustfmt's path order and name a submodule without `self::` (`pub use stack::Stack;`).
+- Paths: `super::` names only the parent module and what it holds (`super::Item`, `super::sibling::Item`, and `use super::*;` in tests). Every other crate item is named from `crate::`; never `super::super::`.
 
 ## File layout
 Every `.rs` file has exactly this order:
@@ -49,11 +51,14 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Parameter order: receiver, context (`ctx`, `&Server`), the subject acted on (or its ID), the value, options and limits, an output buffer (`&mut Vec<_>`) last. Functions with the same verb take the same parameters in the same order.
 - Getters have no `get_` and return `&T` or a `Copy` value. Mutable access is `_mut`. Setters are `set_x(&mut self, value)` returning `()` or `Result<()>`. Immutable updates are `with_<field>(self, value) -> Self`. Queries are `is_`/`has_`/`can_`. Conversions are `as_`/`to_`/`into_`/`from_`.
 - Absence is `Option`, failure is `Result`; never a sentinel (`-1`, `0`, empty string). Never a `bool` flag argument; use an enum or a separate method.
+- Chained methods taking `self` and returning `Self`: one that sets a field is `with_<field>` (above); one that adds an element to a list is named after the element (`button`, `line`, `alias`); one that turns on a switch is named after the state (`optional`, `temporary`). A builder type (`<Thing>Builder`, finished by `build()`) is the one exception: its setters drop `with_` (`ServerBuilder::data_dir`).
+- Paths and strings: internal functions take `&Path` and `&str`. Public functions take `impl AsRef<Path>` or `&str` for a value they only read, and `impl Into<PathBuf>` or `impl Into<String>` for one they keep.
 
 ## Errors
 - Every module that can fail has one hand-written `Error` enum and exactly this alias, with the module's visibility: `pub type Result<T, E = Error> = std::result::Result<T, E>;`.
 - `Display` is `impl fmt::Display for Error` after `use std::fmt;`, with `f: &mut fmt::Formatter<'_>`. Public errors are `std::error::Error + Send + Sync`. Variants never end in `Error`; the cause is given only through `source()`.
-- A variant wrapping a cause is a tuple variant `Variant(Cause)`; conversion is `.map_err(Error::Variant)`, never a closure that only wraps.
+- A variant wrapping a cause is a tuple variant `Variant(Cause)`; conversion is `.map_err(Error::Variant)`, never a closure that only wraps. Only the crate-root `anchor::Error` implements `From`, for the module errors that reach it through `?`.
+- `Display` writes fixed text with `f.write_str("…")` and text with arguments with `write!(f, "…", …)`.
 - Messages (errors, `expect`, test assertions, logs) start lowercase and have no final period. An `expect` message states what must hold; the `invariant` tag lives in the `#[expect]` reason, never in the message.
 
 ## Logging
@@ -70,9 +75,15 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - One concept has one word across the crate, and one word means one concept.
 - API-table conversion: `getX/setX/isX` → `x/set_x/is_x`; singleton → a `&Server` or `Context` argument; `null`, exceptions, `-1` → `Option` or `Result`; constant groups → an enum; mutable `Vector3` → a `Copy` value; twin methods → one.
 
-## Literals
+## Literals and values
 - A decimal literal of five or more digits groups thousands with `_` (`16_384`).
 - A literal whose meaning is not obvious at its use site, or that several places share, is a named constant.
+- A constant that describes one type's values is an associated constant of that type; every other constant is a module `const`. A closed set of related values is an enum, never a group of constants.
+- A `String` from a string literal is `"…".to_owned()`. An empty vector is `Vec::new()` or `Vec::with_capacity(n)`; `vec![…]` only with elements. A default value names its type (`Type::default()`, `..Type::default()`); `Default::default()` only where the type has no name to write (arrays, tuples).
+
+## Control flow
+- An early exit on a pattern that does not match is `let … else`.
+- A loop run for its effects is a `for` loop, never `for_each`; an iterator chain only computes a value.
 
 ## Comments and documentation
 - Comments say only what the code cannot: reasons, ordering, the trap avoided, the invariant kept. Never restate the code; never write history, work process, previous states, authors, or schedules.
