@@ -20,6 +20,27 @@ use anchor::{Config, Server};
 
 const MIB: usize = 1024 * 1024;
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn fresh_dir(dir: &Path) {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => panic!("cannot clear {}: {e}", dir.display()),
+    }
+    std::fs::create_dir_all(dir).expect("create the test directory");
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn write(path: &Path, bytes: &[u8]) {
+    std::fs::write(path, bytes).expect("write the settings file");
+}
+
 /// A settings file in its own fresh directory under the test target directory.
 struct File {
     path: PathBuf,
@@ -52,29 +73,18 @@ impl File {
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
 )]
-fn fresh_dir(dir: &Path) {
-    match std::fs::remove_dir_all(dir) {
-        Ok(()) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => panic!("cannot clear {}: {e}", dir.display()),
-    }
-    std::fs::create_dir_all(dir).expect("create the test directory");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn write(path: &Path, bytes: &[u8]) {
-    std::fs::write(path, bytes).expect("write the settings file");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path).expect("read a text file")
+}
+
+/// The first toml block of `.claude/docs/config.md`: the documented default file.
+fn documented_default_file() -> String {
+    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/docs/config.md"));
+    let (_, block) = doc
+        .split_once("```toml\n")
+        .expect(".claude/docs/config.md has a toml block");
+    let (block, _) = block.split_once("\n```").expect("the toml block closes");
+    format!("{block}\n")
 }
 
 #[expect(
@@ -85,88 +95,116 @@ fn exists(path: &Path) -> bool {
     std::fs::exists(path).expect("check a path")
 }
 
-/// Returns the error and its sources, joined with ": ".
-fn chain(error: &Error) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    text
-}
-
-/// Returns the first toml block of `.claude/docs/config.md`: the documented default file.
-fn documented_default_file() -> String {
-    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/docs/config.md"));
-    let (_, block) = doc
-        .split_once("```toml\n")
-        .expect(".claude/docs/config.md has a toml block");
-    let (block, _) = block.split_once("\n```").expect("the toml block closes");
-    format!("{block}\n")
-}
-
-/// Returns `(table, key, value)` for every key line of a settings file.
-fn key_lines(text: &str) -> Vec<(String, String, String)> {
-    let mut table = String::new();
-    let mut keys = Vec::new();
-    for line in text.lines() {
-        if let Some(name) = line.strip_prefix('[') {
-            table = name.trim_end_matches(']').to_owned();
-        } else if let Some((key, value)) = line.split_once(" = ")
-            && !line.starts_with('#')
-        {
-            keys.push((table.clone(), key.to_owned(), value.to_owned()));
-        }
-    }
-    keys
-}
-
-/// Returns the blocks of a settings file: each key line, by path (`table.key`), and each table
-/// header, by `[table]`, with the comment lines right above it.
-fn blocks(text: &str) -> Vec<(String, String)> {
-    let mut table = String::new();
-    let mut comment = String::new();
-    let mut blocks = Vec::new();
-    for line in text.split_inclusive('\n') {
-        if line.starts_with('#') {
-            comment.push_str(line);
-            continue;
-        }
-        let block = std::mem::take(&mut comment) + line;
-        if let Some(name) = line.trim_end().strip_prefix('[') {
-            table = name.trim_end_matches(']').to_owned();
-            blocks.push((format!("[{table}]"), block));
-        } else if let Some((key, _)) = line.split_once(" = ") {
-            blocks.push((format!("{table}.{key}"), block));
-        }
-    }
-    blocks
-}
-
-/// Writes `text` and updates it; checks that the file means what `text` meant and that a
-/// second update changes nothing. Returns the update and the updated text.
-fn write_and_update(file: &File, text: &str) -> (Update, String) {
-    let before = file.load(text).expect("the file loads before the update");
-    let update = Config::update_file(&file.path).expect("updates");
-    let updated = read(&file.path);
-    let after = Config::default().load(&file.path);
-    assert_eq!(after.expect("the file loads after the update"), before);
-    assert!(
-        Config::update_file(&file.path)
-            .expect("updates again")
-            .is_empty()
-    );
-    assert_eq!(read(&file.path), updated);
+#[test]
+fn missing_file_is_created_with_the_documented_default_text() {
+    let file = File::new("missing_file");
+    let first = Config::default().load(&file.path).expect("loads");
+    assert_eq!(first, Config::default());
+    assert_eq!(read(&file.path), documented_default_file());
     assert!(!exists(&file.path.with_extension("toml.tmp")));
-    (update, updated)
+    let again = Config::default().load(&file.path).expect("loads again");
+    assert_eq!(again, first);
 }
 
-/// Returns a file that sets only `path` (`table.key`) to `value`.
-fn one_key(path: &str, value: &str) -> String {
-    let (table, key) = path.split_once('.').expect("a dotted key");
-    format!("[{table}]\n{key} = {value}\n")
+/// The config [`CUSTOM_FILE`] describes.
+fn custom() -> Config {
+    let mut config = Config::default();
+    let g = &mut config.general;
+    g.motd = "Lobby".to_owned();
+    g.server_ip = Ipv4Addr::LOCALHOST;
+    g.server_ipv6 = Ipv6Addr::LOCALHOST;
+    g.enable_ipv6 = false;
+    g.server_port = 19_140;
+    g.public_ip = Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
+    g.max_players = 100;
+    g.xbox_auth = false;
+    g.white_list = true;
+    g.gamemode = GameMode::Creative;
+    g.force_gamemode = true;
+    g.difficulty = Difficulty::Hard;
+    g.hardcore = true;
+    g.pvp = false;
+    g.hunger = false;
+    g.experience = false;
+    g.experience_orbs = false;
+    g.fall_damage = false;
+    g.drowning = false;
+    g.armor = false;
+    g.durability = false;
+    g.beds = false;
+    g.daylight_cycle = false;
+    g.recipe_book = false;
+    g.vanilla_recipes = false;
+    g.item_despawn_ticks = 1200;
+    g.critical_hits = CriticalHits::Always;
+    g.break_time_check = false;
+    g.movement_check = false;
+    g.show_coordinates = true;
+    g.locator_bar = false;
+    g.immediate_respawn = true;
+    g.show_death_messages = true;
+    g.level_name = "lobby".to_owned();
+    g.level_type = LevelType::Void;
+    g.level_seed = Some(-42);
+    g.view_distance = 8;
+    g.save_player_data = false;
+    g.backups = false;
+    g.shutdown_message = "Bye".to_owned();
+    g.resource_packs = vec!["a.mcpack".into(), "lobby/b.zip".into()];
+    g.force_resources = true;
+    g.log_level = LogLevel::Debug;
+    let d = &mut config.developer;
+    d.compression = Compression::Zlib;
+    d.compression_threshold = 512;
+    d.compression_level = 9;
+    d.max_batch_bytes = 8 * MIB;
+    d.enable_encryption = false;
+    d.raknet = false;
+    d.max_mtu_size = 1200;
+    d.nethernet_tls_cert = Some("cert.pem".into());
+    d.nethernet_tls_key = Some("key.pem".into());
+    d.network_threads = Threads::Count(NonZeroU16::new(2).expect("non-zero"));
+    d.cpu_threads = Threads::Count(NonZeroU16::new(3).expect("non-zero"));
+    d.chunks_per_tick = 8;
+    d.spawn_radius = 6;
+    d.tick_radius = 5;
+    d.random_tick_speed = 0;
+    d.disable_block_ticking = vec!["minecraft:grass_block".to_owned()];
+    d.slow_empty_worlds = true;
+    d.lighting = Lighting::OnLoad;
+    d.fixed_light_level = 7;
+    d.item_pickup_interval = 4;
+    d.hook_movement_packets = false;
+    d.hook_player_input = false;
+    d.save_interval_minutes = 5;
+    d.integrity_check = IntegrityCheck::Never;
+    d.console_input = false;
+    let lobby = WorldSettings {
+        view_distance: Some(6),
+        chunks_per_tick: Some(2),
+        spawn_radius: Some(3),
+        tick_radius: Some(2),
+        spawn: Some(BlockPos::new(i32::MIN, -60, i32::MAX)),
+    };
+    let arena = WorldSettings {
+        tick_radius: Some(1),
+        ..WorldSettings::default()
+    };
+    config.worlds.insert("lobby".to_owned(), lobby);
+    config.worlds.insert("arena".to_owned(), arena);
+    config
+}
+
+#[test]
+fn missing_file_reads_like_the_file_it_writes() {
+    let file = File::new("missing_file_over_code");
+    let first = custom().load(&file.path).expect("loads");
+    // The default file sets every key; it has no `[worlds]` tables, so those set in code stay.
+    let mut expected = Config::default();
+    expected.worlds = custom().worlds;
+    assert_eq!(first, expected);
+    let again = custom().load(&file.path).expect("loads again");
+    assert_eq!(again, first);
 }
 
 /// A file that sets every key to a value other than its default.
@@ -253,93 +291,101 @@ spawn = [-2147483648, -60, 2147483647]
 tick-radius = 1
 "#;
 
-/// The config [`CUSTOM_FILE`] describes.
-fn custom() -> Config {
-    let mut config = Config::default();
-    let g = &mut config.general;
-    g.motd = "Lobby".to_owned();
-    g.server_ip = Ipv4Addr::LOCALHOST;
-    g.server_ipv6 = Ipv6Addr::LOCALHOST;
-    g.enable_ipv6 = false;
-    g.server_port = 19140;
-    g.public_ip = Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
-    g.max_players = 100;
-    g.xbox_auth = false;
-    g.white_list = true;
-    g.gamemode = GameMode::Creative;
-    g.force_gamemode = true;
-    g.difficulty = Difficulty::Hard;
-    g.hardcore = true;
-    g.pvp = false;
-    g.hunger = false;
-    g.experience = false;
-    g.experience_orbs = false;
-    g.fall_damage = false;
-    g.drowning = false;
-    g.armor = false;
-    g.durability = false;
-    g.beds = false;
-    g.daylight_cycle = false;
-    g.recipe_book = false;
-    g.vanilla_recipes = false;
-    g.item_despawn_ticks = 1200;
-    g.critical_hits = CriticalHits::Always;
-    g.break_time_check = false;
-    g.movement_check = false;
-    g.show_coordinates = true;
-    g.locator_bar = false;
-    g.immediate_respawn = true;
-    g.show_death_messages = true;
-    g.level_name = "lobby".to_owned();
-    g.level_type = LevelType::Void;
-    g.level_seed = Some(-42);
-    g.view_distance = 8;
-    g.save_player_data = false;
-    g.backups = false;
-    g.shutdown_message = "Bye".to_owned();
-    g.resource_packs = vec!["a.mcpack".into(), "lobby/b.zip".into()];
-    g.force_resources = true;
-    g.log_level = LogLevel::Debug;
-    let d = &mut config.developer;
-    d.compression = Compression::Zlib;
-    d.compression_threshold = 512;
-    d.compression_level = 9;
-    d.max_batch_bytes = 8 * MIB;
-    d.enable_encryption = false;
-    d.raknet = false;
-    d.max_mtu_size = 1200;
-    d.nethernet_tls_cert = Some("cert.pem".into());
-    d.nethernet_tls_key = Some("key.pem".into());
-    d.network_threads = Threads::Count(NonZeroU16::new(2).expect("non-zero"));
-    d.cpu_threads = Threads::Count(NonZeroU16::new(3).expect("non-zero"));
-    d.chunks_per_tick = 8;
-    d.spawn_radius = 6;
-    d.tick_radius = 5;
-    d.random_tick_speed = 0;
-    d.disable_block_ticking = vec!["minecraft:grass_block".to_owned()];
-    d.slow_empty_worlds = true;
-    d.lighting = Lighting::OnLoad;
-    d.fixed_light_level = 7;
-    d.item_pickup_interval = 4;
-    d.hook_movement_packets = false;
-    d.hook_player_input = false;
-    d.save_interval_minutes = 5;
-    d.integrity_check = IntegrityCheck::Never;
-    d.console_input = false;
-    let lobby = WorldSettings {
-        view_distance: Some(6),
-        chunks_per_tick: Some(2),
-        spawn_radius: Some(3),
-        tick_radius: Some(2),
-        spawn: Some(BlockPos::new(i32::MIN, -60, i32::MAX)),
-    };
-    let arena = WorldSettings {
-        tick_radius: Some(1),
-        ..WorldSettings::default()
-    };
-    config.worlds.insert("lobby".to_owned(), lobby);
-    config.worlds.insert("arena".to_owned(), arena);
-    config
+// pmmp: GameMode
+#[test]
+fn every_key_reaches_its_field() {
+    let file = File::new("every_key_reaches_its_field");
+    assert_eq!(file.load(CUSTOM_FILE).expect("loads"), custom());
+}
+
+/// The number of keys in the default file; the one place that pins it.
+const DEFAULT_KEY_COUNT: usize = 68;
+
+/// The `(table, key, value)` of every key line of a settings file.
+fn key_lines(text: &str) -> Vec<(String, String, String)> {
+    let mut table = String::new();
+    let mut keys = Vec::new();
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix('[') {
+            table = name.trim_end_matches(']').to_owned();
+        } else if let Some((key, value)) = line.split_once(" = ")
+            && !line.starts_with('#')
+        {
+            keys.push((table.clone(), key.to_owned(), value.to_owned()));
+        }
+    }
+    keys
+}
+
+#[test]
+fn every_key_left_out_keeps_the_previous_value() {
+    let file = File::new("every_key_left_out");
+    let default = documented_default_file();
+    let keys = key_lines(&default);
+    assert_eq!(
+        keys.len(),
+        DEFAULT_KEY_COUNT,
+        "the default file's key count"
+    );
+    for (_, key, value) in &keys {
+        let line = format!("{key} = {value}\n");
+        let text = default.replacen(&line, "", 1);
+        assert_ne!(text, default, "{key} is removed");
+        assert_eq!(file.load(&text).expect("loads"), Config::default(), "{key}");
+    }
+    for text in ["", "[general]\n[developer]\n"] {
+        assert_eq!(file.load_over(custom(), text).expect("loads"), custom());
+    }
+    let mut expected = custom();
+    expected.general.pvp = true;
+    let loaded = file.load_over(custom(), "[general]\npvp = true\n");
+    assert_eq!(loaded.expect("loads"), expected);
+}
+
+/// A file that sets only `path` (`table.key`) to `value`.
+fn one_key(path: &str, value: &str) -> String {
+    let (table, key) = path.split_once('.').expect("a dotted key");
+    format!("[{table}]\n{key} = {value}\n")
+}
+
+/// The error and its sources, joined with ": ".
+fn chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
+}
+
+#[test]
+fn every_key_rejects_a_wrong_type_by_name() {
+    let file = File::new("every_key_wrong_type");
+    for (table, key, value) in key_lines(&documented_default_file()) {
+        let path = format!("{table}.{key}");
+        // `lighting` also takes the `true` and `false` of older files.
+        let typed = if path == "developer.lighting" {
+            "1"
+        } else if value.starts_with('"') {
+            "false"
+        } else {
+            "\"x\""
+        };
+        for wrong in ["1.5", "{ a = 1 }", "1979-05-27", typed] {
+            let error = file
+                .load(one_key(&path, wrong))
+                .expect_err(&format!("{path} = {wrong}"));
+            assert!(
+                matches!(error, Error::Invalid { ref key, .. } if *key == path),
+                "{path} = {wrong}: {error}"
+            );
+            assert!(error.to_string().contains(&format!("`{path}`")));
+        }
+    }
+    let error = file.load(one_key("general.resource-packs", "[1]"));
+    assert!(chain(&error.expect_err("integers")).contains("general.resource-packs"));
 }
 
 fn quoted(text: &str) -> String {
@@ -448,6 +494,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
                 quoted(&"w".repeat(65)),
                 quoted("a;b"),
                 quoted(r"a\tb"),
+                quoted("con"),
+                quoted("a/b"),
             ],
         ),
         (
@@ -609,85 +657,6 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         ("developer.console-input", bools(), vec![]),
     ]
-}
-
-#[test]
-fn missing_file_is_created_with_the_documented_default_text() {
-    let file = File::new("missing_file");
-    let first = Config::default().load(&file.path).expect("loads");
-    assert_eq!(first, Config::default());
-    assert_eq!(read(&file.path), documented_default_file());
-    assert!(!exists(&file.path.with_extension("toml.tmp")));
-    let again = Config::default().load(&file.path).expect("loads again");
-    assert_eq!(again, first);
-}
-
-#[test]
-fn missing_file_reads_like_the_file_it_writes() {
-    let file = File::new("missing_file_over_code");
-    let first = custom().load(&file.path).expect("loads");
-    // The default file sets every key; it has no `[worlds]` tables, so those set in code stay.
-    let mut expected = Config::default();
-    expected.worlds = custom().worlds;
-    assert_eq!(first, expected);
-    let again = custom().load(&file.path).expect("loads again");
-    assert_eq!(again, first);
-}
-
-// pmmp: GameMode
-#[test]
-fn every_key_reaches_its_field() {
-    let file = File::new("every_key_reaches_its_field");
-    assert_eq!(file.load(CUSTOM_FILE).expect("loads"), custom());
-}
-
-#[test]
-fn every_key_left_out_keeps_the_previous_value() {
-    let file = File::new("every_key_left_out");
-    let default = documented_default_file();
-    let keys = key_lines(&default);
-    assert_eq!(keys.len(), 68, "the default file has 68 keys");
-    for (_, key, value) in &keys {
-        let line = format!("{key} = {value}\n");
-        let text = default.replacen(&line, "", 1);
-        assert_ne!(text, default, "{key} is removed");
-        assert_eq!(file.load(&text).expect("loads"), Config::default(), "{key}");
-    }
-    for text in ["", "[general]\n[developer]\n"] {
-        assert_eq!(file.load_over(custom(), text).expect("loads"), custom());
-    }
-    let mut expected = custom();
-    expected.general.pvp = true;
-    let loaded = file.load_over(custom(), "[general]\npvp = true\n");
-    assert_eq!(loaded.expect("loads"), expected);
-}
-
-#[test]
-fn every_key_rejects_a_wrong_type_by_name() {
-    let file = File::new("every_key_wrong_type");
-    for (table, key, value) in key_lines(&documented_default_file()) {
-        let path = format!("{table}.{key}");
-        // `lighting` also takes the `true` and `false` of older files.
-        let typed = if path == "developer.lighting" {
-            "1"
-        } else if value.starts_with('"') {
-            "false"
-        } else {
-            "\"x\""
-        };
-        for wrong in ["1.5", "{ a = 1 }", "1979-05-27", typed] {
-            let error = file
-                .load(one_key(&path, wrong))
-                .expect_err(&format!("{path} = {wrong}"));
-            assert!(
-                matches!(error, Error::Invalid { ref key, .. } if *key == path),
-                "{path} = {wrong}: {error}"
-            );
-            assert!(error.to_string().contains(&format!("`{path}`")));
-        }
-    }
-    let error = file.load(one_key("general.resource-packs", "[1]"));
-    assert!(chain(&error.expect_err("integers")).contains("general.resource-packs"));
 }
 
 #[test]
@@ -905,7 +874,7 @@ fn world_tables_reject_bad_values_by_key() {
         .config(code)
         .build()
         .expect_err("set in code");
-    assert!(chain_of(&error).contains("`worlds.lobby.spawn-radius` = 65 is outside 1..=64"));
+    assert!(chain(&error).contains("`worlds.lobby.spawn-radius` = 65 is outside 1..=64"));
 }
 
 #[test]
@@ -918,27 +887,15 @@ fn world_tables_must_name_a_declared_world() {
         .build()
         .expect_err("lobby is not declared");
     assert!(
-        chain_of(&error).contains("`[worlds.lobby]` names no declared world"),
+        chain(&error).contains("`[worlds.lobby]` names no declared world"),
         "{}",
-        chain_of(&error)
+        chain(&error)
     );
     Server::builder()
         .config(config)
         .world("lobby", Kind::Temporary, Flat)
         .build()
         .expect("the default world and lobby are declared");
-}
-
-/// Returns a build error and its sources, joined with ": ".
-fn chain_of(error: &anchor::Error) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    text
 }
 
 #[test]
@@ -957,6 +914,33 @@ fn hardcore_needs_hard_difficulty() {
     code.general.difficulty = Difficulty::Hard;
     let loaded = file.load_over(code, "[general]\nhardcore = true\n");
     assert!(loaded.expect("hard from code").general.hardcore);
+}
+
+#[test]
+fn an_ipv6_public_address_needs_ipv6_listening() {
+    let file = File::new("public_ipv6");
+    let text = "[general]\nenable-ipv6 = false\npublic-ip = \"2001:db8::1\"\n";
+    let error = file.load(text).expect_err("IPv6 listening is off");
+    assert!(error.to_string().contains("`general.public-ip`"), "{error}");
+    file.load("[general]\nenable-ipv6 = false\npublic-ip = \"203.0.113.5\"\n")
+        .expect("an IPv4 address needs no IPv6 socket");
+    file.load("[general]\npublic-ip = \"2001:db8::1\"\n")
+        .expect("IPv6 listening is on by default");
+}
+
+#[test]
+fn a_level_name_that_is_no_file_name_fails_the_build_naming_the_key() {
+    let mut config = Config::default();
+    config.general.level_name = "a/b".to_owned();
+    let error = Server::builder()
+        .config(config)
+        .build()
+        .expect_err("no file name");
+    assert!(
+        chain(&error).contains("`general.level-name` must be"),
+        "{}",
+        chain(&error)
+    );
 }
 
 #[test]
@@ -1101,6 +1085,46 @@ fn unreadable_or_unwritable_paths_are_errors() {
     assert!(!exists(&missing));
 }
 
+/// The blocks of a settings file: each key line, by path (`table.key`), and each table header,
+/// by `[table]`, with the comment lines right above it.
+fn blocks(text: &str) -> Vec<(String, String)> {
+    let mut table = String::new();
+    let mut comment = String::new();
+    let mut blocks = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if line.starts_with('#') {
+            comment.push_str(line);
+            continue;
+        }
+        let block = std::mem::take(&mut comment) + line;
+        if let Some(name) = line.trim_end().strip_prefix('[') {
+            table = name.trim_end_matches(']').to_owned();
+            blocks.push((format!("[{table}]"), block));
+        } else if let Some((key, _)) = line.split_once(" = ") {
+            blocks.push((format!("{table}.{key}"), block));
+        }
+    }
+    blocks
+}
+
+/// Writes `text` and updates it; checks that the file means what `text` meant and that a
+/// second update changes nothing. Returns the update and the updated text.
+fn write_and_update(file: &File, text: &str) -> (Update, String) {
+    let before = file.load(text).expect("the file loads before the update");
+    let update = Config::update_file(&file.path).expect("updates");
+    let updated = read(&file.path);
+    let after = Config::default().load(&file.path);
+    assert_eq!(after.expect("the file loads after the update"), before);
+    assert!(
+        Config::update_file(&file.path)
+            .expect("updates again")
+            .is_empty()
+    );
+    assert_eq!(read(&file.path), updated);
+    assert!(!exists(&file.path.with_extension("toml.tmp")));
+    (update, updated)
+}
+
 #[test]
 fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
     let file = File::new("update_each_key");
@@ -1109,7 +1133,7 @@ fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
         .into_iter()
         .filter(|(path, _)| !path.starts_with('['))
         .collect();
-    assert_eq!(keys.len(), 68);
+    assert_eq!(keys.len(), DEFAULT_KEY_COUNT);
     for (path, block) in keys {
         let text = default.replacen(&block, "", 1);
         assert_ne!(text, default, "{path}");
@@ -1157,12 +1181,12 @@ fn update_adds_missing_tables_at_the_end() {
         updated,
         format!("[general]\nmotd = \"x\"\n{rest}\n{developer}")
     );
-    assert_eq!(update.added().len(), 67);
+    assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 1);
 
     let (update, updated) = write_and_update(&file, "[developer]\nraknet = false\n");
     assert!(updated.starts_with("[developer]\n"));
     assert!(updated.ends_with(&format!("\nconsole-input = true\n\n{general}")));
-    assert_eq!(update.added().len(), 67);
+    assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 1);
 }
 
 #[test]
@@ -1176,7 +1200,7 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
                 disable-block-ticking = [\r\n    \"minecraft:grass_block\",\r\n]\r\n\r\n\
                 [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
     let (update, updated) = write_and_update(&file, text);
-    assert_eq!(update.added().len(), 65);
+    assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 3);
     for kept in [
         "general.motd",
         "general.shutdown-message",
@@ -1251,7 +1275,7 @@ fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
     );
     assert!(!updated.contains("# Old.") && !updated.contains("old-key"));
 
-    // A table under a known table and a world's key are left for the load to name.
+    // A table under a known table and a dotted key are left for the load to name.
     for (text, expected) in [
         (
             "[general]\n[general.old]\nanswer = 1\n",
@@ -1259,8 +1283,8 @@ fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
         ),
         ("[general]\nold.answer = 1\n", "unknown key `general.old`"),
         (
-            "[worlds.lobby]\nold-key = 1\n",
-            "unknown key `worlds.lobby.old-key`",
+            "[worlds.lobby]\nold.answer = 1\n",
+            "unknown key `worlds.lobby.old`",
         ),
     ] {
         write(&file.path, text.as_bytes());
@@ -1268,6 +1292,34 @@ fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
         assert!(error.to_string().contains(expected), "{error}");
         assert_eq!(read(&file.path), text);
     }
+}
+
+#[test]
+fn update_removes_unknown_keys_of_world_tables_and_keeps_their_values() {
+    let file = File::new("update_world_keys");
+    let text = "[worlds.lobby]\n# Old.\nold-key = 1\nview-distance = 6\n\
+                [worlds.\"my.world\"]\nspawn = [0, 64, 0]\nstale = true\n";
+    write(&file.path, text.as_bytes());
+    let update = Config::update_file(&file.path).expect("updates");
+    assert_eq!(
+        update.removed(),
+        ["worlds.lobby.old-key", "worlds.my.world.stale"]
+    );
+    let updated = read(&file.path);
+    assert!(
+        updated.starts_with(
+            "[worlds.lobby]\nview-distance = 6\n[worlds.\"my.world\"]\nspawn = [0, 64, 0]\n"
+        ),
+        "{updated}"
+    );
+    assert!(!updated.contains("# Old.") && !updated.contains("stale"));
+    let loaded = Config::default().load(&file.path).expect("loads");
+    assert_eq!(loaded.worlds["lobby"].view_distance, Some(6));
+    assert_eq!(
+        loaded.worlds["my.world"].spawn,
+        Some(BlockPos::new(0, 64, 0))
+    );
+    assert!(Config::update_file(&file.path).expect("again").is_empty());
 }
 
 #[test]

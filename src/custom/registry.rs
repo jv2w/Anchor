@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use super::creative::{self, CreativeInventory, Resolved};
 use super::recipe::{Kind as RecipeKind, MAX_INGREDIENTS, MAX_RESULTS, MAX_SIDE};
 use super::{Block, Category, Creative, Drops, Error, Ingredient, Item, ItemRef, Recipe};
-use crate::block::{self, PropertyValue};
+use crate::block;
 use crate::crafting::{self, FurnaceType, ShapelessType};
 use crate::item::{self, Stack, Type};
 use crate::nbt::{Compound, Value};
@@ -135,22 +135,7 @@ impl Registry {
             None => &empty,
             Some(_) => return None,
         };
-        if states.len() > super::block::MAX_PROPERTIES {
-            return None;
-        }
-        let mut properties = Vec::with_capacity(states.len());
-        for (key, value) in states {
-            properties.push((
-                key.as_str(),
-                match value {
-                    Value::Byte(v) => PropertyValue::Byte(*v),
-                    Value::Int(v) => PropertyValue::Int(*v),
-                    Value::String(v) => PropertyValue::String(v),
-                    _ => return None,
-                },
-            ));
-        }
-        block::State::custom(b, b.index_of(&properties)?, t.runtime_id())
+        block::State::custom(b, b.index_of(states)?, t.runtime_id())
     }
 
     /// The item type of a saved item name: a vanilla one by PMMP's rules ([`Type::from_name`]),

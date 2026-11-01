@@ -22,23 +22,21 @@ mod item;
 mod offer;
 mod recipe;
 mod registry;
-#[cfg(test)]
-pub(crate) mod tests;
 
-use std::fmt;
-
-pub use self::block::{Behaviour, Block, Drops, Material, Property, RenderMethod};
-pub use self::creative::{CreativeGroup, CreativeInventory, CreativeItem};
-pub use self::item::Item;
-pub(crate) use self::offer::DEFAULT_PRICE_MULTIPLIER;
-pub use self::offer::{
+pub use crate::crafting::{FurnaceType, ShapelessType};
+pub use crate::tick::check_offers;
+pub use block::{Behaviour, Block, Drops, Material, Property, RenderMethod};
+pub use creative::{CreativeGroup, CreativeInventory, CreativeItem};
+pub use item::Item;
+pub(crate) use offer::DEFAULT_PRICE_MULTIPLIER;
+pub use offer::{
     MAX_OFFERS, MAX_TRADE_COUNTER, MAX_TRADE_TIER, Offer, TRADE_TIERS, is_price_multiplier,
     is_tier_experience,
 };
-pub use self::recipe::{Ingredient, Recipe};
-pub(crate) use self::registry::{Registry, is_identifier};
-pub use crate::crafting::{FurnaceType, ShapelessType};
-pub use crate::tick::check_offers;
+pub use recipe::{Ingredient, Recipe};
+pub(crate) use registry::{Registry, is_identifier};
+
+use std::fmt;
 
 use crate::ServerBuilder;
 
@@ -56,6 +54,18 @@ pub enum Category {
     Items,
 }
 
+impl Category {
+    /// The `menu_category` name.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Construction => "construction",
+            Self::Nature => "nature",
+            Self::Equipment => "equipment",
+            Self::Items => "items",
+        }
+    }
+}
+
 /// Where a custom item or block's item shows in the default creative inventory, after its own
 /// entries: a tab and an optional group (a vanilla group name such as `itemGroup.name.sword`, or
 /// a name of the resource pack). Custom entries with the same tab and group share one group shown
@@ -67,7 +77,7 @@ pub struct Creative {
 }
 
 impl Creative {
-    /// In `category`, in no group.
+    /// A place in `category`, in no group.
     pub const fn new(category: Category) -> Self {
         Self {
             category,
@@ -98,8 +108,10 @@ pub enum ItemRef {
     CustomBlock(&'static Block),
 }
 
-/// Why custom content is refused: when the server is built ([`ServerBuilder::build`]), or when
-/// a villager's offers are changed ([`Context::set_trade_offers`](crate::Context)).
+/// Why custom content is refused: when the server is built ([`ServerBuilder::build`]), when a
+/// villager is spawned ([`Context::spawn_villager`](crate::Context::spawn_villager)), or when a
+/// villager's offers are changed
+/// ([`Context::set_trade_offers`](crate::Context::set_trade_offers)).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
@@ -109,9 +121,10 @@ pub enum Error {
         /// The identifier.
         identifier: &'static str,
     },
-    /// Two custom items or blocks have the same identifier.
+    /// Two custom items or blocks have the same identifier, or two alternative creative
+    /// inventories have the same name.
     Duplicate {
-        /// The identifier.
+        /// The identifier or the inventory name.
         identifier: &'static str,
     },
     /// A definition breaks a rule of its type.
@@ -192,6 +205,9 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// The result of registering custom content.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 impl ServerBuilder {
     /// Adds the custom item `item` (checked by [`build`](Self::build)). Its runtime ID follows
     /// the vanilla ones in registration order.
@@ -248,3 +264,6 @@ impl ServerBuilder {
         self
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests;

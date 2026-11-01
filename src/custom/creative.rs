@@ -20,82 +20,17 @@ use crate::item::{self, CreativeEntry as Entry, Stack, Type};
 use crate::nbt::Value;
 use crate::protocol::{self, packet};
 
-/// The most entries of one creative inventory (PMMP's 1,633 and every custom item fit).
-pub(crate) const MAX_ENTRIES: usize = 8192;
-/// The most changes of one creative inventory.
-const MAX_CHANGES: usize = 65_536;
 /// The most alternative creative inventories.
 pub(crate) const MAX_ALTERNATIVES: usize = 64;
+
+/// The most changes of one creative inventory.
+const MAX_CHANGES: usize = 65_536;
+
+/// The most entries of one creative inventory (PMMP's list and every custom item fit).
+pub(crate) const MAX_ENTRIES: usize = 8192;
+
 /// The longest creative group or inventory name, in bytes.
-const MAX_NAME: usize = 128;
-
-/// What a creative entry or a group's icon shows: an item named before the server numbers the
-/// custom items, or a whole stack with its NBT (an enchanted book's enchantments). Its count
-/// does not matter: an entry is one item.
-#[derive(Debug, Clone)]
-pub enum CreativeItem {
-    /// An item type, vanilla or custom.
-    Item(ItemRef),
-    /// A stack of a vanilla item type.
-    Stack(Stack),
-}
-
-impl From<ItemRef> for CreativeItem {
-    fn from(item: ItemRef) -> Self {
-        Self::Item(item)
-    }
-}
-
-impl From<Stack> for CreativeItem {
-    fn from(stack: Stack) -> Self {
-        Self::Stack(stack)
-    }
-}
-
-/// A named group of creative entries, shown folded under its icon (PMMP `CreativeGroup`).
-/// The name is a translation key such as `itemGroup.name.sword` or plain text; it must not be
-/// empty (checked when the server is built).
-#[derive(Debug, Clone)]
-// pmmp-class: CreativeGroup
-pub struct CreativeGroup {
-    name: &'static str,
-    icon: CreativeItem,
-}
-
-impl CreativeGroup {
-    /// The group `name` shown with `icon`.
-    #[doc(alias = "CreativeGroup::__construct")]
-    pub fn new(name: &'static str, icon: impl Into<CreativeItem>) -> Self {
-        Self {
-            name,
-            icon: icon.into(),
-        }
-    }
-
-    /// The group's name.
-    #[doc(alias = "CreativeGroup::getName")]
-    pub fn name(&self) -> &'static str {
-        self.name
-    }
-
-    /// The group's icon.
-    #[doc(alias = "CreativeGroup::getIcon")]
-    pub fn icon(&self) -> &CreativeItem {
-        &self.icon
-    }
-}
-
-/// One change of a creative inventory, applied in order when the server is built.
-#[derive(Debug, Clone)]
-enum Change {
-    Add {
-        item: CreativeItem,
-        category: Category,
-        group: Option<CreativeGroup>,
-    },
-    Remove(CreativeItem),
-    Clear,
-}
+const MAX_NAME_BYTES: usize = 128;
 
 /// A creative inventory to register (PMMP `CreativeInventory`): PMMP's list or an empty one,
 /// then the changes made to it in order. The server resolves it when it is built (where an
@@ -124,25 +59,19 @@ pub struct CreativeInventory {
     changes: Vec<Change>,
 }
 
-impl Default for CreativeInventory {
-    fn default() -> Self {
-        Self::vanilla()
-    }
-}
-
 impl CreativeInventory {
-    /// PMMP's creative inventory without the Education Edition items.
-    pub fn vanilla() -> Self {
-        Self {
-            vanilla: true,
-            changes: Vec::new(),
-        }
-    }
-
     /// An inventory without entries.
     pub fn empty() -> Self {
         Self {
             vanilla: false,
+            changes: Vec::new(),
+        }
+    }
+
+    /// PMMP's creative inventory without the Education Edition items.
+    pub fn vanilla() -> Self {
+        Self {
+            vanilla: true,
             changes: Vec::new(),
         }
     }
@@ -165,6 +94,14 @@ impl CreativeInventory {
         self
     }
 
+    /// Removes every entry.
+    #[doc(alias = "CreativeInventory::clear")]
+    #[must_use]
+    pub fn clear(mut self) -> Self {
+        self.changes.push(Change::Clear);
+        self
+    }
+
     /// Removes the first entry of `item`'s type and damage (PMMP
     /// `CreativeInventoryEntry::matchesItem`: the NBT is not compared); nothing if there is none.
     #[doc(alias = "CreativeInventory::remove")]
@@ -172,14 +109,6 @@ impl CreativeInventory {
     #[must_use]
     pub fn remove(mut self, item: impl Into<CreativeItem>) -> Self {
         self.changes.push(Change::Remove(item.into()));
-        self
-    }
-
-    /// Removes every entry.
-    #[doc(alias = "CreativeInventory::clear")]
-    #[must_use]
-    pub fn clear(mut self) -> Self {
-        self.changes.push(Change::Clear);
         self
     }
 
@@ -266,53 +195,78 @@ impl CreativeInventory {
     }
 }
 
-/// The error of an inventory with more than [`MAX_ENTRIES`] entries.
-fn too_many_entries() -> Error {
-    Error::TooMany {
-        what: "entries of a creative inventory",
-        limit: MAX_ENTRIES,
+impl Default for CreativeInventory {
+    fn default() -> Self {
+        Self::vanilla()
     }
 }
 
-/// Whether `name` can name a creative group or inventory: not empty, at most [`MAX_NAME`] bytes.
-pub(crate) fn is_name(name: &str) -> bool {
-    !name.is_empty() && name.len() <= MAX_NAME
+/// One change of a creative inventory, applied in order when the server is built.
+#[derive(Debug, Clone)]
+enum Change {
+    Add {
+        item: CreativeItem,
+        category: Category,
+        group: Option<CreativeGroup>,
+    },
+    Remove(CreativeItem),
+    Clear,
 }
 
-/// `name` if it can name a creative group or inventory ([`is_name`]).
-pub(crate) fn checked_name(name: &'static str) -> Result<&'static str, Error> {
-    if !is_name(name) {
-        return Err(Error::Creative {
-            reason: "a creative group or inventory name that is empty or too long",
-        });
+/// A named group of creative entries, shown folded under its icon (PMMP `CreativeGroup`).
+/// The name is a translation key such as `itemGroup.name.sword` or plain text; it must not be
+/// empty (checked when the server is built).
+#[derive(Debug, Clone)]
+// pmmp-class: CreativeGroup
+pub struct CreativeGroup {
+    name: &'static str,
+    icon: CreativeItem,
+}
+
+impl CreativeGroup {
+    /// The group `name` shown with `icon`.
+    #[doc(alias = "CreativeGroup::__construct")]
+    pub fn new(name: &'static str, icon: impl Into<CreativeItem>) -> Self {
+        Self {
+            name,
+            icon: icon.into(),
+        }
     }
-    Ok(name)
-}
 
-/// The stack a player takes for `item` (one) and its network form.
-fn resolve_item(
-    custom: &Registry,
-    item: &CreativeItem,
-) -> Result<(Stack, protocol::ItemStack), Error> {
-    let stack = match item {
-        CreativeItem::Item(r) => custom.resolve(*r).map(|t| Stack::new(t, 1)),
-        CreativeItem::Stack(s) => Some(s.with_count(1)).filter(|s| !s.is_empty()),
+    /// The group's icon.
+    #[doc(alias = "CreativeGroup::getIcon")]
+    pub fn icon(&self) -> &CreativeItem {
+        &self.icon
     }
-    .ok_or(Error::Creative {
-        reason: "an entry or icon names an unknown or unregistered item, or no item",
-    })?;
-    let net = stack.to_network();
-    Ok((stack, net))
+
+    /// The group's name.
+    #[doc(alias = "CreativeGroup::getName")]
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
 }
 
-/// PMMP's entries, as generated, without the Education items ([`item::is_education`]). The
-/// `ItemRegistry` keeps those, so a stack that still exists (an old save, a world's element block
-/// broken) stays readable to the client.
-fn vanilla_entries() -> Vec<Entry> {
-    (0..)
-        .map_while(item::creative_entry)
-        .filter(|e| !e.stack.item().is_some_and(|t| item::is_education(t.name())))
-        .collect()
+/// What a creative entry or a group's icon shows: an item named before the server numbers the
+/// custom items, or a whole stack with its NBT (an enchanted book's enchantments). Its count
+/// does not matter: an entry is one item.
+#[derive(Debug, Clone)]
+pub enum CreativeItem {
+    /// An item type, vanilla or custom.
+    Item(ItemRef),
+    /// A stack of a vanilla item type.
+    Stack(Stack),
+}
+
+impl From<ItemRef> for CreativeItem {
+    fn from(item: ItemRef) -> Self {
+        Self::Item(item)
+    }
+}
+
+impl From<Stack> for CreativeItem {
+    fn from(stack: Stack) -> Self {
+        Self::Stack(stack)
+    }
 }
 
 /// A creative inventory as the server holds it: the stack of each creative item network ID and
@@ -332,8 +286,40 @@ impl Resolved {
         Self::new(vanilla_entries())
     }
 
+    /// The same inventory registered as the alternative `name`.
+    pub(crate) fn with_name(mut self, name: &'static str) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    /// The `CreativeContent` packet.
+    pub(crate) fn content(&self) -> &packet::CreativeContent {
+        &self.content
+    }
+
+    /// The name of an alternative inventory; `None` for the default one.
+    pub(crate) fn name(&self) -> Option<&'static str> {
+        self.name
+    }
+
+    /// The stack of creative item network ID `network_id`, one item.
+    pub(crate) fn stack(&self, network_id: u32) -> Option<&Stack> {
+        self.stacks
+            .get(usize::try_from(network_id).ok()?.checked_sub(1)?)
+    }
+
+    /// The entries' stacks, by network ID from 1.
+    pub(crate) fn stacks(&self) -> &[Stack] {
+        &self.stacks
+    }
+
     /// Numbers `entries` from 1 and groups them by PMMP's rule (see the module).
     #[doc(alias = "CreativeInventoryCache::buildPacket")]
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: an inventory has at most `MAX_ENTRIES` entries, so at most as many \
+                  groups"
+    )]
     fn new(entries: Vec<Entry>) -> Self {
         let mut groups: Vec<protocol::CreativeGroup> = Vec::new();
         // A named group: its name and its icon without the group index.
@@ -342,7 +328,7 @@ impl Resolved {
         let mut index: BTreeMap<(u8, Option<usize>), u32> = BTreeMap::new();
         let mut stacks = Vec::with_capacity(entries.len());
         let mut items = Vec::with_capacity(entries.len());
-        for (id, entry) in (1u32..).zip(entries) {
+        for (id, entry) in (1_u32..).zip(entries) {
             let Entry {
                 stack,
                 net,
@@ -360,13 +346,13 @@ impl Resolved {
                 index.remove(&(category, None));
             }
             let group_index = *index.entry((category, key)).or_insert_with(|| {
-                let at = u32::try_from(groups.len()).unwrap_or(u32::MAX);
+                let at = u32::try_from(groups.len()).expect("a group count fits a u32");
                 groups.push(match key.and_then(|k| distinct.get(k)) {
                     Some((name, icon)) => {
                         let mut icon = icon.clone();
                         icon.nbt_data.insert(
                             item::GROUP_WORKAROUND.to_owned(),
-                            Value::Int(i32::try_from(at).unwrap_or(i32::MAX)),
+                            Value::Int(i32::try_from(at).expect("a group index fits an i32")),
                         );
                         protocol::CreativeGroup {
                             category,
@@ -395,31 +381,54 @@ impl Resolved {
             content: packet::CreativeContent { groups, items },
         }
     }
+}
 
-    /// The same inventory registered as the alternative `name`.
-    pub(crate) fn with_name(mut self, name: &'static str) -> Self {
-        self.name = Some(name);
-        self
+/// `name` if it can name a creative group or inventory ([`is_name`]).
+pub(crate) fn checked_name(name: &'static str) -> Result<&'static str, Error> {
+    if !is_name(name) {
+        return Err(Error::Creative {
+            reason: "a creative group or inventory name that is empty or too long",
+        });
     }
+    Ok(name)
+}
 
-    /// The name of an alternative inventory; `None` for the default one.
-    pub(crate) fn name(&self) -> Option<&'static str> {
-        self.name
-    }
+/// Whether `name` can name a creative group or inventory: not empty, at most [`MAX_NAME_BYTES`]
+/// bytes.
+pub(crate) fn is_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_NAME_BYTES
+}
 
-    /// The `CreativeContent` packet.
-    pub(crate) fn content(&self) -> &packet::CreativeContent {
-        &self.content
+/// The stack a player takes for `item` (one) and its network form.
+fn resolve_item(
+    custom: &Registry,
+    item: &CreativeItem,
+) -> Result<(Stack, protocol::ItemStack), Error> {
+    let stack = match item {
+        CreativeItem::Item(r) => custom.resolve(*r).map(|t| Stack::new(t, 1)),
+        CreativeItem::Stack(s) => Some(s.with_count(1)).filter(|s| !s.is_empty()),
     }
+    .ok_or(Error::Creative {
+        reason: "an entry or icon names an unknown or unregistered item, or no item",
+    })?;
+    let net = stack.to_network();
+    Ok((stack, net))
+}
 
-    /// The entries' stacks, by network ID from 1.
-    pub(crate) fn stacks(&self) -> &[Stack] {
-        &self.stacks
+/// The error of an inventory with more than [`MAX_ENTRIES`] entries.
+fn too_many_entries() -> Error {
+    Error::TooMany {
+        what: "entries of a creative inventory",
+        limit: MAX_ENTRIES,
     }
+}
 
-    /// The stack of creative item network ID `network_id`, one item.
-    pub(crate) fn stack(&self, network_id: u32) -> Option<&Stack> {
-        self.stacks
-            .get(usize::try_from(network_id).ok()?.checked_sub(1)?)
-    }
+/// PMMP's entries, as generated, without the Education items ([`item::is_education`]). The
+/// `ItemRegistry` keeps those, so a stack that still exists (an old save, a world's element block
+/// broken) stays readable to the client.
+fn vanilla_entries() -> Vec<Entry> {
+    (0..)
+        .map_while(item::creative_entry)
+        .filter(|e| !e.stack.item().is_some_and(|t| item::is_education(t.name())))
+        .collect()
 }

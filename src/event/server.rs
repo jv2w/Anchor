@@ -35,7 +35,8 @@ impl Command {
         &self.line
     }
 
-    /// Replaces the command line that runs.
+    /// Replaces the command line that runs, written without a leading `/`: one with it names no
+    /// command.
     #[doc(alias = "CommandEvent::setCommand")]
     pub fn set_command(&mut self, line: String) {
         self.line = line;
@@ -54,7 +55,9 @@ mod tests {
     use super::*;
     use crate::event::fixtures::player;
 
-    // pmmp: CommandEvent, CommandEvent::getSender, CommandEvent::getCommand, CommandEvent::setCommand, CommandEvent::cancel, CommandEvent::uncancel, CommandEvent::isCancelled
+    // pmmp: CommandEvent, CommandEvent::getSender, CommandEvent::getCommand,
+    // pmmp: CommandEvent::setCommand, CommandEvent::cancel, CommandEvent::uncancel,
+    // pmmp: CommandEvent::isCancelled
     #[test]
     fn command_line_can_change() {
         let mut e = Command {

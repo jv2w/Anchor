@@ -32,9 +32,9 @@
 //! use anchor::menu::{Action, Input, Kind, Menu, Response};
 //! use anchor::player;
 //!
-//! fn open_shop(cx: &mut Context<'_>, player: player::Id, sword: Stack) {
-//!     let menu = Menu::new(Kind::Chest).title("Shop").item(13, sword);
-//!     let opened = cx.open_menu(player, menu, |_, _, input| match input {
+//! fn open_shop(ctx: &mut Context<'_>, player: player::Id, sword: Stack) {
+//!     let menu = Menu::new(Kind::Chest).with_title("Shop").item(13, sword);
+//!     let opened = ctx.open_menu(player, menu, |_, _, input| match input {
 //!         Input::Click(click) if click.slot() == 13 && click.action() == Action::Take => {
 //!             // Give the sword through the player's inventory here.
 //!             Response::Close
@@ -57,6 +57,9 @@ use crate::item::Stack;
 
 /// The longest menu title, in bytes.
 pub(crate) const MAX_TITLE_BYTES: usize = 1024;
+
+// Every slot of the largest menu has its bit.
+const _: () = assert!(Kind::DoubleChest.size() <= 64);
 
 /// What a menu looks like and how many slots it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,14 +98,6 @@ pub struct Menu {
     bad_slot: Option<usize>,
 }
 
-// Every slot of the largest menu has its bit.
-const _: () = assert!(Kind::DoubleChest.size() <= 64);
-
-/// The bit of slot `slot` in a set of slots (bit `i` for slot `i`); `None` past bit 63.
-pub(crate) fn slot_bit(slot: usize) -> Option<u64> {
-    u32::try_from(slot).ok().and_then(|s| 1u64.checked_shl(s))
-}
-
 impl Menu {
     /// An empty menu of `kind` without a title (the client shows the container's name).
     pub fn new(kind: Kind) -> Self {
@@ -118,21 +113,8 @@ impl Menu {
 
     /// The menu with `title` shown above its slots (at most 1,024 bytes, checked on open).
     #[must_use]
-    pub fn title(mut self, title: impl Into<String>) -> Self {
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
-        self
-    }
-
-    /// The menu with `stack` in `slot`. A slot past the end makes the open fail
-    /// ([`Error::NoSlot`]).
-    #[must_use]
-    pub fn item(mut self, slot: usize, stack: Stack) -> Self {
-        match self.items.get_mut(slot) {
-            Some(s) => *s = stack,
-            None => {
-                self.bad_slot.get_or_insert(slot);
-            }
-        }
         self
     }
 
@@ -144,6 +126,19 @@ impl Menu {
         let bit = slot_bit(slot).filter(|_| slot < self.kind.size());
         match bit {
             Some(bit) => self.editable |= bit,
+            None => {
+                self.bad_slot.get_or_insert(slot);
+            }
+        }
+        self
+    }
+
+    /// The menu with `stack` in `slot`. A slot past the end makes the open fail
+    /// ([`Error::NoSlot`]).
+    #[must_use]
+    pub fn item(mut self, slot: usize, stack: Stack) -> Self {
+        match self.items.get_mut(slot) {
+            Some(s) => *s = stack,
             None => {
                 self.bad_slot.get_or_insert(slot);
             }
@@ -176,14 +171,14 @@ impl Menu {
         self
     }
 
-    /// What the menu looks like.
-    pub fn kind(&self) -> Kind {
-        self.kind
-    }
-
     /// The menu's items, one per slot.
     pub fn items(&self) -> &[Stack] {
         &self.items
+    }
+
+    /// What the menu looks like.
+    pub fn kind(&self) -> Kind {
+        self.kind
     }
 
     /// Checks the menu before it opens and gives its parts: the kind, the title, the items, the
@@ -254,19 +249,9 @@ pub struct Click {
 }
 
 impl Click {
-    /// The menu clicked.
-    pub fn menu(&self) -> Id {
-        self.menu
-    }
-
-    /// The menu slot clicked.
-    pub fn slot(&self) -> usize {
-        self.slot
-    }
-
-    /// The stack in the slot.
-    pub fn item(&self) -> &Stack {
-        &self.item
+    /// What the player tried to do.
+    pub fn action(&self) -> Action {
+        self.action
     }
 
     /// The stack on the player's cursor, its lent items included ([`Context::menu_lent`]).
@@ -276,9 +261,19 @@ impl Click {
         &self.cursor
     }
 
-    /// What the player tried to do.
-    pub fn action(&self) -> Action {
-        self.action
+    /// The stack in the slot.
+    pub fn item(&self) -> &Stack {
+        &self.item
+    }
+
+    /// The menu clicked.
+    pub fn menu(&self) -> Id {
+        self.menu
+    }
+
+    /// The menu slot clicked.
+    pub fn slot(&self) -> usize {
+        self.slot
     }
 }
 
@@ -315,11 +310,6 @@ pub struct Change {
 }
 
 impl Change {
-    /// The menu changed.
-    pub fn menu(&self) -> Id {
-        self.menu
-    }
-
     /// Every slot the request changed, as [`InventoryTransaction`] lists them: the menu's slots
     /// are [`Inventory::Window`].
     ///
@@ -335,6 +325,12 @@ impl Change {
         self.named.contains(&(inventory, slot))
     }
 
+    /// How many of the items on the player's cursor after the change are lent
+    /// ([`lent_before`](Self::lent_before)).
+    pub fn lent_after(&self) -> u8 {
+        self.lent[1]
+    }
+
     /// How many of the items on the player's cursor before the change are lent ([`Menu::lend`]);
     /// 0 for a menu that does not lend. What the handler keeps changes as the menu's slots do,
     /// plus the lent items after the change, less those before: none for items taken up onto the
@@ -346,10 +342,9 @@ impl Change {
         self.lent[0]
     }
 
-    /// How many of the items on the player's cursor after the change are lent
-    /// ([`lent_before`](Self::lent_before)).
-    pub fn lent_after(&self) -> u8 {
-        self.lent[1]
+    /// The menu changed.
+    pub fn menu(&self) -> Id {
+        self.menu
     }
 }
 
@@ -384,14 +379,16 @@ pub struct Close {
 }
 
 impl Close {
-    /// The menu closed.
-    pub fn menu(&self) -> Id {
-        self.menu
-    }
-
     /// The stack on the player's cursor as the menu closed (empty if none).
     pub fn cursor(&self) -> &Stack {
         &self.cursor
+    }
+
+    /// Whether the player closed the menu itself; false for a close of the server's: its death,
+    /// leaving, a teleport, going more than 8 blocks away, another window, its chat, its breaking
+    /// a block, or the handler's own [`Response::Close`].
+    pub fn is_by_player(&self) -> bool {
+        self.by_player
     }
 
     /// How many of the cursor's items are lent ([`Menu::lend`]): still in what the handler keeps,
@@ -400,11 +397,9 @@ impl Close {
         self.lent
     }
 
-    /// Whether the player closed the menu itself; false for a close of the server's: its death,
-    /// leaving, a teleport, going more than 8 blocks away, another window, its chat, its breaking
-    /// a block, or the handler's own [`Response::Close`].
-    pub fn is_by_player(&self) -> bool {
-        self.by_player
+    /// The menu closed.
+    pub fn menu(&self) -> Id {
+        self.menu
     }
 }
 
@@ -426,14 +421,16 @@ pub enum Response {
 /// Why a menu or fake block call did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// The player is not in the game, or its client has no view of the world yet.
+    /// The player is not in the game, or (to open a menu) its client has no view of the world
+    /// yet.
     Offline,
-    /// The player cannot take this now: it waits with stacks for room in its inventory, or
-    /// 4,096 fake block changes wait to be sent to it this tick.
+    /// The player cannot take this now: it waits with so many stacks for room that a window's
+    /// items could not go back, or 4,096 fake block changes wait to be sent to it this tick.
     Busy,
     /// The player has 4,096 fake blocks.
     Full,
-    /// The position is outside the world height.
+    /// The position is outside the world height, or a menu's blocks cannot stand within 8 blocks
+    /// of the player's eyes.
     OutsideWorld,
     /// The menu has no such slot.
     NoSlot,
@@ -441,7 +438,7 @@ pub enum Error {
     TitleTooLong,
     /// The player has no menu open.
     NotOpen,
-    /// The player was given `u32::MAX` menus already; menu IDs do not wrap.
+    /// The player was given 2^32 menus already; menu IDs do not wrap.
     Exhausted,
 }
 
@@ -462,5 +459,10 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Menu and fake block results.
-pub type Result<T> = std::result::Result<T, Error>;
+/// A result with the menu [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// The bit of slot `slot` in a set of slots (bit `i` for slot `i`); `None` past bit 63.
+pub(crate) fn slot_bit(slot: usize) -> Option<u64> {
+    u32::try_from(slot).ok().and_then(|s| 1_u64.checked_shl(s))
+}

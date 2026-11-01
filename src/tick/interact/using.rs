@@ -446,7 +446,7 @@ fn place_held(
     }
     for (p, s) in &blocks {
         if s.custom_block().is_some() {
-            super::custom::placed(state, Some(actor.session), world, *p, *s);
+            super::custom::placed(state, actor.session, world, *p, *s);
         }
     }
     if let Some(e) = event {

@@ -16,8 +16,8 @@
 //! ```
 //!
 //! Listeners get the whole state through a [`Context`], so the listener list of the event is
-//! taken out of the state while it runs. No listener can raise an event (direct API calls raise
-//! none and [`Context::perform`] defers), so the list is never needed while it is out.
+//! lent out of the state while it runs. No listener can raise an event (direct API calls raise
+//! none and [`Context::perform`] defers), so the lent list is never called while it is out.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -100,14 +100,14 @@ pub(crate) fn listened<E: Event>(state: &State) -> bool {
 /// Calls the listeners of `E` on `event`, in priority order, each with a [`Context`] on the whole
 /// state.
 pub(crate) fn call<E: Event>(state: &mut State, event: &mut E) {
-    let mut list = std::mem::take(E::list(&mut state.listeners));
+    let mut list = E::list(&mut state.listeners).lend();
     list.call(event, &mut Context { state });
     *E::list(&mut state.listeners) = list;
 }
 
 /// Calls the monitors of `E` on the applied `event`, with shared access only.
 pub(crate) fn watch<E: Event>(state: &mut State, event: &E) {
-    let mut list = std::mem::take(E::list(&mut state.listeners));
+    let mut list = E::list(&mut state.listeners).lend();
     list.watch(event, &Context { state });
     *E::list(&mut state.listeners) = list;
 }
@@ -191,7 +191,7 @@ mod tests {
         );
         assert_eq!(
             format!("{:?}", state.listeners),
-            "Listeners { duplicate_login: List { listeners: 7, monitors: 1 } }"
+            "Listeners { player_duplicate_login: List { listeners: [Lowest, Low, Normal, Normal, Normal, High, Highest], monitors: 1, .. } }"
         );
     }
 

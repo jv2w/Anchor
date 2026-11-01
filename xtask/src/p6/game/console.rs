@@ -732,12 +732,14 @@ const FORM_KINDS: [&str; 4] = ["modal", "menu", "custom", "closed"];
 fn p6_form(kind: &str) -> Form {
     match kind {
         "menu" => Menu::new("P6 menu")
-            .content("Menu body")
+            .with_content("Menu body")
             .button("First")
             .header("Menu header")
             .label("Menu label")
             .divider()
-            .button(Button::new("Second").image(Image::Path("textures/items/apple".to_owned())))
+            .button(
+                Button::new("Second").with_image(Image::Path("textures/items/apple".to_owned())),
+            )
             .into(),
         "custom" => Custom::new("P6 custom")
             .header("A header")

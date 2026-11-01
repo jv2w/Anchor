@@ -18,7 +18,7 @@ use crate::event::{
 };
 use crate::item::{Class, Consumable, Enchantment, Food, Stack, Type};
 use crate::math::{self, Vec3};
-use crate::player::{Id, MAX_LEVEL, level_from_xp, xp_to_complete_level, xp_to_reach_level};
+use crate::player::{Id, level_from_xp, xp_to_complete_level, xp_to_reach_level};
 use crate::protocol::consts::ActorEvent;
 use crate::protocol::packet::{self, Packet};
 use crate::random;
@@ -712,7 +712,7 @@ fn gain(state: &mut State, session: SessionId, amount: u32) {
         Some((l, p)) => {
             let s = &mut player.survival;
             if let Some(l) = l {
-                s.xp_level = l.min(MAX_LEVEL);
+                s.xp_level = l;
             }
             if let Some(p) = p {
                 s.xp_progress = math::clamp(p, 0.0, MAX_PROGRESS);

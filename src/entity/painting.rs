@@ -19,8 +19,29 @@ macro_rules! motives {
         }
 
         impl PaintingMotive {
-            /// Every motive, in PMMP's order.
-            const ALL: &'static [Self] = &[$(Self::$variant,)*];
+            /// The motive named `name` (PMMP `getMotiveByName`; names are case-sensitive, as
+            /// saved).
+            #[doc(alias = "PaintingMotive::getMotiveByName")]
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+
+            /// Every motive, in PMMP's order (PMMP `getAll`).
+            #[doc(alias = "PaintingMotive::getAll")]
+            pub fn all() -> &'static [Self] {
+                &[$(Self::$variant,)*]
+            }
+
+            /// Its height in blocks, 1 to 4 (PMMP `getHeight`).
+            #[doc(alias = "PaintingMotive::getHeight")]
+            pub fn height(self) -> u8 {
+                match self {
+                    $(Self::$variant => $height,)*
+                }
+            }
 
             /// The name clients know it by and saves keep (PMMP `getName`), such as `Kebab`.
             #[doc(alias = "PaintingMotive::getName")]
@@ -35,24 +56,6 @@ macro_rules! motives {
             pub fn width(self) -> u8 {
                 match self {
                     $(Self::$variant => $width,)*
-                }
-            }
-
-            /// Its height in blocks, 1 to 4 (PMMP `getHeight`).
-            #[doc(alias = "PaintingMotive::getHeight")]
-            pub fn height(self) -> u8 {
-                match self {
-                    $(Self::$variant => $height,)*
-                }
-            }
-
-            /// The motive named `name` (PMMP `getMotiveByName`; names are case-sensitive, as
-            /// saved).
-            #[doc(alias = "PaintingMotive::getMotiveByName")]
-            pub fn from_name(name: &str) -> Option<Self> {
-                match name {
-                    $($name => Some(Self::$variant),)*
-                    _ => None,
                 }
             }
         }
@@ -112,19 +115,12 @@ motives! {
     Unpacked "unpacked" 4 4,
 }
 
-impl PaintingMotive {
-    /// Every motive, in PMMP's order (PMMP `getAll`).
-    #[doc(alias = "PaintingMotive::getAll")]
-    pub fn all() -> &'static [Self] {
-        Self::ALL
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // pmmp: PaintingMotive, PaintingMotive::getAll, PaintingMotive::getName, PaintingMotive::getWidth, PaintingMotive::getHeight, PaintingMotive::getMotiveByName
+    // pmmp: PaintingMotive, PaintingMotive::getAll, PaintingMotive::getName,
+    // pmmp: PaintingMotive::getWidth, PaintingMotive::getHeight, PaintingMotive::getMotiveByName
     #[test]
     fn motives_are_pmmps_fifty_with_their_sizes() {
         let all = PaintingMotive::all();

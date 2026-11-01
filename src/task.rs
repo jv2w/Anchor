@@ -17,16 +17,16 @@
 
 use std::fmt;
 
-/// The most tasks scheduled at once (no unbounded queue).
-pub const MAX_TASKS: usize = 65_536;
 /// The most blocking jobs waiting for their result at once.
 pub const MAX_JOBS: usize = 1_024;
-/// The most blocking jobs running at once; the others wait their turn, so the user's jobs never
-/// hold every blocking thread.
-pub const MAX_RUNNING_JOBS: usize = crate::runtime::USER_BLOCKING_THREADS;
 /// The largest result of a blocking job, in bytes of its JSON form: it travels through the input
 /// log.
 pub const MAX_RESULT_BYTES: usize = 1 << 20;
+/// The most blocking jobs running at once; the others wait their turn, so the user's jobs never
+/// hold every blocking thread.
+pub const MAX_RUNNING_JOBS: usize = crate::runtime::USER_BLOCKING_THREADS;
+/// The most tasks scheduled at once (no unbounded queue).
+pub const MAX_TASKS: usize = 65_536;
 
 /// A scheduled task, to cancel it or ask whether it is still scheduled. Ids are never reused, so
 /// a handle kept after its task ended names nothing.
@@ -64,22 +64,7 @@ pub enum Error {
     Decode,
 }
 
-/// A result with the task [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl Error {
-    /// The byte the input log writes for a job that failed this way.
-    pub(crate) const fn code(self) -> u8 {
-        match self {
-            Self::TooManyTasks => 1,
-            Self::TooManyJobs => 2,
-            Self::Panicked => 3,
-            Self::TooLarge => 4,
-            Self::Encode => 5,
-            Self::Decode => 6,
-        }
-    }
-
     /// The error a logged byte names.
     pub(crate) const fn from_code(code: u8) -> Option<Self> {
         Some(match code {
@@ -91,6 +76,18 @@ impl Error {
             6 => Self::Decode,
             _ => return None,
         })
+    }
+
+    /// The byte the input log writes for a job that failed this way.
+    pub(crate) const fn code(self) -> u8 {
+        match self {
+            Self::TooManyTasks => 1,
+            Self::TooManyJobs => 2,
+            Self::Panicked => 3,
+            Self::TooLarge => 4,
+            Self::Encode => 5,
+            Self::Decode => 6,
+        }
     }
 }
 
@@ -110,6 +107,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the task [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]
 mod tests {

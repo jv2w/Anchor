@@ -16,8 +16,6 @@ use crate::world::BlockPos;
 
 /// PMMP `FillableCauldron::MAX_FILL_LEVEL`.
 pub(in crate::tick) const CAULDRON_FULL: i32 = 6;
-/// The wettest farmland (PMMP `Farmland::MAX_WETNESS`).
-const MAX_WETNESS: i32 = 7;
 /// How far the rules that read only the blocks next to a block reach.
 const NEIGHBOURS: i32 = 1;
 /// The bounds of frosted ice's delay to its next check (PMMP `mt_rand(20, 40)`).
@@ -222,14 +220,15 @@ pub(super) fn farmland(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             }
         }
     }
-    if !water {
-        if wetness > 0 {
-            hydrate(cx, pos, block, wetness, wetness - 1);
-        } else {
-            cx.set(pos, block::DIRT);
+    if water {
+        let wettest = i32::from(FarmlandHydrationChange::MAX_HYDRATION);
+        if wetness < wettest {
+            hydrate(cx, pos, block, wetness, wettest);
         }
-    } else if wetness < MAX_WETNESS {
-        hydrate(cx, pos, block, wetness, MAX_WETNESS);
+    } else if wetness > 0 {
+        hydrate(cx, pos, block, wetness, wetness - 1);
+    } else {
+        cx.set(pos, block::DIRT);
     }
 }
 

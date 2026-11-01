@@ -61,7 +61,7 @@ const MAX_QUEUED_SUB_CHUNK_OFFSETS: usize = 2 * SUB_CHUNK_OFFSETS_PER_TICK;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick. A client
 /// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
 /// sends a tick.
-const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK.end() as usize;
+const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK_RANGE.end() as usize;
 /// Sub-chunk request offsets, each an answer entry with its own copy of the sub-chunk, answered
 /// per player per tick; the requests past it wait for the next tick. The most one answer holds
 /// (the Mojang limit), which the generator checks is no less than what one request holds, so
@@ -78,7 +78,7 @@ pub(super) const MAX_FAKE_BLOCKS: usize = 4096;
 /// The most positions refused changes send one player again in one tick ([`View::resync`]).
 pub(super) const MAX_RESYNCS: usize = 4096;
 /// The largest view radius: the largest `view-distance`.
-const MAX_RADIUS: u8 = *crate::config::VIEW_DISTANCE.end();
+const MAX_RADIUS: u8 = *crate::config::VIEW_DISTANCE_RANGE.end();
 /// The bits of a word of [`View::unsent`].
 const WORD_BITS: usize = u64::BITS as usize;
 /// The most chunk tickets ([`Context::hold_chunks`]) held at once.

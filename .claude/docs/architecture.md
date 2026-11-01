@@ -155,7 +155,7 @@ Phases:
 - Registration: `ServerBuilder::on::<E>(Priority, |e: &mut E, ctx: &mut Context| ..)` and `ServerBuilder::monitor::<E>(|e: &E, ctx: &Context| ..)`. There are five priorities, `Lowest` to `Highest`. A listener that only watches registers with `monitor`, read-only by its types, and sees the state after the outcome is applied.
 - Why the second check: applying without looking again at the state a listener changed would duplicate or lose items.
 - Every listener also sees cancelled events and filters them with `is_cancelled`.
-- **No re-entry**: while listeners run, the event's listener list is taken out of the state, and nothing needs it then.
+- **No re-entry**: while listeners run, the event's listener list is lent out of the state (what is registered stays readable), and nothing calls it then. An entity a listener makes is announced by the next announcement, a spawn listener's included.
   - `ctx.defer(f)`: runs after the running callback returns, in the same tick, in queue order.
   - `ctx.perform(action)`: defers an action that goes through the game rules, events included. Actions are the sealed `action::Action` implementations (`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode`, and others).
 - Why the entity tick raises EntitySpawn and ItemSpawn: listeners never run in the middle of another rule or of a direct API call.

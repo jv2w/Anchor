@@ -16,6 +16,17 @@ use std::fmt;
 
 use crate::item::Stack;
 
+/// The slots of a chest (each half of a double chest), a barrel, a shulker box and an ender
+/// chest.
+pub(crate) const CHEST_SLOTS: usize = 27;
+/// The slots of a hopper.
+pub(crate) const HOPPER_SLOTS: usize = 5;
+/// The hotbar slots: the main slots from 0 to `HOTBAR_SIZE - 1`.
+#[doc(alias = "PlayerInventory::getHotbarSize")]
+pub const HOTBAR_SIZE: u8 = 9;
+/// The most items of one slot of most inventories (PMMP `Inventory::MAX_STACK`).
+pub(crate) const MAX_STACK: u8 = 64;
+
 /// One of a player's inventories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
@@ -51,12 +62,6 @@ impl Kind {
     }
 }
 
-/// The slots of a chest (each half of a double chest), a barrel, a shulker box and an ender
-/// chest.
-pub(crate) const CHEST_SLOTS: usize = 27;
-/// The slots of a hopper.
-pub(crate) const HOPPER_SLOTS: usize = 5;
-
 /// Why a write to an inventory did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -90,8 +95,8 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Inventory write results.
-pub type Result<T> = std::result::Result<T, Error>;
+/// A result with the inventory [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An inventory to read: its slots in order (a double chest's left half first).
 #[doc(alias = "BaseInventory")]
@@ -104,19 +109,6 @@ pub struct Inventory<'a> {
     /// A shulker box's slots: they take only what [`Stack::fits_shulker_box`].
     shulker_box: bool,
 }
-
-impl fmt::Debug for Inventory<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list().entries(self.iter()).finish()
-    }
-}
-
-/// The most items of one slot of most inventories (PMMP `Inventory::MAX_STACK`).
-pub(crate) const MAX_STACK: u8 = 64;
-
-/// The hotbar slots: the main slots from 0 to `HOTBAR_SIZE - 1`.
-#[doc(alias = "PlayerInventory::getHotbarSize")]
-pub const HOTBAR_SIZE: u8 = 9;
 
 impl<'a> Inventory<'a> {
     /// The slots `first` then `second` (a double chest's two halves), each holding at most `max`
@@ -139,63 +131,45 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// Whether the slots refuse `stack` whatever room they have: a shulker box or a large stack
-    /// in a shulker box.
-    pub(crate) fn refuses(&self, stack: &Stack) -> bool {
-        self.shulker_box && !stack.fits_shulker_box()
+    /// Whether all of `stack` would fit.
+    #[doc(alias = "Inventory::canAddItem")]
+    #[doc(alias = "BaseInventory::canAddItem")]
+    #[doc(alias = "ShulkerBoxInventory::canAddItem")]
+    pub fn can_add(&self, stack: &Stack) -> bool {
+        self.addable_quantity(stack) == stack.count()
     }
 
-    /// How many slots the inventory has.
-    #[doc(alias = "Inventory::getSize")]
-    #[doc(alias = "SimpleInventory::getSize")]
-    #[doc(alias = "DoubleChestInventory::getSize")]
-    pub fn size(&self) -> usize {
-        self.halves[0].len() + self.halves[1].len()
-    }
-
-    /// The stack in `slot`; `None` if the inventory has no such slot.
-    #[doc(alias = "Inventory::getItem")]
-    #[doc(alias = "SimpleInventory::getItem")]
-    #[doc(alias = "DoubleChestInventory::getItem")]
-    #[doc(alias = "Inventory::slotExists")]
-    #[doc(alias = "BaseInventory::slotExists")]
-    #[doc(alias = "ArmorInventory::getHelmet")]
-    #[doc(alias = "ArmorInventory::getChestplate")]
-    #[doc(alias = "ArmorInventory::getLeggings")]
-    #[doc(alias = "ArmorInventory::getBoots")]
-    #[doc(alias = "PlayerInventory::getHotbarSlotItem")]
-    pub fn item(&self, slot: usize) -> Option<&'a Stack> {
-        let [first, second] = self.halves;
-        match slot.checked_sub(first.len()) {
-            None => first.get(slot),
-            Some(i) => second.get(i),
+    /// How many of `stack` would fit: onto stacks it stacks with and into empty slots, at most
+    /// its count; none of a shulker box into a shulker box.
+    #[doc(alias = "Inventory::getAddableItemQuantity")]
+    #[doc(alias = "BaseInventory::getAddableItemQuantity")]
+    pub fn addable_quantity(&self, stack: &Stack) -> u8 {
+        if self.refuses(stack) {
+            return 0;
         }
+        let max = u32::from(self.slot_max(stack));
+        let mut room = 0_u32;
+        let want = u32::from(stack.count());
+        for s in self.iter() {
+            if room >= want {
+                break;
+            }
+            if s.is_empty() {
+                room += max;
+            } else if s.can_stack_with(stack) {
+                room += max.saturating_sub(u32::from(s.count()));
+            }
+        }
+        stack.count().min(u8::try_from(room).unwrap_or(u8::MAX))
     }
 
-    /// Whether `slot` holds nothing (a slot the inventory does not have holds nothing).
-    #[doc(alias = "Inventory::isSlotEmpty")]
-    #[doc(alias = "BaseInventory::isSlotEmpty")]
-    #[doc(alias = "SimpleInventory::isSlotEmpty")]
-    #[doc(alias = "DoubleChestInventory::isSlotEmpty")]
-    pub fn is_slot_empty(&self, slot: usize) -> bool {
-        self.item(slot).is_none_or(Stack::is_empty)
-    }
-
-    /// Every slot in order, empty ones included.
-    #[doc(alias = "Inventory::getContents")]
-    #[doc(alias = "SimpleInventory::getContents")]
-    #[doc(alias = "DoubleChestInventory::getContents")]
-    pub fn iter(&self) -> impl Iterator<Item = &'a Stack> + 'a {
-        let [first, second] = self.halves;
-        first.iter().chain(second)
-    }
-
-    /// The most items one slot holds (a stack holds no more than its item's own maximum).
-    #[doc(alias = "Inventory::getMaxStackSize")]
-    #[doc(alias = "BaseInventory::getMaxStackSize")]
-    #[doc(alias = "CampfireInventory::getMaxStackSize")]
-    pub fn max_stack_size(&self) -> u8 {
-        self.max
+    /// Every slot holding `stack`'s item, as [`first`](Self::first) matches, with its stack.
+    #[doc(alias = "Inventory::all")]
+    #[doc(alias = "BaseInventory::all")]
+    pub fn all(&self, stack: &'a Stack) -> impl Iterator<Item = (usize, &'a Stack)> + 'a {
+        self.iter()
+            .enumerate()
+            .filter(move |(_, s)| matches(s, stack))
     }
 
     /// Whether the inventory holds at least `stack.count()` of `stack`'s item (its damage, and
@@ -227,50 +201,49 @@ impl<'a> Inventory<'a> {
         self.iter().position(Stack::is_empty)
     }
 
-    /// Every slot holding `stack`'s item, as [`first`](Self::first) matches, with its stack.
-    #[doc(alias = "Inventory::all")]
-    #[doc(alias = "BaseInventory::all")]
-    pub fn all(&self, stack: &'a Stack) -> impl Iterator<Item = (usize, &'a Stack)> + 'a {
-        self.iter()
-            .enumerate()
-            .filter(move |(_, s)| matches(s, stack))
+    /// Whether `slot` holds nothing (a slot the inventory does not have holds nothing).
+    #[doc(alias = "Inventory::isSlotEmpty")]
+    #[doc(alias = "BaseInventory::isSlotEmpty")]
+    #[doc(alias = "SimpleInventory::isSlotEmpty")]
+    #[doc(alias = "DoubleChestInventory::isSlotEmpty")]
+    pub fn is_slot_empty(&self, slot: usize) -> bool {
+        self.item(slot).is_none_or(Stack::is_empty)
     }
 
-    /// How many of `stack` would fit: onto stacks it stacks with and into empty slots, at most
-    /// its count; none of a shulker box into a shulker box.
-    #[doc(alias = "Inventory::getAddableItemQuantity")]
-    #[doc(alias = "BaseInventory::getAddableItemQuantity")]
-    pub fn addable_quantity(&self, stack: &Stack) -> u8 {
-        if self.refuses(stack) {
-            return 0;
+    /// The stack in `slot`; `None` if the inventory has no such slot.
+    #[doc(alias = "Inventory::getItem")]
+    #[doc(alias = "SimpleInventory::getItem")]
+    #[doc(alias = "DoubleChestInventory::getItem")]
+    #[doc(alias = "Inventory::slotExists")]
+    #[doc(alias = "BaseInventory::slotExists")]
+    #[doc(alias = "ArmorInventory::getHelmet")]
+    #[doc(alias = "ArmorInventory::getChestplate")]
+    #[doc(alias = "ArmorInventory::getLeggings")]
+    #[doc(alias = "ArmorInventory::getBoots")]
+    #[doc(alias = "PlayerInventory::getHotbarSlotItem")]
+    pub fn item(&self, slot: usize) -> Option<&'a Stack> {
+        let [first, second] = self.halves;
+        match slot.checked_sub(first.len()) {
+            None => first.get(slot),
+            Some(i) => second.get(i),
         }
-        let max = u32::from(self.slot_max(stack));
-        let mut room = 0u32;
-        let want = u32::from(stack.count());
-        for s in self.iter() {
-            if room >= want {
-                break;
-            }
-            if s.is_empty() {
-                room += max;
-            } else if s.can_stack_with(stack) {
-                room += max.saturating_sub(u32::from(s.count()));
-            }
-        }
-        u8::try_from(room.min(want)).unwrap_or(u8::MAX)
     }
 
-    /// Whether all of `stack` would fit.
-    #[doc(alias = "Inventory::canAddItem")]
-    #[doc(alias = "BaseInventory::canAddItem")]
-    #[doc(alias = "ShulkerBoxInventory::canAddItem")]
-    pub fn can_add(&self, stack: &Stack) -> bool {
-        self.addable_quantity(stack) == stack.count()
+    /// Every slot in order, empty ones included.
+    #[doc(alias = "Inventory::getContents")]
+    #[doc(alias = "SimpleInventory::getContents")]
+    #[doc(alias = "DoubleChestInventory::getContents")]
+    pub fn iter(&self) -> impl Iterator<Item = &'a Stack> + 'a {
+        let [first, second] = self.halves;
+        first.iter().chain(second)
     }
 
-    /// The most items of `stack` one slot of this inventory holds.
-    fn slot_max(&self, stack: &Stack) -> u8 {
-        stack.max_count().min(self.max)
+    /// The most items one slot holds (a stack holds no more than its item's own maximum).
+    #[doc(alias = "Inventory::getMaxStackSize")]
+    #[doc(alias = "BaseInventory::getMaxStackSize")]
+    #[doc(alias = "CampfireInventory::getMaxStackSize")]
+    pub fn max_stack_size(&self) -> u8 {
+        self.max
     }
 
     /// Where `stack` goes (PMMP `addItem`): onto the stacks it stacks with that have room, in
@@ -294,7 +267,7 @@ impl<'a> Inventory<'a> {
                     }
                     max.min(left)
                 } else {
-                    if !s.can_stack_with(stack) || s.count() >= max {
+                    if s.count() >= max || !s.can_stack_with(stack) {
                         continue;
                     }
                     (max - s.count()).min(left)
@@ -323,21 +296,52 @@ impl<'a> Inventory<'a> {
         }
         (writes, stack.with_count(left))
     }
+
+    /// Whether the slots refuse `stack` whatever room they have: a shulker box or a large stack
+    /// in a shulker box.
+    pub(crate) fn refuses(&self, stack: &Stack) -> bool {
+        self.shulker_box && !stack.fits_shulker_box()
+    }
+
+    /// How many slots the inventory has.
+    #[doc(alias = "Inventory::getSize")]
+    #[doc(alias = "SimpleInventory::getSize")]
+    #[doc(alias = "DoubleChestInventory::getSize")]
+    pub fn size(&self) -> usize {
+        self.halves[0].len() + self.halves[1].len()
+    }
+
+    /// The most items of `stack` one slot of this inventory holds.
+    fn slot_max(&self, stack: &Stack) -> u8 {
+        stack.max_count().min(self.max)
+    }
 }
 
-/// Whether `have` is `want`'s item for finding and taking: the same type and damage, and the
-/// same extra data when `want` has some (PMMP `Item::equals` with `checkTags` for a named tag).
-pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
-    have.item().is_some()
-        && have.item() == want.item()
-        && have.damage() == want.damage()
-        && (want.extra().is_none() || have.extra() == want.extra())
+impl fmt::Debug for Inventory<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
 }
 
 /// An inventory to change: a player's, an offline player's or a container block's, borrowed from
 /// the tick. Each write tells the clients that show the slot.
 pub struct Editor<'a> {
     pub(crate) target: Target<'a>,
+}
+
+impl fmt::Debug for Editor<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct("Editor");
+        match &self.target {
+            Target::Player(_, kind) => s.field("player", kind),
+            Target::Offline(_, kind) => s.field("offline", kind),
+            Target::Block(b) => s
+                .field("world", &b.world)
+                .field("pos", &b.pos)
+                .field("pair", &b.pair),
+        };
+        s.finish_non_exhaustive()
+    }
 }
 
 /// What an [`Editor`] writes to.
@@ -361,19 +365,13 @@ pub(crate) struct BlockSlots<'a> {
     pub(crate) max: u8,
 }
 
-impl fmt::Debug for Editor<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut s = f.debug_struct("Editor");
-        match &self.target {
-            Target::Player(_, kind) => s.field("player", kind),
-            Target::Offline(_, kind) => s.field("offline", kind),
-            Target::Block(b) => s
-                .field("world", &b.world)
-                .field("pos", &b.pos)
-                .field("pair", &b.pair),
-        };
-        s.finish_non_exhaustive()
-    }
+/// Whether `have` is `want`'s item for finding and taking: the same type and damage, and the
+/// same extra data when `want` has some (PMMP `Item::equals` with `checkTags` for a named tag).
+pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
+    have.item().is_some()
+        && have.item() == want.item()
+        && have.damage() == want.damage()
+        && (want.extra().is_none() || have.extra() == want.extra())
 }
 
 #[cfg(test)]
@@ -385,7 +383,14 @@ mod tests {
         Stack::new(kind.default_type(), count)
     }
 
-    // pmmp: BaseInventory, SimpleInventory, Inventory::getSize, SimpleInventory::getSize, DoubleChestInventory::getSize, Inventory::getItem, SimpleInventory::getItem, DoubleChestInventory::getItem, Inventory::slotExists, BaseInventory::slotExists, Inventory::isSlotEmpty, BaseInventory::isSlotEmpty, SimpleInventory::isSlotEmpty, DoubleChestInventory::isSlotEmpty, Inventory::getContents, SimpleInventory::getContents, DoubleChestInventory::getContents, Inventory::getMaxStackSize, BaseInventory::getMaxStackSize, CampfireInventory::getMaxStackSize, Inventory
+    // pmmp: BaseInventory, SimpleInventory, Inventory::getSize, SimpleInventory::getSize,
+    // pmmp: DoubleChestInventory::getSize, Inventory::getItem, SimpleInventory::getItem,
+    // pmmp: DoubleChestInventory::getItem, Inventory::slotExists, BaseInventory::slotExists,
+    // pmmp: Inventory::isSlotEmpty, BaseInventory::isSlotEmpty, SimpleInventory::isSlotEmpty,
+    // pmmp: DoubleChestInventory::isSlotEmpty, Inventory::getContents,
+    // pmmp: SimpleInventory::getContents, DoubleChestInventory::getContents,
+    // pmmp: Inventory::getMaxStackSize, BaseInventory::getMaxStackSize,
+    // pmmp: CampfireInventory::getMaxStackSize, Inventory
     #[test]
     fn a_view_reads_both_halves_in_order() {
         let left = [stack(ItemKind::Stick, 3), Stack::EMPTY];
@@ -400,7 +405,11 @@ mod tests {
         assert_eq!(format!("{inv:?}").matches("Stack").count(), 3);
     }
 
-    // pmmp: Inventory::contains, BaseInventory::contains, Inventory::first, BaseInventory::first, Inventory::firstEmpty, BaseInventory::firstEmpty, Inventory::all, BaseInventory::all, Inventory::getAddableItemQuantity, BaseInventory::getAddableItemQuantity, Inventory::canAddItem, BaseInventory::canAddItem
+    // pmmp: Inventory::contains, BaseInventory::contains, Inventory::first,
+    // pmmp: BaseInventory::first, Inventory::firstEmpty, BaseInventory::firstEmpty,
+    // pmmp: Inventory::all, BaseInventory::all, Inventory::getAddableItemQuantity,
+    // pmmp: BaseInventory::getAddableItemQuantity, Inventory::canAddItem,
+    // pmmp: BaseInventory::canAddItem
     #[test]
     fn finding_and_room_follow_pmmp() {
         let named = stack(ItemKind::Stick, 1)

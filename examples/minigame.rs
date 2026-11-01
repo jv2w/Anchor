@@ -128,8 +128,8 @@ impl Game {
             }
             Phase::Round(left) => {
                 let bar = BossBar::new(format!("Round {}: {left}s left", self.round))
-                    .progress(f32::from(left) / f32::from(ROUND_SECS))
-                    .colour(Colour::Red);
+                    .with_progress(f32::from(left) / f32::from(ROUND_SECS))
+                    .with_colour(Colour::Red);
                 for &id in &playing {
                     or_log(cx.set_boss_bar(id, bar.clone()));
                 }
@@ -159,8 +159,8 @@ impl Game {
             return Phase::Round(ROUND_SECS);
         }
         let bar = BossBar::new(format!("Starting in {left}s"))
-            .progress(f32::from(left) / f32::from(COUNTDOWN_SECS))
-            .colour(Colour::Green);
+            .with_progress(f32::from(left) / f32::from(COUNTDOWN_SECS))
+            .with_colour(Colour::Green);
         for &id in lobby {
             or_log(cx.set_boss_bar(id, bar.clone()));
             if let Some(player) = cx.player_mut(id) {

@@ -53,10 +53,6 @@ const RESPIRATION: u64 = random::tag("respiration");
 const THORNS: u64 = random::tag("thorns");
 const TOOL_WEAR: u64 = random::tag("tool-wear");
 
-/// The most a listener may set a hit's knockback force or its upward limit to, either way, in
-/// blocks per tick: the client applies the motion as sent, and a packet carries `f32`.
-const MAX_KNOCKBACK: f64 = 16.0;
-
 /// No modifier applies.
 const NO_MODIFIERS: Modifiers = [None; DamageModifier::ALL.len()];
 /// The modifiers [`finish`] works out from the player as it is when the hit applies.
@@ -267,8 +263,7 @@ impl Landed {
     /// is saved by one it took away (PMMP keeps the values from before its listeners). Unchanged,
     /// they are bit for bit what no listener gives. A listener that set one of those three
     /// itself, or changed a suicide, is followed as it left the event; the absorption modifier
-    /// can only use absorption up. The knockback is kept within [`MAX_KNOCKBACK`]: listener
-    /// values are external input.
+    /// can only use absorption up.
     fn change(&mut self, settings: &Settings, event: &mut EntityDamage, player: &Player) {
         let bits = |m: &Modifiers| m.map(|v| v.map(f64::to_bits));
         let (now, then) = (bits(&event.modifiers), bits(&self.modifiers));
@@ -313,12 +308,8 @@ impl Landed {
             );
             event.modifiers = self.modifiers;
         }
-        self.knockback = math::clamp(event.knockback, -MAX_KNOCKBACK, MAX_KNOCKBACK);
-        self.vertical_limit = math::clamp(
-            event.vertical_knockback_limit,
-            -MAX_KNOCKBACK,
-            MAX_KNOCKBACK,
-        );
+        self.knockback = event.knockback;
+        self.vertical_limit = event.vertical_knockback_limit;
         self.cooldown = event.attack_cooldown_ticks;
     }
 }

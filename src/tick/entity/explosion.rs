@@ -10,7 +10,7 @@
 //! of rays from the centre to points of their box no block stops). With `fire`, a third of the
 //! destroyed blocks become fire where the block under them is a full top.
 //!
-//! Bounds: the size is at most [`MAX_SIZE`], so the block rays of one explosion look at no more
+//! Bounds: the size is at most [`MAX_EXPLOSION_RADIUS`], so the block rays of one explosion look at no more
 //! than 1,352 × 47 cells (the exposure rays to each entity and player hit come on top); primed TNT
 //! and end crystals that died explode while the tick has done fewer than
 //! [`MAX_EXPLOSIONS_PER_TICK`] explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`] blocks,
@@ -38,6 +38,7 @@ use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
 use crate::event::{
     Actor, BlockExplode, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode,
+    MAX_EXPLOSION_RADIUS,
 };
 use crate::item::Enchantment;
 use crate::math::{self, Aabb, Vec3};
@@ -51,8 +52,6 @@ use crate::world::{self, BlockPos, Entry, MAX_Y, MIN_Y, World};
 const TNT_SIZE: f64 = 4.0;
 /// The size of an end crystal's explosion (PMMP `EndCrystal::explode`).
 const CRYSTAL_SIZE: f64 = 6.0;
-/// The largest explosion size taken; larger ones are cut to it (PMMP has no limit).
-const MAX_SIZE: f64 = 8.0;
 /// Explosions of primed TNT and end crystals per tick; the rest wait for the next tick.
 pub(super) const MAX_EXPLOSIONS_PER_TICK: usize = 64;
 /// Blocks the explosions of primed TNT and end crystals of one tick affect before the rest wait
@@ -75,7 +74,7 @@ const RAYS_RANDOM: u64 = random::tag("explosion-rays");
 /// runs).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::tick) struct Blast {
-    /// The size (radius), above 0; cut to [`MAX_SIZE`].
+    /// The size (radius), above 0; cut to [`MAX_EXPLOSION_RADIUS`].
     pub(in crate::tick) size: f64,
     /// The chance, 0 to 1, that a destroyed block catches fire.
     pub(in crate::tick) fire_chance: f64,
@@ -391,7 +390,7 @@ pub(super) fn explode_with(
     if !is_valid_explosion(center, blast.size) {
         return 0;
     }
-    let size = math::min(blast.size, MAX_SIZE);
+    let size = math::min(blast.size, MAX_EXPLOSION_RADIUS);
     let mut random = Random::new(
         w.seed(),
         state.tick,

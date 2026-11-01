@@ -1,6 +1,7 @@
 //! Actions on entities: a player's melee hit and an explosion, done through the game rules with
 //! their events (the entity rules do them, `tick::entity`).
 
+use super::Action;
 use crate::math::Vec3;
 use crate::{entity, player, world};
 
@@ -10,8 +11,8 @@ use crate::{entity, player, world};
 /// ([`EntityDamage`](crate::event::EntityDamage), [`EntityMotion`](crate::event::EntityMotion),
 /// [`EntityCombust`](crate::event::EntityCombust), [`EntityDeath`](crate::event::EntityDeath)).
 /// A painting or an end crystal is hit too; nothing happens for any other target that is not a
-/// living NPC. A player who cannot reach the target only swings, with the sound of a hit that did
-/// no damage.
+/// living NPC, nor for an attacker who is not in the game or not in the target's world. A player
+/// who cannot reach the target only swings, with the sound of a hit that did no damage.
 #[doc(alias = "Player::attackEntity")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Attack {
@@ -26,15 +27,15 @@ impl Attack {
     }
 }
 
-impl super::Action for Attack {}
+impl Action for Attack {}
 
 /// An explosion as the game makes one (PMMP `Explosion::explodeA` then `explodeB`): what
 /// [`Context::explode`](crate::Context::explode) does, with the events of the entities it hurts
 /// and pushes ([`EntityDamage`](crate::event::EntityDamage),
 /// [`EntityMotion`](crate::event::EntityMotion)). It has no source entity, so no
-/// [`EntityExplode`](crate::event::EntityExplode). Nothing happens for a world the server does
-/// not have, a centre that is not finite or outside the world border, or a size that is not
-/// above 0.
+/// [`EntityExplode`](crate::event::EntityExplode). Nothing happens for a world that is not
+/// loaded, a centre that is not finite or outside the world border, or a size that is not finite
+/// or not above 0.
 #[doc(alias = "Explosion::explodeA")]
 #[doc(alias = "Explosion::explodeB")]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,9 +61,9 @@ impl Explode {
     /// chance) where the block under them can hold fire.
     #[doc(alias = "Explosion::setFireChance")]
     #[must_use]
-    pub fn with_fire(self) -> Self {
+    pub fn fire(self) -> Self {
         Self { fire: true, ..self }
     }
 }
 
-impl super::Action for Explode {}
+impl Action for Explode {}

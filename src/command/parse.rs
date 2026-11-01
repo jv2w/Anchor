@@ -20,6 +20,8 @@ pub(crate) const MAX_LINE_BYTES: usize = 2048;
 pub(crate) const MAX_LINE_CHARS: usize = 512;
 /// The namespace item and block names may carry.
 pub(crate) const NAMESPACE: &str = "minecraft:";
+/// The characters of BDS's syntax error on each side of the word.
+pub(crate) const SYNTAX_CONTEXT: usize = 10;
 
 /// A word of a command line ([`split`]) and where it starts (its opening quote, if quoted).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,77 +32,15 @@ pub struct Word<'a> {
 }
 
 impl Word<'_> {
-    /// The word: a quoted one without its quotes, with `\"` and `\\` read as `"` and `\`.
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
     /// Whether it was in double quotes: such a word is never a selector (`@a`).
     pub fn is_quoted(&self) -> bool {
         matches!(self.text, Cow::Owned(_))
     }
-}
 
-/// Splits `line` into words as commands are split (PMMP `CommandStringHelper::parseQuoteAware`):
-/// whitespace separates words; a word that starts with `"` ends at the next `"` not escaped, and
-/// inside it `\"` and `\\` stand for `"` and `\`; a quote inside a word is kept as it is. Fails
-/// with [`Error::UnclosedQuote`] for an unclosed quote (PMMP would split the rest at spaces) and
-/// with [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
-/// A line within the bounds has at most 256 words.
-pub fn split(line: &str) -> Result<Vec<Word<'_>>> {
-    if line.len() > MAX_LINE_BYTES || line.chars().count() > MAX_LINE_CHARS {
-        return Err(Error::TooLong);
+    /// The word: a quoted one without its quotes, with `\"` and `\\` read as `"` and `\`.
+    pub fn text(&self) -> &str {
+        &self.text
     }
-    let mut words = Vec::new();
-    let mut chars = line.char_indices().peekable();
-    while let Some(&(start, c)) = chars.peek() {
-        if c.is_whitespace() {
-            chars.next();
-            continue;
-        }
-        if c == '"' {
-            chars.next();
-            let mut text = String::new();
-            let mut closed = false;
-            while let Some((_, c)) = chars.next() {
-                match c {
-                    '"' => {
-                        closed = true;
-                        break;
-                    }
-                    '\\' => match chars.peek() {
-                        Some(&(_, e @ ('"' | '\\'))) => {
-                            text.push(e);
-                            chars.next();
-                        }
-                        _ => text.push('\\'),
-                    },
-                    c => text.push(c),
-                }
-            }
-            if !closed {
-                return Err(Error::UnclosedQuote);
-            }
-            words.push(Word {
-                text: Cow::Owned(text),
-                start,
-            });
-        } else {
-            let mut end = line.len();
-            while let Some(&(i, c)) = chars.peek() {
-                if c.is_whitespace() {
-                    end = i;
-                    break;
-                }
-                chars.next();
-            }
-            words.push(Word {
-                text: Cow::Borrowed(line.get(start..end).unwrap_or_default()),
-                start,
-            });
-        }
-    }
-    Ok(words)
 }
 
 /// A target parameter as typed.
@@ -149,7 +89,7 @@ pub(crate) struct Names {
 }
 
 impl Names {
-    /// Builds the name tables.
+    /// The name tables of every effect, enchantment, item and block.
     pub(crate) fn new() -> Self {
         let mut effects: Vec<_> = effect::Type::all()
             .iter()
@@ -176,6 +116,41 @@ impl Names {
             enchantments,
             items,
         }
+    }
+
+    /// The effect named `name`.
+    pub(crate) fn effect(&self, name: &str) -> Option<effect::Type> {
+        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
+        let i = self
+            .effects
+            .binary_search_by(|(n, _)| n.as_str().cmp(name))
+            .ok()?;
+        self.effects.get(i).map(|(_, t)| *t)
+    }
+
+    /// The values of the client's `Effect` enum.
+    pub(crate) fn effect_names(&self) -> impl Iterator<Item = &str> {
+        self.effects.iter().map(|(n, _)| n.as_str())
+    }
+
+    /// The enchantment named `name`.
+    pub(crate) fn enchantment(&self, name: &str) -> Option<item::Enchantment> {
+        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
+        let i = self
+            .enchantments
+            .binary_search_by(|(n, _)| n.as_str().cmp(name))
+            .ok()?;
+        self.enchantments.get(i).map(|(_, e)| *e)
+    }
+
+    /// The values of the client's `Enchant` enum.
+    pub(crate) fn enchantment_names(&self) -> impl Iterator<Item = &str> {
+        self.enchantments.iter().map(|(n, _)| n.as_str())
+    }
+
+    /// The values of the client's `Item` enum.
+    pub(crate) fn item_names(&self) -> &[&'static str] {
+        &self.items
     }
 
     /// The item an item parameter names ([`Self::item`]), if the client offers that name (no
@@ -205,58 +180,77 @@ impl Names {
         let i = kinds.binary_search_by(|k| k.name().cmp(name)).ok()?;
         kinds.get(i).copied()
     }
-
-    /// The effect named `name`.
-    pub(crate) fn effect(&self, name: &str) -> Option<effect::Type> {
-        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
-        let i = self
-            .effects
-            .binary_search_by(|(n, _)| n.as_str().cmp(name))
-            .ok()?;
-        self.effects.get(i).map(|(_, t)| *t)
-    }
-
-    /// The enchantment named `name`.
-    pub(crate) fn enchantment(&self, name: &str) -> Option<item::Enchantment> {
-        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
-        let i = self
-            .enchantments
-            .binary_search_by(|(n, _)| n.as_str().cmp(name))
-            .ok()?;
-        self.enchantments.get(i).map(|(_, e)| *e)
-    }
-
-    /// The values of the client's `Item` enum.
-    pub(crate) fn item_names(&self) -> &[&'static str] {
-        &self.items
-    }
-
-    /// The values of the client's `Effect` enum.
-    pub(crate) fn effect_names(&self) -> impl Iterator<Item = &str> {
-        self.effects.iter().map(|(n, _)| n.as_str())
-    }
-
-    /// The values of the client's `Enchant` enum.
-    pub(crate) fn enchantment_names(&self) -> impl Iterator<Item = &str> {
-        self.enchantments.iter().map(|(n, _)| n.as_str())
-    }
 }
 
-/// `FireResistance` → `fire_resistance`: the snake-case name of a variant, which the generated
-/// tables name in their docs.
-fn snake_name(variant: &str) -> String {
-    let mut out = String::with_capacity(variant.len() + 4);
-    for (i, c) in variant.chars().enumerate() {
-        if c.is_ascii_uppercase() {
-            if i > 0 {
-                out.push('_');
+/// Splits `line` into words as commands are split (PMMP `CommandStringHelper::parseQuoteAware`):
+/// whitespace separates words; a word that starts with `"` ends at the next `"` not escaped, and
+/// inside it `\"` and `\\` stand for `"` and `\`; a quote inside a word is kept as it is. Fails
+/// with [`Error::UnclosedQuote`] for an unclosed quote (PMMP would split the rest at spaces) and
+/// with [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
+/// A line within the bounds has at most 256 words.
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "invariant: `start` and `end` are character boundaries of `line`"
+)]
+pub fn split(line: &str) -> Result<Vec<Word<'_>>> {
+    if line.len() > MAX_LINE_BYTES || line.chars().count() > MAX_LINE_CHARS {
+        return Err(Error::TooLong);
+    }
+    let mut words = Vec::new();
+    let mut chars = line.char_indices().peekable();
+    while let Some(&(start, c)) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        if c == '"' {
+            chars.next();
+            let mut text = String::new();
+            let mut closed = false;
+            while let Some((_, c)) = chars.next() {
+                match c {
+                    '"' => {
+                        closed = true;
+                        break;
+                    }
+                    '\\' => match chars.peek() {
+                        Some(&(_, e @ ('"' | '\\'))) => {
+                            text.push(e);
+                            chars.next();
+                        }
+                        _ => text.push('\\'),
+                    },
+                    c => text.push(c),
+                }
             }
-            out.push(c.to_ascii_lowercase());
+            if !closed {
+                return Err(Error::UnclosedQuote);
+            }
+            words.push(Word {
+                text: Cow::Owned(text),
+                start,
+            });
         } else {
-            out.push(c);
+            let mut end = line.len();
+            while let Some(&(i, c)) = chars.peek() {
+                if c.is_whitespace() {
+                    end = i;
+                    break;
+                }
+                chars.next();
+            }
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: `start` and `end` are character boundaries of `line`"
+            )]
+            let text = line.get(start..end).expect("a word lies inside its line");
+            words.push(Word {
+                text: Cow::Borrowed(text),
+                start,
+            });
         }
     }
-    out
+    Ok(words)
 }
 
 /// Fits `words` (of `line`) to `params`: one argument per parameter given, in order, or the
@@ -323,13 +317,13 @@ pub(crate) fn fit(
                 Raw::Position(coords)
             }
             Kind::Message | Kind::RawText => {
-                let rest = line.get(word.start..).unwrap_or_default().trim_end();
+                let rest = rest_from(line, word.start).trim_end();
                 i = words.len();
                 out.push(Raw::Value(Value::Text(rest.to_owned())));
                 continue;
             }
             Kind::Json => {
-                let rest = line.get(word.start..).unwrap_or_default();
+                let rest = rest_from(line, word.start);
                 let json_len = json_end(rest).ok_or(bad)?;
                 let json = rest.get(..json_len).ok_or(bad)?;
                 let after = word.start.checked_add(json_len).ok_or(bad)?;
@@ -371,9 +365,6 @@ pub(crate) fn fit(
     }
 }
 
-/// The characters of BDS's syntax error on each side of the word.
-const SYNTAX_CONTEXT: usize = 10;
-
 /// BDS's syntax error for `line` (without its `/`) that stops fitting at byte `at` ([`fit`]):
 /// the word there, with up to [`SYNTAX_CONTEXT`] characters of `/` and the line before and after
 /// it (P6 `syntax`, `xtask/data/p6/facts.md`).
@@ -390,16 +381,6 @@ pub(crate) fn syntax_error(line: &str, at: usize) -> Error {
         word: word.to_owned(),
         after: rest.chars().take(SYNTAX_CONTEXT).collect(),
     }
-}
-
-/// A finite number (no `NaN`, no infinity: the tick holds none).
-fn number(text: &str) -> Option<f64> {
-    let v: f64 = text.parse().ok()?;
-    // `parse` takes "inf" and "NaN"; only digits, signs, a point and an exponent pass.
-    let plain = text
-        .chars()
-        .all(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'));
-    (plain && v.is_finite()).then_some(v)
 }
 
 /// A target word: `@s`, `@a`, `@p`, `@r` or a name. Other selectors and selector arguments do
@@ -437,11 +418,47 @@ fn coord(word: &Word<'_>) -> Option<Coord> {
     }
 }
 
+/// A finite number (no `NaN`, no infinity: the tick holds none).
+fn number(text: &str) -> Option<f64> {
+    let v: f64 = text.parse().ok()?;
+    // `parse` takes "inf" and "NaN"; only digits, signs, a point and an exponent pass.
+    let plain = text
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'));
+    (plain && v.is_finite()).then_some(v)
+}
+
 /// The length of the JSON value `text` starts with; `None` if it does not start with one.
 fn json_end(text: &str) -> Option<usize> {
     let mut values = serde_json::Deserializer::from_str(text).into_iter::<IgnoredAny>();
     values.next()?.ok()?;
     Some(values.byte_offset())
+}
+
+/// The part of `line` from the byte `start` on, where one of its words starts.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a word starts on a character boundary of its line"
+)]
+fn rest_from(line: &str, start: usize) -> &str {
+    line.get(start..).expect("a word starts inside its line")
+}
+
+/// `FireResistance` → `fire_resistance`: the snake-case name of a variant, which the generated
+/// tables name in their docs.
+fn snake_name(variant: &str) -> String {
+    let mut out = String::with_capacity(variant.len() + 4);
+    for (i, c) in variant.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

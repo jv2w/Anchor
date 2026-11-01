@@ -12,8 +12,8 @@
 //! const HEAL: Permission = Permission::new("lobby.heal", Default::Op);
 //! let heal = Command::new("heal", "Heals players")
 //!     .permission(HEAL)
-//!     .overload(&[Param::target("player").optional()], |cx, sender, args| {
-//!         let _ = (cx, sender, args.targets("player"));
+//!     .overload(&[Param::target("player").optional()], |ctx, sender, args| {
+//!         let _ = (ctx, sender, args.targets("player"));
 //!         Ok(Output::from("Healed"))
 //!     });
 //! # let _ = heal;
@@ -44,35 +44,39 @@ use crate::permission::Permission;
 use crate::player;
 use crate::tick::Context;
 
+/// The enum type name of [`Param::block`]: what the client shows and the usage writes (BDS).
+pub(crate) const BLOCK_ENUM: &str = "Block";
+/// The enum type name of [`Param::bool`]: what the client shows and the usage writes (BDS).
+pub(crate) const BOOLEAN_ENUM: &str = "Boolean";
+/// The enum type name of [`Param::effect`]: what the client shows and the usage writes (BDS).
+pub(crate) const EFFECT_ENUM: &str = "Effect";
+/// The enum type name of [`Param::enchantment`]: what the client shows and the usage writes
+/// (BDS).
+pub(crate) const ENCHANT_ENUM: &str = "Enchant";
+/// The enum type name of [`Param::item`]: what the client shows and the usage writes (BDS).
+pub(crate) const ITEM_ENUM: &str = "Item";
+/// The most values one enum parameter offers.
+pub(crate) const MAX_ENUM_VALUES: usize = 4096;
+/// The longest command name or alias, in bytes.
+pub(crate) const MAX_NAME: usize = 64;
 /// The most overloads one command has.
 pub(crate) const MAX_OVERLOADS: usize = 64;
 /// The most parameters one overload has.
 pub(crate) const MAX_PARAMS: usize = 32;
-/// The longest command name or alias, in bytes.
-pub(crate) const MAX_NAME: usize = 64;
-/// The most values one enum parameter offers.
-pub(crate) const MAX_ENUM_VALUES: usize = 4096;
 /// The most permissions one command names.
 pub(crate) const MAX_PERMISSIONS: usize = 16;
-/// The client's "unknown command" text, filled with the name typed (BDS).
-const UNKNOWN: &str = "commands.generic.unknown";
 /// The client's "no permission" text, filled with the command's name (BDS).
 const NO_PERMISSION: &str = "commands.generic.error.permissions";
-/// The client's "usage" text, filled with the usage.
-const USAGE: &str = "commands.generic.usage";
-/// The client's text for a line that does not fit a command: before, the word, after (BDS).
-const SYNTAX: &str = "commands.generic.syntax";
-/// The client's "player not found" text.
-const PLAYER_NOT_FOUND: &str = "commands.generic.player.notFound";
 /// The client's "no targets matched" text.
 const NO_TARGETS: &str = "commands.generic.noTargetMatch";
-/// The enum type names of [`Param::bool`], [`Param::item`], [`Param::block`],
-/// [`Param::effect`] and [`Param::enchantment`]: what the client shows and the usage writes (BDS).
-pub(crate) const BOOLEAN_ENUM: &str = "Boolean";
-pub(crate) const ITEM_ENUM: &str = "Item";
-pub(crate) const BLOCK_ENUM: &str = "Block";
-pub(crate) const EFFECT_ENUM: &str = "Effect";
-pub(crate) const ENCHANT_ENUM: &str = "Enchant";
+/// The client's "player not found" text.
+const PLAYER_NOT_FOUND: &str = "commands.generic.player.notFound";
+/// The client's text for a line that does not fit a command: before, the word, after (BDS).
+const SYNTAX: &str = "commands.generic.syntax";
+/// The client's "unknown command" text, filled with the name typed (BDS).
+const UNKNOWN: &str = "commands.generic.unknown";
+/// The client's "usage" text, filled with the usage.
+const USAGE: &str = "commands.generic.usage";
 
 /// What runs a command: it gets the game, who sent the command and the parsed arguments, and
 /// returns what the sender sees.
@@ -91,13 +95,6 @@ pub struct Command {
     pub(crate) overloads: Vec<Overload>,
 }
 
-/// One way to call a command: its parameters and its handler. The handler is taken out while it
-/// runs, so a command that dispatches itself again finds it missing.
-pub(crate) struct Overload {
-    pub(crate) params: Vec<Param>,
-    pub(crate) handler: Option<Handler>,
-}
-
 impl Command {
     /// A command named `name` (ASCII case does not matter; Bedrock shows it in lowercase) with
     /// `description` shown in the client's command list. Without a [`permission`](Self::permission)
@@ -114,34 +111,20 @@ impl Command {
         }
     }
 
+    /// The command with `usage` as the usage `/help` shows and an [`Error::Usage`] carries, such
+    /// as `/heal [player]`. Without it the usage is made from the overloads.
+    #[doc(alias = "Command::setUsage")]
+    #[must_use]
+    pub fn with_usage(mut self, usage: impl Into<String>) -> Self {
+        self.usage = Some(usage.into());
+        self
+    }
+
     /// Adds another name for the command.
     #[doc(alias = "Command::setAliases")]
     #[must_use]
     pub fn alias(mut self, alias: impl Into<String>) -> Self {
         self.aliases.push(alias.into().to_ascii_lowercase());
-        self
-    }
-
-    /// Lets only senders with `permission` use the command (and see it in their command list).
-    /// Called again, it adds another: a sender needs any one of them (PMMP `setPermissions`), and
-    /// the handler checks which one an argument needs, such as `/give`'s permissions for giving
-    /// oneself and others. A command names at most 16.
-    #[doc(alias = "Command::setPermission")]
-    #[doc(alias = "Command::setPermissions")]
-    #[must_use]
-    pub fn permission(mut self, permission: Permission) -> Self {
-        if !self.permissions.contains(&permission) {
-            self.permissions.push(permission);
-        }
-        self
-    }
-
-    /// The usage `/help` shows and an [`Error::Usage`] carries, such as `/heal [player]`. Without
-    /// it the usage is made from the overloads.
-    #[doc(alias = "Command::setUsage")]
-    #[must_use]
-    pub fn usage(mut self, usage: impl Into<String>) -> Self {
-        self.usage = Some(usage.into());
         self
     }
 
@@ -162,10 +145,24 @@ impl Command {
         self
     }
 
-    /// The name.
-    #[doc(alias = "Command::getName")]
-    pub fn name(&self) -> &str {
-        &self.name
+    /// Lets only senders with `permission` use the command (and see it in their command list).
+    /// Called again, it adds another: a sender needs any one of them (PMMP `setPermissions`), and
+    /// the handler checks which one an argument needs, such as `/give`'s permissions for giving
+    /// oneself and others. A command names at most 16.
+    #[doc(alias = "Command::setPermission")]
+    #[doc(alias = "Command::setPermissions")]
+    #[must_use]
+    pub fn permission(mut self, permission: Permission) -> Self {
+        if !self.permissions.contains(&permission) {
+            self.permissions.push(permission);
+        }
+        self
+    }
+
+    /// The other names.
+    #[doc(alias = "Command::getAliases")]
+    pub fn aliases(&self) -> &[String] {
+        &self.aliases
     }
 
     /// The description.
@@ -174,10 +171,10 @@ impl Command {
         &self.description
     }
 
-    /// The other names.
-    #[doc(alias = "Command::getAliases")]
-    pub fn aliases(&self) -> &[String] {
-        &self.aliases
+    /// The name.
+    #[doc(alias = "Command::getName")]
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The permissions a sender needs one of; empty if everyone may use the command.
@@ -225,6 +222,13 @@ impl fmt::Debug for Command {
     }
 }
 
+/// One way to call a command: its parameters and its handler. The handler is taken out while it
+/// runs, so a command that dispatches itself again finds it missing.
+pub(crate) struct Overload {
+    pub(crate) params: Vec<Param>,
+    pub(crate) handler: Option<Handler>,
+}
+
 /// A parameter of an overload: its name, what it takes and whether it may be left out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
@@ -233,69 +237,10 @@ pub struct Param {
     pub(crate) optional: bool,
 }
 
-/// What a parameter takes; each is a Bedrock `AvailableCommands` argument type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Kind {
-    /// A 32-bit whole number.
-    Int,
-    /// A finite number.
-    Float,
-    /// One word, or words in quotes.
-    String,
-    /// `true` or `false`.
-    Bool,
-    /// Players: a name or `@s`, `@a`, `@p`, `@r`.
-    Target,
-    /// A player's name, online or not; a target for the client.
-    Name,
-    /// A 32-bit whole number with `suffix` after it, such as `10L`.
-    Suffixed { suffix: String },
-    /// Three coordinates, each a number, `~` or `~` and a number.
-    Position,
-    /// The rest of the line, as a chat message.
-    Message,
-    /// The rest of the line, as typed.
-    RawText,
-    /// One JSON value.
-    Json,
-    /// One of fixed words; `name` is the type the client shows.
-    Enum { name: String, values: Vec<String> },
-    /// Any word; the client suggests the values the server last set for the type `name`.
-    SoftEnum { name: String },
-    /// Any word, as a time marker of a world clock such as `noon` (BDS's `/time set`).
-    ClockTimeMarker,
-    /// An item name.
-    Item,
-    /// A block name.
-    Block,
-    /// An effect name.
-    Effect,
-    /// An enchantment name.
-    Enchantment,
-}
-
 impl Param {
-    fn new(name: impl Into<String>, kind: Kind) -> Self {
-        Self {
-            name: name.into(),
-            kind,
-            optional: false,
-        }
-    }
-
-    /// A 32-bit whole number ([`Args::int`]).
-    pub fn int(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Int)
-    }
-
-    /// A finite number ([`Args::float`]).
-    pub fn float(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Float)
-    }
-
-    /// One word, or words in double quotes ([`Args::string`]).
-    pub fn string(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::String)
+    /// A block name such as `oak_planks` ([`Args::block`]).
+    pub fn block(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Block)
     }
 
     /// `true` or `false` ([`Args::bool`]).
@@ -303,52 +248,26 @@ impl Param {
         Self::new(name, Kind::Bool)
     }
 
-    /// Online players ([`Args::targets`]): a player's name (ASCII case does not matter), `@s`
-    /// (the sender), `@a` (everyone), `@p` (the nearest to the sender in its world) or `@r` (one
-    /// at random). Selector arguments (`@a[...]`) are not supported.
-    pub fn target(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Target)
+    /// One word as typed ([`Args::string`]): a time marker of a world clock, which the handler
+    /// looks up (BDS's `ClockTimeMarker`).
+    pub(crate) fn clock_time_marker(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::ClockTimeMarker)
     }
 
-    /// A player's name, online or not, as typed ([`Args::string`]), for commands on players who
-    /// may be offline, such as `/op` and `/ban`. The client offers it as a target (online
-    /// players); a selector (`@a`) does not fit.
-    pub fn player_name(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Name)
+    /// An effect name such as `speed` ([`Args::effect`]).
+    pub fn effect(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Effect)
     }
 
-    /// A 32-bit whole number with `suffix` right after it ([`Args::int`]), such as `/xp`'s `10L`
-    /// with the suffix `l` (ASCII case does not matter). A suffix other than 1 to 64 ASCII letters
-    /// refuses the build ([`Error::InvalidOverload`]).
-    pub fn suffixed_int(name: impl Into<String>, suffix: &str) -> Self {
-        Self::new(
-            name,
-            Kind::Suffixed {
-                suffix: suffix.to_ascii_lowercase(),
-            },
-        )
+    /// An enchantment name such as `sharpness` ([`Args::enchantment`]).
+    pub fn enchantment(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Enchantment)
     }
 
-    /// A position ([`Args::position`]): three coordinates, each a number, or `~` and an optional
-    /// number for one relative to the sender's feet (the default world's spawn for the console).
-    /// Local coordinates (`^`) are not supported.
-    pub fn position(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Position)
-    }
-
-    /// The rest of the line as a chat message ([`Args::string`]); the last parameter.
-    pub fn message(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Message)
-    }
-
-    /// The rest of the line as typed ([`Args::string`]); the last parameter.
-    pub fn raw_text(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::RawText)
-    }
-
-    /// One JSON value, which may hold spaces ([`Args::string`] gives its text).
-    pub fn json(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Json)
+    /// The word `word` itself, as in `/whitelist add <player>`: an enum of one value named
+    /// after it.
+    pub fn literal(word: &str) -> Self {
+        Self::enumeration(word, word, &[word])
     }
 
     /// One of `values` ([`Args::string`] gives the value as listed, whatever ASCII case was
@@ -356,11 +275,11 @@ impl Param {
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
     /// [`Error::ConflictingEnum`]. Anchor's own commands use BDS's names and values: `Boolean`,
     /// `Item`, `Block`, `Effect`, `Enchant`, `GameMode`, `Difficulty`, `ClearEffects`,
-    /// `AddInfiniteEffect`, `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`, `TimeModeSet`,
-    /// `TimeModeQuery`, `TimeModePause`, `TimeModeResume`, `TimeOfCommand`, `TimeMarkerOccurrence`,
-    /// `TimeQuery2`, `ClockTimeQuery` and `<name>CommandAliases` for a command with aliases, and
-    /// Anchor's `BanListType`, `WhitelistAction`, `WhitelistEdit` and `ParticleName`, unless the
-    /// user replaces or drops the command.
+    /// `AddInfiniteEffect`, `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`,
+    /// `TimeModeSet`, `TimeModeQuery`, `TimeModePause`, `TimeModeResume`, `TimeOfCommand`,
+    /// `TimeMarkerOccurrence`, `TimeQuery2`, `ClockTimeQuery` and `<name>CommandAliases` for a
+    /// command with aliases, and Anchor's `BanListType`, `WhitelistAction`, `WhitelistEdit` and
+    /// `ParticleName`, unless the user replaces or drops the command.
     /// `CommandName` is the client's list of command names: no parameter may take it.
     pub fn enumeration(
         name: impl Into<String>,
@@ -374,6 +293,50 @@ impl Param {
                 values: values.iter().map(|v| (*v).to_owned()).collect(),
             },
         )
+    }
+
+    /// A finite number ([`Args::float`]).
+    pub fn float(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Float)
+    }
+
+    /// A 32-bit whole number ([`Args::int`]).
+    pub fn int(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Int)
+    }
+
+    /// An item name such as `diamond_sword` or `minecraft:stone` ([`Args::item`]).
+    pub fn item(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Item)
+    }
+
+    /// One JSON value, which may hold spaces ([`Args::string`] gives its text).
+    pub fn json(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Json)
+    }
+
+    /// The rest of the line as a chat message ([`Args::string`]); the last parameter.
+    pub fn message(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Message)
+    }
+
+    /// A player's name, online or not, as typed ([`Args::string`]), for commands on players who
+    /// may be offline, such as `/op` and `/ban`. The client offers it as a target (online
+    /// players); a selector (`@a`) does not fit.
+    pub fn player_name(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Name)
+    }
+
+    /// A position ([`Args::position`]): three coordinates, each a number, or `~` and an optional
+    /// number for one relative to the sender's feet (the default world's spawn for the console).
+    /// Local coordinates (`^`) are not supported.
+    pub fn position(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Position)
+    }
+
+    /// The rest of the line as typed ([`Args::string`]); the last parameter.
+    pub fn raw_text(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::RawText)
     }
 
     /// One word, or words in double quotes, as typed ([`Args::string`]); the client suggests the
@@ -392,36 +355,28 @@ impl Param {
         )
     }
 
-    /// One word as typed ([`Args::string`]): a time marker of a world clock, which the handler
-    /// looks up (BDS's `ClockTimeMarker`).
-    pub(crate) fn clock_time_marker(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::ClockTimeMarker)
+    /// One word, or words in double quotes ([`Args::string`]).
+    pub fn string(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::String)
     }
 
-    /// The word `word` itself, as in `/whitelist add <player>`: an enum of one value named
-    /// after it.
-    pub fn literal(word: &str) -> Self {
-        Self::enumeration(word, word, &[word])
+    /// A 32-bit whole number with `suffix` right after it ([`Args::int`]), such as `/xp`'s `10L`
+    /// with the suffix `l` (ASCII case does not matter). A suffix other than 1 to 64 ASCII letters
+    /// refuses the build ([`Error::InvalidOverload`]).
+    pub fn suffixed_int(name: impl Into<String>, suffix: &str) -> Self {
+        Self::new(
+            name,
+            Kind::Suffixed {
+                suffix: suffix.to_ascii_lowercase(),
+            },
+        )
     }
 
-    /// An item name such as `diamond_sword` or `minecraft:stone` ([`Args::item`]).
-    pub fn item(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Item)
-    }
-
-    /// A block name such as `oak_planks` ([`Args::block`]).
-    pub fn block(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Block)
-    }
-
-    /// An effect name such as `speed` ([`Args::effect`]).
-    pub fn effect(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Effect)
-    }
-
-    /// An enchantment name such as `sharpness` ([`Args::enchantment`]).
-    pub fn enchantment(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::Enchantment)
+    /// Online players ([`Args::targets`]): a player's name (ASCII case does not matter), `@s`
+    /// (the sender), `@a` (everyone), `@p` (the nearest to the sender in its world) or `@r` (one
+    /// at random). Selector arguments (`@a[...]`) are not supported.
+    pub fn target(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Target)
     }
 
     /// The parameter, but one a line may leave out (only at the end).
@@ -431,19 +386,27 @@ impl Param {
         self
     }
 
-    /// The name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     /// Whether a line may leave it out.
     pub fn is_optional(&self) -> bool {
         self.optional
     }
 
+    /// The name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Whether it takes the rest of the line.
     pub(crate) fn takes_rest(&self) -> bool {
         matches!(self.kind, Kind::Message | Kind::RawText)
+    }
+
+    fn new(name: impl Into<String>, kind: Kind) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            optional: false,
+        }
     }
 
     /// `<name: type>`, or `[name: type]` when optional.
@@ -487,6 +450,47 @@ impl Param {
     }
 }
 
+/// What a parameter takes; each is a Bedrock `AvailableCommands` argument type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// A 32-bit whole number.
+    Int,
+    /// A finite number.
+    Float,
+    /// One word, or words in quotes.
+    String,
+    /// `true` or `false`.
+    Bool,
+    /// Players: a name or `@s`, `@a`, `@p`, `@r`.
+    Target,
+    /// A player's name, online or not; a target for the client.
+    Name,
+    /// A 32-bit whole number with `suffix` after it, such as `10L`.
+    Suffixed { suffix: String },
+    /// Three coordinates, each a number, `~` or `~` and a number.
+    Position,
+    /// The rest of the line, as a chat message.
+    Message,
+    /// The rest of the line, as typed.
+    RawText,
+    /// One JSON value.
+    Json,
+    /// One of fixed words; `name` is the type the client shows.
+    Enum { name: String, values: Vec<String> },
+    /// Any word; the client suggests the values the server last set for the type `name`.
+    SoftEnum { name: String },
+    /// Any word, as a time marker of a world clock such as `noon` (BDS's `/time set`).
+    ClockTimeMarker,
+    /// An item name.
+    Item,
+    /// A block name.
+    Block,
+    /// An effect name.
+    Effect,
+    /// An enchantment name.
+    Enchantment,
+}
+
 /// Who sent a command.
 #[doc(alias = "CommandSender")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -501,59 +505,17 @@ pub enum Sender {
 /// The arguments of the overload that ran, by parameter name. A getter gives `None` for a name
 /// the overload does not have, for a parameter of another kind, and for an optional parameter
 /// the line left out.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Args {
     /// In parameter order; at most [`MAX_PARAMS`], so a lookup looks at a few entries.
     pub(crate) values: Vec<(String, Value)>,
 }
 
-/// A parsed argument.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Value {
-    Int(i32),
-    Float(f64),
-    Text(String),
-    Bool(bool),
-    Targets(Vec<player::Id>),
-    Position(Vec3),
-    Item(item::Type),
-    Block(block::Kind),
-    Effect(effect::Type),
-    Enchantment(item::Enchantment),
-}
-
 impl Args {
-    fn get(&self, name: &str) -> Option<&Value> {
-        self.values.iter().find(|(n, _)| n == name).map(|(_, v)| v)
-    }
-
-    /// Whether the line gave the parameter `name`.
-    pub fn has(&self, name: &str) -> bool {
-        self.get(name).is_some()
-    }
-
-    /// A [`Param::int`] or [`Param::suffixed_int`] (its number).
-    pub fn int(&self, name: &str) -> Option<i32> {
+    /// A [`Param::block`].
+    pub fn block(&self, name: &str) -> Option<block::Kind> {
         match self.get(name)? {
-            Value::Int(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// A [`Param::float`].
-    pub fn float(&self, name: &str) -> Option<f64> {
-        match self.get(name)? {
-            Value::Float(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// The text of a [`Param::string`], [`player_name`](Param::player_name),
-    /// [`message`](Param::message), [`raw_text`](Param::raw_text), [`json`](Param::json) or
-    /// [`enumeration`](Param::enumeration).
-    pub fn string(&self, name: &str) -> Option<&str> {
-        match self.get(name)? {
-            Value::Text(v) => Some(v),
+            Value::Block(v) => Some(*v),
             _ => None,
         }
     }
@@ -562,38 +524,6 @@ impl Args {
     pub fn bool(&self, name: &str) -> Option<bool> {
         match self.get(name)? {
             Value::Bool(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// The players a [`Param::target`] named, at least one, in player order.
-    pub fn targets(&self, name: &str) -> Option<&[player::Id]> {
-        match self.get(name)? {
-            Value::Targets(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// A [`Param::position`], relative coordinates resolved, finite.
-    pub fn position(&self, name: &str) -> Option<Vec3> {
-        match self.get(name)? {
-            Value::Position(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// A [`Param::item`].
-    pub fn item(&self, name: &str) -> Option<item::Type> {
-        match self.get(name)? {
-            Value::Item(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// A [`Param::block`].
-    pub fn block(&self, name: &str) -> Option<block::Kind> {
-        match self.get(name)? {
-            Value::Block(v) => Some(*v),
             _ => None,
         }
     }
@@ -613,20 +543,88 @@ impl Args {
             _ => None,
         }
     }
+
+    /// A [`Param::float`].
+    pub fn float(&self, name: &str) -> Option<f64> {
+        match self.get(name)? {
+            Value::Float(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Whether the line gave the parameter `name`.
+    pub fn has(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    /// A [`Param::int`] or [`Param::suffixed_int`] (its number).
+    pub fn int(&self, name: &str) -> Option<i32> {
+        match self.get(name)? {
+            Value::Int(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// A [`Param::item`].
+    pub fn item(&self, name: &str) -> Option<item::Type> {
+        match self.get(name)? {
+            Value::Item(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// A [`Param::position`], relative coordinates resolved, finite.
+    pub fn position(&self, name: &str) -> Option<Vec3> {
+        match self.get(name)? {
+            Value::Position(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// The text of a [`Param::string`], [`player_name`](Param::player_name),
+    /// [`message`](Param::message), [`raw_text`](Param::raw_text), [`json`](Param::json),
+    /// [`enumeration`](Param::enumeration) or
+    /// [`soft_enumeration`](Param::soft_enumeration).
+    pub fn string(&self, name: &str) -> Option<&str> {
+        match self.get(name)? {
+            Value::Text(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// The players a [`Param::target`] named, at least one, in player order.
+    pub fn targets(&self, name: &str) -> Option<&[player::Id]> {
+        match self.get(name)? {
+            Value::Targets(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<&Value> {
+        self.values.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+}
+
+/// A parsed argument.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Value {
+    Int(i32),
+    Float(f64),
+    Text(String),
+    Bool(bool),
+    Targets(Vec<player::Id>),
+    Position(Vec3),
+    Item(item::Type),
+    Block(block::Kind),
+    Effect(effect::Type),
+    Enchantment(item::Enchantment),
 }
 
 /// What a command shows its sender when it succeeds: lines of text, each plain or a translation
 /// key the client fills with parameters (like `commands.give.success`). Empty shows nothing.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Output {
     pub(crate) lines: Vec<Line>,
-}
-
-/// One line of output or an error message: text or a translation key, and its parameters.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Line {
-    pub(crate) text: String,
-    pub(crate) params: Vec<String>,
 }
 
 impl Output {
@@ -646,7 +644,8 @@ impl Output {
     }
 
     /// The output with another line: the client's translation of `key` filled with `params`.
-    /// The console log shows the key and the parameters.
+    /// The console log shows Anchor's sentence for a key it knows, otherwise the text with the
+    /// parameters after it.
     #[must_use]
     pub fn translated(mut self, key: impl Into<String>, params: &[&str]) -> Self {
         self.lines.push(Line {
@@ -672,6 +671,13 @@ impl From<String> for Output {
     fn from(text: String) -> Self {
         Self::new().line(text)
     }
+}
+
+/// One line of output or an error message: text or a translation key, and its parameters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Line {
+    pub(crate) text: String,
+    pub(crate) params: Vec<String>,
 }
 
 /// Why a command did not run or failed, or why the commands registered on a
@@ -779,9 +785,6 @@ pub enum Error {
         name: String,
     },
 }
-
-/// A result with the command [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl Error {
     /// A failure showing `message` to the sender.
@@ -904,9 +907,14 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A result with the command [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use super::parse::{MAX_LINE_BYTES, MAX_LINE_CHARS, SYNTAX_CONTEXT};
     use crate::protocol::COMMAND_DESCRIPTION_MAX_LEN;
 
     #[test]
@@ -914,6 +922,11 @@ mod tests {
         let source = include_str!("command.rs");
         let max = COMMAND_DESCRIPTION_MAX_LEN;
         let description = format!("{},{:03} bytes", max / 1000, max % 1000);
+        let line_bytes = format!(
+            "{},{:03} bytes",
+            MAX_LINE_BYTES / 1000,
+            MAX_LINE_BYTES % 1000
+        );
         for text in [
             format!("than {description}, the server refuses to build"),
             format!("longer than a client takes ({description})"),
@@ -921,6 +934,10 @@ mod tests {
             format!("/// more than {MAX_PERMISSIONS} permissions."),
             format!("A suffix other than 1 to {MAX_NAME} ASCII letters"),
             format!("too long ({MAX_NAME} bytes)"),
+            format!("longer than {MAX_LINE_CHARS} characters or {line_bytes}"),
+            format!("with up to {SYNTAX_CONTEXT} characters of the line"),
+            format!("Up to {SYNTAX_CONTEXT} characters before the word"),
+            format!("Up to {SYNTAX_CONTEXT} characters after the word"),
         ] {
             assert!(source.contains(&text), "{text}");
         }

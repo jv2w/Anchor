@@ -560,7 +560,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
     );
     assert_eq!(cx.permissions().count(), permission::BUILTIN.len() + 1);
     let custom = Command::new("x", "")
-        .usage("/x thing")
+        .with_usage("/x thing")
         .overload(&[Param::int("n")], |_, _, _| Ok(Output::new()));
     assert_eq!(custom.usage_text(), "/x thing");
     // Broken registrations fail the build with the first error.

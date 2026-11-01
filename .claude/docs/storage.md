@@ -177,7 +177,7 @@ A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integ
 
 ## World import
 
-`Server::import_world(folder, name)` imports a Bedrock (LevelDB) world folder into a new file `data/worlds/<name>.redb`, before `run`.
+`Server::import_world(name, folder)` imports a Bedrock (LevelDB) world folder into a new file `data/worlds/<name>.redb`, before `run`.
 
 - A server program run as `<program> import <world folder> [name]` does this import from `Server::run` without starting the server (the default world, `level-name`, without a name). It uses the worlds, generators and custom content the program registered. It writes nothing but the new world file, so a server may be running; that server knows the world from its next start.
 - Import into a running server only under a name that server does not use: if it makes a world of the same name with `create_world` meanwhile, both use one file.

@@ -9,27 +9,30 @@
 //! use anchor::display::{BossBar, Colour, Scoreboard, Slot};
 //! use anchor::player;
 //!
-//! fn show(cx: &mut Context<'_>, player: player::Id, online: i32) {
+//! fn show(ctx: &mut Context<'_>, player: player::Id, online: i32) {
 //!     let board = Scoreboard::new(Slot::Sidebar, "Lobby")
 //!         .line("Online:", 0)
 //!         .line(format!("{online} players"), 1);
-//!     let _ = cx.set_scoreboard(player, board);
-//!     let _ = cx.set_boss_bar(player, BossBar::new("Next game").progress(0.5).colour(Colour::Blue));
+//!     let _ = ctx.set_scoreboard(player, board);
+//!     let bar = BossBar::new("Next game")
+//!         .with_progress(0.5)
+//!         .with_colour(Colour::Blue);
+//!     let _ = ctx.set_boss_bar(player, bar);
 //! }
 //! ```
-
-use std::fmt;
 
 pub use crate::protocol::consts::{
     BossEventColour as Colour, ScoreboardSlot as Slot, ScoreboardSortOrder as Sort,
 };
 
+use std::fmt;
+
 use crate::player;
 
-/// The most lines of a sidebar: the client shows no more.
-pub(crate) const MAX_SIDEBAR_LINES: usize = 15;
 /// The most lines of a list or below-name scoreboard: the protocol's list bound.
 pub(crate) const MAX_LINES: usize = crate::protocol::MAX_LIST_LEN;
+/// The most lines of a sidebar: the client shows no more.
+pub(crate) const MAX_SIDEBAR_LINES: usize = 15;
 /// The longest title or line text, in bytes.
 pub(crate) const MAX_TEXT: usize = 1024;
 
@@ -47,20 +50,6 @@ pub struct Scoreboard {
     pub(crate) lines: Vec<Line>,
 }
 
-/// One line of a scoreboard.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Line {
-    pub(crate) holder: Holder,
-    pub(crate) score: i32,
-}
-
-/// Whose score a line shows.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Holder {
-    Text(String),
-    Player(player::Id),
-}
-
 impl Scoreboard {
     /// A scoreboard titled `title` in `slot`, without lines, sorted ascending.
     pub fn new(slot: Slot, title: impl Into<String>) -> Self {
@@ -72,9 +61,9 @@ impl Scoreboard {
         }
     }
 
-    /// Sets the order of the lines by score.
+    /// The scoreboard with its lines ordered by score as `sort` says.
     #[must_use]
-    pub fn sort(mut self, sort: Sort) -> Self {
+    pub fn with_sort(mut self, sort: Sort) -> Self {
         self.sort = sort;
         self
     }
@@ -100,6 +89,20 @@ impl Scoreboard {
     }
 }
 
+/// One line of a scoreboard.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Line {
+    pub(crate) holder: Holder,
+    pub(crate) score: i32,
+}
+
+/// Whose score a line shows.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Holder {
+    Text(String),
+    Player(player::Id),
+}
+
 /// A boss bar: a title over a bar filled to its progress.
 ///
 /// Bedrock ties a boss bar to an entity; Anchor uses the player's own entity, whose bar the
@@ -121,10 +124,17 @@ impl BossBar {
         }
     }
 
-    /// Fills the bar to `progress`, from 0 (empty) to 1 (full); values outside are clamped and
+    /// The bar in `colour`.
+    #[must_use]
+    pub fn with_colour(mut self, colour: Colour) -> Self {
+        self.colour = colour;
+        self
+    }
+
+    /// The bar filled to `progress`, from 0 (empty) to 1 (full); values outside are clamped and
     /// NaN is 0.
     #[must_use]
-    pub fn progress(mut self, progress: f32) -> Self {
+    pub fn with_progress(mut self, progress: f32) -> Self {
         self.progress = if progress > 1.0 {
             1.0
         } else if progress > 0.0 {
@@ -132,13 +142,6 @@ impl BossBar {
         } else {
             0.0
         };
-        self
-    }
-
-    /// Sets the colour of the bar.
-    #[must_use]
-    pub fn colour(mut self, colour: Colour) -> Self {
-        self.colour = colour;
         self
     }
 }
@@ -158,9 +161,6 @@ pub enum Error {
     DuplicatePlayer,
 }
 
-/// A result with the display [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -175,13 +175,16 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A result with the display [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn progress_is_clamped_and_finite() {
-        let p = |v: f32| BossBar::new("").progress(v).progress;
+        let p = |v: f32| BossBar::new("").with_progress(v).progress;
         assert_eq!(p(0.25), 0.25);
         assert_eq!(p(1.5), 1.0);
         assert_eq!(p(-1.0), 0.0);

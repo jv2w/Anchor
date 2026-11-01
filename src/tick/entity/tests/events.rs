@@ -1481,7 +1481,7 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     for _ in 0..12 {
         h.entities();
     }
-    let blast = Explode::new(world::Id::DEFAULT, center, 3.0).with_fire();
+    let blast = Explode::new(world::Id::DEFAULT, center, 3.0).fire();
     assert!(blast.fire);
     let mut cx = Context {
         state: &mut h.state,

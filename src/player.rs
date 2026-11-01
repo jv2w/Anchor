@@ -7,6 +7,8 @@
 //! [`Context::hold_offline_player`](crate::Context::hold_offline_player) and the [`Offline`]
 //! record it holds.
 
+pub use crate::tick::{Offline, Player};
+
 use std::fmt;
 use std::time::Duration;
 
@@ -15,7 +17,21 @@ use crate::protocol::packet::{Packet, SetTitle, Text, ToastRequest};
 use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE_NAME_MAX_LEN};
 use crate::tick::TICK;
 use crate::tick::queue::SessionId;
-pub use crate::tick::{Offline, Player};
+
+/// The height of a standing player's box in blocks (PMMP `Human` size); a human NPC's too.
+pub const HEIGHT: f64 = 1.8;
+/// The highest experience level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
+pub(crate) const MAX_LEVEL: u32 = 24_791;
+/// The most parameters of a translated message a client decodes.
+const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
+/// The longest chat source name a client decodes.
+const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
+/// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
+/// most a message, a command's output and the other texts the API sends take.
+pub const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
+/// The width and depth of a standing player's box in blocks (PMMP `Human` size); a human NPC's
+/// too.
+pub const WIDTH: f64 = 0.6;
 
 /// A joined player. It stays valid until the player leaves; a later join of the same name is
 /// another player with another `Id`.
@@ -117,84 +133,8 @@ impl std::error::Error for Error {}
 /// A result with the player [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The width and depth of a standing player's box in blocks (PMMP `Human` size); a human NPC's
-/// too.
-pub const WIDTH: f64 = 0.6;
-/// The height of a standing player's box in blocks (PMMP `Human` size); a human NPC's too.
-pub const HEIGHT: f64 = 1.8;
-
-/// The highest experience level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
-pub(crate) const MAX_LEVEL: u32 = 24_791;
-
-/// The experience points that reach `level` from none (PMMP
-/// `ExperienceUtils::getXpToReachLevel`), saturating at `u64::MAX`.
-#[doc(alias = "ExperienceUtils")]
-#[doc(alias = "ExperienceUtils::getXpToReachLevel")]
-pub fn xp_to_reach_level(level: u32) -> u64 {
-    let l = u128::from(level);
-    let points = if level <= 16 {
-        l * l + 6 * l
-    } else if level <= 31 {
-        // 2.5 l² - 40.5 l + 360, exact in halves: (5 l² - 81 l + 720) / 2, rounded down.
-        (5 * l * l + 720 - 81 * l) / 2
-    } else {
-        // 4.5 l² - 162.5 l + 2220 = (9 l² - 325 l + 4440) / 2.
-        (9 * l * l + 4440 - 325 * l) / 2
-    };
-    u64::try_from(points).unwrap_or(u64::MAX)
-}
-
-/// The experience points from `level` to the next (PMMP
-/// `ExperienceUtils::getXpToCompleteLevel`).
-#[doc(alias = "ExperienceUtils::getXpToCompleteLevel")]
-pub fn xp_to_complete_level(level: u32) -> u64 {
-    let l = u64::from(level);
-    if level <= 15 {
-        2 * l + 7
-    } else if level <= 30 {
-        5 * l - 38
-    } else {
-        9 * l - 158
-    }
-}
-
-/// The level `xp` points make, at most [`Player::xp_level`]'s highest (24,791), and the share of
-/// the next level's points collected, from 0 to 1 (PMMP `ExperienceUtils::getLevelFromXp`, whose
-/// fraction is the root of the level's quadratic instead: Anchor keeps the share, as the client
-/// shows it).
-#[doc(alias = "ExperienceUtils::getLevelFromXp")]
-pub fn level_from_xp(xp: u64) -> (u32, f64) {
-    let (mut lo, mut hi) = (0, MAX_LEVEL);
-    while lo < hi {
-        let mid = lo + (hi - lo).div_ceil(2);
-        if xp_to_reach_level(mid) <= xp {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    let into = xp.saturating_sub(xp_to_reach_level(lo));
-    let need = xp_to_complete_level(lo);
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "invariant: the points into one level stay below its size, at most 222,961, \
-                  exact in f64"
-    )]
-    let progress = if lo >= MAX_LEVEL || need == 0 {
-        0.0
-    } else {
-        into as f64 / need as f64
-    };
-    (lo, progress)
-}
-
-/// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
-/// most a message, a command's output and the other texts the API sends take.
-pub const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
-/// The longest chat source name a client decodes.
-const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
-/// The most parameters of a translated message a client decodes.
-const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
+/// The packets of one message: at most three (a title with its timing and subtitle).
+pub(crate) type Packets = [Option<Packet>; 3];
 
 /// Something to show a player with [`Player::send`] or everyone with
 /// [`Context::broadcast`](crate::Context::broadcast): PMMP's message methods merged into one.
@@ -275,25 +215,9 @@ pub enum Message {
     },
 }
 
-/// How long a title fades in, stays and fades out. The client counts whole ticks
-/// ([`Context::TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND) a second): each time is
-/// rounded down to them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TitleTimes {
-    /// How long the title takes to appear.
-    pub fade_in: Duration,
-    /// How long the title stays.
-    pub stay: Duration,
-    /// How long the title takes to disappear.
-    pub fade_out: Duration,
-}
-
-/// The packets of one message: at most three (a title with its timing and subtitle).
-pub(crate) type Packets = [Option<Packet>; 3];
-
 impl Message {
-    /// The packets that show the message, after checking every text against what a client
-    /// decodes.
+    /// Converts the message into the packets that show it, after checking every text against what
+    /// a client decodes.
     pub(crate) fn into_packets(self) -> Result<Packets> {
         let text = |kind: TextType, message: String| {
             check_text(&message)?;
@@ -375,6 +299,19 @@ impl Message {
     }
 }
 
+/// How long a title fades in, stays and fades out. The client counts whole ticks
+/// ([`Context::TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND) a second): each time is
+/// rounded down to them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TitleTimes {
+    /// How long the title takes to appear.
+    pub fade_in: Duration,
+    /// How long the title stays.
+    pub stay: Duration,
+    /// How long the title takes to disappear.
+    pub fade_out: Duration,
+}
+
 impl TitleTimes {
     /// The `SetTitle` packet that sets the timing.
     fn packet(self) -> Packet {
@@ -388,6 +325,68 @@ impl TitleTimes {
             ..SetTitle::default()
         })
     }
+}
+
+/// The level `xp` points make, at most [`Player::xp_level`]'s highest (24,791), and the share of
+/// the next level's points collected, from 0 to 1 (PMMP `ExperienceUtils::getLevelFromXp`, whose
+/// fraction is the root of the level's quadratic instead: Anchor keeps the share, as the client
+/// shows it).
+#[doc(alias = "ExperienceUtils::getLevelFromXp")]
+pub fn level_from_xp(xp: u64) -> (u32, f64) {
+    let (mut lo, mut hi) = (0, MAX_LEVEL);
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        if xp_to_reach_level(mid) <= xp {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let into = xp.saturating_sub(xp_to_reach_level(lo));
+    let need = xp_to_complete_level(lo);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "invariant: the points into one level stay below its size, at most 222,961, \
+                  exact in f64"
+    )]
+    let progress = if lo >= MAX_LEVEL || need == 0 {
+        0.0
+    } else {
+        into as f64 / need as f64
+    };
+    (lo, progress)
+}
+
+/// The experience points from `level` to the next (PMMP
+/// `ExperienceUtils::getXpToCompleteLevel`).
+#[doc(alias = "ExperienceUtils::getXpToCompleteLevel")]
+pub fn xp_to_complete_level(level: u32) -> u64 {
+    let l = u64::from(level);
+    if level <= 15 {
+        2 * l + 7
+    } else if level <= 30 {
+        5 * l - 38
+    } else {
+        9 * l - 158
+    }
+}
+
+/// The experience points that reach `level` from none (PMMP
+/// `ExperienceUtils::getXpToReachLevel`), saturating at `u64::MAX`.
+#[doc(alias = "ExperienceUtils")]
+#[doc(alias = "ExperienceUtils::getXpToReachLevel")]
+pub fn xp_to_reach_level(level: u32) -> u64 {
+    let l = u128::from(level);
+    let points = if level <= 16 {
+        l * l + 6 * l
+    } else if level <= 31 {
+        // 2.5 l² - 40.5 l + 360, exact in halves: (5 l² - 81 l + 720) / 2, rounded down.
+        (5 * l * l + 720 - 81 * l) / 2
+    } else {
+        // 4.5 l² - 162.5 l + 2220 = (9 l² - 325 l + 4440) / 2.
+        (9 * l * l + 4440 - 325 * l) / 2
+    };
+    u64::try_from(points).unwrap_or(u64::MAX)
 }
 
 /// Fails for a text longer than a client decodes.
@@ -437,7 +436,8 @@ mod tests {
             .collect()
     }
 
-    // pmmp: ExperienceUtils, ExperienceUtils::getXpToReachLevel, ExperienceUtils::getXpToCompleteLevel, ExperienceUtils::getLevelFromXp
+    // pmmp: ExperienceUtils, ExperienceUtils::getXpToReachLevel,
+    // pmmp: ExperienceUtils::getXpToCompleteLevel, ExperienceUtils::getLevelFromXp
     #[test]
     fn level_thresholds_follow_pmmp() {
         // PMMP ExperienceUtils at the three formula boundaries.

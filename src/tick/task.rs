@@ -34,7 +34,7 @@ use std::time::Duration;
 use super::checkpoint::{self, Reader, Writer};
 use super::queue::{Control, InputSender, SessionId};
 use super::{Phase, State, entity, player, survival, trade};
-use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED};
+use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED_RANGE};
 use crate::math::Vec3;
 use crate::player::{Id as PlayerId, Message, Player, Result as PlayerResult};
 use crate::protocol::Uuid;
@@ -386,7 +386,7 @@ impl Context<'_> {
     /// `random-tick-speed` sets it at start) until the server stops, and tells the players.
     /// False, changing nothing, above the setting's limit (4,096).
     pub fn set_random_tick_speed(&mut self, speed: u32) -> bool {
-        if !RANDOM_TICK_SPEED.contains(&speed) {
+        if !RANDOM_TICK_SPEED_RANGE.contains(&speed) {
             return false;
         }
         self.state.settings.random_tick_speed = speed;

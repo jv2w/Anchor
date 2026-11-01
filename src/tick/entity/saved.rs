@@ -60,7 +60,7 @@ use super::kind::{
 };
 use super::object::{data_facing, facing_data};
 use super::physics::{self, Body};
-use crate::config::ITEM_DESPAWN_TICKS;
+use crate::config::ITEM_DESPAWN_TICKS_RANGE;
 use crate::custom::Registry;
 use crate::effect::{self, Potion};
 use crate::entity::{PaintingMotive, Skin};
@@ -575,8 +575,8 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
         clippy::expect_used,
         reason = "invariant: the longest `item-despawn-ticks` is a constant that fits an int"
     )]
-    let longest =
-        i32::try_from(*ITEM_DESPAWN_TICKS.end()).expect("the despawn delay bound fits an int");
+    let longest = i32::try_from(*ITEM_DESPAWN_TICKS_RANGE.end())
+        .expect("the despawn delay bound fits an int");
     let despawn_delay = match c.get("DespawnDelay") {
         Some(Value::Int(d)) if (MAX_DESPAWN_DELAY + 1..=longest).contains(d) => *d,
         _ => despawn_delay(c),

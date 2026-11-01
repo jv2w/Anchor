@@ -245,7 +245,9 @@ fn a_menu_opens_on_fake_blocks_with_its_title_then_its_window() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     tick_each(&mut w, Vec::new());
-    let menu = Menu::new(MenuKind::Chest).title("Shop").item(13, sword());
+    let menu = Menu::new(MenuKind::Chest)
+        .with_title("Shop")
+        .item(13, sword());
     let opened = cx(&mut w).open_menu(id(s), menu, |_, _, _| Response::Keep);
     let menu_id = opened.unwrap();
     assert_eq!(cx(&mut w).menu(id(s)), Some(menu_id));
@@ -399,7 +401,7 @@ fn invalid_menus_and_players_open_nothing() {
             m::Error::NoSlot,
         ),
         (
-            Menu::new(MenuKind::Chest).title("x".repeat(1025)),
+            Menu::new(MenuKind::Chest).with_title("x".repeat(1025)),
             m::Error::TitleTooLong,
         ),
     ];

@@ -22,7 +22,7 @@ use crate::player;
 /// - [`on_interact`](Self::on_interact) when a player within reach interacts with a live entity
 ///   (PMMP `Player::interactEntity`), after the
 ///   [`PlayerEntityInteract`](crate::event::PlayerEntityInteract) listeners and before its
-///   monitors.
+///   monitors; not when a listener cancels the event.
 ///
 /// Damage and death are the [`EntityDamage`](crate::event::EntityDamage) and
 /// [`EntityDeath`](crate::event::EntityDeath) events, which name the entity; its
@@ -30,14 +30,14 @@ use crate::player;
 pub trait Behaviour: Send {
     /// One tick of the custom entity `entity`, every `tick_period` ticks of its age.
     #[doc(alias = "Entity::onUpdate")]
-    fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
-        let _ = (cx, entity);
+    fn on_tick(&mut self, ctx: &mut Context<'_>, entity: Id) {
+        let _ = (ctx, entity);
     }
 
     /// The player `player` interacts with the custom entity `entity` (a right click within reach).
     #[doc(alias = "Entity::onInteract")]
-    fn on_interact(&mut self, cx: &mut Context<'_>, entity: Id, player: player::Id) {
-        let _ = (cx, entity, player);
+    fn on_interact(&mut self, ctx: &mut Context<'_>, entity: Id, player: player::Id) {
+        let _ = (ctx, entity, player);
     }
 }
 
@@ -92,26 +92,13 @@ impl Custom {
         }
     }
 
-    /// Its identifier.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
-    }
-
-    /// This type with a box `width` wide and deep and `height` high, in blocks (above 0, at most
-    /// 16), for collisions, hits and what clients draw.
+    /// This type driven by `behaviour`.
     #[must_use]
-    pub fn with_size(self, width: f64, height: f64) -> Self {
+    pub fn with_behaviour(self, behaviour: impl Behaviour + 'static) -> Self {
         Self {
-            width,
-            height,
+            behaviour: Some(Box::new(behaviour)),
             ..self
         }
-    }
-
-    /// This type with a downward acceleration of `gravity` blocks per tick² (0 to 1).
-    #[must_use]
-    pub fn with_gravity(self, gravity: f64) -> Self {
-        Self { gravity, ..self }
     }
 
     /// This type losing the share `drag` of its speed per tick in the air (0 up to, not
@@ -119,6 +106,12 @@ impl Custom {
     #[must_use]
     pub fn with_drag(self, drag: f64) -> Self {
         Self { drag, ..self }
+    }
+
+    /// This type with a downward acceleration of `gravity` blocks per tick² (0 to 1).
+    #[must_use]
+    pub fn with_gravity(self, gravity: f64) -> Self {
+        Self { gravity, ..self }
     }
 
     /// This type with `max_health` (above 0, at most 1,000,000), which new entities start with.
@@ -137,6 +130,17 @@ impl Custom {
         }
     }
 
+    /// This type with a box `width` wide and deep and `height` high, in blocks (above 0, at most
+    /// 16), for collisions, hits and what clients draw.
+    #[must_use]
+    pub fn with_size(self, width: f64, height: f64) -> Self {
+        Self {
+            width,
+            height,
+            ..self
+        }
+    }
+
     /// This type with its behaviour called every `period` ticks of an entity's age.
     #[must_use]
     pub fn with_tick_period(self, period: NonZeroU32) -> Self {
@@ -146,29 +150,22 @@ impl Custom {
         }
     }
 
-    /// This type driven by `behaviour`.
-    #[must_use]
-    pub fn with_behaviour(self, behaviour: impl Behaviour + 'static) -> Self {
-        Self {
-            behaviour: Some(Box::new(behaviour)),
-            ..self
-        }
-    }
-
-    /// This type listed as summonable (the client's `/summon` completion).
-    #[must_use]
-    pub fn summonable(self) -> Self {
-        Self {
-            summonable: true,
-            ..self
-        }
-    }
-
-    /// This type listed with a spawn egg (the egg item comes from the resource pack).
+    /// This type with a spawn egg flagged in the actor identifier list (the egg item itself
+    /// comes from the resource pack; Anchor adds none).
     #[must_use]
     pub fn spawn_egg(self) -> Self {
         Self {
             spawn_egg: true,
+            ..self
+        }
+    }
+
+    /// This type flagged summonable in the actor identifier list (the client's `/summon`
+    /// completion; Anchor adds no `/summon` command).
+    #[must_use]
+    pub fn summonable(self) -> Self {
+        Self {
+            summonable: true,
             ..self
         }
     }
@@ -181,6 +178,11 @@ impl Custom {
             saved: false,
             ..self
         }
+    }
+
+    /// Its identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
     }
 }
 
@@ -261,3 +263,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the custom entity [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;

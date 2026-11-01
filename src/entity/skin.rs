@@ -1,21 +1,18 @@
 //! The look of a human NPC (PMMP `Skin`): an image on a geometry, checked when it is made, so a
 //! skin from the user or from a saved chunk is always one a client can draw.
 
+use std::fmt;
+
 use crate::{crypto, protocol};
 
-/// The image sizes a [`Skin`] may have, each as its bytes of RGBA, width and height in pixels
-/// (PMMP `Skin::ACCEPTED_SKIN_SIZES`): 64 × 32, 64 × 64 and 128 × 128.
-pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
-    (64 * 32 * 4, 64, 32),
-    (64 * 64 * 4, 64, 64),
-    (128 * 128 * 4, 128, 128),
-];
 /// The size of a cape image: 64 × 32 pixels of RGBA.
-const CAPE_SIZE: usize = 64 * 32 * 4;
-/// The longest skin ID and geometry name, in bytes.
-const MAX_NAME_BYTES: usize = 256;
+const CAPE_BYTES: usize = 64 * 32 * 4;
+/// The geometry of the standard player model.
+const DEFAULT_GEOMETRY: &str = "geometry.humanoid.custom";
 /// The largest geometry JSON, in bytes (vanilla geometries are a few KiB).
 const MAX_GEOMETRY_BYTES: usize = 1 << 20;
+/// The longest skin ID and geometry name, in bytes.
+const MAX_NAME_BYTES: usize = 256;
 /// The most bytes any skin takes on the wire (images, geometry, resource patch, animation data,
 /// texts and the fixed fields of its animations and persona pieces): what a login accepts, an
 /// in-game change and the API may set. A persona skin with its geometry and animations takes well
@@ -27,11 +24,16 @@ pub const MAX_SKIN_BYTES: usize = 4 << 20;
 /// protocol requires both to be depth-limited JSON, and the official server refuses deeper skin
 /// JSON from clients.
 pub(crate) const MAX_SKIN_JSON_DEPTH: usize = 64;
-/// The geometry of the standard player model.
-const DEFAULT_GEOMETRY: &str = "geometry.humanoid.custom";
 /// The geometry JSON sent for a vanilla geometry: the field must hold JSON, and an empty one
 /// declares no custom geometry.
 pub(crate) const NO_CUSTOM_GEOMETRY: &[u8] = b"{}";
+/// The image sizes a [`Skin`] may have, each as its bytes of RGBA, width and height in pixels
+/// (PMMP `Skin::ACCEPTED_SKIN_SIZES`): 64 × 32, 64 × 64 and 128 × 128.
+pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
+    (64 * 32 * 4, 64, 32),
+    (64 * 64 * 4, 64, 64),
+    (128 * 128 * 4, 128, 128),
+];
 
 /// A skin: an ID, an RGBA image of an accepted size, an optional cape and the geometry it is drawn
 /// on (a vanilla geometry name, or a custom one with its JSON).
@@ -67,7 +69,7 @@ impl Skin {
     /// This skin with a cape image of 64 × 32 RGBA pixels, or without one for an empty `cape`.
     /// `None` for another size.
     pub fn with_cape(self, cape: Vec<u8>) -> Option<Self> {
-        (cape.is_empty() || cape.len() == CAPE_SIZE).then_some(Self { cape, ..self })
+        (cape.is_empty() || cape.len() == CAPE_BYTES).then_some(Self { cape, ..self })
     }
 
     /// This skin drawn on the geometry `name` (such as `geometry.humanoid.customSlim`), defined by
@@ -91,10 +93,10 @@ impl Skin {
         })
     }
 
-    /// The skin ID.
-    #[doc(alias = "Skin::getSkinId")]
-    pub fn id(&self) -> &str {
-        &self.id
+    /// The RGBA cape image, empty without a cape.
+    #[doc(alias = "Skin::getCapeData")]
+    pub fn cape(&self) -> &[u8] {
+        &self.cape
     }
 
     /// The RGBA image.
@@ -103,10 +105,10 @@ impl Skin {
         &self.data
     }
 
-    /// The RGBA cape image, empty without a cape.
-    #[doc(alias = "Skin::getCapeData")]
-    pub fn cape(&self) -> &[u8] {
-        &self.cape
+    /// The custom geometry JSON, empty for a vanilla geometry.
+    #[doc(alias = "Skin::getGeometryData")]
+    pub fn geometry_data(&self) -> &[u8] {
+        &self.geometry_data
     }
 
     /// The geometry name.
@@ -115,15 +117,20 @@ impl Skin {
         &self.geometry_name
     }
 
-    /// The custom geometry JSON, empty for a vanilla geometry.
-    #[doc(alias = "Skin::getGeometryData")]
-    pub fn geometry_data(&self) -> &[u8] {
-        &self.geometry_data
+    /// The skin ID.
+    #[doc(alias = "Skin::getSkinId")]
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
     /// The skin as the protocol carries it (the player list and `PlayerSkin`).
     pub(crate) fn to_protocol(&self) -> protocol::Skin {
-        let (_, width, height) = dimensions(self.data.len()).unwrap_or(SKIN_SIZES[0]);
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: `new` checked the image size and nothing else sets `data`"
+        )]
+        let (_, width, height) =
+            dimensions(self.data.len()).expect("the image has an accepted size");
         // The name is checked to need no JSON escaping.
         let patch = format!(r#"{{"geometry":{{"default":"{}"}}}}"#, self.geometry_name);
         let has_cape = !self.cape.is_empty();
@@ -150,8 +157,8 @@ impl Skin {
     }
 }
 
-impl std::fmt::Debug for Skin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Skin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Skin")
             .field("id", &self.id)
             .field("data", &self.data.len())
@@ -171,7 +178,8 @@ fn dimensions(len: usize) -> Option<(usize, u32, u32)> {
 mod tests {
     use super::*;
 
-    // pmmp: Skin::__construct, Skin::getSkinId, Skin::getSkinData, Skin::getCapeData, Skin::getGeometryName, Skin::getGeometryData, Skin
+    // pmmp: Skin::__construct, Skin::getSkinId, Skin::getSkinData, Skin::getCapeData,
+    // pmmp: Skin::getGeometryName, Skin::getGeometryData, Skin
     #[test]
     fn skins_take_only_accepted_sizes_and_safe_geometry_names() {
         for (size, w, h) in SKIN_SIZES {
@@ -187,7 +195,7 @@ mod tests {
         assert_eq!(skin.geometry_name(), DEFAULT_GEOMETRY);
         assert!(skin.cape().is_empty() && skin.geometry_data().is_empty());
         assert!(skin.clone().with_cape(vec![0; 10]).is_none());
-        let caped = skin.clone().with_cape(vec![1; CAPE_SIZE]).unwrap();
+        let caped = skin.clone().with_cape(vec![1; CAPE_BYTES]).unwrap();
         assert_eq!(caped.to_protocol().cape_image_width, 64);
         assert!(skin.clone().with_geometry("a\"b", Vec::new()).is_none());
         assert!(skin.clone().with_geometry("geo.x", b"{".to_vec()).is_none());

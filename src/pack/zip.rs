@@ -10,28 +10,54 @@
 use crate::crypto::crc32;
 use crate::protocol::compression::{Compression, Decompressor};
 
-/// End of central directory record.
-const END_SIGNATURE: u32 = 0x0605_4b50;
-const END_LEN: usize = 22;
-/// The zip64 end of central directory locator, just before the end record of a zip64 archive.
-const ZIP64_LOCATOR_SIGNATURE: u32 = 0x0706_4b50;
-const ZIP64_LOCATOR_LEN: usize = 20;
-/// Central directory file header.
+/// The size of a central directory file header, without its name, extra field and comment.
+const CENTRAL_HEADER_BYTES: usize = 46;
+
+/// The signature of a central directory file header.
 const CENTRAL_SIGNATURE: u32 = 0x0201_4b50;
-const CENTRAL_LEN: usize = 46;
-/// Local file header.
-const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
-const LOCAL_LEN: usize = 30;
-/// The longest archive comment: its length is a u16.
-const MAX_COMMENT: usize = 0xffff;
-/// General purpose flags: encrypted, strongly encrypted.
+
+/// The size of the end of central directory record, without its comment.
+const END_RECORD_BYTES: usize = 22;
+
+/// The signature of the end of central directory record.
+const END_SIGNATURE: u32 = 0x0605_4b50;
+
+/// The fault of a central directory entry that ends before its header or name does.
+const ENTRY_TRUNCATED: Fault = "truncated directory entry";
+
+/// The general purpose flag of an encrypted entry.
 const FLAG_ENCRYPTED: u16 = 1;
+
+/// The general purpose flag of a strongly encrypted entry.
 const FLAG_STRONG_ENCRYPTION: u16 = 1 << 6;
-/// Compression methods.
-const METHOD_STORED: u16 = 0;
-const METHOD_DEFLATE: u16 = 8;
+
+/// The size of a local file header, without its name and extra field.
+const LOCAL_HEADER_BYTES: usize = 30;
+
+/// The fault of a local header or its data that does not lie inside the archive.
+const LOCAL_OUT_OF_BOUNDS: Fault = "local entry out of bounds";
+
+/// The signature of a local file header.
+const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
+
+/// The longest archive comment, in bytes: its length is a `u16`.
+const MAX_COMMENT_BYTES: usize = 0xffff;
+
 /// The most folders an entry name may nest; packs use a handful.
 const MAX_DEPTH: usize = 64;
+
+/// The compression method of a DEFLATE entry.
+const METHOD_DEFLATE: u16 = 8;
+
+/// The compression method of an entry stored as it is.
+const METHOD_STORED: u16 = 0;
+
+/// The size of the zip64 end of central directory locator, which sits just before the end record
+/// of a zip64 archive.
+const ZIP64_LOCATOR_BYTES: usize = 20;
+
+/// The signature of the zip64 end of central directory locator.
+const ZIP64_LOCATOR_SIGNATURE: u32 = 0x0706_4b50;
 
 /// What is wrong with an archive.
 pub(super) type Fault = &'static str;
@@ -39,7 +65,8 @@ pub(super) type Fault = &'static str;
 /// One file or folder of an archive.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Entry<'a> {
-    /// The name as stored: `/`-separated, folders end with `/`.
+    /// The name as stored: folders end with `/`, and a folder separator is `/` or `\`
+    /// ([`is_separator`]).
     pub(super) name: &'a [u8],
     method: u16,
     crc: u32,
@@ -49,12 +76,12 @@ pub(super) struct Entry<'a> {
     pub(super) size: u32,
 }
 
-/// Reads the central directory of `bytes`: every entry, in directory order, after checking that
-/// each local header and its data lie inside the archive before the directory.
+/// Every entry of the central directory of `bytes`, in directory order, after checking that each
+/// local header and its data lie inside the archive before the directory.
 pub(super) fn entries(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Fault> {
     let end = find_end(bytes)?;
     if end
-        .checked_sub(ZIP64_LOCATOR_LEN)
+        .checked_sub(ZIP64_LOCATOR_BYTES)
         .is_some_and(|at| u32_at(bytes, at) == Some(ZIP64_LOCATOR_SIGNATURE))
     {
         return Err("zip64 archive");
@@ -86,7 +113,7 @@ pub(super) fn entries(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Fault> {
         .and_then(|stop| bytes.get(start..stop))
         .ok_or("directory out of bounds")?;
     let count = usize::from(count);
-    if count.saturating_mul(CENTRAL_LEN) > directory.len() {
+    if count.saturating_mul(CENTRAL_HEADER_BYTES) > directory.len() {
         return Err("more entries than the directory holds");
     }
     let mut out = Vec::with_capacity(count);
@@ -111,9 +138,9 @@ pub(super) fn entries(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Fault> {
 fn find_end(bytes: &[u8]) -> Result<usize, Fault> {
     let last = bytes
         .len()
-        .checked_sub(END_LEN)
+        .checked_sub(END_RECORD_BYTES)
         .ok_or("not a zip archive")?;
-    let first = last.saturating_sub(MAX_COMMENT);
+    let first = last.saturating_sub(MAX_COMMENT_BYTES);
     (first..=last)
         .rev()
         .find(|&at| {
@@ -121,7 +148,10 @@ fn find_end(bytes: &[u8]) -> Result<usize, Fault> {
                 && at
                     .checked_add(20)
                     .and_then(|field| u16_at(bytes, field))
-                    .and_then(|comment| at.checked_add(END_LEN)?.checked_add(usize::from(comment)))
+                    .and_then(|comment| {
+                        at.checked_add(END_RECORD_BYTES)?
+                            .checked_add(usize::from(comment))
+                    })
                     .is_some_and(|stop| stop == bytes.len())
         })
         .ok_or("not a zip archive")
@@ -135,16 +165,15 @@ fn central<'a>(
     at: usize,
     directory_start: usize,
 ) -> Result<(Entry<'a>, usize), Fault> {
-    const TRUNCATED: Fault = "truncated directory entry";
     let field16 = |off: usize| {
         at.checked_add(off)
             .and_then(|p| u16_at(directory, p))
-            .ok_or(TRUNCATED)
+            .ok_or(ENTRY_TRUNCATED)
     };
     let field32 = |off: usize| {
         at.checked_add(off)
             .and_then(|p| u32_at(directory, p))
-            .ok_or(TRUNCATED)
+            .ok_or(ENTRY_TRUNCATED)
     };
     if field32(0)? != CENTRAL_SIGNATURE {
         return Err("bad directory entry signature");
@@ -168,15 +197,17 @@ fn central<'a>(
     let extra_len = usize::from(field16(30)?);
     let comment_len = usize::from(field16(32)?);
     let local = usize::try_from(field32(42)?).map_err(|_| "local header out of bounds")?;
-    let name_start = at.checked_add(CENTRAL_LEN).ok_or(TRUNCATED)?;
-    let name_end = name_start.checked_add(name_len).ok_or(TRUNCATED)?;
-    let name = directory.get(name_start..name_end).ok_or(TRUNCATED)?;
+    let name_start = at
+        .checked_add(CENTRAL_HEADER_BYTES)
+        .ok_or(ENTRY_TRUNCATED)?;
+    let name_end = name_start.checked_add(name_len).ok_or(ENTRY_TRUNCATED)?;
+    let name = directory.get(name_start..name_end).ok_or(ENTRY_TRUNCATED)?;
     check_name(name)?;
     let next = name_end
         .checked_add(extra_len)
         .and_then(|n| n.checked_add(comment_len))
         .filter(|&n| n <= directory.len())
-        .ok_or(TRUNCATED)?;
+        .ok_or(ENTRY_TRUNCATED)?;
     let data = local_data(bytes, local, name, compressed, directory_start)?;
     let entry = Entry {
         name,
@@ -197,8 +228,7 @@ fn local_data<'a>(
     compressed: u32,
     directory_start: usize,
 ) -> Result<&'a [u8], Fault> {
-    const OUT: Fault = "local entry out of bounds";
-    let before = bytes.get(..directory_start).ok_or(OUT)?;
+    let before = bytes.get(..directory_start).ok_or(LOCAL_OUT_OF_BOUNDS)?;
     if u32_at(before, offset) != Some(LOCAL_SIGNATURE) {
         return Err("bad local header signature");
     }
@@ -206,32 +236,38 @@ fn local_data<'a>(
         offset
             .checked_add(off)
             .and_then(|p| u16_at(before, p))
-            .ok_or(OUT)
+            .ok_or(LOCAL_OUT_OF_BOUNDS)
     };
     let name_len = usize::from(field16(26)?);
     let extra_len = usize::from(field16(28)?);
-    let name_start = offset.checked_add(LOCAL_LEN).ok_or(OUT)?;
-    let name_end = name_start.checked_add(name_len).ok_or(OUT)?;
+    let name_start = offset
+        .checked_add(LOCAL_HEADER_BYTES)
+        .ok_or(LOCAL_OUT_OF_BOUNDS)?;
+    let name_end = name_start
+        .checked_add(name_len)
+        .ok_or(LOCAL_OUT_OF_BOUNDS)?;
     if before.get(name_start..name_end) != Some(name) {
         return Err("local name differs from the directory");
     }
-    let start = name_end.checked_add(extra_len).ok_or(OUT)?;
-    let len = usize::try_from(compressed).map_err(|_| OUT)?;
+    let start = name_end.checked_add(extra_len).ok_or(LOCAL_OUT_OF_BOUNDS)?;
+    let len = usize::try_from(compressed).map_err(|_| LOCAL_OUT_OF_BOUNDS)?;
     start
         .checked_add(len)
         .and_then(|stop| before.get(start..stop))
-        .ok_or(OUT)
+        .ok_or(LOCAL_OUT_OF_BOUNDS)
 }
 
 /// Refuses names that could leave the folder a client unpacks into, or nest without bound.
 fn check_name(name: &[u8]) -> Result<(), Fault> {
-    let separator = |b: &u8| matches!(b, b'/' | b'\\');
     let unsafe_byte = |b: &u8| matches!(b, 0 | b':');
-    if name.is_empty() || name.first().is_some_and(separator) || name.iter().any(unsafe_byte) {
+    if name.is_empty()
+        || name.first().copied().is_some_and(is_separator)
+        || name.iter().any(unsafe_byte)
+    {
         return Err("unsafe entry name");
     }
     let mut depth = 0;
-    for part in name.split(separator) {
+    for part in name.split(|&b| is_separator(b)) {
         if part == b".." {
             return Err("unsafe entry name");
         }
@@ -241,6 +277,12 @@ fn check_name(name: &[u8]) -> Result<(), Fault> {
         return Err("entry name nests too deep");
     }
     Ok(())
+}
+
+/// Whether `b` separates the folders of an entry name: `/`, or `\` as Windows PowerShell's
+/// `Compress-Archive` writes it.
+pub(super) fn is_separator(b: u8) -> bool {
+    matches!(b, b'/' | b'\\')
 }
 
 /// The unpacked bytes of `entry`, whose size the caller has bounded, checked against its size
@@ -265,11 +307,13 @@ pub(super) fn read(entry: &Entry<'_>) -> Result<Vec<u8>, Fault> {
     Ok(out)
 }
 
+/// The little-endian `u16` at `at` in `bytes`.
 fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
     let b = bytes.get(at..at.checked_add(2)?)?;
     Some(u16::from_le_bytes(b.try_into().ok()?))
 }
 
+/// The little-endian `u32` at `at` in `bytes`.
 fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     let b = bytes.get(at..at.checked_add(4)?)?;
     Some(u32::from_le_bytes(b.try_into().ok()?))
@@ -303,22 +347,22 @@ pub(super) mod tests {
             let name = file.name.as_bytes();
             let offset = u32::try_from(out.len()).unwrap();
             let common = |h: &mut Vec<u8>| {
-                h.extend_from_slice(&20u16.to_le_bytes()); // version needed
-                h.extend_from_slice(&0u16.to_le_bytes()); // flags
+                h.extend_from_slice(&20_u16.to_le_bytes()); // version needed
+                h.extend_from_slice(&0_u16.to_le_bytes()); // flags
                 h.extend_from_slice(&method.to_le_bytes());
                 h.extend_from_slice(&[0; 4]); // time, date
                 h.extend_from_slice(&crc.to_le_bytes());
                 h.extend_from_slice(&u32::try_from(stored.len()).unwrap().to_le_bytes());
                 h.extend_from_slice(&u32::try_from(file.data.len()).unwrap().to_le_bytes());
                 h.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
-                h.extend_from_slice(&0u16.to_le_bytes()); // extra
+                h.extend_from_slice(&0_u16.to_le_bytes()); // extra
             };
             out.extend_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
             common(&mut out);
             out.extend_from_slice(name);
             out.extend_from_slice(&stored);
             directory.extend_from_slice(&CENTRAL_SIGNATURE.to_le_bytes());
-            directory.extend_from_slice(&20u16.to_le_bytes()); // version made by
+            directory.extend_from_slice(&20_u16.to_le_bytes()); // version made by
             common(&mut directory);
             directory.extend_from_slice(&[0; 6]); // comment, disk, internal attributes
             directory.extend_from_slice(&[0; 4]); // external attributes
@@ -334,7 +378,7 @@ pub(super) mod tests {
         out.extend_from_slice(&count.to_le_bytes());
         out.extend_from_slice(&u32::try_from(directory.len()).unwrap().to_le_bytes());
         out.extend_from_slice(&offset.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes()); // comment
+        out.extend_from_slice(&0_u16.to_le_bytes()); // comment
         out
     }
 
@@ -344,13 +388,6 @@ pub(super) mod tests {
             data,
             deflate,
         }
-    }
-
-    /// The offset of the only central header of a one-file archive named `name`.
-    fn central_at(zip: &[u8]) -> usize {
-        zip.windows(4)
-            .position(|w| w == CENTRAL_SIGNATURE.to_le_bytes())
-            .unwrap()
     }
 
     #[test]
@@ -387,7 +424,11 @@ pub(super) mod tests {
     #[test]
     fn offsets_at_the_end_of_the_address_space_are_errors_not_overflows() {
         let zip = archive(&[file("a", b"x", false)]);
-        for at in [usize::MAX, usize::MAX - CENTRAL_LEN + 1, usize::MAX - 30] {
+        for at in [
+            usize::MAX,
+            usize::MAX - CENTRAL_HEADER_BYTES + 1,
+            usize::MAX - 30,
+        ] {
             assert!(central(&zip, &zip, at, zip.len()).is_err(), "at {at}");
             assert!(local_data(&zip, at, b"a", 1, zip.len()).is_err(), "at {at}");
         }
@@ -401,10 +442,17 @@ pub(super) mod tests {
         }
     }
 
+    /// The offset of the only central header of a one-file archive.
+    fn central_at(zip: &[u8]) -> usize {
+        zip.windows(4)
+            .position(|w| w == CENTRAL_SIGNATURE.to_le_bytes())
+            .unwrap()
+    }
+
     #[test]
     fn zip64_multi_disk_encrypted_and_other_methods_are_refused() {
         let zip = archive(&[file("a", b"x", false)]);
-        let end = zip.len() - END_LEN;
+        let end = zip.len() - END_RECORD_BYTES;
         let central = central_at(&zip);
 
         let mut z = zip.clone();
@@ -429,7 +477,7 @@ pub(super) mod tests {
 
         let mut z = zip.clone();
         let mut locator = ZIP64_LOCATOR_SIGNATURE.to_le_bytes().to_vec();
-        locator.resize(ZIP64_LOCATOR_LEN, 0);
+        locator.resize(ZIP64_LOCATOR_BYTES, 0);
         z.splice(end..end, locator);
         assert_eq!(entries(&z).unwrap_err(), "zip64 archive");
     }
@@ -437,7 +485,7 @@ pub(super) mod tests {
     #[test]
     fn oversized_counts_and_offsets_are_refused_before_allocating() {
         let zip = archive(&[file("a", b"x", false)]);
-        let end = zip.len() - END_LEN;
+        let end = zip.len() - END_RECORD_BYTES;
         let mut z = zip.clone();
         z[end + 8..end + 12].copy_from_slice(&[0xfe, 0xff, 0xfe, 0xff]);
         assert_eq!(
@@ -445,15 +493,15 @@ pub(super) mod tests {
             "more entries than the directory holds"
         );
         let mut z = zip.clone();
-        z[end + 16..end + 20].copy_from_slice(&0x7fff_ffffu32.to_le_bytes());
+        z[end + 16..end + 20].copy_from_slice(&0x7fff_ffff_u32.to_le_bytes());
         assert_eq!(entries(&z).unwrap_err(), "directory out of bounds");
         let mut z = zip.clone();
         let central = central_at(&z);
-        z[central + 42..central + 46].copy_from_slice(&0xffff_fff0u32.to_le_bytes());
+        z[central + 42..central + 46].copy_from_slice(&0xffff_fff0_u32.to_le_bytes());
         assert!(entries(&z).is_err());
         let mut z = zip;
-        z[central + 20..central + 24].copy_from_slice(&0x7fff_ffffu32.to_le_bytes());
-        z[central + 24..central + 28].copy_from_slice(&0x7fff_ffffu32.to_le_bytes());
+        z[central + 20..central + 24].copy_from_slice(&0x7fff_ffff_u32.to_le_bytes());
+        z[central + 24..central + 28].copy_from_slice(&0x7fff_ffff_u32.to_le_bytes());
         assert_eq!(entries(&z).unwrap_err(), "local entry out of bounds");
     }
 
@@ -489,7 +537,7 @@ pub(super) mod tests {
         let zip = archive(&[file("a", b"1", false), file("a", b"2", false)]);
         assert_eq!(entries(&zip).unwrap_err(), "duplicate entry name");
         let mut zip = archive(&[file("ab", b"1", false)]);
-        zip[LOCAL_LEN] = b'x';
+        zip[LOCAL_HEADER_BYTES] = b'x';
         assert_eq!(
             entries(&zip).unwrap_err(),
             "local name differs from the directory"

@@ -1,12 +1,13 @@
 //! Permissions: what a player may do, with PMMP's defaults (op, not op, everyone, nobody).
 //!
-//! A [`Permission`] is a name and a [`Default`](enum@Default): who has it unless the server says otherwise.
-//! Register yours with [`ServerBuilder::permission`](crate::ServerBuilder::permission); a
-//! command's permission is registered with the command. Whether someone has a permission comes
-//! from its default and the operator list, unless a grant made while the player is online
+//! A [`Permission`] is a name and a [`Default`](enum@Default): who has it unless the server says
+//! otherwise. Register yours with
+//! [`ServerBuilder::permission`](crate::ServerBuilder::permission); a command's permission is
+//! registered with the command. Whether someone has a permission comes from its default and the
+//! operator list, unless a grant made while the player is online
 //! ([`Context::set_permission`](crate::Context::set_permission), PMMP's permission attachments)
 //! says otherwise. Grants are not saved; the operator list, the ban lists and the whitelist are
-//! saved in the server file with everything else.
+//! saved in the data files with everything else.
 //!
 //! Anchor's own permissions are the constants of this module. Their names follow PMMP's
 //! `DefaultPermissionNames` with `anchor` in place of `pocketmine`: `pocketmine.command.give.self`
@@ -17,14 +18,14 @@
 use std::fmt;
 use std::net::IpAddr;
 
+/// The most entries one list holds (operators, name bans, IP bans, whitelist).
+pub(crate) const MAX_ENTRIES: usize = 262_144;
 /// The longest name the operator list, the ban list and the whitelist hold, in bytes.
 pub(crate) const MAX_NAME: usize = 64;
 /// The longest ban reason, in bytes.
 pub(crate) const MAX_REASON: usize = 256;
 /// The longest ban source, in bytes.
 pub(crate) const MAX_SOURCE: usize = 64;
-/// The most entries one list holds (operators, name bans, IP bans, whitelist).
-pub(crate) const MAX_ENTRIES: usize = 262_144;
 /// The source of a ban nobody named (PMMP `BanEntry`'s default).
 const UNKNOWN_SOURCE: &str = "(Unknown)";
 
@@ -50,12 +51,6 @@ impl Permission {
         Self { name, default }
     }
 
-    /// The name, such as `anchor.command.give.self`.
-    #[doc(alias = "Permission::getName")]
-    pub const fn name(self) -> &'static str {
-        self.name
-    }
-
     /// Who has the permission unless a grant says otherwise: as made, which the server's checks
     /// follow unless a default set at build replaces it
     /// ([`Context::permission`](crate::Context::permission) returns the registered one).
@@ -72,6 +67,12 @@ impl Permission {
             Default::True => true,
             Default::False => false,
         }
+    }
+
+    /// The name, such as `anchor.command.give.self`.
+    #[doc(alias = "Permission::getName")]
+    pub const fn name(self) -> &'static str {
+        self.name
     }
 }
 
@@ -109,8 +110,8 @@ impl Default {
 /// when.
 ///
 /// Times are engine ticks ([`Context::tick`](crate::Context::tick)), not wall-clock dates: the
-/// game state never reads the wall clock, so a ban of 72,000 ticks lasts an hour
-/// of server running time, and the time the server is down does not count.
+/// game state never reads the wall clock, so a ban that ends 72,000 ticks after the current tick
+/// lasts an hour of server running time, and the time the server is down does not count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 // pmmp-class: BanEntry
 pub struct BanEntry {
@@ -137,13 +138,13 @@ impl BanEntry {
         }
     }
 
-    /// A ban of the IP address `ip`, without reason or end.
-    pub fn ip(ip: IpAddr) -> Self {
-        Self {
-            name: ip.to_string(),
-            ip: Some(ip),
-            ..Self::new("")
-        }
+    /// The ban ending at engine tick `tick`; a ban without an end lasts until it is lifted. A tick
+    /// that has passed when the ban is added refuses it ([`Error::Expired`]).
+    #[doc(alias = "BanEntry::setExpires")]
+    #[must_use]
+    pub fn with_expires(mut self, tick: u64) -> Self {
+        self.expires = Some(tick);
+        self
     }
 
     /// The ban with `reason`, which a banned player sees when refused.
@@ -162,35 +163,34 @@ impl BanEntry {
         self
     }
 
-    /// The ban ending at engine tick `tick`; a ban without an end lasts until it is lifted.
-    #[doc(alias = "BanEntry::setExpires")]
-    #[must_use]
-    pub fn with_expires(mut self, tick: u64) -> Self {
-        self.expires = Some(tick);
-        self
+    /// An entry as the data files store it.
+    pub(crate) fn from_parts(
+        name: String,
+        ip: Option<IpAddr>,
+        reason: String,
+        source: String,
+        created: u64,
+        expires: Option<u64>,
+    ) -> Self {
+        Self {
+            name,
+            ip,
+            reason,
+            source,
+            created,
+            expires,
+        }
     }
 
-    /// The banned name in ASCII lowercase, or the banned IP address as text.
-    #[doc(alias = "BanEntry::getName")]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// The banned IP address, for an IP ban.
-    pub fn ip_address(&self) -> Option<IpAddr> {
-        self.ip
-    }
-
-    /// Why; empty if no reason was given.
-    #[doc(alias = "BanEntry::getReason")]
-    pub fn reason(&self) -> &str {
-        &self.reason
-    }
-
-    /// Who or what banned.
-    #[doc(alias = "BanEntry::getSource")]
-    pub fn source(&self) -> &str {
-        &self.source
+    /// A ban of the IP address `ip`, without reason or end. An IPv4 address written as IPv6
+    /// (`::ffff:1.2.3.4`) is the IPv4 address.
+    pub fn ip(ip: IpAddr) -> Self {
+        let ip = ip.to_canonical();
+        Self {
+            name: ip.to_string(),
+            ip: Some(ip),
+            ..Self::new("")
+        }
     }
 
     /// The engine tick the ban was added at.
@@ -211,52 +211,42 @@ impl BanEntry {
         self.expires.is_some_and(|end| tick >= end)
     }
 
-    /// The entry as the ban list keeps it, added at `tick`; fails if a field is over its bound or
-    /// the name is not a valid list name.
+    /// The banned IP address, for an IP ban.
+    pub fn ip_address(&self) -> Option<IpAddr> {
+        self.ip
+    }
+
+    /// The banned name in ASCII lowercase, or the banned IP address as text.
+    #[doc(alias = "BanEntry::getName")]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Why; empty if no reason was given.
+    #[doc(alias = "BanEntry::getReason")]
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// Who or what banned.
+    #[doc(alias = "BanEntry::getSource")]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// The entry as the ban list keeps it, added at `tick`; fails if a field is over its bound,
+    /// the name is not a valid list name or the ban has ended already.
     pub(crate) fn checked(mut self, tick: u64) -> Result<Self> {
         if self.ip.is_none() {
             check_name(&self.name)?;
         }
         check_ban_fields(&self.reason, &self.source)?;
+        if self.has_expired(tick) {
+            return Err(Error::Expired);
+        }
         self.created = tick;
         Ok(self)
     }
-
-    /// An entry as the server file stores it.
-    pub(crate) fn from_parts(
-        name: String,
-        ip: Option<IpAddr>,
-        reason: String,
-        source: String,
-        created: u64,
-        expires: Option<u64>,
-    ) -> Self {
-        Self {
-            name,
-            ip,
-            reason,
-            source,
-            created,
-            expires,
-        }
-    }
-}
-
-/// Fails unless `name` can be on a list: 1 to [`MAX_NAME`] bytes without control characters.
-pub(crate) fn check_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
-        return Err(Error::InvalidName);
-    }
-    Ok(())
-}
-
-/// Fails unless a ban's `reason` is at most [`MAX_REASON`] bytes and its `source` at most
-/// [`MAX_SOURCE`].
-pub(crate) fn check_ban_fields(reason: &str, source: &str) -> Result<()> {
-    if reason.len() > MAX_REASON || source.len() > MAX_SOURCE {
-        return Err(Error::TooLong);
-    }
-    Ok(())
 }
 
 /// Why a list did not change.
@@ -266,24 +256,27 @@ pub enum Error {
     InvalidName,
     /// The ban reason is longer than 256 bytes or its source longer than 64.
     TooLong,
+    /// The ban ends at an engine tick that has passed already.
+    Expired,
     /// The list holds 262,144 entries.
     Full,
 }
-
-/// A result with the permission [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidName => "the name is empty, too long or holds control characters",
             Self::TooLong => "the ban reason or source is too long",
+            Self::Expired => "the ban has ended already",
             Self::Full => "the list is full",
         })
     }
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the permission [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Declares Anchor's own permissions and the list of them.
 macro_rules! builtin {
@@ -305,14 +298,14 @@ builtin! {
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
     /// Back up the data files while the server runs (`/backup`; Anchor's own, PMMP has none).
     COMMAND_BACKUP = "anchor.command.backup", Op;
-    /// Check the server file while the server runs (`/check`; Anchor's own, PMMP has none).
-    COMMAND_CHECK = "anchor.command.check", Op;
     /// Ban IP addresses (`/ban-ip`).
     COMMAND_BAN_IP = "anchor.command.ban.ip", Op;
     /// List the bans (`/banlist`).
     COMMAND_BAN_LIST = "anchor.command.ban.list", Op;
     /// Ban players (`/ban`).
     COMMAND_BAN_PLAYER = "anchor.command.ban.player", Op;
+    /// Check the data files while the server runs (`/check`; Anchor's own, PMMP has none).
+    COMMAND_CHECK = "anchor.command.check", Op;
     /// Clear another player's inventory (`/clear`).
     COMMAND_CLEAR_OTHER = "anchor.command.clear.other", Op;
     /// Clear one's own inventory (`/clear`).
@@ -419,6 +412,23 @@ builtin! {
     COMMAND_XP_SELF = "anchor.command.xp.self", Op;
 }
 
+/// Fails unless a ban's `reason` is at most [`MAX_REASON`] bytes and its `source` at most
+/// [`MAX_SOURCE`].
+pub(crate) fn check_ban_fields(reason: &str, source: &str) -> Result<()> {
+    if reason.len() > MAX_REASON || source.len() > MAX_SOURCE {
+        return Err(Error::TooLong);
+    }
+    Ok(())
+}
+
+/// Fails unless `name` can be on a list: 1 to [`MAX_NAME`] bytes without control characters.
+pub(crate) fn check_name(name: &str) -> Result<()> {
+    if name.is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
+        return Err(Error::InvalidName);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,7 +465,9 @@ mod tests {
         assert_eq!(COMMAND_ME.default(), Default::True);
     }
 
-    // pmmp: BanEntry::getName, BanEntry::getReason, BanEntry::setReason, BanEntry::getSource, BanEntry::setSource, BanEntry::getCreated, BanEntry::getExpires, BanEntry::setExpires, BanEntry::hasExpired, BanEntry
+    // pmmp: BanEntry::getName, BanEntry::getReason, BanEntry::setReason, BanEntry::getSource,
+    // pmmp: BanEntry::setSource, BanEntry::getCreated, BanEntry::getExpires,
+    // pmmp: BanEntry::setExpires, BanEntry::hasExpired, BanEntry
     #[test]
     fn ban_entries_keep_their_fields_and_expire_at_their_tick() {
         let entry = BanEntry::new("Steve")
@@ -484,5 +496,24 @@ mod tests {
             BanEntry::new("a").with_reason(&long).checked(0),
             Err(Error::TooLong)
         );
+    }
+
+    #[test]
+    fn a_ban_that_has_ended_already_is_refused() {
+        let ban = |end: u64| BanEntry::new("steve").with_expires(end).checked(40);
+        assert_eq!(ban(39), Err(Error::Expired));
+        assert_eq!(ban(40), Err(Error::Expired));
+        assert_eq!(ban(41).map(|entry| entry.expires()), Ok(Some(41)));
+        assert!(BanEntry::new("steve").checked(40).is_ok());
+    }
+
+    #[test]
+    fn an_ip_ban_of_an_ipv4_address_written_as_ipv6_bans_the_ipv4_address() {
+        let mapped: IpAddr = "::ffff:1.2.3.4".parse().unwrap();
+        let ip = BanEntry::ip(mapped);
+        assert_eq!(ip.ip_address(), Some(IpAddr::from([1, 2, 3, 4])));
+        assert_eq!(ip.name(), "1.2.3.4");
+        let v6: IpAddr = "2001:db8::1".parse().unwrap();
+        assert_eq!(BanEntry::ip(v6).ip_address(), Some(v6));
     }
 }

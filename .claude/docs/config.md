@@ -31,8 +31,9 @@ enable-ipv6 = true
 # The one port players reach: UDP carries RakNet, NetherNet game data and server list pings;
 # TCP carries NetherNet signaling.
 server-port = 19132
-# Address players use to reach this server, if it differs from the local one (NAT).
-# Empty: advertise the addresses of the local interfaces.
+# Address NetherNet players use to reach this server, if it differs from the local one (NAT).
+# Empty: advertise the address each player reached the signaling port on.
+# An IPv6 address needs enable-ipv6.
 public-ip = ""
 max-players = 20
 # true: players must sign in to Xbox Live. false: anyone can join under any name.
@@ -51,7 +52,7 @@ pvp = true
 hunger = true
 # Gaining experience points and levels. false also means no experience orbs.
 experience = true
-# Experience orbs and throwing bottles o' enchanting.
+# Experience orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
 experience-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
@@ -99,6 +100,8 @@ backups = true
 shutdown-message = "The server has stopped"
 # Resource pack files (.mcpack or .zip), relative to data/packs. Earlier entries override later ones.
 # An encrypted pack needs its key in "<file>.key" next to it.
+# Players keep a downloaded pack by its uuid and version: raise the manifest version when
+# a pack changes.
 resource-packs = []
 # true: players must accept the resource packs to join.
 force-resources = false
@@ -113,14 +116,15 @@ compression = "snappy"
 compression-threshold = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
-# Largest decompressed batch a client may send, in bytes (4210786 to 67108864: at least
-# what one player with the largest skin takes in the player list).
+# Largest decompressed batch received from a player or sent to one, in bytes (4210786 to
+# 67108864: at least what one player with the largest skin takes in the player list).
 max-batch-bytes = 16777216
 # false: RakNet game traffic is sent in plain form. Anyone between a player and the server
 # can then read it and change it, login included. Use false only on a trusted network.
 # NetherNet traffic is always encrypted by its own transport.
 enable-encryption = true
-# false: accept only NetherNet. The RakNet port still answers server list pings.
+# false: accept only NetherNet. A RakNet client gets no reply to its connection request;
+# the UDP port still answers server list pings.
 raknet = true
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
 max-mtu-size = 1492
@@ -135,11 +139,13 @@ cpu-threads = "auto"
 chunks-per-tick = 4
 # Chunk radius sent before a player spawns (at most view-distance).
 spawn-radius = 4
-# Chunk radius around players where blocks and entities are ticked (at most view-distance).
+# Chunk radius around players where blocks get random ticks and entities are ticked (at most
+# view-distance). Block updates (liquids, fire, falling blocks) run in every loaded chunk.
 tick-radius = 4
 # Random block ticks per sub-chunk per tick (crop growth, leaf decay). 0 turns them off.
 random-tick-speed = 3
-# Blocks that never get random ticks, by name, for example "minecraft:grass_block".
+# Blocks that never get random ticks, by name, for example "minecraft:grass_block". Every block
+# of the same kind as a named block stops too. Custom blocks ignore this list.
 disable-block-ticking = []
 # true: a world without players runs one tick in every 100.
 slow-empty-worlds = false
@@ -182,10 +188,12 @@ console-input = true
 - `Range`: a whole number outside its range, with the key, the value, the minimum, and the maximum.
 - `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` inside the codec's 1 MiB to 64 MiB but below one player list entry (4210786 bytes) is `Invalid`.
 - `hardcore = true` requires `difficulty = "hard"` (`Invalid`).
+- A `level-name` that cannot be a world file name is `Invalid`, naming `general.level-name`.
+- An IPv6 `public-ip` with `enable-ipv6 = false` is `Invalid`, naming `general.public-ip`.
 - `nethernet-tls-cert` and `nethernet-tls-key` are both empty or both set (`Invalid`).
 - `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 
-`build` also fails, with `Invalid` naming the thread key, when the thread counts exceed the budget (see `cpu-threads`), and with `anchor::Error::InvalidWorldName` when a world name cannot be a file name (see `level-name`).
+`build` also fails, with `Invalid` naming the thread key, when the thread counts exceed the budget (see `cpu-threads`), and with `anchor::Error::InvalidWorldName` when the name of a world declared with `ServerBuilder::world` cannot be a file name.
 
 ## `[general]`
 
@@ -198,7 +206,7 @@ console-input = true
 | `server-ipv6` | string | `"::"` | IPv6 address | IPv6 address to listen on; `::` is every interface |
 | `enable-ipv6` | bool | `true` | | Whether to listen on IPv6 too |
 | `server-port` | integer | `19132` | 0 to 65535 | The one port number the server uses, on IPv4 and IPv6: UDP for RakNet, NetherNet game data, and server list pings; TCP for NetherNet signaling |
-| `public-ip` | string | `""` | empty or an IP address | Address players use to reach the server when it differs from the local one (NAT); empty advertises the addresses of the local interfaces |
+| `public-ip` | string | `""` | empty or an IP address; IPv6 only with `enable-ipv6` | Address NetherNet players use to reach the server when it differs from the local one (NAT); empty advertises the address each player reached the signaling port on |
 | `max-players` | integer | `20` | 1 to 10000 | Most players online at once; sizes the player and session tables |
 | `xbox-auth` | bool | `true` | | Whether players must sign in to Xbox Live; `false` lets anyone join under any name |
 | `white-list` | bool | `false` | | Whether only listed players can join; the `whitelist` command manages the list |
@@ -209,7 +217,7 @@ console-input = true
 | `pvp` | bool | `true` | | Whether players can hurt each other |
 | `hunger` | bool | `true` | | Hunger |
 | `experience` | bool | `true` | | Gaining experience points and levels. `false` also means no experience orbs, and enchanting tables and anvils count the player's level as 0, refusing anything that costs levels |
-| `experience-orbs` | bool | `true` | | Experience orbs and throwing bottles o' enchanting. `false` computes no dropped experience, makes and reads no orbs, and refuses throwing bottles; no experience is given directly in their place. Points, levels, and `/xp` follow `experience` only |
+| `experience-orbs` | bool | `true` | | Experience orbs and throwing bottles o' enchanting. `false` computes no dropped experience, makes and reads no orbs (the orbs of loading chunks are deleted), and refuses throwing bottles; no experience is given directly in their place. Points, levels, and `/xp` follow `experience` only |
 | `fall-damage` | bool | `true` | | Fall damage |
 | `drowning` | bool | `true` | | Air supply under water, drowning damage, and suffocation damage |
 | `armor` | bool | `true` | | Armor protection, armor wear, and thorns; `false` removes all three |
@@ -233,7 +241,7 @@ console-input = true
 | `save-player-data` | bool | `true` | | Whether inventories and positions are kept between joins |
 | `backups` | bool | `true` | | Whether the data files are copied to `data/backups` at start and by the `backup` command (`storage.md`) |
 | `shutdown-message` | string | `"The server has stopped"` | at most 1024 bytes | Message players see when the server stops |
-| `resource-packs` | array of strings | `[]` | non-empty paths; a relative path is relative to `data/packs` and may not start with `packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it |
+| `resource-packs` | array of strings | `[]` | non-empty paths; a relative path is relative to `data/packs` and may not start with `packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it. Players keep a downloaded pack by its uuid and version: raise the manifest version when a pack changes |
 | `force-resources` | bool | `false` | | Whether players must accept the resource packs to join |
 | `log-level` | string | `"info"` | `off`, `error`, `warn`, `info`, `debug`, `trace` | Detail of Anchor's console log; `off` writes no console log |
 
@@ -246,19 +254,19 @@ A relative `resource-packs` path that starts with `packs` is rejected, and the u
 | `compression` | string | `"snappy"` | `snappy`, `zlib` | Network compression: Snappy saves CPU, zlib saves bandwidth |
 | `compression-threshold` | integer | `256` | 1 to 65535 | Batches shorter than this many bytes are sent uncompressed. 0 is rejected because implementations disagree on what it means |
 | `compression-level` | integer | `6` | 1 to 9 | zlib level, 1 (fastest) to 9 (smallest); checked even when `compression = "snappy"` |
-| `max-batch-bytes` | integer | `16777216` | 4210786 to 67108864 | Largest decompressed batch a client may send, in bytes. The minimum is one player list entry with the largest skin (`MAX_SKIN_BYTES`, 4 MiB): an entry cannot be split, so it must fit one batch |
+| `max-batch-bytes` | integer | `16777216` | 4210786 to 67108864 | Largest decompressed batch received from a player or sent to one, in bytes. The minimum is one player list entry with the largest skin (`MAX_SKIN_BYTES`, 4 MiB): an entry cannot be split, so it must fit one batch |
 | `enable-encryption` | bool | `true` | | Whether RakNet game traffic is encrypted. With `false`, anyone between a player and the server can read and change it, login included, so `false` is only for a trusted network. NetherNet traffic is always encrypted by its own transport |
-| `raknet` | bool | `true` | | Whether RakNet connections are accepted; `false` accepts only NetherNet, and server list pings are still answered |
+| `raknet` | bool | `true` | | Whether RakNet connections are accepted; `false` accepts only NetherNet: a RakNet client gets no reply to its connection request, and the UDP port still answers server list pings |
 | `max-mtu-size` | integer | `1492` | 576 to 1492 | Largest RakNet packet in bytes; lower it behind tunnels or VPNs. go-raknet's dialer probes 1492, 1200, and 576 |
 | `nethernet-tls-cert` | string | `""` | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
 | `nethernet-tls-key` | string | `""` | empty or a path | PEM private key for HTTPS signaling |
 | `network-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for network work. `auto` is max(1, ⌊L/4⌋), L being the logical CPU count |
 | `cpu-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, max(L, 4) − 2 − network threads). When network threads + CPU threads + 2 (the tick and save threads) exceed max(L, 4), `build` fails with `anchor::Error::Config` (`config::Error::Invalid`) naming `developer.network-threads` when the total leaves no room for one CPU thread, or else `developer.cpu-threads` |
 | `chunks-per-tick` | integer | `4` | 1 to 256 | Chunks sent to each player per tick. 0 would never send a chunk; 256 sends the largest view in about 3 seconds |
-| `spawn-radius` | integer | `4` | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) |
-| `tick-radius` | integer | `4` | 1 to 64 | Chunk radius around players where blocks and entities are ticked; the effective value is min(value, `view-distance`) |
+| `spawn-radius` | integer | `4` | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) and, before a player spawns, the radius that player asks for |
+| `tick-radius` | integer | `4` | 1 to 64 | Chunk radius around players where blocks get random ticks and entities are ticked; the effective value is min(value, `view-distance`). Block updates (liquids, fire, falling blocks) run in every loaded chunk |
 | `random-tick-speed` | integer | `3` | 0 to 4096 | Random block ticks per sub-chunk per tick (crop growth, leaf decay); 0 turns them off. A sub-chunk holds 4096 blocks, so more ticks only add cost |
-| `disable-block-ticking` | array of strings | `[]` | block names `namespace:path` of `a`–`z`, `0`–`9`, `_`, `-`, `.`, and `/` in the path | Blocks that never get random ticks |
+| `disable-block-ticking` | array of strings | `[]` | block names `namespace:path` of `a`–`z`, `0`–`9`, `_`, `-`, `.`, and `/` in the path | Blocks that never get random ticks. Every block of the same kind as a named block stops too. Custom blocks ignore this list |
 | `slow-empty-worlds` | bool | `false` | | Whether a world without players runs only on ticks that are multiples of 100 |
 | `lighting` | string | `"dynamic"` | `dynamic`, `on-load`, `fixed`, or a bool | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level`. `true` reads as `dynamic` and `false` as `fixed` |
 | `fixed-light-level` | integer | `15` | 0 to 15 | Sky light everywhere when `lighting = "fixed"` |
@@ -283,7 +291,7 @@ A table may exist for each declared world. Each key it sets replaces the global 
 | `tick-radius` | integer | 1 to 64 | The world's tick radius, at most the world's view distance |
 | `spawn` | three integers `[x, y, z]` | each an `i32` | Where players appear in the world when it is new; without it, the generator's spawn |
 
-`spawn` applies only to a world whose file has no record yet; from then on the world file keeps its spawn as world state (`storage.md`). A world made or loaded at run time (`Context::create_world`, `Context::load_world`) takes these values from its `world::Options`, never from a `[worlds.<name>]` table, which only declared worlds may have.
+`spawn` applies only to a world whose file has no record yet; from then on the world file keeps its spawn as world state (`storage.md`). A world made or loaded at run time (`Context::create_world`, `Context::load_world`) takes these values from its `world::Options`, never from a `[worlds.<name>]` table, which only declared worlds may have. A table's name must equal a declared world's name exactly; world files ignore letter case, tables do not.
 
 ## Keys named differently in PMMP
 
@@ -310,8 +318,8 @@ PMMP keys with no counterpart:
 Running the server program as `<program> update-config` updates a file written by an older Anchor to this Anchor's keys, with no code in the program. `Config::load` runs `Config::update_file(path)` before reading the file, since an old file may not load until it is updated; a missing file is then `Error::Read` (NotFound), and no default file is written. `Server::run` then writes the result to standard output (one `added <key>` or `removed <key>` line per key, or that the file is already up to date) and returns without starting the server. A program that never calls `Config::load` prints that nothing was updated. `update-config` with any further argument makes `Server::run` fail with `anchor::Error::Usage`. Starting never updates the file, so the file changes only when the operator chooses. The command may run while the server runs; a running server reads the new file at its next start.
 
 - Adding: each key of the default file that the file lacks is added with its default value and the comment lines right above it in the default file. It goes after the line of the nearest key before it in the default file that the file has, or after the table's header line when the file has none of those. A table the file lacks is appended at the end with its header's comment lines and all its keys, after one blank line (none in an empty file).
-- Removing: a `key = value` Anchor does not know, at the top level or inside a `[general]` or `[developer]` written with its header, is removed with its lines and the comment lines right above it (lines whose first non-blank character is `#`; a blank line ends them). A line of a multi-line string is not a comment line. A dotted key or a subtable (`[general.x]`) is left, so the result does not load and the update fails with `UnknownKey`. Unknown tables are kept, and so are the keys inside `[worlds.<name>]`, whose unknown keys likewise make the update fail.
-- Every other byte stays as it was: values, comments, key order, a byte order mark, and line endings. When the file contains a CRLF line ending, added lines use CRLF. `[worlds.<name>]` tables are not touched: a key missing there means the global value.
+- Removing: a `key = value` Anchor does not know, at the top level or inside a `[general]` or `[developer]` written with its header, is removed with its lines and the comment lines right above it (lines whose first non-blank character is `#`; a blank line ends them). A line of a multi-line string is not a comment line. A dotted key or a subtable (`[general.x]`) is left, so the result does not load and the update fails with `UnknownKey`. Unknown tables are kept; an unknown key inside a `[worlds.<name>]` table written with its header is removed like one in `[general]`.
+- Every other byte stays as it was: values, comments, key order, a byte order mark, and line endings. When the file contains a CRLF line ending, added lines use CRLF. No key is added to `[worlds.<name>]` tables: a key missing there means the global value.
 - No value is fixed. When the result would not load (an unknown key, an out-of-range value, a syntax error), the update returns that error and leaves the file as it was. It also refuses, leaving the file, when a table that lacks a key is written without its header (an inline table or dotted keys: `HeaderlessTable`) and when the result would exceed 1 MiB (`TooLarge`).
 - The file is written only when something changed, whole (a temporary file renamed into place). The returned `config::Update` lists the added keys (`added`, in default file order) and the removed keys (`removed`, in file order). A second run changes nothing.
 - The added values are the defaults, so the file means what it meant without them. A value set in code before `load`, for a key the update adds, is then replaced by the file's value, as with a missing file.

@@ -19,7 +19,9 @@
 //! ```
 //!
 //! The binary's profiles must keep `panic = "unwind"`, the default: a panicking connection task
-//! closes only that connection.
+//! closes only that connection. A panic in a callback that runs in the tick (a listener, a task, a
+//! command) ends the server without saving: [`Server::run`] writes the input log to `data/crash/`
+//! and returns [`Error::TickPanicked`].
 //!
 //! Items that come from PocketMine-MP carry its names as search aliases, so searching these docs
 //! for `Player::getName` finds [`Player::name`](player::Player::name). The design notes (threads
@@ -58,7 +60,8 @@
 //!
 //! ```toml
 //! [general]
-//! # A start copies every data file into data/backups first; false skips the copy.
+//! # A start backs up every data file that existed into data/backups while the server runs;
+//! # false skips the backup.
 //! backups = true
 //! [developer]
 //! # "after-unclean-shutdown": the files are read through only when the last run did not stop

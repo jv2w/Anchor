@@ -196,7 +196,7 @@ fn anchor_session(
     let server = server(&data_dir)?;
     install_log()?;
     let report = server
-        .import_world(world, WORLD)
+        .import_world(WORLD, world)
         .map_err(|e| format!("import: {e} ({:?})", std::error::Error::source(&e)))?;
     say(out, &format!("import: {report:?}"))?;
     let passed = run_anchor(server, |ports| {

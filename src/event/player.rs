@@ -1,11 +1,14 @@
 //! Player events (PMMP `pocketmine\event\player`): joining, leaving, moving, chatting and the
 //! other things a player does.
 //!
-//! Messages (join, quit, death, kick) are plain text; an empty message shows nothing.
+//! Messages are plain text or client translation keys, which the default join, quit and death
+//! lines are. An empty join, quit or chat death message shows nothing; an empty kick or death
+//! screen message shows the client's own text.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
+use super::set_clamped;
 use crate::block::{Face, State};
 use crate::config::GameMode;
 use crate::entity;
@@ -15,32 +18,6 @@ use crate::player;
 use crate::protocol::{self, Uuid};
 use crate::tick::queue::{Identity, Skin};
 use crate::world::{self, BlockPos, ChunkPos};
-
-/// Who a player is, from the verified login.
-#[derive(Debug, Clone, PartialEq, Eq)]
-// pmmp-class: PlayerInfo
-pub struct PlayerInfo(pub(crate) Identity);
-
-impl PlayerInfo {
-    /// The player's name: the Xbox gamertag when Xbox sign-in is on, otherwise the name the
-    /// client chose.
-    #[doc(alias = "PlayerInfo::getUsername")]
-    pub fn name(&self) -> &str {
-        &self.0.name
-    }
-
-    /// The Xbox user ID, or `None` when Xbox sign-in (`xbox-auth`) is off.
-    #[doc(alias = "XboxLivePlayerInfo::getXuid")]
-    pub fn xuid(&self) -> Option<u64> {
-        self.0.xuid
-    }
-
-    /// The identity UUID the client sent.
-    #[doc(alias = "PlayerInfo::getUuid")]
-    pub fn uuid(&self) -> Uuid {
-        self.0.uuid
-    }
-}
 
 /// Raised when a player lies down in a bed. Cancelling keeps the player up.
 #[doc(alias = "PlayerBedEnterEvent")]
@@ -61,6 +38,13 @@ getters!(PlayerBedEnter {
     #[doc(alias = "PlayerBedEnterEvent::getBed")]
     bed: BlockPos,
 });
+
+cancellable! {
+    PlayerBedEnter
+        #[doc(alias = "PlayerBedEnterEvent::cancel")]
+        #[doc(alias = "PlayerBedEnterEvent::uncancel")]
+        #[doc(alias = "PlayerBedEnterEvent::isCancelled")];
+}
 
 /// Raised when a player gets out of a bed.
 #[doc(alias = "PlayerBedLeaveEvent")]
@@ -110,8 +94,17 @@ getters!(PlayerBlockPick {
     result_item: &Stack,
 });
 
+cancellable! {
+    PlayerBlockPick
+        #[doc(alias = "PlayerBlockPickEvent::cancel")]
+        #[doc(alias = "PlayerBlockPickEvent::uncancel")]
+        #[doc(alias = "PlayerBlockPickEvent::isCancelled")];
+}
+
 /// Raised when a player empties a bucket into the world. Cancelling keeps the world and the
 /// bucket as they were.
+///
+/// A cauldron raises neither this nor [`PlayerBucketFill`]; clicking it raises [`PlayerInteract`].
 #[doc(alias = "PlayerBucketEmptyEvent")]
 #[doc(alias = "PlayerBucketEvent")]
 #[derive(Debug)]
@@ -139,16 +132,24 @@ getters!(PlayerBucketEmpty {
     /// The bucket before.
     #[doc(alias = "PlayerBucketEvent::getBucket")]
     bucket: &Stack,
-    /// What the player holds after (an empty bucket in survival).
+    /// What the player gets back instead of the bucket: an empty bucket until a listener replaces
+    /// it. It takes the hand if the bucket emptied it, otherwise it goes to the inventory.
     #[doc(alias = "PlayerBucketEvent::getItem")]
     item: &Stack,
 });
 
 setters!(PlayerBucketEmpty {
-    /// Replaces what the player holds after.
+    /// Replaces what the player gets back.
     #[doc(alias = "PlayerBucketEvent::setItem")]
     set_item => item: Stack,
 });
+
+cancellable! {
+    PlayerBucketEmpty
+        #[doc(alias = "PlayerBucketEvent::cancel")]
+        #[doc(alias = "PlayerBucketEvent::uncancel")]
+        #[doc(alias = "PlayerBucketEvent::isCancelled")];
+}
 
 /// Raised when a player fills a bucket from the world. Cancelling keeps the world and the bucket
 /// as they were.
@@ -175,16 +176,24 @@ getters!(PlayerBucketFill {
     block_face: Face,
     /// The bucket before.
     bucket: &Stack,
-    /// What the player holds after (the filled bucket).
+    /// What the player gets back: the filled bucket until a listener replaces it. It takes the
+    /// hand if the bucket emptied it, otherwise it goes to the inventory.
     item: &Stack,
 });
 
 setters!(PlayerBucketFill {
-    /// Replaces what the player holds after.
+    /// Replaces what the player gets back.
     set_item => item: Stack,
 });
 
-/// Raised when a player changes skin in game. Cancelling keeps the old skin.
+cancellable! {
+    PlayerBucketFill;
+}
+
+/// Raised when a player changes skin in game.
+///
+/// Cancelling keeps the old skin, and so does a listener that sets the player's skin through the
+/// API.
 #[doc(alias = "PlayerChangeSkinEvent")]
 #[derive(Debug)]
 pub struct PlayerChangeSkin {
@@ -194,12 +203,12 @@ pub struct PlayerChangeSkin {
     pub(crate) cancelled: bool,
 }
 
-impl PlayerChangeSkin {
+getters!(PlayerChangeSkin {
     /// The player.
-    pub fn player(&self) -> player::Id {
-        self.player
-    }
+    player: player::Id,
+});
 
+impl PlayerChangeSkin {
     /// The skin before.
     #[doc(alias = "PlayerChangeSkinEvent::getOldSkin")]
     pub fn old_skin(&self) -> &protocol::Skin {
@@ -221,7 +230,16 @@ impl PlayerChangeSkin {
     }
 }
 
-/// Raised when a player sends a chat message. Cancelling sends it to nobody.
+cancellable! {
+    PlayerChangeSkin
+        #[doc(alias = "PlayerChangeSkinEvent::cancel")]
+        #[doc(alias = "PlayerChangeSkinEvent::uncancel")]
+        #[doc(alias = "PlayerChangeSkinEvent::isCancelled")];
+}
+
+/// Raised when a player sends a chat message. Cancelling sends it to nobody, and so does a
+/// speaker who is not online when the listeners are done or a line longer than 65,536 bytes;
+/// monitors hear none of these.
 #[doc(alias = "PlayerChatEvent")]
 #[derive(Debug)]
 pub struct PlayerChat {
@@ -238,24 +256,25 @@ getters!(PlayerChat {
     /// The message.
     #[doc(alias = "PlayerChatEvent::getMessage")]
     message: &str,
-    /// The players who see it. Starts as every player.
+    /// The players who see it. Starts as every player that has joined and is not leaving.
     #[doc(alias = "PlayerChatEvent::getRecipients")]
     recipients: &[player::Id],
 });
 
 setters!(PlayerChat {
-    /// Makes another player the speaker.
+    /// Makes another player the speaker; if that player is not online when the listeners are
+    /// done (joined and not leaving), the line goes to nobody and no monitor sees it.
     #[doc(alias = "PlayerChatEvent::setPlayer")]
     set_player => player: player::Id,
-    /// Replaces the message.
+    /// Replaces the message; a line over 65,536 bytes goes to nobody and no monitor sees it.
     #[doc(alias = "PlayerChatEvent::setMessage")]
     set_message => message: String,
     /// Replaces the players who see it; players who left are skipped.
     #[doc(alias = "PlayerChatEvent::setRecipients")]
     set_recipients => recipients: Vec<player::Id>,
     /// Replaces the format: `None` for the standard line (sent as BDS sends it, see
-    /// [`PlayerChat::format`]), or a text where `{%0}` stands for the speaker's name, `{%1}`
-    /// for the message and `{%%` for a literal `{%`. Text put into the format, such as a name,
+    /// [`PlayerChat::format`]), or a text where `{%0}` is the speaker's display name, `{%1}` the
+    /// message and `{%%` a literal `{%`. Text put into the format, such as a name,
     /// keeps its own `{%0}` with every `{%` written as `{%%`: `text.replace("{%", "{%%")`. The
     /// name and the message filled in are taken as they are.
     #[doc(alias = "PlayerChatEvent::setFormatter")]
@@ -265,8 +284,8 @@ setters!(PlayerChat {
 impl PlayerChat {
     /// How the line looks: `None` for the standard line, sent as BDS sends it (a chat text with
     /// the speaker's name as its source and the raw message, which the client shows as
-    /// `<name> message`), or a text where `{%0}` stands for the speaker's name, `{%1}` for the
-    /// message and `{%%` for a literal `{%` (PMMP `LegacyRawChatFormatter`, which has no
+    /// `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
+    /// message and `{%%` a literal `{%` (PMMP `LegacyRawChatFormatter`, which has no
     /// escape). Starts as `None`.
     #[doc(alias = "PlayerChatEvent::getFormatter")]
     pub fn format(&self) -> Option<&str> {
@@ -274,9 +293,17 @@ impl PlayerChat {
     }
 }
 
-/// Raised before an online player's data goes into the next save of the server's state. Cancelling
-/// is ignored: the data is saved anyway, so the commit stays atomic; what listeners change before
-/// the snapshot is saved. A held offline record
+cancellable! {
+    PlayerChat
+        #[doc(alias = "PlayerChatEvent::cancel")]
+        #[doc(alias = "PlayerChatEvent::uncancel")]
+        #[doc(alias = "PlayerChatEvent::isCancelled")];
+}
+
+/// Raised before an online player's changed data goes into the next save of the server's state.
+/// A player who has left raises none: the data is saved without the event. Cancelling is ignored:
+/// the data is saved anyway, so the commit stays atomic; what listeners change before the
+/// snapshot is saved. A held offline record
 /// ([`Context::hold_offline_player`](crate::Context::hold_offline_player)) raises none: it changes
 /// only through the program's own calls, which raise no events.
 #[doc(alias = "PlayerDataSaveEvent")]
@@ -345,12 +372,12 @@ getters!(PlayerDeath {
     xp_drop_amount: u32,
     /// The message every player sees in chat. With `show-death-messages` it starts as the
     /// death's translation key, which, left so, the client translates with the dead player's and
-    /// the attacker's names; otherwise it starts empty. An empty one shows nothing, any other
-    /// shows as it is.
+    /// the attacker's names; otherwise it starts empty. An empty one shows nothing, one longer
+    /// than 65,536 bytes is not sent, any other shows as it is.
     #[doc(alias = "PlayerDeathEvent::getDeathMessage")]
     death_message: &str,
     /// The message on the dead player's death screen. Starts empty, which shows the death's
-    /// translated message.
+    /// translated message; so does one longer than 65,536 bytes.
     #[doc(alias = "PlayerDeathEvent::getDeathScreenMessage")]
     death_screen_message: &str,
     /// Whether the player keeps the inventory.
@@ -362,14 +389,18 @@ getters!(PlayerDeath {
 });
 
 setters!(PlayerDeath {
-    /// Replaces what the player drops.
+    /// Replaces what the player drops. At most as many stacks as a player carries are kept, none
+    /// of them empty, each cut to its item's stack size. A stack of the player's own that the
+    /// event showed and these leave out is gone; every other stack it carries drops or stays as
+    /// without a listener.
     set_drops => drops: Vec<Stack>,
     /// Replaces the experience the player drops.
     set_xp_drop_amount => xp_drop_amount: u32,
-    /// Replaces the chat message.
+    /// Replaces the chat message; one longer than 65,536 bytes shows nothing.
     #[doc(alias = "PlayerDeathEvent::setDeathMessage")]
     set_death_message => death_message: String,
-    /// Replaces the death screen message.
+    /// Replaces the death screen message; an empty one, or one longer than 65,536 bytes, shows
+    /// the death's translated message.
     #[doc(alias = "PlayerDeathEvent::setDeathScreenMessage")]
     set_death_screen_message => death_screen_message: String,
     /// Sets whether the player keeps the inventory.
@@ -396,6 +427,13 @@ getters!(PlayerDropItem {
     #[doc(alias = "PlayerDropItemEvent::getItem")]
     item: &Stack,
 });
+
+cancellable! {
+    PlayerDropItem
+        #[doc(alias = "PlayerDropItemEvent::cancel")]
+        #[doc(alias = "PlayerDropItemEvent::uncancel")]
+        #[doc(alias = "PlayerDropItemEvent::isCancelled")];
+}
 
 /// Raised when a player joins while the same player is already online: the same XUID with Xbox
 /// sign-in on, otherwise the same name ignoring ASCII case.
@@ -431,26 +469,10 @@ impl PlayerDuplicateLogin {
         }
     }
 
-    /// The outcome the listeners chose, and the connecting player's identity back.
-    pub(crate) fn into_outcome(self) -> (Identity, DuplicateOutcome) {
-        let outcome = DuplicateOutcome {
-            cancelled: self.cancelled,
-            message: self.screen_message.unwrap_or_else(|| self.reason.clone()),
-            reason: self.reason,
-        };
-        (self.connecting.0, outcome)
-    }
-
     /// The player who is joining.
     #[doc(alias = "PlayerDuplicateLoginEvent::getConnectingSession")]
     pub fn connecting(&self) -> &PlayerInfo {
         &self.connecting
-    }
-
-    /// The player already online.
-    #[doc(alias = "PlayerDuplicateLoginEvent::getExistingSession")]
-    pub fn existing(&self) -> &PlayerInfo {
-        &self.existing
     }
 
     /// The reason given to the disconnected player. Starts as the client's key
@@ -460,22 +482,24 @@ impl PlayerDuplicateLogin {
         &self.reason
     }
 
-    /// Replaces the reason given to the disconnected player.
-    #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectReason")]
-    pub fn set_disconnect_reason(&mut self, reason: impl Into<String>) {
-        self.reason = reason.into();
-    }
-
     /// The message the disconnected player sees instead of the reason, if any. Starts as `None`.
     #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectScreenMessage")]
     pub fn disconnect_screen_message(&self) -> Option<&str> {
         self.screen_message.as_deref()
     }
 
-    /// Replaces the message the disconnected player sees; `None` shows the reason.
-    #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectScreenMessage")]
-    pub fn set_disconnect_screen_message(&mut self, message: Option<String>) {
-        self.screen_message = message;
+    /// The player already online.
+    #[doc(alias = "PlayerDuplicateLoginEvent::getExistingSession")]
+    pub fn existing(&self) -> &PlayerInfo {
+        &self.existing
+    }
+
+    /// Whether a listener cancelled the event.
+    #[doc(alias = "PlayerDuplicateLoginEvent::isCancelled")]
+    #[doc(alias = "CancellableTrait::isCancelled")]
+    #[doc(alias = "Cancellable::isCancelled")]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
     }
 
     /// Keeps the existing player and disconnects the connecting one.
@@ -485,6 +509,18 @@ impl PlayerDuplicateLogin {
         self.cancelled = true;
     }
 
+    /// Replaces the reason given to the disconnected player.
+    #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectReason")]
+    pub fn set_disconnect_reason(&mut self, reason: impl Into<String>) {
+        self.reason = reason.into();
+    }
+
+    /// Replaces the message the disconnected player sees; `None` shows the reason.
+    #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectScreenMessage")]
+    pub fn set_disconnect_screen_message(&mut self, message: Option<String>) {
+        self.screen_message = message;
+    }
+
     /// Undoes [`cancel`](Self::cancel): the existing player is disconnected again.
     #[doc(alias = "PlayerDuplicateLoginEvent::uncancel")]
     #[doc(alias = "CancellableTrait::uncancel")]
@@ -492,12 +528,14 @@ impl PlayerDuplicateLogin {
         self.cancelled = false;
     }
 
-    /// Whether a listener cancelled the event.
-    #[doc(alias = "PlayerDuplicateLoginEvent::isCancelled")]
-    #[doc(alias = "CancellableTrait::isCancelled")]
-    #[doc(alias = "Cancellable::isCancelled")]
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled
+    /// The outcome the listeners chose, and the connecting player's identity back.
+    pub(crate) fn into_outcome(self) -> (Identity, DuplicateOutcome) {
+        let outcome = DuplicateOutcome {
+            cancelled: self.cancelled,
+            message: self.screen_message.unwrap_or_else(|| self.reason.clone()),
+            reason: self.reason,
+        };
+        (self.connecting.0, outcome)
     }
 }
 
@@ -521,26 +559,6 @@ impl DuplicateOutcome {
             reason: PlayerDuplicateLogin::DEFAULT_REASON.to_owned(),
         }
     }
-}
-
-/// What a player did to a book (PMMP `PlayerEditBookEvent::ACTION_*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BookAction {
-    /// Rewrote a page.
-    #[doc(alias = "PlayerEditBookEvent::ACTION_REPLACE_PAGE")]
-    ReplacePage,
-    /// Inserted a page before another.
-    #[doc(alias = "PlayerEditBookEvent::ACTION_ADD_PAGE")]
-    AddPage,
-    /// Removed a page.
-    #[doc(alias = "PlayerEditBookEvent::ACTION_DELETE_PAGE")]
-    DeletePage,
-    /// Swapped two pages.
-    #[doc(alias = "PlayerEditBookEvent::ACTION_SWAP_PAGES")]
-    SwapPages,
-    /// Signed the book: it becomes a written book.
-    #[doc(alias = "PlayerEditBookEvent::ACTION_SIGN_BOOK")]
-    SignBook,
 }
 
 /// Raised when a player edits a book and quill in its inventory, before the book changes.
@@ -593,6 +611,33 @@ impl PlayerEditBook {
     }
 }
 
+cancellable! {
+    PlayerEditBook
+        #[doc(alias = "PlayerEditBookEvent::cancel")]
+        #[doc(alias = "PlayerEditBookEvent::uncancel")]
+        #[doc(alias = "PlayerEditBookEvent::isCancelled")];
+}
+
+/// What a player did to a book (PMMP `PlayerEditBookEvent::ACTION_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BookAction {
+    /// Rewrote a page.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_REPLACE_PAGE")]
+    ReplacePage,
+    /// Inserted a page before another.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_ADD_PAGE")]
+    AddPage,
+    /// Removed a page.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_DELETE_PAGE")]
+    DeletePage,
+    /// Swapped two pages.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_SWAP_PAGES")]
+    SwapPages,
+    /// Signed the book: it becomes a written book.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_SIGN_BOOK")]
+    SignBook,
+}
+
 /// Raised when a player plays an emote. Cancelling shows it to nobody.
 #[doc(alias = "PlayerEmoteEvent")]
 #[derive(Debug)]
@@ -611,43 +656,18 @@ getters!(PlayerEmote {
 });
 
 setters!(PlayerEmote {
-    /// Plays another emote instead.
+    /// Plays another emote instead; an ID that is empty or longer than 128 bytes cancels the
+    /// emote.
     #[doc(alias = "PlayerEmoteEvent::setEmoteId")]
     set_emote_id => emote_id: String,
 });
 
-/// One enchanting option of an enchanting table (PMMP `EnchantingOption`).
-#[doc(alias = "EnchantingOption")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnchantOption {
-    pub(crate) required_level: u8,
-    pub(crate) name: String,
-    pub(crate) enchantments: Vec<(Enchantment, u8)>,
+cancellable! {
+    PlayerEmote
+        #[doc(alias = "PlayerEmoteEvent::cancel")]
+        #[doc(alias = "PlayerEmoteEvent::uncancel")]
+        #[doc(alias = "PlayerEmoteEvent::isCancelled")];
 }
-
-impl EnchantOption {
-    /// An option needing `required_level`, shown as `name` in the enchanting alphabet, that gives
-    /// `enchantments` (each with its level).
-    pub fn new(required_level: u8, name: String, enchantments: Vec<(Enchantment, u8)>) -> Self {
-        Self {
-            required_level,
-            name,
-            enchantments,
-        }
-    }
-}
-
-getters!(EnchantOption {
-    /// The experience level the option needs (it costs 1 to 3 levels, by its place).
-    #[doc(alias = "EnchantingOption::getRequiredXpLevel")]
-    required_level: u8,
-    /// The name shown in the enchanting alphabet.
-    #[doc(alias = "EnchantingOption::getDisplayName")]
-    name: &str,
-    /// What it enchants, each with its level, in order.
-    #[doc(alias = "EnchantingOption::getEnchantments")]
-    enchantments: &[(Enchantment, u8)],
-});
 
 /// Raised when an item goes into an enchanting table and the table shows its options. Cancelling
 /// shows none. It is raised for every non-empty input, with no options when the table offers none
@@ -686,8 +706,20 @@ impl PlayerEnchantingOptionsRequest {
     }
 }
 
-/// Raised when a player uses (right clicks) an entity: a villager NPC, an item frame. Cancelling
-/// does nothing.
+cancellable! {
+    PlayerEnchantingOptionsRequest
+        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::cancel")]
+        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::uncancel")]
+        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::isCancelled")];
+}
+
+/// Raised when a player uses (right clicks) an entity within reach, before the entity reacts: a
+/// villager NPC opens trading, a custom entity runs its behaviour
+/// ([`Behaviour::on_interact`](crate::entity::Behaviour::on_interact)). Cancelling keeps the
+/// entity from reacting.
+///
+/// Using another player raises nothing, and item frames and flower pots are blocks, so they raise
+/// [`PlayerInteract`]. Monitors are called only when the entity reacted.
 #[doc(alias = "PlayerEntityInteractEvent")]
 #[derive(Debug)]
 pub struct PlayerEntityInteract {
@@ -708,8 +740,16 @@ getters!(PlayerEntityInteract {
     click_position: Vec3,
 });
 
+cancellable! {
+    PlayerEntityInteract
+        #[doc(alias = "PlayerEntityInteractEvent::cancel")]
+        #[doc(alias = "PlayerEntityInteractEvent::uncancel")]
+        #[doc(alias = "PlayerEntityInteractEvent::isCancelled")];
+}
+
 /// Raised when a player picks an entity (middle click), before the entity's item goes to the
-/// hotbar. Cancelling gives nothing.
+/// hotbar: a creative player gets the entity's item, others only select or swap one they carry.
+/// Nothing is raised when there is no item to pick. Cancelling gives nothing.
 #[doc(alias = "PlayerEntityPickEvent")]
 #[derive(Debug)]
 pub struct PlayerEntityPick {
@@ -729,6 +769,50 @@ getters!(PlayerEntityPick {
     #[doc(alias = "PlayerEntityPickEvent::getResultItem")]
     result_item: &Stack,
 });
+
+cancellable! {
+    PlayerEntityPick
+        #[doc(alias = "PlayerEntityPickEvent::cancel")]
+        #[doc(alias = "PlayerEntityPickEvent::uncancel")]
+        #[doc(alias = "PlayerEntityPickEvent::isCancelled")];
+}
+
+/// Raised when a player gets hungrier. Cancelling keeps the player's exhaustion.
+#[doc(alias = "PlayerExhaustEvent")]
+#[derive(Debug)]
+pub struct PlayerExhaust {
+    pub(crate) player: player::Id,
+    pub(crate) amount: f64,
+    pub(crate) cause: ExhaustCause,
+    pub(crate) cancelled: bool,
+}
+
+getters!(PlayerExhaust {
+    /// The player.
+    #[doc(alias = "PlayerExhaustEvent::getPlayer")]
+    player: player::Id,
+    /// The exhaustion added (4 costs one saturation or food point).
+    #[doc(alias = "PlayerExhaustEvent::getAmount")]
+    amount: f64,
+    /// Why.
+    #[doc(alias = "PlayerExhaustEvent::getCause")]
+    cause: ExhaustCause,
+});
+
+impl PlayerExhaust {
+    /// Sets the exhaustion added, raised to 0 if negative. A value that is not finite is ignored.
+    #[doc(alias = "PlayerExhaustEvent::setAmount")]
+    pub fn set_amount(&mut self, amount: f64) {
+        set_clamped(&mut self.amount, amount, 0.0, f64::MAX);
+    }
+}
+
+cancellable! {
+    PlayerExhaust
+        #[doc(alias = "PlayerExhaustEvent::cancel")]
+        #[doc(alias = "PlayerExhaustEvent::uncancel")]
+        #[doc(alias = "PlayerExhaustEvent::isCancelled")];
+}
 
 /// Why a player gets hungrier (PMMP `PlayerExhaustEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -762,39 +846,9 @@ pub enum ExhaustCause {
     SprintJumping,
 }
 
-/// Raised when a player gets hungrier. Cancelling keeps the player's exhaustion.
-#[doc(alias = "PlayerExhaustEvent")]
-#[derive(Debug)]
-pub struct PlayerExhaust {
-    pub(crate) player: player::Id,
-    pub(crate) amount: f64,
-    pub(crate) cause: ExhaustCause,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerExhaust {
-    /// The player.
-    #[doc(alias = "PlayerExhaustEvent::getPlayer")]
-    player: player::Id,
-    /// The exhaustion added (4 costs one saturation or food point).
-    #[doc(alias = "PlayerExhaustEvent::getAmount")]
-    amount: f64,
-    /// Why.
-    #[doc(alias = "PlayerExhaustEvent::getCause")]
-    cause: ExhaustCause,
-});
-
-impl PlayerExhaust {
-    /// Sets the exhaustion added. A value that is not finite is ignored.
-    #[doc(alias = "PlayerExhaustEvent::setAmount")]
-    pub fn set_amount(&mut self, amount: f64) {
-        if amount.is_finite() {
-            self.amount = amount;
-        }
-    }
-}
-
-/// Raised when a player's experience level or progress changes. Cancelling keeps both.
+/// Raised when a player picks up experience orbs, before the points are added to the level and
+/// progress. Cancelling keeps both. Levels the game takes (enchanting, anvils, death) and the
+/// points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
 #[doc(alias = "PlayerExperienceChangeEvent")]
 #[derive(Debug)]
 pub struct PlayerExperienceChange {
@@ -823,13 +877,13 @@ getters!(PlayerExperienceChange {
     new_progress: Option<f64>,
 });
 
-setters!(PlayerExperienceChange {
-    /// Sets the level after (limited to the highest level when applied); `None` keeps the level.
-    #[doc(alias = "PlayerExperienceChangeEvent::setNewLevel")]
-    set_new_level => new_level: Option<u32>,
-});
-
 impl PlayerExperienceChange {
+    /// Sets the level after, limited to the highest level (24,791); `None` keeps the level.
+    #[doc(alias = "PlayerExperienceChangeEvent::setNewLevel")]
+    pub fn set_new_level(&mut self, level: Option<u32>) {
+        self.new_level = level.map(|l| l.min(player::MAX_LEVEL));
+    }
+
     /// Sets the progress after, limited to 0 to 1; `None` keeps the progress. A value that is not
     /// finite is ignored.
     #[doc(alias = "PlayerExperienceChangeEvent::setNewProgress")]
@@ -840,6 +894,13 @@ impl PlayerExperienceChange {
             None => self.new_progress = None,
         }
     }
+}
+
+cancellable! {
+    PlayerExperienceChange
+        #[doc(alias = "PlayerExperienceChangeEvent::cancel")]
+        #[doc(alias = "PlayerExperienceChangeEvent::uncancel")]
+        #[doc(alias = "PlayerExperienceChangeEvent::isCancelled")];
 }
 
 /// Raised when a player's game mode is about to change. Cancelling keeps it.
@@ -859,20 +920,24 @@ getters!(PlayerGameModeChange {
     new_game_mode: GameMode,
 });
 
-/// How a player touches a block (PMMP `PlayerInteractEvent::LEFT_CLICK_BLOCK`,
-/// `RIGHT_CLICK_BLOCK`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum InteractAction {
-    /// Starting to break it.
-    #[doc(alias = "PlayerInteractEvent::LEFT_CLICK_BLOCK")]
-    LeftClickBlock,
-    /// Using it, or using the held item on it.
-    #[doc(alias = "PlayerInteractEvent::RIGHT_CLICK_BLOCK")]
-    RightClickBlock,
+cancellable! {
+    PlayerGameModeChange
+        #[doc(alias = "PlayerGameModeChangeEvent::cancel")]
+        #[doc(alias = "PlayerGameModeChangeEvent::uncancel")]
+        #[doc(alias = "PlayerGameModeChangeEvent::isCancelled")];
 }
 
 /// Raised when a player clicks a block, before the block or the held item reacts. Cancelling does
 /// neither (and a left click does not start breaking).
+///
+/// A player's right click raises it only when it can take effect: the player is spawned, alive
+/// and not a spectator, holds the item the client says it holds, is within reach and looks toward
+/// the block, the block is not air, the block and the one next to the clicked face are loaded
+/// and inside the height limits, and the click is not a repeat of the previous one (same block,
+/// face, point and player position) in the same or the next tick. Otherwise nothing is raised and
+/// the client gets the blocks around the click again as they are. A left click is raised when the
+/// player is not a spectator and the block is within 100 blocks; a left click on an inert block
+/// raises nothing.
 #[doc(alias = "PlayerInteractEvent")]
 #[derive(Debug)]
 pub struct PlayerInteract {
@@ -897,7 +962,8 @@ getters!(PlayerInteract {
     world: world::Id,
     /// Where the block is.
     pos: BlockPos,
-    /// The block clicked.
+    /// The block clicked, or `minecraft:info_update` for a right click on an inert block (a left
+    /// click on one raises no event).
     #[doc(alias = "PlayerInteractEvent::getBlock")]
     block: State,
     /// The face clicked.
@@ -906,7 +972,7 @@ getters!(PlayerInteract {
     /// The item held.
     #[doc(alias = "PlayerInteractEvent::getItem")]
     item: &Stack,
-    /// Where on the block the player clicked, each part 0 to 1.
+    /// Where on the block the player clicked, each part 0 to 1 (zero for a left click).
     #[doc(alias = "PlayerInteractEvent::getTouchVector")]
     touch_vector: Vec3,
     /// The click.
@@ -916,24 +982,29 @@ getters!(PlayerInteract {
 
 impl PlayerInteract {
     /// Whether this is the first event of the click. While the player holds the right button on
-    /// blocks, the client repeats the click and each repeat raises this event again; only the
+    /// blocks, the client repeats the click; a repeat identical to the previous click in the same
+    /// or the next tick raises nothing and any other repeat raises this event again; only the
     /// first of the press is first, even if the player looks at other blocks meanwhile. Left
     /// clicks and clicks of [`UseItemOn`](crate::action::UseItemOn) are always first.
     pub fn is_first(&self) -> bool {
         self.first
     }
 
-    /// Whether a right click runs the held item's use action. Starts true.
-    #[doc(alias = "PlayerInteractEvent::useItem")]
-    pub fn uses_item(&self) -> bool {
-        self.use_item
-    }
-
     /// Whether a right click runs the clicked block's own response (a door opens, a container
-    /// shows). Starts true.
+    /// shows). Starts false for a sneaking player holding an item and for an inert block. It has
+    /// no effect on a left click.
     #[doc(alias = "PlayerInteractEvent::useBlock")]
     pub fn uses_block(&self) -> bool {
         self.use_block
+    }
+
+    /// Whether a right click runs the held item's use action. Starts false for a sneaking player.
+    /// Turning it off still lets the held item be placed as a block (a
+    /// [`BlockPlace`](crate::event::BlockPlace) listener can stop that). It has no effect on a
+    /// left click.
+    #[doc(alias = "PlayerInteractEvent::useItem")]
+    pub fn uses_item(&self) -> bool {
+        self.use_item
     }
 }
 
@@ -945,6 +1016,25 @@ setters!(PlayerInteract {
     #[doc(alias = "PlayerInteractEvent::setUseBlock")]
     set_use_block => use_block: bool,
 });
+
+cancellable! {
+    PlayerInteract
+        #[doc(alias = "PlayerInteractEvent::cancel")]
+        #[doc(alias = "PlayerInteractEvent::uncancel")]
+        #[doc(alias = "PlayerInteractEvent::isCancelled")];
+}
+
+/// How a player touches a block (PMMP `PlayerInteractEvent::LEFT_CLICK_BLOCK`,
+/// `RIGHT_CLICK_BLOCK`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InteractAction {
+    /// Starting to break it.
+    #[doc(alias = "PlayerInteractEvent::LEFT_CLICK_BLOCK")]
+    LeftClickBlock,
+    /// Using it, or using the held item on it.
+    #[doc(alias = "PlayerInteractEvent::RIGHT_CLICK_BLOCK")]
+    RightClickBlock,
+}
 
 /// Raised when a player finishes eating or drinking, before the item is used up. Cancelling keeps
 /// the item and gives nothing.
@@ -969,10 +1059,18 @@ getters!(PlayerItemConsume {
 });
 
 setters!(PlayerItemConsume {
-    /// Replaces what is left after.
+    /// Replaces what is left after. At most 4 stacks are kept, none of them empty, each cut to
+    /// its item's stack size.
     #[doc(alias = "PlayerItemConsumeEvent::setResidue")]
     set_residue => residue: Vec<Stack>,
 });
+
+cancellable! {
+    PlayerItemConsume
+        #[doc(alias = "PlayerItemConsumeEvent::cancel")]
+        #[doc(alias = "PlayerItemConsumeEvent::uncancel")]
+        #[doc(alias = "PlayerItemConsumeEvent::isCancelled")];
+}
 
 /// Raised when a player picks an enchanting option, before the item is enchanted and the levels
 /// are paid. Cancelling keeps the item and the levels.
@@ -1010,6 +1108,46 @@ getters!(PlayerItemEnchant {
     cost: u8,
 });
 
+cancellable! {
+    PlayerItemEnchant
+        #[doc(alias = "PlayerItemEnchantEvent::cancel")]
+        #[doc(alias = "PlayerItemEnchantEvent::uncancel")]
+        #[doc(alias = "PlayerItemEnchantEvent::isCancelled")];
+}
+
+/// One enchanting option of an enchanting table (PMMP `EnchantingOption`).
+#[doc(alias = "EnchantingOption")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOption {
+    pub(crate) required_level: u8,
+    pub(crate) name: String,
+    pub(crate) enchantments: Vec<(Enchantment, u8)>,
+}
+
+impl EnchantOption {
+    /// An option needing `required_level`, shown as `name` in the enchanting alphabet, that gives
+    /// `enchantments` (each with its level).
+    pub fn new(required_level: u8, name: String, enchantments: Vec<(Enchantment, u8)>) -> Self {
+        Self {
+            required_level,
+            name,
+            enchantments,
+        }
+    }
+}
+
+getters!(EnchantOption {
+    /// The experience level the option needs (it costs 1 to 3 levels, by its place).
+    #[doc(alias = "EnchantingOption::getRequiredXpLevel")]
+    required_level: u8,
+    /// The name shown in the enchanting alphabet.
+    #[doc(alias = "EnchantingOption::getDisplayName")]
+    name: &str,
+    /// What it enchants, each with its level, in order.
+    #[doc(alias = "EnchantingOption::getEnchantments")]
+    enchantments: &[(Enchantment, u8)],
+});
+
 /// Raised when a player selects another hotbar slot. Cancelling keeps the old one.
 #[doc(alias = "PlayerItemHeldEvent")]
 #[derive(Debug)]
@@ -1030,6 +1168,13 @@ getters!(PlayerItemHeld {
     #[doc(alias = "PlayerItemHeldEvent::getSlot")]
     slot: u8,
 });
+
+cancellable! {
+    PlayerItemHeld
+        #[doc(alias = "PlayerItemHeldEvent::cancel")]
+        #[doc(alias = "PlayerItemHeldEvent::uncancel")]
+        #[doc(alias = "PlayerItemHeldEvent::isCancelled")];
+}
 
 /// Raised when a player uses the held item in the air (throwing, drawing a bow, eating, drinking,
 /// putting on armour). Cancelling refuses the use: nothing is thrown, drawn, eaten, drunk or worn,
@@ -1053,6 +1198,13 @@ getters!(PlayerItemUse {
     #[doc(alias = "PlayerItemUseEvent::getDirectionVector")]
     direction_vector: Vec3,
 });
+
+cancellable! {
+    PlayerItemUse
+        #[doc(alias = "PlayerItemUseEvent::cancel")]
+        #[doc(alias = "PlayerItemUseEvent::uncancel")]
+        #[doc(alias = "PlayerItemUseEvent::isCancelled")];
+}
 
 /// Raised when a player has joined and spawned, before the join message shows.
 #[doc(alias = "PlayerJoinEvent")]
@@ -1109,13 +1261,16 @@ getters!(PlayerKick {
     #[doc(alias = "PlayerKickEvent::getDisconnectReason")]
     #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectReason")]
     disconnect_reason: &str,
-    /// The message every other player sees.
+    /// The message every other player sees. Unless the kick gave one, it starts as
+    /// `"§e%multiplayer.player.left"`: left so, the client shows its own "left the game" line
+    /// with the player's name.
     #[doc(alias = "PlayerKickEvent::getQuitMessage")]
     quit_message: &str,
 });
 
 setters!(PlayerKick {
-    /// Replaces the reason.
+    /// Replaces the reason. An empty one, with no screen message, shows the client's own
+    /// "disconnected" text.
     #[doc(alias = "PlayerKickEvent::setDisconnectReason")]
     #[doc(alias = "PlayerDisconnectEventTrait::setDisconnectReason")]
     set_disconnect_reason => disconnect_reason: String,
@@ -1136,6 +1291,148 @@ impl PlayerKick {
         self.screen_message
             .as_deref()
             .unwrap_or(&self.disconnect_reason)
+    }
+}
+
+cancellable! {
+    PlayerKick
+        #[doc(alias = "PlayerKickEvent::cancel")]
+        #[doc(alias = "PlayerKickEvent::uncancel")]
+        #[doc(alias = "PlayerKickEvent::isCancelled")];
+}
+
+/// Raised when a player has logged in, before the player joins: Anchor has already set the kick
+/// flags that apply (server full, not white-listed, banned). The player joins when no flag is set
+/// after the listeners; otherwise the player is refused with the first flag's message. When the
+/// same player is still online ([`PlayerDuplicateLogin`] not cancelled), it is online during this
+/// event, its slot does not count toward a full server, and it is disconnected only if this
+/// player is admitted.
+#[doc(alias = "PlayerPreLoginEvent")]
+#[doc(alias = "PlayerLoginEvent")]
+#[derive(Debug)]
+pub struct PlayerLogin {
+    pub(crate) info: PlayerInfo,
+    pub(crate) address: SocketAddr,
+    pub(crate) kicks: [Option<Kick>; KickFlag::ALL.len()],
+}
+
+impl PlayerLogin {
+    /// The reason of `flag`, if it is set.
+    #[doc(alias = "PlayerPreLoginEvent::getDisconnectReason")]
+    pub fn disconnect_reason(&self, flag: KickFlag) -> Option<&str> {
+        self.kick(flag).map(|k| k.reason.as_str())
+    }
+
+    /// The screen message of `flag`, if it is set.
+    #[doc(alias = "PlayerPreLoginEvent::getDisconnectScreenMessage")]
+    pub fn disconnect_screen_message(&self, flag: KickFlag) -> Option<&str> {
+        self.kick(flag).map(|k| k.screen_message.as_str())
+    }
+
+    /// The reason of the first set flag, if any.
+    #[doc(alias = "PlayerPreLoginEvent::getFinalDisconnectReason")]
+    pub fn final_disconnect_reason(&self) -> Option<&str> {
+        self.kicks
+            .iter()
+            .flatten()
+            .next()
+            .map(|k| k.reason.as_str())
+    }
+
+    /// The screen message of the first set flag, if any: what the refused player sees.
+    #[doc(alias = "PlayerPreLoginEvent::getFinalDisconnectScreenMessage")]
+    pub fn final_disconnect_screen_message(&self) -> Option<&str> {
+        self.kicks
+            .iter()
+            .flatten()
+            .next()
+            .map(|k| k.screen_message.as_str())
+    }
+
+    /// Who the player is.
+    #[doc(alias = "PlayerPreLoginEvent::getPlayerInfo")]
+    pub fn info(&self) -> &PlayerInfo {
+        &self.info
+    }
+
+    /// The player's IP address; 0.0.0.0 when the connection has none.
+    #[doc(alias = "PlayerPreLoginEvent::getIp")]
+    pub fn ip(&self) -> IpAddr {
+        self.address.ip()
+    }
+
+    /// Whether no flag is set, so the player joins.
+    #[doc(alias = "PlayerPreLoginEvent::isAllowed")]
+    pub fn is_allowed(&self) -> bool {
+        self.kicks.iter().all(Option::is_none)
+    }
+
+    /// Whether `flag` is set.
+    #[doc(alias = "PlayerPreLoginEvent::isKickFlagSet")]
+    pub fn is_kick_flag_set(&self, flag: KickFlag) -> bool {
+        self.kick(flag).is_some()
+    }
+
+    /// The flags set, in order of precedence.
+    #[doc(alias = "PlayerPreLoginEvent::getKickFlags")]
+    pub fn kick_flags(&self) -> impl Iterator<Item = KickFlag> + '_ {
+        KickFlag::ALL
+            .into_iter()
+            .zip(&self.kicks)
+            .filter_map(|(flag, kick)| kick.as_ref().map(|_| flag))
+    }
+
+    /// The port the player connected from.
+    #[doc(alias = "PlayerPreLoginEvent::getPort")]
+    pub fn port(&self) -> u16 {
+        self.address.port()
+    }
+
+    /// Clears every flag: the player joins.
+    #[doc(alias = "PlayerPreLoginEvent::clearAllKickFlags")]
+    pub fn clear_all_kick_flags(&mut self) {
+        self.kicks = Default::default();
+    }
+
+    /// Clears `flag`.
+    #[doc(alias = "PlayerPreLoginEvent::clearKickFlag")]
+    pub fn clear_kick_flag(&mut self, flag: KickFlag) {
+        *self.kick_mut(flag) = None;
+    }
+
+    /// Sets `flag` with the reason for the log and the message for the player's screen (`None`:
+    /// the reason).
+    #[doc(alias = "PlayerPreLoginEvent::setKickFlag")]
+    pub fn set_kick_flag(
+        &mut self,
+        flag: KickFlag,
+        reason: impl Into<String>,
+        screen_message: Option<String>,
+    ) {
+        let reason = reason.into();
+        let screen_message = screen_message.unwrap_or_else(|| reason.clone());
+        *self.kick_mut(flag) = Some(Kick {
+            reason,
+            screen_message,
+        });
+    }
+
+    /// The messages of `flag`, if it is set.
+    fn kick(&self, flag: KickFlag) -> Option<&Kick> {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: `kicks` has a slot for every flag of `KickFlag::ALL`"
+        )]
+        self.kicks[flag as usize].as_ref()
+    }
+
+    /// The messages of `flag`, to change.
+    fn kick_mut(&mut self, flag: KickFlag) -> &mut Option<Kick> {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: `kicks` has a slot for every flag of `KickFlag::ALL`"
+        )]
+        &mut self.kicks[flag as usize]
     }
 }
 
@@ -1177,129 +1474,29 @@ pub(crate) struct Kick {
     pub(crate) screen_message: String,
 }
 
-/// Raised when a player has logged in, before the player joins: Anchor has already set the kick
-/// flags that apply (server full, not white-listed, banned). The player joins when no flag is set
-/// after the listeners; otherwise the player is refused with the first flag's message. When the
-/// same player is still online ([`PlayerDuplicateLogin`] not cancelled), it is online during this
-/// event, its slot does not count toward a full server, and it is disconnected only if this
-/// player is admitted.
-#[doc(alias = "PlayerPreLoginEvent")]
-#[doc(alias = "PlayerLoginEvent")]
-#[derive(Debug)]
-pub struct PlayerLogin {
-    pub(crate) info: PlayerInfo,
-    pub(crate) address: SocketAddr,
-    pub(crate) kicks: [Option<Kick>; KickFlag::ALL.len()],
-}
+/// Who a player is, from the verified login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+// pmmp-class: PlayerInfo
+pub struct PlayerInfo(pub(crate) Identity);
 
-impl PlayerLogin {
-    /// Who the player is.
-    #[doc(alias = "PlayerPreLoginEvent::getPlayerInfo")]
-    pub fn info(&self) -> &PlayerInfo {
-        &self.info
+impl PlayerInfo {
+    /// The player's name: the Xbox gamertag when Xbox sign-in is on, otherwise the name the
+    /// client chose.
+    #[doc(alias = "PlayerInfo::getUsername")]
+    pub fn name(&self) -> &str {
+        &self.0.name
     }
 
-    /// The player's IP address.
-    #[doc(alias = "PlayerPreLoginEvent::getIp")]
-    pub fn ip(&self) -> IpAddr {
-        self.address.ip()
+    /// The Xbox user ID, or `None` when Xbox sign-in (`xbox-auth`) is off.
+    #[doc(alias = "XboxLivePlayerInfo::getXuid")]
+    pub fn xuid(&self) -> Option<u64> {
+        self.0.xuid
     }
 
-    /// The port the player connected from.
-    #[doc(alias = "PlayerPreLoginEvent::getPort")]
-    pub fn port(&self) -> u16 {
-        self.address.port()
-    }
-
-    /// The flags set, in order of precedence.
-    #[doc(alias = "PlayerPreLoginEvent::getKickFlags")]
-    pub fn kick_flags(&self) -> impl Iterator<Item = KickFlag> + '_ {
-        KickFlag::ALL
-            .into_iter()
-            .zip(&self.kicks)
-            .filter_map(|(flag, kick)| kick.as_ref().map(|_| flag))
-    }
-
-    /// Whether `flag` is set.
-    #[doc(alias = "PlayerPreLoginEvent::isKickFlagSet")]
-    pub fn is_kick_flag_set(&self, flag: KickFlag) -> bool {
-        self.kick(flag).is_some()
-    }
-
-    /// Sets `flag` with the reason for the log and the message for the player's screen (`None`:
-    /// the reason).
-    #[doc(alias = "PlayerPreLoginEvent::setKickFlag")]
-    pub fn set_kick_flag(
-        &mut self,
-        flag: KickFlag,
-        reason: impl Into<String>,
-        screen_message: Option<String>,
-    ) {
-        if let Some(slot) = self.kicks.get_mut(flag as usize) {
-            let reason = reason.into();
-            let screen_message = screen_message.unwrap_or_else(|| reason.clone());
-            *slot = Some(Kick {
-                reason,
-                screen_message,
-            });
-        }
-    }
-
-    /// Clears `flag`.
-    #[doc(alias = "PlayerPreLoginEvent::clearKickFlag")]
-    pub fn clear_kick_flag(&mut self, flag: KickFlag) {
-        if let Some(slot) = self.kicks.get_mut(flag as usize) {
-            *slot = None;
-        }
-    }
-
-    /// Clears every flag: the player joins.
-    #[doc(alias = "PlayerPreLoginEvent::clearAllKickFlags")]
-    pub fn clear_all_kick_flags(&mut self) {
-        self.kicks = Default::default();
-    }
-
-    /// Whether no flag is set, so the player joins.
-    #[doc(alias = "PlayerPreLoginEvent::isAllowed")]
-    pub fn is_allowed(&self) -> bool {
-        self.kicks.iter().all(Option::is_none)
-    }
-
-    /// The reason of `flag`, if it is set.
-    #[doc(alias = "PlayerPreLoginEvent::getDisconnectReason")]
-    pub fn disconnect_reason(&self, flag: KickFlag) -> Option<&str> {
-        self.kick(flag).map(|k| k.reason.as_str())
-    }
-
-    /// The screen message of `flag`, if it is set.
-    #[doc(alias = "PlayerPreLoginEvent::getDisconnectScreenMessage")]
-    pub fn disconnect_screen_message(&self, flag: KickFlag) -> Option<&str> {
-        self.kick(flag).map(|k| k.screen_message.as_str())
-    }
-
-    /// The reason of the first set flag, if any.
-    #[doc(alias = "PlayerPreLoginEvent::getFinalDisconnectReason")]
-    pub fn final_disconnect_reason(&self) -> Option<&str> {
-        self.kicks
-            .iter()
-            .flatten()
-            .next()
-            .map(|k| k.reason.as_str())
-    }
-
-    /// The screen message of the first set flag, if any: what the refused player sees.
-    #[doc(alias = "PlayerPreLoginEvent::getFinalDisconnectScreenMessage")]
-    pub fn final_disconnect_screen_message(&self) -> Option<&str> {
-        self.kicks
-            .iter()
-            .flatten()
-            .next()
-            .map(|k| k.screen_message.as_str())
-    }
-
-    /// The messages of `flag`, if it is set.
-    fn kick(&self, flag: KickFlag) -> Option<&Kick> {
-        self.kicks.get(flag as usize).and_then(Option::as_ref)
+    /// The identity UUID the client sent.
+    #[doc(alias = "PlayerInfo::getUuid")]
+    pub fn uuid(&self) -> Uuid {
+        self.0.uuid
     }
 }
 
@@ -1316,7 +1513,19 @@ getters!(PlayerMissSwing {
     player: player::Id,
 });
 
-/// Raised when a player moves, after the move is checked. Cancelling sends the player back.
+cancellable! {
+    PlayerMissSwing
+        #[doc(alias = "PlayerMissSwingEvent::cancel")]
+        #[doc(alias = "PlayerMissSwingEvent::uncancel")]
+        #[doc(alias = "PlayerMissSwingEvent::isCancelled")];
+}
+
+/// Raised once a tick for a player who moved, for the whole move since the last one the server
+/// accepted.
+///
+/// The position, the blocks entered and the fall already follow each move packet, so the event
+/// comes after them, in the tick's rules; a move under 0.01 blocks raises nothing. Cancelling
+/// sends only the position back to the origin.
 #[doc(alias = "PlayerMoveEvent")]
 #[derive(Debug)]
 pub struct PlayerMove {
@@ -1349,7 +1558,19 @@ impl PlayerMove {
     }
 }
 
-/// Raised after a chunk was sent to a player.
+cancellable! {
+    PlayerMove
+        #[doc(alias = "PlayerMoveEvent::cancel")]
+        #[doc(alias = "PlayerMoveEvent::uncancel")]
+        #[doc(alias = "PlayerMoveEvent::isCancelled")];
+}
+
+/// Raised in the view phase of the tick a chunk is picked to be sent to a player, before it goes
+/// out. A player who no longer sees the chunk by then raises nothing.
+///
+/// The chunk's `LevelChunk` goes out at the end of that tick; its blocks follow when the client's
+/// sub-chunk requests are answered, so a block packet a listener queues comes before them.
+/// [`Context::send_fake_block`](crate::Context::send_fake_block) shows a block that stays.
 #[doc(alias = "PlayerPostChunkSendEvent")]
 #[derive(Debug)]
 pub struct PlayerPostChunkSend {
@@ -1370,7 +1591,9 @@ getters!(PlayerPostChunkSend {
 /// the player through the API takes effect before the save (a teleport is the saved place, a kill
 /// dies with its drops and [`PlayerDeath`]). Its open window closes after the listeners and
 /// monitors, or once the listeners return when one's call closes it (a teleport); a menu's
-/// handler hears [`Close`](crate::menu::Close) then.
+/// handler hears [`Close`](crate::menu::Close) then. A player that leaves after its saved data
+/// loaded but before it spawned raises it too, with no [`PlayerJoin`] before; one still loading
+/// raises none.
 #[doc(alias = "PlayerQuitEvent")]
 #[derive(Debug)]
 pub struct PlayerQuit {
@@ -1383,10 +1606,17 @@ pub struct PlayerQuit {
 getters!(PlayerQuit {
     /// The player.
     player: player::Id,
-    /// The message every other player sees.
+    /// The message every other player sees. It starts as `"§e%multiplayer.player.left"` unless a
+    /// kick gave another: left so, the client shows its own "left the game" line with the
+    /// player's name.
     #[doc(alias = "PlayerQuitEvent::getQuitMessage")]
     quit_message: &str,
-    /// Why the player left.
+    /// Why the player left: `"client disconnect"` when its session ended (the client left or
+    /// its connection closed, timed out or failed), `"connection lost"` when the server dropped
+    /// a session whose outbound queue was full or closed, `"too many packets"` when it overflowed
+    /// its output, the reason of a kick or transfer, the [`PlayerDuplicateLogin`] disconnect
+    /// reason when a new login replaced it, or the shutdown message when the server stops
+    /// ([`PlayerQuit::is_shutdown`]).
     #[doc(alias = "PlayerQuitEvent::getQuitReason")]
     quit_reason: &str,
 });
@@ -1405,8 +1635,10 @@ impl PlayerQuit {
     }
 }
 
-/// Raised when a dead player respawns, before the player is placed. A player that joins dead (it
-/// left, or the server stopped, before it respawned) respawns as it joins, before it spawns.
+/// Raised when a dead player respawns, before the player is placed and before its health, food,
+/// absorption, effects, fire and air are reset, so a listener's changes to them are replaced. A
+/// player that joins dead (it left, or the server stopped, before it respawned) respawns as it
+/// joins, before it spawns.
 #[doc(alias = "PlayerRespawnEvent")]
 #[derive(Debug)]
 pub struct PlayerRespawn {
@@ -1426,7 +1658,11 @@ getters!(PlayerRespawn {
 });
 
 impl PlayerRespawn {
-    /// Respawns the player elsewhere. A position that is not finite is ignored.
+    /// Respawns the player elsewhere.
+    ///
+    /// A position that is not finite is ignored. A world the server does not run, or a position
+    /// outside the world border, is ignored when the player respawns: it respawns at its respawn
+    /// point, and monitors see that point.
     #[doc(alias = "PlayerRespawnEvent::setRespawnPosition")]
     pub fn set_position(&mut self, world: world::Id, position: Vec3) {
         if position.is_finite() {
@@ -1436,20 +1672,9 @@ impl PlayerRespawn {
     }
 }
 
-/// What using a charged respawn anchor does (PMMP `PlayerRespawnAnchorUseEvent::ACTION_*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RespawnAnchorAction {
-    /// The anchor explodes: what a player's use does.
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_EXPLODE")]
-    Explode,
-    /// The anchor becomes the player's respawn point.
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_SET_SPAWN")]
-    SetSpawn,
-}
-
 /// Raised when a player uses a charged respawn anchor with anything but glowstone it can take,
-/// before the anchor acts. Cancelling does nothing (the held item may then be placed, as for any
-/// block that does not react).
+/// before the anchor acts. Cancelling keeps the anchor as it is (the held item may then be used or
+/// placed, as for any block that does not react).
 #[doc(alias = "PlayerRespawnAnchorUseEvent")]
 #[derive(Debug)]
 pub struct PlayerRespawnAnchorUse {
@@ -1482,13 +1707,52 @@ setters!(PlayerRespawnAnchorUse {
     set_action => action: RespawnAnchorAction,
 });
 
-/// Raised when a player who may fly starts or stops flying. Cancelling keeps the old state.
+cancellable! {
+    PlayerRespawnAnchorUse
+        #[doc(alias = "PlayerRespawnAnchorUseEvent::cancel")]
+        #[doc(alias = "PlayerRespawnAnchorUseEvent::uncancel")]
+        #[doc(alias = "PlayerRespawnAnchorUseEvent::isCancelled")];
+}
+
+/// What using a charged respawn anchor does (PMMP `PlayerRespawnAnchorUseEvent::ACTION_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RespawnAnchorAction {
+    /// The anchor explodes: what a player's use does.
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_EXPLODE")]
+    Explode,
+    /// The anchor becomes the player's respawn point.
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_SET_SPAWN")]
+    SetSpawn,
+}
+
+/// Raised when a player starts flying, which only a player who may fly can, or stops flying.
+/// Cancelling keeps the old state.
 #[doc(alias = "PlayerToggleFlightEvent")]
 #[derive(Debug)]
 pub struct PlayerToggleFlight {
     pub(crate) player: player::Id,
     pub(crate) flying: bool,
     pub(crate) cancelled: bool,
+}
+
+getters!(PlayerToggleFlight {
+    /// The player.
+    player: player::Id,
+});
+
+impl PlayerToggleFlight {
+    /// Whether the player starts flying (otherwise stops).
+    #[doc(alias = "PlayerToggleFlightEvent::isFlying")]
+    pub fn is_flying(&self) -> bool {
+        self.flying
+    }
+}
+
+cancellable! {
+    PlayerToggleFlight
+        #[doc(alias = "PlayerToggleFlightEvent::cancel")]
+        #[doc(alias = "PlayerToggleFlightEvent::uncancel")]
+        #[doc(alias = "PlayerToggleFlightEvent::isCancelled")];
 }
 
 /// Raised when a player starts or stops gliding. Cancelling keeps the old state.
@@ -1498,6 +1762,26 @@ pub struct PlayerToggleGlide {
     pub(crate) player: player::Id,
     pub(crate) gliding: bool,
     pub(crate) cancelled: bool,
+}
+
+getters!(PlayerToggleGlide {
+    /// The player.
+    player: player::Id,
+});
+
+impl PlayerToggleGlide {
+    /// Whether the player starts gliding (otherwise stops).
+    #[doc(alias = "PlayerToggleGlideEvent::isGliding")]
+    pub fn is_gliding(&self) -> bool {
+        self.gliding
+    }
+}
+
+cancellable! {
+    PlayerToggleGlide
+        #[doc(alias = "PlayerToggleGlideEvent::cancel")]
+        #[doc(alias = "PlayerToggleGlideEvent::uncancel")]
+        #[doc(alias = "PlayerToggleGlideEvent::isCancelled")];
 }
 
 /// Raised when a player starts or stops sneaking. Cancelling keeps the old state.
@@ -1510,6 +1794,33 @@ pub struct PlayerToggleSneak {
     pub(crate) cancelled: bool,
 }
 
+getters!(PlayerToggleSneak {
+    /// The player.
+    player: player::Id,
+});
+
+impl PlayerToggleSneak {
+    /// Whether the sneak key is down (a player can sneak without it, for example while flying
+    /// down).
+    #[doc(alias = "PlayerToggleSneakEvent::isSneakPressed")]
+    pub fn is_sneak_pressed(&self) -> bool {
+        self.sneak_pressed
+    }
+
+    /// Whether the player starts sneaking (otherwise stops).
+    #[doc(alias = "PlayerToggleSneakEvent::isSneaking")]
+    pub fn is_sneaking(&self) -> bool {
+        self.sneaking
+    }
+}
+
+cancellable! {
+    PlayerToggleSneak
+        #[doc(alias = "PlayerToggleSneakEvent::cancel")]
+        #[doc(alias = "PlayerToggleSneakEvent::uncancel")]
+        #[doc(alias = "PlayerToggleSneakEvent::isCancelled")];
+}
+
 /// Raised when a player starts or stops sprinting. Cancelling keeps the old state.
 #[doc(alias = "PlayerToggleSprintEvent")]
 #[derive(Debug)]
@@ -1517,6 +1828,26 @@ pub struct PlayerToggleSprint {
     pub(crate) player: player::Id,
     pub(crate) sprinting: bool,
     pub(crate) cancelled: bool,
+}
+
+getters!(PlayerToggleSprint {
+    /// The player.
+    player: player::Id,
+});
+
+impl PlayerToggleSprint {
+    /// Whether the player starts sprinting (otherwise stops).
+    #[doc(alias = "PlayerToggleSprintEvent::isSprinting")]
+    pub fn is_sprinting(&self) -> bool {
+        self.sprinting
+    }
+}
+
+cancellable! {
+    PlayerToggleSprint
+        #[doc(alias = "PlayerToggleSprintEvent::cancel")]
+        #[doc(alias = "PlayerToggleSprintEvent::uncancel")]
+        #[doc(alias = "PlayerToggleSprintEvent::isCancelled")];
 }
 
 /// Raised when a player starts or stops swimming. Cancelling keeps the old state.
@@ -1528,76 +1859,24 @@ pub struct PlayerToggleSwim {
     pub(crate) cancelled: bool,
 }
 
-impl PlayerToggleFlight {
+getters!(PlayerToggleSwim {
     /// The player.
-    pub fn player(&self) -> player::Id {
-        self.player
-    }
-
-    /// Whether the player starts flying (otherwise stops).
-    #[doc(alias = "PlayerToggleFlightEvent::isFlying")]
-    pub fn is_flying(&self) -> bool {
-        self.flying
-    }
-}
-
-impl PlayerToggleGlide {
-    /// The player.
-    pub fn player(&self) -> player::Id {
-        self.player
-    }
-
-    /// Whether the player starts gliding (otherwise stops).
-    #[doc(alias = "PlayerToggleGlideEvent::isGliding")]
-    pub fn is_gliding(&self) -> bool {
-        self.gliding
-    }
-}
-
-impl PlayerToggleSneak {
-    /// The player.
-    pub fn player(&self) -> player::Id {
-        self.player
-    }
-
-    /// Whether the player starts sneaking (otherwise stops).
-    #[doc(alias = "PlayerToggleSneakEvent::isSneaking")]
-    pub fn is_sneaking(&self) -> bool {
-        self.sneaking
-    }
-
-    /// Whether the sneak key is down (a player can sneak without it, for example while flying
-    /// down).
-    #[doc(alias = "PlayerToggleSneakEvent::isSneakPressed")]
-    pub fn is_sneak_pressed(&self) -> bool {
-        self.sneak_pressed
-    }
-}
-
-impl PlayerToggleSprint {
-    /// The player.
-    pub fn player(&self) -> player::Id {
-        self.player
-    }
-
-    /// Whether the player starts sprinting (otherwise stops).
-    #[doc(alias = "PlayerToggleSprintEvent::isSprinting")]
-    pub fn is_sprinting(&self) -> bool {
-        self.sprinting
-    }
-}
+    player: player::Id,
+});
 
 impl PlayerToggleSwim {
-    /// The player.
-    pub fn player(&self) -> player::Id {
-        self.player
-    }
-
     /// Whether the player starts swimming (otherwise stops).
     #[doc(alias = "PlayerToggleSwimEvent::isSwimming")]
     pub fn is_swimming(&self) -> bool {
         self.swimming
     }
+}
+
+cancellable! {
+    PlayerToggleSwim
+        #[doc(alias = "PlayerToggleSwimEvent::cancel")]
+        #[doc(alias = "PlayerToggleSwimEvent::uncancel")]
+        #[doc(alias = "PlayerToggleSwimEvent::isCancelled")];
 }
 
 /// Raised when a player is about to be sent to another server. Cancelling keeps the player here,
@@ -1638,6 +1917,13 @@ setters!(PlayerTransfer {
     set_message => message: String,
 });
 
+cancellable! {
+    PlayerTransfer
+        #[doc(alias = "PlayerTransferEvent::cancel")]
+        #[doc(alias = "PlayerTransferEvent::uncancel")]
+        #[doc(alias = "PlayerTransferEvent::isCancelled")];
+}
+
 /// Raised after a player's view distance changed (the client asked for another one).
 #[doc(alias = "PlayerViewDistanceChangeEvent")]
 #[derive(Debug)]
@@ -1657,126 +1943,6 @@ getters!(PlayerViewDistanceChange {
     #[doc(alias = "PlayerViewDistanceChangeEvent::getNewDistance")]
     new_distance: u8,
 });
-
-cancellable! {
-    PlayerBedEnter
-        #[doc(alias = "PlayerBedEnterEvent::cancel")]
-        #[doc(alias = "PlayerBedEnterEvent::uncancel")]
-        #[doc(alias = "PlayerBedEnterEvent::isCancelled")];
-    PlayerBlockPick
-        #[doc(alias = "PlayerBlockPickEvent::cancel")]
-        #[doc(alias = "PlayerBlockPickEvent::uncancel")]
-        #[doc(alias = "PlayerBlockPickEvent::isCancelled")];
-    PlayerBucketEmpty
-        #[doc(alias = "PlayerBucketEvent::cancel")]
-        #[doc(alias = "PlayerBucketEvent::uncancel")]
-        #[doc(alias = "PlayerBucketEvent::isCancelled")];
-    PlayerBucketFill;
-    PlayerChangeSkin
-        #[doc(alias = "PlayerChangeSkinEvent::cancel")]
-        #[doc(alias = "PlayerChangeSkinEvent::uncancel")]
-        #[doc(alias = "PlayerChangeSkinEvent::isCancelled")];
-    PlayerChat
-        #[doc(alias = "PlayerChatEvent::cancel")]
-        #[doc(alias = "PlayerChatEvent::uncancel")]
-        #[doc(alias = "PlayerChatEvent::isCancelled")];
-    PlayerDropItem
-        #[doc(alias = "PlayerDropItemEvent::cancel")]
-        #[doc(alias = "PlayerDropItemEvent::uncancel")]
-        #[doc(alias = "PlayerDropItemEvent::isCancelled")];
-    PlayerEditBook
-        #[doc(alias = "PlayerEditBookEvent::cancel")]
-        #[doc(alias = "PlayerEditBookEvent::uncancel")]
-        #[doc(alias = "PlayerEditBookEvent::isCancelled")];
-    PlayerEmote
-        #[doc(alias = "PlayerEmoteEvent::cancel")]
-        #[doc(alias = "PlayerEmoteEvent::uncancel")]
-        #[doc(alias = "PlayerEmoteEvent::isCancelled")];
-    PlayerEnchantingOptionsRequest
-        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::cancel")]
-        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::uncancel")]
-        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::isCancelled")];
-    PlayerEntityInteract
-        #[doc(alias = "PlayerEntityInteractEvent::cancel")]
-        #[doc(alias = "PlayerEntityInteractEvent::uncancel")]
-        #[doc(alias = "PlayerEntityInteractEvent::isCancelled")];
-    PlayerEntityPick
-        #[doc(alias = "PlayerEntityPickEvent::cancel")]
-        #[doc(alias = "PlayerEntityPickEvent::uncancel")]
-        #[doc(alias = "PlayerEntityPickEvent::isCancelled")];
-    PlayerExhaust
-        #[doc(alias = "PlayerExhaustEvent::cancel")]
-        #[doc(alias = "PlayerExhaustEvent::uncancel")]
-        #[doc(alias = "PlayerExhaustEvent::isCancelled")];
-    PlayerExperienceChange
-        #[doc(alias = "PlayerExperienceChangeEvent::cancel")]
-        #[doc(alias = "PlayerExperienceChangeEvent::uncancel")]
-        #[doc(alias = "PlayerExperienceChangeEvent::isCancelled")];
-    PlayerGameModeChange
-        #[doc(alias = "PlayerGameModeChangeEvent::cancel")]
-        #[doc(alias = "PlayerGameModeChangeEvent::uncancel")]
-        #[doc(alias = "PlayerGameModeChangeEvent::isCancelled")];
-    PlayerInteract
-        #[doc(alias = "PlayerInteractEvent::cancel")]
-        #[doc(alias = "PlayerInteractEvent::uncancel")]
-        #[doc(alias = "PlayerInteractEvent::isCancelled")];
-    PlayerItemConsume
-        #[doc(alias = "PlayerItemConsumeEvent::cancel")]
-        #[doc(alias = "PlayerItemConsumeEvent::uncancel")]
-        #[doc(alias = "PlayerItemConsumeEvent::isCancelled")];
-    PlayerItemEnchant
-        #[doc(alias = "PlayerItemEnchantEvent::cancel")]
-        #[doc(alias = "PlayerItemEnchantEvent::uncancel")]
-        #[doc(alias = "PlayerItemEnchantEvent::isCancelled")];
-    PlayerItemHeld
-        #[doc(alias = "PlayerItemHeldEvent::cancel")]
-        #[doc(alias = "PlayerItemHeldEvent::uncancel")]
-        #[doc(alias = "PlayerItemHeldEvent::isCancelled")];
-    PlayerItemUse
-        #[doc(alias = "PlayerItemUseEvent::cancel")]
-        #[doc(alias = "PlayerItemUseEvent::uncancel")]
-        #[doc(alias = "PlayerItemUseEvent::isCancelled")];
-    PlayerKick
-        #[doc(alias = "PlayerKickEvent::cancel")]
-        #[doc(alias = "PlayerKickEvent::uncancel")]
-        #[doc(alias = "PlayerKickEvent::isCancelled")];
-    PlayerMissSwing
-        #[doc(alias = "PlayerMissSwingEvent::cancel")]
-        #[doc(alias = "PlayerMissSwingEvent::uncancel")]
-        #[doc(alias = "PlayerMissSwingEvent::isCancelled")];
-    PlayerMove
-        #[doc(alias = "PlayerMoveEvent::cancel")]
-        #[doc(alias = "PlayerMoveEvent::uncancel")]
-        #[doc(alias = "PlayerMoveEvent::isCancelled")];
-    PlayerRespawnAnchorUse
-        #[doc(alias = "PlayerRespawnAnchorUseEvent::cancel")]
-        #[doc(alias = "PlayerRespawnAnchorUseEvent::uncancel")]
-        #[doc(alias = "PlayerRespawnAnchorUseEvent::isCancelled")];
-    PlayerToggleFlight
-        #[doc(alias = "PlayerToggleFlightEvent::cancel")]
-        #[doc(alias = "PlayerToggleFlightEvent::uncancel")]
-        #[doc(alias = "PlayerToggleFlightEvent::isCancelled")];
-    PlayerToggleGlide
-        #[doc(alias = "PlayerToggleGlideEvent::cancel")]
-        #[doc(alias = "PlayerToggleGlideEvent::uncancel")]
-        #[doc(alias = "PlayerToggleGlideEvent::isCancelled")];
-    PlayerToggleSneak
-        #[doc(alias = "PlayerToggleSneakEvent::cancel")]
-        #[doc(alias = "PlayerToggleSneakEvent::uncancel")]
-        #[doc(alias = "PlayerToggleSneakEvent::isCancelled")];
-    PlayerToggleSprint
-        #[doc(alias = "PlayerToggleSprintEvent::cancel")]
-        #[doc(alias = "PlayerToggleSprintEvent::uncancel")]
-        #[doc(alias = "PlayerToggleSprintEvent::isCancelled")];
-    PlayerToggleSwim
-        #[doc(alias = "PlayerToggleSwimEvent::cancel")]
-        #[doc(alias = "PlayerToggleSwimEvent::uncancel")]
-        #[doc(alias = "PlayerToggleSwimEvent::isCancelled")];
-    PlayerTransfer
-        #[doc(alias = "PlayerTransferEvent::cancel")]
-        #[doc(alias = "PlayerTransferEvent::uncancel")]
-        #[doc(alias = "PlayerTransferEvent::isCancelled")];
-}
 
 #[cfg(test)]
 mod tests {
@@ -1799,7 +1965,8 @@ mod tests {
         }
     }
 
-    // pmmp: PlayerInfo::getUsername, XboxLivePlayerInfo::getXuid, PlayerInfo::getUuid, PlayerInfo
+    // pmmp: PlayerInfo::getUsername, XboxLivePlayerInfo::getXuid, PlayerInfo::getUuid,
+    // pmmp: PlayerInfo
     #[test]
     fn player_info_reads_the_identity() {
         let mut id = identity("Steve");
@@ -1811,7 +1978,9 @@ mod tests {
         );
     }
 
-    // pmmp: PlayerBedEnterEvent, PlayerBedLeaveEvent, PlayerBedEnterEvent::getBed, PlayerBedEnterEvent::cancel, PlayerBedEnterEvent::uncancel, PlayerBedEnterEvent::isCancelled, PlayerBedLeaveEvent::getBed
+    // pmmp: PlayerBedEnterEvent, PlayerBedLeaveEvent, PlayerBedEnterEvent::getBed,
+    // pmmp: PlayerBedEnterEvent::cancel, PlayerBedEnterEvent::uncancel,
+    // pmmp: PlayerBedEnterEvent::isCancelled, PlayerBedLeaveEvent::getBed
     #[test]
     fn bed_events_name_the_bed() {
         let mut enter = PlayerBedEnter {
@@ -1839,7 +2008,9 @@ mod tests {
         );
     }
 
-    // pmmp: PlayerBlockPickEvent, PlayerBlockPickEvent::getBlock, PlayerBlockPickEvent::getResultItem, PlayerBlockPickEvent::cancel, PlayerBlockPickEvent::uncancel, PlayerBlockPickEvent::isCancelled
+    // pmmp: PlayerBlockPickEvent, PlayerBlockPickEvent::getBlock,
+    // pmmp: PlayerBlockPickEvent::getResultItem, PlayerBlockPickEvent::cancel,
+    // pmmp: PlayerBlockPickEvent::uncancel, PlayerBlockPickEvent::isCancelled
     #[test]
     fn block_pick_names_the_item() {
         let mut e = PlayerBlockPick {
@@ -1861,7 +2032,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerBucketEmptyEvent, PlayerBucketFillEvent, PlayerBucketEvent, PlayerBucketEvent::getBlockClicked, PlayerBucketEvent::getBlockFace, PlayerBucketEvent::getBucket, PlayerBucketEvent::getItem, PlayerBucketEvent::setItem, PlayerBucketEvent::cancel, PlayerBucketEvent::uncancel, PlayerBucketEvent::isCancelled
+    // pmmp: PlayerBucketEmptyEvent, PlayerBucketFillEvent, PlayerBucketEvent,
+    // pmmp: PlayerBucketEvent::getBlockClicked, PlayerBucketEvent::getBlockFace,
+    // pmmp: PlayerBucketEvent::getBucket, PlayerBucketEvent::getItem,
+    // pmmp: PlayerBucketEvent::setItem, PlayerBucketEvent::cancel,
+    // pmmp: PlayerBucketEvent::uncancel, PlayerBucketEvent::isCancelled
     #[test]
     fn bucket_events_item_can_change() {
         let mut empty = PlayerBucketEmpty {
@@ -1916,7 +2091,10 @@ mod tests {
         assert!(!fill.is_cancelled());
     }
 
-    // pmmp: PlayerChangeSkinEvent, PlayerChangeSkinEvent::getOldSkin, PlayerChangeSkinEvent::getNewSkin, PlayerChangeSkinEvent::setNewSkin, PlayerChangeSkinEvent::cancel, PlayerChangeSkinEvent::uncancel, PlayerChangeSkinEvent::isCancelled
+    // pmmp: PlayerChangeSkinEvent, PlayerChangeSkinEvent::getOldSkin,
+    // pmmp: PlayerChangeSkinEvent::getNewSkin, PlayerChangeSkinEvent::setNewSkin,
+    // pmmp: PlayerChangeSkinEvent::cancel, PlayerChangeSkinEvent::uncancel,
+    // pmmp: PlayerChangeSkinEvent::isCancelled
     #[test]
     fn change_skin_new_skin_can_change() {
         let mut e = PlayerChangeSkin {
@@ -1940,7 +2118,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerChatEvent, PlayerChatEvent::getMessage, PlayerChatEvent::setMessage, PlayerChatEvent::setPlayer, PlayerChatEvent::getRecipients, PlayerChatEvent::setRecipients, PlayerChatEvent::getFormatter, PlayerChatEvent::setFormatter, PlayerChatEvent::cancel, PlayerChatEvent::uncancel, PlayerChatEvent::isCancelled
+    // pmmp: PlayerChatEvent, PlayerChatEvent::getMessage, PlayerChatEvent::setMessage,
+    // pmmp: PlayerChatEvent::setPlayer, PlayerChatEvent::getRecipients,
+    // pmmp: PlayerChatEvent::setRecipients, PlayerChatEvent::getFormatter,
+    // pmmp: PlayerChatEvent::setFormatter, PlayerChatEvent::cancel,
+    // pmmp: PlayerChatEvent::uncancel, PlayerChatEvent::isCancelled
     #[test]
     fn chat_message_speaker_recipients_and_format_can_change() {
         let mut e = PlayerChat {
@@ -1968,7 +2150,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerDataSaveEvent, PlayerDataSaveEvent::getPlayer, PlayerDataSaveEvent::getPlayerName, PlayerDataSaveEvent::cancel, PlayerDataSaveEvent::uncancel, PlayerDataSaveEvent::isCancelled
+    // pmmp: PlayerDataSaveEvent, PlayerDataSaveEvent::getPlayer,
+    // pmmp: PlayerDataSaveEvent::getPlayerName, PlayerDataSaveEvent::cancel,
+    // pmmp: PlayerDataSaveEvent::uncancel, PlayerDataSaveEvent::isCancelled
     #[test]
     fn data_save_names_the_record() {
         let mut e = PlayerDataSave {
@@ -1983,7 +2167,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerDeathEvent, PlayerDeathEvent::getPlayer, PlayerDeathEvent::getEntity, PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage, PlayerDeathEvent::getDeathScreenMessage, PlayerDeathEvent::setDeathScreenMessage, PlayerDeathEvent::getKeepInventory, PlayerDeathEvent::setKeepInventory, PlayerDeathEvent::getKeepXp, PlayerDeathEvent::setKeepXp
+    // pmmp: PlayerDeathEvent, PlayerDeathEvent::getPlayer, PlayerDeathEvent::getEntity,
+    // pmmp: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage,
+    // pmmp: PlayerDeathEvent::getDeathScreenMessage, PlayerDeathEvent::setDeathScreenMessage,
+    // pmmp: PlayerDeathEvent::getKeepInventory, PlayerDeathEvent::setKeepInventory,
+    // pmmp: PlayerDeathEvent::getKeepXp, PlayerDeathEvent::setKeepXp
     #[test]
     fn death_drops_messages_and_keeping_can_change() {
         let mut e = PlayerDeath {
@@ -2016,7 +2204,8 @@ mod tests {
         assert!(e.keep_inventory() && e.keep_xp());
     }
 
-    // pmmp: PlayerDropItemEvent, PlayerDropItemEvent::getItem, PlayerDropItemEvent::cancel, PlayerDropItemEvent::uncancel, PlayerDropItemEvent::isCancelled
+    // pmmp: PlayerDropItemEvent, PlayerDropItemEvent::getItem, PlayerDropItemEvent::cancel,
+    // pmmp: PlayerDropItemEvent::uncancel, PlayerDropItemEvent::isCancelled
     #[test]
     fn drop_item_names_the_item() {
         let mut e = PlayerDropItem {
@@ -2031,7 +2220,16 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerDuplicateLoginEvent, PlayerDuplicateLoginEvent::getConnectingSession, PlayerDuplicateLoginEvent::getExistingSession, PlayerDuplicateLoginEvent::getDisconnectReason, PlayerDuplicateLoginEvent::setDisconnectReason, PlayerDuplicateLoginEvent::getDisconnectScreenMessage, PlayerDuplicateLoginEvent::setDisconnectScreenMessage, PlayerDuplicateLoginEvent::cancel, PlayerDuplicateLoginEvent::uncancel, PlayerDuplicateLoginEvent::isCancelled, CancellableTrait::cancel, CancellableTrait::uncancel, CancellableTrait::isCancelled, Cancellable::isCancelled
+    // pmmp: PlayerDuplicateLoginEvent, PlayerDuplicateLoginEvent::getConnectingSession,
+    // pmmp: PlayerDuplicateLoginEvent::getExistingSession,
+    // pmmp: PlayerDuplicateLoginEvent::getDisconnectReason,
+    // pmmp: PlayerDuplicateLoginEvent::setDisconnectReason,
+    // pmmp: PlayerDuplicateLoginEvent::getDisconnectScreenMessage,
+    // pmmp: PlayerDuplicateLoginEvent::setDisconnectScreenMessage,
+    // pmmp: PlayerDuplicateLoginEvent::cancel, PlayerDuplicateLoginEvent::uncancel,
+    // pmmp: PlayerDuplicateLoginEvent::isCancelled, CancellableTrait::cancel,
+    // pmmp: CancellableTrait::uncancel, CancellableTrait::isCancelled,
+    // pmmp: Cancellable::isCancelled
     #[test]
     fn the_outcome_uses_the_screen_message_before_the_reason() {
         let event = PlayerDuplicateLogin::new(identity("a"), identity("A"));
@@ -2059,7 +2257,8 @@ mod tests {
         assert_eq!(outcome.message, "screen");
     }
 
-    // pmmp: PlayerEmoteEvent, PlayerEmoteEvent::getEmoteId, PlayerEmoteEvent::setEmoteId, PlayerEmoteEvent::cancel, PlayerEmoteEvent::uncancel, PlayerEmoteEvent::isCancelled
+    // pmmp: PlayerEmoteEvent, PlayerEmoteEvent::getEmoteId, PlayerEmoteEvent::setEmoteId,
+    // pmmp: PlayerEmoteEvent::cancel, PlayerEmoteEvent::uncancel, PlayerEmoteEvent::isCancelled
     #[test]
     fn emote_can_change() {
         let mut e = PlayerEmote {
@@ -2076,7 +2275,15 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EnchantingOption, PlayerEnchantingOptionsRequestEvent, EnchantingOption::getRequiredXpLevel, EnchantingOption::getDisplayName, EnchantingOption::getEnchantments, PlayerEnchantingOptionsRequestEvent::getInventory, PlayerEnchantingOptionsRequestEvent::getOptions, PlayerEnchantingOptionsRequestEvent::setOptions, PlayerEnchantingOptionsRequestEvent::cancel, PlayerEnchantingOptionsRequestEvent::uncancel, PlayerEnchantingOptionsRequestEvent::isCancelled
+    // pmmp: EnchantingOption, PlayerEnchantingOptionsRequestEvent,
+    // pmmp: EnchantingOption::getRequiredXpLevel, EnchantingOption::getDisplayName,
+    // pmmp: EnchantingOption::getEnchantments,
+    // pmmp: PlayerEnchantingOptionsRequestEvent::getInventory,
+    // pmmp: PlayerEnchantingOptionsRequestEvent::getOptions,
+    // pmmp: PlayerEnchantingOptionsRequestEvent::setOptions,
+    // pmmp: PlayerEnchantingOptionsRequestEvent::cancel,
+    // pmmp: PlayerEnchantingOptionsRequestEvent::uncancel,
+    // pmmp: PlayerEnchantingOptionsRequestEvent::isCancelled
     #[test]
     fn enchanting_options_are_at_most_three() {
         let option = EnchantOption::new(5, "abc".to_owned(), vec![(Enchantment::Efficiency, 2)]);
@@ -2105,7 +2312,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerEntityInteractEvent, PlayerEntityInteractEvent::getEntity, PlayerEntityInteractEvent::getClickPosition, PlayerEntityInteractEvent::cancel, PlayerEntityInteractEvent::uncancel, PlayerEntityInteractEvent::isCancelled
+    // pmmp: PlayerEntityInteractEvent, PlayerEntityInteractEvent::getEntity,
+    // pmmp: PlayerEntityInteractEvent::getClickPosition, PlayerEntityInteractEvent::cancel,
+    // pmmp: PlayerEntityInteractEvent::uncancel, PlayerEntityInteractEvent::isCancelled
     #[test]
     fn entity_interact_names_the_entity() {
         let mut e = PlayerEntityInteract {
@@ -2124,7 +2333,14 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerExhaustEvent, PlayerExhaustEvent::getPlayer, PlayerExhaustEvent::getAmount, PlayerExhaustEvent::setAmount, PlayerExhaustEvent::getCause, PlayerExhaustEvent::CAUSE_ATTACK, PlayerExhaustEvent::CAUSE_DAMAGE, PlayerExhaustEvent::CAUSE_MINING, PlayerExhaustEvent::CAUSE_HEALTH_REGEN, PlayerExhaustEvent::CAUSE_POTION, PlayerExhaustEvent::CAUSE_WALKING, PlayerExhaustEvent::CAUSE_SPRINTING, PlayerExhaustEvent::CAUSE_JUMPING, PlayerExhaustEvent::CAUSE_SPRINT_JUMPING, PlayerExhaustEvent::cancel, PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
+    // pmmp: PlayerExhaustEvent, PlayerExhaustEvent::getPlayer, PlayerExhaustEvent::getAmount,
+    // pmmp: PlayerExhaustEvent::setAmount, PlayerExhaustEvent::getCause,
+    // pmmp: PlayerExhaustEvent::CAUSE_ATTACK, PlayerExhaustEvent::CAUSE_DAMAGE,
+    // pmmp: PlayerExhaustEvent::CAUSE_MINING, PlayerExhaustEvent::CAUSE_HEALTH_REGEN,
+    // pmmp: PlayerExhaustEvent::CAUSE_POTION, PlayerExhaustEvent::CAUSE_WALKING,
+    // pmmp: PlayerExhaustEvent::CAUSE_SPRINTING, PlayerExhaustEvent::CAUSE_JUMPING,
+    // pmmp: PlayerExhaustEvent::CAUSE_SPRINT_JUMPING, PlayerExhaustEvent::cancel,
+    // pmmp: PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
     #[test]
     fn exhaust_amount_can_change() {
         use ExhaustCause as C;
@@ -2150,6 +2366,8 @@ mod tests {
             e.set_amount(0.5);
             e.set_amount(f64::INFINITY);
             assert_eq!(e.amount(), 0.5);
+            e.set_amount(-1.0);
+            assert_eq!(e.amount(), 0.0);
             e.cancel();
             assert!(e.is_cancelled());
             e.uncancel();
@@ -2157,7 +2375,13 @@ mod tests {
         }
     }
 
-    // pmmp: PlayerExperienceChangeEvent, PlayerExperienceChangeEvent::getOldLevel, PlayerExperienceChangeEvent::getOldProgress, PlayerExperienceChangeEvent::getNewLevel, PlayerExperienceChangeEvent::getNewProgress, PlayerExperienceChangeEvent::setNewLevel, PlayerExperienceChangeEvent::setNewProgress, PlayerExperienceChangeEvent::cancel, PlayerExperienceChangeEvent::uncancel, PlayerExperienceChangeEvent::isCancelled
+    // pmmp: PlayerExperienceChangeEvent, PlayerExperienceChangeEvent::getOldLevel,
+    // pmmp: PlayerExperienceChangeEvent::getOldProgress,
+    // pmmp: PlayerExperienceChangeEvent::getNewLevel,
+    // pmmp: PlayerExperienceChangeEvent::getNewProgress,
+    // pmmp: PlayerExperienceChangeEvent::setNewLevel,
+    // pmmp: PlayerExperienceChangeEvent::setNewProgress, PlayerExperienceChangeEvent::cancel,
+    // pmmp: PlayerExperienceChangeEvent::uncancel, PlayerExperienceChangeEvent::isCancelled
     #[test]
     fn experience_change_keeps_progress_in_range() {
         let mut e = PlayerExperienceChange {
@@ -2173,6 +2397,8 @@ mod tests {
             (player(1), 3, 0.5)
         );
         assert_eq!((e.new_level(), e.new_progress()), (Some(4), None));
+        e.set_new_level(Some(u32::MAX));
+        assert_eq!(e.new_level(), Some(player::MAX_LEVEL));
         e.set_new_level(None);
         e.set_new_progress(Some(2.0));
         assert_eq!((e.new_level(), e.new_progress()), (None, Some(1.0)));
@@ -2190,7 +2416,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerGameModeChangeEvent, PlayerGameModeChangeEvent::getNewGamemode, PlayerGameModeChangeEvent::cancel, PlayerGameModeChangeEvent::uncancel, PlayerGameModeChangeEvent::isCancelled
+    // pmmp: PlayerGameModeChangeEvent, PlayerGameModeChangeEvent::getNewGamemode,
+    // pmmp: PlayerGameModeChangeEvent::cancel, PlayerGameModeChangeEvent::uncancel,
+    // pmmp: PlayerGameModeChangeEvent::isCancelled
     #[test]
     fn game_mode_change_names_the_new_mode() {
         let mut e = PlayerGameModeChange {
@@ -2208,7 +2436,13 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerInteractEvent, PlayerInteractEvent::getBlock, PlayerInteractEvent::getFace, PlayerInteractEvent::getItem, PlayerInteractEvent::getTouchVector, PlayerInteractEvent::getAction, PlayerInteractEvent::useItem, PlayerInteractEvent::useBlock, PlayerInteractEvent::setUseItem, PlayerInteractEvent::setUseBlock, PlayerInteractEvent::LEFT_CLICK_BLOCK, PlayerInteractEvent::RIGHT_CLICK_BLOCK, PlayerInteractEvent::cancel, PlayerInteractEvent::uncancel, PlayerInteractEvent::isCancelled
+    // pmmp: PlayerInteractEvent, PlayerInteractEvent::getBlock, PlayerInteractEvent::getFace,
+    // pmmp: PlayerInteractEvent::getItem, PlayerInteractEvent::getTouchVector,
+    // pmmp: PlayerInteractEvent::getAction, PlayerInteractEvent::useItem,
+    // pmmp: PlayerInteractEvent::useBlock, PlayerInteractEvent::setUseItem,
+    // pmmp: PlayerInteractEvent::setUseBlock, PlayerInteractEvent::LEFT_CLICK_BLOCK,
+    // pmmp: PlayerInteractEvent::RIGHT_CLICK_BLOCK, PlayerInteractEvent::cancel,
+    // pmmp: PlayerInteractEvent::uncancel, PlayerInteractEvent::isCancelled
     #[test]
     fn interact_can_stop_the_item_or_the_block() {
         for action in [
@@ -2248,7 +2482,10 @@ mod tests {
         }
     }
 
-    // pmmp: PlayerItemConsumeEvent, PlayerItemConsumeEvent::getItem, PlayerItemConsumeEvent::getResidue, PlayerItemConsumeEvent::setResidue, PlayerItemConsumeEvent::cancel, PlayerItemConsumeEvent::uncancel, PlayerItemConsumeEvent::isCancelled
+    // pmmp: PlayerItemConsumeEvent, PlayerItemConsumeEvent::getItem,
+    // pmmp: PlayerItemConsumeEvent::getResidue, PlayerItemConsumeEvent::setResidue,
+    // pmmp: PlayerItemConsumeEvent::cancel, PlayerItemConsumeEvent::uncancel,
+    // pmmp: PlayerItemConsumeEvent::isCancelled
     #[test]
     fn item_consume_residue_can_change() {
         let mut e = PlayerItemConsume {
@@ -2267,7 +2504,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerItemEnchantEvent, PlayerItemEnchantEvent::getOption, PlayerItemEnchantEvent::getInputItem, PlayerItemEnchantEvent::getOutputItem, PlayerItemEnchantEvent::getCost, PlayerItemEnchantEvent::cancel, PlayerItemEnchantEvent::uncancel, PlayerItemEnchantEvent::isCancelled
+    // pmmp: PlayerItemEnchantEvent, PlayerItemEnchantEvent::getOption,
+    // pmmp: PlayerItemEnchantEvent::getInputItem, PlayerItemEnchantEvent::getOutputItem,
+    // pmmp: PlayerItemEnchantEvent::getCost, PlayerItemEnchantEvent::cancel,
+    // pmmp: PlayerItemEnchantEvent::uncancel, PlayerItemEnchantEvent::isCancelled
     #[test]
     fn item_enchant_names_the_option_and_items() {
         let option = EnchantOption::new(1, "x".to_owned(), Vec::new());
@@ -2290,7 +2530,12 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerItemHeldEvent, PlayerItemUseEvent, PlayerItemHeldEvent::getItem, PlayerItemHeldEvent::getSlot, PlayerItemHeldEvent::cancel, PlayerItemHeldEvent::uncancel, PlayerItemHeldEvent::isCancelled, PlayerItemUseEvent::getItem, PlayerItemUseEvent::getDirectionVector, PlayerItemUseEvent::cancel, PlayerItemUseEvent::uncancel, PlayerItemUseEvent::isCancelled
+    // pmmp: PlayerItemHeldEvent, PlayerItemUseEvent, PlayerItemHeldEvent::getItem,
+    // pmmp: PlayerItemHeldEvent::getSlot, PlayerItemHeldEvent::cancel,
+    // pmmp: PlayerItemHeldEvent::uncancel, PlayerItemHeldEvent::isCancelled,
+    // pmmp: PlayerItemUseEvent::getItem, PlayerItemUseEvent::getDirectionVector,
+    // pmmp: PlayerItemUseEvent::cancel, PlayerItemUseEvent::uncancel,
+    // pmmp: PlayerItemUseEvent::isCancelled
     #[test]
     fn item_held_and_use_name_the_item() {
         let mut held = PlayerItemHeld {
@@ -2323,7 +2568,10 @@ mod tests {
         assert!(!used.is_cancelled());
     }
 
-    // pmmp: PlayerJumpEvent, PlayerJoinEvent, PlayerQuitEvent, PlayerEvent::getPlayer, PlayerJoinEvent::getJoinMessage, PlayerJoinEvent::setJoinMessage, PlayerQuitEvent::getQuitMessage, PlayerQuitEvent::setQuitMessage, PlayerQuitEvent::getQuitReason
+    // pmmp: PlayerJumpEvent, PlayerJoinEvent, PlayerQuitEvent, PlayerEvent::getPlayer,
+    // pmmp: PlayerJoinEvent::getJoinMessage, PlayerJoinEvent::setJoinMessage,
+    // pmmp: PlayerQuitEvent::getQuitMessage, PlayerQuitEvent::setQuitMessage,
+    // pmmp: PlayerQuitEvent::getQuitReason
     #[test]
     fn join_and_quit_messages_can_change() {
         let mut join = PlayerJoin {
@@ -2348,7 +2596,16 @@ mod tests {
         assert_eq!(PlayerJump { player: player(2) }.player(), player(2));
     }
 
-    // pmmp: PlayerKickEvent, PlayerKickEvent::getDisconnectReason, PlayerDisconnectEventTrait::getDisconnectReason, PlayerKickEvent::setDisconnectReason, PlayerDisconnectEventTrait::setDisconnectReason, PlayerKickEvent::getDisconnectScreenMessage, PlayerDisconnectEventTrait::getDisconnectScreenMessage, PlayerKickEvent::setDisconnectScreenMessage, PlayerDisconnectEventTrait::setDisconnectScreenMessage, PlayerKickEvent::getQuitMessage, PlayerKickEvent::setQuitMessage, PlayerKickEvent::cancel, PlayerKickEvent::uncancel, PlayerKickEvent::isCancelled
+    // pmmp: PlayerKickEvent, PlayerKickEvent::getDisconnectReason,
+    // pmmp: PlayerDisconnectEventTrait::getDisconnectReason,
+    // pmmp: PlayerKickEvent::setDisconnectReason,
+    // pmmp: PlayerDisconnectEventTrait::setDisconnectReason,
+    // pmmp: PlayerKickEvent::getDisconnectScreenMessage,
+    // pmmp: PlayerDisconnectEventTrait::getDisconnectScreenMessage,
+    // pmmp: PlayerKickEvent::setDisconnectScreenMessage,
+    // pmmp: PlayerDisconnectEventTrait::setDisconnectScreenMessage,
+    // pmmp: PlayerKickEvent::getQuitMessage, PlayerKickEvent::setQuitMessage,
+    // pmmp: PlayerKickEvent::cancel, PlayerKickEvent::uncancel, PlayerKickEvent::isCancelled
     #[test]
     fn kick_screen_message_falls_back_to_the_reason() {
         let mut e = PlayerKick {
@@ -2377,7 +2634,19 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerLoginEvent, PlayerPreLoginEvent, PlayerPreLoginEvent::getPlayerInfo, PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort, PlayerPreLoginEvent::getKickFlags, PlayerPreLoginEvent::isKickFlagSet, PlayerPreLoginEvent::setKickFlag, PlayerPreLoginEvent::clearKickFlag, PlayerPreLoginEvent::clearAllKickFlags, PlayerPreLoginEvent::isAllowed, PlayerPreLoginEvent::getDisconnectReason, PlayerPreLoginEvent::getDisconnectScreenMessage, PlayerPreLoginEvent::getFinalDisconnectReason, PlayerPreLoginEvent::getFinalDisconnectScreenMessage, PlayerPreLoginEvent::KICK_FLAG_PRIORITY, PlayerPreLoginEvent::KICK_FLAG_PLUGIN, PlayerPreLoginEvent::KICK_FLAG_SERVER_FULL, PlayerPreLoginEvent::KICK_FLAG_SERVER_WHITELISTED, PlayerPreLoginEvent::KICK_FLAG_BANNED
+    // pmmp: PlayerLoginEvent, PlayerPreLoginEvent, PlayerPreLoginEvent::getPlayerInfo,
+    // pmmp: PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort,
+    // pmmp: PlayerPreLoginEvent::getKickFlags, PlayerPreLoginEvent::isKickFlagSet,
+    // pmmp: PlayerPreLoginEvent::setKickFlag, PlayerPreLoginEvent::clearKickFlag,
+    // pmmp: PlayerPreLoginEvent::clearAllKickFlags, PlayerPreLoginEvent::isAllowed,
+    // pmmp: PlayerPreLoginEvent::getDisconnectReason,
+    // pmmp: PlayerPreLoginEvent::getDisconnectScreenMessage,
+    // pmmp: PlayerPreLoginEvent::getFinalDisconnectReason,
+    // pmmp: PlayerPreLoginEvent::getFinalDisconnectScreenMessage,
+    // pmmp: PlayerPreLoginEvent::KICK_FLAG_PRIORITY, PlayerPreLoginEvent::KICK_FLAG_PLUGIN,
+    // pmmp: PlayerPreLoginEvent::KICK_FLAG_SERVER_FULL,
+    // pmmp: PlayerPreLoginEvent::KICK_FLAG_SERVER_WHITELISTED,
+    // pmmp: PlayerPreLoginEvent::KICK_FLAG_BANNED
     #[test]
     fn login_refuses_with_the_first_kick_flag() {
         let address: SocketAddr = "192.0.2.1:19132".parse().expect("address");
@@ -2387,7 +2656,7 @@ mod tests {
             kicks: Default::default(),
         };
         assert_eq!(e.info().name(), "Steve");
-        assert_eq!((e.ip(), e.port()), (address.ip(), 19132));
+        assert_eq!((e.ip(), e.port()), (address.ip(), 19_132));
         assert!(e.is_allowed());
         assert_eq!(e.final_disconnect_reason(), None);
         e.set_kick_flag(
@@ -2427,7 +2696,10 @@ mod tests {
         assert_eq!(sorted, KickFlag::ALL);
     }
 
-    // pmmp: PlayerMissSwingEvent, PlayerMoveEvent, PlayerMissSwingEvent::cancel, PlayerMissSwingEvent::uncancel, PlayerMissSwingEvent::isCancelled, PlayerMoveEvent::getFrom, PlayerMoveEvent::getTo, PlayerMoveEvent::setTo, PlayerMoveEvent::cancel, PlayerMoveEvent::uncancel, PlayerMoveEvent::isCancelled
+    // pmmp: PlayerMissSwingEvent, PlayerMoveEvent, PlayerMissSwingEvent::cancel,
+    // pmmp: PlayerMissSwingEvent::uncancel, PlayerMissSwingEvent::isCancelled,
+    // pmmp: PlayerMoveEvent::getFrom, PlayerMoveEvent::getTo, PlayerMoveEvent::setTo,
+    // pmmp: PlayerMoveEvent::cancel, PlayerMoveEvent::uncancel, PlayerMoveEvent::isCancelled
     #[test]
     fn move_target_can_change() {
         let mut swing = PlayerMissSwing {
@@ -2458,7 +2730,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerPostChunkSendEvent, PlayerViewDistanceChangeEvent, PlayerPostChunkSendEvent::getChunkX, PlayerPostChunkSendEvent::getChunkZ, PlayerViewDistanceChangeEvent::getOldDistance, PlayerViewDistanceChangeEvent::getNewDistance
+    // pmmp: PlayerPostChunkSendEvent, PlayerViewDistanceChangeEvent,
+    // pmmp: PlayerPostChunkSendEvent::getChunkX, PlayerPostChunkSendEvent::getChunkZ,
+    // pmmp: PlayerViewDistanceChangeEvent::getOldDistance,
+    // pmmp: PlayerViewDistanceChangeEvent::getNewDistance
     #[test]
     fn chunk_send_and_view_distance_name_their_values() {
         let sent = PlayerPostChunkSend {
@@ -2480,7 +2755,8 @@ mod tests {
         );
     }
 
-    // pmmp: PlayerRespawnEvent, PlayerRespawnEvent::getRespawnPosition, PlayerRespawnEvent::setRespawnPosition
+    // pmmp: PlayerRespawnEvent, PlayerRespawnEvent::getRespawnPosition,
+    // pmmp: PlayerRespawnEvent::setRespawnPosition
     #[test]
     fn respawn_position_can_change() {
         let mut e = PlayerRespawn {
@@ -2497,7 +2773,18 @@ mod tests {
         assert_eq!(e.position(), Vec3::ZERO);
     }
 
-    // pmmp: PlayerToggleFlightEvent, PlayerToggleGlideEvent, PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleFlightEvent::isFlying, PlayerToggleFlightEvent::cancel, PlayerToggleFlightEvent::uncancel, PlayerToggleFlightEvent::isCancelled, PlayerToggleGlideEvent::isGliding, PlayerToggleGlideEvent::cancel, PlayerToggleGlideEvent::uncancel, PlayerToggleGlideEvent::isCancelled, PlayerToggleSneakEvent::isSneaking, PlayerToggleSneakEvent::isSneakPressed, PlayerToggleSneakEvent::cancel, PlayerToggleSneakEvent::uncancel, PlayerToggleSneakEvent::isCancelled, PlayerToggleSprintEvent::isSprinting, PlayerToggleSprintEvent::cancel, PlayerToggleSprintEvent::uncancel, PlayerToggleSprintEvent::isCancelled, PlayerToggleSwimEvent::isSwimming, PlayerToggleSwimEvent::cancel, PlayerToggleSwimEvent::uncancel, PlayerToggleSwimEvent::isCancelled
+    // pmmp: PlayerToggleFlightEvent, PlayerToggleGlideEvent, PlayerToggleSneakEvent,
+    // pmmp: PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleFlightEvent::isFlying,
+    // pmmp: PlayerToggleFlightEvent::cancel, PlayerToggleFlightEvent::uncancel,
+    // pmmp: PlayerToggleFlightEvent::isCancelled, PlayerToggleGlideEvent::isGliding,
+    // pmmp: PlayerToggleGlideEvent::cancel, PlayerToggleGlideEvent::uncancel,
+    // pmmp: PlayerToggleGlideEvent::isCancelled, PlayerToggleSneakEvent::isSneaking,
+    // pmmp: PlayerToggleSneakEvent::isSneakPressed, PlayerToggleSneakEvent::cancel,
+    // pmmp: PlayerToggleSneakEvent::uncancel, PlayerToggleSneakEvent::isCancelled,
+    // pmmp: PlayerToggleSprintEvent::isSprinting, PlayerToggleSprintEvent::cancel,
+    // pmmp: PlayerToggleSprintEvent::uncancel, PlayerToggleSprintEvent::isCancelled,
+    // pmmp: PlayerToggleSwimEvent::isSwimming, PlayerToggleSwimEvent::cancel,
+    // pmmp: PlayerToggleSwimEvent::uncancel, PlayerToggleSwimEvent::isCancelled
     #[test]
     fn toggles_name_the_new_state() {
         let mut flight = PlayerToggleFlight {
@@ -2560,26 +2847,30 @@ mod tests {
         assert!(!swim.is_cancelled());
     }
 
-    // pmmp: PlayerTransferEvent, PlayerTransferEvent::getAddress, PlayerTransferEvent::setAddress, PlayerTransferEvent::getPort, PlayerTransferEvent::setPort, PlayerTransferEvent::getMessage, PlayerTransferEvent::setMessage, PlayerTransferEvent::cancel, PlayerTransferEvent::uncancel, PlayerTransferEvent::isCancelled
+    // pmmp: PlayerTransferEvent, PlayerTransferEvent::getAddress,
+    // pmmp: PlayerTransferEvent::setAddress, PlayerTransferEvent::getPort,
+    // pmmp: PlayerTransferEvent::setPort, PlayerTransferEvent::getMessage,
+    // pmmp: PlayerTransferEvent::setMessage, PlayerTransferEvent::cancel,
+    // pmmp: PlayerTransferEvent::uncancel, PlayerTransferEvent::isCancelled
     #[test]
     fn transfer_target_can_change() {
         let mut e = PlayerTransfer {
             player: player(1),
             address: "a.example".to_owned(),
-            port: 19132,
+            port: 19_132,
             message: "moved".to_owned(),
             cancelled: false,
         };
         assert_eq!(
             (e.player(), e.address(), e.port(), e.message()),
-            (player(1), "a.example", 19132, "moved")
+            (player(1), "a.example", 19_132, "moved")
         );
         e.set_address("b.example".to_owned());
-        e.set_port(19133);
+        e.set_port(19_133);
         e.set_message(String::new());
         assert_eq!(
             (e.address(), e.port(), e.message()),
-            ("b.example", 19133, "")
+            ("b.example", 19_133, "")
         );
         e.cancel();
         assert!(e.is_cancelled());
@@ -2587,7 +2878,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock, PlayerRespawnAnchorUseEvent::getAction, PlayerRespawnAnchorUseEvent::setAction, PlayerRespawnAnchorUseEvent::cancel, PlayerRespawnAnchorUseEvent::uncancel, PlayerRespawnAnchorUseEvent::isCancelled
+    // pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock,
+    // pmmp: PlayerRespawnAnchorUseEvent::getAction, PlayerRespawnAnchorUseEvent::setAction,
+    // pmmp: PlayerRespawnAnchorUseEvent::cancel, PlayerRespawnAnchorUseEvent::uncancel,
+    // pmmp: PlayerRespawnAnchorUseEvent::isCancelled
     #[test]
     fn respawn_anchor_use_names_the_anchor_and_its_action() {
         let mut e = PlayerRespawnAnchorUse {
@@ -2611,7 +2905,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction, PlayerEditBookEvent::getOldBook, PlayerEditBookEvent::getNewBook, PlayerEditBookEvent::setNewBook, PlayerEditBookEvent::getModifiedPages, PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel, PlayerEditBookEvent::isCancelled
+    // pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction,
+    // pmmp: PlayerEditBookEvent::getOldBook, PlayerEditBookEvent::getNewBook,
+    // pmmp: PlayerEditBookEvent::setNewBook, PlayerEditBookEvent::getModifiedPages,
+    // pmmp: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel,
+    // pmmp: PlayerEditBookEvent::isCancelled
     #[test]
     fn edit_book_takes_only_books() {
         let book = |kind: crate::item::Kind| Stack::new(kind.default_type(), 1);
@@ -2630,7 +2928,7 @@ mod tests {
         );
         assert_eq!(
             (e.old_book(), e.modified_pages()),
-            (&quill, [3u32].as_slice())
+            (&quill, [3_u32].as_slice())
         );
         e.set_new_book(sticks(1));
         assert_eq!(e.new_book(), &quill, "not a book: ignored");
@@ -2643,7 +2941,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity, PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel, PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
+    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity,
+    // pmmp: PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel,
+    // pmmp: PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
     #[test]
     fn entity_pick_names_the_entity_and_its_item() {
         let mut e = PlayerEntityPick {

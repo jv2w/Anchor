@@ -5,17 +5,26 @@
 //! The direct API (for example [`Player`](crate::player::Player) setters) changes the game
 //! without events; an action goes the way the game itself would, events and all.
 
-use std::fmt;
-
-use crate::tick::Context;
-
 mod entity;
 mod interact;
+mod sealed {
+    use crate::tick::Context;
+
+    /// Does the action.
+    pub trait Sealed {
+        /// Does the action now, through the game rules, raising its events.
+        fn perform(self, ctx: &mut Context<'_>);
+    }
+}
 mod survival;
 
 pub use entity::{Attack, Explode};
 pub use interact::{AttackBlock, BreakBlock, InteractEntity, UseItem, UseItemOn};
+/// Public in name only: other crates can neither name nor implement it.
+pub(crate) use sealed::Sealed;
 pub use survival::{Chat, Damage, Kick, SetGameMode, Teleport, Transfer};
+
+use std::fmt;
 
 /// An action [`Context::perform`](crate::Context::perform) can do. Only Anchor's actions
 /// implement it.
@@ -38,21 +47,8 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Action and deferred callback results.
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Public in name only: other crates can neither name nor implement it.
-pub(crate) use sealed::Sealed;
-
-mod sealed {
-    use super::Context;
-
-    /// Does the action.
-    pub trait Sealed {
-        /// Does the action now, through the game rules, raising its events.
-        fn perform(self, cx: &mut Context<'_>);
-    }
-}
+/// A result with the action [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]
 mod tests {

@@ -2,6 +2,8 @@
 
 mod update;
 
+pub use update::Update;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
@@ -17,8 +19,6 @@ use crate::fs::{self, Access};
 use crate::protocol::batch;
 use crate::protocol::compression::Compression;
 use crate::protocol::consts::GameType;
-
-pub use self::update::Update;
 
 /// The file [`Config::load`] writes when the settings file is missing; a test checks that it
 /// loads as the default settings. [`Config::update_file`] adds a missing key with the comment
@@ -39,8 +39,9 @@ enable-ipv6 = true
 # The one port players reach: UDP carries RakNet, NetherNet game data and server list pings;
 # TCP carries NetherNet signaling.
 server-port = 19132
-# Address players use to reach this server, if it differs from the local one (NAT).
-# Empty: advertise the addresses of the local interfaces.
+# Address NetherNet players use to reach this server, if it differs from the local one (NAT).
+# Empty: advertise the address each player reached the signaling port on.
+# An IPv6 address needs enable-ipv6.
 public-ip = ""
 max-players = 20
 # true: players must sign in to Xbox Live. false: anyone can join under any name.
@@ -59,7 +60,7 @@ pvp = true
 hunger = true
 # Gaining experience points and levels. false also means no experience orbs.
 experience = true
-# Experience orbs and throwing bottles o' enchanting.
+# Experience orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
 experience-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
@@ -107,6 +108,8 @@ backups = true
 shutdown-message = "The server has stopped"
 # Resource pack files (.mcpack or .zip), relative to data/packs. Earlier entries override later ones.
 # An encrypted pack needs its key in "<file>.key" next to it.
+# Players keep a downloaded pack by its uuid and version: raise the manifest version when
+# a pack changes.
 resource-packs = []
 # true: players must accept the resource packs to join.
 force-resources = false
@@ -121,14 +124,15 @@ compression = "snappy"
 compression-threshold = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
-# Largest decompressed batch a client may send, in bytes (4210786 to 67108864: at least
-# what one player with the largest skin takes in the player list).
+# Largest decompressed batch received from a player or sent to one, in bytes (4210786 to
+# 67108864: at least what one player with the largest skin takes in the player list).
 max-batch-bytes = 16777216
 # false: RakNet game traffic is sent in plain form. Anyone between a player and the server
 # can then read it and change it, login included. Use false only on a trusted network.
 # NetherNet traffic is always encrypted by its own transport.
 enable-encryption = true
-# false: accept only NetherNet. The RakNet port still answers server list pings.
+# false: accept only NetherNet. A RakNet client gets no reply to its connection request;
+# the UDP port still answers server list pings.
 raknet = true
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
 max-mtu-size = 1492
@@ -143,11 +147,13 @@ cpu-threads = "auto"
 chunks-per-tick = 4
 # Chunk radius sent before a player spawns (at most view-distance).
 spawn-radius = 4
-# Chunk radius around players where blocks and entities are ticked (at most view-distance).
+# Chunk radius around players where blocks get random ticks and entities are ticked (at most
+# view-distance). Block updates (liquids, fire, falling blocks) run in every loaded chunk.
 tick-radius = 4
 # Random block ticks per sub-chunk per tick (crop growth, leaf decay). 0 turns them off.
 random-tick-speed = 3
-# Blocks that never get random ticks, by name, for example "minecraft:grass_block".
+# Blocks that never get random ticks, by name, for example "minecraft:grass_block". Every block
+# of the same kind as a named block stops too. Custom blocks ignore this list.
 disable-block-ticking = []
 # true: a world without players runs one tick in every 100.
 slow-empty-worlds = false
@@ -183,43 +189,51 @@ console-input = true
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
-/// Bounds the player and session tables that are sized from it.
-const MAX_PLAYERS: RangeInclusive<u32> = 1..=10_000;
-/// The `view-distance` range the settings file accepts.
-pub(crate) const VIEW_DISTANCE: RangeInclusive<u8> = 2..=64;
-/// The effective radius is at most `view-distance`, so a larger value means nothing.
-const RADIUS: RangeInclusive<u8> = 1..=*VIEW_DISTANCE.end();
-/// 0 would never send a chunk; 256 sends the largest view in about 3 seconds.
-pub(crate) const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
-/// A sub-chunk holds 4096 blocks; more ticks than blocks add only cost.
-pub(crate) const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
-/// go-raknet's dialer probes 1492, 1200 and 576; 1492 is the largest RakNet MTU.
-const MAX_MTU_SIZE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU;
-/// One minute to one day.
-const SAVE_INTERVAL_MINUTES: RangeInclusive<u16> = 1..=1440;
-/// A fixed thread count; the runtime checks the total against the logical CPUs.
-const THREADS: RangeInclusive<u16> = 1..=u16::MAX;
 /// The longest `motd`, in bytes ([`is_motd`]). The RakNet pong carries `motd` and `level-name` in
 /// one datagram; 256 + 64 bytes and the other fields fit the 576-byte minimum MTU.
 pub const MAX_MOTD_BYTES: usize = 256;
+/// The `max-players` range; the player and session tables are sized from it.
+const PLAYERS_RANGE: RangeInclusive<u32> = 1..=10_000;
+/// The `item-despawn-ticks` range: one tick to an hour.
+pub(crate) const ITEM_DESPAWN_TICKS_RANGE: RangeInclusive<u32> = 1..=72_000;
 /// See [`MAX_MOTD_BYTES`].
 const MAX_LEVEL_NAME_BYTES: usize = 64;
-/// A disconnect message several lines long fits.
+/// The `view-distance` range the settings file accepts.
+pub(crate) const VIEW_DISTANCE_RANGE: RangeInclusive<u8> = 2..=64;
+/// The longest `shutdown-message`, in bytes: a disconnect message several lines long fits.
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
-/// One tick to an hour.
-pub(crate) const ITEM_DESPAWN_TICKS: RangeInclusive<u32> = 1..=72_000;
-/// The light levels.
-const FIXED_LIGHT_LEVEL: RangeInclusive<u8> = 0..=15;
-/// Every tick to once a second.
-const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
+/// The `compression` values.
+const COMPRESSION_NAMES: [(&str, Compression); 2] =
+    [("snappy", Compression::Snappy), ("zlib", Compression::Zlib)];
+/// The `max-mtu-size` range; go-raknet's dialer probes 1492, 1200 and 576, and 1492 is the
+/// largest RakNet MTU.
+const MTU_SIZE_RANGE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU;
+/// The `network-threads` and `cpu-threads` counts; the runtime checks the total against the
+/// logical CPUs.
+const THREADS_RANGE: RangeInclusive<u16> = 1..=u16::MAX;
+/// The `chunks-per-tick` range: 0 would never send a chunk, and 256 sends the largest view in
+/// about 3 seconds.
+pub(crate) const CHUNKS_PER_TICK_RANGE: RangeInclusive<u32> = 1..=256;
+/// The `spawn-radius` and `tick-radius` range; the effective radius is at most `view-distance`,
+/// so a larger value means nothing.
+const RADIUS_RANGE: RangeInclusive<u8> = 1..=*VIEW_DISTANCE_RANGE.end();
+/// The `random-tick-speed` range; a sub-chunk holds 4096 blocks, so more ticks than blocks add
+/// only cost.
+pub(crate) const RANDOM_TICK_SPEED_RANGE: RangeInclusive<u32> = 0..=4096;
+/// The `fixed-light-level` range: the light levels.
+const FIXED_LIGHT_LEVEL_RANGE: RangeInclusive<u8> = 0..=15;
+/// The `item-pickup-interval` range: every tick to once a second.
+const ITEM_PICKUP_INTERVAL_RANGE: RangeInclusive<u8> = 1..=20;
+/// The `save-interval-minutes` range: one minute to one day.
+const SAVE_INTERVAL_MINUTES_RANGE: RangeInclusive<u16> = 1..=1440;
 
 /// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
 ///
-/// The server file saves none of them: every start takes the settings from the
-/// config it is built with, so a value changed while the server runs (the difficulty, a world's
-/// difficulty, a game rule) is back to its setting after a restart. Time stop and weather have
-/// no setting: every world starts with time running and clear weather. A world's spawn is its
-/// state, not a setting: the world's file keeps it.
+/// The data files save none of them: every start takes the settings from the config it is built
+/// with, so a value changed while the server runs (the difficulty, a world's difficulty, a game
+/// rule) is back to its setting after a restart. Time stop and weather have no setting: every
+/// world starts with time running and clear weather. A world's spawn is its state, not a
+/// setting: the world's file keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     /// Settings for anyone opening a server (`[general]`).
@@ -258,25 +272,11 @@ impl Config {
     /// [`Config::update_file`] does, and [`Server::run`](crate::Server::run) then reports what
     /// changed instead of running the server.
     pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
-        let update = matches!(crate::args::current(), Ok(crate::args::Task::UpdateConfig));
-        self.load_as(path.as_ref(), update)
-    }
-
-    /// [`Config::load`], updating the file first if `update`.
-    fn load_as(mut self, path: &Path, update: bool) -> Result<Self> {
-        // Before the read: an old file may not load until it is updated.
-        if update {
-            self.updated = Some(update::run(path)?);
+        let path = path.as_ref();
+        match crate::args::current() {
+            Ok(crate::args::Task::UpdateConfig) => self.load_updated(path),
+            _ => self.load_file(path),
         }
-        if let Some(bytes) = read(path)? {
-            return self.apply(&bytes);
-        }
-        let written = fs::write_atomic(path, DEFAULT_FILE.as_bytes(), Access::Shared);
-        written.map_err(|source| Error::Write {
-            path: path.to_owned(),
-            source,
-        })?;
-        self.apply(DEFAULT_FILE.as_bytes())
     }
 
     /// Updates the settings file at `path` to this Anchor's keys and returns what changed.
@@ -284,11 +284,11 @@ impl Config {
     /// Each key of the default file that the file lacks is added with its default value and the
     /// comment lines right above it in the default file: after the line of the key before it
     /// there, or after the table's header when the file has none of those. A table the file
-    /// lacks is added at its end. A `key = value` that Anchor does not know, at the top or in a table
-    /// of the default file written with its header, is removed with the comment lines right
-    /// above it. Every other byte stays as it was: values, comments, key order and line endings.
-    /// Unknown tables are not touched, nor are `[worlds.<name>]` tables, since a key left out
-    /// there means the global value.
+    /// lacks is added at its end. A `key = value` that Anchor does not know, at the top, in a
+    /// table of the default file or in a `[worlds.<name>]` table written with its header, is
+    /// removed with the comment lines right above it. Every other byte stays as it was: values,
+    /// comments, key order and line endings. Unknown tables are not touched, and no key is added
+    /// to a `[worlds.<name>]` table, since a key left out there means the global value.
     ///
     /// The added values are the defaults, so the file means what it meant without them. A value
     /// set in code before [`Config::load`] for a key this adds is then replaced by the file's, as
@@ -307,25 +307,39 @@ impl Config {
         update::run(path.as_ref())
     }
 
-    /// What [`Config::load`] changed in the file under `<program> update-config`; `None` when
-    /// it did not run so.
-    pub(crate) fn updated(&self) -> Option<&Update> {
-        self.updated.as_ref()
+    /// The batch compression settings, checked by [`batch::Settings::new`].
+    pub(crate) fn batch_settings(&self) -> Result<batch::Settings> {
+        let d = &self.developer;
+        batch::Settings::new(
+            d.compression,
+            d.compression_threshold,
+            d.compression_level,
+            d.max_batch_bytes,
+        )
+        .map_err(|source| Error::Batch {
+            key: batch_key(&source),
+            source,
+        })
     }
 
-    /// The `resource-packs` files, relative paths resolved against the pack folder `folder`.
-    pub(crate) fn resource_pack_paths(&self, folder: &Path) -> Vec<PathBuf> {
-        let packs = &self.general.resource_packs;
-        packs.iter().map(|p| folder.join(p)).collect()
+    /// The first `[worlds]` entry whose name `declared` does not hold, as an error; the server
+    /// builder calls it with the names of its worlds. A name must match a declared name exactly,
+    /// while world files ignore letter case.
+    pub(crate) fn check_world_names(&self, declared: impl Fn(&str) -> bool) -> Result<()> {
+        match self.worlds.keys().find(|name| !declared(name)) {
+            Some(name) => Err(Error::UnknownWorld(name.clone())),
+            None => Ok(()),
+        }
     }
 
-    /// Returns `spawn-radius` limited to `view-distance`: the chunk radius actually sent before a
-    /// player spawns.
+    /// The `spawn-radius` limited to `view-distance`: the chunk radius sent before a player
+    /// spawns, less when the player asks for a smaller view.
     pub fn effective_spawn_radius(&self) -> u8 {
         self.view_limits(None).spawn_radius
     }
 
-    /// Returns `tick-radius` limited to `view-distance`: the chunk radius actually ticked.
+    /// The `tick-radius` limited to `view-distance`: the chunk radius around players that gets
+    /// random block ticks and entity ticks.
     pub fn effective_tick_radius(&self) -> u8 {
         self.view_limits(None).tick_radius
     }
@@ -350,7 +364,20 @@ impl Config {
         }
     }
 
-    /// Checks every value and rejects unknown tables; the server builder calls it.
+    /// The `resource-packs` files, relative paths resolved against the pack folder `folder`.
+    pub(crate) fn resource_pack_paths(&self, folder: &Path) -> Vec<PathBuf> {
+        let packs = &self.general.resource_packs;
+        packs.iter().map(|p| folder.join(p)).collect()
+    }
+
+    /// What [`Config::load`] changed in the file under `<program> update-config`; `None` when
+    /// it did not run so.
+    pub(crate) fn updated(&self) -> Option<&Update> {
+        self.updated.as_ref()
+    }
+
+    /// The first error among the unknown tables and the values that break their rules; the
+    /// server builder calls it.
     pub(crate) fn validate(&self) -> Result<()> {
         if let Some(name) = self.unknown_tables.first() {
             return Err(Error::UnknownTable(name.clone()));
@@ -358,33 +385,25 @@ impl Config {
         self.check()
     }
 
-    /// Rejects a `[worlds]` entry whose name `declared` does not hold; the server builder calls
-    /// it with the names of its worlds.
-    pub(crate) fn check_world_names(&self, declared: impl Fn(&str) -> bool) -> Result<()> {
-        match self.worlds.keys().find(|name| !declared(name)) {
-            Some(name) => Err(Error::UnknownWorld(name.clone())),
-            None => Ok(()),
-        }
+    /// [`Config::load`] after updating the file first, as `<program> update-config` asks.
+    fn load_updated(mut self, path: &Path) -> Result<Self> {
+        // Before the read: an old file may not load until it is updated.
+        self.updated = Some(update::run(path)?);
+        self.load_file(path)
     }
 
-    /// Returns the batch compression settings, checked by [`batch::Settings::new`].
-    pub(crate) fn batch_settings(&self) -> Result<batch::Settings> {
-        let d = &self.developer;
-        batch::Settings::new(
-            d.compression,
-            d.compression_threshold,
-            d.compression_level,
-            d.max_batch_bytes,
-        )
-        .map_err(|source| {
-            let key = match source {
-                batch::Error::Threshold => "developer.compression-threshold",
-                batch::Error::ZlibLevel(_) => "developer.compression-level",
-                batch::Error::MaxBatchBytes(_) => "developer.max-batch-bytes",
-                _ => "developer",
-            };
-            Error::Batch { key, source }
-        })
+    /// [`Config::load`] without the update: the file's keys over these values, or, when the file
+    /// is missing, the default file written and read.
+    fn load_file(self, path: &Path) -> Result<Self> {
+        if let Some(bytes) = read(path)? {
+            return self.apply(&bytes);
+        }
+        let written = fs::write_atomic(path, DEFAULT_FILE.as_bytes(), Access::Shared);
+        written.map_err(|source| Error::Write {
+            path: path.to_owned(),
+            source,
+        })?;
+        self.apply(DEFAULT_FILE.as_bytes())
     }
 
     /// Parses a settings file's bytes, lays its keys over these values and checks the result.
@@ -425,46 +444,19 @@ impl Config {
         Ok(self)
     }
 
-    /// Checks every value against its rule; the one check for loaded and code-set values.
+    /// The first value that breaks its rule, as an error; the one check for loaded and code-set
+    /// values.
     fn check(&self) -> Result<()> {
-        let g = &self.general;
-        list_text(Key::general("motd"), &g.motd, MAX_MOTD_BYTES)?;
-        range(Key::general("max-players"), g.max_players, MAX_PLAYERS)?;
-        if g.hardcore && g.difficulty != Difficulty::Hard {
-            return Err(
-                Key::general("hardcore").invalid("false unless `general.difficulty` is \"hard\"")
-            );
+        self.check_general()?;
+        self.check_developer()?;
+        for (name, world) in &self.worlds {
+            world.check(&format!("worlds.{name}"))?;
         }
-        list_text(
-            Key::general("level-name"),
-            &g.level_name,
-            MAX_LEVEL_NAME_BYTES,
-        )?;
-        range(
-            Key::general("view-distance"),
-            g.view_distance,
-            VIEW_DISTANCE,
-        )?;
-        length(
-            Key::general("shutdown-message"),
-            &g.shutdown_message,
-            MAX_SHUTDOWN_MESSAGE_BYTES,
-        )?;
-        range(
-            Key::general("item-despawn-ticks"),
-            g.item_despawn_ticks,
-            ITEM_DESPAWN_TICKS,
-        )?;
-        // A path into the old `packs` folder would now name `data/packs/packs/...`; Anchor never
-        // writes the file, so the setting must be changed.
-        if g.resource_packs
-            .iter()
-            .any(|p| p.as_os_str().is_empty() || p.starts_with(crate::pack::FOLDER))
-        {
-            return Err(Key::general("resource-packs")
-                .invalid("a list of non-empty paths relative to data/packs, not under packs/"));
-        }
+        Ok(())
+    }
 
+    /// The first `[developer]` value that breaks its rule, as an error.
+    fn check_developer(&self) -> Result<()> {
         let d = &self.developer;
         self.batch_settings()?;
         if d.max_batch_bytes < crate::tick::MAX_LIST_ENTRY_BYTES {
@@ -473,7 +465,11 @@ impl Config {
                 crate::tick::MAX_LIST_ENTRY_BYTES
             )));
         }
-        range(Key::developer("max-mtu-size"), d.max_mtu_size, MAX_MTU_SIZE)?;
+        range(
+            Key::developer("max-mtu-size"),
+            d.max_mtu_size,
+            MTU_SIZE_RANGE,
+        )?;
         let cert = Key::developer("nethernet-tls-cert");
         let key = Key::developer("nethernet-tls-key");
         for (setting, path) in [(cert, &d.nethernet_tls_cert), (key, &d.nethernet_tls_key)] {
@@ -493,14 +489,14 @@ impl Config {
         range(
             Key::developer("chunks-per-tick"),
             d.chunks_per_tick,
-            CHUNKS_PER_TICK,
+            CHUNKS_PER_TICK_RANGE,
         )?;
-        range(Key::developer("spawn-radius"), d.spawn_radius, RADIUS)?;
-        range(Key::developer("tick-radius"), d.tick_radius, RADIUS)?;
+        range(Key::developer("spawn-radius"), d.spawn_radius, RADIUS_RANGE)?;
+        range(Key::developer("tick-radius"), d.tick_radius, RADIUS_RANGE)?;
         range(
             Key::developer("random-tick-speed"),
             d.random_tick_speed,
-            RANDOM_TICK_SPEED,
+            RANDOM_TICK_SPEED_RANGE,
         )?;
         if !d.disable_block_ticking.iter().all(|n| is_block_name(n)) {
             return Err(Key::developer("disable-block-ticking")
@@ -509,20 +505,64 @@ impl Config {
         range(
             Key::developer("fixed-light-level"),
             d.fixed_light_level,
-            FIXED_LIGHT_LEVEL,
+            FIXED_LIGHT_LEVEL_RANGE,
         )?;
         range(
             Key::developer("item-pickup-interval"),
             d.item_pickup_interval,
-            ITEM_PICKUP_INTERVAL,
+            ITEM_PICKUP_INTERVAL_RANGE,
         )?;
         range(
             Key::developer("save-interval-minutes"),
             d.save_interval_minutes,
-            SAVE_INTERVAL_MINUTES,
+            SAVE_INTERVAL_MINUTES_RANGE,
+        )
+    }
+
+    /// The first `[general]` value that breaks its rule, as an error.
+    fn check_general(&self) -> Result<()> {
+        let g = &self.general;
+        list_text(Key::general("motd"), &g.motd, MAX_MOTD_BYTES)?;
+        // A NetherNet offer is answered with an address of the family of this one, and the
+        // server opens no IPv6 socket without `enable-ipv6`.
+        if !g.enable_ipv6 && g.public_ip.is_some_and(|ip| ip.to_canonical().is_ipv6()) {
+            return Err(Key::general("public-ip")
+                .invalid("an IPv4 address unless `general.enable-ipv6` is true"));
+        }
+        range(Key::general("max-players"), g.max_players, PLAYERS_RANGE)?;
+        if g.hardcore && g.difficulty != Difficulty::Hard {
+            return Err(
+                Key::general("hardcore").invalid("false unless `general.difficulty` is \"hard\"")
+            );
+        }
+        range(
+            Key::general("item-despawn-ticks"),
+            g.item_despawn_ticks,
+            ITEM_DESPAWN_TICKS_RANGE,
         )?;
-        for (name, world) in &self.worlds {
-            world.check(&format!("worlds.{name}"))?;
+        let level_name = Key::general("level-name");
+        list_text(level_name, &g.level_name, MAX_LEVEL_NAME_BYTES)?;
+        if !crate::storage::is_world_file_name(&g.level_name) {
+            return Err(level_name.invalid("a name that can be the file name of a world"));
+        }
+        range(
+            Key::general("view-distance"),
+            g.view_distance,
+            VIEW_DISTANCE_RANGE,
+        )?;
+        length(
+            Key::general("shutdown-message"),
+            &g.shutdown_message,
+            MAX_SHUTDOWN_MESSAGE_BYTES,
+        )?;
+        // A path into the old `packs` folder would now name `data/packs/packs/...`; Anchor never
+        // writes the file, so the setting must be changed.
+        if g.resource_packs
+            .iter()
+            .any(|p| p.as_os_str().is_empty() || p.starts_with(crate::pack::FOLDER))
+        {
+            return Err(Key::general("resource-packs")
+                .invalid("a list of non-empty paths relative to data/packs, not under packs/"));
         }
         Ok(())
     }
@@ -546,8 +586,8 @@ pub struct General {
     #[doc(alias = "Server::getPort")]
     #[doc(alias = "Server::getPortV6")]
     pub server_port: u16,
-    /// `public-ip`: the address players use to reach this server; `None` advertises the local
-    /// interfaces.
+    /// `public-ip`: the address NetherNet players use to reach this server; `None` advertises the
+    /// address each player reached the signaling port on. An IPv6 address needs `enable_ipv6`.
     pub public_ip: Option<IpAddr>,
     /// `max-players`: the most players online at once.
     pub max_players: u32,
@@ -571,7 +611,8 @@ pub struct General {
     pub hunger: bool,
     /// `experience`: whether players gain experience points and levels.
     pub experience: bool,
-    /// `experience-orbs`: whether experience orbs exist and bottles o' enchanting can be thrown.
+    /// `experience-orbs`: whether experience orbs exist and bottles o' enchanting can be thrown;
+    /// `false` deletes the orbs of chunks that load.
     pub experience_orbs: bool,
     /// `fall-damage`: whether falling hurts.
     pub fall_damage: bool,
@@ -626,7 +667,8 @@ pub struct General {
     /// `shutdown-message`: the message players see when the server stops.
     pub shutdown_message: String,
     /// `resource-packs`: resource pack files, relative to `packs` in the data folder; a relative
-    /// path may not start with `packs`.
+    /// path may not start with `packs`. Players keep a downloaded pack by its uuid and version, so
+    /// the manifest version must rise when a pack changes.
     #[doc(alias = "ResourcePackManager::__construct")]
     pub resource_packs: Vec<PathBuf>,
     /// `force-resources`: whether players must accept the resource packs to join.
@@ -651,7 +693,7 @@ impl General {
                 "public-ip" => {
                     self.public_ip = optional(value, key, "empty or an IP address")?;
                 }
-                "max-players" => self.max_players = int(value, key, MAX_PLAYERS)?,
+                "max-players" => self.max_players = int(value, key, PLAYERS_RANGE)?,
                 "xbox-auth" => self.xbox_auth = boolean(value, key)?,
                 "white-list" => self.white_list = boolean(value, key)?,
                 "gamemode" => self.gamemode = choice(value, key, &GameMode::NAMES)?,
@@ -671,7 +713,7 @@ impl General {
                 "recipe-book" => self.recipe_book = boolean(value, key)?,
                 "vanilla-recipes" => self.vanilla_recipes = boolean(value, key)?,
                 "item-despawn-ticks" => {
-                    self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS)?;
+                    self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS_RANGE)?;
                 }
                 "critical-hits" => self.critical_hits = choice(value, key, &CriticalHits::NAMES)?,
                 "break-time-check" => self.break_time_check = boolean(value, key)?,
@@ -685,7 +727,7 @@ impl General {
                 "level-seed" => {
                     self.level_seed = optional(value, key, "empty or a whole number as text")?;
                 }
-                "view-distance" => self.view_distance = int(value, key, VIEW_DISTANCE)?,
+                "view-distance" => self.view_distance = int(value, key, VIEW_DISTANCE_RANGE)?,
                 "save-player-data" => self.save_player_data = boolean(value, key)?,
                 "backups" => self.backups = boolean(value, key)?,
                 "shutdown-message" => text(value, key)?.clone_into(&mut self.shutdown_message),
@@ -708,7 +750,7 @@ impl Default for General {
             server_ip: Ipv4Addr::UNSPECIFIED,
             server_ipv6: Ipv6Addr::UNSPECIFIED,
             enable_ipv6: true,
-            server_port: 19132,
+            server_port: 19_132,
             public_ip: None,
             max_players: 20,
             xbox_auth: true,
@@ -760,12 +802,13 @@ pub struct Developer {
     pub compression_threshold: u16,
     /// `compression-level`: the zlib level, 1 (fastest) to 9 (smallest).
     pub compression_level: u8,
-    /// `max-batch-bytes`: the largest decompressed batch a client may send.
+    /// `max-batch-bytes`: the largest decompressed batch received from a client or sent to one.
     pub max_batch_bytes: usize,
     /// `enable-encryption`: whether RakNet game traffic is encrypted. NetherNet traffic always is,
     /// by its own transport.
     pub enable_encryption: bool,
-    /// `raknet`: whether RakNet connections are accepted; pings are answered either way.
+    /// `raknet`: whether RakNet connections are accepted; pings are answered either way, and a
+    /// RakNet client that tries to connect gets no reply when it is `false`.
     pub raknet: bool,
     /// `max-mtu-size`: the largest RakNet packet in bytes.
     pub max_mtu_size: u16,
@@ -781,11 +824,13 @@ pub struct Developer {
     pub chunks_per_tick: u32,
     /// `spawn-radius`: the chunk radius sent before a player spawns.
     pub spawn_radius: u8,
-    /// `tick-radius`: the chunk radius around players where blocks and entities are ticked.
+    /// `tick-radius`: the chunk radius around players where blocks get random ticks and entities
+    /// are ticked; block updates (liquids, fire, falling blocks) run in every loaded chunk.
     pub tick_radius: u8,
     /// `random-tick-speed`: random block ticks per sub-chunk per tick.
     pub random_tick_speed: u32,
-    /// `disable-block-ticking`: blocks that never get random ticks, by name.
+    /// `disable-block-ticking`: blocks that never get random ticks, by name; every block of the
+    /// same kind as a named block stops too, and custom blocks ignore the list.
     pub disable_block_ticking: Vec<String>,
     /// `slow-empty-worlds`: whether a world without players runs one tick in every 100.
     pub slow_empty_worlds: bool,
@@ -827,7 +872,7 @@ impl Developer {
                 }
                 "enable-encryption" => self.enable_encryption = boolean(value, key)?,
                 "raknet" => self.raknet = boolean(value, key)?,
-                "max-mtu-size" => self.max_mtu_size = int(value, key, MAX_MTU_SIZE)?,
+                "max-mtu-size" => self.max_mtu_size = int(value, key, MTU_SIZE_RANGE)?,
                 "nethernet-tls-cert" => {
                     self.nethernet_tls_cert = optional(value, key, "empty or a path")?;
                 }
@@ -836,11 +881,13 @@ impl Developer {
                 }
                 "network-threads" => self.network_threads = threads(value, key)?,
                 "cpu-threads" => self.cpu_threads = threads(value, key)?,
-                "chunks-per-tick" => self.chunks_per_tick = int(value, key, CHUNKS_PER_TICK)?,
-                "spawn-radius" => self.spawn_radius = int(value, key, RADIUS)?,
-                "tick-radius" => self.tick_radius = int(value, key, RADIUS)?,
+                "chunks-per-tick" => {
+                    self.chunks_per_tick = int(value, key, CHUNKS_PER_TICK_RANGE)?;
+                }
+                "spawn-radius" => self.spawn_radius = int(value, key, RADIUS_RANGE)?,
+                "tick-radius" => self.tick_radius = int(value, key, RADIUS_RANGE)?,
                 "random-tick-speed" => {
-                    self.random_tick_speed = int(value, key, RANDOM_TICK_SPEED)?;
+                    self.random_tick_speed = int(value, key, RANDOM_TICK_SPEED_RANGE)?;
                 }
                 "disable-block-ticking" => {
                     self.disable_block_ticking = strings(value, key)?.map(str::to_owned).collect();
@@ -848,15 +895,15 @@ impl Developer {
                 "slow-empty-worlds" => self.slow_empty_worlds = boolean(value, key)?,
                 "lighting" => self.lighting = lighting(value, key)?,
                 "fixed-light-level" => {
-                    self.fixed_light_level = int(value, key, FIXED_LIGHT_LEVEL)?;
+                    self.fixed_light_level = int(value, key, FIXED_LIGHT_LEVEL_RANGE)?;
                 }
                 "item-pickup-interval" => {
-                    self.item_pickup_interval = int(value, key, ITEM_PICKUP_INTERVAL)?;
+                    self.item_pickup_interval = int(value, key, ITEM_PICKUP_INTERVAL_RANGE)?;
                 }
                 "hook-movement-packets" => self.hook_movement_packets = boolean(value, key)?,
                 "hook-player-input" => self.hook_player_input = boolean(value, key)?,
                 "save-interval-minutes" => {
-                    self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES)?;
+                    self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES_RANGE)?;
                 }
                 "integrity-check" => {
                     self.integrity_check = choice(value, key, &IntegrityCheck::NAMES)?;
@@ -911,8 +958,8 @@ pub struct WorldSettings {
     pub chunks_per_tick: Option<u32>,
     /// `spawn-radius`: the chunk radius sent before a player spawns in the world.
     pub spawn_radius: Option<u8>,
-    /// `tick-radius`: the chunk radius around players where the world's blocks and entities are
-    /// ticked.
+    /// `tick-radius`: the chunk radius around players where the world's blocks get random ticks
+    /// and its entities are ticked.
     pub tick_radius: Option<u8>,
     /// `spawn = [x, y, z]`: where players appear in the world when it is new; `None` is the
     /// generator's spawn. The world's file then keeps its spawn, moved or not, and a later start
@@ -921,35 +968,49 @@ pub struct WorldSettings {
 }
 
 impl WorldSettings {
+    /// The keys of a `[worlds.<name>]` table.
+    const KEYS: [&str; 5] = [
+        "view-distance",
+        "chunks-per-tick",
+        "spawn-radius",
+        "tick-radius",
+        "spawn",
+    ];
+
+    /// The first value set, of the table `[<path>]`, that breaks its rule, as an error; the
+    /// global keys are checked the same way.
+    pub(crate) fn check(&self, path: &str) -> Result<()> {
+        if let Some(v) = self.view_distance {
+            range(Key::new(path, "view-distance"), v, VIEW_DISTANCE_RANGE)?;
+        }
+        if let Some(v) = self.chunks_per_tick {
+            range(Key::new(path, "chunks-per-tick"), v, CHUNKS_PER_TICK_RANGE)?;
+        }
+        if let Some(v) = self.spawn_radius {
+            range(Key::new(path, "spawn-radius"), v, RADIUS_RANGE)?;
+        }
+        if let Some(v) = self.tick_radius {
+            range(Key::new(path, "tick-radius"), v, RADIUS_RANGE)?;
+        }
+        Ok(())
+    }
+
     /// Replaces the values of the keys present in `table`, the table `[<path>]`.
     fn merge(&mut self, path: &str, table: &Table) -> Result<()> {
         for (name, value) in table {
             let key = Key::new(path, name);
             match name.as_str() {
-                "view-distance" => self.view_distance = Some(int(value, key, VIEW_DISTANCE)?),
-                "chunks-per-tick" => self.chunks_per_tick = Some(int(value, key, CHUNKS_PER_TICK)?),
-                "spawn-radius" => self.spawn_radius = Some(int(value, key, RADIUS)?),
-                "tick-radius" => self.tick_radius = Some(int(value, key, RADIUS)?),
+                "view-distance" => {
+                    self.view_distance = Some(int(value, key, VIEW_DISTANCE_RANGE)?);
+                }
+                "chunks-per-tick" => {
+                    self.chunks_per_tick = Some(int(value, key, CHUNKS_PER_TICK_RANGE)?);
+                }
+                "spawn-radius" => self.spawn_radius = Some(int(value, key, RADIUS_RANGE)?),
+                "tick-radius" => self.tick_radius = Some(int(value, key, RADIUS_RANGE)?),
                 "spawn" => self.spawn = Some(block_pos(value, key)?),
                 _ => return Err(key.unknown()),
             }
-        }
-        Ok(())
-    }
-
-    /// Checks the values set, of the table `[<path>]`, as the global keys are checked.
-    pub(crate) fn check(&self, path: &str) -> Result<()> {
-        if let Some(v) = self.view_distance {
-            range(Key::new(path, "view-distance"), v, VIEW_DISTANCE)?;
-        }
-        if let Some(v) = self.chunks_per_tick {
-            range(Key::new(path, "chunks-per-tick"), v, CHUNKS_PER_TICK)?;
-        }
-        if let Some(v) = self.spawn_radius {
-            range(Key::new(path, "spawn-radius"), v, RADIUS)?;
-        }
-        if let Some(v) = self.tick_radius {
-            range(Key::new(path, "tick-radius"), v, RADIUS)?;
         }
         Ok(())
     }
@@ -1068,10 +1129,6 @@ impl LogLevel {
     ];
 }
 
-/// The `compression` values.
-const COMPRESSION_NAMES: [(&str, Compression); 2] =
-    [("snappy", Compression::Snappy), ("zlib", Compression::Zlib)];
-
 /// A player game mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 // pmmp-class: GameMode
@@ -1087,17 +1144,9 @@ pub enum GameMode {
 }
 
 impl GameMode {
-    /// The `gamemode` values.
-    const NAMES: [(&str, Self); 4] = [
-        ("survival", Self::Survival),
-        ("creative", Self::Creative),
-        ("adventure", Self::Adventure),
-        ("spectator", Self::Spectator),
-    ];
-
     /// PMMP's names of the game modes (`GameMode::getAliases`), which [`from_name`](Self::from_name)
     /// takes.
-    pub(crate) const ALIASES: [(&'static str, Self); 13] = [
+    const ALIASES: [(&str, Self); 13] = [
         ("survival", Self::Survival),
         ("s", Self::Survival),
         ("0", Self::Survival),
@@ -1111,6 +1160,14 @@ impl GameMode {
         ("v", Self::Spectator),
         ("view", Self::Spectator),
         ("3", Self::Spectator),
+    ];
+
+    /// The `gamemode` values.
+    const NAMES: [(&str, Self); 4] = [
+        ("survival", Self::Survival),
+        ("creative", Self::Creative),
+        ("adventure", Self::Adventure),
+        ("spectator", Self::Spectator),
     ];
 
     /// The game mode one of PMMP's names gives, ignoring ASCII case: the name (`survival`), its
@@ -1347,7 +1404,7 @@ impl std::error::Error for Error {
 }
 
 /// The result of a settings operation.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A key's place in the file: its table and name. The full path is built only for an error.
 #[derive(Clone, Copy)]
@@ -1373,7 +1430,7 @@ impl<'a> Key<'a> {
         Self::new("developer", name)
     }
 
-    /// Returns the dotted path, such as `general.motd`.
+    /// The dotted path, such as `general.motd`.
     fn path(self) -> String {
         if self.table.is_empty() {
             self.name.to_owned()
@@ -1409,62 +1466,22 @@ fn table_of<'v>(value: &'v Value, key: Key<'_>) -> Result<&'v Table> {
     value.as_table().ok_or_else(|| key.invalid("a table"))
 }
 
-fn text<'v>(value: &'v Value, key: Key<'_>) -> Result<&'v str> {
-    value.as_str().ok_or_else(|| key.invalid("a string"))
-}
-
 fn boolean(value: &Value, key: Key<'_>) -> Result<bool> {
     value.as_bool().ok_or_else(|| key.invalid("true or false"))
 }
 
-/// Reads a whole number that fits `T` and lies in `range`.
-fn int<T>(value: &Value, key: Key<'_>, range: RangeInclusive<T>) -> Result<T>
-where
-    T: Copy + PartialOrd + TryFrom<i64> + TryInto<i64>,
-{
-    let number = value
-        .as_integer()
-        .ok_or_else(|| key.invalid("a whole number"))?;
-    T::try_from(number)
-        .ok()
-        .filter(|n| range.contains(n))
-        .ok_or_else(|| key.out_of_range(number, range))
-}
-
-/// Reads a string in the form `T` parses.
-fn parsed<T: FromStr>(value: &Value, key: Key<'_>, expected: &str) -> Result<T> {
-    text(value, key)?.parse().map_err(|_| key.invalid(expected))
-}
-
-/// Reads an empty string as `None`, any other string as [`parsed`] does.
-fn optional<T: FromStr>(value: &Value, key: Key<'_>, expected: &str) -> Result<Option<T>> {
-    if text(value, key)?.is_empty() {
-        Ok(None)
-    } else {
-        parsed(value, key, expected).map(Some)
+/// Reads `"auto"` or a thread count.
+fn threads(value: &Value, key: Key<'_>) -> Result<Threads> {
+    if value.as_str() == Some("auto") {
+        return Ok(Threads::Auto);
     }
-}
-
-/// Reads one of `choices` by name.
-fn choice<T: Copy>(value: &Value, key: Key<'_>, choices: &[(&str, T)]) -> Result<T> {
-    let name = value.as_str();
-    choices
-        .iter()
-        .find(|(n, _)| Some(*n) == name)
-        .map(|&(_, choice)| choice)
-        .ok_or_else(|| {
-            let names: Vec<String> = choices.iter().map(|(n, _)| format!("\"{n}\"")).collect();
-            key.invalid(format!("one of {}", names.join(", ")))
-        })
-}
-
-/// Reads an array of strings.
-fn strings<'v>(value: &'v Value, key: Key<'_>) -> Result<impl Iterator<Item = &'v str>> {
-    let items = value
-        .as_array()
-        .filter(|items| items.iter().all(Value::is_str))
-        .ok_or_else(|| key.invalid("a list of strings"))?;
-    Ok(items.iter().filter_map(Value::as_str))
+    if !value.is_integer() {
+        return Err(key.invalid("\"auto\" or a whole number"));
+    }
+    let count = int(value, key, THREADS_RANGE)?;
+    NonZeroU16::new(count)
+        .map(Threads::Count)
+        .ok_or_else(|| key.out_of_range(0, THREADS_RANGE))
 }
 
 /// Reads `[x, y, z]`: three whole numbers that fit `i32`.
@@ -1481,18 +1498,45 @@ fn block_pos(value: &Value, key: Key<'_>) -> Result<crate::world::BlockPos> {
     ))
 }
 
-/// Reads `"auto"` or a thread count.
-fn threads(value: &Value, key: Key<'_>) -> Result<Threads> {
-    if value.as_str() == Some("auto") {
-        return Ok(Threads::Auto);
+/// Reads a whole number that fits `T` and lies in `range`.
+fn int<T>(value: &Value, key: Key<'_>, range: RangeInclusive<T>) -> Result<T>
+where
+    T: Copy + PartialOrd + TryFrom<i64> + TryInto<i64>,
+{
+    let number = value
+        .as_integer()
+        .ok_or_else(|| key.invalid("a whole number"))?;
+    T::try_from(number)
+        .ok()
+        .filter(|n| range.contains(n))
+        .ok_or_else(|| key.out_of_range(number, range))
+}
+
+/// Reads an empty string as `None`, any other string as [`parsed`] does.
+fn optional<T: FromStr>(value: &Value, key: Key<'_>, expected: &str) -> Result<Option<T>> {
+    if text(value, key)?.is_empty() {
+        Ok(None)
+    } else {
+        parsed(value, key, expected).map(Some)
     }
-    if !value.is_integer() {
-        return Err(key.invalid("\"auto\" or a whole number"));
-    }
-    let count = int(value, key, THREADS)?;
-    NonZeroU16::new(count)
-        .map(Threads::Count)
-        .ok_or_else(|| key.out_of_range(0, THREADS))
+}
+
+/// Reads a string in the form `T` parses.
+fn parsed<T: FromStr>(value: &Value, key: Key<'_>, expected: &str) -> Result<T> {
+    text(value, key)?.parse().map_err(|_| key.invalid(expected))
+}
+
+fn text<'v>(value: &'v Value, key: Key<'_>) -> Result<&'v str> {
+    value.as_str().ok_or_else(|| key.invalid("a string"))
+}
+
+/// Reads an array of strings.
+fn strings<'v>(value: &'v Value, key: Key<'_>) -> Result<impl Iterator<Item = &'v str>> {
+    let items = value
+        .as_array()
+        .filter(|items| items.iter().all(Value::is_str))
+        .ok_or_else(|| key.invalid("a list of strings"))?;
+    Ok(items.iter().filter_map(Value::as_str))
 }
 
 /// Reads a `lighting` value; the `true` and `false` of older files mean `"dynamic"` and `"fixed"`.
@@ -1504,7 +1548,20 @@ fn lighting(value: &Value, key: Key<'_>) -> Result<Lighting> {
     }
 }
 
-/// Checks that `value` lies in `range`.
+/// Reads one of `choices` by name.
+fn choice<T: Copy>(value: &Value, key: Key<'_>, choices: &[(&str, T)]) -> Result<T> {
+    let name = value.as_str();
+    choices
+        .iter()
+        .find(|(n, _)| Some(*n) == name)
+        .map(|&(_, choice)| choice)
+        .ok_or_else(|| {
+            let names: Vec<String> = choices.iter().map(|(n, _)| format!("\"{n}\"")).collect();
+            key.invalid(format!("one of {}", names.join(", ")))
+        })
+}
+
+/// The error naming `key` when `value` lies outside `range`.
 fn range<T>(key: Key<'_>, value: T, range: RangeInclusive<T>) -> Result<()>
 where
     T: Copy + PartialOrd + Into<i64>,
@@ -1516,17 +1573,8 @@ where
     }
 }
 
-/// Checks that `value` is at most `max` bytes long.
-fn length(key: Key<'_>, value: &str, max: usize) -> Result<()> {
-    if value.len() <= max {
-        Ok(())
-    } else {
-        Err(key.invalid(format!("at most {max} bytes long")))
-    }
-}
-
-/// Checks a text that the RakNet pong lists between `;` separators: not empty, at most `max`
-/// bytes, and free of `;` and control characters.
+/// The error naming `key` unless `value` is a text that the RakNet pong lists between `;`
+/// separators: not empty, at most `max` bytes, and free of `;` and control characters.
 fn list_text(key: Key<'_>, value: &str, max: usize) -> Result<()> {
     length(key, value, max)?;
     if !is_list_text(value) {
@@ -1535,10 +1583,13 @@ fn list_text(key: Key<'_>, value: &str, max: usize) -> Result<()> {
     Ok(())
 }
 
-/// Whether `value` is not empty and free of `;` and control characters: a text the RakNet pong
-/// can list.
-fn is_list_text(value: &str) -> bool {
-    !value.is_empty() && !value.chars().any(|c| c == ';' || c.is_control())
+/// The error naming `key` when `value` is longer than `max` bytes.
+fn length(key: Key<'_>, value: &str, max: usize) -> Result<()> {
+    if value.len() <= max {
+        Ok(())
+    } else {
+        Err(key.invalid(format!("at most {max} bytes long")))
+    }
 }
 
 /// Whether `motd` is one the `motd` setting and [`Context::set_motd`](crate::Context::set_motd)
@@ -1547,7 +1598,13 @@ pub fn is_motd(motd: &str) -> bool {
     motd.len() <= MAX_MOTD_BYTES && is_list_text(motd)
 }
 
-/// Returns whether `name` has the shape `namespace:path` of a block identifier.
+/// Whether `value` is not empty and free of `;` and control characters: a text the RakNet pong
+/// can list.
+fn is_list_text(value: &str) -> bool {
+    !value.is_empty() && !value.chars().any(|c| c == ';' || c.is_control())
+}
+
+/// Whether `name` has the shape `namespace:path` of a block identifier.
 fn is_block_name(name: &str) -> bool {
     let Some((namespace, path)) = name.split_once(':') else {
         return false;
@@ -1557,21 +1614,6 @@ fn is_block_name(name: &str) -> bool {
         && !path.is_empty()
         && namespace.bytes().all(base)
         && path.bytes().all(|b| base(b) || b == b'/')
-}
-
-/// Returns the 1-based line and column of byte `offset` in `bytes`.
-fn position(bytes: &[u8], offset: usize) -> Option<(usize, usize)> {
-    let before = bytes.get(..offset)?;
-    let line = before.split(|&b| b == b'\n').count();
-    // A column counts characters: every byte except UTF-8 continuation bytes.
-    let column = before
-        .rsplit(|&b| b == b'\n')
-        .next()?
-        .iter()
-        .filter(|&&b| b & 0xc0 != 0x80)
-        .count()
-        + 1;
-    Some((line, column))
 }
 
 /// A settings file's bytes as text; [`Error::Syntax`] if they are not UTF-8.
@@ -1592,9 +1634,38 @@ fn syntax(text: &str, error: &toml::de::Error) -> Error {
     }
 }
 
+/// The 1-based line and column of byte `offset` in `bytes`.
+fn position(bytes: &[u8], offset: usize) -> Option<(usize, usize)> {
+    let before = bytes.get(..offset)?;
+    let line = before.split(|&b| b == b'\n').count();
+    // A column counts characters: every byte except UTF-8 continuation bytes.
+    let column = before
+        .rsplit(|&b| b == b'\n')
+        .next()?
+        .iter()
+        .filter(|&&b| b & 0xc0 != 0x80)
+        .count()
+        + 1;
+    Some((line, column))
+}
+
+/// The key of the batch setting that `error` rejected.
+#[expect(
+    clippy::unreachable,
+    reason = "invariant: `batch::Settings::new` rejects only the three values matched here"
+)]
+fn batch_key(error: &batch::Error) -> &'static str {
+    match error {
+        batch::Error::Threshold => "developer.compression-threshold",
+        batch::Error::ZlibLevel(_) => "developer.compression-level",
+        batch::Error::MaxBatchBytes(_) => "developer.max-batch-bytes",
+        _ => unreachable!("batch settings are rejected for one of three values"),
+    }
+}
+
 /// Reads the settings file, or returns `None` when it does not exist.
 fn read(path: &Path) -> Result<Option<Vec<u8>>> {
-    match crate::fs::read_bounded(path, MAX_FILE_BYTES) {
+    match fs::read_bounded(path, MAX_FILE_BYTES) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) if e.kind() == io::ErrorKind::FileTooLarge => Err(Error::TooLarge {
@@ -1609,11 +1680,9 @@ fn read(path: &Path) -> Result<Option<Vec<u8>>> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use super::*;
 
-    use super::{Config, DEFAULT_FILE, Error, GameMode, batch};
-
-    fn apply(text: &str) -> super::Result<Config> {
+    fn apply(text: &str) -> Result<Config> {
         Config::default().apply(text.as_bytes())
     }
 
@@ -1639,7 +1708,8 @@ mod tests {
         assert!(inline.validate().is_err());
     }
 
-    // pmmp: Server::getIp, Server::getIpV6, Server::getPort, Server::getPortV6, Server::getOnlineMode, Server::requiresAuthentication
+    // pmmp: Server::getIp, Server::getIpV6, Server::getPort, Server::getPortV6
+    // pmmp: Server::getOnlineMode, Server::requiresAuthentication
     #[test]
     fn addresses_port_and_sign_in_come_from_the_general_table() {
         let config = apply(
@@ -1648,9 +1718,9 @@ mod tests {
         )
         .expect("loads");
         let general = &config.general;
-        assert_eq!(general.server_ip, std::net::Ipv4Addr::LOCALHOST);
-        assert_eq!(general.server_ipv6, std::net::Ipv6Addr::LOCALHOST);
-        assert_eq!(general.server_port, 19200);
+        assert_eq!(general.server_ip, Ipv4Addr::LOCALHOST);
+        assert_eq!(general.server_ipv6, Ipv6Addr::LOCALHOST);
+        assert_eq!(general.server_port, 19_200);
         assert!(!general.xbox_auth);
         assert!(Config::default().general.xbox_auth);
     }
@@ -1676,7 +1746,7 @@ mod tests {
         let mut config = Config::default();
         config.developer.nethernet_tls_cert = Some("cert.pem".into());
         assert!(config.validate().is_err());
-        config.developer.nethernet_tls_key = Some(std::path::PathBuf::new());
+        config.developer.nethernet_tls_key = Some(PathBuf::new());
         assert!(config.validate().is_err());
         config.developer.nethernet_tls_key = Some("key.pem".into());
         config.validate().expect("both set");
@@ -1701,10 +1771,7 @@ mod tests {
         config.validate().expect("a list entry fits");
 
         let mut config = Config::default();
-        config
-            .general
-            .resource_packs
-            .push(std::path::PathBuf::new());
+        config.general.resource_packs.push(PathBuf::new());
         assert!(config.validate().is_err());
 
         // A path into the old `packs` folder is refused; another relative path is not.
@@ -1734,7 +1801,8 @@ mod tests {
         assert_eq!(paths[1], Path::new("/abs/b.mcpack"));
     }
 
-    // pmmp: ResourcePackManager::resourcePacksRequired, ResourcePackManager::setResourcePacksRequired
+    // pmmp: ResourcePackManager::resourcePacksRequired
+    // pmmp: ResourcePackManager::setResourcePacksRequired
     #[test]
     fn force_resources_reaches_the_pack_offer() {
         let mut config = Config::default();
@@ -1769,17 +1837,73 @@ mod tests {
 old-key = false
 ";
         std::fs::write(&path, old).unwrap();
-        let error = Config::default().load_as(&path, false).unwrap_err();
+        let error = Config::default().load_file(&path).unwrap_err();
         assert!(matches!(error, Error::UnknownKey(_)), "{error}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
         assert_eq!(Config::default().updated(), None);
 
-        let config = Config::default().load_as(&path, true).unwrap();
+        let config = Config::default().load_updated(&path).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
         assert_eq!(update.added().len(), 68);
-        let again = Config::default().load_as(&path, true).unwrap();
+        let again = Config::default().load_updated(&path).unwrap();
         assert!(again.updated().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_ipv6_public_address_needs_ipv6_listening() {
+        let mut config = Config::default();
+        config.general.enable_ipv6 = false;
+        for (address, valid) in [
+            ("203.0.113.7", true),
+            ("::ffff:203.0.113.7", true),
+            ("2001:db8::1", false),
+        ] {
+            config.general.public_ip = Some(address.parse().unwrap());
+            let error = config.validate().err().map(|e| e.to_string());
+            match error {
+                None => assert!(valid, "{address}"),
+                Some(error) => assert!(
+                    !valid && error.starts_with("`general.public-ip` must be"),
+                    "{error}"
+                ),
+            }
+        }
+        config.general.enable_ipv6 = true;
+        config.validate().expect("IPv6 listening is on");
+    }
+
+    #[test]
+    fn a_level_name_that_is_no_file_name_is_refused_naming_the_key() {
+        let mut config = Config::default();
+        for name in ["con", "a/b", "ends."] {
+            config.general.level_name = name.to_owned();
+            let error = config.validate().expect_err(name);
+            assert!(
+                matches!(&error, Error::Invalid { key, .. } if key == "general.level-name"),
+                "{name}: {error}"
+            );
+        }
+        config.general.level_name = "lobby".to_owned();
+        config.validate().expect("a file name");
+    }
+
+    #[test]
+    fn the_world_keys_are_those_a_worlds_table_reads() {
+        let values = [
+            ("view-distance", "8"),
+            ("chunks-per-tick", "8"),
+            ("spawn-radius", "2"),
+            ("tick-radius", "2"),
+            ("spawn", "[0, 64, 0]"),
+        ];
+        let keys = values.map(|(key, _)| key);
+        assert_eq!(keys, WorldSettings::KEYS);
+        for (key, value) in values {
+            apply(&format!("[worlds.w]\n{key} = {value}\n")).expect(key);
+        }
+        let error = apply("[worlds.w]\nmotd = \"x\"\n").expect_err("an unknown key");
+        assert_eq!(error.to_string(), "unknown key `worlds.w.motd`");
     }
 
     #[test]

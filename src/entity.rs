@@ -15,7 +15,7 @@ mod skin;
 
 pub use crate::tick::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
 pub use animation::Animation;
-pub use custom::{Behaviour, Custom, Error};
+pub use custom::{Behaviour, Custom, Error, Result};
 pub use painting::PaintingMotive;
 pub use skin::{MAX_SKIN_BYTES, SKIN_SIZES, Skin};
 pub(crate) use skin::{MAX_SKIN_JSON_DEPTH, NO_CUSTOM_GEOMETRY};
@@ -34,14 +34,14 @@ impl Id {
         Self { index, generation }
     }
 
-    /// The slot in the entity store.
-    pub(crate) const fn index(self) -> u32 {
-        self.index
-    }
-
     /// The generation of the slot this entity holds.
     pub(crate) const fn generation(self) -> u32 {
         self.generation
+    }
+
+    /// The slot in the entity store.
+    pub(crate) const fn index(self) -> u32 {
+        self.index
     }
 }
 
@@ -122,21 +122,21 @@ pub enum ArrowPickup {
 }
 
 impl ArrowPickup {
-    /// The saved byte (PMMP `pickup`).
-    pub(crate) fn to_byte(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::Any => 1,
-            Self::Creative => 2,
-        }
-    }
-
     /// The mode of a saved byte; PMMP's default (any) for an unknown one.
     pub(crate) fn from_byte(b: u8) -> Self {
         match b {
             0 => Self::None,
             2 => Self::Creative,
             _ => Self::Any,
+        }
+    }
+
+    /// The saved byte (PMMP `pickup`).
+    pub(crate) fn to_byte(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Any => 1,
+            Self::Creative => 2,
         }
     }
 }

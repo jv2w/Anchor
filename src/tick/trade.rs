@@ -376,16 +376,10 @@ fn offer_with(state: &State, session: SessionId, net_id: u32, hooks: Hooks) -> O
 
 /// Finds the villager `session` trades with and the place of the offer with network ID `net_id`
 /// in its list (for the trade event).
-pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<(Id, u32)> {
+pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<(Id, usize)> {
     let s = state.trades.sessions.get(&session)?;
     let v = (HOOKS.villager)(state, s.villager)?;
-    let index = v.offers.index_of(net_id)?;
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: the list holds at most MAX_OFFERS (128) offers"
-    )]
-    let index = u32::try_from(index).expect("an offer index fits a u32");
-    Some((s.villager, index))
+    Some((s.villager, v.offers.index_of(net_id)?))
 }
 
 /// Checks whether `given` pays for the payment `want` of an offer, counts aside: the same item

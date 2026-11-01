@@ -20,76 +20,15 @@ use crate::save::WorldIndex;
 use crate::tick::State;
 use crate::world::BlockPos;
 
-/// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
-pub const SIGN_LINES: usize = 4;
+/// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`), as signed ARGB.
+pub(crate) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
+/// The longest custom name of a container, in bytes.
+pub const MAX_NAME_BYTES: usize = 1024;
 /// The most text bytes a sign side holds, all lines together (PMMP `BaseSign::updateFaceText`,
 /// the limit on players' edits; PMMP has none for plugins, Anchor keeps one bound for both).
 pub const MAX_SIGN_TEXT_BYTES: usize = 1000;
-/// The longest custom name of a container, in bytes.
-pub const MAX_NAME_BYTES: usize = 1024;
-/// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`), as signed ARGB.
-pub(crate) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
-
-/// The colour of a signed ARGB int, as block entities save colours (PMMP `Color::fromARGB`).
-pub(crate) fn from_argb(argb: i32) -> Rgba {
-    let [a, r, g, b] = argb.to_be_bytes();
-    Rgba { r, g, b, a }
-}
-
-/// The signed ARGB int of a colour, as block entities save colours (PMMP `Color::toARGB`).
-pub(crate) fn to_argb(c: Rgba) -> i32 {
-    i32::from_be_bytes([c.a, c.r, c.g, c.b])
-}
-
-/// The lines of a sign side's text blob (PMMP `SignText::fromBlob`: split at newlines, at most
-/// [`SIGN_LINES`] lines, the rest dropped).
-pub(crate) fn blob_lines(blob: &str) -> impl Iterator<Item = &str> {
-    blob.splitn(SIGN_LINES + 1, '\n').take(SIGN_LINES)
-}
-
-/// Checks the lines of a sign side: [`Error::Invalid`] if a line holds a newline (PMMP
-/// `SignText`), [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all (PMMP
-/// `BaseSign::updateFaceText`).
-pub(crate) fn check_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<()> {
-    let mut bytes = 0usize;
-    for line in lines {
-        if line.contains('\n') {
-            return Err(Error::Invalid);
-        }
-        bytes = bytes.saturating_add(line.len());
-    }
-    if bytes > MAX_SIGN_TEXT_BYTES {
-        return Err(Error::TooLong);
-    }
-    Ok(())
-}
-
-/// Why a block entity write did nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error {
-    /// The block entity is not of the kind the write applies to (a sign's text on a chest).
-    WrongKind,
-    /// The value is out of range or not one the kind takes (a rotation of 9, a stone in a flower
-    /// pot, chests that are not side by side).
-    Invalid,
-    /// The text is longer than the limit ([`MAX_SIGN_TEXT_BYTES`], [`MAX_NAME_BYTES`]).
-    TooLong,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::WrongKind => "the block entity is not of the kind the write applies to",
-            Self::Invalid => "the value is not one the block entity takes",
-            Self::TooLong => "the text is too long",
-        })
-    }
-}
-
-impl std::error::Error for Error {}
-
-/// Block entity write results.
-pub type Result<T> = std::result::Result<T, Error>;
+/// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
+pub const SIGN_LINES: usize = 4;
 
 /// A block entity to read ([`Context::block_entity`](crate::Context)): its position, its block
 /// and the data of its kind.
@@ -126,6 +65,34 @@ impl fmt::Debug for Mut<'_> {
     }
 }
 
+/// Why a block entity write did nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Error {
+    /// The block entity is not of the kind the write applies to (a sign's text on a chest).
+    WrongKind,
+    /// The value is out of range or not one the kind takes (a rotation of 9, a stone in a flower
+    /// pot, chests that are not side by side).
+    Invalid,
+    /// The text or the list is longer than its limit ([`MAX_SIGN_TEXT_BYTES`],
+    /// [`MAX_NAME_BYTES`], a banner's 16 patterns).
+    TooLong,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::WrongKind => "the block entity is not of the kind the write applies to",
+            Self::Invalid => "the value is not one the block entity takes",
+            Self::TooLong => "the value is too long",
+        })
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// A result with the block entity [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 /// A side of a sign.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
@@ -143,17 +110,6 @@ pub struct SignText {
     /// Signed ARGB, as saved.
     pub(crate) colour: i32,
     pub(crate) glowing: bool,
-}
-
-impl Default for SignText {
-    /// Empty lines in black, not glowing (a new sign's text).
-    fn default() -> Self {
-        Self {
-            lines: Default::default(),
-            colour: BLACK_TEXT,
-            glowing: false,
-        }
-    }
 }
 
 impl SignText {
@@ -179,18 +135,6 @@ impl SignText {
         Self::new(lines, colour, glowing)
     }
 
-    /// The four lines.
-    #[doc(alias = "SignText::getLines")]
-    pub fn lines(&self) -> &[String; SIGN_LINES] {
-        &self.lines
-    }
-
-    /// Line `index` (0 to 3), or `None`.
-    #[doc(alias = "SignText::getLine")]
-    pub fn line(&self, index: usize) -> Option<&str> {
-        self.lines.get(index).map(String::as_str)
-    }
-
     /// The text colour.
     #[doc(alias = "SignText::getBaseColor")]
     pub fn colour(&self) -> Rgba {
@@ -201,6 +145,29 @@ impl SignText {
     #[doc(alias = "SignText::isGlowing")]
     pub fn is_glowing(&self) -> bool {
         self.glowing
+    }
+
+    /// Line `index` (0 to 3), or `None`.
+    #[doc(alias = "SignText::getLine")]
+    pub fn line(&self, index: usize) -> Option<&str> {
+        self.lines.get(index).map(String::as_str)
+    }
+
+    /// The four lines.
+    #[doc(alias = "SignText::getLines")]
+    pub fn lines(&self) -> &[String; SIGN_LINES] {
+        &self.lines
+    }
+}
+
+impl Default for SignText {
+    /// Empty lines in black, not glowing (a new sign's text).
+    fn default() -> Self {
+        Self {
+            lines: Default::default(),
+            colour: BLACK_TEXT,
+            glowing: false,
+        }
     }
 }
 
@@ -264,17 +231,6 @@ impl DyeColour {
         Self::Black,
     ];
 
-    /// The colour's RGB value, opaque (PMMP's: white is `#f0f0f0`, black `#1d1d21`).
-    #[doc(alias = "DyeColor::getRgbValue")]
-    pub fn rgb(self) -> Rgba {
-        from_argb(crate::item::dye_argb(self as u8).map_or(0, u32::cast_signed))
-    }
-
-    /// The colour of a `DyeColorIdMap` ID, or `None`.
-    pub(crate) fn from_id(id: u8) -> Option<Self> {
-        Self::ALL.get(usize::from(id)).copied()
-    }
-
     /// The colour of a banner's ID (Bedrock numbers them the other way: black 0 … white 15).
     pub(crate) fn from_banner_id(id: i32) -> Option<Self> {
         u8::try_from(15_i32.checked_sub(id)?)
@@ -282,9 +238,29 @@ impl DyeColour {
             .and_then(Self::from_id)
     }
 
+    /// The colour of a `DyeColorIdMap` ID, or `None`.
+    pub(crate) fn from_id(id: u8) -> Option<Self> {
+        Self::ALL.get(usize::from(id)).copied()
+    }
+
     /// The banner ID of the colour.
     pub(crate) fn banner_id(self) -> i32 {
         15 - i32::from(self as u8)
+    }
+
+    /// The colour's RGB value, opaque (PMMP's: white is `#f0f0f0`, black `#1d1d21`).
+    #[doc(alias = "DyeColor::getRgbValue")]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "invariant: the dye table holds all 16 colours"
+    )]
+    pub fn rgb(self) -> Rgba {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the dye table holds all 16 colours"
+        )]
+        let argb = crate::item::dye_argb(self as u8).expect("every dye colour has a value");
+        from_argb(argb.cast_signed())
     }
 }
 
@@ -311,24 +287,59 @@ impl BannerPattern {
         Self { pattern, colour }
     }
 
-    /// The pattern.
-    #[doc(alias = "BannerPatternLayer::getType")]
-    pub fn pattern(self) -> crate::block::BannerPattern {
-        self.pattern
-    }
-
     /// The colour.
     #[doc(alias = "BannerPatternLayer::getColor")]
     pub fn colour(self) -> DyeColour {
         self.colour
     }
+
+    /// The pattern.
+    #[doc(alias = "BannerPatternLayer::getType")]
+    pub fn pattern(self) -> crate::block::BannerPattern {
+        self.pattern
+    }
+}
+
+/// The lines of a sign side's text blob (PMMP `SignText::fromBlob`: split at newlines, at most
+/// [`SIGN_LINES`] lines, the rest dropped).
+pub(crate) fn blob_lines(blob: &str) -> impl Iterator<Item = &str> {
+    blob.splitn(SIGN_LINES + 1, '\n').take(SIGN_LINES)
+}
+
+/// Checks the lines of a sign side: [`Error::Invalid`] if a line holds a newline (PMMP
+/// `SignText`), [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all (PMMP
+/// `BaseSign::updateFaceText`).
+pub(crate) fn check_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<()> {
+    let mut bytes = 0_usize;
+    for line in lines {
+        if line.contains('\n') {
+            return Err(Error::Invalid);
+        }
+        bytes = bytes.saturating_add(line.len());
+    }
+    if bytes > MAX_SIGN_TEXT_BYTES {
+        return Err(Error::TooLong);
+    }
+    Ok(())
+}
+
+/// The colour of a signed ARGB int, as block entities save colours (PMMP `Color::fromARGB`).
+pub(crate) fn from_argb(argb: i32) -> Rgba {
+    let [a, r, g, b] = argb.to_be_bytes();
+    Rgba { r, g, b, a }
+}
+
+/// The signed ARGB int of a colour, as block entities save colours (PMMP `Color::toARGB`).
+pub(crate) fn to_argb(c: Rgba) -> i32 {
+    i32::from_be_bytes([c.a, c.r, c.g, c.b])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // pmmp: SignText, SignText::fromBlob, SignText::getLines, SignText::getLine, SignText::getBaseColor, SignText::isGlowing
+    // pmmp: SignText, SignText::fromBlob, SignText::getLines, SignText::getLine,
+    // pmmp: SignText::getBaseColor, SignText::isGlowing
     #[test]
     fn sign_text_checks_its_lines_and_keeps_its_colour() {
         let colour = Rgba {
@@ -355,7 +366,12 @@ e",
         assert_eq!(short.lines(), &["x", "", "", ""].map(String::from));
         assert_eq!(
             SignText::new(
-                ["a\nb".into(), String::new(), String::new(), String::new()],
+                [
+                    "a\nb".to_owned(),
+                    String::new(),
+                    String::new(),
+                    String::new()
+                ],
                 Rgba::default(),
                 false
             ),

@@ -96,7 +96,10 @@ fn pending(state: &State, session: u64) -> Vec<u32> {
 }
 
 fn menu() -> Menu {
-    Menu::new("Lobby").content("Pick").button("a").button("b")
+    Menu::new("Lobby")
+        .with_content("Pick")
+        .button("a")
+        .button("b")
 }
 
 // pmmp: Player::sendForm
@@ -486,7 +489,7 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
     // A new title or sort order sends the whole scoreboard again.
     let mut cx = Context { state: &mut state };
     let sorted = Scoreboard::new(Slot::Sidebar, "Lobby")
-        .sort(Sort::Descending)
+        .with_sort(Sort::Descending)
         .line("a", 1);
     cx.set_scoreboard(id(1), sorted).unwrap();
     assert!(cx.remove_scoreboard(id(1), Slot::Sidebar));
@@ -627,15 +630,15 @@ fn a_boss_bar_is_shown_on_the_players_own_entity_and_updated_by_what_changed() {
     let health = u8::from(BossEventType::HealthPercentage);
     let (purple, red) = (u8::from(Colour::Purple), u8::from(Colour::Red));
     let mut cx = Context { state: &mut state };
-    cx.set_boss_bar(id(1), BossBar::new("a").progress(0.5))
+    cx.set_boss_bar(id(1), BossBar::new("a").with_progress(0.5))
         .unwrap();
-    cx.set_boss_bar(id(1), BossBar::new("a").progress(0.5))
+    cx.set_boss_bar(id(1), BossBar::new("a").with_progress(0.5))
         .unwrap();
-    cx.set_boss_bar(id(1), BossBar::new("b").progress(0.5))
+    cx.set_boss_bar(id(1), BossBar::new("b").with_progress(0.5))
         .unwrap();
-    cx.set_boss_bar(id(1), BossBar::new("b").progress(2.0))
+    cx.set_boss_bar(id(1), BossBar::new("b").with_progress(2.0))
         .unwrap();
-    cx.set_boss_bar(id(1), BossBar::new("b").colour(Colour::Red))
+    cx.set_boss_bar(id(1), BossBar::new("b").with_colour(Colour::Red))
         .unwrap();
     assert!(cx.remove_boss_bar(id(1)));
     assert!(!cx.remove_boss_bar(id(1)), "no boss bar is shown any more");

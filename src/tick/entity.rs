@@ -1879,10 +1879,8 @@ fn discard(state: &mut State, id: Id) {
 /// Announces the entities that left with their chunk ([`EntityDespawn`]) and those that
 /// appeared since the last announcement ([`ItemSpawn`] for dropped items, then [`EntitySpawn`],
 /// PMMP `onFirstUpdate`), in `Id` order. The entity tick calls it before the physics and again
-/// before the removals, so every entity is announced before it goes. Entities a listener of
-/// another event makes wait for the next announcement; those a spawn listener makes are never
-/// announced, as [`spawn_heard`] finds no spawn listener while their list is out of the state
-/// ([`dispatch::call`]).
+/// before the removals, so every entity is announced before it goes. Entities a listener makes
+/// wait for the next announcement.
 fn announce(state: &mut State) {
     let left = std::mem::take(&mut state.rules.entities.left);
     if dispatch::heard::<EntityDespawn>(state) {

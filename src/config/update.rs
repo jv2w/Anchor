@@ -1,7 +1,7 @@
 //! Updating a settings file to this Anchor ([`Config::update_file`]): the keys of the default
 //! file that it lacks are added with the comment lines above them there, and keys Anchor does
-//! not know are removed with the comment lines right above them. Each edit is made in the text, at a place the TOML parser
-//! reports, so every other byte of the file stays as it was.
+//! not know are removed with the comment lines right above them. Each edit is made in the text,
+//! at a place the TOML parser reports, so every other byte of the file stays as it was.
 
 use std::io;
 use std::path::Path;
@@ -9,7 +9,7 @@ use std::path::Path;
 use toml::Spanned;
 use toml::de::{DeString, DeTable, DeValue};
 
-use super::{Config, DEFAULT_FILE, Error, Key, MAX_FILE_BYTES, Result};
+use super::{Config, DEFAULT_FILE, Error, Key, MAX_FILE_BYTES, Result, WorldSettings};
 use crate::fs::{self, Access};
 
 /// What [`Config::update_file`] changed in the settings file.
@@ -96,7 +96,7 @@ pub(super) fn run(path: &Path) -> Result<Update> {
     Ok(update)
 }
 
-/// Returns `text` with the missing keys and tables added and the unknown keys removed, and what
+/// The `text` with the missing keys and tables added and the unknown keys removed, and what
 /// changed.
 fn edit(text: &str) -> Result<(String, Update)> {
     let root = DeTable::parse(text).map_err(|e| super::syntax(text, &e))?;
@@ -121,6 +121,25 @@ fn edit(text: &str) -> Result<(String, Update)> {
             remove(&mut edits, "", key, value);
         }
     }
+    // The tables of the worlds lose their unknown keys as the other tables do, and gain none.
+    if let Some(worlds) = root.get("worlds").and_then(|w| w.get_ref().as_table()) {
+        for (world, table) in worlds {
+            let Some(entries) = table.get_ref().as_table() else {
+                continue;
+            };
+            if !has_header(text, table) {
+                continue;
+            }
+            let world: &str = world.get_ref();
+            let path = format!("worlds.{world}");
+            for (key, value) in entries {
+                let name: &str = key.get_ref();
+                if !WorldSettings::KEYS.contains(&name) {
+                    remove(&mut edits, path.as_str(), key, value);
+                }
+            }
+        }
+    }
     // Missing tables, put after everything else: an insertion at the end of the text belongs to
     // the table the text ends in.
     let mut appended = String::new();
@@ -140,7 +159,7 @@ fn edit(text: &str) -> Result<(String, Update)> {
         let Some(entries) = table.get_ref().as_table() else {
             continue;
         };
-        let header = text.as_bytes().get(table.span().start) == Some(&b'[');
+        let header = has_header(text, table);
         // Without a header, the lines of a key may hold more than the key.
         if header {
             for (key, value) in entries {
@@ -233,6 +252,12 @@ fn value_ends(root: &DeTable<'_>, text: &str) -> Vec<usize> {
     ends
 }
 
+/// Whether the table `table` is written under its own `[header]` line, so that its keys have
+/// lines of their own; an inline table or dotted keys are not.
+fn has_header(text: &str, table: &Spanned<DeValue<'_>>) -> bool {
+    text.as_bytes().get(table.span().start) == Some(&b'[')
+}
+
 /// The tables of the default file, in file order.
 #[expect(
     clippy::string_slice,
@@ -279,8 +304,8 @@ fn lines(text: &str, eol: &str) -> String {
     text.replace('\n', eol)
 }
 
-/// Returns `text` with `edits` (sorted by place, not overlapping) made and `appended` at the end,
-/// a blank line before it.
+/// The `text` with `edits` (sorted by place, not overlapping) made and `appended` at the end, a
+/// blank line before it.
 #[expect(
     clippy::string_slice,
     reason = "invariant: edits start and end at token bounds and line ends the parser reported"
@@ -313,7 +338,7 @@ fn splice(text: &str, edits: &[Edit], appended: &str, eol: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sections;
+    use super::*;
 
     #[test]
     fn the_default_file_splits_into_its_tables_and_keys() {

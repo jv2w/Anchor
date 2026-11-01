@@ -1,12 +1,6 @@
-//! `manifest.json`: where a pack keeps it, and what Anchor reads of it (PMMP
-//! `ZippedResourcePack` and its `json\Manifest` classes).
-//!
-//! The rules follow PMMP: the root `manifest.json`, else the shortest `.../manifest.json`; an
-//! old `pack_manifest.json` pack is refused; the JSON may hold comments and trailing commas (PMMP
-//! strips them with `Ahc\Json\Comment`); `format_version`, `header.name`, `header.uuid`,
-//! `header.version` and `modules` (each with `type`, `uuid` and `version`) are required. A version
-//! is three whole numbers, as an array or as `"x.y.z"` text (gophertunnel reads both; PMMP reads
-//! only the array).
+//! `manifest.json` of a pack: which archive entry is the manifest, and what Anchor reads of it
+//! (PMMP `ZippedResourcePack` and its `json\Manifest` classes). The rules are in the module
+//! documentation of [`pack`](super).
 
 use serde::Deserialize;
 
@@ -14,13 +8,20 @@ use super::zip::{self, Entry};
 use super::{Error, Result};
 use crate::protocol::Uuid;
 
+/// The name of a world template's level file.
+const LEVEL_DAT: &[u8] = b"level.dat";
+
+/// The name of the manifest file.
+const MANIFEST: &[u8] = b"manifest.json";
+
 /// The largest `manifest.json` read; real ones are a few KiB.
 pub(super) const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
-const MANIFEST: &[u8] = b"manifest.json";
+/// The end of a manifest's name below a folder.
 const NESTED_MANIFEST: &[u8] = b"/manifest.json";
+
+/// The name of the old pack format's manifest file.
 const OLD_MANIFEST: &[u8] = b"pack_manifest.json";
-const LEVEL_DAT: &[u8] = b"level.dat";
 
 /// What Anchor keeps of a pack's manifest and contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,40 +38,6 @@ pub(super) struct Manifest {
     pub(super) scripts: bool,
     /// The archive holds a `level.dat`.
     pub(super) world_template: bool,
-}
-
-/// Finds and reads the manifest among `entries`.
-pub(super) fn read(entries: &[Entry<'_>]) -> Result<Manifest> {
-    let root = entries.iter().find(|e| e.name == MANIFEST);
-    // PMMP: the shortest name matching `#.*/manifest.json$#`, the first of equal length.
-    let nested = || {
-        entries
-            .iter()
-            .filter(|e| e.name.ends_with(NESTED_MANIFEST))
-            .fold(None::<&Entry<'_>>, |best, e| match best {
-                Some(b) if b.name.len() <= e.name.len() => Some(b),
-                _ => Some(e),
-            })
-    };
-    let Some(entry) = root.or_else(nested) else {
-        return Err(if entries.iter().any(|e| e.name == OLD_MANIFEST) {
-            Error::OldFormat
-        } else {
-            Error::ManifestMissing
-        });
-    };
-    if usize::try_from(entry.size).map_or(true, |size| size > MAX_MANIFEST_BYTES) {
-        return Err(Error::ManifestTooLarge {
-            limit: MAX_MANIFEST_BYTES,
-        });
-    }
-    let bytes = zip::read(entry).map_err(Error::Archive)?;
-    let mut manifest = parse(&bytes)?;
-    // gophertunnel: a `level.dat` anywhere makes the pack a world template.
-    manifest.world_template = entries
-        .iter()
-        .any(|e| e.name == LEVEL_DAT || e.name.ends_with(b"/level.dat"));
-    Ok(manifest)
 }
 
 /// The fields of `manifest.json` Anchor reads; others are ignored.
@@ -130,7 +97,53 @@ impl Version {
     }
 }
 
-/// Parses a manifest's bytes.
+/// The manifest among `entries`, found and read.
+pub(super) fn read(entries: &[Entry<'_>]) -> Result<Manifest> {
+    let root = entries.iter().find(|e| e.name == MANIFEST);
+    // PMMP: the shortest name matching `#.*/manifest.json$#`, the first of equal length.
+    let nested = || {
+        entries
+            .iter()
+            .filter(|e| e.name.ends_with(NESTED_MANIFEST))
+            .fold(None::<&Entry<'_>>, |best, e| match best {
+                Some(b) if b.name.len() <= e.name.len() => Some(b),
+                _ => Some(e),
+            })
+    };
+    let Some(entry) = root.or_else(nested) else {
+        return Err(if entries.iter().any(|e| e.name == OLD_MANIFEST) {
+            Error::OldFormat
+        } else if entries.iter().any(is_backslash_manifest) {
+            Error::Archive(
+                "entry names use backslashes; pack the folder's contents with a tool that \
+                 writes `/`",
+            )
+        } else {
+            Error::ManifestMissing
+        });
+    };
+    if usize::try_from(entry.size).map_or(true, |size| size > MAX_MANIFEST_BYTES) {
+        return Err(Error::ManifestTooLarge {
+            limit: MAX_MANIFEST_BYTES,
+        });
+    }
+    let bytes = zip::read(entry).map_err(Error::Archive)?;
+    let mut manifest = parse(&bytes)?;
+    // gophertunnel: a `level.dat` anywhere makes the pack a world template.
+    manifest.world_template = entries
+        .iter()
+        .any(|e| e.name == LEVEL_DAT || e.name.ends_with(b"/level.dat"));
+    Ok(manifest)
+}
+
+/// Whether `entry` is a `manifest.json` below a folder whose name has a backslash in it, which
+/// the archive reader accepts as a separator and the manifest search does not.
+fn is_backslash_manifest(entry: &Entry<'_>) -> bool {
+    entry.name.contains(&b'\\')
+        && entry.name.rsplit(|&b| zip::is_separator(b)).next() == Some(MANIFEST)
+}
+
+/// The manifest that the bytes of `manifest.json` hold.
 fn parse(bytes: &[u8]) -> Result<Manifest> {
     let text = std::str::from_utf8(bytes).map_err(|e| Error::Manifest(Box::new(e)))?;
     let json: Json =
@@ -154,7 +167,13 @@ fn parse(bytes: &[u8]) -> Result<Manifest> {
 }
 
 /// `text` without `//` and `/* */` comments and without commas before `}` or `]`, outside
-/// strings (what `Ahc\Json\Comment` strips for PMMP). Comment ends keep their newline.
+/// strings (what `Ahc\Json\Comment` strips for PMMP). Each removed byte becomes a space, and a
+/// removed line break stays, so a syntax error is reported where the file has it.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: only ASCII bytes are replaced, between characters, so the rest is still \
+              UTF-8"
+)]
 fn strip(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -174,19 +193,28 @@ fn strip(text: &str) -> String {
             match (b, next) {
                 (b'/', Some(b'/')) => {
                     while bytes.get(i).is_some_and(|&c| c != b'\n') {
+                        out.push(b' ');
                         i += 1;
                     }
                     continue;
                 }
                 (b'/', Some(b'*')) => {
+                    let start = i;
                     i += 2;
                     while i < bytes.len() && !ends_comment(bytes, i) {
                         i += 1;
                     }
-                    i += 2;
+                    i = (i + 2).min(bytes.len());
+                    out.extend(
+                        bytes
+                            .iter()
+                            .skip(start)
+                            .take(i - start)
+                            .map(|&c| if c == b'\n' { c } else { b' ' }),
+                    );
                     continue;
                 }
-                (b',', _) if closes_next(bytes, i + 1) => {}
+                (b',', _) if closes_next(bytes, i + 1) => out.push(b' '),
                 (b'"', _) => {
                     string = true;
                     out.push(b);
@@ -196,8 +224,7 @@ fn strip(text: &str) -> String {
         }
         i += 1;
     }
-    // Only ASCII bytes were removed, between characters, so the rest is still UTF-8.
-    String::from_utf8(out).unwrap_or_default()
+    String::from_utf8(out).expect("the stripped manifest is UTF-8")
 }
 
 /// Whether a `*/` starts at `at`.
@@ -235,6 +262,8 @@ mod tests {
     use crate::pack::tests::UUID;
     use crate::pack::zip::tests::{File, archive};
 
+    const RESOURCES: &str = r#"{"type": "resources", "uuid": "x", "version": [1, 0, 0]}"#;
+
     fn manifest(text: &str) -> Result<Manifest> {
         parse(text.as_bytes())
     }
@@ -245,8 +274,6 @@ mod tests {
             "version": {version}}}, "modules": [{modules}]}}"#
         )
     }
-
-    const RESOURCES: &str = r#"{"type": "resources", "uuid": "x", "version": [1, 0, 0]}"#;
 
     #[test]
     fn a_resource_manifest_parses() {
@@ -319,9 +346,17 @@ mod tests {
         );
         let m = manifest(&text).unwrap();
         assert_eq!(m.name, "a // b /* c */");
-        assert_eq!(strip(r#"["a,]", "\"", 1,]"#), r#"["a,]", "\"", 1]"#);
-        assert_eq!(strip("[1, // x\n]"), "[1 \n]");
-        assert_eq!(strip("/* never closed"), "");
+        assert_eq!(strip(r#"["a,]", "\"", 1,]"#), r#"["a,]", "\"", 1 ]"#);
+        assert_eq!(strip("[1, // x\n]"), "[1      \n]");
+        assert_eq!(strip("/* never closed"), " ".repeat(15));
+    }
+
+    #[test]
+    fn a_syntax_error_is_reported_at_its_line_after_comments() {
+        let Err(Error::Manifest(source)) = manifest("{\n/* one\ntwo\nthree */\n]") else {
+            panic!("the manifest is malformed");
+        };
+        assert!(source.to_string().contains("line 5"), "{source}");
     }
 
     fn files(list: &[(&str, &[u8])]) -> Vec<u8> {
@@ -359,6 +394,16 @@ mod tests {
         assert!(matches!(read_zip(&zip), Err(Error::OldFormat)));
         let zip = files(&[("manifest.json", good), ("world/level.dat", b"")]);
         assert!(read_zip(&zip).unwrap().world_template);
+    }
+
+    #[test]
+    fn a_manifest_under_a_backslash_name_says_so() {
+        let good = sample("[1, 0, 0]", RESOURCES);
+        let zip = files(&[("MyPack\\manifest.json", good.as_bytes())]);
+        let Err(Error::Archive(what)) = read_zip(&zip) else {
+            panic!("the manifest is not found");
+        };
+        assert!(what.contains("backslashes"), "{what}");
     }
 
     #[test]

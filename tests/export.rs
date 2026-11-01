@@ -65,7 +65,7 @@ fn an_exported_world_imports_back_into_the_same_world_file() {
     let (first, second) = (data.0.join("first"), data.0.join("second"));
     let folder = data.0.join("bedrock").join(NAME);
     let imported = server(&first)
-        .import_world(FIXTURE, NAME)
+        .import_world(NAME, FIXTURE)
         .expect("the import");
     let report = server(&first)
         .export_world(NAME, &folder)
@@ -85,7 +85,7 @@ fn an_exported_world_imports_back_into_the_same_world_file() {
     assert!(!data.0.join("bedrock").join(format!("{NAME}.tmp")).exists());
 
     let again = server(&second)
-        .import_world(&folder, NAME)
+        .import_world(NAME, &folder)
         .expect("the import of the export");
     assert_eq!(again.chunks(), imported.chunks());
     assert_eq!(

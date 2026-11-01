@@ -40,12 +40,12 @@ impl Behaviour for Switch {
     fn on_place(
         &self,
         ctx: &mut Ctx<'_>,
-        player: Option<crate::player::Id>,
+        player: crate::player::Id,
         world: world::Id,
         pos: BlockPos,
         state: block::State,
     ) {
-        let session = player.unwrap().session();
+        let session = player.session();
         assert_eq!(state.value("lit"), Some(block::PropertyValue::Byte(0)));
         let held = ctx.state.players[&session].inventory.held().count();
         note(SEEN, ("placed", held));

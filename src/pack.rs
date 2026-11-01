@@ -3,12 +3,23 @@
 //! The packs come from the `resource-packs` setting (files relative to the pack folder
 //! `data/packs`, each with an optional `<file>.key` content key next to it) and from
 //! [`ServerBuilder::resource_pack`]. They are read once at start, held in memory and offered in
-//! that order, the first on top of the stack: a pack that cannot be read, or breaks a limit,
-//! stops the start with an error naming its file.
+//! that order, the first on top of the stack. A pack file that cannot be read, or breaks a limit,
+//! stops the start with an error naming that file; a pack count over the limit, a total size over
+//! the limit and a repeated UUID stop it without a file name.
 //!
 //! Limits: a pack is at most 256 MiB, at most 64 packs are offered, and they total at most
 //! 512 MiB (PMMP has none; these bound the memory the packs take). A pack's `manifest.json` is at
 //! most 256 KiB.
+//!
+//! The manifest is the root `manifest.json`, else the shortest `.../manifest.json`; a pack with
+//! an old `pack_manifest.json` is refused. The JSON may hold comments and trailing commas (PMMP
+//! strips them with `Ahc\Json\Comment`). `format_version`, `header.name`, `header.uuid`,
+//! `header.version` and `modules` (each with `type`, `uuid` and `version`) are required. A version
+//! is three whole numbers, as an array or as `"x.y.z"` text (gophertunnel reads both; PMMP reads
+//! only the array).
+//!
+//! Players keep a downloaded pack by its UUID and version: raise `header.version` when the
+//! contents of a pack change, or players keep the old pack.
 
 mod manifest;
 mod zip;
@@ -19,26 +30,28 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::ServerBuilder;
-use crate::protocol::Uuid;
 use crate::protocol::consts::ResourcePackType;
 use crate::protocol::packet::{ResourcePackStack, ResourcePacksInfo};
-use crate::protocol::{StackResourcePack, TexturePackInfo};
+use crate::protocol::{StackResourcePack, TexturePackInfo, Uuid};
+use manifest::Manifest;
 
-use self::manifest::Manifest;
+/// The size of a content key, in bytes (PMMP `ResourcePackManager`).
+const CONTENT_KEY_BYTES: usize = 32;
 
 /// The pack folder's name, in the data folder.
 pub(crate) const FOLDER: &str = "packs";
 
-/// The largest pack file.
-pub(crate) const MAX_PACK_BYTES: u64 = 256 * 1024 * 1024;
-/// The most packs offered.
-const MAX_PACKS: usize = 64;
-/// The most bytes all offered packs hold together.
-const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
-/// A content key is 32 bytes (PMMP `ResourcePackManager`).
-const KEY_LEN: usize = 32;
 /// The largest key file read: a key and a line break, with room to spare.
 const MAX_KEY_FILE_BYTES: u64 = 64;
+
+/// The largest pack file.
+pub(crate) const MAX_PACK_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The most packs offered.
+const MAX_PACKS: usize = 64;
+
+/// The most bytes all offered packs hold together.
+const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
 
 /// A resource pack: a zip archive with a valid `manifest.json`, held in memory.
 #[doc(alias = "ResourcePack")]
@@ -46,34 +59,37 @@ const MAX_KEY_FILE_BYTES: u64 = 64;
 pub struct Pack {
     manifest: Manifest,
     content_key: Option<String>,
+    size: u64,
     sha256: [u8; 32],
     bytes: Box<[u8]>,
 }
 
 impl Pack {
-    /// Reads a pack from the bytes of its archive, for packs a program builds or embeds.
+    /// A pack read from the bytes of its archive, for packs a program builds or embeds.
     ///
     /// Fails if the bytes are larger than 256 MiB, are not a zip archive Anchor reads (stored or
     /// DEFLATE entries; no zip64, encryption or multiple disks; entry names that stay inside the
     /// pack folder), or hold no valid `manifest.json` (PMMP's rules, see the module docs).
     pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Result<Self> {
         let bytes = bytes.into();
-        if u64::try_from(bytes.len()).map_or(true, |len| len > MAX_PACK_BYTES) {
-            return Err(Error::TooLarge {
+        let size = u64::try_from(bytes.len())
+            .ok()
+            .filter(|&size| size <= MAX_PACK_BYTES)
+            .ok_or(Error::TooLarge {
                 limit: MAX_PACK_BYTES,
-            });
-        }
+            })?;
         let manifest = manifest::read(&zip::entries(&bytes).map_err(Error::Archive)?)?;
         Ok(Self {
             manifest,
             content_key: None,
+            size,
             sha256: crate::crypto::sha256(&[&bytes]),
             bytes: bytes.into_boxed_slice(),
         })
     }
 
-    /// Reads the pack file at `path` (`.mcpack` or `.zip`) and, if `<path>.key` exists, its
-    /// content key ([`with_content_key`](Self::with_content_key); line breaks at its end are
+    /// The pack read from the file at `path` (`.mcpack` or `.zip`) and, if `<path>.key` exists,
+    /// its content key ([`with_content_key`](Self::with_content_key); line breaks at its end are
     /// ignored, as PMMP does).
     ///
     /// This does blocking file I/O: call it before the server starts. Fails like
@@ -81,28 +97,7 @@ impl Pack {
     #[doc(alias = "ZippedResourcePack::__construct")]
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let load = || {
-            let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !["mcpack", "zip"]
-                .iter()
-                .any(|e| extension.eq_ignore_ascii_case(e))
-            {
-                return Err(Error::Extension);
-            }
-            let pack = Self::from_bytes(read_file(path, MAX_PACK_BYTES)?)?;
-            let mut key_path = path.as_os_str().to_owned();
-            key_path.push(".key");
-            match read_file(Path::new(&key_path), MAX_KEY_FILE_BYTES) {
-                Ok(key) => {
-                    let key = String::from_utf8(key).map_err(|_| Error::Key)?;
-                    pack.with_content_key(key.trim_end_matches(['\r', '\n']))
-                }
-                Err(Error::Read(e)) if e.kind() == io::ErrorKind::NotFound => Ok(pack),
-                Err(Error::TooLarge { .. }) => Err(Error::Key),
-                Err(e) => Err(e),
-            }
-        };
-        load().map_err(|source| Error::File {
+        Self::read(path).map_err(|source| Error::File {
             path: path.to_owned(),
             source: Box::new(source),
         })
@@ -113,46 +108,11 @@ impl Pack {
     #[doc(alias = "ResourcePackManager::setPackEncryptionKey")]
     pub fn with_content_key(mut self, key: impl Into<String>) -> Result<Self> {
         let key = key.into();
-        if key.len() != KEY_LEN {
+        if key.len() != CONTENT_KEY_BYTES {
             return Err(Error::Key);
         }
         self.content_key = Some(key);
         Ok(self)
-    }
-
-    /// The pack's UUID (`header.uuid` of its manifest).
-    #[doc(alias = "ResourcePack::getPackId")]
-    #[doc(alias = "ZippedResourcePack::getPackId")]
-    pub fn uuid(&self) -> Uuid {
-        self.manifest.uuid
-    }
-
-    /// The pack's name (`header.name`).
-    #[doc(alias = "ResourcePack::getPackName")]
-    #[doc(alias = "ZippedResourcePack::getPackName")]
-    pub fn name(&self) -> &str {
-        &self.manifest.name
-    }
-
-    /// The pack's version as `major.minor.patch` (`header.version`).
-    #[doc(alias = "ResourcePack::getPackVersion")]
-    #[doc(alias = "ZippedResourcePack::getPackVersion")]
-    pub fn version(&self) -> &str {
-        &self.manifest.version
-    }
-
-    /// The size of the archive in bytes.
-    #[doc(alias = "ResourcePack::getPackSize")]
-    #[doc(alias = "ZippedResourcePack::getPackSize")]
-    pub fn size(&self) -> u64 {
-        u64::try_from(self.bytes.len()).unwrap_or(u64::MAX)
-    }
-
-    /// The SHA-256 of the archive, which players check the download against.
-    #[doc(alias = "ResourcePack::getSha256")]
-    #[doc(alias = "ZippedResourcePack::getSha256")]
-    pub fn sha256(&self) -> &[u8; 32] {
-        &self.sha256
     }
 
     /// The archive's bytes, as players download them.
@@ -166,6 +126,13 @@ impl Pack {
     #[doc(alias = "ResourcePackManager::getPackEncryptionKey")]
     pub fn content_key(&self) -> Option<&str> {
         self.content_key.as_deref()
+    }
+
+    /// The pack's name (`header.name`).
+    #[doc(alias = "ResourcePack::getPackName")]
+    #[doc(alias = "ZippedResourcePack::getPackName")]
+    pub fn name(&self) -> &str {
+        &self.manifest.name
     }
 
     /// The `ResourcePackDataInfo` pack type (gophertunnel's rules, from the module types).
@@ -184,6 +151,59 @@ impl Pack {
             ResourcePackType::Skins
         })
     }
+
+    /// The SHA-256 of the archive, which players check the download against.
+    #[doc(alias = "ResourcePack::getSha256")]
+    #[doc(alias = "ZippedResourcePack::getSha256")]
+    pub fn sha256(&self) -> &[u8; 32] {
+        &self.sha256
+    }
+
+    /// The size of the archive in bytes.
+    #[doc(alias = "ResourcePack::getPackSize")]
+    #[doc(alias = "ZippedResourcePack::getPackSize")]
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// The pack's UUID (`header.uuid` of its manifest).
+    #[doc(alias = "ResourcePack::getPackId")]
+    #[doc(alias = "ZippedResourcePack::getPackId")]
+    pub fn uuid(&self) -> Uuid {
+        self.manifest.uuid
+    }
+
+    /// The pack's version as `major.minor.patch` (`header.version`). Players keep a downloaded
+    /// pack by its UUID and version, so a pack whose contents changed needs a higher one.
+    #[doc(alias = "ResourcePack::getPackVersion")]
+    #[doc(alias = "ZippedResourcePack::getPackVersion")]
+    pub fn version(&self) -> &str {
+        &self.manifest.version
+    }
+
+    /// The pack read from the file at `path` with its key file, without naming `path` in an
+    /// error.
+    fn read(path: &Path) -> Result<Self> {
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !["mcpack", "zip"]
+            .iter()
+            .any(|e| extension.eq_ignore_ascii_case(e))
+        {
+            return Err(Error::Extension);
+        }
+        let pack = Self::from_bytes(read_file(path, MAX_PACK_BYTES)?)?;
+        let mut key_path = path.as_os_str().to_owned();
+        key_path.push(".key");
+        match read_file(Path::new(&key_path), MAX_KEY_FILE_BYTES) {
+            Ok(key) => {
+                let key = String::from_utf8(key).map_err(|_| Error::Key)?;
+                pack.with_content_key(key.trim_end_matches(['\r', '\n']))
+            }
+            Err(Error::Read(e)) if e.kind() == io::ErrorKind::NotFound => Ok(pack),
+            Err(Error::TooLarge { .. }) => Err(Error::Key),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl fmt::Debug for Pack {
@@ -199,28 +219,8 @@ impl fmt::Debug for Pack {
     }
 }
 
-impl ServerBuilder {
-    /// Offers `pack` to every joining player, after the packs of the `resource-packs` setting
-    /// and those added before. `force-resources` decides whether players must accept it.
-    #[doc(alias = "ResourcePackManager::setResourceStack")]
-    #[must_use]
-    pub fn resource_pack(mut self, pack: Pack) -> Self {
-        self.packs.push(pack);
-        self
-    }
-}
-
-/// Reads at most `limit` bytes of the file at `path`; a longer file is [`Error::TooLarge`].
-fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    crate::fs::read_bounded(path, limit).map_err(|e| match e.kind() {
-        io::ErrorKind::FileTooLarge => Error::TooLarge { limit },
-        _ => Error::Read(e),
-    })
-}
-
 /// The packs offered to joining players and what the session sends of them, built once at
 /// start.
-#[derive(Default)]
 pub(crate) struct Offer {
     packs: Vec<Pack>,
     /// `uuid_version` of each pack: how the client names it in requests and how the server
@@ -233,22 +233,16 @@ pub(crate) struct Offer {
 }
 
 impl Offer {
-    /// Loads the files at `paths`, adds `extra` after them and checks the limits. Players must
-    /// accept the packs when `force` is set. Blocking file I/O: run it before the server starts.
+    /// The offer of the files at `paths`, then `extra`. Players must accept the packs when
+    /// `force` is set. Blocking file I/O: run it before the server starts.
     pub(crate) fn load(paths: &[PathBuf], extra: Vec<Pack>, force: bool) -> Result<Self> {
-        if paths.len().saturating_add(extra.len()) > MAX_PACKS {
-            return Err(Error::TooMany { limit: MAX_PACKS });
-        }
+        check_count(paths.len().saturating_add(extra.len()))?;
         let mut packs = Vec::with_capacity(paths.len() + extra.len());
-        let mut total = 0u64;
+        let mut total = 0_u64;
         for path in paths {
             let pack = Pack::load(path)?;
-            total = total.saturating_add(pack.size());
-            if total > MAX_TOTAL_BYTES {
-                return Err(Error::TotalTooLarge {
-                    limit: MAX_TOTAL_BYTES,
-                });
-            }
+            // The same limit as `new` checks, so a total over it stops before the rest is read.
+            total = add_to_total(total, pack.size(), path)?;
             packs.push(pack);
         }
         packs.extend(extra);
@@ -257,15 +251,8 @@ impl Offer {
 
     /// The offer of `packs`, in stack order.
     pub(crate) fn new(packs: Vec<Pack>, force: bool) -> Result<Self> {
-        if packs.len() > MAX_PACKS {
-            return Err(Error::TooMany { limit: MAX_PACKS });
-        }
-        let total = packs.iter().fold(0u64, |t, p| t.saturating_add(p.size()));
-        if total > MAX_TOTAL_BYTES {
-            return Err(Error::TotalTooLarge {
-                limit: MAX_TOTAL_BYTES,
-            });
-        }
+        check_count(packs.len())?;
+        check_total(packs.iter().fold(0_u64, |t, p| t.saturating_add(p.size())))?;
         let mut index = BTreeMap::new();
         for (i, pack) in packs.iter().enumerate() {
             if index.insert(pack.uuid(), i).is_some() {
@@ -317,26 +304,6 @@ impl Offer {
         })
     }
 
-    /// The offered packs, in stack order.
-    pub(crate) fn packs(&self) -> &[Pack] {
-        &self.packs
-    }
-
-    /// `ResourcePacksInfo`, sent after the login.
-    pub(crate) fn info(&self) -> &ResourcePacksInfo {
-        &self.info
-    }
-
-    /// `ResourcePackStack`, sent when the client has every pack.
-    pub(crate) fn stack(&self) -> &ResourcePackStack {
-        &self.stack
-    }
-
-    /// The `uuid_version` name of pack `index`.
-    pub(crate) fn id(&self, index: usize) -> &str {
-        self.ids.get(index).map_or("", String::as_str)
-    }
-
     /// The index of the pack a client names `uuid` or `uuid_version` (gophertunnel: a version,
     /// when given, must be the pack's).
     pub(crate) fn find(&self, name: &str) -> Option<usize> {
@@ -350,6 +317,26 @@ impl Offer {
             Some(v) if !v.is_empty() && v != pack.version() => None,
             _ => Some(index),
         }
+    }
+
+    /// The `uuid_version` name of pack `index`.
+    pub(crate) fn id(&self, index: usize) -> &str {
+        self.ids.get(index).map_or("", String::as_str)
+    }
+
+    /// `ResourcePacksInfo`, sent after the login.
+    pub(crate) fn info(&self) -> &ResourcePacksInfo {
+        &self.info
+    }
+
+    /// The offered packs, in stack order.
+    pub(crate) fn packs(&self) -> &[Pack] {
+        &self.packs
+    }
+
+    /// `ResourcePackStack`, sent when the client has every pack.
+    pub(crate) fn stack(&self) -> &ResourcePackStack {
+        &self.stack
     }
 }
 
@@ -372,7 +359,7 @@ pub enum Error {
     Read(io::Error),
     /// The file name does not end in `.mcpack` or `.zip`.
     Extension,
-    /// The pack, or its key file, is larger than `limit` bytes.
+    /// The pack is larger than `limit` bytes.
     TooLarge {
         /// The largest size accepted.
         limit: u64,
@@ -394,7 +381,7 @@ pub enum Error {
     Uuid,
     /// `header.version` is not three whole numbers.
     Version,
-    /// The content key is not 32 bytes of text.
+    /// The content key is not 32 bytes of text, or its key file is longer than a key.
     Key,
     /// More than `limit` packs.
     TooMany {
@@ -459,6 +446,54 @@ impl std::error::Error for Error {
 /// The result of reading a pack.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+impl ServerBuilder {
+    /// Offers `pack` to every joining player, after the packs of the `resource-packs` setting
+    /// and those added before. `force-resources` decides whether players must accept it.
+    #[doc(alias = "ResourcePackManager::setResourceStack")]
+    #[must_use]
+    pub fn resource_pack(mut self, pack: Pack) -> Self {
+        self.packs.push(pack);
+        self
+    }
+}
+
+/// The running total of the pack sizes with the pack at `path` of `size` bytes added, or the
+/// error naming that pack when the total passes [`MAX_TOTAL_BYTES`].
+fn add_to_total(total: u64, size: u64, path: &Path) -> Result<u64> {
+    let total = total.saturating_add(size);
+    check_total(total).map_err(|source| Error::File {
+        path: path.to_owned(),
+        source: Box::new(source),
+    })?;
+    Ok(total)
+}
+
+/// Refuses more than [`MAX_PACKS`] packs.
+fn check_count(count: usize) -> Result<()> {
+    if count > MAX_PACKS {
+        return Err(Error::TooMany { limit: MAX_PACKS });
+    }
+    Ok(())
+}
+
+/// Refuses packs totalling more than [`MAX_TOTAL_BYTES`].
+fn check_total(total: u64) -> Result<()> {
+    if total > MAX_TOTAL_BYTES {
+        return Err(Error::TotalTooLarge {
+            limit: MAX_TOTAL_BYTES,
+        });
+    }
+    Ok(())
+}
+
+/// The bytes of the file at `path`, at most `limit`; a longer file is [`Error::TooLarge`].
+fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    crate::fs::read_bounded(path, limit).map_err(|e| match e.kind() {
+        io::ErrorKind::FileTooLarge => Error::TooLarge { limit },
+        _ => Error::Read(e),
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -490,8 +525,36 @@ pub(crate) mod tests {
         ])
     }
 
-    pub(crate) fn pack(uuid: &str, version: &str, extra: usize) -> Pack {
-        Pack::from_bytes(pack_bytes(uuid, version, extra)).unwrap()
+    // pmmp: ResourcePack::getPackId, ZippedResourcePack::getPackId, ResourcePack::getPackName,
+    // pmmp: ZippedResourcePack::getPackName, ResourcePack::getPackVersion,
+    // pmmp: ZippedResourcePack::getPackVersion, ResourcePack::getPackSize,
+    // pmmp: ZippedResourcePack::getPackSize, ResourcePack::getSha256,
+    // pmmp: ZippedResourcePack::getSha256, ResourcePack::getPackChunk,
+    // pmmp: ZippedResourcePack::getPackChunk, ResourcePack, ZippedResourcePack
+    #[test]
+    fn a_pack_reads_its_manifest_and_hashes_its_bytes() {
+        let bytes = pack_bytes(UUID, "1.2.3", 100);
+        let pack = Pack::from_bytes(bytes.clone()).unwrap();
+        assert_eq!(pack.uuid().to_string(), UUID);
+        assert_eq!(pack.name(), "Test");
+        assert_eq!(pack.version(), "1.2.3");
+        assert_eq!(pack.size(), u64::try_from(bytes.len()).unwrap());
+        assert_eq!(pack.sha256(), &crate::crypto::sha256(&[&bytes]));
+        assert_eq!(pack.bytes(), bytes.as_slice());
+        assert_eq!(pack.pack_type(), u8::from(ResourcePackType::Resources));
+        assert_eq!(pack.content_key(), None);
+        let debug = format!("{pack:?}");
+        assert!(debug.contains(UUID) && debug.contains("encrypted: false"));
+    }
+
+    #[test]
+    fn oversized_and_broken_bytes_are_refused() {
+        let big = vec![0; usize::try_from(MAX_PACK_BYTES).unwrap() + 1];
+        assert!(matches!(Pack::from_bytes(big), Err(Error::TooLarge { .. })));
+        assert!(matches!(
+            Pack::from_bytes(b"PK".to_vec()),
+            Err(Error::Archive(_))
+        ));
     }
 
     /// A per-test folder under the system temp folder, removed on drop.
@@ -524,34 +587,8 @@ pub(crate) mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
-    // pmmp: ResourcePack::getPackId, ZippedResourcePack::getPackId, ResourcePack::getPackName, ZippedResourcePack::getPackName, ResourcePack::getPackVersion, ZippedResourcePack::getPackVersion, ResourcePack::getPackSize, ZippedResourcePack::getPackSize, ResourcePack::getSha256, ZippedResourcePack::getSha256, ResourcePack::getPackChunk, ZippedResourcePack::getPackChunk, ResourcePack, ZippedResourcePack
-    #[test]
-    fn a_pack_reads_its_manifest_and_hashes_its_bytes() {
-        let bytes = pack_bytes(UUID, "1.2.3", 100);
-        let pack = Pack::from_bytes(bytes.clone()).unwrap();
-        assert_eq!(pack.uuid().to_string(), UUID);
-        assert_eq!(pack.name(), "Test");
-        assert_eq!(pack.version(), "1.2.3");
-        assert_eq!(pack.size(), u64::try_from(bytes.len()).unwrap());
-        assert_eq!(pack.sha256(), &crate::crypto::sha256(&[&bytes]));
-        assert_eq!(pack.bytes(), bytes.as_slice());
-        assert_eq!(pack.pack_type(), u8::from(ResourcePackType::Resources));
-        assert_eq!(pack.content_key(), None);
-        let debug = format!("{pack:?}");
-        assert!(debug.contains(UUID) && debug.contains("encrypted: false"));
-    }
-
-    #[test]
-    fn oversized_and_broken_bytes_are_refused() {
-        let big = vec![0; usize::try_from(MAX_PACK_BYTES).unwrap() + 1];
-        assert!(matches!(Pack::from_bytes(big), Err(Error::TooLarge { .. })));
-        assert!(matches!(
-            Pack::from_bytes(b"PK".to_vec()),
-            Err(Error::Archive(_))
-        ));
-    }
-
-    // pmmp: ZippedResourcePack::__construct, ResourcePackManager::setPackEncryptionKey, ResourcePackManager::getPackEncryptionKey, ResourcePackException
+    // pmmp: ZippedResourcePack::__construct, ResourcePackManager::setPackEncryptionKey,
+    // pmmp: ResourcePackManager::getPackEncryptionKey, ResourcePackException
     #[test]
     fn a_pack_file_loads_with_its_key_file() {
         let dir = TempDir::new("key");
@@ -591,6 +628,11 @@ pub(crate) mod tests {
             matches!(&wrong, Error::File { source, .. } if matches!(**source, Error::Extension))
         );
         assert!(std::error::Error::source(&wrong).is_some());
+    }
+
+    /// A pack with UUID `uuid`, version `version` and `extra` bytes of texture.
+    pub(crate) fn pack(uuid: &str, version: &str, extra: usize) -> Pack {
+        Pack::from_bytes(pack_bytes(uuid, version, extra)).unwrap()
     }
 
     #[test]
@@ -650,6 +692,26 @@ pub(crate) mod tests {
         let empty = Offer::new(Vec::new(), false).unwrap();
         assert!(empty.info().texture_packs.is_empty());
         assert_eq!(empty.stack().base_game_version, "*");
+    }
+
+    #[test]
+    fn a_total_over_the_limit_names_the_pack_that_passes_it() {
+        let path = Path::new("big.zip");
+        assert_eq!(
+            add_to_total(MAX_TOTAL_BYTES - 1, 1, path).unwrap(),
+            MAX_TOTAL_BYTES
+        );
+        let error = add_to_total(MAX_TOTAL_BYTES, 1, path).unwrap_err();
+        assert!(matches!(
+            &error,
+            Error::File { path, source }
+                if path == Path::new("big.zip")
+                    && matches!(**source, Error::TotalTooLarge { .. })
+        ));
+        assert!(matches!(
+            check_total(MAX_TOTAL_BYTES + 1),
+            Err(Error::TotalTooLarge { .. })
+        ));
     }
 
     #[test]

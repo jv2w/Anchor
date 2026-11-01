@@ -107,7 +107,7 @@ pub(super) fn used(
 /// item it used are applied.
 pub(super) fn placed(
     state: &mut State,
-    session: Option<SessionId>,
+    session: SessionId,
     world: WorldIndex,
     pos: BlockPos,
     block: block::State,
@@ -119,7 +119,7 @@ pub(super) fn placed(
         let world = crate::world::Id::of(world);
         hooks.on_place(
             &mut Context { state },
-            session.map(crate::player::Id::new),
+            crate::player::Id::new(session),
             world,
             pos,
             block,

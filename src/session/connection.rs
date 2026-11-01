@@ -545,7 +545,7 @@ impl Session {
             uuid: identity.uuid,
             skin,
             device_os: client_data.device_os,
-            address: Some(addr.ip()),
+            address: Some(addr.ip().to_canonical()),
             client: Client {
                 locale: client_data.language_code,
                 input_mode,

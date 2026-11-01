@@ -96,7 +96,7 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
     let data = TempPath::new("load");
     let before = snapshot(Path::new(FIXTURE));
     let report = server(&data.0, 2)
-        .import_world(FIXTURE, NAME)
+        .import_world(NAME, FIXTURE)
         .expect("the import");
     assert_eq!(report.chunks(), 36);
     assert_eq!((report.block_entities(), report.entities()), (2, 2));
@@ -119,7 +119,7 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
     // A second import is refused before it opens a file; another test checks that it leaves
     // the data folder as it was.
     let err = server(&data.0, 2)
-        .import_world(FIXTURE, NAME)
+        .import_world(NAME, FIXTURE)
         .expect_err("a second import");
     assert!(
         matches!(&err, Error::Import(import::Error::WorldExists { name }) if name == NAME),
@@ -187,7 +187,7 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
     };
     // A declared world and one that is not: both become a world file of their own.
     for world in [NAME, "second"] {
-        server().import_world(FIXTURE, world).expect("the import");
+        server().import_world(world, FIXTURE).expect("the import");
     }
     let mut files: Vec<String> = std::fs::read_dir(data.0.join("worlds"))
         .expect("the world folder")
@@ -218,7 +218,7 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
     // A second import of a name, in any letter case, is refused and changes nothing.
     let before = snapshot(&data.0);
     let err = server()
-        .import_world(FIXTURE, "SECOND")
+        .import_world("SECOND", FIXTURE)
         .expect_err("the world exists");
     assert!(
         matches!(&err, Error::Import(import::Error::WorldExists { .. })),
@@ -237,7 +237,7 @@ fn one_and_many_threads_write_the_same_world_file() {
     for cpu in [1, 4] {
         let data = TempPath::new(&format!("threads-{cpu}"));
         server(&data.0, cpu)
-            .import_world(FIXTURE, NAME)
+            .import_world(NAME, FIXTURE)
             .expect("the import");
         let file = data.0.join("worlds").join(format!("{NAME}.redb"));
         files.push(std::fs::read(file).expect("the world file"));
@@ -260,7 +260,7 @@ fn a_temporary_world_cannot_be_imported_into_in_any_letter_case() {
         .expect("the server builds");
     for world in ["arena", "ARENA"] {
         let err = server
-            .import_world(FIXTURE, world)
+            .import_world(world, FIXTURE)
             .expect_err("a temporary world");
         assert!(
             matches!(&err, Error::Import(import::Error::TemporaryWorld { name }) if name == world),
@@ -278,7 +278,7 @@ fn a_temporary_world_cannot_be_imported_into_in_any_letter_case() {
 fn a_folder_that_is_not_a_bedrock_world_fails_and_writes_no_world() {
     let data = TempPath::new("not-a-world");
     let err = server(&data.0, 1)
-        .import_world(data.0.join("missing"), NAME)
+        .import_world(NAME, data.0.join("missing"))
         .expect_err("not a world");
     assert!(matches!(err, Error::Import(_)), "{err:?}");
     assert!(!data.0.join("worlds").join(format!("{NAME}.redb")).exists());

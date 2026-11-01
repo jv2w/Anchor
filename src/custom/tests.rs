@@ -1,6 +1,7 @@
 //! Tests of custom content: registration and its checks, the representation of custom types and
 //! states, the start-game data, recipes and stacks.
 
+use super::recipe::{MAX_INGREDIENTS, MAX_RESULTS, MAX_SIDE};
 use super::*;
 use crate::block::{self, PropertyValue, ToolType};
 use crate::crafting::Recipe as Judged;
@@ -9,6 +10,7 @@ use crate::math::{Aabb, Vec3};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::CreativeCategory;
 use crate::protocol::packet::Packet;
+use crate::world::{Chunk, Entry};
 
 pub(crate) static RUBY: Item = Item::new("test:ruby", "Ruby", "test_ruby")
     .with_creative(Creative::new(Category::Items).with_group("itemGroup.name.test"));
@@ -20,7 +22,7 @@ pub(crate) static SWORD: Item = Item::new("test:sword", "Ruby Sword", "test_swor
     .with_durability(100)
     .with_attack_damage(7)
     .hand_equipped()
-    .allow_off_hand()
+    .off_hand_allowed()
     .without_creative_breaking();
 pub(crate) static ORE: Block = Block::new("test:ruby_ore", "test_ruby_ore")
     .with_hardness(3.0)
@@ -46,7 +48,7 @@ pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
         Material::face(block::Face::Up, "test_lamp_top"),
     ]);
 
-/// A registry of every test definition and two recipes, finished.
+/// A finished registry of every test definition.
 pub(crate) fn registry() -> Registry {
     let mut r = Registry::default();
     r.add_item(&RUBY);
@@ -56,10 +58,6 @@ pub(crate) fn registry() -> Registry {
     r.add_item(&SWORD);
     r.finish().expect("the test content registers");
     r
-}
-
-fn vanilla(kind: item::Kind) -> ItemRef {
-    ItemRef::Item(kind.default_type())
 }
 
 #[test]
@@ -139,7 +137,7 @@ fn item_components_have_dragonflys_shape() {
     let icon = compound(compound(properties, "minecraft:icon"), "textures");
     assert_eq!(
         icon.get("default"),
-        Some(&Value::String("test_sword".into()))
+        Some(&Value::String("test_sword".to_owned()))
     );
     assert_eq!(
         compound(components, "minecraft:durability").get("max_durability"),
@@ -147,7 +145,7 @@ fn item_components_have_dragonflys_shape() {
     );
     assert_eq!(
         compound(components, "minecraft:display_name").get("value"),
-        Some(&Value::String("Ruby Sword".into()))
+        Some(&Value::String("Ruby Sword".to_owned()))
     );
     let apple = APPLE.components();
     let components = compound(&apple, "components");
@@ -157,7 +155,7 @@ fn item_components_have_dragonflys_shape() {
     assert_eq!(properties.get("use_duration"), Some(&Value::Int(32)));
     assert_eq!(
         properties.get("creative_group"),
-        Some(&Value::String("itemGroup.name.test".into()))
+        Some(&Value::String("itemGroup.name.test".to_owned()))
     );
     assert_eq!(
         compound(components, "minecraft:food").get("can_always_eat"),
@@ -257,7 +255,10 @@ fn custom_states_follow_their_properties() {
     );
     // The disk form names the custom block, and reads back through the registry.
     let disk = crate::save::state_nbt(blue);
-    assert_eq!(disk.get("name"), Some(&Value::String("test:lamp".into())));
+    assert_eq!(
+        disk.get("name"),
+        Some(&Value::String("test:lamp".to_owned()))
+    );
     assert_eq!(
         crate::save::find_state(&disk),
         None,
@@ -272,9 +273,58 @@ fn custom_states_follow_their_properties() {
     }
 }
 
-/// Golden network IDs from dragonfly v0.11.5's `networkBlockHash` (`go run` over
-/// `server/world/network_block_hash.go`): `test:lamp` with {color red, level 0, lit 0} and with
-/// {color blue, level 2, lit 1}, and `test:ruby_ore` without properties.
+#[test]
+fn a_palette_entry_must_name_exactly_the_properties_of_the_block() {
+    let states = |color: Value, level: Value, lit: Value| {
+        Compound::from([
+            ("color".to_owned(), color),
+            ("level".to_owned(), level),
+            ("lit".to_owned(), lit),
+        ])
+    };
+    let blue = || Value::String("blue".to_owned());
+    let index = LAMP
+        .index_of(&states(blue(), Value::Int(2), Value::Byte(1)))
+        .unwrap();
+    assert_eq!(
+        LAMP.property_value(index, 0),
+        Some(PropertyValue::String("blue"))
+    );
+    assert_eq!(LAMP.property_value(index, 1), Some(PropertyValue::Int(2)));
+    assert_eq!(LAMP.property_value(index, 2), Some(PropertyValue::Byte(1)));
+    for wrong in [
+        states(
+            Value::String("green".to_owned()),
+            Value::Int(2),
+            Value::Byte(1),
+        ),
+        states(blue(), Value::Int(4), Value::Byte(1)),
+        states(blue(), Value::Int(2), Value::Byte(2)),
+        states(blue(), Value::String("2".to_owned()), Value::Byte(1)),
+        states(blue(), Value::Int(2), Value::Float(1.0)),
+        Compound::from([
+            ("color".to_owned(), blue()),
+            ("level".to_owned(), Value::Int(2)),
+        ]),
+        Compound::from([
+            ("color".to_owned(), blue()),
+            ("extra".to_owned(), Value::Byte(0)),
+            ("level".to_owned(), Value::Int(2)),
+            ("lit".to_owned(), Value::Byte(1)),
+        ]),
+        Compound::from([
+            ("color".to_owned(), blue()),
+            ("level".to_owned(), Value::Int(2)),
+            ("lot".to_owned(), Value::Byte(1)),
+        ]),
+    ] {
+        assert_eq!(LAMP.index_of(&wrong), None, "{wrong:?}");
+    }
+}
+
+/// Custom network IDs are dragonfly's `networkBlockHash` of `test:lamp` with {color red, level 0,
+/// lit 0} and with {color blue, level 2, lit 1}, and of `test:ruby_ore` without properties. The
+/// golden values come from `go run` over dragonfly v0.11.5's `server/world/network_block_hash.go`.
 #[test]
 fn custom_network_ids_are_dragonflys_hashes() {
     let r = registry();
@@ -313,7 +363,7 @@ fn start_game_blocks_carry_dragonflys_components() {
     assert_eq!(ore.get("properties"), None);
     assert_eq!(
         compound(ore, "menu_category").get("category"),
-        Some(&Value::String("nature".into()))
+        Some(&Value::String("nature".to_owned()))
     );
     let components = compound(ore, "components");
     // 3 × 5 seconds by hand without a pickaxe.
@@ -323,7 +373,7 @@ fn start_game_blocks_carry_dragonflys_components() {
     );
     assert_eq!(
         compound(components, "minecraft:geometry").get("identifier"),
-        Some(&Value::String("minecraft:geometry.full_block".into()))
+        Some(&Value::String("minecraft:geometry.full_block".to_owned()))
     );
     let lamp = &blocks[1].properties;
     let Some(Value::List(List::Compound(properties))) = lamp.get("properties") else {
@@ -346,11 +396,11 @@ fn start_game_blocks_carry_dragonflys_components() {
     assert_eq!(materials.len(), 2);
     assert_eq!(
         compound(materials, "*").get("render_method"),
-        Some(&Value::String("alpha_test".into()))
+        Some(&Value::String("alpha_test".to_owned()))
     );
     assert_eq!(
         compound(materials, "up").get("texture"),
-        Some(&Value::String("test_lamp_top".into()))
+        Some(&Value::String("test_lamp_top".to_owned()))
     );
     let collision = compound(components, "minecraft:collision_box");
     let Some(Value::List(List::Compound(boxes))) = collision.get("boxes") else {
@@ -365,7 +415,7 @@ fn start_game_blocks_carry_dragonflys_components() {
     // Every definition round-trips through the codec.
     let packet = Packet::StartGame(Box::new(crate::protocol::packet::StartGame {
         blocks,
-        ..Default::default()
+        ..crate::protocol::packet::StartGame::default()
     }));
     let mut bytes = Vec::new();
     packet.encode(&mut bytes, 0).unwrap();
@@ -450,7 +500,7 @@ fn the_creative_inventory_lists_custom_entries_after_pmmps() {
 }
 
 /// The finished registry of `builder`.
-fn finished(builder: crate::ServerBuilder) -> Result<Registry, Error> {
+fn finished(builder: crate::ServerBuilder) -> Result<Registry> {
     let mut r = builder.setup.custom;
     r.finish().map(|()| r)
 }
@@ -464,7 +514,14 @@ fn listed(content: &crate::protocol::packet::CreativeContent) -> Vec<i32> {
         .collect()
 }
 
-// pmmp: CreativeInventory, CreativeInventory::add, CreativeInventory::remove, CreativeInventory::clear, CreativeInventoryEntry::matchesItem, CreativeGroup, CreativeGroup::__construct, CreativeGroup::getName, CreativeGroup::getIcon
+/// The item of the vanilla item type `kind`.
+fn vanilla(kind: item::Kind) -> ItemRef {
+    ItemRef::Item(kind.default_type())
+}
+
+// pmmp: CreativeInventory, CreativeInventory::add, CreativeInventory::remove,
+// pmmp: CreativeInventory::clear, CreativeInventoryEntry::matchesItem, CreativeGroup,
+// pmmp: CreativeGroup::__construct, CreativeGroup::getName, CreativeGroup::getIcon
 #[test]
 fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
     let planks = Registry::default()
@@ -684,10 +741,27 @@ fn custom_stacks_round_trip_through_disk_and_network() {
     );
 }
 
-fn finish(build: impl FnOnce(&mut Registry)) -> Result<(), Error> {
+fn finish(build: impl FnOnce(&mut Registry)) -> Result<()> {
     let mut r = Registry::default();
     build(&mut r);
     r.finish()
+}
+
+/// Blocks whose one state hashes, as found by a search, to the network ID of a reference state
+/// that is not a state of the table: an inert state's and an alias's.
+static AS_INERT: Block = Block::new("test:c257583", "x");
+static AS_ALIAS: Block = Block::new("test:c26250", "x");
+
+#[test]
+fn a_state_with_the_network_id_of_any_vanilla_state_refuses_the_build() {
+    for block in [&AS_INERT, &AS_ALIAS] {
+        assert_eq!(
+            finish(|r| r.add_block(block)),
+            Err(Error::HashCollision {
+                identifier: block.identifier()
+            })
+        );
+    }
 }
 
 static MINECRAFT: Item = Item::new("minecraft:ruby", "Ruby", "ruby");
@@ -711,23 +785,6 @@ static SWORDS_DROP: Block =
     Block::new("test:swords", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 2)]));
 static SWORD_DROP: Block =
     Block::new("test:one_sword", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 1)]));
-
-/// Blocks whose one state hashes, as found by a search, to the network ID of a reference state
-/// that is not a state of the table: an inert state's and an alias's.
-static AS_INERT: Block = Block::new("test:c257583", "x");
-static AS_ALIAS: Block = Block::new("test:c26250", "x");
-
-#[test]
-fn a_state_with_the_network_id_of_any_vanilla_state_refuses_the_build() {
-    for block in [&AS_INERT, &AS_ALIAS] {
-        assert_eq!(
-            finish(|r| r.add_block(block)),
-            Err(Error::HashCollision {
-                identifier: block.identifier()
-            })
-        );
-    }
-}
 
 #[test]
 fn invalid_definitions_refuse_the_build() {
@@ -848,7 +905,6 @@ fn invalid_recipes_refuse_the_build() {
 
 #[test]
 fn recipe_refusals_name_the_limits_they_enforce() {
-    use super::recipe::{MAX_INGREDIENTS, MAX_RESULTS, MAX_SIDE};
     let diamond = Ingredient::Item(vanilla(item::Kind::Diamond));
     let out = [(vanilla(item::Kind::DiamondHoe), 1)];
     let too_many = [(vanilla(item::Kind::Stick), 1); MAX_RESULTS + 1];
@@ -962,7 +1018,10 @@ fn recipes() -> Registry {
     r
 }
 
-// pmmp: CraftingManager::registerShapedRecipe, CraftingManager::registerShapelessRecipe, FurnaceRecipeManager::register, ShapedRecipe::__construct, ShapelessRecipe::__construct, FurnaceRecipe::__construct, ExactRecipeIngredient::__construct
+// pmmp: CraftingManager::registerShapedRecipe, CraftingManager::registerShapelessRecipe,
+// pmmp: FurnaceRecipeManager::register, ShapedRecipe::__construct,
+// pmmp: ShapelessRecipe::__construct, FurnaceRecipe::__construct,
+// pmmp: ExactRecipeIngredient::__construct
 #[test]
 fn custom_recipes_are_numbered_after_pmmps_and_judged_by_shape() {
     let r = recipes();
@@ -1103,7 +1162,9 @@ fn stonecutter_and_smithing_recipes_are_numbered_and_sent_after_pmmps() {
     );
 }
 
-// pmmp: CraftingManager::registerPotionTypeRecipe, CraftingManager::registerPotionContainerChangeRecipe, PotionTypeRecipe::__construct, PotionContainerChangeRecipe::__construct, CraftingManager::matchBrewingRecipe
+// pmmp: CraftingManager::registerPotionTypeRecipe,
+// pmmp: CraftingManager::registerPotionContainerChangeRecipe, PotionTypeRecipe::__construct,
+// pmmp: PotionContainerChangeRecipe::__construct, CraftingManager::matchBrewingRecipe
 #[test]
 fn brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind() {
     let r = station_and_brewing();
@@ -1428,7 +1489,6 @@ fn nothing_registered_sends_exactly_the_vanilla_content() {
 /// `minecraft:info_update`) and is saved back exactly as it was.
 #[test]
 fn saved_custom_blocks_load_back_or_stay_as_they_were_saved() {
-    use crate::world::{Chunk, Entry};
     let r = registry();
     let blue = r
         .block_state(&LAMP)

@@ -4,10 +4,10 @@
 //! A block event names its block by world, position and state. Other blocks it mentions are still
 //! in the world while the listeners run, so the event gives their positions only.
 
-use super::DEFAULT_FIRE_CHANCE;
+use super::{MAX_SAVED_FUEL_TIME, fire_chance_after, set_clamped, set_radius};
 use crate::block::State;
 use crate::item::Stack;
-use crate::math::{self, Vec3};
+use crate::math::Vec3;
 use crate::player;
 use crate::tile::Side;
 use crate::world::{self, BlockPos};
@@ -35,7 +35,8 @@ getters!(BlockBreak {
     world: world::Id,
     /// Where the block is.
     pos: BlockPos,
-    /// The block being broken.
+    /// The block being broken, or `minecraft:info_update` for an inert block (one Anchor keeps as
+    /// it was saved but gives no behaviour).
     #[doc(alias = "BlockEvent::getBlock")]
     block: State,
     /// What the player breaks it with (empty for a bare hand).
@@ -64,7 +65,14 @@ setters!(BlockBreak {
     set_xp_drop_amount => xp_drop_amount: u32,
 });
 
-/// Raised when fire burns a block away. Cancelling keeps the block.
+cancellable! {
+    BlockBreak
+        #[doc(alias = "BlockBreakEvent::cancel")]
+        #[doc(alias = "BlockBreakEvent::uncancel")]
+        #[doc(alias = "BlockBreakEvent::isCancelled")];
+}
+
+/// Raised when fire burns a block away; TNT is primed instead. Cancelling keeps the block.
 #[doc(alias = "BlockBurnEvent")]
 #[derive(Debug)]
 pub struct BlockBurn {
@@ -87,6 +95,13 @@ getters!(BlockBurn {
     causing_block: BlockPos,
 });
 
+cancellable! {
+    BlockBurn
+        #[doc(alias = "BlockBurnEvent::cancel")]
+        #[doc(alias = "BlockBurnEvent::uncancel")]
+        #[doc(alias = "BlockBurnEvent::isCancelled")];
+}
+
 /// Raised when a block dies: coral without water becomes dead coral. Cancelling keeps it alive.
 #[doc(alias = "BlockDeathEvent")]
 #[derive(Debug)]
@@ -108,6 +123,10 @@ getters!(BlockDeath {
     /// The dead block it becomes.
     new_state: State,
 });
+
+cancellable! {
+    BlockDeath;
+}
 
 /// Raised when a block explodes (a respawn anchor), after the blocks it breaks are known and
 /// before they break. Cancelling keeps the blocks and hurts nobody; the exploding block is gone
@@ -147,10 +166,12 @@ getters!(BlockExplode {
 });
 
 setters!(BlockExplode {
-    /// Replaces the blocks that break. Blocks outside loaded chunks are left alone.
+    /// Replaces the blocks that break. Only the first 8,192 are used, and blocks outside loaded
+    /// chunks are left alone.
     #[doc(alias = "BlockExplodeEvent::setAffectedBlocks")]
     set_blocks => blocks: Vec<BlockPos>,
-    /// Replaces the blocks that catch fire.
+    /// Replaces the blocks that catch fire. Only the first 8,192 are used, and a block catches
+    /// fire only if it is air once the blocks have broken and the block under it has a full top.
     #[doc(alias = "BlockExplodeEvent::setIgnitions")]
     set_ignitions => ignitions: Vec<BlockPos>,
 });
@@ -160,10 +181,15 @@ impl BlockExplode {
     /// value that is not finite is ignored.
     #[doc(alias = "BlockExplodeEvent::setYield")]
     pub fn set_yield_percent(&mut self, percent: f64) {
-        if percent.is_finite() {
-            self.yield_percent = math::clamp(percent, 0.0, 100.0);
-        }
+        set_clamped(&mut self.yield_percent, percent, 0.0, 100.0);
     }
+}
+
+cancellable! {
+    BlockExplode
+        #[doc(alias = "BlockExplodeEvent::cancel")]
+        #[doc(alias = "BlockExplodeEvent::uncancel")]
+        #[doc(alias = "BlockExplodeEvent::isCancelled")];
 }
 
 /// Raised when a block forms: water hardens concrete powder, lava and water make stone. Cancelling
@@ -188,10 +214,15 @@ getters!(BlockForm {
     block: State,
     /// The block it becomes.
     new_state: State,
-    /// Where the liquid that makes it form is.
+    /// Where the block that makes it form is: the water or lava, or the blue ice that makes
+    /// basalt.
     #[doc(alias = "BlockFormEvent::getCausingBlock")]
     causing_block: BlockPos,
 });
+
+cancellable! {
+    BlockForm;
+}
 
 /// Raised when a block grows by itself or by bone meal (crops, stems, cane, cactus, berries…).
 /// Cancelling keeps the old block.
@@ -220,6 +251,10 @@ getters!(BlockGrow {
     player: Option<player::Id>,
 });
 
+cancellable! {
+    BlockGrow;
+}
+
 /// Raised when a block melts: ice, frosted ice and snow in light. Cancelling keeps the block.
 #[doc(alias = "BlockMeltEvent")]
 #[derive(Debug)]
@@ -241,6 +276,10 @@ getters!(BlockMelt {
     /// The block it becomes.
     new_state: State,
 });
+
+cancellable! {
+    BlockMelt;
+}
 
 /// Raised when a player places a block, before it is set. Cancelling keeps the world as it was
 /// and the item in the player's hand.
@@ -271,6 +310,13 @@ getters!(BlockPlace {
     #[doc(alias = "BlockPlaceEvent::getItem")]
     item: &Stack,
 });
+
+cancellable! {
+    BlockPlace
+        #[doc(alias = "BlockPlaceEvent::cancel")]
+        #[doc(alias = "BlockPlaceEvent::uncancel")]
+        #[doc(alias = "BlockPlaceEvent::isCancelled")];
+}
 
 /// Raised when a block is about to explode (a charged respawn anchor a player uses), before it
 /// goes and the blocks it breaks are found. Cancelling keeps the block.
@@ -306,22 +352,10 @@ getters!(BlockPreExplode {
 });
 
 impl BlockPreExplode {
-    /// Sets the radius of the explosion. A value that is not above 0 is ignored; Anchor's
-    /// explosions reach at most 8 blocks, and a larger radius stops there.
-    #[doc(alias = "BlockPreExplodeEvent::setRadius")]
-    pub fn set_radius(&mut self, radius: f64) {
-        if radius.is_finite() && radius > 0.0 {
-            self.radius = radius;
-        }
-    }
-
-    /// Sets the chance that a block catches fire, limited to 0 to 1. A value that is not finite
-    /// is ignored.
-    #[doc(alias = "BlockPreExplodeEvent::setFireChance")]
-    pub fn set_fire_chance(&mut self, chance: f64) {
-        if chance.is_finite() {
-            self.fire_chance = math::clamp(chance, 0.0, 1.0);
-        }
+    /// Whether the explosion breaks blocks.
+    #[doc(alias = "BlockPreExplodeEvent::isBlockBreaking")]
+    pub fn is_block_breaking(&self) -> bool {
+        self.block_breaking
     }
 
     /// Whether the explosion sets fires.
@@ -330,20 +364,24 @@ impl BlockPreExplode {
         self.fire_chance > 0.0
     }
 
+    /// Sets the chance that a block catches fire, limited to 0 to 1. A value that is not finite
+    /// is ignored.
+    #[doc(alias = "BlockPreExplodeEvent::setFireChance")]
+    pub fn set_fire_chance(&mut self, chance: f64) {
+        set_clamped(&mut self.fire_chance, chance, 0.0, 1.0);
+    }
+
     /// Makes the explosion set fires (with a chance of 1/3 unless one is set) or none.
     #[doc(alias = "BlockPreExplodeEvent::setIncendiary")]
     pub fn set_incendiary(&mut self, incendiary: bool) {
-        if !incendiary {
-            self.fire_chance = 0.0;
-        } else if self.fire_chance <= 0.0 {
-            self.fire_chance = DEFAULT_FIRE_CHANCE;
-        }
+        self.fire_chance = fire_chance_after(self.fire_chance, incendiary);
     }
 
-    /// Whether the explosion breaks blocks.
-    #[doc(alias = "BlockPreExplodeEvent::isBlockBreaking")]
-    pub fn is_block_breaking(&self) -> bool {
-        self.block_breaking
+    /// Sets the radius of the explosion, limited to 8 blocks. A value that is not finite or not
+    /// above 0 is ignored.
+    #[doc(alias = "BlockPreExplodeEvent::setRadius")]
+    pub fn set_radius(&mut self, radius: f64) {
+        set_radius(&mut self.radius, radius);
     }
 }
 
@@ -353,8 +391,18 @@ setters!(BlockPreExplode {
     set_block_breaking => block_breaking: bool,
 });
 
-/// Raised when a block spreads: grass and mycelium to dirt, fire to a neighbour, a liquid into a
-/// block. Cancelling keeps the old block.
+cancellable! {
+    BlockPreExplode
+        #[doc(alias = "BlockPreExplodeEvent::cancel")]
+        #[doc(alias = "BlockPreExplodeEvent::uncancel")]
+        #[doc(alias = "BlockPreExplodeEvent::isCancelled")];
+}
+
+/// Raised when a block spreads: grass and mycelium onto dirt, fire to a neighbour, a liquid into a
+/// block; also when a block turns in place into what spreads (grass in the dark to dirt, covered
+/// nylium to netherrack), then [`source`](Self::source) is [`pos`](Self::pos). Cancelling keeps
+/// the old block, but a fire that spreads into a block it burnt leaves air there: the block is
+/// already burnt.
 #[doc(alias = "BlockSpreadEvent")]
 #[derive(Debug)]
 pub struct BlockSpread {
@@ -379,6 +427,10 @@ getters!(BlockSpread {
     #[doc(alias = "BlockSpreadEvent::getSource")]
     source: BlockPos,
 });
+
+cancellable! {
+    BlockSpread;
+}
 
 /// Raised when a dragon egg teleports. Cancelling keeps it in place.
 #[doc(alias = "BlockTeleportEvent")]
@@ -410,8 +462,16 @@ setters!(BlockTeleport {
     set_to => to: BlockPos,
 });
 
-/// Raised when a block is told that a neighbour changed, before it reacts. Cancelling skips the
-/// reaction.
+cancellable! {
+    BlockTeleport
+        #[doc(alias = "BlockTeleportEvent::cancel")]
+        #[doc(alias = "BlockTeleportEvent::uncancel")]
+        #[doc(alias = "BlockTeleportEvent::isCancelled")];
+}
+
+/// Raised when a block is told that a neighbour changed, before it reacts: the changed block itself
+/// and its six neighbours. Cancelling skips the reaction of the block and of the entities in it.
+/// Scheduled updates raise no event.
 #[doc(alias = "BlockUpdateEvent")]
 #[derive(Debug)]
 pub struct BlockUpdate {
@@ -430,7 +490,15 @@ getters!(BlockUpdate {
     block: State,
 });
 
-/// Raised when a brewing stand finishes brewing one bottle. Cancelling keeps the bottle as it was.
+cancellable! {
+    BlockUpdate
+        #[doc(alias = "BlockUpdateEvent::cancel")]
+        #[doc(alias = "BlockUpdateEvent::uncancel")]
+        #[doc(alias = "BlockUpdateEvent::isCancelled")];
+}
+
+/// Raised when a brewing stand finishes brewing one bottle. Cancelling keeps the bottle as it was;
+/// the brew still uses up one ingredient.
 #[doc(alias = "BrewItemEvent")]
 #[derive(Debug)]
 pub struct BrewItem {
@@ -463,10 +531,18 @@ getters!(BrewItem {
 });
 
 setters!(BrewItem {
-    /// Replaces the bottle after brewing.
+    /// Replaces the bottle after brewing. An empty result keeps the bottle as it was, as a cancel
+    /// does.
     #[doc(alias = "BrewItemEvent::setResult")]
     set_result => result: Stack,
 });
+
+cancellable! {
+    BrewItem
+        #[doc(alias = "BrewItemEvent::cancel")]
+        #[doc(alias = "BrewItemEvent::uncancel")]
+        #[doc(alias = "BrewItemEvent::isCancelled")];
+}
 
 /// Raised when a brewing stand uses up a blaze powder as fuel. Cancelling keeps the powder and
 /// gives no fuel.
@@ -497,8 +573,15 @@ impl BrewingFuelUse {
     /// Sets how many brews the fuel lasts, 1 to 32,767 (0 counts as 1, more as 32,767).
     #[doc(alias = "BrewingFuelUseEvent::setFuelTime")]
     pub fn set_fuel_time(&mut self, fuel_time: u32) {
-        self.fuel_time = fuel_time.clamp(1, super::MAX_SAVED_FUEL_TIME);
+        self.fuel_time = fuel_time.clamp(1, MAX_SAVED_FUEL_TIME);
     }
+}
+
+cancellable! {
+    BrewingFuelUse
+        #[doc(alias = "BrewingFuelUseEvent::cancel")]
+        #[doc(alias = "BrewingFuelUseEvent::uncancel")]
+        #[doc(alias = "BrewingFuelUseEvent::isCancelled")];
 }
 
 /// Raised when a campfire finishes cooking an item. Cancelling keeps the item uncooked.
@@ -534,13 +617,21 @@ getters!(CampfireCook {
 });
 
 setters!(CampfireCook {
-    /// Replaces the cooked item that drops.
+    /// Replaces the cooked item that drops. An empty result drops nothing, and the raw item is
+    /// gone all the same.
     #[doc(alias = "CampfireCookEvent::setResult")]
     set_result => result: Stack,
 });
 
-/// Raised when a placed chest joins the chest next to it into a double chest. Cancelling keeps
-/// them single.
+cancellable! {
+    CampfireCook
+        #[doc(alias = "CampfireCookEvent::cancel")]
+        #[doc(alias = "CampfireCookEvent::uncancel")]
+        #[doc(alias = "CampfireCookEvent::isCancelled")];
+}
+
+/// Raised when a chest that gets its block entity (placed, set by code, or opened without one)
+/// joins the chest next to it into a double chest. Cancelling keeps them single.
 #[doc(alias = "ChestPairEvent")]
 #[derive(Debug)]
 pub struct ChestPair {
@@ -560,6 +651,13 @@ getters!(ChestPair {
     #[doc(alias = "ChestPairEvent::getRight")]
     right: BlockPos,
 });
+
+cancellable! {
+    ChestPair
+        #[doc(alias = "ChestPairEvent::cancel")]
+        #[doc(alias = "ChestPairEvent::uncancel")]
+        #[doc(alias = "ChestPairEvent::isCancelled")];
+}
 
 /// Raised when farmland gets wetter or drier. Cancelling keeps its wetness.
 #[doc(alias = "FarmlandHydrationChangeEvent")]
@@ -589,11 +687,21 @@ getters!(FarmlandHydrationChange {
 });
 
 impl FarmlandHydrationChange {
+    /// The wettest farmland (PMMP `Farmland::MAX_WETNESS`).
+    pub(crate) const MAX_HYDRATION: u8 = 7;
+
     /// Sets the wetness after, at most 7 (more counts as 7).
     #[doc(alias = "FarmlandHydrationChangeEvent::setNewHydration")]
     pub fn set_new_hydration(&mut self, hydration: u8) {
-        self.new_hydration = hydration.min(7);
+        self.new_hydration = hydration.min(Self::MAX_HYDRATION);
     }
+}
+
+cancellable! {
+    FarmlandHydrationChange
+        #[doc(alias = "FarmlandHydrationChangeEvent::cancel")]
+        #[doc(alias = "FarmlandHydrationChangeEvent::uncancel")]
+        #[doc(alias = "FarmlandHydrationChangeEvent::isCancelled")];
 }
 
 /// Raised when leaves without a log nearby decay. Cancelling keeps them.
@@ -615,7 +723,19 @@ getters!(LeavesDecay {
     block: State,
 });
 
-/// Raised when a player writes on a sign. Cancelling keeps the old text.
+cancellable! {
+    LeavesDecay
+        #[doc(alias = "LeavesDecayEvent::cancel")]
+        #[doc(alias = "LeavesDecayEvent::uncancel")]
+        #[doc(alias = "LeavesDecayEvent::isCancelled")];
+}
+
+/// Raised when a player writes on a sign, or dyes it or lights it or dims it with a dye, an ink
+/// sac or a glow ink sac. Cancelling keeps the old text and the old colour and light; a use with
+/// a dye or an ink sac then opens the sign's editor.
+///
+/// A dye or an ink sac starts the new text equal to the old; the event does not name the colour or
+/// the light.
 #[doc(alias = "SignChangeEvent")]
 #[derive(Debug)]
 pub struct SignChange {
@@ -660,6 +780,13 @@ setters!(SignChange {
     set_new_text => new_text: [String; 4],
 });
 
+cancellable! {
+    SignChange
+        #[doc(alias = "SignChangeEvent::cancel")]
+        #[doc(alias = "SignChangeEvent::uncancel")]
+        #[doc(alias = "SignChangeEvent::isCancelled")];
+}
+
 /// Raised when a structure grows from a block: a sapling into a tree, a fungus into a huge
 /// fungus, bamboo, chorus and other plants that set many blocks at once. Cancelling keeps the
 /// world as it was.
@@ -690,67 +817,6 @@ getters!(StructureGrow {
 });
 
 cancellable! {
-    BlockBreak
-        #[doc(alias = "BlockBreakEvent::cancel")]
-        #[doc(alias = "BlockBreakEvent::uncancel")]
-        #[doc(alias = "BlockBreakEvent::isCancelled")];
-    BlockBurn
-        #[doc(alias = "BlockBurnEvent::cancel")]
-        #[doc(alias = "BlockBurnEvent::uncancel")]
-        #[doc(alias = "BlockBurnEvent::isCancelled")];
-    BlockDeath;
-    BlockExplode
-        #[doc(alias = "BlockExplodeEvent::cancel")]
-        #[doc(alias = "BlockExplodeEvent::uncancel")]
-        #[doc(alias = "BlockExplodeEvent::isCancelled")];
-    BlockForm;
-    BlockGrow;
-    BlockMelt;
-    BlockPlace
-        #[doc(alias = "BlockPlaceEvent::cancel")]
-        #[doc(alias = "BlockPlaceEvent::uncancel")]
-        #[doc(alias = "BlockPlaceEvent::isCancelled")];
-    BlockPreExplode
-        #[doc(alias = "BlockPreExplodeEvent::cancel")]
-        #[doc(alias = "BlockPreExplodeEvent::uncancel")]
-        #[doc(alias = "BlockPreExplodeEvent::isCancelled")];
-    BlockSpread;
-    BlockTeleport
-        #[doc(alias = "BlockTeleportEvent::cancel")]
-        #[doc(alias = "BlockTeleportEvent::uncancel")]
-        #[doc(alias = "BlockTeleportEvent::isCancelled")];
-    BlockUpdate
-        #[doc(alias = "BlockUpdateEvent::cancel")]
-        #[doc(alias = "BlockUpdateEvent::uncancel")]
-        #[doc(alias = "BlockUpdateEvent::isCancelled")];
-    BrewItem
-        #[doc(alias = "BrewItemEvent::cancel")]
-        #[doc(alias = "BrewItemEvent::uncancel")]
-        #[doc(alias = "BrewItemEvent::isCancelled")];
-    BrewingFuelUse
-        #[doc(alias = "BrewingFuelUseEvent::cancel")]
-        #[doc(alias = "BrewingFuelUseEvent::uncancel")]
-        #[doc(alias = "BrewingFuelUseEvent::isCancelled")];
-    CampfireCook
-        #[doc(alias = "CampfireCookEvent::cancel")]
-        #[doc(alias = "CampfireCookEvent::uncancel")]
-        #[doc(alias = "CampfireCookEvent::isCancelled")];
-    ChestPair
-        #[doc(alias = "ChestPairEvent::cancel")]
-        #[doc(alias = "ChestPairEvent::uncancel")]
-        #[doc(alias = "ChestPairEvent::isCancelled")];
-    FarmlandHydrationChange
-        #[doc(alias = "FarmlandHydrationChangeEvent::cancel")]
-        #[doc(alias = "FarmlandHydrationChangeEvent::uncancel")]
-        #[doc(alias = "FarmlandHydrationChangeEvent::isCancelled")];
-    LeavesDecay
-        #[doc(alias = "LeavesDecayEvent::cancel")]
-        #[doc(alias = "LeavesDecayEvent::uncancel")]
-        #[doc(alias = "LeavesDecayEvent::isCancelled")];
-    SignChange
-        #[doc(alias = "SignChangeEvent::cancel")]
-        #[doc(alias = "SignChangeEvent::uncancel")]
-        #[doc(alias = "SignChangeEvent::isCancelled")];
     StructureGrow
         #[doc(alias = "StructureGrowEvent::cancel")]
         #[doc(alias = "StructureGrowEvent::uncancel")]
@@ -762,11 +828,16 @@ mod tests {
     use super::*;
     use crate::block::{AIR, DIRT, GRASS_BLOCK};
     use crate::event::fixtures::{POS, player, sticks};
+    use crate::event::{DEFAULT_FIRE_CHANCE, MAX_EXPLOSION_RADIUS};
 
     const WORLD: world::Id = world::Id::DEFAULT;
     const OTHER: BlockPos = BlockPos::new(5, 6, 7);
 
-    // pmmp: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock, BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops, BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setDrops, BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount, BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
+    // pmmp: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock,
+    // pmmp: BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops,
+    // pmmp: BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setDrops,
+    // pmmp: BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount,
+    // pmmp: BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
     #[test]
     fn block_break_reads_and_changes_its_fields() {
         let mut e = BlockBreak {
@@ -799,7 +870,8 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockBurnEvent, BlockBurnEvent::getCausingBlock, BlockBurnEvent::cancel, BlockBurnEvent::uncancel, BlockBurnEvent::isCancelled
+    // pmmp: BlockBurnEvent, BlockBurnEvent::getCausingBlock, BlockBurnEvent::cancel,
+    // pmmp: BlockBurnEvent::uncancel, BlockBurnEvent::isCancelled
     #[test]
     fn block_burn_names_the_fire() {
         let mut e = BlockBurn {
@@ -852,7 +924,8 @@ mod tests {
         assert!(melt.is_cancelled());
     }
 
-    // pmmp: BlockFormEvent, BlockGrowEvent, BlockSpreadEvent, BlockFormEvent::getCausingBlock, BlockGrowEvent::getPlayer, BlockSpreadEvent::getSource
+    // pmmp: BlockFormEvent, BlockGrowEvent, BlockSpreadEvent, BlockFormEvent::getCausingBlock,
+    // pmmp: BlockGrowEvent::getPlayer, BlockSpreadEvent::getSource
     #[test]
     fn block_form_grow_and_spread_name_their_cause() {
         let mut form = BlockForm {
@@ -913,7 +986,9 @@ mod tests {
         assert!(!spread.is_cancelled());
     }
 
-    // pmmp: BlockPlaceEvent, BlockPlaceEvent::getPlayer, BlockPlaceEvent::getTransaction, BlockPlaceEvent::getBlockAgainst, BlockPlaceEvent::getItem, BlockPlaceEvent::cancel, BlockPlaceEvent::uncancel, BlockPlaceEvent::isCancelled
+    // pmmp: BlockPlaceEvent, BlockPlaceEvent::getPlayer, BlockPlaceEvent::getTransaction,
+    // pmmp: BlockPlaceEvent::getBlockAgainst, BlockPlaceEvent::getItem, BlockPlaceEvent::cancel,
+    // pmmp: BlockPlaceEvent::uncancel, BlockPlaceEvent::isCancelled
     #[test]
     fn block_place_lists_every_block_it_sets() {
         let mut e = BlockPlace {
@@ -934,7 +1009,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockTeleportEvent, BlockTeleportEvent::getTo, BlockTeleportEvent::setTo, BlockTeleportEvent::cancel, BlockTeleportEvent::uncancel, BlockTeleportEvent::isCancelled
+    // pmmp: BlockTeleportEvent, BlockTeleportEvent::getTo, BlockTeleportEvent::setTo,
+    // pmmp: BlockTeleportEvent::cancel, BlockTeleportEvent::uncancel,
+    // pmmp: BlockTeleportEvent::isCancelled
     #[test]
     fn block_teleport_target_can_change() {
         let mut e = BlockTeleport {
@@ -956,7 +1033,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockUpdateEvent, LeavesDecayEvent, BlockUpdateEvent::cancel, BlockUpdateEvent::uncancel, BlockUpdateEvent::isCancelled, LeavesDecayEvent::cancel, LeavesDecayEvent::uncancel, LeavesDecayEvent::isCancelled
+    // pmmp: BlockUpdateEvent, LeavesDecayEvent, BlockUpdateEvent::cancel,
+    // pmmp: BlockUpdateEvent::uncancel, BlockUpdateEvent::isCancelled, LeavesDecayEvent::cancel,
+    // pmmp: LeavesDecayEvent::uncancel, LeavesDecayEvent::isCancelled
     #[test]
     fn block_update_and_leaves_decay_can_be_cancelled() {
         let mut update = BlockUpdate {
@@ -989,7 +1068,9 @@ mod tests {
         assert!(!decay.is_cancelled());
     }
 
-    // pmmp: BrewItemEvent, BrewItemEvent::getBrewingStand, BrewItemEvent::getSlot, BrewItemEvent::getInput, BrewItemEvent::getResult, BrewItemEvent::setResult, BrewItemEvent::cancel, BrewItemEvent::uncancel, BrewItemEvent::isCancelled
+    // pmmp: BrewItemEvent, BrewItemEvent::getBrewingStand, BrewItemEvent::getSlot,
+    // pmmp: BrewItemEvent::getInput, BrewItemEvent::getResult, BrewItemEvent::setResult,
+    // pmmp: BrewItemEvent::cancel, BrewItemEvent::uncancel, BrewItemEvent::isCancelled
     #[test]
     fn brew_item_result_can_change() {
         let mut e = BrewItem {
@@ -1014,7 +1095,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BrewingFuelUseEvent, BrewingFuelUseEvent::getBrewingStand, BrewingFuelUseEvent::getFuelTime, BrewingFuelUseEvent::setFuelTime, BrewingFuelUseEvent::cancel, BrewingFuelUseEvent::uncancel, BrewingFuelUseEvent::isCancelled
+    // pmmp: BrewingFuelUseEvent, BrewingFuelUseEvent::getBrewingStand,
+    // pmmp: BrewingFuelUseEvent::getFuelTime, BrewingFuelUseEvent::setFuelTime,
+    // pmmp: BrewingFuelUseEvent::cancel, BrewingFuelUseEvent::uncancel,
+    // pmmp: BrewingFuelUseEvent::isCancelled
     #[test]
     fn brewing_fuel_lasts_at_least_one_brew() {
         let mut e = BrewingFuelUse {
@@ -1044,7 +1128,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: CampfireCookEvent, CampfireCookEvent::getCampfire, CampfireCookEvent::getSlot, CampfireCookEvent::getInput, CampfireCookEvent::getResult, CampfireCookEvent::setResult, CampfireCookEvent::cancel, CampfireCookEvent::uncancel, CampfireCookEvent::isCancelled
+    // pmmp: CampfireCookEvent, CampfireCookEvent::getCampfire, CampfireCookEvent::getSlot,
+    // pmmp: CampfireCookEvent::getInput, CampfireCookEvent::getResult,
+    // pmmp: CampfireCookEvent::setResult, CampfireCookEvent::cancel,
+    // pmmp: CampfireCookEvent::uncancel, CampfireCookEvent::isCancelled
     #[test]
     fn campfire_cook_result_can_change() {
         let mut e = CampfireCook {
@@ -1069,7 +1156,8 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: ChestPairEvent, ChestPairEvent::getLeft, ChestPairEvent::getRight, ChestPairEvent::cancel, ChestPairEvent::uncancel, ChestPairEvent::isCancelled
+    // pmmp: ChestPairEvent, ChestPairEvent::getLeft, ChestPairEvent::getRight,
+    // pmmp: ChestPairEvent::cancel, ChestPairEvent::uncancel, ChestPairEvent::isCancelled
     #[test]
     fn chest_pair_names_both_halves() {
         let mut e = ChestPair {
@@ -1085,7 +1173,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: FarmlandHydrationChangeEvent, FarmlandHydrationChangeEvent::getOldHydration, FarmlandHydrationChangeEvent::getNewHydration, FarmlandHydrationChangeEvent::setNewHydration, FarmlandHydrationChangeEvent::cancel, FarmlandHydrationChangeEvent::uncancel, FarmlandHydrationChangeEvent::isCancelled
+    // pmmp: FarmlandHydrationChangeEvent, FarmlandHydrationChangeEvent::getOldHydration,
+    // pmmp: FarmlandHydrationChangeEvent::getNewHydration,
+    // pmmp: FarmlandHydrationChangeEvent::setNewHydration,
+    // pmmp: FarmlandHydrationChangeEvent::cancel, FarmlandHydrationChangeEvent::uncancel,
+    // pmmp: FarmlandHydrationChangeEvent::isCancelled
     #[test]
     fn farmland_hydration_stays_in_range() {
         let mut e = FarmlandHydrationChange {
@@ -1108,7 +1200,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: SignChangeEvent, SignChangeEvent::getPlayer, SignChangeEvent::getSign, SignChangeEvent::getOldText, SignChangeEvent::getNewText, SignChangeEvent::isFrontFace, SignChangeEvent::setNewText, SignChangeEvent::cancel, SignChangeEvent::uncancel, SignChangeEvent::isCancelled
+    // pmmp: SignChangeEvent, SignChangeEvent::getPlayer, SignChangeEvent::getSign,
+    // pmmp: SignChangeEvent::getOldText, SignChangeEvent::getNewText,
+    // pmmp: SignChangeEvent::isFrontFace, SignChangeEvent::setNewText, SignChangeEvent::cancel,
+    // pmmp: SignChangeEvent::uncancel, SignChangeEvent::isCancelled
     #[test]
     fn sign_change_names_its_side_and_its_text_can_change() {
         let lines = |s: &str| [s.to_owned(), String::new(), String::new(), String::new()];
@@ -1136,7 +1231,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: StructureGrowEvent, StructureGrowEvent::getTransaction, StructureGrowEvent::getPlayer, StructureGrowEvent::cancel, StructureGrowEvent::uncancel, StructureGrowEvent::isCancelled
+    // pmmp: StructureGrowEvent, StructureGrowEvent::getTransaction,
+    // pmmp: StructureGrowEvent::getPlayer, StructureGrowEvent::cancel,
+    // pmmp: StructureGrowEvent::uncancel, StructureGrowEvent::isCancelled
     #[test]
     fn structure_grow_lists_every_block_it_sets() {
         let mut e = StructureGrow {
@@ -1156,7 +1253,13 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::getFireChance, BlockPreExplodeEvent::setFireChance, BlockPreExplodeEvent::isIncendiary, BlockPreExplodeEvent::setIncendiary, BlockPreExplodeEvent::isBlockBreaking, BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::cancel, BlockPreExplodeEvent::uncancel, BlockPreExplodeEvent::isCancelled
+    // pmmp: BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius,
+    // pmmp: BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::getFireChance,
+    // pmmp: BlockPreExplodeEvent::setFireChance, BlockPreExplodeEvent::isIncendiary,
+    // pmmp: BlockPreExplodeEvent::setIncendiary, BlockPreExplodeEvent::isBlockBreaking,
+    // pmmp: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::getPlayer,
+    // pmmp: BlockPreExplodeEvent::cancel, BlockPreExplodeEvent::uncancel,
+    // pmmp: BlockPreExplodeEvent::isCancelled
     #[test]
     fn block_pre_explode_keeps_its_values_in_range() {
         let mut e = BlockPreExplode {
@@ -1176,6 +1279,8 @@ mod tests {
         e.set_radius(-1.0);
         e.set_radius(f64::NAN);
         assert_eq!(e.radius(), 2.5);
+        e.set_radius(100.0);
+        assert_eq!(e.radius(), MAX_EXPLOSION_RADIUS);
         e.set_incendiary(true);
         assert_eq!(e.fire_chance(), DEFAULT_FIRE_CHANCE);
         e.set_fire_chance(2.0);
@@ -1196,7 +1301,12 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockExplodeEvent, BlockExplodeEvent::getPosition, BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::getIgnitions, BlockExplodeEvent::setIgnitions, BlockExplodeEvent::getYield, BlockExplodeEvent::setYield, BlockExplodeEvent::cancel, BlockExplodeEvent::uncancel, BlockExplodeEvent::isCancelled
+    // pmmp: BlockExplodeEvent, BlockExplodeEvent::getPosition,
+    // pmmp: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::setAffectedBlocks,
+    // pmmp: BlockExplodeEvent::getIgnitions, BlockExplodeEvent::setIgnitions,
+    // pmmp: BlockExplodeEvent::getYield, BlockExplodeEvent::setYield,
+    // pmmp: BlockExplodeEvent::cancel, BlockExplodeEvent::uncancel,
+    // pmmp: BlockExplodeEvent::isCancelled
     #[test]
     fn block_explode_blocks_and_yield_can_change() {
         let centre = Vec3::new(1.5, 64.5, -1.5);

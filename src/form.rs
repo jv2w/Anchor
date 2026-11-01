@@ -9,17 +9,20 @@
 //! use anchor::form::{Button, Custom, Image, Menu, Response, Value};
 //! use anchor::player;
 //!
-//! fn open_menu(cx: &mut Context<'_>, player: player::Id) {
+//! fn open_menu(ctx: &mut Context<'_>, player: player::Id) {
 //!     let menu = Menu::new("Lobby")
-//!         .content("Pick a game")
-//!         .button(Button::new("PvP").image(Image::Path("textures/items/iron_sword".into())))
+//!         .with_content("Pick a game")
+//!         .button(
+//!             Button::new("PvP")
+//!                 .with_image(Image::Path("textures/items/iron_sword".to_owned())),
+//!         )
 //!         .button("Settings");
-//!     let sent = cx.send_form(player, menu, |cx, player, response| {
+//!     let sent = ctx.send_form(player, menu, |ctx, player, response| {
 //!         if response == Response::Menu(1) {
 //!             let settings = Custom::new("Settings")
 //!                 .toggle("Music", true)
 //!                 .slider("Volume", 0.0, 100.0, 5.0, 50.0);
-//!             let _ = cx.send_form(player, settings, |_, _, response| {
+//!             let _ = ctx.send_form(player, settings, |_, _, response| {
 //!                 if let Response::Custom(values) = response {
 //!                     let _ = matches!(values.first(), Some(Value::Bool(true)));
 //!                 }
@@ -33,8 +36,8 @@
 //! The answer is checked against the form that was sent: its JSON is at most 64 KiB, and every
 //! value must fit its element (a toggle a bool, a slider a number within its range on a step, a
 //! dropdown an index of an option, an input text of at most 8 KiB). An answer that does not fit
-//! is dropped, and the handler of that form never runs. A player has at most 16 forms waiting
-//! for an answer.
+//! is dropped, and the handler of that form never runs. A form whose own default answer would
+//! not fit is refused when it is sent. A player has at most 16 forms waiting for an answer.
 
 use std::fmt;
 
@@ -43,23 +46,23 @@ use serde_json::{Value as Json, json};
 use crate::data::{JsonError, to_json};
 use crate::math;
 
+/// The most elements (buttons, labels, inputs…) one form has.
+const MAX_ELEMENTS: usize = 256;
+/// The longest form sent, in bytes of JSON.
+const MAX_FORM_BYTES: usize = 256 * 1024;
+/// The longest text an input answers, in bytes.
+const MAX_INPUT_BYTES: usize = 8 * 1024;
+/// The most options of one dropdown or steps of one step slider.
+const MAX_OPTIONS: usize = 256;
 /// The most forms one player has waiting for an answer.
 pub(crate) const MAX_PENDING: usize = 16;
 /// The longest answer accepted, in bytes of JSON; a longer one is dropped before it is parsed.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 64 * 1024;
-/// The longest form sent, in bytes of JSON.
-const MAX_FORM_BYTES: usize = 256 * 1024;
-/// The most elements (buttons, labels, inputs…) one form has.
-const MAX_ELEMENTS: usize = 256;
-/// The most options of one dropdown or steps of one step slider.
-const MAX_OPTIONS: usize = 256;
-/// The longest text an input answers, in bytes.
-const MAX_INPUT_BYTES: usize = 8 * 1024;
+/// The `timeout` BDS writes on every slider (P6).
+const SLIDER_TIMEOUT: u32 = 100;
 /// How far, in steps, a slider answer may lie off a step or outside the range and still count:
 /// the client computes the value in 32-bit floats.
 const STEP_TOLERANCE: f64 = 1e-3;
-/// The `timeout` BDS writes on every slider (P6).
-const SLIDER_TIMEOUT: u32 = 100;
 
 /// A form to send to a player: one of the three kinds Bedrock shows.
 #[derive(Debug, Clone, PartialEq)]
@@ -73,9 +76,34 @@ pub enum Form {
     Custom(Custom),
 }
 
-impl From<Modal> for Form {
-    fn from(form: Modal) -> Self {
-        Self::Modal(form)
+impl Form {
+    /// Checks the form and returns its JSON and the shape of its answer.
+    pub(crate) fn prepare(&self) -> Result<(Vec<u8>, Shape)> {
+        let (json, shape) = match self {
+            Self::Modal(m) => (
+                json!({
+                    "type": "modal",
+                    "title": m.title,
+                    "content": m.content,
+                    "button1": m.first,
+                    "button2": m.second,
+                }),
+                Shape::Modal,
+            ),
+            Self::Menu(m) => menu(m)?,
+            Self::Custom(c) => custom(c)?,
+        };
+        let bytes = to_json(&json, MAX_FORM_BYTES).map_err(|e| match e {
+            JsonError::TooLarge => Error::Invalid("the JSON is longer than 256 KiB"),
+            JsonError::Encode => Error::Invalid("not serializable"),
+        })?;
+        Ok((bytes, shape))
+    }
+}
+
+impl From<Custom> for Form {
+    fn from(form: Custom) -> Self {
+        Self::Custom(form)
     }
 }
 
@@ -85,9 +113,9 @@ impl From<Menu> for Form {
     }
 }
 
-impl From<Custom> for Form {
-    fn from(form: Custom) -> Self {
-        Self::Custom(form)
+impl From<Modal> for Form {
+    fn from(form: Modal) -> Self {
+        Self::Modal(form)
     }
 }
 
@@ -127,15 +155,6 @@ pub struct Menu {
     elements: Vec<MenuElement>,
 }
 
-/// One element of a menu, in order.
-#[derive(Debug, Clone, PartialEq)]
-enum MenuElement {
-    Button(Button),
-    Header(String),
-    Label(String),
-    Divider,
-}
-
 impl Menu {
     /// A menu titled `title`, without text or buttons.
     pub fn new(title: impl Into<String>) -> Self {
@@ -146,9 +165,9 @@ impl Menu {
         }
     }
 
-    /// Sets the text shown above the elements.
+    /// The menu with `content` as the text shown above the elements.
     #[must_use]
-    pub fn content(mut self, content: impl Into<String>) -> Self {
+    pub fn with_content(mut self, content: impl Into<String>) -> Self {
         self.content = content.into();
         self
     }
@@ -157,6 +176,13 @@ impl Menu {
     #[must_use]
     pub fn button(mut self, button: impl Into<Button>) -> Self {
         self.elements.push(MenuElement::Button(button.into()));
+        self
+    }
+
+    /// Adds a divider: a horizontal line.
+    #[must_use]
+    pub fn divider(mut self) -> Self {
+        self.elements.push(MenuElement::Divider);
         self
     }
 
@@ -173,13 +199,15 @@ impl Menu {
         self.elements.push(MenuElement::Label(text.into()));
         self
     }
+}
 
-    /// Adds a divider: a horizontal line.
-    #[must_use]
-    pub fn divider(mut self) -> Self {
-        self.elements.push(MenuElement::Divider);
-        self
-    }
+/// One element of a menu, in order.
+#[derive(Debug, Clone, PartialEq)]
+enum MenuElement {
+    Button(Button),
+    Header(String),
+    Label(String),
+    Divider,
 }
 
 /// A menu button: its text and an optional image.
@@ -198,9 +226,9 @@ impl Button {
         }
     }
 
-    /// Shows `image` on the button.
+    /// The button showing `image`.
     #[must_use]
-    pub fn image(mut self, image: Image) -> Self {
+    pub fn with_image(mut self, image: Image) -> Self {
         self.image = Some(image);
         self
     }
@@ -235,6 +263,125 @@ pub struct Custom {
     elements: Vec<Element>,
 }
 
+impl Custom {
+    /// A custom form titled `title`, without elements.
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            elements: Vec::new(),
+        }
+    }
+
+    /// Adds a divider: a horizontal line. Its value is [`Value::Empty`].
+    #[must_use]
+    pub fn divider(mut self) -> Self {
+        self.elements.push(Element::Divider);
+        self
+    }
+
+    /// Adds a dropdown titled `text` with `options`, `default` selected. Its value is
+    /// [`Value::Index`] of an option. Sending the form fails unless there are 1 to 256 options
+    /// and `default` is one of them.
+    #[must_use]
+    pub fn dropdown<S: Into<String>>(
+        mut self,
+        text: impl Into<String>,
+        options: impl IntoIterator<Item = S>,
+        default: usize,
+    ) -> Self {
+        self.elements.push(Element::Dropdown {
+            text: text.into(),
+            options: options.into_iter().map(Into::into).collect(),
+            default,
+        });
+        self
+    }
+
+    /// Adds a header: larger text that starts a section. Its value is [`Value::Empty`].
+    #[must_use]
+    pub fn header(mut self, text: impl Into<String>) -> Self {
+        self.elements.push(Element::Header(text.into()));
+        self
+    }
+
+    /// Adds a text box titled `text`, showing `placeholder` while empty and filled with
+    /// `default`. Its value is [`Value::Text`]. Sending the form fails unless `default` is
+    /// at most 8 KiB and the answers of all the defaults together are at most 64 KiB.
+    #[must_use]
+    pub fn input(
+        mut self,
+        text: impl Into<String>,
+        placeholder: impl Into<String>,
+        default: impl Into<String>,
+    ) -> Self {
+        self.elements.push(Element::Input {
+            text: text.into(),
+            placeholder: placeholder.into(),
+            default: default.into(),
+        });
+        self
+    }
+
+    /// Adds a label: a box of text. Its value is [`Value::Empty`].
+    #[must_use]
+    pub fn label(mut self, text: impl Into<String>) -> Self {
+        self.elements.push(Element::Label(text.into()));
+        self
+    }
+
+    /// Adds a slider titled `text` from `min` to `max` in steps of `step`, set at `default`.
+    /// Its value is [`Value::Number`], `min` plus a whole number of steps, within the range
+    /// (`max` when the range is not a whole number of steps and the answer is its last step).
+    /// Sending the form fails unless the numbers are finite, `min <= default <= max` and
+    /// `step > 0`.
+    #[must_use]
+    pub fn slider(
+        mut self,
+        text: impl Into<String>,
+        min: f64,
+        max: f64,
+        step: f64,
+        default: f64,
+    ) -> Self {
+        self.elements.push(Element::Slider {
+            text: text.into(),
+            min,
+            max,
+            step,
+            default,
+        });
+        self
+    }
+
+    /// Adds a slider titled `text` over the named `steps`, `default` selected. Its value is
+    /// [`Value::Index`] of a step. Sending the form fails unless there are 1 to 256 steps and
+    /// `default` is one of them.
+    #[must_use]
+    pub fn step_slider<S: Into<String>>(
+        mut self,
+        text: impl Into<String>,
+        steps: impl IntoIterator<Item = S>,
+        default: usize,
+    ) -> Self {
+        self.elements.push(Element::StepSlider {
+            text: text.into(),
+            steps: steps.into_iter().map(Into::into).collect(),
+            default,
+        });
+        self
+    }
+
+    /// Adds a switch titled `text`, on when `default`. Its value is [`Value::Bool`].
+    #[must_use]
+    pub fn toggle(mut self, text: impl Into<String>, default: bool) -> Self {
+        self.elements.push(Element::Toggle {
+            text: text.into(),
+            default,
+        });
+        self
+    }
+}
+
 /// One element of a custom form, in order.
 #[derive(Debug, Clone, PartialEq)]
 enum Element {
@@ -267,123 +414,6 @@ enum Element {
         steps: Vec<String>,
         default: usize,
     },
-}
-
-impl Custom {
-    /// A custom form titled `title`, without elements.
-    pub fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            elements: Vec::new(),
-        }
-    }
-
-    /// Adds a label: a box of text. Its value is [`Value::Empty`].
-    #[must_use]
-    pub fn label(mut self, text: impl Into<String>) -> Self {
-        self.elements.push(Element::Label(text.into()));
-        self
-    }
-
-    /// Adds a header: larger text that starts a section. Its value is [`Value::Empty`].
-    #[must_use]
-    pub fn header(mut self, text: impl Into<String>) -> Self {
-        self.elements.push(Element::Header(text.into()));
-        self
-    }
-
-    /// Adds a divider: a horizontal line. Its value is [`Value::Empty`].
-    #[must_use]
-    pub fn divider(mut self) -> Self {
-        self.elements.push(Element::Divider);
-        self
-    }
-
-    /// Adds a text box titled `text`, showing `placeholder` while empty and filled with
-    /// `default`. Its value is [`Value::Text`].
-    #[must_use]
-    pub fn input(
-        mut self,
-        text: impl Into<String>,
-        placeholder: impl Into<String>,
-        default: impl Into<String>,
-    ) -> Self {
-        self.elements.push(Element::Input {
-            text: text.into(),
-            placeholder: placeholder.into(),
-            default: default.into(),
-        });
-        self
-    }
-
-    /// Adds a switch titled `text`, on when `default`. Its value is [`Value::Bool`].
-    #[must_use]
-    pub fn toggle(mut self, text: impl Into<String>, default: bool) -> Self {
-        self.elements.push(Element::Toggle {
-            text: text.into(),
-            default,
-        });
-        self
-    }
-
-    /// Adds a slider titled `text` from `min` to `max` in steps of `step`, set at `default`.
-    /// Its value is [`Value::Number`], `min` plus a whole number of steps, within the range.
-    /// Sending the form fails unless the numbers are finite, `min <= default <= max` and
-    /// `step > 0`.
-    #[must_use]
-    pub fn slider(
-        mut self,
-        text: impl Into<String>,
-        min: f64,
-        max: f64,
-        step: f64,
-        default: f64,
-    ) -> Self {
-        self.elements.push(Element::Slider {
-            text: text.into(),
-            min,
-            max,
-            step,
-            default,
-        });
-        self
-    }
-
-    /// Adds a dropdown titled `text` with `options`, `default` selected. Its value is
-    /// [`Value::Index`] of an option. Sending the form fails unless there are 1 to 256 options
-    /// and `default` is one of them.
-    #[must_use]
-    pub fn dropdown<S: Into<String>>(
-        mut self,
-        text: impl Into<String>,
-        options: impl IntoIterator<Item = S>,
-        default: usize,
-    ) -> Self {
-        self.elements.push(Element::Dropdown {
-            text: text.into(),
-            options: options.into_iter().map(Into::into).collect(),
-            default,
-        });
-        self
-    }
-
-    /// Adds a slider titled `text` over the named `steps`, `default` selected. Its value is
-    /// [`Value::Index`] of a step. Sending the form fails unless there are 1 to 256 steps and
-    /// `default` is one of them.
-    #[must_use]
-    pub fn step_slider<S: Into<String>>(
-        mut self,
-        text: impl Into<String>,
-        steps: impl IntoIterator<Item = S>,
-        default: usize,
-    ) -> Self {
-        self.elements.push(Element::StepSlider {
-            text: text.into(),
-            steps: steps.into_iter().map(Into::into).collect(),
-            default,
-        });
-        self
-    }
 }
 
 /// A player's answer to a form.
@@ -421,14 +451,11 @@ pub enum Error {
     Offline,
     /// The player has 16 forms waiting for an answer.
     Full,
-    /// The player was sent `u32::MAX` forms; form IDs do not wrap.
+    /// The player was sent 2^32 forms; form IDs do not wrap.
     Exhausted,
     /// The form breaks a rule of its builder or is too large.
     Invalid(&'static str),
 }
-
-/// A result with the form [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -446,6 +473,9 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A result with the form [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 /// What an answer to a sent form must look like; the form's texts are not kept.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Shape {
@@ -453,6 +483,37 @@ pub(crate) enum Shape {
     /// The number of buttons.
     Menu(usize),
     Custom(Vec<Expect>),
+}
+
+impl Shape {
+    /// The answer `data` (at most [`MAX_RESPONSE_BYTES`]) gives, if it fits the form: `null`
+    /// closes any form.
+    pub(crate) fn parse(&self, data: &[u8]) -> Option<Response> {
+        let json: Json = serde_json::from_slice(data).ok()?;
+        if json.is_null() {
+            return Some(Response::Closed);
+        }
+        match self {
+            Self::Modal => json.as_bool().map(Response::Modal),
+            Self::Menu(buttons) => index(&json, *buttons).map(Response::Menu),
+            Self::Custom(expect) => {
+                let Json::Array(values) = json else {
+                    return None;
+                };
+                // The client sends one value per element; anything after them is ignored, as
+                // dragonfly does.
+                if values.len() < expect.len() {
+                    return None;
+                }
+                let values = values
+                    .into_iter()
+                    .zip(expect)
+                    .map(|(v, e)| value(v, *e))
+                    .collect::<Option<Vec<Value>>>()?;
+                Some(Response::Custom(values))
+            }
+        }
+    }
 }
 
 /// What one value of a custom form answer must be.
@@ -469,31 +530,6 @@ pub(crate) enum Expect {
     },
     /// An index below this.
     Index(usize),
-}
-
-impl Form {
-    /// Checks the form and returns its JSON and the shape of its answer.
-    pub(crate) fn prepare(&self) -> Result<(Vec<u8>, Shape)> {
-        let (json, shape) = match self {
-            Self::Modal(m) => (
-                json!({
-                    "type": "modal",
-                    "title": m.title,
-                    "content": m.content,
-                    "button1": m.first,
-                    "button2": m.second,
-                }),
-                Shape::Modal,
-            ),
-            Self::Menu(m) => menu(m)?,
-            Self::Custom(c) => custom(c)?,
-        };
-        let bytes = to_json(&json, MAX_FORM_BYTES).map_err(|e| match e {
-            JsonError::TooLarge => Error::Invalid("the JSON is longer than 256 KiB"),
-            JsonError::Encode => Error::Invalid("not serializable"),
-        })?;
-        Ok((bytes, shape))
-    }
 }
 
 /// The JSON and answer shape of a menu.
@@ -545,7 +581,9 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
     }
     let mut content = Vec::with_capacity(c.elements.len());
     let mut expect = Vec::with_capacity(c.elements.len());
+    let mut default_answer = Vec::with_capacity(c.elements.len());
     for e in &c.elements {
+        default_answer.push(default_value(e));
         let (json, e) = match e {
             Element::Label(t) => (json!({ "type": "label", "text": t }), Expect::Nothing),
             Element::Header(t) => (json!({ "type": "header", "text": t }), Expect::Nothing),
@@ -554,15 +592,20 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
                 text,
                 placeholder,
                 default,
-            } => (
-                json!({
-                    "type": "input",
-                    "text": text,
-                    "placeholder": placeholder,
-                    "default": default,
-                }),
-                Expect::Text,
-            ),
+            } => {
+                if default.len() > MAX_INPUT_BYTES {
+                    return Err(Error::Invalid("an input default is longer than 8 KiB"));
+                }
+                (
+                    json!({
+                        "type": "input",
+                        "text": text,
+                        "placeholder": placeholder,
+                        "default": default,
+                    }),
+                    Expect::Text,
+                )
+            }
             Element::Toggle { text, default } => (
                 json!({ "type": "toggle", "text": text, "default": default }),
                 Expect::Bool,
@@ -625,6 +668,7 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
         content.push(json);
         expect.push(e);
     }
+    check_default_answer(&default_answer)?;
     // BDS writes `"icon": null` on every custom form.
     let json = json!({
         "type": "custom_form",
@@ -633,6 +677,16 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
         "content": content,
     });
     Ok((json, Shape::Custom(expect)))
+}
+
+/// Checks that the answer a client sends when the player changes nothing, `default_answer`, fits
+/// [`MAX_RESPONSE_BYTES`] as JSON.
+fn check_default_answer(default_answer: &[Json]) -> Result<()> {
+    to_json(default_answer, MAX_RESPONSE_BYTES).map_err(|e| match e {
+        JsonError::TooLarge => Error::Invalid("the default answer is longer than 64 KiB"),
+        JsonError::Encode => Error::Invalid("not serializable"),
+    })?;
+    Ok(())
 }
 
 /// Checks the numbers of a slider: finite, ordered, a positive step, and a range whose number
@@ -660,41 +714,15 @@ fn check_options(options: &[String], default: usize) -> Result<()> {
     Ok(())
 }
 
-impl Shape {
-    /// The answer `data` (at most [`MAX_RESPONSE_BYTES`]) gives, if it fits the form: `null`
-    /// closes any form.
-    pub(crate) fn parse(&self, data: &[u8]) -> Option<Response> {
-        let json: Json = serde_json::from_slice(data).ok()?;
-        if json.is_null() {
-            return Some(Response::Closed);
-        }
-        match self {
-            Self::Modal => json.as_bool().map(Response::Modal),
-            Self::Menu(buttons) => index(&json, *buttons).map(Response::Menu),
-            Self::Custom(expect) => {
-                let Json::Array(values) = json else {
-                    return None;
-                };
-                // The client sends one value per element; anything after them is ignored, as
-                // dragonfly does.
-                if values.len() < expect.len() {
-                    return None;
-                }
-                let values = values
-                    .into_iter()
-                    .zip(expect)
-                    .map(|(v, e)| value(v, *e))
-                    .collect::<Option<Vec<Value>>>()?;
-                Some(Response::Custom(values))
-            }
-        }
+/// The value a client sends for `element` when the player changes nothing.
+fn default_value(element: &Element) -> Json {
+    match element {
+        Element::Label(_) | Element::Header(_) | Element::Divider => Json::Null,
+        Element::Input { default, .. } => json!(default),
+        Element::Toggle { default, .. } => json!(default),
+        Element::Slider { default, .. } => json!(default),
+        Element::Dropdown { default, .. } | Element::StepSlider { default, .. } => json!(default),
     }
-}
-
-/// `json` as an index below `len`.
-fn index(json: &Json, len: usize) -> Option<usize> {
-    let i = usize::try_from(json.as_u64()?).ok()?;
-    (i < len).then_some(i)
 }
 
 /// The value `json` gives an element expecting `expect`, if it fits.
@@ -709,6 +737,12 @@ fn value(json: Json, expect: Expect) -> Option<Value> {
         (Expect::Index(len), json) => index(&json, len).map(Value::Index),
         _ => None,
     }
+}
+
+/// `json` as an index below `len`.
+fn index(json: &Json, len: usize) -> Option<usize> {
+    let i = usize::try_from(json.as_u64()?).ok()?;
+    (i < len).then_some(i)
 }
 
 /// A slider answer `v` snapped to its step, if it lies within the range and on a step (both
@@ -750,13 +784,13 @@ mod tests {
             })
         );
         let menu = Menu::new("M")
-            .content("c")
+            .with_content("c")
             .header("h")
             .button("plain")
             .label("l")
             .divider()
-            .button(Button::new("path").image(Image::Path("textures/items/apple".into())))
-            .button(Button::new("url").image(Image::Url("https://e.x/i.png".into())));
+            .button(Button::new("path").with_image(Image::Path("textures/items/apple".to_owned())))
+            .button(Button::new("url").with_image(Image::Url("https://e.x/i.png".to_owned())));
         assert_eq!(
             json(menu.clone()),
             json!({
@@ -839,6 +873,25 @@ mod tests {
     }
 
     #[test]
+    fn a_form_whose_default_answer_would_be_dropped_is_refused() {
+        let invalid = |form: Custom| matches!(Form::from(form).prepare(), Err(Error::Invalid(_)));
+        let inputs = |count: usize, bytes: usize| {
+            (0..count).fold(Custom::new("C"), |c, _| c.input("i", "", "x".repeat(bytes)))
+        };
+        assert!(!invalid(inputs(1, MAX_INPUT_BYTES)));
+        assert!(invalid(inputs(1, MAX_INPUT_BYTES + 1)));
+        // 7 inputs of 8 KiB answer in under 64 KiB, 9 do not.
+        let seven = inputs(7, MAX_INPUT_BYTES);
+        let nine = inputs(9, MAX_INPUT_BYTES);
+        assert!(!invalid(seven.clone()));
+        assert!(invalid(nine));
+        let (_, shape) = Form::from(seven).prepare().unwrap();
+        let answer = serde_json::to_vec(&vec!["x".repeat(MAX_INPUT_BYTES); 7]).unwrap();
+        assert!(answer.len() <= MAX_RESPONSE_BYTES);
+        assert!(shape.parse(&answer).is_some());
+    }
+
+    #[test]
     fn the_refusals_name_the_limits_they_enforce() {
         let reason = |form: Form| match form.prepare() {
             Err(Error::Invalid(reason)) => reason,
@@ -857,10 +910,30 @@ mod tests {
             reason(Form::from(huge)),
             format!("the JSON is longer than {} KiB", MAX_FORM_BYTES / 1024)
         );
+        let input = Custom::new("C").input("i", "", "x".repeat(MAX_INPUT_BYTES + 1));
+        assert_eq!(
+            reason(Form::from(input)),
+            format!(
+                "an input default is longer than {} KiB",
+                MAX_INPUT_BYTES / 1024
+            )
+        );
+        let answer = (0..=MAX_RESPONSE_BYTES / MAX_INPUT_BYTES).fold(Custom::new("C"), |c, _| {
+            c.input("i", "", "x".repeat(MAX_INPUT_BYTES))
+        });
+        assert_eq!(
+            reason(Form::from(answer)),
+            format!(
+                "the default answer is longer than {} KiB",
+                MAX_RESPONSE_BYTES / 1024
+            )
+        );
         let source = include_str!("form.rs");
         for text in [
             format!("fails unless there are {options}"),
             format!("fails unless there are 1 to {MAX_OPTIONS} steps"),
+            format!("at most {} KiB and the answers", MAX_INPUT_BYTES / 1024),
+            format!("together are at most {} KiB", MAX_RESPONSE_BYTES / 1024),
         ] {
             assert!(source.contains(&text), "{text}");
         }
@@ -901,7 +974,7 @@ mod tests {
             custom.parse(br#"[null, "hi \"x\"", true, 0.30000001192092896, 1, 2, "extra"]"#),
             Some(Response::Custom(vec![
                 Value::Empty,
-                Value::Text("hi \"x\"".into()),
+                Value::Text("hi \"x\"".to_owned()),
                 Value::Bool(true),
                 Value::Number(-1.0 + 13.0 * 0.1),
                 Value::Index(1),
