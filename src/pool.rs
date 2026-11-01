@@ -8,7 +8,7 @@
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use tracing::warn;
 
 /// How long [`Pool::shutdown`] waits for each thread to end. Threads end as soon as their queue
@@ -61,6 +61,25 @@ impl Pool {
             return items.iter().map(f).collect();
         }
         self.inner.install(|| items.par_iter().map(f).collect())
+    }
+
+    /// [`map`](Self::map) of items `f` takes by value: what a phase took out of the tick's state
+    /// before it (the output phase's outboxes) moves to the pool's threads instead of being
+    /// copied there.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
+    )]
+    pub(crate) fn map_owned<T, R>(&self, items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R>
+    where
+        T: Send,
+        R: Send,
+    {
+        if items.len() < 2 {
+            return items.into_iter().map(f).collect();
+        }
+        self.inner
+            .install(|| items.into_par_iter().map(f).collect())
     }
 
     /// [`map`](Self::map) for the save thread: in turns of one item per thread, each mapped after
@@ -152,6 +171,9 @@ mod tests {
             assert_eq!(got, want, "{threads} threads");
             assert_eq!(pool.map(&items[..1], |x| *x), [0]);
             assert!(pool.map(&items[..0], |x| *x).is_empty());
+            let owned = pool.map_owned(items.clone(), |x| x.wrapping_mul(2_654_435_761));
+            assert_eq!(owned, want, "{threads} threads, owned");
+            assert_eq!(pool.map_owned(vec![0_u64], |x| x), [0]);
             let turns = pool.map_in_turns(&items, |x| x.wrapping_mul(2_654_435_761));
             assert_eq!(turns, want, "{threads} threads in turns");
             assert!(pool.map_in_turns(&items[..0], |x| *x).is_empty());

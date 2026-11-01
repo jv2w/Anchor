@@ -1087,7 +1087,8 @@ impl Checkpoint {
         self.unsaved.iter().map(|(k, _)| *k)
     }
 
-    /// The bytes it holds or will encode to, about: what the input log charges for it.
+    /// The bytes it holds or will encode to, about: what the input log charges for it. The body
+    /// counts by the room it holds, which its growth leaves up to twice its bytes.
     pub(crate) fn size(&self) -> usize {
         let kept: usize = self.kept.iter().map(world::Kept::size).sum();
         let positions: usize = self.saved.iter().map(|s| s.loaded.len()).sum();
@@ -1097,7 +1098,7 @@ impl Checkpoint {
             .map(|(_, c)| terrain_size(c))
             .fold(0, usize::saturating_add);
         self.body
-            .len()
+            .capacity()
             .saturating_add(kept)
             .saturating_add(unsaved)
             .saturating_add(positions.saturating_mul(POSITION_BYTES))

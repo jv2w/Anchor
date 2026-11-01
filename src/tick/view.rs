@@ -52,6 +52,10 @@ const KEEP_TICKS: u64 = 600;
 /// Unanswered sub-chunk requests a player may have queued; more are dropped. Two ticks of
 /// answers, for the requests of two ticks that arrive together.
 const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 2 * SUB_CHUNK_REQUESTS_PER_TICK;
+/// Offsets of the unanswered sub-chunk requests a player may have queued; a request past it is
+/// dropped. Two ticks of answers, as [`MAX_QUEUED_SUB_CHUNK_REQUESTS`]: the queue is bounded by
+/// the answer entries it asks for, not only by its requests of up to 8,192 offsets each.
+const MAX_QUEUED_SUB_CHUNK_OFFSETS: usize = 2 * SUB_CHUNK_OFFSETS_PER_TICK;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick. A client
 /// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
 /// sends a tick.
@@ -109,6 +113,8 @@ pub(super) struct View {
     sent: BTreeSet<ChunkPos>,
     /// Sub-chunk requests waiting for an answer, oldest first.
     requests: VecDeque<SubChunkRequest>,
+    /// The offsets of `requests`, at most [`MAX_QUEUED_SUB_CHUNK_OFFSETS`].
+    queued_offsets: usize,
     /// The user's fake blocks ([`Context::send_fake_block`]), at most [`MAX_FAKE_BLOCKS`].
     fakes: BTreeMap<FakeKey, block::State>,
     /// The container blocks of the open menu, shown over the user's fake blocks.
@@ -257,8 +263,9 @@ impl View {
     /// Hashes what the view decides, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The unsent chunks follow from the center, the radius and the sent chunks, and the spare
-        // words are room only; the output is empty between ticks.
+        // The unsent chunks follow from the center, the radius and the sent chunks, the queued
+        // offsets from the requests, and the spare words are room only; the output is empty
+        // between ticks.
         let Self {
             center,
             radius,
@@ -268,6 +275,7 @@ impl View {
             spare: _,
             sent,
             requests,
+            queued_offsets: _,
             fakes,
             menu,
             out: _,
@@ -316,8 +324,9 @@ impl View {
 
 impl super::checkpoint::Codec for View {
     fn encode(&self, w: &mut super::checkpoint::Writer) {
-        // The unsent chunks follow from the center, the radius and the sent chunks, and the spare
-        // words are room only; the output is empty between ticks.
+        // The unsent chunks follow from the center, the radius and the sent chunks, the queued
+        // offsets from the requests, and the spare words are room only; the output is empty
+        // between ticks.
         let Self {
             center,
             radius,
@@ -327,6 +336,7 @@ impl super::checkpoint::Codec for View {
             spare: _,
             sent,
             requests,
+            queued_offsets: _,
             fakes,
             menu,
             out: _,
@@ -346,11 +356,19 @@ impl super::checkpoint::Codec for View {
         let radius = u8::decode(r)?;
         let published = Codec::decode(r)?;
         let sent: BTreeSet<ChunkPos> = Codec::decode(r)?;
-        let requests = Codec::decode(r)?;
+        let requests: VecDeque<SubChunkRequest> = Codec::decode(r)?;
         let fakes = Codec::decode(r)?;
         let menu = Codec::decode(r)?;
         if radius > MAX_RADIUS {
             return Err(Error::Format("view radius"));
+        }
+        let queued_offsets = requests
+            .iter()
+            .fold(0_usize, |sum, r| sum.saturating_add(r.offsets.len()));
+        if requests.len() > MAX_QUEUED_SUB_CHUNK_REQUESTS
+            || queued_offsets > MAX_QUEUED_SUB_CHUNK_OFFSETS
+        {
+            return Err(Error::Format("too many sub-chunk requests"));
         }
         // A closed view (radius 0) has no chunks, sent or not.
         let r2 = i32::from(radius) * i32::from(radius);
@@ -379,6 +397,7 @@ impl super::checkpoint::Codec for View {
             spare: Vec::new(),
             sent,
             requests,
+            queued_offsets,
             fakes,
             menu,
             out: Out::default(),
@@ -1235,17 +1254,22 @@ pub(super) fn restore_block_data(state: &mut State, session: SessionId, pos: Blo
     player.send_packet(packet);
 }
 
-/// Queues a copy of a sub-chunk request for the output phase; a player with too many waiting
-/// loses it, uncopied.
+/// Queues a copy of a sub-chunk request for the output phase; a player with too many requests
+/// or offsets waiting loses it, uncopied.
 pub(super) fn queue_request(player: &mut Player, request: &SubChunkRequest) {
-    if player.view.requests.len() >= MAX_QUEUED_SUB_CHUNK_REQUESTS {
+    let view = &mut player.view;
+    let offsets = view.queued_offsets.saturating_add(request.offsets.len());
+    if view.requests.len() >= MAX_QUEUED_SUB_CHUNK_REQUESTS
+        || offsets > MAX_QUEUED_SUB_CHUNK_OFFSETS
+    {
         debug!(
             runtime_id = player.runtime_id,
             "too many sub-chunk requests waiting; one dropped"
         );
         return;
     }
-    player.view.requests.push_back(request.clone());
+    view.queued_offsets = offsets;
+    view.requests.push_back(request.clone());
 }
 
 /// Applies a load the save thread answered: the terrain goes into its world and the extras that
@@ -1396,10 +1420,15 @@ fn update_player(
         .iter()
         .take(SUB_CHUNK_REQUESTS_PER_TICK)
         .take_while(|r| {
-            offsets = offsets.saturating_add(r.offsets.len());
-            offsets <= SUB_CHUNK_OFFSETS_PER_TICK
+            let more = offsets.saturating_add(r.offsets.len());
+            let fits = more <= SUB_CHUNK_OFFSETS_PER_TICK;
+            if fits {
+                offsets = more;
+            }
+            fits
         })
         .count();
+    view.queued_offsets = view.queued_offsets.saturating_sub(offsets);
     view.out.answers.extend(view.requests.drain(..take));
 }
 
@@ -2841,8 +2870,9 @@ mod tests {
         assert!(moves > 200);
     }
 
-    /// A view read back from a checkpoint has the same chunks left to send; a radius past the
-    /// largest view, or a sent chunk outside the view (any for a closed one), is not a checkpoint.
+    /// A view read back from a checkpoint has the same chunks left to send and counts its queued
+    /// sub-chunk offsets; a radius past the largest view, a sent chunk outside the view (any for
+    /// a closed one), or more queued offsets than a view holds, is not a checkpoint.
     #[test]
     fn a_view_from_a_checkpoint_has_the_same_unsent_chunks_and_a_damaged_one_is_refused() {
         use crate::tick::checkpoint::{Codec, Reader, Writer};
@@ -2877,6 +2907,18 @@ mod tests {
         let mut closed = View::default();
         closed.sent.insert(ChunkPos::new(0, 0));
         assert!(read(&closed).is_err());
+        let mut asking = View::default();
+        let request = SubChunkRequest {
+            offsets: vec![[0, 0, 0]; SUB_CHUNK_OFFSETS_PER_TICK],
+            ..SubChunkRequest::default()
+        };
+        asking.requests.extend([request.clone(), request.clone()]);
+        assert_eq!(
+            read(&asking).unwrap().queued_offsets,
+            MAX_QUEUED_SUB_CHUNK_OFFSETS
+        );
+        asking.requests.push_back(request);
+        assert!(read(&asking).is_err());
     }
 
     /// Lists the disc around chunk `x` on the x axis.
@@ -3341,7 +3383,8 @@ mod tests {
 
     /// A client that names one sub-chunk 1024 times in each of 64 requests gets at most
     /// [`SUB_CHUNK_OFFSETS_PER_TICK`] answer entries a tick, as each entry is work and a copy of
-    /// the sub-chunk; the rest are answered in the next ticks.
+    /// the sub-chunk, and its queue holds at most [`MAX_QUEUED_SUB_CHUNK_OFFSETS`] of them: the
+    /// requests past it are dropped, the rest answered in the next ticks.
     #[test]
     fn repeated_sub_chunk_offsets_do_not_multiply_one_ticks_answers() {
         let (mut state, mut output, mut receivers) = sent_views(&[1]);
@@ -3376,7 +3419,13 @@ mod tests {
             per_tick.iter().all(|&n| n <= SUB_CHUNK_OFFSETS_PER_TICK),
             "{per_tick:?}"
         );
-        assert_eq!(per_tick.iter().sum::<usize>(), 64 * 1024);
+        assert_eq!(per_tick.iter().sum::<usize>(), MAX_QUEUED_SUB_CHUNK_OFFSETS);
+        assert_eq!(
+            state.players[&crate::tick::SessionId::new(1)]
+                .view
+                .queued_offsets,
+            0
+        );
     }
 
     #[test]

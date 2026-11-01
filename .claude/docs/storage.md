@@ -136,7 +136,7 @@ A server start (`Server::run`) runs step 1 for the main file, the players file a
 
 Why a start needs no compaction: later commits reuse the pages copy-on-write freed, and only data that shrinks leaves free pages at the end of the file; deleting a world deletes its file.
 
-The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps, without redb's integrity check (never made while the server runs), when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a world file does not open, every chunk of that world is quarantined and nothing of it is saved.
+The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps, without redb's integrity check (never made while the server runs), when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a declared persistent world's file does not open at the start (the open writes, so it can fail after the check passed: a read-only file, a backup folder that cannot be written, another process taking the file between the check and the open), the start is refused, as for the main and players files. If a world file does not open while the server runs, or a replay's world has no copy or its copy does not open, every chunk of that world is quarantined and nothing of it is saved.
 
 ### Start cost
 

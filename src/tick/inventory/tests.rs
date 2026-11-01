@@ -149,7 +149,7 @@ impl World {
                 if let Outbound::Send(messages) = o {
                     packets.extend(messages.into_iter().filter_map(|m| match m {
                         Message::Packet(p) => Some(p),
-                        Message::SharedPacket(p) | Message::SpawnList(p) => Some((*p).clone()),
+                        Message::SharedPacket(p) | Message::SpawnList(p) => Some(p.get().clone()),
                         Message::Shared(_) => None,
                     }));
                 }

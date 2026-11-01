@@ -429,16 +429,10 @@ impl Opener {
     }
 }
 
-/// The plan of a world named `name`: a persistent one (with `number`, the tick's) opens its
-/// file, whose record gives its number, time and spawn.
-fn plan(
-    opener: &Opener,
-    name: &str,
-    number: Option<u32>,
-    seed: i64,
-    generator: Arc<dyn Generator>,
-) -> Plan {
-    let mut plan = Plan {
+/// The plan of a world named `name`, persistent with `number` (the tick's) or temporary without,
+/// before its file opens ([`open_world`]).
+fn plan(name: &str, number: Option<u32>, seed: i64, generator: Arc<dyn Generator>) -> Plan {
+    Plan {
         name: name.to_owned(),
         number,
         seed,
@@ -446,32 +440,35 @@ fn plan(
         file: None,
         values: None,
         clear: false,
-    };
-    if number.is_none() {
-        return plan;
     }
-    let read = opener.open(name).and_then(|mut file| {
-        let record = world_file(&mut file.storage)?;
-        Ok((file, record))
-    });
-    match read {
-        Ok((open, record)) => {
-            if let Some(record) = record {
-                plan.number = Some(record.number);
-                plan.values = Some(WorldValues {
-                    time: record.time,
-                    spawn: record.spawn,
-                });
-            }
-            plan.file = Some(open);
-        }
-        Err(e) => error!(
-            world = name,
-            error = %e,
-            "world file did not open; its chunks are quarantined and nothing of it is saved"
-        ),
+}
+
+/// Opens the file of the persistent world of `plan`, whose record gives its number, time and
+/// spawn; a temporary world has none. On error the plan has no file.
+fn open_world(plan: &mut Plan, opener: &Opener) -> Result<(), storage::Error> {
+    if plan.number.is_none() {
+        return Ok(());
     }
-    plan
+    let mut open = opener.open(&plan.name)?;
+    if let Some(record) = world_file(&mut open.storage)? {
+        plan.number = Some(record.number);
+        plan.values = Some(WorldValues {
+            time: record.time,
+            spawn: record.spawn,
+        });
+    }
+    plan.file = Some(open);
+    Ok(())
+}
+
+/// Logs that the file of world `name` did not open while the server runs or replays: its
+/// chunks load damaged, so nothing of it changes or is saved.
+fn log_unopened(name: &str, error: &storage::Error) {
+    error!(
+        world = name,
+        error = %error,
+        "world file did not open; its chunks are quarantined and nothing of it is saved"
+    );
 }
 
 /// The record of the world file `storage`, if it holds one.
@@ -491,12 +488,14 @@ fn world_file(storage: &mut Storage) -> Result<Option<WorldRecord>, storage::Err
 fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
     for world in worlds {
         let mut plan = plan(
-            opener,
             &world.name,
             world.number,
             world.seed,
             Arc::clone(&world.generator),
         );
+        if let Err(e) = open_world(&mut plan, opener) {
+            log_unopened(&world.name, &e);
+        }
         if plan.number != world.number {
             plan.number = world.number;
             plan.values = None;
@@ -807,7 +806,8 @@ impl Thread {
 /// is written; so is a start whose new world files would make `data/worlds/` hold more than
 /// [`MAX_WORLDS`]. Then, once the main file is open, every other file of the data folder that a
 /// stopped save left later than the main file is rolled back to the main file's last save
-/// ([`settle_all`]). The other world files of `data/worlds/` are listed for the
+/// ([`settle_all`]). A declared persistent world's file that does not open (its start backup or
+/// its write open fails) refuses the start, as the main and players files do. The other world files of `data/worlds/` are listed for the
 /// tick to load ([`Catalog::stored`]); their record is read without writing them, unless a crash
 /// left one to repair, which opens it as a start does, without a start backup (it gets one when
 /// it is loaded). Runs before the threads start.
@@ -1155,13 +1155,15 @@ fn resolve(
             .or(spec.seed)
             .unwrap_or_else(|| default_seed(&spec.name));
         let number = (spec.kind == Kind::Persistent).then_some(0);
-        plans.push(plan(
-            &opener,
-            &spec.name,
-            number,
-            seed,
-            Arc::clone(&spec.generator),
-        ));
+        let mut plan = plan(&spec.name, number, seed, Arc::clone(&spec.generator));
+        match (open_world(&mut plan, &opener), &opener) {
+            (Ok(()), _) => {}
+            // A start refuses a declared world whose file does not open, as it does the main and
+            // players files: the check before reads only, and the open writes.
+            (Err(e), Opener::Live { .. }) => return Err(e.into()),
+            (Err(e), Opener::Replay(_)) => log_unopened(&spec.name, &e),
+        }
+        plans.push(plan);
     }
     let numbers = stored.iter().map(|(_, r)| r.number).chain(
         plans
@@ -4049,6 +4051,37 @@ pub(crate) mod tests {
         assert!(!Place::world(&dir.0, "world").file.exists());
         assert!(!Place::world(&dir.0, "lobby").file.exists());
         assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS - 1);
+    }
+
+    /// A declared world whose file passes the start's check but does not open (it is read-only,
+    /// and the open writes) refuses the start, as the main and players files do, instead of
+    /// starting with every chunk of the world quarantined.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_declared_world_whose_file_does_not_open_refuses_the_start() {
+        let dir = TempDir::new("declared-world-unopened");
+        let lobby = Place::world(&dir.0, "lobby");
+        let storage = Storage::open(&lobby, Start::checked(storage::StartBackup::Skip)).unwrap();
+        storage.close().unwrap();
+        let writable = std::fs::metadata(&lobby.file).unwrap().permissions();
+        let mut read_only = writable.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&lobby.file, read_only).unwrap();
+        let mut specs = specs();
+        specs.push(WorldSpec {
+            name: "lobby".to_owned(),
+            kind: Kind::Persistent,
+            generator: Arc::new(Flat),
+            seed: None,
+            spawn: None,
+        });
+        let refused = open(&dir.0, specs).err();
+        // Writable again, so that the folder can be removed.
+        std::fs::set_permissions(&lobby.file, writable).unwrap();
+        assert!(
+            matches!(&refused, Some(crate::Error::Storage(_))),
+            "{refused:?}"
+        );
     }
 
     /// A world the tick makes while `data/worlds/` holds the most world files (the tick does not

@@ -8,7 +8,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::{OnceCell, OwnedSemaphorePermit, Semaphore, mpsc};
 use tracing::debug;
 
 use crate::crypto;
@@ -473,19 +473,72 @@ pub(crate) type JobOutcome = std::result::Result<Vec<u8>, crate::task::Error>;
 /// adds.
 pub(crate) type SharedBatches = Arc<[Vec<u8>]>;
 
+/// A packet several sessions send (a skin of up to 4 MiB, a player list), held once and encoded
+/// and compressed once: the first session that sends it makes its batch bodies, and every other
+/// shares them as it shares [`SharedBatches`].
+#[derive(Debug)]
+pub(crate) struct SharedPacket {
+    packet: Packet,
+    /// The batch bodies, made by the first session that sends the packet. Every joined session
+    /// encodes with the server's batch settings, so the bodies one makes are those every other
+    /// would make. An async cell: a session that finds them being made waits without holding
+    /// its thread.
+    batches: OnceCell<SharedBatches>,
+}
+
+impl SharedPacket {
+    /// Holds `packet` for the sessions that send it.
+    pub(crate) fn new(packet: Packet) -> Self {
+        Self {
+            packet,
+            batches: OnceCell::new(),
+        }
+    }
+
+    /// The packet.
+    pub(crate) fn get(&self) -> &Packet {
+        &self.packet
+    }
+
+    /// Returns the packet's batch bodies, which `encode` makes on the first call; later calls
+    /// share them, and a call while they are being made waits for them.
+    pub(crate) async fn batches<E>(
+        &self,
+        encode: impl FnOnce(&Packet) -> std::result::Result<SharedBatches, E>,
+    ) -> std::result::Result<SharedBatches, E> {
+        let batches = self
+            .batches
+            .get_or_try_init(|| async { encode(&self.packet) })
+            .await?;
+        Ok(Arc::clone(batches))
+    }
+
+    /// Returns the packet to change, forgetting any batch bodies made from it.
+    pub(crate) fn get_mut(&mut self) -> &mut Packet {
+        self.batches = OnceCell::new();
+        &mut self.packet
+    }
+}
+
+impl Clone for SharedPacket {
+    /// Copies the packet without its batch bodies: a copy is made to be changed.
+    fn clone(&self) -> Self {
+        Self::new(self.packet.clone())
+    }
+}
+
 /// One thing for a session to send.
 #[derive(Debug)]
 pub(crate) enum Message {
     /// A packet the session encodes into its own batches.
     Packet(Packet),
-    /// A packet several sessions send (a skin of up to 4 MiB), held once: each session encodes
-    /// it into a batch of its own.
-    SharedPacket(Arc<Packet>),
+    /// A packet several sessions send, in batches of its own encoded once for all of them.
+    SharedPacket(Arc<SharedPacket>),
     /// A packet of a spawn window's player list, which holds every placed player's skin and so
     /// outgrows any bound on a session's output: sent as a [`Message::SharedPacket`], but the
-    /// session holds it as the shared copy until it goes out. A session gets two lists at most,
-    /// one with the start game and one in the spawn window.
-    SpawnList(Arc<Packet>),
+    /// session holds its batches as the shared copy without counting them. A session gets two
+    /// lists at most, one with the start game and one in the spawn window.
+    SpawnList(Arc<SharedPacket>),
     /// Batches shared by every session, sent after the packets before them.
     Shared(SharedBatches),
 }

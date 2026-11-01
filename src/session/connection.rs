@@ -37,7 +37,7 @@ use crate::protocol::packet::{
 };
 use crate::tick::queue::{
     self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs,
-    SharedBatches,
+    SharedBatches, SharedPacket,
 };
 
 /// From connection to verified login.
@@ -259,7 +259,7 @@ impl Session {
                 // when this task falls behind.
                 outbound = next_outbound(self.outbound.as_mut()) => match outbound {
                     Some(Outbound::Send(messages)) => {
-                        if let Err(e) = self.queue_messages(&messages) {
+                        if let Err(e) = self.queue_messages(&messages).await {
                             return End::Failed(e);
                         }
                     }
@@ -742,7 +742,7 @@ impl Session {
     /// all the output still waiting, without waiting for delivery.
     async fn send<'p>(&mut self, packets: impl IntoIterator<Item = &'p Packet>) -> Result<()> {
         self.queue_packets(packets)?;
-        while let Some(body) = self.next_body()? {
+        while let Some(body) = self.next_body() {
             self.send_body(body).await?;
         }
         Ok(())
@@ -750,34 +750,30 @@ impl Session {
 
     /// Batches and compresses `packets` into bodies at the end of `out_bodies`.
     fn encode<'p>(&mut self, packets: impl IntoIterator<Item = &'p Packet>) -> Result<()> {
-        let bodies = &mut self.out_bodies;
-        let headers = packets.into_iter().map(|packet| {
-            let header = Header {
-                id: packet.id(),
-                ..Header::default()
-            };
-            (header, packet)
-        });
-        let encoder = &mut self.encoder;
-        let batched = batch::encode_packets(
-            headers,
+        let batched = batch::encode_bodies(
+            packets,
             SHIELD_RUNTIME_ID,
+            self.encoder.as_mut(),
             &mut self.out_payload,
-            |payload| {
-                let mut body = Vec::new();
-                match encoder {
-                    Some(encoder) => encoder.encode(payload, &mut body)?,
-                    // Before compression is on, the payload goes as it is (no header byte).
-                    None => body.extend_from_slice(payload),
-                }
-                bodies.push_back(body);
-                Ok(())
-            },
+            &mut self.out_bodies,
         );
         // Cleared first: `shrink_to` never goes below the length.
         self.out_payload.clear();
         self.out_payload.shrink_to(MAX_KEPT_BUFFER_BYTES);
         batched.map_err(Error::Encode)
+    }
+
+    /// Returns the batch bodies of a packet the tick shares among sessions, batched and
+    /// compressed by the first session that sends it: every joined session's encoder has the
+    /// server's batch settings.
+    async fn shared_batches(&mut self, packet: &SharedPacket) -> Result<SharedBatches> {
+        packet
+            .batches(|packet| {
+                let start = self.out_bodies.len();
+                self.encode([packet])?;
+                Ok(self.out_bodies.drain(start..).collect())
+            })
+            .await
     }
 
     /// Batches and compresses `packets` into bodies waiting after all the output before them.
@@ -791,11 +787,11 @@ impl Session {
         Ok(())
     }
 
-    /// Queues the tick's messages in order: runs of packets batched here, a shared packet in a
-    /// batch of its own, shared batches as they are. A spawn window's player list and shared
-    /// batches wait as the shared copy, batched or copied as they go out. More than
-    /// [`MAX_PENDING_BYTES`] waiting is a limit error.
-    fn queue_messages(&mut self, messages: &[Message]) -> Result<()> {
+    /// Queues the tick's messages in order: runs of packets batched here, a shared packet in
+    /// batches of its own made once for every session, shared batches as they are. Shared
+    /// batches wait as the shared copy, copied as they go out. More than [`MAX_PENDING_BYTES`]
+    /// waiting is a limit error.
+    async fn queue_messages(&mut self, messages: &[Message]) -> Result<()> {
         // A client answers each chunk sent in sub-chunk request mode with a request, which the
         // server asked for: it gives its packet back to the budget.
         let asked = messages
@@ -809,15 +805,14 @@ impl Session {
         for group in messages.chunk_by(same_run) {
             match group {
                 [Message::SpawnList(packet)] => {
-                    self.pending
-                        .push_back(Pending::SpawnList(Arc::clone(packet)));
+                    let batches = self.shared_batches(packet).await?;
+                    self.pending.push_back(Pending::SpawnList(batches));
                 }
-                [Message::Shared(batches)] => {
-                    self.pending_bytes = self.pending_bytes.saturating_add(bytes_of(batches));
-                    self.pending
-                        .push_back(Pending::Batches(Arc::clone(batches)));
+                [Message::Shared(batches)] => self.queue_batches(Arc::clone(batches)),
+                [Message::SharedPacket(packet)] => {
+                    let batches = self.shared_batches(packet).await?;
+                    self.queue_batches(batches);
                 }
-                [Message::SharedPacket(packet)] => self.queue_packets([&**packet])?,
                 run => {
                     self.queue_packets(run.iter().filter_map(packet_of))?;
                     // The marker follows the run's last batch, so the few packets after the
@@ -834,27 +829,35 @@ impl Session {
         Ok(())
     }
 
-    /// Takes the next batch body to go out, if any waits: the first output waiting is batched or
-    /// copied once the bodies before it are gone.
-    fn next_body(&mut self) -> Result<Option<Vec<u8>>> {
+    /// Queues shared batches after all the output before them, counted by their bytes.
+    fn queue_batches(&mut self, batches: SharedBatches) {
+        self.pending_bytes = self.pending_bytes.saturating_add(bytes_of(&batches));
+        self.pending.push_back(Pending::Batches(batches));
+    }
+
+    /// Takes the next batch body to go out, if any waits: the first output waiting is copied
+    /// once the bodies before it are gone.
+    fn next_body(&mut self) -> Option<Vec<u8>> {
         loop {
             if let Some(body) = self.out_bodies.pop_front() {
-                return Ok(Some(body));
+                return Some(body);
             }
-            match self.pending.pop_front() {
-                None => return Ok(None),
-                Some(Pending::Body(body)) => {
+            match self.pending.pop_front()? {
+                Pending::Body(body) => {
                     self.pending_bytes = self.pending_bytes.saturating_sub(body.len());
-                    return Ok(Some(body));
+                    return Some(body);
                 }
-                Some(Pending::SpawnList(packet)) => self.encode([&*packet])?,
-                Some(Pending::Batches(batches)) => {
+                Pending::SpawnList(batches) => {
+                    self.out_bodies
+                        .extend(batches.iter().map(|body| owned_body(body)));
+                }
+                Pending::Batches(batches) => {
                     self.pending_bytes = self.pending_bytes.saturating_sub(bytes_of(&batches));
                     self.out_bodies
                         .extend(batches.iter().map(|body| owned_body(body)));
                 }
                 // The batch before the marker went out when the next one is asked for.
-                Some(Pending::SpawnStatus) => self.spawn_status_sent = true,
+                Pending::SpawnStatus => self.spawn_status_sent = true,
             }
         }
     }
@@ -862,7 +865,7 @@ impl Session {
     /// Hands the next waiting body, if one waits, to the connection and counts it as not yet
     /// in the connection's undelivered count.
     async fn send_waiting(&mut self) -> Result<()> {
-        let Some(body) = self.next_body()? else {
+        let Some(body) = self.next_body() else {
             return Ok(());
         };
         self.unreported_bytes = self.unreported_bytes.saturating_add(body.len());
@@ -905,10 +908,10 @@ enum Stage {
 enum Pending {
     /// A batch body of the session's own packets, compressed and not encrypted yet.
     Body(Vec<u8>),
-    /// A packet of a spawn window's player list ([`Message::SpawnList`]), encoded into a batch
-    /// of its own as it goes out: a list of every skin outgrows any bound on a copy per session,
-    /// so [`MAX_PENDING_BYTES`] does not count it, and a session gets two lists at most.
-    SpawnList(Arc<Packet>),
+    /// The batches of a spawn window's player list ([`Message::SpawnList`]), copied as they go
+    /// out: a list of every skin outgrows any bound on a copy per session, so
+    /// [`MAX_PENDING_BYTES`] does not count it, and a session gets two lists at most.
+    SpawnList(SharedBatches),
     /// Batches the tick shares among sessions, copied as they go out and counted by their bytes
     /// meanwhile.
     Batches(SharedBatches),
@@ -1225,6 +1228,7 @@ mod tests {
             for _ in 0..20 {
                 player
                     .queue_messages(&chunks())
+                    .await
                     .expect("the chunks are batched");
                 player
                     .on_message(requests.clone())
@@ -1604,12 +1608,12 @@ mod tests {
     /// index.
     fn numbered_list(count: u8) -> impl Iterator<Item = Message> {
         (0..count).map(|i| {
-            Message::SpawnList(Arc::new(Packet::ResourcePackChunkData(
+            Message::SpawnList(Arc::new(SharedPacket::new(Packet::ResourcePackChunkData(
                 packet::ResourcePackChunkData {
                     data: vec![i; BATCH_BYTES],
                     ..packet::ResourcePackChunkData::default()
                 },
-            )))
+            ))))
         })
     }
 
@@ -1809,12 +1813,12 @@ mod tests {
             let (conn, mut far) = crate::raknet::tests::linked_connection();
             let mut session = joined_on(0, &shared, Transport::Raknet(conn)).await;
             let outbound = joined_outbound(&mut queue);
-            let broadcast = Arc::new(Packet::ResourcePackChunkData(
+            let broadcast = Arc::new(SharedPacket::new(Packet::ResourcePackChunkData(
                 packet::ResourcePackChunkData {
                     data: vec![0; 128 * 1024],
                     ..packet::ResourcePackChunkData::default()
                 },
-            ));
+            )));
             let start = tokio::time::Instant::now();
             let tick = async {
                 let mut steps = tokio::time::interval(STEP);
@@ -1858,12 +1862,12 @@ mod tests {
             let (conn, mut far) = crate::raknet::tests::linked_connection();
             let mut session = joined_on(0, &shared, Transport::Raknet(conn)).await;
             let outbound = joined_outbound(&mut queue);
-            let skin = Arc::new(Packet::ResourcePackChunkData(
+            let skin = Arc::new(SharedPacket::new(Packet::ResourcePackChunkData(
                 packet::ResourcePackChunkData {
                     data: vec![0; BATCH_BYTES],
                     ..packet::ResourcePackChunkData::default()
                 },
-            ));
+            )));
             let tick = async {
                 let mut ticks = tokio::time::interval(TICK);
                 for _ in 0..MOST_TICKS {
@@ -1917,11 +1921,13 @@ mod tests {
             let outbound = joined_outbound(&mut queue);
             far.undelivered
                 .send_replace(MAX_OUTPUT_UNDELIVERED_BYTES + 1);
-            let soft_enum = Arc::new(Packet::UpdateSoftEnum(packet::UpdateSoftEnum {
-                enum_type: "maps".to_owned(),
-                options: vec!["lobby".to_owned()],
-                ..packet::UpdateSoftEnum::default()
-            }));
+            let soft_enum = Arc::new(SharedPacket::new(Packet::UpdateSoftEnum(
+                packet::UpdateSoftEnum {
+                    enum_type: "maps".to_owned(),
+                    options: vec!["lobby".to_owned()],
+                    ..packet::UpdateSoftEnum::default()
+                },
+            )));
             let small = (0..SMALL)
                 .map(|_| Message::SharedPacket(Arc::clone(&soft_enum)))
                 .collect();
@@ -1954,6 +1960,60 @@ mod tests {
                 ),
                 "{end:?}"
             );
+        });
+    }
+
+    /// A packet the tick shares among sessions is batched and compressed once: every session
+    /// waits with the same bodies, which are those a session batches for the packet itself.
+    #[test]
+    fn a_shared_packet_is_compressed_once_for_every_session() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(2);
+            let shared = shared(inputs);
+            let skin = Packet::ResourcePackChunkData(packet::ResourcePackChunkData {
+                data: (0..=u8::MAX).cycle().take(BATCH_BYTES).collect(),
+                ..packet::ResourcePackChunkData::default()
+            });
+            let message = Message::SharedPacket(Arc::new(SharedPacket::new(skin.clone())));
+            let mut waiting = Vec::new();
+            for id in 0..2 {
+                let mut session = joined(id, &shared).await;
+                session.encoder = Some(batch::Encoder::new(shared.batch));
+                session
+                    .queue_messages(std::slice::from_ref(&message))
+                    .await
+                    .unwrap();
+                let Some(Pending::Batches(batches)) = session.pending.pop_front() else {
+                    panic!("session {id} waits with shared batches");
+                };
+                session.queue_packets([&skin]).unwrap();
+                let own: Vec<Vec<u8>> = std::iter::from_fn(|| session.next_body()).collect();
+                assert_eq!(*batches, *own, "session {id}");
+                waiting.push(batches);
+            }
+            assert!(Arc::ptr_eq(&waiting[0], &waiting[1]));
+        });
+    }
+
+    /// A send hook's copy of a shared packet goes out in batches of the changed copy, and the
+    /// other sessions keep the original's.
+    #[test]
+    fn a_changed_copy_of_a_shared_packet_is_compressed_again() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut session = joined(0, &shared).await;
+            let time = |time| Packet::SetTime(packet::SetTime { time });
+            let original = Arc::new(SharedPacket::new(time(1)));
+            let first = session.shared_batches(&original).await.unwrap();
+            let mut copy = Arc::clone(&original);
+            *Arc::make_mut(&mut copy).get_mut() = time(2);
+            let changed = session.shared_batches(&copy).await.unwrap();
+            session.queue_packets([&time(2)]).unwrap();
+            let own: Vec<Vec<u8>> = std::iter::from_fn(|| session.next_body()).collect();
+            assert_eq!(*changed, *own);
+            let kept = session.shared_batches(&original).await.unwrap();
+            assert!(Arc::ptr_eq(&kept, &first));
         });
     }
 }

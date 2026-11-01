@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
 
-use super::queue::{Message, SessionId};
+use super::queue::{Message, SessionId, SharedPacket};
 use super::{Context, Settings, State};
 use crate::ServerBuilder;
 use crate::player;
@@ -76,7 +76,7 @@ enum Slot<'a> {
     /// This player's own packet.
     Own(&'a mut Packet),
     /// A packet shared with other players.
-    Shared(&'a mut Arc<Packet>),
+    Shared(&'a mut Arc<SharedPacket>),
 }
 
 impl SentPacket<'_> {
@@ -88,7 +88,7 @@ impl SentPacket<'_> {
                 None => logged,
             },
             Slot::Own(packet) => packet,
-            Slot::Shared(packet) => packet,
+            Slot::Shared(packet) => packet.get(),
         }
     }
 
@@ -99,7 +99,7 @@ impl SentPacket<'_> {
         match &mut self.0 {
             Slot::Received { logged, copy } => copy.get_or_insert_with(|| Packet::clone(logged)),
             Slot::Own(packet) => packet,
-            Slot::Shared(packet) => Arc::make_mut(packet),
+            Slot::Shared(packet) => Arc::make_mut(packet).get_mut(),
         }
     }
 }
@@ -221,7 +221,7 @@ pub(super) fn send(
     let skip = |packet: &Packet| !settings.hook_movement_packets && is_movement(packet);
     messages.retain_mut(|message| match message {
         Message::Packet(packet) if skip(packet) => true,
-        Message::SharedPacket(packet) | Message::SpawnList(packet) if skip(packet) => true,
+        Message::SharedPacket(packet) | Message::SpawnList(packet) if skip(packet.get()) => true,
         Message::Packet(packet) => {
             let mut sent = SentPacket(Slot::Own(packet));
             hooks.iter().all(|hook| hook(id, &mut sent))

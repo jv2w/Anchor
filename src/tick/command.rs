@@ -23,7 +23,7 @@ use std::sync::Arc;
 use tracing::{debug, info};
 
 use super::checkpoint::{self, Codec, Reader, Writer};
-use super::queue::{self, Identity, SessionId};
+use super::queue::{self, Identity, SessionId, SharedPacket};
 use super::{Context, Phase, PlayerKey, State, chat, dispatch, spawn};
 use crate::ServerBuilder;
 use crate::command::parse::{self, Coord, Names, Raw, Target};
@@ -1101,11 +1101,11 @@ pub(super) fn sync(state: &mut State) {
             reason = "invariant: a changed soft enum is a position of the catalog's soft enums"
         )]
         let options = commands.soft_values[index].clone();
-        let packet = Arc::new(Packet::UpdateSoftEnum(UpdateSoftEnum {
+        let packet = Arc::new(SharedPacket::new(Packet::UpdateSoftEnum(UpdateSoftEnum {
             enum_type: commands.catalog.soft_name(index).to_owned(),
             options,
             action_type: u8::from(SoftEnumAction::Set),
-        }));
+        })));
         for player in state.players.values_mut() {
             if player.chunk_radius.is_some() {
                 player.send_shared(Arc::clone(&packet));
@@ -1567,7 +1567,8 @@ impl Context<'_> {
     /// Adds `entry` to the name bans, or to the IP bans for [`BanEntry::ip`], replacing a ban of
     /// the same name or address, saved at the next tick boundary. Its creation time is now. Bans
     /// that have ended are dropped from the list first. A banned player who is online stays
-    /// until kicked; the ban refuses its next join.
+    /// until kicked; the ban refuses its next join, and the join of a player whose saved data
+    /// is still loading when its data arrives.
     #[doc(alias = "BanList::addBan")]
     #[doc(alias = "BanList::add")]
     pub fn ban(&mut self, entry: BanEntry) -> permission::Result<()> {
@@ -1636,7 +1637,9 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// Takes `name` off the whitelist; false if it was not on it.
+    /// Takes `name` off the whitelist; false if it was not on it. A player who is online stays
+    /// until kicked; one whose saved data is still loading is refused when its data arrives, if
+    /// the whitelist then keeps it out.
     #[doc(alias = "Server::removeWhitelist")]
     pub fn remove_from_whitelist(&mut self, name: &str) -> bool {
         let removed = self.state.commands.access.whitelist_remove(name);
@@ -1664,7 +1667,8 @@ impl Context<'_> {
     }
 
     /// Turns the whitelist on or off until the server stops (`white-list` decides at start:
-    /// Anchor never writes the settings file). Players already online stay.
+    /// Anchor never writes the settings file). Players already online stay; one whose saved data
+    /// is still loading is refused when its data arrives, if the whitelist then keeps it out.
     pub fn set_whitelist_enabled(&mut self, enabled: bool) {
         if self.state.commands.access.whitelist_enabled() != enabled {
             info!(enabled, "whitelist switched until the server stops");

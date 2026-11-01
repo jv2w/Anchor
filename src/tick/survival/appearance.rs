@@ -14,7 +14,7 @@ use crate::protocol;
 use crate::protocol::consts::EmoteFlag;
 use crate::protocol::packet::{Emote, Packet, PlayerSkin};
 use crate::tick::Context;
-use crate::tick::queue::Skin;
+use crate::tick::queue::{SharedPacket, Skin};
 
 /// Ticks that must pass between two emotes of a player: more than 5 (PMMP `Player::emote`).
 const EMOTE_COOLDOWN: u64 = 5;
@@ -38,7 +38,8 @@ const SKIN_REFILL_BYTES_PER_TICK: usize = (128 << 10) / Context::TICKS_PER_SECON
 /// The server's budget for skin broadcasts (PMMP sends every change at once): a token bucket of
 /// skin bytes that holds one skin of the largest size and refills by
 /// [`SKIN_REFILL_BYTES_PER_TICK`]. Each broadcast is held once for all its receivers
-/// ([`Player::send_shared`]), but every receiver's session encodes and sends it. A change that
+/// ([`Player::send_shared`]) and encoded and compressed once for all their sessions, but every
+/// receiver's link carries it. A change that
 /// does not fit stays marked, and only the player's latest skin goes out when it does, so a
 /// player that changes fast costs one waiting broadcast.
 ///
@@ -290,7 +291,10 @@ fn send_skin(state: &mut State, session: SessionId) -> bool {
     };
     state.skin_budget.bytes = left;
     player.survival.custom.skin = false;
-    let packet = Arc::new(skin_packet(player.identity.uuid, &player.identity.skin));
+    let packet = Arc::new(SharedPacket::new(skin_packet(
+        player.identity.uuid,
+        &player.identity.skin,
+    )));
     for p in state.players.values_mut() {
         if p.gets_broadcasts() {
             p.send_shared(Arc::clone(&packet));

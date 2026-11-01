@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 
 use super::command::{self, Refusal};
 use super::hook::{self, StartHook};
-use super::queue::{self, Identity, Message, Outbound, SessionId, SharedBatches};
+use super::queue::{self, Identity, Message, Outbound, SessionId, SharedBatches, SharedPacket};
 use super::save::storage_key;
 use super::survival::EYE_HEIGHT;
 use super::view::{self, Changes, Encoded};
@@ -286,7 +286,7 @@ struct Window {
     /// each player's skin (up to 4 MiB). A client takes at most
     /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet and a session sends at most
     /// `max-batch-bytes` in one batch, so a longer or larger list goes in several.
-    player_list: Vec<Arc<Packet>>,
+    player_list: Vec<Arc<SharedPacket>>,
     /// The packets of each world a window is in. Only those worlds, as each world's sleeping
     /// counts look at every player.
     worlds: BTreeMap<WorldIndex, WorldPackets>,
@@ -294,9 +294,9 @@ struct Window {
 
 impl Window {
     /// Builds what the spawn windows of `marked` share; empty when none goes out this tick.
-    fn new(state: &State, marked: &[(SessionId, &Player)]) -> Self {
+    fn new(state: &State, marked: &[Marked<'_>]) -> Self {
         let mut worlds = BTreeMap::new();
-        for (_, p) in marked {
+        for Marked { player: p, .. } in marked {
             if (p.pending.start_game || p.pending.radius.is_some_and(|r| r.first))
                 && !worlds.contains_key(&p.world)
             {
@@ -349,6 +349,15 @@ struct WorldPackets {
     sleeping: Packet,
 }
 
+/// A player with something to send at the end of a tick, and the packets the serial phases
+/// queued for it, taken out of it so that the output phase moves them instead of copying them.
+struct Marked<'a> {
+    session: SessionId,
+    player: &'a Player,
+    outbox: Vec<Packet>,
+    shared_outbox: Vec<Arc<SharedPacket>>,
+}
+
 /// What every player's packets of a tick are built from.
 struct Built<'a> {
     settings: &'a Settings,
@@ -369,6 +378,36 @@ struct Refused {
     reason: String,
     packet: Packet,
 }
+
+/// A player waiting for its saved data: its session, and which of Anchor's refusals
+/// ([`command::refusals`], in their order) its login let through because a [`PlayerLogin`]
+/// listener cleared them. When the data arrives, a ban or a whitelist change made since the
+/// login refuses the player ([`player_loaded`]); what the login let through stays let through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Loading {
+    pub(super) session: SessionId,
+    let_through: [bool; 3],
+}
+
+impl Loading {
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            session,
+            let_through,
+        } = self;
+        h.u64(session.get());
+        for &let_through in let_through {
+            h.u64(u64::from(let_through));
+        }
+    }
+}
+
+super::checkpoint::fields!(Loading {
+    session,
+    let_through,
+});
 
 impl super::Context<'_> {
     /// Sets the chunk radius `player` sees (PMMP `Player::setViewDistance`), kept from 1 to
@@ -453,28 +492,22 @@ fn trim_data() -> TrimData {
 
 /// Encodes and compresses packets, in order, into their batch bodies.
 fn encode(encoder: &mut batch::Encoder, packets: &[Packet]) -> Result<SharedBatches, batch::Error> {
-    let headed = packets.iter().map(|packet| {
-        let header = batch::Header {
-            id: packet.id(),
-            ..batch::Header::default()
-        };
-        (header, packet)
-    });
-    let mut payload = Vec::new();
     let mut bodies = Vec::new();
-    batch::encode_packets(headed, SHIELD_RUNTIME_ID, &mut payload, |p| {
-        let mut body = Vec::new();
-        encoder.encode(p, &mut body)?;
-        bodies.push(body);
-        Ok(())
-    })?;
+    batch::encode_bodies(
+        packets,
+        SHIELD_RUNTIME_ID,
+        Some(encoder),
+        &mut Vec::new(),
+        &mut bodies,
+    )?;
     Ok(bodies.into())
 }
 
 /// Runs the output phase: works out the sub-chunks the answers need, once each with their height
 /// maps on the CPU pool; then builds the packets of every player with something to send on the
-/// CPU pool from read-only state in session order and passes them through the send hooks; then
-/// clears the pending marks.
+/// CPU pool from read-only state in session order, after them the packets the serial phases
+/// queued (moved out of the outboxes, never copied), and passes them through the send hooks;
+/// then clears the pending marks.
 pub(super) fn output(
     state: &mut State,
     pool: &Pool,
@@ -482,25 +515,47 @@ pub(super) fn output(
 ) -> Vec<(SessionId, Vec<Message>)> {
     let ops = operators_starting(state);
     let encoded = Encoded::new(state, pool);
-    let worlds = &state.worlds;
-    let marked: Vec<(SessionId, &Player)> = state
+    let mut taken = Vec::new();
+    for (&session, p) in &mut state.players {
+        if p.pending != Pending::default()
+            || !p.view.out.is_empty()
+            || !p.outbox.is_empty()
+            || !p.shared_outbox.is_empty()
+            || (changes.contains_key(&p.world) && p.view.is_open())
+        {
+            let outboxes = (
+                std::mem::take(&mut p.outbox),
+                std::mem::take(&mut p.shared_outbox),
+            );
+            taken.push((session, outboxes));
+        }
+    }
+    // Both in session order: each taken outbox meets its player.
+    let mut taken = taken.into_iter().peekable();
+    let marked: Vec<Marked<'_>> = state
         .players
         .iter()
-        .filter(|(_, p)| {
-            p.pending != Pending::default()
-                || !p.view.out.is_empty()
-                || !p.outbox.is_empty()
-                || !p.shared_outbox.is_empty()
-                || (changes.contains_key(&p.world) && p.view.is_open())
+        .filter_map(|(session, player)| {
+            let (_, (outbox, shared_outbox)) = taken.next_if(|(s, _)| s == session)?;
+            Some(Marked {
+                session: *session,
+                player,
+                outbox,
+                shared_outbox,
+            })
         })
-        .map(|(&s, p)| (s, p))
         .collect();
     let window = Window::new(state, &marked);
-    let (settings, shared) = (&state.settings, &state.shared);
+    let (worlds, settings, shared) = (&state.worlds, &state.settings, &state.shared);
     let (sends, starts) = (state.hooks.send(), state.hooks.start_game());
     let commands = state.commands.listing();
-    let mut packets: Vec<(SessionId, Vec<Message>)> = pool.map(&marked, |&(session, player)| {
-        let world = worlds.get(player.world);
+    let sent = pool.map_owned(marked, |marked| {
+        let Marked {
+            session,
+            player,
+            mut outbox,
+            mut shared_outbox,
+        } = marked;
         let built = Built {
             settings,
             shared,
@@ -511,36 +566,23 @@ pub(super) fn output(
             commands,
             ops: &ops,
         };
-        let mut out = messages(&built, world, session, player);
-        if !sends.is_empty() {
-            // The hooks need the packets to change; only then are the serial phases' copied.
-            out.extend(player.outbox.iter().cloned().map(Message::Packet));
-            out.extend(
-                player
-                    .shared_outbox
-                    .iter()
-                    .cloned()
-                    .map(Message::SharedPacket),
-            );
-            hook::send(sends, settings, session, &mut out);
-        }
-        (session, out)
+        let mut out = messages(&built, worlds.get(player.world), session, player);
+        // The serial phases' packets follow the output phase's ([`Player::send_packet`]).
+        out.extend(outbox.drain(..).map(Message::Packet));
+        out.extend(shared_outbox.drain(..).map(Message::SharedPacket));
+        hook::send(sends, settings, session, &mut out);
+        (session, out, (outbox, shared_outbox))
     });
-    // The serial phases' packets follow the output phase's ([`Player::send_packet`]); the outbox
-    // keeps its capacity for the next tick.
-    let hooked = !sends.is_empty();
-    for (session, out) in &mut packets {
-        if let Some(player) = state.players.get_mut(session) {
-            if hooked {
-                player.outbox.clear();
-                player.shared_outbox.clear();
-            } else {
-                out.extend(player.outbox.drain(..).map(Message::Packet));
-                out.extend(player.shared_outbox.drain(..).map(Message::SharedPacket));
-            }
+    let mut packets = Vec::with_capacity(sent.len());
+    for (session, out, outboxes) in sent {
+        // The emptied outboxes go back, keeping their capacity for the next tick.
+        if let Some(player) = state.players.get_mut(&session) {
+            (player.outbox, player.shared_outbox) = outboxes;
+        }
+        if !out.is_empty() {
+            packets.push((session, out));
         }
     }
-    packets.retain(|(_, m)| !m.is_empty());
     for player in state.players.values_mut() {
         player.pending = Pending::default();
         player.view.out.clear();
@@ -743,7 +785,7 @@ fn list_entry(player: &Player) -> PlayerListEntry {
 /// Builds the `PlayerList` packets that list `players` in order: each of at most
 /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries and of at most `max_batch_bytes` in a batch. One
 /// entry alone always fits ([`MAX_LIST_ENTRY_BYTES`]).
-fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<Packet>> {
+fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<SharedPacket>> {
     let mut packets = Vec::new();
     let mut entries = Vec::new();
     let mut bytes = LIST_PACKET_FIXED_BYTES;
@@ -757,14 +799,14 @@ fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<Packet>>
             || (!entries.is_empty() && bytes.saturating_add(entry_bytes) > max_batch_bytes)
         {
             let entries = std::mem::take(&mut entries);
-            packets.push(Arc::new(Packet::PlayerList(PlayerList { entries })));
+            packets.push(shared_list(entries));
             bytes = LIST_PACKET_FIXED_BYTES;
         }
         entries.push(list_entry(player));
         bytes = bytes.saturating_add(entry_bytes);
     }
     if !entries.is_empty() {
-        packets.push(Arc::new(Packet::PlayerList(PlayerList { entries })));
+        packets.push(shared_list(entries));
     }
     packets
 }
@@ -772,9 +814,7 @@ fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<Packet>>
 /// Adds a placed player to the list of every other placed player (their own windows, if they are
 /// placed this tick too, list everyone), its skin held once for all of them.
 fn announce(state: &mut State, player: &Player) {
-    let packet = Arc::new(Packet::PlayerList(PlayerList {
-        entries: vec![list_entry(player)],
-    }));
+    let packet = shared_list(vec![list_entry(player)]);
     for p in state.players.values_mut() {
         if gets_list_changes(p) {
             p.send_shared(Arc::clone(&packet));
@@ -795,26 +835,32 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
     if player.phase == Phase::Loading {
         return;
     }
-    let packet = Packet::PlayerList(PlayerList {
-        entries: vec![PlayerListEntry {
-            action_type: PlayerListAction::Remove.into(),
-            uuid: player.identity.uuid,
-            ..PlayerListEntry::default()
-        }],
-    });
+    let entries = vec![PlayerListEntry {
+        action_type: PlayerListAction::Remove.into(),
+        uuid: player.identity.uuid,
+        ..PlayerListEntry::default()
+    }];
     let told = state.players.values_mut().filter(|p| gets_list_changes(p));
     if player.pending.start_game {
         // Placed this tick: `announce` added it through the shared queue, which goes out after
         // the packets, so the removal follows it there.
-        let packet = Arc::new(packet);
+        let packet = shared_list(entries);
         for p in told {
             p.send_shared(Arc::clone(&packet));
         }
     } else {
+        let packet = Packet::PlayerList(PlayerList { entries });
         for p in told {
             p.send_packet(packet.clone());
         }
     }
+}
+
+/// Holds a `PlayerList` of `entries` for every player it goes to.
+fn shared_list(entries: Vec<PlayerListEntry>) -> Arc<SharedPacket> {
+    Arc::new(SharedPacket::new(Packet::PlayerList(PlayerList {
+        entries,
+    })))
 }
 
 /// Registers the player of `session`, or rejects it when the server is full. A second join of
@@ -860,16 +906,23 @@ pub(super) fn join(
         replaced = Some((existing, outcome.reason, packet));
         duplicate = event;
     }
-    let (refused, event) = login(state, &identity);
-    let request = if let Some(Refused { reason, packet }) = refused {
-        info!(session = session.get(), name = %identity.name, %reason, "join rejected");
-        output.close(outbound, packet);
-        None
-    } else {
-        if let Some((existing, reason, packet)) = replaced {
-            replace(state, existing, session, &reason, packet, output);
+    let (admitted, event) = login(state, &identity);
+    let request = match admitted {
+        Err(Refused { reason, packet }) => {
+            info!(session = session.get(), name = %identity.name, %reason, "join rejected");
+            output.close(outbound, packet);
+            None
         }
-        enter(state, session, identity, key, outbound, output)
+        Ok(let_through) => {
+            if let Some((existing, reason, packet)) = replaced {
+                replace(state, existing, session, &reason, packet, output);
+            }
+            let loading = Loading {
+                session,
+                let_through,
+            };
+            enter(state, loading, identity, key, outbound, output)
+        }
     };
     if let Some(e) = &duplicate {
         dispatch::watch(state, e);
@@ -907,16 +960,17 @@ fn replace(
     );
 }
 
-/// Registers the admitted player of `session` (see [`join`]); one placed dead respawns
-/// ([`survival::respawn_joined`]).
+/// Registers the admitted player of `loading`'s session (see [`join`]), which waits as `loading`
+/// if its saved data must be loaded; one placed dead respawns ([`survival::respawn_joined`]).
 fn enter(
     state: &mut State,
-    session: SessionId,
+    loading: Loading,
     identity: Identity,
     key: PlayerKey,
     outbound: mpsc::Sender<Outbound>,
     output: &mut Output,
 ) -> Option<Request> {
+    let session = loading.session;
     let Some(next) = state.next_runtime_id.checked_add(1) else {
         // 2^64 joins never happen in one process; refuse rather than reuse an ID.
         warn!(session = session.get(), "entity runtime IDs exhausted");
@@ -965,7 +1019,7 @@ fn enter(
         player.data_dirty = dirty;
         None
     } else {
-        state.loading.insert(stored.clone(), session);
+        state.loading.insert(stored.clone(), loading);
         Some(Request::Player(stored))
     };
     state.insert(session, player);
@@ -1017,46 +1071,79 @@ fn spawn_position(world: Option<&World>) -> Vec3 {
 
 /// Places a loading player whose saved data arrived: it joins where it was, at the spawn if it
 /// is new, or at its respawn point if it was dead ([`survival::respawn_joined`]). Damaged data
-/// refuses the join and leaves the saved bytes as they are.
+/// refuses the join and leaves the saved bytes as they are. A ban or a whitelist change made
+/// while the data loaded refuses the join as the login would have, the data left as saved: the
+/// commands and calls that kick the players a ban or whitelist change leaves out see only
+/// players in the game ([`Loading`]).
 pub(super) fn player_loaded(
     state: &mut State,
     key: &StoredPlayer,
     data: PlayerLoad,
     output: &mut Output,
 ) {
-    let Some(session) = state.loading.remove(key) else {
+    let Some(Loading {
+        session,
+        let_through,
+    }) = state.loading.remove(key)
+    else {
         return;
     };
-    let Some(mut player) = state.players.remove(&session) else {
+    let Some(player) = state.players.get(&session) else {
         return;
     };
     if player.phase != Phase::Loading {
-        state.players.insert(session, player);
         return;
     }
-    match data {
-        PlayerLoad::Found(data) => place(state, &mut player, Some(data)),
-        PlayerLoad::Absent => place(state, &mut player, None),
+    // Asked while the player is in the table, which the slot count reads. A full server is not
+    // asked again: the player holds its slot since the login.
+    let [_, whitelist, ban] = command::refusals(state, &player.identity);
+    let [_, whitelist_let_through, ban_let_through] = let_through;
+    let since_login = whitelist
+        .filter(|_| !whitelist_let_through)
+        .or(ban.filter(|_| !ban_let_through));
+    let data = match data {
+        PlayerLoad::Found(data) => Some(data),
+        PlayerLoad::Absent => None,
         PlayerLoad::Damaged => {
             error!(
                 player = key.as_str(),
                 "saved player data is damaged; the join is refused and the data kept as saved"
             );
-            state.players.insert(session, player);
-            if let Some(p) = state.remove(session) {
-                let packet = Packet::Disconnect(Disconnect {
-                    reason: i32::from(DisconnectReason::Unknown),
-                    hide_disconnection_screen: false,
-                    message: DAMAGED_DATA_MESSAGE.to_owned(),
-                    filtered_message: String::new(),
-                });
-                state.close(p, packet, output);
-            }
+            let packet = Packet::Disconnect(Disconnect {
+                reason: i32::from(DisconnectReason::Unknown),
+                hide_disconnection_screen: false,
+                message: DAMAGED_DATA_MESSAGE.to_owned(),
+                filtered_message: String::new(),
+            });
+            refuse_loaded(state, session, packet, output);
             return;
         }
+    };
+    if let Some(refusal) = since_login {
+        let reason = refusal.message();
+        info!(session = session.get(), player = key.as_str(), %reason, "join rejected after loading");
+        refuse_loaded(state, session, refusal.packet(), output);
+        return;
     }
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the loading player was found in the table above"
+    )]
+    let mut player = state
+        .players
+        .remove(&session)
+        .expect("the loading player is in the table");
+    place(state, &mut player, data);
     state.players.insert(session, player);
     survival::respawn_joined(state, session);
+}
+
+/// Ends the join of the loading player of `session` with `packet`, keeping its saved data as
+/// it is.
+fn refuse_loaded(state: &mut State, session: SessionId, packet: Packet, output: &mut Output) {
+    if let Some(p) = state.remove(session) {
+        state.close(p, packet, output);
+    }
 }
 
 /// Raises [`PlayerDuplicateLogin`] for `connecting` against the player of `existing` and returns
@@ -1092,15 +1179,21 @@ fn duplicate_login(
 /// the tick, after the duplicate login check): Anchor's refusals ([`command::refusals`]) are the
 /// event's kick flags, listeners may clear them or set others, and the first flag left refuses
 /// the player with its screen message. Without listeners the first refusal decides
-/// ([`command::admit`]) and no event is built. Returns the refusal, if any, and the event for
-/// the monitors, who see it after the join is applied.
-fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<PlayerLogin>) {
+/// ([`command::admit`]) and no event is built. Returns which of Anchor's refusals an admitted
+/// login let through (listeners cleared them; [`Loading`]) or the refusal, and the event for the
+/// monitors, who see it after the join is applied.
+fn login(
+    state: &mut State,
+    identity: &Identity,
+) -> (Result<[bool; 3], Refused>, Option<PlayerLogin>) {
     if !dispatch::heard::<PlayerLogin>(state) {
-        let refused = command::admit(state, identity).err().map(|r| Refused {
-            reason: r.message(),
-            packet: r.packet(),
-        });
-        return (refused, None);
+        let admitted = command::admit(state, identity)
+            .map(|()| [false; 3])
+            .map_err(|r| Refused {
+                reason: r.message(),
+                packet: r.packet(),
+            });
+        return (admitted, None);
     }
     let mut anchor = command::refusals(state, identity);
     let ip = identity
@@ -1151,7 +1244,11 @@ fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<Pla
         );
         Refused { reason, packet }
     });
-    (refused, Some(event))
+    let admitted = match refused {
+        Some(refused) => Err(refused),
+        None => Ok(anchor.map(|r| r.is_some())),
+    };
+    (admitted, Some(event))
 }
 
 /// Names the kick flag of [`PlayerLogin`] that stands for one of Anchor's refusals.
@@ -1629,7 +1726,7 @@ mod tests {
         let entries = |max_batch_bytes: usize| -> Vec<usize> {
             list_packets(&placed, max_batch_bytes)
                 .iter()
-                .map(|p| match &**p {
+                .map(|p| match p.get() {
                     Packet::PlayerList(l) => l.entries.len(),
                     other => panic!("{other:?}"),
                 })
@@ -1900,6 +1997,63 @@ mod tests {
             };
             assert_eq!(d.message, "This server has banned you: spam");
             assert!(state.players.is_empty());
+        }
+
+        /// Joins session 1 as `name` on `state`, which loads saved player data: the player waits
+        /// for its data, whose answer `output` holds for the next tick. Returns its queue.
+        fn join_loading(
+            state: &mut State,
+            name: &str,
+            output: &mut Output,
+        ) -> mpsc::Receiver<Outbound> {
+            state.saving.players = true;
+            let (j, rx) = join_as(1, identity(name, None));
+            tick(state, &mut vec![j], output);
+            assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Loading);
+            rx
+        }
+
+        /// A ban or a whitelist change made while a player's saved data loads, which the kicks of
+        /// the commands and calls that make them do not reach, refuses the player when the data
+        /// arrives.
+        #[test]
+        fn a_ban_or_whitelist_change_while_the_data_loads_refuses_the_join() {
+            for (banned, message) in [
+                (true, "This server has banned you"),
+                (false, "disconnectionScreen.notAllowed"),
+            ] {
+                let mut state = state(|_| {}, Listeners::default());
+                let mut output = Output::default();
+                let mut rx = join_loading(&mut state, "Loader", &mut output);
+                let mut cx = Context { state: &mut state };
+                if banned {
+                    cx.ban(BanEntry::new("Loader")).unwrap();
+                } else {
+                    cx.set_whitelist_enabled(true);
+                }
+                tick(&mut state, &mut Vec::new(), &mut output);
+                let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
+                    panic!("{message}: the loaded player is refused with a Disconnect");
+                };
+                assert_eq!(d.message, message);
+                assert!(state.players.is_empty(), "{message}");
+                assert!(state.loading.is_empty(), "{message}");
+            }
+        }
+
+        /// A refusal a login listener cleared stays cleared when the player's data arrives.
+        #[test]
+        fn a_refusal_a_login_listener_cleared_lets_the_loaded_player_in() {
+            let let_in = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                e.clear_kick_flag(KickFlag::ServerWhitelisted);
+            };
+            let mut state = state(|_| {}, on(let_in));
+            Context { state: &mut state }.set_whitelist_enabled(true);
+            let mut output = Output::default();
+            let mut rx = join_loading(&mut state, "Guest", &mut output);
+            tick(&mut state, &mut Vec::new(), &mut output);
+            assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Joined);
+            assert!(received(&mut rx).1.is_none(), "the player stays");
         }
 
         // pmmp: PlayerPreLoginEvent

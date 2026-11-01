@@ -428,6 +428,35 @@ pub fn encode_packets<'p>(
     Ok(())
 }
 
+/// Encodes `packets` in order into batch payloads ([`encode_packets`], each packet under a header
+/// of its own ID) and appends their batch bodies to `bodies`: each payload compressed by
+/// `encoder`, or as it is, without a header byte, when there is none (before `NetworkSettings`
+/// turns compression on). Errors are those of [`encode_packets`] and [`Encoder::encode`].
+pub(crate) fn encode_bodies<'p>(
+    packets: impl IntoIterator<Item = &'p Packet>,
+    shield_id: i32,
+    mut encoder: Option<&mut Encoder>,
+    payload: &mut Vec<u8>,
+    bodies: &mut impl Extend<Vec<u8>>,
+) -> Result<()> {
+    let headed = packets.into_iter().map(|packet| {
+        let header = Header {
+            id: packet.id(),
+            ..Header::default()
+        };
+        (header, packet)
+    });
+    encode_packets(headed, shield_id, payload, |payload| {
+        let mut body = Vec::new();
+        match encoder.as_deref_mut() {
+            Some(encoder) => encoder.encode(payload, &mut body)?,
+            None => body.extend_from_slice(payload),
+        }
+        bodies.extend([body]);
+        Ok(())
+    })
+}
+
 /// Appends one packet to a batch payload: its length, header and bytes. On error `payload` is
 /// left as it was.
 fn append_packet(

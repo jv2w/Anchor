@@ -11,8 +11,11 @@
 //! with the server file of the same tick.
 //!
 //! The bound ([`MAX_BYTES`]) counts each input by its size on the wire or, for a packet, what
-//! decoding it allocated if that is larger, plus [`ENTRY_COST`]. Recording stops when the inputs
-//! alone would pass it. Committed segments are kept while there is room: the oldest go only when
+//! decoding it allocated if that is larger, and every list the log holds by the room it takes:
+//! a tick, an input, an answer and a forgotten session each take their own size in their list,
+//! whose room is counted as it grows ([`growth`]), so the bound counts the memory the log holds
+//! and many empty inputs or ticks are bounded too. Recording stops when the inputs alone would
+//! pass it. Committed segments are kept while there is room: the oldest go only when
 //! the inputs and the checkpoints of every kept segment would pass it, never the newest committed
 //! one, which the crash log needs. Checkpoints have no bound of their own. A segment whose
 //! recording stops, at the bound or at a save thread answer that cannot be logged, is marked
@@ -56,13 +59,11 @@ use crate::world::ChunkPos;
 pub(crate) const MAX_BYTES: usize = 64 << 20;
 /// The input bytes recorded since the last commit at which the log asks for a snapshot.
 const COMMIT_BYTES: usize = MAX_BYTES / 4;
-/// Bytes counted per entry besides its packet, so that many empty inputs are bounded too.
-const ENTRY_COST: usize = 32;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The written format's version: the layout of the log and of the checkpoints it holds, which
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 22;
+const FORMAT: u32 = 23;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or
@@ -359,12 +360,15 @@ impl InputLog {
     }
 
     /// Starts the record of tick `number`; every tick counts against the bound, even an empty
-    /// one. Nothing is recorded in a truncated segment.
+    /// one, by the room it takes in its segment. Nothing is recorded in a truncated segment.
     pub(crate) fn begin(&mut self, number: u64) {
         self.chain.raw(&[CHAIN_TICK]);
         self.chain.u64(number);
-        if self.charge(0) == Charge::Fits {
-            self.last_segment_mut().ticks.push(Tick {
+        let room = growth(&self.last_segment().ticks);
+        if self.charge(room_bytes::<Tick>(room)) == Charge::Fits {
+            let ticks = &mut self.last_segment_mut().ticks;
+            ticks.reserve_exact(room);
+            ticks.push(Tick {
                 number,
                 inputs: Vec::new(),
                 dropped: Vec::new(),
@@ -386,11 +390,15 @@ impl InputLog {
         size: usize,
     ) -> Cow<'_, EntryKind> {
         self.chain_input(session, seq, &kind);
-        if !self.charge_entry(size) {
+        let room = self.last_tick_room(|t| growth(&t.inputs));
+        if !self.charge_entry(size.saturating_add(room_bytes::<Entry>(room))) {
             return Cow::Owned(kind);
         }
         match self.last_tick() {
-            Some(tick) => Cow::Borrowed(&tick.inputs.push_mut(Entry { session, seq, kind }).kind),
+            Some(tick) => {
+                tick.inputs.reserve_exact(room);
+                Cow::Borrowed(&tick.inputs.push_mut(Entry { session, seq, kind }).kind)
+            }
             None => Cow::Owned(kind),
         }
     }
@@ -399,9 +407,11 @@ impl InputLog {
     pub(crate) fn dropped(&mut self, session: SessionId) {
         self.chain.raw(&[CHAIN_DROPPED]);
         self.chain.u64(session.get());
-        if self.charge_entry(0)
+        let room = self.last_tick_room(|t| growth(&t.dropped));
+        if self.charge_entry(room_bytes::<SessionId>(room))
             && let Some(tick) = self.last_tick()
         {
+            tick.dropped.reserve_exact(room);
             tick.dropped.push(session);
         }
     }
@@ -434,9 +444,11 @@ impl InputLog {
                 return;
             }
         };
-        if self.charge_entry(size)
+        let room = self.last_tick_room(|t| growth(&t.responses));
+        if self.charge_entry(size.saturating_add(room_bytes::<Answer>(room)))
             && let Some(tick) = self.last_tick()
         {
+            tick.responses.reserve_exact(room);
             tick.responses.push(answer);
         }
     }
@@ -481,6 +493,12 @@ impl InputLog {
     /// The tick being recorded.
     fn last_tick(&mut self) -> Option<&mut Tick> {
         self.last_segment_mut().ticks.last_mut()
+    }
+
+    /// The items of room that `growth_of` one of the lists of the tick being recorded needs for
+    /// its next item; none without a tick being recorded.
+    fn last_tick_room(&self, growth_of: impl FnOnce(&Tick) -> usize) -> usize {
+        self.last_segment().ticks.last().map_or(0, growth_of)
     }
 
     /// Drops the oldest segments before the newest committed one while the inputs, the
@@ -554,13 +572,12 @@ impl InputLog {
         }
     }
 
-    /// Counts `size` bytes and an entry's cost against the bound, for the segment being recorded.
-    /// Old committed segments go first if the bound needs room.
-    fn charge(&mut self, size: usize) -> Charge {
+    /// Counts `cost` bytes against the bound, for the segment being recorded. Old committed
+    /// segments go first if the bound needs room.
+    fn charge(&mut self, cost: usize) -> Charge {
         if self.last_segment().truncated {
             return Charge::Truncated;
         }
-        let cost = size.saturating_add(ENTRY_COST);
         self.make_room(cost);
         let bytes = self.bytes.saturating_add(cost);
         if bytes > MAX_BYTES {
@@ -1513,6 +1530,22 @@ fn read_extra(bytes: &[u8]) -> Result<crate::nbt::Compound> {
     }
 }
 
+/// The items of room a list of the log needs for its next item: none while it has room,
+/// otherwise as many as it holds (one for an empty list), so its room doubles as it grows and
+/// the bound counts the room it reserves exactly ([`room_bytes`]).
+fn growth<T>(list: &Vec<T>) -> usize {
+    if list.len() < list.capacity() {
+        0
+    } else {
+        list.capacity().max(1)
+    }
+}
+
+/// The bytes `items` of room of a list of `T` take.
+fn room_bytes<T>(items: usize) -> usize {
+    items.saturating_mul(size_of::<T>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1522,7 +1555,26 @@ mod tests {
     fn an_empty_tick_counts_against_the_bound() {
         let mut log = InputLog::default();
         log.begin(0);
-        assert_eq!(log.bytes, ENTRY_COST);
+        assert_eq!(log.bytes, size_of::<Tick>());
+    }
+
+    /// The bound counts the memory the log holds: after many idle ticks of one small input each,
+    /// the room of every list the log reserved, its ticks' and their inputs', is what it counted.
+    #[test]
+    fn the_bound_counts_the_room_the_log_holds() {
+        let mut log = InputLog::default();
+        for number in 0..1000 {
+            log.begin(number);
+            let measure = EntryKind::Measure(Measure::TickTime(7));
+            log.record(SessionId::ENGINE, number, measure, 0);
+        }
+        let ticks = &log.last_segment().ticks;
+        let held = ticks
+            .iter()
+            .fold(room_bytes::<Tick>(ticks.capacity()), |sum, t| {
+                sum + room_bytes::<Entry>(t.inputs.capacity())
+            });
+        assert_eq!(log.bytes, held);
     }
 
     fn numbers(log: &InputLog) -> Vec<u64> {
@@ -1549,31 +1601,35 @@ mod tests {
         // A commit keeps the segments before it while there is room.
         log.committed(2);
         assert_eq!((log.start(), numbers(&log)), (0, vec![0, 1, 2, 3]));
-        // An input that needs room drops the segments before the newest committed one.
+        // Each of the four ticks took one tick of room: the first segment's two, and one each.
+        let (tick, entry) = (size_of::<Tick>(), size_of::<Entry>());
+        assert_eq!(log.bytes, 4 * tick);
+        // An input that needs room drops the segments before the newest committed one; it leaves
+        // a byte less than a tick's room free.
         log.record(
             SessionId::new(1),
             0,
             EntryKind::Leave,
-            MAX_BYTES - 4 * ENTRY_COST,
+            MAX_BYTES - 3 * tick - entry + 1,
         );
         assert_eq!(starts(&log), [2, 3]);
         assert_eq!(numbers(&log), [2, 3]);
         assert!(!log.is_truncated());
         assert_eq!(
             log.bytes,
-            MAX_BYTES - ENTRY_COST,
+            MAX_BYTES - tick + 1,
             "dropped ticks free their bytes"
         );
         // With no committed segment to drop, the input that does not fit truncates.
-        log.record(SessionId::new(1), 1, EntryKind::Leave, 8 * ENTRY_COST);
+        log.record(SessionId::new(1), 1, EntryKind::Leave, tick);
         assert!(log.is_truncated());
         assert_eq!(starts(&log), [2, 3]);
-        // After the next commit, the segment before it goes once the bound needs room.
+        // After the next commit, the segment before it goes once the bound needs room: here for
+        // the next tick.
         log.committed(3);
         assert_eq!(starts(&log), [2, 3]);
         log.snapshot(4);
         log.begin(4);
-        log.record(SessionId::new(1), 2, EntryKind::Leave, 0);
         assert_eq!(starts(&log), [3, 4]);
         assert!(!log.last_segment().is_truncated());
         // The same snapshot twice starts one segment.
@@ -1601,7 +1657,7 @@ mod tests {
             SessionId::new(1),
             1,
             EntryKind::Leave,
-            MAX_BYTES - 2 * ENTRY_COST,
+            MAX_BYTES - size_of::<Tick>() - size_of::<Entry>(),
         );
         assert!(!log.is_truncated(), "room dropped the truncated segment");
         assert_eq!((log.start(), numbers(&log)), (1, vec![1]));
@@ -2134,8 +2190,10 @@ mod tests {
             log.response(response);
         }
         let charged = log.bytes;
+        let answers = log.last_segment().ticks[0].responses.capacity();
+        let room = size_of::<Tick>() + room_bytes::<Answer>(answers);
         assert!(
-            charged > 5 * ENTRY_COST + 100,
+            charged > room + data.world.len(),
             "the player extra is charged: {charged}"
         );
         let bytes = log.encode().unwrap();

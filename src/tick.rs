@@ -134,8 +134,8 @@ pub(crate) struct State {
     chunks: view::Chunks,
     /// Save snapshots and what waits for their commit.
     saving: save::Saving,
-    /// The session of each player waiting for its saved data, by storage key.
-    loading: BTreeMap<StoredPlayer, SessionId>,
+    /// Each player waiting for its saved data, by storage key.
+    loading: BTreeMap<StoredPlayer, spawn::Loading>,
     /// The session of each joined player by runtime ID (players are entities to each other).
     /// Derived from `players`, so it changes only where `players` does.
     runtime_ids: BTreeMap<u64, SessionId>,
@@ -482,9 +482,9 @@ impl State {
         chunks.hash_into(&mut h);
         saving.hash_into(&mut h);
         h.usize(loading.len());
-        for (key, session) in loading {
+        for (key, l) in loading {
             h.bytes(key.as_str().as_bytes());
-            h.u64(session.get());
+            l.hash_into(&mut h);
         }
         rules.hash_into(&mut h);
         clock.hash_into(&mut h);
@@ -599,7 +599,11 @@ impl State {
         command::left(self, session);
         entity::left(self, session);
         let stored = save::storage_key(&player.key);
-        if self.loading.get(&stored) == Some(&session) {
+        if self
+            .loading
+            .get(&stored)
+            .is_some_and(|l| l.session == session)
+        {
             self.loading.remove(&stored);
         }
         view::close(self, &mut player);
@@ -919,7 +923,7 @@ pub struct Player {
     outbox: Vec<Packet>,
     /// Packets held once for every player they go to (a skin of up to 4 MiB), queued by the
     /// serial phases this tick and sent after the outbox ([`Player::send_shared`]).
-    shared_outbox: Vec<std::sync::Arc<Packet>>,
+    shared_outbox: Vec<std::sync::Arc<queue::SharedPacket>>,
     /// The outbox, or the blocks to send again ([`view::MAX_RESYNCS`]), overflowed this tick: the
     /// player is disconnected at the end of the tick.
     overflowed: bool,
@@ -953,7 +957,7 @@ impl Player {
 
     /// Queues `packet`, which other players get too, without a copy for this player: it is sent
     /// after this tick's outbox and counts against the same bound.
-    pub(crate) fn send_shared(&mut self, packet: std::sync::Arc<Packet>) {
+    pub(crate) fn send_shared(&mut self, packet: std::sync::Arc<queue::SharedPacket>) {
         if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
             self.shared_outbox.push(packet);
         } else {
@@ -1984,8 +1988,8 @@ mod tests {
                                 packets.push(p);
                             }
                             Message::SharedPacket(p) | Message::SpawnList(p) => {
-                                sent.push(p.id());
-                                packets.push((*p).clone());
+                                sent.push(p.get().id());
+                                packets.push(p.get().clone());
                             }
                             Message::Shared(batches) => {
                                 for body in batches.iter() {
@@ -2424,7 +2428,7 @@ mod tests {
             for m in messages {
                 let packet = match m {
                     Message::Packet(p) => p,
-                    Message::SharedPacket(p) | Message::SpawnList(p) => (*p).clone(),
+                    Message::SharedPacket(p) | Message::SpawnList(p) => p.get().clone(),
                     Message::Shared(_) => continue,
                 };
                 if let Packet::PlayerList(l) = &packet {
@@ -2452,13 +2456,18 @@ mod tests {
     /// then the others.
     fn shared_lists(
         rx: &mut mpsc::Receiver<Outbound>,
-    ) -> (Vec<std::sync::Arc<Packet>>, Vec<std::sync::Arc<Packet>>) {
+    ) -> (
+        Vec<std::sync::Arc<queue::SharedPacket>>,
+        Vec<std::sync::Arc<queue::SharedPacket>>,
+    ) {
         let (mut windows, mut others) = (Vec::new(), Vec::new());
         while let Ok(Outbound::Send(messages)) = rx.try_recv() {
             for m in messages {
                 match m {
-                    Message::SpawnList(p) if matches!(*p, Packet::PlayerList(_)) => windows.push(p),
-                    Message::SharedPacket(p) if matches!(*p, Packet::PlayerList(_)) => {
+                    Message::SpawnList(p) if matches!(p.get(), Packet::PlayerList(_)) => {
+                        windows.push(p);
+                    }
+                    Message::SharedPacket(p) if matches!(p.get(), Packet::PlayerList(_)) => {
                         others.push(p);
                     }
                     _ => {}
@@ -2491,7 +2500,7 @@ mod tests {
             assert!(lists.iter().all(|l| std::sync::Arc::ptr_eq(l, &roster)));
         }
         // Each entry holds its player's own skin, not a copy.
-        let Packet::PlayerList(list) = &*roster else {
+        let Packet::PlayerList(list) = roster.get() else {
             panic!("not a player list");
         };
         assert_eq!(list.entries.len(), 3);
