@@ -5,26 +5,24 @@ paths:
   - "tests/config.rs"
   - ".claude/docs/config.md"
 ---
-# 설정 규칙
+# Configuration rules
 
-## 기본 파일과 문서
-- `src/config.rs`의 `DEFAULT_FILE`을 고치면 같은 변경에서 `.claude/docs/config.md`의 첫 `toml` 블록과 키 표를 고친다.
-- 그 블록은 문서의 첫 `toml` 블록으로 두고 `DEFAULT_FILE`과 바이트 단위로 같게 둔다. `tests/config.rs`가 둘을 비교한다.
-- 기본 파일에는 모든 키를 넣는다.
+## The file
+- Keep one configuration file, `anchor.toml`, with the tables `[general]` (settings for anyone running a server), `[developer]` (performance and protocol tuning), and per-world `[worlds.<name>]`.
+- Add only the keys that are needed. Name a key after the existing server setting it matches, flattening that setting's nested path into one key name.
+- The canonical sources are the code that writes the default file (`DEFAULT_FILE` in `src/config.rs`) and `.claude/docs/config.md`. Change both in the same change: keep the default file as the doc's first `toml` block, byte-identical to `DEFAULT_FILE` (`tests/config.rs` compares them), and update the doc's key tables with it.
+- Put every key in `DEFAULT_FILE`, with its comment lines directly above its line: `Config::update_file` copies exactly those lines into older files.
 
-## 키를 더할 때
-- 기존 서버 설정에서 가져온 키의 중첩 경로는 평평하게 펴서 키 이름으로 쓴다.
-- 새 키의 기본값은 그 키가 없을 때의 동작과 같게 둔다.
-- 설정으로 열지 않는 동작은 가장 빠르고 안전하며 어떤 서버에서도 맞는 값으로 정한다.
-- 새 키의 설명 주석은 `DEFAULT_FILE`에서 그 키 줄 바로 위에 붙여 둔다. `Config::update_file`이 그 주석과 줄을 옛 파일에 그대로 더한다.
+## New keys and behavior without a key
+- Give a new key the default that matches Anchor's behavior without it, so an old file that lacks the key gives the same server.
+- Give behavior that has no key the value that is fastest, safest, and right for every server.
 
-## 검사
-- 틀린 값을 조용히 고치거나 무시하지 않는다. 새 검사도 키 이름을 담은 `config::Error`로 시작을 거부한다.
-- 시작은 설정 파일을 고쳐 쓰지 않는다. 파일을 고치는 것은 사용자가 부르는 `Config::update_file`뿐이고, 그것도 빠진 키 더하기와 모르는 키 지우기만 한다.
-- 값은 고치지 않는다. 고쳐야 할 값은 오류로 알려 사용자가 고치게 한다.
+## Validation
+- Never fix or ignore a wrong value silently. Reject the start with a `config::Error` that names the key, and let the user fix the value.
+- Never change an existing settings file at start. Only `Config::update_file` (which `<program> update-config` runs) changes it, and only by adding missing keys and removing unknown keys; it changes no value.
 
-## 기능 스위치
-- 스위치를 `false`로 둔 상태를 숨기기만으로 만들지 않는다.
-- 끈 상태에서 그 기능의 상태, 출력, 이벤트가 생기지 않고 그 기능의 표가 비어 있음을 시험한다.
+## Feature switches
+- Make a feature that can be turned off run no code at all when off: zero tick work, events, packets, and memory. Never make the off state by only hiding the feature.
+- Test the off state: the feature creates no state, output, or events, and its tables stay empty.
 
-배경과 자세한 사실은 `.claude/docs/config.md`.
+Background and detailed facts are in `.claude/docs/config.md`.

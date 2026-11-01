@@ -1,20 +1,18 @@
-# 설정
+# Configuration
 
-Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 타입, 기본값, 범위, 뜻과 읽기 규칙을 적는다. 설정이 저장과 맺는 관계는 `storage.md`에 있다.
+Every key of `anchor.toml` with its type, default, range, and meaning, and how the file is read, checked, and updated. Rules are in `.claude/rules/config.md`. Why settings are never stored in the data files, and what that means for values changed at run time, is in `storage.md`.
 
-작업 규칙은 `.claude/rules/config.md`.
+## Reading the file
 
-## 파일과 읽기
+- The server program reads the file with `Config::default().load("anchor.toml")?` and passes the result to `ServerBuilder::config`. Anchor touches a settings file only in `Config::load` and `Config::update_file`; a program that calls neither has no settings file. As a library, Anchor leaves the path, and whether to use a file at all, to the program.
+- `load` does blocking file I/O, so the program calls it before the server starts.
+- If the file is missing, `load` writes the default file below (a temporary file renamed into place) and then reads it, so the first start and every later start with that file give the same settings. A file that cannot be written is `Error::Write`; a path that cannot be read (a directory, for example) is `Error::Read`.
+- Precedence: `Config::default()`, then values set in code, then the keys present in the file (`load`), then values set in code after `load`. A key left out keeps the earlier value, so a newer Anchor starts with an older file. The default file sets every key, so when `load` writes it, only `[worlds.<name>]` values set in code before `load` survive.
+- The file is UTF-8 TOML of at most 1 MiB (`Error::TooLarge`); a byte order mark is allowed. A syntax error is `Error::Syntax`, with the line and column when the parser reports them.
 
-- 사용자 바이너리가 `Config::default().load("anchor.toml")?`로 읽어 `ServerBuilder::config`에 넘긴다. `config()`를 부르지 않으면 Anchor는 설정 파일을 읽지도 쓰지도 않는다. 라이브러리라 파일 위치와 사용 여부를 사용자가 정한다.
-- 파일이 없으면 `load`가 아래 기본 파일을 임시 파일에 쓰고 이름을 바꿔 만든 뒤 그 파일을 읽는다. 그래서 첫 시작과 그 파일로 하는 다음 시작의 설정이 같다. 그 밖에는 사용자가 `Config::update_file`을 부를 때만 파일을 다시 쓴다(아래 "파일 갱신"). 실행 중 API로 바꾼 값은 종료까지만 유지된다.
-- 값의 우선순위: `Config::default()` → 코드에서 바꾼 값 → `load`가 파일에 있는 키로 덮음 → 그 뒤 코드에서 바꾼 값. 파일에 없는 키는 앞의 값(보통 기본값)을 유지하므로 새 Anchor도 옛 파일로 시작한다.
-- 파일은 1 MiB 이하 UTF-8 TOML이다. 문법 오류는 줄과 칸을 알려 준다.
-- 표는 둘이다: `[general]`(서버를 여는 누구나 정하는 값)과 `[developer]`(성능과 프로토콜, 주의가 필요한 값). 월드별 값은 `[worlds.<이름>]`이다.
+## Default file
 
-## 기본 파일
-
-`Config::load`가 쓰는 기본 파일(`src/config.rs`의 `DEFAULT_FILE`)이다. 모든 키가 들어 있다.
+`DEFAULT_FILE` in `src/config.rs`, which `Config::load` writes. It holds every key.
 
 ```toml
 # Anchor server settings. Anchor reads this file at start and writes it only to update it:
@@ -174,147 +172,151 @@ console-input = true
 # spawn = [0, -60, 0]
 ```
 
-## 검증
+## Validation
 
-모든 값은 시작 전에 검사하고, 틀리면 키 이름을 담은 `config::Error`로 시작을 거부한다.
+`load` checks the values after reading the file, and `ServerBuilder::build` checks the whole config again, so values set in code pass the same checks. A failure is a `config::Error` that names the key (`anchor::Error::Config` from `build`):
 
-- 모르는 키는 `UnknownKey`, 모르는 최상위 표는 `UnknownTable`(`build()`에서 검사), 타입이나 모양이 틀린 값은 `Invalid`, 범위 밖 정수는 `Range`(키, 값, 최소, 최대)다. `compression-threshold`, `compression-level`, `max-batch-bytes`는 `batch::Settings::new`가 검사해 범위 밖 값이 `Batch`(키와 원인)다. 코덱 범위(1 MiB부터) 안이어도 플레이어 목록 항목 하나보다 작은 `max-batch-bytes`는 `Invalid`다.
-- `hardcore = true`는 `difficulty = "hard"`일 때만 된다.
-- `nethernet-tls-cert`와 `nethernet-tls-key`는 둘 다 비거나 둘 다 있어야 한다.
-- `[worlds.<이름>]`은 서버가 선언한 월드(`level-name`이나 `ServerBuilder::world`)여야 한다. 아니면 `UnknownWorld`다.
-- 코드에서 바꾼 값도 같은 검사를 거친다.
+- `UnknownKey`: a key Anchor does not know, at the top level or inside a known table (`[general]`, `[developer]`, `[worlds.<name>]`).
+- `UnknownTable`: an unknown top-level table. `load` keeps it and `build` rejects it.
+- `Invalid`: a value of the wrong type or form.
+- `Range`: a whole number outside its range, with the key, the value, the minimum, and the maximum.
+- `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` inside the codec's 1 MiB to 64 MiB but below one player list entry (4210786 bytes) is `Invalid`.
+- `hardcore = true` requires `difficulty = "hard"` (`Invalid`).
+- `nethernet-tls-cert` and `nethernet-tls-key` are both empty or both set (`Invalid`).
+- `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
+
+`build` also fails, with other `anchor::Error` variants, when the thread counts exceed the budget (`Threads`, see `cpu-threads`) and when a world name cannot be a file name (`InvalidWorldName`, see `level-name`).
 
 ## `[general]`
 
-| 키 | 타입 | 기본값 | 범위와 형식 | 뜻 |
-|---|---|---|---|---|
-| `motd` | 문자열 | `"Anchor Server"` | 1~256바이트, `;`와 제어 문자 없음 | 서버 목록에 보이는 이름. RakNet 핑 응답 한 데이터그램(최소 MTU 576)에 `level-name`과 함께 들어가야 해서 길이를 묶는다 |
-| `server-ip` | 문자열 | `"0.0.0.0"` | IPv4 주소 | 받을 IPv4 주소. `0.0.0.0`은 모든 인터페이스 |
-| `server-ipv6` | 문자열 | `"::"` | IPv6 주소 | 받을 IPv6 주소 |
-| `enable-ipv6` | bool | `true` | | IPv6에서도 받을지 |
-| `server-port` | 정수 | `19132` | 0~65535 | 서버가 여는 유일한 포트. UDP는 RakNet, NetherNet 게임 데이터, 서버 목록 핑, TCP는 NetherNet 시그널링. IPv4와 IPv6 모두 |
-| `public-ip` | 문자열 | `""` | 빈 값 또는 IP 주소 | 플레이어가 이 서버에 닿는 주소(NAT 뒤). 비면 로컬 인터페이스 주소를 알린다 |
-| `max-players` | 정수 | `20` | 1~10000 | 동시 접속 상한. 플레이어와 세션 표의 크기를 정한다 |
-| `xbox-auth` | bool | `true` | | Xbox Live 로그인을 요구할지. `false`면 누구나 아무 이름으로 들어온다 |
-| `white-list` | bool | `false` | | 목록에 있는 플레이어만 들어올지. 목록은 `whitelist` 명령으로 관리한다 |
-| `gamemode` | 문자열 | `"survival"` | `survival`, `creative`, `adventure`, `spectator` | 새 플레이어의 게임 모드. 설정은 전체 이름만 받는다(명령은 `s`, `0` 같은 글자와 숫자 별칭도 받는다) |
-| `force-gamemode` | bool | `false` | | 접속할 때마다 기본 게임 모드로 맞출지 |
-| `difficulty` | 문자열 | `"normal"` | `peaceful`, `easy`, `normal`, `hard` | 난이도 |
-| `hardcore` | bool | `false` | `difficulty = "hard"`일 때만 `true` | 하드코어 |
-| `pvp` | bool | `true` | | 플레이어끼리 피해를 줄 수 있는지 |
-| `hunger` | bool | `true` | | 배고픔 |
-| `experience` | bool | `true` | | 경험치 점수와 레벨을 얻는 것. `false`면 구슬도 없고, 인챈트대와 모루는 레벨 0으로 보아 레벨이 드는 일을 거부한다 |
-| `experience-orbs` | bool | `true` | | 경험치 구슬과 경험치 병 던지기. `false`면 떨굴 경험치를 셈하지도, 구슬을 만들거나 읽지도 않고, 병 던지기를 거부한다. 구슬 대신 경험치를 바로 주지 않는다. 점수, 레벨, `/xp`는 `experience`만 따른다 |
-| `fall-damage` | bool | `true` | | 낙하 피해 |
-| `drowning` | bool | `true` | | 물속 공기, 익사, 질식 피해 |
-| `armor` | bool | `true` | | 갑옷 방어, 갑옷 소모, 가시. `false`면 셋 다 없다 |
-| `durability` | bool | `true` | | 도구, 무기, 갑옷이 쓰면서 닳는 것. `armor`가 켜져 있으면 갑옷은 막되 닳지 않는다 |
-| `beds` | bool | `true` | | 침대 수면과 침대 스폰 지점. `false`면 침대는 장식 블록이다 |
-| `daylight-cycle` | bool | `true` | | 시간이 흐르는 것. `false`면 클라이언트 시계도 멈춘다 |
-| `recipe-book` | bool | `true` | | 레시피 책. `false`면 숨기고 그 빠른 제작을 거부한다. 제작 칸 제작은 된다 |
-| `vanilla-recipes` | bool | `true` | | 바닐라 레시피. `false`면 서버 프로그램이 등록한 레시피만 있다 |
-| `item-despawn-ticks` | 정수 | `6000` | 1~72000 | 떨어진 아이템이 남는 틱 |
-| `critical-hits` | 문자열 | `"sprint"` | `off`, `sprint`, `always` | 치명타. `off`는 없음, `sprint`는 달리지 않을 때만(바닐라), `always`는 달릴 때도 |
-| `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |
-| `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지. `false`면 그런 이동의 땅 판정은 지나온 길 없이 도착 자리만 본다 |
-| `show-coordinates` | bool | `false` | | 모든 플레이어 화면에 자기 좌표를 보일지. 게임 규칙 `showCoordinates`의 값이다 |
-| `locator-bar` | bool | `true` | | 위치 표시줄에 다른 플레이어를 보일지. `false`면 `LocatorBar`, `PlayerLocation`을 만들지도 보내지도 않고 게임 규칙 `playerWaypoints`가 0이다(공식 서버가 그 규칙 0인 월드를 저장하는 값. `locatorbar` 규칙은 공식 서버가 월드에 저장하지 않아 그대로 `true`다) |
-| `immediate-respawn` | bool | `false` | | 죽은 플레이어가 죽음 화면 없이 곧바로 살아날지. 게임 규칙 `doImmediateRespawn`의 값이다. 죽음 화면을 건너뛰고 곧바로 부활을 요청하는 것은 이 규칙을 받은 클라이언트이고, 서버의 부활 흐름(Respawn 패킷, `PlayerRespawn`)은 같다 |
-| `show-death-messages` | bool | `false` | | 플레이어가 죽으면 모든 플레이어 채팅에 죽음 메시지를 보일지. 게임 규칙 `showDeathMessages`의 값이다. 메시지는 죽음 화면과 같은 번역 키(죽은 플레이어와 공격자 이름)로 보내 클라이언트가 번역한다. `PlayerDeath::death_message`는 그 키로 시작하고(끄면 빈 값), 리스너가 그대로 두면 번역으로, 다른 글이면 그대로, 비우면 보내지 않는다 |
-| `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/worlds/<이름>.redb` |
-| `level-type` | 문자열 | `"flat"` | `flat`, `void` | 기본 월드에서 저장된 적 없는 청크를 채우는 생성기 |
-| `level-seed` | 문자열 | `""` | 빈 값 또는 i64 정수 문자열 | 기본 월드 시드. 비면 월드 이름에서 만들어 시작마다 같다 |
-| `view-distance` | 정수 | `16` | 2~64 | 플레이어가 쓸 수 있는 최대 시야(청크) |
-| `save-player-data` | bool | `true` | | 인벤토리와 위치를 접속 사이에 남길지 |
-| `backups` | bool | `true` | | 시작과 `backup` 명령에서 데이터 파일을 `data/backups`에 복사할지 |
-| `shutdown-message` | 문자열 | `"The server has stopped"` | 1024바이트 이하 | 서버가 멈출 때 플레이어가 보는 문장 |
-| `resource-packs` | 문자열 배열 | `[]` | 비지 않은 경로. 상대 경로는 `data/packs` 기준이고 `packs`로 시작할 수 없다 | 리소스팩 파일(`.mcpack`, `.zip`). 앞의 것이 위에 쌓인다. 암호화된 팩은 옆에 `<파일>.key`가 필요하다 |
-| `force-resources` | bool | `false` | | 리소스팩을 받아야 접속할 수 있는지 |
-| `log-level` | 문자열 | `"info"` | `off`, `error`, `warn`, `info`, `debug`, `trace` | Anchor 콘솔 로그 수준. `off`면 Anchor가 콘솔 로그를 쓰지 않는다 |
+`data/` here and below is the data folder, which `ServerBuilder::data_dir` can move.
 
-`resource-packs`의 상대 경로가 `packs`로 시작하면 거부하고 사용자가 고친다. 설정 파일 옆 `packs` 폴더 기준으로 쓴 경로는 `data/packs/packs/...`를 찾게 되기 때문이다. 읽는 곳은 늘 `data/packs` 하나다.
+| Key | Type | Default | Range and form | Meaning |
+|---|---|---|---|---|
+| `motd` | string | `"Anchor Server"` | 1 to 256 bytes; no `;` or control characters | Name shown in the server list. The RakNet pong carries it and `level-name` in one datagram that must fit the 576-byte minimum MTU, which bounds both lengths |
+| `server-ip` | string | `"0.0.0.0"` | IPv4 address | IPv4 address to listen on; `0.0.0.0` is every interface |
+| `server-ipv6` | string | `"::"` | IPv6 address | IPv6 address to listen on; `::` is every interface |
+| `enable-ipv6` | bool | `true` | | Whether to listen on IPv6 too |
+| `server-port` | integer | `19132` | 0 to 65535 | The one port number the server uses, on IPv4 and IPv6: UDP for RakNet, NetherNet game data, and server list pings; TCP for NetherNet signaling |
+| `public-ip` | string | `""` | empty or an IP address | Address players use to reach the server when it differs from the local one (NAT); empty advertises the addresses of the local interfaces |
+| `max-players` | integer | `20` | 1 to 10000 | Most players online at once; sizes the player and session tables |
+| `xbox-auth` | bool | `true` | | Whether players must sign in to Xbox Live; `false` lets anyone join under any name |
+| `white-list` | bool | `false` | | Whether only listed players can join; the `whitelist` command manages the list |
+| `gamemode` | string | `"survival"` | `survival`, `creative`, `adventure`, `spectator` | Game mode of new players. The setting takes the full names only; the `gamemode` command also takes letters and numbers (`s`, `0`) |
+| `force-gamemode` | bool | `false` | | Whether players get the default game mode on every join |
+| `difficulty` | string | `"normal"` | `peaceful`, `easy`, `normal`, `hard` | Difficulty |
+| `hardcore` | bool | `false` | `true` only with `difficulty = "hard"` | Hardcore |
+| `pvp` | bool | `true` | | Whether players can hurt each other |
+| `hunger` | bool | `true` | | Hunger |
+| `experience` | bool | `true` | | Gaining experience points and levels. `false` also means no experience orbs, and enchanting tables and anvils count the player's level as 0, refusing anything that costs levels |
+| `experience-orbs` | bool | `true` | | Experience orbs and throwing bottles o' enchanting. `false` computes no dropped experience, makes and reads no orbs, and refuses throwing bottles; no experience is given directly in their place. Points, levels, and `/xp` follow `experience` only |
+| `fall-damage` | bool | `true` | | Fall damage |
+| `drowning` | bool | `true` | | Air supply under water, drowning damage, and suffocation damage |
+| `armor` | bool | `true` | | Armor protection, armor wear, and thorns; `false` removes all three |
+| `durability` | bool | `true` | | Tools, weapons, and armor wearing out with use. With `armor = true`, `false` keeps armor protecting without wearing |
+| `beds` | bool | `true` | | Sleeping in beds and bed spawn points; `false` makes beds decorative blocks |
+| `daylight-cycle` | bool | `true` | | The time of day moving on; `false` also stops the client's clock (game rule `doDayLightCycle`) |
+| `recipe-book` | bool | `true` | | The recipe book; `false` hides it and refuses its quick crafting, while crafting in the grid still works |
+| `vanilla-recipes` | bool | `true` | | The vanilla recipes; `false` leaves only the recipes the server program registers |
+| `item-despawn-ticks` | integer | `6000` | 1 to 72000 | Ticks a dropped item stays on the ground |
+| `critical-hits` | string | `"sprint"` | `off`, `sprint`, `always` | Critical hits: `off` never, `sprint` only when the attacker is not sprinting (vanilla), `always` sprinting or not |
+| `break-time-check` | bool | `true` | | Whether the server checks that a block took long enough to break. Reach is checked either way |
+| `movement-check` | bool | `true` | | Whether the server refuses a move of more than 15 blocks in one input. With `false`, the ground check of such a move looks only at where it ends, not at the path |
+| `show-coordinates` | bool | `false` | | Whether every player sees its coordinates on screen (game rule `showCoordinates`) |
+| `locator-bar` | bool | `true` | | Whether the locator bar shows the other players. `false` makes and sends no `LocatorBar` or `PlayerLocation` packets and sets game rule `playerWaypoints` to 0, the value the official server saves for a world with that rule off. Game rule `locatorbar` stays `true`, as the official server saves no such rule |
+| `immediate-respawn` | bool | `false` | | Whether dead players come back at once, without the death screen (game rule `doImmediateRespawn`). The client that receives the rule skips the screen and asks to respawn at once; the server's respawn flow (the `Respawn` packet, `PlayerRespawn`) is the same |
+| `show-death-messages` | bool | `false` | | Whether every player sees in chat how a player died (game rule `showDeathMessages`). The message is the death screen's translation key with the dead player's and the attacker's names, which the client translates. `PlayerDeath::death_message` starts as that key (empty when the setting is off); a listener that leaves it shows the translation, other text shows as it is, and an empty message shows nothing |
+| `level-name` | string | `"world"` | 1 to 64 bytes; no `;` or control characters; a name that can be a world file name (`world::Error::InvalidName` gives the rule) | The default world's name; its file is `data/worlds/<name>.redb`. The length bound is explained at `motd` |
+| `level-type` | string | `"flat"` | `flat`, `void` | Generator of the default world's chunks that were never saved |
+| `level-seed` | string | `""` | empty or an `i64` as text | The default world's seed; empty makes one from the world name, the same at every start (`storage.md`) |
+| `view-distance` | integer | `16` | 2 to 64 | Largest view distance a player may use, in chunks |
+| `save-player-data` | bool | `true` | | Whether inventories and positions are kept between joins |
+| `backups` | bool | `true` | | Whether the data files are copied to `data/backups` at start and by the `backup` command (`storage.md`) |
+| `shutdown-message` | string | `"The server has stopped"` | at most 1024 bytes | Message players see when the server stops |
+| `resource-packs` | array of strings | `[]` | non-empty paths; a relative path is relative to `data/packs` and may not start with `packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it |
+| `force-resources` | bool | `false` | | Whether players must accept the resource packs to join |
+| `log-level` | string | `"info"` | `off`, `error`, `warn`, `info`, `debug`, `trace` | Detail of Anchor's console log; `off` writes no console log |
+
+A relative `resource-packs` path that starts with `packs` is rejected, and the user changes it: it would name `data/packs/packs/...`, which is where a path written relative to a `packs` folder beside the settings file ends up. Packs are read only from `data/packs`.
 
 ## `[developer]`
 
-| 키 | 타입 | 기본값 | 범위와 형식 | 뜻 |
+| Key | Type | Default | Range and form | Meaning |
 |---|---|---|---|---|
-| `compression` | 문자열 | `"snappy"` | `snappy`, `zlib` | 네트워크 압축. Snappy는 CPU를, zlib은 대역폭을 아낀다 |
-| `compression-threshold` | 정수 | `256` | 1~65535 | 이보다 작은 묶음은 압축하지 않는다. 0은 구현마다 뜻이 달라 받지 않는다 |
-| `compression-level` | 정수 | `6` | 1~9 | zlib 단계. Snappy를 고를 때도 검사한다 |
-| `max-batch-bytes` | 정수 | `16777216` | 4210786~67108864 | 클라이언트가 보낼 수 있는 압축 해제 뒤 묶음의 최대 바이트. 최솟값은 가장 큰 스킨(4 MiB)을 가진 플레이어 하나의 플레이어 목록 패킷이다(나눌 수 없어 묶음 하나에 들어야 한다) |
-| `enable-encryption` | bool | `true` | | RakNet 게임 통신 암호화. `false`면 중간자가 로그인까지 읽고 바꿀 수 있어 믿을 수 있는 망에서만 쓴다. NetherNet은 자기 전송이 늘 암호화한다 |
-| `raknet` | bool | `true` | | RakNet 연결을 받을지. `false`면 NetherNet만 받고 RakNet 포트는 핑에만 답한다 |
-| `max-mtu-size` | 정수 | `1492` | 576~1492 | RakNet 최대 패킷 바이트. 터널이나 VPN 뒤에서 낮춘다. go-raknet 다이얼러가 1492, 1200, 576을 시도한다 |
-| `nethernet-tls-cert` | 문자열 | `""` | 빈 값 또는 경로 | HTTPS 시그널링용 PEM 인증서 체인. 비면 HTTP이고 플레이어가 첫 접속에서 서버 키를 확인한다 |
-| `nethernet-tls-key` | 문자열 | `""` | 빈 값 또는 경로 | HTTPS 시그널링용 PEM 개인 키 |
-| `network-threads` | 문자열 또는 정수 | `"auto"` | `"auto"` 또는 1~65535 | 네트워크 작업 스레드. `auto`는 max(1, L/4)(L = 논리 CPU 수) |
-| `cpu-threads` | 문자열 또는 정수 | `"auto"` | `"auto"` 또는 1~65535 | 병렬 게임 작업 스레드. `auto`는 max(1, max(L, 4) − 2 − 네트워크 스레드). 네트워크 + CPU + 2(틱, 저장)가 max(L, 4)를 넘으면 시작을 거부한다 |
-| `chunks-per-tick` | 정수 | `4` | 1~256 | 플레이어마다 틱당 보내는 청크 수. 256이면 가장 큰 시야를 약 3초에 보낸다 |
-| `spawn-radius` | 정수 | `4` | 1~64 | 스폰 전에 보내는 청크 반경. 실제 값은 min(값, `view-distance`) |
-| `tick-radius` | 정수 | `4` | 1~64 | 플레이어 주변에서 블록과 엔티티가 틱을 받는 청크 반경. 실제 값은 min(값, `view-distance`) |
-| `random-tick-speed` | 정수 | `3` | 0~4096 | 서브청크마다 틱당 랜덤 블록 틱 수(작물 성장, 잎 부식). 0이면 끈다. 서브청크 블록 수(4096)보다 많으면 비용만 늘어서 상한을 둔다 |
-| `disable-block-ticking` | 문자열 배열 | `[]` | `namespace:path` 모양 블록 이름 | 랜덤 틱을 받지 않는 블록 |
-| `slow-empty-worlds` | bool | `false` | | 플레이어 없는 월드가 100틱에 한 번만 돌지 |
-| `lighting` | 문자열 | `"dynamic"` | `dynamic`, `on-load`, `fixed`, 또는 bool | 서버 조명 계산. `dynamic`은 계산하고 블록 변경을 따른다. `on-load`는 청크를 읽을 때만 계산한다. `fixed`는 계산하지 않고 모든 위치를 블록빛 0, 하늘빛 `fixed-light-level`로 본다. bool도 받는다: `true`는 `dynamic`, `false`는 `fixed` |
-| `fixed-light-level` | 정수 | `15` | 0~15 | `lighting = "fixed"`일 때 모든 곳의 하늘빛 |
-| `item-pickup-interval` | 정수 | `1` | 1~20 | 플레이어가 주울 아이템을 찾는 간격(틱) |
-| `hook-movement-packets` | bool | `true` | | 서버가 보내는 이동 패킷이 송신 훅을 거칠지 |
-| `hook-player-input` | bool | `true` | | `PlayerAuthInput` 패킷이 수신 훅을 거칠지 |
-| `save-interval-minutes` | 정수 | `10` | 1~1440 | 전체 상태 저장 간격(분) |
-| `integrity-check` | 문자열 | `"always"` | `always`, `after-unclean-shutdown`, `never` | 시작에서 데이터 파일을 검사하는 때. 실행 중에는 `check` 명령이 검사한다 |
-| `console-input` | bool | `true` | | 표준 입력에서 명령을 읽을지 |
+| `compression` | string | `"snappy"` | `snappy`, `zlib` | Network compression: Snappy saves CPU, zlib saves bandwidth |
+| `compression-threshold` | integer | `256` | 1 to 65535 | Batches shorter than this many bytes are sent uncompressed. 0 is rejected because implementations disagree on what it means |
+| `compression-level` | integer | `6` | 1 to 9 | zlib level, 1 (fastest) to 9 (smallest); checked even when `compression = "snappy"` |
+| `max-batch-bytes` | integer | `16777216` | 4210786 to 67108864 | Largest decompressed batch a client may send, in bytes. The minimum is one player list entry with the largest skin (`MAX_SKIN_BYTES`, 4 MiB): an entry cannot be split, so it must fit one batch |
+| `enable-encryption` | bool | `true` | | Whether RakNet game traffic is encrypted. With `false`, anyone between a player and the server can read and change it, login included, so `false` is only for a trusted network. NetherNet traffic is always encrypted by its own transport |
+| `raknet` | bool | `true` | | Whether RakNet connections are accepted; `false` accepts only NetherNet, and server list pings are still answered |
+| `max-mtu-size` | integer | `1492` | 576 to 1492 | Largest RakNet packet in bytes; lower it behind tunnels or VPNs. go-raknet's dialer probes 1492, 1200, and 576 |
+| `nethernet-tls-cert` | string | `""` | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
+| `nethernet-tls-key` | string | `""` | empty or a path | PEM private key for HTTPS signaling |
+| `network-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for network work. `auto` is max(1, ⌊L/4⌋), L being the logical CPU count |
+| `cpu-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, max(L, 4) − 2 − network threads). When network threads + CPU threads + 2 (the tick and save threads) exceed max(L, 4), `build` fails with `anchor::Error::Threads` |
+| `chunks-per-tick` | integer | `4` | 1 to 256 | Chunks sent to each player per tick. 0 would never send a chunk; 256 sends the largest view in about 3 seconds |
+| `spawn-radius` | integer | `4` | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) |
+| `tick-radius` | integer | `4` | 1 to 64 | Chunk radius around players where blocks and entities are ticked; the effective value is min(value, `view-distance`) |
+| `random-tick-speed` | integer | `3` | 0 to 4096 | Random block ticks per sub-chunk per tick (crop growth, leaf decay); 0 turns them off. A sub-chunk holds 4096 blocks, so more ticks only add cost |
+| `disable-block-ticking` | array of strings | `[]` | block names `namespace:path` of `a`–`z`, `0`–`9`, `_`, `-`, `.`, and `/` in the path | Blocks that never get random ticks |
+| `slow-empty-worlds` | bool | `false` | | Whether a world without players runs only on ticks that are multiples of 100 |
+| `lighting` | string | `"dynamic"` | `dynamic`, `on-load`, `fixed`, or a bool | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level`. `true` reads as `dynamic` and `false` as `fixed` |
+| `fixed-light-level` | integer | `15` | 0 to 15 | Sky light everywhere when `lighting = "fixed"` |
+| `item-pickup-interval` | integer | `1` | 1 to 20 | Ticks between checks for items a player can pick up |
+| `hook-movement-packets` | bool | `true` | | Whether movement packets the server sends pass the send hooks |
+| `hook-player-input` | bool | `true` | | Whether `PlayerAuthInput` packets pass the receive hooks |
+| `save-interval-minutes` | integer | `10` | 1 to 1440 | Minutes between whole-state saves |
+| `integrity-check` | string | `"always"` | `always`, `after-unclean-shutdown`, `never` | When the data files are checked at start; the `check` command checks them while the server runs. What each value checks, and its start cost, is in `storage.md` |
+| `console-input` | bool | `true` | | Whether commands are read from standard input |
 
-`lighting = "fixed"`의 결과: 랜덤 틱은 지하에서도 그 빛을 본다. 15면 작물과 묘목이 동굴에서도 자라고(묘목은 낮에만, 밤에는 하늘빛이 어두워져서), 9 미만이면 작물이, 8 미만이면 묘목이 자라지 않는다. 블록빛이 없어 얼음 블록과 눈 층은 녹지 않는다(서리 얼음은 하늘빛으로 녹는다). 기본값이 15인 이유는 0이면 작물이 자라지 않고, 블록빛을 15로 두면 얼음과 눈이 녹기 때문이다.
+With `lighting = "fixed"`, random ticks see that light everywhere, underground too. At 15, crops and saplings grow in caves (saplings only by day, as sky light dims at night); below 9 crops never grow, and below 8 saplings never grow. Without block light, ice blocks and snow layers never melt (frosted ice still melts in sky light). The default is 15 because at 0 crops never grow, and block light 15 would melt ice and snow.
 
-`integrity-check`와 `backups`의 시작 비용은 `storage.md`에 있다. 정상 종료 뒤 시작은 `after-unclean-shutdown`이 가장 빠르고, `always`는 매번 파일 전체를 읽는다.
+## Per-world values `[worlds.<name>]`
 
-## 월드별 값 `[worlds.<이름>]`
+A table may exist for each declared world. Each key it sets replaces the global value in that world only; a key left out keeps the global value.
 
-선언된 월드마다 둘 수 있다. 적은 키만 그 월드에서 전역 값을 대신한다.
-
-| 키 | 타입 | 범위 | 뜻 |
+| Key | Type | Range | Meaning |
 |---|---|---|---|
-| `view-distance` | 정수 | 2~64 | 그 월드의 최대 시야 |
-| `chunks-per-tick` | 정수 | 1~256 | 그 월드의 틱당 청크 수 |
-| `spawn-radius` | 정수 | 1~64 | 그 월드의 스폰 전 청크 반경. 그 월드 시야 이하로 잘린다 |
-| `tick-radius` | 정수 | 1~64 | 그 월드의 틱 반경. 그 월드 시야 이하로 잘린다 |
-| `spawn` | 정수 셋 `[x, y, z]` | 각각 i32 | 새 월드에서 플레이어가 나타나는 곳. 없으면 생성기의 스폰 |
+| `view-distance` | integer | 2 to 64 | The world's largest view distance |
+| `chunks-per-tick` | integer | 1 to 256 | The world's chunks per player per tick |
+| `spawn-radius` | integer | 1 to 64 | The world's chunk radius sent before spawning, at most the world's view distance |
+| `tick-radius` | integer | 1 to 64 | The world's tick radius, at most the world's view distance |
+| `spawn` | three integers `[x, y, z]` | each an `i32` | Where players appear in the world when it is new; without it, the generator's spawn |
 
-`spawn`은 월드 파일에 기록이 없는 새 월드에만 적용된다. 그 뒤 스폰은 월드 상태로 월드 파일에 저장되어, 실행 중 옮긴 스폰(`/setworldspawn`)도 다시 켜면 그대로이고 이 값을 바꿔도 있던 월드에는 쓰지 않는다. 실행 중 `create_world`로 만든 영구 월드는 다음 실행에서 `Context::load_world(이름, &world::Options)`로 설정을 다시 받는다(스폰은 파일의 것). 가져온 월드는 `level.dat`의 스폰을 가진다.
+`spawn` applies only to a world whose file has no record yet; from then on the world file keeps its spawn as world state (`storage.md`). A world made or loaded at run time (`Context::create_world`, `Context::load_world`) takes these values from its `world::Options`, never from a `[worlds.<name>]` table, which only declared worlds may have.
 
-## 다른 서버와 이름이 다른 키
-
-PMMP 설정과 이름이 다른 키:
+## Keys named differently in PMMP
 
 | PMMP | Anchor |
 |---|---|
-| `batch-threshold` | `compression-threshold` |
-| `blocks-per-subchunk-per-tick` | `random-tick-speed`(Java판 이름과 기본값 3, Bedrock 기본값 1과 다름) |
+| `network.batch-threshold` | `compression-threshold` |
+| `chunk-ticking.blocks-per-subchunk-per-tick` | `random-tick-speed` (the name of the `randomTickSpeed` game rule; default 3 as in PMMP, while the official server's rule defaults to 1) |
 | `chunk-sending.per-tick` | `chunks-per-tick` |
-| `ticks-per.autosave` | `save-interval-minutes`(분 단위) |
-| `network.enable-encryption` | `enable-encryption` |
-| `debug.level` | `log-level`(끄기와 모든 수준) |
+| `ticks-per.autosave` | `save-interval-minutes` (minutes, not ticks) |
+| `debug.level` | `log-level` (named levels and `off`, not a number) |
+| `console.enable-input` | `console-input` |
 
-PMMP 설정 중 없는 것: PHP 전용(메모리, GC, async-workers, timings, 통계·보고·업데이트), 플러그인, 범위 밖 기능(query, upnp, 월드 형식), 구조로 대신하는 것(XUID 검사, 생성기 문자열, 별칭, 월드 목록, 언어, IPv6 포트, auto-save).
+Every other PMMP key with an Anchor counterpart keeps its last path segment, such as `network.max-mtu-size` → `max-mtu-size`.
 
-## 파일 갱신
+PMMP keys with no counterpart:
+- PHP runtime, reports, and updates: `memory`, `settings.async-workers`, `settings.enable-profiling`, `settings.profile-report-trigger`, `timings`, `auto-report`, `anonymous-statistics`, `auto-updater`, `settings.enable-dev-builds`.
+- Plugins: `plugins`.
+- Out of scope: `enable-query` and `settings.query-plugins` (query), `network.upnp-forwarding`, `level-settings.default-format` (Anchor has one world format).
+- Replaced by Anchor's structure: `player.verify-xuid`, `generator-settings` (generators are Rust types), `aliases` and `worlds` (commands and worlds are registered in code), `language` and `settings.force-language`, `server-portv6` (one `server-port` serves IPv4 and IPv6), `auto-save` (`save-interval-minutes` always saves), `network.async-compression` and `network.async-compression-threshold` (compression always runs outside the tick).
+- Not provided: `chunk-generation.population-queue-size`, `console.title-tick`.
 
-서버 프로그램을 `<서버> update-config`로 실행하면 옛 Anchor가 만든 파일을 이 Anchor의 키로 맞춘다(프로그램 코드는 필요 없다). `Config::load`가 파일을 읽기 전에 `Config::update_file(경로)`을 하고(옛 파일은 갱신 전에는 읽히지 않을 수 있다), `Server::run`이 바뀐 키를 표준 출력에 적고 서버를 켜지 않고 끝난다. `Config::load`를 쓰지 않는 프로그램에는 고칠 파일이 없다. 시작은 이 일을 하지 않으므로 파일은 운영자가 고른 때에만 바뀐다. 서버가 켜져 있어도 되고, 켜진 서버는 다음 시작에 새 파일을 읽는다.
+## Updating the file
 
-- 더하기: 기본 파일에 있고 파일에 없는 키를 기본값과, 기본 파일에서 그 키 바로 위에 붙은 주석 줄과 함께 더한다. 자리는 기본 파일에서 그 키보다 앞인 키 중 파일에 있는 가장 가까운 키의 줄 다음이고, 그런 키가 없으면 표 머리 줄 다음이다. 파일에 없는 표는 머리 위 주석과 모든 키를 파일 끝에 빈 줄 하나를 두고 더한다.
-- 지우기: Anchor가 모르는 `키 = 값`(최상위, 그리고 머리 줄로 적힌 `[general]`·`[developer]` 안)은 그 줄들과 바로 위에 붙은 주석 줄(`#`로 시작하는 줄, 빈 줄에서 끊김)과 함께 지운다. 여러 줄 문자열 값의 줄은 주석으로 보지 않는다. 점 키나 하위 표(`[general.x]`)는 두어 `load`가 알린다. 모르는 표와 `[worlds.<이름>]` 안의 키도 지우지 않는다.
-- 그 밖의 바이트(값, 주석, 키 순서, BOM, 줄 끝)는 그대로다. 파일이 CRLF를 쓰면 더한 줄도 CRLF다. `[worlds.<이름>]` 표는 건드리지 않는다: 거기서 빠진 키는 전역 값을 뜻한다.
-- 값은 고치지 않는다. 결과가 `load`로 읽히지 않으면(모르는 키, 범위 밖 값, 문법 오류 등) 그 오류를 돌려주고 파일을 그대로 둔다. 파일이 없으면 `Read`(NotFound), 키가 빠진 표가 머리 없이(인라인 표, 점 키) 적혀 있으면 `HeaderlessTable`, 결과가 1 MiB를 넘으면 `TooLarge`다.
-- 바뀐 것이 있을 때만 임시 파일에 쓰고 이름을 바꿔 통째로 바꾼다. 돌려주는 `config::Update`가 더한 키(`added`)와 지운 키(`removed`)를 알려 준다. 다시 부르면 아무것도 바꾸지 않는다.
-- 더한 값은 기본값이라 파일의 뜻은 그대로다(새 키의 기본값은 그 키가 없을 때의 동작이다). 다만 `load` 전에 코드에서 바꾼 값은, 그 키가 더해지면 파일 값에 덮인다. 파일이 없을 때 기본 파일을 쓰는 것과 같다.
-- 계속 읽히는 옛 값 형식(`lighting = true` 등)과 이미 있는 키의 주석은 바꾸지 않는다.
+Running the server program as `<program> update-config` updates a file written by an older Anchor to this Anchor's keys, with no code in the program. `Config::load` runs `Config::update_file(path)` before reading the file, since an old file may not load until it is updated; a missing file is then `Error::Read` (NotFound), and no default file is written. `Server::run` then writes the result to standard output (one `added <key>` or `removed <key>` line per key, or that the file is already up to date) and returns without starting the server. A program that never calls `Config::load` prints that nothing was updated. `update-config` with any further argument makes `Server::run` fail with `anchor::Error::Usage`. Starting never updates the file, so the file changes only when the operator chooses. The command may run while the server runs; a running server reads the new file at its next start.
 
-## 기능 스위치
+- Adding: each key of the default file that the file lacks is added with its default value and the comment lines right above it in the default file. It goes after the line of the nearest key before it in the default file that the file has, or after the table's header line when the file has none of those. A table the file lacks is appended at the end with its header's comment lines and all its keys, after one blank line (none in an empty file).
+- Removing: a `key = value` Anchor does not know, at the top level or inside a `[general]` or `[developer]` written with its header, is removed with its lines and the comment lines right above it (lines whose first non-blank character is `#`; a blank line ends them). A line of a multi-line string is not a comment line. A dotted key or a subtable (`[general.x]`) is left, so the result does not load and the update fails with `UnknownKey`. Unknown tables are kept, and so are the keys inside `[worlds.<name>]`, whose unknown keys likewise make the update fail.
+- Every other byte stays as it was: values, comments, key order, a byte order mark, and line endings. When the file contains a CRLF line ending, added lines use CRLF. `[worlds.<name>]` tables are not touched: a key missing there means the global value.
+- No value is fixed. When the result would not load (an unknown key, an out-of-range value, a syntax error), the update returns that error and leaves the file as it was. It also refuses, leaving the file, when a table that lacks a key is written without its header (an inline table or dotted keys: `HeaderlessTable`) and when the result would exceed 1 MiB (`TooLarge`).
+- The file is written only when something changed, whole (a temporary file renamed into place). The returned `config::Update` lists the added keys (`added`, in default file order) and the removed keys (`removed`, in file order). A second run changes nothing.
+- The added values are the defaults, so the file means what it meant without them. A value set in code before `load`, for a key the update adds, is then replaced by the file's value, as with a missing file.
+- Older value forms that still load (`lighting = true`) and the comments of keys already present are not changed.
 
-`hunger`부터 `movement-check`까지의 bool, `locator-bar`, `backups`처럼 기능을 켜고 끄는 키는, `false`면 그 기능의 코드가 아예 돌지 않는다: 틱 작업, 이벤트, 패킷, 그 기능의 표와 메모리가 없다.
+## Feature switches
 
-새 키가 생겨도 옛 파일은 키를 더하지 않고 같은 서버가 된다.
-
-## 저장하지 않음
-
-설정은 데이터 파일에 저장하지 않는다. 매 시작에 `anchor.toml`과 코드에서만 온다. 그 이유와 실행 중 바꾼 값이 다시 켜면 어떻게 되는지는 `storage.md`에 있다.
+The feature switches that `.claude/rules/config.md` covers are the bool keys of `[general]` from `hunger` to `movement-check`, `locator-bar`, and `backups`.

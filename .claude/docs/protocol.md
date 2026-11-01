@@ -1,114 +1,116 @@
-# 프로토콜
+# Protocol
 
-작업 규칙은 `.claude/rules/protocol.md`.
+Rules are in `.claude/rules/protocol.md`.
 
-이 문서는 정답 출처와 고정 버전, IR에서 생성 코드까지의 파이프라인, 디코드 상한, gophertunnel 결함, 시험 P1~P5를 적는다. 전송, 로그인, 암호화, 압축은 `network.md`, 공식 서버 대조(P6)는 `testing.md`, 블록과 아이템 데이터는 `data.md`, 외부 불신 절차와 의존성 검토는 `dependencies.md`에 있다.
+This document holds the sources of truth and pinned versions, the pipeline from the IR to the generated code, the decode limits, the gophertunnel defects, and tests P1 to P5. Transport, login, encryption, and compression are in `network.md`; the official-server comparison (P6) in `testing.md`; block and item data in `data.md`; dependency review in `dependencies.md`.
 
-## 한 번에 한 버전
-- 지원 버전은 프로토콜 2225, 게임 버전 1.26.60이다(`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`). 인증 디스커버리는 `GAME_VERSION`으로 주소를 만든다.
-- 한 버전만 받는 이유: 여러 버전을 함께 받으면 코덱, 블록 표, 시험이 버전 수만큼 늘어나 일관성과 단순함을 잃는다.
-- 다른 번호의 클라이언트는 RequestNetworkSettings(또는 Login)에서 PlayStatus(클라이언트가 높으면 서버 구버전, 낮으면 클라이언트 구버전)를 받고 끊긴다.
+## One version at a time
+- Supported: protocol 2225, game version 1.26.60 (`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`). Authentication discovery builds its URL from `GAME_VERSION` (`src/auth/fetch.rs`).
+- Why only one: every further version multiplies the codecs, the block tables, and the tests, costing consistency and simplicity.
+- A client of another protocol number gets PlayStatus on RequestNetworkSettings or Login (`LoginFailedServer` when the client is newer, `LoginFailedClient` when it is older) and is disconnected (`src/session/connection.rs`).
 
-## 정답 출처와 고정 버전
-- IR(`xtask/data/protocol.json`)의 `source`는 `xtask/go/go.mod`의 gophertunnel 판(`version`)과 그 커밋(`commit`)을 적는다. 추출기(`xtask/go/extract`)가 판과 커밋을 함께 고정하고, go.mod가 다른 판을 불러오면 실패한다.
+## Sources and pinned versions
+- The IR's `source` records the gophertunnel version and commit of `xtask/go/go.mod`. The extractor pins both (`version` and `commit` in `xtask/go/extract/main.go`) and fails when go.mod loads another version.
 
-| 모듈 | 고정 버전 |
+| Module | Pinned |
 |---|---|
-| github.com/sandertv/gophertunnel | `v1.63.0`(태그, 커밋 `8c30047d86617a56e1f1871e3a1d47ec4f670d99`, 프로토콜 2225, 1.26.60) |
-| github.com/sandertv/go-raknet | `v1.15.2-0.20260705184311-0d1fd09e2cf6` |
-| github.com/df-mc/go-nethernet | `v1.0.26`(gophertunnel go.mod의 v1.0.25를 고친 릴리스) |
-| Mojang bedrock-protocol-docs(필드 상한) | 커밋 `0879ab5c4c70be1bd520e32a8c49ea4a155616d6`(v1.26.60 릴리스, 프로토콜 2225) |
+| github.com/sandertv/gophertunnel | `v1.63.0` (tag, commit `8c30047d86617a56e1f1871e3a1d47ec4f670d99`, protocol 2225, 1.26.60) |
+| github.com/sandertv/go-raknet | `v1.15.2-0.20260705184311-0d1fd09e2cf6` (the version in gophertunnel's go.mod) |
+| github.com/df-mc/go-nethernet | `v1.0.26` (the release that fixes v1.0.25 of gophertunnel's go.mod; `dependencies.md`) |
+| Mojang bedrock-protocol-docs (field limits) | commit `0879ab5c4c70be1bd520e32a8c49ea4a155616d6` (v1.26.60 release, protocol 2225) |
 
-결함 판정에만 쓰는 대조 출처(코드에 들이지 않는다):
+Two comparison sources serve only to judge gophertunnel defects and never enter the code. Their repositories and pins are in the pinned-source table of `data.md`.
+- **The schema source**: a published protocol schema built from reverse-engineered official-server headers and a cereal schema dump, the public source closest to the official server. It has no golden bytes for shapes after protocol 2193.
+- **The codec library**: an independent protocol codec library, at its codec for protocol 2225.
 
-| 출처 | 판 |
-|---|---|
-| EndstoneMC/bedrock-protocol | v0.4.4, 커밋 `0fb448a6a9940f197e199dcea488fc4129755d48`. 공식 서버 헤더 역분석과 cereal 스키마 덤프에서 만든 스키마라 공식 서버에 가장 가까운 공개 출처다. 2193 이후 모양은 골든 바이트가 없다 |
-| CloudburstMC/Protocol | 브랜치 `3.0` codec `v2225`, 커밋 `17a89ac156ff874fc8773e42a96bbc0635be9eed` |
+- When v1.63.0 was pinned, gophertunnel master after the tag had no codec-format fix, so the tag is pinned. The tag holds the format fixes after v1.62.0: ClientBoundDebugRenderer (`98c3d1f`), the NBT fixed-length array check (`398154f`), and string `ReadFull` (`a705cae`).
+- The official server version used for comparison is in the pinned-source table of `data.md`.
+- Passing P3 means only agreement with gophertunnel, not correctness.
 
-- v1.63.0 태그 뒤 master에 형식 수정 커밋이 없어 태그로 고정한다. 태그는 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
-- 기준 서버는 같은 프로토콜(2225)의 공식 서버 1.26.60.6이다(출처 표 `data.md`).
-- gophertunnel도 형식 버그를 자주 고친다. P3 통과는 "gophertunnel과 같다"는 뜻일 뿐이다.
-
-## 파이프라인: Go 추출 → IR → Rust 생성
+## Pipeline: Go extraction → IR → Rust generation
 
 ```
-gophertunnel 소스 ──(xtask/go/extract)──> xtask/data/protocol.json ──(cargo xtask gen)──> src/protocol/{types,packet,consts}.rs
-Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_limits.json ──┘
+gophertunnel source + xtask/go/fix ──(xtask/go/extract)──> xtask/data/protocol.json ──(cargo xtask gen)──> src/protocol/{types,packet,consts}.rs
+Mojang schemas ──(cargo xtask dump)──> xtask/data/reference/protocol_limits.json ──┘
 ```
 
-### gophertunnel 보정 (`xtask/go/fix`)
-- 아래 "gophertunnel 결함" 가운데 코덱과 상수를 바꾸는 것은 고정한 모듈의 사본에 정확히 한 번 나오는 문장을 바꿔 고친다. 바꿀 문장이 없거나 여러 번이면 실패하므로 판을 올릴 때 드러난다.
-- 추출기, 오라클, 봇이 모두 이 사본으로 빌드한다(`-modfile`, `go run ./fixmod -out <폴더>`). 그래서 IR과 P1~P5, P6 봇이 같은 보정을 본다.
-- 보정 조건: 공식 서버에 가까운 출처(Endstone)와 독립 출처 하나 이상(Mojang 문서, CloudburstMC, 공식 서버 관찰)이 gophertunnel 반대편에서 서로 맞을 때만 고친다.
+### gophertunnel corrections (`xtask/go/fix`)
+- The codec and constant corrections among the gophertunnel defects below replace text that occurs exactly once in a file of a copy of the pinned module. Text that is missing or occurs more than once fails, so a version change shows every stale correction.
+- The extractor calls `fix.Module` itself; the oracle and the bot build with `-modfile` after `go run ./fixmod -out <dir>`. The IR, P1 to P5, and the P6 bot therefore see the same corrections.
 
-### 추출기 (`xtask/go/extract`)
-- `golang.org/x/tools/go/packages`로 타입 정보까지 읽고, 각 패킷과 타입의 `Marshal(io protocol.IO)`를 걸어 IR을 낸다.
-- 모르는 구문에서 실패하는 이유: 조용히 건너뛴 필드는 틀린 코덱이 된다.
+### Extractor (`xtask/go/extract`)
+- Loads gophertunnel's `protocol` and `packet` packages with type information through `golang.org/x/tools/go/packages` and walks each packet's and type's `Marshal(io protocol.IO)` into the IR.
+- Why it fails on an unknown construct: a field skipped silently becomes a wrong codec.
 
 ### IR (`xtask/data/protocol.json`)
-- `source`: 모듈, 의사 버전, 커밋, 프로토콜 번호, 게임 버전.
-- `packets`: ID, 이름, 방향(gophertunnel `pool.go`의 클라이언트·서버 풀). 236개.
-- `types`: 필드 이름, Go 타입, Marshal 문장 목록. 문장은 IO 호출, 중첩 Marshal, 목록(길이 형식 포함), Optional, if, switch, 지역 변수, 대입, 오류(`InvalidValue`, `UnknownEnumOption`)뿐이다.
-- `io_methods`(`protocol.IO`의 메서드), `functions`(IO를 받는 자유 함수), `unions`(`lookup*` 함수의 ID→타입 표), `enums`(문자열↔값 변환 함수 표), `constants`, `const_decls`(protocol·packet 패키지의 export 상수).
+- Its schema, and its only documentation, is `xtask/go/extract/ir.go`.
+- Top-level keys: `source` (module, version, commit, protocol number, game version), `io_methods`, `packets` (ID, type, and direction from gophertunnel's client and server pools in `pool.go`), `types`, `functions`, `enums`, `unions`, `constants`, `const_decls`.
 
-### 생성기 (`cargo xtask gen`, `xtask/src/gen*`)
-- `gen`은 Go 추출 → IR → Rust 생성을 한 번에 한다. 출력은 `src/protocol/types.rs`(gophertunnel `protocol` 패키지 타입), `src/protocol/packet.rs`(패킷, `Packet` enum, `PROTOCOL_VERSION`), `src/protocol/consts.rs`(IR 상수에서 만든 enum과 상수)다. 같은 명령이 블록, 아이템, 레시피 표도 만든다(`data.md`).
-- `cargo xtask gen --check`는 `target/`에 다시 만들어 커밋된 IR과 생성 파일을 바이트로 비교한다. `cargo xtask verify`가 맨 앞에서 이것을 돈다. Go가 PATH에 없으면 이것과 시험 P1~P5가 실패한다.
-- 이름 변환: 용어 표의 이름(`Http`, `Xuid`, `Uuid` 등)을 먼저 한 단어로 묶고, 나머지는 대소문자 경계로 나눈다(`HTTP|Server`). 숫자는 앞 단어에 붙인다. 모듈 이름과 겹치는 앞뒤는 뗀다(`packet::ViolationWarning`). Rust 키워드인 필드는 raw identifier(`r#type`)다.
+### Generator (`cargo xtask gen`, `xtask/src/gen*`)
+- `gen` runs the extractor into the IR and generates `src/protocol/types.rs` (the types of gophertunnel's `protocol` package), `src/protocol/packet.rs` (the packets, the `Packet` enum, `PROTOCOL_VERSION`, `GAME_VERSION`), and `src/protocol/consts.rs` (enums and constants from the IR's const declarations). The same run generates the data tables (`data.md`).
+- `cargo xtask gen --check` extracts the IR into `target/xtask-gen/`, regenerates every file, and compares the IR and every generated file byte for byte with the committed ones. `cargo xtask verify` runs it first. Without Go on PATH, it and P1 to P5 fail.
+- Names follow `xtask/src/gen/names.rs`.
 
-### Rust 표현
-- 생성 struct가 Go 구조체와 1:1이라 P3 판정과 버전업 비교가 단순하다.
-- `Optional` → `Option`, 슬라이스 → `Vec`, 인터페이스 → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT 컴파운드 → `BTreeMap<String, nbt::Value>`(바이트 순으로 쓰고 같은 키는 뒤가 이긴다: Go map과 같다), EntityMetadata → `BTreeMap<u32, _>`(gophertunnel도 키를 정렬해 쓴다).
-- 문자열은 `String`이다. gophertunnel은 UTF-8을 검사하지 않는다.
-- 서버가 같은 값을 여러 플레이어에게 보내는 필드(`PlayerListEntry.skin`, `PlayerSkin.skin`: 생성기의 `SHARED_FIELDS`)는 `Arc<T>`다. 틱이 최대 4 MiB인 스킨을 패킷마다 복사하지 않고 나눈다. 디코드는 이 할당도 예산에서 뺀다.
-- NBT 목록이 빈 목록에도 원소 타입을 지니므로 모든 목록이 같은 바이트로 다시 쓰인다(gophertunnel은 빈 Int·Long 목록만 타입을 지키고 나머지는 End로 다시 쓴다). NBT 중첩이 힙 스택에 있어 깊이와 무관하게 스레드 스택이 평평하다.
-- `anchor::protocol`을 공개하는 이유: 패킷 훅이 패킷 값을 다루고 xtask 시험이 이 층을 부른다. NBT는 저장에서도 쓴다.
+### Rust form
+- Generated structs match the Go structs one to one, which keeps P3 judgments and version-change diffs simple.
+- Mapping: `Optional` → `Option`, slice → `Vec`, union interface → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT compound → `BTreeMap<String, nbt::Value>` (keys written in byte order, a repeated key keeps its last value, as gophertunnel's Go map does), EntityMetadata → `BTreeMap<u32, _>` (gophertunnel also writes its keys sorted). The types written by hand and the external types are `HAND_TYPES` and `EXTERNAL_TYPES` in `xtask/src/gen/model.rs`.
+- Strings are `String`; gophertunnel does not check UTF-8.
+- Fields of which the server sends one value to many players (`PlayerListEntry.skin`, `PlayerSkin.skin`: `SHARED_FIELDS` in `model.rs`) are `Arc<T>`, so the tick shares a skin of up to 4 MiB instead of copying it into every packet. Decoding takes that allocation from the budget too.
+- Because an NBT list keeps its element type even when empty, every list writes back to the same bytes; gophertunnel keeps the type only for empty `TAG_Int` and `TAG_Long` lists and writes other empty lists as `TAG_End`. Because NBT nesting lives on a heap stack, the thread stack stays flat at any depth.
+- Why `anchor::protocol` is public: packet hooks handle packet values, and the xtask tests call this layer. Storage uses NBT too.
 
-### 손으로 쓰는 코덱
-`protocol.IO`의 원시형이 아닌 메서드는 Marshal로 표현되지 않아 손으로 쓴다: 벡터·위치, UUID, 색, NBT(`src/nbt.rs`), EntityMetadata, ItemStack 계열, StackRequestAction 등 union의 태그 틀(`union_frame.rs`), GameRule, AbilityValue, Bitset, PackSetting, ShapeData, MaterialReducer, 이벤트 틀, 거래 데이터 틀, Login 요청 봉투(`protocol/login.rs`), 서브청크 페이로드(`block_storage.rs`).
+### Hand-written codecs
+The `protocol.IO` methods that are not primitives have no Marshal body to extract and are written by hand (under `src/protocol/` unless another path is given):
+- vectors, positions, UUIDs, colors, and bitsets (`common.rs`);
+- NBT (`src/nbt.rs`) and entity metadata (`entity_data.rs`);
+- items, item instances, stack request items, and MaterialReducer (`inventory.rs`);
+- game rules, ability values, and pack settings (`values.rs`);
+- the tag frames of the unions: stack request actions, events, inventory transaction data, shape data, item descriptor counts, and player inventory actions (`union_frame.rs`).
 
-### 배치 형식 (`protocol/batch.rs`)
-- 패킷 머리 varuint32: ID는 0~9비트, 보낸 쪽 하위 클라이언트 10~11, 받는 쪽 12~13. 그보다 높은 비트는 읽을 때 무시한다(gophertunnel과 같고, 공식 클라이언트 출력은 관찰할 수 없어 받는 쪽을 넓힌다).
-- 배치당 패킷은 812개 이하(gophertunnel 값)이고 공식 서버는 최대 45개를 보낸다. 출력은 256 KiB 전과 812개에서 배치를 끊는다. 압축 바이트와 해제 상한은 `network.md`에 있다.
+Login's connection-request envelope (`login.rs`) and the network sub-chunk payload (`block_storage.rs`) are hand-written too.
 
-## 디코드 상한
-- 선언 길이는 남은 입력 이하. 목록 개수는 1024 이하(gophertunnel `maxSliceLength`, EntityMetadata 개수 포함)이고 남은 입력 이하.
-- 할당 예산: Reader는 배치 하나마다 2 × `max-batch-bytes` 예산을 받는다. 개수 상한만으로는 중첩 목록과 큰 원소가 입력 크기의 수십 배를 할당할 수 있어서 예산을 둔다.
-- 맵(NBT compound, `EntityMetadata`)은 원소 크기만이 아니라 `BTreeMap` 노드를 뺀다(`map_charges`): 첫 키에 노드 하나(키·값 11칸, 자식 포인터 12개까지 센 내부 노드 크기), 그 뒤 키마다 노드의 1/5. 맵이 커지기만 하면 루트가 아닌 노드는 5칸 이상 차서 키 n개는 노드 1 + (n−1)/5개 이하다. 원소 하나짜리 compound 수십만 개도 노드 할당까지 예산 안에 든다. NBT 인코더는 같은 값을 `Cost.alloc`으로 세어 저장이 다시 읽힐 크기로 쪽을 나눈다.
-- NBT는 깊이 512(루트 포함), 루트 하나 4 MiB 이하.
-- 목록 중첩은 64단 이하(패킷 자신의 목록 포함, `MAX_LIST_DEPTH`). 자기를 담는 타입(`DataStorePropertyValue`)의 디코더는 목록마다 스레드 스택에서 재귀하므로, 상한이 없으면 패킷 하나가 스택을 넘쳐 프로세스가 끝난다.
-- 필드별 상한:
-  - `cargo xtask dump`가 고정 커밋의 스키마를 읽고, 스키마 항목을 gophertunnel 필드에 잇는 표(`xtask/src/dump/limits.rs`)로 `xtask/data/reference/protocol_limits.json`(필드 113개)을 쓴다. 문자열과 바이트는 바이트 수, 목록은 원소 수다. `[]`가 붙은 항목은 목록의 각 원소를 제한한다.
-  - 스키마 상한이 표에 없거나 표 행이 스키마에 없으면 dump가 실패하고, 어떤 코덱에도 쓰이지 않는 상한은 gen이 실패한다. 그래서 버전업 때 생기거나 사라진 상한이 모두 드러난다.
-  - 디코드의 목록 상한은 min(필드 상한, 1024)이다. 인코더는 필드 상한으로 오류를 내므로 Anchor가 스키마를 넘는 패킷을 보내지 않는다. 1024는 받는 쪽 상한이라 인코드에는 걸지 않는다(서버는 ItemRegistry, CreativeContent처럼 1024개를 넘는 목록을 보낸다).
-- 서브청크 페이로드 해제는 엄격하다: 비트 수 {0,1,2,3,4,5,6,8,16}만, 지속(persistent) 팔레트 플래그와 0x7f 거부, 팔레트 길이 ≤ 2^bits, 모든 인덱스 < 팔레트 길이.
+### Batch format (`src/protocol/batch.rs`)
+- Packet header, a varuint32: the packet ID in bits 0 to 9, the sender sub-client in bits 10 and 11, the target sub-client in bits 12 and 13. Reading ignores higher bits, like gophertunnel: only official clients show whether they set them, so the reading side accepts every case.
+- A batch holds at most 812 packets (gophertunnel `maximumInBatch`). Encoding cuts a payload before it would pass 256 KiB or 812 packets. The compressed and decompressed size limits are in `network.md`.
 
-## gophertunnel 결함
-고정한 gophertunnel에서 찾은 결함이다.
-- MaterialReducer: gophertunnel Reader가 `mix << 16`으로 읽는다(`>> 16`이 맞다). 코퍼스는 mix 0~0x7fff만 쓴다.
-- Event 타입 8, 9, 10, 12, 14, 20, 21, 22는 ordinal이 없어 읽기도 쓰기도 안 되고, ordinal 21을 세 이벤트가 나눠 쓴다.
-- 쓸 때 덮어쓰거나 읽고 버리는 값: ItemDescriptorCount aux 32767, StackRequestAction legacy 바이트, Skin `trusted`, 몇 패킷의 이름 문자열, InventoryTransaction `hasLegacy`.
-- EntityMetadata 개수 상한 없음, NBT 깊이 계수 누수, 부분 읽기 허용, ItemInstance·Login 길이 조용히 자름.
-- Snappy 해제가 `s2.Decode`라 S2 확장도 받는다.
-- 스킨 틴트 조각 이름: 코덱이 로그인 이름에서 `persona_`만 떼어 `facial_hair`, `face_accessory`, `left_leg`, `right_leg`, `left_arm`, `right_arm`, `classic_skin`을 보낸다. Mojang 문서(`SerializedSkin`의 `PieceTintColors` 키는 `persona::PieceType` 이름)와 CloudburstMC(`512ea21d9c`)는 밑줄 없는 소문자 이름(`facialhair` 등)이다. 생성 코덱은 gophertunnel과 같게 두고, 로그인 변환(`login/client_data.rs`의 `TINT_PROTOCOL_NAMES`)이 코덱이 그 이름을 쓰는 값을 넣는다. 공식 서버 바이트(P6)로 아직 확인하지 않았다.
-- `PieceType`에 1.26.60의 `CoCo`(28)가 없고 `Unsupported`가 28이다. Endstone(`COCO = 28`, `UNSUPPORTED` 29), CloudburstMC, Mojang 문서가 같다. 보정한다(로그인 `persona_coco` → 28).
-- ClientboundUpdateSoundData의 `SoundDataUpdate`: 타입 바이트 하나만 쓴다. Endstone(variant 선택자는 uvarint32 변형 번호이고 변형 안의 타입 uint8을 한 번 더 쓴다), CloudburstMC(같은 모양, 둘이 같은지 검사), Mojang 문서(`oneOf` + control uint32, 각 변형 0번에 `Type`)가 모두 변형 번호를 앞에 둔다. 보정한다: 변형 번호(= 타입) uvarint32, 타입 u8, 다르면 디코드 오류.
-- EntityDataKey 139~143: gophertunnel은 `ArrowShooterID` 139, `FireworkDirection` 140, `FireworkShooterID` 141, `Reserved139` 142, `NameplateRenderDistanceMax` 143이다(142에 붙은 이름 `Reserved139`부터 모순). Endstone(`RESERVED_139` 139, `NAMEPLATE_RENDER_DISTANCE_MAX` 140)과 CloudburstMC(v975: 139 Long, 140 Float, 화살·폭죽 발사자 키는 17·18)가 같고, 공식 서버도 플레이어에 키 139를 Int64 0, 140을 Float 64.0(이름표 거리)으로 보낸다(P6). 보정한다: 139 `Reserved139`, 140 `NameplateRenderDistanceMax`, 화살·폭죽 키는 17·18의 별칭.
-- 로그인 `ServerAddress`: v1.63.0은 NetherNet 주소를 `http(s)://host:port:port`로만 받는다. 1.26.60 클라이언트는 `https://host:port`를 보내고 태그 뒤 master(`531fd12d9a`)가 둘 다 받는다. Anchor는 master 규칙을 따른다.
-- 빈 스킨 지오메트리: 로그인 `Validate`와 코덱이 빈 `SkinGeometry`를 그대로 받고 보낸다. 프로토콜은 지오메트리와 리소스 패치를 깊이 제한 JSON으로 요구한다(Mojang 문서). Anchor는 로그인의 빈 지오메트리를 `{}`로 두고, 스킨 규칙(`Skin::is_acceptable`)이 두 필드를 깊이 64 이하 JSON으로 검사한다.
-- 로그인 마감 없음, 지연 패킷 큐 상한 없음, 0xff 원문 상한 없음: Anchor 세션에는 모두 있다(`network.md`).
+## Decode limits
+- A declared length is at most the remaining input. A list count is at most 1024 (gophertunnel `maxSliceLength`; the EntityMetadata count included) and at most the remaining input.
+- Allocation budget: one batch shares 2 × `max-batch-bytes`, the decoded packet list included. Why: count limits alone let nested lists and large elements allocate tens of times the input size.
+- Maps (NBT compounds, `EntityMetadata`) take their `BTreeMap` nodes from the budget, not only their entries (`map_charges` in `src/protocol/io.rs`): the first key one node (11 entries, counted as an internal node with 12 child links), each further key a fifth of a node. While a map only grows, every node but the root holds at least 5 entries, so n keys take at most 1 + (n − 1)/5 nodes. The NBT encoder counts the same amount (`Cost.alloc`), so storage splits its pages at what reading them back takes (`src/storage/codec.rs`).
+- NBT: depth at most 512, the root included; one root at most 4 MiB on the wire.
+- Lists nest at most 64 deep, a packet's own lists included (`MAX_LIST_DEPTH`). The decoder of the self-containing type `DataStorePropertyValue` recurses on the thread stack once per list; without the bound, one packet overflows the stack and ends the process.
+- Per-field limits:
+  - `cargo xtask dump` reads the schemas at the pinned commit and writes `xtask/data/reference/protocol_limits.json` (125 entries) through the table in `xtask/src/dump/limits.rs` that joins each schema limit to the gophertunnel fields it limits. Strings and byte slices count bytes, lists count elements; a key ending in `[]` limits each element of its list.
+  - A schema limit without a table row, or a row without a schema limit, fails `dump`; a limit that no decoder applies fails `gen`. A version change therefore shows every limit that came or went.
+  - Decoding a list applies min(field limit, 1024). The encoder fails at the field limit, so Anchor never sends a packet past the schema. 1024 is a receiving limit only and is not applied when encoding: the server sends lists of more than 1024 entries, such as ItemRegistry and CreativeContent.
+- The sub-chunk payload decodes strictly: only bit widths 0, 1, 2, 3, 4, 5, 6, 8, and 16; the persistent palette form and the header 0x7f are refused; a palette is not empty and holds at most 2^bits entries; every index points into the palette.
 
-## 시험 P1~P5
-P6(공식 서버 대조)는 `testing.md`에 있다.
+## gophertunnel defects
+Defects found in the pinned gophertunnel, with what Anchor does about each:
+- MaterialReducer: the Reader reads the input item's network ID as `mix << 16` (it should be `mix >> 16`) and its metadata as `mix & 0x7fff`, which drops bit 15, so a value does not survive a round trip. The corpus therefore uses only mix values 0 to 0x7fff.
+- Event types 8, 9, 10, 12, 14, 20, 21, and 22 (AgentCommand, AgentCreated, PatternRemoved, FishBucketed, PetDied, MovementAnomaly, MovementCorrected, ExtractHoney) have no ordinal, so they can be neither read nor written. Ordinal 21 is shared by three events (StriderRiddenInLavaInOverworld, SneakCloseToSculkSensor, CarefulRestoration).
+- Values overwritten on write, or read and discarded: ItemDescriptorCount aux 32767, the StackRequestAction legacy byte, Skin `trusted`, the name strings that PlayerUpdateEntityOverrides and ResourcePackClientResponse write from their numeric type, InventoryTransaction `hasLegacy`.
+- No bound on the EntityMetadata count, a leak in the NBT depth count, partial reads accepted, ItemInstance and Login lengths truncated silently.
+- Snappy decompression is `s2.Decode`, so it also accepts the S2 extension.
+- Skin tint piece names: the codec removes only `persona_` from the login names and so sends `facial_hair`, `face_accessory`, `left_leg`, `right_leg`, `left_arm`, `right_arm`, and `classic_skin`. Mojang's documents (the `PieceTintColors` keys of `SerializedSkin` are `persona::PieceType` names) and the codec library (`512ea21d9c`) use lowercase names without underscores (`facialhair` and so on). The generated codec stays as gophertunnel's; the login conversion (`TINT_PROTOCOL_NAMES` in `src/login/client_data.rs`) puts in the value from which the codec writes that name. Not yet confirmed against official-server bytes (P6).
+- `PieceType` lacks `CoCo` (28), added in 1.26.60; gophertunnel has `Unsupported` at 28. The schema source (`COCO = 28`, `UNSUPPORTED` 29), the codec library, and Mojang's documents agree. Corrected: `CoCo` is 28 and `Unsupported` 29, and the login maps `persona_coco` to 28.
+- ClientboundUpdateSoundData's `SoundDataUpdate`: gophertunnel writes only the type byte. The schema source (the variant selector is a uvarint32 variant index, and the variant writes its uint8 type again), the codec library (the same shape, checking that both are equal), and Mojang's documents (`oneOf` with a control uint32, `Type` first in each variant) all put the variant index first. Corrected: the variant index (equal to the type) as uvarint32, then the type as u8; a mismatch is a decode error.
+- EntityDataKey 139 to 143: gophertunnel has `ArrowShooterID` 139, `FireworkDirection` 140, `FireworkShooterID` 141, `Reserved139` 142, and `NameplateRenderDistanceMax` 143 (the name `Reserved139` on 142 already contradicts itself). The schema source (`RESERVED_139` 139, `NAMEPLATE_RENDER_DISTANCE_MAX` 140) and the codec library (v975: 139 Long, 140 Float, the arrow and firework shooter keys at 17 and 18) agree. The official server sends players key 140 as Float 64.0 (the name tag distance) and key 141 as Byte 0, a key without a public name, and does not send 139 (P6, `xtask/data/p6/facts.md`). Corrected: 139 `Reserved139`, 140 `NameplateRenderDistanceMax`, 141 `Reserved141`; `ArrowShooterID` and `FireworkDirection` are aliases of 17 and `FireworkShooterID` of 18.
+- Login `ServerAddress`: v1.63.0's `ClientData.Validate` accepts a NetherNet address only as `http(s)://host:port:port`. 1.26.60 clients send `https://host:port`, and master after the tag (`531fd12d9a`) accepts both. Anchor follows master (`is_server_address` in `src/login/client_data.rs`).
+- Empty skin geometry: the login `Validate` and the codec accept and send an empty `SkinGeometry`. The protocol requires the geometry and the resource patch to be depth-bounded JSON (Mojang's documents). Anchor turns an empty login geometry into `{}` (`NO_CUSTOM_GEOMETRY`), and the skin check (`Skin::is_acceptable` in `src/tick/queue.rs`) requires both fields to be JSON nested at most 64 deep.
+- No login deadline, no bound on the deferred packet queue, no bound on raw 0xff payloads: Anchor's session has all three (`network.md`).
 
-- Go 오라클(`xtask/go/oracle`):
-  - `corpus`: 무작위 값을 고르며 쓰는 `protocol.IO` 구현으로 각 패킷의 Marshal을 돌려 표본을 만든다(시드 고정 PCG, 목록 길이 0~4, `-limits`로 필드 상한 안 표본만). 평범한 gophertunnel Writer로 쓰고 패킷 최상위 NBT만 자체 정렬 인코더로 쓴다(Go map 순서가 무작위라서). gophertunnel Reader로 다시 읽어 성공한 표본만 남긴다. 코퍼스는 시험 때 `target/`에 만든다.
-  - `check`: 받은 바이트를 gophertunnel로 디코드하고 다시 인코딩해 돌려준다. 바이트 비교는 Rust가 한다.
-  - `compress`, `decompress`: gophertunnel `packet` 패키지의 zlib과 Snappy.
-  - shield 아이템 ID는 양쪽 모두 고정값을 쓴다.
-- P1 디코드 완결(`xtask/tests/protocol.rs`): 모든 패킷마다 코퍼스 표본 64개, 모든 표본에서 Rust 디코드가 성공하고 남는 바이트가 0이다. IR 패킷 수 = gophertunnel 두 풀의 합집합 = `Packet` variant 수(236)다.
-- P2 왕복: 모든 표본 b에서 `encode(decode(b)) == b`. P4에서 디코드에 성공한 변형 m마다 `e = encode(decode(m))`이면 `encode(decode(e)) == e`(바이트 비교라 NaN에도 맞다).
-- P3 gophertunnel과 양방향 일치: (가) Go가 만든 바이트를 Rust가 다시 인코딩하면 같다. (나) 변형의 Rust 인코딩 R → Go 디코드 → Go 재인코딩 → Rust 디코드 → Rust 재인코딩 == R. 차이는 빈 NBT 목록의 원소 타입 하나만 값 구조 비교로 허용한다. 배치 압축(`xtask/tests/compression.rs`)은 zlib과 Snappy 각각 Rust 압축 → Go 해제, Go 압축 → Rust 해제가 원문과 같다(크기 0, 1, 255, 256, 64 KiB, 1 MiB, 무작위와 반복 데이터).
-- P4 변형 입력: 패킷마다 고정 시드 변형 1000개(비트 뒤집기, 바이트 넣기·빼기, 자르기, 길이 필드 키우기)에서 패닉 0. Snappy 결함 입력 5종과 zlib 폭탄은 오류다. 외부 입력을 읽는 다른 디코더(RakNet 데이터그램, 시그널링 요청, SDP, 피어)도 고정 시드 변형 1만 개에서 패닉 0을 시험한다.
-- P5 봇 접속(`xtask/tests/spawn.rs`): gophertunnel `packet`, `login`과 go-raknet, go-nethernet으로 만든 Go 봇(`xtask/go/bot`)이 같은 프로세스에서 띄운 Anchor에 RakNet과 NetherNet, zlib과 Snappy 각각으로 스폰한다. 큰 스킨(해제 6 MiB) Login, 두 전송 동시 스폰, NetherNet 실패 때 RakNet 폴백, 로그인 마감과 로그인 전 상한, 신원 결합 불일치, 중복 로그인 두 경우를 본다. 시험용 발급자는 자체 키로 만든 OpenID 설정, JWKS, 토큰이다. `xtask/tests/go.rs`는 Go 도구 자체의 시험을 돈다.
+## Tests P1 to P5
+P6 is in `testing.md`.
+
+- The Go oracle (`xtask/go/oracle`):
+  - `corpus`: makes samples by running each packet's Marshal on a `protocol.IO` that picks random values as it writes (PCG seeded with the seed and the packet ID, list lengths 0 to 4, `-limits` keeping every sample within the field limits). It writes with gophertunnel's plain Writer, except NBT roots, which its own encoder writes sorted because Go map order is random. It keeps only the samples gophertunnel's Reader reads back. The tests build the corpus under `target/`.
+  - `check`: decodes the bytes it receives with gophertunnel and returns the re-encoding; Rust compares the bytes.
+  - `compress`, `decompress`: the zlib and Snappy of gophertunnel's `packet` package.
+  - Both sides use the shield item network ID 357.
+- P1, complete decode (`xtask/tests/protocol.rs`): 64 corpus samples per packet; every sample decodes in Rust with no bytes left. The IR packet count equals the union of gophertunnel's two pools and the `Packet` variant count (244).
+- P2, round trip: `encode(decode(b)) == b` for every sample b. For every P4 mutation m that decodes, with `e = encode(decode(m))`, `encode(decode(e)) == e` (a byte comparison, so NaN passes too).
+- P3, agreement with gophertunnel both ways: (a) Rust re-encodes the bytes Go produced to the same bytes. (b) For the Rust encoding R of every decoded mutation, R → Go decode → Go re-encode → Rust decode → Rust re-encode gives R. The only difference allowed is the element type of an empty NBT list, compared by value structure. Batch compression (`xtask/tests/compression.rs`): for zlib and Snappy each, Rust compression → Go decompression and Go compression → Rust decompression give back the original (sizes 0, 1, 255, 256, 64 KiB, and 1 MiB; random and repetitive data).
+- P4, mutated input: 1000 fixed-seed mutations per packet (1 to 3 stacked bit flips, byte inserts and deletes, truncations, and varint inflations) never panic. Five malformed Snappy bodies, Snappy declared lengths over the limits, and zlib and Snappy bodies inflating past `max-batch-bytes` are errors. The other decoders of external input (RakNet datagrams, signaling requests, SDP, NetherNet peer datagrams) each take 10,000 fixed-seed mutations without a panic.
+- P5, bot join (`xtask/tests/spawn.rs`, whose module documentation lists every case): a Go bot (`xtask/go/bot`) built on gophertunnel's `packet` and `login`, go-raknet, and go-nethernet spawns on an Anchor server started in the same process, over RakNet and NetherNet, with zlib and Snappy each. The test issuer is an OpenID configuration, a JWKS, and tokens made from its own key.
+- `xtask/tests/go.rs` runs the Go tools' own tests (`go test ./...`).

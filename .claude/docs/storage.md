@@ -1,219 +1,212 @@
-# 저장
+# Storage
 
-Anchor가 디스크에 무엇을 어떤 형식으로 쓰고, 언제 커밋하며, 끊겼을 때 무엇을 보장하는지 적는다. 설정 키는 `config.md`, 입력 로그와 재생의 구조는 `architecture.md`, redb 사본과 고친 결함은 `dependencies.md`, 가져오기의 블록 업그레이드 스키마는 `data.md`에 있다.
+What Anchor writes to disk and in what format, when it commits, and what holds after an interruption. Setting keys are in `config.md`; the input log and the replay's structure in `architecture.md`; the redb copy and the defects fixed in it in `dependencies.md`; the import's block upgrade schemas in `data.md`.
 
-작업 규칙은 `.claude/rules/storage.md`.
+Rules: `.claude/rules/storage.md`.
 
-## 데이터 폴더
+## Data folder
 
-기본 폴더는 실행 폴더의 `data/`다(`ServerBuilder::data_dir`로 바꾼다).
+The data folder is `data/` in the run folder; `ServerBuilder::data_dir` moves it.
 
-| 경로 | 내용 |
-|---|---|
-| `data/main.redb` | 저장 차례(엔진 틱과 커밋 식별자), op·밴(이름, IP)·화이트리스트(명령으로 바뀌는 운영 기록이라 설정이 아니라 데이터다), 사용자 프로그램이 등록한 이름별 서버 데이터 |
-| `data/players.redb` | 플레이어 데이터. 키는 XUID 10진 문자열, Xbox 로그인을 안 한 플레이어는 `offline:` + 소문자 이름 |
-| `data/worlds/<월드>.redb` | 영구 월드 하나: 월드 기록과 그 월드의 모든 청크(지형, 블록 엔티티, 엔티티, 예약된 블록 갱신) |
-| `data/packs/` | 리소스팩 파일. `resource-packs`의 상대 경로 기준 |
-| `data/identity.key` | NetherNet 서버 신원 키(`network.md`) |
-| `data/auth.json` | Xbox 인증 문서 캐시(`network.md`) |
-| `data/backups/` | 백업. 파일마다 `backups/<파일>/`, 월드는 `backups/worlds/<월드>/` |
-| `data/crash/` | 틱 패닉이나 저장 실패로 멈출 때 쓰는 입력 로그 `input-<유닉스 초>-<틱>.log` |
+- `players.redb` keys a player by the XUID in decimal; a player without Xbox sign-in by `offline:` and the ASCII-lowercase name.
+- Operators, bans and the whitelist are data, not settings: commands change them.
+- `packs/` is the base of relative `resource-packs` paths (`config.md`). `identity.key` and `auth.json` are in `network.md`; the crash input logs in `crash/` in `architecture.md`.
+- Backups: `backups/main/`, `backups/players/`, and `backups/worlds/<world>/` for a world.
+- A temporary world (`Kind::Temporary`) has no file and is never saved.
+- A world's name is its file name. `storage::is_world_file_name` accepts the names that are file names on both Windows and Linux: 1 to 250 bytes; no control character and none of `< > : " / \ | ? *`; no trailing dot or space and no leading space; not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a superscript digit), in any letter case and with any extension. Names that differ only in letter case are one world, because Windows sees one file: a name resolves, ignoring case, to the file on disk (`save::world_place`), and the file and its backup folder keep that file's name. Only when there is no file is one made under the name as given. The tick's name lookups (`load_world`, `delete_world`, `is_world_generated`, and the others) ignore case too.
+- The start lists `data/worlds/*.redb` in name order, so the tick can `load_world` a world no one declared. A file whose name breaks the rule, or the second of two names that differ only in case, is left out with a warning. A file added while the server runs is seen from the next start. `data/worlds/` holds at most 1,024 world files (`storage::MAX_WORLDS`). The files a start leaves out (damaged, without a world record, or named as a temporary world) count too: the tick's `create_world` fails with `Full` by the file count at start plus the persistent worlds made this run.
+- `Context::delete_world` deletes the one file of an unloaded persistent world. The save thread deletes it after every commit asked for before, and keeps its backup folder.
+- Why one file per world: a world file is as large as that world's data, a save does not write the files that did not change, and a world is deleted or moved as one file.
+- Why the players have a file of their own: data that grows with the player count stays apart from the small operational data, and deleting that one file resets the player data alone. The rest shares `main.redb` so that it commits in one transaction: fewer fsyncs per save, and fewer files that can disagree.
 
-- 임시 월드(`Kind::Temporary`)는 파일이 없고 저장하지 않는다.
-- 월드 이름이 곧 파일 이름이다. 이름 규칙(`world::Error::InvalidName`)은 Windows와 Linux 둘 다에서 파일 이름이 되는 것이다: 1~250바이트, 제어 문자와 `< > : " / \ | ? *` 없음, 끝의 점·공백과 앞의 공백 없음, Windows 장치 이름(`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`~`COM9`, `LPT0`~`LPT9`, 위첨자 숫자 포함, 대소문자와 확장자 무관) 아님. 대소문자만 다른 이름은 한 월드다(Windows가 한 파일로 보므로). 그래서 월드 이름은 대소문자를 무시하고 디스크에 있는 파일 이름으로 이어지고(`save::world_place`), 파일과 백업 폴더는 그 이름을 쓴다. 파일이 없을 때만 적은 그대로의 이름으로 만든다. 틱의 이름 조회(`load_world`, `delete_world`, `is_world_generated` 등)도 대소문자를 무시한다.
-- 시작은 `data/worlds/`의 `*.redb`를 이름 순으로 나열해, 선언하지 않은 월드도 틱이 `load_world`로 올릴 수 있게 한다. 규칙에 맞지 않거나 대소문자만 다른 두 번째 파일은 경고하고 뺀다. 실행 중에 넣은 파일은 다음 시작부터 보인다. 월드 파일은 1,024개까지다. 시작이 빼는 파일(손상, 월드 기록 없음, 임시 월드와 같은 이름)도 이 수에 들어, 틱의 `create_world`는 시작 때 파일 수와 이번 실행의 영구 월드 수로 `Full`을 판정한다.
-- `Context::delete_world`는 로드되지 않은 영구 월드의 파일 하나만 지운다. 앞서 요청된 저장이 끝난 뒤 저장 스레드가 지우고, 백업 폴더는 남긴다.
-- 월드마다 파일을 따로 두는 이유: 월드 파일 크기가 그 월드의 데이터만큼이고, 바뀌지 않은 파일은 저장에서 쓰지 않으며, 월드 하나를 파일째 지우거나 옮길 수 있다.
-- 플레이어 데이터만 `players.redb`로 따로 두는 이유: 플레이어 수만큼 커지는 데이터를 작은 운영 데이터와 나누고, 플레이어 데이터만 파일째 지워 초기화할 수 있게 한다. 나머지를 `main.redb` 하나에 두는 이유: 함께 한 트랜잭션으로 커밋되어 저장마다 fsync와 파일 사이 어긋남이 줄어든다.
+## File format
 
-## 파일 형식
+Every data file is a redb database. Every file has the same tables (`meta`, `worlds`, `chunks`, `players`, `access`, `user`), which the first commit of a start creates, and fills only those of its part. Keys and values are bytes.
 
-모든 데이터 파일은 redb 데이터베이스다. 표 이름은 모든 파일에서 같고(`meta`, `worlds`, `chunks`, `players`, `access`, `user`) 파일마다 자기 몫의 표만 채운다. 키와 값은 모두 바이트다.
-
-| 표 | 키 | 값 |
+| Table | Key | Value |
 |---|---|---|
-| `meta` | `meta` | 그 파일이 마지막으로 받은 저장 차례: 엔진 틱 u64 + 커밋 식별자 |
-| `meta` | `closed` | 정상 종료 표시(빈 값) |
-| `worlds` | `world` | 월드 기록: 월드 번호 u32 + 월드 시각 i64 + 스폰 i32 셋(x, y, z) |
-| `chunks` | 13바이트 이상(아래) | 서브청크 지형, 엑스트라 목록 쪽 |
-| `players` | 플레이어 키 | 월드 이름, 위치 f64 셋, `extra` NBT(인벤토리, 게임 모드 등 규칙 모듈의 상태) |
-| `access` | 종류 바이트(0 op, 1 밴, 2 IP 밴, 3 화이트리스트) + 소문자 이름 또는 IP 문자열 | 표시 또는 밴 기록(사유, 출처, 만든 시각, 끝나는 시각) |
-| `user` | 등록 이름 | JSON 텍스트 |
+| `meta` | `meta` | The save turn the file last committed: engine tick u64, then the commit identity (a flag byte and a u64) |
+| `meta` | `closed` | The normal-stop mark (empty value) |
+| `worlds` | `world` | The world record: number u32, world time i64, spawn i32 x, y, z |
+| `chunks` | Chunk key (below) | The terrain of a sub-chunk, or a page of an extras list |
+| `players` | Player key | World name (u16 length, at most 256 bytes of UTF-8), position f64 x, y, z, then `extra`: a little-endian NBT compound of the inventories and the rule modules' other state |
+| `access` | Kind byte (0 operator, 1 name ban, 2 IP ban, 3 whitelist), then the ASCII-lowercase name or the IP address as text | Empty for an operator or whitelist entry; for a ban: reason, source, the engine tick it was made at, and the engine tick it ends at, if any |
+| `user` | Registered name | The JSON bytes |
 
-청크 키는 월드 번호 u32, x i32, z i32를 빅엔디안으로 쓰고 좌표의 부호 비트를 뒤집은 12바이트 접두(키가 좌표 순으로 정렬된다)와 종류 바이트다.
+A chunk key is a 12-byte prefix (the world number u32, x i32 and z i32, big-endian, with the coordinates' sign bit flipped so keys sort by coordinate) and a kind byte:
 
-- `0x20 | 번호`(번호 0 = y -64 ~ 23): 서브청크 하나의 지형. 블록 엔티티가 없는 plains 서브청크가 비어 있으면 값을 쓰지 않고, 읽을 때 빈 서브청크로 본다. 모든 서브청크가 비어 있는 청크만 가장 아래 값을 남겨 생성기가 다시 채우지 않게 한다.
-- 1 블록 엔티티, 2 엔티티, 3 예약된 블록 갱신: 엑스트라 목록. 16 MiB 이하 쪽으로 나누고, 쪽 0은 13바이트 키, 쪽 1부터 빅엔디안 u16 쪽 번호를 붙인다.
-- 목록 하나의 항목 수: 엔티티와 예약된 블록 갱신은 청크 칸 수(98,304)까지, 블록 엔티티는 칸마다 하나와 기다리는 쏟은 아이템 1,024개와 읽은 그대로 둔 항목(청크 안 위치가 없거나 한 칸에 두 번째인 것) 98,304개까지다. 그래서 읽은 목록은 어떤 블록 엔티티가 더 생겨도 다시 쓸 수 있다. 그대로 둔 항목이 더 많은 블록 엔티티 목록은 손상이다. 가져오기는 목록마다 98,304개까지 쓴다.
-- 그 밖의 종류 바이트는 손상이다.
+- `0x20 | index` (index 0 is y -64 to -49, index 23 the top): the terrain of one sub-chunk. A sub-chunk without blocks whose biomes are all plains has no value, and reads back from none. Only a chunk whose every sub-chunk is so keeps the value of its lowest one, so that the file still holds the chunk and its generator does not refill it.
+- 1 block entities, 2 entities, 3 scheduled block updates: an extras list, cut into pages of at most 16 MiB that also read back within the decoder's budget. Page 0 has the 13-byte key; page 1 on adds the page number as a big-endian u16.
+- Entries per list: entities and scheduled updates up to the blocks of a column (98,304); block entities up to one per block, plus 1,024 waiting spills (the items of broken containers) and 98,304 entries kept as read (no place in the chunk, or a second at one place). So a list read back can always be written again, even with a block entity at every block. A block entity list keeping more entries as read is damage. The import writes up to 98,304 entries per list.
+- Any other key suffix is damage.
 
-월드 번호는 그 파일 안에서만 쓰인다. 블록을 런타임 ID가 아니라 디스크 팔레트 모양 NBT로 쓰므로 Anchor가 모르는 블록도 NBT 그대로 왕복한다. 생성된 뒤 바뀌지 않은 청크는 저장하지 않고 생성기가 다시 만든다(생성기를 바꾸면 그런 청크도 바뀐다).
+The world number tells the chunks apart inside the file; an imported world's is 0. Blocks are stored as disk-palette NBT, not runtime IDs, so a block Anchor does not know goes back as its NBT. A chunk generated and never changed is not saved: its generator makes it again, so changing the generator changes such chunks.
 
-### 봉인
+### Seal
 
-모든 값은 12바이트 머리 + 본문이다(리틀엔디안).
+Every value is a 12-byte header and a body, little-endian.
 
-| 바이트 | 내용 |
+| Bytes | Content |
 |---|---|
-| 0~1 | 형식 버전 u16 |
-| 2 | 압축 방식: 0 그대로, 2 raw DEFLATE |
-| 3 | 예약(0) |
-| 4~7 | 압축 전 레코드 길이 u32 |
-| 8~11 | CRC-32C: 키, 머리 앞 8바이트, 본문을 덮는다 |
+| 0 to 1 | Format version u16 |
+| 2 | Compression: 0 stored, 2 raw DEFLATE |
+| 3 | Reserved (0) |
+| 4 to 7 | Record length before compression, u32 |
+| 8 to 11 | CRC-32C over the key, the first 8 header bytes and the body |
 
-- 버전이 앞 두 바이트라 더 새 값과 손상된 값을 구별한다. 체크섬에 키를 넣어 값이 다른 키 자리로 옮겨진 것도 잡는다.
-- 레코드 상한은 압축 전 16 MiB다. 가장 큰 서브청크 값(커스텀 상태 4096개)이 약 9.4 MB라 서브청크마다 값 하나로 나누면 늘 상한 안이다. 디코더가 할당할 수 있는 양은 레코드의 4배(64 MiB)다.
-- 64바이트 미만 레코드는 압축하지 않는다. 압축은 libdeflate 6단계다. 실제 가져온 월드에서 Snappy보다 약 3분의 1 작고, 9·12단계는 1.2%·4.1% 더 작지만 느리다.
-- redb 읽기는 페이지 체크섬을 확인하지 않아서 값마다 자체 체크섬을 둔다.
+- The version is the first two bytes, so a newer value is told from a damaged one. The checksum covers the key, so a value moved under another key is caught.
+- A record holds at most 16 MiB before compression (`storage::seal::MAX_RECORD`). The largest sub-chunk value takes about 0.92 MB with 4,096 vanilla states and about 9.4 MB with 4,096 custom states of the longest NBT; a whole column would take up to 24 times that, which is why the terrain is stored by sub-chunk. A record decoder may allocate four times the record (64 MiB).
+- Records under 64 bytes are stored as they are. Compression is libdeflate level 6: levels 9 and 12 are 1.2% and 4.1% smaller on a whole imported world, and both slower.
+- redb's reads do not verify its page checksums, so every value carries its own.
 
-### 형식 버전
+### Format version
 
-지금 쓰는 형식은 11이다(`storage::seal::FORMAT_VERSION`). 값마다 형식 번호를 지니고, 현재 형식만 읽는다. 다른 형식의 값은 손상으로 다룬다(청크는 격리, 플레이어는 접속 거부, meta면 시작 거부). 비공개 서버라 옛 형식 데이터를 옮길 대상이 없어서다.
+The current format is 11 (`storage::seal::FORMAT_VERSION`). A value of another format is damage: its chunk is quarantined, its player refused, and a `meta` value of one refuses the start. Before release no data of an older format exists that would need moving.
 
-파일의 meta 값 형식이 현재보다 새것이면 시작을 거부한다(`NewerFormat`). 옛 Anchor가 새 파일을 잘못 읽어 덮어쓰지 않게 하기 위해서다.
+A start refuses a file whose `meta` value is of a newer format (`NewerFormat`), so an older Anchor never misreads a newer file and overwrites it.
 
-## 저장 주기와 커밋
+## Save cycle and commit
 
-1. 스냅샷: 틱 경계에서 지난 스냅샷 뒤에 바뀐 것(바뀐 서브청크 `Arc`, 엑스트라, 월드 기록, 플레이어 데이터, access와 user의 바뀐 항목, meta)을 떼어 저장 스레드 큐에 넘긴다. 서브청크는 COW라 틱이 그 뒤 쓰면 그 서브청크만 한 번 복사된다.
-2. 스냅샷을 뜨는 때: `save-interval-minutes`마다(`/save-off`로 끔), `Context::save`와 `/save-all`, 관리 명령(op, ban 등), 커밋을 기다리며 내린 청크나 나간 플레이어가 4096개를 넘을 때, 지난 커밋 뒤 입력 로그가 상한(`architecture.md`)의 4분의 1에 닿을 때, 정상 종료. 뒤의 셋은 메모리 상한이라 자동 저장을 꺼도 뜬다. 앞 스냅샷이 아직 커밋 중이면 다음 틱 경계로 미룬다.
-3. 커밋(`save::commit`): 바뀌지 않은 파일은 쓰지 않고, 월드 기록은 시각이나 스폰이 바뀔 때만 쓴다. 봉인과 압축은 CPU 풀에서 병렬로 한다.
-4. 커밋이 끝났다는 답은 다음 틱의 입력이다. 그 답 전까지 스냅샷의 데이터가 메모리에 있으므로, 내린 청크를 다시 읽을 때는 메모리에서 가져오고 디스크 읽기는 늘 가장 새 커밋을 본다.
+1. Snapshot: at a tick boundary, the tick takes what changed since the last snapshot (the changed sub-chunks, which it shares with the live world, the extras lists, the world records, the player data, the changed `access` and `user` entries, the meta value) and queues it for the save thread.
+2. A snapshot is taken: every `save-interval-minutes`; on `Context::save` and `/save-all`; on `Context::backup`, `backup` and `/check`; on an operator, ban or whitelist change; when more than 4,096 unloaded chunks or 4,096 departed players wait for a commit; when the input log asks for one (`architecture.md`); and at a clean shutdown. `/save-off` stops only the periodic one: the others bound memory or were asked for. While a snapshot is still being committed, the next waits for a later tick boundary; the final snapshot of a shutdown queues behind it.
+3. Commit (`save::commit`): the world files, then the players file, then the main file. A world file or the players file with nothing changed is not written; the main file is written by every commit, as it carries the save turn. A world record is written only when its time or spawn changed. The terrain and extras of the chunks are sealed and compressed on the CPU pool.
+4. The commit's answer is an input of a later tick. Until it arrives the snapshot's data stays in memory, so a chunk unloaded and loaded again comes from memory, and a read from the disk always sees the newest commit.
 
-퇴장, 청크 내리기, 월드 내리기를 다음 스냅샷에 맡기는 이유: 한 파일이 다른 파일과 다른 순간의 상태를 담지 않게 하기 위해서다.
+Leaving, chunk unloading and world unloading wait for the next snapshot so that no file holds another moment than the others.
 
-커밋이 실패하면 핸들을 다시 열어 3번까지 다시 시도한다. 그래도 실패하면 틱이 멈추고 모든 플레이어를 내보내고, 마지막 커밋 뒤의 입력 로그를 `data/crash/`에 쓰고, `Error::Storage`로 끝난다. 실패한 커밋 뒤의 스냅샷을 커밋하면 실패한 변경이 빠진 상태를 쓰게 된다. 청크 묶음 읽기의 I/O 실패도 같은 재시도 뒤 같은 방식으로 저장 없이 멈춘다.
+A failed commit drops the file's handle, reopens the file and tries again, up to 3 times (`storage::RETRIES`). If it still fails, the tick stops, every player is disconnected, the input log since the last commit is written to `data/crash/`, and `Server::run` returns `Error::Storage`. No later snapshot is committed: it would write a state that lacks the failed changes. A chunk batch whose read still fails after the same retries stops the server the same way, without saving.
 
-읽기: 청크와 플레이어 데이터는 틱이 상한 있는 요청으로 보내고, 저장 스레드가 읽기 트랜잭션 하나로 한 청크의 값을 모두 읽은 뒤 디코드와 생성을 CPU 풀에서 한다. 이어서 청크 추가 데이터(블록 엔티티, 엔티티, 예약 업데이트)를 규칙 모듈의 타입 형태(`ChunkRules`)로 읽는 일도 CPU 풀에서 한다(비지 않은 목록 하나가 풀 항목 하나). 그래서 틱은 읽은 것을 저장소에 넣기만 한다. 메모리에 남아 있던 청크가 돌아올 때만 틱이 같은 함수로 읽는다. 청크는 한 차례(풀 스레드 수만큼)씩 처리하고, 한 차례가 끝나면 그 답을 요청 순서대로 바로 보낸다. 결과는 다음 틱의 입력이다.
+Reads: the tick sends bounded requests for chunks and players. The save thread reads a chunk batch in one read transaction per world file, then decodes, generates and lights the chunks on the CPU pool, and reads their extras into the rule modules' typed form (`ChunkRules`) there too, one pool item per list that has entries. So the tick only puts what was read into its stores; only a chunk that was still held in memory is read on the tick, by the same function. The chunks go through the pool one turn (a chunk per pool thread) at a time, and each turn's answers go back in request order as soon as it ends.
 
-접속하지 않은 플레이어(`Context::hold_offline_player`): 접속 때와 같은 플레이어 읽기 요청을 보내고, 답이 오면 기록을 메모리에 붙들어 티켓으로 읽고 바꾼다. 가장 새 데이터는 붙든 기록, 커밋을 기다리는 퇴장 데이터(`saving.offline`), 파일 순이다. 저장 스레드는 요청 순서로 답하고 커밋을 기다리는 데이터는 커밋 답까지 메모리에 있으므로, 답이 올 때 메모리에 둘 다 없으면 파일 값이 가장 새것이다. 바뀐 기록은 스냅샷, 마지막 티켓 놓기, 그 플레이어의 접속 때 퇴장 데이터 자리로 옮긴다. 그래서 따로 쓰는 경로 없이 다음 스냅샷이 함께 커밋하고, 접속은 퇴장 데이터처럼 그것을 가져가 잃거나 복제되지 않는다. 바뀐 부분(인벤토리 키, 사용자 데이터 값)만 다시 쓰고 나머지는 저장된 바이트 그대로라 레코드 형식이 그대로다. 손상된 기록은 붙들지 않고 그대로 둔다. 접속했거나 접속 중인 플레이어의 기록은 붙들지 않는다.
+Players who are not online (`Context::hold_offline_player`): the load is the same player request a join sends; once it is answered, a ticket holds the record in memory to read and change. The newest data of such a player is its held record, else its data waiting for a commit since it left, else the file's. The save thread answers in request order and data waiting for a commit stays in memory until the tick learns of the commit, so a load that finds neither in memory when its answer arrives has read the newest data. A changed record goes to wait for a commit as a departed player's data does, when a snapshot is taken, its last ticket is released, or the player joins: the next snapshot commits it with the rest, and a join takes it as it takes a departed player's data, so it is neither lost nor duplicated. Only the inventories and data values that changed are written anew; the rest of the record stays as it was read. A damaged record is not held and stays as it is. No record is held for a player online or joining.
 
-손상: 격리된 청크는 빈 청크로 보이고, 바꿀 수 없고, 저장하지 않으며, 디스크 값은 그대로 둔다.
+A quarantined chunk shows empty, never changes and is never saved; its stored values stay as they are.
 
-## 정상 종료와 크래시
+## Clean shutdown and crash
 
-정상 종료는 Ctrl+C, 콘솔 `stop`, `ShutdownHandle`, Unix SIGTERM·SIGHUP, Windows Ctrl+Break·창 닫기·시스템 종료로 시작한다. 서버가 시작할 때 SIGHUP이 무시 상태면(`nohup`) SIGHUP을 받지 않아 터미널이 닫혀도 계속 돈다. 받으면 그 무시 설정을 덮어 버리기 때문이다. 무시 상태를 `/proc/self/status`에서 읽지 못하면 경고를 남기고 SIGHUP을 받는다(기본 처리로는 저장 없이 끝나기 때문). Windows 로그오프는 받지 않는다: 서비스로 돌 때만 오고 어느 사용자의 로그오프에도 오며, 리스너가 없으면 OS 기본 처리가 서비스를 계속 돌린다. 종료는 바뀐 파일만 쓰고 compact하지 않아 1초 안에 끝난다. 다만 진행 중인 백업(시작 백업 포함)이 있으면 그 백업이 끝나기를 기다리므로 큰 월드에서는 몇 초 더 걸린다(아래 "시작 비용" 표의 시작 백업). Windows 창 닫기는 OS가 약 5초만 허락한다. 두 번째 인터럽트는 즉시 끝낸다(종료 코드 130). 이때는 크래시와 같은 보장을 받는다. 신호는 첫 틱 전부터 받는다. `tests/shutdown.rs`가 Linux에서 SIGINT·SIGTERM·SIGHUP을 실제로 보내 정상 종료를, SIGHUP을 무시한 채 띄운 서버가 SIGHUP에 멈추지 않는 것을 시험한다. Windows 로그오프 이벤트는 시험에서 만들 수 없다.
+A clean shutdown starts on Ctrl+C, the console `stop`, `ShutdownHandle`, SIGTERM and SIGHUP on Unix, and Ctrl+Break, closing the console window, and system shutdown on Windows. The signals are listened for from before the first tick.
 
-크래시(프로세스 강제 종료, 전원 차단, 틱이나 저장 스레드 패닉):
+- SIGHUP is not listened for when it is ignored as the server starts (`nohup`), so the server keeps running when the terminal closes; a handler would replace that disposition. If `/proc/self/status` cannot tell whether it is ignored, Anchor warns and listens for it, since the default disposition would end the process without the final save.
+- The Windows logoff event is not listened for: only a service receives it, at any user's logoff, and without a listener the OS's default handling keeps a service running.
+- After the console close and shutdown events, Windows ends the process about 5 seconds later, whether the stop has finished or not.
+- A stop writes only the changed files and does not compact. It waits for a backup in progress (a start backup included), which takes seconds on a large world (the start backup row under "Start cost").
+- A second stop signal ends the process at once with status 130, with the guarantees of a crash.
+- `tests/shutdown.rs` sends SIGINT, SIGTERM and SIGHUP on Unix and checks the clean stop, and checks that a server started with SIGHUP ignored keeps running through a SIGHUP. A test cannot raise the Windows logoff event.
 
-- 한 파일 안의 커밋은 redb 트랜잭션이라 통째로 들어가거나 안 들어간다. 다음 열기에서 redb가 복구한다.
-- 마지막 커밋 뒤의 변경은 잃는다(최대 저장 주기 하나).
-- 크래시가 한 저장의 파일 사이에 오면 앞 파일은 새 차례, 뒤 파일은 앞 차례로 남는다. main이 마지막이므로 이때는 늘 어떤 파일이 main보다 뒤 차례를 가진다. 시작이 파일마다 meta를 main과 비교해 더 뒤인 파일(틱이 크거나, 같은 틱에 다른 커밋 식별자)을 error로 남긴다: 파일 이름, 그 파일의 저장 틱, main의 저장 틱, 아이템이 겹치거나 사라졌을 수 있다는 문장. 실행 중 처음 여는 월드 파일도 같은 비교를 한다. 뒤처진 파일은 정상이다(바뀌지 않아 쓰지 않은 파일).
-- 한 블록이나 한 플레이어의 데이터는 한 파일에 있어 그 파일 안에서는 늘 하나다.
-- 새로 만든 데이터 파일, 월드 파일 지우기, 백업의 이름 바꾸기, 원자 쓰기(`fs::write_atomic`: 설정 파일, `auth.json`, `identity.key`)는 그 뒤 폴더를 flush한다(`fs::sync_parent`). Unix에서는 파일만 flush하면 크래시 뒤 그 이름이 사라질 수 있다. Windows는 폴더를 flush할 수 없어(열어서 flush하면 거부된다) 하지 않는다. NTFS는 항목 변경을 저널에 남겨 옛 항목이나 새 항목 하나가 남는다.
-- 원자 쓰기는 크래시가 남긴 `<이름>.tmp`를 지우고 새 파일에 쓴다. 남은 파일은 옛 권한을 지니고, 그때 그 파일을 연 쪽이 새 바이트를 읽을 수 있기 때문이다. 그래서 `identity.key`는 Unix에서 늘 0600이다.
-- 틱이나 저장 스레드가 패닉하면 저장 스레드는 큐에 남은 스냅샷을 커밋하지 않고 닫는다. 패닉 직전 상태는 믿을 수 없기 때문이다. 정상 종료 표시는 남지 않는다.
+A crash (a killed process, a power cut, a panic of the tick or the save thread):
 
-여러 파일을 묶는 저널이나 redb 지속 세이브포인트를 쓰지 않는 이유: 세이브포인트가 쥔 페이지는 다시 쓰이지 않아 파일이 바뀐 데이터만큼 커지고, 되돌리면 앞서 커밋된 파일의 정상 데이터도 잃는다.
+- A commit to one file is a redb transaction: it lands whole or not at all. The next open has redb recover the file.
+- The changes since the last commit are lost.
+- A crash between the files of one save leaves the files written before it at the new save turn and the rest at the earlier one. The main file is last, so such a crash always leaves some file later than the main file. The start compares every file's `meta` value with the main file's and logs each later one (a larger tick, or the same tick with another commit identity) as an error: the file, its save tick, the main file's save tick, and that items may be doubled or lost between them. A world file first opened while the server runs is compared the same way. An earlier file is normal: one that did not change, so a save did not write it.
+- The data of one block or one player is in one file, so it is never two within that file.
+- A new data file, a world file's deletion, a backup's rename, and an atomic write (`fs::write_atomic`: the settings file, `auth.json`, `identity.key`) flush their folder afterwards (`fs::sync_parent`): on Unix, flushing a file does not make its name durable. Windows cannot flush a folder (opening one to flush it is refused), so nothing is flushed there; NTFS journals entry changes, so a crash leaves the old entry or the new one.
+- An atomic write removes a `<name>.tmp` a crash left and writes a new file: the old one keeps the mode it was made with, and whoever opened it then could read the new bytes. So `identity.key` is always 0600 on Unix.
+- When the tick thread panics, its request queue closes without `Finish` and the save thread commits none of the requests left. When the save thread panics, nothing more is committed. Either way the files get no normal-stop mark.
 
-남은 위험:
+Why no journal across files and no redb persistent savepoints: the pages a savepoint holds are never reused, so the file grows by every change, and rolling back would also lose the sound data of the files committed before the crash.
 
-- 파일 사이 크래시 뒤에는 아이템이 겹치거나 사라질 수 있다. 시작 로그의 error가 그 경우를 알린다.
-- 사용자 콜백이 외부 시스템(파일, 네트워크)에 한 일은 크래시로 되돌아가지 않는다.
-- redb가 고치지 않은 결함: 체크섬까지 맞춘 조작 파일은 큰 할당을 일으킬 수 있고, 실행 중 하드웨어가 만든 페이지 손상은 읽기 패닉이 되어 저장 없이 멈춘다(다음 시작의 검사가 거부한다). `dependencies.md`에 있다.
-- `integrity-check = "never"`면 시작이 손상을 찾지 않는다.
-- Windows에서는 전원 차단 직전의 파일 만들기와 이름 바꾸기를 잃을 수 있다. 새로 만든 폴더(`data/`, `data/worlds/`, 백업 폴더)는 그 부모 폴더를 flush하지 않는다.
-- 시작 검사와 시작의 열기 사이에 다른 프로그램이 파일을 바꾸면 그 바이트는 검사되지 않는다. 검사가 끝나 redb 잠금을 놓은 뒤 쓰기 열기가 잠금을 다시 잡기 전의 틈이다. 서버 시작에서는 모든 시작 파일의 검사가 끝날 때까지다.
-- 시작 백업은 서버가 도는 동안 만들어진다. 그 전에 크래시하면 새 시작 백업은 없고 앞선 백업만 남는다.
+Remaining risks:
 
-## 시작과 무결성 검사
+- After a crash between files, items may be doubled or lost. The start's error tells of that case.
+- What user callbacks did to outside systems (files, network) is not undone by a crash.
+- Defects redb has not fixed (`dependencies.md`): a crafted file with matching checksums can cause a large allocation, and page damage made by hardware while the server runs makes a read panic, which stops the server without saving (the next start's check refuses the file).
+- With `integrity-check = "never"`, a start runs no redb integrity check; damage shows only when a value is read.
+- On Windows, a file creation or rename just before a power cut can be lost.
+- A newly made folder (`data/`, `data/worlds/`, a backup folder) is never flushed into its parent folder, on any system.
+- If another program changes a file between the start check and the start's open, those bytes are not checked: the check releases redb's lock before the open takes it again. At a server start the gap lasts until every start file is checked.
+- The start backup is made while the server runs. A crash before it ends leaves no new start backup, only the earlier backups.
 
-시작은 파일마다(`Storage::open`) 다음을 한다.
+## Start and integrity check
 
-1. 닫힌 파일을 쓰지 않고 검사한다(`storage::verify`). redb를 파일을 읽기만 하고 쓰기와 길이 바꾸기는 메모리에 두는 백엔드(`check::Overlay`) 위에 열고, 그 위에서 redb의 크래시 복구, `integrity-check`대로 redb `check_integrity()`, 마지막 커밋의 meta 형식 확인을 한 뒤 버린다. `check_integrity()`는 `always`면 늘, `after-unclean-shutdown`이면 정상 종료 표시가 없을 때만, `never`면 하지 않는다. 형식 확인은 모든 시작이 한다. 표시는 정상 종료의 마지막 커밋이 쓰고 시작의 첫 커밋이 지운다. 표시는 쓰기 없는 읽기 전용 열기로 읽고, 그렇게 열 수 없는 파일은 표시 없음으로 보아 검사한다. 검사하는 동안 redb 잠금이 다른 프로세스를 막는다(그 프로세스가 연 파일이면 `InUse`로 거부한다). 없는 파일과 빈 파일은 새 파일이라 검사할 것이 없다.
-2. 손상이거나(redb가 고친 것 `Ok(false)`도 손상이다) 더 새 형식이면 시작을 거부한다. 검사는 파일에 쓰지 않으므로 파일은 시작 전 바이트 그대로이고, 백업도 생기지 않는다.
-3. 연다. 크래시가 남긴 파일은 redb가 여기서 다시 복구한다.
-4. 첫 커밋으로 없는 표를 만들고 정상 종료 표시를 지운다.
-5. `backups = true`이고 전부터 있던 파일이면 그 첫 커밋의 시작 백업을 시작한다(아래 "백업").
+A start does this for each file (`Storage::open`):
 
-검사가 파일을 쓰지 않아야 하는 이유: redb는 열기에서 머리를 쓰고, 고치면 커밋하고, 닫을 때 할당 상태를 커밋한다. 백엔드가 이 쓰기를 메모리에 두므로 사본 없이도 원본 바이트가 남는다. 쓰기는 머리와 할당 상태뿐이라 작다(96 KiB 파일 24 KiB, 368 MiB 월드 52 KiB; 크래시가 남긴 파일도 같다). 백엔드는 쓰기를 16 MiB까지만 두고, 넘으면 그 파일의 시작이 오류로 실패한다(할당 상태는 파일 크기에 비례하므로 그 수백 배 큰 파일도 들어간다).
+1. Checks the closed file without writing to it (`storage::verify`). It opens redb on a backend (`check::Overlay`) that reads the file and keeps every write and length change in memory, runs redb's crash recovery there, redb's `check_integrity()` as `integrity-check` says, and the format check of the last commit's `meta` value, then drops it all. `check_integrity()` runs always with `always`, only when the file lacks the normal-stop mark with `after-unclean-shutdown`, and never with `never`; the format check runs at every start. A clean stop's last commit writes the mark and a start's first commit removes it. The mark is read with a read-only open that writes nothing; a file that cannot be opened so counts as unmarked and is checked. During the check redb's lock keeps other processes out (a file another process has open is refused, `InUse`). A missing or empty file is new and has nothing to check.
+2. Refuses the start for a damaged file (one redb repaired, `Ok(false)`, included) or one of a newer format. The check wrote nothing, so the file keeps its bytes, and no backup is made.
+3. Opens the file; redb recovers a file a crash left here again.
+4. Its first commit creates the missing tables and removes the normal-stop mark.
+5. With `backups = true`, for a file that existed before, begins the start backup of that first commit (see "Backups").
 
-검사를 싸게 하는 것(같은 검사, 같은 페이지): 백엔드는 파일을 256 KiB씩 읽어 최근 16개(4 MiB)를 두고, redb 페이지 캐시는 쓰지 않는다. redb 검사는 트리를 두 번 훑으며 4 KiB 페이지마다 읽는데, 페이지가 대체로 파일 순서라 368 MiB 월드에서 읽기 호출이 185,770번에서 3,241번(읽은 양 1.1배)으로 줄어 검사가 631~878 ms에서 350~481 ms가 됐다. 64 KiB~1 MiB 블록이나 더 적은 블록은 더 많이 읽어 느렸다. redb 페이지 캐시 64 MiB는 두 번째 훑기를 돕지 못하고 내보내기 비용만 들어 캐시 없이보다 느렸다(545~630 ms 대 333~517 ms). 파일 하나의 검사 메모리는 그래서 파일 크기와 상관없이 4 MiB와 쓰기 몫이다.
+Why the check must not write: redb's open writes the header, a repair commits, and the close commits the allocator state. The backend keeps those writes in memory, so the original bytes stay without a copy. The writes are small, the header and the allocator state: 24 KiB for a 96 KiB file and 52 KiB for a 368 MiB world, the same for a file a crash left. The backend keeps at most 16 MiB of writes, past which that file's start fails with an error; the allocator state grows with the file, so files hundreds of times larger than that world fit.
 
-서버 시작(`Server::run`)은 main, players, 선언된 영구 월드 파일의 1번을 CPU 풀에서 함께 하고(`save::check_all`), 하나라도 거부되면 어느 파일도 열지 않고 시작을 거부하며 거부된 파일마다 error를 남긴다. 그 뒤 파일을 하나씩 연다(3~5번, 1번은 형식 확인만 다시 한다). 그래서 시작 시간은 가장 큰 파일 하나의 검사와 열기의 합에 가깝다.
+What keeps the check cheap (the same check over the same pages): the backend reads the file 256 KiB at a time and keeps the 16 most recent blocks (4 MiB), and redb's page cache is off. redb's check reads page by page, mostly in file order: on a 368 MiB world this made 3,241 read calls instead of 185,770 and took 350 to 481 ms instead of 631 to 878 ms. Blocks of 64 KiB to 1 MiB, or fewer blocks, read more and were slower. A 64 MiB redb page cache was slower than none (545 to 630 ms against 333 to 517 ms): its evictions cost more than it spared. So checking a file takes 4 MiB and its writes, whatever the file's size.
 
-시작에 compact가 필요 없는 이유: COW로 풀린 페이지는 다음 커밋이 다시 쓰고, 빈 끝은 데이터가 줄 때만 생기는데 Anchor는 청크를 지우지 않으며 월드 지우기는 파일째 지운다.
+A server start (`Server::run`) runs step 1 for the main file, the players file and the declared persistent worlds' files together on the CPU pool (`save::check_all`). If any is refused, it opens no file, refuses the start, and logs an error for each refused file. It then opens the files one by one (steps 3 to 5, with step 1 again without `check_integrity()`). So a start takes about the check of the largest file plus the opens.
 
-시작에 여는 파일은 main, players, 선언된 영구 월드다. 나머지 월드 파일은 처음 열 때 같은 절차를 밟는다. 시작이 기록만 읽는 선언되지 않은 월드 파일은 크래시가 남긴 것이면 복구를 위해 같은 절차로 열되 시작 백업 없이 열고, 로드될 때 백업된다. 월드 파일이 열리지 않으면 그 월드의 청크를 모두 격리하고 저장하지 않는다.
+Why a start needs no compaction: later commits reuse the pages copy-on-write freed, and only data that shrinks leaves free pages at the end of the file; deleting a world deletes its file.
 
-### 시작 비용
+The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a world file does not open, every chunk of that world is quarantined and nothing of it is saved.
 
-데이터 폴더 381 MB(main 56 KiB, players 84 KiB, world 368 MiB), `integrity-check = "always"`, release 빌드, 측정 시험 `storage::tests::measure_data_folder_start`(문서에 실행법). 따뜻함은 파일이 OS 캐시에 있는 것이다. 차가움은 Windows에서 `FILE_FLAG_NO_BUFFERING`으로 한 번 열어 캐시에서 뺀 뒤, WSL에서 `drop_caches` 뒤다(WSL은 Windows가 디스크 이미지를 캐시할 수 있어 완전히 차갑지 않다). 측정 때 다른 프로그램의 빌드와 디스크 쓰기가 있어 값은 여러 번 잰 범위다. "이전"은 시작 사본과 `check_integrity()`를 차례로 하던 판(Windows만 release로 쟀다), "지금"은 이 문서의 절차다.
+### Start cost
 
-| 단계 | Windows 이전 따뜻함 | Windows 이전 차가움 | Windows 따뜻함 | Windows 차가움 | WSL ext4 따뜻함 | WSL ext4 차가움 |
-|---|---|---|---|---|---|---|
-| world 시작 사본(`backups` 무관, 동기화 포함) | 0.57~5.1 s | 0.77~5.1 s | 없음 | 없음 | 없음 | 없음 |
-| world 검사 | 0.53~1.23 s | 0.59~1.31 s | 0.17~0.20 s | 0.36~0.80 s | 0.18~0.20 s | 0.58~1.95 s |
-| 모든 파일 열기, `backups = true` | 파일마다 2~10 ms | | 127~146 ms | 32~34 ms | 35~38 ms | 143~268 ms |
-| 모든 파일 열기, `backups = false` | 파일마다 2~10 ms | | 48~265 ms | 45~51 ms | 11~12 ms | 48~875 ms |
-| 데이터 파일 시작 합, `backups = true` | 1.28~6.33 s | 1.43~6.69 s | 0.30~0.35 s | 0.39~0.41 s | 0.21~0.22 s | 0.76~1.13 s |
-| 데이터 파일 시작 합, `backups = false` | 1.21~6.49 s | 1.43~4.72 s | 0.24~0.74 s | 0.65~0.84 s | 0.19~0.21 s | 0.68~2.75 s |
-| 시작 백업(서버가 도는 동안, world), 가장 긴 단계 | | | 2.2~10.0 s, 0.11~0.86 s | 2.2~4.5 s, 0.11~0.98 s | 1.4~1.6 s, 62~78 ms | 4.6~5.8 s, 0.53~0.77 s |
-| 하한: 모든 파일 순차 읽기 | 68~80 ms | 214~251 ms | 56~64 ms | 251~462 ms | 60~68 ms | 222~566 ms |
+A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integrity-check = "always"`, a release build, the measurement `storage::tests::measure_data_folder_start` (its rustdoc tells how to run it). Warm means the files are in the OS cache. Cold means, on Windows, after an open with `FILE_FLAG_NO_BUFFERING` evicted them, and on WSL after `drop_caches` (not fully cold: Windows may cache the disk image). Other programs were building and writing to disk during the runs, so each value is the range of several runs.
 
-- 데이터 파일 말고 서버 시작이 하는 일(설정, 스레드, 리소스팩, 네트워크 열기)은 약 60 ms다. 서버 시작("server starting"부터 "server started"까지)은 Windows `backups = true` 따뜻함에서 이전 2.65 s, 지금 0.29 s였다.
-- WSL의 이전 판은 debug로만 쟀다(시작 8.8~21.6 s, 그중 사본 0.3~12 s). debug의 redb 열기와 검사는 사본의 디버그 전용 트리 확인 때문에 release보다 수십 배 느려 이 표와 비교할 수 없다.
-- 남은 시간은 redb 검사 자체다: 트리를 두 번 훑으며 페이지마다 메모리를 잡고 체크섬을 계산한다. redb 공개 API로는 이보다 줄일 수 없어 따뜻할 때 하한의 약 3배에 머문다.
-- `backups = true`의 열기가 더 걸리는 것은 시작 백업 파일을 만드는 redb 초기화의 동기화 두 번이다.
-- 시작 백업 동안 저장 스레드의 요청(청크 읽기)은 한 단계(8 MiB 복사와 파일이 자랄 때의 동기화)를 기다릴 수 있다. 디스크가 바쁘면 그 단계가 1초를 넘었다.
-- 정상 종료 뒤 `after-unclean-shutdown` 시작은 `check_integrity()` 없이 형식 확인만 한다.
+| Stage | Windows warm | Windows cold | WSL ext4 warm | WSL ext4 cold |
+|---|---|---|---|---|
+| World check | 0.17 to 0.20 s | 0.36 to 0.80 s | 0.18 to 0.20 s | 0.58 to 1.95 s |
+| Opening every file, `backups = true` | 127 to 146 ms | 32 to 34 ms | 35 to 38 ms | 143 to 268 ms |
+| Opening every file, `backups = false` | 48 to 265 ms | 45 to 51 ms | 11 to 12 ms | 48 to 875 ms |
+| Data files in all, `backups = true` | 0.30 to 0.35 s | 0.39 to 0.41 s | 0.21 to 0.22 s | 0.76 to 1.13 s |
+| Data files in all, `backups = false` | 0.24 to 0.74 s | 0.65 to 0.84 s | 0.19 to 0.21 s | 0.68 to 2.75 s |
+| Start backup of the world (while the server runs); its longest step | 2.2 to 10.0 s; 0.11 to 0.86 s | 2.2 to 4.5 s; 0.11 to 0.98 s | 1.4 to 1.6 s; 62 to 78 ms | 4.6 to 5.8 s; 0.53 to 0.77 s |
+| Floor: reading every file in order | 56 to 64 ms | 251 to 462 ms | 60 to 68 ms | 222 to 566 ms |
 
-실행 중 검사 `/check`(op, 권한 `anchor.command.check`, 게임과 콘솔): 다음 스냅샷이 커밋된 뒤 열린 파일마다 그 커밋의 읽기 트랜잭션 하나로 모든 값을 8 MiB 단계씩 읽어 봉인(머리와 CRC-32C)을 확인한다. 압축 해제와 디코드는 하지 않는다. 단계 사이에 밀린 요청을 먼저 처리해 틱이 기다리지 않는다. 한 번에 하나만 돈다. 결과(통과한 값 수, 손상 수, 첫 손상의 파일과 표)는 요청자에게 가고 로그와 입력 로그에 남는다. 실행 중에 redb `check_integrity()`를 쓰지 않는 이유는 닫힌 파일이 필요하기 때문이다.
+- The rest of a server start (settings, threads, packs, opening the network) takes about 60 ms. A server start ("server starting" to "server started") took 0.29 s on Windows, warm, with `backups = true`.
+- The time left is redb's check itself: it takes memory and computes a checksum for every page. redb's public API offers nothing cheaper, so a warm check stays at about three times the floor.
+- Opening with `backups = true` takes longer for the syncs of redb's initialization of each new start backup file.
+- During a start backup, a request to the save thread (a chunk read) can wait for one step (up to 8 MiB copied). With the disk busy, a step took over a second.
 
-## 백업
+### Check while running
 
-- 위치와 이름: `data/backups/<파일>/<유닉스 초>[-n].redb`, 월드는 `data/backups/worlds/<월드>/`. 같은 초의 두 번째 백업은 `-n`을 붙이고, 시계가 뒤로 가도 이름은 가장 새 초를 이어 간다. 그래서 이름 순서가 곧 시간 순서다.
-- 파일마다 최근 3개를 남긴다(시작 백업과 실행 중 백업을 함께 센다). 디스크는 파일 크기의 최대 3배를 더 쓴다. 오래된 백업은 새 백업이 다 된 뒤에만 지운다.
-- 모든 백업은 `.tmp`로 쓰고 동기화한 뒤 이름을 바꾼다. 잘린 복사가 백업으로 세어져 좋은 백업을 밀어내지 않게 하기 위해서다. 시작은 파일을 연 뒤(redb 잠금 아래) 끊긴 실행이 남긴 `.tmp`를 지운다. 지우지 못하면 error를 남기고 그대로 연다. 남은 이름은 다음 백업이 건너뛴다.
-- 시작 백업: `backups = true`면 시작이 연 파일마다(전부터 있던 파일만) 시작의 첫 커밋을 아래 실행 중 백업과 같은 방식으로 복사한다. 손상이나 새 형식으로 거부된 파일은 열지 않으므로 시작 백업이 없다. 서버는 백업을 기다리지 않고 플레이어를 받는다. 시작 백업을 시작하지 못하면 error를 남기고 그 백업 없이 파일을 연다. 시작 백업이 도는 동안 들어온 백업 요청은 거부된다. 정상 종료는 진행 중인 시작 백업을 마친다. 크래시하면 그 시작 백업은 없고(`.tmp`는 다음 시작이 지운다) 앞선 백업이 남는다. 내용은 닫힌 파일과 같은 데이터(같은 저장 차례)이고, 바이트는 redb가 새로 쓴 것이라 원본과 다르다.
-- 실행 중 백업(`Context::backup`, 명령 `backup`(op)): 다음 스냅샷이 커밋된 뒤 열린 모든 파일을 그 커밋의 읽기 트랜잭션 하나에서 8 MiB 단계씩 `.tmp`로 복사한다. 단계 사이에 다른 요청을 처리한다. 단계 커밋은 동기화하지 않고, 다 복사하면 지속 커밋 한 번, 닫기, 동기화, 이름 바꾸기로 마친다. 실패하면 `.tmp`를 지우고 error를 남기며 서버는 계속 돈다. 이미 백업 중이면 새 요청은 거부한다.
-- `backups = false`면 시작 백업을 만들지 않고 `Context::backup`은 `false`를 돌려준다.
-- 되돌리기는 운영자가 서버를 멈추고 같은 백업 차례의 파일들을 함께 제자리에 복사해서 한다.
+`/check` (operators, permission `anchor.command.check`, in game and on the console): once the next snapshot is committed, the save thread reads every value of that commit from one read transaction per open file, 8 MiB per step, and checks its seal (header and CRC-32C) without decompressing or decoding it. Between steps it serves the requests that wait, so the tick does not wait for it. One check runs at a time. The result (the values that passed, the damaged count, the first damaged value's file and table) goes to whoever asked, to the log and to the input log. redb's `check_integrity()` needs a closed file, which is why a running server never calls it.
 
-## 재생과 데이터 파일
+## Backups
 
-`Server::replay(log)`는 `data/crash/`의 입력 로그를 다시 돌린다(구조는 `architecture.md`). main의 사본(파일, 백업 새것부터) 중 로그 구간의 저장 차례(틱과 커밋 식별자)와 같은 것을 고르고, 다른 파일은 그 차례 또는 그 앞에 커밋된 사본 중 가장 새것을 쓴다. 파일마다 바뀔 때만 쓰기 때문이다. 맞지 않는 사본이면 청크 체크섬 대조가 어긋남을 잡는다.
+- Place and name: `data/backups/<file>/<unix seconds>[-n].redb`, a world's in `data/backups/worlds/<world>/`. A second backup in the same second takes `-n`, and after the clock went back a name keeps the newest second found, so name order is time order.
+- Each file keeps its 3 newest backups (start and online backups counted together), so the disk holds up to three backup copies of each file besides the one being made. Old backups are removed only once the new one is whole.
+- Every backup is written as `.tmp`, flushed and renamed, so a cut copy never counts as a backup and pushes out a good one. A start removes, after opening the file (under redb's lock), the `.tmp` files a cut run left. If it cannot, it logs an error and opens the file all the same; the next backup skips the name left.
+- Start backup: with `backups = true`, a start copies the first commit of each file it opened that existed before, as an online backup does. A file refused as damaged or of a newer format is never opened, so it has no start backup. The server takes players without waiting for it. A start backup that cannot begin is logged as an error and the file opens without it. A backup asked for while a start backup runs is not made. A clean stop finishes the start backup in progress; after a crash there is none (the next start removes its `.tmp`) and the earlier backups remain. It holds the same data as the closed file (the same save turn), in bytes redb wrote anew, which differ from the original's.
+- Online backup (`Context::backup`, the `backup` command for operators): once the next snapshot is committed, the save thread copies every open file from one read transaction of that commit into `.tmp`, 8 MiB per step, serving other requests between steps. The step commits are not flushed; a whole copy ends with one durable commit, a close, a flush and the rename. On failure it removes the `.tmp`, logs an error, and the server runs on. A backup asked for while one is being made is not made.
+- With `backups = false` no start backup is made and `Context::backup` returns `false`.
+- To restore, the operator stops the server and copies the files of one backup turn into place together.
 
-크래시 로그의 상한은 `architecture.md`에 있다. 로그 형식 번호는 저장 형식과 따로 있고, 로그도 현재 형식만 읽는다.
+## Replay and data files
 
-## 형식 바꾸기
+`Server::replay(log)` runs a `data/crash/` input log again (its structure is in `architecture.md`). It starts from the oldest segment whose save the main file or one of its backups (newest first) still holds, matched by the tick and commit identity of the copy's last commit, preferring a segment after the log's last truncation. Each other file is its newest copy (the file, then its backups) whose last commit is that save or an earlier one, since a save writes only the files that changed. Chunks load from those copies and are checked against the logged checksums, which catches a copy that does not match.
 
-절차는 `.claude/rules/storage.md`에 있다.
+## World import
 
-## 월드 가져오기
+`Server::import_world(folder, name)` imports a Bedrock (LevelDB) world folder into a new file `data/worlds/<name>.redb`, before `run`.
 
-`Server::import_world(폴더, 이름)`은 `run` 전에 Bedrock(LevelDB) 월드 폴더를 새 파일 `data/worlds/<이름>.redb`로 가져온다.
+- A server program run as `<program> import <world folder> [name]` does this import from `Server::run` without starting the server (the default world, `level-name`, without a name). It uses the worlds, generators and custom content the program registered. It writes nothing but the new world file, so a server may be running; that server knows the world from its next start.
+- Import into a running server only under a name that server does not use: if it makes a world of the same name with `create_world` meanwhile, both use one file.
+- A running server's tick does not count a file imported while it runs. So when `data/worlds/` is full at 1,024 files, a persistent world `create_world` accepted gets no file from the save thread: its chunks are quarantined and nothing of it is saved. This is a known limit.
+- The LevelDB reader is Anchor's own read-only reader. The import fails if a source file changes meanwhile (the world is open in another program).
+- The same reader is public as `import::Db` (`open`, `get`, `scan_prefix`), so a program can read the keys the import leaves out (players, entities, scoreboards, and the like). It reads the files as they were at open without checking for changes, and does not decode values (NBT and others). It blocks, so call it before `run` or inside `spawn_blocking`.
+- Only the overworld's blocks and block entities (their whole NBT: container items, sign text, and the like) and `level.dat`'s time and spawn are imported. Old block states and items are upgraded with the upgrade schemas (`data.md`); an unknown block stays as an unknown block with its NBT. A chunk's biomes are those its world's generator gives. Biomes, entities, pending block updates, the Nether, the End, and players are not imported but counted in `import::Report`.
+- No setting of `level.dat` is imported (seed, game mode, difficulty, game rules). The spawn goes into the world record and is also reported (`Report::spawn`).
+- An all-air chunk the import did not write would be filled by the generator.
+- A failed import's error names the chunk and key at fault. A file of the same name (in any letter case) refuses it with `WorldExists`, changing nothing. A name declared temporary is refused. An undeclared name takes the default world's generator, and the tick loads it with `load_world`.
 
-- 서버 프로그램을 `<서버> import <월드 폴더> [이름]`으로 실행하면 `Server::run`이 서버를 켜지 않고 이 가져오기를 한다(이름이 없으면 `level-name`). 프로그램이 등록한 월드, 생성기, 커스텀 콘텐츠를 그대로 쓴다. 새 월드 파일 말고는 아무것도 쓰지 않아 서버가 켜져 있어도 되고, 켜진 서버는 다음 시작부터 그 월드를 안다.
-- 켜진 서버가 같은 이름으로 `create_world`를 하는 사이에 가져오면 두 쪽이 한 파일을 쓰려 한다. 켜진 서버에는 그 서버가 쓰지 않는 이름으로 가져온다.
-- 켜진 서버의 틱은 실행 중에 가져온 파일을 월드 파일 수에 세지 않는다. 그래서 그 뒤 `create_world`가 `Ok`를 준 영구 월드라도 폴더가 1,024개로 차 있으면 저장 스레드가 파일을 만들지 않고, 그 월드는 청크가 손상으로 격리된 채 저장되지 않는다. 알려진 한계다.
+## World export
 
-- LevelDB 리더는 Anchor가 직접 쓴 읽기 전용 리더다. 가져오는 동안 원본 파일이 바뀌면 실패한다(다른 프로그램이 연 월드).
-- 같은 리더를 `import::Db`(`open`, `get`, `scan_prefix`)로 공개한다. 가져오기가 남기는 키(플레이어, 엔티티, 스코어보드 등)를 사용자가 읽게 하려는 것이다. 열 때의 파일을 읽을 뿐 바뀌었는지 검사하지 않고, 값(NBT 등)을 풀지 않는다. 블로킹이라 `run` 전이나 `spawn_blocking` 안에서 쓴다.
-- 오버월드의 블록과 블록 엔티티(NBT 전부: 상자 안 아이템, 간판 글자 등)와 `level.dat`의 시각과 스폰만 가져온다. 옛 블록 상태와 아이템은 업그레이드 스키마로 올리고(`data.md`), 모르는 블록은 알 수 없는 블록으로 NBT를 보존한다. 바이옴은 월드 생성기가 주는 값이다. 엔티티, 바이옴, 예약 갱신, 네더와 엔드, 플레이어는 가져오지 않고 세어 `import::Report`에 적는다.
-- `level.dat`의 설정(시드, 게임 모드, 난이도, 게임 규칙)은 가져오지 않는다. 스폰은 월드 기록에 쓰고 `Report::spawn`으로도 알린다.
-- 모두 공기인 청크를 쓰지 않으면 생성기가 채운다.
-- 실패한 가져오기의 오류는 원인 청크와 키를 보인다. 같은 이름(대소문자 무관)의 파일이 있으면 `WorldExists`로 거부하고 아무것도 바꾸지 않는다. 임시로 선언된 이름은 거부한다. 선언하지 않은 이름은 기본 월드의 생성기를 쓰고 틱이 `load_world`로 올린다.
+`Server::export_world(name, folder)` writes a persistent world's file `data/worlds/<name>.redb` (the name in any letter case) as a new Bedrock (LevelDB) world folder: the import's reverse.
 
-## 월드 내보내기
+- A server program run as `<program> export <world folder> [name]` does this export from `Server::run` without starting the server (the default world, `level-name`, without a name).
+- The world file is opened read-only and read in one read transaction (`storage::Snapshot`), so the folder holds the last save, and nothing is written in the data folder. A file a running server has open is refused by redb's lock (`Error::Storage`); a world the server has not loaded can be exported while it runs. A file a crash left needs redb's repair, so it does not open read-only; one server start repairs it.
+- The folder must be new: an existing folder or `<folder>.tmp` refuses the export with `FolderExists`, changing nothing. Everything goes into `<folder>.tmp`, each file flushed, then the rename. A failure removes the temporary folder, and a crash leaves only `<folder>.tmp`, so a half-written world never appears under the name.
+- Every chunk the file holds is written: blocks (the stored palette NBT as it is, unknown blocks as they came), biomes, and block entities (stored in Bedrock form). A chunk with saved extras but no saved terrain gets its world generator's terrain, as a load does: a declared world's generator and seed, else the default world's generator and the seed of the name. Entities and scheduled block updates are stored in Anchor's own form, so they are not written but counted in `export::Report`. Players are not in the world file.
+- Chunk values take the layout the official server 1.26.52 writes: chunk version 42, sub-chunk version 9 (only for sub-chunks with blocks), `Data3D` (the height map left at zero, then each sub-chunk's biomes, 0xff for a storage the same as the one below), the block entities, and finalization state 2.
+- The LevelDB is written in one compacted form: sequence number 0 for every key (so any value the game writes later is newer), 128 KiB data blocks (raw DEFLATE, id 4, as the official server writes them), 2 MiB tables, and every table in the last level, so opening it compacts nothing. Blocks are made and compressed on the CPU pool.
+- `level.dat` holds the name, spawn, time, storage and network versions, and a flat generator. Chunks the file does not hold (generated and never changed) are not written; that flat generator makes them: for a `Flat` world the official server's default flat layers (the same terrain), for any other generator one layer of air (nothing). Game mode, difficulty, game rules and seed are not written: a world runs with the settings of the server that opens it.
+- The same world file gives the same files whatever the thread count, and a folder exported and imported again gives the same world file (`tests/export.rs`).
+- `cargo xtask p6 import` compares the export with the official server (`testing.md`).
 
-`Server::export_world(이름, 폴더)`는 영구 월드의 파일 `data/worlds/<이름>.redb`(대소문자 무관)를 새 Bedrock(LevelDB) 월드 폴더로 쓴다. 가져오기의 반대다.
+## What is not saved
 
-- 서버 프로그램을 `<서버> export <월드 폴더> [이름]`으로 실행하면 `Server::run`이 서버를 켜지 않고 이 내보내기를 한다(이름이 없으면 `level-name`).
-- 월드 파일은 읽기 전용으로 열어 읽기 트랜잭션 하나로 읽는다(`storage::Snapshot`). 그래서 마지막 저장 하나의 상태를 쓰고, 데이터 폴더에는 아무것도 쓰지 않는다. 켜진 서버가 연 파일은 redb 잠금 때문에 거부되고(`Error::Storage`), 켜진 서버가 올리지 않은 월드는 내보낼 수 있다. 크래시가 남긴 파일은 redb가 고쳐야 해 읽기 전용으로 열리지 않는다. 서버를 한 번 켜면 고쳐진다.
-- 폴더는 새로 만든다. 폴더나 `<폴더>.tmp`가 있으면 `FolderExists`로 거부하고 아무것도 바꾸지 않는다. `<폴더>.tmp`에 모두 쓰고 파일마다 동기화한 뒤 이름을 바꾼다. 실패하면 임시 폴더를 지우고, 크래시는 `<폴더>.tmp`만 남긴다. 그래서 반쯤 쓴 월드가 그 이름으로 보이지 않는다.
-- 파일에 있는 모든 청크를 쓴다: 블록(저장된 팔레트 NBT 그대로, 모르는 블록도 원본 그대로), 바이옴, 블록 엔티티(저장 형식이 Bedrock 형식이다). 지형 값 없이 엑스트라만 저장된 청크는 로드처럼 월드 생성기의 지형을 쓴다(선언한 월드는 그 생성기와 시드, 아니면 기본 월드의 생성기와 이름의 시드). 엔티티와 예약된 블록 갱신은 Anchor 형식이라 쓰지 않고 `export::Report`에 센다. 플레이어는 월드 파일에 없다.
-- 청크 값은 공식 서버 1.26.52가 쓰는 모양이다: 청크 버전 42, 서브청크 버전 9(블록이 있는 서브청크만), `Data3D`(높이 맵은 0, 서브청크마다 바이옴. 아래와 같은 바이옴은 0xff), 블록 엔티티, 완성 상태 2.
-- LevelDB는 한 번에 정리된 모양으로 쓴다: 키마다 시퀀스 0(게임이 뒤에 쓰는 값이 늘 새것), 128 KiB 데이터 블록(raw DEFLATE, 공식 서버처럼 id 4), 2 MiB 테이블, 모든 테이블을 마지막 레벨에 둬서 열 때 compaction이 없다. 블록 만들기와 압축은 CPU 풀에서 한다.
-- `level.dat`에는 이름, 스폰, 시각, 저장·네트워크 버전과 평지 생성기만 쓴다. 파일에 없는 청크(생성 뒤 바뀌지 않은 청크)는 쓰지 않고 그 평지 생성기가 만든다: `Flat` 월드는 공식 서버 기본 평지 층(같은 지형), 그 밖의 생성기는 공기 한 층(아무것도 없음). 게임 모드, 난이도, 게임 규칙, 시드는 쓰지 않는다. 월드는 그것을 연 서버의 설정으로 돈다.
-- 같은 월드 파일은 스레드 수와 상관없이 같은 바이트가 된다. 내보낸 폴더를 다시 가져오면 같은 월드 파일이 된다(`tests/export.rs`).
-- 공식 서버가 내보낸 월드를 열어 원래 월드와 같은 블록을 보내는지 `cargo xtask p6 import`가 확인한다(`testing.md`).
+Every start's settings come only from `anchor.toml` and the code (`ServerBuilder`, and `world::Options` for a world made while running). So a data file and the settings never hold different values with one winning, and a changed setting takes effect at the next start.
 
-## 저장하지 않는 것
-
-매 시작의 설정은 `anchor.toml`과 코드(`ServerBuilder`, 실행 중 만든 월드는 `world::Options`)에서만 온다. 데이터 파일과 설정이 서로 다른 값을 가져 어느 쪽이 이기는지 헷갈리는 일이 없고, 설정을 바꾸면 다음 시작에 그대로 적용된다.
-
-- 그래서 실행 중 API로 바꾼 설정 값(서버·월드 난이도, 게임 규칙, `motd`, `max-players`, 화이트리스트 켜기 등)은 다시 켜면 설정 값으로 돌아간다. 설정 키가 없는 시간 정지는 꺼짐으로, 날씨는 맑음으로 시작한다.
-- 시드는 `level-seed`가 비면 월드 이름의 SHA-256 앞 8바이트다. 시작마다 같고 월드마다 다르다.
-- 월드 파일에는 상태만 남는다: 번호, 시각, 스폰, 청크. 시각은 이어지고 낮밤 순환은 그 시각에서 계속된다.
-- 월드 스폰은 설정이 아니라 상태다(`/setworldspawn`, `World::set_spawn`으로 옮긴 곳이 다시 켜도 남는다). 설정의 `spawn`과 `world::Options::with_spawn`은 기록이 없는 새 월드의 처음 스폰만 정한다.
-- `save-player-data = false`면 플레이어 데이터를 저장하지 않는다.
+- A setting changed through the API while running (server or world difficulty, game rules, `motd`, `max-players`, the whitelist switch, and the like) is back to the settings' value after a restart. The per-world time stop (`Context::stop_time`), which has no setting key, starts off.
+- With `level-seed` empty, a world's seed is the first 8 bytes of the SHA-256 of its name: the same at every start and different between worlds.
+- A world file keeps only state: the number, time, spawn and chunks. The time goes on, and the day cycle continues from it.
+- The world spawn is state, not a setting: a spawn moved with `/setworldspawn` or `World::set_spawn` stays after a restart. The settings' `spawn` and `world::Options::with_spawn` place only a new world's first spawn, one without a record.
+- With `save-player-data = false`, no player data is saved.

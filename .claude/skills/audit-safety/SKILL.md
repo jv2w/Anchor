@@ -1,75 +1,75 @@
 ---
 name: audit-safety
-description: Anchor의 안전성(멱등, 결정성, 견고성, 패닉과 오류 처리)에서 지금 코드로 실제로 일어나고 일어나면 해가 큰 결함만 증명해 골라내고 고친다. 사용자가 `/audit-safety`로 시킬 때만 쓴다.
-argument-hint: "[파일이나 폴더, 비우면 src 전체]"
+description: Finds, proves, and fixes Anchor's safety defects (idempotency, determinism, robustness, panics and error handling) that the current code actually reaches and that break a rule or cause serious harm. Use only when the user orders `/audit-safety`.
+argument-hint: "[file or folder; empty for all of src]"
 disable-model-invocation: true
 ---
 
-# 안전성 감사
+# Safety audit
 
-대상: `$ARGUMENTS` (비었으면 `src/` 전체). 기준은 CLAUDE.md 2절 '안전성'과 3절 불변식이다.
+Target: `$ARGUMENTS` (empty means all of `src/`). The standard is Safety in `CLAUDE.md` §3 and the invariants in `CLAUDE.md` §4.
 
-## 원칙
-- 고칠 것은 **지금 코드에서 실제로 일어나고, 일어나면 해가 큰** 결함뿐이다. 둘 다 증명해야 한다.
-- 결함 0건은 정상 결과다. 건수는 평가하지 않는다. 가장 나쁜 결과는 증명하지 못한 후보를 결함으로 고치는 것이다. 그런 수정은 코드만 늘리고 다음 감사의 잡음이 된다.
-- 증명 책임은 후보 쪽에 있다. "~일 수 있다", "만약 ~라면", "혹시 몰라서"는 근거가 아니다. 근거는 코드 경로와 실패하는 시험이다.
-- 후보는 넓게 모으고 결함은 좁게 정한다. 검사를 얕게 하라는 뜻이 아니다.
-- CLAUDE.md 2절 규칙을 어긴 것이라도 등급이 경미면 이 감사에서는 고치지 않고 '경미'에 보고만 한다.
+## Principles
+- Fix only defects that **the current code actually reaches** and that **break a rule or cause serious harm**. Prove both.
+- Zero defects is a normal result; the count is not judged. The worst result is fixing an unproven candidate as a defect: such a fix only adds code and becomes noise for the next audit.
+- The burden of proof is on the candidate. "It could", "if", and "just in case" are not evidence. Evidence is a code path and a failing test.
+- Collect candidates broadly and decide defects narrowly. This does not mean checking shallowly.
+- A reached violation of a rule in `CLAUDE.md` or `.claude/rules/` is never minor: it is at least MAJOR and is fixed (`CLAUDE.md` §1: every rule is mandatory). MINOR covers only findings that break no rule.
 
-## 결함의 정의
-세 조건을 모두 증명한 것만 결함이다.
+## Defect definition
+A defect has all three, proven.
 
-1. **도달**: 신뢰 경계나 정상 운영에서 문제 줄까지 지금 있는 코드 경로가 이어진다.
-   - 신뢰 경계: 네트워크 패킷, 디스크 파일(월드, redb, 팩, 키, 가져오는 월드), `anchor.toml`, 콘솔 줄, 공개 API 인자. 사용자 코드는 공개 함수를 어떤 인자로, 어떤 순서로도 부를 수 있다.
-   - 정상 운영: 접속·종료 반복, 장시간 가동, 같은 틱에 겹친 입력, 처리 중 대상이 사라짐, 크래시와 재시작, 월드 로드·언로드.
-   - 경로 위의 모든 검사(디코더 상한, Reader 할당 예산, 입력 예산, 좌표 검사, 타입, 앞 단계 검증, 큐 상한)를 하나씩 열어 이 값을 막지 못함을 보인다. 열어 보지 않은 검사가 있으면 도달은 증명되지 않은 것이다.
-2. **해**: 아래 등급표의 치명이나 중대에 닿는다.
-3. **증거**: 신뢰 경계에서, 또는 그 경계로 만들 수 있는 상태에서 시작하는 시험이 지금 실패한다. 진입점이 만들 수 없는 값이나 상태를 내부 함수에 직접 넣은 시험은 증거가 아니다. 이 PC에서 시험으로 재현할 수 없는 것(다른 OS에서만 다른 결과, 공식 클라이언트만 보내는 값)은 고치지 않고 미확정으로 두며, 코드 경로와 명세(IEEE 754, 프로토콜 출처) 근거와 확정할 방법(Linux 실행, 실제 클라이언트)을 보고한다.
+1. **Reach**: an existing code path leads from a trust boundary or normal operation to the problem line.
+   - Trust boundaries: network packets, disk files (worlds, redb, packs, keys, imported worlds), `anchor.toml`, console lines, public API arguments. User code may call public functions with any arguments, in any order.
+   - Normal operation: repeated joins and quits, long uptime, inputs overlapping in one tick, a target disappearing mid-processing, crash and restart, world load and unload.
+   - Open every check on the path (decoder bounds, the `Reader` allocation budget, input budgets, coordinate checks, types, earlier validation, queue bounds) and show that none stops this value. If any check is left unopened, reach is unproven.
+2. **Harm**: a rule in `CLAUDE.md` §3 Safety or §4 is broken, or the result reaches CRITICAL or MAJOR in the grade table.
+3. **Evidence**: a test that starts at the trust boundary, or from a state the boundary can produce, fails now. A test that feeds an internal function a value or state no entry point can produce is not evidence. What cannot be reproduced by a test on this PC (a result that differs only on another OS, a value only the official client sends) is not fixed but left unconfirmed; report the code path, the specification evidence (IEEE 754, the protocol source), and how to confirm it (a Linux run, a real client).
 
-## 등급
-| 등급 | 결과 |
+## Grades
+| Grade | Result |
 |---|---|
-| 치명 | 서버 전체가 멈추거나 끝남(틱·저장 스레드 패닉, 교착), 아이템·데이터 복제나 손실, 저장 파일 손상이나 손상된 원본 덮어쓰기, 같은 시작 상태와 입력 로그가 스레드 수·OS에 따라 다른 상태 해시를 냄, 원격에서 상한 없는 메모리·CPU 사용, 인증·권한 우회 |
-| 중대 | 정상 클라이언트나 정상 사용자 코드가 연결 끊김이나 잘못된 상태를 겪음, 같은 요청 두 번이 상태를 두 번 바꿈, 운영자가 알아야 할 실패(저장, 로드, 인증)의 오류를 버림 |
-| 경미 | 그 밖. 고치지 않는다 |
+| CRITICAL | The whole server stops or exits (tick or save thread panic, deadlock), item or data duplication or loss, a corrupted save file or an overwritten corrupt original, the same start state and input log giving a different state hash on another thread count or OS, unbounded memory or CPU use from a remote peer, an authentication or permission bypass |
+| MAJOR | A normal client or normal user code suffers a disconnect or wrong state, the same request twice changes state twice, an error the operator must know about (save, load, authentication) is discarded, any other reached violation of a `CLAUDE.md` §3 Safety or §4 rule |
+| MINOR | Anything else that breaks no rule. Not fixed |
 
-악의적 클라이언트가 자기 연결만 끊는 것은 해가 아니다(스스로 나가는 것과 같다). 다른 연결, 공유 자원, 저장, 로그로 번질 때만 해다.
+A malicious client that only disconnects itself causes no harm (it is the same as leaving), unless it breaks a rule (for example, external input reaching a panic). It is harm only when it spreads to other connections, shared resources, saves, or logs.
 
-## 후보가 아닌 것
-- `cargo xtask check`가 이미 막는 것: `[workspace.lints]`의 lint(`unwrap_used`, `indexing_slicing`, `panic` 등)와 `.clippy.toml` 금지 목록(시계, 난수, `HashMap`, 잠금, 블로킹 I/O 등). 단 `#[expect(..., reason = "...")]`로 푼 자리는 그 이유가 사실인지가 후보다. 특히 `invariant` 태그의 불변식을 외부 입력이 깰 수 있으면 결함이다.
-- 시험 코드(`#[cfg(test)]`, `tests/`)와 생성 파일 자체. 생성 코드의 결함은 생성기(`xtask/src/gen*`)나 생성 코드가 부르는 손으로 쓴 도우미에서 찾는다.
-- `.claude/docs/architecture.md`의 '알려진 한계와 위험', 이유가 적힌 의도된 결정, `xtask/data/p6/intended.txt`. 그 이유가 지금 코드에서 틀렸음을 보일 때만 후보다.
-- 앞에서 이미 검사한 값을 다시 검사하자는 제안, 신뢰 경계 안쪽 내부 호출에 넣는 검사, 의미 있는 복구가 없는 오류 처리 추가.
-- 근거가 이름, 주석, 코드 모양("`as`가 있다", "여기서 더할 수 있다")뿐인 것. 값이 실제로 어디서 오는지 따라가야 후보다.
-- 의존성 안의 결함 중 Anchor가 그 경로를 부르지 않는 것.
-- 같은 원인의 여러 자리는 한 건이다.
+## Not candidates
+- What `cargo xtask check` already blocks: the lints in `[workspace.lints]` (`unwrap_used`, `indexing_slicing`, `panic`, and others) and the `.clippy.toml` deny lists (clocks, randomness, `HashMap`, locks, blocking I/O, and others). A spot lifted with `#[expect(..., reason = "...")]` is a candidate for whether that reason is true; in particular, an `invariant` tag whose invariant external input can break is a defect.
+- Test code (`#[cfg(test)]`, `tests/`) and generated files themselves. Look for defects of generated code in its generator (`xtask/src/gen*`) or in the hand-written helpers the generated code calls.
+- The known limits and risks in `.claude/docs/architecture.md`, intended decisions with a written reason, and `xtask/data/p6/intended.txt`. They are candidates only when you show the reason is wrong for the current code.
+- Proposals to recheck a value already checked earlier, checks inside internal calls within the trust boundary, and error handling with no meaningful recovery.
+- Anything whose only evidence is a name, a comment, or the look of the code ("there is an `as`", "this could overflow"). Follow where the value actually comes from first.
+- Defects inside a dependency on paths Anchor never calls.
+- Several spots with one cause are one defect.
 
-## 순서
-1. **읽기**: 대상에 맞는 `.claude/rules/`와 `.claude/docs/` 주제 파일, 그리고 `.claude/docs/architecture.md`의 '알려진 한계와 위험'. 이미 정한 상한, 정책, 알려진 한계를 알아야 잡음이 준다.
-2. **수집**: 코드 모양이 아니라 입력에서 출발한다.
-   - 신뢰 경계마다 값이 들어오는 곳을 찾고, 그 값이 검사되기 전에 쓰이는 곳(할당 크기, 색인, 산술, 형 변환, 재귀 깊이, 상태 변경, 저장)까지 따라간다.
-   - 후보는 촉발(누가, 어떤 입력), 경로(`파일:줄` 이음), 결과 세 칸을 채울 수 있을 때만 적는다. 못 채우면 그 자리에서 버린다.
-   - 대상이 크면 경계 묶음(전송·세션, 프로토콜 디코드, 저장·가져오기·팩, 설정·콘솔, 틱 처리기, 공개 API)으로 나눠 파일을 고치지 않는 서브에이전트에 수집만 맡긴다. 이 파일을 읽게 하고 후보마다 세 칸을 돌려받는다. 판정은 직접 한다.
-3. **반증**: 후보마다 "이것이 결함이 아니라면 무엇이 막고 있는가"를 먼저 묻고 그 코드를 찾아 연다. 진입점부터 문제 줄까지 호출하는 쪽을 모두 따라간다(호출하는 곳이 여럿이면 각각). 막는 것이 있으면 기각한다.
-4. **재현**: 남은 후보마다 실패하는 시험을 쓴다. 멱등은 같은 입력을 두 번 넣은 상태 해시가 한 번과 다름을, 결정성은 CPU 풀 1개와 여러 개(또는 재생)의 해시가 다름을, 보존은 아이템 총량이나 파일 내용이 달라짐을 보인다. 방식은 `.claude/docs/testing.md`의 기존 시험을 따른다. 시험이 실패하지 않으면 기각하거나 미확정으로 둔다.
-5. **독립 검토**: 재현된 후보마다 새 서브에이전트에 주장(촉발, 경로, 결과)과 시험만 주고, 찾은 과정은 주지 않는다. 시킬 일: "이 주장이 틀린 근거를 코드에서 찾아라. 경로 위의 검사, 진입점이 이 상태를 만들 수 없는 이유, 시험이 진입점을 건너뛰고 상태를 직접 만들었는지, 결과가 실제로는 해가 없는 이유." 근거가 `파일:줄`로 성립하면 기각한다. 후보가 여럿이면 함께 띄운다.
-6. **고치기**: 남은 결함만 근본 원인에서 고친다(CLAUDE.md 10절). 증상을 막는 검사나 가드를 늘리지 않는다. 재현 시험이 통과하고 다른 시험이 깨지지 않음을 본다. 수정이 공개 API, 저장 형식, 설정 키, 기능 범위를 바꾸면 고치기 전에 묻는다.
-7. **검사**: `cargo xtask check`.
+## Steps
+1. **Read**: the `.claude/rules/` and `.claude/docs/` topic files for the target, and the known limits and risks in `.claude/docs/architecture.md`. Knowing the bounds, policies, and known limits already set cuts noise.
+2. **Collect**: start from the input, not from the look of the code.
+   - For each trust boundary, find where values enter and follow each value to where it is used before being checked (allocation size, index, arithmetic, cast, recursion depth, state change, save).
+   - Write a candidate down only when you can fill in the trigger (who, which input), the path (chained `file:line`), and the result. Otherwise drop it on the spot.
+   - For a large target, split it by boundary (transport and session, protocol decode, storage, import and packs, configuration and console, tick handlers, public API) and give each to a subagent that only collects and edits no file. Have it read this file and return those three fields per candidate. Decide every candidate yourself.
+3. **Refute**: for each candidate, first ask "if this is not a defect, what stops it?", then find and open that code. Follow every caller from the entry point to the problem line (each caller when there are several). If something stops it, reject the candidate.
+4. **Reproduce**: write a failing test for each remaining candidate. Idempotency shows that the same input applied twice gives a different state hash than once; determinism shows that one and many CPU pool threads (or a replay) give different hashes; conservation shows that the item total or file contents change. Follow the existing tests listed in `.claude/docs/testing.md`. If the test does not fail, reject the candidate or leave it unconfirmed.
+5. **Independent review**: give each reproduced candidate to a new subagent with only the claim (trigger, path, result) and the test, not how you found it. Its task: "Find evidence in the code that this claim is wrong: a check on the path, why the entry point cannot produce this state, whether the test skipped the entry point and built the state directly, why the result is actually harmless." If the evidence holds as `file:line`, reject the candidate. Launch the reviews for several candidates together.
+6. **Fix**: fix only the remaining defects, at the root cause (`CLAUDE.md` §6). Do not add checks or guards that block the symptom. Confirm that the reproducing test passes and no other test breaks. Ask before fixing when the fix changes the public API, a storage format, a configuration key, or the feature scope.
+7. **Check**: `cargo xtask check`.
 
-감사를 처음부터 되풀이하지 않는다. 고친 자리 주변에서 같은 원인이 새로 보이면 그것만 같은 순서로 다룬다.
+Do not restart the audit from the beginning. When the same cause appears again around a fixed spot, handle only that, with the same steps.
 
-## 보고
-쉬운 한국어로 짧게.
+## Report
+Write the report to the user in short, plain Korean (`CLAUDE.md` §7).
 
-1. 첫 줄: 고친 결함 N건(치명 a, 중대 b), 미확정 N건, 경미 N건, 기각 N건.
-2. 고친 결함마다:
-   - `[등급] 한 줄 요약` — `파일:줄`
-   - 촉발: 누가, 어떤 입력이나 상황으로
-   - 경로: 진입점 → … → 문제 줄, 지나는 검사가 막지 못한 이유
-   - 결과
-   - 증거: 시험 이름(고치기 전 실패, 고친 뒤 통과)
-   - 수정: 근본 원인 한 줄
-3. 미확정: 한 줄씩. 무엇이 증명되지 않았고 무엇을 하면 확정되는지.
-4. 경미: 한 줄씩. 고치지 않았다.
-5. 기각: 이유별 개수만(검사가 막음, 도달 불가, 해 없음, lint가 막음, 의도된 결정, 독립 검토가 반박).
-6. `cargo xtask check` 마지막 줄, 바뀐 공개 API와 동작.
+1. First line: defects fixed (CRITICAL a, MAJOR b), unconfirmed, minor, rejected.
+2. For each fixed defect:
+   - `[grade] one-line summary` — `file:line`
+   - Trigger: who, with which input or situation
+   - Path: entry point → … → problem line, and why the checks on it did not stop the value
+   - Result
+   - Evidence: the test name (fails before the fix, passes after)
+   - Fix: the root cause in one line
+3. Unconfirmed: one line each, saying what is unproven and what would confirm it.
+4. Minor: one line each. Not fixed.
+5. Rejected: counts per reason only (a check stops it, unreachable, harmless, blocked by a lint, intended decision, refuted by independent review).
+6. The items `CLAUDE.md` §7 requires.

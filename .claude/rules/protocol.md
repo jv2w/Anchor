@@ -27,63 +27,62 @@ paths:
   - "xtask/tests/spawn.rs"
   - "xtask/tests/go.rs"
 ---
-# 프로토콜 규칙
+# Protocol rules
 
-## 정답 출처
-- 프로토콜 사실의 근거는 gophertunnel 코드, Mojang 문서, 공식 서버를 실행해 봇으로 관찰한 값뿐이다.
-- gophertunnel 결함을 판정할 때만 대조 출처(Endstone, CloudburstMC: `.claude/docs/protocol.md`)를 근거에 더한다.
-- `/versionup`은 쓰지 않는다.
-- gophertunnel이 공식 서버 대조(P6)와 다르면 외부 불신 절차로 처리한다(`.claude/docs/dependencies.md`).
+## Sources of truth
+- Base every protocol fact only on the pinned gophertunnel code, Mojang's documents, and values the bot observes from the official server.
+- Add the comparison sources (the schema source and the codec library, `.claude/docs/protocol.md`) to the evidence only when judging a gophertunnel defect.
+- When gophertunnel disagrees with the official server (P6), handle it with the distrust procedure of `.claude/rules/dependencies.md`.
 
-## 생성 코드
-- 패킷 코덱은 고정한 gophertunnel에서 뽑은 IR로 생성한다.
-- 추출기(`xtask/go/extract`)는 모르는 구문이 하나라도 있으면 실패한다. 건너뛰지 않는다.
-- 추출기는 주석을 읽지 않는다. 생성 코드의 문서는 생성기가 IR의 자기 정보로 쓰고, gophertunnel 주석을 옮기지 않는다.
-- IR(`xtask/data/protocol.json`)은 커밋한다.
-- 틀린 생성 출력은 생성기(`xtask/src/gen*`)나 IR 입력을 고친다.
-- 쓰지 않는 IR 상수는 이유 표(`xtask/src/gen/consts.rs`)에 적는다.
-- 이름 규칙은 `xtask/src/gen/names.rs` 한 곳에 둔다. 규칙에 맞지 않는 이름은 같은 파일의 예외 표에 적는다.
+## Generated code
+- Generate the packet codecs from the IR extracted from the pinned gophertunnel.
+- Make the extractor (`xtask/go/extract`) fail on any construct it does not understand. Never skip one.
+- Commit the IR (`xtask/data/protocol.json`). Never edit it by hand.
+- Fix wrong generated output in the generator (`xtask/src/gen*`), the extractor, or the corrections of `xtask/go/fix`.
+- List every IR constant group the generated code leaves out in `SPECS` of `xtask/src/gen/consts.rs` as `Excluded`, with its reason.
+- Keep the naming rules in `xtask/src/gen/names.rs` alone. Put a name the rules do not give into the `EXCEPTIONS` table of that file.
 
-## Rust 표현
-- Go 구조체는 같은 모양의 평평한 struct로 생성한다. 조건부 필드도 늘 두고, 없으면 `Default`다. 모두 `Debug, Clone, PartialEq, Default`를 단다.
-- 더 나은 공개 모양은 상위 API가 감싼다.
-- 문자열은 UTF-8이 아니면 디코드 오류를 낸다. bool은 0과 1만 받는다.
-- 쓰기는 길이를 조용히 자르지 않고 오류를 낸다(인코딩도 `Result`).
-- NBT 목록(`nbt::List`)은 빈 목록도 원소 타입을 늘 지닌다.
-- NBT 중첩은 스레드 스택이 아니라 힙 스택에 둔다.
-- `anchor::protocol`은 공개 코덱 층이다: 패킷과 타입, `Packet` 디코드·인코드, 배치 인코드·디코드, `Compression`. `Reader`, `Writer`, `Codec`은 `pub(crate)`로 둔다. NBT는 `anchor::nbt`에 둔다.
-- union의 변형 구조체와 ID 표는 생성하고, 태그를 읽고 쓰는 틀만 손으로 쓴다.
+## Rust form
+- Generate each Go struct as a flat Rust struct of the same shape. Keep conditional fields always present, holding `Default` when absent. Make every generated struct derive `Debug, Clone, PartialEq, Default`.
+- Give a better public shape in the higher-level API that wraps the generated type.
+- Fail decoding on a string that is not UTF-8 and on a bool byte other than 0 or 1.
+- Never truncate a length silently when writing; return an error (encoding returns `Result` too).
+- Keep the element type of every NBT list (`nbt::List`), empty lists included.
+- Keep NBT nesting on a heap stack, never on the thread stack.
+- Keep `anchor::protocol` the public codec layer: packets and types, `Packet` decode and encode, batch encode and decode, `Compression`. Keep `Reader`, `Writer`, and `Codec` `pub(crate)`. Keep NBT in `anchor::nbt`.
+- Generate the variant structs and ID tables of unions. Hand-write only the frames that read and write their tags (`src/protocol/union_frame.rs`).
 
-## 디코드 상한
-- 디코드 상한을 넘으면 크기 오류(`Error::Size`)다. 길이·개수·필드 상한은 `Reader::limit` 하나를 지나고, 목록 중첩, NBT 깊이·크기, 배치 패킷 수는 그 디코더가 따로 센다.
-- 모든 `Vec`, `String`, NBT 할당은 할당 전에 `개수 × size_of`를 Reader 예산에서 먼저 뺀다. 중첩 Reader는 같은 예산을 나눠 쓴다.
-- 필드별 상한은 Mojang bedrock-protocol-docs JSON 스키마의 `maxLength`, `maxItems`, `maxProperties`를 쓴다.
-- gen은 필드 상한을 디코더와 인코더 모두에 넣는다.
-- 상한마다(길이, 개수, 예산, NBT 깊이·크기, 해제 크기, 배치 패킷 수, 필드 상한) 넘는 선언이 크기 오류로 끝나는 시험(P4)을 둔다.
+## Decode limits
+- Fail with the size error (`Error::Size`) past any decode limit. Route every length, count, and field limit through the one `Reader::limit`. List nesting, NBT depth and size, and the packets per batch are counted by their own decoders.
+- Take `count × size_of` from the reader's allocation budget before every `Vec`, `String`, and NBT allocation. Make a nested reader share its parent's budget.
+- Take per-field limits from the `maxLength`, `maxItems`, and `maxProperties` of the JSON schemas of Mojang's bedrock-protocol-docs.
+- Make `gen` apply every field limit in both the decoder and the encoder.
+- Give every limit (length, count, budget, NBT depth and size, decompressed size, packets per batch, field limit) a P4 test in which a declaration past the limit ends in a size error.
 
-## gophertunnel 결함 조치
-- 고정한 gophertunnel의 결함은 Anchor에서 고치고, 같은 형식을 유지해야 하는 곳은 시험 표본을 맞춘다.
-- 코덱이나 상수의 결함은 `xtask/go/fix`의 바꿈 표에 더하고 `cargo xtask gen`을 돈다. 생성 파일과 IR을 손으로 고치지 않는다. Go 도구는 `fixmod`의 go.mod로 빌드한다.
-- MaterialReducer는 `mix >> 16`, `mix & 0xffff`로 읽고, 범위를 넘는 쓰기는 오류다.
-- ordinal 없는 Event 타입은 쓰지 않고 오류로 낸다.
-- gophertunnel이 쓸 때 덮어쓰거나 읽고 버리는 값은 생성 코드에서 gophertunnel과 같게 두고, 클라이언트 패킷을 처리하는 틱 코드가 검사한다.
-- EntityMetadata 개수, NBT 깊이 계수, 부분 읽기, ItemInstance·Login 길이는 상한과 오류로 막는다.
+## Fixing gophertunnel defects
+- Fix defects of the pinned gophertunnel in Anchor. Where Anchor must keep gophertunnel's format, align the test samples instead.
+- Correct gophertunnel's codec or constants only when the schema source and at least one independent source (Mojang's documents, the codec library, or an observation of the official server) agree against gophertunnel.
+- Add a codec or constant correction to the replacement table of `xtask/go/fix` and run `cargo xtask gen`. Build every Go tool against the corrected module that `xtask/go/fix` writes.
+- Read MaterialReducer as `mix >> 16` and `mix & 0xffff`. Make a write out of range an error.
+- Make reading and writing an Event type without an ordinal an error.
+- Keep the values gophertunnel overwrites when writing, or reads and discards, the same in the generated code as in gophertunnel. The tick code that handles the client packet checks them.
+- Bound the EntityMetadata count, the NBT depth count, partial reads, and the ItemInstance and Login lengths with limits and errors.
 
-## 시험
-- Go 도구는 개발 때만 쓴다. 모든 시험은 `cargo test`로 돌고 `cargo xtask verify`에 들어가게 한다.
-- 오라클 코퍼스는 커밋하지 않는다.
-- 봇의 온라인 로그인은 시험용 발급자로 검증하고, 실제 Xbox 토큰은 쓰지 않는다.
+## Tests
+- Use the Go tools only in development. Make every test run under `cargo test`, so that `cargo xtask verify` includes it.
+- Never commit the oracle corpus.
+- Never give the bot a real Xbox token. Its online login uses the test issuer (`.claude/rules/network.md`).
 
-## 버전업 절차
-새 프로토콜 버전으로 옮길 때 차례대로 한다. 단계마다 앞 단계가 통과해야 넘어간다.
-1. 출처 고르기: gophertunnel의 최신 정식 태그를 고른다(프리뷰 브랜치는 쓰지 않는다). 태그 뒤 master의 커밋을 읽고 같은 프로토콜의 형식 수정이 있으면 그 커밋으로 고정한다. go-raknet, go-nethernet은 그 go.mod를 따라가되, 그 판의 결함을 고친 릴리스가 있으면 그 릴리스로 고정한다(`.claude/docs/dependencies.md`).
-2. 외부 불신 검토: 바뀐 Go 코드(`protocol`, `packet`, `login`, 압축, go-raknet, go-nethernet)를 직접 읽고 결함을 적고 없앤다(`.claude/docs/dependencies.md`). gophertunnel 결함 목록(`.claude/docs/protocol.md`)이 아직 맞는지 다시 본다.
-3. 고정: Go 쪽 버전은 `xtask/go/go.mod`(와 `go.sum`)에 태그나 의사 버전으로 고정하고, 추출기(`xtask/go/extract`)의 판과 커밋도 같은 값으로 고친다.
-4. 생성: `cargo xtask gen`. 추출이 모르는 구문으로 실패하면 추출기를 넓힌다. IR diff(`xtask/data/protocol.json`)를 읽어 새·바뀐·사라진 패킷, 필드, union, 상수를 확인하고, 손 코덱과 이를 쓰는 엔진 코드를 맞춘다.
-5. 필드 상한: Mojang bedrock-protocol-docs의 같은 버전 릴리스 커밋으로 `xtask/src/dump.rs`의 고정 값을 바꾸고 `cargo xtask dump`를 돈다. dump나 gen이 상한으로 실패하면 `xtask/src/dump/limits.rs` 표를 고친다.
-6. 시험: P1~P5를 포함한 `cargo xtask verify`가 PASS해야 한다.
-7. 데이터: `.claude/docs/data.md` 출처 표의 덤프 원본과 기준 목록 출처를 같은 버전으로 바꾸고 상태 대조와 업그레이드 스키마를 맞춘다.
-8. 공식 서버 대조: 새 버전 공식 서버의 복사본(`.cache/bds/<버전>/`)으로 P6 전체를 돌리고 다른 점은 공식 서버를 따른다(`.claude/docs/testing.md`).
-9. 표시: 버전을 올리는 것은 공개 API의 깨지는 변경으로 다룬다(semver). 지원 프로토콜 번호와 고정 버전 표(`.claude/docs/protocol.md`)를 바꾼다.
+## Moving to a new protocol version
+Do these steps in order. Start a step only after the one before it passes.
+1. Choose the source: the latest release tag of gophertunnel, never a preview branch. Read master's commits after the tag; if one fixes a format of the same protocol, pin that commit. Take go-raknet and go-nethernet from gophertunnel's go.mod, unless a release fixes a defect of that version; then pin that release (`.claude/docs/dependencies.md`).
+2. Review: apply the distrust procedure (`.claude/rules/dependencies.md`) to the changed Go code (gophertunnel's `protocol`, `packet`, `login`, and compression code, go-raknet, go-nethernet): read it, record its defects, and remove them. Check that the gophertunnel defect list in `.claude/docs/protocol.md` still holds.
+3. Pin: write the Go versions into `xtask/go/go.mod` and `xtask/go/go.sum` as a tag or a pseudo-version, and set `version` and `commit` in `xtask/go/extract/main.go` to the same values.
+4. Generate: run `cargo xtask gen`. When extraction fails on an unknown construct, extend the extractor. Read the IR diff (`xtask/data/protocol.json`) for new, changed, and removed packets, fields, unions, and constants, and align the hand-written codecs and the engine code that uses them.
+5. Field limits: set `PROTOCOL_DOCS` in `xtask/src/dump.rs` to the bedrock-protocol-docs release commit of the same version and run `cargo xtask dump`. When `dump` or `gen` fails on a limit, fix the table in `xtask/src/dump/limits.rs`.
+6. Test: `cargo xtask verify`, P1 to P5 included, must PASS. It runs only when the user orders `/verify` (`CLAUDE.md`).
+7. Data: move the dump source and the reference list sources in the pinned-source table of `.claude/docs/data.md` to the same version, and align the state comparison and the upgrade schemas (`.claude/rules/data.md`).
+8. Compare with the official server: run all of P6 against a copy of the new official server in `.cache/bds/<version>/`, and follow the official server wherever they differ (`.claude/rules/testing.md`).
+9. Publish: treat the version change as a breaking change of the public API (semver). Update the supported version and the pinned-version table in `.claude/docs/protocol.md`.
 
-배경과 자세한 사실은 `.claude/docs/protocol.md`.
+Background and detailed facts are in `.claude/docs/protocol.md`.

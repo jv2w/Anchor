@@ -1,82 +1,83 @@
 ---
 name: audit-performance
-description: Anchor의 성능(누수, 틱·비동기 경로의 블로킹과 병목, 스파이크)에서 실제 부하로 일어나고 MSPT나 메모리에 큰 해를 주는 결함만 골라, 벤치마크 없이 코드만으로 개선이 확정되는 것만 고친다. 사용자가 `/audit-performance`로 시킬 때만 쓴다.
-argument-hint: "[파일이나 폴더, 비우면 src 전체]"
+description: Finds Anchor's performance defects (leaks, blocking and bottlenecks on the tick and async paths, spikes) that real load triggers and that break a rule or seriously hurt MSPT or memory, and fixes only those whose improvement the code alone proves, without benchmarks. Use only when the user orders `/audit-performance`.
+argument-hint: "[file or folder; empty for all of src]"
 disable-model-invocation: true
 ---
 
-# 성능 감사
+# Performance audit
 
-대상: `$ARGUMENTS` (비었으면 `src/` 전체). 기준은 CLAUDE.md 2절 '성능'과 3절 불변식 1, 2다.
+Target: `$ARGUMENTS` (empty means all of `src/`). The standard is Performance in `CLAUDE.md` §3 and invariants 1 and 2 in `CLAUDE.md` §4.
 
-## 원칙
-- 고칠 것은 **실제 부하에서 일어나고, 일어나면 해가 크고, 고친 코드가 더 낫다는 것이 코드만으로 확정되는** 결함뿐이다. 셋 다 증명해야 한다.
-- 고칠지는 코드(의존성 소스 포함)를 읽는 것만으로 정한다. 벤치마크, 프로파일러, 시간 측정, 측정용 시험(`#[ignore = "measurement"]`)은 돌리지 않는다. 돌리는 것은 정확성을 지키는 시험과 `cargo xtask check`뿐이다. CLAUDE.md 2절은 코드로 판단할 수 없으면 측정해 고르라고 하지만, 이 감사는 측정하지 않고 그런 후보를 미확정으로 보고만 한다.
-- 결함 0건은 정상 결과다. 건수는 평가하지 않는다. 가장 나쁜 결과는 확정하지 못한 개선을 고치는 것이다. 그런 수정은 코드만 복잡하게 하고 다음 감사의 잡음이 된다.
-- 증명 책임은 후보 쪽에 있다. "느릴 것 같다", "더 빠를 것이다", "많아지면"은 근거가 아니다. 근거는 빈도, 상한 N, 열어 본 비용, 고치기 전과 뒤의 비용 식이다.
-- 후보는 넓게 모으고 결함은 좁게 정한다. 검사를 얕게 하라는 뜻이 아니다.
-- CLAUDE.md 2절 규칙을 어긴 것이라도 등급이 경미면 이 감사에서는 고치지 않고 '경미'에 보고만 한다.
+## Principles
+- Fix only defects that **happen under real load**, **break a rule or cause serious harm when they happen**, and whose fix is **proven better by the code alone**. Prove all three.
+- Decide whether to fix by reading code (dependency sources included) only. Never run benchmarks, profilers, timing, or measurement tests (`#[ignore = "measurement"]`); run only correctness tests and `cargo xtask check`. Where `CLAUDE.md` §3 says to measure because code alone cannot decide, this audit does not measure: it reports such candidates as unconfirmed and leaves them unfixed.
+- Zero defects is a normal result; the count is not judged. The worst result is fixing an unproven improvement: such a fix only complicates the code and becomes noise for the next audit.
+- The burden of proof is on the candidate. "Seems slow", "would be faster", and "if there are many" are not evidence. Evidence is the frequency, the bound N, the opened cost, and the cost formulas before and after the fix.
+- Collect candidates broadly and decide defects narrowly. This does not mean checking shallowly.
+- A violation of a rule in `CLAUDE.md` or `.claude/rules/` that real load reaches is never minor: it is at least MAJOR and is fixed (`CLAUDE.md` §1: every rule is mandatory). MINOR covers only findings that break no rule.
 
-## 결함의 정의
-다섯 조건을 모두 증명한 것만 결함이다.
+## Defect definition
+A defect has all five, proven.
 
-1. **빈도**: 그 경로가 실제로 도는 빈도(틱마다, 플레이어마다 틱마다, 패킷마다, 청크 로드마다, 접속마다)를 호출하는 쪽을 따라가 확인한다. 이름이나 모듈 위치로 핫패스라고 정하지 않는다.
-2. **규모**: 비용을 정하는 변수(플레이어, 엔티티, 청크, 월드, 큐 길이, 입력 크기)와 그 상한을 숫자로 정한다. 상한은 설정 범위(`.claude/docs/config.md`), 큐와 입력 예산(`.claude/docs/architecture.md`, `.claude/docs/network.md`, `.claude/docs/protocol.md`), 문서의 한계에서 가져온다. 근거 없는 큰 N으로 비용을 부풀리지 않는다.
-3. **비용**: 경로가 부르는 함수를 의존성까지 열어 실제 비용(할당, 복사, 순회, 해시, 잠금, 시스템 호출)을 센다. 열어 보지 않은 호출은 싸다고도 비싸다고도 하지 않는다.
-4. **해**: 아래 등급표의 치명이나 중대에 닿는다.
-5. **확정**: 고친 코드가 모든 입력에서 이전보다 비용이 크지 않고, 결함인 경우에는 확실히 작다는 것을 코드로 보인다.
-   - 고치기 전과 뒤의 비용 식을 같은 단위(연산, 할당, 순회 원소 수, 틱 스레드가 하는 일, 붙잡는 메모리)로 쓰고 상한 N을 넣어 비교한다.
-   - 수정이 새로 더하는 비용(색인 유지, 할당, 해시, 큐 전송, 간접 호출, 남겨 두는 메모리)을 모두 적고, 그것이 없앤 비용보다 작음을 코드로 보인다.
-   - 이득이 상수 배, 캐시 지역성, 분기 예측, 할당기, 스레드 수, 하드웨어에 달려 있어 측정해야만 알 수 있으면 확정이 아니다.
+1. **Frequency**: confirm how often the path actually runs (every tick, every player every tick, every packet, every chunk load, every join) by following its callers. Never call a path hot from its name or module location.
+2. **Scale**: name the variables that set the cost (players, entities, chunks, worlds, queue length, input size) and their bounds as numbers. Take bounds from the configuration ranges (`.claude/docs/config.md`), the queue and input budgets (`.claude/docs/architecture.md`, `.claude/docs/network.md`, `.claude/docs/protocol.md`), and documented limits. Never inflate a cost with a large N that has no source.
+3. **Cost**: open every function the path calls, dependencies included, and count the real cost (allocation, copy, iteration, hashing, locking, system calls). An unopened call is neither cheap nor expensive.
+4. **Harm**: a rule in `CLAUDE.md` §3 Performance or §4 invariants 1 and 2 is broken, or the result reaches CRITICAL or MAJOR in the grade table.
+5. **Proof**: show by code that the fixed code costs no more than before on every input, and, for a defect, clearly less.
+   - Write the cost formulas before and after the fix in the same unit (operations, allocations, elements iterated, work on the tick thread, memory held) and compare them at the bound N.
+   - List every cost the fix adds (index upkeep, allocation, hashing, queue sends, indirect calls, memory kept) and show by code that it is smaller than the cost removed.
+   - A gain that depends on constant factors, cache locality, branch prediction, the allocator, thread count, or hardware, so that only measurement can show it, is not proven.
 
-## 등급
-| 등급 | 결과 | 코드로 보일 것 |
+## Grades
+| Grade | Result | Show by code |
 |---|---|---|
-| 치명 | 누수: 정상 운영 반복(접속·종료, 월드 로드·언로드, 엔티티·창·작업·타이머 생성과 제거, 장시간 가동)에서 표·큐·캐시·등록이 줄지 않고 늘어남 | 만드는 자리와, 정상 운영에서 그것을 지우는 길이 없음(`파일:줄`) |
-| 치명 | 블로킹: 틱 스레드나 tokio 워커가 디스크 I/O, 잠금·채널 대기, sleep, 동기 네트워크로 멈춤 | 블로킹 호출까지의 경로 `파일:줄`과 그 호출이 블로킹인 근거(의존성 코드) |
-| 치명 | 증폭: 외부 입력 하나가 입력 크기나 입력 예산에 비례하지 않는 비용(전체 순회, 제곱, 입력보다 큰 할당)을 틱이나 공유 워커에 일으킴 | 입력 하나당 비용 식과 상한 N에서의 값 |
-| 중대 | 병목: 상한 부하에서 매 틱 도는 경로가 N에 대해 초선형(N², N·M)이거나, 색인으로 O(1)이 되는 조회를 반복 선형 검색으로 하거나, N에 비례하는 할당을 매 틱 되풀이함 | 비용 식과 상한 N에서의 값, 고친 뒤의 식 |
-| 중대 | 스파이크: 주기 작업이 한 틱에 몰리거나, 틱 안에서 상한 N에 비례하는 큰 해제·지연 초기화·재할당이 일어남 | 그 틱에 몰리는 일의 식과, 고친 뒤 한 틱에 남는 최대 |
-| 경미 | 그 밖(상수 배 개선, 드문 경로, 비용 차수가 그대로인 개선) | 고치지 않는다 |
+| CRITICAL | Leak: in repeated normal operation (join and quit, world load and unload, creating and removing entities, windows, tasks, and timers, long uptime) a table, queue, cache, or registration grows and never shrinks | The spot that creates it, and the absence of any path that removes it in normal operation (`file:line`) |
+| CRITICAL | Blocking: the tick thread or a tokio worker stops on disk I/O, a lock or channel wait, sleep, or synchronous networking | The path to the blocking call as `file:line`, and the evidence that the call blocks (dependency code) |
+| CRITICAL | Amplification: one external input causes cost out of proportion to its size or input budget (a full scan, quadratic work, an allocation larger than the input) on the tick or a shared worker | The cost formula per input and its value at the bound N |
+| MAJOR | Bottleneck: at the load bound, a path that runs every tick is superlinear in N (N², N·M), repeats a linear search where an index gives O(1), or repeats an allocation proportional to N every tick | The cost formula and its value at the bound N, and the formula after the fix |
+| MAJOR | Spike: periodic jobs pile into one tick, or a large deallocation, lazy initialization, or reallocation proportional to the bound N happens inside the tick | The formula of the work piled into that tick, and the maximum one tick keeps after the fix |
+| MAJOR | Any other reached violation of a `CLAUDE.md` §3 Performance or §4 invariant 1 or 2 rule | The rule and the violating `file:line` |
+| MINOR | Anything else that breaks no rule (constant-factor gains, an improvement that keeps the cost order) | Not fixed |
 
-## 후보가 아닌 것
-- 시작, 종료, 명령, 드문 이벤트 경로의 할당과 선형 검색. 한 번 실행이 틱 안에서 상한 N 전체를 순회하거나 그만큼 할당할 때만 후보다.
-- 상한과 해제 시점이 있는 컬렉션과 큐. 상한까지 차는 것은 누수가 아니다.
-- 설계로 정한 것: 틱 사이 대기의 `sleep`, 저장 스레드와 블로킹 풀의 블로킹, 네트워크 워커의 코덱·압축·암호화, `.claude/docs/`에 이유가 적힌 선택과 '알려진 한계와 위험'. 그 이유가 지금 코드에 더는 맞지 않음을 코드로 보일 때만 후보다.
-- `cargo xtask check`가 이미 막는 것(`.clippy.toml` 금지 목록, `clone_on_ref_ptr` 등). 단 `#[expect]`로 푼 자리는 그 이유가 사실인지가 후보다.
-- 확장 지점의 `dyn`, 컴파일러가 없애는 비용(작은 `Copy`, 이동, 작은 함수 호출), 이미 용량을 잡은 컨테이너.
-- 시험 코드와 생성 파일 자체(생성 코드의 비용은 생성기에서 고친다).
-- 마이크로 최적화와 상수 배 개선.
-- 같은 원인의 여러 자리는 한 건이다.
+## Not candidates
+- Allocation and linear search on startup and shutdown paths, which run outside the tick path and async tasks. On the tick path and in async tasks, a linear search breaks `CLAUDE.md` §3 even on a rare path.
+- Collections and queues with a bound and a release point. Filling up to the bound is not a leak.
+- What the design decides: the `sleep` between ticks, blocking on the save thread and the blocking pool, codec, compression, and encryption on network workers, choices whose reason is written in `.claude/docs/`, and the known limits and risks in `.claude/docs/architecture.md`. They are candidates only when you show by code that the reason no longer fits the current code.
+- What `cargo xtask check` already blocks (the `.clippy.toml` deny lists, `clone_on_ref_ptr`, and others). A spot lifted with `#[expect]` is a candidate for whether its reason is true.
+- `dyn` at extension points, costs the compiler removes (small `Copy` values, moves, small function calls), containers already sized.
+- Test code and generated files themselves (fix the cost of generated code in its generator).
+- Micro-optimizations and constant-factor gains that break no rule.
+- Several spots with one cause are one defect.
 
-## 순서
-1. **읽기**: `.claude/rules/architecture.md`, `.claude/docs/architecture.md`('스레드와 큐', '틱', '알려진 한계와 위험'), 대상 주제의 rules와 docs.
-2. **수집**: 코드 모양이 아니라 빈도와 자원에서 출발한다.
-   - 후보는 빈도, 상한 N, 비용 식(예: 틱마다 N_player × N_entity 비교)을 채울 수 있을 때만 적는다. 못 채우면 그 자리에서 버린다.
-   - 대상이 크면 틱 단계, 네트워크·세션, 저장, 청크·조명 같은 묶음으로 나눠 파일을 고치지 않는 서브에이전트에 수집만 맡긴다. 이 파일을 읽게 하고 후보마다 빈도, N, 비용 식, `파일:줄`을 돌려받는다. 판정은 직접 한다.
-3. **반증**: 후보마다 "이것이 결함이 아니라면 무엇이 비용을 막고 있는가"를 먼저 묻는다: 상한, 캐시, 이미 있는 색인, 엇갈린 주기, 빈 경우 건너뛰기, `slow-empty-worlds` 같은 설정, 호출 빈도가 생각보다 낮음. 막는 것이 있으면 기각한다.
-4. **확정**: 남은 후보마다 고칠 내용을 정하고 '결함의 정의' 5를 채운다. 비용을 옮기기보다 없애는 쪽(없애기 → 줄이기 → 틱 밖으로 옮기기 → 여러 틱에 나누기)을 먼저 본다. 채우지 못하면 고치지 않고 미확정으로 둔다.
-5. **독립 검토**: 확정한 후보마다 새 서브에이전트에 주장(빈도, N, 고치기 전과 뒤의 비용 식, 새로 더하는 비용)과 고칠 내용만 주고, 찾은 과정은 주지 않는다. 시킬 일: "이 수정이 틀린 근거를 코드에서 찾아라. 어떤 입력에서든 더 느리거나 메모리를 더 쓰는 경우, 빠뜨린 새 비용, 빈도가 더 낮은 이유, N 상한이 더 작은 이유, 비용을 막는 상한이나 캐시, 측정해야만 판단할 수 있는 부분." 근거가 `파일:줄`로 성립하면 기각하거나 미확정으로 둔다. 후보가 여럿이면 함께 띄운다.
-6. **고치기**: 남은 결함만 확정한 그대로 고친다.
-   - 고친 코드가 확정에 쓴 비용 식과 같은지 다시 읽어 본다. 계획에 없던 비용이 생겼으면 되돌리고 미확정으로 둔다.
-   - 안전성을 깨지 않는다(CLAUDE.md 2절 우선순위). 병렬로 옮기면 결과 순서와 부동소수 합을 확인하고 결정성 시험(CPU 풀 1개와 여러 개)을 돌린다. 캐시와 색인은 해제 시점과 상한을 같이 둔다.
-   - 누수를 고치면 CLAUDE.md 2절의 자원 반환 시험(반복 뒤 표와 큐 개수가 시작 값인지 보는 단위 시험, `src/tick/tests/leak.rs` 방식)을 같이 둔다.
-   - 수정이 공개 API, 저장 형식, 설정 키, 기능 범위를 바꾸면 고치기 전에 묻는다.
-7. **검사**: `cargo xtask check`.
+## Steps
+1. **Read**: `.claude/rules/architecture.md`, `.claude/docs/architecture.md` (threads and queues, the tick, known limits and risks), and the target topic's rules and docs.
+2. **Collect**: start from frequency and resources, not from the look of the code.
+   - Write a candidate down only when you can fill in the frequency, the bound N, and the cost formula (for example, N_player × N_entity comparisons every tick). Otherwise drop it on the spot.
+   - For a large target, split it into groups (tick stages, network and session, storage, chunks and lighting) and give each to a subagent that only collects and edits no file. Have it read this file and return the frequency, N, cost formula, and `file:line` per candidate. Decide every candidate yourself.
+3. **Refute**: for each candidate, first ask "if this is not a defect, what keeps the cost down?": a bound, a cache, an existing index, staggered periods, skipping the empty case, a setting such as `slow-empty-worlds`, a lower call frequency than assumed. If something keeps it down, reject the candidate.
+4. **Prove**: for each remaining candidate, decide the fix and fill in condition 5 of the defect definition. Prefer removing the cost over moving it (remove → reduce → move off the tick → spread over ticks). If condition 5 cannot be filled in, do not fix; leave the candidate unconfirmed.
+5. **Independent review**: give each proven candidate to a new subagent with only the claim (frequency, N, cost formulas before and after, added costs) and the planned fix, not how you found it. Its task: "Find evidence in the code that this fix is wrong: any input where it is slower or uses more memory, a missed added cost, why the frequency is lower, why the bound N is smaller, a bound or cache that already keeps the cost down, any part only measurement can decide." If the evidence holds as `file:line`, reject the candidate or leave it unconfirmed. Launch the reviews for several candidates together.
+6. **Fix**: fix only the remaining defects, exactly as proven.
+   - Reread the fixed code and confirm it matches the cost formula used in the proof. If an unplanned cost appeared, revert and leave the candidate unconfirmed.
+   - Never break safety (`CLAUDE.md` §3 priorities). When moving work into parallel stages, check result order and float sums and run the determinism tests listed in `.claude/docs/testing.md` (one and many CPU pool threads). Give every cache and index a release point and a bound.
+   - When fixing a leak, add the resource-return test that `CLAUDE.md` §3 Performance requires, in the style of `src/tick/tests/leak.rs`.
+   - Ask before fixing when the fix changes the public API, a storage format, a configuration key, or the feature scope.
+7. **Check**: `cargo xtask check`.
 
-감사를 처음부터 되풀이하지 않는다. 고친 자리 주변에서 같은 원인이 새로 보이면 그것만 같은 순서로 다룬다.
+Do not restart the audit from the beginning. When the same cause appears again around a fixed spot, handle only that, with the same steps.
 
-## 보고
-쉬운 한국어로 짧게.
+## Report
+Write the report to the user in short, plain Korean (`CLAUDE.md` §7).
 
-1. 첫 줄: 고친 결함 N건(치명 a, 중대 b), 미확정 N건, 경미 N건, 기각 N건.
-2. 고친 결함마다:
-   - `[등급] 한 줄 요약` — `파일:줄`
-   - 빈도와 상한 N(근거)
-   - 비용: 고치기 전과 뒤의 식, 상한 N에서의 값
-   - 확정 근거: 새로 더한 비용과, 그것이 없앤 비용보다 작은 이유
-   - 수정: 근본 원인 한 줄(누수면 자원 반환 시험 이름)
-3. 미확정: 한 줄씩. 무엇이 코드로 확정되지 않았는지(측정해야만 알 수 있는 부분).
-4. 경미: 한 줄씩. 고치지 않았다.
-5. 기각: 이유별 개수만(상한이나 캐시가 막음, 빈도 낮음, 설계로 정함, lint가 막음, 독립 검토가 반박).
-6. `cargo xtask check` 마지막 줄, 바뀐 공개 API와 동작.
+1. First line: defects fixed (CRITICAL a, MAJOR b), unconfirmed, minor, rejected.
+2. For each fixed defect:
+   - `[grade] one-line summary` — `file:line`
+   - Frequency and bound N (with sources)
+   - Cost: the formulas before and after the fix, and their values at the bound N
+   - Proof: the costs added, and why they are smaller than the cost removed
+   - Fix: the root cause in one line (for a leak, the name of the resource-return test)
+3. Unconfirmed: one line each, saying what the code could not prove (the part only measurement can decide).
+4. Minor: one line each. Not fixed.
+5. Rejected: counts per reason only (a bound or cache keeps it down, low frequency, decided by design, blocked by a lint, refuted by independent review).
+6. The items `CLAUDE.md` §7 requires.

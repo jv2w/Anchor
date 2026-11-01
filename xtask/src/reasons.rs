@@ -253,9 +253,9 @@ let reason = "a variable";
     #[test]
     fn the_tags_are_those_claude_md_sets() {
         let doc = include_str!("../../CLAUDE.md");
-        let (_, sentence) = doc.split_once("태그는 ").expect("the tag sentence");
+        let (_, sentence) = doc.split_once("The tags are ").expect("the tag sentence");
         let (list, _) = sentence
-            .split_once("이다")
+            .split_once('.')
             .expect("the end of the tag sentence");
         let names: Vec<&str> = list.split('`').skip(1).step_by(2).collect();
         assert_eq!(names, TAGS);

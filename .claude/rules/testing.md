@@ -9,39 +9,43 @@ paths:
   - "xtask/go/**"
   - "xtask/data/p6/**"
 ---
-# 시험 규칙
+# Testing rules
 
-## 시험 쓰기
-- 단위 시험이 길면 `foo/tests.rs`처럼 옆 파일로 둔다.
-- `tests/`의 공개 API 시험은 사용자 바이너리처럼 공개 API만 쓴다.
-- 측정용 시험에는 `#[ignore = "measurement"]`를 단다.
-- 자식 프로세스 역할의 시험은 `#[ignore]`를 달고 부모 시험이 부른다.
-- 시험은 벽시계 시간이 아니라 틱 수와 커밋 보고로 순간을 정한다.
-- 부하에 따라 흔들리는 시험을 재시도, sleep, 시간 늘리기로 덮지 않고 원인을 고친다.
+## Checks
+- `cargo xtask check` runs the format check, clippy, and the tests of what changed: the library tests of the changed modules, the changed integration test files, and xtask's unit tests when xtask's sources change. `cargo xtask verify` adds the generated-code, API-table, and lint-reason checks, every workspace test (the bot tests included), the vendor copies' tests, and the documentation build. The exact steps are in `.claude/docs/testing.md`.
+- Support and verify both Windows and Linux. Check everyday work with `cargo xtask check` on Windows. For a change that touches the OS (files, signals, sockets, console, xtask tools), also run the check on WSL Ubuntu in an ext4 copy. Run `verify` and full P6 runs on both.
+
+## Writing tests
+- Public API tests in `tests/` use only the public API, as a user's binary does.
+- Mark a measurement test `#[ignore = "measurement"]`.
+- Mark a test that serves as another test's child process `#[ignore = "the child process of <parent>"]`; the parent runs it.
+- Decide moments by tick counts and commit reports, never by wall-clock time.
+- Fix the cause of a test that fails under load. Never cover it with retries, sleeps, or longer time limits.
 
 ## P6
-- 프로토콜 버전에 맞는 공식 서버를 `.cache/bds/<버전>/`에 복사해 쓴다.
-- 공식 서버와는 봇이 받는 패킷으로만 비교한다.
-- P6 시험 설정은 두 서버를 맞추는 값(Xbox 로그인 없음, 월드 이름, 시드)말고는 Anchor 기본값과 같은 값으로 둔다.
-- Anchor가 공식 서버와 다르면 공식 서버를 따른다. API와 가져오기 비교에서 일부러 다른 것만 이유와 함께 `xtask/data/p6/intended.txt`에 넣는다(게임과 스폰 비교는 이 파일을 읽지 않는다).
-- `intended.txt`는 코드 변경처럼 검토한다.
-- `fields.txt`에는 월드나 실행마다 다른 값을 넣지 않는다.
-- `facts.md`는 주제별로 정리하고, 열린 질문과 실제 클라이언트로만 확인할 것은 끝에 둔다.
-- `p6 anchor`는 두 압축을 함께 돌린다. 한 압축만 주지 않는다.
+- Compare every client-visible change with the official server through P6. A bot scenario must first pass on the official server before it verifies Anchor.
+- Run the official server only from its copy in `.cache/bds/<version>/`, the version the harness pins. Never run the original download. Never analyze the executable.
+- Compare with the official server only through the packets the bot receives.
+- For what only the official client shows, make Anchor send the values the official server sends, and give the user a checklist of what to look at in the client.
+- Keep the P6 test settings at Anchor's defaults, except the values that align the two servers (no Xbox login, world name, seed) and what the harness needs to run (ports, transport, compression, cheats for the API session).
+- Where Anchor differs from the official server, follow the official server. Only a difference Anchor keeps on purpose in an API or import comparison goes into `xtask/data/p6/intended.txt`, with its reason. The spawn and game comparisons do not read that file.
+- Review `intended.txt` like a code change.
+- Never put a value that differs per world or per run into `fields.txt`.
+- Keep `facts.md` grouped by topic, with the open questions and the real-client checks at the end.
+- Give `p6 anchor` the same compressions, in the same order, as the `p6 bds` run it compares with.
 
-## P6 시나리오 더하기
-1. 봇에 시나리오 함수를 만든다(`xtask/go/bot/`의 `game.go`, `api.go`, `verify.go` 계열). 단계(`step`)를 나누고, 필요한 월드 준비는 `command` 기록(콘솔 명령)으로 쓰고, 비교할 사실은 확인(`check`) 줄로 남긴다. 구역 좌표를 정해 다른 시나리오와 겹치지 않게 한다.
-2. 하네스의 시나리오 목록(`xtask/src/p6/game.rs` 또는 `api.rs`)에 이름을 넣는다. 사실 기록만이면 `FACTS_ONLY`, 확인 줄만 비교하면 `CHECKS_ONLY`에 넣는다.
-3. 시나리오가 쓰는 콘솔 명령을 Anchor가 받아야 하면 `xtask/src/p6/game/console.rs`에서 공개 API로 옮긴다.
-4. `cargo xtask p6 ... bds <이름>`을 두 번 이상 돌려 공식 서버에서 통과하고 값이 같은지 본다. 실행마다 다른 값은 비교에서 뺀다.
-5. 관찰한 값과 Anchor의 결정을 `facts.md`에 적는다.
-6. `cargo xtask p6 ... anchor <이름>`으로 Anchor를 비교한다. 다른 것은 위 규칙대로 공식 서버를 따르거나, API 시나리오면 `intended.txt`에 넣는다.
+## Adding a P6 scenario
+1. Write the scenario function in `xtask/go/bot/` and register it in `gameScenarios` with its own area in `gameAreas`, apart from every other scenario's area. Split it into steps (`step` records), write the world setup as `command` records (console commands), and record each fact to compare as a `check` line.
+2. Add its name to the harness's `SCENARIOS` in `xtask/src/p6/game.rs` or `xtask/src/p6/api.rs`. An API scenario that only records facts also goes into `FACTS_ONLY`; one that compares only its check lines goes into `CHECKS_ONLY`.
+3. When Anchor must carry out a console command the scenario uses, translate it to the public API in `xtask/src/p6/game/console.rs`.
+4. Run `cargo xtask p6 game bds <name>` or `cargo xtask p6 api bds <name>` at least twice: it must pass on the official server with the same values. Leave out of the comparison every value that differs per run.
+5. Write the observed values and Anchor's decision for each into `facts.md`.
+6. Compare Anchor with `cargo xtask p6 game anchor <name>` or `cargo xtask p6 api anchor <name>`. Make each difference follow the official server, or, for an API scenario, list it in `intended.txt`.
 
-## 시험 돌리기
-- NetherNet 시그널링을 쓰는 시험이나 `p6 anchor`의 NetherNet 실행이 연결 시간 초과로 실패하면 한 번 다시 돌린다. 두 번째도 실패하면 진짜 실패로 본다.
-- 무거운 시험은 한 번에 하나만 돌린다. 같은 `target` 폴더를 쓰는 빌드를 동시에 돌리지 않는다(잠금 경쟁).
-- 무거운 시험은 범위를 정해 돌린다: 빌드 병렬과 시험 병렬을 정하고, 필요한 시험만 이름으로 거르고, P6는 시나리오 이름을 준다.
-- 무거운 시험은 끝이 있게 돌린다.
-- 측정 시험은 release로, 다른 빌드와 겹치지 않게 따로 돌린다.
+## Running tests
+- When a test that uses NetherNet signaling, or a NetherNet run of `p6 anchor`, fails on a connection timeout, run it once more; this PC's loopback TCP is the known cause (`.claude/docs/testing.md`). A second failure is a real failure.
+- Run heavy tests at low priority and one at a time. Never run two builds that share a `target` folder at the same time (lock contention).
+- Bound every heavy test run: the number of runs, the build and test parallelism, the tests selected by name, and for P6 the scenario names.
+- Run measurement tests in release, alone, never alongside another build.
 
-배경과 자세한 사실은 `.claude/docs/testing.md`.
+Background and detailed facts are in `.claude/docs/testing.md`.

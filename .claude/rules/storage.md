@@ -1,80 +1,85 @@
 ---
 paths:
   - "src/save.rs"
-  - "src/save/**"
   - "src/storage.rs"
   - "src/storage/**"
   - "src/tick/save.rs"
   - "src/import.rs"
   - "src/import/**"
   - "src/replay.rs"
+  - "src/export.rs"
+  - "src/export/**"
   - "src/tick/tests/crash.rs"
   - "src/tick/tests/replay.rs"
   - "tests/crash.rs"
   - "tests/shutdown.rs"
   - "tests/import.rs"
+  - "tests/export.rs"
   - "tests/replay.rs"
   - ".claude/docs/storage.md"
 ---
-# 저장 규칙
+# Storage rules
 
-## 레코드
-- 블록은 Bedrock 디스크 팔레트 모양 NBT `{name, states, version}`로만 쓰고 런타임 ID는 쓰지 않는다.
-- 값을 읽을 때는 버전 → 체크섬 → 압축 해제 순으로 확인한다.
-- 디코더는 팔레트 색인이 팔레트 안인지, 값이 레코드 끝에서 정확히 끝나는지 검사한다.
-- 한 블록이나 한 플레이어의 데이터는 한 파일에만 둔다.
-- `create_world`, `build()`, 가져오기는 같은 월드 이름 규칙(`world::Error::InvalidName`)을 쓴다.
+## Data folder
+- Store with redb. Keep `data/` to these entries: `worlds/<world>.redb` (one per persistent world), `players.redb`, `main.redb` (save turn, operators, bans, whitelist, user server data), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
+- Never store a setting in a data file: settings always follow `anchor.toml` and the code. Never store the weather: the server starts clear, and a cycle or persistence is built with the API.
+- Keep the data of one block or one player in exactly one file.
+- Check every world name with `storage::is_world_file_name`: `build()`, `create_world`, the import, the export, and the start's listing of `data/worlds/`.
 
-## 형식 바꾸기
-- `storage::seal::FORMAT_VERSION`을 올리고 그 상수의 문서에 새 레이아웃을 적는다.
-- 그 형식의 모든 파일이 전과 똑같이 읽히는 변경은 형식 번호를 그대로 둔다: 읽기 한도만 넓히기(목록이 가질 수 있는 개수 등), 그 형식의 어느 파일에도 없는 선택 키를 읽기(그 형식에서 Anchor가 쓴 적 없고 가져오기도 옮기지 않는 엔티티 키 등).
-- 공개 전에는 현재 형식만 읽는다. 레코드 디코더(`storage::codec`)는 현재 레이아웃 하나만 알고, 다른 형식의 값은 손상으로 다룬다. 옛 형식 읽기와 옮기기는 두지 않는다. 입력 로그(`tick::log`)도 현재 형식만 읽는다.
-- 시험을 둔다: 새 형식 왕복, 다른 형식의 값이 손상으로 거부되고 파일이 그대로인지, 깨진 값에서 패닉이 없는지.
+## Records
+- Store blocks only as Bedrock disk-palette NBT `{name, states, version}`, never as runtime IDs.
+- Check a value in this order: format version, checksum, length, decompression.
+- Make every decoder check that each palette index is inside its palette and that the value ends exactly where its record ends.
 
-## 저장과 커밋
-- 디스크는 저장 스레드(`anchor-save`) 하나만 만진다. 틱은 디스크를 기다리지 않는다.
-- 퇴장, 청크 내리기, 월드 내리기도 따로 쓰지 않는다. 메모리에 두었다가 다음 스냅샷이 함께 쓴다.
-- 한 스냅샷은 파일마다 쓰기 트랜잭션 하나로, 월드 파일들 → players → main 순서로 커밋한다(`save::commit`).
-- 쓰는 파일마다 그 스냅샷의 meta 값을 같이 쓴다.
-- 모든 쓰기 트랜잭션은 redb quick repair를 켠다.
-- 틱은 커밋이 끝났다는 답을 받기 전까지 스냅샷에 든 청크와 플레이어 데이터를 메모리에 둔다.
-- 실패한 커밋 뒤의 스냅샷은 커밋하지 않는다.
-- 여러 파일을 묶는 저널이나, 마지막으로 모두 일치한 차례로 되돌리기(redb 지속 세이브포인트)는 하지 않는다. 대신 어긋남을 크게 알리고 원본을 그대로 둔다.
+## Changing the format
+- Raise `storage::seal::FORMAT_VERSION` for every change of the storage format, and describe the new layout in that constant's rustdoc.
+- Keep the number for a change under which every file of the format reads exactly as before: widening a read limit only (such as the entries a list may hold), or reading an optional key no file of the format holds (one Anchor never wrote in that format and the import never carries).
+- Before release, read only the current format. The record decoders (`storage::codec`) know the current layout alone, and a value of any other format is corrupt. Never add reading or migration of old formats. The input log (`tick::log`) has its own format number and also reads only its current format.
+- Test every format change: a round trip of the new format, a value of another format refused as damage with its file unchanged, and no panic on broken values.
 
-## 손상
-- 값 하나라도 체크섬이나 디코드에 실패한 청크는 격리한다.
-- 플레이어 데이터가 손상이면 그 플레이어의 접속을 거부하고 데이터는 그대로 둔다.
-- redb가 제자리에서 고친 것(`Ok(false)`)도 손상으로 본다.
-- 실행 중에는 redb `check_integrity()`를 쓰지 않는다.
-- 자동 복원은 하지 않는다. 백업에서 되돌리기도 자동으로 하지 않는다.
+## Saving and committing
+- While the server runs, let only the save thread (`anchor-save`) touch the data files.
+- Commit each save as one snapshot taken at one tick boundary, to every file it changes in turn: the world files, then `players`, then `main` last (`save::commit`), one write transaction per file. Never add a path that saves part of the state on its own for an event: a player leaving, a chunk unloading, and a world unloading stay in memory until the next snapshot writes them.
+- Write the snapshot's meta value into every file a commit writes.
+- Enable redb quick repair on every write transaction of a data file.
+- Keep a snapshot's chunks and player data in the tick's memory until the commit's answer arrives.
+- Commit no snapshot after a failed commit.
+- Never journal across files and never roll back to the last save every file agrees on (redb persistent savepoints). Report a mismatch loudly instead and keep the files as they are.
+- Make a clean shutdown (Ctrl+C, `stop`, and the like) commit the last tick boundary's snapshot to every file, finish any backup in progress, then commit the normal-stop mark to each open file: zero duplication, zero loss.
+- Leave a crash no path that certainly duplicates. Detect and log a save-turn mismatch between files at the next start (`save::check_save`).
 
-## 시작과 종료
-- 시작 검사는 파일을 쓰지 않는다. redb의 쓰기는 상한 있는 메모리 백엔드에 둔다.
-- 시작과 정상 종료는 compact하지 않는다.
-- 정상 종료는 마지막 틱 경계의 스냅샷을 모든 파일에 커밋하고, 진행 중인 백업을 마치고, 열린 파일마다 정상 종료 표시를 커밋한 뒤 끝낸다.
+## Damage
+- Quarantine a chunk when any of its values fails its checksum or its decode.
+- Refuse the join of a player whose data is damaged, and keep the data as it is.
+- Treat a file redb repaired in place (`check_integrity()` returning `Ok(false)`) as damaged.
+- Never call redb `check_integrity()` while the server runs.
+- Never restore anything automatically, from a backup or otherwise.
 
-## 백업
-- 백업은 덮어쓰지 않는다.
-- 백업은 `<이름>.tmp`로 쓰고 동기화한 뒤 이름을 바꾼다.
-- 오래된 백업 정리는 새 백업이 다 된 뒤에만 한다.
-- 손상이나 새 형식으로 거부된 파일은 시작 백업을 만들지 않는다.
+## Start and stop
+- Never write a file in the start check: keep redb's writes on the bounded in-memory backend.
+- Never compact at start or at a clean shutdown.
 
-## 재생
-- 재생은 데이터 파일을 읽기 전용으로만 연다. 아무것도 커밋하지 않고 파일을 쓰지 않는다.
+## Backups
+- Never overwrite a backup.
+- Write each backup as `<name>.tmp`, flush it, then rename it.
+- Remove old backups only after the new one is whole.
+- Make no start backup of a file refused as damaged or as a newer format.
 
-## 가져오기
-- 가져오기는 새 월드 파일 말고 다른 파일을 쓰지 않는다.
-- 원본은 읽기만 한다. `LOCK`, 로그 재생, compaction을 원본에 쓰지 않는다.
-- 청크는 저장 스레드와 같은 변환과 봉인을 거쳐, Anchor가 스스로 쓰는 바이트와 같게 쓴다.
-- 모두 공기인 청크도 쓴다.
-- 같은 원본은 스레드 수와 상관없이 같은 바이트가 되게 한다.
-- 쓰기 트랜잭션 하나로 커밋하고, 청크 하나라도 실패하면 파일을 남기지 않는다.
+## Replay
+- Open the data files read-only. Commit nothing and write no file.
 
-## 내보내기
-- 내보내기는 월드 파일을 읽기 전용으로, 읽기 트랜잭션 하나로 읽는다. 데이터 폴더에는 아무것도 쓰지 않는다.
-- 출력은 새 폴더뿐이다. 있는 폴더는 건드리지 않고, `<폴더>.tmp`에 모두 쓰고 동기화한 뒤 이름을 바꾼다. 실패하면 임시 폴더를 지운다.
-- 블록 팔레트와 블록 엔티티는 저장된 NBT 그대로 쓴다. 업그레이드나 정규화를 하지 않는다.
-- Bedrock 형식이 아닌 저장 값(엔티티, 예약된 블록 갱신)은 쓰지 않고 보고에 센다.
-- 같은 월드 파일은 스레드 수와 상관없이 같은 바이트가 되게 한다.
+## Import
+- Write no file but the new world file.
+- Only read the source: never write its `LOCK`, never replay its logs into tables, never compact it.
+- Convert and seal chunks as the save thread does, so the bytes equal those Anchor writes itself. Write all-air chunks too.
+- Make the same source give the same bytes whatever the thread count.
+- Write all imported data in one write transaction. If any chunk fails, leave no file.
 
-배경과 자세한 사실은 `.claude/docs/storage.md`.
+## Export
+- Open the world file read-only and read it in one read transaction. Write nothing in the data folder.
+- Write only a new folder. Never touch an existing one: write everything into `<folder>.tmp`, flush it, then rename it. On failure, remove the temporary folder.
+- Write block palettes and block entities as their stored NBT. Never upgrade or normalize them.
+- Leave out stored values that are not in Bedrock form (entities, scheduled block updates) and count them in the report.
+- Make the same world file give the same bytes whatever the thread count.
+
+Background and details: `.claude/docs/storage.md`.

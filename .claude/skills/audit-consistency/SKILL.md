@@ -1,78 +1,80 @@
 ---
 name: audit-consistency
-description: Anchor의 일관성과 단순함(한 일에 한 방법, 같은 사실은 한 곳, 코드와 문서의 일치, 죽은 코드)에서 지금 실제로 어긋났거나 한쪽만 바뀌면 조용히 틀리는 것만 증명해 골라내고 고친다. 사용자가 `/audit-consistency`로 시킬 때만 쓴다.
-argument-hint: "[파일이나 폴더, 비우면 저장소 전체]"
+description: Finds, proves, and fixes Anchor's consistency and simplicity defects (one form per kind of code, one way per task, one place per fact, text that matches the code, no dead code) that are wrong now or go silently wrong when one side changes. Use only when the user orders `/audit-consistency`.
+argument-hint: "[file or folder; empty for the whole repository]"
 disable-model-invocation: true
 ---
 
-# 일관성 감사
+# Consistency audit
 
-대상: `$ARGUMENTS` (비었으면 저장소 전체. `vendor/`, `.cache/`, `target/`은 뺀다). 기준은 CLAUDE.md 2절 '일관성'과 '단순함', 6절, 7절이다.
+Target: `$ARGUMENTS` (empty means the whole repository, excluding `vendor/`, `.cache/`, and `target/`). The standard is Consistency and Simplicity in `CLAUDE.md` §3 and every rule in `.claude/rules/style.md`.
 
-## 원칙
-- 고칠 것은 **지금 실제로 어긋났거나, 같은 사실이 두 곳에 있어 한쪽만 바뀌면 조용히 틀리는** 것뿐이다.
-- 결함 0건은 정상 결과다. 건수는 평가하지 않는다. 가장 나쁜 결과는 비슷해 보이는 것을 같은 것으로 보고 합치는 것이다. 뜻이 다른 둘을 합치면 한쪽을 고칠 때 다른 쪽이 깨진다.
-- 증명 책임은 후보 쪽에 있다. 값이나 모양이 같다는 것은 근거가 아니다. 근거는 같은 사실이라는 증명, 코드와 다른 문서 문장, 부르는 곳이 없다는 검색 결과다.
-- 후보는 넓게 모으고 결함은 좁게 정한다. 검사를 얕게 하라는 뜻이 아니다.
-- CLAUDE.md 규칙을 어긴 것이라도 등급이 경미면 이 감사에서는 고치지 않고 '경미'에 보고만 한다.
+## Principles
+- Fix only what is **proven**: two forms for one kind of code, a fact or rule in two places, two ways for one task, text that contradicts the code, or something dead.
+- Zero defects is a normal result; the count is not judged. The worst result is merging two things that only look alike: when two different meanings are merged, fixing one breaks the other.
+- The burden of proof is on the candidate. Equal values or shapes prove nothing. Proof is evidence of the same fact, a sentence that contradicts the code, a search with no caller, or a `style.md` rule (or the crate's majority form) next to the instance that departs from it.
+- Collect candidates broadly and decide defects narrowly. This does not mean checking shallowly.
+- Every proven defect is fixed. A rule violation is never minor (`CLAUDE.md` §1: every rule is mandatory).
 
-## 결함의 정의
-**실재**와 **해**를 모두 증명한 것만 결함이다.
+## Defect definition
+A defect is one of these five, with its proof.
 
-실재는 다음 넷 중 하나다.
-1. **같은 사실이 두 곳**: 두 자리가 같은 사실을 나타낸다. 증명은 "한쪽이 바뀌면 다른 쪽도 바뀌어야 정확하다"는 근거다: 같은 프로토콜 필드, 같은 설정 키, 인코드와 디코드가 함께 쓰는 상한, 두 처리기가 따르는 같은 규칙, 같은 형식 버전. 값이 같다는 것만으로는 아니다.
-2. **한 일에 두 방법**: 같은 목적(비동기 런타임, CPU 풀, 큐 계열, 시계, 설정 형식, 로그, 오류 표현, 상한 있는 파일 읽기, 같은 계산)에 지금 둘 이상의 수단이 쓰인다.
-3. **코드와 다른 글**: `.claude/rules/`, `.claude/docs/`, CLAUDE.md, rustdoc, 주석, 로그·오류 문장이 말하는 사실(숫자, 이름, 순서, "~만", "늘")이 지금 코드와 다르다. 코드를 따라가 다름을 보였다.
-4. **죽은 것**: 시험 밖에서 부르는 곳이 없는 비공개·`pub(crate)` 항목, 읽지 않는 설정 키, 시험 밖에서 만들지 않는 variant, 디버그 잔재, 주석 처리한 코드, 구현이 하나뿐이고 확장 지점이 아닌 트레이트, 대응표에서 같은 일을 하는 공개 API 둘, 요청되지 않은 기능과 설정. 부르는 곳은 `src/`, `tests/`, `examples/`, `xtask/` 전체에서 찾는다.
+1. **Two forms for one kind of code**: one kind of thing (file layout, `impl` order, derive order, list order, signature, error type, log call, name, literal, comment, test) is written in two forms. Proof: the form `style.md` fixes, or, for a kind it does not cover, the crate's majority form, against each departing instance. A different form is allowed only for a different meaning; show the meaning or it is a defect.
+2. **One fact in two places**: two spots express the same fact. Proof: "when one changes, the other must change to stay correct": the same protocol field, configuration key, bound shared by encode and decode, rule followed by two handlers, or format version. Equal values alone are not proof.
+3. **Two ways for one task**: one purpose (async runtime, CPU pool, queue family, clock, configuration format, logging, error representation, bounded file read, one computation) is served by two or more means now.
+4. **Text that contradicts the code**: a fact (number, name, order, "only", "always") stated in `.claude/rules/`, `.claude/docs/`, `CLAUDE.md`, rustdoc, a comment, or a log or error message differs from the code now, shown by following the code.
+5. **Dead**: a private or `pub(crate)` item with no caller outside tests, a configuration key nobody reads, a variant never built outside tests, a debug leftover, commented-out code, a trait with one implementation that is not an extension point, two public APIs doing the same API-table job, a feature or setting nobody asked for. Search for callers across `src/`, `tests/`, `examples/`, and `xtask/`.
 
-## 등급
-| 등급 | 결과 | 증거 |
+## Grades
+| Grade | Result | Evidence |
 |---|---|---|
-| 치명 | 같은 사실의 두 자리가 이미 달라 정상 입력에서 틀린 결과(정상 데이터 거부, 잘못 저장, 클라이언트와 어긋남, 검사와 적용이 다른 규칙을 씀) | 어긋남을 보이는 시험이 지금 실패 |
-| 중대 | 같은 사실이 두 곳에 있고 한쪽만 바뀌면 조용히 틀리며, 이를 잡는 시험이나 컴파일 오류가 없음 | 두 자리 `파일:줄`과 같은 사실이라는 근거 |
-| 중대 | 한 일에 두 방법 | 두 수단의 쓰임 `파일:줄` |
-| 중대 | 코드와 다른 글. 이를 믿은 사람이나 AI가 틀린 일을 한다 | 글의 문장과 다른 코드 `파일:줄` |
-| 중대 | 죽은 것 | 이름 검색 결과(매크로·생성 코드·문자열로 부르는 경우까지 확인) |
-| 경미 | 이름·형식·주석의 스타일(CLAUDE.md 6절·7절 표기 규칙 위반 포함) | 고치지 않는다 |
+| CRITICAL | Two forms for one kind of code (`CLAUDE.md` §3) | The `style.md` rule or majority count, and every departing `file:line` |
+| CRITICAL | Two places of one fact already differ, giving a wrong result on normal input (normal data rejected, wrong save, mismatch with the client, check and apply following different rules) | A test that shows the mismatch and fails now |
+| MAJOR | One fact in two places that goes silently wrong when one side changes, with no test or compile error to catch it | Both `file:line` and the proof of the same fact |
+| MAJOR | Two ways for one task | The `file:line` of each means in use |
+| MAJOR | Text that contradicts the code; a person or AI trusting it does the wrong thing | The sentence and the contradicting code `file:line` |
+| MAJOR | Dead | The name search (including callers through macros, generated code, and strings) |
 
-## 후보가 아닌 것
-- 값이나 모양이 우연히 같은 것: 같은 숫자지만 뜻이 다른 상수, 비슷해 보이지만 다른 규칙(덤프 원본 동작, 프로토콜 차이)을 따르는 두 처리기.
-- 이미 시험·컴파일·clippy가 묶어 둔 것: 설정 문서의 toml 블록과 `DEFAULT_FILE` 비교 시험, `..` 없이 분해하는 상태 해시, `multiple_crate_versions`와 `allowed-duplicate-crates`, `dead_code`·`unreachable_pub` 경고, `mod_module_files` 같은 lint. 단 `allowed-duplicate-crates`나 `#[expect]`의 이유가 지금 사실이 아니면 후보다.
-- 생성 파일 안의 반복(원본은 생성기다), 다른 서버 코드와의 차이, 내부 호출자가 없는 공개 API(라이브러리다).
-- 이유를 적고 일부러 둔 예외(예: 틱 사이 대기만 `std::thread::sleep`을 쓰는 것. rules와 docs에 이유가 있다).
-- rules와 docs가 같은 주제를 나눠 다루는 것(작업 규칙과 참고 자료). 같은 사실 문장이 둘 다에 있을 때만 중복이다.
-- 이름 바꾸기, 파일 나누기·합치기, 공통 함수 뽑기 같은 취향 리팩토링. 합치면 같은 사실이 한 곳이 되거나 코드가 실제로 줄 때만 후보다.
-- 같은 원인의 여러 자리는 한 건이다.
+## Not candidates
+- Values or shapes that are equal by chance: constants with the same number but different meanings, two handlers that look alike but follow different rules (dump source behavior, protocol differences).
+- What tests, the compiler, or clippy already tie together: the test comparing the first toml block of `.claude/docs/config.md` with `DEFAULT_FILE` (`tests/config.rs`), state hashes that destructure without `..`, `multiple_crate_versions` with `allowed-duplicate-crates`, the `dead_code` and `unreachable_pub` warnings, and lints such as `mod_module_files`, `module_name_repetitions`, and `redundant_test_prefix`. An `allowed-duplicate-crates` entry or `#[expect]` reason that is no longer true is a candidate.
+- Repetition inside generated files (the source is the generator), differences from external implementations, public API with no internal caller (Anchor is a library).
+- Deliberate exceptions with a written reason (for example, only the wait between ticks uses `std::thread::sleep`; `.claude/rules/architecture.md` requires it).
+- A rules file and a docs file covering one topic (rules and facts). It is a duplicate only when the same fact sentence is in both.
+- Refactors of taste: splitting or merging files, extracting a shared function, renaming. They are candidates only when they bring one kind to its one form, put one fact in one place, or actually remove code.
+- Several spots with one cause are one defect.
 
-## 순서
-1. **읽기**: CLAUDE.md, 대상 주제의 `.claude/rules/`와 `.claude/docs/`.
-2. **수집**: 코드 모양이 아니라 '결함의 정의'의 네 가지에서 출발한다. 사실·수단·글·항목이 정의된 자리에서, 그것을 다시 쓰거나 부르는 자리를 찾는다.
-   - 후보는 두 자리(또는 글과 코드)의 `파일:줄`과 그것이 같은 사실이라는 근거를 채울 수 있을 때만 적는다. 못 채우면 그 자리에서 버린다.
-   - 대상이 크면 코드 영역과 `.claude/` 문서로 나눠 파일을 고치지 않는 서브에이전트에 수집만 맡긴다. 이 파일을 읽게 하고 후보마다 위 칸을 돌려받는다. 판정은 직접 한다.
-3. **반증**: 후보마다 "둘이 다른 사실이라면 무엇 때문인가", "글이 맞다면 코드의 어디가 그렇게 하는가", "죽지 않았다면 누가 부르는가"를 먼저 묻고 그 근거를 찾는다. 찾으면 기각한다.
-4. **재현**: 이미 어긋난 것은 어긋남을 보이는 실패 시험을 쓴다. 아직 같은 중복, 두 방법, 글, 죽은 것은 고쳐도 동작이 같으면 시험 대신 `파일:줄` 근거를 남긴다(CLAUDE.md 10절).
-5. **독립 검토**: 남은 후보마다 새 서브에이전트에 주장과 근거만 주고, 찾은 과정은 주지 않는다. 시킬 일: "이 주장이 틀린 근거를 찾아라. 두 자리가 다른 사실인 이유, 글이 맞는 이유, 이 항목을 부르는 곳(매크로, 생성 코드, 문자열, 다른 패키지 포함), 둘째 방법이 의도된 이유." 근거가 `파일:줄`로 성립하면 기각한다. 후보가 여럿이면 함께 띄운다.
-6. **고치기**: 남은 결함만 고친다.
-   - 이미 어긋난 것은 CLAUDE.md 1절과 9절이 정한 정답 출처로 어느 쪽이 맞는지 정한다. 정하지 못하면 묻는다.
-   - 같은 사실은 한 곳에 두고 다른 자리는 거기서 가져온다(상수 하나, 함수 하나, 생성기). 가져올 수 없는 자리(문서와 코드처럼)는 둘을 비교하는 시험을 둔다.
-   - rules가 정한 규칙을 코드가 어기면 코드를 고친다. docs나 주석의 사실 설명이 코드와 다르면 어느 쪽이 의도인지 근거(시험, 커밋, 정답 출처)로 정하고, 정하지 못하면 묻는다.
-   - 죽은 것은 지운다. 지우면 공개 API, 저장 형식, 설정 키, 기능 범위가 바뀌는 경우는 먼저 묻는다.
-   - 고친 뒤에도 성능과 안전성이 같은지 본다(CLAUDE.md 2절 우선순위). 합치면서 핫패스에 간접 호출이나 할당이 생기면 합치지 않는다.
-7. **검사**: `cargo xtask check`.
+## Steps
+1. **Read**: `CLAUDE.md`, `.claude/rules/style.md`, and the target topic's `.claude/rules/` and `.claude/docs/` files.
+2. **Collect**: start from the five kinds in the defect definition, not from the look of the code.
+   - Forms: for each `style.md` section, find every instance of that kind in the target and compare it with the fixed form. For a kind `style.md` does not cover, count the forms across the crate.
+   - Facts, means, text, items: from where each is defined, find where it is restated or used.
+   - Write a candidate down only when you can fill in both spots (or the text and the code) as `file:line` and the proof that they are one kind or one fact. Otherwise drop it on the spot.
+   - For a large target, split it into code areas and `.claude/` documents and give each to a subagent that only collects and edits no file. Have it read this file and return those fields per candidate. Decide every candidate yourself.
+3. **Refute**: for each candidate, first ask "if the two have different meanings, what makes them different?", "if the text is right, where does the code do that?", "if it is not dead, who calls it?", and look for the evidence. If you find it, reject the candidate.
+4. **Reproduce**: for a fact that already diverged, write a test that shows the mismatch and fails. A form conversion, a duplicate that still agrees, two ways, text, or something dead whose fix keeps behavior records `file:line` evidence instead of a test (`CLAUDE.md` §6).
+5. **Independent review**: give each remaining candidate to a new subagent with only the claim and its evidence, not how you found it. Its task: "Find evidence that this claim is wrong: why the two have different meanings, why the text is right, who calls this item (macros, generated code, strings, other packages included), why the second way is intended." If the evidence holds as `file:line`, reject the candidate. Launch the reviews for several candidates together.
+6. **Fix**: fix only the remaining defects.
+   - Two forms: convert every instance in the crate to the `style.md` form in the same change. For a kind `style.md` does not cover, use the majority form; with no majority, choose one, add it to `style.md`, and convert every instance (`CLAUDE.md` §3). A half-converted codebase is a failure.
+   - For a fact that already diverged, decide which side is right from the ground truth that `CLAUDE.md` §2 and the topic's rules file name. If that does not decide it, ask.
+   - Keep one fact in one place and have the other spots take it from there (one constant, one function, a generator). Where that is impossible (a document and code), add a test that compares the two.
+   - Code that breaks a rule in `.claude/rules/` is changed to follow it. When a factual description in docs or a comment differs from the code, decide which is intended from evidence (tests, commits, ground truth); if that does not decide it, ask.
+   - Delete what is dead. Ask first when deleting changes the public API, a storage format, a configuration key, or the feature scope.
+   - Confirm that performance and safety stay the same after the fix (`CLAUDE.md` §3 priorities). Do not merge when merging adds indirect calls or allocation on a hot path.
+7. **Check**: `cargo xtask check`.
 
-감사를 처음부터 되풀이하지 않는다. 고친 자리 주변에서 같은 원인이 새로 보이면 그것만 같은 순서로 다룬다.
+Do not restart the audit from the beginning. When the same cause appears again around a fixed spot, handle only that, with the same steps.
 
-## 보고
-쉬운 한국어로 짧게.
+## Report
+Write the report to the user in short, plain Korean (`CLAUDE.md` §7).
 
-1. 첫 줄: 고친 결함 N건(치명 a, 중대 b), 미확정 N건, 경미 N건, 기각 N건.
-2. 고친 결함마다:
-   - `[등급] 한 줄 요약` — `파일:줄`
-   - 무엇과 무엇이 어긋났거나 겹쳤는지, 같은 사실이라는 근거
-   - 결과: 지금 틀린 것, 또는 한쪽만 바뀌면 틀릴 것
-   - 증거: 시험 이름(고치기 전 실패, 고친 뒤 통과), 또는 근거 `파일:줄`
-   - 수정: 어디를 기준으로 두고 무엇을 지웠는지 한 줄
-3. 미확정: 한 줄씩. 무엇이 증명되지 않았고 무엇을 하면 확정되는지.
-4. 경미: 한 줄씩. 고치지 않았다.
-5. 기각: 이유별 개수만(다른 사실, 글이 맞음, 부르는 곳 있음, 의도된 예외, lint·시험이 묶음, 독립 검토가 반박).
-6. `cargo xtask check` 마지막 줄, 바뀐 공개 API와 동작.
+1. First line: defects fixed (CRITICAL a, MAJOR b), unconfirmed, rejected.
+2. For each fixed defect:
+   - `[grade] one-line summary` — `file:line`
+   - What diverged or overlapped, and the proof that it is one kind or one fact
+   - Result: what is wrong now, or what goes wrong when one side changes
+   - Evidence: the test name (fails before the fix, passes after), or `file:line` evidence
+   - Fix: which side became the standard and what was removed, in one line
+3. Unconfirmed: one line each, saying what is unproven and what would confirm it.
+4. Rejected: counts per reason only (different meaning, text is right, has a caller, intended exception, tied by a lint or test, refuted by independent review).
+5. The items `CLAUDE.md` §7 requires.

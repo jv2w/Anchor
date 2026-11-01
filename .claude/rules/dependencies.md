@@ -18,51 +18,62 @@ paths:
   - "xtask/src/dump/**"
   - "xtask/php/**"
 ---
-# 의존성 규칙
+# Dependency rules
 
-## 들이기와 올리기
-- 들이는 조건(`CLAUDE.md`)의 정답은 표준, 기준 서버, 시험 벡터다.
-- 들이는 모든 것은 아래 외부 불신 절차를 거친다. 결함이 남으면 고친 판 고정, 가드, 사본 수정 가운데 하나로 없앤 뒤에만 쓴다.
-- 판을 올릴 때마다 외부 불신 절차를 다시 거친다.
-- Anchor는 라이브러리라 전역 할당기와 빌드 프로필을 정하지 않는다.
-- `.claude/docs/dependencies.md`의 "직접 구현하는 것" 표에 든 것은 크레이트를 들이지 않고 직접 구현을 쓴다.
+## Admission
+- Admit an external dependency only when all of these hold:
+  - implementing it directly is very hard;
+  - it is very accurate and can be checked against ground truth (a standard, the official server, test vectors) and tests;
+  - it has no hidden threads, global state, unbounded queues, or panics reachable by external input, or these can be blocked;
+  - it has no open RustSec advisory, active maintenance, and a permissive license;
+  - it matches the Bedrock format byte for byte;
+  - it supports Windows and Linux.
+- Pin every version with `=`.
+- Never admit a crate for anything in the "Implemented directly" table of `.claude/docs/dependencies.md`; use the direct implementation.
+- Anchor is a library: never set a global allocator or a build profile for its users.
 
-## 외부 불신 절차
-- `CLAUDE.md`의 의존성 검토(쓰는 부분 직접 읽기, 결함 제거 순서)를 크레이트뿐 아니라 Go 모듈, 데이터 출처, 문서 등 밖에서 가져오는 모든 것에 적용한다.
-- 분석할 때 알려진 이슈와 권고를 찾고, 경계 조건(패닉, 넘침, 할당, 숨은 스레드, 결정성)을 시험한다.
-- 찾은 결함과 조치를 `.claude/docs/dependencies.md`의 표나 사본 절에 적는다.
+## Distrust procedure
+- Apply it to everything taken from outside: crates, Go modules, data sources, documents.
+- Before admitting, read the parts used yourself. Search known issues and advisories, and test the boundary conditions: panic, overflow, allocation, hidden thread, determinism.
+- Remove every defect found, in this order: a fixed release, pinning, a guard, a different choice. A defect upstream has not fixed may instead be fixed in a vendor copy (below). If a defect cannot be removed, do not admit the dependency.
+- Run the procedure again on every version bump.
+- Record every defect and its measure in the table or the vendor-copy section of `.claude/docs/dependencies.md`.
 
-## 가드
-- 가드의 기본 수단은 `.clippy.toml`의 `disallowed-methods`와 `disallowed-types`다.
-- 들인 의존성의 시계, 난수, 상한 없는 큐, 블로킹 호출, 상한 없는 할당 진입점은 들이는 변경에서 금지 목록에 넣는다.
-- 넣은 금지가 실제로 걸리는지 임시 코드로 확인한다.
+## Guards
+- The primary guard is `disallowed-methods` and `disallowed-types` in `.clippy.toml`.
+- In the change that admits a dependency, add its clock, randomness, unbounded queue, blocking, and unbounded allocation entry points to those deny lists.
+- Confirm with throwaway code that each new entry actually fires.
 
-## vendor 사본
-- 상류가 아직 고치지 않은 결함은 `vendor/<크레이트>/`에 사본을 두고 고친다.
-- 결함만 고친다. 기능을 더하거나 다듬지 않는다.
-- 고친 곳과 이유를 `.claude/docs/dependencies.md`의 사본 절에 적고, 코드에도 `Anchor` 주석을 단다.
-- 사본은 crates.io의 고정 판에서 시작한다. 고친 곳과 다른 사본을 가리키는 `path` 줄만 원본과 다르게 둔다.
-- 상류 릴리스가 결함을 고치면 그 고침을 사본에서 뺀다. 남은 고침이 없으면 사본을 지우고 릴리스로 돌아간다.
-- 새 상류 판이 나오면 외부 불신 절차로 검토해 올린다.
-- 사본은 `[patch]`가 아니라 `path` 의존성으로 둔다.
-- 사본은 작업 공간 멤버로 두지 않는다(`exclude = ["vendor"]`).
-- str0m 통합 시험의 캡처 파일은 커밋하지 않는다. str0m 사본을 바꾸면 `cargo xtask vendor-test str0m`을 돌린다.
-- dimpl 판을 올릴 때마다 풀 밖 버퍼가 반납되는 길이 없는지 다시 본다.
-- str0m-proto, str0m-aws-lc-rs, is 사본은 str0m 릴리스로 돌아갈 때 함께 지운다.
+## Vendor copies
+- Fix a defect upstream has not fixed in a copy at `vendor/<crate>/`.
+- Fix only the defective part. Never add features or polish.
+- Every fix has a reproduction test that fails on the published crate.
+- Record each fix and its reason in the vendor-copy section of `.claude/docs/dependencies.md`, and mark it in the code with an `Anchor` comment.
+- Start each copy from the pinned crates.io release. A copy differs from it only in its fixes, the `path` lines to other copies, and an upstream license file the published crate lacks.
+- Depend on a copy by `path`, never by `[patch]`. Never make a copy a workspace member (`exclude = ["vendor"]`).
+- When an upstream release fixes a defect, drop that fix from the copy. When no fix remains, delete the copy and return to the release.
+- Review each new upstream release with the distrust procedure before moving to it.
+- Never commit the capture files of str0m's integration tests. After changing the str0m copy, run `cargo xtask vendor-test str0m`.
+- On every dimpl version bump, check again that no path returns a buffer from outside its pool.
+- Delete the str0m-proto, str0m-aws-lc-rs, and is copies together with the str0m copy.
 
-## 빌드 설정
-- 저장소의 빌드 설정에는 같은 결과에 시간만 줄이는 것만 둔다.
-- 의존성 `opt-level = 1`과 sccache를 쓰지 않는다.
+## Build settings
+- The repository's build settings hold only what shortens build time with the same result.
+- Never use dependency `opt-level = 1` or sccache.
 
-## 저작권
-- 다른 서버와 라이브러리의 출력 형식, 주석, 코드 덩어리도 옮기지 않는다.
-- 서버가 만드는 모든 문장(콘솔 로그, 명령 출력, 킥 사유, 오류 메시지, status 출력 등)은 Anchor 고유 문장으로 쓴다.
-- 프로토콜이 요구하는 형식(핑 응답 필드 순서 등)은 형식이 아니라 규약이라 그대로 따른다.
-- 생성 코드의 문서는 생성기가 IR의 정보(이름, 패킷 ID와 방향, 와이어 형식, 상한)로 쓴다.
-- 추출기는 gophertunnel 주석을 읽지 않는다.
-- 데이터에는 사실(값, 번호, 상한)만 쓴다.
-- Mojang 프로토콜 문서는 숫자만 옮기고 파일을 복사하지 않는다.
-- 덤프 데이터는 덤프 원본을 실행해 얻는다.
-- 밖에서 가져온 코드나 데이터가 저장소에 들어가면 같은 변경에서 `THIRD-PARTY-NOTICES.md`에 출처, 파일, 라이선스 고지를 더한다.
+## Copyright
+- Never copy text or code from other servers and libraries verbatim, including output formats, comments, and blocks of code. Use only the principles.
+- Every sentence the server produces (console logs, command output, kick reasons, error messages, status output) is Anchor's own wording. Sending client translation keys is fine.
+- A format the protocol requires (such as the field order of the ping response) is a protocol rule, not wording: follow it exactly.
+- The generator writes the documentation of generated code from the IR's information only: names, packet IDs and directions, wire formats, limits.
+- The extractor never reads gophertunnel's comments.
+- Data holds facts only: values, numbers, limits.
+- From Mojang's protocol documentation take only numbers; never copy its files.
+- Obtain dump data by running the dump source.
+- When outside code or data enters the repository, add its source, files, and license notice to `THIRD-PARTY-NOTICES.md` in the same change.
 
-배경과 자세한 사실은 `.claude/docs/dependencies.md`.
+## Evidence
+- The only evidence is official documentation, code, and measurement.
+- When sources disagree, follow the official server comparison, then the protocol source, then Mojang documentation.
+
+Background and detailed facts: `.claude/docs/dependencies.md`.

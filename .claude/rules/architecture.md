@@ -8,104 +8,110 @@ paths:
   - "xtask/Cargo.toml"
   - ".clippy.toml"
 ---
-# 아키텍처 규칙
+# Architecture rules
 
-## 저장소와 모듈
-- 개발 도구 의존성은 `xtask`에 두고 라이브러리 `anchor`에 넣지 않는다.
-- 도구 설정 파일은 점 이름으로 둔다.
-- 내려받은 외부 소스와 도구는 `.cache/`에 둔다.
-- 스레드는 `runtime`에서만 만든다. 시스템 시계는 `clock`에서만 읽는다. rayon 병렬 API는 `pool`에서만 부른다.
+## Repository and modules
+- Place every module in its area (the table in `.claude/docs/architecture.md` lists the submodules):
+  - transport: `udp`, `raknet`, `nethernet`;
+  - session: `session`, `login`, `auth`, `crypto`;
+  - protocol: `protocol`;
+  - tick rules: under `tick/`;
+  - world: `world`;
+  - storage: `save`, `storage`, `import`, `export`, `replay`;
+  - block and item data: `block`, `item`, `crafting`, `effect`, `nbt`;
+  - public API: `server` (re-exported at the crate root), `player`, `entity`, `event`, `command`, `form`, and the other modules reachable from the crate root;
+  - foundation: `runtime`, `pool`, `clock`, `random`, `bucket`, `console`, `fs`, `error`, `args`.
+- Keep tick code and off-tick code in separate modules.
+- Put development tools in `xtask/` and patched dependency copies in `vendor/`. Put development-tool dependencies in `xtask`, never in the `anchor` library.
+- Name every tool configuration file with a leading dot where the tool accepts one.
+- Put downloaded external sources and tools in `.cache/`.
+- Create threads only in `runtime`, read the system clocks only in `clock`, and call rayon's parallel APIs only in `pool`.
 
-## 스레드
-- 틱 스레드는 디스크에 닿지 않는다.
-- tokio 기본 블로킹 상한 512를 쓰지 않는다.
-- 모든 스레드의 스택은 4 MiB 하나로 정한다.
-- 정상 종료 때 CPU 풀의 스레드가 모두 끝날 때까지 기다린다.
-- 저장 스레드는 CPU 풀을 `Pool::map_in_turns`로만 쓴다.
+## Threads
+- The tick thread never touches the disk.
+- Never leave tokio at its default of 512 blocking threads; `runtime` sets the bound.
+- Give every thread the same stack size, 4 MiB.
+- On a clean shutdown, wait until every CPU pool thread has ended.
+- The save thread uses the CPU pool only through `Pool::map_in_turns`.
 
-## 틱
-- 틱 사이 대기는 `std::thread::sleep`으로 한다.
-- 틱 단계 순서(입력 → 규칙 → 정리 → 출력 → 경계)를 바꾸지 않는다.
-- 틱은 적용하는 모든 입력을 적용 **전에** 입력 로그에 넣는다.
-- 계산이 무거운 규칙(엔티티 물리 등)은 CPU 풀에서 읽기 전용으로 다음 값을 구하고 직렬로 적용한다.
-- 송신 훅과 StartGame 훅은 출력 단계에서 병렬로 돌므로 `Fn + Sync`로 두어 게임 상태에 닿지 못하게 한다.
-- 월드 생성기 `Generator`에는 빈 청크와 좌표·시드만 준다.
+## Tick
+- Wait between ticks with `std::thread::sleep`, through `clock::sleep_until`.
+- Never change the order of a tick: input → rules → sync → output, then the boundary after the output is delivered.
+- Put every input the tick applies into the input log **before** applying it.
+- Compute heavy rules (entity physics) read-only on the CPU pool, then apply the results serially.
+- Send hooks and the StartGame hook run in parallel in the output phase: keep them `Fn + Sync`, so they cannot reach game state.
+- Give a world generator (`Generator`) only the seed, the chunk position, and the empty chunk.
 
-## 결정성
-- `Random::new`의 `stream`은 용도 태그와 위치·엔티티·세션을 섞어 만든다. 한 틱에 같은 키를 두 번 열지 않는다.
-- 세션 ID는 수락 작업 한 곳에서 접속 순서로 매기고 재사용하지 않는다.
-- 틱 상태의 실수는 `f64`로 두고 프로토콜 경계에서 `f32`로 바꾼다.
-- `math`는 IEEE 754가 결과를 고정하는 연산(사칙, `sqrt`, `floor`, `ceil`, `round`, `abs`)만 쓴다.
-- `min`·`max`·`clamp`와 삼각함수는 std 대신 `math`의 것을 쓴다. std 쪽은 `.clippy.toml`이 막는다.
-- 클라이언트 좌표는 유한하고 월드 경계(30,000,000) 안인지 검사한다.
-- 공식 클라이언트가 보내는 값처럼 봇과 공식 서버로 볼 수 없는 값은 모든 경우를 받도록 설계한다.
-- 이벤트 실수 세터는 NaN·Inf를 무시하고 범위를 자른다.
-- 조회는 O(1) 색인으로 한다. 반복 순서는 결정적으로 둔다(`BTreeMap`, Id 순).
-- 입력 정렬 키는 입력마다 유일하게 둔다.
-- 상태 해시와 체크포인트(`tick/checkpoint.rs`)는 모든 구조체를 `..` 없이 분해해 해시한다. 뺀 필드에는 이유 주석을 단다.
+## Determinism
+- Make the key of `Random::new` with `random::key` from a purpose `random::tag` and the position, entity, or session it is for. Never open the same key twice in one tick.
+- Number sessions only in the accept task, in connection order, and never reuse a number.
+- Keep the floats of tick state as `f64`; convert to `f32` only at the protocol boundary.
+- In `math`, use only the operations whose results IEEE 754 fixes: the four arithmetic operations, `sqrt`, `floor`, `ceil`, `round`, `abs`.
+- Use the `min`, `max`, `clamp`, and trigonometric functions of `math`, never std's (`.clippy.toml` forbids std's).
+- Check that every coordinate a client sends is finite and inside the world border (`world::BORDER`, 30,000,000).
+- An event's float setter ignores a value that is not finite and keeps the field inside its valid range.
+- Keep every iteration order deterministic (`BTreeMap`, `Id` order).
+- Keep the input sort key, (session, sequence number), unique per input.
+- The state hash and the checkpoint (`tick/checkpoint.rs`) destructure every struct without `..`. Give every field left out a comment with the reason.
 
-## 입력 로그와 재생
-- 패킷은 틱에서 다시 인코드하지 않는다. 로그를 쓸 때(메인 스레드) 인코드한다.
-- 재생은 런타임·네트워크를 만들지 않는다. 데이터 파일은 `.claude/rules/storage.md`의 재생 규칙을 따른다.
-- 재생은 블로킹 작업을 다시 돌리지 않고 기록된 결과를 넣는다.
-- 체크포인트가 클로저(예약 작업, 대기 폼·작업, 열린 메뉴, `defer`)나 타입 없는 Extensions를 담으면 그 구간은 재생하지 않는다(`Opaque`). 추측하지 않는다.
+## Input log and replay
+- Never encode packets on the tick: the log encodes them when it is written, on the main thread.
+- A replay creates no runtime and no network. It opens data files as `.claude/rules/storage.md` says for replays.
+- A replay never runs blocking jobs again; it hands their logged results to their callbacks.
+- Never replay from a checkpoint that holds state without a checkpoint form (a closure such as a scheduled task, a waiting form or job, an open menu, or a deferred callback; a player extension; a held offline player): refuse it with `replay::Error::Opaque`. Never guess.
 
-## 공개 API
-- 게임 상태는 `Server`만 소유하고, 콜백에는 `Context`로 빌려준다.
-- 틱을 넘겨 보관하는 것은 다른 대상을 가리키지 않는 `Copy` Id뿐이다: 다시 쓰지 않는 번호(`player::Id`, `world::Id`)나 세대 번호가 있는 색인(`entity::Id`).
-- 상태 접근은 읽기 `ctx.player(id) -> Option<&Player>`, 쓰기 `ctx.player_mut(id)` 모양을 따른다.
-- `Player`, `Entity` 같은 틱 상태 구조체의 필드는 비공개로 둔다.
-- 위치를 바꾸면 색인도 바꿔야 하는 엔티티는 가드 `entity::Mut`로 준다.
-- 위치, 블록 상태, Id는 `Copy` 값, `ItemStack`은 불변 값으로 둔다. 게터는 `&T`나 `Copy` 값을 돌려준다.
-- 직접 API(세터, `teleport`, `kick` 등)는 값을 곧바로 바꾼다. 다른 플레이어에게 보일 변화는 표시해 두었다가 틱의 정해진 자리에서 보낸다.
+## Public API
+- Only `Server` owns game state; callbacks borrow it through `Context`.
+- Keep nothing across ticks but `Copy` IDs that point at nothing else: numbers never reused (`player::Id`, `world::Id`) or indexes with a generation (`entity::Id`).
+- Give state access this shape: `ctx.player(id) -> Option<&Player>` to read, `ctx.player_mut(id)` to change.
+- Keep the fields of tick-state structs such as `Player` and `Entity` private.
+- Lend an entity, whose position change must also update an index, through the guard `entity::Mut`.
+- Make positions, block states, and IDs `Copy` values, and `item::Stack` an immutable value.
+- A direct API call (a setter, `teleport`, `kick`) changes the value at once. Mark what other players must see and send it at the tick's fixed point.
 
-## 이벤트
-- 이벤트는 `tick/dispatch.rs`의 흐름(검사 → 이벤트 값 → 리스너 → 다시 검사 → 적용 → 모니터)을 따른다.
-- 리스너가 상태를 바꿔 다시 검사가 실패하면 취소로 본다.
-- 리스너도 모니터도 없으면 이벤트를 만들지 않고 다시 검사도 하지 않는다.
-- 이벤트는 스택 값으로 만든다.
-- 리스너 없음과 빈 리스너는 같은 해시·출력·로그 바이트를 내게 한다.
-- 직접 API 호출의 결과로 생기는 일(예: `kick` → 퇴장)은 틱의 정해진 자리에서 처리하고, 이벤트도 거기서 쏜다.
-- EntitySpawn·ItemSpawn은 엔티티 틱에서 쏜다.
-- 이벤트 필드는 `pub(crate)`로 두고 게터·세터·`cancel`만 공개한다.
-- 대응표 이벤트의 하위 클래스 계층은 한 구조체 + 원인 enum으로 합친다(`EntityDamageByEntity` → `EntityDamage`의 원인).
-- PlayerDataSave 취소는 무시한다.
-- 날씨처럼 프로그램 자신의 직접 호출로만 바뀌는 값에는 변화 이벤트를 두지 않는다.
+## Events
+- Raise every event with the flow of `tick/dispatch.rs`: check → build the event → listeners → check again → apply → monitors.
+- Treat a second check that fails because a listener changed the state as a cancel.
+- Without listeners and monitors, build no event and check nothing again. Check again only when a listener, not only a monitor, is registered.
+- Build events as stack values.
+- No listener and an empty listener give the same state hash, output, and log bytes.
+- Handle what a direct API call causes (`kick` → the player quits) at the tick's fixed point, and raise its events there.
+- Raise EntitySpawn and ItemSpawn in the entity tick.
+- Keep event fields `pub(crate)`; make public only getters, setters, and `cancel`, `uncancel`, `is_cancelled`.
+- Merge an API-table event's subclass hierarchy into one struct with a cause enum (`EntityDamageByEntity` → a `DamageSource` of `EntityDamage`).
+- Ignore a cancel of PlayerDataSave.
+- Give no change event to a value only the program's own direct calls change, such as the weather.
 
-## 확장 지점
-- 커스텀 블록·아이템은 `&'static` 정의를 값에 담고 전역 레지스트리를 두지 않는다.
-- 블록 상태를 4바이트 + 서버 표로 바꾸지 않는다.
-- 사용자 정의 상태 효과와 인챈트를 등록하는 API는 두지 않는다.
-- 사용자 저장 공급자 trait은 원자 커밋을 지킬 수 있는 요구가 생길 때만 둔다.
+## Extension points
+- Carry custom block and item definitions as `&'static` references in the values. Keep no global registry.
+- Never turn the block state into 4 bytes plus a server table.
+- Add no API that registers custom status effects or enchantments.
+- Add a user storage provider trait only when a need arises that it can meet while keeping the atomic commit.
 
-## 들인 크레이트를 쓸 때
-- rayon의 전역 `spawn`은 쓰지 않는다(풀은 `runtime`이 만들고, 병렬 API는 위 `pool` 규칙을 따른다). 예외: `Pool::map_in_turns`가 풀 자신의 `in_place_scope` 안에서 쓰는 `Scope::spawn`.
-- aws-lc-rs 난수는 crypto 모듈 한 곳에서만 쓴다.
-- rustls에는 늘 aws-lc-rs 공급자를 명시한다.
-- tokio-rustls는 요청 10초 마감 안에서만 쓴다.
-- toml 오류는 `message()`와 `span()`만 쓴다.
-- 신뢰 못 할 JSON은 길이 상한을 검사한 뒤 타입 있는 구조체로 읽는다.
-- memory-stats는 블로킹 스레드에서만 부른다.
-- redb의 열기, `begin_read`, `begin_write`, `check_integrity`, `compact`, `commit`은 storage 모듈에서만 쓴다.
-- str0m의 공급자, ICE 자격, 인증서는 모두 명시 설정한다.
+## Using admitted crates
+- Never use rayon's global entry points (`spawn` and the others the deny list names); the pool comes from `runtime` and its parallel APIs from `pool`. The one exception is the `Scope::spawn` that `Pool::map_in_turns` calls inside the pool's own `in_place_scope`.
+- Use aws-lc-rs randomness only in the `crypto` module.
+- Always give rustls the aws-lc-rs provider explicitly (`builder_with_provider`).
+- Use tokio-rustls only inside the signaling's 10-second request deadline.
+- Use only `message()` and `span()` of a toml error.
+- Read untrusted JSON into a typed struct, after checking its length against its bound.
+- Call memory-stats only on a blocking thread.
+- Use redb's open calls, `begin_read`, `begin_write`, `check_integrity`, `compact`, and `commit` only in the `storage` module.
+- Set str0m's crypto provider, ICE credentials, and certificate explicitly.
 
-## API 대응표
-- 대응표 alias의 짧은 이름이 겹치면 네임스페이스로 구별한다.
-- rustdoc이 항목 이름과 같은 alias를 거부하는 클래스 행은 항목 위 `// pmmp-class: Name` 주석으로 덮는다.
-- 시험은 시험 함수 위 `// pmmp: A::b, C::d` 주석으로 그 alias를 덮는다.
+## API table
+- When an alias's short class name is ambiguous, write its namespace path instead (`block\tile\Chest::getPair`).
+- When rustdoc rejects an alias equal to the item's own name, cover the class row with a `// pmmp-class: Name` comment above the item.
+- Cover the aliases a test checks with a `// pmmp: A::b, C::d` comment above the test function.
 
-## 게임 범위
-- 설정에 없는 동작은 가장 성능적이고 안전한 기본값으로 정한다(`config.md`).
-- 서버가 만드는 문장은 `.claude/rules/dependencies.md`의 저작권 규칙을 따른다.
+## Villager trading
+- Send prices as the real counts. Never rely on the client's price formula.
+- Process a trade request ID once, accept only offer IDs of the list as it is now, and check the payments and the uses left.
+- Repeat a trade at most 256 times per request. Apply a trade as one unit; on failure undo all of it.
+- Return the payment slots' items when the window closes or the villager is gone.
+- Never drop a saved offer Anchor cannot use; write it back as it was.
 
-## 주민 거래
-- 가격은 서버가 실제 개수로 보낸다. 클라이언트 가격식에 기대지 않는다.
-- 거래 요청 ID는 한 번만 처리하고, 최신 뷰 리비전만 받고, 재료와 남은 횟수를 검사한다.
-- 반복 상한은 256이다. 적용은 한 단위로 하고, 실패하면 모두 되돌린다.
-- 창을 닫거나 대상이 사라지면 입력 칸 아이템을 돌려준다.
-- 못 쓰는 저장 오퍼는 버리지 않고 그대로 다시 쓴다.
+## Multiple worlds
+- Never unload the default world, not even by force.
 
-## 여러 월드
-- 기본 월드는 강제로도 언로드하지 않는다.
-
-배경과 자세한 사실은 `.claude/docs/architecture.md`.
+Background and detailed facts are in `.claude/docs/architecture.md`.

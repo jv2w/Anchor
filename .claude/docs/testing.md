@@ -1,158 +1,154 @@
-# 시험과 검증
+# Tests and verification
 
-작업 규칙은 `.claude/rules/testing.md`.
+Work rules are in `.claude/rules/testing.md`.
 
-Anchor의 검사는 세 층이다. `cargo xtask check`는 바뀐 것만 보는 가벼운 검사, `cargo xtask verify`는 전체 검사, P6는 기준 서버(Mojang이 배포하는 공식 서버)와 패킷을 대조하는 별도 도구다. 클라이언트 화면처럼 셋 다 볼 수 없는 것은 실제 클라이언트로 확인한다.
+Anchor's checks have three layers. `cargo xtask check` is the light check of what changed, `cargo xtask verify` is the full check, and P6 is a separate tool that compares packets with the official server (the server program Mojang distributes). What none of them can see, such as the client's screen, is checked with the real client.
 
 ## `cargo xtask check`
 
-HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로 돌며 처음 실패에서 멈춘다. 통과하면 마지막 줄이 `PASS`다.
+It looks only at the files that differ from HEAD (changed, staged, deleted, or untracked), runs its steps in order, and stops at the first failure. The last line is `PASS` or `FAIL`.
 
 1. `cargo fmt --check`
-2. `cargo clippy --workspace --all-targets -- -D warnings`(빌드 포함)
-3. 바뀐 것의 시험:
-   - `src/`의 파일: 그 모듈의 단위 시험(`cargo test -p anchor --lib -- <모듈>::`). 하위 모듈이 있는 파일은 자기 모듈, 없는 파일은 그 폴더를 가진 모듈이다(`foo/bar.rs`, `foo/tests.rs` → `foo::`). `src/lib.rs`나 빌드 파일(`Cargo.toml`, `Cargo.lock`, `.clippy.toml`, `.rustfmt.toml`, `rust-toolchain.toml`, `.cargo/`)이 바뀌면 모든 단위 시험.
-   - `tests/<이름>.rs`, `xtask/tests/<이름>.rs`: 그 시험 파일. 하위 폴더의 공용 파일이 바뀌면 그 패키지의 모든 통합 시험.
-   - `xtask/src/`: xtask 단위 시험.
-   - Rust 소스가 끌어 쓰는 파일(`#[path = "…"]` 모듈의 파일, 경로가 문자열인 `include_str!`·`include_bytes!`, 크레이트 폴더 기준 `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`): 그 소스가 바뀐 것으로 보고 위 규칙대로 그 소스의 시험(그 소스의 크레이트)을 돈다.
+2. `cargo clippy --workspace --all-targets -- -D warnings` (this builds every target of the workspace, `examples/` included)
+3. The tests of what changed:
+   - A file under `src/`: the library tests of its module (`cargo test -p anchor --lib -- <module>::`). That is the file's own module when it has submodules, else the module that owns its folder (`foo/bar.rs` and `foo/tests.rs` run `foo::`). `src/lib.rs` runs every library test.
+   - A build file (`Cargo.toml`, `Cargo.lock`, `.clippy.toml`, `.rustfmt.toml`, `rust-toolchain.toml`, by file name in any folder, or a file under `.cargo/`): under `xtask/`, xtask's unit tests; anywhere else, every library test.
+   - `tests/<name>.rs` or `xtask/tests/<name>.rs`: that test file. A changed shared file in a subfolder (such as `tests/support/`) runs every integration test of its package.
+   - A Rust file under `xtask/src/`: xtask's unit tests.
+   - A file a Rust source pulls in (the file of a `#[path = "…"]` module, an `include_str!` or `include_bytes!` whose path is a string literal, both from the source's folder, or `concat!(env!("CARGO_MANIFEST_DIR"), "/…")` from the source's crate folder): it counts as a change of that source, which runs that source's tests by the rules above, in the source's own crate.
 
-- 그 밖에 소스도 빌드 파일도 아니고 끌어 쓰이지도 않는 파일만 바뀌었으면 바로 통과한다. `examples/`는 clippy가 빌드하고, vendor 사본의 시험은 verify가 돈다.
-- 빌드는 `target/check/`에서 한다. 도는 verify를 기다리지 않고 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
-- 통과하면 HEAD와 빌드가 읽는 바뀐 파일(위 세 종류) 내용의 도장을 `target/check/pass`에 남긴다. 그대로인 트리는 바로 통과한다.
+- When no Rust source, build file, or pulled-in file changed, the check prints `no code changed` and passes. This includes changes to Go sources (`xtask/go/`) alone: their tests run in `verify` (`xtask/tests/go.rs` and the bot tests). A changed Rust file under `examples/` or `vendor/` runs only the format check and clippy; the vendor copies' tests run in `verify`.
+- The builds go to `target/check/`, so a check neither waits on a running `verify` nor rebuilds the running `xtask.exe`.
+- A pass writes a stamp of HEAD and of the changed files the build reads, with their contents, to `target/check/pass`. An unchanged tree then passes at once.
+
 ## `cargo xtask verify`
 
-검사는 순서대로 돌고, 각 줄은 `ok  ` 또는 `FAIL`로 시작한다. 마지막 줄은 전체 결과 `PASS` 또는 `FAIL`이다. 하나라도 실패하거나 경고를 내면 전체가 `FAIL`이다. 이 PC에서 10~15분 걸린다.
+The steps run in order, and every step runs even after a failure. Each step's line starts with `ok  ` or `FAIL`, after the output of a failure. The last line is the overall result, `PASS` or `FAIL`. Any failed step fails the whole run; a cargo step also fails when it prints a warning.
 
-| 순서 | 검사 | 보는 것 |
+| Order | Step | What it checks |
 |---|---|---|
-| 1 | `cargo xtask gen --check` | 생성된 프로토콜·데이터 코드가 생성기 출력과 같다 |
-| 2 | `cargo xtask table --check` | API 대응표(`xtask/data/pmmp/table.md`)가 최신이고 빈 행이 없다 |
-| 3 | lint reason tags | 모든 `#[expect]` 이유가 `CLAUDE.md` 6절의 태그로 시작한다 |
-| 4 | `cargo fmt --check` | 포맷 |
-| 5 | `cargo clippy --workspace --all-targets -- -D warnings` | lint(`[workspace.lints]`, `.clippy.toml` 금지 목록) |
-| 6 | `cargo test --workspace` | 단위·통합 시험, 프로토콜 대조, 봇 시험 |
-| 7 | vendor 사본 시험 | `vendor/sctp-proto`, `vendor/redb`, `vendor/str0m`, `vendor/dimpl` 자체 시험과 고친 결함의 재현 시험 |
-| 8 | `cargo doc --workspace --no-deps` | 공개 문서와 링크(`RUSTDOCFLAGS=-D warnings`) |
-| 9 | `cargo doc ... --document-private-items` | 비공개 문서의 링크(따로 `target/verify-private-docs`) |
+| 1 | `cargo xtask gen --check` | The generated protocol and data code equals the generator's output |
+| 2 | `cargo xtask table --check` | The API table (`xtask/data/pmmp/table.md`) is current and has no blank row |
+| 3 | lint reason tags | Every `#[expect]` reason in the repository's Rust sources (`src`, `tests`, `examples`, `xtask/src`, `xtask/tests`) starts with one of the tags in `CLAUDE.md` |
+| 4 | `cargo fmt --check` | Formatting |
+| 5 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints (`[workspace.lints]`, the `.clippy.toml` deny lists) |
+| 6 | `cargo test --workspace` | Every unit and integration test of Anchor and xtask: protocol conformance, the bot tests, the Go tests, the vendor reproduction tests |
+| 7 | vendor copy tests | The own tests of `vendor/sctp-proto` (library), `vendor/redb` (library and integration), `vendor/str0m` (library only, with Anchor's features), and `vendor/dimpl` (library and integration) |
+| 8 | `cargo doc --workspace --no-deps` | Public documentation and its links (`RUSTDOCFLAGS=-D warnings`) |
+| 9 | `cargo doc --workspace --no-deps --document-private-items` | Links in private documentation (built separately in `target/verify-private-docs/`) |
 
-- 각 cargo 검사는 `target/verify/`에서 빌드한다. 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
-- 필요한 도구: Go(`PATH`에 있어야 함; 봇, 오라클, Go 시험), dimpl 시험의 OpenSSL 빌드용 Perl(Windows는 `.cache/tools/`의 Strawberry Perl, Linux는 시스템 `perl`과 `make`). Linux의 dimpl 시험은 개발 의존성 wolfSSL도 소스로 빌드해서 `autoconf`, `automake`, `libtool`이 필요하다. 없으면 해당 검사가 실패한다.
-- `dump --check`와 P6는 verify에 들지 않는다. `.cache/` 사본이나 공식 서버가 필요하기 때문이다(`data.md`).
+- The other cargo steps build in `target/verify/`, so they never rebuild the running `xtask.exe`.
+- str0m's integration tests run only in `cargo xtask vendor-test str0m` (`.claude/docs/dependencies.md`).
+- Tools it needs: Go on `PATH` (the bot, the oracle, the Go tests), and Perl for the OpenSSL build of the dimpl tests: on Windows the Strawberry Perl copy in `.cache/tools/` (`.claude/docs/data.md`), which `verify` passes as `OPENSSL_SRC_PERL`; on Linux the system `perl` and `make`. On Linux the dimpl tests also build their wolfSSL dev-dependency from source, which needs `autoconf`, `automake`, and `libtool`. Without a tool, its step fails.
+- P6 is not part of `verify`: it needs the official server. For `dump --check`, see `.claude/docs/data.md`.
 
-## 시험 배치
+## Where tests live
 
-- 공개 API 시험(`tests/`):
-  - `block.rs`, `item.rs`: 상태·아이템 조회, 기준 목록과 데이터 덤프 대조.
-  - `config.rs`: 설정 파일 기본값, 형, 범위, 모르는 키.
-  - `server.rs`, `world.rs`: 빌드, 스레드 예산, 종료, 월드 API.
-  - `shutdown.rs`: 콘솔 `stop`으로 정상 종료하면 마지막 틱이 커밋된다.
-  - `crash.rs`: 강제 종료를 반복해도 데이터 파일이 손상되지 않고 블록이 정확히 하나다.
-  - `replay.rs`: 크래시 로그 재생이 같은 패닉에 이른다.
-  - `import.rs`: 공식 서버가 만든 월드 가져오기.
-  - `export.rs`: 가져온 월드를 내보내고 다시 가져오면 같은 월드 파일이다.
-  - `log.rs`: 콘솔 로그와 끄기.
-- xtask 통합 시험(`xtask/tests/`, `cargo test --workspace`로 돈다):
-  - `protocol.rs`, `compression.rs`: gophertunnel 대조 P1~P4(`protocol.md`).
-  - `spawn.rs`: P5. gophertunnel 봇이 같은 프로세스의 Anchor에 RakNet·NetherNet, zlib·Snappy, 오프라인·온라인(시험용 발급자)으로 스폰한다.
-  - `examples.rs`: 예제 바이너리를 새 폴더에서 띄우고 봇이 `xtask/data/examples/<이름>.txt` 스크립트를 돈다.
-  - `go.rs`: `xtask/go`의 Go 시험. `import_reader.rs`: goleveldb와 월드 리더 대조.
-  - `downstream.rs`, `dimpl_repro.rs`, `redb_repro.rs`: vendor 사본이 사용자 프로젝트에 들어가는지와 고친 결함의 재현(`dependencies.md`).
-- 측정용 시험 실행 예: `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`(틱 비용).
+- Public API tests (`tests/`):
+  - `block.rs`, `item.rs`: block state and item lookups, checked against the reference list and the dump.
+  - `config.rs`: the default settings file, every key's default, type, and range, unknown keys.
+  - `server.rs`: building, the thread budget, running until shutdown. `world.rs`: the world API (positions, errors, a generator written outside Anchor).
+  - `shutdown.rs`: a normal stop by the console's `stop` (and on Unix by SIGINT, SIGTERM, or SIGHUP) commits what the last tick changed.
+  - `crash.rs`: repeated forced kills never damage the data files, and the block exists exactly once.
+  - `replay.rs`: a crash log replays to the same panic.
+  - `import.rs`: importing a world the official server made.
+  - `export.rs`: an imported world, exported and imported again.
+  - `log.rs`: the console log and turning it off.
+- xtask integration tests (`xtask/tests/`, run by `cargo test --workspace`):
+  - `protocol.rs`, `compression.rs`: conformance with gophertunnel, P1 to P4 (`.claude/docs/protocol.md`).
+  - `spawn.rs`: P5, the bot joining Anchor in the same process (`.claude/docs/protocol.md`).
+  - `examples.rs`: each example binary runs in a fresh folder, and the bot plays the script `xtask/data/examples/<name>.txt`.
+  - `go.rs`: the Go tests of `xtask/go`. `import_reader.rs`: goleveldb against the world import reader.
+  - `downstream.rs`, `dimpl_repro.rs`, `redb_repro.rs`: a user project gets the vendor copies, and reproductions of the fixed defects (`.claude/docs/dependencies.md`).
+- Running a measurement test, for example the tick cost: `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`.
 
-## 멱등, 결정성, 보존 시험
+## Idempotency, determinism, conservation, and leak tests
 
-- 멱등 시험 예: `the_same_request_twice_leaves_the_state_of_once`(인벤토리), `a_repeated_break_changes_nothing_twice`, `the_same_answer_twice_changes_nothing_twice`(폼), `a_duplicate_join_changes_nothing`.
-- 결정성: 스크립트 클라이언트(`src/tick/tests/client.rs`)가 고정 시드로 게임 입력을 보내고, CPU 풀 1개와 max(논리 CPU, 4)개에서 틱별 상태 해시와 출력이 같아야 한다. 입력 로그를 재생해도 같다(`one_and_many_pool_threads_give_the_same_ticks_and_the_log_replays_them`, 리스너가 있는 `busy.rs`). 상태 해시가 구조체를 `..` 없이 분해하므로 새 필드를 해시에 넣지 않으면 컴파일이 실패한다.
-- 보존: 고정 시드 무작위 인벤토리 요청에서 아이템 총량이 설명되는 만큼만 바뀐다. 강제 종료 시험(`tests/crash.rs`, `src/tick/tests/crash.rs`)은 틱 수로 정한 순간(벽시계 아님)에 서버를 죽여 복제·손실이 없는지 본다.
-- 누수: 접속·종료, 창, 엔티티, 예약 갱신을 반복한 뒤 모든 표와 큐가 시작 값이다(`src/tick/tests/leak.rs`).
-- 자동 시나리오: 패킷만으로 원목에서 거래까지 가는 생존 흐름(`src/tick/tests/scenario.rs`).
+- Idempotency, for example: `the_same_request_twice_leaves_the_state_of_once` (inventory, `src/tick/inventory/tests.rs`), `a_repeated_break_changes_nothing_twice` (`src/tick/interact/tests.rs`), `the_same_answer_twice_changes_nothing_twice` (forms, `src/tick/form/tests.rs`), `a_duplicate_join_changes_nothing` (`src/tick.rs`).
+- Determinism: a scripted client (`src/tick/tests/client.rs`) sends game inputs from fixed seeds. A CPU pool of 1 thread and of max(logical CPUs, 4) threads must give the same per-tick state hashes and output and the same input log bytes, and replaying the log gives the same ticks (`one_and_many_pool_threads_give_the_same_ticks_and_the_log_replays_them` in `src/tick.rs`; with listeners, `src/tick/tests/busy.rs`).
+- Conservation: fixed-seed random inventory requests change item totals only as far as each request explains (`random_requests_keep_every_item_accounted_for` in `src/tick/inventory/tests.rs`). The forced-kill tests (`tests/crash.rs`, `src/tick/tests/crash.rs`, `src/tick/task/crash.rs`) kill the server at moments counted in ticks from its commit reports, never in wall-clock time, and check that nothing is duplicated or lost.
+- Leaks: a player joins, opens and closes every window, places and breaks blocks with block entities, makes and loses entities, schedules block updates, trades, and leaves, 100 times; every table and queue is back at its start value (`src/tick/tests/leak.rs`).
+- Automatic scenario: one survival player, driven only by client packets, goes from a log broken by hand to a villager trade (`src/tick/tests/scenario.rs`).
 
-## P6: 공식 서버 대조
+## P6: comparison with the official server
 
-P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷을 비교한다.
+P6 runs the same bot scenarios against the official server and Anchor and compares the packets the bot receives.
 
-- 봇: `xtask/go/bot`(gophertunnel 기반 Go 클라이언트). 공식 클라이언트처럼 서버 권위 인벤토리, PlayerAuthInput, 블록 액션을 쓰고 받은 패킷을 모두 JSON 줄로 기록한다.
-- 공식 서버: `data.md` 출처 표의 판이고 사본은 `.cache/bds/<판>/`이다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다.
-- 시험 설정: 두 서버를 Xbox 로그인 없이(`online-mode=false`, Anchor `xbox-auth = false`), 평지 월드 `p6`, 시드 1로 맞춘다. 나머지(게임 모드, 난이도, 최대 인원, 시야, 압축 문턱)는 Anchor 기본값이라 설정에 따른 필드도 같게 비교된다.
-- 캡처: 모두 `target/p6/` 아래다. `bds-<압축>/`, `bds-nethernet-<압축>/`, `bds-game/`, `bds-api/`와 Anchor 쪽 `anchor-*`. 비교 결과는 `anchor-api/compare.txt` 등에도 쓴다.
+- The bot: `xtask/go/bot`, a Go client built on gophertunnel. Like the official client, it uses server-authoritative inventories, PlayerAuthInput, and block actions, and it records every received packet as a JSON line.
+- The official server: the version pinned as `BDS_DIR` in `xtask/src/p6.rs`, in the copy `.cache/bds/<version>/` (sources in `.claude/docs/data.md`). Before each run the harness writes the copy's `server.properties` and deletes its `worlds` folder; it starts the server and ends it with `stop`.
+- Test settings: both servers run without Xbox login (`online-mode=false`, Anchor `xbox-auth = false`), with a flat world named `p6` and seed 1. Game mode, difficulty, maximum players, view distance, and compression threshold are Anchor's defaults, so fields that depend on settings compare equal. The API session adds `allow-cheats=true` on the official server.
+- Captures: all under `target/p6/`: `bds-<compression>/`, `bds-nethernet-<compression>/`, `bds-fallback/`, `bds-bind-mismatch/`, `bds-duplicate/`, `bds-game/`, `bds-api/`, the matching `anchor-*` folders, and `import-*` and `export-*` for `p6 import`. The game and API comparisons are also written to `anchor-game/compare.txt` and `anchor-api/compare.txt`.
 
-### Linux에서 돌리기
+### Running on Linux
 
-- 공식 서버는 Linux판(`bedrock-server-<판>-linux.zip`)을 Linux 체크아웃의 `.cache/bds/<판>/`에 푼다. 폴더 이름은 Windows와 같고, OS마다 자기 `.cache`를 둔다. `unzip`으로 풀면 `bedrock_server`의 실행 권한이 남는다.
-- 하네스는 OS에 맞는 실행 파일(Windows `bedrock_server.exe`, Linux `bedrock_server`)을 찾고, 압축 안의 `bedrock_server_how_to.html`처럼 `LD_LIBRARY_PATH`를 서버 폴더로 두고 띄운다.
-- 필요한 것: Go(`PATH`), `unzip`. 공식 서버 안내는 Ubuntu 18 이상만 지원한다고 적는다.
-- Windows PC에서는 WSL2 Ubuntu의 Linux 파일 시스템(ext4)에 작업 트리를 복사해(`target/`, `.cache/` 제외) 빌드하고 시험한다. `/mnt/c`에서는 돌리지 않는다: 파일 시스템 동작과 fsync가 진짜 Linux와 달라 검증이 되지 않는다. 고치는 곳은 Windows 저장소 하나이고 복사본은 시험에만 쓴다.
-- aarch64(`aarch64-unknown-linux-gnu`)는 교차 빌드만 확인한다(`gcc-aarch64-linux-gnu`, `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc`).
+- The official server for Linux is its Linux build (source in `.claude/docs/data.md`), unpacked into `.cache/bds/<version>/` of the Linux checkout. The folder name is the same as on Windows; each OS keeps its own `.cache`. Unpacking with `unzip` keeps the execute permission of `bedrock_server`.
+- The harness runs the executable of its OS (`bedrock_server.exe` on Windows, `bedrock_server` on Linux) with `LD_LIBRARY_PATH` set to the server folder, as the official server's `bedrock_server_how_to.html` starts it.
+- Needs Go on `PATH` and `unzip`. The official server's how-to supports Ubuntu 18 or later only.
+- On a Windows PC, copy the work tree, without `target/` and `.cache/`, into WSL2 Ubuntu's Linux file system (ext4), and build and test there. Never run from `/mnt/c`: its file system behavior and fsync differ from real Linux, so nothing is verified there. Edit only the Windows repository; the copy is only for testing.
+- aarch64 (`aarch64-unknown-linux-gnu`) is checked by cross-building only (`gcc-aarch64-linux-gnu`, `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc`).
 
-### 명령
+### Commands
 
-| 명령 | 하는 일 |
+| Command | What it does |
 |---|---|
-| `cargo xtask p6 bds [zlib\|snappy]...` | 압축마다 공식 서버를 RakNet·NetherNet으로 띄워 spawn·big-skin·blocks 시나리오, 폴백, 이름 중복 로그인, 제안 identity 불일치를 기록한다. 끝에 게임 세션과 API 세션을 한 번씩 돈다 |
-| `cargo xtask p6 anchor [zlib\|snappy]...` | 같은 시나리오를 이 프로세스의 Anchor에 돌리고 각 캡처를 공식 서버 캡처와 비교한다. 게임과 API 세션도 비교한다 |
-| `cargo xtask p6 game bds\|anchor [시나리오]...` | 게임 세션만 |
-| `cargo xtask p6 api bds\|anchor [시나리오]...` | API 세션만(공식 서버는 `allow-cheats=true`, 폼 스크립트 팩) |
-| `cargo xtask p6 import` | 공식 서버가 만든 월드를 Anchor로 가져와 두 서버가 보내는 블록을 하나하나 비교한다. 이어서 그 월드를 내보내 공식 서버로 열고, 원래 월드와 블록을 비교한다 |
-| `cargo xtask p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]` | 이미 떠 있는 서버에 시나리오를 돈다. 토큰 옵션은 온라인 시나리오를 더한다 |
-| `cargo xtask p6 compare A B`, `p6 game compare A B`, `p6 api compare A B` | 캡처 둘을 비교한다 |
+| `cargo xtask p6 bds [zlib\|snappy]...` | For each compression (default both, zlib first), starts the official server once over RakNet and once over NetherNet. RakNet: `spawn`, `big-skin`, and `blocks`. NetherNet: `spawn` and `big-skin`, plus `big-skin` sent in 65,535-byte segments. Once, in the first compression's runs: the `auto` fallback, an offer identity mismatch, and a duplicate-name login. Last, the game session and the API session once each |
+| `cargo xtask p6 anchor [zlib\|snappy]...` | Runs the same scenarios against Anchor in this process and compares each capture with its official server capture; the fallback run advertises an unreachable IPv6 address and uses the first compression. Then runs and compares the game and API sessions |
+| `cargo xtask p6 game bds\|anchor [scenario]...` | The game session alone (RakNet, zlib, a fresh flat world) |
+| `cargo xtask p6 api bds\|anchor [scenario]...` | The API session alone (RakNet, zlib, a fresh flat world; on the official server `allow-cheats=true` and the forms script pack) |
+| `cargo xtask p6 import` | Imports a world the official server made into Anchor and compares the blocks both servers send, block by block. Then exports that world, opens the export on the official server, and compares its blocks with the original world's |
+| `cargo xtask p6 run --addr HOST:PORT --out DIR [--transport raknet\|nethernet\|auto] [--token-key PEM --kid KID --iss ISS]` | Runs the scenarios against a server already running; the token options add the online scenario |
+| `cargo xtask p6 compare A B`, `p6 game compare DIR_A DIR_B`, `p6 api compare DIR_A DIR_B` | Compares two captures |
 
-`p6 anchor`에 한 압축만 주면 NetworkSettings를 다른 압축의 공식 서버 캡처와 비교하는 문제가 있다.
+`p6 anchor` compares its fallback capture with `bds-fallback/`, which `p6 bds` recorded with its first compression. With a different first compression, NetworkSettings differs there.
 
-### 시나리오
+### Scenarios
 
-- 스폰(`p6 bds`, `p6 anchor`):
-  - `spawn`: 로그인부터 PlayStatus(PlayerSpawn)까지의 스폰 창. 패킷 순서와 종류, `fields.txt`의 고정 필드, 아이템 패킷 전체, 청크와 서브청크 응답.
-  - `big-skin`: 큰 Login 요청. NetherNet에서는 65,535바이트 조각으로도 보낸다.
-  - `blocks`: 콘솔로 울타리, 판유리, 쇠창살, 벽, 문, 계단, 철사덫을 붙여 놓고 지우며 단계마다 블록 갱신 상태를 비교한다.
-  - `auto` 폴백, `bind-mismatch`, 이름 중복 로그인. NetherNet 실행은 응답 SDP 구조와 조각 정보도 비교한다. 바이옴 정의와 지그소 데이터는 `bot cloudburst`가 기준 목록 출처의 데이터와 대조한다.
-- 게임(`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. 봇의 단계마다 명령, 요청 상태, ItemStackResponse(스택 ID는 처음 나온 순서), 단계 끝 아이템 상태, 위치별 마지막 블록 상태, 창 열기·닫기, 블록 엔티티 키, LevelEvent 종류, 엔티티 종류, 거래 창 모양과 오퍼 키를 비교한다. 소리, 채팅, 경험치 구슬, 오퍼·인챈트 내용 같은 무작위 값은 보이기만 한다. `setup` 단계는 명령만, `random` 단계는 이름·개수를 지운 모양만 비교한다. 시나리오 구역에서 4칸 밖의 변화는 보이기만 한다.
-- API(`p6 api`):
-  - `commands`(플레이어 명령과 출력, op), `particles`, `kick`, `forms`, `script`(봇 `-script` 동작 자체 시험, `script.txt`).
-  - `weather`, `joinrain`, `joinstorm`(날씨 변화, 비·천둥 중 접속), `boltpeaceful`, `bolteasy`, `bolthard`(난이도별 번개).
-  - `enchants`(인챈트 선택지 `Slot`), `stations`(모루, 대장장이, 신호기 요청 모양), `potions`(물약 색과 구름), `entities`(그림, 폭죽, 크리스털, 삼지창), `syntax`(문법 오류와 번역 이름), `tradeup`(거래 등급 상승), `others`와 동반 봇 `mover`(다른 플레이어의 접속, 이동, 공격, 죽음, 리스폰), `itemuse`(활, 삼지창, 물약 사용), `sneak`(웅크리기 답의 입력 틱).
-  - `clocks`(`/time`의 모든 형태: 월드 시계와 시각 표시, 답과 알리는 시각).
-  - `villagers`(직업 번호), `numbers`(공식 서버 전용 번호와 원격 측정), `rules`, `rulesjoin`(게임 규칙), `line<바이트>`, `linekorean<바이트>`(명령 줄 길이; 공식 서버는 508바이트부터 연결을 끊음), `limits`, `limitchat`(문자열 상한).
-  - 단계마다 `fields.txt`에 있는 패킷의 개수와 고정 필드, 봇의 출력·확인·폼 줄을 비교한다. 명령 목록은 둘 다 가진 명령만 메모로 비교한다. 사실 기록만 하는 시나리오는 하네스의 `FACTS_ONLY`, 고정 필드 없이 확인 줄만 비교하는 시나리오는 `CHECKS_ONLY`(`xtask/src/p6/api.rs`)에 있다.
-- 가져오기(`p6 import`): 공식 서버 지형 월드의 모든 서브청크, 모든 층의 네트워크 ID가 같아야 한다. Anchor가 모르는 블록으로 두는 덤프에 없는 블록은 `intended.txt`의 `import | block` 줄로 넘긴다. 내보내기는 Anchor가 가져온 월드를 `Server::export_world`로 쓰고(`target/p6/export-world/`), 공식 서버가 같은 게임 규칙으로 그것을 열어 보내는 블록(`export-bds/`)을 원래 월드에서 보낸 블록과 같은 규칙으로 비교한다.
+- Spawn (`p6 bds`, `p6 anchor`):
+  - `spawn`: the spawn window from login to PlayStatus(PlayerSpawn). Compares the packet order and kinds, the fixed fields of `fields.txt`, the full item packets, and the chunk and sub-chunk answers.
+  - `big-skin`: a large Login request.
+  - `blocks` (RakNet runs only): console commands place fences, glass panes, iron and copper bars, walls, a fence gate, stairs, and tripwire next to each other and remove some again; the block update states of each step are compared.
+  - The `auto` fallback, the offer identity mismatch (`bind-mismatch`), and the duplicate-name login. NetherNet runs also compare the answer SDP structure, and print each capture's segment facts. `bot cloudburst` checks each spawn capture's biome definitions and jigsaw data against the reference list source's data.
+- Game (`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. Per bot step it compares the commands, request statuses, ItemStackResponse slots (stack IDs numbered in order of appearance), the items the client sees at the end of the step, the last block state of each position, window opens and closes, block entity keys, LevelEvent types, entities by type, the trade window shape and offer keys, and the enchant option count and level changes. Random values (enchant options, offers, experience orbs), timing, sounds, chat, recipe unlocks, and `Event` types are only shown. A `setup` step compares only its commands; a run of `random` steps compares only the shapes of its lines, with names and counts blanked. Changes farther than `AREA_REACH` (4 blocks) from the scenario's area are only shown (`xtask/src/p6/game/trace.rs`).
+- API (`p6 api`):
+  - `commands` (player commands and their output, op), `particles`, `kick`, `forms`, `script` (a self-test of the bot's `-script` actions, `script.txt`).
+  - `weather`, `joinrain`, `joinstorm` (weather changes, joining during rain or thunder), `boltpeaceful`, `bolteasy`, `bolthard` (lightning by difficulty).
+  - `enchants` (enchant option `Slot`), `stations` (anvil, smithing table, and beacon request shapes), `potions` (potion colors and the cloud), `entities` (painting, firework, end crystal, trident), `syntax` (syntax errors and translated names), `tradeup` (trade tier up), `others` with the companion bot `mover` (another player's join, movement, attack, death, respawn), `itemuse` (bow, trident, and potion use), `sneak` (the input tick of a sneak's answer).
+  - `clocks` (every form of `/time`: the world clock and its time markers, the answers and the clock times sent).
+  - `villagers` (profession numbers), `numbers` (numbers only the official server uses, and telemetry), `rules`, `rulesjoin` (game rules), `line<bytes>`, `lineunknown600`, `linekorean<bytes>` (command line lengths; the official server ends the connection from 508 bytes), `limits`, `limitchat` (string limits).
+  - In every step that is not a setup step, it compares the number and fixed fields of the packets `fields.txt` names, and the bot's output, check, and form lines. Command lists are compared only for the commands both servers have, and only as notes. Facts-only scenarios are in `FACTS_ONLY`, and scenarios that compare check lines without fixed fields are in `CHECKS_ONLY` (`xtask/src/p6/api.rs`).
+- Import (`p6 import`): in a world with the official server's own terrain, every block of every sub-chunk both servers send, in every layer, must have the same network ID. A block the dump lacks, which Anchor keeps as an unknown block, passes through an `import | block <name> | <reason>` line of `intended.txt`. The export writes Anchor's imported world with `Server::export_world` (`target/p6/export-world/`); the official server opens it with the same game rules, and the blocks it sends (`export-bds/`) are compared with those it sent of the original world, by the same rules.
 
-### 데이터 파일 (`xtask/data/p6/`)
+### Data files (`xtask/data/p6/`)
 
-- `facts.md`: 공식 서버가 보낸 값과 Anchor가 각 값에 대해 하는 일. 코드 주석이 이 파일을 가리킨다.
-- `fields.txt`: 두 서버가 같아야 하는 고정 필드(`<패킷> <필드 경로>`).
-- `deferred.txt`: 공식 서버가 스폰 창에서 보내지만 Anchor는 보내지 않는 패킷(`<패킷> - <이유>`). 비교에서 양쪽 모두 뺀다.
-- `intended.txt`: Anchor가 일부러 다른 차이(`<시나리오> | <차이 원문> | <이유>`). 차이 문장이 정확히 같을 때만 통과하고, 더 나오지 않는 줄은 메모로 알린다.
-- `script.txt`: `script` 시나리오의 동작. `forms-pack/`: 공식 서버용 폼 스크립트 팩.
+- `facts.md`: the values the official server sent and what Anchor does about each. Code comments point to it.
+- `fields.txt`: the fixed fields both servers must send equal (`<packet> <field path>`).
+- `deferred.txt`: packets the official server sends in the spawn window and Anchor never sends (`<packet> <status> <reason>`, status `-`). The spawn comparison removes them from both captures.
+- `intended.txt`: differences Anchor keeps on purpose (`<scenario> | <difference text> | <reason>`), read by the API comparison and `p6 import`. A difference passes only when its text matches a line exactly; a listed line the comparison no longer finds is printed as a note.
+- `script.txt`: the actions of the `script` scenario. `forms-pack/`: the forms script pack for the official server.
 
-## 실제 클라이언트로만 확인할 것
+## Checks only the real client can do
 
-봇과 공식 서버로는 클라이언트 화면과 공식 클라이언트가 보내는 값을 볼 수 없다. 아래는 사용자가 공식 클라이언트로 접속해 확인할 목록이다.
+The bot and the official server cannot show the client's screen or the values the official client sends. The user's checklist, to go through by joining with the official client, is the real-client section at the end of `xtask/data/p6/facts.md` plus these items:
 
-- 접속: 공식 클라이언트가 RakNet으로 들어오는지(공식 서버는 "NetherNet 없이 접속 불가"로 기록), Join 전 대기 32개, 엄격한 ClientData JSON, 핑 응답의 게임 모드 뒤 숫자, 비신뢰 데이터 채널 내용 형식, 리소스팩 조각 요청 방식.
-- Snappy: "AVX2 없는 기기에서 크래시" 보고.
-- 스폰: PlayStatus(PlayerSpawn)를 보내는 시점 차이(Anchor는 `spawn-radius` 원의 청크 뒤), Publisher를 틱마다가 아니라 플레이어 블록이 바뀔 때만 보냄(같은 값 반복은 뺌), BiomeDefinitionList 순서.
-- 레시피 책: 공식 클라이언트의 CraftRecipeAuto 재료 목록, `recipe-book = false`에서 책이 비는지, 교육판 아이템의 크리에이티브 표시, 레시피 ID·`deprecated` 블록 이름의 영향.
-- 창과 월드: 창 열기 지연 2틱, 겹상자 짝 표시, 같은 차원 다른 월드 텔레포트 때 옛 청크와 난이도 반영, 가져온 월드의 모르는 화분 식물과 배너 무늬 표시.
-- 커스텀 콘텐츠: 커스텀 블록 렌더링, 마찰, `"none"` 카테고리, 속성 상한, 커스텀 엔티티 `rid`·`hasspawnegg`.
-- 화면: 보스바 색 갱신, 명령 별칭과 자동 완성, CommandRequest Version 값.
-- 날씨: 비·눈·천둥 하늘, 번개 모습과 소리.
-- 엔티티: 번호 입자 형식(LevelEvent 2009 형식과 `0x4000 | id` 형식 둘 다), `EntityDataFlagCount` 131, 멀리 있는 플레이어의 위치 표시줄.
+- Network: the remaining risks listed in `network.md`, and how resource pack chunks are requested.
+- Spawn: when PlayStatus(PlayerSpawn) is sent (Anchor sends it after the chunks of the `spawn-radius` circle), the chunk publisher update sent only when the player's block changes (not every tick, no repeats of the same value), the BiomeDefinitionList order.
+- Recipe book: how education edition items show in creative, and the effect of recipe IDs and `deprecated` block names.
+- Windows and worlds: the 2-tick window open delay, the pairing display of double chests, old chunks and the difficulty after a teleport to another world in the same dimension.
+- Custom content: custom block rendering, friction, the `"none"` category, property limits, custom entity `rid` and `hasspawnegg`.
+- Screen: boss bar color updates.
 
-자세한 값은 `xtask/data/p6/facts.md`의 "실제 클라이언트로만 확인"에 있다.
+The open questions are at the end of `xtask/data/p6/facts.md`.
 
-## 열린 확인
+## Known flakiness on this PC
 
-- `facts.md`의 "열린 질문" 목록(창 없는 인벤토리 요청, 높은 번호 입자, 플레이어 대상 tp 메시지 등).
+- Loopback TCP: on this PC a loopback TCP connection sometimes times out after 1 second (23 of 300 Go connections, without Anchor). Tests that use NetherNet signaling (HTTP) and the NetherNet runs of `p6 anchor` fail now and then because of it.
+- Right after a teleport, MovePlayer mode 2 and the on-ground flag vary with the input's arrival time on both servers, so P6 does not compare them: `fields.txt` lists no MovePlayer field, and the game trace only counts MovePlayer.
 
-## 이 PC에서 알려진 흔들림
+## Running heavy tests
 
-- 루프백 TCP: 이 PC는 루프백 TCP 연결이 가끔 1초 뒤 시간 초과된다(Anchor 없이 Go 연결 300번 중 23번). NetherNet 시그널링(HTTP)을 쓰는 시험과 `p6 anchor`의 NetherNet 실행이 이 때문에 가끔 실패한다.
-- 텔레포트 직후의 MovePlayer mode 2와 땅 플래그는 입력 도착 시각에 따라 두 서버 모두 흔들려 P6에서 비교하지 않는다.
+A full `verify`, P6, and the determinism and forced-kill tests use much CPU and memory. Under heavy load the editor and other processes can stall.
 
-## 무거운 시험 돌리기
-
-verify 전체, P6, 결정성·강제 종료 시험은 CPU와 메모리를 많이 쓴다. 부하가 크면 편집기나 다른 프로세스가 멈출 수 있다.
-
-- 낮은 우선순위로 띄우는 Windows 예: `cmd /c start /low /b /wait cargo xtask verify`. 자식 프로세스(rustc, 시험 바이너리)도 우선순위를 물려받는다.
-- 범위를 정하는 수단: 빌드 병렬은 `CARGO_BUILD_JOBS`, 시험 병렬은 `-- --test-threads=N`, 이름 거르기는 `cargo test --lib tick::tests::crash`처럼 한다.
-- 하네스는 봇마다 시간 한도(게임 시나리오 150초)가 있고 여유 시간 뒤 강제 종료한다.
-- 측정 시험이 다른 빌드와 겹치면 값이 흔들린다.
+- Low priority on Windows: `start /low /b /wait <command>` from `cmd`, or `cmd //c "start /low /b /wait <command>"` from Git Bash. Child processes (rustc, test binaries) inherit the priority. On Linux: `nice -n 19 <command>`.
+- Bounding a run: build parallelism with `CARGO_BUILD_JOBS`, test parallelism with `-- --test-threads=N`, a name filter such as `cargo test --lib tick::tests::crash`, and scenario names for P6.
+- In the game and API sessions each bot has a time limit (`BOT_TIMEOUT`, 150 seconds) and the harness kills it 30 seconds after that (`xtask/src/p6/game.rs`).
+- A measurement test that overlaps another build gives unstable values.
