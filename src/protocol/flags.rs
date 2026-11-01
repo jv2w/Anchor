@@ -1,6 +1,7 @@
-//! Typed flag sets: the flag groups of [`consts`](super::consts) (input flags, entity data
-//! flags, abilities, ...) as sets by bit position, with views over the wire types that carry
-//! them.
+//! Typed flag sets of the protocol's flag groups, with views over the wire types that carry them.
+//!
+//! The groups are the flag groups of [`consts`](super::consts) (input flags, entity data flags,
+//! abilities, ...), held as sets by bit position.
 
 use std::fmt;
 use std::hash::Hash;
@@ -11,11 +12,16 @@ use super::consts::InputFlag;
 use super::io::{Error, Result};
 use super::types::InputFlags;
 
-/// The 64-bit words of a [`FlagSet`]: room for 192 bit positions. A group with more fails to
-/// compile where a set of it is made (the generated tests make one of every group).
+/// The 64-bit words of a [`FlagSet`]: room for 192 bit positions.
+///
+/// A group with more fails to compile where a set of it is made (the generated tests make one of
+/// every group).
 const WORDS: usize = 3;
 
 /// A flag of a protocol flag group, a closed set of bit positions.
+///
+/// A set holds no flag whose bit position is past its room, so [`Flag::bit`] must stay below
+/// [`Flag::COUNT`].
 pub trait Flag: Copy + Eq + Hash + fmt::Debug + 'static {
     /// One past the highest bit position of the group.
     const COUNT: u32;
@@ -27,8 +33,9 @@ pub trait Flag: Copy + Eq + Hash + fmt::Debug + 'static {
     fn from_bit(bit: u32) -> Option<Self>;
 }
 
-/// A set of flags of one group, by bit position: [`contains`](Self::contains) and the updates
-/// are O(1).
+/// A set of flags of one group, by bit position.
+///
+/// [`contains`](Self::contains) and the updates are O(1).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FlagSet<F> {
     words: [u64; WORDS],
@@ -50,16 +57,57 @@ impl<F: Flag> FlagSet<F> {
         }
     }
 
-    /// The word index and mask of a flag's bit.
-    fn place(flag: F) -> (usize, u64) {
-        let bit = flag.bit();
-        (bit as usize / 64, 1 << (bit % 64))
+    /// The set of the flags at the bit positions set in `words`.
+    ///
+    /// Bit `b` of `words[w]` is bit position `64 × w + b`; a mask group's wire integer is
+    /// `words[0]`. Fails with [`Error::UnknownEnum`] (the value is the bit position) on a set bit
+    /// that is no flag of the group.
+    pub fn from_words(words: &[u64]) -> Result<Self> {
+        let mut set = Self::new();
+        for (i, &word) in words.iter().enumerate() {
+            let mut rest = word;
+            while rest != 0 {
+                let low = rest.trailing_zeros();
+                rest &= rest - 1;
+                let position = i.saturating_mul(64).saturating_add(low as usize);
+                set.insert(Self::flag_at(position)?);
+            }
+        }
+        Ok(set)
+    }
+
+    /// The set of the flags at the bit positions set in a [`Bitset`].
+    ///
+    /// Fails like [`Self::from_words`].
+    pub fn from_bitset(bitset: &Bitset) -> Result<Self> {
+        let mut set = Self::new();
+        for i in (0..bitset.len()).filter(|&i| bitset.get(i)) {
+            set.insert(Self::flag_at(i)?);
+        }
+        Ok(set)
     }
 
     /// Whether the set holds `flag`.
     pub fn contains(&self, flag: F) -> bool {
         let (word, mask) = Self::place(flag);
         self.words.get(word).is_some_and(|w| w & mask != 0)
+    }
+
+    /// Whether the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.words.iter().all(|&w| w == 0)
+    }
+
+    /// The flags in the set, by ascending bit position.
+    pub fn iter(&self) -> impl Iterator<Item = F> + '_ {
+        (0..F::COUNT)
+            .filter_map(F::from_bit)
+            .filter(|&f| self.contains(f))
+    }
+
+    /// The set as words, the form [`Self::from_words`] reads.
+    pub fn words(&self) -> [u64; WORDS] {
+        self.words
     }
 
     /// Adds `flag`.
@@ -78,66 +126,6 @@ impl<F: Flag> FlagSet<F> {
         }
     }
 
-    /// Whether the set is empty.
-    pub fn is_empty(&self) -> bool {
-        self.words.iter().all(|&w| w == 0)
-    }
-
-    /// The flags in the set, by ascending bit position.
-    pub fn iter(&self) -> impl Iterator<Item = F> + '_ {
-        (0..F::COUNT)
-            .filter_map(F::from_bit)
-            .filter(|&f| self.contains(f))
-    }
-
-    /// The set with bit `i` of `words[i / 64]` for each flag at bit position `i`: a mask group's
-    /// wire integer is `words[0]`. Fails with [`Error::UnknownEnum`] (the value is the bit
-    /// position) on a set bit that is no flag of the group.
-    pub fn from_words(words: &[u64]) -> Result<Self> {
-        let mut set = Self::new();
-        for (i, &word) in words.iter().enumerate() {
-            let mut rest = word;
-            while rest != 0 {
-                let low = rest.trailing_zeros();
-                rest &= rest - 1;
-                let bit = u32::try_from(i)
-                    .ok()
-                    .and_then(|i| i.checked_mul(64))
-                    .and_then(|base| base.checked_add(low));
-                let flag = bit.and_then(F::from_bit).ok_or(Error::UnknownEnum {
-                    name: F::NAME,
-                    value: i64::try_from(i)
-                        .unwrap_or(i64::MAX)
-                        .saturating_mul(64)
-                        .saturating_add(low.into()),
-                })?;
-                set.insert(flag);
-            }
-        }
-        Ok(set)
-    }
-
-    /// The set as words, the form [`Self::from_words`] reads.
-    pub fn words(&self) -> [u64; WORDS] {
-        self.words
-    }
-
-    /// The set from a [`Bitset`] indexed by bit position. Fails like [`Self::from_words`].
-    pub fn from_bitset(bitset: &Bitset) -> Result<Self> {
-        let mut set = Self::new();
-        for i in (0..bitset.len()).filter(|&i| bitset.get(i)) {
-            let flag = u32::try_from(i)
-                .ok()
-                .and_then(F::from_bit)
-                .ok_or(Error::UnknownEnum {
-                    name: F::NAME,
-                    value: i64::try_from(i).unwrap_or(i64::MAX),
-                })?;
-            set.insert(flag);
-        }
-        Ok(set)
-    }
-
     /// The set as a [`Bitset`] of [`Flag::COUNT`] bits (gophertunnel sizes flag bitsets so).
     pub fn to_bitset(self) -> Bitset {
         let mut bitset = Bitset::new(F::COUNT as usize);
@@ -145,6 +133,23 @@ impl<F: Flag> FlagSet<F> {
             bitset.set(flag.bit() as usize);
         }
         bitset
+    }
+
+    /// The flag at a bit position, or [`Error::UnknownEnum`] when no flag of the group is there.
+    fn flag_at(position: usize) -> Result<F> {
+        u32::try_from(position)
+            .ok()
+            .and_then(F::from_bit)
+            .ok_or(Error::UnknownEnum {
+                name: F::NAME,
+                value: i64::try_from(position).unwrap_or(i64::MAX),
+            })
+    }
+
+    /// The word index and mask of a flag's bit.
+    fn place(flag: F) -> (usize, u64) {
+        let bit = flag.bit();
+        (bit as usize / 64, 1 << (bit % 64))
     }
 }
 
@@ -171,8 +176,21 @@ impl<F: Flag> FromIterator<F> for FlagSet<F> {
 }
 
 impl InputFlags {
-    /// The flags as a set, for O(1) [`FlagSet::contains`]. Fails with [`Error::UnknownEnum`]
-    /// on an ID that is no [`InputFlag`] (decoded packets hold only known IDs).
+    /// Input flags holding `set`, with the IDs in ascending order.
+    ///
+    /// They are sized for every [`InputFlag`], like gophertunnel's `NewInputFlags`.
+    pub fn from_set(set: &FlagSet<InputFlag>) -> Self {
+        Self {
+            set: true,
+            size: InputFlag::COUNT.into(),
+            ids: set.iter().map(|f| f.bit().cast_signed()).collect(),
+        }
+    }
+
+    /// The flags as a set, for O(1) [`FlagSet::contains`].
+    ///
+    /// Fails with [`Error::UnknownEnum`] on an ID that is no [`InputFlag`] (decoded packets hold
+    /// only known IDs).
     pub fn to_set(&self) -> Result<FlagSet<InputFlag>> {
         let mut set = FlagSet::new();
         for &id in &self.ids {
@@ -187,19 +205,6 @@ impl InputFlags {
             set.insert(flag);
         }
         Ok(set)
-    }
-
-    /// Input flags holding `set`, sized for every [`InputFlag`] like gophertunnel's
-    /// `NewInputFlags`, with the IDs in ascending order.
-    pub fn from_set(set: &FlagSet<InputFlag>) -> Self {
-        Self {
-            set: true,
-            size: InputFlag::COUNT.into(),
-            ids: set
-                .iter()
-                .filter_map(|f| i32::try_from(f.bit()).ok())
-                .collect(),
-        }
     }
 }
 

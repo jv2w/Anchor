@@ -15,6 +15,16 @@ pub struct GameRule {
     pub value: GameRuleValue,
 }
 
+impl Codec for GameRule {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.game_rule()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.game_rule(self)
+    }
+}
+
 /// A game rule value; the variant is the wire type.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum GameRuleValue {
@@ -44,6 +54,17 @@ impl Default for AbilityValue {
     }
 }
 
+impl Codec for AbilityValue {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.ability_value()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.ability_value(*self);
+        Ok(())
+    }
+}
+
 /// A resource pack setting (gophertunnel `PackSetting`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PackSetting {
@@ -51,6 +72,16 @@ pub struct PackSetting {
     pub name: String,
     /// The value of the setting.
     pub value: PackSettingValue,
+}
+
+impl Codec for PackSetting {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.pack_setting()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.pack_setting(self)
+    }
 }
 
 /// A pack setting value; the variant is the wire type.
@@ -73,7 +104,7 @@ impl Default for PackSettingValue {
 }
 
 impl Reader<'_> {
-    /// `GameRule`
+    /// Reads a `GameRule`.
     pub(crate) fn game_rule(&mut self) -> Result<GameRule> {
         let name = self.string()?;
         let can_be_modified_by_player = self.bool()?;
@@ -96,7 +127,7 @@ impl Reader<'_> {
         })
     }
 
-    /// `AbilityValue`
+    /// Reads an `AbilityValue`.
     pub(crate) fn ability_value(&mut self) -> Result<AbilityValue> {
         let value_type = self.uint8()?;
         let bool_value = self.bool()?;
@@ -111,7 +142,7 @@ impl Reader<'_> {
         }
     }
 
-    /// `PackSetting`
+    /// Reads a `PackSetting`.
     pub(crate) fn pack_setting(&mut self) -> Result<PackSetting> {
         let name = self.string_max(PACK_SETTING_NAME_MAX_LEN)?;
         let value = match PackSettingType::try_from(self.varuint32()?)? {
@@ -128,7 +159,7 @@ impl Reader<'_> {
 }
 
 impl Writer {
-    /// `GameRule`
+    /// Writes a `GameRule`.
     pub(crate) fn game_rule(&mut self, x: &GameRule) -> Result<()> {
         self.string(&x.name)?;
         self.bool(x.can_be_modified_by_player);
@@ -150,7 +181,7 @@ impl Writer {
         Ok(())
     }
 
-    /// `AbilityValue`
+    /// Writes an `AbilityValue`.
     pub(crate) fn ability_value(&mut self, x: AbilityValue) {
         let (value_type, bool_value, float_value) = match x {
             AbilityValue::Bool(v) => (1, v, 0.0),
@@ -161,7 +192,7 @@ impl Writer {
         self.float32(float_value);
     }
 
-    /// `PackSetting`
+    /// Writes a `PackSetting`.
     pub(crate) fn pack_setting(&mut self, x: &PackSetting) -> Result<()> {
         self.string_max(&x.name, PACK_SETTING_NAME_MAX_LEN)?;
         match &x.value {
@@ -186,37 +217,6 @@ impl Writer {
             }
         }
         Ok(())
-    }
-}
-
-impl Codec for GameRule {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        r.game_rule()
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.game_rule(self)
-    }
-}
-
-impl Codec for AbilityValue {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        r.ability_value()
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.ability_value(*self);
-        Ok(())
-    }
-}
-
-impl Codec for PackSetting {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        r.pack_setting()
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.pack_setting(self)
     }
 }
 

@@ -34,7 +34,7 @@ use crate::event::{
     PlayerViewDistanceChange,
 };
 use crate::item::SHIELD_RUNTIME_ID;
-use crate::login::MAX_TOKEN_PAYLOAD;
+use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 use crate::math::Vec3;
 use crate::player::{self, Message as Text};
 use crate::pool::Pool;
@@ -82,7 +82,7 @@ const XUID_DIGITS: usize = 20;
 /// check it).
 pub(crate) const MAX_LIST_ENTRY_BYTES: usize = LIST_PACKET_FIXED_BYTES
     + LIST_ENTRY_FIXED_BYTES
-    + MAX_TOKEN_PAYLOAD
+    + MAX_TOKEN_PAYLOAD_BYTES
     + XUID_DIGITS
     + MAX_SKIN_BYTES;
 /// The colour of every entry of the player list (BDS's value, P6).

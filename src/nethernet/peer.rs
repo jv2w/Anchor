@@ -24,44 +24,48 @@ use tracing::{debug, trace};
 
 use super::message::{self, Reassembler};
 use super::sdp;
+use super::{STUN_HEADER_LEN, STUN_MAGIC_COOKIE};
+use crate::raknet::MAX_UNSENT_BYTES;
 
-/// Label and parameters of the reliable channel (go-nethernet `MessageReliabilityReliable`).
-const RELIABLE_LABEL: &str = "ReliableDataChannel";
-/// Label of the unreliable channel: unordered with no retransmits.
-const UNRELIABLE_LABEL: &str = "UnreliableDataChannel";
-/// Largest data channel message sent: BDS's `a=max-message-size`. BDS sends segments of this
-/// minus the header byte, 262,143 bytes (P6); a remote that announces less gets
-/// smaller ones.
-const SEND_MESSAGE_LIMIT: usize = 256 * 1024;
-/// Bytes str0m holds for one peer until acknowledged: four of the largest messages, so a segment
-/// always fits, and about 1 MiB per round trip, the receive window go-nethernet's pion offers.
-/// str0m's 128 KiB default can never take a 262,144-byte message.
-const SCTP_SEND_BUFFER: usize = 4 * SEND_MESSAGE_LIMIT;
-/// Bytes waiting to be sent to one peer at most, queued here or buffered in str0m.
-const MAX_UNSENT: usize = 32 * 1024 * 1024;
-/// Memory one queued message costs besides its bytes, charged against `MAX_UNSENT` so that many
-/// tiny messages cannot exceed the cap's memory.
-const PENDING_COST: usize = size_of::<Pending>();
-/// Largest datagram passed to str0m: an Ethernet MTU. Honest peers stay below it (pion sends
-/// SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
-pub(crate) const MAX_DATAGRAM: usize = 1500;
-/// From the peer's creation until both channels are open.
-const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
-/// Silence after which an open peer is dead. pion sends an ICE keepalive every 2 s and str0m
+/// The ICE `ice-char` set (RFC 8445 15.4): letters, digits, `+` and `/`. 64 characters, so one
+/// random byte masked to 6 bits picks one uniformly.
+const ICE_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/// The silence after which an open peer is dead. pion sends an ICE keepalive every 2 s and str0m
 /// checks the nominated pair at least every 3 s (its maximum STUN RTO), so this is three missed
 /// rounds. str0m alone never gives up: its SCTP retransmits forever and ICE only reports
 /// `Disconnected`.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+/// The largest datagram passed to str0m, in bytes: an Ethernet MTU. Honest peers stay below it
+/// (pion sends SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
+pub(crate) const MAX_DATAGRAM: usize = 1500;
+/// The time from the peer's creation until both channels are open.
+const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+/// The memory one queued message costs besides its bytes, in bytes, charged against
+/// `MAX_UNSENT_BYTES` so that many tiny messages cannot exceed the cap's memory.
+const PENDING_COST_BYTES: usize = size_of::<Pending>();
+/// The length of the local ICE password, as BDS sends.
+const PWD_LEN: usize = 24;
+/// The label and parameters of the reliable channel (go-nethernet `MessageReliabilityReliable`).
+const RELIABLE_LABEL: &str = "ReliableDataChannel";
 /// How often str0m reports the round trip time of its latest ICE consent check (RFC 7675), the
 /// connection's ping.
 const RTT_INTERVAL: Duration = Duration::from_secs(2);
-/// ICE `ice-char` (RFC 8445 15.4): letters, digits, `+` and `/`. 64 characters, so one random
-/// byte masked to 6 bits picks one uniformly.
-const ICE_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-/// Length of the local ICE username fragment, as BDS sends.
+/// The bytes str0m holds for one peer until acknowledged: four of the largest messages, so a
+/// segment always fits, and about 1 MiB per round trip, the receive window go-nethernet's pion
+/// offers. str0m's 128 KiB default can never take a 262,144-byte message.
+const SCTP_SEND_BUFFER_BYTES: usize = 4 * SEND_MESSAGE_LIMIT_BYTES;
+/// The largest data channel message sent, in bytes: BDS's `a=max-message-size`. BDS sends
+/// segments of this minus the header byte, 262,143 bytes (P6); a remote that announces less gets
+/// smaller ones.
+const SEND_MESSAGE_LIMIT_BYTES: usize = 256 * 1024;
+/// The type of a STUN binding request.
+const STUN_BINDING_REQUEST: [u8; 2] = [0x00, 0x01];
+/// The type of the STUN USERNAME attribute.
+const STUN_USERNAME: u16 = 0x0006;
+/// The length of the local ICE username fragment, as BDS sends.
 const UFRAG_LEN: usize = 4;
-/// Length of the local ICE password, as BDS sends.
-const PWD_LEN: usize = 24;
+/// The label of the unreliable channel: unordered with no retransmits.
+const UNRELIABLE_LABEL: &str = "UnreliableDataChannel";
 
 /// A NetherNet peer failure. Each one closes the peer.
 #[derive(Debug)]
@@ -219,12 +223,15 @@ enum Kind {
     Unreliable,
 }
 
-/// The unsent rest of a message whose segments str0m did not take yet. The rest starts at a
-/// segment boundary, so splitting it again by the same payload size gives the same segments.
+/// A message whose segments str0m did not all take yet. The `sent` bytes of `rest` end at a
+/// segment boundary, so splitting the rest again by the same payload size gives the same
+/// segments.
 #[derive(Debug)]
 struct Pending {
     rest: Vec<u8>,
+    /// The bytes of `rest` that str0m took.
     sent: usize,
+    /// The header of the next segment.
     header: u8,
 }
 
@@ -250,7 +257,7 @@ pub(crate) struct Peer {
     /// Outbound segment payload: the smaller message limit of the two sides, minus the header.
     max_payload: usize,
     queue: VecDeque<Pending>,
-    /// Bytes in `queue`, `PENDING_COST` included per message.
+    /// Bytes in `queue`, `PENDING_COST_BYTES` included per message.
     queued: usize,
     /// One segment with its header, reused for every write.
     scratch: Vec<u8>,
@@ -277,7 +284,7 @@ impl Peer {
     ) -> Result<Self> {
         let send_limit = usize::try_from(remote.max_message_size)
             .unwrap_or(usize::MAX)
-            .min(SEND_MESSAGE_LIMIT);
+            .min(SEND_MESSAGE_LIMIT_BYTES);
         let max_payload = send_limit.saturating_sub(1);
         if max_payload == 0 {
             return Err(Error::Limit("remote max message size"));
@@ -298,7 +305,7 @@ impl Peer {
                 .set_crypto_provider(Arc::clone(&cert.provider))
                 // The default, kept explicit: DTLS 1.2 fixed.
                 .set_dtls_version(DtlsVersion::Dtls12)
-                .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
+                .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER_BYTES)
                 .set_stats_interval(Some(RTT_INTERVAL))
                 .set_dtls_cert(cert.dtls.clone())
                 .set_local_ice_credentials(credentials)
@@ -317,7 +324,11 @@ impl Peer {
             for addr in remote.candidates {
                 match Candidate::host(addr, "udp") {
                     Ok(candidate) => rtc.add_remote_candidate(candidate),
-                    Err(e) => trace!(%addr, error = %e, "skipped remote nethernet candidate"),
+                    Err(e) => trace!(
+                        %addr,
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "skipped remote nethernet candidate"
+                    ),
                 }
             }
             Ok(rtc)
@@ -349,6 +360,39 @@ impl Peer {
     /// ICE credentials and DTLS fingerprint for the answer.
     pub(crate) fn local(&self) -> &Local {
         &self.local
+    }
+
+    /// The client address the channels run on: where the last DTLS datagram str0m accepted
+    /// came from. str0m takes those only from an address whose ICE check succeeded, which a
+    /// spoofed source cannot pass.
+    pub(crate) fn remote_addr(&self) -> Option<SocketAddr> {
+        self.remote_addr
+    }
+
+    /// Whether everything sent has been delivered. A str0m panic leaves nothing that could
+    /// still be delivered.
+    pub(crate) fn is_drained(&mut self) -> bool {
+        !matches!(self.undelivered(), Ok(bytes) if bytes > 0)
+    }
+
+    /// The bytes sent that are not delivered yet, as `MAX_UNSENT_BYTES` counts them: queued here
+    /// or unacknowledged in SCTP (sctp-proto releases buffered bytes on acknowledgement). A peer
+    /// that is not open has nothing more to deliver. On a str0m panic the peer closes, and `poll`
+    /// reports the reason.
+    pub(crate) fn undelivered(&mut self) -> Result<usize> {
+        if !matches!(self.state, State::Open) {
+            return Ok(0);
+        }
+        let Some(id) = self.reliable else {
+            return Ok(self.queued);
+        };
+        match buffered_bytes(&mut self.rtc, id) {
+            Ok(buffered) => Ok(self.queued.saturating_add(buffered.unwrap_or(0))),
+            Err(e) => {
+                self.fail(e);
+                Err(Error::Closed)
+            }
+        }
     }
 
     /// Takes a datagram from `from`. Datagrams that are not STUN or DTLS, too large, or not
@@ -392,16 +436,9 @@ impl Peer {
         }
     }
 
-    /// The client address the channels run on: where the last DTLS datagram str0m accepted
-    /// came from. str0m takes those only from an address whose ICE check succeeded, which a
-    /// spoofed source cannot pass.
-    pub(crate) fn remote_addr(&self) -> Option<SocketAddr> {
-        self.remote_addr
-    }
-
     /// Sends `message` on the reliable channel as segments. Segments str0m cannot buffer yet are
     /// queued here. On any error the peer closes, and `poll` reports the reason.
-    pub(crate) fn send(&mut self, message: &[u8]) -> Result<()> {
+    pub(crate) fn send(&mut self, message: Vec<u8>) -> Result<()> {
         if !matches!(self.state, State::Open) {
             return Err(Error::Closed);
         }
@@ -418,9 +455,10 @@ impl Peer {
     pub(crate) fn poll(&mut self, now: Instant) -> Output {
         loop {
             let output = match std::mem::replace(&mut self.state, State::Closed) {
-                State::Closed => return Output::Closed(Error::Closed),
-                State::Failed(reason) => return Output::Closed(reason),
-                State::Closing(reason) => self.drain(reason),
+                State::Connecting => {
+                    self.state = State::Connecting;
+                    self.step(now)
+                }
                 State::Open if !self.early.is_empty() => {
                     self.state = State::Open;
                     self.early.pop_front().map(|message| {
@@ -428,42 +466,16 @@ impl Peer {
                         Output::Message(message)
                     })
                 }
-                state @ (State::Connecting | State::Open) => {
-                    self.state = state;
+                State::Open => {
+                    self.state = State::Open;
                     self.step(now)
                 }
+                State::Closing(reason) => self.drain(reason),
+                State::Failed(reason) => return Output::Closed(reason),
+                State::Closed => return Output::Closed(Error::Closed),
             };
             if let Some(output) = output {
                 return output;
-            }
-        }
-    }
-
-    /// Whether everything sent has been delivered. A str0m panic leaves nothing that could
-    /// still be delivered.
-    pub(crate) fn is_drained(&mut self) -> bool {
-        !matches!(self.undelivered(), Ok(bytes) if bytes > 0)
-    }
-
-    /// The bytes sent that are not delivered yet, as `MAX_UNSENT` counts them: queued here or
-    /// unacknowledged in SCTP (sctp-proto releases buffered bytes on acknowledgement). A peer
-    /// that is not open has nothing more to deliver. On a str0m panic the peer closes, and `poll`
-    /// reports the reason.
-    pub(crate) fn undelivered(&mut self) -> Result<usize> {
-        if !matches!(self.state, State::Open) {
-            return Ok(0);
-        }
-        let Some(id) = self.reliable else {
-            return Ok(self.queued);
-        };
-        match guard(&mut self.rtc, |rtc| {
-            rtc.channel(id)
-                .map_or(0, |mut channel| channel.buffered_amount())
-        }) {
-            Ok(buffered) => Ok(self.queued.saturating_add(buffered)),
-            Err(e) => {
-                self.fail(e);
-                Err(Error::Closed)
             }
         }
     }
@@ -475,42 +487,49 @@ impl Peer {
         }
     }
 
-    fn try_send(&mut self, message: &[u8]) -> Result<()> {
-        let segments = message::segments(message, self.max_payload).map_err(Error::Message)?;
+    /// When the peer times out by its own rules, if ever.
+    fn deadline(&self) -> Option<Instant> {
+        if matches!(self.state, State::Open) {
+            self.last_receive.checked_add(IDLE_TIMEOUT)
+        } else {
+            self.open_deadline
+        }
+    }
+
+    fn try_send(&mut self, message: Vec<u8>) -> Result<()> {
+        let mut header = message::segments(&message, self.max_payload)
+            .map_err(Error::Message)?
+            .header();
         let id = self.reliable.ok_or(Error::Closed)?;
-        let buffered = guard(&mut self.rtc, |rtc| {
-            rtc.channel(id)
-                .map_or(0, |mut channel| channel.buffered_amount())
-        })?;
-        let cost = message.len().saturating_add(PENDING_COST);
-        if self.queued.saturating_add(buffered).saturating_add(cost) > MAX_UNSENT {
+        let buffered = buffered_bytes(&mut self.rtc, id)?.unwrap_or(0);
+        let cost = message.len().saturating_add(PENDING_COST_BYTES);
+        if self.queued.saturating_add(buffered).saturating_add(cost) > MAX_UNSENT_BYTES {
             return Err(Error::Limit("unsent bytes"));
         }
-        if !self.queue.is_empty() {
-            self.queue.push_back(Pending {
-                rest: message.to_vec(),
-                sent: 0,
-                header: segments.header(),
-            });
-            self.queued = self.queued.saturating_add(cost);
-            return Ok(());
-        }
-        let mut offset = 0;
-        for (header, payload) in segments {
-            if !write(&mut self.rtc, id, &mut self.scratch, header, payload)? {
-                let rest = message.get(offset..).unwrap_or_default().to_vec();
-                self.queued = self
-                    .queued
-                    .saturating_add(rest.len())
-                    .saturating_add(PENDING_COST);
-                self.queue.push_back(Pending {
-                    rest,
-                    sent: 0,
-                    header,
-                });
-                break;
+        // Behind queued messages this one waits whole; otherwise as much as str0m takes goes
+        // now.
+        let mut sent = 0;
+        if self.queue.is_empty() {
+            while sent < message.len() {
+                let rest = message.get(sent..).unwrap_or_default();
+                let payload = rest.get(..self.max_payload).unwrap_or(rest);
+                if !write(&mut self.rtc, id, &mut self.scratch, header, payload)? {
+                    break;
+                }
+                sent = sent.saturating_add(payload.len());
+                header = header.saturating_sub(1);
             }
-            offset = offset.saturating_add(payload.len());
+        }
+        if sent < message.len() {
+            self.queued = self
+                .queued
+                .saturating_add(message.len().saturating_sub(sent))
+                .saturating_add(PENDING_COST_BYTES);
+            self.queue.push_back(Pending {
+                rest: message,
+                sent,
+                header,
+            });
         }
         Ok(())
     }
@@ -538,7 +557,7 @@ impl Peer {
             self.queued = self.queued.saturating_sub(len);
             if pending.sent >= pending.rest.len() {
                 self.queue.pop_front();
-                self.queued = self.queued.saturating_sub(PENDING_COST);
+                self.queued = self.queued.saturating_sub(PENDING_COST_BYTES);
             }
         }
         Ok(())
@@ -698,15 +717,6 @@ impl Peer {
         None
     }
 
-    /// When the peer times out by its own rules, if ever.
-    fn deadline(&self) -> Option<Instant> {
-        if matches!(self.state, State::Open) {
-            self.last_receive.checked_add(IDLE_TIMEOUT)
-        } else {
-            self.open_deadline
-        }
-    }
-
     /// Starts closing for `reason`. After a panic str0m is not touched again.
     fn fail(&mut self, reason: Error) {
         if !matches!(self.state, State::Connecting | State::Open) {
@@ -721,7 +731,10 @@ impl Peer {
         self.state = match guard_rtc(&mut self.rtc, Rtc::close) {
             Ok(()) => State::Closing(reason),
             Err(e) => {
-                debug!(error = %e, "nethernet peer close failed");
+                debug!(
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "nethernet peer close failed"
+                );
                 State::Failed(reason)
             }
         };
@@ -759,13 +772,9 @@ fn str0m_offer(remote: &Remote) -> String {
 /// The server ICE username fragment of a STUN binding request: USERNAME is `<server
 /// ufrag>:<client ufrag>`. `None` for anything else. Reads only within `datagram`.
 pub(crate) fn stun_server_ufrag(datagram: &[u8]) -> Option<&str> {
-    const HEADER: usize = 20;
-    const BINDING_REQUEST: [u8; 2] = [0x00, 0x01];
-    const MAGIC_COOKIE: [u8; 4] = [0x21, 0x12, 0xa4, 0x42];
-    const USERNAME: u16 = 0x0006;
-    let (header, mut attributes) = datagram.split_at_checked(HEADER)?;
+    let (header, mut attributes) = datagram.split_at_checked(STUN_HEADER_LEN)?;
     let [t0, t1, l0, l1, c0, c1, c2, c3] = <[u8; 8]>::try_from(header.get(..8)?).ok()?;
-    if [t0, t1] != BINDING_REQUEST || [c0, c1, c2, c3] != MAGIC_COOKIE {
+    if [t0, t1] != STUN_BINDING_REQUEST || [c0, c1, c2, c3] != STUN_MAGIC_COOKIE {
         return None;
     }
     if usize::from(u16::from_be_bytes([l0, l1])) != attributes.len() {
@@ -775,23 +784,13 @@ pub(crate) fn stun_server_ufrag(datagram: &[u8]) -> Option<&str> {
         let [k0, k1, n0, n1] = <[u8; 4]>::try_from(head).ok()?;
         let len = usize::from(u16::from_be_bytes([n0, n1]));
         let value = rest.get(..len)?;
-        if u16::from_be_bytes([k0, k1]) == USERNAME {
+        if u16::from_be_bytes([k0, k1]) == STUN_USERNAME {
             let (server, client) = std::str::from_utf8(value).ok()?.split_once(':')?;
             return (!server.is_empty() && !client.is_empty()).then_some(server);
         }
         attributes = rest.get(len.next_multiple_of(4)..)?;
     }
     None
-}
-
-/// Runs `f` on `rtc`, turning a panic into [`Error::Panicked`].
-fn guard<T>(rtc: &mut Rtc, f: impl FnOnce(&mut Rtc) -> T) -> Result<T> {
-    catch_unwind(AssertUnwindSafe(|| f(rtc))).map_err(|_| Error::Panicked)
-}
-
-/// [`guard`] for str0m calls that fail with [`RtcError`].
-fn guard_rtc<T>(rtc: &mut Rtc, f: impl FnOnce(&mut Rtc) -> Result<T, RtcError>) -> Result<T> {
-    guard(rtc, f)?.map_err(Error::Webrtc)
 }
 
 /// Writes one segment; `false` if str0m has no room for it yet. Room is checked before the
@@ -805,11 +804,8 @@ fn write(
     header: u8,
     payload: &[u8],
 ) -> Result<bool> {
-    let buffered = guard(rtc, |rtc| {
-        rtc.channel(id).map(|mut channel| channel.buffered_amount())
-    })?
-    .ok_or(Error::Closed)?;
-    if buffered.saturating_add(payload.len()) >= SCTP_SEND_BUFFER {
+    let buffered = buffered_bytes(rtc, id)?.ok_or(Error::Closed)?;
+    if buffered.saturating_add(payload.len()) >= SCTP_SEND_BUFFER_BYTES {
         return Ok(false);
     }
     scratch.clear();
@@ -843,7 +839,7 @@ fn channel_kind(config: &ChannelConfig) -> Option<Kind> {
 /// `N` random ICE characters from the crypto module (str0m's own credentials come from
 /// `fastrand`, which is not a cryptographic generator).
 fn ice_string<const N: usize>() -> Result<String> {
-    let mut bytes = [0u8; N];
+    let mut bytes = [0_u8; N];
     crate::crypto::fill_random(&mut bytes).map_err(Error::Crypto)?;
     #[expect(
         clippy::indexing_slicing,
@@ -855,25 +851,57 @@ fn ice_string<const N: usize>() -> Result<String> {
         .collect())
 }
 
+/// The bytes str0m holds on channel `id` until they are acknowledged; `None` when the channel
+/// is gone.
+fn buffered_bytes(rtc: &mut Rtc, id: ChannelId) -> Result<Option<usize>> {
+    guard(rtc, |rtc| {
+        rtc.channel(id).map(|mut channel| channel.buffered_amount())
+    })
+}
+
+/// [`guard`] for str0m calls that fail with [`RtcError`].
+fn guard_rtc<T>(rtc: &mut Rtc, f: impl FnOnce(&mut Rtc) -> Result<T, RtcError>) -> Result<T> {
+    guard(rtc, f)?.map_err(Error::Webrtc)
+}
+
+/// Runs `f` on `rtc`, turning a panic into [`Error::Panicked`].
+fn guard<T>(rtc: &mut Rtc, f: impl FnOnce(&mut Rtc) -> T) -> Result<T> {
+    catch_unwind(AssertUnwindSafe(|| f(rtc))).map_err(|_| Error::Panicked)
+}
+
 #[cfg(test)]
-pub(in crate::nethernet) mod tests {
+pub(crate) mod tests {
+    use super::*;
+
     use std::net::{IpAddr, Ipv4Addr};
 
     use str0m::change::SdpAnswer;
     use str0m::config::Fingerprint;
     use str0m::{DATAGRAM_MTU_TARGET, DATAGRAM_MTU_TARGET_MIN, DATAGRAM_MTU_WARN};
 
-    use super::*;
     use crate::nethernet::message::segments;
 
-    const SERVER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 19133);
-    const CLIENT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 50000);
-    pub(in crate::nethernet) const MAX_MESSAGE: usize = 2 * 1024 * 1024;
+    /// The number of messages of the bulk phase of the cost measurement.
+    const BULK: u32 = 16;
+    const CLIENT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 50_000);
     /// The test client drives str0m's direct API, which sends at most 64 KiB messages: so the
     /// peer also receives 65,535-byte segments, which BDS accepts too (P6).
-    const CLIENT_PAYLOAD: usize = 64 * 1024 - 1;
+    const CLIENT_PAYLOAD_BYTES: usize = 64 * 1024 - 1;
+    /// The bytes of a DTLS record header.
+    const DTLS_RECORD_HEADER_BYTES: usize = 13;
+    pub(crate) const MAX_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
+    /// The bytes of a mebibyte.
+    const MIB_BYTES: usize = 1024 * 1024;
+    /// The number of handshakes per loss percentage.
+    const RUNS: u64 = 300;
+    const SERVER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 19_133);
+    /// The datagrams one side may receive before the peer opens; far above the 10 to 60 a
+    /// faulty handshake takes, so only a retransmission storm reaches it.
+    const STORM: usize = 1000;
+    /// The number of ticks of the game-like phase of the cost measurement.
+    const TICKS: u32 = 1200;
 
-    pub(in crate::nethernet) fn reliable() -> ChannelConfig {
+    pub(crate) fn reliable() -> ChannelConfig {
         ChannelConfig {
             label: RELIABLE_LABEL.to_owned(),
             ordered: true,
@@ -883,7 +911,7 @@ pub(in crate::nethernet) mod tests {
         }
     }
 
-    pub(in crate::nethernet) fn unreliable() -> ChannelConfig {
+    pub(crate) fn unreliable() -> ChannelConfig {
         ChannelConfig {
             label: UNRELIABLE_LABEL.to_owned(),
             ordered: false,
@@ -913,20 +941,20 @@ pub(in crate::nethernet) mod tests {
 
     /// A NetherNet client on str0m: ICE controlling, DTLS server, SCTP server. It opens its
     /// channels in the order given; the first one carries its messages.
-    pub(in crate::nethernet) struct Client {
-        pub(in crate::nethernet) rtc: Rtc,
+    pub(crate) struct Client {
+        pub(crate) rtc: Rtc,
         channels: Vec<ChannelId>,
         open: Vec<ChannelId>,
         reassembler: Reassembler,
-        pub(in crate::nethernet) received: Vec<Vec<u8>>,
+        pub(crate) received: Vec<Vec<u8>>,
         outbound: VecDeque<Vec<u8>>,
-        pub(in crate::nethernet) timeout: Instant,
+        pub(crate) timeout: Instant,
     }
 
     impl Client {
         /// A client at `addr` that packs its datagrams to at most `mtu` bytes, and its offer,
         /// which claims `fingerprint`.
-        pub(in crate::nethernet) fn new(
+        pub(crate) fn new(
             cert: &Certificate,
             addr: SocketAddr,
             mtu: usize,
@@ -954,7 +982,7 @@ pub(in crate::nethernet) mod tests {
                 rtc,
                 channels: Vec::new(),
                 open: Vec::new(),
-                reassembler: Reassembler::new(MAX_MESSAGE),
+                reassembler: Reassembler::new(MAX_MESSAGE_BYTES),
                 received: Vec::new(),
                 outbound: VecDeque::new(),
                 timeout: now,
@@ -969,7 +997,7 @@ pub(in crate::nethernet) mod tests {
             let mut rtc = RtcConfig::new()
                 .set_crypto_provider(Arc::clone(&cert.provider))
                 .set_dtls_cert(cert.dtls.clone())
-                .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
+                .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER_BYTES)
                 .build(now);
             rtc.add_local_candidate(Candidate::host(CLIENT, "udp").unwrap());
             #[expect(
@@ -991,7 +1019,7 @@ pub(in crate::nethernet) mod tests {
                 candidates: parsed.candidates,
                 max_message_size: parsed.max_message_size,
             };
-            let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE, now).unwrap();
+            let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE_BYTES, now).unwrap();
             let local = peer.local();
             let answer = sdp::write_answer(&sdp::Answer {
                 session_id: 1,
@@ -1019,7 +1047,7 @@ pub(in crate::nethernet) mod tests {
                 rtc,
                 channels,
                 open: Vec::new(),
-                reassembler: Reassembler::new(MAX_MESSAGE),
+                reassembler: Reassembler::new(MAX_MESSAGE_BYTES),
                 received: Vec::new(),
                 outbound: VecDeque::new(),
                 timeout: now,
@@ -1028,7 +1056,7 @@ pub(in crate::nethernet) mod tests {
         }
 
         /// Takes the peer's answer, `local` at `server`, and asks for `channels`.
-        pub(in crate::nethernet) fn answer(
+        pub(crate) fn answer(
             &mut self,
             local: &Local,
             addr: SocketAddr,
@@ -1058,7 +1086,7 @@ pub(in crate::nethernet) mod tests {
         }
 
         fn send(&mut self, message: &[u8]) {
-            for (header, payload) in segments(message, CLIENT_PAYLOAD).unwrap() {
+            for (header, payload) in segments(message, CLIENT_PAYLOAD_BYTES).unwrap() {
                 let mut segment = vec![header];
                 segment.extend_from_slice(payload);
                 self.outbound.push_back(segment);
@@ -1083,7 +1111,7 @@ pub(in crate::nethernet) mod tests {
             }
         }
 
-        pub(in crate::nethernet) fn event(&mut self, event: Event) {
+        pub(crate) fn event(&mut self, event: Event) {
             match event {
                 Event::ChannelOpen(id, _) => self.open.push(id),
                 Event::ChannelData(data) if self.channels.first() == Some(&data.id) => {
@@ -1122,14 +1150,14 @@ pub(in crate::nethernet) mod tests {
     /// Each DTLS record of `datagram` as a datagram of its own, as a sender may send them;
     /// anything else unchanged.
     fn dtls_records(datagram: Vec<u8>) -> Vec<Vec<u8>> {
-        const HEADER: usize = 13;
         if !matches!(datagram.first(), Some(20..=63)) {
             return vec![datagram];
         }
         let mut out = Vec::new();
         let mut rest = datagram.as_slice();
-        while rest.len() >= HEADER {
-            let len = HEADER + usize::from(u16::from_be_bytes([rest[11], rest[12]]));
+        while rest.len() >= DTLS_RECORD_HEADER_BYTES {
+            let len =
+                DTLS_RECORD_HEADER_BYTES + usize::from(u16::from_be_bytes([rest[11], rest[12]]));
             let (record, tail) = rest.split_at(len.min(rest.len()));
             out.push(record.to_vec());
             rest = tail;
@@ -1164,10 +1192,6 @@ pub(in crate::nethernet) mod tests {
             }
         }
     }
-
-    /// Datagrams one side may receive before the peer opens; far above the 10 to 60 a faulty
-    /// handshake takes, so only a retransmission storm reaches it.
-    const STORM: usize = 1000;
 
     /// A peer and a client joined by an in-memory network with a simulated clock.
     struct Harness {
@@ -1220,7 +1244,7 @@ pub(in crate::nethernet) mod tests {
         ) -> Self {
             let now = crate::clock::now();
             let (mut client, remote) = Client::new(client, CLIENT, client_mtu, fingerprint, now);
-            let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE, now).unwrap();
+            let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE_BYTES, now).unwrap();
             client.answer(peer.local(), CLIENT, SERVER, channels);
             Self::joined(peer, client, now)
         }
@@ -1471,7 +1495,7 @@ pub(in crate::nethernet) mod tests {
         }
     }
 
-    pub(in crate::nethernet) fn certificates() -> (Certificate, Certificate) {
+    pub(crate) fn certificates() -> (Certificate, Certificate) {
         (
             Certificate::generate().unwrap(),
             Certificate::generate().unwrap(),
@@ -1572,7 +1596,7 @@ pub(in crate::nethernet) mod tests {
         h.open();
         assert_eq!(h.peer.undelivered().unwrap(), 0);
         let down = pattern(2 * 1024 * 1024, 4);
-        h.peer.send(&down).unwrap();
+        h.peer.send(down.clone()).unwrap();
         assert!(h.peer.undelivered().unwrap() >= down.len());
         assert!(
             h.run(Duration::from_secs(60), |h| !h.client.received.is_empty()),
@@ -1598,11 +1622,11 @@ pub(in crate::nethernet) mod tests {
         let (server, client) = certificates();
         let mut h = Harness::honest(&server, &client);
         h.open();
-        h.peer.send(&[]).unwrap();
-        for (len, seed) in [(1, 1), (1024 * 1024, 2), (MAX_MESSAGE, 3)] {
+        h.peer.send(Vec::new()).unwrap();
+        for (len, seed) in [(1, 1), (1024 * 1024, 2), (MAX_MESSAGE_BYTES, 3)] {
             let down = pattern(len, seed);
             let up = pattern(len, seed ^ 0x55);
-            h.peer.send(&down).unwrap();
+            h.peer.send(down.clone()).unwrap();
             h.client.send(&up);
             assert!(
                 h.run(Duration::from_secs(60), |h| !h.received.is_empty()
@@ -1627,8 +1651,8 @@ pub(in crate::nethernet) mod tests {
         let (server, client) = certificates();
         let mut h = Harness::honest(&server, &client);
         h.open();
-        let down = pattern(SEND_MESSAGE_LIMIT - 1, 9);
-        h.peer.send(&down).unwrap();
+        let down = pattern(SEND_MESSAGE_LIMIT_BYTES - 1, 9);
+        h.peer.send(down.clone()).unwrap();
         assert!(
             h.run(Duration::from_secs(10), |h| !h.client.received.is_empty()),
             "a {} byte segment did not leave: {:?}",
@@ -1647,7 +1671,7 @@ pub(in crate::nethernet) mod tests {
         let (client, peer) = Client::over_sdp(&server, &client, now);
         let mut h = Harness::joined(peer, client, now);
         h.open();
-        let size = usize::try_from(sdp::MAX_MESSAGE_SIZE).unwrap();
+        let size = usize::try_from(sdp::MAX_MESSAGE_BYTES).unwrap();
         let up = pattern(size - 1, 5);
         let mut segment = vec![0];
         segment.extend_from_slice(&up);
@@ -1690,7 +1714,7 @@ pub(in crate::nethernet) mod tests {
     fn more_than_one_message_of_data_before_the_open_closes_the_peer() {
         let (server, client) = certificates();
         let mut h = Harness::new(&server, &client, &[reliable()], client.fingerprint);
-        h.client.send(&pattern(MAX_MESSAGE, 1));
+        h.client.send(&pattern(MAX_MESSAGE_BYTES, 1));
         h.client.send(&[1]);
         assert!(matches!(
             h.run_until_closed(Duration::from_secs(60)),
@@ -1703,7 +1727,7 @@ pub(in crate::nethernet) mod tests {
         let (server, client) = certificates();
         let mut h = Harness::honest(&server, &client);
         h.open();
-        h.client.send(&pattern(MAX_MESSAGE + 1, 0));
+        h.client.send(&pattern(MAX_MESSAGE_BYTES + 1, 0));
         let reason = h.run_until_closed(Duration::from_secs(60));
         assert!(
             matches!(reason, Error::Message(message::Error::TooLarge)),
@@ -1817,7 +1841,7 @@ pub(in crate::nethernet) mod tests {
         h.open();
         assert!(h.peer.is_drained());
         let down = pattern(1024 * 1024, 4);
-        h.peer.send(&down).unwrap();
+        h.peer.send(down.clone()).unwrap();
         assert!(!h.peer.is_drained(), "nothing is acknowledged yet");
         let mut drained = false;
         for _ in 0..1000 {
@@ -1837,7 +1861,7 @@ pub(in crate::nethernet) mod tests {
         let mut h = Harness::honest(&server, &client);
         h.open();
         h.peer.close();
-        assert!(matches!(h.peer.send(b"late"), Err(Error::Closed)));
+        assert!(matches!(h.peer.send(b"late".to_vec()), Err(Error::Closed)));
         assert!(matches!(
             h.run_until_closed(Duration::from_secs(1)),
             Error::Closed
@@ -1850,9 +1874,9 @@ pub(in crate::nethernet) mod tests {
         let mut h = Harness::honest(&server, &client);
         h.open();
         let message = pattern(12 * 1024 * 1024, 9);
-        h.peer.send(&message).unwrap();
-        h.peer.send(&message).unwrap();
-        assert!(matches!(h.peer.send(&message), Err(Error::Closed)));
+        h.peer.send(message.clone()).unwrap();
+        h.peer.send(message.clone()).unwrap();
+        assert!(matches!(h.peer.send(message), Err(Error::Closed)));
         assert!(matches!(
             h.run_until_closed(Duration::from_secs(1)),
             Error::Limit("unsent bytes")
@@ -2045,13 +2069,12 @@ pub(in crate::nethernet) mod tests {
     /// `cargo test --release --lib nethernet::peer::tests::handshake_under_random_loss --
     /// --ignored --nocapture`
     #[test]
-    #[ignore = "measurement; run in release with --ignored --nocapture"]
+    #[ignore = "measurement"]
     #[expect(
         clippy::print_stdout,
         reason = "performance: a measurement reports its numbers"
     )]
     fn handshake_under_random_loss() {
-        const RUNS: u64 = 300;
         let (server, client) = split_certificates();
         for percent in [5, 10, 30] {
             let (mut opened, mut dtls_failed, mut slowest_dtls, mut slowest_open) =
@@ -2081,15 +2104,12 @@ pub(in crate::nethernet) mod tests {
     /// and while idle. Run: `cargo test --release --lib
     /// nethernet::peer::tests::driver_cost_per_peer -- --ignored --nocapture`
     #[test]
-    #[ignore = "measurement; run in release with --ignored --nocapture"]
+    #[ignore = "measurement"]
     #[expect(
         clippy::print_stdout,
         reason = "performance: a measurement reports its numbers"
     )]
     fn driver_cost_per_peer() {
-        const MIB: usize = 1024 * 1024;
-        const BULK: u32 = 16;
-        const TICKS: u32 = 1200;
         fn report(what: &str, meter: &Meter, per: &str, count: u32) {
             let count = count.max(1);
             println!(
@@ -2107,11 +2127,11 @@ pub(in crate::nethernet) mod tests {
         let mut h = Harness::honest(&server, &client);
         h.open();
 
-        let message = pattern(MIB, 1);
+        let message = pattern(MIB_BYTES, 1);
         h.meter = Some(Meter::default());
         let start = crate::clock::now();
         for _ in 0..BULK {
-            h.peer.send(&message).unwrap();
+            h.peer.send(message.clone()).unwrap();
         }
         h.meter.as_mut().unwrap().busy += crate::clock::now() - start;
         assert!(h.run(Duration::from_secs(600), |h| h.client.received.len()
@@ -2133,7 +2153,7 @@ pub(in crate::nethernet) mod tests {
         h.meter = Some(Meter::default());
         for _ in 0..TICKS {
             let start = crate::clock::now();
-            h.peer.send(&down).unwrap();
+            h.peer.send(down.clone()).unwrap();
             h.meter.as_mut().unwrap().busy += crate::clock::now() - start;
             h.client.send(&up);
             h.run(crate::tick::TICK, |_| false);
@@ -2212,7 +2232,7 @@ pub(in crate::nethernet) mod tests {
         let mut open = Harness::honest(&server, &client);
         open.record = Some(Vec::new());
         open.open();
-        open.peer.send(&pattern(100_000, 1)).unwrap();
+        open.peer.send(pattern(100_000, 1)).unwrap();
         open.client.send(&pattern(100_000, 2));
         assert!(open.run(Duration::from_secs(5), |h| !h.received.is_empty()));
         let record = open.record.take().unwrap();

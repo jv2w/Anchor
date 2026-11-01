@@ -4,7 +4,7 @@ use std::fmt;
 use std::io;
 
 use crate::args::USAGE;
-use crate::{command, config, data, entity, export, import, pack, storage};
+use crate::{command, config, data, entity, export, import, pack, storage, udp};
 
 /// A failure to build or run a [`Server`](crate::Server).
 ///
@@ -15,11 +15,18 @@ pub enum Error {
     /// The settings are invalid; [`source`](std::error::Error::source) names the setting.
     Config(config::Error),
     /// The runtime, a thread (tick, save, CPU pool, console, console log) or the startup state
-    /// (server key, random numbers, shared spawn batches, resource pack loading, the NetherNet
-    /// DTLS certificate) could not be started.
+    /// (server key, random numbers, shared spawn batches, the blocking tasks that load resource
+    /// packs, the NetherNet identity key and TLS files, the NetherNet DTLS certificate, the
+    /// NetherNet signaling task) could not be started.
     Start(io::Error),
-    /// The network ports could not be opened.
-    Network(io::Error),
+    /// A network socket could not be opened.
+    Network {
+        /// The socket as an operator reads it: protocol, address, the settings that decide it
+        /// and its use, such as `TCP [::]:19132 (server-port, enable-ipv6, NetherNet signaling)`.
+        socket: String,
+        /// The cause.
+        source: io::Error,
+    },
     /// The NetherNet identity key `data/identity.key` exists but cannot be read or holds no valid
     /// key, or is missing and a new one cannot be made or written. A file that exists is left as
     /// it is, since a new key would make every player confirm the server again.
@@ -111,7 +118,7 @@ impl fmt::Display for Error {
             Self::Start(_) => {
                 f.write_str("could not start the runtime, a thread or the startup state")
             }
-            Self::Network(_) => f.write_str("could not open the network ports"),
+            Self::Network { socket, .. } => write!(f, "could not open {socket}"),
             Self::IdentityKey(_) => {
                 f.write_str("the nethernet identity key could not be read or created")
             }
@@ -148,7 +155,8 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Config(e) => Some(e),
-            Self::Start(e) | Self::Network(e) | Self::Output(e) => Some(e),
+            Self::Start(e) | Self::Output(e) => Some(e),
+            Self::Network { source, .. } => Some(source),
             Self::Command(e) => Some(e),
             Self::CustomEntity(e) => Some(e),
             Self::Custom(e) => Some(e),
@@ -192,6 +200,18 @@ impl From<import::Error> for Error {
 impl From<export::Error> for Error {
     fn from(e: export::Error) -> Self {
         Self::Export(e)
+    }
+}
+
+impl From<udp::Error> for Error {
+    fn from(e: udp::Error) -> Self {
+        match e {
+            udp::Error::NoAddress => Self::Start(io::Error::other(e)),
+            udp::Error::Bind { addr, source } => Self::Network {
+                socket: udp::socket_text(addr),
+                source,
+            },
+        }
     }
 }
 

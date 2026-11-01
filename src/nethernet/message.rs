@@ -4,8 +4,8 @@
 use std::fmt;
 use std::slice::Chunks;
 
-/// Segments in one message at most: the header byte counts the segments after the first.
-pub(crate) const MAX_SEGMENTS: usize = 256;
+/// The most segments in one message: the header byte counts the segments after the first.
+const MAX_SEGMENTS: usize = 256;
 
 /// A segment framing failure. Each one closes the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +41,9 @@ impl fmt::Display for Error {
                 write!(f, "segment count {got} where {expected} was due")
             }
             Self::TooLarge => f.write_str("message exceeds the reassembly limit"),
-            Self::TooManySegments => f.write_str("message needs more than 256 segments"),
+            Self::TooManySegments => {
+                write!(f, "message needs more than {MAX_SEGMENTS} segments")
+            }
             Self::ZeroPayload => f.write_str("segment payload limit is zero"),
         }
     }
@@ -74,7 +76,8 @@ impl Reassembler {
     }
 
     /// Takes one data channel message; returns the whole message when this segment ends it. The
-    /// first segment's allocation becomes the message, so a one-segment message is not copied.
+    /// first segment's allocation becomes the message, with its header byte shifted out, so a
+    /// one-segment message gets no allocation of its own.
     pub(crate) fn push(&mut self, mut segment: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (&count, payload) = segment.split_first().ok_or(Error::Empty)?;
         if payload.is_empty() {
@@ -166,7 +169,7 @@ mod tests {
     use super::*;
 
     /// go-nethernet's segment payload (`maxMessageSize`): 262,144 minus the header byte.
-    const MAX_PAYLOAD: usize = 262_143;
+    const MAX_PAYLOAD_BYTES: usize = 262_143;
 
     fn pattern(len: usize) -> Vec<u8> {
         (0..len).map(|i| (i % 251).to_le_bytes()[0]).collect()
@@ -198,30 +201,30 @@ mod tests {
 
     #[test]
     fn empty_message_has_no_segments() {
-        assert_eq!(segments(&[], MAX_PAYLOAD).unwrap().count(), 0);
+        assert_eq!(segments(&[], MAX_PAYLOAD_BYTES).unwrap().count(), 0);
     }
 
     #[test]
     fn one_byte_message_is_one_segment() {
-        assert_eq!(framed(&[7], MAX_PAYLOAD), vec![vec![0, 7]]);
-        round_trip(1, MAX_PAYLOAD, 1);
+        assert_eq!(framed(&[7], MAX_PAYLOAD_BYTES), vec![vec![0, 7]]);
+        round_trip(1, MAX_PAYLOAD_BYTES, 1);
     }
 
     #[test]
     fn full_segment_fits_one_segment() {
-        let framed = framed(&pattern(MAX_PAYLOAD), MAX_PAYLOAD);
+        let framed = framed(&pattern(MAX_PAYLOAD_BYTES), MAX_PAYLOAD_BYTES);
         assert_eq!(framed.len(), 1);
         assert_eq!(framed[0].len(), 262_144);
-        round_trip(MAX_PAYLOAD, MAX_PAYLOAD, MAX_PAYLOAD);
+        round_trip(MAX_PAYLOAD_BYTES, MAX_PAYLOAD_BYTES, MAX_PAYLOAD_BYTES);
     }
 
     #[test]
     fn one_byte_over_a_segment_splits_in_two() {
-        let framed = framed(&pattern(262_144), MAX_PAYLOAD);
+        let framed = framed(&pattern(262_144), MAX_PAYLOAD_BYTES);
         assert_eq!(framed.len(), 2);
         assert_eq!((framed[0][0], framed[0].len()), (1, 262_144));
         assert_eq!((framed[1][0], framed[1].len()), (0, 2));
-        round_trip(262_144, MAX_PAYLOAD, 262_144);
+        round_trip(262_144, MAX_PAYLOAD_BYTES, 262_144);
     }
 
     #[test]

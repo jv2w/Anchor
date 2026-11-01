@@ -1,40 +1,28 @@
-//! JWS compact serialization (RFC 7515): parsing with size caps, ES384 signing, and detached
-//! ES384 signatures.
+//! JWS compact serialization (RFC 7515): size-capped parsing, ES384 signing, detached signatures.
 
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 use super::base64::RAW_URL;
-use super::{Error, PublicKey, Result, ServerKey};
+use super::{Error, PublicKey, Result, ServerKey, Verifier, verify_jws};
 
-/// Longest header segment in base64 text. A Bedrock header holds `alg`, `kid`, `typ`, `x5t` or a
-/// P-384 `x5u` (160 characters), well under 1 KiB.
-const MAX_HEADER_TEXT: usize = 2048;
-/// Longest signature segment in base64 text: an RSA-4096 signature is 683 characters.
-const MAX_SIGNATURE_TEXT: usize = 1024;
+/// The protected header of a detached signature, as go-jose and BDS write it.
+const DETACHED_HEADER: &[u8] = br#"{"alg":"ES384"}"#;
+/// The longest header segment, in base64 text.
+/// A Bedrock header holds `alg`, `kid`, `typ`, `x5t` or a P-384 `x5u` (160 characters), well under
+/// 1 KiB.
+const MAX_HEADER_BYTES: usize = 2048;
+/// The longest signature segment, in base64 text: an RSA-4096 signature is 683 characters.
+const MAX_SIGNATURE_BYTES: usize = 1024;
 
-/// The longest token text [`parse`] accepts with `max_payload`: the header and signature caps,
-/// the two dots, and `max_payload` bytes in unpadded base64.
-pub(crate) const fn max_text(max_payload: usize) -> usize {
-    MAX_HEADER_TEXT
-        .saturating_add(max_payload.saturating_mul(4).div_ceil(3))
-        .saturating_add(MAX_SIGNATURE_TEXT)
-        .saturating_add(2)
-}
-
-/// A JWS signature algorithm. Everything but ES384 and RS256 is [`Algorithm::Other`] and is never
-/// verified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub(crate) enum Algorithm {
-    /// ECDSA P-384 with SHA-384, signature `r || s` (96 bytes).
-    #[serde(rename = "ES384")]
-    Es384,
-    /// RSASSA-PKCS1-v1_5 with SHA-256.
-    #[serde(rename = "RS256")]
-    Rs256,
-    /// Any other value, including `none` and the HMAC algorithms.
-    #[serde(other)]
-    Other,
+/// A parsed, not yet verified, compact JWS.
+#[derive(Debug)]
+pub(crate) struct Jws<'a> {
+    pub(crate) header: Header,
+    /// `header '.' payload`, the bytes the signature covers.
+    pub(crate) signing_input: &'a [u8],
+    pub(crate) payload: Vec<u8>,
+    pub(crate) signature: Vec<u8>,
 }
 
 /// The protected header fields Bedrock uses.
@@ -50,44 +38,19 @@ pub(crate) struct Header {
     crit: Option<IgnoredAny>,
 }
 
-/// A parsed, not yet verified, compact JWS.
-#[derive(Debug)]
-pub(crate) struct Jws<'a> {
-    pub(crate) header: Header,
-    /// `header '.' payload`, the bytes the signature covers.
-    pub(crate) signing_input: &'a [u8],
-    pub(crate) payload: Vec<u8>,
-    pub(crate) signature: Vec<u8>,
-}
-
-/// Splits and decodes a compact JWS. The payload may be at most `max_payload` bytes after
-/// decoding; nothing larger is allocated.
-pub(crate) fn parse(token: &str, max_payload: usize) -> Result<Jws<'_>> {
-    let mut parts = token.split('.');
-    let (Some(header), Some(payload), Some(signature), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return Err(Error::Jws("not three segments"));
-    };
-    if header.len() > MAX_HEADER_TEXT || signature.len() > MAX_SIGNATURE_TEXT {
-        return Err(Error::TooLarge);
-    }
-    let signed_len = header.len() + 1 + payload.len();
-    let header_json = RAW_URL.decode(header, MAX_HEADER_TEXT)?;
-    let header: Header = serde_json::from_slice(&header_json).map_err(Error::Json)?;
-    if header.crit.is_some() {
-        return Err(Error::Jws("critical header"));
-    }
-    let signing_input = token
-        .as_bytes()
-        .get(..signed_len)
-        .ok_or(Error::Jws("not three segments"))?;
-    Ok(Jws {
-        header,
-        signing_input,
-        payload: RAW_URL.decode(payload, max_payload)?,
-        signature: RAW_URL.decode(signature, MAX_SIGNATURE_TEXT)?,
-    })
+/// A JWS signature algorithm.
+/// Everything but ES384 and RS256 is [`Algorithm::Other`] and is never verified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub(crate) enum Algorithm {
+    /// ECDSA P-384 with SHA-384, signature `r || s` (96 bytes).
+    #[serde(rename = "ES384")]
+    Es384,
+    /// RSASSA-PKCS1-v1_5 with SHA-256.
+    #[serde(rename = "RS256")]
+    Rs256,
+    /// Any other value, including `none` and the HMAC algorithms.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Serialize)]
@@ -96,46 +59,11 @@ struct Es384Header<'a> {
     x5u: &'a str,
 }
 
-/// Signs `claims` with ES384, the header naming the key in `x5u` (base64 SPKI), as gophertunnel's
-/// server handshake does.
-pub(crate) fn sign_es384(key: &ServerKey, claims: &impl Serialize) -> Result<String> {
-    let header = serde_json::to_vec(&Es384Header {
-        alg: "ES384",
-        x5u: key.public_key_base64(),
-    })
-    .map_err(Error::Json)?;
-    let payload = serde_json::to_vec(claims).map_err(Error::Json)?;
-    sign_compact(key, &header, &payload)
-}
-
-/// Signs `header` and `payload` bytes as given with ES384, for tokens whose JSON layout is fixed
-/// byte for byte. The header must name `ES384`.
-pub(crate) fn sign_compact(key: &ServerKey, header: &[u8], payload: &[u8]) -> Result<String> {
-    let mut token = RAW_URL.encode(header);
-    token.push('.');
-    RAW_URL.encode_into(payload, &mut token);
-    let signature = key.sign_es384(token.as_bytes())?;
-    token.push('.');
-    RAW_URL.encode_into(&signature, &mut token);
-    Ok(token)
-}
-
-/// The protected header of a detached signature, as go-jose and BDS write it.
-const DETACHED_HEADER: &[u8] = br#"{"alg":"ES384"}"#;
-
-/// An ES384 JWS of `payload` with the payload segment left empty (RFC 7515 appendix F):
-/// `header..signature`.
-pub(crate) fn sign_detached(key: &ServerKey, payload: &[u8]) -> Result<String> {
-    let token = sign_compact(key, DETACHED_HEADER, payload)?;
-    let (header, rest) = token.split_once('.').ok_or(Error::Internal)?;
-    let (_, signature) = rest.split_once('.').ok_or(Error::Internal)?;
-    Ok(format!("{header}..{signature}"))
-}
-
-/// Verifies a detached JWS of `payload` with `key`: the payload segment must be empty and the
-/// algorithm ES384; any other algorithm fails (go-nethernet `ParseDetached` with ES384 only).
+/// Verifies a detached JWS of `payload` with `key`.
+/// The payload segment must be empty and the algorithm ES384; any other algorithm fails
+/// (go-nethernet `ParseDetached` with ES384 only).
 pub(crate) fn verify_detached(jws: &str, payload: &[u8], key: &PublicKey) -> Result<()> {
-    if jws.len() > MAX_HEADER_TEXT + MAX_SIGNATURE_TEXT + 2 {
+    if jws.len() > max_text(0) {
         return Err(Error::TooLarge);
     }
     let mut parts = jws.split('.');
@@ -150,16 +78,92 @@ pub(crate) fn verify_detached(jws: &str, payload: &[u8], key: &PublicKey) -> Res
     RAW_URL.encode_into(payload, &mut token);
     token.push('.');
     token.push_str(signature);
-    let parsed = parse(&token, payload.len())?;
-    if parsed.header.alg != Algorithm::Es384 {
-        return Err(Error::Jws("algorithm is not ES384"));
+    verify_jws(&parse(&token, payload.len())?, Verifier::Es384(key))
+}
+
+/// The compact JWS in `token`, split and decoded.
+/// Its payload is at most `max_payload` bytes after decoding; nothing larger is allocated.
+pub(crate) fn parse(token: &str, max_payload: usize) -> Result<Jws<'_>> {
+    let not_three_segments = || Error::Jws("not three segments");
+    let (signing_input, signature) = token.rsplit_once('.').ok_or_else(not_three_segments)?;
+    let (header, payload) = signing_input
+        .split_once('.')
+        .filter(|(_, payload)| !payload.contains('.'))
+        .ok_or_else(not_three_segments)?;
+    if header.len() > MAX_HEADER_BYTES || signature.len() > MAX_SIGNATURE_BYTES {
+        return Err(Error::TooLarge);
     }
-    key.verify_es384(parsed.signing_input, &parsed.signature)
+    let header_json = RAW_URL.decode(header, MAX_HEADER_BYTES)?;
+    let header: Header = serde_json::from_slice(&header_json).map_err(Error::Json)?;
+    if header.crit.is_some() {
+        return Err(Error::Jws("critical header"));
+    }
+    Ok(Jws {
+        header,
+        signing_input: signing_input.as_bytes(),
+        payload: RAW_URL.decode(payload, max_payload)?,
+        signature: RAW_URL.decode(signature, MAX_SIGNATURE_BYTES)?,
+    })
+}
+
+/// The longest token text [`parse`] accepts with `max_payload`.
+/// That is the header and signature caps, the two dots, and `max_payload` bytes in unpadded
+/// base64.
+pub(crate) const fn max_text(max_payload: usize) -> usize {
+    MAX_HEADER_BYTES
+        .saturating_add(max_payload.saturating_mul(4).div_ceil(3))
+        .saturating_add(MAX_SIGNATURE_BYTES)
+        .saturating_add(2)
+}
+
+/// The compact JWS of `claims` signed with ES384.
+/// The header names the key in `x5u` (base64 SPKI), as gophertunnel's server handshake does.
+pub(crate) fn sign_es384(key: &ServerKey, claims: &impl Serialize) -> Result<String> {
+    let header = serde_json::to_vec(&Es384Header {
+        alg: "ES384",
+        x5u: key.public_key_base64(),
+    })
+    .map_err(Error::Json)?;
+    let payload = serde_json::to_vec(claims).map_err(Error::Json)?;
+    sign_compact(key, &header, &payload)
+}
+
+/// The compact JWS of `header` and `payload` bytes as given, signed with ES384.
+/// It serves tokens whose JSON layout is fixed byte for byte; the header must name `ES384`.
+pub(crate) fn sign_compact(key: &ServerKey, header: &[u8], payload: &[u8]) -> Result<String> {
+    let (mut token, payload, signature) = sign_segments(key, header, payload)?;
+    token.push('.');
+    token.push_str(&payload);
+    token.push('.');
+    token.push_str(&signature);
+    Ok(token)
+}
+
+/// An ES384 JWS of `payload` with the payload segment left empty (RFC 7515 appendix F).
+/// It is `header..signature`.
+pub(crate) fn sign_detached(key: &ServerKey, payload: &[u8]) -> Result<String> {
+    let (mut token, _, signature) = sign_segments(key, DETACHED_HEADER, payload)?;
+    token.push_str("..");
+    token.push_str(&signature);
+    Ok(token)
+}
+
+/// The base64url segments (header, payload, signature) of the ES384 JWS of `header` and `payload`.
+fn sign_segments(
+    key: &ServerKey,
+    header: &[u8],
+    payload: &[u8],
+) -> Result<(String, String, String)> {
+    let header = RAW_URL.encode(header);
+    let payload = RAW_URL.encode(payload);
+    let signature = key.sign_es384(format!("{header}.{payload}").as_bytes())?;
+    Ok((header, payload, RAW_URL.encode(&signature)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz;
 
     #[test]
@@ -192,7 +196,7 @@ mod tests {
             let mut parts = token.split('.');
             let (h, _, s) = (parts.next().unwrap(), parts.next(), parts.next().unwrap());
             let err = verify_detached(&format!("{h}..{s}"), b"{\"a\":1}", &public).unwrap_err();
-            assert!(matches!(err, Error::Jws("algorithm is not ES384")), "{alg}");
+            assert!(matches!(err, Error::Signature), "{alg}");
         }
     }
 
@@ -247,9 +251,10 @@ mod tests {
         }
     }
 
+    const MAX_PAYLOAD: usize = 16 * 1024;
+
     #[test]
     fn max_text_is_the_longest_token_parse_accepts() {
-        const MAX_PAYLOAD: usize = 16 * 1024;
         // A 1,536-byte header JSON is 2,048 base64 characters; a long `kid` fills it.
         let fill = 1536 - br#"{"alg":"ES384","kid":""}"#.len();
         let header_json = format!(r#"{{"alg":"ES384","kid":"{}"}}"#, "k".repeat(fill));
@@ -257,7 +262,7 @@ mod tests {
         let signature = RAW_URL.encode(&[7; 768]);
         assert_eq!(
             (header.len(), signature.len()),
-            (MAX_HEADER_TEXT, MAX_SIGNATURE_TEXT)
+            (MAX_HEADER_BYTES, MAX_SIGNATURE_BYTES)
         );
         let payload = RAW_URL.encode(&vec![b'x'; MAX_PAYLOAD]);
         let longest = format!("{header}.{payload}.{signature}");

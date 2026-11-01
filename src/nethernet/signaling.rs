@@ -19,6 +19,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::TryCurrentError;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{Id, JoinHandle, JoinSet};
@@ -27,46 +28,54 @@ use tracing::{debug, error, trace, warn};
 
 use crate::raknet::ip_key;
 
-/// Open signaling connections at once.
-const MAX_CONNECTIONS: usize = 64;
-/// Open signaling connections from one IPv4 address or one IPv6 /64. A /64 is
-/// the smallest block one IPv6 host is commonly given, so it counts as one address.
-const MAX_CONNECTIONS_PER_IP: u8 = 4;
-/// The request line and headers, the closing empty line included.
-const MAX_HEAD: usize = 8 * 1024;
-/// A request body after chunked decoding: the SDP offer limit.
-const MAX_BODY: usize = super::sdp::MAX_OFFER;
-/// Chunked framing (size lines, extensions, trailers), so tiny chunks cannot stretch a body read
-/// far past [`MAX_BODY`]. A client writing 4 KiB chunks spends about 8 bytes per chunk.
-const MAX_FRAMING: usize = 8 * 1024;
-/// One connection from accept to close: TLS handshake, reading, waiting for the answer and
-/// writing. When it passes, the connection is dropped without a response.
-const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
-/// Bytes read from a connection at once.
-const READ_CHUNK: usize = 4096;
-/// Connections the kernel queues before they are accepted.
-const BACKLOG: i32 = 128;
-/// Pause after an accept error such as running out of file descriptors, which would otherwise
-/// repeat at once and spin the task.
+/// The pause after an accept error such as running out of file descriptors, which would
+/// otherwise repeat at once and spin the task.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
-/// The first byte of a TLS handshake record: a client trying HTTPS first.
-const TLS_HANDSHAKE: u8 = 0x16;
+/// The connections the kernel queues before they are accepted.
+const BACKLOG: i32 = 128;
 /// What BDS sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2, length 2)
 /// holding a fatal `handshake_failure`.
 const HANDSHAKE_FAILURE: [u8; 7] = [0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
-/// Largest certificate chain or key file.
-const MAX_PEM_BYTES: u64 = 1024 * 1024;
-/// Digits of a decimal u64: the longest valid network id.
+/// The largest request body after chunked decoding, in bytes: the SDP offer limit.
+const MAX_BODY_BYTES: usize = super::sdp::MAX_OFFER_BYTES;
+/// The most open signaling connections at once.
+const MAX_CONNECTIONS: usize = 64;
+/// The most open signaling connections from one IPv4 address or one IPv6 /64. A /64 is the
+/// smallest block one IPv6 host is commonly given, so it counts as one address.
+const MAX_CONNECTIONS_PER_IP: u8 = 4;
+/// The most chunked framing (size lines, extensions, trailers) in a request, in bytes, so tiny
+/// chunks cannot stretch a body read far past [`MAX_BODY_BYTES`]. A client writing 4 KiB chunks
+/// spends about 8 bytes per chunk.
+const MAX_FRAMING_BYTES: usize = 8 * 1024;
+/// The largest request line and headers, the closing empty line included, in bytes.
+const MAX_HEAD_BYTES: usize = 8 * 1024;
+/// The digits of a decimal u64: the longest valid network id.
 const MAX_NETWORK_ID_DIGITS: usize = 20;
-/// Negotiation code (go-nethernet `ErrorCodeFailedToSetRemoteDescription`) for an offer that
-/// cannot be used: an empty or non-UTF-8 body here, a malformed SDP in the offer task.
-pub(crate) const CODE_BAD_OFFER: u32 = 13;
-/// Negotiation code (go-nethernet `ErrorCodeFailedToCreateAnswer`) when no answer can be made.
-pub(crate) const CODE_INTERNAL: u32 = 11;
+/// The largest certificate chain or key file, in bytes.
+const MAX_PEM_BYTES: u64 = 1024 * 1024;
+/// The bytes read from a connection at once.
+const READ_CHUNK_BYTES: usize = 4096;
+/// One connection from accept to close: TLS handshake, reading, waiting for the answer and
+/// writing. When it passes, the connection is dropped without a response.
+const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
+/// The first byte of a TLS handshake record: a client trying HTTPS first.
+const TLS_HANDSHAKE: u8 = 0x16;
 
-/// A failure to load the TLS certificate or key.
+/// A signaling failure: a listener that cannot be opened, or a TLS certificate or key that
+/// cannot be loaded.
 #[derive(Debug)]
 pub(crate) enum Error {
+    /// A listener cannot be opened.
+    Bind {
+        /// The address.
+        addr: SocketAddr,
+        /// The cause.
+        source: io::Error,
+    },
+    /// The server is spawned outside a tokio runtime.
+    Runtime(TryCurrentError),
+    /// The settings give no address to listen on.
+    NoAddress,
     /// A file cannot be read.
     Read {
         /// The file.
@@ -79,10 +88,12 @@ pub(crate) enum Error {
         /// The file.
         path: PathBuf,
     },
-    /// A file is not PEM or holds no item of the expected kind.
+    /// A file is not PEM or holds no usable item of the expected kind.
     Pem {
         /// The file.
         path: PathBuf,
+        /// The expected kind of item.
+        item: &'static str,
         /// The cause.
         source: pem::Error,
     },
@@ -96,11 +107,16 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Bind { addr, .. } => write!(f, "cannot listen on {addr}"),
+            Self::Runtime(_) => f.write_str("signaling needs a tokio runtime"),
+            Self::NoAddress => f.write_str("signaling needs an address"),
             Self::Read { path, .. } => write!(f, "cannot read {}", path.display()),
             Self::TooLarge { path } => {
                 write!(f, "{} is larger than {MAX_PEM_BYTES} bytes", path.display())
             }
-            Self::Pem { path, .. } => write!(f, "{} holds no valid pem item", path.display()),
+            Self::Pem { path, item, .. } => {
+                write!(f, "{} holds no usable pem {item}", path.display())
+            }
             Self::Tls(_) => f.write_str("invalid tls certificate or key"),
         }
     }
@@ -109,60 +125,17 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Read { source, .. } => Some(source),
+            Self::Bind { source, .. } | Self::Read { source, .. } => Some(source),
+            Self::Runtime(source) => Some(source),
             Self::Pem { source, .. } => Some(source),
             Self::Tls(source) => Some(source),
-            Self::TooLarge { .. } => None,
+            Self::NoAddress | Self::TooLarge { .. } => None,
         }
     }
-}
-
-/// Reads a PEM certificate chain (leaf first) and a PEM private key into a TLS configuration
-/// on the aws-lc-rs provider. Blocking: call it once at start on the blocking pool.
-pub(crate) fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConfig>> {
-    let pem_error = |path: &Path| {
-        let path = path.to_owned();
-        move |source| Error::Pem { path, source }
-    };
-    let chain = CertificateDer::pem_slice_iter(&read_pem(cert)?)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(pem_error(cert))?;
-    if chain.is_empty() {
-        return Err(pem_error(cert)(pem::Error::NoItemsFound));
-    }
-    let key = PrivateKeyDer::from_pem_slice(&read_pem(key)?).map_err(pem_error(key))?;
-    // An explicit provider: rustls panics when none is given and no process default is set.
-    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
-    let mut config = rustls::ServerConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(Error::Tls)?
-        .with_no_client_auth()
-        .with_single_cert(chain, key)
-        .map_err(Error::Tls)?;
-    // One request per connection: resumption only costs tickets and a session cache.
-    config.send_tls13_tickets = 0;
-    config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
-    Ok(Arc::new(config))
-}
-
-/// Reads at most [`MAX_PEM_BYTES`] of `path`.
-fn read_pem(path: &Path) -> Result<Vec<u8>> {
-    crate::fs::read_bounded(path, MAX_PEM_BYTES).map_err(|source| {
-        if source.kind() == io::ErrorKind::FileTooLarge {
-            Error::TooLarge {
-                path: path.to_owned(),
-            }
-        } else {
-            Error::Read {
-                path: path.to_owned(),
-                source,
-            }
-        }
-    })
 }
 
 /// Socket settings for `spawn`.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Settings {
     /// IPv4 address to bind, if any.
     pub(crate) v4: Option<SocketAddrV4>,
@@ -182,7 +155,8 @@ pub(crate) struct Offer {
     pub(crate) peer: SocketAddr,
     /// The server's TCP address the client reached (IPv4-mapped IPv6 as IPv4).
     pub(crate) local: SocketAddr,
-    /// Where the answer goes. It is closed once the client is gone or the deadline passed.
+    /// Where the answer goes. It is dropped when the answer is written or the request deadline
+    /// passes.
     pub(crate) reply: oneshot::Sender<Reply>,
 }
 
@@ -198,69 +172,39 @@ impl fmt::Debug for Offer {
     }
 }
 
+/// The error code of a failed negotiation (go-nethernet `ErrorCode…`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Code {
+    /// `FailedToCreateAnswer`: no answer can be made.
+    Internal,
+    /// `FailedToSetRemoteDescription`: the offer cannot be used. An empty or non-UTF-8 body
+    /// here, a malformed SDP in the offer task.
+    BadOffer,
+    /// `IdentityVerificationFailed`: the offer identity is missing where required or does not
+    /// verify.
+    Identity,
+}
+
+impl Code {
+    /// The number the response body carries.
+    fn number(self) -> u32 {
+        match self {
+            Self::Internal => 11,
+            Self::BadOffer => 13,
+            Self::Identity => 37,
+        }
+    }
+}
+
 /// The answer to an [`Offer`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Reply {
     /// `200`, `application/sdp`, the answer SDP.
     Answer(String),
     /// `200`, `application/sdp`, the negotiation error code in decimal (BDS).
-    Code(u32),
+    Code(Code),
     /// `503 Service Unavailable`: too many peers before login.
     Busy,
-}
-
-/// Binds the listeners on the current tokio runtime and serves them in tasks. `status` holds
-/// the whole `GET /v1/join` body; `offers` receives each offer (when it is full, the request
-/// gets `503`).
-pub(crate) fn spawn(
-    settings: Settings,
-    status: watch::Receiver<Arc<[u8]>>,
-    offers: mpsc::Sender<Offer>,
-) -> io::Result<Handle> {
-    let runtime = tokio::runtime::Handle::try_current().map_err(io::Error::other)?;
-    let _guard = runtime.enter();
-    let v4 = settings.v4.map(|addr| bind(addr.into())).transpose()?;
-    let v6 = settings.v6.map(|addr| bind(addr.into())).transpose()?;
-    let local_addrs = v4
-        .iter()
-        .chain(&v6)
-        .map(TcpListener::local_addr)
-        .collect::<io::Result<Vec<_>>>()?;
-    if local_addrs.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "signaling needs an address",
-        ));
-    }
-    let context = Context {
-        tls: settings.tls,
-        status,
-        offers,
-        unavailable: encode_status(Status::Unavailable),
-    };
-    let (stop, stopped) = oneshot::channel();
-    let task = runtime.spawn(serve([v4, v6], Arc::new(context), stopped));
-    Ok(Handle {
-        local_addrs,
-        stop,
-        task,
-    })
-}
-
-fn bind(addr: SocketAddr) -> io::Result<TcpListener> {
-    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
-    if addr.is_ipv6() {
-        // Lets the IPv4 socket bind the same port on every OS.
-        socket.set_only_v6(true)?;
-    }
-    // As std does on Unix: a restart may bind while closed connections sit in TIME_WAIT. On
-    // Windows the option lets another socket take a bound port, so it stays off there.
-    #[cfg(not(windows))]
-    socket.set_reuse_address(true)?;
-    socket.set_nonblocking(true)?;
-    socket.bind(&addr.into())?;
-    socket.listen(BACKLOG)?;
-    TcpListener::from_std(socket.into())
 }
 
 /// Controls the signaling task.
@@ -284,7 +228,10 @@ impl Handle {
             debug!("signaling task already stopped");
         }
         if let Err(error) = self.task.await {
-            error!(%error, "signaling task failed");
+            error!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "signaling task failed"
+            );
         }
     }
 }
@@ -324,216 +271,26 @@ impl Limits {
         true
     }
 
+    /// Takes a connection that `try_add` counted off the counts.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `serve` removes only a group `try_add` counted"
+    )]
     fn remove(&mut self, group: Group) {
-        if let Some(count) = self.groups.get_mut(&group) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.groups.remove(&group);
-            }
-            self.total = self.total.saturating_sub(1);
+        let count = self
+            .groups
+            .get_mut(&group)
+            .expect("a removed connection's group is counted");
+        *count -= 1;
+        if *count == 0 {
+            self.groups.remove(&group);
         }
+        self.total -= 1;
     }
-}
-
-/// The accept task: owns the listeners, the limits and every connection task.
-async fn serve(
-    listeners: [Option<TcpListener>; 2],
-    context: Arc<Context>,
-    mut stopped: oneshot::Receiver<()>,
-) {
-    let [v4, v6] = listeners;
-    let mut tasks = JoinSet::new();
-    let mut groups = BTreeMap::<Id, Group>::new();
-    let mut limits = Limits::default();
-    loop {
-        let accepted = tokio::select! {
-            accepted = accept(v4.as_ref()) => accepted,
-            accepted = accept(v6.as_ref()) => accepted,
-            Some(joined) = tasks.join_next_with_id() => {
-                let id = match joined {
-                    Ok((id, ())) => id,
-                    Err(error) => {
-                        if error.is_panic() {
-                            error!(%error, "signaling connection task panicked");
-                        }
-                        error.id()
-                    }
-                };
-                if let Some(group) = groups.remove(&id) {
-                    limits.remove(group);
-                }
-                continue;
-            }
-            // A stop request or a dropped handle.
-            _ = &mut stopped => break,
-        };
-        match accepted {
-            Ok((stream, peer)) => {
-                let group = ip_key(peer.ip());
-                if !limits.try_add(group) {
-                    debug!(%peer, "signaling connection over the limit");
-                    // A TLS client cannot read a plain response, so it only sees the close.
-                    if context.tls.is_none() {
-                        refuse(&stream, &context.unavailable, peer);
-                    }
-                    continue;
-                }
-                let task = tasks.spawn(connection(stream, peer, Arc::clone(&context)));
-                groups.insert(task.id(), group);
-            }
-            Err(error) => match error.kind() {
-                // The client gave up before the accept: nothing is wrong with the listener.
-                io::ErrorKind::ConnectionAborted
-                | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::Interrupted => trace!(%error, "signaling accept skipped"),
-                _ => {
-                    warn!(%error, "signaling accept failed; pausing");
-                    tokio::time::sleep(ACCEPT_BACKOFF).await;
-                }
-            },
-        }
-    }
-    tasks.shutdown().await;
-    debug!("signaling task stopped");
-}
-
-/// Writes `response` to a connection over the limit without a task; the caller then drops it
-/// unread. Best effort: if the client's request has already arrived, closing with unread bytes
-/// sends a reset, which the client may see instead of the response.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the accepted socket is non-blocking, so the send returns at once"
-)]
-fn refuse(stream: &TcpStream, response: &[u8], peer: SocketAddr) {
-    // `TcpStream::try_write` would refuse here: tokio has no write readiness for a socket it
-    // has not polled yet. The empty send buffer takes the whole response.
-    if let Err(error) = socket2::SockRef::from(stream).send(response) {
-        trace!(%peer, %error, "signaling 503 not sent");
-    }
-}
-
-async fn accept(listener: Option<&TcpListener>) -> io::Result<(TcpStream, SocketAddr)> {
-    match listener {
-        Some(listener) => listener.accept().await,
-        None => std::future::pending().await,
-    }
-}
-
-/// One connection: one request, one response, then close.
-async fn connection(stream: TcpStream, peer: SocketAddr, context: Arc<Context>) {
-    let peer = canonical(peer);
-    debug!(%peer, "signaling connection opened");
-    match tokio::time::timeout(REQUEST_DEADLINE, exchange(stream, peer, &context)).await {
-        Ok(Ok(())) => debug!(%peer, "signaling connection closed"),
-        Ok(Err(error)) => debug!(%peer, %error, "signaling connection failed"),
-        Err(_) => debug!(%peer, "signaling request timed out"),
-    }
-}
-
-async fn exchange(stream: TcpStream, peer: SocketAddr, context: &Context) -> io::Result<()> {
-    let local = canonical(stream.local_addr()?);
-    match &context.tls {
-        Some(config) => {
-            let stream = TlsAcceptor::from(Arc::clone(config)).accept(stream).await?;
-            respond(stream, peer, local, context).await
-        }
-        None => respond(stream, peer, local, context).await,
-    }
-}
-
-/// Reads one request, writes its response and closes the stream.
-async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
-    mut stream: S,
-    peer: SocketAddr,
-    local: SocketAddr,
-    context: &Context,
-) -> io::Result<()> {
-    let mut parser = Parser::default();
-    let mut buf = [0; READ_CHUNK];
-    let mut first = context.tls.is_none();
-    let parsed = loop {
-        let read = stream.read(&mut buf).await?;
-        let Some(data) = buf.get(..read).filter(|data| !data.is_empty()) else {
-            trace!(%peer, "signaling client closed before a whole request");
-            return Ok(());
-        };
-        if first && data.first() == Some(&TLS_HANDSHAKE) {
-            trace!(%peer, "signaling refused a tls handshake on plain http");
-            stream.write_all(&HANDSHAKE_FAILURE).await?;
-            return stream.shutdown().await;
-        }
-        first = false;
-        match parser.push(data) {
-            Ok(None) => {}
-            Ok(Some(request)) => break Ok(request),
-            Err(status) => break Err(status),
-        }
-    };
-    let response = match parsed {
-        Ok(request) => answer(request, peer, local, context).await,
-        Err(status) => {
-            trace!(%peer, code = status.code(), "signaling request refused");
-            encode_status(status)
-        }
-    };
-    stream.write_all(&response).await?;
-    stream.shutdown().await
-}
-
-async fn answer(
-    request: Request,
-    peer: SocketAddr,
-    local: SocketAddr,
-    context: &Context,
-) -> Vec<u8> {
-    match route(request.method, &request.path) {
-        Route::Status => {
-            trace!(%peer, "signaling status request");
-            let status = Arc::clone(&context.status.borrow());
-            encode(Status::Ok, Kind::Json, &status)
-        }
-        Route::Offer(network_id) => {
-            trace!(%peer, network_id, "signaling offer");
-            let Ok(sdp) = String::from_utf8(request.body) else {
-                return encode_code(CODE_BAD_OFFER);
-            };
-            if sdp.is_empty() {
-                return encode_code(CODE_BAD_OFFER);
-            }
-            let (reply, replied) = oneshot::channel();
-            let offer = Offer {
-                network_id,
-                sdp,
-                peer,
-                local,
-                reply,
-            };
-            match context.offers.try_send(offer) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => return encode_status(Status::Unavailable),
-                Err(TrySendError::Closed(_)) => return encode_code(CODE_INTERNAL),
-            }
-            match replied.await {
-                Ok(Reply::Answer(sdp)) => encode(Status::Ok, Kind::Sdp, sdp.as_bytes()),
-                Ok(Reply::Code(code)) => encode_code(code),
-                Ok(Reply::Busy) => encode_status(Status::Unavailable),
-                Err(_) => encode_code(CODE_INTERNAL),
-            }
-        }
-        Route::Reject(status) => {
-            trace!(%peer, code = status.code(), "signaling request refused");
-            encode_status(status)
-        }
-    }
-}
-
-/// `addr` with an IPv4-mapped IPv6 address written as IPv4.
-fn canonical(addr: SocketAddr) -> SocketAddr {
-    SocketAddr::new(addr.ip().to_canonical(), addr.port())
 }
 
 /// A response status. Except `200`, the reason phrase is also the `text/plain` body, as in BDS.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
     Ok,
     BadRequest,
@@ -571,7 +328,7 @@ impl Status {
 }
 
 /// A response body type.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Kind {
     Json,
     Sdp,
@@ -588,31 +345,6 @@ impl Kind {
     }
 }
 
-/// A whole response, closing the connection.
-fn encode(status: Status, kind: Kind, body: &[u8]) -> Vec<u8> {
-    let head = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status.code(),
-        status.reason(),
-        kind.mime(),
-        body.len()
-    );
-    let mut response = Vec::with_capacity(head.len().saturating_add(body.len()));
-    response.extend_from_slice(head.as_bytes());
-    response.extend_from_slice(body);
-    response
-}
-
-/// A refusal with its reason phrase as the body.
-fn encode_status(status: Status) -> Vec<u8> {
-    encode(status, Kind::Text, status.reason().as_bytes())
-}
-
-/// A failed negotiation: `200` with the code as the SDP body (BDS).
-fn encode_code(code: u32) -> Vec<u8> {
-    encode(Status::Ok, Kind::Sdp, code.to_string().as_bytes())
-}
-
 /// What a request asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Route {
@@ -621,28 +353,8 @@ enum Route {
     Reject(Status),
 }
 
-/// Routes like BDS: an unknown path, or a known path with another method, is `404`.
-fn route(method: Method, path: &str) -> Route {
-    if method == Method::Get && path == "/v1/join" {
-        return Route::Status;
-    }
-    if method == Method::Post
-        && let Some(id) = path.strip_prefix("/v1/join/")
-    {
-        return network_id(id).map_or(Route::Reject(Status::BadNetworkId), Route::Offer);
-    }
-    Route::Reject(Status::NotFound)
-}
-
-/// A decimal u64 of 1 to 20 digits, nothing else (`parse` alone would take a `+` sign).
-fn network_id(id: &str) -> Option<u64> {
-    let digits = (1..=MAX_NETWORK_ID_DIGITS).contains(&id.len())
-        && id.bytes().all(|byte| byte.is_ascii_digit());
-    digits.then(|| id.parse().ok()).flatten()
-}
-
 /// A request method; only GET and POST are routed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Method {
     Get,
     Post,
@@ -655,12 +367,12 @@ struct Request {
     method: Method,
     /// The request target up to `?`: visible ASCII starting with `/`.
     path: String,
-    /// At most [`MAX_BODY`] bytes.
+    /// At most [`MAX_BODY_BYTES`] bytes.
     body: Vec<u8>,
 }
 
 /// Where the parser is.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 enum State {
     /// Reading the head; its first `scanned` bytes hold no CRLF CRLF.
     Head {
@@ -676,7 +388,7 @@ enum State {
 }
 
 /// Where the chunked decoder is.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Chunk {
     /// Reading the hex size; `digits` says whether one was seen.
     Size {
@@ -713,21 +425,8 @@ struct Parser {
     method: Method,
     path: String,
     body: Vec<u8>,
-    /// Chunked framing bytes so far, against [`MAX_FRAMING`].
+    /// Chunked framing bytes so far, against [`MAX_FRAMING_BYTES`].
     framing: usize,
-}
-
-impl Default for Parser {
-    fn default() -> Self {
-        Self {
-            head: Vec::new(),
-            state: State::Head { scanned: 0 },
-            method: Method::Other,
-            path: String::new(),
-            body: Vec::new(),
-            framing: 0,
-        }
-    }
 }
 
 impl Parser {
@@ -745,6 +444,7 @@ impl Parser {
             State::Done => return Ok(None),
         };
         let done = match self.state {
+            State::Head { .. } | State::Done => false,
             State::Body { remaining } => {
                 let take = remaining.min(data.len());
                 self.body
@@ -760,7 +460,6 @@ impl Parser {
                 }
                 None => true,
             },
-            State::Head { .. } | State::Done => false,
         };
         if !done {
             return Ok(None);
@@ -781,7 +480,7 @@ impl Parser {
         data: &'a [u8],
     ) -> Result<Option<&'a [u8]>, Status> {
         let before = self.head.len();
-        let take = MAX_HEAD.saturating_sub(before).min(data.len());
+        let take = MAX_HEAD_BYTES.saturating_sub(before).min(data.len());
         self.head
             .extend_from_slice(data.get(..take).unwrap_or_default());
         // CRLF CRLF may straddle the last push.
@@ -791,7 +490,7 @@ impl Parser {
             .get(from..)
             .and_then(|tail| tail.windows(4).position(|window| window == b"\r\n\r\n"));
         let Some(end) = found.and_then(|at| at.checked_add(from + 4)) else {
-            if self.head.len() >= MAX_HEAD {
+            if self.head.len() >= MAX_HEAD_BYTES {
                 return Err(Status::HeaderFieldsTooLarge);
             }
             self.state = State::Head {
@@ -841,13 +540,13 @@ impl Parser {
             };
             data = rest;
             self.framing = self.framing.saturating_add(1);
-            if self.framing > MAX_FRAMING {
+            if self.framing > MAX_FRAMING_BYTES {
                 return Err(Status::PayloadTooLarge);
             }
             chunk = match (chunk, byte) {
                 (Chunk::Size { size, .. }, byte) if byte.is_ascii_hexdigit() => {
                     let digit = char::from(byte).to_digit(16).ok_or(Status::BadRequest)?;
-                    let room = MAX_BODY.saturating_sub(self.body.len());
+                    let room = MAX_BODY_BYTES.saturating_sub(self.body.len());
                     let size = size
                         .checked_mul(16)
                         .and_then(|size| size.checked_add(usize::try_from(digit).ok()?))
@@ -866,7 +565,14 @@ impl Parser {
                 }
                 (Chunk::SizeLf { size: 0 } | Chunk::TrailerLf, b'\n') => Chunk::TrailerStart,
                 (Chunk::SizeLf { size }, b'\n') => {
-                    self.body.reserve_exact(size);
+                    // The body grows by doubling within its limit: reserving only this chunk
+                    // would copy the body once per chunk. `size` is within `room` (checked
+                    // when it was read), so the chunk always fits.
+                    let spare = self.body.capacity().saturating_sub(self.body.len());
+                    if spare < size {
+                        let room = MAX_BODY_BYTES.saturating_sub(self.body.len());
+                        self.body.reserve_exact(size.max(self.body.len()).min(room));
+                    }
                     Chunk::Data { remaining: size }
                 }
                 (Chunk::DataCr, b'\r') => Chunk::DataLf,
@@ -886,12 +592,397 @@ impl Parser {
     }
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        Self {
+            head: Vec::new(),
+            state: State::Head { scanned: 0 },
+            method: Method::Other,
+            path: String::new(),
+            body: Vec::new(),
+            framing: 0,
+        }
+    }
+}
+
 /// How a request body is framed.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Framing {
-    /// `Content-Length`, at most [`MAX_BODY`]; also 0 when neither header is present.
+    /// `Content-Length`, at most [`MAX_BODY_BYTES`]; also 0 when neither header is present.
     Length(usize),
     Chunked,
+}
+
+/// Reads a PEM certificate chain (leaf first) and a PEM private key into a TLS configuration
+/// on the aws-lc-rs provider. Blocking: call it once at start on the blocking pool.
+pub(crate) fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConfig>> {
+    let pem_error = |path: &Path, item: &'static str| {
+        let path = path.to_owned();
+        move |source| Error::Pem { path, item, source }
+    };
+    let chain = CertificateDer::pem_slice_iter(&read_pem(cert)?)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(pem_error(cert, "certificate"))?;
+    if chain.is_empty() {
+        return Err(pem_error(cert, "certificate")(pem::Error::NoItemsFound));
+    }
+    let key = PrivateKeyDer::from_pem_slice(&read_pem(key)?).map_err(pem_error(
+        key,
+        "private key (pkcs#8, pkcs#1 or sec1, unencrypted)",
+    ))?;
+    // An explicit provider: rustls panics when none is given and no process default is set.
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let mut config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(Error::Tls)?
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+        .map_err(Error::Tls)?;
+    // One request per connection: resumption only costs tickets and a session cache.
+    config.send_tls13_tickets = 0;
+    config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+    Ok(Arc::new(config))
+}
+
+/// Reads at most [`MAX_PEM_BYTES`] of `path`.
+fn read_pem(path: &Path) -> Result<Vec<u8>> {
+    crate::fs::read_bounded(path, MAX_PEM_BYTES).map_err(|source| {
+        if source.kind() == io::ErrorKind::FileTooLarge {
+            Error::TooLarge {
+                path: path.to_owned(),
+            }
+        } else {
+            Error::Read {
+                path: path.to_owned(),
+                source,
+            }
+        }
+    })
+}
+
+/// Binds the listeners on the current tokio runtime and serves them in tasks. `status` holds
+/// the whole `GET /v1/join` body; `offers` receives each offer (when it is full, the request
+/// gets `503`).
+pub(crate) fn spawn(
+    settings: Settings,
+    status: watch::Receiver<Arc<[u8]>>,
+    offers: mpsc::Sender<Offer>,
+) -> Result<Handle> {
+    let runtime = tokio::runtime::Handle::try_current().map_err(Error::Runtime)?;
+    let _guard = runtime.enter();
+    let v4 = settings.v4.map(|addr| bind(addr.into())).transpose()?;
+    let v6 = settings.v6.map(|addr| bind(addr.into())).transpose()?;
+    let local_addrs: Vec<SocketAddr> = v4
+        .iter()
+        .chain(&v6)
+        .map(|(_, local_addr)| *local_addr)
+        .collect();
+    if local_addrs.is_empty() {
+        return Err(Error::NoAddress);
+    }
+    let context = Context {
+        tls: settings.tls,
+        status,
+        offers,
+        unavailable: encode_status(Status::Unavailable),
+    };
+    let listeners = [v4, v6].map(|bound| bound.map(|(listener, _)| listener));
+    let (stop, stopped) = oneshot::channel();
+    let task = runtime.spawn(serve(listeners, Arc::new(context), stopped));
+    Ok(Handle {
+        local_addrs,
+        stop,
+        task,
+    })
+}
+
+/// Opens a listener on `addr`, with the address it is bound to.
+fn bind(addr: SocketAddr) -> Result<(TcpListener, SocketAddr)> {
+    open(addr)
+        .and_then(|listener| {
+            let local_addr = listener.local_addr()?;
+            Ok((listener, local_addr))
+        })
+        .map_err(|source| Error::Bind { addr, source })
+}
+
+fn open(addr: SocketAddr) -> io::Result<TcpListener> {
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    if addr.is_ipv6() {
+        // Lets the IPv4 socket bind the same port on every OS.
+        socket.set_only_v6(true)?;
+    }
+    // As std does on Unix: a restart may bind while closed connections sit in TIME_WAIT. On
+    // Windows the option lets another socket take a bound port, so it stays off there.
+    #[cfg(not(windows))]
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(BACKLOG)?;
+    TcpListener::from_std(socket.into())
+}
+
+/// The accept task: owns the listeners, the limits and every connection task.
+async fn serve(
+    listeners: [Option<TcpListener>; 2],
+    context: Arc<Context>,
+    mut stopped: oneshot::Receiver<()>,
+) {
+    let [v4, v6] = listeners;
+    let mut tasks = JoinSet::new();
+    let mut groups = BTreeMap::<Id, Group>::new();
+    let mut limits = Limits::default();
+    loop {
+        let accepted = tokio::select! {
+            accepted = accept(v4.as_ref()) => accepted,
+            accepted = accept(v6.as_ref()) => accepted,
+            Some(joined) = tasks.join_next_with_id() => {
+                let id = match joined {
+                    Ok((id, ())) => id,
+                    Err(error) => {
+                        if error.is_panic() {
+                            error!(
+                                error = &error as &(dyn std::error::Error + 'static),
+                                "signaling connection task panicked"
+                            );
+                        }
+                        error.id()
+                    }
+                };
+                if let Some(group) = groups.remove(&id) {
+                    limits.remove(group);
+                }
+                continue;
+            }
+            // A stop request or a dropped handle.
+            _ = &mut stopped => break,
+        };
+        match accepted {
+            Ok((stream, peer)) => {
+                let group = ip_key(peer.ip());
+                if !limits.try_add(group) {
+                    debug!(%peer, "signaling connection over the limit");
+                    // A TLS client cannot read a plain response, so it only sees the close.
+                    if context.tls.is_none() {
+                        refuse(&stream, &context.unavailable, peer);
+                    }
+                    continue;
+                }
+                let task = tasks.spawn(connection(stream, peer, Arc::clone(&context)));
+                groups.insert(task.id(), group);
+            }
+            Err(error) => match error.kind() {
+                // The client gave up before the accept: nothing is wrong with the listener.
+                io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::Interrupted => trace!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "signaling accept skipped"
+                ),
+                _ => {
+                    warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "signaling accept failed; pausing"
+                    );
+                    tokio::time::sleep(ACCEPT_BACKOFF).await;
+                }
+            },
+        }
+    }
+    tasks.shutdown().await;
+    debug!("signaling task stopped");
+}
+
+/// Accepts a connection on `listener`, or waits forever without one.
+async fn accept(listener: Option<&TcpListener>) -> io::Result<(TcpStream, SocketAddr)> {
+    match listener {
+        Some(listener) => listener.accept().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Writes `response` to a connection over the limit without a task; the caller then drops it
+/// unread. Best effort: if the client's request has already arrived, closing with unread bytes
+/// sends a reset, which the client may see instead of the response.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the accepted socket is non-blocking, so the send returns at once"
+)]
+fn refuse(stream: &TcpStream, response: &[u8], peer: SocketAddr) {
+    // `TcpStream::try_write` would refuse here: tokio has no write readiness for a socket it
+    // has not polled yet. The empty send buffer takes the whole response.
+    if let Err(error) = socket2::SockRef::from(stream).send(response) {
+        trace!(
+            %peer,
+            error = &error as &(dyn std::error::Error + 'static),
+            "signaling 503 not sent"
+        );
+    }
+}
+
+/// One connection: one request, one response, then close.
+async fn connection(stream: TcpStream, peer: SocketAddr, context: Arc<Context>) {
+    let peer = canonical(peer);
+    debug!(%peer, "signaling connection opened");
+    match tokio::time::timeout(REQUEST_DEADLINE, exchange(stream, peer, &context)).await {
+        Ok(Ok(())) => debug!(%peer, "signaling connection closed"),
+        Ok(Err(error)) => debug!(
+            %peer,
+            error = &error as &(dyn std::error::Error + 'static),
+            "signaling connection failed"
+        ),
+        Err(_) => debug!(%peer, "signaling request timed out"),
+    }
+}
+
+/// Serves the request on `stream`, through TLS when configured.
+async fn exchange(stream: TcpStream, peer: SocketAddr, context: &Context) -> io::Result<()> {
+    let local = canonical(stream.local_addr()?);
+    match &context.tls {
+        Some(config) => {
+            let stream = TlsAcceptor::from(Arc::clone(config)).accept(stream).await?;
+            respond(stream, peer, local, context).await
+        }
+        None => respond(stream, peer, local, context).await,
+    }
+}
+
+/// Reads one request, writes its response and closes the stream.
+async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    peer: SocketAddr,
+    local: SocketAddr,
+    context: &Context,
+) -> io::Result<()> {
+    let mut parser = Parser::default();
+    let mut buf = [0; READ_CHUNK_BYTES];
+    let mut first = context.tls.is_none();
+    let parsed = loop {
+        let read = stream.read(&mut buf).await?;
+        let Some(data) = buf.get(..read).filter(|data| !data.is_empty()) else {
+            trace!(%peer, "signaling client closed before a whole request");
+            return Ok(());
+        };
+        if first && data.first() == Some(&TLS_HANDSHAKE) {
+            trace!(%peer, "signaling refused a tls handshake on plain http");
+            stream.write_all(&HANDSHAKE_FAILURE).await?;
+            return stream.shutdown().await;
+        }
+        first = false;
+        match parser.push(data) {
+            Ok(None) => {}
+            Ok(Some(request)) => break Ok(request),
+            Err(status) => break Err(status),
+        }
+    };
+    let response = match parsed {
+        Ok(request) => answer(request, peer, local, context).await,
+        Err(status) => {
+            trace!(%peer, code = status.code(), "signaling request refused");
+            encode_status(status)
+        }
+    };
+    stream.write_all(&response).await?;
+    stream.shutdown().await
+}
+
+/// Answers a parsed request: the status, or the offer's reply.
+async fn answer(
+    request: Request,
+    peer: SocketAddr,
+    local: SocketAddr,
+    context: &Context,
+) -> Vec<u8> {
+    match route(request.method, &request.path) {
+        Route::Status => {
+            trace!(%peer, "signaling status request");
+            let status = Arc::clone(&context.status.borrow());
+            encode(Status::Ok, Kind::Json, &status)
+        }
+        Route::Offer(network_id) => {
+            trace!(%peer, network_id, "signaling offer");
+            let Ok(sdp) = String::from_utf8(request.body) else {
+                return encode_code(Code::BadOffer);
+            };
+            if sdp.is_empty() {
+                return encode_code(Code::BadOffer);
+            }
+            let (reply, replied) = oneshot::channel();
+            let offer = Offer {
+                network_id,
+                sdp,
+                peer,
+                local,
+                reply,
+            };
+            match context.offers.try_send(offer) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => return encode_status(Status::Unavailable),
+                Err(TrySendError::Closed(_)) => return encode_code(Code::Internal),
+            }
+            match replied.await {
+                Ok(Reply::Answer(sdp)) => encode(Status::Ok, Kind::Sdp, sdp.as_bytes()),
+                Ok(Reply::Code(code)) => encode_code(code),
+                Ok(Reply::Busy) => encode_status(Status::Unavailable),
+                Err(_) => encode_code(Code::Internal),
+            }
+        }
+        Route::Reject(status) => {
+            trace!(%peer, code = status.code(), "signaling request refused");
+            encode_status(status)
+        }
+    }
+}
+
+/// `addr` with an IPv4-mapped IPv6 address written as IPv4.
+fn canonical(addr: SocketAddr) -> SocketAddr {
+    SocketAddr::new(addr.ip().to_canonical(), addr.port())
+}
+
+/// The route of a request, like BDS: an unknown path, or a known path with another method, is
+/// `404`.
+fn route(method: Method, path: &str) -> Route {
+    if method == Method::Get && path == "/v1/join" {
+        return Route::Status;
+    }
+    if method == Method::Post
+        && let Some(id) = path.strip_prefix("/v1/join/")
+    {
+        return network_id(id).map_or(Route::Reject(Status::BadNetworkId), Route::Offer);
+    }
+    Route::Reject(Status::NotFound)
+}
+
+/// A decimal u64 of 1 to 20 digits, nothing else (`parse` alone would take a `+` sign).
+fn network_id(id: &str) -> Option<u64> {
+    let digits = (1..=MAX_NETWORK_ID_DIGITS).contains(&id.len())
+        && id.bytes().all(|byte| byte.is_ascii_digit());
+    digits.then(|| id.parse().ok()).flatten()
+}
+
+/// A refusal with its reason phrase as the body.
+fn encode_status(status: Status) -> Vec<u8> {
+    encode(status, Kind::Text, status.reason().as_bytes())
+}
+
+/// A failed negotiation: `200` with the code as the SDP body (BDS).
+fn encode_code(code: Code) -> Vec<u8> {
+    encode(Status::Ok, Kind::Sdp, code.number().to_string().as_bytes())
+}
+
+/// A whole response, closing the connection.
+fn encode(status: Status, kind: Kind, body: &[u8]) -> Vec<u8> {
+    let head = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status.code(),
+        status.reason(),
+        kind.mime(),
+        body.len()
+    );
+    let mut response = Vec::with_capacity(head.len().saturating_add(body.len()));
+    response.extend_from_slice(head.as_bytes());
+    response.extend_from_slice(body);
+    response
 }
 
 /// Parses a head ending in CRLF CRLF.
@@ -942,7 +1033,7 @@ fn parse_head(head: &[u8]) -> Result<(Method, String, Framing), Status> {
         (Some(_), true) => return Err(Status::BadRequest),
         (None, true) if !http11 => return Err(Status::BadRequest),
         (None, true) => Framing::Chunked,
-        (Some(length), false) if length > MAX_BODY => return Err(Status::PayloadTooLarge),
+        (Some(length), false) if length > MAX_BODY_BYTES => return Err(Status::PayloadTooLarge),
         (Some(length), false) => Framing::Length(length),
         (None, false) => Framing::Length(0),
     };
@@ -1005,47 +1096,17 @@ fn is_field_byte(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     use tokio_rustls::TlsConnector;
 
-    use super::*;
+    use crate::protocol::Rng;
+    use crate::raknet::tests::{run, run_paused};
 
     const WAIT: Duration = Duration::from_secs(10);
     const STATUS: &[u8] = br#"{"name":"Anchor","protocol":1}"#;
-
-    fn testdata(name: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/nethernet/testdata")
-            .join(name)
-    }
-
-    /// Runs a test on its own single-thread runtime.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a test drives the signaling task on a runtime of its own"
-    )]
-    fn run<F: Future>(test: F) -> F::Output {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(test)
-    }
-
-    /// Like `run`, with time paused: it jumps ahead whenever every task waits.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a test drives the signaling task on a runtime of its own"
-    )]
-    fn run_paused<F: Future>(test: F) -> F::Output {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .start_paused(true)
-            .build()
-            .unwrap()
-            .block_on(test)
-    }
 
     /// A server on an IPv4 localhost port with `offers` as its queue.
     fn server(
@@ -1063,13 +1124,6 @@ mod tests {
         (handle, addr, status)
     }
 
-    /// Sends `request` on a new connection and reads until the server closes it.
-    async fn send(addr: SocketAddr, request: &[u8]) -> Vec<u8> {
-        let mut stream = TcpStream::connect(addr).await.unwrap();
-        stream.write_all(request).await.unwrap();
-        read_all(&mut stream).await
-    }
-
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: a test client reads the whole reply of the server under test"
@@ -1081,6 +1135,13 @@ mod tests {
             .unwrap()
             .unwrap();
         response
+    }
+
+    /// Sends `request` on a new connection and reads until the server closes it.
+    async fn send(addr: SocketAddr, request: &[u8]) -> Vec<u8> {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream.write_all(request).await.unwrap();
+        read_all(&mut stream).await
     }
 
     fn response(head: &str, body: &str) -> Vec<u8> {
@@ -1116,7 +1177,7 @@ mod tests {
             assert_eq!(offer.local.ip(), Ipv4Addr::LOCALHOST);
             let reply = match offer.network_id {
                 1 => Reply::Answer(format!("answer to {}", offer.sdp)),
-                2 => Reply::Code(37),
+                2 => Reply::Code(Code::Identity),
                 3 => Reply::Busy,
                 _ => continue,
             };
@@ -1219,21 +1280,21 @@ mod tests {
 
         // Exactly the limit, so the server reads every byte sent and closes without a reset.
         let mut head = b"GET /v1/join HTTP/1.1\r\n".to_vec();
-        while head.len() < MAX_HEAD {
+        while head.len() < MAX_HEAD_BYTES {
             head.extend_from_slice(b"X-Filler: 0123456789abcdef\r\n");
         }
-        head.truncate(MAX_HEAD);
+        head.truncate(MAX_HEAD_BYTES);
         assert_eq!(
             send(addr, &head).await,
             text("431 Request Header Fields Too Large")
         );
 
-        let largest = "x".repeat(MAX_BODY);
+        let largest = "x".repeat(MAX_BODY_BYTES);
         let answer = sdp(&format!("answer to {largest}"));
         assert_eq!(send(addr, &post("1", &largest)).await, answer);
         let over = format!(
             "POST /v1/join/1 HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
-            MAX_BODY + 1
+            MAX_BODY_BYTES + 1
         );
         assert_eq!(
             send(addr, over.as_bytes()).await,
@@ -1242,7 +1303,7 @@ mod tests {
 
         let mut chunked =
             b"POST /v1/join/1 HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
-        for _ in 0..MAX_BODY / 4096 {
+        for _ in 0..MAX_BODY_BYTES / 4096 {
             chunked.extend_from_slice(b"1000\r\n");
             chunked.extend_from_slice(&[b'x'; 4096]);
             chunked.extend_from_slice(b"\r\n");
@@ -1400,8 +1461,6 @@ mod tests {
         }
         assert_eq!(limits.total, 0);
         assert!(limits.groups.is_empty());
-        limits.remove(v4);
-        assert_eq!(limits.total, 0);
     }
 
     #[test]
@@ -1413,6 +1472,12 @@ mod tests {
             assert_eq!(send(addr, &hello).await, HANDSHAKE_FAILURE);
             handle.shutdown().await;
         });
+    }
+
+    fn testdata(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/nethernet/testdata")
+            .join(name)
     }
 
     #[test]
@@ -1465,7 +1530,13 @@ mod tests {
         assert!(matches!(load_tls(&missing, &key), Err(Error::Read { .. })));
         assert!(matches!(load_tls(&cert, &missing), Err(Error::Read { .. })));
         // A key file holds no certificate, and a certificate file no key.
-        assert!(matches!(load_tls(&key, &key), Err(Error::Pem { .. })));
+        assert!(matches!(
+            load_tls(&key, &key),
+            Err(Error::Pem {
+                item: "certificate",
+                ..
+            })
+        ));
         assert!(matches!(load_tls(&cert, &cert), Err(Error::Pem { .. })));
         let huge = std::env::temp_dir().join(format!("anchor-huge-{}.pem", std::process::id()));
         std::fs::write(
@@ -1487,13 +1558,19 @@ mod tests {
             v6: None,
             tls: None,
         };
-        assert!(spawn(settings.clone(), statuses.clone(), offers.clone()).is_err());
+        assert!(matches!(
+            spawn(settings.clone(), statuses.clone(), offers.clone()),
+            Err(Error::Runtime(_))
+        ));
         run(async {
             let none = Settings {
                 v4: None,
                 ..settings.clone()
             };
-            assert!(spawn(none, statuses.clone(), offers.clone()).is_err());
+            assert!(matches!(
+                spawn(none, statuses.clone(), offers.clone()),
+                Err(Error::NoAddress)
+            ));
             // IPv4 and IPv6 share one port.
             let probe = spawn(settings, statuses.clone(), offers.clone()).unwrap();
             let port = probe.local_addrs()[0].port();
@@ -1512,6 +1589,26 @@ mod tests {
         });
     }
 
+    /// A listener that cannot be opened is reported with its address.
+    #[test]
+    fn a_taken_address_is_reported_with_the_address() {
+        run(async {
+            let (offers, _received) = mpsc::channel(1);
+            let (handle, addr, _status) = server(None, offers.clone());
+            let (_, statuses) = watch::channel(Arc::<[u8]>::from(STATUS));
+            let settings = Settings {
+                v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, addr.port())),
+                v6: None,
+                tls: None,
+            };
+            let Err(Error::Bind { addr: failed, .. }) = spawn(settings, statuses, offers) else {
+                panic!("the taken port was bound twice");
+            };
+            assert_eq!(failed, addr);
+            handle.shutdown().await;
+        });
+    }
+
     /// The address of the next connection `listener` accepts.
     async fn accepted(listener: &TcpListener) -> SocketAddr {
         let accepted = tokio::time::timeout(WAIT, listener.accept()).await;
@@ -1526,9 +1623,9 @@ mod tests {
                 return;
             }
             let (ip4, ip6) = crate::raknet::tests::dual_stack_ips();
-            let v4 = bind(SocketAddr::from((ip4, 0))).unwrap();
+            let v4 = open(SocketAddr::from((ip4, 0))).unwrap();
             let port = v4.local_addr().unwrap().port();
-            let v6 = bind(SocketAddr::from((ip6, port))).unwrap();
+            let v6 = open(SocketAddr::from((ip6, port))).unwrap();
             assert!(socket2::SockRef::from(&v6).only_v6().unwrap());
             // The IPv4 client connects first: an IPv6 listener taking IPv4 connections would
             // accept it first.
@@ -1602,10 +1699,31 @@ mod tests {
         let huge = b"POST / HTTP/1.1\r\nContent-Length: 99999999999999999999999999\r\n\r\n";
         assert_eq!(parse(huge, 4), Err(Status::PayloadTooLarge));
         let mut tiny = b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
-        for _ in 0..MAX_FRAMING {
+        for _ in 0..MAX_FRAMING_BYTES {
             tiny.extend_from_slice(b"1\r\nx\r\n");
         }
         assert_eq!(parse(&tiny, 4096), Err(Status::PayloadTooLarge));
+    }
+
+    /// Many small chunks grow the body by doubling and never past its limit, so the body is
+    /// not copied once per chunk.
+    #[test]
+    fn small_chunks_grow_the_body_by_doubling() {
+        let mut parser = Parser::default();
+        let head = b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n";
+        assert_eq!(parser.push(head), Ok(None));
+        let mut capacities = Vec::new();
+        for _ in 0..1000 {
+            assert_eq!(parser.push(b"1\r\nx\r\n"), Ok(None));
+            if capacities.last() != Some(&parser.body.capacity()) {
+                capacities.push(parser.body.capacity());
+            }
+        }
+        assert_eq!(parser.body.len(), 1000);
+        assert!(capacities.len() <= 16, "{capacities:?}");
+        assert!(parser.body.capacity() <= MAX_BODY_BYTES);
+        let request = parser.push(b"0\r\n\r\n").unwrap().unwrap();
+        assert_eq!(request.body, vec![b'x'; 1000]);
     }
 
     #[test]
@@ -1623,23 +1741,6 @@ mod tests {
         assert_eq!(route(Method::Other, "/v1/join"), not_found);
         assert_eq!(route(Method::Get, "/v1/join/1"), not_found);
         assert_eq!(route(Method::Post, "/v1/join"), not_found);
-    }
-
-    /// splitmix64: a fixed-seed generator for the fuzz test.
-    struct Rng(u64);
-
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            z ^ (z >> 31)
-        }
-
-        fn below(&mut self, bound: usize) -> usize {
-            usize::try_from(self.next() % u64::try_from(bound.max(1)).unwrap()).unwrap()
-        }
     }
 
     #[test]
@@ -1669,7 +1770,7 @@ mod tests {
             let pieces = parse(&bytes, 1 + rng.below(16));
             assert_eq!(whole, pieces, "{}", bytes.escape_ascii());
             if let Ok(Some(request)) = whole {
-                assert!(request.body.len() <= MAX_BODY);
+                assert!(request.body.len() <= MAX_BODY_BYTES);
                 let _ = route(request.method, &request.path);
                 done += 1;
             }

@@ -1,11 +1,12 @@
-//! The tag frames of the protocol unions, hand-written like gophertunnel's `reader.go` and
-//! `writer.go`: the generated union enums give the variant tables (`from_id`, `id`) and the
-//! variant bodies, and these methods read and write the tags around them.
+//! The tag frames of the protocol unions, hand-written like gophertunnel's IO methods.
+//!
+//! The generated union enums give the variant tables (`from_id`, `id`) and the variant bodies;
+//! these methods read and write the tags around them.
 
-use super::io::{Codec, Error, Reader, Result, Writer};
+use super::io::{Codec, Error, Reader, Result, Writer, length};
 use super::types::{
-    Event, InventoryAction, InventoryTransactionData, ItemDescriptor, ItemDescriptorCount,
-    LegacySetItemSlot, ShapeData, StackRequestAction, UseItemTransactionData,
+    Event, InvalidItemDescriptor, InventoryAction, InventoryTransactionData, ItemDescriptor,
+    ItemDescriptorCount, LegacySetItemSlot, ShapeData, StackRequestAction, UseItemTransactionData,
     stack_request_action_variant,
 };
 
@@ -18,23 +19,16 @@ const DESCRIPTOR_MOLANG: u8 = 2;
 /// gophertunnel `ItemDescriptorItemTag`.
 const DESCRIPTOR_ITEM_TAG: u8 = 3;
 /// The aux value written after invalid and item tag descriptors.
-const DESCRIPTOR_AUX: i32 = 32767;
+const DESCRIPTOR_AUX: i32 = 32_767;
 /// gophertunnel `StackRequestActionPlaceInContainer`: variants from here on skip two IDs.
 const ACTION_PLACE_IN_CONTAINER: u32 = 7;
 /// gophertunnel `StackRequestActionCraftResultsDeprecated`, the last action.
 const ACTION_LAST: u8 = 20;
 
-/// A value that does not fit the narrower wire integer gophertunnel truncates it to.
-fn out_of_range(field: &'static str) -> Error {
-    Error::InvalidValue {
-        field,
-        reason: "out of range for its wire type",
-    }
-}
-
 impl Reader<'_> {
-    /// `StackRequestAction`: the variant index, the legacy ID (not checked, like
-    /// gophertunnel) and the action.
+    /// Reads a `StackRequestAction`: the variant index, the legacy ID and the action.
+    ///
+    /// The legacy ID is not checked, like in gophertunnel.
     pub(crate) fn stack_request_action(&mut self) -> Result<StackRequestAction> {
         let variant = self.varuint32()?;
         self.uint8()?;
@@ -42,23 +36,23 @@ impl Reader<'_> {
             name,
             value: value.into(),
         };
-        if variant > stack_request_action_variant(ACTION_LAST) {
-            return Err(unknown(variant, "StackRequestAction variant"));
-        }
         let skip = if variant >= ACTION_PLACE_IN_CONTAINER {
             2
         } else {
             0
         };
-        let id = u8::try_from(variant + skip)
-            .map_err(|_| unknown(variant, "StackRequestAction variant"))?;
+        let id = u8::try_from(variant.saturating_add(skip))
+            .ok()
+            .filter(|&id| id <= ACTION_LAST)
+            .ok_or_else(|| unknown(variant, "StackRequestAction variant"))?;
         StackRequestAction::from_id(id)
             .ok_or_else(|| unknown(id.into(), "StackRequestAction ID"))?
             .decode_variant(self)
     }
 
-    /// `EventType`: the event with default fields; [`Self::event_ordinal`] and the event body
-    /// follow later in the packet.
+    /// Reads an `EventType`: the event with default fields.
+    ///
+    /// [`Self::event_ordinal`] and the event body follow later in the packet.
     pub(crate) fn event_type(&mut self) -> Result<Event> {
         let t = self.varint32()?;
         Event::from_id(t).ok_or(Error::UnknownEnum {
@@ -67,8 +61,9 @@ impl Reader<'_> {
         })
     }
 
-    /// `EventOrdinal`: fails for an event without an ordinal; the ordinal read is not checked,
-    /// like gophertunnel.
+    /// Reads an `EventOrdinal`, failing for an event without an ordinal.
+    ///
+    /// The ordinal read is not checked, like in gophertunnel.
     pub(crate) fn event_ordinal(&mut self, x: &Event) -> Result<()> {
         if x.ordinal().is_none() {
             return Err(Error::UnknownEnum {
@@ -80,8 +75,9 @@ impl Reader<'_> {
         Ok(())
     }
 
-    /// `TransactionDataType`: the transaction data with default fields; its body follows later
-    /// in the packet.
+    /// Reads a `TransactionDataType`: the transaction data with default fields.
+    ///
+    /// Its body follows later in the packet.
     pub(crate) fn transaction_data_type(&mut self) -> Result<InventoryTransactionData> {
         let t = self.varuint32()?;
         InventoryTransactionData::from_id(t).ok_or(Error::UnknownEnum {
@@ -90,7 +86,7 @@ impl Reader<'_> {
         })
     }
 
-    /// `ShapeData`: the shape type and the shape.
+    /// Reads a `ShapeData`: the shape type and the shape.
     pub(crate) fn shape_data(&mut self) -> Result<ShapeData> {
         let t = self.varuint32()?;
         ShapeData::from_id(t)
@@ -101,13 +97,15 @@ impl Reader<'_> {
             .decode_variant(self)
     }
 
-    /// `ItemDescriptorCount`: a descriptor in the recipe form (variant, type name, body, aux
-    /// values that are not checked, like gophertunnel) and its count.
+    /// Reads an `ItemDescriptorCount`: a descriptor in the recipe form and its count.
+    ///
+    /// The form is the variant, the type name, the body and aux values that are not checked, like
+    /// in gophertunnel.
     pub(crate) fn item_descriptor_count(&mut self) -> Result<ItemDescriptorCount> {
         let variant = self.varuint32()?;
         let descriptor = if variant == u32::from(DESCRIPTOR_INVALID) {
             self.varint32()?;
-            ItemDescriptor::from_id(DESCRIPTOR_INVALID).unwrap_or_default()
+            ItemDescriptor::Invalid(InvalidItemDescriptor::default())
         } else {
             if variant != u32::from(DESCRIPTOR_DEFAULT) {
                 return Err(Error::UnknownEnum {
@@ -136,8 +134,10 @@ impl Reader<'_> {
         })
     }
 
-    /// `StackRequestItemDescriptorCount`: a descriptor in the stack request form (variant,
-    /// legacy ID not checked like gophertunnel, body) and its count as a uint16.
+    /// Reads a `StackRequestItemDescriptorCount`: a descriptor in the stack request form.
+    ///
+    /// The form is the variant, the legacy ID (not checked, like in gophertunnel) and the body.
+    /// The count is a uint16.
     pub(crate) fn stack_request_item_descriptor_count(&mut self) -> Result<ItemDescriptorCount> {
         let variant = self.varuint32()?;
         self.uint8()?;
@@ -155,8 +155,9 @@ impl Reader<'_> {
         })
     }
 
-    /// `PlayerInventoryAction`: the legacy fields and actions of a use-item transaction, then
-    /// the transaction data.
+    /// Reads a `PlayerInventoryAction`: the legacy fields and actions of a use-item transaction.
+    ///
+    /// The transaction data follows them.
     pub(crate) fn player_inventory_action(&mut self) -> Result<UseItemTransactionData> {
         let legacy_request_id = self.varint32()?;
         let legacy_set_item_slots = if self.bool()? {
@@ -185,7 +186,7 @@ impl Reader<'_> {
 }
 
 impl Writer {
-    /// `StackRequestAction`
+    /// Writes a `StackRequestAction`.
     pub(crate) fn stack_request_action(&mut self, x: &StackRequestAction) -> Result<()> {
         let id = x.id();
         self.varuint32(stack_request_action_variant(id));
@@ -193,12 +194,12 @@ impl Writer {
         x.encode_variant(self)
     }
 
-    /// `EventType`
+    /// Writes an `EventType`.
     pub(crate) fn event_type(&mut self, x: &Event) {
         self.varint32(x.id());
     }
 
-    /// `EventOrdinal`: fails for an event without an ordinal.
+    /// Writes an `EventOrdinal`, failing for an event without an ordinal.
     pub(crate) fn event_ordinal(&mut self, x: &Event) -> Result<()> {
         let ordinal = x.ordinal().ok_or(Error::UnknownEnum {
             name: "Event ordinal",
@@ -208,18 +209,18 @@ impl Writer {
         Ok(())
     }
 
-    /// `TransactionDataType`
+    /// Writes a `TransactionDataType`.
     pub(crate) fn transaction_data_type(&mut self, x: &InventoryTransactionData) {
         self.varuint32(x.id());
     }
 
-    /// `ShapeData`
+    /// Writes a `ShapeData`.
     pub(crate) fn shape_data(&mut self, x: &ShapeData) -> Result<()> {
         self.varuint32(x.id());
         x.encode_variant(self)
     }
 
-    /// `ItemDescriptorCount`
+    /// Writes an `ItemDescriptorCount`.
     pub(crate) fn item_descriptor_count(&mut self, x: &ItemDescriptorCount) -> Result<()> {
         let id = x.descriptor.id();
         self.varuint32(id.min(DESCRIPTOR_DEFAULT).into());
@@ -236,8 +237,9 @@ impl Writer {
         Ok(())
     }
 
-    /// `StackRequestItemDescriptorCount`: fails if the count does not fit a uint16 (which
-    /// gophertunnel truncates).
+    /// Writes a `StackRequestItemDescriptorCount`.
+    ///
+    /// Fails if the count does not fit a uint16, which gophertunnel truncates.
     pub(crate) fn stack_request_item_descriptor_count(
         &mut self,
         x: &ItemDescriptorCount,
@@ -251,18 +253,19 @@ impl Writer {
         Ok(())
     }
 
-    /// `PlayerInventoryAction`: fails if the trigger type or block face does not fit a uint8
-    /// (which gophertunnel truncates).
+    /// Writes a `PlayerInventoryAction`.
+    ///
+    /// Fails if the trigger type or block face does not fit a uint8, which gophertunnel truncates.
     pub(crate) fn player_inventory_action(&mut self, x: &UseItemTransactionData) -> Result<()> {
         self.varint32(x.legacy_request_id);
         self.bool(x.legacy_set_item_slots.is_some());
         if let Some(slots) = &x.legacy_set_item_slots {
-            self.varuint32(super::length(slots.len())?);
+            self.varuint32(length(slots.len())?);
             for slot in slots {
                 slot.encode(self)?;
             }
         }
-        self.varuint32(super::length(x.actions.len())?);
+        self.varuint32(length(x.actions.len())?);
         for action in &x.actions {
             action.encode(self)?;
         }
@@ -282,11 +285,20 @@ impl Writer {
     }
 }
 
+/// The error for a value that does not fit the narrower wire integer gophertunnel truncates it to.
+fn out_of_range(field: &'static str) -> Error {
+    Error::InvalidValue {
+        field,
+        reason: "out of range for its wire type",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::fuzz;
     use crate::protocol::io::tests::{reader, writer};
+    use crate::protocol::types::SoundDataUpdate;
 
     fn bytes(f: impl FnOnce(&mut Writer) -> Result<()>) -> Vec<u8> {
         let mut w = writer();
@@ -296,7 +308,6 @@ mod tests {
 
     #[test]
     fn sound_data_updates_write_their_variant_index_before_the_type() {
-        use crate::protocol::types::SoundDataUpdate;
         let fade = SoundDataUpdate {
             r#type: 3,
             duration: 1.0,

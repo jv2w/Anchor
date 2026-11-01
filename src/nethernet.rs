@@ -14,6 +14,8 @@ mod peer;
 mod sdp;
 mod signaling;
 
+pub(crate) use peer::MAX_DATAGRAM;
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
@@ -30,95 +32,51 @@ use crate::auth::Auth;
 use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
-use crate::raknet::{Flags, Inbound, Inbox, ip_key, report_undelivered};
+use crate::raknet::{
+    Flags, Inbound, Inbox, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, ip_key, report_undelivered,
+};
 use crate::udp::Sockets;
-
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
-use signaling::{CODE_BAD_OFFER, CODE_INTERNAL, Offer, Reply};
+use signaling::{Code, Offer, Reply};
 
-pub(crate) use peer::MAX_DATAGRAM;
-
-/// The identity key file in the data folder.
-const IDENTITY_FILE: &str = "identity.key";
-/// Offers waiting for the offer task; the signaling server answers 503 when it is full.
-const OFFER_QUEUE: usize = 64;
-/// Messages from sessions and offer tasks to the driver. Sends wait when it is full, which slows
-/// sessions to the driver's pace instead of buffering without bound.
-const COMMAND_QUEUE: usize = 4096;
-/// Peers before login, in all and per IPv4 address or IPv6 /64.
-const MAX_PRE_LOGIN: usize = 64;
-const MAX_PRE_LOGIN_PER_IP: usize = 4;
-/// Tries at a peer whose 24-bit ufrag no other peer uses; a third collision in a row means the
-/// table is far beyond any real load.
-const UFRAG_TRIES: usize = 3;
-/// Source addresses one peer may be reached from: one per client candidate pair it checks, which
-/// the offer's candidate limit already bounds.
-const MAX_PEER_ADDRS: usize = 8;
-/// Commands handled before the UDP task serves its other inputs.
-const COMMAND_BATCH: usize = 256;
 /// How long a closed connection may take to deliver what it has sent, as RakNet allows.
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
+/// The commands handled before the UDP task serves its other inputs.
+const COMMAND_BATCH: usize = 256;
+/// The messages from sessions and offer tasks to the driver. Sends wait when it is full, which
+/// slows sessions to the driver's pace instead of buffering without bound.
+const COMMAND_QUEUE: usize = 4096;
+/// The identity key file in the data folder.
+const IDENTITY_FILE: &str = "identity.key";
+/// The source addresses one peer may be reached from. A client knows its own ICE credentials, so
+/// its valid STUN request can carry any source address; the bound keeps one peer from filling
+/// the address index.
+const MAX_PEER_ADDRS: usize = 8;
+/// The offers waiting for the offer task; the signaling server answers 503 when it is full.
+const OFFER_QUEUE: usize = 64;
+/// The length of a STUN message header in bytes (RFC 5389): the type, the length, the magic
+/// cookie and the transaction ID.
+const STUN_HEADER_LEN: usize = 20;
 /// The STUN magic cookie (RFC 5389), bytes 4 to 7 of every STUN message.
 const STUN_MAGIC_COOKIE: [u8; 4] = [0x21, 0x12, 0xa4, 0x42];
-/// Signaling answer code (go-nethernet `ErrorCodeIdentityVerificationFailed`) for an offer
-/// identity that fails.
-const CODE_IDENTITY: u32 = 37;
+/// The tries at a peer whose 24-bit ufrag no other peer uses; a third collision in a row means
+/// the table is far beyond any real load.
+const UFRAG_TRIES: usize = 3;
 
 /// Addresses and limits for [`start`].
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {
     /// TCP signaling addresses (`server-port`).
     pub(crate) signaling_v4: Option<SocketAddrV4>,
+    /// The IPv6 signaling address.
     pub(crate) signaling_v6: Option<SocketAddrV6>,
     /// The address advertised to clients instead of the one they reached (`public-ip`).
     pub(crate) public_ip: Option<IpAddr>,
-    /// Largest game message a client may send.
+    /// The largest game message a client may send.
     pub(crate) max_message: usize,
     /// PEM certificate chain and key for HTTPS signaling.
     pub(crate) tls: Option<(PathBuf, PathBuf)>,
-}
-
-/// Why NetherNet did not start.
-#[derive(Debug)]
-pub(crate) enum StartError {
-    Identity(identity::Error),
-    Tls(signaling::Error),
-    Certificate(peer::Error),
-    Bind(io::Error),
-}
-
-impl fmt::Display for StartError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Identity(_) => "identity key unusable",
-            Self::Tls(_) => "tls certificate unusable",
-            Self::Certificate(_) => "dtls certificate not created",
-            Self::Bind(_) => "sockets not opened",
-        })
-    }
-}
-
-impl std::error::Error for StartError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Identity(e) => Some(e),
-            Self::Tls(e) => Some(e),
-            Self::Certificate(e) => Some(e),
-            Self::Bind(e) => Some(e),
-        }
-    }
-}
-
-impl From<StartError> for crate::Error {
-    fn from(e: StartError) -> Self {
-        match e {
-            StartError::Identity(e) => Self::IdentityKey(Box::new(e)),
-            StartError::Tls(e) => Self::TlsCertificate(Box::new(e)),
-            StartError::Certificate(e) => Self::Start(io::Error::other(e)),
-            StartError::Bind(e) => Self::Network(e),
-        }
-    }
 }
 
 /// A connection failure.
@@ -133,65 +91,13 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Closed => "connection closed",
-        })
+        match self {
+            Self::Closed => f.write_str("connection closed"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
-
-/// Loads the identity key and the TLS certificate and spawns the signaling server and the offer
-/// task on the current runtime; the driver they return sends on `sockets` and is the UDP task's
-/// to run. `status` is the `GET /v1/join` body; `auth` verifies online offers; `accepted`
-/// receives connections whose channels opened (when it is full, the new connection is closed).
-pub(crate) async fn start(
-    settings: Settings,
-    data_dir: &Path,
-    status: watch::Receiver<Arc<[u8]>>,
-    auth: Option<Auth>,
-    accepted: mpsc::Sender<Connection>,
-    sockets: Arc<Sockets>,
-) -> std::result::Result<(Handle, Driver), StartError> {
-    let path = data_dir.join(IDENTITY_FILE);
-    let identity = tokio::task::spawn_blocking(move || ServerIdentity::load_or_create(&path))
-        .await
-        .map_err(|e| StartError::Bind(io::Error::other(e)))?
-        .map_err(StartError::Identity)?;
-    let tls = match settings.tls {
-        Some((cert, key)) => Some(
-            tokio::task::spawn_blocking(move || signaling::load_tls(&cert, &key))
-                .await
-                .map_err(|e| StartError::Bind(io::Error::other(e)))?
-                .map_err(StartError::Tls)?,
-        ),
-        None => None,
-    };
-    // One certificate for every peer, made now so that no join pays for it.
-    let certificate = Certificate::generate().map_err(StartError::Certificate)?;
-    let udp_addrs = sockets.local_addrs().to_vec();
-    let (offers_tx, offers_rx) = mpsc::channel(OFFER_QUEUE);
-    let signaling = signaling::spawn(
-        signaling::Settings {
-            v4: settings.signaling_v4,
-            v6: settings.signaling_v6,
-            tls,
-        },
-        status,
-        offers_tx,
-    )
-    .map_err(StartError::Bind)?;
-    let driver = Driver::new(sockets, certificate, settings.max_message, accepted);
-    let offers = Offers {
-        identity: Arc::new(identity),
-        auth,
-        public_ip: settings.public_ip,
-        udp_addrs,
-        driver: driver.commands.clone(),
-    };
-    let offers = tokio::spawn(offers.run(offers_rx));
-    Ok((Handle { signaling, offers }, driver))
-}
 
 /// Controls the signaling server and the offer task; the UDP task stops the driver.
 #[derive(Debug)]
@@ -217,7 +123,7 @@ impl Handle {
 /// A request to the driver.
 #[derive(Debug)]
 enum Command {
-    /// Make a peer for a verified offer.
+    /// A peer wanted for a verified offer.
     Open {
         remote: peer::Remote,
         /// The advertised host candidate.
@@ -225,7 +131,7 @@ enum Command {
         client_key: Option<PublicKey>,
         /// The signaling client's IP, for the pre-login limits.
         ip: IpAddr,
-        reply: oneshot::Sender<std::result::Result<peer::Local, Reply>>,
+        reply: oneshot::Sender<Result<peer::Local, Refusal>>,
     },
     /// A game message from a session.
     Send { id: u64, message: Vec<u8> },
@@ -268,7 +174,7 @@ impl Connection {
         self.client_key.as_ref()
     }
 
-    /// The next game message, or `None` once the connection is closed.
+    /// Takes the next game message, or `None` once the connection is closed.
     pub(crate) async fn recv(&mut self) -> Option<Vec<u8>> {
         self.inbound.recv().await.map(|inbound| inbound.message)
     }
@@ -286,7 +192,7 @@ impl Connection {
             .map_err(|_| Error::Closed)
     }
 
-    /// The session logged the player in: the connection leaves the pre-login limits.
+    /// Marks the player as logged in: the connection leaves the pre-login limits.
     pub(crate) fn logged_in(&self) {
         self.signal.send_modify(|flags| flags.logged_in = true);
     }
@@ -308,6 +214,7 @@ struct Offers {
 }
 
 impl Offers {
+    /// Spawns a negotiation task for each offer until the signaling server is gone.
     async fn run(self, mut offers: mpsc::Receiver<Offer>) {
         let this = Arc::new(self);
         let mut tasks = JoinSet::new();
@@ -319,7 +226,10 @@ impl Offers {
                 }
                 Some(ended) = tasks.join_next(), if !tasks.is_empty() => {
                     if let Err(e) = ended {
-                        warn!(error = %e, "nethernet offer task failed");
+                        warn!(
+                            error = &e as &(dyn std::error::Error + 'static),
+                            "nethernet offer task failed"
+                        );
                     }
                 }
             }
@@ -327,8 +237,8 @@ impl Offers {
         tasks.shutdown().await;
     }
 
-    /// Negotiates `offer` until it is answered or its signaling request is gone (the client
-    /// left, or the request deadline passed), which also bounds the wait for a JWKS refresh.
+    /// Negotiates `offer` until it is answered or its signaling request is gone (its deadline
+    /// passed), which also bounds the wait for a JWKS refresh.
     async fn answer(self: Arc<Self>, offer: Offer) {
         let Offer {
             network_id,
@@ -346,8 +256,14 @@ impl Offers {
         let answer = match negotiated {
             Some(Ok(answer)) => Reply::Answer(answer),
             Some(Err(refusal)) => {
-                debug!(network_id, %peer, ?refusal, "nethernet offer refused");
-                refusal
+                let refused = refusal.reply();
+                let error = &refusal as &(dyn std::error::Error + 'static);
+                if refused == Reply::Code(Code::Internal) {
+                    warn!(network_id, %peer, error, "nethernet offer not answered");
+                } else {
+                    debug!(network_id, %peer, error, "nethernet offer refused");
+                }
+                refused
             }
             None => {
                 trace!(network_id, "signaling connection gone before the answer");
@@ -359,17 +275,17 @@ impl Offers {
         }
     }
 
-    /// Verifies `text` and makes a peer for it; the answer SDP, or the reply that refuses it.
+    /// Verifies `text` and makes a peer for it; the answer SDP, or why the offer is refused.
     async fn negotiate(
         &self,
         text: &str,
         client_ip: IpAddr,
         local_ip: IpAddr,
-    ) -> std::result::Result<String, Reply> {
-        let offer = sdp::parse_offer(text).map_err(|_| Reply::Code(CODE_BAD_OFFER))?;
+    ) -> Result<String, Refusal> {
+        let offer = sdp::parse_offer(text).map_err(Refusal::Offer)?;
         let client_key = match &offer.identity {
             Some(assertion) => Some(self.verify(assertion, &offer.fingerprint).await?),
-            None if self.auth.is_some() => return Err(Reply::Code(CODE_IDENTITY)),
+            None if self.auth.is_some() => return Err(Refusal::NoIdentity),
             None => None,
         };
         let advertised = self.advertised(local_ip)?;
@@ -391,15 +307,15 @@ impl Offers {
         self.driver
             .send(open)
             .await
-            .map_err(|_| Reply::Code(CODE_INTERNAL))?;
-        let local = answer.await.map_err(|_| Reply::Code(CODE_INTERNAL))??;
+            .map_err(|_| Refusal::DriverGone)?;
+        let local = answer.await.map_err(|_| Refusal::DriverGone)??;
         let fingerprint = sdp::fingerprint_text(&local.fingerprint);
         let assertion = self
             .identity
             .assertion(&fingerprint, clock::token_now())
-            .map_err(|_| Reply::Code(CODE_INTERNAL))?;
+            .map_err(Refusal::Sign)?;
         let mut session_id = [0; 8];
-        crypto::fill_random(&mut session_id).map_err(|_| Reply::Code(CODE_INTERNAL))?;
+        crypto::fill_random(&mut session_id).map_err(Refusal::Random)?;
         Ok(sdp::write_answer(&sdp::Answer {
             session_id: u64::from_le_bytes(session_id),
             identity: &assertion,
@@ -410,14 +326,13 @@ impl Offers {
         }))
     }
 
-    /// Verifies the offer identity: online against the authorization keys with one JWKS refresh
-    /// for an unknown key ID, as the Login check does.
+    /// Verifies the offer identity: online against the authorization keys through
+    /// `Auth::verify_with_refresh`, as the Login check does.
     async fn verify(
         &self,
         assertion: &sdp::Assertion,
         fingerprint: &sdp::Fingerprint,
-    ) -> std::result::Result<PublicKey, Reply> {
-        let refused = |_| Reply::Code(CODE_IDENTITY);
+    ) -> Result<PublicKey, Refusal> {
         let Some(auth) = &self.auth else {
             return identity::verify_offer(
                 assertion,
@@ -425,40 +340,108 @@ impl Offers {
                 Mode::Offline,
                 clock::token_now(),
             )
-            .map_err(refused);
+            .map_err(Refusal::Identity);
         };
-        let keys = auth.keys();
-        match identity::verify_offer(
-            assertion,
-            fingerprint,
-            Mode::Online(&keys),
-            clock::token_now(),
-        ) {
-            Err(identity::Error::Token(login::Error::UnknownKeyId)) => {}
-            result => return result.map_err(refused),
-        }
-        let keys = auth
-            .refresh_keys()
-            .await
-            .ok_or(Reply::Code(CODE_IDENTITY))?;
-        identity::verify_offer(
-            assertion,
-            fingerprint,
-            Mode::Online(&keys),
-            clock::token_now(),
+        auth.verify_with_refresh(
+            |keys| {
+                identity::verify_offer(
+                    assertion,
+                    fingerprint,
+                    Mode::Online(keys),
+                    clock::token_now(),
+                )
+            },
+            |e| matches!(e, identity::Error::Token(login::Error::UnknownKeyId)),
         )
-        .map_err(refused)
+        .await
+        .ok_or(Refusal::Keys)?
+        .map_err(Refusal::Identity)
     }
 
     /// The host candidate to advertise: `public-ip`, or the address the client reached the
     /// signaling server on, with the UDP port of that address family.
-    fn advertised(&self, local_ip: IpAddr) -> std::result::Result<SocketAddr, Reply> {
+    fn advertised(&self, local_ip: IpAddr) -> Result<SocketAddr, Refusal> {
         let ip = self.public_ip.unwrap_or(local_ip).to_canonical();
         self.udp_addrs
             .iter()
             .find(|a| a.is_ipv4() == ip.is_ipv4())
             .map(|a| SocketAddr::new(ip, a.port()))
-            .ok_or(Reply::Code(CODE_INTERNAL))
+            .ok_or(Refusal::NoSocket)
+    }
+}
+
+/// Why an offer gets no answer SDP. The client sees only [`Refusal::reply`]; the operator reads
+/// the cause in the log.
+#[derive(Debug)]
+enum Refusal {
+    /// The offer's SDP breaks a rule.
+    Offer(sdp::Error),
+    /// An online offer carries no identity.
+    NoIdentity,
+    /// The offer's identity does not verify.
+    Identity(identity::Error),
+    /// The authorization keys could not be refreshed for an unknown key ID.
+    Keys,
+    /// The driver holds too many peers before login, or is stopping.
+    Busy,
+    /// The server has no UDP socket of the advertised address's family.
+    NoSocket,
+    /// The driver is gone.
+    DriverGone,
+    /// The peer could not be made.
+    Peer(peer::Error),
+    /// Every ICE username fragment drawn was in use.
+    Ufrag,
+    /// The answer's identity could not be signed.
+    Sign(identity::Error),
+    /// The answer's session ID could not be drawn.
+    Random(crypto::Error),
+}
+
+impl Refusal {
+    /// What the client gets.
+    fn reply(&self) -> Reply {
+        match self {
+            Self::Offer(_) => Reply::Code(Code::BadOffer),
+            Self::NoIdentity | Self::Identity(_) | Self::Keys => Reply::Code(Code::Identity),
+            Self::Busy => Reply::Busy,
+            Self::NoSocket
+            | Self::DriverGone
+            | Self::Peer(_)
+            | Self::Ufrag
+            | Self::Sign(_)
+            | Self::Random(_) => Reply::Code(Code::Internal),
+        }
+    }
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Offer(_) => f.write_str("the offer breaks a rule"),
+            Self::NoIdentity => f.write_str("the offer has no identity"),
+            Self::Identity(_) => f.write_str("the offer identity does not verify"),
+            Self::Keys => f.write_str("the authorization keys could not be refreshed"),
+            Self::Busy => f.write_str("too many peers before login"),
+            Self::NoSocket => f.write_str("no udp socket of the advertised address family"),
+            Self::DriverGone => f.write_str("the driver is gone"),
+            Self::Peer(_) => f.write_str("the peer could not be made"),
+            Self::Ufrag => f.write_str("every ice username fragment drawn was in use"),
+            Self::Sign(_) => f.write_str("the answer identity could not be signed"),
+            Self::Random(_) => f.write_str("the answer session id could not be drawn"),
+        }
+    }
+}
+
+impl std::error::Error for Refusal {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Offer(source) => Some(source),
+            Self::Identity(source) | Self::Sign(source) => Some(source),
+            Self::Peer(source) => Some(source),
+            Self::Random(source) => Some(source),
+            _ => None,
+        }
     }
 }
 
@@ -507,6 +490,8 @@ pub(crate) struct Driver {
     commands: mpsc::Sender<Command>,
     pending: mpsc::Receiver<Command>,
     doomed: Vec<u64>,
+    /// The peers that need a poll in the timer pass.
+    due: Vec<u64>,
     /// Set once the driver is stopping: new offers are refused.
     stopping: bool,
 }
@@ -533,8 +518,14 @@ impl Driver {
             commands,
             pending,
             doomed: Vec::new(),
+            due: Vec::new(),
             stopping: false,
         }
+    }
+
+    /// Whether no peer is left.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.peers.is_empty()
     }
 
     /// Waits for a command, then applies it and those queued behind it, at most a batch;
@@ -553,30 +544,12 @@ impl Driver {
         true
     }
 
-    /// The timer handler.
+    /// Runs the timer's work.
     pub(crate) fn tick(&mut self) {
-        self.drain();
         self.update();
     }
 
-    /// Whether no peer is left.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.peers.is_empty()
-    }
-
-    /// Applies what sessions queued, at most a full queue. A session queues its last packets
-    /// before it sets its close flag, so the timer and stop handlers call this first: a closing
-    /// peer is not judged drained before it has them.
-    fn drain(&mut self) {
-        for _ in 0..COMMAND_QUEUE {
-            let Ok(command) = self.pending.try_recv() else {
-                break;
-            };
-            self.command(command);
-        }
-    }
-
-    /// The stop handler: new offers are refused, peers without a connection go at once, the
+    /// Stops the driver: new offers are refused, peers without a connection go at once, the
     /// others close as a session close does, with the same linger.
     pub(crate) fn stop(&mut self) {
         self.drain();
@@ -618,6 +591,19 @@ impl Driver {
         self.reap();
     }
 
+    /// Applies what sessions queued, at most a full queue. A session queues its last packets
+    /// before it sets its close flag, so the timer and stop passes call this after they read the
+    /// flags and before they judge a closing peer drained: it must have those packets by then.
+    fn drain(&mut self) {
+        for _ in 0..COMMAND_QUEUE {
+            let Ok(command) = self.pending.try_recv() else {
+                break;
+            };
+            self.command(command);
+        }
+    }
+
+    /// Applies one command.
     fn command(&mut self, command: Command) {
         let now = clock::now();
         match command {
@@ -629,18 +615,28 @@ impl Driver {
                 reply,
             } => {
                 let result = self.open(&remote, local, client_key, ip, now);
-                if reply.send(result).is_err() {
-                    // The offer task is gone; an unanswered peer would only wait for its
-                    // deadline.
+                if let Err(unsent) = reply.send(result) {
+                    // The offer task is gone: nobody answers the client, so the peer would
+                    // only hold its pre-login place until its deadline.
                     trace!("nethernet offer withdrawn");
+                    if let Ok(made) = unsent
+                        && let Some(&id) = self.by_ufrag.get(&made.ice_ufrag)
+                    {
+                        self.doomed.push(id);
+                        self.reap();
+                    }
                 }
             }
             Command::Send { id, message } => {
                 let Some(entry) = self.peers.get_mut(&id) else {
                     return;
                 };
-                if let Err(e) = entry.peer.send(&message) {
-                    debug!(peer = id, error = %e, "nethernet send failed");
+                if let Err(e) = entry.peer.send(message) {
+                    debug!(
+                        peer = id,
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "nethernet send failed"
+                    );
                     self.doomed.push(id);
                 }
                 self.drive(id, now);
@@ -649,6 +645,7 @@ impl Driver {
         }
     }
 
+    /// Makes the peer for an offer, or says why it cannot.
     fn open(
         &mut self,
         remote: &peer::Remote,
@@ -656,12 +653,12 @@ impl Driver {
         client_key: Option<PublicKey>,
         ip: IpAddr,
         now: Instant,
-    ) -> std::result::Result<peer::Local, Reply> {
+    ) -> Result<peer::Local, Refusal> {
         let key = ip_key(ip);
         let per_ip = self.pre_login.get(&key).copied().unwrap_or(0);
         if self.stopping || self.pre_login_total >= MAX_PRE_LOGIN || per_ip >= MAX_PRE_LOGIN_PER_IP
         {
-            return Err(Reply::Busy);
+            return Err(Refusal::Busy);
         }
         let mut made = None;
         for _ in 0..UFRAG_TRIES {
@@ -672,13 +669,13 @@ impl Driver {
                 self.max_message,
                 now,
             )
-            .map_err(|_| Reply::Code(CODE_INTERNAL))?;
+            .map_err(Refusal::Peer)?;
             if !self.by_ufrag.contains_key(&peer.local().ice_ufrag) {
                 made = Some(peer);
                 break;
             }
         }
-        let peer = made.ok_or(Reply::Code(CODE_INTERNAL))?;
+        let peer = made.ok_or(Refusal::Ufrag)?;
         let answer = peer.local().clone();
         let id = self.next_id;
         // A u64 counter does not wrap in a process lifetime; saturating keeps it panic-free.
@@ -711,12 +708,7 @@ impl Driver {
         };
         loop {
             match entry.peer.poll(now) {
-                peer::Output::Transmit { to, data } => {
-                    // A full send buffer drops the datagram; SCTP resends what matters.
-                    if let Err(error) = self.sockets.send(to, &data) {
-                        trace!(%to, %error, "nethernet datagram not sent");
-                    }
-                }
+                peer::Output::Transmit { to, data } => transmit(&self.sockets, to, &data),
                 peer::Output::Timeout(at) => {
                     entry.timeout = at;
                     let Some(link) = &entry.link else {
@@ -766,7 +758,12 @@ impl Driver {
                     }
                 }
                 peer::Output::Closed(reason) => {
-                    debug!(peer = id, ufrag = %entry.ufrag, %reason, "nethernet peer closed");
+                    debug!(
+                        peer = id,
+                        ufrag = %entry.ufrag,
+                        error = &reason as &(dyn std::error::Error + 'static),
+                        "nethernet peer closed"
+                    );
                     self.doomed.push(id);
                     return;
                 }
@@ -774,10 +771,12 @@ impl Driver {
         }
     }
 
+    /// The timer pass: reads the connections' flags, applies the commands queued before them,
+    /// then removes the closing peers that delivered everything and drives those whose time
+    /// came.
     fn update(&mut self) {
         let now = clock::now();
-        let mut due = Vec::new();
-        for (&id, entry) in &mut self.peers {
+        for entry in self.peers.values_mut() {
             if let Some(link) = &mut entry.link
                 && let Some(flags) = Flags::changed(&mut link.signal)
             {
@@ -790,18 +789,19 @@ impl Driver {
                     entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
                 }
             }
+        }
+        self.drain();
+        for (&id, entry) in &mut self.peers {
             // A closing peer stays until what was sent is acknowledged, or the linger ends.
             if let Some(until) = entry.closing
                 && (now >= until || entry.peer.is_drained())
             {
                 self.doomed.push(id);
-                continue;
-            }
-            if now >= entry.timeout {
-                due.push(id);
+            } else if now >= entry.timeout {
+                self.due.push(id);
             }
         }
-        for id in due {
+        while let Some(id) = self.due.pop() {
             self.drive(id, now);
         }
         self.reap();
@@ -814,6 +814,7 @@ impl Driver {
         }
     }
 
+    /// Removes a peer and its index entries.
     fn remove(&mut self, id: u64) {
         let Some(mut entry) = self.peers.remove(&id) else {
             return;
@@ -823,9 +824,7 @@ impl Driver {
         let now = clock::now();
         // Flush what closing produced (SCTP abort, DTLS close notify) without keeping the peer.
         while let peer::Output::Transmit { to, data } = entry.peer.poll(now) {
-            if let Err(error) = self.sockets.send(to, &data) {
-                trace!(%to, %error, "nethernet datagram not sent");
-            }
+            transmit(&self.sockets, to, &data);
         }
         self.by_ufrag.remove(&entry.ufrag);
         forget(&mut self.by_addr, &entry.addrs);
@@ -833,6 +832,76 @@ impl Driver {
             release(&mut self.pre_login, &mut self.pre_login_total, key);
         }
     }
+}
+
+/// Loads the identity key and the TLS certificate and spawns the signaling server and the offer
+/// task on the current runtime; the driver they return sends on `sockets` and is the UDP task's
+/// to run. `status` is the `GET /v1/join` body; `auth` verifies online offers; `accepted`
+/// receives connections whose channels opened (when it is full, the new connection is closed).
+pub(crate) async fn start(
+    settings: Settings,
+    data_dir: &Path,
+    status: watch::Receiver<Arc<[u8]>>,
+    auth: Option<Auth>,
+    accepted: mpsc::Sender<Connection>,
+    sockets: Arc<Sockets>,
+) -> crate::Result<(Handle, Driver)> {
+    let path = data_dir.join(IDENTITY_FILE);
+    let identity = tokio::task::spawn_blocking(move || ServerIdentity::load_or_create(&path))
+        .await
+        .map_err(|e| crate::Error::Start(io::Error::other(e)))?
+        .map_err(|e| crate::Error::IdentityKey(Box::new(e)))?;
+    let tls = match settings.tls {
+        Some((cert, key)) => Some(
+            tokio::task::spawn_blocking(move || signaling::load_tls(&cert, &key))
+                .await
+                .map_err(|e| crate::Error::Start(io::Error::other(e)))?
+                .map_err(|e| crate::Error::TlsCertificate(Box::new(e)))?,
+        ),
+        None => None,
+    };
+    // One certificate for every peer, made now so that no join pays for it.
+    let certificate =
+        Certificate::generate().map_err(|e| crate::Error::Start(io::Error::other(e)))?;
+    let udp_addrs = sockets.local_addrs().to_vec();
+    let (offers_tx, offers_rx) = mpsc::channel(OFFER_QUEUE);
+    let signaling = signaling::spawn(
+        signaling::Settings {
+            v4: settings.signaling_v4,
+            v6: settings.signaling_v6,
+            tls,
+        },
+        status,
+        offers_tx,
+    )
+    .map_err(|e| match e {
+        signaling::Error::Bind { addr, source } => crate::Error::Network {
+            socket: signaling_socket(addr),
+            source,
+        },
+        e => crate::Error::Start(io::Error::other(e)),
+    })?;
+    let driver = Driver::new(sockets, certificate, settings.max_message, accepted);
+    let offers = Offers {
+        identity: Arc::new(identity),
+        auth,
+        public_ip: settings.public_ip,
+        udp_addrs,
+        driver: driver.commands.clone(),
+    };
+    let offers = tokio::spawn(offers.run(offers_rx));
+    Ok((Handle { signaling, offers }, driver))
+}
+
+/// The signaling socket on `addr` as an operator reads it: protocol, address, the settings that
+/// decide it and its use.
+fn signaling_socket(addr: SocketAddr) -> String {
+    let settings = if addr.is_ipv6() {
+        "server-port, enable-ipv6"
+    } else {
+        "server-port"
+    };
+    format!("TCP {addr} ({settings}, NetherNet signaling)")
 }
 
 /// Whether a datagram on the shared UDP port is NetherNet's (RFC 7983 demultiplexing): DTLS,
@@ -844,12 +913,11 @@ impl Driver {
 pub(crate) fn is_nethernet(datagram: &[u8]) -> bool {
     match datagram {
         [20..=63, ..] => true,
-        [0..=1, _, l0, l1, c0, c1, c2, c3, rest @ ..] => {
-            const TRANSACTION_ID: usize = 12;
+        [0..=1, _, l0, l1, c0, c1, c2, c3, ..] => {
             let length = usize::from(u16::from_be_bytes([*l0, *l1]));
             [*c0, *c1, *c2, *c3] == STUN_MAGIC_COOKIE
                 && length % 4 == 0
-                && rest.len().checked_sub(TRANSACTION_ID) == Some(length)
+                && datagram.len().checked_sub(STUN_HEADER_LEN) == Some(length)
         }
         _ => false,
     }
@@ -896,6 +964,17 @@ fn release(per_ip: &mut BTreeMap<u128, usize>, total: &mut usize, key: u128) {
     }
 }
 
+/// Sends a peer's datagram. A full send buffer drops it; SCTP resends what matters.
+fn transmit(sockets: &Sockets, to: SocketAddr, data: &[u8]) {
+    if let Err(error) = sockets.send(to, data) {
+        trace!(
+            %to,
+            error = &error as &(dyn std::error::Error + 'static),
+            "nethernet datagram not sent"
+        );
+    }
+}
+
 /// Hands a newly open peer to the session layer; `None` when the accept queue is full.
 fn accept(
     accepted: &mpsc::Sender<Connection>,
@@ -920,7 +999,11 @@ fn accept(
         undelivered: undelivered_watcher,
     };
     if let Err(error) = accepted.try_send(connection) {
-        debug!(%addr, %error, "nethernet connection not accepted");
+        debug!(
+            %addr,
+            error = &error as &(dyn std::error::Error + 'static),
+            "nethernet connection not accepted"
+        );
         return None;
     }
     Some(Link {
@@ -933,23 +1016,29 @@ fn accept(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::*;
+
     use std::net::Ipv4Addr;
 
     use str0m::net::{Protocol, Receive};
     use str0m::{DATAGRAM_MTU_TARGET, Input};
-    use tokio::net::UdpSocket;
+    use tokio::net::{TcpListener, UdpSocket};
 
-    use super::*;
     use crate::raknet::tests::run;
-    use crate::udp::{self, RECV_BUFFER, UPDATE_INTERVAL};
-    use peer::tests::{Client, MAX_MESSAGE, certificates, reliable, unreliable};
+    use crate::save::tests::TempDir;
+    use crate::udp::{self, RECV_BUFFER_BYTES, UPDATE_INTERVAL};
+    use peer::tests::{Client, MAX_MESSAGE_BYTES, certificates, reliable, unreliable};
 
+    /// The id of the first test peer in the address index test.
+    const FIRST_PEER: u64 = 1;
+    /// The id of the second test peer in the address index test.
+    const SECOND_PEER: u64 = 2;
     const WAIT: Duration = Duration::from_secs(20);
 
     /// A driver on `sockets`, and the connections it accepts.
     pub(crate) fn driver(sockets: Arc<Sockets>) -> (Driver, mpsc::Receiver<Connection>) {
         let (accepted, connections) = mpsc::channel(1);
-        let driver = Driver::new(sockets, certificates().0, MAX_MESSAGE, accepted);
+        let driver = Driver::new(sockets, certificates().0, MAX_MESSAGE_BYTES, accepted);
         (driver, connections)
     }
 
@@ -991,7 +1080,7 @@ pub(crate) mod tests {
             .timeout
             .saturating_duration_since(clock::now())
             .clamp(Duration::from_millis(1), UPDATE_INTERVAL);
-        let mut buf = [0; RECV_BUFFER];
+        let mut buf = [0; RECV_BUFFER_BYTES];
         match tokio::time::timeout(wait, socket.recv_from(&mut buf)).await {
             Ok(Ok((len, from))) => feed(client, socket, from, &buf[..len]),
             // A timeout, or Windows reporting an earlier datagram's port unreachable.
@@ -1004,7 +1093,7 @@ pub(crate) mod tests {
 
     /// Hands the client every datagram already waiting on `socket`, without waiting for more.
     async fn take_waiting(client: &mut Client, socket: &UdpSocket) {
-        let mut buf = [0; RECV_BUFFER];
+        let mut buf = [0; RECV_BUFFER_BYTES];
         while flush(client, socket).await {
             match socket.try_recv_from(&mut buf) {
                 Ok((len, from)) => {
@@ -1020,7 +1109,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn shutdown_delivers_the_last_message_of_every_peer() {
+    fn shutdown_delivers_the_last_messages_of_a_peer() {
         run(shutdown_delivers_the_last_message());
     }
 
@@ -1112,6 +1201,90 @@ pub(crate) mod tests {
         task.await.unwrap();
     }
 
+    /// A message a session queued before it set its close flag is applied before the driver
+    /// judges the closing peer drained: the timer pass reads the flag first and drains the queue
+    /// after it.
+    #[test]
+    fn the_messages_queued_before_a_close_flag_are_applied_before_the_peer_is_judged() {
+        run(async {
+            let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+            let sockets = Sockets::bind(Some(localhost), None).unwrap();
+            let (mut driver, mut connections) = driver(sockets);
+            let (_, client_cert) = certificates();
+            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 50_000));
+            let fingerprint = *client_cert.fingerprint();
+            let (_client, remote) = Client::new(
+                &client_cert,
+                addr,
+                DATAGRAM_MTU_TARGET,
+                fingerprint,
+                clock::now(),
+            );
+            let (reply, answer) = oneshot::channel();
+            driver.command(Command::Open {
+                remote,
+                local: addr,
+                client_key: None,
+                ip: addr.ip(),
+                reply,
+            });
+            answer.await.unwrap().unwrap();
+            // The driver hands the session its connection when both channels are open; here
+            // the connection is made by hand.
+            let (&id, entry) = driver.peers.iter_mut().next().unwrap();
+            entry.link = accept(
+                &driver.accepted,
+                &driver.commands,
+                id,
+                addr,
+                entry,
+                MAX_MESSAGE_BYTES,
+            );
+            let connection = connections.try_recv().unwrap();
+
+            connection.send(b"bye".to_vec()).await.unwrap();
+            connection.close();
+            driver.update();
+
+            assert!(
+                driver.pending.try_recv().is_err(),
+                "the message was not applied"
+            );
+        });
+    }
+
+    /// An offer whose answer nobody waits for leaves no peer holding a pre-login place.
+    #[test]
+    fn an_offer_withdrawn_before_its_answer_leaves_no_peer() {
+        run(async {
+            let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+            let sockets = Sockets::bind(Some(localhost), None).unwrap();
+            let (mut driver, _connections) = driver(sockets);
+            let (_, client_cert) = certificates();
+            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 50_000));
+            let fingerprint = *client_cert.fingerprint();
+            let (_client, remote) = Client::new(
+                &client_cert,
+                addr,
+                DATAGRAM_MTU_TARGET,
+                fingerprint,
+                clock::now(),
+            );
+            let (reply, answer) = oneshot::channel();
+            drop(answer);
+            driver.command(Command::Open {
+                remote,
+                local: addr,
+                client_key: None,
+                ip: addr.ip(),
+                reply,
+            });
+            assert!(driver.peers.is_empty());
+            assert_eq!(driver.pre_login_total, 0);
+            assert!(driver.by_ufrag.is_empty());
+        });
+    }
+
     /// A negotiation ends once its signaling request is gone, whatever it waits for, so the
     /// negotiations never outnumber the signaling connections.
     #[test]
@@ -1121,7 +1294,7 @@ pub(crate) mod tests {
 
     async fn negotiation_ends_when_its_request_is_gone() {
         let (driver, mut commands) = mpsc::channel(1);
-        let server = SocketAddr::from((Ipv4Addr::LOCALHOST, 19133));
+        let server = SocketAddr::from((Ipv4Addr::LOCALHOST, 19_133));
         let offers = Arc::new(Offers {
             identity: Arc::new(ServerIdentity::generate().unwrap()),
             auth: None,
@@ -1151,23 +1324,88 @@ pub(crate) mod tests {
         drop(held);
     }
 
+    /// An offer is refused with a reason the log shows, and the client gets the code of that
+    /// reason.
+    #[test]
+    fn an_offer_is_refused_with_its_reason() {
+        run(async {
+            let (driver, _commands) = mpsc::channel(1);
+            let offers = Offers {
+                identity: Arc::new(ServerIdentity::generate().unwrap()),
+                auth: None,
+                public_ip: None,
+                udp_addrs: Vec::new(),
+                driver,
+            };
+            let client = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+            let refusal = offers
+                .negotiate("v=1\r\n", client, client)
+                .await
+                .unwrap_err();
+            assert!(matches!(refusal, Refusal::Offer(sdp::Error::Malformed(_))));
+            assert_eq!(refusal.reply(), Reply::Code(Code::BadOffer));
+
+            // The identity signs the fingerprint as written, so another digest fails it.
+            let offer = sdp::tests::OFFER.replace("8a:74:fb", "8a:74:fc");
+            let refusal = offers.negotiate(&offer, client, client).await.unwrap_err();
+            assert!(matches!(refusal, Refusal::Identity(_)), "{refusal:?}");
+            assert_eq!(refusal.reply(), Reply::Code(Code::Identity));
+
+            // Offline, an offer without an identity passes, and the server has no UDP socket
+            // to advertise.
+            let identity = format!("{}\n", sdp::tests::identity_line());
+            let offer = sdp::tests::OFFER.replace(&identity, "");
+            let refusal = offers.negotiate(&offer, client, client).await.unwrap_err();
+            assert!(matches!(refusal, Refusal::NoSocket), "{refusal:?}");
+            assert_eq!(refusal.reply(), Reply::Code(Code::Internal));
+        });
+    }
+
+    /// A signaling port that is taken stops the start with the socket named.
+    #[test]
+    fn a_taken_signaling_port_is_reported_with_its_socket() {
+        run(async {
+            let taken = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+            let port = taken.local_addr().unwrap().port();
+            let dir = TempDir::new("nethernet-start");
+            let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+            let sockets = Sockets::bind(Some(localhost), None).unwrap();
+            let (accepted, _connections) = mpsc::channel(1);
+            let (_status, statuses) = watch::channel(Arc::<[u8]>::from(&b"{}"[..]));
+            let settings = Settings {
+                signaling_v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)),
+                signaling_v6: None,
+                public_ip: None,
+                max_message: MAX_MESSAGE_BYTES,
+                tls: None,
+            };
+            let started = start(settings, &dir.0, statuses, None, accepted, sockets).await;
+            let Err(crate::Error::Network { socket, .. }) = started else {
+                panic!("the taken port was bound twice");
+            };
+            assert_eq!(
+                socket,
+                format!("TCP 127.0.0.1:{port} (server-port, NetherNet signaling)")
+            );
+        });
+    }
+
     #[test]
     fn stun_from_another_peers_address_does_not_steal_it() {
-        const A: u64 = 1;
-        const B: u64 = 2;
         let victim = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 50_000));
         let mut by_addr = BTreeMap::new();
-        let mut a_addrs = Vec::new();
-        let mut b_addrs = Vec::new();
-        assert!(admit(&mut by_addr, &mut a_addrs, A, victim));
-        // B's own ufrag in a STUN request with the victim's address as its source.
-        assert!(!admit(&mut by_addr, &mut b_addrs, B, victim));
-        assert_eq!(by_addr.get(&victim), Some(&A));
-        assert!(b_addrs.is_empty());
-        forget(&mut by_addr, &b_addrs);
-        assert_eq!(by_addr.get(&victim), Some(&A));
-        // A's address stays usable by A.
-        assert!(admit(&mut by_addr, &mut a_addrs, A, victim));
+        let mut first_addrs = Vec::new();
+        let mut second_addrs = Vec::new();
+        assert!(admit(&mut by_addr, &mut first_addrs, FIRST_PEER, victim));
+        // The second peer's own ufrag in a STUN request with the victim's address as its source.
+        assert!(!admit(&mut by_addr, &mut second_addrs, SECOND_PEER, victim));
+        assert_eq!(by_addr.get(&victim), Some(&FIRST_PEER));
+        assert!(second_addrs.is_empty());
+        forget(&mut by_addr, &second_addrs);
+        assert_eq!(by_addr.get(&victim), Some(&FIRST_PEER));
+        // The first peer's address stays usable by it.
+        assert!(admit(&mut by_addr, &mut first_addrs, FIRST_PEER, victim));
     }
 
     /// A NetherNet peer and a RakNet ping reach their own drivers through the one UDP port, so

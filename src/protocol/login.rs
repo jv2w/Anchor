@@ -1,6 +1,7 @@
-//! The envelope of Login's connection request: two little-endian int32 length-prefixed strings
-//! (gophertunnel `login.parseLoginRequest` and `encodeRequest`). The JWTs inside are verified in
-//! the session, not here.
+//! The envelope of Login's connection request.
+//!
+//! It follows gophertunnel `login.parseLoginRequest` and `encodeRequest`: two little-endian int32
+//! length-prefixed strings. The JWTs inside are verified in the session, not here.
 
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 
@@ -16,9 +17,10 @@ pub struct ConnectionRequest {
 }
 
 impl ConnectionRequest {
-    /// Reads a whole connection request, such as `Login::connection_request`. An empty chain or
-    /// bytes after the raw token are an error, like in gophertunnel. Allocation is bounded by the
-    /// input length.
+    /// Parses `data` as a whole connection request, such as `Login::connection_request`.
+    ///
+    /// An empty chain or bytes after the raw token are an error, like in gophertunnel.
+    /// Allocation is bounded by the input length.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data, data.len(), 0);
         let request = Self::decode(&mut r)?;

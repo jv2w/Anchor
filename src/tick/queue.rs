@@ -154,7 +154,7 @@ super::checkpoint::fields!(Identity {
 /// `NetworkSession::getPort`). Every client data text is the client's own claim; the login checked
 /// the locale (a language tag of at most 64 bytes), the game version (digits and dots), the
 /// self-signed ID (empty or a UUID) and the server address (a host and port). The token's PlayFab
-/// ID is bounded by the token's own cap ([`MAX_TOKEN_PAYLOAD`](crate::login::MAX_TOKEN_PAYLOAD)).
+/// ID is bounded by the token's own cap ([`MAX_TOKEN_PAYLOAD_BYTES`](crate::login::MAX_TOKEN_PAYLOAD_BYTES)).
 /// The default, empty texts and zeros, is for a player made without a connection (tests).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Client {

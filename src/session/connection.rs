@@ -18,13 +18,12 @@ use std::time::{Duration, Instant};
 use tokio::sync::{OwnedSemaphorePermit, mpsc};
 use tracing::{debug, warn};
 
-use super::packs::{self, CHUNK_INTERVAL, MAX_UNDELIVERED, Reply, Transfer};
+use super::packs::{self, CHUNK_INTERVAL, MAX_UNDELIVERED_BYTES, Reply, Transfer};
 use super::transport::{self, Transport};
 use super::{Event, Shared};
-use crate::auth::Keys;
 use crate::bucket::{Bucket, Rate};
 use crate::clock;
-use crate::crypto::encryption::{CHECKSUM, Decryptor, Encryptor, Handshake};
+use crate::crypto::encryption::{CHECKSUM_BYTES, Decryptor, Encryptor, Handshake};
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::login::{self, Login, Mode};
 use crate::protocol::InventoryTransactionData;
@@ -59,7 +58,7 @@ const MAX_PRE_AUTH_BATCHES: usize = 8;
 /// Capacity the reused payload buffers keep between messages: twice the size at which outbound
 /// batches are cut ([`batch`]), so a cut batch and a packet under it fit. A larger message (a
 /// Login or a skin of up to 4 MiB) would otherwise pin its size until the session ends.
-const MAX_KEPT_BUFFER_BYTES: usize = 512 * 1024;
+const MAX_KEPT_BUFFER_BYTES: usize = 2 * batch::SPLIT_BYTES;
 /// The input budget refills this fraction of `max-batch-bytes` per second.
 const BUDGET_REFILL_DIVISOR: usize = 4;
 /// The input packet budget: at the default `max-players` the rates of all sessions fit in what
@@ -216,7 +215,7 @@ impl Session {
         loop {
             let chunks_wait = self.stage == Stage::Packs && self.transfer.has_chunks();
             let undelivered_bytes = *undelivered.borrow();
-            let delivered = undelivered_bytes <= MAX_UNDELIVERED;
+            let delivered = undelivered_bytes <= MAX_UNDELIVERED_BYTES;
             let output_waits = !self.out_bodies.is_empty() || !self.pending.is_empty();
             let output_fits = undelivered_bytes.saturating_add(self.unreported_bytes)
                 <= MAX_OUTPUT_UNDELIVERED_BYTES;
@@ -231,7 +230,7 @@ impl Session {
                 // chunk undelivered. The count is read again: the last chunk may have raised it
                 // since the loop read it, and then the passed timer waits for the branch below.
                 () = &mut pace, if chunks_wait && delivered => {
-                    if *undelivered.borrow() <= MAX_UNDELIVERED {
+                    if *undelivered.borrow() <= MAX_UNDELIVERED_BYTES {
                         if let Err(e) = self.send_chunk().await {
                             return End::Failed(e);
                         }
@@ -566,7 +565,7 @@ impl Session {
         if self.shared.events.send(Event::LoggedIn).await.is_err() {
             debug!("accept task gone during login");
         }
-        if self.conn.encrypts() && !self.shared.encryption {
+        if self.conn.can_encrypt() && !self.shared.encryption {
             // `enable-encryption = false`: no handshake, plain RakNet traffic (PMMP
             // `NetworkSession::onServerLoginSuccess` without encryption).
             return self.login_success().await;
@@ -579,7 +578,7 @@ impl Session {
             jwt: handshake.jwt.into_bytes(),
         })])
         .await?;
-        if self.conn.encrypts() {
+        if self.conn.can_encrypt() {
             self.encryptor = Some(handshake.encryptor);
             self.decryptor = Some(handshake.decryptor);
         }
@@ -606,21 +605,18 @@ impl Session {
         let Some(auth) = &self.shared.auth else {
             return login::verify(request, Mode::Offline, clock::token_now()).map_err(Error::Login);
         };
-        let keys = auth.keys();
-        match login::verify(request, Mode::Online(&keys), clock::token_now()) {
-            Err(login::Error::UnknownKeyId) => {}
-            result => return result.map_err(Error::Login),
-        }
-        let refreshed = tokio::time::timeout_at(
+        let verified = tokio::time::timeout_at(
             tokio::time::Instant::from_std(self.started + LOGIN_DEADLINE),
-            auth.refresh_keys(),
+            auth.verify_with_refresh(
+                |keys| login::verify(request, Mode::Online(keys), clock::token_now()),
+                |e| matches!(e, login::Error::UnknownKeyId),
+            ),
         )
         .await;
-        let keys: Arc<Keys> = match refreshed {
-            Ok(Some(keys)) => keys,
-            Ok(None) | Err(_) => return Err(Error::Login(login::Error::UnknownKeyId)),
-        };
-        login::verify(request, Mode::Online(&keys), clock::token_now()).map_err(Error::Login)
+        match verified {
+            Ok(Some(result)) => result.map_err(Error::Login),
+            Ok(None) | Err(_) => Err(Error::Login(login::Error::UnknownKeyId)),
+        }
     }
 
     async fn on_pack_response(&mut self, response: &ResourcePackClientResponse) -> Result<()> {
@@ -1029,7 +1025,7 @@ fn is_spawn_status(packet: &Packet) -> bool {
 
 /// Copies a shared batch body for the session, with room for the encryption checksum.
 fn owned_body(body: &[u8]) -> Vec<u8> {
-    let mut owned = Vec::with_capacity(body.len() + CHECKSUM);
+    let mut owned = Vec::with_capacity(body.len() + CHECKSUM_BYTES);
     owned.extend_from_slice(body);
     owned
 }
@@ -1464,27 +1460,12 @@ mod tests {
         });
     }
 
-    /// Runs a test on its own single-thread runtime with time paused: it jumps ahead whenever
-    /// every task waits.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a test drives a session on a runtime of its own"
-    )]
-    fn run_paused<F: Future>(test: F) -> F::Output {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .start_paused(true)
-            .build()
-            .unwrap()
-            .block_on(test)
-    }
-
     /// A client that asks for every chunk at once on a link that delivers nothing gets one
     /// chunk, not one every [`CHUNK_INTERVAL`] until the transport's outbound cap, and the rest
     /// as the connection delivers them.
     #[test]
     fn pack_chunks_wait_for_the_connection_to_deliver() {
-        run_paused(async {
+        crate::raknet::tests::run_paused(async {
             let (inputs, _queue) = input_queue(1);
             let big = crate::pack::tests::pack(UUID, "1.0.0", 7 * 128 * 1024);
             let (shared, _stop) = sharing(inputs, Offer::new(vec![big], true).unwrap());
@@ -1552,7 +1533,7 @@ mod tests {
     )]
     fn the_spawn_deadline_grows_with_what_is_sent_before_the_spawn() {
         for (packets, allowance_secs) in [(0, 0), (64, 128)] {
-            let waited = run_paused(async {
+            let waited = crate::raknet::tests::run_paused(async {
                 let (inputs, mut queue) = input_queue(1);
                 let shared = shared(inputs);
                 let (conn, _far) = crate::raknet::tests::linked_connection();
@@ -1630,7 +1611,7 @@ mod tests {
         const STEP: Duration = Duration::from_millis(100);
         const MOST_TICKS: usize = 4000;
         assert!(usize::from(BATCHES) * BATCH_BYTES > MAX_PENDING_BYTES);
-        run_paused(async {
+        crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();
@@ -1689,7 +1670,7 @@ mod tests {
     #[test]
     fn a_link_that_delivers_nothing_ends_on_the_output_waiting_not_the_tick_queue() {
         const MOST_TICKS: usize = 2000;
-        run_paused(async {
+        crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();
@@ -1755,7 +1736,7 @@ mod tests {
         /// 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second if it counted.
         const STEP: Duration = Duration::from_millis(100);
         const MOST_STEPS: usize = 3000;
-        let waited = run_paused(async {
+        let waited = crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();
@@ -1807,7 +1788,7 @@ mod tests {
         /// 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second.
         const STEP: Duration = Duration::from_millis(100);
         const MOST_STEPS: usize = 3000;
-        let (waited, most) = run_paused(async {
+        let (waited, most) = crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();
@@ -1856,7 +1837,7 @@ mod tests {
         const STEP: Duration = Duration::from_millis(100);
         /// 200 seconds, past the spawn deadline and the most the output may add to it.
         const MOST_TICKS: usize = 4000;
-        run_paused(async {
+        crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();
@@ -1913,7 +1894,7 @@ mod tests {
     #[test]
     fn shared_output_waits_within_the_byte_bound() {
         const SMALL: usize = 2000;
-        run_paused(async {
+        crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();

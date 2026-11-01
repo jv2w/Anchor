@@ -12,14 +12,10 @@ use std::time::Duration;
 use tracing::{debug, trace};
 
 use super::peer::{Limits, MAX_MTU, MIN_MTU, Message, Peer};
-use super::wire::{self, Cursor, FLAG_DATAGRAM, Reliability, UDP_HEADER};
-use super::{Error, Result};
+use super::wire::{self, Cursor, FLAG_DATAGRAM, UDP_HEADER_BYTES};
+use super::{Error, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, Result};
 use crate::bucket::{Bucket, Rate};
 
-/// Connections between `OpenConnectionRequest2` and the session's login.
-const MAX_PRE_LOGIN: usize = 64;
-/// Such connections from one IPv4 address or IPv6 /64.
-const MAX_PRE_LOGIN_PER_IP: u8 = 4;
 /// Pings answered back to back from one IP (`capacity`), and per second once the burst is spent.
 const PING_RATE: Rate = Rate {
     capacity: 10,
@@ -27,7 +23,7 @@ const PING_RATE: Rate = Rate {
 };
 /// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
 const MAX_PING_IPS: usize = 4096;
-/// A ping rate entry is dropped after this long without pings.
+/// How long a ping rate entry lasts without pings before it is dropped.
 const PING_IDLE: Duration = Duration::from_secs(60);
 /// How often idle ping rate entries are dropped.
 const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
@@ -40,91 +36,7 @@ const PING_INTERVAL: Duration = Duration::from_millis(500);
 /// How long a closing connection may take to deliver what it queued (go-raknet `Close`).
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 /// The largest pong payload: one datagram at the largest MTU after the pong's fixed fields.
-const MAX_PONG_DATA: usize = MAX_MTU as usize - UDP_HEADER - 35;
-
-/// What the listener does to the outside world.
-pub(super) trait Sink {
-    /// Sends one UDP datagram. Delivery is best effort.
-    fn transmit(&mut self, to: SocketAddr, datagram: &[u8]);
-    /// Hands a connection that finished the handshake to the session layer. `false` rejects it.
-    fn accept(&mut self, id: u64, addr: SocketAddr) -> bool;
-    /// Hands a game message (after 0xfe) to the connection's session. `false` means its
-    /// inbound queue is full and the connection closes.
-    fn deliver(&mut self, id: u64, message: Vec<u8>) -> bool;
-    /// An accepted connection is gone.
-    fn close(&mut self, id: u64);
-    /// An accepted connection's client answered a connected ping after `rtt`.
-    fn ping(&mut self, id: u64, rtt: Duration);
-    /// An open connection's bytes still queued or unacknowledged, after each update.
-    fn undelivered(&mut self, id: u64, bytes: usize);
-}
-
-/// Listener settings.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Config {
-    pub(super) guid: u64,
-    pub(super) max_mtu: u16,
-    /// `false`: answer pings only.
-    pub(super) accept: bool,
-    pub(super) limits: Limits,
-}
-
-/// Why a connection ended.
-#[derive(Clone, Copy, Debug)]
-enum Close {
-    /// The peer sent a disconnect notification.
-    Remote,
-    Timeout,
-    HandshakeTimeout,
-    /// A graceful close finished.
-    Done,
-    /// The session layer had no room for the new connection.
-    Rejected,
-    Shutdown,
-    Failed(Error),
-}
-
-impl From<Error> for Close {
-    fn from(error: Error) -> Self {
-        Self::Failed(error)
-    }
-}
-
-impl fmt::Display for Close {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Remote => f.write_str("peer disconnected"),
-            Self::Timeout => f.write_str("timed out"),
-            Self::HandshakeTimeout => f.write_str("handshake timed out"),
-            Self::Done => f.write_str("closed"),
-            Self::Rejected => f.write_str("session queue full"),
-            Self::Shutdown => f.write_str("server shutting down"),
-            Self::Failed(error) => error.fmt(f),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum State {
-    /// Before `NewIncomingConnection`.
-    Handshake,
-    Open,
-    /// Delivering what is queued, then a disconnect notification.
-    Closing {
-        deadline: Duration,
-    },
-}
-
-#[derive(Debug)]
-struct Conn {
-    id: u64,
-    ip: u128,
-    peer: Peer,
-    state: State,
-    pre_login: bool,
-    created: Duration,
-    next_ping: Duration,
-}
+const MAX_PONG_DATA_BYTES: usize = MAX_MTU as usize - UDP_HEADER_BYTES - 35;
 
 /// The RakNet server state: every connection and the offline handshake.
 #[derive(Debug)]
@@ -134,25 +46,13 @@ pub(super) struct Listener {
     conns: BTreeMap<SocketAddr, Conn>,
     next_id: u64,
     pre_login: usize,
-    pre_login_per_ip: BTreeMap<u128, u8>,
+    pre_login_per_ip: BTreeMap<u128, usize>,
     pings: BTreeMap<u128, Bucket>,
     next_sweep: Duration,
     shutting_down: bool,
     buf: Vec<u8>,
     messages: Vec<Message>,
     doomed: Vec<(SocketAddr, Close)>,
-}
-
-/// The key for per-IP limits: an IPv4 address or an IPv6 /64, the block one host usually has.
-pub(crate) fn ip_key(ip: IpAddr) -> u128 {
-    match ip.to_canonical() {
-        IpAddr::V4(ip) => u128::from(ip.to_ipv6_mapped()),
-        IpAddr::V6(ip) => u128::from(ip) & !u128::from(u64::MAX),
-    }
-}
-
-fn millis(now: Duration) -> u64 {
-    u64::try_from(now.as_millis()).unwrap_or(u64::MAX)
 }
 
 impl Listener {
@@ -173,13 +73,13 @@ impl Listener {
         }
     }
 
-    pub(super) fn set_pong(&mut self, pong: Arc<[u8]>) {
-        self.pong = pong;
-    }
-
-    /// No connection is left (after `shutdown`, the driver stops then).
+    /// Whether no connection is left (after `shutdown`, the driver stops then).
     pub(super) fn is_empty(&self) -> bool {
         self.conns.is_empty()
+    }
+
+    pub(super) fn set_pong(&mut self, pong: Arc<[u8]>) {
+        self.pong = pong;
     }
 
     /// Handles one UDP datagram from `from`.
@@ -195,7 +95,11 @@ impl Listener {
         };
         if flags & FLAG_DATAGRAM == 0 {
             if let Err(error) = self.offline(now, from, data, sink) {
-                trace!(%from, %error, "raknet offline message dropped");
+                trace!(
+                    %from,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "raknet offline message dropped"
+                );
             }
             return;
         }
@@ -244,14 +148,15 @@ impl Listener {
         }
         let sent = conn
             .peer
-            .send(wire::ID_GAME, message, Reliability::ReliableOrdered)
+            .send(wire::ID_GAME, message)
             .and_then(|()| conn.peer.flush(now, &mut |data| sink.transmit(addr, data)));
         if let Err(error) = sent {
             self.remove(addr, error.into(), sink);
         }
     }
 
-    /// The session logged connection `id` in: it no longer counts against the pre-login limits.
+    /// Marks connection `id` as logged in by the session: it no longer counts against the
+    /// pre-login limits.
     pub(super) fn logged_in(&mut self, addr: SocketAddr, id: u64) {
         let Some(conn) = self.conns.get_mut(&addr) else {
             return;
@@ -302,11 +207,15 @@ impl Listener {
         };
         if !matches!(reason, Close::Remote) {
             let mut transmit = |data: &[u8]| sink.transmit(addr, data);
-            if let Err(error) = conn
-                .peer
-                .send_now(wire::ID_DISCONNECT_NOTIFICATION, &mut transmit)
+            if let Err(error) =
+                conn.peer
+                    .send_now(wire::ID_DISCONNECT_NOTIFICATION, &[], &mut transmit)
             {
-                debug!(%addr, %error, "raknet disconnect notification not sent");
+                debug!(
+                    %addr,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "raknet disconnect notification not sent"
+                );
             }
         }
         if conn.pre_login {
@@ -342,7 +251,7 @@ impl Listener {
                 let time = cur.array()?;
                 cur.magic()?;
                 cur.u64()?;
-                if self.pong.len() > MAX_PONG_DATA {
+                if self.pong.len() > MAX_PONG_DATA_BYTES {
                     return Err(Error::Limit("pong data length"));
                 }
                 if !self.allow_ping(now, ip_key(from.ip())) {
@@ -355,7 +264,7 @@ impl Listener {
                 cur.magic()?;
                 let protocol = cur.u8()?;
                 // The request is padded to the MTU it probes (go-raknet `OpenConnectionRequest1`).
-                let mtu = data.len().saturating_add(UDP_HEADER);
+                let mtu = data.len().saturating_add(UDP_HEADER_BYTES);
                 if mtu < usize::from(MIN_MTU) {
                     return Err(Error::Malformed("mtu"));
                 }
@@ -386,9 +295,9 @@ impl Listener {
         sink: &mut impl Sink,
     ) -> Result<()> {
         // No cookie: BDS replies with security off, and the official client's cookie handling
-        // cannot be observed. A spoofed source therefore can open a connection
-        // state here; the pre-login caps (64 in total, 4 per IP, the 10 s handshake deadline and
-        // the 5 s idle timeout) bound what such requests hold.
+        // cannot be observed. A spoofed source therefore can open a connection state here; the
+        // pre-login caps (64 in total, 4 per IP, the 10 s handshake deadline and the 5 s idle
+        // timeout) bound what such requests hold.
         cur.magic()?;
         cur.address()?;
         let mtu = cur.u16()?;
@@ -464,6 +373,45 @@ impl Listener {
     }
 }
 
+/// Listener settings.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Config {
+    pub(super) guid: u64,
+    pub(super) max_mtu: u16,
+    /// Whether to accept connections; `false` answers pings only.
+    pub(super) accept: bool,
+    pub(super) limits: Limits,
+}
+
+/// What the listener does to the outside world.
+pub(super) trait Sink {
+    /// Sends one UDP datagram. Delivery is best effort.
+    fn transmit(&mut self, to: SocketAddr, datagram: &[u8]);
+    /// Hands a connection that finished the handshake to the session layer. `false` rejects it.
+    fn accept(&mut self, id: u64, addr: SocketAddr) -> bool;
+    /// Hands a game message (after 0xfe) to the connection's session. `false` means its
+    /// inbound queue is full and the connection closes.
+    fn deliver(&mut self, id: u64, message: Vec<u8>) -> bool;
+    /// Reports that an accepted connection is gone.
+    fn close(&mut self, id: u64);
+    /// Reports that an accepted connection's client answered a connected ping after `rtt`.
+    fn ping(&mut self, id: u64, rtt: Duration);
+    /// Reports an open connection's bytes still queued or unacknowledged, after each update.
+    fn undelivered(&mut self, id: u64, bytes: usize);
+}
+
+/// One connection of the table: its reliability layer and where it is in its life.
+#[derive(Debug)]
+struct Conn {
+    id: u64,
+    ip: u128,
+    peer: Peer,
+    state: State,
+    pre_login: bool,
+    created: Duration,
+    next_ping: Duration,
+}
+
 impl Conn {
     fn receive(
         &mut self,
@@ -509,7 +457,9 @@ impl Conn {
                 reply.extend_from_slice(&ping_time.to_be_bytes());
                 reply.extend_from_slice(&millis(now).to_be_bytes());
                 self.peer
-                    .send(wire::ID_CONNECTED_PONG, reply, Reliability::Unreliable)?;
+                    .send_now(wire::ID_CONNECTED_PONG, &reply, &mut |data| {
+                        sink.transmit(addr, data);
+                    })?;
             }
             wire::ID_CONNECTED_PONG => {
                 let mut cur = Cursor::new(&message.body);
@@ -523,18 +473,15 @@ impl Conn {
                     sink.ping(self.id, Duration::from_millis(rtt));
                 }
             }
-            wire::ID_DETECT_LOST_CONNECTIONS => self.ping(now)?,
+            wire::ID_DETECT_LOST_CONNECTIONS => self.ping(now, addr, sink)?,
             wire::ID_CONNECTION_REQUEST if self.state == State::Handshake => {
                 let mut cur = Cursor::new(&message.body);
                 cur.u64()?;
                 let time = cur.u64()?;
                 cur.u8()?;
                 let accepted = wire::connection_request_accepted(addr, time, millis(now));
-                self.peer.send(
-                    wire::ID_CONNECTION_REQUEST_ACCEPTED,
-                    accepted,
-                    Reliability::ReliableOrdered,
-                )?;
+                self.peer
+                    .send(wire::ID_CONNECTION_REQUEST_ACCEPTED, accepted)?;
             }
             wire::ID_NEW_INCOMING_CONNECTION if self.state == State::Handshake => {
                 if !sink.accept(self.id, addr) {
@@ -547,13 +494,6 @@ impl Conn {
             _ => return Err(Error::Malformed("unexpected connected message").into()),
         }
         Ok(())
-    }
-
-    fn ping(&mut self, now: Duration) -> Result<()> {
-        self.next_ping = now.saturating_add(PING_INTERVAL);
-        let time = millis(now).to_be_bytes().to_vec();
-        self.peer
-            .send(wire::ID_CONNECTED_PING, time, Reliability::Unreliable)
     }
 
     fn update(
@@ -576,7 +516,7 @@ impl Conn {
             return Err(Close::Timeout);
         }
         if now >= self.next_ping {
-            self.ping(now)?;
+            self.ping(now, addr, sink)?;
         }
         self.peer.update(now);
         let mut transmit = |data: &[u8]| sink.transmit(addr, data);
@@ -587,16 +527,88 @@ impl Conn {
         }
         Ok(())
     }
+
+    fn ping(&mut self, now: Duration, addr: SocketAddr, sink: &mut impl Sink) -> Result<()> {
+        self.next_ping = now.saturating_add(PING_INTERVAL);
+        let time = millis(now).to_be_bytes();
+        self.peer
+            .send_now(wire::ID_CONNECTED_PING, &time, &mut |data| {
+                sink.transmit(addr, data);
+            })
+    }
+}
+
+/// Where a connection is in its life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    /// Before `NewIncomingConnection`.
+    Handshake,
+    Open,
+    /// Delivering what is queued, then a disconnect notification.
+    Closing {
+        deadline: Duration,
+    },
+}
+
+/// Why a connection ended.
+#[derive(Debug, Clone, Copy)]
+enum Close {
+    /// The peer sent a disconnect notification.
+    Remote,
+    Timeout,
+    HandshakeTimeout,
+    /// A graceful close finished.
+    Done,
+    /// The session layer did not take the new connection: its accept queue was full or gone.
+    Rejected,
+    Shutdown,
+    Failed(Error),
+}
+
+impl fmt::Display for Close {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Remote => f.write_str("peer disconnected"),
+            Self::Timeout => f.write_str("timed out"),
+            Self::HandshakeTimeout => f.write_str("handshake timed out"),
+            Self::Done => f.write_str("closed"),
+            Self::Rejected => f.write_str("not taken by the session layer"),
+            Self::Shutdown => f.write_str("server shutting down"),
+            Self::Failed(error) => error.fmt(f),
+        }
+    }
+}
+
+impl From<Error> for Close {
+    fn from(error: Error) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// The key for per-IP limits: an IPv4 address or an IPv6 /64, the block one host usually has.
+pub(crate) fn ip_key(ip: IpAddr) -> u128 {
+    match ip.to_canonical() {
+        IpAddr::V4(ip) => u128::from(ip.to_ipv6_mapped()),
+        IpAddr::V6(ip) => u128::from(ip) & !u128::from(u64::MAX),
+    }
+}
+
+/// The milliseconds in `now`, saturating at the largest `u64`.
+fn millis(now: Duration) -> u64 {
+    u64::try_from(now.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
     use crate::protocol::{Rng, fuzz};
+    use crate::raknet::peer::tests::{datagram, header};
+    use crate::raknet::wire::Reliability;
 
     pub(in crate::raknet) const GUID: u64 = 0x0123_4567_89ab_cdef;
-    /// The message limit for a 2 MiB `max-batch-bytes` (plus the 8-byte checksum).
-    pub(in crate::raknet) const MAX_MESSAGE: usize = (2 << 20) + (2 << 20) / 6 + 42 + 8;
+    /// The message limit of the tests: about 2.4 MiB, thousands of fragments at the smallest MTU.
+    pub(in crate::raknet) const MAX_MESSAGE: usize = 2_446_727;
     const PONG: &[u8] = b"MCPE;Anchor;1;1.26.60;0;20;1;Anchor;Survival;1;19132;19133;";
     const T: Duration = Duration::from_secs(100);
 
@@ -611,10 +623,6 @@ pub(super) mod tests {
 
     fn listener() -> Listener {
         Listener::new(config(), Arc::from(PONG))
-    }
-
-    fn addr(last: u8, port: u16) -> SocketAddr {
-        SocketAddr::from(([10, 0, 0, last], port))
     }
 
     /// Records what the listener does.
@@ -656,7 +664,7 @@ pub(super) mod tests {
 
     impl Sink for Recorder {
         fn transmit(&mut self, to: SocketAddr, datagram: &[u8]) {
-            assert!(datagram.len() <= usize::from(MAX_MTU) - UDP_HEADER);
+            assert!(datagram.len() <= usize::from(MAX_MTU) - UDP_HEADER_BYTES);
             self.sent.push((to, datagram.to_vec()));
         }
 
@@ -726,7 +734,7 @@ pub(super) mod tests {
             let mut data = vec![wire::ID_OPEN_CONNECTION_REQUEST_1];
             data.extend_from_slice(&wire::MAGIC);
             data.push(protocol);
-            data.resize(usize::from(mtu) - UDP_HEADER, 0);
+            data.resize(usize::from(mtu) - UDP_HEADER_BYTES, 0);
             data
         }
 
@@ -734,7 +742,7 @@ pub(super) mod tests {
         pub(in crate::raknet) fn request_2(mtu: u16, guid: u64) -> Vec<u8> {
             let mut data = vec![wire::ID_OPEN_CONNECTION_REQUEST_2];
             data.extend_from_slice(&wire::MAGIC);
-            wire::put_address(&mut data, SocketAddr::from(([127, 0, 0, 1], 19132)));
+            wire::put_address(&mut data, SocketAddr::from(([127, 0, 0, 1], 19_132)));
             data.extend_from_slice(&mtu.to_be_bytes());
             data.extend_from_slice(&guid.to_be_bytes());
             data
@@ -765,12 +773,7 @@ pub(super) mod tests {
                     let mut request = 9_u64.to_be_bytes().to_vec();
                     request.extend_from_slice(&1234_u64.to_be_bytes());
                     request.push(0);
-                    new.send(
-                        wire::ID_CONNECTION_REQUEST,
-                        request,
-                        Reliability::ReliableOrdered,
-                    )
-                    .unwrap();
+                    new.send(wire::ID_CONNECTION_REQUEST, request).unwrap();
                     new.flush(now, &mut |d| outbox.push(d.to_vec())).unwrap();
                     *peer = Some(new);
                 }
@@ -784,12 +787,7 @@ pub(super) mod tests {
                             let mut body = Vec::new();
                             wire::put_address(&mut body, SocketAddr::from(([127, 0, 0, 1], 1)));
                             body.extend_from_slice(&[0; 16]);
-                            peer.send(
-                                wire::ID_NEW_INCOMING_CONNECTION,
-                                body,
-                                Reliability::ReliableOrdered,
-                            )
-                            .unwrap();
+                            peer.send(wire::ID_NEW_INCOMING_CONNECTION, body).unwrap();
                         }
                         messages.push(message);
                     }
@@ -802,7 +800,7 @@ pub(super) mod tests {
         pub(in crate::raknet) fn send(&mut self, now: Duration, id: u8, body: Vec<u8>) {
             let Self { peer, outbox, .. } = self;
             let peer = peer.as_mut().unwrap();
-            peer.send(id, body, Reliability::ReliableOrdered).unwrap();
+            peer.send(id, body).unwrap();
             peer.flush(now, &mut |d| outbox.push(d.to_vec())).unwrap();
         }
 
@@ -870,6 +868,10 @@ pub(super) mod tests {
         sink.take(from)
     }
 
+    fn addr(last: u8, port: u16) -> SocketAddr {
+        SocketAddr::from(([10, 0, 0, last], port))
+    }
+
     #[test]
     fn ping_gets_the_pong() {
         let mut listener = listener();
@@ -885,7 +887,7 @@ pub(super) mod tests {
         listener.set_pong(Arc::from(&b"new"[..]));
         let replies = offline_reply(&mut listener, addr(1, 1), &Client::ping(1));
         assert!(replies[0].ends_with(b"\x00\x03new"));
-        listener.set_pong(Arc::from(vec![b'x'; MAX_PONG_DATA + 1]));
+        listener.set_pong(Arc::from(vec![b'x'; MAX_PONG_DATA_BYTES + 1]));
         assert!(offline_reply(&mut listener, addr(1, 1), &Client::ping(1)).is_empty());
         // A wrong magic gets nothing.
         let mut bad = Client::ping(1);
@@ -1064,9 +1066,9 @@ pub(super) mod tests {
     fn ipv6_addresses_are_written_as_go_raknet_does() {
         let mut buf = Vec::new();
         let ip = [0x2001, 0xdb8, 0, 0, 0, 0, 0, 1];
-        wire::put_address(&mut buf, SocketAddr::from((ip, 19132)));
+        wire::put_address(&mut buf, SocketAddr::from((ip, 19_132)));
         let mut expected = vec![6, 23, 0];
-        expected.extend_from_slice(&19132_u16.to_be_bytes());
+        expected.extend_from_slice(&19_132_u16.to_be_bytes());
         expected.extend_from_slice(&[0; 4]);
         expected.extend_from_slice(&std::net::Ipv6Addr::from(ip).octets());
         expected.extend_from_slice(&[0; 4]);
@@ -1215,8 +1217,8 @@ pub(super) mod tests {
         let mut sink = Recorder::new();
         let from = addr(1, 1);
         listener.receive(T, from, &Client::request_2(1492, 1 << 63), &mut sink);
-        let frame = super::super::peer::tests::header(Reliability::Unreliable);
-        let data = super::super::peer::tests::datagram(0, &[(frame, b"\xfegame")]);
+        let frame = header(Reliability::Unreliable);
+        let data = datagram(0, &[(frame, b"\xfegame")]);
         listener.receive(T, from, &data, &mut sink);
         assert!(listener.conns.is_empty());
         assert!(sink.delivered.is_empty());
@@ -1234,6 +1236,31 @@ pub(super) mod tests {
         assert_eq!(pong.id, wire::ID_CONNECTED_PONG);
         assert_eq!(pong.body[..8], 77_u64.to_be_bytes());
         assert_eq!(pong.body[8..], millis(T).to_be_bytes());
+    }
+
+    /// The server's connected ping and its pong to the client's ping go out at once, even while
+    /// reliable data waits for the congestion window: neither is dropped, and neither waits
+    /// behind the data, whose wait would count in the round trip time.
+    #[test]
+    fn connected_pings_and_pongs_pass_a_full_window() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), 1492);
+        let id = connect(&mut listener, &mut sink, &mut client, T);
+        // The client acknowledges nothing here, so the window stays full.
+        listener.send(T, client.addr, id, vec![9; 200_000], &mut sink);
+        client.send(T, wire::ID_CONNECTED_PING, 77_u64.to_be_bytes().to_vec());
+        for data in std::mem::take(&mut client.outbox) {
+            listener.receive(T, client.addr, &data, &mut sink);
+        }
+        let later = T + PING_INTERVAL;
+        listener.update(later, &mut sink);
+        for data in sink.take(client.addr) {
+            client.handle(later, &data);
+        }
+        let ids: Vec<u8> = client.messages.iter().map(|message| message.id).collect();
+        assert!(ids.contains(&wire::ID_CONNECTED_PONG));
+        assert!(ids.contains(&wire::ID_CONNECTED_PING));
     }
 
     /// A connected pong echoes the time of the server's ping: the difference is the ping the
@@ -1271,14 +1298,11 @@ pub(super) mod tests {
         let mut listener = self::listener();
         let mut sink = Recorder::new();
         listener.receive(T, from, &Client::request_2(1492, 1 << 63), &mut sink);
-        let frame = super::super::peer::tests::header(Reliability::Unreliable);
+        let frame = header(Reliability::Unreliable);
         for second in 0..10 {
             let now = T + Duration::from_secs(second);
             let seq = u32::try_from(second).unwrap();
-            let ping = super::super::peer::tests::datagram(
-                seq,
-                &[(frame, b"\x00\x00\x00\x00\x00\x00\x00\x00\x00")],
-            );
+            let ping = datagram(seq, &[(frame, b"\x00\x00\x00\x00\x00\x00\x00\x00\x00")]);
             listener.receive(now, from, &ping, &mut sink);
             listener.update(now, &mut sink);
             assert_eq!(listener.conns.len(), 1);

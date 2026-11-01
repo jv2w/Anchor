@@ -14,41 +14,57 @@ use crate::crypto::{
     verify_detached,
 };
 use crate::fs::{self, Access};
-use crate::login::{self, MAX_TOKEN_PAYLOAD, Mode, NumericDate, check_times, verify_online_token};
+use crate::login::{
+    self, MAX_TOKEN_PAYLOAD_BYTES, Mode, NumericDate, check_times, verify_online_token,
+};
 
-/// Largest key file read. A P-384 PKCS#8 document is under 200 bytes.
-const MAX_KEY_FILE: u64 = 4096;
-/// Lifetime of the server identity JWT in seconds (BDS: `exp = iat + 60`).
-const TOKEN_LIFETIME: i64 = 60;
+/// The largest key file read, in bytes. A P-384 PKCS#8 document is under 200.
+const MAX_KEY_FILE_BYTES: u64 = 4096;
 /// The identity provider domain BDS names for its own key.
 const SERVER_DOMAIN: &str = "self";
+/// The lifetime of the server identity JWT, in seconds (BDS: `exp = iat + 60`).
+const TOKEN_LIFETIME_SECONDS: i64 = 60;
 
 /// An identity failure: the key file at start, or an offer's assertion (signaling code 37).
 #[derive(Debug)]
 pub(crate) enum Error {
     /// The key file cannot be read or written.
     Io { path: PathBuf, source: io::Error },
-    /// The key file is larger than [`MAX_KEY_FILE`].
+    /// The key file is larger than [`MAX_KEY_FILE_BYTES`].
     KeyFileTooLarge { path: PathBuf },
     /// The key file is not a P-384 PKCS#8 key.
     KeyFile {
         path: PathBuf,
         source: crypto::Error,
     },
+    /// The server key cannot be made or its public key read.
+    Key(crypto::Error),
     /// Signing the named part failed.
-    Sign(&'static str, crypto::Error),
+    Sign {
+        part: &'static str,
+        source: crypto::Error,
+    },
     /// The named part of an offer's assertion is malformed or does not verify.
-    Crypto(&'static str, crypto::Error),
+    Crypto {
+        part: &'static str,
+        source: crypto::Error,
+    },
     /// The offer token breaks a login rule. [`login::Error::UnknownKeyId`] asks for one JWKS
     /// refresh, as for the Login token.
     Token(login::Error),
     /// JSON of the named part is malformed.
-    Json(&'static str, serde_json::Error),
+    Json {
+        part: &'static str,
+        source: serde_json::Error,
+    },
     /// The named part uses a signature algorithm that is not accepted there.
     Algorithm(&'static str),
     /// A fingerprint has characters outside the hash name and hex digest sets.
     Fingerprint,
 }
+
+/// An identity result.
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -62,18 +78,21 @@ impl fmt::Display for Error {
             }
             Self::KeyFileTooLarge { path } => write!(
                 f,
-                "identity key file {} is larger than {MAX_KEY_FILE} bytes",
+                "identity key file {} is larger than {MAX_KEY_FILE_BYTES} bytes; move it away \
+                 to make a new key, which every player confirms once",
                 path.display()
             ),
             Self::KeyFile { path, .. } => write!(
                 f,
-                "identity key file {} is not a P-384 PKCS#8 key",
+                "identity key file {} is not a P-384 PKCS#8 key; move it away to make a new \
+                 key, which every player confirms once",
                 path.display()
             ),
-            Self::Sign(part, _) => write!(f, "cannot sign the {part}"),
-            Self::Crypto(part, _) => write!(f, "{part} is malformed or does not verify"),
+            Self::Key(_) => f.write_str("cannot make the server key or read its public key"),
+            Self::Sign { part, .. } => write!(f, "cannot sign the {part}"),
+            Self::Crypto { part, .. } => write!(f, "{part} is malformed or does not verify"),
             Self::Token(_) => f.write_str("identity token rejected"),
-            Self::Json(part, _) => write!(f, "malformed {part} json"),
+            Self::Json { part, .. } => write!(f, "malformed {part} json"),
             Self::Algorithm(part) => write!(f, "{part} signature algorithm not accepted"),
             Self::Fingerprint => f.write_str("fingerprint is not a hash name and a hex digest"),
         }
@@ -84,18 +103,16 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::KeyFile { source, .. } | Self::Sign(_, source) | Self::Crypto(_, source) => {
-                Some(source)
-            }
+            Self::KeyFile { source, .. }
+            | Self::Key(source)
+            | Self::Sign { source, .. }
+            | Self::Crypto { source, .. } => Some(source),
             Self::Token(e) => Some(e),
-            Self::Json(_, e) => Some(e),
+            Self::Json { source, .. } => Some(source),
             _ => None,
         }
     }
 }
-
-/// An identity result.
-pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 /// The server's NetherNet identity: a P-384 key kept across restarts, so players confirm a
 /// new key only once.
@@ -107,18 +124,10 @@ pub(crate) struct ServerIdentity {
     cpk: String,
 }
 
-impl fmt::Debug for ServerIdentity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ServerIdentity")
-            .field("key", &self.key)
-            .finish_non_exhaustive()
-    }
-}
-
 impl ServerIdentity {
-    /// Reads the key from `path` (P-384 PKCS#8 DER, at most [`MAX_KEY_FILE`] bytes), or creates
-    /// one there when the file does not exist. A file that cannot be read or parsed is an error
-    /// and is left untouched. Blocking: call it on the blocking pool at start.
+    /// Reads the key from `path` (P-384 PKCS#8 DER, at most [`MAX_KEY_FILE_BYTES`] bytes), or
+    /// creates one there when the file does not exist. A file that cannot be read or parsed is
+    /// an error and is left untouched. Blocking: call it on the blocking pool at start.
     pub(crate) fn load_or_create(path: &Path) -> Result<Self> {
         let key = if let Some(der) = read_key_file(path)? {
             ServerKey::from_pkcs8(&der).map_err(|source| Error::KeyFile {
@@ -126,8 +135,8 @@ impl ServerIdentity {
                 source,
             })?
         } else {
-            let key = ServerKey::generate().map_err(|e| Error::Sign("server key", e))?;
-            let der = key.to_pkcs8().map_err(|e| Error::Sign("server key", e))?;
+            let key = ServerKey::generate().map_err(Error::Key)?;
+            let der = key.to_pkcs8().map_err(Error::Key)?;
             // On Unix only the owner may read it.
             fs::write_atomic(path, &der, Access::OwnerOnly).map_err(|source| Error::Io {
                 path: path.to_owned(),
@@ -141,21 +150,7 @@ impl ServerIdentity {
     /// An identity with a new key that no file keeps.
     #[cfg(test)]
     pub(crate) fn generate() -> Result<Self> {
-        Self::new(ServerKey::generate().map_err(|e| Error::Sign("server key", e))?)
-    }
-
-    fn new(key: ServerKey) -> Result<Self> {
-        let (x, y) = key
-            .public_key()
-            .and_then(|public| public.p384_jwk())
-            .map_err(|e| Error::Sign("server key", e))?;
-        // Base64 and base64url text needs no JSON escaping.
-        let header = format!(
-            "{{\"alg\":\"ES384\",\"x5u\":\"{}\"}}\n",
-            key.public_key_base64()
-        );
-        let cpk = format!("{{\"crv\":\"P-384\",\"kty\":\"EC\",\"x\":\"{x}\",\"y\":\"{y}\"}}");
-        Ok(Self { key, header, cpk })
+        Self::new(ServerKey::generate().map_err(Error::Key)?)
     }
 
     /// The `a=identity` value of an answer whose `a=fingerprint` digest is `answer_fingerprint`
@@ -165,20 +160,30 @@ impl ServerIdentity {
     /// end in a line feed, as BDS writes them.
     pub(crate) fn assertion(&self, answer_fingerprint: &str, now_unix: i64) -> Result<String> {
         let signed = fingerprint_payload("sha-256", answer_fingerprint)?;
-        let exp = now_unix.saturating_add(TOKEN_LIFETIME);
+        let exp = now_unix.saturating_add(TOKEN_LIFETIME_SECONDS);
         let claims = format!(
             "{{\"cpk\":{},\"exp\":{exp},\"iat\":{now_unix}}}\n",
             self.cpk
         );
-        let token = sign_jwt_bytes(&self.key, self.header.as_bytes(), claims.as_bytes())
-            .map_err(|e| Error::Sign("identity token", e))?;
-        let fingerprints = sign_detached(&self.key, signed.as_bytes())
-            .map_err(|e| Error::Sign("fingerprints", e))?;
+        let token = sign_jwt_bytes(&self.key, self.header.as_bytes(), claims.as_bytes()).map_err(
+            |source| Error::Sign {
+                part: "identity token",
+                source,
+            },
+        )?;
+        let fingerprints =
+            sign_detached(&self.key, signed.as_bytes()).map_err(|source| Error::Sign {
+                part: "fingerprints",
+                source,
+            })?;
         let assertion = serde_json::to_string(&AssertionJson {
             fingerprints: &fingerprints,
             token: &token,
         })
-        .map_err(|e| Error::Json("assertion", e))?;
+        .map_err(|source| Error::Json {
+            part: "assertion",
+            source,
+        })?;
         let json = serde_json::to_vec(&IdentityJson {
             assertion: &assertion,
             idp: IdentityProvider {
@@ -186,37 +191,91 @@ impl ServerIdentity {
                 protocol: "default",
             },
         })
-        .map_err(|e| Error::Json("identity", e))?;
+        .map_err(|source| Error::Json {
+            part: "identity",
+            source,
+        })?;
         Ok(STD.encode(&json))
+    }
+
+    fn new(key: ServerKey) -> Result<Self> {
+        let (x, y) = key
+            .public_key()
+            .and_then(|public| public.p384_jwk())
+            .map_err(Error::Key)?;
+        // Base64 and base64url text needs no JSON escaping.
+        let header = format!(
+            "{{\"alg\":\"ES384\",\"x5u\":\"{}\"}}\n",
+            key.public_key_base64()
+        );
+        let cpk = format!("{{\"crv\":\"P-384\",\"kty\":\"EC\",\"x\":\"{x}\",\"y\":\"{y}\"}}");
+        Ok(Self { key, header, cpk })
     }
 }
 
+impl fmt::Debug for ServerIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerIdentity")
+            .field("key", &self.key)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The `a=identity` JSON an answer carries.
 #[derive(Serialize)]
 struct IdentityJson<'a> {
     assertion: &'a str,
     idp: IdentityProvider<'a>,
 }
 
+/// The identity provider of an `a=identity` value.
 #[derive(Serialize)]
 struct IdentityProvider<'a> {
     domain: &'a str,
     protocol: &'a str,
 }
 
+/// The assertion inside an `a=identity` value.
 #[derive(Serialize)]
 struct AssertionJson<'a> {
     fingerprints: &'a str,
     token: &'a str,
 }
 
+/// Claims read from an unverified offer token.
+#[derive(Deserialize)]
+struct OfferClaims {
+    cpk: Cpk,
+    exp: Option<NumericDate>,
+    nbf: Option<NumericDate>,
+    iat: Option<NumericDate>,
+}
+
+/// The `cpk` claim of an offer token.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Cpk {
+    Spki(String),
+    Jwk(Jwk),
+}
+
+/// A `cpk` given as a JWK object.
+#[derive(Deserialize)]
+struct Jwk {
+    kty: String,
+    crv: String,
+    x: String,
+    y: String,
+}
+
 /// Verifies an offer's identity assertion against the offer's fingerprint and returns the key it
 /// proves (the `cpk` claim), which the Login must use.
 ///
-/// The token follows `mode`: online, every Login `Token` rule; offline, no signature, but the
-/// algorithm must be RS256 or ES384 and `exp`, `nbf` and `iat` hold when present. `cpk` is base64
-/// SPKI or a P-384 JWK object (BDS writes a JWK, go-nethernet base64). The fingerprint signature
-/// is a detached ES384 JWS by `cpk`. Rejecting an online offer that has no assertion is the
-/// caller's job.
+/// The token follows `mode`: online, every Login `Token` rule, so `cpk` is base64 SPKI; offline,
+/// no signature, but the algorithm must be RS256 or ES384 and `exp`, `nbf` and `iat` hold when
+/// present, and `cpk` is base64 SPKI or a P-384 JWK object (BDS writes a JWK, go-nethernet
+/// base64). The fingerprint signature is a detached ES384 JWS by `cpk`. Rejecting an online
+/// offer that has no assertion is the caller's job.
 pub(crate) fn verify_offer(
     assertion: &sdp::Assertion,
     fingerprint: &sdp::Fingerprint,
@@ -232,44 +291,30 @@ pub(crate) fn verify_offer(
         Mode::Offline => unverified_token_key(&assertion.token, now_unix)?,
     };
     let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest)?;
-    verify_detached(&assertion.fingerprints, signed.as_bytes(), &key)
-        .map_err(|e| Error::Crypto("fingerprints", e))?;
+    verify_detached(&assertion.fingerprints, signed.as_bytes(), &key).map_err(|source| {
+        Error::Crypto {
+            part: "fingerprints",
+            source,
+        }
+    })?;
     Ok(key)
-}
-
-/// Claims read from an unverified offer token.
-#[derive(Deserialize)]
-struct OfferClaims {
-    cpk: Cpk,
-    exp: Option<NumericDate>,
-    nbf: Option<NumericDate>,
-    iat: Option<NumericDate>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Cpk {
-    Spki(String),
-    Jwk(Jwk),
-}
-
-#[derive(Deserialize)]
-struct Jwk {
-    kty: String,
-    crv: String,
-    x: String,
-    y: String,
 }
 
 /// The `cpk` of an offline offer token, read without verifying the token (go-nethernet
 /// `claimPublicKey` with `selfSigned` false).
 fn unverified_token_key(token: &str, now: i64) -> Result<PublicKey> {
-    let jws = parse_jws(token, MAX_TOKEN_PAYLOAD).map_err(|e| Error::Crypto("token", e))?;
+    let jws = parse_jws(token, MAX_TOKEN_PAYLOAD_BYTES).map_err(|source| Error::Crypto {
+        part: "token",
+        source,
+    })?;
     if !matches!(jws.header.alg, Algorithm::Es384 | Algorithm::Rs256) {
         return Err(Error::Algorithm("token"));
     }
     let claims: OfferClaims =
-        serde_json::from_slice(&jws.payload).map_err(|e| Error::Json("token", e))?;
+        serde_json::from_slice(&jws.payload).map_err(|source| Error::Json {
+            part: "token",
+            source,
+        })?;
     check_times(claims.exp, claims.nbf, claims.iat, now).map_err(Error::Token)?;
     match &claims.cpk {
         Cpk::Spki(text) => PublicKey::from_base64_spki(text),
@@ -278,7 +323,10 @@ fn unverified_token_key(token: &str, now: i64) -> Result<PublicKey> {
         }
         Cpk::Jwk(_) => Err(crypto::Error::Key),
     }
-    .map_err(|e| Error::Crypto("cpk", e))
+    .map_err(|source| Error::Crypto {
+        part: "cpk",
+        source,
+    })
 }
 
 /// The JSON a fingerprint signature covers (go-nethernet `generateFingerprints`, one
@@ -298,9 +346,9 @@ fn fingerprint_payload(algorithm: &str, digest: &str) -> Result<String> {
     ))
 }
 
-/// Reads at most [`MAX_KEY_FILE`] bytes of the key file; `None` when it does not exist.
+/// Reads at most [`MAX_KEY_FILE_BYTES`] bytes of the key file; `None` when it does not exist.
 fn read_key_file(path: &Path) -> Result<Option<Vec<u8>>> {
-    match fs::read_bounded(path, MAX_KEY_FILE) {
+    match fs::read_bounded(path, MAX_KEY_FILE_BYTES) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) if e.kind() == io::ErrorKind::FileTooLarge => Err(Error::KeyFileTooLarge {
@@ -315,14 +363,18 @@ fn read_key_file(path: &Path) -> Result<Option<Vec<u8>>> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use std::sync::OnceLock;
+
     use serde_json::{Value, json};
 
-    use super::*;
     use crate::auth::testing::Issuer;
     use crate::crypto::{RAW_URL, Verifier, verify_jws};
     use crate::nethernet::sdp::tests::{OFFER, identity_line};
     use crate::nethernet::sdp::{Answer, fingerprint_text, parse_offer, write_answer};
     use crate::protocol::{self, fuzz};
+    use crate::save::tests::TempDir;
 
     /// Inside both captured tokens' lifetimes: BDS iat 1790993459, exp 1790993519; go-nethernet
     /// exp 1790997059.
@@ -332,38 +384,19 @@ mod tests {
     /// The `a=fingerprint` digest of the same answer.
     const BDS_FINGERPRINT: &str = "7D:C0:D8:7A:F6:1F:11:CF:20:96:15:45:82:89:DC:2E:E9:12:99:44:CD:60:C7:25:D5:7C:85:7E:19:AE:41:D9";
 
-    /// A per-test directory under the system temp directory, removed on drop.
-    struct TempDir(PathBuf);
-
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("anchor-identity-{name}-{}", std::process::id()));
-            std::fs::remove_dir_all(&dir).unwrap_or(());
-            // The server makes the data folder before it loads the key.
-            std::fs::create_dir_all(dir.join("data")).unwrap();
-            Self(dir)
-        }
-
-        fn write(&self, bytes: &[u8]) {
-            std::fs::write(self.key(), bytes).unwrap();
-        }
-
-        fn read(&self) -> Vec<u8> {
-            std::fs::read(self.key()).unwrap()
-        }
-
-        fn key(&self) -> PathBuf {
-            self.0.join("data").join("identity.key")
-        }
+    /// The key file in the folder `dir`.
+    fn key_file(dir: &TempDir) -> PathBuf {
+        dir.0.join("identity.key")
     }
 
-    impl Drop for TempDir {
-        #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap_or(());
-        }
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn write_key_file(dir: &TempDir, bytes: &[u8]) {
+        std::fs::write(key_file(dir), bytes).unwrap();
+    }
+
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn stored_key_bytes(dir: &TempDir) -> Vec<u8> {
+        std::fs::read(key_file(dir)).unwrap()
     }
 
     fn public(identity: &ServerIdentity) -> &str {
@@ -372,13 +405,13 @@ mod tests {
 
     #[test]
     fn key_files_are_created_reused_and_left_alone_when_broken() {
-        let dir = TempDir::new("files");
-        let created = ServerIdentity::load_or_create(&dir.key()).unwrap();
-        let bytes = dir.read();
+        let dir = TempDir::new("identity-files");
+        let created = ServerIdentity::load_or_create(&key_file(&dir)).unwrap();
+        let bytes = stored_key_bytes(&dir);
         assert!(bytes.len() < 200, "{}", bytes.len());
-        let reused = ServerIdentity::load_or_create(&dir.key()).unwrap();
+        let reused = ServerIdentity::load_or_create(&key_file(&dir)).unwrap();
         assert_eq!(public(&created), public(&reused));
-        assert_eq!(dir.read(), bytes);
+        assert_eq!(stored_key_bytes(&dir), bytes);
 
         let truncated = bytes[..bytes.len() - 1].to_vec();
         for broken in [
@@ -387,24 +420,22 @@ mod tests {
             truncated,
             vec![0x30; 4097],
         ] {
-            dir.write(&broken);
-            let err = ServerIdentity::load_or_create(&dir.key()).unwrap_err();
+            write_key_file(&dir, &broken);
+            let err = ServerIdentity::load_or_create(&key_file(&dir)).unwrap_err();
             assert!(
                 matches!(err, Error::KeyFile { .. } | Error::KeyFileTooLarge { .. }),
                 "{err:?}"
             );
-            assert_eq!(dir.read(), broken);
+            assert_eq!(stored_key_bytes(&dir), broken);
         }
         // Exactly the cap is read (and rejected as a key, not for its size).
-        dir.write(&[0x30; 4096]);
+        write_key_file(&dir, &[0x30; 4096]);
         assert!(matches!(
-            ServerIdentity::load_or_create(&dir.key()),
+            ServerIdentity::load_or_create(&key_file(&dir)),
             Err(Error::KeyFile { .. })
         ));
         // A folder in place of the file cannot be read.
-        let folder = TempDir::new("folder");
-        folder.write(b"x");
-        let err = ServerIdentity::load_or_create(&folder.0.join("data")).unwrap_err();
+        let err = ServerIdentity::load_or_create(&dir.0).unwrap_err();
         assert!(matches!(err, Error::Io { .. }), "{err:?}");
     }
 
@@ -495,8 +526,8 @@ mod tests {
 
     #[test]
     fn answer_assertions_have_the_bds_layout_and_verify() {
-        let dir = TempDir::new("layout");
-        let identity = ServerIdentity::load_or_create(&dir.key()).unwrap();
+        let dir = TempDir::new("identity-layout");
+        let identity = ServerIdentity::load_or_create(&key_file(&dir)).unwrap();
         let fingerprint = fingerprint_text(&[0xab; 32]);
         let value = identity.assertion(&fingerprint, NOW).unwrap();
         let (json, fingerprints, token) = decode(&value);
@@ -595,8 +626,9 @@ mod tests {
         );
     }
 
+    static PLAYER: OnceLock<ServerKey> = OnceLock::new();
+
     fn player() -> &'static ServerKey {
-        static PLAYER: std::sync::OnceLock<ServerKey> = std::sync::OnceLock::new();
         PLAYER.get_or_init(|| ServerKey::generate().unwrap())
     }
 
@@ -684,34 +716,78 @@ mod tests {
         };
         let cases: Vec<(&str, sdp::Assertion, &sdp::Fingerprint, Check)> = vec![
             ("bad fingerprint signature", bad_signature, &fp, |e| {
-                matches!(e, Error::Crypto("fingerprints", crypto::Error::Signature))
+                matches!(
+                    e,
+                    Error::Crypto {
+                        part: "fingerprints",
+                        source: crypto::Error::Signature
+                    }
+                )
             }),
             (
                 "signed by another key",
                 assertion(issuer.token(&online_claims()), &other, &fp),
                 &fp,
-                |e| matches!(e, Error::Crypto("fingerprints", _)),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "fingerprints",
+                            ..
+                        }
+                    )
+                },
             ),
             ("digest mismatch", good.clone(), &other_fp, |e| {
-                matches!(e, Error::Crypto("fingerprints", _))
+                matches!(
+                    e,
+                    Error::Crypto {
+                        part: "fingerprints",
+                        ..
+                    }
+                )
             }),
             (
                 "detached alg none",
                 with_fingerprints(detached_with_header(r#"{"alg":"none"}"#, player(), &fp)),
                 &fp,
-                |e| matches!(e, Error::Crypto("fingerprints", crypto::Error::Jws(_))),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "fingerprints",
+                            source: crypto::Error::Signature
+                        }
+                    )
+                },
             ),
             (
                 "detached alg HS256",
                 with_fingerprints(detached_with_header(r#"{"alg":"HS256"}"#, player(), &fp)),
                 &fp,
-                |e| matches!(e, Error::Crypto("fingerprints", crypto::Error::Jws(_))),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "fingerprints",
+                            source: crypto::Error::Signature
+                        }
+                    )
+                },
             ),
             (
                 "detached alg RS256",
                 with_fingerprints(detached_with_header(r#"{"alg":"RS256"}"#, player(), &fp)),
                 &fp,
-                |e| matches!(e, Error::Crypto("fingerprints", crypto::Error::Jws(_))),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "fingerprints",
+                            source: crypto::Error::Signature
+                        }
+                    )
+                },
             ),
             (
                 "attached payload",
@@ -726,7 +802,15 @@ mod tests {
                     .unwrap(),
                 ),
                 &fp,
-                |e| matches!(e, Error::Crypto("fingerprints", crypto::Error::Jws(_))),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "fingerprints",
+                            source: crypto::Error::Jws(_)
+                        }
+                    )
+                },
             ),
             (
                 "expired token",
@@ -762,7 +846,15 @@ mod tests {
                     &fp,
                 ),
                 &fp,
-                |e| matches!(e, Error::Token(login::Error::Crypto("client key", _))),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Token(login::Error::Crypto {
+                            part: "client key",
+                            ..
+                        })
+                    )
+                },
             ),
         ];
         for (name, assertion, fingerprint, expected) in cases {
@@ -822,41 +914,65 @@ mod tests {
                 |e| matches!(e, Error::Token(login::Error::NotYetValid)),
             ),
             ("no cpk", offline_token(&json!({"exp": NOW + 60})), |e| {
-                matches!(e, Error::Json("token", _))
+                matches!(e, Error::Json { part: "token", .. })
             }),
             (
                 "cpk not base64",
                 offline_token(&claims(json!("AAAA"))),
-                |e| matches!(e, Error::Crypto("cpk", _)),
+                |e| matches!(e, Error::Crypto { part: "cpk", .. }),
             ),
             ("cpk number", offline_token(&claims(json!(5))), |e| {
-                matches!(e, Error::Json("token", _))
+                matches!(e, Error::Json { part: "token", .. })
             }),
             (
                 "jwk kty RSA",
                 offline_token(&claims(
                     json!({"kty": "RSA", "crv": "P-384", "x": x, "y": y}),
                 )),
-                |e| matches!(e, Error::Crypto("cpk", crypto::Error::Key)),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "cpk",
+                            source: crypto::Error::Key
+                        }
+                    )
+                },
             ),
             (
                 "jwk crv P-256",
                 offline_token(&claims(
                     json!({"kty": "EC", "crv": "P-256", "x": x, "y": y}),
                 )),
-                |e| matches!(e, Error::Crypto("cpk", crypto::Error::Key)),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "cpk",
+                            source: crypto::Error::Key
+                        }
+                    )
+                },
             ),
             (
                 "jwk short x",
                 offline_token(&claims(
                     json!({"kty": "EC", "crv": "P-384", "x": short, "y": y}),
                 )),
-                |e| matches!(e, Error::Crypto("cpk", crypto::Error::Key)),
+                |e| {
+                    matches!(
+                        e,
+                        Error::Crypto {
+                            part: "cpk",
+                            source: crypto::Error::Key
+                        }
+                    )
+                },
             ),
             (
                 "jwk without y",
                 offline_token(&claims(json!({"kty": "EC", "crv": "P-384", "x": x}))),
-                |e| matches!(e, Error::Json("token", _)),
+                |e| matches!(e, Error::Json { part: "token", .. }),
             ),
             (
                 "token alg none",
@@ -869,7 +985,7 @@ mod tests {
                 |e| matches!(e, Error::Algorithm("token")),
             ),
             ("token not a jws", "a.b".to_owned(), |e| {
-                matches!(e, Error::Crypto("token", _))
+                matches!(e, Error::Crypto { part: "token", .. })
             }),
         ];
         for (name, token, expected) in cases {
@@ -882,7 +998,10 @@ mod tests {
         let offer = assertion(offline_token(&good_claims), &other, &fp);
         assert!(matches!(
             verify_offer(&offer, &fp, Mode::Offline, NOW),
-            Err(Error::Crypto("fingerprints", _))
+            Err(Error::Crypto {
+                part: "fingerprints",
+                ..
+            })
         ));
     }
 

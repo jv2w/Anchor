@@ -190,7 +190,7 @@ impl fmt::Debug for Pack {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The content key is a secret: only whether there is one.
         f.debug_struct("Pack")
-            .field("uuid", &uuid_text(self.uuid()))
+            .field("uuid", &self.uuid())
             .field("name", &self.name())
             .field("version", &self.version())
             .field("size", &self.size())
@@ -274,7 +274,7 @@ impl Offer {
         }
         let ids = packs
             .iter()
-            .map(|p| format!("{}_{}", uuid_text(p.uuid()), p.version()))
+            .map(|p| format!("{}_{}", p.uuid(), p.version()))
             .collect();
         // BDS's values for an empty offer (P6); the packs as gophertunnel lists them.
         let info = ResourcePacksInfo {
@@ -289,7 +289,7 @@ impl Offer {
                     content_key: p.content_key().unwrap_or_default().to_owned(),
                     content_identity: p
                         .content_key()
-                        .map(|_| uuid_text(p.uuid()))
+                        .map(|_| p.uuid().to_string())
                         .unwrap_or_default(),
                     ..TexturePackInfo::default()
                 })
@@ -301,7 +301,7 @@ impl Offer {
             texture_packs: packs
                 .iter()
                 .map(|p| StackResourcePack {
-                    uuid: uuid_text(p.uuid()),
+                    uuid: p.uuid().to_string(),
                     version: p.version().to_owned(),
                     sub_pack_name: String::new(),
                 })
@@ -344,7 +344,7 @@ impl Offer {
             Some((uuid, version)) => (uuid, Some(version)),
             None => (name, None),
         };
-        let index = *self.index.get(&crate::login::parse_uuid(uuid)?)?;
+        let index = *self.index.get(&uuid.parse().ok()?)?;
         let pack = self.packs.get(index)?;
         match version {
             Some(v) if !v.is_empty() && v != pack.version() => None,
@@ -361,20 +361,6 @@ impl fmt::Debug for Offer {
             .field("required", &self.info.texture_pack_required)
             .finish_non_exhaustive()
     }
-}
-
-/// The lowercase hyphenated text of `uuid`, as packs and the client write it.
-fn uuid_text(uuid: Uuid) -> String {
-    let mut out = String::with_capacity(36);
-    for (i, byte) in uuid.as_bytes().iter().enumerate() {
-        if matches!(i, 4 | 6 | 8 | 10) {
-            out.push('-');
-        }
-        for nibble in [byte >> 4, byte & 0xf] {
-            out.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
-        }
-    }
-    out
 }
 
 /// A pack that cannot be offered.
@@ -452,7 +438,7 @@ impl fmt::Display for Error {
                 write!(f, "the resource packs total more than {limit} bytes")
             }
             Self::Duplicate(uuid) => {
-                write!(f, "two resource packs have the uuid {}", uuid_text(*uuid))
+                write!(f, "two resource packs have the uuid {uuid}")
             }
             Self::File { path, .. } => write!(f, "resource pack {}", path.display()),
         }
@@ -543,7 +529,7 @@ pub(crate) mod tests {
     fn a_pack_reads_its_manifest_and_hashes_its_bytes() {
         let bytes = pack_bytes(UUID, "1.2.3", 100);
         let pack = Pack::from_bytes(bytes.clone()).unwrap();
-        assert_eq!(uuid_text(pack.uuid()), UUID);
+        assert_eq!(pack.uuid().to_string(), UUID);
         assert_eq!(pack.name(), "Test");
         assert_eq!(pack.version(), "1.2.3");
         assert_eq!(pack.size(), u64::try_from(bytes.len()).unwrap());
@@ -644,7 +630,7 @@ pub(crate) mod tests {
         let file = dir.join("b.zip");
         write(&file, &pack_bytes(other, "2.0.0", 1));
         let offer = Offer::load(std::slice::from_ref(&file), builder.packs, false).unwrap();
-        let order: Vec<String> = offer.packs().iter().map(|p| uuid_text(p.uuid())).collect();
+        let order: Vec<String> = offer.packs().iter().map(|p| p.uuid().to_string()).collect();
         assert_eq!(order, [other, UUID]);
 
         let missing = dir.join("missing.mcpack");
@@ -678,11 +664,5 @@ pub(crate) mod tests {
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::Skins));
         p.manifest.world_template = true;
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::WorldTemplate));
-    }
-
-    #[test]
-    fn uuid_text_is_lowercase_and_hyphenated() {
-        let uuid = crate::login::parse_uuid("0AD9E0C3-2C63-4A43-9F5C-4C1D6C2E7A10").unwrap();
-        assert_eq!(uuid_text(uuid), UUID);
     }
 }

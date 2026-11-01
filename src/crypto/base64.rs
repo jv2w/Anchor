@@ -1,20 +1,8 @@
-//! Base64 (RFC 4648): the standard alphabet with and without padding, and the URL-safe alphabet
-//! without padding. Decoding is strict: no whitespace, no misplaced padding, zero trailing bits.
+//! Base64 (RFC 4648): the standard alphabet with or without padding, and the URL-safe one without.
+//! Decoding is strict: no whitespace, no misplaced padding, zero trailing bits.
 
 use super::{Error, Result};
 
-/// One base64 variant: an alphabet and whether the text ends in `=` padding.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Base64 {
-    url: bool,
-    pad: bool,
-}
-
-/// Standard alphabet with padding (Go `base64.StdEncoding`): keys and client data.
-pub(crate) const STD: Base64 = Base64 {
-    url: false,
-    pad: true,
-};
 /// Standard alphabet without padding (Go `base64.RawStdEncoding`): the handshake salt.
 pub(crate) const RAW_STD: Base64 = Base64 {
     url: false,
@@ -25,8 +13,61 @@ pub(crate) const RAW_URL: Base64 = Base64 {
     url: true,
     pad: false,
 };
+/// Standard alphabet with padding (Go `base64.StdEncoding`): keys and client data.
+pub(crate) const STD: Base64 = Base64 {
+    url: false,
+    pad: true,
+};
+
+/// One base64 variant: an alphabet and whether the text ends in `=` padding.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Base64 {
+    url: bool,
+    pad: bool,
+}
 
 impl Base64 {
+    /// The decoded length of `text`, checking it without allocating.
+    pub(crate) fn decoded_len(self, text: &str) -> Result<usize> {
+        let symbols = self.symbols(text.as_bytes())?;
+        self.walk(symbols, |_| {})?;
+        Ok(output_len(symbols))
+    }
+
+    /// Appends the encoding of `data` to `out`.
+    pub(crate) fn encode_into(self, data: &[u8], out: &mut String) {
+        out.reserve(data.len().div_ceil(3).saturating_mul(4));
+        let (groups, rest) = data.as_chunks::<3>();
+        for &group in groups {
+            self.push_group(group, 4, out);
+        }
+        match *rest {
+            [a] => self.push_group([a, 0, 0], 2, out),
+            [a, b] => self.push_group([a, b, 0], 3, out),
+            _ => {}
+        }
+    }
+
+    /// The encoding of `data`.
+    pub(crate) fn encode(self, data: &[u8]) -> String {
+        let mut out = String::new();
+        self.encode_into(data, &mut out);
+        out
+    }
+
+    /// The bytes `text` decodes to, in a buffer of exactly their length.
+    /// Output past `max` is an error, found before anything is allocated.
+    pub(crate) fn decode(self, text: &str, max: usize) -> Result<Vec<u8>> {
+        let symbols = self.symbols(text.as_bytes())?;
+        let len = output_len(symbols);
+        if len > max {
+            return Err(Error::TooLarge);
+        }
+        let mut out = Vec::with_capacity(len);
+        self.walk(symbols, |b| out.push(b))?;
+        Ok(out)
+    }
+
     const fn symbol(self, value: u8) -> u8 {
         match value {
             0..=25 => b'A' + value,
@@ -52,21 +93,27 @@ impl Base64 {
         }
     }
 
-    /// Appends the encoding of `data` to `out`.
-    pub(crate) fn encode_into(self, data: &[u8], out: &mut String) {
-        out.reserve(data.len().div_ceil(3).saturating_mul(4));
-        let (groups, rest) = data.as_chunks::<3>();
-        for &group in groups {
-            self.push_group(out, group, 4);
+    /// The symbols of `text` without its padding.
+    /// A length no encoding has is an error; a misplaced `=` is left in and fails as a symbol.
+    fn symbols(self, text: &[u8]) -> Result<&[u8]> {
+        let symbols = if self.pad {
+            if !text.len().is_multiple_of(4) {
+                return Err(Error::Base64);
+            }
+            match text {
+                [symbols @ .., b'=', b'='] | [symbols @ .., b'='] => symbols,
+                _ => text,
+            }
+        } else {
+            text
+        };
+        if symbols.len() % 4 == 1 {
+            return Err(Error::Base64);
         }
-        match *rest {
-            [a] => self.push_group(out, [a, 0, 0], 2),
-            [a, b] => self.push_group(out, [a, b, 0], 3),
-            _ => {}
-        }
+        Ok(symbols)
     }
 
-    fn push_group(self, out: &mut String, [a, b, c]: [u8; 3], symbols: u32) {
+    fn push_group(self, [a, b, c]: [u8; 3], symbols: u32, out: &mut String) {
         let group = u32::from_be_bytes([0, a, b, c]);
         for i in 0..4 {
             if i < symbols {
@@ -78,54 +125,10 @@ impl Base64 {
         }
     }
 
-    /// The encoding of `data`.
-    pub(crate) fn encode(self, data: &[u8]) -> String {
-        let mut out = String::new();
-        self.encode_into(data, &mut out);
-        out
-    }
-
-    /// Checks `text` and returns its decoded length without allocating.
-    pub(crate) fn decoded_len(self, text: &str) -> Result<usize> {
-        self.walk(text.as_bytes(), |_| {})
-    }
-
-    /// Decodes `text`, allocating at most `max` bytes; longer output is an error.
-    pub(crate) fn decode(self, text: &str, max: usize) -> Result<Vec<u8>> {
-        // The output is at least `len / 4 * 3 - 2` bytes (two padding symbols) and at most
-        // `len / 4 * 3 + 2` bytes (three symbols after the last full group).
-        let groups = text.len() / 4 * 3;
-        if groups > max.saturating_add(2) {
-            return Err(Error::TooLarge);
-        }
-        let mut out = Vec::with_capacity(groups.saturating_add(2).min(max));
-        self.walk(text.as_bytes(), |b| out.push(b))?;
-        if out.len() > max {
-            return Err(Error::TooLarge);
-        }
-        Ok(out)
-    }
-
-    /// Validates `input` and passes each decoded byte to `out`. Returns the decoded length.
-    fn walk(self, input: &[u8], mut out: impl FnMut(u8)) -> Result<usize> {
-        let body = if self.pad {
-            if !input.len().is_multiple_of(4) {
-                return Err(Error::Base64);
-            }
-            let pads = input.iter().rev().take_while(|&&b| b == b'=').count();
-            if pads > 2 {
-                return Err(Error::Base64);
-            }
-            input.get(..input.len() - pads).ok_or(Error::Base64)?
-        } else {
-            input
-        };
-        if body.len() % 4 == 1 {
-            return Err(Error::Base64);
-        }
-        let mut written = 0usize;
-        for chunk in body.chunks(4) {
-            let mut group = 0u32;
+    /// Validates `symbols` and passes each decoded byte to `out`.
+    fn walk(self, symbols: &[u8], mut out: impl FnMut(u8)) -> Result<()> {
+        for chunk in symbols.chunks(4) {
+            let mut group = 0_u32;
             for &symbol in chunk {
                 let value = self.value(symbol).ok_or(Error::Base64)?;
                 group = group << 6 | u32::from(value);
@@ -136,24 +139,27 @@ impl Base64 {
                     out(a);
                     out(b);
                     out(c);
-                    written += 3;
                 }
                 3 if group.trailing_zeros() >= 2 => {
                     let [_, _, a, b] = (group >> 2).to_be_bytes();
                     out(a);
                     out(b);
-                    written += 2;
                 }
                 2 if group.trailing_zeros() >= 4 => {
                     let [.., a] = (group >> 4).to_be_bytes();
                     out(a);
-                    written += 1;
                 }
                 _ => return Err(Error::Base64),
             }
         }
-        Ok(written)
+        Ok(())
     }
+}
+
+/// The bytes `symbols` decode to.
+/// That is three per four symbols, and one fewer than the symbols of a short last group.
+fn output_len(symbols: &[u8]) -> usize {
+    symbols.len() / 4 * 3 + (symbols.len() % 4).saturating_sub(1)
 }
 
 #[cfg(test)]
@@ -203,6 +209,13 @@ mod tests {
         assert_eq!(STD.decode("Zm9vYmFy", 6).unwrap(), b"foobar");
         let huge = "A".repeat(4000);
         assert!(matches!(RAW_URL.decode(&huge, 100), Err(Error::TooLarge)));
+    }
+
+    #[test]
+    fn decoding_allocates_the_output_and_not_the_limit() {
+        assert_eq!(STD.decode("Zm9vYmFy", 100).unwrap().capacity(), 6);
+        assert_eq!(STD.decode("Zm9vYg==", 100).unwrap().capacity(), 4);
+        assert_eq!(RAW_URL.decode("Zm9vYg", 100).unwrap().capacity(), 4);
     }
 
     #[test]

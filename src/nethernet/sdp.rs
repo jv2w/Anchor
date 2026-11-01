@@ -9,42 +9,43 @@ use std::str::FromStr;
 use serde::Deserialize;
 
 use crate::crypto::{STD, crc32, max_jws_text};
-use crate::login::MAX_TOKEN_PAYLOAD;
+use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 
-/// Largest offer body. A real offer is about 2 KiB, most of it the identity token.
-pub(crate) const MAX_OFFER: usize = 64 * 1024;
-/// Most non-empty lines in an offer. A real offer has about 20.
-const MAX_LINES: usize = 1024;
-/// Most usable candidates. A client offers one per interface and address family.
-const MAX_CANDIDATES: usize = 32;
-/// `ice-ufrag` length in characters (RFC 8839 5.4).
-const ICE_UFRAG_LEN: RangeInclusive<usize> = 4..=256;
-/// `ice-pwd` length in characters (RFC 8839 5.4).
-const ICE_PWD_LEN: RangeInclusive<usize> = 22..=256;
-/// Smallest `max-message-size` accepted.
-const MIN_MESSAGE_SIZE: u32 = 1024;
-/// The only SCTP port accepted: the RFC 8841 default, which go-nethernet and BDS write.
-const SCTP_PORT: &str = "5000";
-/// Largest decoded `a=identity` JSON.
-const MAX_IDENTITY_JSON: usize = 32 * 1024;
-/// Longest identity token text: the longest the Login token check accepts.
-const MAX_TOKEN_TEXT: usize = max_jws_text(MAX_TOKEN_PAYLOAD);
-/// Longest detached fingerprint JWS text. An ES384 one is 150 characters.
-const MAX_FINGERPRINTS_TEXT: usize = 1024;
-/// Longest identity provider domain in bytes.
-const MAX_DOMAIN: usize = 256;
-/// Bytes in a SHA-256 fingerprint.
-const FINGERPRINT_LEN: usize = 32;
-/// Priority of the answer's host candidate, as BDS writes it.
+/// The bytes in a SHA-256 fingerprint.
+const FINGERPRINT_BYTES: usize = 32;
+/// The priority of the answer's host candidate, as BDS writes it.
 const HOST_PRIORITY: u32 = 2_122_260_223;
+/// The length of `ice-pwd` in characters (RFC 8839 5.4).
+const ICE_PWD_LEN: RangeInclusive<usize> = 22..=256;
+/// The length of `ice-ufrag` in characters (RFC 8839 5.4).
+const ICE_UFRAG_LEN: RangeInclusive<usize> = 4..=256;
+/// The most usable candidates. A client offers one per interface and address family.
+const MAX_CANDIDATES: usize = 32;
+/// The longest identity provider domain, in bytes.
+const MAX_DOMAIN_BYTES: usize = 256;
+/// The longest detached fingerprint JWS text, in bytes. An ES384 one is 150.
+const MAX_FINGERPRINTS_BYTES: usize = 1024;
+/// The largest decoded `a=identity` JSON, in bytes.
+const MAX_IDENTITY_JSON_BYTES: usize = 32 * 1024;
+/// The most non-empty lines in an offer. A real offer has about 20.
+const MAX_LINES: usize = 1024;
 /// The `a=max-message-size` Anchor answers with, as BDS: one 262,143-byte fragment and its
 /// 1-byte header.
-pub(crate) const MAX_MESSAGE_SIZE: u32 = 262_144;
+pub(crate) const MAX_MESSAGE_BYTES: u32 = 262_144;
+/// The largest offer body, in bytes. A real offer is about 2 KiB, most of it the identity token.
+pub(crate) const MAX_OFFER_BYTES: usize = 64 * 1024;
+/// The longest identity token text, in bytes: the longest the Login token check accepts.
+const MAX_TOKEN_BYTES: usize = max_jws_text(MAX_TOKEN_PAYLOAD_BYTES);
+/// The smallest `max-message-size` accepted, in bytes.
+const MIN_MESSAGE_BYTES: u32 = 1024;
+/// The only SCTP port accepted: the RFC 8841 default, which go-nethernet and BDS write.
+const SCTP_PORT: &str = "5000";
 
-/// Why an offer was rejected. The signaling layer answers every one with code 13.
+/// Why an offer was rejected. The offer task answers every one with code 13, the shape of the
+/// `a=identity` value included (go-nethernet parses it with the rest of the offer).
 #[derive(Debug)]
 pub(crate) enum Error {
-    /// The body is longer than [`MAX_OFFER`].
+    /// The body is longer than [`MAX_OFFER_BYTES`].
     TooLarge,
     /// The body has more than [`MAX_LINES`] lines.
     TooManyLines,
@@ -93,7 +94,7 @@ impl std::error::Error for Error {
 }
 
 /// An SDP result.
-pub(crate) type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A client offer: what the server needs to answer and connect.
 #[derive(Debug)]
@@ -120,7 +121,7 @@ pub(crate) struct Fingerprint {
     /// The hex digest as written (any case). The identity signature covers it.
     pub(crate) digest: String,
     /// The digest bytes.
-    pub(crate) bytes: [u8; FINGERPRINT_LEN],
+    pub(crate) bytes: [u8; FINGERPRINT_BYTES],
 }
 
 /// The `a=identity` assertion (go-nethernet `identityData`), shape-checked but not verified.
@@ -130,6 +131,23 @@ pub(crate) struct Assertion {
     pub(crate) token: String,
     /// A detached JWS (`header..signature`) over the fingerprint JSON.
     pub(crate) fingerprints: String,
+}
+
+/// Anchor's answer. [`write_answer`] lays it out as BDS 1.26.52 does.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Answer<'a> {
+    /// The `o=` session ID, random per answer as BDS draws it.
+    pub(crate) session_id: u64,
+    /// The `a=identity` value: base64 of the server assertion.
+    pub(crate) identity: &'a str,
+    /// The advertised host candidate. An IPv4-mapped IPv6 address is written as IPv4.
+    pub(crate) addr: SocketAddr,
+    /// The server's ICE username fragment.
+    pub(crate) ice_ufrag: &'a str,
+    /// The server's ICE password.
+    pub(crate) ice_pwd: &'a str,
+    /// The server's DTLS fingerprint as [`fingerprint_text`] writes it.
+    pub(crate) fingerprint: &'a str,
 }
 
 /// Attributes collected while reading an offer.
@@ -145,16 +163,38 @@ struct Attributes<'a> {
     identity: Option<Assertion>,
 }
 
+/// The JSON of an `a=identity` value.
+#[derive(Deserialize)]
+struct IdentityJson {
+    /// JSON text of [`AssertionJson`].
+    assertion: String,
+    idp: IdentityProvider,
+}
+
+/// The identity provider of an `a=identity` value.
+#[derive(Deserialize)]
+struct IdentityProvider {
+    domain: String,
+    protocol: String,
+}
+
+/// The assertion inside an `a=identity` value.
+#[derive(Deserialize)]
+struct AssertionJson {
+    fingerprints: String,
+    token: String,
+}
+
 /// Parses a client offer. Lines end in CRLF or LF; empty lines and unknown line
 /// types and attributes are skipped. ICE, DTLS, SCTP attributes and candidates may sit at the
 /// session or the media level; `a=identity` only at the session level.
 pub(crate) fn parse_offer(text: &str) -> Result<Offer> {
-    if text.len() > MAX_OFFER {
+    if text.len() > MAX_OFFER_BYTES {
         return Err(Error::TooLarge);
     }
     let mut found = Attributes::default();
-    let mut lines = 0usize;
-    let mut media = 0usize;
+    let mut lines = 0_usize;
+    let mut media = 0_usize;
     for line in text.split('\n') {
         let line = line.strip_suffix('\r').unwrap_or(line);
         if line.is_empty() {
@@ -259,7 +299,7 @@ fn attribute<'a>(
         "max-message-size" => {
             let size = value
                 .and_then(decimal::<u32>)
-                .filter(|&size| size >= MIN_MESSAGE_SIZE)
+                .filter(|&size| size >= MIN_MESSAGE_BYTES)
                 .ok_or(Error::Invalid("max-message-size"))?;
             once(&mut found.max_message_size, size, "max-message-size")
         }
@@ -299,18 +339,6 @@ fn ice_text<'a>(
         .ok_or(Error::Invalid(name))
 }
 
-fn is_ice_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'+' || b == b'/'
-}
-
-/// Decimal digits only (no sign) that fit `T`.
-fn decimal<T: FromStr>(text: &str) -> Option<T> {
-    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    text.parse().ok()
-}
-
 /// `sha-256 <32 hex bytes separated by colons>`.
 fn fingerprint(value: Option<&str>) -> Result<Fingerprint> {
     let (algorithm, digest) = value
@@ -327,8 +355,8 @@ fn fingerprint(value: Option<&str>) -> Result<Fingerprint> {
     })
 }
 
-fn parse_digest(digest: &str) -> Option<[u8; FINGERPRINT_LEN]> {
-    if digest.len() != FINGERPRINT_LEN * 3 - 1 {
+fn parse_digest(digest: &str) -> Option<[u8; FINGERPRINT_BYTES]> {
+    if digest.len() != FINGERPRINT_BYTES * 3 - 1 {
         return None;
     }
     let hex = |b: u8| {
@@ -336,11 +364,11 @@ fn parse_digest(digest: &str) -> Option<[u8; FINGERPRINT_LEN]> {
             .to_digit(16)
             .and_then(|d| u8::try_from(d).ok())
     };
-    let mut out = [0u8; FINGERPRINT_LEN];
+    let mut out = [0_u8; FINGERPRINT_BYTES];
     for (i, (byte, chunk)) in out.iter_mut().zip(digest.as_bytes().chunks(3)).enumerate() {
         let (hi, lo) = match *chunk {
-            [hi, lo, b':'] if i + 1 < FINGERPRINT_LEN => (hi, lo),
-            [hi, lo] if i + 1 == FINGERPRINT_LEN => (hi, lo),
+            [hi, lo, b':'] if i + 1 < FINGERPRINT_BYTES => (hi, lo),
+            [hi, lo] if i + 1 == FINGERPRINT_BYTES => (hi, lo),
             _ => return None,
         };
         *byte = hex(hi)? << 4 | hex(lo)?;
@@ -386,31 +414,12 @@ fn candidate(value: Option<&str>) -> Result<Option<SocketAddr>> {
         .map(|ip| SocketAddr::new(ip, port)))
 }
 
-#[derive(Deserialize)]
-struct IdentityJson {
-    /// JSON text of [`AssertionJson`].
-    assertion: String,
-    idp: IdentityProvider,
-}
-
-#[derive(Deserialize)]
-struct IdentityProvider {
-    domain: String,
-    protocol: String,
-}
-
-#[derive(Deserialize)]
-struct AssertionJson {
-    fingerprints: String,
-    token: String,
-}
-
 /// The `a=identity` value: padded standard base64 (go-nethernet `base64.StdEncoding`, BDS) of
 /// `{"assertion":"<JSON text of {fingerprints, token}>","idp":{"domain":..,"protocol":"default"}}`.
 fn identity(value: Option<&str>) -> Result<Assertion> {
     let text = value.ok_or(Error::Identity("empty"))?;
     let json = STD
-        .decode(text, MAX_IDENTITY_JSON)
+        .decode(text, MAX_IDENTITY_JSON_BYTES)
         .map_err(|_| Error::Identity("not padded standard base64 within the size cap"))?;
     let outer: IdentityJson = serde_json::from_slice(&json).map_err(Error::IdentityJson)?;
     let inner: AssertionJson =
@@ -419,13 +428,14 @@ fn identity(value: Option<&str>) -> Result<Assertion> {
         return Err(Error::Identity("protocol is not default"));
     }
     let domain = &outer.idp.domain;
-    if domain.is_empty() || domain.len() > MAX_DOMAIN || domain.chars().any(char::is_control) {
+    if domain.is_empty() || domain.len() > MAX_DOMAIN_BYTES || domain.chars().any(char::is_control)
+    {
         return Err(Error::Identity("domain must be 1 to 256 bytes of text"));
     }
-    if inner.token.len() > MAX_TOKEN_TEXT || !is_compact_jws(&inner.token, false) {
+    if inner.token.len() > MAX_TOKEN_BYTES || !is_compact_jws(&inner.token, false) {
         return Err(Error::Identity("token is not a compact jws"));
     }
-    if inner.fingerprints.len() > MAX_FINGERPRINTS_TEXT
+    if inner.fingerprints.len() > MAX_FINGERPRINTS_BYTES
         || !is_compact_jws(&inner.fingerprints, true)
     {
         return Err(Error::Identity("fingerprints is not a detached jws"));
@@ -457,21 +467,17 @@ fn is_compact_jws(text: &str, detached: bool) -> bool {
         && url(signature)
 }
 
-/// Anchor's answer. [`write_answer`] lays it out as BDS 1.26.52 does.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Answer<'a> {
-    /// The `o=` session ID, random per answer as BDS draws it.
-    pub(crate) session_id: u64,
-    /// The `a=identity` value: base64 of the server assertion.
-    pub(crate) identity: &'a str,
-    /// The advertised host candidate. An IPv4-mapped IPv6 address is written as IPv4.
-    pub(crate) addr: SocketAddr,
-    /// The server's ICE username fragment.
-    pub(crate) ice_ufrag: &'a str,
-    /// The server's ICE password.
-    pub(crate) ice_pwd: &'a str,
-    /// The server's DTLS fingerprint as [`fingerprint_text`] writes it.
-    pub(crate) fingerprint: &'a str,
+/// Whether `b` is an ICE character (RFC 8839 `ice-char`).
+fn is_ice_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'+' || b == b'/'
+}
+
+/// The number in `text` when it is decimal digits only (no sign) and fits `T`.
+fn decimal<T: FromStr>(text: &str) -> Option<T> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    text.parse().ok()
 }
 
 /// Writes the answer with CRLF line ends. The candidate foundation is libwebrtc's classic one,
@@ -501,7 +507,7 @@ pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
          a=setup:active\r\n\
          a=mid:0\r\n\
          a=sctp-port:{SCTP_PORT}\r\n\
-         a=max-message-size:{MAX_MESSAGE_SIZE}\r\n",
+         a=max-message-size:{MAX_MESSAGE_BYTES}\r\n",
         session_id = answer.session_id,
         identity = answer.identity,
         ice_ufrag = answer.ice_ufrag,
@@ -511,22 +517,30 @@ pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
 }
 
 /// A fingerprint as BDS writes it: uppercase hex bytes separated by colons.
-pub(crate) fn fingerprint_text(bytes: &[u8; FINGERPRINT_LEN]) -> String {
-    let nibble = |n: u8| char::from_digit(u32::from(n), 16).map_or('0', |c| c.to_ascii_uppercase());
-    let mut out = String::with_capacity(FINGERPRINT_LEN * 3 - 1);
+pub(crate) fn fingerprint_text(bytes: &[u8; FINGERPRINT_BYTES]) -> String {
+    let mut out = String::with_capacity(FINGERPRINT_BYTES * 3 - 1);
     for (i, &b) in bytes.iter().enumerate() {
         if i > 0 {
             out.push(':');
         }
-        out.push(nibble(b >> 4));
-        out.push(nibble(b & 0x0f));
+        out.push(hex_digit(b >> 4));
+        out.push(hex_digit(b & 0x0f));
     }
     out
+}
+
+/// The uppercase hex digit of `nibble`.
+#[expect(clippy::expect_used, reason = "invariant: the callers pass a nibble")]
+fn hex_digit(nibble: u8) -> char {
+    char::from_digit(u32::from(nibble), 16)
+        .expect("a nibble is below 16")
+        .to_ascii_uppercase()
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
     use crate::protocol::{self, fuzz};
 
     /// A captured go-nethernet offer (offline, self-signed ES384 token). The
@@ -552,28 +566,9 @@ a=sctp-port:5000
 a=max-message-size:262144
 ";
 
-    /// The candidate line of [`OFFER`].
-    const CANDIDATE: &str = "a=candidate:candidate:3775397255 1 udp 2130706431 172.25.96.1 63448 typ host generation 0 ufrag skFedTtcOXfRrcUS network-id 0 network-cost 0";
-
-    /// [`OFFER`] with one line replaced (the line must be there).
-    fn offer_with(from: &str, to: &str) -> String {
-        assert!(OFFER.contains(from), "{from}");
-        OFFER.replacen(from, to, 1)
-    }
-
     fn crlf(text: &str) -> String {
         text.replace('\n', "\r\n")
     }
-
-    /// The `a=identity` line of [`OFFER`].
-    pub(crate) fn identity_line() -> &'static str {
-        OFFER
-            .lines()
-            .find(|line| line.starts_with("a=identity:"))
-            .unwrap()
-    }
-
-    type Check = fn(&Error) -> bool;
 
     #[test]
     fn the_go_nethernet_offer_parses() {
@@ -602,6 +597,23 @@ a=max-message-size:262144
             );
             assert!(identity.fingerprints.starts_with("eyJhbGciOiJFUzM4NCJ9.."));
         }
+    }
+
+    /// The candidate line of [`OFFER`].
+    const CANDIDATE: &str = "a=candidate:candidate:3775397255 1 udp 2130706431 172.25.96.1 63448 typ host generation 0 ufrag skFedTtcOXfRrcUS network-id 0 network-cost 0";
+
+    /// [`OFFER`] with one line replaced (the line must be there).
+    fn offer_with(from: &str, to: &str) -> String {
+        assert!(OFFER.contains(from), "{from}");
+        OFFER.replacen(from, to, 1)
+    }
+
+    /// The `a=identity` line of [`OFFER`].
+    pub(crate) fn identity_line() -> &'static str {
+        OFFER
+            .lines()
+            .find(|line| line.starts_with("a=identity:"))
+            .unwrap()
     }
 
     #[test]
@@ -659,6 +671,8 @@ a=max-message-size:262144
         );
     }
 
+    type Check = fn(&Error) -> bool;
+
     #[test]
     #[expect(
         clippy::too_many_lines,
@@ -668,9 +682,10 @@ a=max-message-size:262144
         let candidate = "a=candidate:1 1 udp 1 10.0.0.1 5000 typ host\n";
         let identity = identity_line();
         let cases: Vec<(String, Check)> = vec![
-            (format!("{OFFER}a=x:{}\n", "y".repeat(MAX_OFFER)), |e| {
-                matches!(e, Error::TooLarge)
-            }),
+            (
+                format!("{OFFER}a=x:{}\n", "y".repeat(MAX_OFFER_BYTES)),
+                |e| matches!(e, Error::TooLarge),
+            ),
             (format!("{OFFER}{}", "a=x\n".repeat(MAX_LINES)), |e| {
                 matches!(e, Error::TooManyLines)
             }),
@@ -922,8 +937,8 @@ a=max-message-size:262144
                 fingerprints: detached.to_owned(),
             }
         );
-        let long_token = format!("eyJh.{}.c2ln", "a".repeat(MAX_TOKEN_TEXT));
-        let long_domain = "d".repeat(MAX_DOMAIN + 1);
+        let long_token = format!("eyJh.{}.c2ln", "a".repeat(MAX_TOKEN_BYTES));
+        let long_domain = "d".repeat(MAX_DOMAIN_BYTES + 1);
         for json in [
             identity_json(detached, token, "self", "other"),
             identity_json(detached, token, "", "default"),
@@ -948,7 +963,7 @@ a=max-message-size:262144
                 "{err:?} for {json}"
             );
         }
-        let huge = format!("{{\"x\":\"{}\"}}", "a".repeat(MAX_IDENTITY_JSON));
+        let huge = format!("{{\"x\":\"{}\"}}", "a".repeat(MAX_IDENTITY_JSON_BYTES));
         assert!(matches!(
             parse_offer(&offer_with_identity(&huge)),
             Err(Error::Identity(_))
@@ -961,7 +976,7 @@ a=max-message-size:262144
     fn the_identity_token_cap_is_the_login_token_cap() {
         let detached = "eyJh..c2ln";
         let token = |len: usize| format!("eyJh.{}.c2ln", "a".repeat(len - 10));
-        let longest = max_jws_text(MAX_TOKEN_PAYLOAD);
+        let longest = max_jws_text(MAX_TOKEN_PAYLOAD_BYTES);
         let json = identity_json(detached, &token(longest), "self", "default");
         let identity = parse_offer(&offer_with_identity(&json)).unwrap().identity;
         assert_eq!(identity.unwrap().token.len(), longest);
@@ -1036,13 +1051,13 @@ a=max-message-size:262144\r
             fingerprint_text(&offer.fingerprint.bytes),
             answer().fingerprint
         );
-        assert_eq!(offer.max_message_size, MAX_MESSAGE_SIZE);
+        assert_eq!(offer.max_message_size, MAX_MESSAGE_BYTES);
         assert_eq!(offer.candidates, [answer().addr]);
     }
 
     #[test]
     fn fingerprints_match_references() {
-        let mut bytes = [0u8; FINGERPRINT_LEN];
+        let mut bytes = [0_u8; FINGERPRINT_BYTES];
         bytes[0] = 0x0a;
         bytes[31] = 0xf0;
         let text = fingerprint_text(&bytes);

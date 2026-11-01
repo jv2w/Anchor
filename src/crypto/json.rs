@@ -5,9 +5,10 @@ use std::marker::PhantomData;
 
 use serde::de::{self, Deserialize, Deserializer, IgnoredAny, SeqAccess, Visitor};
 
-/// Deserializes a JSON array of at most `MAX` elements, failing at element `MAX + 1` before it
-/// is allocated. `null` is an empty list, as Go decodes it (and Go encodes a nil slice as
-/// `null`). Use with `#[serde(deserialize_with = "bounded_vec::<_, _, MAX>")]`.
+/// Deserializes a JSON array of at most `MAX` elements.
+/// It fails at element `MAX + 1` before that element is allocated. `null` is an empty list, as
+/// Go decodes it (and Go encodes a nil slice as `null`). Use with
+/// `#[serde(deserialize_with = "bounded_vec::<_, _, MAX>")]`.
 pub(crate) fn bounded_vec<'de, D, T, const MAX: usize>(d: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -41,9 +42,10 @@ where
     d.deserialize_any(Bounded::<T, MAX>(PhantomData))
 }
 
-/// Whether `data` is one JSON object or `null`, like Go's `json.Unmarshal` into a map. Values are
-/// skipped without being stored; `serde_json` skips nesting with a heap stack (one byte per
-/// level, bounded by the input), not recursion, so depth cannot overflow the thread stack.
+/// Whether `data` is one JSON object or `null`, like Go's `json.Unmarshal` into a map.
+/// Values are skipped without being stored; `serde_json` skips nesting with a heap stack (one
+/// byte per level, bounded by the input), not recursion, so depth cannot overflow the thread
+/// stack.
 pub(crate) fn is_object_or_null(data: &[u8]) -> bool {
     let first = data.iter().find(|b| !b.is_ascii_whitespace());
     matches!(first, Some(b'{' | b'n')) && serde_json::from_slice::<IgnoredAny>(data).is_ok()
@@ -87,7 +89,9 @@ pub(crate) fn is_json_within_depth(data: &[u8], max_depth: usize) -> bool {
 mod tests {
     use super::*;
 
-    #[derive(serde::Deserialize)]
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
     struct List {
         #[serde(deserialize_with = "bounded_vec::<_, _, 3>")]
         items: Vec<u8>,

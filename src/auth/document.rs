@@ -1,5 +1,6 @@
-//! The authorization documents (discovery, OpenID configuration, JWKS) and the cache file that
-//! holds the last two.
+//! The authorization documents (discovery, OpenID configuration, JWKS) and their cache file.
+//!
+//! The cache holds the last two documents.
 
 use std::collections::BTreeMap;
 
@@ -8,43 +9,17 @@ use serde::{Deserialize, Serialize};
 use super::Keys;
 use crate::crypto::{RsaPublicKey, bounded_vec};
 
-/// Most keys read from a JWKS. Microsoft publishes four.
+/// The most keys read from a JWKS.
+/// Microsoft publishes four.
 const MAX_JWKS_KEYS: usize = 64;
 
-/// The discovery response: `result.serviceEnvironments.auth.prod`.
-#[derive(Deserialize)]
-pub(super) struct Discovery {
-    result: DiscoveryResult,
-}
-
-#[derive(Deserialize)]
-struct DiscoveryResult {
-    #[serde(rename = "serviceEnvironments")]
-    service_environments: Services,
-}
-
-#[derive(Deserialize)]
-struct Services {
-    auth: Environments,
-}
-
-#[derive(Deserialize)]
-struct Environments {
-    prod: Environment,
-}
-
-impl Discovery {
-    /// The issuer of the production authorization environment, where the OpenID configuration
-    /// is published.
-    pub(super) fn into_issuer(self) -> String {
-        self.result.service_environments.auth.prod.issuer
-    }
-}
-
-/// The production authorization environment.
-#[derive(Deserialize)]
-struct Environment {
-    issuer: String,
+/// The contents of `data/auth.json`; unknown keys are ignored.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct Cache {
+    pub(super) openid: OpenId,
+    pub(super) jwks: Jwks,
+    /// Unix seconds of the fetch.
+    pub(super) fetched_at: i64,
 }
 
 /// The OpenID configuration fields Anchor uses.
@@ -78,19 +53,45 @@ pub(super) struct Jwk {
     pub(super) e: Option<String>,
 }
 
-/// `data/auth.json`. Unknown keys are ignored, so a cache that still holds the discovery
-/// document loads.
-#[derive(Debug, Serialize, Deserialize)]
-pub(super) struct Cache {
-    pub(super) openid: OpenId,
-    pub(super) jwks: Jwks,
-    /// Unix seconds of the fetch.
-    pub(super) fetched_at: i64,
+/// The discovery response: `result.serviceEnvironments.auth.prod`.
+#[derive(Deserialize)]
+pub(super) struct Discovery {
+    result: DiscoveryResult,
 }
 
-/// The verification keys of a JWKS: RSA keys for signing (no `use`, or `sig`) with no `alg` or
-/// RS256. Other key types are skipped; a malformed RSA key, a duplicate `kid` or no usable key
-/// rejects the whole set.
+impl Discovery {
+    /// The issuer of the production authorization environment.
+    /// The OpenID configuration is published there.
+    pub(super) fn into_issuer(self) -> String {
+        self.result.service_environments.auth.prod.issuer
+    }
+}
+
+#[derive(Deserialize)]
+struct DiscoveryResult {
+    #[serde(rename = "serviceEnvironments")]
+    service_environments: Services,
+}
+
+#[derive(Deserialize)]
+struct Services {
+    auth: Environments,
+}
+
+#[derive(Deserialize)]
+struct Environments {
+    prod: Environment,
+}
+
+/// The production authorization environment.
+#[derive(Deserialize)]
+struct Environment {
+    issuer: String,
+}
+
+/// The verification keys of a JWKS.
+/// They are RSA keys for signing (no `use`, or `sig`) with no `alg` or RS256. Other key types are
+/// skipped; a malformed RSA key, a duplicate `kid` or no usable key rejects the whole set.
 pub(super) fn keys(openid: &OpenId, jwks: &Jwks) -> Result<Keys, &'static str> {
     if openid.issuer.is_empty() {
         return Err("empty issuer");

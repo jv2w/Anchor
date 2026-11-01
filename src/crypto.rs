@@ -1,4 +1,8 @@
-//! Cryptography over aws-lc-rs: ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, randomness, base64, JWS and RakNet encryption; and the CRC-32 checksum.
+//! Cryptography over aws-lc-rs: ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR and randomness.
+//!
+//! On top of them sit base64, JWS and RakNet encryption. Small pieces aws-lc-rs lacks live here
+//! too: MD5 for version 3 UUIDs, the CRC-32 checksum, and bounded JSON checks for untrusted
+//! documents.
 
 mod base64;
 mod crc32;
@@ -6,6 +10,15 @@ pub(crate) mod encryption;
 mod json;
 mod jws;
 mod md5;
+
+pub(crate) use base64::{RAW_STD, RAW_URL, STD};
+pub(crate) use crc32::crc32;
+pub(crate) use json::{bounded_vec, is_json_within_depth, is_object_or_null};
+pub(crate) use jws::{
+    Algorithm, Jws, max_text as max_jws_text, parse as parse_jws, sign_compact as sign_jwt_bytes,
+    sign_detached, sign_es384 as sign_jwt, verify_detached,
+};
+pub(crate) use md5::md5;
 
 use std::fmt;
 
@@ -17,33 +30,241 @@ use aws_lc_rs::signature::{
     ParsedPublicKey, RSA_PKCS1_2048_8192_SHA256, RsaPublicKeyComponents,
 };
 
-pub(crate) use base64::{RAW_STD, RAW_URL, STD};
-pub(crate) use crc32::crc32;
-pub(crate) use json::{bounded_vec, is_json_within_depth, is_object_or_null};
-pub(crate) use jws::{
-    Algorithm, Jws, max_text as max_jws_text, parse as parse_jws, sign_compact as sign_jwt_bytes,
-    sign_detached, sign_es384 as sign_jwt, verify_detached,
-};
-pub(crate) use md5::md5;
-
-/// Length of an ES384 signature: `r || s`, 48 bytes each.
-const ES384_SIGNATURE_LEN: usize = 96;
-/// Longest base64 SPKI accepted for a P-384 key. The DER is 120 bytes (160 characters); the cap
-/// leaves room for other valid encodings while bounding the allocation.
-const MAX_SPKI_TEXT: usize = 512;
-/// RSA modulus sizes accepted for the multiplayer token: 2048 to 4096 bits. Microsoft signs with
-/// 2048-bit keys; larger moduli only cost verification time.
-const RSA_MODULUS_BITS: std::ops::RangeInclusive<usize> = 2048..=4096;
-/// The DER of a P-384 `SubjectPublicKeyInfo` up to its uncompressed point: SEQUENCE {
-/// SEQUENCE { id-ecPublicKey, secp384r1 }, BIT STRING with no unused bits }.
+/// Bytes of an ES384 signature: `r || s`, one coordinate size each.
+const ES384_SIGNATURE_BYTES: usize = 2 * P384_COORDINATE_BYTES;
+/// The most bytes an RSA exponent has once its leading zeros are trimmed: 32 bits.
+const MAX_RSA_EXPONENT_BYTES: usize = 4;
+/// The most bytes decoded for an RSA exponent before its leading zeros are trimmed.
+const MAX_RSA_EXPONENT_DECODED_BYTES: usize = 8;
+/// The longest base64 SPKI accepted for a P-384 key.
+/// The DER is 120 bytes (160 characters); the cap leaves room for other valid encodings while
+/// bounding the allocation.
+const MAX_SPKI_TEXT_BYTES: usize = 512;
+/// Bytes in one P-384 coordinate.
+const P384_COORDINATE_BYTES: usize = 48;
+/// The DER of a P-384 `SubjectPublicKeyInfo` up to its uncompressed point.
+/// It is SEQUENCE { SEQUENCE { id-ecPublicKey, secp384r1 }, BIT STRING with no unused bits }.
 const P384_SPKI_PREFIX: [u8; 23] = [
     0x30, 0x76, 0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x05, 0x2b,
     0x81, 0x04, 0x00, 0x22, 0x03, 0x62, 0x00,
 ];
-/// Bytes in one P-384 coordinate.
-const P384_COORDINATE_LEN: usize = 48;
+/// The RSA modulus sizes accepted for the multiplayer token: 2048 to 4096 bits.
+/// Microsoft signs with 2048-bit keys; larger moduli only cost verification time.
+const RSA_MODULUS_BITS: std::ops::RangeInclusive<usize> = 2048..=4096;
+/// Bytes of a SHA-256 digest.
+const SHA256_BYTES: usize = 32;
+/// The first byte of an uncompressed SEC1 point.
+const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
-/// A cryptographic failure. Every variant means the input is not trusted.
+/// A P-384 key pair.
+///
+/// The server's key signs the handshake JWT (ES384) and agrees on the RakNet encryption key
+/// (ECDH) with the same scalar, as gophertunnel does; the same type holds the NetherNet identity
+/// key.
+///
+/// aws-lc-rs keeps signing and agreement keys apart, so the key pair is exported as PKCS#8 once
+/// and imported again as an agreement key. [`ServerKey::from_pkcs8`] checks that both halves have
+/// the same public key.
+pub(crate) struct ServerKey {
+    signing: EcdsaKeyPair,
+    agreement: agreement::PrivateKey,
+    /// The SPKI DER in standard base64: the JWT `x5u` header.
+    public: String,
+}
+
+impl ServerKey {
+    /// A new random key.
+    pub(crate) fn generate() -> Result<Self> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "consistency: the crypto module is the one place that draws OS randomness"
+        )]
+        let pair = EcdsaKeyPair::generate(&ECDSA_P384_SHA384_FIXED_SIGNING)
+            .map_err(|_| Error::Internal)?;
+        let pkcs8 = pair.to_pkcs8v1().map_err(|_| Error::Internal)?;
+        Self::from_pkcs8(pkcs8.as_ref())
+    }
+
+    /// The key in a PKCS#8 v1 document (a P-384 EC private key).
+    pub(crate) fn from_pkcs8(der: &[u8]) -> Result<Self> {
+        let signing = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, der)
+            .map_err(|_| Error::Key)?;
+        let agreement =
+            agreement::PrivateKey::from_private_key_der(&ECDH_P384, der).map_err(|_| Error::Key)?;
+        let spki = signing.public_key().as_der().map_err(|_| Error::Key)?;
+        let agreement_spki = agreement
+            .compute_public_key()
+            .and_then(|p| p.as_der())
+            .map_err(|_| Error::Key)?;
+        if spki.as_ref() != agreement_spki.as_ref() {
+            return Err(Error::Key);
+        }
+        Ok(Self {
+            signing,
+            agreement,
+            public: STD.encode(spki.as_ref()),
+        })
+    }
+
+    /// The public key as base64 SPKI DER.
+    pub(crate) fn public_key_base64(&self) -> &str {
+        &self.public
+    }
+
+    /// The public key, parsed to verify signatures or to write as a JWK.
+    pub(crate) fn public_key(&self) -> Result<PublicKey> {
+        PublicKey::from_base64_spki(&self.public)
+    }
+
+    /// An ES384 signature of `message` (randomized nonce).
+    pub(crate) fn sign_es384(&self, message: &[u8]) -> Result<[u8; ES384_SIGNATURE_BYTES]> {
+        #[expect(
+            clippy::disallowed_types,
+            reason = "consistency: the crypto module is the one place that draws OS randomness"
+        )]
+        let rng = aws_lc_rs::rand::SystemRandom::new();
+        let signature = self
+            .signing
+            .sign(&rng, message)
+            .map_err(|_| Error::Internal)?;
+        <[u8; ES384_SIGNATURE_BYTES]>::try_from(signature.as_ref()).map_err(|_| Error::Internal)
+    }
+
+    /// The ECDH P-384 shared secret (the x coordinate) with `peer`.
+    pub(crate) fn agree(&self, peer: &PublicKey) -> Result<[u8; P384_COORDINATE_BYTES]> {
+        let peer = agreement::UnparsedPublicKey::new(&ECDH_P384, peer.spki());
+        agreement::agree(&self.agreement, peer, Error::Key, |secret| {
+            <[u8; P384_COORDINATE_BYTES]>::try_from(secret).map_err(|_| Error::Internal)
+        })
+    }
+
+    /// The key in a PKCS#8 v1 document, the form [`ServerKey::from_pkcs8`] reads.
+    pub(crate) fn to_pkcs8(&self) -> Result<Vec<u8>> {
+        let document = self.signing.to_pkcs8v1().map_err(|_| Error::Internal)?;
+        Ok(document.as_ref().to_vec())
+    }
+}
+
+impl fmt::Debug for ServerKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerKey")
+            .field("public", &self.public)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A client's P-384 public key, parsed once from base64 SPKI DER.
+/// It verifies ES384 signatures and is the peer in the encryption handshake.
+#[derive(Debug)]
+pub(crate) struct PublicKey(ParsedPublicKey);
+
+impl PublicKey {
+    /// The key in standard base64 of an X.509 `SubjectPublicKeyInfo` holding a P-384 point.
+    /// A raw SEC1 point is rejected (gophertunnel `ParsePublicKey` takes only PKIX).
+    pub(crate) fn from_base64_spki(text: &str) -> Result<Self> {
+        if text.len() > MAX_SPKI_TEXT_BYTES {
+            return Err(Error::TooLarge);
+        }
+        let der = STD.decode(text, MAX_SPKI_TEXT_BYTES)?;
+        // aws-lc also takes a bare SEC1 point and ignores bytes after the SPKI; Go's
+        // `x509.ParsePKIXPublicKey` rejects both.
+        if !is_one_der_sequence(&der) {
+            return Err(Error::Key);
+        }
+        ParsedPublicKey::new(&ECDSA_P384_SHA384_FIXED, der)
+            .map(Self)
+            .map_err(|_| Error::Key)
+    }
+
+    /// The key with the P-384 JWK coordinates `x` and `y` (RFC 7518 6.2.1).
+    /// Both are base64url without padding, 48 bytes each. A point off the curve is rejected.
+    pub(crate) fn from_p384_jwk(x: &str, y: &str) -> Result<Self> {
+        let x = RAW_URL.decode(x, P384_COORDINATE_BYTES)?;
+        let y = RAW_URL.decode(y, P384_COORDINATE_BYTES)?;
+        if x.len() != P384_COORDINATE_BYTES || y.len() != P384_COORDINATE_BYTES {
+            return Err(Error::Key);
+        }
+        let mut der = Vec::with_capacity(P384_SPKI_PREFIX.len() + 1 + 2 * P384_COORDINATE_BYTES);
+        der.extend_from_slice(&P384_SPKI_PREFIX);
+        der.push(UNCOMPRESSED_POINT_TAG);
+        der.extend_from_slice(&x);
+        der.extend_from_slice(&y);
+        ParsedPublicKey::new(&ECDSA_P384_SHA384_FIXED, der)
+            .map(Self)
+            .map_err(|_| Error::Key)
+    }
+
+    /// The SPKI DER bytes.
+    pub(crate) fn spki(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+
+    /// Verifies an ES384 signature (`r || s`) of `message`.
+    pub(crate) fn verify_es384(&self, message: &[u8], signature: &[u8]) -> Result<()> {
+        if signature.len() != ES384_SIGNATURE_BYTES {
+            return Err(Error::Signature);
+        }
+        self.0
+            .verify_sig(message, signature)
+            .map_err(|_| Error::Signature)
+    }
+
+    /// The JWK coordinates `(x, y)` in base64url without padding.
+    pub(crate) fn p384_jwk(&self) -> Result<(String, String)> {
+        let (x, y) = self
+            .spki()
+            .strip_prefix(&P384_SPKI_PREFIX[..])
+            .and_then(|point| point.strip_prefix(&[UNCOMPRESSED_POINT_TAG][..]))
+            .filter(|xy| xy.len() == 2 * P384_COORDINATE_BYTES)
+            .and_then(|xy| xy.split_at_checked(P384_COORDINATE_BYTES))
+            .ok_or(Error::Key)?;
+        Ok((RAW_URL.encode(x), RAW_URL.encode(y)))
+    }
+}
+
+/// An RSA public key from a JWK, for RS256 (the multiplayer token).
+#[derive(Debug)]
+pub(crate) struct RsaPublicKey(ParsedPublicKey);
+
+impl RsaPublicKey {
+    /// The key with modulus `n` and exponent `e`, both base64url without padding (RFC 7518).
+    /// The modulus must be 2048 to 4096 bits and the exponent odd, at least 3 and at most 32 bits.
+    pub(crate) fn from_jwk(n: &str, e: &str) -> Result<Self> {
+        let n = RAW_URL.decode(n, *RSA_MODULUS_BITS.end() / 8 + 1)?;
+        let e = RAW_URL.decode(e, MAX_RSA_EXPONENT_DECODED_BYTES)?;
+        let n = trim_leading_zeros(&n);
+        let e = trim_leading_zeros(&e);
+        let bits = n
+            .first()
+            .map_or(0, |&top| n.len() * 8 - top.leading_zeros() as usize);
+        let odd = e.last().is_some_and(|b| b & 1 == 1);
+        if !RSA_MODULUS_BITS.contains(&bits) || e.len() > MAX_RSA_EXPONENT_BYTES || !odd || e == [1]
+        {
+            return Err(Error::Key);
+        }
+        RsaPublicKeyComponents { n, e }
+            .to_parsed_public_key(&RSA_PKCS1_2048_8192_SHA256)
+            .map(Self)
+            .map_err(|_| Error::Key)
+    }
+
+    /// Verifies an RS256 signature of `message`.
+    pub(crate) fn verify_rs256(&self, message: &[u8], sig: &[u8]) -> Result<()> {
+        self.0
+            .verify_sig(message, sig)
+            .map_err(|_| Error::Signature)
+    }
+}
+
+/// The key a JWS must verify with, which also fixes the accepted algorithm.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Verifier<'a> {
+    Es384(&'a PublicKey),
+    Rs256(&'a RsaPublicKey),
+}
+
+/// A cryptographic failure.
+/// Every variant means the input is not trusted.
 #[derive(Debug)]
 pub(crate) enum Error {
     /// Base64 text is malformed.
@@ -89,241 +310,29 @@ impl std::error::Error for Error {
 }
 
 /// A crypto result.
-pub(crate) type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Fills `out` with cryptographically secure random bytes. The only randomness source in Anchor
-/// outside the engine's seeded generator.
+/// Fills `out` with cryptographically secure random bytes.
+/// This is the only randomness source in Anchor outside the engine's seeded generator.
 pub(crate) fn fill_random(out: &mut [u8]) -> Result<()> {
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the crypto module is the one place that draws OS randomness"
+        reason = "consistency: the crypto module is the one place that draws OS randomness"
     )]
     aws_lc_rs::rand::fill(out).map_err(|_| Error::Internal)
 }
 
-/// SHA-256 of the concatenation of `parts`.
-pub(crate) fn sha256(parts: &[&[u8]]) -> [u8; 32] {
+/// The SHA-256 digest of the concatenation of `parts`.
+pub(crate) fn sha256(parts: &[&[u8]]) -> [u8; SHA256_BYTES] {
     let mut context = digest::Context::new(&digest::SHA256);
     for part in parts {
         context.update(part);
     }
-    let mut out = [0u8; 32];
+    let mut out = [0_u8; SHA256_BYTES];
     for (o, d) in out.iter_mut().zip(context.finish().as_ref()) {
         *o = *d;
     }
     out
-}
-
-/// The server's P-384 key: it signs the handshake JWT (ES384) and agrees on the RakNet
-/// encryption key (ECDH) with the same scalar, as gophertunnel does.
-///
-/// aws-lc-rs keeps signing and agreement keys apart, so the key pair is exported as PKCS#8 once
-/// and imported again as an agreement key. [`ServerKey::from_pkcs8`] checks that both halves have
-/// the same public key.
-pub(crate) struct ServerKey {
-    signing: EcdsaKeyPair,
-    agreement: agreement::PrivateKey,
-    /// The SPKI DER in standard base64: the JWT `x5u` header.
-    public: String,
-}
-
-impl fmt::Debug for ServerKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ServerKey")
-            .field("public", &self.public)
-            .finish_non_exhaustive()
-    }
-}
-
-impl ServerKey {
-    /// A new random key.
-    pub(crate) fn generate() -> Result<Self> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "off-tick: the crypto module is the one place that draws OS randomness"
-        )]
-        let pair = EcdsaKeyPair::generate(&ECDSA_P384_SHA384_FIXED_SIGNING)
-            .map_err(|_| Error::Internal)?;
-        let pkcs8 = pair.to_pkcs8v1().map_err(|_| Error::Internal)?;
-        Self::from_pkcs8(pkcs8.as_ref())
-    }
-
-    /// The key in a PKCS#8 v1 document (a P-384 EC private key).
-    pub(crate) fn from_pkcs8(der: &[u8]) -> Result<Self> {
-        let signing = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, der)
-            .map_err(|_| Error::Key)?;
-        let agreement =
-            agreement::PrivateKey::from_private_key_der(&ECDH_P384, der).map_err(|_| Error::Key)?;
-        let spki = signing.public_key().as_der().map_err(|_| Error::Key)?;
-        let agreement_spki = agreement
-            .compute_public_key()
-            .and_then(|p| p.as_der())
-            .map_err(|_| Error::Key)?;
-        if spki.as_ref() != agreement_spki.as_ref() {
-            return Err(Error::Key);
-        }
-        Ok(Self {
-            signing,
-            agreement,
-            public: STD.encode(spki.as_ref()),
-        })
-    }
-
-    /// The key in a PKCS#8 v1 document, the form [`ServerKey::from_pkcs8`] reads.
-    pub(crate) fn to_pkcs8(&self) -> Result<Vec<u8>> {
-        let document = self.signing.to_pkcs8v1().map_err(|_| Error::Internal)?;
-        Ok(document.as_ref().to_vec())
-    }
-
-    /// The public key as base64 SPKI DER.
-    pub(crate) fn public_key_base64(&self) -> &str {
-        &self.public
-    }
-
-    /// The public key, for verifying this key's own signatures.
-    pub(crate) fn public_key(&self) -> Result<PublicKey> {
-        PublicKey::from_base64_spki(&self.public)
-    }
-
-    /// An ES384 signature of `message` (randomized nonce).
-    pub(crate) fn sign_es384(&self, message: &[u8]) -> Result<[u8; ES384_SIGNATURE_LEN]> {
-        #[expect(
-            clippy::disallowed_types,
-            reason = "off-tick: the crypto module is the one place that draws OS randomness"
-        )]
-        let rng = aws_lc_rs::rand::SystemRandom::new();
-        let signature = self
-            .signing
-            .sign(&rng, message)
-            .map_err(|_| Error::Internal)?;
-        <[u8; ES384_SIGNATURE_LEN]>::try_from(signature.as_ref()).map_err(|_| Error::Internal)
-    }
-
-    /// The ECDH P-384 shared secret (the x coordinate) with `peer`.
-    pub(crate) fn agree(&self, peer: &PublicKey) -> Result<[u8; 48]> {
-        let peer = agreement::UnparsedPublicKey::new(&ECDH_P384, peer.spki());
-        agreement::agree(&self.agreement, peer, Error::Key, |secret| {
-            <[u8; 48]>::try_from(secret).map_err(|_| Error::Internal)
-        })
-    }
-}
-
-/// A client's P-384 public key, parsed once from base64 SPKI DER: it verifies ES384 signatures
-/// and is the peer in the encryption handshake.
-#[derive(Debug)]
-pub(crate) struct PublicKey(ParsedPublicKey);
-
-impl PublicKey {
-    /// Parses standard base64 of an X.509 `SubjectPublicKeyInfo` holding a P-384 point. A raw
-    /// SEC1 point is rejected (gophertunnel `ParsePublicKey` takes only PKIX).
-    pub(crate) fn from_base64_spki(text: &str) -> Result<Self> {
-        if text.len() > MAX_SPKI_TEXT {
-            return Err(Error::TooLarge);
-        }
-        let der = STD.decode(text, MAX_SPKI_TEXT)?;
-        // aws-lc also takes a bare SEC1 point and ignores bytes after the SPKI; Go's
-        // `x509.ParsePKIXPublicKey` rejects both.
-        if !is_one_der_sequence(&der) {
-            return Err(Error::Key);
-        }
-        ParsedPublicKey::new(&ECDSA_P384_SHA384_FIXED, der)
-            .map(Self)
-            .map_err(|_| Error::Key)
-    }
-
-    /// Verifies an ES384 signature (`r || s`) of `message`.
-    pub(crate) fn verify_es384(&self, message: &[u8], signature: &[u8]) -> Result<()> {
-        if signature.len() != ES384_SIGNATURE_LEN {
-            return Err(Error::Signature);
-        }
-        self.0
-            .verify_sig(message, signature)
-            .map_err(|_| Error::Signature)
-    }
-
-    /// Parses a P-384 JWK's coordinates (RFC 7518 6.2.1): `x` and `y` in base64url without
-    /// padding, 48 bytes each. A point off the curve is rejected.
-    pub(crate) fn from_p384_jwk(x: &str, y: &str) -> Result<Self> {
-        let x = RAW_URL.decode(x, P384_COORDINATE_LEN)?;
-        let y = RAW_URL.decode(y, P384_COORDINATE_LEN)?;
-        if x.len() != P384_COORDINATE_LEN || y.len() != P384_COORDINATE_LEN {
-            return Err(Error::Key);
-        }
-        let mut der = Vec::with_capacity(P384_SPKI_PREFIX.len() + 1 + 2 * P384_COORDINATE_LEN);
-        der.extend_from_slice(&P384_SPKI_PREFIX);
-        der.push(0x04);
-        der.extend_from_slice(&x);
-        der.extend_from_slice(&y);
-        ParsedPublicKey::new(&ECDSA_P384_SHA384_FIXED, der)
-            .map(Self)
-            .map_err(|_| Error::Key)
-    }
-
-    /// The JWK coordinates `(x, y)` in base64url without padding.
-    pub(crate) fn p384_jwk(&self) -> Result<(String, String)> {
-        let (x, y) = self
-            .spki()
-            .strip_prefix(&P384_SPKI_PREFIX[..])
-            .and_then(|point| point.strip_prefix(&[0x04][..]))
-            .filter(|xy| xy.len() == 2 * P384_COORDINATE_LEN)
-            .and_then(|xy| xy.split_at_checked(P384_COORDINATE_LEN))
-            .ok_or(Error::Key)?;
-        Ok((RAW_URL.encode(x), RAW_URL.encode(y)))
-    }
-
-    /// The SPKI DER bytes.
-    pub(crate) fn spki(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-/// An RSA public key from a JWK, for RS256 (the multiplayer token).
-#[derive(Debug)]
-pub(crate) struct RsaPublicKey(ParsedPublicKey);
-
-impl RsaPublicKey {
-    /// The key with modulus `n` and exponent `e`, both base64url without padding (RFC 7518).
-    /// The modulus must be 2048 to 4096 bits and the exponent odd, at least 3 and at most 32 bits.
-    pub(crate) fn from_jwk(n: &str, e: &str) -> Result<Self> {
-        let n = RAW_URL.decode(n, *RSA_MODULUS_BITS.end() / 8 + 1)?;
-        let e = RAW_URL.decode(e, 8)?;
-        let n = trim_leading_zeros(&n);
-        let e = trim_leading_zeros(&e);
-        let bits = n.first().map_or(0, |&top| {
-            n.len() * 8 - usize::try_from(top.leading_zeros()).unwrap_or(8)
-        });
-        let odd = e.last().is_some_and(|b| b & 1 == 1);
-        if !RSA_MODULUS_BITS.contains(&bits) || e.len() > 4 || !odd || e == [1] {
-            return Err(Error::Key);
-        }
-        RsaPublicKeyComponents { n, e }
-            .to_parsed_public_key(&RSA_PKCS1_2048_8192_SHA256)
-            .map(Self)
-            .map_err(|_| Error::Key)
-    }
-
-    /// Verifies an RS256 signature of `message`.
-    pub(crate) fn verify_rs256(&self, message: &[u8], sig: &[u8]) -> Result<()> {
-        self.0
-            .verify_sig(message, sig)
-            .map_err(|_| Error::Signature)
-    }
-}
-
-/// Whether `der` is exactly one DER SEQUENCE with a definite length.
-fn is_one_der_sequence(der: &[u8]) -> bool {
-    let (header, len) = match *der {
-        [0x30, len @ 0..=0x7f, ..] => (2, usize::from(len)),
-        [0x30, 0x81, len @ 0x80..=0xff, ..] => (3, usize::from(len)),
-        [0x30, 0x82, hi @ 1..=0xff, lo, ..] => (4, usize::from(u16::from_be_bytes([hi, lo]))),
-        _ => return false,
-    };
-    header + len == der.len()
-}
-
-fn trim_leading_zeros(bytes: &[u8]) -> &[u8] {
-    let start = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len());
-    bytes.get(start..).unwrap_or_default()
 }
 
 /// Verifies RS256 or ES384 over a parsed JWS; any other algorithm fails.
@@ -339,40 +348,55 @@ pub(crate) fn verify_jws(jws: &Jws<'_>, key: Verifier<'_>) -> Result<()> {
     }
 }
 
-/// The key a JWS must verify with, which also fixes the accepted algorithm.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Verifier<'a> {
-    Es384(&'a PublicKey),
-    Rs256(&'a RsaPublicKey),
+/// Whether `der` is exactly one DER SEQUENCE with a definite length.
+fn is_one_der_sequence(der: &[u8]) -> bool {
+    let (header, len) = match *der {
+        [0x30, len @ 0..=0x7f, ..] => (2, usize::from(len)),
+        [0x30, 0x81, len @ 0x80..=0xff, ..] => (3, usize::from(len)),
+        [0x30, 0x82, hi @ 1..=0xff, lo, ..] => (4, usize::from(u16::from_be_bytes([hi, lo]))),
+        _ => return false,
+    };
+    header + len == der.len()
+}
+
+/// `bytes` without its leading zero bytes.
+fn trim_leading_zeros(mut bytes: &[u8]) -> &[u8] {
+    while let [0, rest @ ..] = bytes {
+        bytes = rest;
+    }
+    bytes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::fmt::Write as _;
+
+    /// The lowercase hex of `bytes`.
+    pub(super) fn hex(bytes: &[u8]) -> String {
+        bytes.iter().fold(String::new(), |mut s, b| {
+            write!(s, "{b:02x}").unwrap();
+            s
+        })
+    }
+
     #[test]
     fn sha256_matches_fips_180_vectors() {
-        let hex = |b: [u8; 32]| {
-            use std::fmt::Write as _;
-            b.iter().fold(String::new(), |mut s, b| {
-                write!(s, "{b:02x}").unwrap();
-                s
-            })
-        };
         assert_eq!(
-            hex(sha256(&[b"abc"])),
+            hex(&sha256(&[b"abc"])),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(sha256(&[b"a", b"", b"bc"]), sha256(&[b"abc"]));
         assert_eq!(
-            hex(sha256(&[])),
+            hex(&sha256(&[])),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
 
     #[test]
     fn random_bytes_differ() {
-        let (mut a, mut b) = ([0u8; 32], [0u8; 32]);
+        let (mut a, mut b) = ([0_u8; 32], [0_u8; 32]);
         fill_random(&mut a).unwrap();
         fill_random(&mut b).unwrap();
         assert_ne!(a, b);
@@ -392,7 +416,7 @@ mod tests {
         let ours = server.agree(&client_public).unwrap();
         let theirs = client.agree(&server_public).unwrap();
         assert_eq!(ours, theirs);
-        assert_ne!(ours, [0; 48]);
+        assert_ne!(ours, [0; P384_COORDINATE_BYTES]);
     }
 
     #[test]
@@ -426,10 +450,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(STD.encode(bds.spki()), x5u);
-        let short = RAW_URL.encode(&[1; 47]);
-        let long = RAW_URL.encode(&[1; 49]);
-        let mut off_curve = RAW_URL.decode(&y, 48).unwrap();
-        off_curve[47] ^= 1;
+        let short = RAW_URL.encode(&[1; P384_COORDINATE_BYTES - 1]);
+        let long = RAW_URL.encode(&[1; P384_COORDINATE_BYTES + 1]);
+        let mut off_curve = RAW_URL.decode(&y, P384_COORDINATE_BYTES).unwrap();
+        *off_curve.last_mut().unwrap() ^= 1;
         for (x, y) in [
             (short.as_str(), y.as_str()),
             (x.as_str(), long.as_str()),
@@ -472,10 +496,12 @@ mod tests {
     #[test]
     fn client_keys_must_be_p384_spki() {
         let key = ServerKey::generate().unwrap();
-        let spki = STD.decode(key.public_key_base64(), 512).unwrap();
+        let spki = STD
+            .decode(key.public_key_base64(), MAX_SPKI_TEXT_BYTES)
+            .unwrap();
         assert!(PublicKey::from_base64_spki(key.public_key_base64()).is_ok());
         // The bare SEC1 point at the end of the SPKI is not accepted.
-        let point = &spki[spki.len() - 97..];
+        let point = &spki[spki.len() - (1 + 2 * P384_COORDINATE_BYTES)..];
         assert!(matches!(
             PublicKey::from_base64_spki(&STD.encode(point)),
             Err(Error::Key)

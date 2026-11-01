@@ -35,6 +35,7 @@ pub enum MetadataValue {
 }
 
 impl MetadataValue {
+    /// The wire data type of the value.
     fn data_type(&self) -> EntityDataType {
         match self {
             Self::Byte(_) => EntityDataType::Byte,
@@ -51,7 +52,9 @@ impl MetadataValue {
 }
 
 impl Reader<'_> {
-    /// `EntityMetadata`: at most [`MAX_LIST_LEN`] entries; a repeated key keeps its last value.
+    /// Reads `EntityMetadata` of at most [`MAX_LIST_LEN`] entries.
+    ///
+    /// A repeated key keeps its last value.
     pub(crate) fn entity_metadata(&mut self) -> Result<EntityMetadata> {
         let count = self.varuint32()?;
         let (first, other) = map_charges(size_of::<(u32, MetadataValue)>());
@@ -91,7 +94,7 @@ impl Reader<'_> {
 }
 
 impl Writer {
-    /// `EntityMetadata`
+    /// Writes `EntityMetadata`.
     pub(crate) fn entity_metadata(&mut self, x: &EntityMetadata) -> Result<()> {
         self.varuint32(length(x.len())?);
         for (&key, value) in x {
@@ -99,10 +102,7 @@ impl Writer {
             let data_type = u32::from(value.data_type());
             self.varuint32(data_type);
             // The legacy type byte repeats the type; every type is below 256.
-            self.uint8(u8::try_from(data_type).map_err(|_| Error::InvalidValue {
-                field: "MetadataValue type",
-                reason: "over 255",
-            })?);
+            self.uint8(data_type.to_le_bytes()[0]);
             match value {
                 MetadataValue::Byte(v) => self.uint8(*v),
                 MetadataValue::Int16(v) => self.int16(*v),
@@ -131,6 +131,18 @@ mod tests {
         w.into_inner()
     }
 
+    #[test]
+    fn entries_are_written_in_key_order_like_gophertunnel() {
+        let x = EntityMetadata::from([
+            (4, MetadataValue::String("x".to_owned())),
+            (0, MetadataValue::Byte(5)),
+            (2, MetadataValue::Int32(-1)),
+        ]);
+        let bytes = encode(&x);
+        assert_eq!(bytes, [3, 0, 0, 0, 5, 2, 2, 2, 1, 4, 4, 4, 1, b'x']);
+        assert_eq!(Reader::new(&bytes, 1 << 20, 0).entity_metadata(), Ok(x));
+    }
+
     fn every_type() -> EntityMetadata {
         EntityMetadata::from([
             (0, MetadataValue::Byte(5)),
@@ -146,18 +158,6 @@ mod tests {
             (7, MetadataValue::Int64(i64::MIN)),
             (300, MetadataValue::Vec3([1.0, 2.0, 3.0])),
         ])
-    }
-
-    #[test]
-    fn entries_are_written_in_key_order_like_gophertunnel() {
-        let x = EntityMetadata::from([
-            (4, MetadataValue::String("x".to_owned())),
-            (0, MetadataValue::Byte(5)),
-            (2, MetadataValue::Int32(-1)),
-        ]);
-        let bytes = encode(&x);
-        assert_eq!(bytes, [3, 0, 0, 0, 5, 2, 2, 2, 1, 4, 4, 4, 1, b'x']);
-        assert_eq!(Reader::new(&bytes, 1 << 20, 0).entity_metadata(), Ok(x));
     }
 
     #[test]

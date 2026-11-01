@@ -442,7 +442,7 @@ pub(crate) async fn start(
     let settings = raknet::Settings {
         max_mtu: config.developer.max_mtu_size,
         // An encrypted RakNet message adds the checksum to the batch.
-        max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM),
+        max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM_BYTES),
         accept: config.developer.raknet,
         guid,
     };
@@ -452,7 +452,7 @@ pub(crate) async fn start(
 
     let v4 = v4.map(|ip| SocketAddrV4::new(ip, general.server_port));
     let v6 = v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0));
-    let sockets = udp::Sockets::bind(v4, v6).map_err(Error::Network)?;
+    let sockets = udp::Sockets::bind(v4, v6)?;
     // The UDP task starts last: a pong then means that every listener is ready.
     let nethernet_settings = nethernet::Settings {
         signaling_v4: v4,
@@ -483,7 +483,7 @@ pub(crate) async fn start(
         Ok(raknet) => raknet,
         Err(e) => {
             nethernet.shutdown().await;
-            return Err(Error::Network(e));
+            return Err(Error::Start(std::io::Error::other(e)));
         }
     };
     let udp = udp::spawn(sockets, raknet, nethernet_driver);

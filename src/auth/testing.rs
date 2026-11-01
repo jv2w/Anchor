@@ -1,6 +1,7 @@
-//! A test issuer: an RSA key, its OpenID configuration and JWKS, and tokens it
-//! signs. Tests use it in place of the Minecraft authorization service; the engine has no test
-//! entry point.
+//! A test issuer: an RSA key, its OpenID configuration and JWKS, and the tokens it signs.
+//!
+//! Tests use it in place of the Minecraft authorization service; the engine has no test entry
+//! point.
 
 use std::sync::OnceLock;
 
@@ -12,10 +13,12 @@ use super::Keys;
 use super::document::{self, Jwks, OpenId};
 use crate::crypto::RAW_URL;
 
-/// The issuer string of the test OpenID configuration (with the trailing slash, like the real one).
+/// The issuer string of the test OpenID configuration, with the trailing slash of the real one.
 pub(crate) const ISSUER: &str = "https://issuer.test/";
 /// The `kid` of the test key.
 pub(crate) const KID: &str = "test-kid";
+
+static SHARED_ISSUER: OnceLock<Issuer> = OnceLock::new();
 
 /// A test issuer: one RSA-2048 key, generated once per test process.
 #[derive(Debug)]
@@ -26,12 +29,6 @@ pub(crate) struct Issuer {
 }
 
 impl Issuer {
-    /// The shared issuer.
-    pub(crate) fn get() -> &'static Self {
-        static ISSUER_KEY: OnceLock<Issuer> = OnceLock::new();
-        ISSUER_KEY.get_or_init(Self::generate)
-    }
-
     /// A new issuer with its own key (for "signed by another issuer" cases).
     pub(crate) fn generate() -> Self {
         #[expect(
@@ -42,6 +39,11 @@ impl Issuer {
         let (n, e) = rsa_public_numbers(key.public_key().as_ref());
         let (n, e) = (RAW_URL.encode(n), RAW_URL.encode(e));
         Self { key, n, e }
+    }
+
+    /// The shared issuer.
+    pub(crate) fn get() -> &'static Self {
+        SHARED_ISSUER.get_or_init(Self::generate)
     }
 
     /// The OpenID configuration document.
@@ -80,12 +82,12 @@ impl Issuer {
         document::keys(&openid, &jwks).unwrap()
     }
 
-    /// Signs `claims` with RS256 under `header` (which may name any `alg`).
+    /// The token of `claims` signed with RS256 under `header`, which may name any `alg`.
     pub(crate) fn sign(&self, header: &Value, claims: &Value) -> String {
         self.sign_bytes(header.to_string().as_bytes(), claims.to_string().as_bytes())
     }
 
-    /// Signs arbitrary header and payload bytes with RS256.
+    /// The token of arbitrary header and payload bytes signed with RS256.
     pub(crate) fn sign_bytes(&self, header: &[u8], claims: &[u8]) -> String {
         let mut token = RAW_URL.encode(header);
         token.push('.');
@@ -110,7 +112,7 @@ impl Issuer {
     }
 }
 
-/// Splits a PKCS#1 `RSAPublicKey` (SEQUENCE of INTEGER n, INTEGER e) into its big-endian numbers.
+/// The big-endian numbers `(n, e)` of a PKCS#1 `RSAPublicKey` (SEQUENCE of INTEGER n, INTEGER e).
 fn rsa_public_numbers(der: &[u8]) -> (&[u8], &[u8]) {
     fn element(input: &[u8], tag: u8) -> (&[u8], &[u8]) {
         assert_eq!(input[0], tag);

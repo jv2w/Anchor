@@ -1,5 +1,6 @@
-//! Item stacks and their wire forms: `Item`, `ItemInstance`, `StackRequestItem` and the shared
-//! item user data blob, plus the education edition `MaterialReducer`.
+//! Item stacks and their wire forms, and the education edition `MaterialReducer`.
+//!
+//! `Item`, `ItemInstance` and `StackRequestItem` share the item user data blob.
 
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 use crate::nbt::{Compound, Encoding};
@@ -44,8 +45,19 @@ pub struct ItemInstance {
     pub stack: ItemStack,
 }
 
-/// An item in the descriptor-based form of deprecated craft-result actions (gophertunnel
-/// `StackRequestItem`).
+impl Codec for ItemInstance {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.item_instance()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.item_instance(self)
+    }
+}
+
+/// An item in the descriptor-based form of deprecated craft-result actions.
+///
+/// This is gophertunnel `StackRequestItem`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StackRequestItem {
     /// Which item this is by name (`minecraft:stick`), or empty for none.
@@ -66,6 +78,16 @@ pub struct StackRequestItem {
     pub blocking_tick: i64,
 }
 
+impl Codec for StackRequestItem {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.stack_request_item()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.stack_request_item(self)
+    }
+}
+
 /// One output of a material reducer craft (gophertunnel `MaterialReducerOutput`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct MaterialReducerOutput {
@@ -73,6 +95,21 @@ pub struct MaterialReducerOutput {
     pub network_id: i32,
     /// The quantity of the output.
     pub count: i32,
+}
+
+impl Codec for MaterialReducerOutput {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            network_id: r.varint32()?,
+            count: r.varint32()?,
+        })
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.varint32(self.network_id);
+        w.varint32(self.count);
+        Ok(())
+    }
 }
 
 /// A craft in an education edition material reducer (gophertunnel `MaterialReducer`).
@@ -88,6 +125,16 @@ pub struct MaterialReducer {
     pub outputs: Vec<MaterialReducerOutput>,
 }
 
+impl Codec for MaterialReducer {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.material_reducer()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.material_reducer(self)
+    }
+}
+
 /// The fields of the item user data blob.
 #[derive(Default)]
 struct UserData {
@@ -97,10 +144,121 @@ struct UserData {
     blocking_tick: i64,
 }
 
+/// What follows the adventure lists in the item user data blob.
+#[derive(Debug, Clone, Copy)]
+enum UserDataTail {
+    /// Nothing.
+    Nothing,
+    /// The blocking tick of a shield.
+    BlockingTick,
+}
+
+impl From<bool> for UserDataTail {
+    /// The tail of the blob of a shield (`true`) or of any other item.
+    fn from(is_shield: bool) -> Self {
+        if is_shield {
+            Self::BlockingTick
+        } else {
+            Self::Nothing
+        }
+    }
+}
+
 impl Reader<'_> {
-    /// Reads the item user data blob. Like gophertunnel, an int16 marker other than 0 and -1
-    /// is followed directly by NBT, and bytes after the known fields are ignored.
-    fn item_user_data(&mut self, shield: bool) -> Result<UserData> {
+    /// Reads an `Item`.
+    pub(crate) fn item(&mut self) -> Result<ItemStack> {
+        let network_id = self.varint32()?;
+        let count = self.uint16()?;
+        let metadata_value = self.varuint32()?;
+        let block_runtime_id = self.varint32()?;
+        let data = self.item_user_data((network_id == self.shield_id()).into())?;
+        Ok(ItemStack {
+            item_type: ItemType {
+                network_id,
+                metadata_value,
+            },
+            block_runtime_id,
+            count,
+            nbt_data: data.nbt_data,
+            can_be_placed_on: data.can_be_placed_on,
+            can_break: data.can_break,
+            blocking_tick: data.blocking_tick,
+        })
+    }
+
+    /// Reads an `ItemInstance`.
+    pub(crate) fn item_instance(&mut self) -> Result<ItemInstance> {
+        let network_id = self.int16()?.into();
+        let count = self.uint16()?;
+        let metadata_value = self.varuint32()?;
+        let stack_network_id = if self.bool()? { self.varint32()? } else { 0 };
+        let block_runtime_id = self.varuint32()?.cast_signed();
+        let data = self.item_user_data((network_id == self.shield_id()).into())?;
+        Ok(ItemInstance {
+            stack_network_id,
+            stack: ItemStack {
+                item_type: ItemType {
+                    network_id,
+                    metadata_value,
+                },
+                block_runtime_id,
+                count,
+                nbt_data: data.nbt_data,
+                can_be_placed_on: data.can_be_placed_on,
+                can_break: data.can_break,
+                blocking_tick: data.blocking_tick,
+            },
+        })
+    }
+
+    /// Reads a `StackRequestItem`.
+    pub(crate) fn stack_request_item(&mut self) -> Result<StackRequestItem> {
+        let variant = self.varuint32()?;
+        // gophertunnel reads the legacy variant byte without checking it.
+        self.uint8()?;
+        let (identifier, metadata_value) = match variant {
+            0 => (String::new(), 0),
+            1 => (self.string()?, self.varint32()?.cast_unsigned()),
+            v => {
+                return Err(Error::UnknownEnum {
+                    name: "StackRequestItem descriptor",
+                    value: v.into(),
+                });
+            }
+        };
+        let count = self.int16()?.cast_unsigned();
+        let block_runtime_id = self.varuint32()?.cast_signed();
+        let data = self.item_user_data((identifier == SHIELD_IDENTIFIER).into())?;
+        Ok(StackRequestItem {
+            identifier,
+            metadata_value,
+            block_runtime_id,
+            count,
+            nbt_data: data.nbt_data,
+            can_be_placed_on: data.can_be_placed_on,
+            can_break: data.can_break,
+            blocking_tick: data.blocking_tick,
+        })
+    }
+
+    /// Reads a `MaterialReducer`.
+    pub(crate) fn material_reducer(&mut self) -> Result<MaterialReducer> {
+        let mix = self.varint32()?;
+        let count = self.varuint32()?;
+        Ok(MaterialReducer {
+            input_item: ItemType {
+                network_id: mix >> 16,
+                metadata_value: (mix & 0xffff).cast_unsigned(),
+            },
+            outputs: self.list(count.into(), MaterialReducerOutput::decode)?,
+        })
+    }
+
+    /// Reads the item user data blob.
+    ///
+    /// Like gophertunnel, an int16 marker other than 0 and -1 is followed directly by NBT, and
+    /// bytes after the known fields are ignored.
+    fn item_user_data(&mut self, tail: UserDataTail) -> Result<UserData> {
         let len = self.varuint32()?;
         let data = self.raw(len.into())?;
         if data.is_empty() {
@@ -126,105 +284,105 @@ impl Reader<'_> {
             x.can_be_placed_on = r.list(count.into(), Reader::string_utf)?;
             let count = r.uint32()?;
             x.can_break = r.list(count.into(), Reader::string_utf)?;
-            if shield {
+            if matches!(tail, UserDataTail::BlockingTick) {
                 x.blocking_tick = r.int64()?;
             }
             Ok(x)
         })
     }
-
-    /// `Item`
-    pub(crate) fn item(&mut self) -> Result<ItemStack> {
-        let network_id = self.varint32()?;
-        let count = self.uint16()?;
-        let metadata_value = self.varuint32()?;
-        let block_runtime_id = self.varint32()?;
-        let data = self.item_user_data(network_id == self.shield_id())?;
-        Ok(ItemStack {
-            item_type: ItemType {
-                network_id,
-                metadata_value,
-            },
-            block_runtime_id,
-            count,
-            nbt_data: data.nbt_data,
-            can_be_placed_on: data.can_be_placed_on,
-            can_break: data.can_break,
-            blocking_tick: data.blocking_tick,
-        })
-    }
-
-    /// `ItemInstance`
-    pub(crate) fn item_instance(&mut self) -> Result<ItemInstance> {
-        let network_id = self.int16()?.into();
-        let count = self.uint16()?;
-        let metadata_value = self.varuint32()?;
-        let stack_network_id = if self.bool()? { self.varint32()? } else { 0 };
-        let block_runtime_id = self.varuint32()?.cast_signed();
-        let data = self.item_user_data(network_id == self.shield_id())?;
-        Ok(ItemInstance {
-            stack_network_id,
-            stack: ItemStack {
-                item_type: ItemType {
-                    network_id,
-                    metadata_value,
-                },
-                block_runtime_id,
-                count,
-                nbt_data: data.nbt_data,
-                can_be_placed_on: data.can_be_placed_on,
-                can_break: data.can_break,
-                blocking_tick: data.blocking_tick,
-            },
-        })
-    }
-
-    /// `StackRequestItem`
-    pub(crate) fn stack_request_item(&mut self) -> Result<StackRequestItem> {
-        let variant = self.varuint32()?;
-        // gophertunnel reads the legacy variant byte without checking it.
-        self.uint8()?;
-        let (identifier, metadata_value) = match variant {
-            0 => (String::new(), 0),
-            1 => (self.string()?, self.varint32()?.cast_unsigned()),
-            v => {
-                return Err(Error::UnknownEnum {
-                    name: "StackRequestItem descriptor",
-                    value: v.into(),
-                });
-            }
-        };
-        let count = self.int16()?.cast_unsigned();
-        let block_runtime_id = self.varuint32()?.cast_signed();
-        let data = self.item_user_data(identifier == SHIELD_IDENTIFIER)?;
-        Ok(StackRequestItem {
-            identifier,
-            metadata_value,
-            block_runtime_id,
-            count,
-            nbt_data: data.nbt_data,
-            can_be_placed_on: data.can_be_placed_on,
-            can_break: data.can_break,
-            blocking_tick: data.blocking_tick,
-        })
-    }
-
-    /// `MaterialReducer`
-    pub(crate) fn material_reducer(&mut self) -> Result<MaterialReducer> {
-        let mix = self.varint32()?;
-        let count = self.varuint32()?;
-        Ok(MaterialReducer {
-            input_item: ItemType {
-                network_id: mix >> 16,
-                metadata_value: (mix & 0xffff).cast_unsigned(),
-            },
-            outputs: self.list(count.into(), MaterialReducerOutput::decode)?,
-        })
-    }
 }
 
 impl Writer {
-    /// Writes the item user data blob; `blocking_tick` is `Some` for shields.
+    /// Writes an `Item`.
+    pub(crate) fn item(&mut self, x: &ItemStack) -> Result<()> {
+        self.varint32(x.item_type.network_id);
+        self.uint16(x.count);
+        self.varuint32(x.item_type.metadata_value);
+        self.varint32(x.block_runtime_id);
+        self.stack_user_data(x)
+    }
+
+    /// Writes an `ItemInstance`, failing if the network ID does not fit an int16.
+    pub(crate) fn item_instance(&mut self, x: &ItemInstance) -> Result<()> {
+        let stack = &x.stack;
+        let network_id =
+            i16::try_from(stack.item_type.network_id).map_err(|_| Error::InvalidValue {
+                field: "item instance network id",
+                reason: "outside int16",
+            })?;
+        self.int16(network_id);
+        self.uint16(stack.count);
+        self.varuint32(stack.item_type.metadata_value);
+        self.bool(x.stack_network_id != 0);
+        if x.stack_network_id != 0 {
+            self.varint32(x.stack_network_id);
+        }
+        self.varuint32(stack.block_runtime_id.cast_unsigned());
+        self.stack_user_data(stack)
+    }
+
+    /// Writes a `StackRequestItem`.
+    pub(crate) fn stack_request_item(&mut self, x: &StackRequestItem) -> Result<()> {
+        let has_item = !x.identifier.is_empty();
+        self.varuint32(has_item.into());
+        self.uint8(has_item.into());
+        if has_item {
+            self.string(&x.identifier)?;
+            self.varint32(x.metadata_value.cast_signed());
+        }
+        self.int16(x.count.cast_signed());
+        self.varuint32(x.block_runtime_id.cast_unsigned());
+        if !has_item {
+            self.varuint32(0);
+            return Ok(());
+        }
+        let shield = x.identifier == SHIELD_IDENTIFIER;
+        self.item_user_data(
+            &x.nbt_data,
+            &x.can_be_placed_on,
+            &x.can_break,
+            shield.then_some(x.blocking_tick),
+        )
+    }
+
+    /// Writes a `MaterialReducer`.
+    ///
+    /// Fails if the input's network ID does not fit an int16 or its metadata a uint16.
+    pub(crate) fn material_reducer(&mut self, x: &MaterialReducer) -> Result<()> {
+        let id = i16::try_from(x.input_item.network_id);
+        let meta = u16::try_from(x.input_item.metadata_value);
+        let (Ok(id), Ok(meta)) = (id, meta) else {
+            return Err(Error::InvalidValue {
+                field: "material reducer input",
+                reason: "network id outside int16 or metadata outside uint16",
+            });
+        };
+        self.varint32((i32::from(id) << 16) | i32::from(meta));
+        self.varuint32(length(x.outputs.len())?);
+        for output in &x.outputs {
+            output.encode(self)?;
+        }
+        Ok(())
+    }
+
+    /// Writes the user data of a stack, or an empty blob for air.
+    fn stack_user_data(&mut self, x: &ItemStack) -> Result<()> {
+        if x.item_type.network_id == 0 {
+            self.varuint32(0);
+            return Ok(());
+        }
+        let shield = x.item_type.network_id == self.shield_id();
+        self.item_user_data(
+            &x.nbt_data,
+            &x.can_be_placed_on,
+            &x.can_break,
+            shield.then_some(x.blocking_tick),
+        )
+    }
+
+    /// Writes the item user data blob.
+    ///
+    /// `blocking_tick` is `Some` for shields.
     fn item_user_data(
         &mut self,
         nbt_data: &Compound,
@@ -252,137 +410,6 @@ impl Writer {
             Ok(())
         })
     }
-
-    /// Writes the user data of a stack, or an empty blob for air.
-    fn stack_user_data(&mut self, x: &ItemStack) -> Result<()> {
-        if x.item_type.network_id == 0 {
-            self.varuint32(0);
-            return Ok(());
-        }
-        let shield = x.item_type.network_id == self.shield_id();
-        self.item_user_data(
-            &x.nbt_data,
-            &x.can_be_placed_on,
-            &x.can_break,
-            shield.then_some(x.blocking_tick),
-        )
-    }
-
-    /// `Item`
-    pub(crate) fn item(&mut self, x: &ItemStack) -> Result<()> {
-        self.varint32(x.item_type.network_id);
-        self.uint16(x.count);
-        self.varuint32(x.item_type.metadata_value);
-        self.varint32(x.block_runtime_id);
-        self.stack_user_data(x)
-    }
-
-    /// `ItemInstance`: fails if the network ID does not fit an int16.
-    pub(crate) fn item_instance(&mut self, x: &ItemInstance) -> Result<()> {
-        let stack = &x.stack;
-        let network_id =
-            i16::try_from(stack.item_type.network_id).map_err(|_| Error::InvalidValue {
-                field: "item instance network id",
-                reason: "outside int16",
-            })?;
-        self.int16(network_id);
-        self.uint16(stack.count);
-        self.varuint32(stack.item_type.metadata_value);
-        self.bool(x.stack_network_id != 0);
-        if x.stack_network_id != 0 {
-            self.varint32(x.stack_network_id);
-        }
-        self.varuint32(stack.block_runtime_id.cast_unsigned());
-        self.stack_user_data(stack)
-    }
-
-    /// `StackRequestItem`
-    pub(crate) fn stack_request_item(&mut self, x: &StackRequestItem) -> Result<()> {
-        let has_item = !x.identifier.is_empty();
-        self.varuint32(has_item.into());
-        self.uint8(has_item.into());
-        if has_item {
-            self.string(&x.identifier)?;
-            self.varint32(x.metadata_value.cast_signed());
-        }
-        self.int16(x.count.cast_signed());
-        self.varuint32(x.block_runtime_id.cast_unsigned());
-        if !has_item {
-            self.varuint32(0);
-            return Ok(());
-        }
-        let shield = x.identifier == SHIELD_IDENTIFIER;
-        self.item_user_data(
-            &x.nbt_data,
-            &x.can_be_placed_on,
-            &x.can_break,
-            shield.then_some(x.blocking_tick),
-        )
-    }
-
-    /// `MaterialReducer`: fails if the input's network ID does not fit an int16 or its
-    /// metadata a uint16.
-    pub(crate) fn material_reducer(&mut self, x: &MaterialReducer) -> Result<()> {
-        let id = i16::try_from(x.input_item.network_id);
-        let meta = u16::try_from(x.input_item.metadata_value);
-        let (Ok(id), Ok(meta)) = (id, meta) else {
-            return Err(Error::InvalidValue {
-                field: "material reducer input",
-                reason: "network id outside int16 or metadata outside uint16",
-            });
-        };
-        self.varint32((i32::from(id) << 16) | i32::from(meta));
-        self.varuint32(length(x.outputs.len())?);
-        for output in &x.outputs {
-            output.encode(self)?;
-        }
-        Ok(())
-    }
-}
-
-impl Codec for ItemInstance {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        r.item_instance()
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.item_instance(self)
-    }
-}
-
-impl Codec for StackRequestItem {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        r.stack_request_item()
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.stack_request_item(self)
-    }
-}
-
-impl Codec for MaterialReducer {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        r.material_reducer()
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.material_reducer(self)
-    }
-}
-
-impl Codec for MaterialReducerOutput {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Ok(Self {
-            network_id: r.varint32()?,
-            count: r.varint32()?,
-        })
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varint32(self.network_id);
-        w.varint32(self.count);
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -391,8 +418,8 @@ mod tests {
     use crate::nbt::Value;
     use crate::protocol::fuzz_round_trip;
 
-    const SHIELD: i32 = 357;
     const BUDGET: usize = 1 << 20;
+    const SHIELD: i32 = 357;
 
     fn shield_stack() -> ItemStack {
         ItemStack {
@@ -404,21 +431,6 @@ mod tests {
             can_break: vec!["a".to_owned()],
             blocking_tick: 0x0102,
             ..ItemStack::default()
-        }
-    }
-
-    fn rich_stack() -> ItemStack {
-        ItemStack {
-            item_type: ItemType {
-                network_id: 5,
-                metadata_value: 3,
-            },
-            block_runtime_id: -7,
-            count: 64,
-            nbt_data: Compound::from([("x".to_owned(), Value::Int(1))]),
-            can_be_placed_on: vec!["minecraft:stone".to_owned()],
-            can_break: vec!["minecraft:dirt".to_owned(), "b".to_owned()],
-            blocking_tick: 0,
         }
     }
 
@@ -450,6 +462,21 @@ mod tests {
         // Without the shield ID the blocking tick is not read and the extra bytes are ignored.
         let other = Reader::new(&bytes, BUDGET, 0).item().unwrap();
         assert_eq!(other.blocking_tick, 0);
+    }
+
+    fn rich_stack() -> ItemStack {
+        ItemStack {
+            item_type: ItemType {
+                network_id: 5,
+                metadata_value: 3,
+            },
+            block_runtime_id: -7,
+            count: 64,
+            nbt_data: Compound::from([("x".to_owned(), Value::Int(1))]),
+            can_be_placed_on: vec!["minecraft:stone".to_owned()],
+            can_break: vec!["minecraft:dirt".to_owned(), "b".to_owned()],
+            blocking_tick: 0,
+        }
     }
 
     #[test]
@@ -486,7 +513,7 @@ mod tests {
             let mut w = Writer::new(Vec::new(), SHIELD);
             w.item_instance(&x).unwrap();
             let bytes = w.into_inner();
-            assert_eq!(bytes[..2], 5i16.to_le_bytes());
+            assert_eq!(bytes[..2], 5_i16.to_le_bytes());
             assert_eq!(Reader::new(&bytes, BUDGET, SHIELD).item_instance(), Ok(x));
         }
         let wide = ItemInstance {

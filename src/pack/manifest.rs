@@ -135,7 +135,7 @@ fn parse(bytes: &[u8]) -> Result<Manifest> {
     let text = std::str::from_utf8(bytes).map_err(|e| Error::Manifest(Box::new(e)))?;
     let json: Json =
         serde_json::from_str(&strip(text)).map_err(|e| Error::Manifest(Box::new(e)))?;
-    let uuid = crate::login::parse_uuid(&json.header.uuid).ok_or(Error::Uuid)?;
+    let uuid = json.header.uuid.parse().ok().ok_or(Error::Uuid)?;
     let version = json.header.version.canonical().ok_or(Error::Version)?;
     let has = |types: &[&str]| {
         json.modules
@@ -253,7 +253,7 @@ mod tests {
         let m = manifest(&sample("[1, 2, 3]", RESOURCES)).unwrap();
         assert_eq!(m.name, "Test");
         assert_eq!(m.version, "1.2.3");
-        assert_eq!(m.uuid, crate::login::parse_uuid(UUID).unwrap());
+        assert_eq!(m.uuid, UUID.parse().unwrap());
         assert!(m.textures && !m.behaviours && !m.scripts);
     }
 

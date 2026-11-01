@@ -2,12 +2,15 @@
 //! aws-lc-rs has no MD5, and the input is a short public string, so speed and collision
 //! resistance do not matter here.
 
+/// Bytes in a message block.
+const BLOCK_BYTES: usize = 64;
+/// Where the message length starts in the last block: the length fills its final 8 bytes.
+const LENGTH_OFFSET_BYTES: usize = 56;
 const SHIFTS: [u32; 64] = [
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
     14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
     21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 ];
-
 const SINES: [u32; 64] = [
     0xd76a_a478,
     0xe8c7_b756,
@@ -77,53 +80,27 @@ const SINES: [u32; 64] = [
 
 /// The MD5 digest of the concatenation of `parts`.
 pub(crate) fn md5(parts: &[&[u8]]) -> [u8; 16] {
-    let mut hasher = Hasher {
-        state: [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476],
-        block: [0; 64],
-        filled: 0,
-    };
-    let mut bits = 0u64;
-    for part in parts {
-        for &byte in *part {
-            hasher.push(byte);
-            bits = bits.wrapping_add(8);
-        }
+    let mut message = parts.concat();
+    let bits = (message.len() as u64).wrapping_mul(8);
+    message.push(0x80);
+    while message.len() % BLOCK_BYTES != LENGTH_OFFSET_BYTES {
+        message.push(0);
     }
-    hasher.push(0x80);
-    while hasher.filled != 56 {
-        hasher.push(0);
+    message.extend_from_slice(&bits.to_le_bytes());
+    let mut state = [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476];
+    for block in message.as_chunks::<BLOCK_BYTES>().0 {
+        compress(&mut state, block);
     }
-    for byte in bits.to_le_bytes() {
-        hasher.push(byte);
-    }
-    let mut out = [0u8; 16];
-    for (chunk, word) in out.as_chunks_mut::<4>().0.iter_mut().zip(hasher.state) {
+    let mut digest = [0_u8; 16];
+    for (chunk, word) in digest.as_chunks_mut::<4>().0.iter_mut().zip(state) {
         *chunk = word.to_le_bytes();
     }
-    out
+    digest
 }
 
-struct Hasher {
-    state: [u32; 4],
-    block: [u8; 64],
-    filled: usize,
-}
-
-impl Hasher {
-    fn push(&mut self, byte: u8) {
-        if let Some(slot) = self.block.get_mut(self.filled) {
-            *slot = byte;
-        }
-        self.filled += 1;
-        if self.filled == self.block.len() {
-            compress(&mut self.state, &self.block);
-            self.filled = 0;
-        }
-    }
-}
-
-fn compress(state: &mut [u32; 4], block: &[u8; 64]) {
-    let mut words = [0u32; 16];
+/// Mixes one message block into the state.
+fn compress(state: &mut [u32; 4], block: &[u8; BLOCK_BYTES]) {
+    let mut words = [0_u32; 16];
     for (word, bytes) in words.iter_mut().zip(block.as_chunks::<4>().0) {
         *word = u32::from_le_bytes(*bytes);
     }
@@ -136,7 +113,11 @@ fn compress(state: &mut [u32; 4], block: &[u8; 64]) {
             2 => (rb ^ rc ^ rd, (3 * i + 5) % 16),
             _ => (rc ^ (rb | !rd), (7 * i) % 16),
         };
-        let word = words.get(index).copied().unwrap_or(0);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every message index is reduced modulo the 16 words"
+        )]
+        let word = words[index];
         let rotated = ra
             .wrapping_add(mixed)
             .wrapping_add(sine)
@@ -154,13 +135,7 @@ fn compress(state: &mut [u32; 4], block: &[u8; 64]) {
 mod tests {
     use super::*;
 
-    fn hex(bytes: &[u8]) -> String {
-        use std::fmt::Write as _;
-        bytes.iter().fold(String::new(), |mut s, b| {
-            write!(s, "{b:02x}").unwrap();
-            s
-        })
-    }
+    use crate::crypto::tests::hex;
 
     #[test]
     fn digests_match_rfc_1321_vectors() {

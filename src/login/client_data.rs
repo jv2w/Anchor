@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
-use super::{Error, Result, parse_uuid};
+use super::{Error, Result};
 use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
@@ -145,7 +145,10 @@ pub(crate) struct ClientData {
 impl ClientData {
     /// Verifies the client data JWT with the client's key and validates the claims.
     pub(crate) fn verify(token: &str, key: &PublicKey) -> Result<Self> {
-        let jws = parse_jws(token, token.len()).map_err(|e| Error::Crypto("client data", e))?;
+        let jws = parse_jws(token, token.len()).map_err(|source| Error::Crypto {
+            part: "client data",
+            source,
+        })?;
         if jws.header.alg != Algorithm::Es384 {
             return Err(Error::Algorithm("client data"));
         }
@@ -155,8 +158,10 @@ impl ClientData {
 
     /// Parses and validates the claims JSON.
     pub(super) fn from_json(payload: &[u8]) -> Result<Self> {
-        let mut data: Self =
-            serde_json::from_slice(payload).map_err(|e| Error::Json("client data", e))?;
+        let mut data: Self = serde_json::from_slice(payload).map_err(|source| Error::Json {
+            part: "client data",
+            source,
+        })?;
         data.bracket_ipv6_address();
         data.validate()?;
         Ok(data)
@@ -233,7 +238,7 @@ impl ClientData {
                 .map(|p| protocol::PersonaPiece {
                     piece_id: p.piece_id.clone(),
                     piece_type: piece_type(&p.piece_type),
-                    pack_id: parse_uuid(&p.pack_id).unwrap_or_default(),
+                    pack_id: p.pack_id.parse().unwrap_or_default(),
                     default: p.is_default,
                     product_id: p.product_id.clone(),
                 })
@@ -288,13 +293,16 @@ impl ClientData {
         if !is_language_tag(&self.language_code) {
             return Err(Error::ClientData("LanguageCode"));
         }
-        if !self.platform_offline_id.is_empty() && parse_uuid(&self.platform_offline_id).is_none() {
+        if !self.platform_offline_id.is_empty()
+            && self.platform_offline_id.parse::<protocol::Uuid>().is_err()
+        {
             return Err(Error::ClientData("PlatformOfflineId"));
         }
         if !self.platform_online_id.is_empty() && self.platform_online_id.parse::<u64>().is_err() {
             return Err(Error::ClientData("PlatformOnlineId"));
         }
-        if !self.self_signed_id.is_empty() && parse_uuid(&self.self_signed_id).is_none() {
+        if !self.self_signed_id.is_empty() && self.self_signed_id.parse::<protocol::Uuid>().is_err()
+        {
             return Err(Error::ClientData("SelfSignedId"));
         }
         if !is_server_address(&self.server_address) {

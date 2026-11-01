@@ -40,13 +40,13 @@ pub(super) const FLAG_NAK: u8 = 0x20;
 pub(super) const FLAG_NEEDS_B_AND_AS: u8 = 0x04;
 
 /// IP and UDP header bytes that an MTU includes. RakNet and go-raknet count 28 for IPv6 too.
-pub(super) const UDP_HEADER: usize = 28;
+pub(super) const UDP_HEADER_BYTES: usize = 28;
 /// Flags byte and 24-bit sequence number of a data datagram.
-pub(super) const DATAGRAM_HEADER: usize = 4;
+pub(super) const DATAGRAM_HEADER_BYTES: usize = 4;
 /// Split count, split ID and split index of a fragment.
-const SPLIT_HEADER: usize = 10;
+const SPLIT_HEADER_BYTES: usize = 10;
 /// The largest frame header: flags, length, message, sequence and order indices, channel, split.
-pub(super) const MAX_FRAME_HEADER: usize = 3 + 3 + 3 + 4 + SPLIT_HEADER;
+pub(super) const MAX_FRAME_HEADER_BYTES: usize = 3 + 3 + 3 + 4 + SPLIT_HEADER_BYTES;
 /// RakNet ordering channels (`NUMBER_OF_ORDERED_STREAMS`).
 pub(super) const CHANNELS: usize = 32;
 
@@ -60,21 +60,6 @@ const UNSET_ADDRESS: [u8; 7] = [4, 0xff, 0xff, 0xff, 0xff, 0, 0];
 const SYSTEM_ADDRESSES: usize = 20;
 /// Address family that go-raknet writes for IPv6 addresses (`AF_INET6` on Windows).
 const AF_INET6: u16 = 23;
-
-/// How far `index` is ahead of `base` in 24-bit serial arithmetic, or `None` if it is behind.
-pub(super) fn u24_ahead(index: u32, base: u32) -> Option<u32> {
-    let distance = index.wrapping_sub(base) & U24_MASK;
-    (distance < U24_HALF).then_some(distance)
-}
-
-/// The low 24 bits of `value`.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "invariant: the value is masked to 24 bits first"
-)]
-pub(super) fn low24(value: u64) -> u32 {
-    (value & u64::from(U24_MASK)) as u32
-}
 
 /// Reads big-endian numbers (and little-endian 24-bit ones) from a byte slice.
 #[derive(Debug)]
@@ -153,99 +138,9 @@ impl<'a> Cursor<'a> {
     }
 }
 
-pub(super) fn put_u24(buf: &mut Vec<u8>, value: u32) {
-    let [a, b, c, _] = value.to_le_bytes();
-    buf.extend_from_slice(&[a, b, c]);
-}
-
-/// Writes an address as go-raknet `putAddr` does (IPv4-mapped IPv6 as IPv4).
-pub(super) fn put_address(buf: &mut Vec<u8>, addr: SocketAddr) {
-    match addr.ip().to_canonical() {
-        IpAddr::V4(ip) => {
-            buf.push(4);
-            buf.extend(ip.octets().map(|octet| !octet));
-        }
-        IpAddr::V6(ip) => {
-            buf.push(6);
-            buf.extend_from_slice(&AF_INET6.to_le_bytes());
-            buf.extend_from_slice(&addr.port().to_be_bytes());
-            buf.extend_from_slice(&[0; 4]);
-            buf.extend_from_slice(&ip.octets());
-            buf.extend_from_slice(&[0; 4]);
-            return;
-        }
-    }
-    buf.extend_from_slice(&addr.port().to_be_bytes());
-}
-
-pub(super) fn unconnected_pong(
-    buf: &mut Vec<u8>,
-    ping_time: [u8; 8],
-    guid: u64,
-    data: &[u8],
-) -> Result<()> {
-    let len = u16::try_from(data.len()).map_err(|_| Error::Limit("pong data length"))?;
-    buf.push(ID_UNCONNECTED_PONG);
-    buf.extend_from_slice(&ping_time);
-    buf.extend_from_slice(&guid.to_be_bytes());
-    buf.extend_from_slice(&MAGIC);
-    buf.extend_from_slice(&len.to_be_bytes());
-    buf.extend_from_slice(data);
-    Ok(())
-}
-
-/// `OpenConnectionReply1` with security off and no cookie, as BDS 1.26.52 sends it.
-pub(super) fn open_connection_reply_1(buf: &mut Vec<u8>, guid: u64, mtu: u16) {
-    buf.push(ID_OPEN_CONNECTION_REPLY_1);
-    buf.extend_from_slice(&MAGIC);
-    buf.extend_from_slice(&guid.to_be_bytes());
-    buf.push(0);
-    buf.extend_from_slice(&mtu.to_be_bytes());
-}
-
-pub(super) fn open_connection_reply_2(buf: &mut Vec<u8>, guid: u64, client: SocketAddr, mtu: u16) {
-    buf.push(ID_OPEN_CONNECTION_REPLY_2);
-    buf.extend_from_slice(&MAGIC);
-    buf.extend_from_slice(&guid.to_be_bytes());
-    put_address(buf, client);
-    buf.extend_from_slice(&mtu.to_be_bytes());
-    buf.push(0);
-}
-
-pub(super) fn incompatible_protocol_version(buf: &mut Vec<u8>, guid: u64) {
-    buf.push(ID_INCOMPATIBLE_PROTOCOL_VERSION);
-    buf.push(PROTOCOL_VERSION);
-    buf.extend_from_slice(&MAGIC);
-    buf.extend_from_slice(&guid.to_be_bytes());
-}
-
-/// RakNet's reply to `OpenConnectionRequest2` when it has no free slot: ID, magic, GUID.
-pub(super) fn no_free_incoming_connections(buf: &mut Vec<u8>, guid: u64) {
-    buf.push(ID_NO_FREE_INCOMING_CONNECTIONS);
-    buf.extend_from_slice(&MAGIC);
-    buf.extend_from_slice(&guid.to_be_bytes());
-}
-
-/// The body (after the ID) of `ConnectionRequestAccepted`.
-pub(super) fn connection_request_accepted(
-    client: SocketAddr,
-    request_time: u64,
-    accepted_time: u64,
-) -> Vec<u8> {
-    let mut body = Vec::with_capacity(29 + 2 + SYSTEM_ADDRESSES * UNSET_ADDRESS.len() + 16);
-    put_address(&mut body, client);
-    body.extend_from_slice(&0_u16.to_be_bytes());
-    for _ in 0..SYSTEM_ADDRESSES {
-        body.extend_from_slice(&UNSET_ADDRESS);
-    }
-    body.extend_from_slice(&request_time.to_be_bytes());
-    body.extend_from_slice(&accepted_time.to_be_bytes());
-    body
-}
-
 /// How RakNet promises to deliver a frame. Wire values 5 to 7 (the "with ACK receipt" forms) are
 /// read as 0, 2 and 3, as RakNet writes them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Reliability {
     Unreliable,
     UnreliableSequenced,
@@ -255,6 +150,23 @@ pub(super) enum Reliability {
 }
 
 impl Reliability {
+    /// Whether a frame carries a message index and is resent until acknowledged.
+    pub(super) fn is_reliable(self) -> bool {
+        matches!(
+            self,
+            Self::Reliable | Self::ReliableOrdered | Self::ReliableSequenced
+        )
+    }
+
+    pub(super) fn is_sequenced(self) -> bool {
+        matches!(self, Self::UnreliableSequenced | Self::ReliableSequenced)
+    }
+
+    /// Whether a frame carries an order index and channel.
+    pub(super) fn has_order(self) -> bool {
+        self.is_sequenced() || self == Self::ReliableOrdered
+    }
+
     fn from_bits(bits: u8) -> Self {
         match bits {
             0 | 5 => Self::Unreliable,
@@ -274,27 +186,10 @@ impl Reliability {
             Self::ReliableSequenced => 4,
         }
     }
-
-    /// Carries a message index and is resent until acknowledged.
-    pub(super) fn is_reliable(self) -> bool {
-        matches!(
-            self,
-            Self::Reliable | Self::ReliableOrdered | Self::ReliableSequenced
-        )
-    }
-
-    pub(super) fn is_sequenced(self) -> bool {
-        matches!(self, Self::UnreliableSequenced | Self::ReliableSequenced)
-    }
-
-    /// Carries an order index and channel.
-    pub(super) fn has_order(self) -> bool {
-        self.is_sequenced() || self == Self::ReliableOrdered
-    }
 }
 
 /// The fragment fields of a split frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Split {
     pub(super) count: u32,
     pub(super) id: u16,
@@ -302,7 +197,7 @@ pub(super) struct Split {
 }
 
 /// The header of one frame (go-raknet `packet`) inside a data datagram.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Header {
     pub(super) reliability: Reliability,
     pub(super) message_index: u32,
@@ -313,54 +208,8 @@ pub(super) struct Header {
 }
 
 impl Header {
-    /// Header bytes for a frame with `reliability`, split or not.
-    pub(super) fn encoded_len(reliability: Reliability, split: bool) -> usize {
-        let mut len = 3;
-        if reliability.is_reliable() {
-            len += 3;
-        }
-        if reliability.is_sequenced() {
-            len += 3;
-        }
-        if reliability.has_order() {
-            len += 4;
-        }
-        if split {
-            len += SPLIT_HEADER;
-        }
-        len
-    }
-
-    /// Writes the header of a frame whose body is `len` bytes.
-    pub(super) fn write(&self, buf: &mut Vec<u8>, len: u16) -> Result<()> {
-        let mut flags = self.reliability.bits() << 5;
-        if self.split.is_some() {
-            flags |= 0x10;
-        }
-        buf.push(flags);
-        let bits = len
-            .checked_mul(8)
-            .ok_or(Error::Invariant("frame longer than 8191 bytes"))?;
-        buf.extend_from_slice(&bits.to_be_bytes());
-        if self.reliability.is_reliable() {
-            put_u24(buf, self.message_index);
-        }
-        if self.reliability.is_sequenced() {
-            put_u24(buf, self.sequence_index);
-        }
-        if self.reliability.has_order() {
-            put_u24(buf, self.order_index);
-            buf.push(self.channel);
-        }
-        if let Some(split) = self.split {
-            buf.extend_from_slice(&split.count.to_be_bytes());
-            buf.extend_from_slice(&split.id.to_be_bytes());
-            buf.extend_from_slice(&split.index.to_be_bytes());
-        }
-        Ok(())
-    }
-
-    /// Reads one frame: its header and body. The length is in bits and rounds up, as in RakNet.
+    /// One frame read from `cur`: its header and body. The length is in bits and rounds up, as in
+    /// RakNet.
     pub(super) fn read<'a>(cur: &mut Cursor<'a>) -> Result<(Self, &'a [u8])> {
         let flags = cur.u8()?;
         let reliability = Reliability::from_bits(flags >> 5);
@@ -398,6 +247,141 @@ impl Header {
         }
         Ok((header, cur.take(len)?))
     }
+
+    /// The header bytes of a frame with `reliability`, split or not.
+    pub(super) fn encoded_len(reliability: Reliability, split: bool) -> usize {
+        let mut len = 3;
+        if reliability.is_reliable() {
+            len += 3;
+        }
+        if reliability.is_sequenced() {
+            len += 3;
+        }
+        if reliability.has_order() {
+            len += 4;
+        }
+        if split {
+            len += SPLIT_HEADER_BYTES;
+        }
+        len
+    }
+
+    /// Writes the header of a frame whose body is `len` bytes.
+    pub(super) fn write(&self, buf: &mut Vec<u8>, len: u16) -> Result<()> {
+        let mut flags = self.reliability.bits() << 5;
+        if self.split.is_some() {
+            flags |= 0x10;
+        }
+        buf.push(flags);
+        let bits = len
+            .checked_mul(8)
+            .ok_or(Error::Invariant("frame longer than 8191 bytes"))?;
+        buf.extend_from_slice(&bits.to_be_bytes());
+        if self.reliability.is_reliable() {
+            put_u24(buf, self.message_index);
+        }
+        if self.reliability.is_sequenced() {
+            put_u24(buf, self.sequence_index);
+        }
+        if self.reliability.has_order() {
+            put_u24(buf, self.order_index);
+            buf.push(self.channel);
+        }
+        if let Some(split) = self.split {
+            buf.extend_from_slice(&split.count.to_be_bytes());
+            buf.extend_from_slice(&split.id.to_be_bytes());
+            buf.extend_from_slice(&split.index.to_be_bytes());
+        }
+        Ok(())
+    }
+}
+
+/// Writes `UnconnectedPong` with the server list status `data`.
+pub(super) fn unconnected_pong(
+    buf: &mut Vec<u8>,
+    ping_time: [u8; 8],
+    guid: u64,
+    data: &[u8],
+) -> Result<()> {
+    let len = u16::try_from(data.len()).map_err(|_| Error::Limit("pong data length"))?;
+    buf.push(ID_UNCONNECTED_PONG);
+    buf.extend_from_slice(&ping_time);
+    buf.extend_from_slice(&guid.to_be_bytes());
+    buf.extend_from_slice(&MAGIC);
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(data);
+    Ok(())
+}
+
+/// Writes `OpenConnectionReply1` with security off and no cookie, as BDS 1.26.52 sends it.
+pub(super) fn open_connection_reply_1(buf: &mut Vec<u8>, guid: u64, mtu: u16) {
+    buf.push(ID_OPEN_CONNECTION_REPLY_1);
+    buf.extend_from_slice(&MAGIC);
+    buf.extend_from_slice(&guid.to_be_bytes());
+    buf.push(0);
+    buf.extend_from_slice(&mtu.to_be_bytes());
+}
+
+/// Writes `OpenConnectionReply2`.
+pub(super) fn open_connection_reply_2(buf: &mut Vec<u8>, guid: u64, client: SocketAddr, mtu: u16) {
+    buf.push(ID_OPEN_CONNECTION_REPLY_2);
+    buf.extend_from_slice(&MAGIC);
+    buf.extend_from_slice(&guid.to_be_bytes());
+    put_address(buf, client);
+    buf.extend_from_slice(&mtu.to_be_bytes());
+    buf.push(0);
+}
+
+/// Writes `IncompatibleProtocolVersion`.
+pub(super) fn incompatible_protocol_version(buf: &mut Vec<u8>, guid: u64) {
+    buf.push(ID_INCOMPATIBLE_PROTOCOL_VERSION);
+    buf.push(PROTOCOL_VERSION);
+    buf.extend_from_slice(&MAGIC);
+    buf.extend_from_slice(&guid.to_be_bytes());
+}
+
+/// Writes RakNet's reply to `OpenConnectionRequest2` when it has no free slot: ID, magic, GUID.
+pub(super) fn no_free_incoming_connections(buf: &mut Vec<u8>, guid: u64) {
+    buf.push(ID_NO_FREE_INCOMING_CONNECTIONS);
+    buf.extend_from_slice(&MAGIC);
+    buf.extend_from_slice(&guid.to_be_bytes());
+}
+
+/// The body (after the ID) of `ConnectionRequestAccepted`.
+pub(super) fn connection_request_accepted(
+    client: SocketAddr,
+    request_time: u64,
+    accepted_time: u64,
+) -> Vec<u8> {
+    let mut body = Vec::with_capacity(29 + 2 + SYSTEM_ADDRESSES * UNSET_ADDRESS.len() + 16);
+    put_address(&mut body, client);
+    body.extend_from_slice(&0_u16.to_be_bytes());
+    for _ in 0..SYSTEM_ADDRESSES {
+        body.extend_from_slice(&UNSET_ADDRESS);
+    }
+    body.extend_from_slice(&request_time.to_be_bytes());
+    body.extend_from_slice(&accepted_time.to_be_bytes());
+    body
+}
+
+/// Writes an address as go-raknet `putAddr` does (IPv4-mapped IPv6 as IPv4).
+pub(super) fn put_address(buf: &mut Vec<u8>, addr: SocketAddr) {
+    match addr.ip().to_canonical() {
+        IpAddr::V4(ip) => {
+            buf.push(4);
+            buf.extend(ip.octets().map(|octet| !octet));
+        }
+        IpAddr::V6(ip) => {
+            buf.push(6);
+            buf.extend_from_slice(&AF_INET6.to_le_bytes());
+            buf.extend_from_slice(&addr.port().to_be_bytes());
+            buf.extend_from_slice(&[0; 4]);
+            buf.extend_from_slice(&ip.octets());
+            buf.extend_from_slice(&[0; 4]);
+            return;
+        }
+    }
+    buf.extend_from_slice(&addr.port().to_be_bytes());
 }
 
 /// Writes an ACK or NAK (`flag`) with as many of the inclusive `ranges` as fit in `max_len`
@@ -453,4 +437,24 @@ pub(super) fn read_ranges(
         }
     }
     Ok(())
+}
+
+pub(super) fn put_u24(buf: &mut Vec<u8>, value: u32) {
+    let [a, b, c, _] = value.to_le_bytes();
+    buf.extend_from_slice(&[a, b, c]);
+}
+
+/// How far `index` is ahead of `base` in 24-bit serial arithmetic, or `None` if it is behind.
+pub(super) fn u24_ahead(index: u32, base: u32) -> Option<u32> {
+    let distance = index.wrapping_sub(base) & U24_MASK;
+    (distance < U24_HALF).then_some(distance)
+}
+
+/// The low 24 bits of `value`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "invariant: the value is masked to 24 bits first"
+)]
+pub(super) fn low24(value: u64) -> u32 {
+    (value & u64::from(U24_MASK)) as u32
 }

@@ -8,19 +8,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::wire::{
-    self, CHANNELS, Cursor, DATAGRAM_HEADER, FLAG_ACK, FLAG_DATAGRAM, FLAG_NAK,
-    FLAG_NEEDS_B_AND_AS, Header, MAX_FRAME_HEADER, Reliability, Split, U24_MASK, UDP_HEADER,
+    self, CHANNELS, Cursor, DATAGRAM_HEADER_BYTES, FLAG_ACK, FLAG_DATAGRAM, FLAG_NAK,
+    FLAG_NEEDS_B_AND_AS, Header, MAX_FRAME_HEADER_BYTES, Reliability, Split, U24_MASK,
+    UDP_HEADER_BYTES,
 };
-use super::{Error, Result};
+use super::{Error, MAX_UNSENT_BYTES, Result};
 
 /// The smallest MTU a client may negotiate: go-raknet's server floor (`minMTUSize`). Its dialer
 /// never asks for less than 576; a request below 400 gets no reply instead of a silent clamp.
 pub(super) const MIN_MTU: u16 = 400;
 /// The largest MTU (go-raknet `maxMTUSize`), also the top of `max-mtu-size`.
-pub(super) const MAX_MTU: u16 = 1492;
+pub(crate) const MAX_MTU: u16 = 1492;
 /// The smallest full fragment: a datagram at `MIN_MTU` without IP/UDP, datagram and frame
 /// headers. Dividing the message limit by it bounds the fragments of any honest sender.
-const MIN_FRAGMENT: usize = MIN_MTU as usize - UDP_HEADER - DATAGRAM_HEADER - MAX_FRAME_HEADER;
+const MIN_FRAGMENT_BYTES: usize =
+    MIN_MTU as usize - UDP_HEADER_BYTES - DATAGRAM_HEADER_BYTES - MAX_FRAME_HEADER_BYTES;
 /// Datagram numbers remembered for dropping duplicates. A later arrival than this many newer
 /// datagrams is dropped as a duplicate; its reliable frames come again in the resend.
 const DATAGRAM_HISTORY: usize = 1024;
@@ -35,13 +37,14 @@ const MAX_RELIABLE_GAPS: usize = 8192;
 const MAX_ASSEMBLIES: usize = 16;
 /// Memory one held fragment or early ordered message costs besides its payload: its map slot
 /// and `Vec` header, with the allocator's smallest block for the payload. Charged to the held
-/// bytes so that many tiny ones cannot exceed the cap's memory, as `FRAME_COST` does outbound.
-const PART_COST: usize = 64;
+/// bytes so that many tiny ones cannot exceed the cap's memory, as `FRAME_COST_BYTES` does
+/// outbound.
+const PART_COST_BYTES: usize = 64;
 /// Order indices a message may run ahead of the next one due (go-raknet `maxWindowSize`).
 const ORDER_WINDOW: u32 = 2048;
 /// First congestion window, in datagrams carrying reliable frames.
 const INITIAL_CWND: usize = 32;
-/// The window never shrinks below this, so a lossy link keeps moving.
+/// The lowest congestion window, so that a lossy link keeps moving.
 const MIN_CWND: usize = 4;
 /// Reliable datagrams in flight at most (the resend window). go-raknet receivers accept a 2048
 /// datagram gap; more in flight could exceed it after one loss.
@@ -56,11 +59,9 @@ const MIN_RTO: Duration = Duration::from_millis(100);
 const ACK_DELAY: Duration = Duration::from_millis(100);
 /// Highest resend timeout, well inside the idle timeout so a slow link still resends.
 const MAX_RTO: Duration = Duration::from_secs(2);
-/// Bytes queued or in flight to one peer at most; more disconnects it.
-const OUTBOUND_CAP: usize = 32 * 1024 * 1024;
-/// Memory one queued frame costs besides its payload, charged against `OUTBOUND_CAP` so that
+/// Memory one queued frame costs besides its payload, charged against `MAX_UNSENT_BYTES` so that
 /// many tiny messages cannot exceed the cap's memory.
-const FRAME_COST: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
+const FRAME_COST_BYTES: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
 /// Datagrams sent per flush at most. Flushes run every update (10 ms) and after every received
 /// datagram, so this paces a large window instead of bursting it into the peer's socket buffer
 /// (go-raknet uses the OS default, which drops a burst of a few hundred datagrams). It still
@@ -68,285 +69,6 @@ const FRAME_COST: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
 const MAX_BURST: usize = 32;
 /// Pending ACK ranges that trigger an ACK before the next update.
 const ACK_BATCH: usize = 64;
-
-/// A whole received message: its first byte (a RakNet message ID, or 0xfe for game data) and
-/// the rest.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct Message {
-    pub(super) id: u8,
-    pub(super) body: Vec<u8>,
-}
-
-/// Receive limits derived from the largest message.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Limits {
-    /// Largest message in bytes, its first byte included.
-    message: usize,
-    /// Most fragments one message may declare: `message / MIN_FRAGMENT`, rounded up.
-    splits: u32,
-    /// Bytes in unfinished reassemblies and ordering queues together, `PART_COST` included per
-    /// entry: two largest messages in the smallest full fragments and a full send window, so a
-    /// largest message may still be missing a fragment while the next one arrives.
-    held: usize,
-}
-
-impl Limits {
-    /// Limits for messages of at most `max_message` bytes after their first byte.
-    pub(super) fn new(max_message: usize) -> Result<Self> {
-        let invalid = Error::Limit("max message size");
-        let message = max_message.checked_add(1).ok_or(invalid)?;
-        let splits = u32::try_from(message.div_ceil(MIN_FRAGMENT)).map_err(|_| invalid)?;
-        if splits >= MAX_SPAN {
-            return Err(invalid);
-        }
-        let parts = usize::try_from(splits)
-            .map_err(|_| invalid)?
-            .checked_mul(2 * PART_COST)
-            .ok_or(invalid)?;
-        let held = message
-            .checked_mul(2)
-            .and_then(|held| held.checked_add(MAX_CWND * usize::from(MAX_MTU)))
-            .and_then(|held| held.checked_add(parts))
-            .ok_or(invalid)?;
-        Ok(Self {
-            message,
-            splits,
-            held,
-        })
-    }
-}
-
-enum Arrival {
-    Duplicate,
-    /// New; `gap` is the inclusive range of numbers this arrival skipped over.
-    New {
-        gap: Option<(u32, u32)>,
-    },
-}
-
-/// Recently received datagram numbers. A skipped number gets a NAK at once and is not waited
-/// for: the sender resends its frames under a new number (go-raknet also forgets a number once
-/// it sent a NAK for it).
-/// `recent[i]` is number `next - recent.len() + i`.
-#[derive(Debug, Default)]
-struct Datagrams {
-    next: u32,
-    recent: VecDeque<bool>,
-}
-
-impl Datagrams {
-    fn insert(&mut self, seq: u32) -> Result<Arrival> {
-        let Some(ahead) = wire::u24_ahead(seq, self.next) else {
-            let back = self.next.wrapping_sub(1).wrapping_sub(seq) & U24_MASK;
-            let len = self.recent.len();
-            let Some(at) = usize::try_from(back)
-                .ok()
-                .and_then(|back| len.checked_sub(back + 1))
-            else {
-                return Ok(Arrival::Duplicate);
-            };
-            return Ok(match self.recent.get_mut(at) {
-                Some(seen) if !*seen => {
-                    *seen = true;
-                    Arrival::New { gap: None }
-                }
-                _ => Arrival::Duplicate,
-            });
-        };
-        if ahead >= MAX_SPAN {
-            return Err(Error::Limit("datagram number jump"));
-        }
-        let gap = (ahead > 0).then(|| (self.next, seq.wrapping_sub(1) & U24_MASK));
-        let skipped = usize::try_from(ahead)
-            .unwrap_or(usize::MAX)
-            .min(DATAGRAM_HISTORY - 1);
-        let keep = DATAGRAM_HISTORY - 1 - skipped;
-        if let Some(excess) = self.recent.len().checked_sub(keep) {
-            self.recent.drain(..excess);
-        }
-        self.recent.extend(std::iter::repeat_n(false, skipped));
-        self.recent.push_back(true);
-        self.next = seq.wrapping_add(1) & U24_MASK;
-        Ok(Arrival::New { gap })
-    }
-}
-
-/// Received reliable message indices: all below `next` except the `missing` ranges, which the
-/// sender resends under the same index until they are acknowledged. Indices are unwrapped.
-#[derive(Debug, Default)]
-struct Reliables {
-    next: u64,
-    missing: BTreeMap<u64, u64>,
-}
-
-impl Reliables {
-    /// Whether `index` is new.
-    fn insert(&mut self, index: u32) -> Result<bool> {
-        let base = wire::low24(self.next);
-        let index = if let Some(ahead) = wire::u24_ahead(index, base) {
-            if ahead >= MAX_SPAN {
-                return Err(Error::Limit("reliable index jump"));
-            }
-            self.next.saturating_add(u64::from(ahead))
-        } else {
-            let back = u64::from(base.wrapping_sub(index) & U24_MASK);
-            let Some(index) = self.next.checked_sub(back) else {
-                return Ok(false);
-            };
-            index
-        };
-        if index >= self.next {
-            if index > self.next {
-                self.missing.insert(self.next, index - 1);
-            }
-            self.next = index.saturating_add(1);
-        } else {
-            let Some((&first, &last)) = self.missing.range(..=index).next_back() else {
-                return Ok(false);
-            };
-            if index > last {
-                return Ok(false);
-            }
-            self.missing.remove(&first);
-            if first < index {
-                self.missing.insert(first, index - 1);
-            }
-            if index < last {
-                self.missing.insert(index.saturating_add(1), last);
-            }
-        }
-        if self.missing.len() > MAX_RELIABLE_GAPS {
-            return Err(Error::Limit("reliable index gaps"));
-        }
-        if let Some((&oldest, _)) = self.missing.first_key_value()
-            && self.next.saturating_sub(oldest) > u64::from(MAX_SPAN)
-        {
-            return Err(Error::Limit("reliable index span"));
-        }
-        Ok(true)
-    }
-}
-
-/// A split message being reassembled. Parts live in a map, so a large declared count allocates
-/// nothing until fragments arrive.
-#[derive(Debug)]
-struct Assembly {
-    header: Header,
-    count: u32,
-    bytes: usize,
-    parts: BTreeMap<u32, Vec<u8>>,
-}
-
-/// One ordering channel: the next order index due, the next sequence index accepted for
-/// sequenced frames, and ordered messages that arrived early.
-#[derive(Debug, Default)]
-struct Channel {
-    next: u32,
-    sequence: u32,
-    waiting: BTreeMap<u32, Message>,
-}
-
-/// A message to send. It is shared by its fragments and freed with the last one.
-#[derive(Debug)]
-struct OutMessage {
-    id: u8,
-    body: Vec<u8>,
-}
-
-impl OutMessage {
-    /// Appends bytes `start..start + len` of the message (its ID byte, then its body).
-    fn put(&self, buf: &mut Vec<u8>, start: usize, len: usize) -> Result<()> {
-        let end = start
-            .checked_add(len)
-            .and_then(|end| end.checked_sub(1))
-            .ok_or(Error::Invariant("empty fragment"))?;
-        let from = if let Some(from) = start.checked_sub(1) {
-            from
-        } else {
-            buf.push(self.id);
-            0
-        };
-        let part = self
-            .body
-            .get(from..end)
-            .ok_or(Error::Invariant("fragment outside its message"))?;
-        buf.extend_from_slice(part);
-        Ok(())
-    }
-}
-
-/// A frame waiting to be sent, or sent and waiting for its ACK.
-#[derive(Debug)]
-struct OutFrame {
-    header: Header,
-    message: Arc<OutMessage>,
-    start: usize,
-    len: u16,
-}
-
-impl OutFrame {
-    fn encoded_len(&self) -> usize {
-        Header::encoded_len(self.header.reliability, self.header.split.is_some())
-            + usize::from(self.len)
-    }
-
-    fn cost(&self) -> usize {
-        usize::from(self.len) + FRAME_COST
-    }
-}
-
-/// A datagram in flight with its reliable frames.
-#[derive(Debug)]
-struct Sent {
-    at: Duration,
-    frames: Vec<OutFrame>,
-}
-
-/// Round-trip time estimate from acknowledged datagrams (RFC 6298). Every datagram is sent once (a
-/// resend gets a new sequence number), so every ACK is a clean sample. An ACK after the timeout
-/// finds its datagram gone and gives no sample, so a round trip above the timeout could never
-/// raise it: each round of timeouts doubles it instead (RFC 6298 backoff), until ACKs come back
-/// in time and the next sample resets it.
-#[derive(Debug, Default)]
-struct Rtt {
-    smoothed: Option<Duration>,
-    variation: Duration,
-    /// Doublings of the timeout since the last sample. The timeout stops doubling at `MAX_RTO`,
-    /// so this stays below 6 (`MIN_RTO` doubled 5 times passes it).
-    backoff: u32,
-}
-
-impl Rtt {
-    fn sample(&mut self, rtt: Duration) {
-        self.backoff = 0;
-        if let Some(smoothed) = self.smoothed {
-            self.variation = self
-                .variation
-                .saturating_mul(3)
-                .saturating_add(smoothed.abs_diff(rtt))
-                / 4;
-            self.smoothed = Some(smoothed.saturating_mul(7).saturating_add(rtt) / 8);
-        } else {
-            self.smoothed = Some(rtt);
-            self.variation = rtt / 2;
-        }
-    }
-
-    fn back_off(&mut self) {
-        if self.timeout() < MAX_RTO {
-            self.backoff += 1;
-        }
-    }
-
-    fn timeout(&self) -> Duration {
-        let base = self.smoothed.map_or(INITIAL_RTO, |smoothed| {
-            smoothed
-                .saturating_add(self.variation.saturating_mul(4).max(ACK_DELAY))
-                .clamp(MIN_RTO, MAX_RTO)
-        });
-        base.saturating_mul(1 << self.backoff).min(MAX_RTO)
-    }
-}
 
 /// One end of a RakNet connection after the offline handshake.
 #[derive(Debug)]
@@ -432,19 +154,15 @@ impl Peer {
         self.rtt.smoothed.unwrap_or_default()
     }
 
-    /// Bytes queued, waiting for a resend or unacknowledged, with the frame cost `OUTBOUND_CAP`
-    /// counts.
+    /// Bytes queued, waiting for a resend or unacknowledged, with the frame cost
+    /// `MAX_UNSENT_BYTES` counts.
     pub(super) fn unsent(&self) -> usize {
         self.unsent
     }
 
-    /// Nothing is queued, waiting for a resend or unacknowledged.
+    /// Whether nothing is queued, waiting for a resend or unacknowledged.
     pub(super) fn is_settled(&self) -> bool {
         self.queue.is_empty() && self.resend.is_empty() && self.in_flight.is_empty()
-    }
-
-    fn max_datagram(&self) -> usize {
-        usize::from(self.mtu).saturating_sub(UDP_HEADER)
     }
 
     /// Handles one connected packet (data datagram, ACK or NAK) and appends the messages it
@@ -490,230 +208,13 @@ impl Peer {
         Ok(())
     }
 
-    fn frame(&mut self, header: Header, body: &[u8], out: &mut Vec<Message>) -> Result<()> {
-        if header.reliability.is_reliable() && !self.reliable.insert(header.message_index)? {
-            return Ok(());
-        }
-        let (header, message) = if let Some(split) = header.split {
-            match self.reassemble(header, split, body)? {
-                Some(done) => done,
-                None => return Ok(()),
-            }
-        } else {
-            let (&id, body) = body.split_first().ok_or(Error::Malformed("empty frame"))?;
-            let message = Message {
-                id,
-                body: body.to_vec(),
-            };
-            (header, message)
-        };
-        self.order(header, message, out)
-    }
-
-    fn reassemble(
-        &mut self,
-        header: Header,
-        split: Split,
-        body: &[u8],
-    ) -> Result<Option<(Header, Message)>> {
-        if split.count == 0 || split.count > self.limits.splits {
-            return Err(Error::Limit("split count"));
-        }
-        if split.index >= split.count {
-            return Err(Error::Malformed("split index"));
-        }
-        let open = self.assemblies.len();
-        let assembly = match self.assemblies.entry(split.id) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                if open >= MAX_ASSEMBLIES {
-                    return Err(Error::Limit("concurrent split messages"));
-                }
-                entry.insert(Assembly {
-                    header,
-                    count: split.count,
-                    bytes: 0,
-                    parts: BTreeMap::new(),
-                })
-            }
-        };
-        if assembly.count != split.count {
-            return Err(Error::Malformed("split count changed"));
-        }
-        if assembly.parts.contains_key(&split.index) {
-            return Ok(None);
-        }
-        let bytes = assembly.bytes.saturating_add(body.len());
-        if bytes > self.limits.message {
-            return Err(Error::Limit("message size"));
-        }
-        let held = self
-            .held
-            .saturating_add(body.len())
-            .saturating_add(PART_COST);
-        if held > self.limits.held {
-            return Err(Error::Limit("held bytes"));
-        }
-        assembly.parts.insert(split.index, body.to_vec());
-        assembly.bytes = bytes;
-        self.held = held;
-        if u32::try_from(assembly.parts.len()) != Ok(assembly.count) {
-            return Ok(None);
-        }
-        let Some(assembly) = self.assemblies.remove(&split.id) else {
-            return Err(Error::Invariant("finished split message missing"));
-        };
-        let parts_cost = assembly.parts.len().saturating_mul(PART_COST);
-        self.held = self
-            .held
-            .saturating_sub(assembly.bytes.saturating_add(parts_cost));
-        let mut parts = assembly.parts.into_values();
-        let first = parts.next().unwrap_or_default();
-        let (&id, rest) = first.split_first().ok_or(Error::Malformed("empty frame"))?;
-        let mut body = Vec::with_capacity(assembly.bytes.saturating_sub(1));
-        body.extend_from_slice(rest);
-        for part in parts {
-            body.extend_from_slice(&part);
-        }
-        Ok(Some((assembly.header, Message { id, body })))
-    }
-
-    fn order(&mut self, header: Header, message: Message, out: &mut Vec<Message>) -> Result<()> {
-        if !header.reliability.has_order() {
-            out.push(message);
-            return Ok(());
-        }
-        let channel = self
-            .channels
-            .get_mut(usize::from(header.channel))
-            .ok_or(Error::Malformed("ordering channel"))?;
-        if header.reliability.is_sequenced() {
-            // Sequenced frames belong to the current order index; older or stale ones drop.
-            if header.order_index == channel.next
-                && wire::u24_ahead(header.sequence_index, channel.sequence).is_some()
-            {
-                channel.sequence = header.sequence_index.wrapping_add(1) & U24_MASK;
-                out.push(message);
-            }
-            return Ok(());
-        }
-        let Some(ahead) = wire::u24_ahead(header.order_index, channel.next) else {
-            return Ok(());
-        };
-        if ahead >= ORDER_WINDOW {
-            return Err(Error::Limit("ordering window"));
-        }
-        if ahead > 0 {
-            if let Entry::Vacant(entry) = channel.waiting.entry(header.order_index) {
-                let held = self
-                    .held
-                    .saturating_add(message.body.len())
-                    .saturating_add(PART_COST);
-                if held > self.limits.held {
-                    return Err(Error::Limit("held bytes"));
-                }
-                self.held = held;
-                entry.insert(message);
-            }
-            return Ok(());
-        }
-        out.push(message);
-        loop {
-            channel.next = channel.next.wrapping_add(1) & U24_MASK;
-            channel.sequence = 0;
-            let Some(message) = channel.waiting.remove(&channel.next) else {
-                return Ok(());
-            };
-            self.held = self
-                .held
-                .saturating_sub(message.body.len().saturating_add(PART_COST));
-            out.push(message);
-        }
-    }
-
-    /// Maps an inclusive 24-bit range of our sequence numbers to the datagrams it can name.
-    fn sent_range(&self, first: u32, last: u32) -> Result<Option<(u64, u64)>> {
-        let len = wire::u24_ahead(last, first).ok_or(Error::Malformed("acknowledgement range"))?;
-        let Some(newest) = self.next_seq.checked_sub(1) else {
-            return Ok(None);
-        };
-        let back = wire::low24(newest).wrapping_sub(first) & U24_MASK;
-        Ok(newest
-            .checked_sub(u64::from(back))
-            .map(|low| (low, low.saturating_add(u64::from(len)))))
-    }
-
-    fn acknowledge(&mut self, now: Duration, first: u32, last: u32) -> Result<()> {
-        let Some((mut low, high)) = self.sent_range(first, last)? else {
-            return Ok(());
-        };
-        // `range` panics on an empty range, so the bound is checked first.
-        while low <= high
-            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
-        {
-            low = seq.saturating_add(1);
-            let Some(sent) = self.in_flight.remove(&seq) else {
-                break;
-            };
-            self.rtt.sample(now.saturating_sub(sent.at));
-            for frame in &sent.frames {
-                self.unsent = self.unsent.saturating_sub(frame.cost());
-            }
-            if self.cwnd < self.ssthresh {
-                self.cwnd += 1;
-            } else {
-                self.acked += 1;
-                if self.acked >= self.cwnd {
-                    self.acked = 0;
-                    self.cwnd += 1;
-                }
-            }
-            self.cwnd = self.cwnd.min(MAX_CWND);
-        }
-        Ok(())
-    }
-
-    fn negative(&mut self, first: u32, last: u32) -> Result<()> {
-        let Some((mut low, high)) = self.sent_range(first, last)? else {
-            return Ok(());
-        };
-        // `range` panics on an empty range, so the bound is checked first.
-        while low <= high
-            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
-        {
-            low = seq.saturating_add(1);
-            if let Some(sent) = self.in_flight.remove(&seq) {
-                self.resend.extend(sent.frames);
-                self.lost(seq);
-            }
-        }
-        Ok(())
-    }
-
-    /// Shrinks the window to 3/4 once per round trip of losses. Halving (Reno) kept the window
-    /// near 50 datagrams against go-raknet, whose 100 ms ACK interval makes additive growth slow:
-    /// a largest message took 30 s on loopback, 6 to 14 s with 3/4 (CUBIC uses 0.7).
-    fn lost(&mut self, seq: u64) {
-        if seq >= self.recovery {
-            self.ssthresh = (self.cwnd * 3 / 4).max(MIN_CWND);
-            self.cwnd = self.ssthresh;
-            self.recovery = self.next_seq;
-        }
-    }
-
-    /// Queues a message. A message larger than one datagram is split and sent reliably; an
-    /// unreliable message is dropped while reliable data waits (RakNet may drop it anyway).
-    pub(super) fn send(&mut self, id: u8, body: Vec<u8>, reliability: Reliability) -> Result<()> {
+    /// Queues a message, to be sent reliably and in order; a message larger than one datagram is
+    /// split.
+    pub(super) fn send(&mut self, id: u8, body: Vec<u8>) -> Result<()> {
+        let reliability = Reliability::ReliableOrdered;
         let total = body.len().saturating_add(1);
-        let room = self.max_datagram().saturating_sub(DATAGRAM_HEADER);
+        let room = self.max_datagram().saturating_sub(DATAGRAM_HEADER_BYTES);
         let whole = total + Header::encoded_len(reliability, false) <= room;
-        let reliability = match reliability {
-            Reliability::Unreliable if !whole => Reliability::Reliable,
-            other => other,
-        };
-        if !reliability.is_reliable() && !self.queue.is_empty() {
-            return Ok(());
-        }
         let piece = if whole {
             total
         } else {
@@ -721,19 +222,14 @@ impl Peer {
         };
         let count = total.div_ceil(piece.max(1));
         let cost = count
-            .checked_mul(FRAME_COST)
+            .checked_mul(FRAME_COST_BYTES)
             .and_then(|cost| cost.checked_add(total))
             .and_then(|cost| cost.checked_add(self.unsent))
-            .filter(|&unsent| unsent <= OUTBOUND_CAP)
+            .filter(|&unsent| unsent <= MAX_UNSENT_BYTES)
             .ok_or(Error::Limit("outbound bytes"))?;
         let split_count = u32::try_from(count).map_err(|_| Error::Limit("outbound bytes"))?;
-        let order_index = if reliability.has_order() {
-            let index = self.next_order;
-            self.next_order = index.wrapping_add(1) & U24_MASK;
-            index
-        } else {
-            0
-        };
+        let order_index = self.next_order;
+        self.next_order = order_index.wrapping_add(1) & U24_MASK;
         let split_id = (!whole).then(|| {
             let id = self.next_split;
             self.next_split = id.wrapping_add(1);
@@ -743,13 +239,8 @@ impl Peer {
         self.queue.reserve(count);
         for (index, start) in (0..split_count).zip((0..total).step_by(piece.max(1))) {
             let len = piece.min(total - start);
-            let message_index = if reliability.is_reliable() {
-                let index = self.next_message;
-                self.next_message = index.wrapping_add(1) & U24_MASK;
-                index
-            } else {
-                0
-            };
+            let message_index = self.next_message;
+            self.next_message = message_index.wrapping_add(1) & U24_MASK;
             self.queue.push_back(OutFrame {
                 header: Header {
                     reliability,
@@ -811,23 +302,269 @@ impl Peer {
                 frame
                     .message
                     .put(&mut self.buf, frame.start, usize::from(frame.len))?;
-                if frame.header.reliability.is_reliable() {
-                    frames.push(frame);
-                } else {
-                    self.unsent = self.unsent.saturating_sub(frame.cost());
-                }
+                frames.push(frame);
             }
-            if self.buf.len() == DATAGRAM_HEADER {
+            if self.buf.len() == DATAGRAM_HEADER_BYTES {
                 return Err(Error::Invariant("frame larger than a datagram"));
             }
             transmit(&self.buf);
-            if !frames.is_empty() {
-                self.in_flight
-                    .insert(self.next_seq, Sent { at: now, frames });
-            }
+            self.in_flight
+                .insert(self.next_seq, Sent { at: now, frames });
             self.next_seq += 1;
         }
         Ok(())
+    }
+
+    /// Sends the pending ACKs.
+    pub(super) fn flush_acks(&mut self, transmit: &mut impl FnMut(&[u8])) {
+        self.flush_ranges(FLAG_ACK, transmit);
+    }
+
+    /// Sends one small unreliable message at once, outside the queue and the window (the
+    /// connected ping and pong, and the disconnect notification): it must neither wait behind
+    /// reliable data nor be dropped because some waits.
+    pub(super) fn send_now(
+        &mut self,
+        id: u8,
+        body: &[u8],
+        transmit: &mut impl FnMut(&[u8]),
+    ) -> Result<()> {
+        self.buf.clear();
+        self.buf.push(FLAG_DATAGRAM | FLAG_NEEDS_B_AND_AS);
+        wire::put_u24(&mut self.buf, wire::low24(self.next_seq));
+        let header = Header {
+            reliability: Reliability::Unreliable,
+            message_index: 0,
+            sequence_index: 0,
+            order_index: 0,
+            channel: 0,
+            split: None,
+        };
+        let len = u16::try_from(body.len().saturating_add(1))
+            .map_err(|_| Error::Invariant("message longer than a datagram"))?;
+        header.write(&mut self.buf, len)?;
+        self.buf.push(id);
+        self.buf.extend_from_slice(body);
+        transmit(&self.buf);
+        self.next_seq += 1;
+        Ok(())
+    }
+
+    fn max_datagram(&self) -> usize {
+        usize::from(self.mtu).saturating_sub(UDP_HEADER_BYTES)
+    }
+
+    /// The datagrams an inclusive 24-bit range of our sequence numbers can name, as the lowest
+    /// and highest number; `None` before any datagram was sent or when the range lies before the
+    /// oldest number 24 bits can still tell apart.
+    fn sent_range(&self, first: u32, last: u32) -> Result<Option<(u64, u64)>> {
+        let len = wire::u24_ahead(last, first).ok_or(Error::Malformed("acknowledgement range"))?;
+        let Some(newest) = self.next_seq.checked_sub(1) else {
+            return Ok(None);
+        };
+        let back = wire::low24(newest).wrapping_sub(first) & U24_MASK;
+        Ok(newest
+            .checked_sub(u64::from(back))
+            .map(|low| (low, low.saturating_add(u64::from(len)))))
+    }
+
+    fn frame(&mut self, header: Header, body: &[u8], out: &mut Vec<Message>) -> Result<()> {
+        if header.reliability.is_reliable() && !self.reliable.insert(header.message_index)? {
+            return Ok(());
+        }
+        let (header, message) = if let Some(split) = header.split {
+            let Some(done) = self.reassemble(header, split, body)? else {
+                return Ok(());
+            };
+            done
+        } else {
+            let (&id, body) = body.split_first().ok_or(Error::Malformed("empty frame"))?;
+            let message = Message {
+                id,
+                body: body.to_vec(),
+            };
+            (header, message)
+        };
+        self.order(header, message, out)
+    }
+
+    fn reassemble(
+        &mut self,
+        header: Header,
+        split: Split,
+        body: &[u8],
+    ) -> Result<Option<(Header, Message)>> {
+        if split.count == 0 || split.count > self.limits.splits {
+            return Err(Error::Limit("split count"));
+        }
+        if split.index >= split.count {
+            return Err(Error::Malformed("split index"));
+        }
+        let open = self.assemblies.len();
+        let assembly = match self.assemblies.entry(split.id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                if open >= MAX_ASSEMBLIES {
+                    return Err(Error::Limit("concurrent split messages"));
+                }
+                entry.insert(Assembly {
+                    header,
+                    count: split.count,
+                    bytes: 0,
+                    parts: BTreeMap::new(),
+                })
+            }
+        };
+        if assembly.count != split.count {
+            return Err(Error::Malformed("split count changed"));
+        }
+        if assembly.parts.contains_key(&split.index) {
+            return Ok(None);
+        }
+        let bytes = assembly.bytes.saturating_add(body.len());
+        if bytes > self.limits.message {
+            return Err(Error::Limit("message size"));
+        }
+        let held = self
+            .held
+            .saturating_add(body.len())
+            .saturating_add(PART_COST_BYTES);
+        if held > self.limits.held {
+            return Err(Error::Limit("held bytes"));
+        }
+        assembly.parts.insert(split.index, body.to_vec());
+        assembly.bytes = bytes;
+        self.held = held;
+        if u32::try_from(assembly.parts.len()) != Ok(assembly.count) {
+            return Ok(None);
+        }
+        let Some(assembly) = self.assemblies.remove(&split.id) else {
+            return Err(Error::Invariant("finished split message missing"));
+        };
+        let parts_cost = assembly.parts.len().saturating_mul(PART_COST_BYTES);
+        self.held = self
+            .held
+            .saturating_sub(assembly.bytes.saturating_add(parts_cost));
+        let mut parts = assembly.parts.into_values();
+        let first = parts.next().unwrap_or_default();
+        let (&id, rest) = first.split_first().ok_or(Error::Malformed("empty frame"))?;
+        let mut body = Vec::with_capacity(assembly.bytes.saturating_sub(1));
+        body.extend_from_slice(rest);
+        for part in parts {
+            body.extend_from_slice(&part);
+        }
+        Ok(Some((assembly.header, Message { id, body })))
+    }
+
+    fn order(&mut self, header: Header, message: Message, out: &mut Vec<Message>) -> Result<()> {
+        if !header.reliability.has_order() {
+            out.push(message);
+            return Ok(());
+        }
+        let channel = self
+            .channels
+            .get_mut(usize::from(header.channel))
+            .ok_or(Error::Malformed("ordering channel"))?;
+        if header.reliability.is_sequenced() {
+            // Sequenced frames belong to the current order index; older or stale ones drop.
+            if header.order_index == channel.next
+                && wire::u24_ahead(header.sequence_index, channel.sequence).is_some()
+            {
+                channel.sequence = header.sequence_index.wrapping_add(1) & U24_MASK;
+                out.push(message);
+            }
+            return Ok(());
+        }
+        let Some(ahead) = wire::u24_ahead(header.order_index, channel.next) else {
+            return Ok(());
+        };
+        if ahead >= ORDER_WINDOW {
+            return Err(Error::Limit("ordering window"));
+        }
+        if ahead > 0 {
+            if let Entry::Vacant(entry) = channel.waiting.entry(header.order_index) {
+                let held = self
+                    .held
+                    .saturating_add(message.body.len())
+                    .saturating_add(PART_COST_BYTES);
+                if held > self.limits.held {
+                    return Err(Error::Limit("held bytes"));
+                }
+                self.held = held;
+                entry.insert(message);
+            }
+            return Ok(());
+        }
+        out.push(message);
+        loop {
+            channel.next = channel.next.wrapping_add(1) & U24_MASK;
+            channel.sequence = 0;
+            let Some(message) = channel.waiting.remove(&channel.next) else {
+                return Ok(());
+            };
+            self.held = self
+                .held
+                .saturating_sub(message.body.len().saturating_add(PART_COST_BYTES));
+            out.push(message);
+        }
+    }
+
+    fn acknowledge(&mut self, now: Duration, first: u32, last: u32) -> Result<()> {
+        let Some((mut low, high)) = self.sent_range(first, last)? else {
+            return Ok(());
+        };
+        // `range` panics on an empty range, so the bound is checked first.
+        while low <= high
+            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
+        {
+            low = seq.saturating_add(1);
+            let Some(sent) = self.in_flight.remove(&seq) else {
+                break;
+            };
+            self.rtt.sample(now.saturating_sub(sent.at));
+            for frame in &sent.frames {
+                self.unsent = self.unsent.saturating_sub(frame.cost());
+            }
+            if self.cwnd < self.ssthresh {
+                self.cwnd += 1;
+            } else {
+                self.acked += 1;
+                if self.acked >= self.cwnd {
+                    self.acked = 0;
+                    self.cwnd += 1;
+                }
+            }
+            self.cwnd = self.cwnd.min(MAX_CWND);
+        }
+        Ok(())
+    }
+
+    fn negative(&mut self, first: u32, last: u32) -> Result<()> {
+        let Some((mut low, high)) = self.sent_range(first, last)? else {
+            return Ok(());
+        };
+        // `range` panics on an empty range, so the bound is checked first.
+        while low <= high
+            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
+        {
+            low = seq.saturating_add(1);
+            if let Some(sent) = self.in_flight.remove(&seq) {
+                self.resend.extend(sent.frames);
+                self.lost(seq);
+            }
+        }
+        Ok(())
+    }
+
+    /// Shrinks the window to 3/4 once per round trip of losses. Halving (Reno) kept the window
+    /// near 50 datagrams against go-raknet, whose 100 ms ACK interval makes additive growth slow:
+    /// a largest message took 30 s on loopback, 6 to 14 s with 3/4 (CUBIC uses 0.7).
+    fn lost(&mut self, seq: u64) {
+        if seq >= self.recovery {
+            self.ssthresh = (self.cwnd * 3 / 4).max(MIN_CWND);
+            self.cwnd = self.ssthresh;
+            self.recovery = self.next_seq;
+        }
     }
 
     fn pop_fitting(&mut self, room: usize) -> Option<OutFrame> {
@@ -841,11 +578,6 @@ impl Peer {
             .is_some_and(|frame| frame.encoded_len() <= room)
             .then(|| self.queue.pop_front())
             .flatten()
-    }
-
-    /// Sends the pending ACKs.
-    pub(super) fn flush_acks(&mut self, transmit: &mut impl FnMut(&[u8])) {
-        self.flush_ranges(FLAG_ACK, transmit);
     }
 
     fn flush_ranges(&mut self, flag: u8, transmit: &mut impl FnMut(&[u8])) {
@@ -864,26 +596,285 @@ impl Peer {
         }
         ranges.clear();
     }
+}
 
-    /// Sends one small unreliable message at once, outside the queue and the window (the
-    /// disconnect notification).
-    pub(super) fn send_now(&mut self, id: u8, transmit: &mut impl FnMut(&[u8])) -> Result<()> {
-        self.buf.clear();
-        self.buf.push(FLAG_DATAGRAM | FLAG_NEEDS_B_AND_AS);
-        wire::put_u24(&mut self.buf, wire::low24(self.next_seq));
-        let header = Header {
-            reliability: Reliability::Unreliable,
-            message_index: 0,
-            sequence_index: 0,
-            order_index: 0,
-            channel: 0,
-            split: None,
+/// Receive limits derived from the largest message.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Limits {
+    /// Largest message in bytes, its first byte included.
+    message: usize,
+    /// Most fragments one message may declare: `message / MIN_FRAGMENT_BYTES`, rounded up.
+    splits: u32,
+    /// Bytes in unfinished reassemblies and ordering queues together, `PART_COST_BYTES` included
+    /// per entry: two largest messages in the smallest full fragments and a full send window, so
+    /// a largest message may still be missing a fragment while the next one arrives.
+    held: usize,
+}
+
+impl Limits {
+    /// Limits for messages of at most `max_message` bytes after their first byte.
+    pub(super) fn new(max_message: usize) -> Result<Self> {
+        let invalid = Error::Limit("max message size");
+        let message = max_message.checked_add(1).ok_or(invalid)?;
+        let splits = u32::try_from(message.div_ceil(MIN_FRAGMENT_BYTES)).map_err(|_| invalid)?;
+        if splits >= MAX_SPAN {
+            return Err(invalid);
+        }
+        let parts = usize::try_from(splits)
+            .map_err(|_| invalid)?
+            .checked_mul(2 * PART_COST_BYTES)
+            .ok_or(invalid)?;
+        let held = message
+            .checked_mul(2)
+            .and_then(|held| held.checked_add(MAX_CWND * usize::from(MAX_MTU)))
+            .and_then(|held| held.checked_add(parts))
+            .ok_or(invalid)?;
+        Ok(Self {
+            message,
+            splits,
+            held,
+        })
+    }
+}
+
+/// A whole received message: its first byte (a RakNet message ID, or 0xfe for game data) and
+/// the rest.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Message {
+    pub(super) id: u8,
+    pub(super) body: Vec<u8>,
+}
+
+/// Recently received datagram numbers. A skipped number gets a NAK at once and is not waited
+/// for: the sender resends its frames under a new number (go-raknet also forgets a number once
+/// it sent a NAK for it).
+/// `recent[i]` is number `next - recent.len() + i`.
+#[derive(Debug, Default)]
+struct Datagrams {
+    next: u32,
+    recent: VecDeque<bool>,
+}
+
+impl Datagrams {
+    /// Records datagram number `seq` as received.
+    fn insert(&mut self, seq: u32) -> Result<Arrival> {
+        let Some(ahead) = wire::u24_ahead(seq, self.next) else {
+            let back = self.next.wrapping_sub(1).wrapping_sub(seq) & U24_MASK;
+            let len = self.recent.len();
+            let Some(at) = usize::try_from(back)
+                .ok()
+                .and_then(|back| len.checked_sub(back + 1))
+            else {
+                return Ok(Arrival::Duplicate);
+            };
+            return Ok(match self.recent.get_mut(at) {
+                Some(seen) if !*seen => {
+                    *seen = true;
+                    Arrival::New { gap: None }
+                }
+                _ => Arrival::Duplicate,
+            });
         };
-        header.write(&mut self.buf, 1)?;
-        self.buf.push(id);
-        transmit(&self.buf);
-        self.next_seq += 1;
+        if ahead >= MAX_SPAN {
+            return Err(Error::Limit("datagram number jump"));
+        }
+        let gap = (ahead > 0).then(|| (self.next, seq.wrapping_sub(1) & U24_MASK));
+        let skipped = usize::try_from(ahead)
+            .unwrap_or(usize::MAX)
+            .min(DATAGRAM_HISTORY - 1);
+        let keep = DATAGRAM_HISTORY - 1 - skipped;
+        if let Some(excess) = self.recent.len().checked_sub(keep) {
+            self.recent.drain(..excess);
+        }
+        self.recent.extend(std::iter::repeat_n(false, skipped));
+        self.recent.push_back(true);
+        self.next = seq.wrapping_add(1) & U24_MASK;
+        Ok(Arrival::New { gap })
+    }
+}
+
+enum Arrival {
+    Duplicate,
+    /// New; `gap` is the inclusive range of numbers this arrival skipped over.
+    New {
+        gap: Option<(u32, u32)>,
+    },
+}
+
+/// Received reliable message indices: all below `next` except the `missing` ranges, which the
+/// sender resends under the same index until they are acknowledged. Indices are unwrapped.
+#[derive(Debug, Default)]
+struct Reliables {
+    next: u64,
+    missing: BTreeMap<u64, u64>,
+}
+
+impl Reliables {
+    /// Records `index` as received; `false` when it was received before.
+    fn insert(&mut self, index: u32) -> Result<bool> {
+        let base = wire::low24(self.next);
+        let index = if let Some(ahead) = wire::u24_ahead(index, base) {
+            if ahead >= MAX_SPAN {
+                return Err(Error::Limit("reliable index jump"));
+            }
+            self.next.saturating_add(u64::from(ahead))
+        } else {
+            let back = u64::from(base.wrapping_sub(index) & U24_MASK);
+            let Some(index) = self.next.checked_sub(back) else {
+                return Ok(false);
+            };
+            index
+        };
+        if index >= self.next {
+            if index > self.next {
+                self.missing.insert(self.next, index - 1);
+            }
+            self.next = index.saturating_add(1);
+        } else {
+            let Some((&first, &last)) = self.missing.range(..=index).next_back() else {
+                return Ok(false);
+            };
+            if index > last {
+                return Ok(false);
+            }
+            self.missing.remove(&first);
+            if first < index {
+                self.missing.insert(first, index - 1);
+            }
+            if index < last {
+                self.missing.insert(index.saturating_add(1), last);
+            }
+        }
+        if self.missing.len() > MAX_RELIABLE_GAPS {
+            return Err(Error::Limit("reliable index gaps"));
+        }
+        if let Some((&oldest, _)) = self.missing.first_key_value()
+            && self.next.saturating_sub(oldest) > u64::from(MAX_SPAN)
+        {
+            return Err(Error::Limit("reliable index span"));
+        }
+        Ok(true)
+    }
+}
+
+/// A split message being reassembled. Parts live in a map, so a large declared count allocates
+/// nothing until fragments arrive.
+#[derive(Debug)]
+struct Assembly {
+    header: Header,
+    count: u32,
+    bytes: usize,
+    parts: BTreeMap<u32, Vec<u8>>,
+}
+
+/// One ordering channel: the next order index due, the next sequence index accepted for
+/// sequenced frames, and ordered messages that arrived early.
+#[derive(Debug, Default)]
+struct Channel {
+    next: u32,
+    sequence: u32,
+    waiting: BTreeMap<u32, Message>,
+}
+
+/// A frame waiting to be sent, or sent and waiting for its ACK.
+#[derive(Debug)]
+struct OutFrame {
+    header: Header,
+    message: Arc<OutMessage>,
+    start: usize,
+    len: u16,
+}
+
+impl OutFrame {
+    fn encoded_len(&self) -> usize {
+        Header::encoded_len(self.header.reliability, self.header.split.is_some())
+            + usize::from(self.len)
+    }
+
+    fn cost(&self) -> usize {
+        usize::from(self.len) + FRAME_COST_BYTES
+    }
+}
+
+/// A message to send. It is shared by its fragments and freed with the last one.
+#[derive(Debug)]
+struct OutMessage {
+    id: u8,
+    body: Vec<u8>,
+}
+
+impl OutMessage {
+    /// Appends bytes `start..start + len` of the message (its ID byte, then its body).
+    fn put(&self, buf: &mut Vec<u8>, start: usize, len: usize) -> Result<()> {
+        let end = start
+            .checked_add(len)
+            .and_then(|end| end.checked_sub(1))
+            .ok_or(Error::Invariant("empty fragment"))?;
+        let from = if let Some(from) = start.checked_sub(1) {
+            from
+        } else {
+            buf.push(self.id);
+            0
+        };
+        let part = self
+            .body
+            .get(from..end)
+            .ok_or(Error::Invariant("fragment outside its message"))?;
+        buf.extend_from_slice(part);
         Ok(())
+    }
+}
+
+/// A datagram in flight with its reliable frames.
+#[derive(Debug)]
+struct Sent {
+    at: Duration,
+    frames: Vec<OutFrame>,
+}
+
+/// Round-trip time estimate from acknowledged datagrams (RFC 6298). Every datagram is sent once (a
+/// resend gets a new sequence number), so every ACK is a clean sample. An ACK after the timeout
+/// finds its datagram gone and gives no sample, so a round trip above the timeout could never
+/// raise it: each round of timeouts doubles it instead (RFC 6298 backoff), until ACKs come back
+/// in time and the next sample resets it.
+#[derive(Debug, Default)]
+struct Rtt {
+    smoothed: Option<Duration>,
+    variation: Duration,
+    /// Doublings of the timeout since the last sample. The timeout stops doubling at `MAX_RTO`,
+    /// so this stays below 6 (`MIN_RTO` doubled 5 times passes it).
+    backoff: u32,
+}
+
+impl Rtt {
+    fn timeout(&self) -> Duration {
+        let base = self.smoothed.map_or(INITIAL_RTO, |smoothed| {
+            smoothed
+                .saturating_add(self.variation.saturating_mul(4).max(ACK_DELAY))
+                .clamp(MIN_RTO, MAX_RTO)
+        });
+        base.saturating_mul(1 << self.backoff).min(MAX_RTO)
+    }
+
+    fn sample(&mut self, rtt: Duration) {
+        self.backoff = 0;
+        if let Some(smoothed) = self.smoothed {
+            self.variation = self
+                .variation
+                .saturating_mul(3)
+                .saturating_add(smoothed.abs_diff(rtt))
+                / 4;
+            self.smoothed = Some(smoothed.saturating_mul(7).saturating_add(rtt) / 8);
+        } else {
+            self.smoothed = Some(rtt);
+            self.variation = rtt / 2;
+        }
+    }
+
+    fn back_off(&mut self) {
+        if self.timeout() < MAX_RTO {
+            self.backoff += 1;
+        }
     }
 }
 
@@ -903,8 +894,11 @@ pub(super) mod tests {
     use super::*;
 
     const T0: Duration = Duration::ZERO;
-    /// A small message limit: 1001 bytes with the ID, 3 fragments, 2002 held bytes.
+    /// A small message limit: 1001 bytes with the ID, 3 fragments, and held bytes for two such
+    /// messages besides a full send window.
     const SMALL: usize = 1000;
+    /// A message limit of about 19 MiB, as large as the default settings give.
+    const DEFAULT_MESSAGE: usize = 19_573_468;
 
     pub(in crate::raknet) fn header(reliability: Reliability) -> Header {
         Header {
@@ -958,19 +952,18 @@ pub(super) mod tests {
 
     #[test]
     fn limits_follow_the_message_size() {
-        // A 16 MiB batch's Snappy worst case, 16 MiB + 16 MiB / 6 + 42, then the 8-byte checksum.
-        let batch = 16 << 20;
-        let max = batch + batch / 6 + 42 + 8;
-        let limits = Limits::new(max).unwrap();
-        assert_eq!(limits.message, max + 1);
-        assert_eq!(MIN_FRAGMENT, 345);
+        let limits = Limits::new(DEFAULT_MESSAGE).unwrap();
+        assert_eq!(limits.message, DEFAULT_MESSAGE + 1);
+        assert_eq!(MIN_FRAGMENT_BYTES, 345);
         assert_eq!(
             limits.splits,
-            u32::try_from((max + 1).div_ceil(345)).unwrap()
+            u32::try_from((DEFAULT_MESSAGE + 1).div_ceil(345)).unwrap()
         );
         assert_eq!(
             limits.held,
-            2 * (max + 1) + 2048 * 1492 + 2 * usize::try_from(limits.splits).unwrap() * PART_COST
+            2 * (DEFAULT_MESSAGE + 1)
+                + 2048 * 1492
+                + 2 * usize::try_from(limits.splits).unwrap() * PART_COST_BYTES
         );
         assert!(Limits::new(usize::MAX).is_err());
         assert!(Limits::new(1 << 40).is_err());
@@ -1072,9 +1065,6 @@ pub(super) mod tests {
         assert_eq!(error, (5, Error::Limit("held bytes")));
     }
 
-    /// The default `max-batch-bytes` message limit (plus the 8-byte checksum).
-    const DEFAULT_MESSAGE: usize = 19_573_468;
-
     #[test]
     fn tiny_fragments_count_against_held_bytes() {
         // Every assembly declares the largest count and misses one fragment, so none finishes:
@@ -1107,7 +1097,7 @@ pub(super) mod tests {
         };
         assert_eq!(error, Error::Limit("held bytes"));
         assert!(
-            stored <= peer.limits.held / PART_COST,
+            stored <= peer.limits.held / PART_COST_BYTES,
             "{stored} fragments held"
         );
     }
@@ -1117,8 +1107,8 @@ pub(super) mod tests {
         // Two largest messages in the smallest full fragments, each missing its last one.
         let mut peer = peer(DEFAULT_MESSAGE);
         let count = peer.limits.splits;
-        let full = [0xfe; MIN_FRAGMENT];
-        let last = peer.limits.message - MIN_FRAGMENT * (usize::try_from(count).unwrap() - 1);
+        let full = [0xfe; MIN_FRAGMENT_BYTES];
+        let last = peer.limits.message - MIN_FRAGMENT_BYTES * (usize::try_from(count).unwrap() - 1);
         let unreliable = |id, index| Header {
             split: Some(Split { count, id, index }),
             ..header(Reliability::Unreliable)
@@ -1261,11 +1251,7 @@ pub(super) mod tests {
         let mut peer = peer(SMALL);
         let mut sent = 0;
         let error = loop {
-            match peer.send(
-                wire::ID_GAME,
-                vec![0; 1 << 20],
-                Reliability::ReliableOrdered,
-            ) {
+            match peer.send(wire::ID_GAME, vec![0; 1 << 20]) {
                 Ok(()) => sent += 1,
                 Err(error) => break error,
             }
@@ -1276,13 +1262,10 @@ pub(super) mod tests {
         // Tiny messages reach the cap through their frame cost, not 32 MiB of payload.
         let mut peer = self::peer(SMALL);
         let mut sent = 0_usize;
-        while peer
-            .send(1, Vec::new(), Reliability::ReliableOrdered)
-            .is_ok()
-        {
+        while peer.send(1, Vec::new()).is_ok() {
             sent += 1;
         }
-        assert_eq!(sent, OUTBOUND_CAP / (1 + FRAME_COST));
+        assert_eq!(sent, MAX_UNSENT_BYTES / (1 + FRAME_COST_BYTES));
     }
 
     #[test]
@@ -1407,8 +1390,7 @@ pub(super) mod tests {
     #[test]
     fn unacknowledged_datagrams_are_resent_after_the_timeout() {
         let mut peer = peer(SMALL);
-        peer.send(wire::ID_GAME, b"x".to_vec(), Reliability::ReliableOrdered)
-            .unwrap();
+        peer.send(wire::ID_GAME, b"x".to_vec()).unwrap();
         let mut sent = Vec::new();
         peer.flush(T0, &mut |d| sent.push(d.to_vec())).unwrap();
         peer.update(Duration::from_millis(499));
@@ -1434,8 +1416,7 @@ pub(super) mod tests {
     fn congestion_window_shrinks_on_loss_and_grows_on_acks() {
         let mut peer = peer(SMALL);
         for _ in 0..100 {
-            peer.send(wire::ID_GAME, vec![0; 1000], Reliability::ReliableOrdered)
-                .unwrap();
+            peer.send(wire::ID_GAME, vec![0; 1000]).unwrap();
         }
         let mut sent = 0;
         peer.flush(T0, &mut |_| sent += 1).unwrap();
@@ -1458,9 +1439,7 @@ pub(super) mod tests {
     fn resend_timeout_doubles_once_per_round_of_timeouts_until_a_sample() {
         // A NAK is a loss but not a timeout.
         let mut naked = peer(SMALL);
-        naked
-            .send(wire::ID_GAME, vec![0; 1000], Reliability::ReliableOrdered)
-            .unwrap();
+        naked.send(wire::ID_GAME, vec![0; 1000]).unwrap();
         let first = wire::low24(naked.next_seq);
         naked.flush(T0, &mut |_| {}).unwrap();
         let mut nak = vec![FLAG_DATAGRAM | FLAG_NAK, 0, 1, 1];
@@ -1472,8 +1451,7 @@ pub(super) mod tests {
         assert_eq!(naked.rtt.timeout(), INITIAL_RTO);
         let mut peer = peer(SMALL);
         for _ in 0..100 {
-            peer.send(wire::ID_GAME, vec![0; 1000], Reliability::ReliableOrdered)
-                .unwrap();
+            peer.send(wire::ID_GAME, vec![0; 1000]).unwrap();
         }
         let mut sent = 0;
         peer.flush(T0, &mut |_| sent += 1).unwrap();
@@ -1501,6 +1479,34 @@ pub(super) mod tests {
         peer.receive(now, &ack, &mut Vec::new(), &mut |_| {})
             .unwrap();
         assert_eq!(peer.rtt.timeout(), Duration::from_millis(300));
+    }
+
+    /// A message sent at once leaves even when the congestion window is full and frames still
+    /// wait, and it takes no place in the window.
+    #[test]
+    fn a_message_sent_at_once_skips_the_queue_and_the_window() {
+        let mut peer = peer(SMALL);
+        for _ in 0..100 {
+            peer.send(wire::ID_GAME, vec![0; 1000]).unwrap();
+        }
+        let mut sent = Vec::new();
+        peer.flush(T0, &mut |d| sent.push(d.to_vec())).unwrap();
+        assert_eq!(sent.len(), INITIAL_CWND);
+        peer.send_now(wire::ID_CONNECTED_PING, &[1, 2], &mut |d| {
+            sent.push(d.to_vec());
+        })
+        .unwrap();
+        assert_eq!(sent.len(), INITIAL_CWND + 1);
+        assert_eq!(peer.in_flight.len(), INITIAL_CWND);
+        let mut receiver = self::peer(SMALL);
+        let out = receive(&mut receiver, sent.last().unwrap()).unwrap();
+        assert_eq!(
+            out,
+            [Message {
+                id: wire::ID_CONNECTED_PING,
+                body: vec![1, 2]
+            }]
+        );
     }
 
     /// Sends 400 KB of ordered messages from one peer to another, five every 10 ms, over a link
@@ -1549,9 +1555,7 @@ pub(super) mod tests {
             }
             if now.as_millis().is_multiple_of(10) {
                 for message in messages.iter().skip(next).take(5) {
-                    sender
-                        .send(wire::ID_GAME, message.clone(), Reliability::ReliableOrdered)
-                        .unwrap();
+                    sender.send(wire::ID_GAME, message.clone()).unwrap();
                 }
                 next += 5;
                 sender.update(now);
