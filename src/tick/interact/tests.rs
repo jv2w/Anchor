@@ -1862,11 +1862,22 @@ fn switching_the_held_slot_or_moving_items_stops_eating() {
     ));
     h.run(vec![request]);
     assert!(!h.player().is_using_item(), "an item stack request");
-    let eat = h.auth(Vec::new(), Some(click));
+    let eat = h.auth(Vec::new(), Some(click.clone()));
     h.run(vec![eat]);
     assert!(h.player().is_using_item());
     h.hold(apple);
     assert!(!h.player().is_using_item(), "a held stack change");
+    let eat = h.auth(Vec::new(), Some(click));
+    h.run(vec![eat]);
+    assert!(h.player().is_using_item());
+    h.player_mut()
+        .inventory_mut(crate::inventory::Kind::Main)
+        .set(1, Stack::EMPTY)
+        .unwrap();
+    assert!(
+        !h.player().is_using_item(),
+        "an inventory API write of the held slot"
+    );
 }
 
 #[test]

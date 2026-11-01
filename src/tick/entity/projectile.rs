@@ -23,10 +23,7 @@
 use tracing::debug;
 
 use super::SessionId;
-use super::kind::{
-    Arrow, Cloud, Kind, MAX_CLOUD_EFFECTS, Pickup, Projectile, Shot, TRIDENT_DAMAGE, Trident,
-    Victim,
-};
+use super::kind::{Arrow, Cloud, Kind, Pickup, Projectile, Shot, Trident, Victim};
 use super::physics::{BlockHit, Flight, intercept};
 use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS};
 use super::{
@@ -406,7 +403,7 @@ pub(super) fn release_trident_with(
             creative: s.mode == GameMode::Creative,
             can_collide: true,
         }),
-        damage: TRIDENT_DAMAGE,
+        damage: Trident::DAMAGE,
         stuck: None,
         owner: Some(session),
         owner_runtime_id: s.runtime_id,
@@ -1025,11 +1022,11 @@ fn splash_effect(state: &mut State, world: usize, at: Vec3, colour: [u8; 4]) {
     super::play(state, world, at, crate::world::Sound::PotionSplash);
 }
 
-/// A new cloud giving `effects` (at most [`MAX_CLOUD_EFFECTS`] of them) with PMMP's defaults
+/// A new cloud giving `effects` (at most [`Cloud::MAX_EFFECTS`] of them) with PMMP's defaults
 /// for a lingering potion's (`AreaEffectCloud::__construct`).
 pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
     Cloud {
-        effects: effects.iter().copied().take(MAX_CLOUD_EFFECTS).collect(),
+        effects: effects.iter().copied().take(Cloud::MAX_EFFECTS).collect(),
         age: 0,
         max_age: CLOUD_DURATION,
         max_age_on_use: 0,
@@ -1268,7 +1265,7 @@ pub(super) fn tick(state: &mut State, id: Id) {
         if let Shot::Arrow(a) = &mut p.shot {
             if stuck {
                 a.life = a.life.saturating_add(1);
-                if a.life > super::kind::ARROW_LIFE {
+                if a.life > Arrow::MAX_LIFE {
                     e.flagged = true;
                 }
             } else {

@@ -863,10 +863,10 @@ pub(super) fn end_tick(player: &mut Player) {
 fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::State) {
     let touch = Touch::of(block);
     if let Some(Touch::Harm(harm)) = touch {
-        if harm.ends_fall() {
+        if harm.is_fall_ending() {
             reset_fall(state, session);
         }
-        let spared = harm.spared_by_sneaking()
+        let spared = harm.is_spared_by_sneaking()
             && state
                 .players
                 .get(&session)

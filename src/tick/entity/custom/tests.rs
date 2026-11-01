@@ -1,105 +1,33 @@
-//! Tests of custom entity types: registration, the identifier list, tracking, the behaviours'
-//! calls, saving, the entity cap, leaks and determinism.
+//! Tests of custom entity types.
+//!
+//! They cover registration, the identifier list, tracking, the behaviours' calls, saving, the
+//! entity cap, leaks and determinism.
 
 use std::num::NonZeroU32;
 
 use tokio::sync::mpsc;
 
-use super::super::tests::{Harness, TEST_HOOKS, adds, at, removes, standing};
-use super::super::{MAX_ENTITIES_PER_WORLD, Raise, npc, saved};
 use super::*;
 use crate::entity::Type;
 use crate::protocol::consts::EntityDataKey;
 use crate::protocol::packet::Packet;
 use crate::protocol::{MetadataValue, Rng};
+use crate::tick::entity::tests::{Harness, TEST_HOOKS, adds, at, removes, standing};
+use crate::tick::entity::{MAX_ENTITIES_PER_WORLD, Raise, npc, saved};
 use crate::world::ChunkPos;
 
-const WORLD: world::Id = world::Id::DEFAULT;
 /// The chunk the tests' entities stand in.
 const KEY: (usize, ChunkPos) = (0, ChunkPos::new(0, 0));
-
-/// A behaviour call a test saw.
-#[derive(Debug, Clone, PartialEq)]
-enum Call {
-    Tick(&'static str, u64, Id),
-    Interact(&'static str, Id, player::Id),
-}
-
-/// A behaviour that reports its calls through a bounded channel.
-struct Recorder {
-    name: &'static str,
-    tx: mpsc::Sender<Call>,
-}
-
-impl Behaviour for Recorder {
-    fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
-        assert!(cx.entity(entity).is_some(), "a live entity");
-        let call = Call::Tick(self.name, cx.tick(), entity);
-        assert!(self.tx.try_send(call).is_ok(), "room in the log");
-    }
-
-    fn on_interact(&mut self, cx: &mut Context<'_>, entity: Id, player: player::Id) {
-        assert!(cx.entity(entity).is_some(), "a live entity");
-        let call = Call::Interact(self.name, entity, player);
-        assert!(self.tx.try_send(call).is_ok(), "room in the log");
-    }
-}
-
-fn registry(types: Vec<Definition>) -> Customs {
-    let mut customs = Customs::default();
-    for t in types {
-        customs.register(t);
-    }
-    customs.finish().expect("valid types");
-    customs
-}
-
-/// A harness with `types`, and player 1 standing at block (0, 0) looking along +z.
-fn harness(threads: usize, types: Vec<Definition>) -> Harness {
-    let mut h = Harness::new(threads);
-    h.state.rules.entities.set_customs(registry(types));
-    h.spawn(1, standing(0.0, 0.0));
-    h
-}
-
-fn context(h: &mut Harness) -> Context<'_> {
-    Context {
-        state: &mut h.state,
-    }
-}
-
-fn spawn(h: &mut Harness, identifier: &str, pos: Vec3) -> Id {
-    context(h)
-        .spawn_custom_entity(WORLD, pos, identifier)
-        .expect("spawned")
-}
-
-fn ghost() -> Definition {
-    Definition::new("test:ghost")
-        .with_size(0.8, 2.5)
-        .with_max_health(30.0)
-        .with_name_tag("Ghost")
-        .summonable()
-}
-
-fn calls(rx: &mut mpsc::Receiver<Call>) -> Vec<Call> {
-    let mut out = Vec::new();
-    while let Ok(c) = rx.try_recv() {
-        out.push(c);
-    }
-    out
-}
-
-fn no_trade(_: &mut State, _: SessionId, _: Id) -> bool {
-    false
-}
+/// The vanilla `AvailableActorIdentifiers` list.
+const VANILLA_IDENTIFIER_LIST: &[u8] =
+    include_bytes!("../../../../xtask/data/reference/entity_identifiers.dat");
+const WORLD: world::Id = world::Id::DEFAULT;
 
 /// A compound whose saved form is over [`MAX_DATA_BYTES`].
 fn too_big() -> Compound {
     Compound::from([("big".to_owned(), Value::ByteArray(vec![0; MAX_DATA_BYTES]))])
 }
 
-// pmmp: EntityFactory, EntityFactory::register
 #[test]
 fn custom_data_fits_up_to_its_limit_and_a_huge_compound_is_refused() {
     let data = |len: usize| Compound::from([("d".to_owned(), Value::ByteArray(vec![0; len]))]);
@@ -112,6 +40,15 @@ fn custom_data_fits_up_to_its_limit_and_a_huge_compound_is_refused() {
     assert!(!fits(&data(64 << 20)));
 }
 
+fn ghost() -> Definition {
+    Definition::new("test:ghost")
+        .with_size(0.8, 2.5)
+        .with_max_health(30.0)
+        .with_name_tag("Ghost")
+        .summonable()
+}
+
+// pmmp: EntityFactory, EntityFactory::register
 #[test]
 fn registration_refuses_bad_identifiers_duplicates_and_values() {
     let refused = |types: Vec<Definition>| {
@@ -180,9 +117,17 @@ fn registration_refuses_bad_identifiers_duplicates_and_values() {
     );
 }
 
+fn registry(types: Vec<Definition>) -> Customs {
+    let mut customs = Customs::default();
+    for t in types {
+        customs.register(t);
+    }
+    customs.finish().expect("valid types");
+    customs
+}
+
 #[test]
 fn the_actor_identifier_list_gets_one_entry_per_type() {
-    const BASE: &[u8] = include_bytes!("../../../../xtask/data/reference/entity_identifiers.dat");
     let decode = |bytes: &[u8]| {
         let root = Reader::new(bytes, LIST_BUDGET, 0)
             .nbt(nbt::Encoding::NetworkLittleEndian)
@@ -192,10 +137,15 @@ fn the_actor_identifier_list_gets_one_entry_per_type() {
             other => panic!("{other:?}"),
         }
     };
-    assert_eq!(Customs::default().identifier_list(BASE).unwrap(), BASE);
+    assert_eq!(
+        Customs::default()
+            .identifier_list(VANILLA_IDENTIFIER_LIST)
+            .unwrap(),
+        VANILLA_IDENTIFIER_LIST
+    );
     let customs = registry(vec![ghost(), Definition::new("test:prop").spawn_egg()]);
-    let base = decode(BASE);
-    let list = decode(&customs.identifier_list(BASE).unwrap());
+    let base = decode(VANILLA_IDENTIFIER_LIST);
+    let list = decode(&customs.identifier_list(VANILLA_IDENTIFIER_LIST).unwrap());
     assert_eq!(list.len(), base.len() + 2);
     assert_eq!(
         list[..base.len()],
@@ -221,6 +171,26 @@ fn the_actor_identifier_list_gets_one_entry_per_type() {
     };
     assert_eq!(list[base.len()], entry("test:ghost", 0, max + 1, 1));
     assert_eq!(list[base.len() + 1], entry("test:prop", 1, max + 2, 0));
+}
+
+/// A harness with `types`, and player 1 standing at block (0, 0) looking along +z.
+fn harness(threads: usize, types: Vec<Definition>) -> Harness {
+    let mut h = Harness::new(threads);
+    h.state.rules.entities.set_customs(registry(types));
+    h.spawn(1, standing(0.0, 0.0));
+    h
+}
+
+fn context(h: &mut Harness) -> Context<'_> {
+    Context {
+        state: &mut h.state,
+    }
+}
+
+fn spawn(h: &mut Harness, identifier: &str, pos: Vec3) -> Id {
+    context(h)
+        .spawn_custom_entity(WORLD, pos, identifier)
+        .expect("spawned")
 }
 
 // pmmp: Entity::spawnToAll
@@ -309,6 +279,45 @@ fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() 
         .flag_for_despawn();
     h.step(Vec::new());
     assert_eq!(removes(&h.take(1)), [runtime_id]);
+}
+
+/// A behaviour call a test saw.
+#[derive(Debug, Clone, PartialEq)]
+enum Call {
+    Tick(&'static str, u64, Id),
+    Interact(&'static str, Id, player::Id),
+}
+
+/// A behaviour that reports its calls through a bounded channel.
+struct Recorder {
+    name: &'static str,
+    tx: mpsc::Sender<Call>,
+}
+
+impl Behaviour for Recorder {
+    fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
+        assert!(cx.entity(entity).is_some(), "a live entity");
+        let call = Call::Tick(self.name, cx.tick(), entity);
+        assert!(self.tx.try_send(call).is_ok(), "room in the log");
+    }
+
+    fn on_interact(&mut self, cx: &mut Context<'_>, entity: Id, player: player::Id) {
+        assert!(cx.entity(entity).is_some(), "a live entity");
+        let call = Call::Interact(self.name, entity, player);
+        assert!(self.tx.try_send(call).is_ok(), "room in the log");
+    }
+}
+
+fn calls(rx: &mut mpsc::Receiver<Call>) -> Vec<Call> {
+    let mut out = Vec::new();
+    while let Ok(c) = rx.try_recv() {
+        out.push(c);
+    }
+    out
+}
+
+fn no_trade(_: &mut State, _: SessionId, _: Id) -> bool {
+    false
 }
 
 // pmmp: Entity::onUpdate, Entity::onInteract
@@ -401,6 +410,11 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
         assert!(m.set_invulnerable(true));
         assert!(m.set_name_tag("Boo"));
         assert!(!cx.entity(prop).unwrap().can_save_with_chunk());
+        assert!(
+            !cx.entity_mut(prop).unwrap().set_can_save_with_chunk(true),
+            "a temporary type is never saved"
+        );
+        assert!(!cx.entity(prop).unwrap().can_save_with_chunk());
         let tnt = cx.spawn_tnt(WORLD, at(3.5, -60.0, 2.5), 80).unwrap();
         let mut m = cx.entity_mut(tnt).unwrap();
         assert!(!m.set_custom_data(data.clone()), "not a custom entity");
@@ -457,8 +471,8 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
     assert_eq!(store.list(KEY), [big]);
 }
 
-/// A scale is refused, by the API and on disk, when it would make the box larger than 16 blocks
-/// on a side; a small kind may scale further.
+/// A scale is refused, by the API and on disk, when it would make the box larger than 16 blocks.
+/// A small kind may scale further.
 #[test]
 fn scale_is_refused_when_the_box_would_exceed_16_blocks() {
     let big = || vec![Definition::new("test:big").with_size(16.0, 16.0)];
@@ -535,7 +549,7 @@ fn spawning_and_removing_custom_entities_leaves_every_table_at_its_start() {
     h.state.rules.entities.take_changed();
     for round in 0..3 {
         let mut ids = Vec::new();
-        for i in 0..1000i32 {
+        for i in 0..1000_i32 {
             let (x, z) = (f64::from(i % 40 - 20), f64::from(i / 40 - 12));
             ids.push(spawn(&mut h, "test:ghost", at(x + 0.5, -60.0, z + 0.5)));
         }
@@ -643,7 +657,7 @@ fn custom_entities_tick_the_same_on_one_or_many_threads() {
             }
             if tick % 9 == 0 {
                 let center = at(0.5, -59.0, 0.5);
-                super::super::explode(&mut h.state, 0, center, 2.0, false, Raise::Quiet);
+                crate::tick::entity::explode(&mut h.state, 0, center, 2.0, false, Raise::Quiet);
             }
             h.step(Vec::new());
             trace.push(h.state.hash());
@@ -662,7 +676,7 @@ fn custom_entities_tick_the_same_on_one_or_many_threads() {
 #[test]
 fn a_custom_entity_suffocates_with_its_eyes_in_a_solid_block() {
     let mut h = harness(1, vec![ghost()]);
-    let stone = super::super::physics::tests::named("minecraft:stone");
+    let stone = crate::tick::entity::physics::tests::named("minecraft:stone");
     h.state.worlds[0]
         .set_block(world::BlockPos::new(3, -59, 3), stone)
         .unwrap();

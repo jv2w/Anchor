@@ -650,7 +650,8 @@ getters!(EnchantOption {
 });
 
 /// Raised when an item goes into an enchanting table and the table shows its options. Cancelling
-/// shows none.
+/// shows none. It is raised for every non-empty input, with no options when the table offers none
+/// for the item.
 #[doc(alias = "PlayerEnchantingOptionsRequestEvent")]
 #[derive(Debug)]
 pub struct PlayerEnchantingOptionsRequest {
@@ -675,7 +676,9 @@ getters!(PlayerEnchantingOptionsRequest {
 });
 
 impl PlayerEnchantingOptionsRequest {
-    /// Replaces the options shown; options past the third are dropped.
+    /// Replaces the options shown; options past the third are dropped. When they are shown, a name
+    /// is cut to 64 bytes, enchantments of level 0 go and at most 16 enchantments of an option
+    /// stay; monitors see the options as shown.
     #[doc(alias = "PlayerEnchantingOptionsRequestEvent::setOptions")]
     pub fn set_options(&mut self, mut options: Vec<EnchantOption>) {
         options.truncate(protocol::PLAYER_ENCHANT_OPTIONS_OPTIONS_MAX_LEN);

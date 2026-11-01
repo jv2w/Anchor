@@ -1,21 +1,16 @@
-//! Leaks: a player joins, opens and closes every window, places and breaks blocks with block
-//! entities, makes and loses entities, schedules block updates, trades and leaves, 100 times; every
-//! table and queue of the state is back at its start.
+//! Leaks: a player joins, opens and closes every window, is sent a form, places and breaks blocks
+//! with block entities, makes and loses entities, schedules block updates, trades and leaves, 100
+//! times; every table and queue [`Tables`] lists is back at its start.
 
 use tokio::sync::mpsc;
 
-use super::super::queue::{Input, Outbound};
-use super::super::{Output, SessionId, State, block_entity, entity, interact, trade, update};
-use super::{
-    initialised, input, join, leave, new_state, radius, received, round_trip, settings, tick,
-};
+use super::*;
 use crate::block::{self, Face, Kind};
-use crate::event::Listeners;
+use crate::form::Modal;
 use crate::item::Stack;
-use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::{UseItemAction, UseItemOnEntityAction};
-use crate::protocol::packet::{ContainerClose, Interact, InventoryTransaction, Packet};
+use crate::protocol::packet::{ContainerClose, Interact, InventoryTransaction};
 use crate::protocol::{
     InventoryTransactionData, UseItemOnEntityTransactionData, UseItemTransactionData,
 };
@@ -41,30 +36,26 @@ const WINDOWS: [Kind; 16] = [
     Kind::Beacon,
 ];
 
-/// Where the window blocks go: in front of the player at the spawn (looking south), apart so no
-/// two chests pair, and within survival reach.
-fn spot(i: usize) -> BlockPos {
-    const SPOTS: [(i32, i32); 16] = [
-        (-5, 1),
-        (-3, 1),
-        (-1, 1),
-        (1, 1),
-        (3, 1),
-        (5, 1),
-        (-5, 3),
-        (-3, 3),
-        (-1, 3),
-        (1, 3),
-        (3, 3),
-        (5, 3),
-        (-3, 5),
-        (-1, 5),
-        (1, 5),
-        (3, 5),
-    ];
-    let (x, z) = SPOTS[i];
-    BlockPos::new(x, -60, z)
-}
+/// Where the window blocks go as (x, z): in front of the player at the spawn (looking south),
+/// apart so no two chests pair, and within survival reach.
+const SPOTS: [(i32, i32); 16] = [
+    (-5, 1),
+    (-3, 1),
+    (-1, 1),
+    (1, 1),
+    (3, 1),
+    (5, 1),
+    (-5, 3),
+    (-3, 3),
+    (-1, 3),
+    (1, 3),
+    (3, 3),
+    (5, 3),
+    (-3, 5),
+    (-1, 5),
+    (1, 5),
+    (3, 5),
+];
 
 /// Every table and queue the leak test watches, by a size or a form that holds no counter.
 #[derive(Debug, PartialEq)]
@@ -72,6 +63,15 @@ struct Tables {
     players: usize,
     index: usize,
     runtime_ids: usize,
+    /// Whether the indexes by key, name, UUID, runtime ID and viewed chunk hold exactly the
+    /// players.
+    indexes_match: bool,
+    /// The open forms and displays of the players, without a player's form ID counter.
+    forms: String,
+    menus: usize,
+    deferred: usize,
+    /// The sessions with a command grant and the sessions waiting for a command list resend.
+    commands: (usize, usize),
     loading: usize,
     held_chunks: usize,
     /// The chunk positions the index of who sees each chunk holds.
@@ -92,6 +92,36 @@ struct Tables {
     quarantined: usize,
     changed_blocks: usize,
     light_idle: bool,
+}
+
+/// One session's ticks: its inputs numbered in order.
+struct Session {
+    id: u64,
+    seq: u64,
+    rx: mpsc::Receiver<Outbound>,
+    /// Windows the session was shown.
+    opened: usize,
+}
+
+impl Session {
+    fn next_seq(&mut self) -> u64 {
+        self.seq += 1;
+        self.seq
+    }
+
+    fn packet(&mut self, packet: Packet) -> Input {
+        let seq = self.next_seq();
+        input(self.id, seq, round_trip(packet))
+    }
+
+    /// Counts the windows opened since the last call (a trade screen opens with `UpdateTrade`).
+    fn read(&mut self) {
+        let (packets, _, _) = received(&mut self.rx);
+        self.opened += packets
+            .iter()
+            .filter(|p| matches!(p, Packet::ContainerOpen(_) | Packet::UpdateTrade(_)))
+            .count();
+    }
 }
 
 /// `text` with the number after each of `fields` (`name: 12`) replaced by `_`.
@@ -115,12 +145,18 @@ fn masked(text: &str, fields: &[&str]) -> String {
     out
 }
 
+/// The sizes of every table and queue of `state` that [`Tables`] lists.
 fn tables(state: &State) -> Tables {
     let world = &state.worlds[0];
     Tables {
         players: state.players.len(),
         index: state.index.len(),
         runtime_ids: state.runtime_ids.len(),
+        indexes_match: state.index_matches_players(),
+        forms: format!("{:?}", state.forms),
+        menus: state.menus.len(),
+        deferred: state.deferred.len(),
+        commands: state.commands.session_entries(),
         loading: state.loading.len(),
         held_chunks: state.chunks.held(),
         viewed_chunks: state.chunks.viewed(),
@@ -142,34 +178,10 @@ fn tables(state: &State) -> Tables {
     }
 }
 
-/// One session's ticks: its inputs numbered in order.
-struct Session {
-    id: u64,
-    seq: u64,
-    rx: mpsc::Receiver<Outbound>,
-    /// Windows the session was shown.
-    opened: usize,
-}
-
-impl Session {
-    fn next(&mut self) -> u64 {
-        self.seq += 1;
-        self.seq
-    }
-
-    fn packet(&mut self, packet: Packet) -> Input {
-        let seq = self.next();
-        input(self.id, seq, round_trip(packet))
-    }
-
-    /// Counts the windows opened since the last call (a trade screen opens with `UpdateTrade`).
-    fn read(&mut self) {
-        let (packets, _, _) = received(&mut self.rx);
-        self.opened += packets
-            .iter()
-            .filter(|p| matches!(p, Packet::ContainerOpen(_) | Packet::UpdateTrade(_)))
-            .count();
-    }
+/// Where the window block `i` goes.
+fn spot(i: usize) -> BlockPos {
+    let (x, z) = SPOTS[i];
+    BlockPos::new(x, -60, z)
 }
 
 /// Runs a tick of `inputs` and reads what the session got.
@@ -179,7 +191,7 @@ fn run(state: &mut State, output: &mut Output, s: &mut Session, mut inputs: Vec<
 }
 
 /// A click with the empty hand on the top of the block at `pos`.
-fn click(pos: BlockPos) -> Packet {
+fn click_packet(pos: BlockPos) -> Packet {
     Packet::InventoryTransaction(InventoryTransaction {
         legacy_request_id: 0,
         legacy_set_item_slots: Vec::new(),
@@ -190,13 +202,13 @@ fn click(pos: BlockPos) -> Packet {
             block_face: 1,
             position: [0.5, -58.38, 0.5],
             clicked_position: [0.5, 1.0, 0.5],
-            ..Default::default()
+            ..UseItemTransactionData::default()
         })),
     })
 }
 
 /// The client closes its latest window.
-fn close() -> Packet {
+fn close_packet() -> Packet {
     Packet::ContainerClose(ContainerClose {
         window_id: 255,
         container_type: 0,
@@ -231,8 +243,8 @@ fn offers() -> trade::Offers {
     )
 }
 
-/// One cycle of session `n`: join, every window, block entities placed and broken, entities,
-/// block updates, a trade, leave; then the world settles.
+/// One cycle of session `n`: join, a form, every window, block entities placed and broken,
+/// entities, block updates, a trade, leave; then the world settles.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one cycle reads in the order a player plays it"
@@ -249,18 +261,21 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
     run(state, output, &mut s, vec![j, radius(n, 1, 4)]);
     // The view's chunks unloaded when the last player left; they load again first.
     for _ in 0..8 {
-        if state.players[&SessionId::new(n)].phase == super::super::Phase::Spawning {
+        if state.players[&SessionId::new(n)].phase == Phase::Spawning {
             break;
         }
         run(state, output, &mut s, Vec::new());
     }
     let runtime_id = state.players[&SessionId::new(n)].runtime_id;
-    let init = initialised(n, s.next(), runtime_id);
+    let init = initialised(n, s.next_seq(), runtime_id);
     run(state, output, &mut s, vec![init]);
-    assert_eq!(
-        state.players[&SessionId::new(n)].phase,
-        super::super::Phase::Spawned
-    );
+    assert_eq!(state.players[&SessionId::new(n)].phase, Phase::Spawned);
+
+    // A form the client never answers.
+    let mut cx = task::Context { state: &mut *state };
+    let player = cx.player_exact(&format!("player{n}")).unwrap();
+    let modal = Modal::new("Kit", "Take a kit?", "Yes", "No");
+    assert!(cx.send_form(player, modal, |_, _, _| {}).is_ok());
 
     // Every block window: placed, opened by a click, closed by the client.
     for (i, kind) in WINDOWS.into_iter().enumerate() {
@@ -272,14 +287,14 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
     }
     for (i, kind) in WINDOWS.into_iter().enumerate() {
         let before = s.opened;
-        let open = s.packet(click(spot(i)));
+        let open = s.packet(click_packet(spot(i)));
         run(state, output, &mut s, vec![open]);
         assert_eq!(
             s.opened,
             before + 1,
             "cycle {n}: the {kind:?} window opened"
         );
-        let shut = s.packet(close());
+        let shut = s.packet(close_packet());
         run(state, output, &mut s, vec![shut]);
     }
     // The own inventory.
@@ -289,7 +304,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
         position: None,
     }));
     run(state, output, &mut s, vec![own]);
-    let shut = s.packet(close());
+    let shut = s.packet(close_packet());
     run(state, output, &mut s, vec![shut]);
 
     // A trade with a villager NPC, then the villager goes.
@@ -308,12 +323,12 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
                 target_entity_runtime_id: target,
                 action_type: UseItemOnEntityAction::Interact.into(),
                 position: [0.5, -58.38, 0.5],
-                ..Default::default()
+                ..UseItemOnEntityTransactionData::default()
             },
         )),
     }));
     run(state, output, &mut s, vec![use_on]);
-    let shut = s.packet(close());
+    let shut = s.packet(close_packet());
     run(state, output, &mut s, vec![shut]);
     assert!(entity::remove(state, villager));
 
@@ -361,7 +376,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
     );
     state.worlds[0].set_block(landed, block::AIR).unwrap();
     remove_entities(state, first_entity);
-    let bye = leave(n, s.next());
+    let bye = leave(n, s.next_seq());
     run(state, output, &mut s, vec![bye]);
     for _ in 0..5 {
         run(state, output, &mut s, Vec::new());

@@ -7,18 +7,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::super::{Player, State};
+use super::*;
 use crate::block;
 use crate::crafting::{self, Recipe};
 use crate::item::Stack;
-use crate::math::Vec3;
 use crate::protocol::consts::{
     ContainerId as C, InputFlag, PlayerAction as Action, UseItemAction, UseItemOnEntityAction,
     WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY, WINDOW_ID_OFF_HAND, WINDOW_ID_UI,
 };
 use crate::protocol::packet::{
     ContainerClose, Interact, InventoryTransaction, ItemStackRequest as RequestPacket,
-    MobEquipment, Packet, PlayerAction, PlayerAuthInput,
+    MobEquipment, PlayerAction, PlayerAuthInput,
 };
 use crate::protocol::{
     ConsumeStackRequestAction, CraftCreativeStackRequestAction, CraftRecipeStackRequestAction,
@@ -31,12 +30,13 @@ use crate::protocol::{
 };
 use crate::world::BlockPos;
 
-/// The eye height of a player.
-const EYE: f64 = 1.62;
 /// The UI slot of the created output.
 const CREATED_SLOT: u8 = 50;
-/// The UI slot of the 2x2 crafting grid's first cell.
-const GRID_SLOT: u8 = 28;
+/// The UI slot of the 2x2 crafting grid's first cell; the 3x3 grid's cells follow its four.
+pub(super) const GRID_2X2: u8 = 28;
+/// The upper bound of the creative item network IDs the generator draws; the creative inventory
+/// has fewer items, so some draws are refused.
+const CREATIVE_ID_BOUND: usize = 1700;
 
 /// What the clients of a run received, by kind, over every session: the run must reach each.
 pub(super) type Seen = BTreeMap<&'static str, usize>;
@@ -53,23 +53,26 @@ pub(super) struct Client {
     next_request: i32,
 }
 
-impl Default for Client {
-    fn default() -> Self {
-        Self {
-            slots: BTreeMap::new(),
-            window: None,
-            next_request: -1,
-        }
-    }
-}
-
 impl Client {
+    /// The open window's ID, as the last `ContainerOpen` gave it.
+    pub(super) fn window(&self) -> Option<u8> {
+        self.window
+    }
+
+    /// The stack network ID the client knows a slot by (0 for an empty or unknown slot).
+    pub(super) fn net(&self, container: u8, slot: u8) -> i32 {
+        self.slots
+            .get(&(container, slot))
+            .filter(|(_, count)| *count > 0)
+            .map_or(0, |(net, _)| *net)
+    }
+
     /// Learns from a packet the server sent and counts what the run reached.
     pub(super) fn learn(&mut self, packet: &Packet, seen: &mut Seen) {
         let mut count = |what: &'static str| *seen.entry(what).or_default() += 1;
         match packet {
             Packet::InventoryContent(p) => {
-                for (slot, item) in (0u8..).zip(&p.content) {
+                for (slot, item) in (0_u8..).zip(&p.content) {
                     self.set(p.window_id, slot, item);
                 }
             }
@@ -121,57 +124,16 @@ impl Client {
         }
     }
 
-    /// Forgets the slots of the block window.
-    fn close_block(&mut self) {
-        self.slots.retain(|(c, _), _| {
-            ![C::LevelEntity as u8, C::Barrel as u8, C::ShulkerBox as u8].contains(c)
-        });
-    }
-
-    /// Learns a slot of a window.
-    fn set(&mut self, window: u32, slot: u8, item: &ItemInstance) {
-        let key = match window {
-            WINDOW_ID_INVENTORY if slot < 36 => (C::CombinedHotBarAndInventory as u8, slot),
-            WINDOW_ID_ARMOUR if slot < 4 => (C::Armor as u8, slot),
-            WINDOW_ID_OFF_HAND => (C::Offhand as u8, 0),
-            WINDOW_ID_UI if slot == 0 => (C::Cursor as u8, 0),
-            WINDOW_ID_UI if (GRID_SLOT..GRID_SLOT + 13).contains(&slot) => {
-                (C::CraftingInput as u8, slot)
-            }
-            w => match self.window {
-                // Chests, hoppers and ender chests; a barrel's or shulker box's own container
-                // comes with the responses.
-                Some(id) if u32::from(id) == w => (C::LevelEntity as u8, slot),
-                _ => return,
-            },
-        };
-        let count = u8::try_from(item.stack.count).unwrap_or(u8::MAX);
-        self.slots.insert(key, (item.stack_network_id, count));
-    }
-
-    /// A new request ID; sometimes an old one again (a repeat the server must refuse).
-    fn request_id(&mut self, rng: &mut Rng) -> i32 {
-        if rng.below(16) == 0 && self.next_request < -1 {
-            return self.next_request + 2;
-        }
-        self.next_request_id()
-    }
-
-    /// The next request ID: -1, -3, -5…
+    /// Takes the next request ID: -1, -3, -5…
     pub(super) fn next_request_id(&mut self) -> i32 {
         let id = self.next_request;
         self.next_request = self.next_request.wrapping_sub(2);
         id
     }
 
-    /// The open window's ID, as the last `ContainerOpen` gave it.
-    pub(super) fn window(&self) -> Option<u8> {
-        self.window
-    }
-
-    /// The packets of one game input of the spawned `player`: one packet, or a burst for actions a
-    /// client sends over several of its ticks (breaking, crafting from the grid, choosing an
-    /// item before using it). Empty when the player lacks what the drawn input needs (a log to
+    /// Draws the packets of one game input of the spawned `player`: one packet, or a burst for
+    /// actions a client sends over several of its ticks (breaking, crafting from the grid, choosing
+    /// an item before using it). Empty when the player lacks what the drawn input needs (a log to
     /// craft planks from).
     #[expect(
         clippy::too_many_lines,
@@ -184,7 +146,7 @@ impl Client {
         player: &Player,
         villagers: &BTreeSet<u64>,
     ) -> Vec<Packet> {
-        let feet = player.position - Vec3::new(0.0, EYE, 0.0);
+        let feet = player.position - Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
         let at = BlockPos::containing(feet);
         match rng.below(18) {
             0..=2 => {
@@ -198,7 +160,7 @@ impl Client {
                 let request = self.stack_request(rng);
                 let mut flags = FlagSet::<InputFlag>::new();
                 flags.insert(InputFlag::PerformItemStackRequest);
-                vec![auth(player, &flags, None, None, Some(request))]
+                vec![auth_packet(player, &flags, None, None, Some(request))]
             }
             4 => self.craft_planks(rng, player),
             5 | 6 => {
@@ -206,27 +168,27 @@ impl Client {
                 let Some(target) = solid_near(rng, state, at) else {
                     return vec![single_action(player, rng, at)];
                 };
-                let face = if target.y < at.y { 1 } else { face(rng) };
-                let flags = actions_flag();
-                let mut out = vec![auth(
+                let face = if target.y < at.y { 1 } else { random_face(rng) };
+                let flags = block_actions_flags();
+                let mut out = vec![auth_packet(
                     player,
                     &flags,
-                    Some(vec![action(Action::StartBreak, target, face)]),
+                    Some(vec![block_action(Action::StartBreak, target, face)]),
                     None,
                     None,
                 )];
                 for _ in 0..rng.below(32) {
-                    out.push(auth(player, &FlagSet::new(), None, None, None));
+                    out.push(auth_packet(player, &FlagSet::new(), None, None, None));
                 }
                 let last = if rng.below(6) == 0 {
                     Action::AbortBreak
                 } else {
                     Action::PredictDestroyBlock
                 };
-                out.push(auth(
+                out.push(auth_packet(
                     player,
                     &flags,
-                    Some(vec![action(last, target, face)]),
+                    Some(vec![block_action(last, target, face)]),
                     None,
                     None,
                 ));
@@ -239,7 +201,7 @@ impl Client {
                 let data = self.use_on_block(rng, player, target, 1);
                 let mut flags = FlagSet::<InputFlag>::new();
                 flags.insert(InputFlag::PerformItemInteraction);
-                vec![auth(player, &flags, None, Some(data), None)]
+                vec![auth_packet(player, &flags, None, Some(data), None)]
             }
             9 => {
                 // Clicking a block: a container opens, the held block is placed.
@@ -247,11 +209,15 @@ impl Client {
                     Some(c) if rng.below(2) == 0 => c,
                     _ => ground_near(rng, at),
                 };
-                let side = if rng.below(4) == 0 { face(rng) } else { 1 };
+                let side = if rng.below(4) == 0 {
+                    random_face(rng)
+                } else {
+                    1
+                };
                 let data = self.use_on_block(rng, player, target, side);
-                vec![transaction(InventoryTransactionData::UseItem(Box::new(
-                    data,
-                )))]
+                vec![transaction_packet(InventoryTransactionData::UseItem(
+                    Box::new(data),
+                ))]
             }
             10 => {
                 if rng.below(4) == 0 {
@@ -262,14 +228,14 @@ impl Client {
                         head_position: player.position.to_f32(),
                         hand: 0,
                     };
-                    return vec![transaction(InventoryTransactionData::ReleaseItem(
+                    return vec![transaction_packet(InventoryTransactionData::ReleaseItem(
                         Box::new(data),
                     ))];
                 }
                 let mut out = Vec::new();
                 let mut data = self.use_on_block(rng, player, at, 1);
                 // Mostly a hotbar item used in the air first: snowballs, eggs, bows, food.
-                let usable = (0u8..9).filter(|&i| {
+                let usable = (0_u8..9).filter(|&i| {
                     player.inventory.main_stack(i).is_some_and(|s| {
                         s.item().is_some_and(|t| {
                             t.throw_force().is_some()
@@ -300,9 +266,9 @@ impl Client {
                 data.action_type = UseItemAction::ClickAir.into();
                 data.block_position = [0, 0, 0];
                 data.block_face = 255;
-                out.push(transaction(InventoryTransactionData::UseItem(Box::new(
-                    data,
-                ))));
+                out.push(transaction_packet(InventoryTransactionData::UseItem(
+                    Box::new(data),
+                )));
                 out
             }
             11 => {
@@ -332,9 +298,9 @@ impl Client {
                     position: player.position.to_f32(),
                     clicked_position: [0.0, 0.0, 0.0],
                 };
-                vec![transaction(InventoryTransactionData::UseItemOnEntity(
-                    Box::new(data),
-                ))]
+                vec![transaction_packet(
+                    InventoryTransactionData::UseItemOnEntity(Box::new(data)),
+                )]
             }
             12 => {
                 let target = if rng.below(8) == 0 {
@@ -414,7 +380,7 @@ impl Client {
                     2 => flags.insert(InputFlag::StopSneaking),
                     _ => {}
                 }
-                let mut p = auth(player, &flags, None, None, None);
+                let mut p = auth_packet(player, &flags, None, None, None);
                 if let Packet::PlayerAuthInput(a) = &mut p {
                     a.position = to.to_f32();
                 }
@@ -453,14 +419,6 @@ impl Client {
         }
     }
 
-    /// The stack network ID the client knows a slot by (0 for an empty or unknown slot).
-    pub(super) fn net(&self, container: u8, slot: u8) -> i32 {
-        self.slots
-            .get(&(container, slot))
-            .filter(|(_, count)| *count > 0)
-            .map_or(0, |(net, _)| *net)
-    }
-
     /// The held item as the client sends it.
     fn held(&self, player: &Player) -> ItemInstance {
         let slot = player.inventory.held_slot();
@@ -490,12 +448,16 @@ impl Client {
             held_item: held,
             position: player.position.to_f32(),
             clicked_position: [0.5, 1.0, 0.5],
-            ..Default::default()
+            ..UseItemTransactionData::default()
         }
     }
 
     /// A request slot naming the client's ID for it; sometimes a wrong one.
-    fn name(&self, rng: &mut Rng, (container, slot): (u8, u8)) -> StackRequestSlotInfo {
+    fn slot_with_known_id(
+        &self,
+        rng: &mut Rng,
+        (container, slot): (u8, u8),
+    ) -> StackRequestSlotInfo {
         let known = self.net(container, slot);
         let stack_network_id = match rng.below(24) {
             0 => known.wrapping_add(1),
@@ -505,8 +467,44 @@ impl Client {
         slot_info(container, slot, stack_network_id)
     }
 
-    /// A request moving, swapping, dropping, destroying or creating items, from what the client
-    /// knows of its slots; sometimes one that is broken from the start.
+    /// Forgets the slots of the block window.
+    fn close_block(&mut self) {
+        self.slots.retain(|(c, _), _| {
+            ![C::LevelEntity as u8, C::Barrel as u8, C::ShulkerBox as u8].contains(c)
+        });
+    }
+
+    /// Learns a slot of a window.
+    fn set(&mut self, window: u32, slot: u8, item: &ItemInstance) {
+        let key = match window {
+            WINDOW_ID_INVENTORY if slot < 36 => (C::CombinedHotBarAndInventory as u8, slot),
+            WINDOW_ID_ARMOUR if slot < 4 => (C::Armor as u8, slot),
+            WINDOW_ID_OFF_HAND => (C::Offhand as u8, 0),
+            WINDOW_ID_UI if slot == 0 => (C::Cursor as u8, 0),
+            WINDOW_ID_UI if (GRID_2X2..GRID_2X2 + 13).contains(&slot) => {
+                (C::CraftingInput as u8, slot)
+            }
+            w => match self.window {
+                // Chests, hoppers and ender chests; a barrel's or shulker box's own container
+                // comes with the responses.
+                Some(id) if u32::from(id) == w => (C::LevelEntity as u8, slot),
+                _ => return,
+            },
+        };
+        let count = u8::try_from(item.stack.count).unwrap_or(u8::MAX);
+        self.slots.insert(key, (item.stack_network_id, count));
+    }
+
+    /// Takes a new request ID; sometimes an old one again (a repeat the server must refuse).
+    fn request_id(&mut self, rng: &mut Rng) -> i32 {
+        if rng.below(16) == 0 && self.next_request < -1 {
+            return self.next_request + 2;
+        }
+        self.next_request_id()
+    }
+
+    /// Draws a request moving, swapping, dropping, destroying or creating items, from what the
+    /// client knows of its slots; sometimes one that is broken from the start.
     fn stack_request(&mut self, rng: &mut Rng) -> ItemStackRequest {
         let request_id = self.request_id(rng);
         let full: Vec<(u8, u8)> = self
@@ -517,7 +515,7 @@ impl Client {
             .collect();
         let mut any: Vec<(u8, u8)> = self.slots.keys().copied().collect();
         any.extend((0..36).map(|i| (C::CombinedHotBarAndInventory as u8, i)));
-        any.extend([(C::Cursor as u8, 0), (C::CraftingInput as u8, GRID_SLOT)]);
+        any.extend([(C::Cursor as u8, 0), (C::CraftingInput as u8, GRID_2X2)]);
         let mut actions = Vec::new();
         if full.is_empty() || rng.below(12) == 0 {
             // Broken: unknown containers, slots and IDs.
@@ -544,7 +542,10 @@ impl Client {
                 } else {
                     1 + u8::try_from(rng.below(usize::from(have.max(1)))).unwrap()
                 };
-                let (s, d) = (self.name(rng, src), self.name(rng, dst));
+                let (s, d) = (
+                    self.slot_with_known_id(rng, src),
+                    self.slot_with_known_id(rng, dst),
+                );
                 let action = match rng.below(10) {
                     0..=3 => place(count, s, d),
                     4 => StackRequestAction::Take(TakeStackRequestAction {
@@ -569,12 +570,14 @@ impl Client {
                     _ => {
                         actions.push(StackRequestAction::CraftCreative(
                             CraftCreativeStackRequestAction {
-                                creative_item_network_id: 1 + u32::try_from(rng.below(1700))
-                                    .unwrap(),
+                                creative_item_network_id: 1 + u32::try_from(
+                                    rng.below(CREATIVE_ID_BOUND),
+                                )
+                                .unwrap(),
                                 number_of_crafts: 1,
                             },
                         ));
-                        place(count, created(request_id), d)
+                        place(count, created_slot(request_id), d)
                     }
                 };
                 actions.push(action);
@@ -588,7 +591,7 @@ impl Client {
         }
     }
 
-    /// Planks by hand: a log from the inventory into the 2x2 grid, then the craft naming the
+    /// Draws planks by hand: a log from the inventory into the 2x2 grid, then the craft naming the
     /// grid cell by the first request's ID, as a client does before the answer arrives.
     fn craft_planks(&mut self, rng: &mut Rng, player: &Player) -> Vec<Packet> {
         let (recipe, made) = planks_recipe();
@@ -596,7 +599,7 @@ impl Client {
         let block::ItemForm::Item(log) = log else {
             return Vec::new();
         };
-        let Some(slot) = (0u8..36).find(|&i| {
+        let Some(slot) = (0_u8..36).find(|&i| {
             player
                 .inventory
                 .main_stack(i)
@@ -605,19 +608,19 @@ impl Client {
             return Vec::new();
         };
         let lay = self.request_id(rng);
-        let cell = (C::CraftingInput as u8, GRID_SLOT);
+        let cell = (C::CraftingInput as u8, GRID_2X2);
         let first = ItemStackRequest {
             request_id: lay,
             actions: vec![place(
                 1,
-                self.name(rng, (C::CombinedHotBarAndInventory as u8, slot)),
+                self.slot_with_known_id(rng, (C::CombinedHotBarAndInventory as u8, slot)),
                 slot_info(cell.0, cell.1, self.net(cell.0, cell.1)),
             )],
             filter_strings: Vec::new(),
             filter_cause: 0,
         };
         let craft = self.request_id(rng);
-        let empty = (0u8..36)
+        let empty = (0_u8..36)
             .find(|&i| player.inventory.main_stack(i).is_some_and(Stack::is_empty))
             .unwrap_or(35);
         let second = ItemStackRequest {
@@ -638,7 +641,7 @@ impl Client {
                 }),
                 place(
                     made,
-                    created(craft),
+                    created_slot(craft),
                     slot_info(C::CombinedHotBarAndInventory as u8, empty, 0),
                 ),
             ],
@@ -656,8 +659,18 @@ impl Client {
     }
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        Self {
+            slots: BTreeMap::new(),
+            window: None,
+            next_request: -1,
+        }
+    }
+}
+
 /// The lowest recipe network ID making planks from an oak log alone, and how many it makes.
-pub(super) fn planks_recipe() -> (u32, u8) {
+fn planks_recipe() -> (u32, u8) {
     static FOUND: std::sync::OnceLock<(u32, u8)> = std::sync::OnceLock::new();
     *FOUND.get_or_init(|| {
         let block::ItemForm::Item(log) = block::Kind::OakLog.default_state().item() else {
@@ -682,7 +695,7 @@ pub(super) fn planks_recipe() -> (u32, u8) {
 }
 
 /// A random face, sometimes one that does not exist.
-fn face(rng: &mut Rng) -> i32 {
+fn random_face(rng: &mut Rng) -> i32 {
     i32::try_from(rng.below(7)).unwrap()
 }
 
@@ -740,22 +753,24 @@ fn single_action(player: &Player, rng: &mut Rng, at: BlockPos) -> Packet {
     ];
     let kind = kinds[rng.below(kinds.len())];
     let target = ground_near(rng, at);
-    auth(
+    auth_packet(
         player,
-        &actions_flag(),
-        Some(vec![action(kind, target, face(rng))]),
+        &block_actions_flags(),
+        Some(vec![block_action(kind, target, random_face(rng))]),
         None,
         None,
     )
 }
 
-fn actions_flag() -> FlagSet<InputFlag> {
+/// The input flags of a movement packet that carries block actions.
+fn block_actions_flags() -> FlagSet<InputFlag> {
     let mut flags = FlagSet::new();
     flags.insert(InputFlag::PerformBlockActions);
     flags
 }
 
-pub(super) fn action(kind: Action, pos: BlockPos, face: i32) -> PlayerBlockAction {
+/// A block action of `kind` on `face` of the block at `pos`.
+pub(super) fn block_action(kind: Action, pos: BlockPos, face: i32) -> PlayerBlockAction {
     PlayerBlockAction {
         action: kind.into(),
         block_pos: [pos.x, pos.y, pos.z],
@@ -764,14 +779,14 @@ pub(super) fn action(kind: Action, pos: BlockPos, face: i32) -> PlayerBlockActio
 }
 
 /// A `PlayerAuthInput` standing where the player is.
-fn auth(
+fn auth_packet(
     player: &Player,
     flags: &FlagSet<InputFlag>,
     actions: Option<Vec<PlayerBlockAction>>,
     item: Option<UseItemTransactionData>,
     request: Option<ItemStackRequest>,
 ) -> Packet {
-    let yaw = crate::math::to_f32(super::super::survival::rotation(player).0);
+    let yaw = crate::math::to_f32(survival::rotation(player).0);
     Packet::PlayerAuthInput(Box::new(PlayerAuthInput {
         yaw,
         position: player.position.to_f32(),
@@ -779,11 +794,12 @@ fn auth(
         item_interaction_data: item,
         item_stack_request: request,
         block_actions: actions,
-        ..Default::default()
+        ..PlayerAuthInput::default()
     }))
 }
 
-pub(super) fn transaction(data: InventoryTransactionData) -> Packet {
+/// An inventory transaction packet of `data`.
+pub(super) fn transaction_packet(data: InventoryTransactionData) -> Packet {
     Packet::InventoryTransaction(InventoryTransaction {
         legacy_request_id: 0,
         legacy_set_item_slots: Vec::new(),
@@ -792,6 +808,7 @@ pub(super) fn transaction(data: InventoryTransactionData) -> Packet {
     })
 }
 
+/// The request slot `slot` of `container`, named by `stack_network_id`.
 pub(super) fn slot_info(container: u8, slot: u8, stack_network_id: i32) -> StackRequestSlotInfo {
     StackRequestSlotInfo {
         container: FullContainerName {
@@ -803,10 +820,12 @@ pub(super) fn slot_info(container: u8, slot: u8, stack_network_id: i32) -> Stack
     }
 }
 
-pub(super) fn created(request: i32) -> StackRequestSlotInfo {
+/// The created output slot of request `request`.
+pub(super) fn created_slot(request: i32) -> StackRequestSlotInfo {
     slot_info(C::CreatedOutput as u8, CREATED_SLOT, request)
 }
 
+/// A request action placing `count` items from `source` into `destination`.
 pub(super) fn place(
     count: u8,
     source: StackRequestSlotInfo,

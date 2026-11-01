@@ -26,9 +26,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use super::super::entity::Raise;
-use super::super::{Context, Phase, Player, SessionId, State, survival, view};
-use super::{Notice, StackId, Window, WindowKind, close_now, slot_packet};
+use super::{
+    Notice, StackId, Window, WindowKind, announce, close_now, id_for, own_part, slot_packet,
+};
 use crate::block;
 use crate::item::Stack;
 use crate::math::Vec3;
@@ -41,6 +41,9 @@ use crate::protocol::{
     ItemStackRequest, PlaceStackRequestAction, StackRequestAction, StackRequestSlotInfo,
     TakeStackRequestAction,
 };
+use crate::tick::checkpoint;
+use crate::tick::entity::Raise;
+use crate::tick::{Context, Phase, Player, SessionId, State, survival, view};
 use crate::world::{self, BlockPos};
 
 /// Ticks between showing a menu's blocks and opening its window, so the client has the container
@@ -65,18 +68,18 @@ type Handler = Box<dyn FnMut(&mut Context<'_>, player::Id, Input) -> Response + 
 #[derive(Default)]
 pub(in crate::tick) struct Handlers(BTreeMap<SessionId, (Id, Handler)>);
 
+impl Handlers {
+    /// How many handlers wait.
+    pub(in crate::tick) fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 impl fmt::Debug for Handlers {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list()
             .entries(self.0.iter().map(|(s, (id, _))| (s.get(), id)))
             .finish()
-    }
-}
-
-impl Handlers {
-    /// How many handlers wait.
-    pub(in crate::tick) fn len(&self) -> usize {
-        self.0.len()
     }
 }
 
@@ -112,7 +115,7 @@ impl Open {
     }
 
     #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
+    pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
             id,
             stacks,
@@ -131,7 +134,7 @@ impl Open {
     }
 }
 
-crate::tick::checkpoint::fields!(Open {
+checkpoint::fields!(Open {
     id,
     stacks,
     editable,
@@ -139,83 +142,23 @@ crate::tick::checkpoint::fields!(Open {
     ready
 });
 
-/// The player of `id` if it is in the game (its saved data has loaded) and its client has a view.
-fn in_game(state: &mut State, id: player::Id) -> Option<&mut Player> {
-    state
-        .players
-        .get_mut(&id.session())
-        .filter(|p| p.phase != Phase::Loading && p.view.is_open())
+/// What an item stack request does to an open menu.
+#[derive(Debug)]
+pub(super) enum Touch {
+    /// It names no slot of a shown menu.
+    Nothing,
+    /// It only takes, places, swaps, drops and destroys, and names editable slots of the menu but
+    /// no other, or it names no menu slot while the cursor holds lent items: it runs, and the
+    /// handler hears of its changes.
+    Edit(Id),
+    /// It names a menu slot but clicks none, or does more than take, place, swap, drop and
+    /// destroy with an editable slot: it is refused.
+    Refused,
+    /// It clicks a slot that is not editable: it is refused, and the handler hears of the click.
+    Click(Click),
 }
 
 impl Context<'_> {
-    /// Opens `menu` for `player`: a chest, double chest or hopper screen whose items the player
-    /// cannot take, place or drop but in its editable slots. Each click on another slot is
-    /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
-    /// the player tried ([`Input::Click`]). Each request that moves items into, out of (a drop
-    /// throws them, a creative destroy deletes them) or between editable slots is checked as in a
-    /// chest window, then calls `handler` once with its changes ([`Input::Change`]) before they
-    /// are made. The handler's [`Response`] makes a change and keeps the menu open or closes it,
-    /// or refuses the change. A window the player had open closes first, as
-    /// [`close_window`](Self::close_window) closes it.
-    ///
-    /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
-    /// places them), and opens two ticks later, once the client has them. It closes as any
-    /// window does ([`close_window`](Self::close_window) closes it from the server) and when the
-    /// player gets more than 8 blocks away; the blocks it stood on show again then, and the
-    /// handler hears of the close ([`Input::Close`]) unless a direct call closed it. Neither
-    /// opening nor closing raises an event.
-    ///
-    /// Fails, opening nothing, if the player is not in the game, waits with stacks for room in its
-    /// inventory, has 4,096 fake block changes waiting this tick or was given `u32::MAX` menus
-    /// already (menu IDs do not wrap), or if the menu is invalid (a slot past its end, a title
-    /// over 1,024 bytes).
-    #[doc(alias = "Player::setCurrentWindow")]
-    pub fn open_menu(
-        &mut self,
-        player: player::Id,
-        menu: Menu,
-        handler: impl FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send + 'static,
-    ) -> Result<Id> {
-        let (kind, title, stacks, editable, lends) = menu.prepare()?;
-        let session = player.session();
-        let tick = self.state.tick;
-        let p = in_game(self.state, player).ok_or(Error::Offline)?;
-        // The old menu's two positions and the new menu's two.
-        if !p.inventory.has_room_to_open() || !p.view.has_room_to_show(4) {
-            return Err(Error::Busy);
-        }
-        let n = u32::try_from(p.inventory.next_menu).map_err(|_| Error::Exhausted)?;
-        let (first, second) = place(p, kind);
-        if p.inventory.window.is_some() {
-            close_now(self.state, session, Notice::Send, Raise::Quiet);
-        }
-        let p = in_game(self.state, player).ok_or(Error::Offline)?;
-        p.inventory.next_menu = p.inventory.next_menu.saturating_add(1);
-        let id = Id::new(n);
-        // The old menu, if any, closed above: no menu blocks were shown.
-        let _none = p.view.set_menu_blocks([Some(first), second]);
-        let pos = first.0;
-        for packet in block_data(kind, &title, pos, second.map(|(pos, _)| pos)) {
-            p.send_packet(packet);
-        }
-        p.inventory.window = Some(Window {
-            id: 0,
-            kind: WindowKind::Menu { pos, kind },
-            ui: Vec::new(),
-            ids: Vec::new(),
-            station: super::station::Shown::default(),
-        });
-        p.inventory.menu = Some(Open {
-            id,
-            stacks,
-            editable,
-            lends,
-            ready: tick.saturating_add(OPEN_DELAY),
-        });
-        self.state.menus.0.insert(session, (id, Box::new(handler)));
-        Ok(id)
-    }
-
     /// The menu `player` has open, if any.
     pub fn menu(&self, player: player::Id) -> Option<Id> {
         let p = self.state.players.get(&player.session())?;
@@ -237,10 +180,79 @@ impl Context<'_> {
         p.inventory.menu.as_ref().map(|_| p.inventory.lent)
     }
 
+    /// Opens `menu` for `player`: a chest, double chest or hopper screen whose items the player
+    /// cannot take, place or drop but in its editable slots. Each click on another slot is
+    /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
+    /// the player tried ([`Input::Click`]). Each request that moves items into, out of (a drop
+    /// throws them, a creative destroy deletes them) or between editable slots is checked as in a
+    /// chest window, then calls `handler` once with its changes ([`Input::Change`]) before they
+    /// are made. The handler's [`Response`] makes a change and keeps the menu open or closes it,
+    /// or refuses the change. A window the player had open closes first, as
+    /// [`close_window`](Self::close_window) closes it.
+    ///
+    /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
+    /// places them), and opens a few ticks later, once the client has them. It closes as any
+    /// window does ([`close_window`](Self::close_window) closes it from the server) and when the
+    /// player gets more than 8 blocks away; the blocks it stood on show again then, and the
+    /// handler hears of the close ([`Input::Close`]) unless a direct call closed it. Neither
+    /// opening nor closing raises an event.
+    ///
+    /// Fails, opening nothing, if the player is not in the game or its client has no view yet
+    /// ([`Error::Offline`]); if it waits with so many stacks for room that a window's items could
+    /// not go back, or this tick's changes of what it is shown leave no room for the menu's
+    /// blocks ([`Error::Busy`]); if it was given 2^32 menus already, as menu IDs do not wrap
+    /// ([`Error::Exhausted`]); if the menu's blocks cannot stand within 8 blocks of its eyes, the
+    /// world's height being in the way ([`Error::OutsideWorld`]); or if the menu is invalid (a
+    /// slot past its end, a title over 1,024 bytes).
+    #[doc(alias = "Player::setCurrentWindow")]
+    pub fn open_menu(
+        &mut self,
+        player: player::Id,
+        menu: Menu,
+        handler: impl FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send + 'static,
+    ) -> Result<Id> {
+        let (kind, title, stacks, editable, lends) = menu.prepare()?;
+        let session = player.session();
+        let tick = self.state.tick;
+        let p = with_view(self.state, player).ok_or(Error::Offline)?;
+        // The old menu's two positions and the new menu's two.
+        if !p.inventory.has_room_to_open() || !p.view.has_room_to_show(4) {
+            return Err(Error::Busy);
+        }
+        let n = u32::try_from(p.inventory.next_menu).map_err(|_| Error::Exhausted)?;
+        let (first, second) = place(p, kind);
+        if is_far(p.position, first.0) {
+            return Err(Error::OutsideWorld);
+        }
+        if p.inventory.window.is_some() {
+            close_now(self.state, session, Notice::Send, Raise::Quiet);
+        }
+        let p = with_view(self.state, player).ok_or(Error::Offline)?;
+        p.inventory.next_menu = p.inventory.next_menu.saturating_add(1);
+        let id = Id::new(n);
+        // The old menu, if any, closed above: no menu blocks were shown.
+        let _none = p.view.set_menu_blocks([Some(first), second]);
+        let pos = first.0;
+        for packet in block_data(kind, &title, pos, second.map(|(pos, _)| pos)) {
+            p.send_packet(packet);
+        }
+        p.inventory.window = Some(Window::new(WindowKind::Menu { pos, kind }, 0));
+        p.inventory.menu = Some(Open {
+            id,
+            stacks,
+            editable,
+            lends,
+            ready: tick.saturating_add(OPEN_DELAY),
+        });
+        self.state.menus.0.insert(session, (id, Box::new(handler)));
+        Ok(id)
+    }
+
     /// Puts `stack` into `slot` of the menu `player` has open (an empty stack clears it) and
     /// shows it to the player.
     ///
-    /// Fails, changing nothing, if the player has no menu open or the menu has no such slot.
+    /// Fails, changing nothing, if the player has left ([`Error::Offline`]), has no menu open
+    /// ([`Error::NotOpen`]) or the menu has no such slot ([`Error::NoSlot`]).
     pub fn set_menu_item(&mut self, player: player::Id, slot: usize, stack: Stack) -> Result<()> {
         let p = self
             .state
@@ -262,22 +274,27 @@ impl Context<'_> {
             return Ok(());
         }
         // `None` while the window waits to open: it opens with the new stack.
-        let shown = inv.window.as_ref().filter(|w| w.id != 0).map(|w| w.id);
-        let net = match shown {
-            Some(_) if !stack.is_empty() => super::take_stack_id(&mut inv.next_id),
-            _ => 0,
-        };
-        let item = stack.to_instance(net);
-        *there = stack;
-        let Some(window_id) = shown else {
+        let Some(window_id) = inv.window.as_ref().filter(|w| w.id != 0).map(|w| w.id) else {
+            *there = stack;
             return Ok(());
         };
+        let net = id_for(&mut inv.next_id, &stack);
+        let item = stack.to_instance(net);
+        *there = stack;
         if let Some(id) = inv.window.as_mut().and_then(|w| w.ids.get_mut(slot)) {
             *id = StackId { net, request: None };
         }
         p.send_packet(slot_packet(u32::from(window_id), at, item));
         Ok(())
     }
+}
+
+/// The player of `id` if it is in the game (its saved data has loaded) and its client has a view.
+fn with_view(state: &mut State, id: player::Id) -> Option<&mut Player> {
+    state
+        .players
+        .get_mut(&id.session())
+        .filter(|p| p.phase != Phase::Loading && p.view.is_open())
 }
 
 /// Where a menu's container blocks stand for `player` and what they are: behind the player
@@ -381,12 +398,7 @@ pub(in crate::tick) fn tick(state: &mut State) {
         let WindowKind::Menu { pos, .. } = window.kind else {
             return true;
         };
-        let centre = Vec3::new(
-            f64::from(pos.x) + 0.5,
-            f64::from(pos.y) + 0.5,
-            f64::from(pos.z) + 0.5,
-        );
-        if p.position.distance_squared(centre) > MAX_DISTANCE_SQUARED {
+        if is_far(p.position, pos) {
             far.push((session, open.id));
         } else if window.id == 0 && p.inventory.pending_close.is_none() && open.ready <= tick {
             ready.push(session);
@@ -401,8 +413,19 @@ pub(in crate::tick) fn tick(state: &mut State) {
         }
     }
     for session in ready {
-        super::announce(state, session);
+        announce(state, session);
     }
+}
+
+/// Whether a menu whose first block stands at `pos` is out of reach of a player whose eyes are
+/// at `eye`: farther than [`MAX_DISTANCE_SQUARED`] from the block's centre.
+fn is_far(eye: Vec3, pos: BlockPos) -> bool {
+    let centre = Vec3::new(
+        f64::from(pos.x) + 0.5,
+        f64::from(pos.y) + 0.5,
+        f64::from(pos.z) + 0.5,
+    );
+    eye.distance_squared(centre) > MAX_DISTANCE_SQUARED
 }
 
 /// A closed menu window: the blocks the menu stood on show again, with their block entity's data,
@@ -418,7 +441,7 @@ pub(super) fn closed(
     by_player: bool,
     raise: Raise,
 ) -> Stack {
-    let own = super::own_part(&cursor, lent);
+    let own = own_part(&cursor, lent);
     let handler = state.menus.0.remove(&session);
     #[expect(
         clippy::expect_used,
@@ -427,7 +450,7 @@ pub(super) fn closed(
     let p = state
         .players
         .get_mut(&session)
-        .expect("invariant: a closing menu's player is in the game");
+        .expect("a closing menu's player is in the game");
     p.inventory.menu = None;
     let old = p.view.set_menu_blocks([None, None]);
     for (pos, _) in old.into_iter().flatten() {
@@ -446,30 +469,6 @@ pub(super) fn closed(
         Response::Refuse => Stack::EMPTY,
         Response::Keep | Response::Close => own,
     }
-}
-
-/// What an item stack request does to an open menu.
-#[derive(Debug)]
-pub(super) enum Touch {
-    /// It names no slot of a shown menu.
-    Nothing,
-    /// It only takes, places, swaps, drops and destroys, and names editable slots of the menu but
-    /// no other, or it names no menu slot while the cursor holds lent items: it runs, and the
-    /// handler hears of its changes.
-    Edit(Id),
-    /// It names a menu slot but clicks none, or does more than take, place, swap, drop and
-    /// destroy with an editable slot: it is refused.
-    Refused,
-    /// It clicks a slot that is not editable: it is refused, and the handler hears of the click.
-    Click(Click),
-}
-
-/// `info` with the click `action` on it, if it names a menu slot.
-fn menu(
-    info: &StackRequestSlotInfo,
-    action: Option<Action>,
-) -> Option<(&StackRequestSlotInfo, Option<Action>)> {
-    (info.container.container_id == ContainerId::LevelEntity as u8).then_some((info, action))
 }
 
 /// What an item stack request of `session` does to its open menu ([`Touch`]). A request that
@@ -561,13 +560,23 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
     }
 }
 
-/// Whether `session` has the menu `menu` open.
-pub(super) fn is_open(state: &State, session: SessionId, menu: Id) -> bool {
-    state
-        .players
-        .get(&session)
-        .and_then(|p| p.inventory.menu.as_ref())
-        .is_some_and(|m| m.id == menu)
+/// `info` with the click `action` on it, if it names a menu slot.
+fn menu(
+    info: &StackRequestSlotInfo,
+    action: Option<Action>,
+) -> Option<(&StackRequestSlotInfo, Option<Action>)> {
+    (info.container.container_id == ContainerId::LevelEntity as u8).then_some((info, action))
+}
+
+/// Runs the handler of the menu `click` names, if it is still open; closes the menu if the
+/// handler says so.
+pub(super) fn clicked(state: &mut State, session: SessionId, click: Click) {
+    let menu = click.menu;
+    if call(state, session, menu, Input::Click(click)) == Some(Response::Close)
+        && is_open(state, session, menu)
+    {
+        close_now(state, session, Notice::Send, Raise::Events);
+    }
 }
 
 /// Runs the handler of the menu `menu` of `session` on `input`, with the handler out of the
@@ -591,13 +600,11 @@ pub(super) fn call(
     Some(response)
 }
 
-/// Runs the handler of the menu `click` names, if it is still open; closes the menu if the
-/// handler says so.
-pub(super) fn clicked(state: &mut State, session: SessionId, click: Click) {
-    let menu = click.menu;
-    if call(state, session, menu, Input::Click(click)) == Some(Response::Close)
-        && is_open(state, session, menu)
-    {
-        close_now(state, session, Notice::Send, Raise::Events);
-    }
+/// Whether `session` has the menu `menu` open.
+pub(super) fn is_open(state: &State, session: SessionId, menu: Id) -> bool {
+    state
+        .players
+        .get(&session)
+        .and_then(|p| p.inventory.menu.as_ref())
+        .is_some_and(|m| m.id == menu)
 }

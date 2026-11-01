@@ -1051,7 +1051,10 @@ impl Player {
     #[doc(alias = "EffectCollection::clear")]
     pub fn clear_effects(&mut self) {
         // In effect ID order, as BDS removes them (P6 `syntax` `effect @s clear`).
-        while let Some(&effect) = self.survival.effects.keys().min_by_key(|t| t.id()) {
+        for effect in effects::active_types_by_id(&self.survival)
+            .into_iter()
+            .flatten()
+        {
             effects::remove_from(self, effect);
         }
         self.survival.touch(0);

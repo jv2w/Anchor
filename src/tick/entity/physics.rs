@@ -3,11 +3,11 @@
 //! world's blocks, so the tick runs them on the CPU pool and applies the results in entity order.
 //! Only `crate::math` arithmetic is used, so the bits do not depend on the platform or the thread.
 //!
-//! Blocks of chunks that are not loaded, and states Anchor does not know, are full cubes, and a
-//! move stops at the border of a chunk that is not loaded even when the box already reaches into
-//! it: an entity never moves into a chunk that is not loaded (a projectile sticks at its border).
-//! Positions of loaded chunks above or below the world height are air, so entities fall out of
-//! the world.
+//! Blocks of chunks that are not loaded, and states neither Anchor nor clients know, are full
+//! cubes; a block only clients know (an inert block) uses its collision boxes. A move stops at the
+//! border of a chunk that is not loaded even when the box already reaches into it: an entity
+//! never moves into a chunk that is not loaded (a projectile sticks at its border). Positions of
+//! loaded chunks above or below the world height are air, so entities fall out of the world.
 //!
 //! Projectiles move along a ray that stops at the first block it meets (PMMP `Projectile::move`,
 //! `VoxelRayTrace`, `AxisAlignedBB::calculateIntercept`); the entities on the ray are found in the
@@ -19,25 +19,73 @@ use crate::block::{self, Class, Face};
 use crate::event::DamageCause;
 use crate::math::{self, Aabb, Vec3, max};
 use crate::random::Random;
+use crate::tick::checkpoint::fields;
+use crate::tick::interact::props::{self, Axis};
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
-/// A motion component at or below this counts as zero (PMMP `Entity::MOTION_THRESHOLD`).
-pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
-/// The inset of the block cells an entity is inside (PMMP `getBlocksAroundWithEntityInsideActions`).
-pub(in crate::tick) const INSIDE_INSET: f64 = 0.001;
+/// The seconds a block sets what it burns on fire for (PMMP `EntityCombustByBlockEvent` of 8).
+const BURN_SECS: u8 = 8;
+/// The width of a chunk, in blocks.
+const CHUNK_WIDTH: f64 = 16.0;
 /// The push of flowing liquid per tick (PMMP `checkBlockIntersections`).
 const CURRENT: f64 = 0.014;
-/// The largest speed component an entity keeps, in blocks per tick: falling reaches 2 (gravity
-/// 0.04 against drag 0.02), and a saved or given speed above this is cut, so one move looks at a
-/// bounded number of blocks.
-pub(super) const MAX_SPEED: f64 = 10.0;
+/// The downward pull a falling liquid adds to its flow where it is blocked on a side (PMMP
+/// `Liquid::getFlowVector`).
+const FALLING_PULL: f64 = -6.0;
 /// The horizontal directions in PMMP's `Facing::HORIZONTAL` order: north, south, west, east.
 const HORIZONTAL: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
+/// The inset of the block cells an entity is inside (PMMP `getBlocksAroundWithEntityInsideActions`).
+pub(in crate::tick) const INSIDE_INSET: f64 = 0.001;
 /// The most cells a ray visits: a move of at most [`MAX_SPEED`] per axis crosses at most 33
 /// cells, so this never cuts a projectile's ray short.
 const MAX_RAY_CELLS: usize = 128;
+/// The largest speed component an entity keeps, in blocks per tick: falling reaches 2 (gravity
+/// 0.04 against drag 0.02), and a saved, given or computed speed above this is cut, so one move
+/// looks at a bounded number of blocks.
+pub(super) const MAX_SPEED: f64 = 10.0;
+/// The least square of the span of a segment along an axis for it to cross a plane of that axis
+/// (PMMP `Vector3::getIntermediateWith*Value`).
+const MIN_SPAN_SQUARED: f64 = 0.000_000_1;
+/// A motion component at or below this counts as zero (PMMP `Entity::MOTION_THRESHOLD`).
+pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
 /// How far a stuck projectile's box reaches for its block (PMMP `onNearbyBlockChange`).
 const STUCK_REACH: f64 = 0.001;
+/// The weakest push of an entity inside a solid block (PMMP `checkObstruction`).
+const UNSTICK_FORCE_BASE: f64 = 0.1;
+/// The random part added to the weakest push of an entity inside a solid block (PMMP
+/// `checkObstruction`).
+const UNSTICK_FORCE_SPREAD: f64 = 0.2;
+
+/// The input of one entity's step.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Input {
+    pub(super) body: Body,
+    pub(super) physics: Physics,
+    /// A block changed nearby: move even at rest (PMMP `forceMovementUpdate`).
+    pub(super) forced: bool,
+    /// The random stream of this entity this tick.
+    pub(super) random: (i64, u64, u64),
+    /// The block a projectile is stuck in: it does not move unless that block lets it go.
+    pub(super) stuck: Option<BlockPos>,
+}
+
+/// The result of one entity's step.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Step {
+    pub(super) body: Body,
+    /// The fall distance when the entity hit the ground this tick (PMMP `onHitGround`).
+    pub(super) landed: Option<f64>,
+    /// The blocks acting on it, in PMMP's cell order (z, x, y).
+    pub(super) inside: Vec<Inside>,
+    /// A projectile's flight this tick: the serial phase looks for entities on it.
+    pub(super) flight: Option<Flight>,
+    /// The block a projectile's ray met.
+    pub(super) hit: Option<BlockHit>,
+    /// A projectile's new yaw and pitch (it turns along its flight while nothing is hit).
+    pub(super) rotation: Option<(f64, f64)>,
+    /// The block a stuck projectile was stuck in changed and holds it no more.
+    pub(super) released: bool,
+}
 
 /// Where an entity is and how it moves.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -51,13 +99,6 @@ pub(super) struct Body {
     /// Blocks fallen since it last stood on something.
     pub(super) fall_distance: f64,
 }
-
-crate::tick::checkpoint::fields!(Body {
-    position,
-    motion,
-    on_ground,
-    fall_distance,
-});
 
 impl Body {
     /// The bounding box (PMMP `recalculateBoundingBox`).
@@ -76,6 +117,35 @@ impl Body {
     }
 }
 
+fields!(Body {
+    position,
+    motion,
+    on_ground,
+    fall_distance,
+});
+
+/// A projectile's move this tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Flight {
+    /// Where it started.
+    pub(super) start: Vec3,
+    /// The motion it moved with (its speed when it hits something).
+    pub(super) motion: Vec3,
+    /// Where it stopped: the first block on the way, or `start + motion`.
+    pub(super) end: Vec3,
+}
+
+/// Where a projectile's ray met a block.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct BlockHit {
+    /// The block.
+    pub(super) pos: BlockPos,
+    /// The point on its box.
+    pub(super) point: Vec3,
+    /// The face of the box it entered.
+    pub(super) face: Face,
+}
+
 /// What a block the entity is inside does to it (PMMP `onEntityInside`), for the serial phase:
 /// these change health and fire, which the kind rules decide on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,97 +158,6 @@ pub(super) enum Inside {
     WaterCauldron(BlockPos),
     /// An unlit campfire at this position: a burning entity lights it.
     Campfire(BlockPos),
-}
-
-/// How a block hurts what is inside it (PMMP `onEntityInside`): the one rule for players and
-/// entities.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::tick) enum Harm {
-    /// Fire (1) or soul fire (2) fire damage, then burning.
-    Fire(u8),
-    /// Lava, in a block or (`cauldron`) a cauldron: 4 lava damage, then burning; lava in a block
-    /// ends the fall.
-    Lava {
-        /// In a lava cauldron.
-        cauldron: bool,
-    },
-    /// A lit campfire (1) or soul campfire (2): fire damage to a living thing.
-    Campfire(u8),
-    /// Magma: 1 fire damage to a living thing that neither sneaks nor wears Frost Walker.
-    Magma,
-    /// A cactus: 1 contact damage.
-    Cactus,
-    /// A sweet berry bush past its first stage: 1 contact damage to a living thing, whose fall
-    /// ends.
-    BerryBush,
-}
-
-impl Harm {
-    /// How `block` hurts what is inside it, `None` if it does not.
-    pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
-        let int = |name: &str| match block.value(name) {
-            Some(block::PropertyValue::Int(v)) => v,
-            Some(block::PropertyValue::Byte(v)) => i32::from(v),
-            _ => 0,
-        };
-        if block.is(Class::BaseFire) {
-            Some(Self::Fire(if block.is(Class::SoulFire) { 2 } else { 1 }))
-        } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
-            Some(Self::Lava {
-                cauldron: block.is(Class::LavaCauldron),
-            })
-        } else if block.is(Class::Campfire) {
-            let soul = block.is(Class::SoulCampfire);
-            (int("extinguished") == 0).then_some(Self::Campfire(if soul { 2 } else { 1 }))
-        } else if block.is(Class::Magma) {
-            Some(Self::Magma)
-        } else if block.is(Class::Cactus) {
-            Some(Self::Cactus)
-        } else if block.is(Class::SweetBerryBush) {
-            (int("growth") >= 1).then_some(Self::BerryBush)
-        } else {
-            None
-        }
-    }
-
-    /// The damage it deals.
-    pub(in crate::tick) fn damage(self) -> f64 {
-        match self {
-            Self::Fire(d) | Self::Campfire(d) => f64::from(d),
-            Self::Lava { .. } => 4.0,
-            Self::Magma | Self::Cactus | Self::BerryBush => 1.0,
-        }
-    }
-
-    /// The cause of its damage.
-    pub(in crate::tick) fn cause(self) -> DamageCause {
-        match self {
-            Self::Fire(_) | Self::Campfire(_) | Self::Magma => DamageCause::Fire,
-            Self::Lava { .. } => DamageCause::Lava,
-            Self::Cactus | Self::BerryBush => DamageCause::Contact,
-        }
-    }
-
-    /// The seconds it then sets on fire for (PMMP `EntityCombustByBlockEvent` of 8), if it does.
-    pub(in crate::tick) fn burn_secs(self) -> Option<u8> {
-        matches!(self, Self::Fire(_) | Self::Lava { .. }).then_some(8)
-    }
-
-    /// Whether only living things take it (PMMP checks `instanceof Living`); fire, lava and
-    /// cactus hurt everything.
-    pub(in crate::tick) fn living_only(self) -> bool {
-        matches!(self, Self::Campfire(_) | Self::Magma | Self::BerryBush)
-    }
-
-    /// Whether sneaking or Frost Walker spares a living thing (PMMP `Magma::onEntityInside`).
-    pub(in crate::tick) fn spared_by_sneaking(self) -> bool {
-        self == Self::Magma
-    }
-
-    /// Whether it ends the fall of what it hurts.
-    pub(in crate::tick) fn ends_fall(self) -> bool {
-        matches!(self, Self::Lava { cauldron: false } | Self::BerryBush)
-    }
 }
 
 /// What a block does to what is inside it (PMMP `onEntityInside`), besides the player-only
@@ -221,71 +200,120 @@ impl Touch {
     }
 }
 
-/// Whether the block at the eyes `eye` is an opaque solid one whose collision boxes overlap
-/// `bounds` (PMMP `Entity::isInsideOfSolid`): the one rule for players and entities.
-pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -> bool {
-    let cell = BlockPos::containing(eye);
-    let at = Vec3::new(f64::from(cell.x), f64::from(cell.y), f64::from(cell.z));
-    world.block(cell).is_some_and(|s| {
-        s.is_solid()
-            && !s.is_transparent()
-            && s.collision_boxes()
-                .iter()
-                .any(|b| b.offset(at).intersects(bounds))
-    })
+/// How a block hurts what is inside it (PMMP `onEntityInside`): the one rule for players and
+/// entities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::tick) enum Harm {
+    /// Fire (1) or soul fire (2) fire damage, then burning.
+    Fire(u8),
+    /// Lava, in a block or (`cauldron`) a cauldron: 4 lava damage, then burning; lava in a block
+    /// ends the fall.
+    Lava {
+        /// In a lava cauldron.
+        cauldron: bool,
+    },
+    /// A lit campfire (1) or soul campfire (2): fire damage to a living thing.
+    Campfire(u8),
+    /// Magma: 1 fire damage to a living thing that neither sneaks nor wears Frost Walker.
+    Magma,
+    /// A cactus: 1 contact damage.
+    Cactus,
+    /// A sweet berry bush past its first stage: 1 contact damage to a living thing, whose fall
+    /// ends.
+    BerryBush,
 }
 
-/// The input of one entity's step.
+impl Harm {
+    /// How `block` hurts what is inside it, `None` if it does not.
+    pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
+        if block.is(Class::BaseFire) {
+            Some(Self::Fire(if block.is(Class::SoulFire) { 2 } else { 1 }))
+        } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
+            Some(Self::Lava {
+                cauldron: block.is(Class::LavaCauldron),
+            })
+        } else if block.is(Class::Campfire) {
+            let soul = block.is(Class::SoulCampfire);
+            (props::flag(block, "extinguished") == Some(false)).then_some(Self::Campfire(if soul {
+                2
+            } else {
+                1
+            }))
+        } else if block.is(Class::Magma) {
+            Some(Self::Magma)
+        } else if block.is(Class::Cactus) {
+            Some(Self::Cactus)
+        } else if block.is(Class::SweetBerryBush) {
+            props::int(block, "growth")
+                .is_some_and(|growth| growth >= 1)
+                .then_some(Self::BerryBush)
+        } else {
+            None
+        }
+    }
+
+    /// The seconds it then sets on fire for (PMMP `EntityCombustByBlockEvent` of 8), if it does.
+    pub(in crate::tick) fn burn_secs(self) -> Option<u8> {
+        matches!(self, Self::Fire(_) | Self::Lava { .. }).then_some(BURN_SECS)
+    }
+
+    /// The cause of its damage.
+    pub(in crate::tick) fn cause(self) -> DamageCause {
+        match self {
+            Self::Fire(_) | Self::Campfire(_) | Self::Magma => DamageCause::Fire,
+            Self::Lava { .. } => DamageCause::Lava,
+            Self::Cactus | Self::BerryBush => DamageCause::Contact,
+        }
+    }
+
+    /// The damage it deals.
+    pub(in crate::tick) fn damage(self) -> f64 {
+        match self {
+            Self::Fire(d) | Self::Campfire(d) => f64::from(d),
+            Self::Lava { .. } => 4.0,
+            Self::Magma | Self::Cactus | Self::BerryBush => 1.0,
+        }
+    }
+
+    /// Whether it ends the fall of what it hurts.
+    pub(in crate::tick) fn is_fall_ending(self) -> bool {
+        matches!(self, Self::Lava { cauldron: false } | Self::BerryBush)
+    }
+
+    /// Whether only living things take it (PMMP checks `instanceof Living`); fire, lava and
+    /// cactus hurt everything.
+    pub(in crate::tick) fn is_living_only(self) -> bool {
+        matches!(self, Self::Campfire(_) | Self::Magma | Self::BerryBush)
+    }
+
+    /// Whether sneaking or Frost Walker spares a living thing (PMMP `Magma::onEntityInside`).
+    pub(in crate::tick) fn is_spared_by_sneaking(self) -> bool {
+        self == Self::Magma
+    }
+}
+
+/// What occupies a block cell, for collisions.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Input {
-    pub(super) body: Body,
-    pub(super) physics: Physics,
-    /// A block changed nearby: move even at rest (PMMP `forceMovementUpdate`).
-    pub(super) forced: bool,
-    /// The random stream of this entity this tick.
-    pub(super) random: (i64, u64, u64),
-    /// The block a projectile is stuck in: it does not move unless that block lets it go.
-    pub(super) stuck: Option<BlockPos>,
+enum Cell {
+    /// Above or below the world in a loaded chunk: nothing.
+    Outside,
+    /// A known block.
+    Block(block::State),
+    /// A block only clients know: its collision boxes, nothing else (no liquid flows into it).
+    Inert(block::Inert),
+    /// A chunk that is not loaded or a state neither Anchor nor clients know: a full cube.
+    Wall,
 }
 
-/// A projectile's move this tick.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Flight {
-    /// Where it started.
-    pub(super) start: Vec3,
-    /// The motion it moved with (its speed when it hits something).
-    pub(super) motion: Vec3,
-    /// Where it stopped: the first block on the way, or `start + motion`.
-    pub(super) end: Vec3,
-}
-
-/// Where a projectile's ray met a block.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct BlockHit {
-    /// The block.
-    pub(super) pos: BlockPos,
-    /// The point on its box.
-    pub(super) point: Vec3,
-    /// The face of the box it entered.
-    pub(super) face: Face,
-}
-
-/// The result of one entity's step.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct Step {
-    pub(super) body: Body,
-    /// The fall distance when the entity hit the ground this tick (PMMP `onHitGround`).
-    pub(super) landed: Option<f64>,
-    /// The blocks acting on it, in PMMP's cell order (z, x, y).
-    pub(super) inside: Vec<Inside>,
-    /// A projectile's flight this tick: the serial phase looks for entities on it.
-    pub(super) flight: Option<Flight>,
-    /// The block a projectile's ray met.
-    pub(super) hit: Option<BlockHit>,
-    /// A projectile's new yaw and pitch (it turns along its flight while nothing is hit).
-    pub(super) rotation: Option<(f64, f64)>,
-    /// The block a stuck projectile was stuck in changed and holds it no more.
-    pub(super) released: bool,
+impl Cell {
+    /// The block-local collision boxes, if the cell is a block.
+    fn boxes(self) -> Option<&'static [Aabb]> {
+        match self {
+            Self::Outside | Self::Wall => None,
+            Self::Block(state) => Some(state.collision_boxes()),
+            Self::Inert(state) => Some(state.collision_boxes()),
+        }
+    }
 }
 
 /// One tick of movement of an entity (PMMP `onUpdate` up to `updateMovement`, with the block
@@ -304,7 +332,7 @@ pub(super) fn step(world: &World, input: &Input) -> Step {
     };
     let mut checked = false;
     let held = match input.stuck {
-        Some(pos) if input.forced && !holds(world, pos, body.bounding_box(physics)) => {
+        Some(pos) if input.forced && !can_hold(world, pos, body.bounding_box(physics)) => {
             out.released = true;
             false
         }
@@ -337,59 +365,8 @@ pub(super) fn step(world: &World, input: &Input) -> Step {
     out
 }
 
-/// What occupies a block cell, for collisions.
-#[derive(Debug, Clone, Copy)]
-enum Cell {
-    /// Above or below the world in a loaded chunk: nothing.
-    Outside,
-    /// A known block.
-    Block(block::State),
-    /// A block only clients know: its collision boxes, nothing else (no liquid flows into it).
-    Inert(block::Inert),
-    /// A chunk that is not loaded or a state neither Anchor nor clients know: a full cube.
-    Wall,
-}
-
-impl Cell {
-    /// The block-local collision boxes, if the cell is a block.
-    fn boxes(self) -> Option<&'static [Aabb]> {
-        match self {
-            Self::Block(state) => Some(state.collision_boxes()),
-            Self::Inert(state) => Some(state.collision_boxes()),
-            Self::Outside | Self::Wall => None,
-        }
-    }
-}
-
-/// What occupies the cell (x, y, z).
-fn cell(world: &World, x: i32, y: i32, z: i32) -> Cell {
-    if !(MIN_Y..=MAX_Y).contains(&y) {
-        let pos = BlockPos::new(x, y, z);
-        return if world.is_chunk_loaded(pos.chunk()) {
-            Cell::Outside
-        } else {
-            Cell::Wall
-        };
-    }
-    match world.entry(BlockPos::new(x, y, z)) {
-        Some(Entry::Known(state)) => Cell::Block(state),
-        Some(Entry::Inert(state, _)) => Cell::Inert(state),
-        Some(Entry::Unknown(_)) | None => Cell::Wall,
-    }
-}
-
-/// Whether an entity cannot stand in the cell (PMMP `isSolid`).
-pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
-    match cell(world, x, y, z) {
-        Cell::Outside => false,
-        Cell::Block(state) => state.is_solid(),
-        Cell::Inert(state) => state.is_solid(),
-        Cell::Wall => true,
-    }
-}
-
-/// Gravity, drag and ground friction (PMMP `tryChangeMovement`, with `checkObstruction` first
-/// for kinds that push themselves out of blocks).
+/// Applies gravity, drag and ground friction (PMMP `tryChangeMovement`, with `checkObstruction`
+/// first for kinds that push themselves out of blocks), then cuts the speed to [`MAX_SPEED`].
 fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &mut Random) {
     if physics.unstuck {
         unstick(world, physics, body, random);
@@ -407,25 +384,23 @@ fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &m
         let p = body.position;
         let below = BlockPos::containing(Vec3::new(p.x, p.y - 1.0, p.z));
         let below = match cell(world, below.x, below.y, below.z) {
-            Cell::Block(state) => state.friction_factor(),
             Cell::Outside | Cell::Inert(_) | Cell::Wall => block::AIR.friction_factor(),
+            Cell::Block(state) => state.friction_factor(),
         };
         friction *= below;
     }
-    body.motion = Vec3::new(body.motion.x * friction, motion_y, body.motion.z * friction);
+    body.motion = bounded(Vec3::new(
+        body.motion.x * friction,
+        motion_y,
+        body.motion.z * friction,
+    ));
 }
 
-/// An entity inside a solid block gets a push toward the nearest open side (PMMP
-/// `checkObstruction`).
+/// Pushes an entity inside a solid block toward the nearest open side (PMMP `checkObstruction`).
 fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Random) {
-    let mut boxes = Vec::new();
-    collisions(world, body.bounding_box(physics), &mut boxes);
-    if boxes.is_empty() {
-        return;
-    }
     let p = body.position;
     let BlockPos { x, y, z } = BlockPos::containing(p);
-    if !is_solid(world, x, y, z) {
+    if !is_solid(world, x, y, z) || !collides(world, body.bounding_box(physics)) {
         return;
     }
     let (dx, dy, dz) = (p.x - f64::from(x), p.y - f64::from(y), p.z - f64::from(z));
@@ -437,117 +412,28 @@ fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Rando
             z.saturating_add(oz),
         )
     };
-    // (axis 0 x, 1 y, 2 z; sign), as PMMP picks: the nearest open face, earlier ones on ties.
-    let mut direction: Option<(u8, f64)> = None;
-    let mut limit = 9999.0;
-    for (is_open, distance, face) in [
-        (open(-1, 0, 0), dx, (0, -1.0)),
-        (open(1, 0, 0), 1.0 - dx, (0, 1.0)),
-        (open(0, -1, 0), dy, (1, -1.0)),
-        (open(0, 1, 0), 1.0 - dy, (1, 1.0)),
-        (open(0, 0, -1), dz, (2, -1.0)),
-        (open(0, 0, 1), 1.0 - dz, (2, 1.0)),
+    // The nearest open face, as PMMP picks: earlier ones on ties.
+    let mut nearest: Option<(Axis, f64, f64)> = None;
+    for (is_open, distance, axis, sign) in [
+        (open(-1, 0, 0), dx, Axis::X, -1.0),
+        (open(1, 0, 0), 1.0 - dx, Axis::X, 1.0),
+        (open(0, -1, 0), dy, Axis::Y, -1.0),
+        (open(0, 1, 0), 1.0 - dy, Axis::Y, 1.0),
+        (open(0, 0, -1), dz, Axis::Z, -1.0),
+        (open(0, 0, 1), 1.0 - dz, Axis::Z, 1.0),
     ] {
-        if is_open && distance < limit {
-            limit = distance;
-            direction = Some(face);
+        if is_open && nearest.is_none_or(|(_, _, shortest)| distance < shortest) {
+            nearest = Some((axis, sign, distance));
         }
     }
-    let Some((axis, sign)) = direction else {
+    let Some((axis, sign, _)) = nearest else {
         return;
     };
-    let force = (random.unit() * 0.2 + 0.1) * sign;
+    let force = (random.unit() * UNSTICK_FORCE_SPREAD + UNSTICK_FORCE_BASE) * sign;
     match axis {
-        0 => body.motion.x = force,
-        1 => body.motion.y = force,
-        _ => body.motion.z = force,
-    }
-}
-
-/// The collision boxes of the blocks that overlap `area` (PMMP `getBlockCollisionBoxes`), in
-/// cell order. Boxes leave their cell only up and down: fences and walls are 1.5 high, a pitcher
-/// crop reaches 1/16 below (`collision_boxes_leave_their_cell_only_up_and_down` checks the
-/// data), so the cells under and over the area are looked at too.
-pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>) {
-    out.clear();
-    let BlockPos {
-        x: x0,
-        y: y0,
-        z: z0,
-    } = BlockPos::containing(area.min);
-    let BlockPos {
-        x: x1,
-        y: y1,
-        z: z1,
-    } = BlockPos::containing(area.max);
-    for z in z0..=z1 {
-        for x in x0..=x1 {
-            for y in y0.saturating_sub(1)..=y1.saturating_add(1) {
-                let at = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
-                let cell = cell(world, x, y, z);
-                if let Some(boxes) = cell.boxes() {
-                    for b in boxes {
-                        let b = b.offset(at);
-                        if b.overlaps(area, EPSILON) {
-                            out.push(b);
-                        }
-                    }
-                } else if matches!(cell, Cell::Wall) {
-                    let cube = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
-                    if cube.overlaps(area, EPSILON) {
-                        out.push(cube);
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Moves the box by `d`, axis by axis (y, x, z), each stopped by the first box in the way and
-/// by the border of a chunk that is not loaded ([`loaded_reach`]).
-fn clip_move(world: &World, boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb, Vec3) {
-    let mut dy = d.y;
-    for b in boxes {
-        dy = b.clip_y(moving, dy);
-    }
-    moving = moving.offset(Vec3::new(0.0, dy, 0.0));
-    let mut dx = d.x;
-    for b in boxes {
-        dx = b.clip_x(moving, dx);
-    }
-    dx = loaded_reach(world, moving, Vec3::new(1.0, 0.0, 0.0), dx);
-    moving = moving.offset(Vec3::new(dx, 0.0, 0.0));
-    let mut dz = d.z;
-    for b in boxes {
-        dz = b.clip_z(moving, dz);
-    }
-    dz = loaded_reach(world, moving, Vec3::new(0.0, 0.0, 1.0), dz);
-    moving = moving.offset(Vec3::new(0.0, 0.0, dz));
-    (moving, Vec3::new(dx, dy, dz))
-}
-
-/// `d`, a move of the box `moving` along the horizontal unit axis `along`, cut so that the
-/// box's centre stays in its chunk when the chunk it would move into is not loaded. The wall
-/// cubes of such a chunk stop only a box that does not overlap them yet (PMMP's clip), so a box
-/// that already reaches into it (dropped at its border, grown by a scale) needs this to keep the
-/// entity in the loaded chunks, where it is indexed and saved.
-fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
-    let centre = Vec3::new(
-        f64::midpoint(moving.min.x, moving.max.x),
-        moving.min.y,
-        f64::midpoint(moving.min.z, moving.max.z),
-    );
-    if d == 0.0 || world.is_chunk_loaded(BlockPos::containing(centre + along * d).chunk()) {
-        return d;
-    }
-    let c = centre.x * along.x + centre.z * along.z;
-    let low = (c / 16.0).floor() * 16.0;
-    // Both cuts stop EPSILON inside the chunk: the centre is rebuilt from the moved box's
-    // corners, and that sum rounds past an exact border.
-    if d > 0.0 {
-        max(math::min(d, low + 16.0 - EPSILON - c), 0.0)
-    } else {
-        math::min(max(d, low + EPSILON - c), 0.0)
+        Axis::X => body.motion.x = force,
+        Axis::Y => body.motion.y = force,
+        Axis::Z => body.motion.z = force,
     }
 }
 
@@ -582,6 +468,55 @@ fn travel(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
         keep(wanted.y, d.y, body.motion.y),
         keep(wanted.z, d.z, body.motion.z),
     );
+}
+
+/// The box `moving` moved by `d`, axis by axis (y, x, z), and the move it made: each axis is
+/// stopped by the first box in the way and by the border of a chunk that is not loaded
+/// ([`loaded_reach`]).
+fn clip_move(world: &World, boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb, Vec3) {
+    let mut dy = d.y;
+    for b in boxes {
+        dy = b.clip_y(moving, dy);
+    }
+    moving = moving.offset(Vec3::new(0.0, dy, 0.0));
+    let mut dx = d.x;
+    for b in boxes {
+        dx = b.clip_x(moving, dx);
+    }
+    dx = loaded_reach(world, moving, Vec3::new(1.0, 0.0, 0.0), dx);
+    moving = moving.offset(Vec3::new(dx, 0.0, 0.0));
+    let mut dz = d.z;
+    for b in boxes {
+        dz = b.clip_z(moving, dz);
+    }
+    dz = loaded_reach(world, moving, Vec3::new(0.0, 0.0, 1.0), dz);
+    moving = moving.offset(Vec3::new(0.0, 0.0, dz));
+    (moving, Vec3::new(dx, dy, dz))
+}
+
+/// The move `d` of the box `moving` along the horizontal unit axis `along`, cut so that the
+/// box's centre stays in its chunk when the chunk it would move into is not loaded. The wall
+/// cubes of such a chunk stop only a box that does not overlap them yet (PMMP's clip), so a box
+/// that already reaches into it (dropped at its border, grown by a scale) needs this to keep the
+/// entity in the loaded chunks, where it is indexed and saved.
+fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
+    let centre = Vec3::new(
+        f64::midpoint(moving.min.x, moving.max.x),
+        moving.min.y,
+        f64::midpoint(moving.min.z, moving.max.z),
+    );
+    if d == 0.0 || world.is_chunk_loaded(BlockPos::containing(centre + along * d).chunk()) {
+        return d;
+    }
+    let c = centre.x * along.x + centre.z * along.z;
+    let low = (c / CHUNK_WIDTH).floor() * CHUNK_WIDTH;
+    // Both cuts stop EPSILON inside the chunk: the centre is rebuilt from the moved box's
+    // corners, and that sum rounds past an exact border.
+    if d > 0.0 {
+        max(math::min(d, low + CHUNK_WIDTH - EPSILON - c), 0.0)
+    } else {
+        math::min(max(d, low + EPSILON - c), 0.0)
+    }
 }
 
 /// Moves a projectile along its motion up to the first block (PMMP `Projectile::move` without the
@@ -639,7 +574,7 @@ pub(super) fn heading(motion: Vec3) -> (f64, f64) {
 
 /// Whether the block at `pos` still holds a projectile with the box `bounds` (PMMP
 /// `collidesWithBB` with the box grown by 0.001); a block that is not loaded holds it.
-fn holds(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
+fn can_hold(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
     let area = bounds.grow(Vec3::new(STUCK_REACH, STUCK_REACH, STUCK_REACH));
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
     let cell = cell(world, pos.x, pos.y, pos.z);
@@ -647,6 +582,240 @@ fn holds(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
         Some(boxes) => boxes.iter().any(|b| b.offset(at).intersects(area)),
         None => matches!(cell, Cell::Wall),
     }
+}
+
+/// Records the blocks the entity is inside (PMMP `checkBlockIntersections`): falls reset at
+/// once, since a landing in water hurts no one; flowing liquid pushes; the rest goes to `inside`.
+fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec<Inside>) {
+    let b = body.bounding_box(physics);
+    let inset = Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET);
+    let BlockPos {
+        x: x0,
+        y: y0,
+        z: z0,
+    } = BlockPos::containing(b.min + inset);
+    let BlockPos {
+        x: x1,
+        y: y1,
+        z: z1,
+    } = BlockPos::containing(b.max - inset);
+    let mut push = Vec3::ZERO;
+    for z in z0..=z1 {
+        for x in x0..=x1 {
+            for y in y0..=y1 {
+                let Cell::Block(state) = cell(world, x, y, z) else {
+                    continue;
+                };
+                if !state.has_entity_collision() {
+                    continue;
+                }
+                let pos = BlockPos::new(x, y, z);
+                match Touch::of(state) {
+                    Some(Touch::Harm(harm)) => {
+                        inside.push(Inside::Harm(harm, pos));
+                        // What ends the fall of everything ends it here; a living thing's, in
+                        // the serial phase, which knows what is living.
+                        if harm.is_fall_ending() && !harm.is_living_only() {
+                            body.fall_distance = 0.0;
+                        }
+                    }
+                    Some(Touch::Campfire) => inside.push(Inside::Campfire(pos)),
+                    Some(Touch::Water) => {
+                        inside.push(Inside::Water);
+                        body.fall_distance = 0.0;
+                    }
+                    Some(Touch::WaterCauldron) => inside.push(Inside::WaterCauldron(pos)),
+                    Some(Touch::EndsFall) => body.fall_distance = 0.0,
+                    None => {}
+                }
+                if physics.currents && state.is(Class::Liquid) {
+                    push += flow(world, x, y, z, state);
+                }
+            }
+        }
+    }
+    if push.length_squared() > 0.0 {
+        body.motion += push.normalize() * CURRENT;
+    }
+}
+
+/// The direction the liquid at (x, y, z) pushes (PMMP `Liquid::getFlowVector`).
+fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
+    let (decay, falling) = depth(liquid);
+    let decay = if falling { 0 } else { decay };
+    let mut v = Vec3::ZERO;
+    for (dx, dz) in HORIZONTAL {
+        let (sx, sz) = (x.saturating_add(dx), z.saturating_add(dz));
+        let side = cell(world, sx, y, sz);
+        let mut side_decay = effective_decay(liquid, side);
+        let real = if side_decay < 0 {
+            let flowable = match side {
+                Cell::Outside => true,
+                Cell::Block(state) => state.can_be_flowed_into(),
+                Cell::Inert(_) | Cell::Wall => false,
+            };
+            if !flowable {
+                continue;
+            }
+            side_decay = effective_decay(liquid, cell(world, sx, y.saturating_sub(1), sz));
+            if side_decay < 0 {
+                continue;
+            }
+            side_decay - (decay - 8)
+        } else {
+            side_decay - decay
+        };
+        let real = f64::from(real);
+        v += Vec3::new(f64::from(dx) * real, 0.0, f64::from(dz) * real);
+    }
+    if falling {
+        for (dx, dz) in HORIZONTAL {
+            let (sx, sz) = (x.saturating_add(dx), z.saturating_add(dz));
+            if !can_flow_into(cell(world, sx, y, sz))
+                || !can_flow_into(cell(world, sx, y.saturating_add(1), sz))
+            {
+                v = v.normalize() + Vec3::new(0.0, FALLING_PULL, 0.0);
+                break;
+            }
+        }
+    }
+    v.normalize()
+}
+
+/// The decay a liquid sees in `cell` (PMMP `getEffectiveFlowDecay`): -1 for anything but the same
+/// liquid, 0 for falling liquid.
+fn effective_decay(liquid: block::State, cell: Cell) -> i32 {
+    match cell {
+        Cell::Block(other) if is_same_liquid(liquid, other) => {
+            let (decay, falling) = depth(other);
+            if falling { 0 } else { decay }
+        }
+        _ => -1,
+    }
+}
+
+/// Whether liquid can flow into the cell (PMMP `Liquid::canFlowInto`).
+fn can_flow_into(cell: Cell) -> bool {
+    match cell {
+        Cell::Outside => true,
+        Cell::Block(state) => {
+            state.can_be_flowed_into()
+                && !(state.is(Class::Liquid) && {
+                    let (decay, falling) = depth(state);
+                    !falling && decay == 0
+                })
+        }
+        Cell::Inert(_) | Cell::Wall => false,
+    }
+}
+
+/// Whether two liquid states are the same liquid (PMMP `hasSameTypeId`: still and flowing
+/// water are one type).
+fn is_same_liquid(a: block::State, b: block::State) -> bool {
+    (a.is(Class::Water) && b.is(Class::Water)) || (a.is(Class::Lava) && b.is(Class::Lava))
+}
+
+/// The decay and falling flag of a liquid state ([`liquid_depth`]), a still source without the
+/// property.
+fn depth(state: block::State) -> (i32, bool) {
+    liquid_depth(state).unwrap_or((0, false))
+}
+
+/// A liquid state's decay and whether it falls (Bedrock `liquid_depth`: decay in the low three
+/// bits, falling in bit 3); `None` without the property.
+pub(in crate::tick) fn liquid_depth(state: block::State) -> Option<(i32, bool)> {
+    let depth = props::int(state, "liquid_depth")?;
+    Some((depth & 7, depth & 8 != 0))
+}
+
+/// Fills `out` with the collision boxes of the blocks that overlap `area` (PMMP
+/// `getBlockCollisionBoxes`), in cell order. Boxes leave their cell only up and down: fences and
+/// walls are 1.5 high, a pitcher crop reaches 1/16 below
+/// (`collision_boxes_leave_their_cell_only_up_and_down` checks the data), so the cells under and
+/// over the area are looked at too.
+pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>) {
+    out.clear();
+    visit_collisions(world, area, |b| {
+        out.push(b);
+        false
+    });
+}
+
+/// Whether the collision box of a block overlaps `area` ([`collisions`] without the list).
+fn collides(world: &World, area: Aabb) -> bool {
+    visit_collisions(world, area, |_| true)
+}
+
+/// Calls `visit` with the collision boxes [`collisions`] lists, in the same order, until it
+/// returns true; whether it did.
+fn visit_collisions(world: &World, area: Aabb, mut visit: impl FnMut(Aabb) -> bool) -> bool {
+    let BlockPos {
+        x: x0,
+        y: y0,
+        z: z0,
+    } = BlockPos::containing(area.min);
+    let BlockPos {
+        x: x1,
+        y: y1,
+        z: z1,
+    } = BlockPos::containing(area.max);
+    for z in z0..=z1 {
+        for x in x0..=x1 {
+            for y in y0.saturating_sub(1)..=y1.saturating_add(1) {
+                let at = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+                let cell = cell(world, x, y, z);
+                if let Some(boxes) = cell.boxes() {
+                    for b in boxes {
+                        let b = b.offset(at);
+                        if b.overlaps(area, EPSILON) && visit(b) {
+                            return true;
+                        }
+                    }
+                } else if matches!(cell, Cell::Wall) {
+                    let cube = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
+                    if cube.overlaps(area, EPSILON) && visit(cube) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Whether an entity cannot stand in the cell (PMMP `isSolid`).
+pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
+    match cell(world, x, y, z) {
+        Cell::Outside => false,
+        Cell::Block(state) => state.is_solid(),
+        Cell::Inert(state) => state.is_solid(),
+        Cell::Wall => true,
+    }
+}
+
+/// Whether the block at the eyes `eye` is an opaque solid one whose collision boxes overlap
+/// `bounds` (PMMP `Entity::isInsideOfSolid`): the one rule for players and entities.
+pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -> bool {
+    let cell = BlockPos::containing(eye);
+    let at = Vec3::new(f64::from(cell.x), f64::from(cell.y), f64::from(cell.z));
+    world.block(cell).is_some_and(|s| {
+        s.is_solid()
+            && !s.is_transparent()
+            && s.collision_boxes()
+                .iter()
+                .any(|b| b.offset(at).intersects(bounds))
+    })
+}
+
+/// Whether a ray from `from` to `to` passes no block box (PMMP `Explosion::getExposure`: a
+/// block intercepts the segment); blocks of chunks that are not loaded stop it.
+pub(super) fn is_clear(world: &World, from: Vec3, to: Vec3) -> bool {
+    let mut blocked = false;
+    cells(from, to, |x, y, z| {
+        blocked = block_intercept(world, BlockPos::new(x, y, z), from, to).is_some();
+        blocked
+    });
+    !blocked
 }
 
 /// The nearest point where the segment `from`–`to` enters a collision box of the block at `pos`,
@@ -677,43 +846,38 @@ pub(super) fn block_intercept(
     best.map(|(p, f, _)| (p, f))
 }
 
-/// The point where the segment `from`–`to` crosses the plane where coordinate `axis` (0 x, 1 y,
-/// 2 z) is `v` (PMMP `Vector3::getIntermediateWith*Value`).
-fn on_plane(from: Vec3, to: Vec3, axis: u8, value: f64) -> Option<Vec3> {
-    let (start, stop) = match axis {
-        0 => (from.x, to.x),
-        1 => (from.y, to.y),
-        _ => (from.z, to.z),
-    };
-    let span = stop - start;
-    if span * span < 0.000_000_1 {
-        return None;
-    }
-    let share = (value - start) / span;
-    if !(0.0..=1.0).contains(&share) {
-        return None;
-    }
-    let point = from + (to - from) * share;
-    Some(match axis {
-        0 => Vec3::new(value, point.y, point.z),
-        1 => Vec3::new(point.x, value, point.z),
-        _ => Vec3::new(point.x, point.y, value),
-    })
-}
-
 /// The point nearest `from` where the segment `from`–`to` meets a face of `b`, and that face
 /// (PMMP `AxisAlignedBB::calculateIntercept`).
 pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<(Vec3, Face)> {
     let across_x = |v: &Vec3| v.y >= b.min.y && v.y <= b.max.y && v.z >= b.min.z && v.z <= b.max.z;
     let across_y = |v: &Vec3| v.x >= b.min.x && v.x <= b.max.x && v.z >= b.min.z && v.z <= b.max.z;
     let across_z = |v: &Vec3| v.x >= b.min.x && v.x <= b.max.x && v.y >= b.min.y && v.y <= b.max.y;
+    // In PMMP's order (x, y, z; the lower face first): the first of equal distances wins.
     let candidates = [
-        (Face::West, on_plane(from, to, 0, b.min.x).filter(across_x)),
-        (Face::East, on_plane(from, to, 0, b.max.x).filter(across_x)),
-        (Face::Down, on_plane(from, to, 1, b.min.y).filter(across_y)),
-        (Face::Up, on_plane(from, to, 1, b.max.y).filter(across_y)),
-        (Face::North, on_plane(from, to, 2, b.min.z).filter(across_z)),
-        (Face::South, on_plane(from, to, 2, b.max.z).filter(across_z)),
+        (
+            Face::West,
+            on_plane(from, to, Axis::X, b.min.x).filter(across_x),
+        ),
+        (
+            Face::East,
+            on_plane(from, to, Axis::X, b.max.x).filter(across_x),
+        ),
+        (
+            Face::Down,
+            on_plane(from, to, Axis::Y, b.min.y).filter(across_y),
+        ),
+        (
+            Face::Up,
+            on_plane(from, to, Axis::Y, b.max.y).filter(across_y),
+        ),
+        (
+            Face::North,
+            on_plane(from, to, Axis::Z, b.min.z).filter(across_z),
+        ),
+        (
+            Face::South,
+            on_plane(from, to, Axis::Z, b.max.z).filter(across_z),
+        ),
     ];
     let mut best: Option<(Vec3, Face, f64)> = None;
     for (face, v) in candidates {
@@ -725,6 +889,30 @@ pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<(Vec3, Face)> {
         }
     }
     best.map(|(v, f, _)| (v, f))
+}
+
+/// The point where the segment `from`–`to` crosses the plane where the coordinate of `axis` is
+/// `value` (PMMP `Vector3::getIntermediateWith*Value`).
+fn on_plane(from: Vec3, to: Vec3, axis: Axis, value: f64) -> Option<Vec3> {
+    let (start, stop) = match axis {
+        Axis::X => (from.x, to.x),
+        Axis::Y => (from.y, to.y),
+        Axis::Z => (from.z, to.z),
+    };
+    let span = stop - start;
+    if span * span < MIN_SPAN_SQUARED {
+        return None;
+    }
+    let share = (value - start) / span;
+    if !(0.0..=1.0).contains(&share) {
+        return None;
+    }
+    let point = from + (to - from) * share;
+    Some(match axis {
+        Axis::X => Vec3::new(value, point.y, point.z),
+        Axis::Y => Vec3::new(point.x, value, point.z),
+        Axis::Z => Vec3::new(point.x, point.y, value),
+    })
 }
 
 /// Visits the cells the segment `start`–`end` passes ([`cells_along`]); at most
@@ -814,167 +1002,29 @@ fn to_boundary(s: f64, ds: f64) -> f64 {
     (1.0 - (s - s.floor())) / ds
 }
 
-/// Whether a ray from `from` to `to` passes no block box (PMMP `Explosion::getExposure`: a
-/// block intercepts the segment); blocks of chunks that are not loaded stop it.
-pub(super) fn clear(world: &World, from: Vec3, to: Vec3) -> bool {
-    let mut blocked = false;
-    cells(from, to, |x, y, z| {
-        blocked = block_intercept(world, BlockPos::new(x, y, z), from, to).is_some();
-        blocked
-    });
-    !blocked
-}
-
-/// The blocks the entity is inside (PMMP `checkBlockIntersections`): falls reset at once, since
-/// a landing in water hurts no one; flowing liquid pushes; the rest goes to `inside`.
-fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec<Inside>) {
-    let b = body.bounding_box(physics);
-    let inset = Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET);
-    let BlockPos {
-        x: x0,
-        y: y0,
-        z: z0,
-    } = BlockPos::containing(b.min + inset);
-    let BlockPos {
-        x: x1,
-        y: y1,
-        z: z1,
-    } = BlockPos::containing(b.max - inset);
-    let mut push = Vec3::ZERO;
-    for z in z0..=z1 {
-        for x in x0..=x1 {
-            for y in y0..=y1 {
-                let Cell::Block(state) = cell(world, x, y, z) else {
-                    continue;
-                };
-                if !state.has_entity_collision() {
-                    continue;
-                }
-                let pos = BlockPos::new(x, y, z);
-                match Touch::of(state) {
-                    Some(Touch::Harm(harm)) => {
-                        inside.push(Inside::Harm(harm, pos));
-                        // What ends the fall of everything ends it here; a living thing's, in
-                        // the serial phase, which knows what is living.
-                        if harm.ends_fall() && !harm.living_only() {
-                            body.fall_distance = 0.0;
-                        }
-                    }
-                    Some(Touch::Campfire) => inside.push(Inside::Campfire(pos)),
-                    Some(Touch::Water) => {
-                        inside.push(Inside::Water);
-                        body.fall_distance = 0.0;
-                    }
-                    Some(Touch::WaterCauldron) => inside.push(Inside::WaterCauldron(pos)),
-                    Some(Touch::EndsFall) => body.fall_distance = 0.0,
-                    None => {}
-                }
-                if physics.currents && state.is(Class::Liquid) {
-                    push += flow(world, x, y, z, state);
-                }
-            }
-        }
-    }
-    if push.length_squared() > 0.0 {
-        body.motion += push.normalize() * CURRENT;
-    }
-}
-
-/// A liquid state's decay and whether it falls (Bedrock `liquid_depth`, an int or a byte: decay
-/// in the low three bits, falling in bit 3); `None` without the property.
-pub(in crate::tick) fn liquid_depth(state: block::State) -> Option<(i32, bool)> {
-    let d = match state.value("liquid_depth")? {
-        block::PropertyValue::Int(d) => d,
-        block::PropertyValue::Byte(d) => i32::from(d),
-        block::PropertyValue::String(_) => return None,
-    };
-    Some((d & 7, d & 8 != 0))
-}
-
-/// [`liquid_depth`], a still source without the property.
-fn depth(state: block::State) -> (i32, bool) {
-    liquid_depth(state).unwrap_or((0, false))
-}
-
-/// Whether two liquid states are the same liquid (PMMP `hasSameTypeId`: still and flowing
-/// water are one type).
-fn same_liquid(a: block::State, b: block::State) -> bool {
-    (a.is(Class::Water) && b.is(Class::Water)) || (a.is(Class::Lava) && b.is(Class::Lava))
-}
-
-/// PMMP `getEffectiveFlowDecay`: -1 for anything but the same liquid, 0 for falling liquid.
-fn effective_decay(liquid: block::State, cell: Cell) -> i32 {
-    match cell {
-        Cell::Block(other) if same_liquid(liquid, other) => {
-            let (decay, falling) = depth(other);
-            if falling { 0 } else { decay }
-        }
-        _ => -1,
-    }
-}
-
-/// Whether liquid can flow into the cell (PMMP `Liquid::canFlowInto`).
-fn can_flow_into(cell: Cell) -> bool {
-    match cell {
-        Cell::Block(state) => {
-            state.can_be_flowed_into()
-                && !(state.is(Class::Liquid) && {
-                    let (decay, falling) = depth(state);
-                    !falling && decay == 0
-                })
-        }
-        Cell::Outside | Cell::Inert(_) | Cell::Wall => false,
-    }
-}
-
-/// The direction the liquid at (x, y, z) pushes (PMMP `Liquid::getFlowVector`).
-fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
-    let (decay, falling) = depth(liquid);
-    let decay = if falling { 0 } else { decay };
-    let mut v = Vec3::ZERO;
-    for (dx, dz) in HORIZONTAL {
-        let (sx, sz) = (x.saturating_add(dx), z.saturating_add(dz));
-        let side = cell(world, sx, y, sz);
-        let mut side_decay = effective_decay(liquid, side);
-        let real = if side_decay < 0 {
-            let flowable = match side {
-                Cell::Block(state) => state.can_be_flowed_into(),
-                Cell::Outside => true,
-                Cell::Inert(_) | Cell::Wall => false,
-            };
-            if !flowable {
-                continue;
-            }
-            side_decay = effective_decay(liquid, cell(world, sx, y.saturating_sub(1), sz));
-            if side_decay < 0 {
-                continue;
-            }
-            side_decay - (decay - 8)
+/// What occupies the cell (x, y, z).
+fn cell(world: &World, x: i32, y: i32, z: i32) -> Cell {
+    if !(MIN_Y..=MAX_Y).contains(&y) {
+        let pos = BlockPos::new(x, y, z);
+        return if world.is_chunk_loaded(pos.chunk()) {
+            Cell::Outside
         } else {
-            side_decay - decay
+            Cell::Wall
         };
-        let real = f64::from(real);
-        v += Vec3::new(f64::from(dx) * real, 0.0, f64::from(dz) * real);
     }
-    if falling {
-        for (dx, dz) in HORIZONTAL {
-            let (sx, sz) = (x.saturating_add(dx), z.saturating_add(dz));
-            if !can_flow_into(cell(world, sx, y, sz))
-                || !can_flow_into(cell(world, sx, y.saturating_add(1), sz))
-            {
-                v = v.normalize() + Vec3::new(0.0, -6.0, 0.0);
-                break;
-            }
-        }
+    match world.entry(BlockPos::new(x, y, z)) {
+        Some(Entry::Known(state)) => Cell::Block(state),
+        Some(Entry::Unknown(_)) | None => Cell::Wall,
+        Some(Entry::Inert(state, _)) => Cell::Inert(state),
     }
-    v.normalize()
 }
 
-/// The largest absolute component a stored speed may have ([`MAX_SPEED`]); not finite is zero.
+/// The speed `v` with every component cut to [`MAX_SPEED`]; a component that is not finite
+/// becomes zero.
 pub(crate) fn bounded(v: Vec3) -> Vec3 {
     let one = |c: f64| {
         if c.is_finite() {
-            crate::math::clamp(c, -MAX_SPEED, MAX_SPEED)
+            math::clamp(c, -MAX_SPEED, MAX_SPEED)
         } else {
             0.0
         }
@@ -989,9 +1039,10 @@ pub(super) fn fall_distance(v: f64) -> f64 {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::super::kind::{Falling, Kind};
     use super::*;
+
     use crate::protocol::Rng;
+    use crate::tick::entity::kind::{Falling, ITEM, Kind};
     use crate::world::{Chunk, ChunkPos, Flat, Kind as WorldKind};
 
     /// A flat world (ground top at y -61, standing height -60) with chunks -2..=2 loaded.
@@ -1006,13 +1057,8 @@ pub(super) mod tests {
         w
     }
 
-    /// The first state of a block name.
-    pub(in crate::tick) fn named(name: &str) -> block::State {
-        block::State::all().find(|s| s.name() == name).unwrap()
-    }
-
     fn item_physics() -> &'static Physics {
-        &super::super::kind::ITEM
+        &ITEM
     }
 
     fn input(body: Body, physics: &Physics) -> Input {
@@ -1047,6 +1093,11 @@ pub(super) mod tests {
         assert_eq!(body.fall_distance, 0.0);
     }
 
+    /// The first state of a block name.
+    pub(in crate::tick) fn named(name: &str) -> block::State {
+        block::State::all().find(|s| s.name() == name).unwrap()
+    }
+
     #[test]
     fn a_falling_block_reports_its_fall_when_it_lands() {
         let w = flat();
@@ -1070,6 +1121,23 @@ pub(super) mod tests {
         assert!((fall - 10.0).abs() < 0.5, "fell about 10 blocks: {fall}");
         assert_eq!(body.position.y, -60.0);
         assert!(body.on_ground);
+    }
+
+    #[test]
+    fn a_speed_the_physics_computes_is_cut_to_the_bound() {
+        let w = flat();
+        let plunging = Physics {
+            gravity: 1.0,
+            drag: 0.0,
+            ..*item_physics()
+        };
+        let start = Body {
+            position: Vec3::new(0.5, 250.0, 0.5),
+            ..Body::default()
+        };
+        let body = run(&w, &plunging, start, 20);
+        assert!(!body.on_ground);
+        assert_eq!(body.motion.y, -MAX_SPEED);
     }
 
     #[test]
@@ -1241,6 +1309,16 @@ pub(super) mod tests {
         };
         let body = run(&w, item_physics(), start, 20);
         assert!(body.position.x > 1.6, "carried east: {:?}", body.position);
+    }
+
+    #[test]
+    fn falling_liquid_at_the_top_of_the_world_flows_into_the_air_above_it() {
+        let mut w = flat();
+        let falling = named("minecraft:flowing_water")
+            .with("liquid_depth", block::PropertyValue::Int(8))
+            .unwrap();
+        w.set_block(BlockPos::new(0, MAX_Y, 0), falling).unwrap();
+        assert_eq!(flow(&w, 0, MAX_Y, 0, falling), Vec3::ZERO);
     }
 
     #[test]

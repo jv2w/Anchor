@@ -490,7 +490,7 @@ pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
         u.click.x
     };
     // PMMP: the column counts from the left seen from the front.
-    let positive = matches!(props::rotate_y(u.face, true), Face::South | Face::East);
+    let positive = matches!(props::rotate_clockwise(u.face), Face::South | Face::East);
     let x = if positive { 1.0 - x } else { x };
     let Some(slot) = ChiseledBookshelfSlot::from_face_coordinates(x, u.click.y) else {
         return false;

@@ -18,6 +18,15 @@ use crate::tick::tests::{initialised, join, new_state, radius, received, setting
 use crate::tick::{Context, Output, Phase, State, survival};
 use crate::world::{self, BlockPos, Kind, Lightning, Options};
 
+/// The level event type that starts the rain.
+const START_RAIN: i32 = 3001;
+/// The level event type that starts the thunder.
+const START_THUNDER: i32 = 3002;
+/// The level event type that stops the rain.
+const STOP_RAIN: i32 = 3003;
+/// The level event type that stops the thunder.
+const STOP_THUNDER: i32 = 3004;
+/// The default world.
 const WORLD: world::Id = world::Id::DEFAULT;
 
 /// The start of rain or thunder and its stop, as (event type, data).
@@ -34,12 +43,45 @@ fn events(packets: &[Packet]) -> Vec<(i32, i32)> {
     packets
         .iter()
         .filter_map(|p| match p {
-            Packet::LevelEvent(e) if (3001..=3004).contains(&e.event_type) => {
+            Packet::LevelEvent(e) if (START_RAIN..=STOP_THUNDER).contains(&e.event_type) => {
                 Some((e.event_type, e.event_data))
             }
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn changes_start_and_stop_rain_and_thunder_as_settled_bds_weather_does() {
+    use Weather::{Clear, Rain, Thunder};
+    // P6 `weather` (P6), every step after BDS's levels settled.
+    let cases = [
+        (Clear, Rain, vec![start(START_RAIN)]),
+        (Rain, Rain, Vec::new()),
+        (Rain, Thunder, vec![start(START_THUNDER)]),
+        (Thunder, Thunder, Vec::new()),
+        (Thunder, Rain, vec![stop(STOP_THUNDER)]),
+        (Rain, Clear, vec![stop(STOP_RAIN)]),
+        (
+            Clear,
+            Thunder,
+            vec![start(START_RAIN), start(START_THUNDER)],
+        ),
+        (Thunder, Clear, vec![stop(STOP_RAIN), stop(STOP_THUNDER)]),
+        (Clear, Clear, Vec::new()),
+    ];
+    for (from, to, want) in cases {
+        let sent: Vec<Packet> = changes(from, to).collect();
+        assert_eq!(events(&sent), want, "{from:?} to {to:?}");
+    }
+    // P6 `joinrain` and `joinstorm`.
+    let join = |w| events(&joined(w).into_iter().collect::<Vec<_>>());
+    assert_eq!(join(Clear), []);
+    assert_eq!(join(Rain), [start(START_RAIN)]);
+    assert_eq!(join(Thunder), [start(START_THUNDER)]);
+    assert_eq!(levels(Clear), (0.0, 0.0));
+    assert_eq!(levels(Rain), (1.0, 0.0));
+    assert_eq!(levels(Thunder), (1.0, 1.0));
 }
 
 /// The weather level events `rx` was sent.
@@ -106,35 +148,6 @@ fn move_to(state: &mut State, s: u64, w: usize) {
 }
 
 #[test]
-fn changes_start_and_stop_rain_and_thunder_as_settled_bds_weather_does() {
-    use Weather::{Clear, Rain, Thunder};
-    // P6 `weather` (P6), every step after BDS's levels settled.
-    let cases = [
-        (Clear, Rain, vec![start(3001)]),
-        (Rain, Rain, vec![]),
-        (Rain, Thunder, vec![start(3002)]),
-        (Thunder, Thunder, vec![]),
-        (Thunder, Rain, vec![stop(3004)]),
-        (Rain, Clear, vec![stop(3003)]),
-        (Clear, Thunder, vec![start(3001), start(3002)]),
-        (Thunder, Clear, vec![stop(3003), stop(3004)]),
-        (Clear, Clear, vec![]),
-    ];
-    for (from, to, want) in cases {
-        let sent: Vec<Packet> = changes(from, to).collect();
-        assert_eq!(events(&sent), want, "{from:?} to {to:?}");
-    }
-    // P6 `joinrain` and `joinstorm`.
-    let join = |w| events(&joined(w).into_iter().collect::<Vec<_>>());
-    assert_eq!(join(Clear), []);
-    assert_eq!(join(Rain), [start(3001)]);
-    assert_eq!(join(Thunder), [start(3002)]);
-    assert_eq!(levels(Clear), (0.0, 0.0));
-    assert_eq!(levels(Rain), (1.0, 0.0));
-    assert_eq!(levels(Thunder), (1.0, 1.0));
-}
-
-#[test]
 fn a_change_reaches_the_players_of_its_world_only_and_stays() {
     let (mut state, mut output, [mut rx1, mut rx2]) = spawned([1, 2]);
     let (arena, a) = arena(&mut state, &mut output);
@@ -158,8 +171,11 @@ fn a_change_reaches_the_players_of_its_world_only_and_stays() {
     assert_eq!(c.world(WORLD).unwrap().weather(), Weather::Rain);
     assert_eq!(c.world(arena).unwrap().weather(), Weather::Thunder);
     tick(&mut state, &mut Vec::new(), &mut output);
-    assert_eq!(sent_events(&mut rx1), [start(3001)]);
-    assert_eq!(sent_events(&mut rx2), [start(3001), start(3002)]);
+    assert_eq!(sent_events(&mut rx1), [start(START_RAIN)]);
+    assert_eq!(
+        sent_events(&mut rx2),
+        [start(START_RAIN), start(START_THUNDER)]
+    );
     // No cycle: it rains until changed.
     for _ in 0..100 {
         tick(&mut state, &mut Vec::new(), &mut output);
@@ -171,9 +187,9 @@ fn a_change_reaches_the_players_of_its_world_only_and_stays() {
 #[test]
 fn a_joining_player_is_told_the_weather_by_start_game_and_the_spawn_window() {
     for (weather, levels, told) in [
-        (Weather::Clear, (0.0, 0.0), vec![]),
-        (Weather::Rain, (1.0, 0.0), vec![start(3001)]),
-        (Weather::Thunder, (1.0, 1.0), vec![start(3002)]),
+        (Weather::Clear, (0.0, 0.0), Vec::new()),
+        (Weather::Rain, (1.0, 0.0), vec![start(START_RAIN)]),
+        (Weather::Thunder, (1.0, 1.0), vec![start(START_THUNDER)]),
     ] {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         assert!(cx(&mut state).set_weather(WORLD, weather));
@@ -211,10 +227,10 @@ fn a_player_moving_to_a_world_of_other_weather_is_told_the_change() {
     // The weather of the world the player goes to, set while it is elsewhere, and what the move
     // tells it.
     for (to, id, weather, told) in [
-        (a, arena, Weather::Clear, vec![stop(3003)]),
-        (0, WORLD, Weather::Rain, vec![start(3001)]),
-        (a, arena, Weather::Thunder, vec![start(3002)]),
-        (0, WORLD, Weather::Rain, vec![stop(3004)]),
+        (a, arena, Weather::Clear, vec![stop(STOP_RAIN)]),
+        (0, WORLD, Weather::Rain, vec![start(START_RAIN)]),
+        (a, arena, Weather::Thunder, vec![start(START_THUNDER)]),
+        (0, WORLD, Weather::Rain, vec![stop(STOP_THUNDER)]),
     ] {
         assert!(cx(&mut state).set_weather(id, weather));
         tick(&mut state, &mut Vec::new(), &mut output);
@@ -265,13 +281,13 @@ fn a_player_waiting_for_its_spawn_chunks_is_told_a_change() {
     received(&mut rx);
     assert!(cx(&mut state).set_weather(WORLD, Weather::Rain));
     finish_spawn(&mut state, &mut output);
-    assert_eq!(sent_events(&mut rx), [start(3001)]);
+    assert_eq!(sent_events(&mut rx), [start(START_RAIN)]);
     // Before it, under the levels `StartGame` had: the window only starts weather.
     let (mut state, mut output, mut rx) = joining(Weather::Thunder);
     assert!(cx(&mut state).set_weather(WORLD, Weather::Clear));
     open_window(&mut state, &mut output);
     finish_spawn(&mut state, &mut output);
-    assert_eq!(sent_events(&mut rx), [stop(3003), stop(3004)]);
+    assert_eq!(sent_events(&mut rx), [stop(STOP_RAIN), stop(STOP_THUNDER)]);
 }
 
 #[test]
@@ -282,7 +298,7 @@ fn a_player_moving_while_it_waits_for_its_spawn_chunks_is_told_the_change() {
     received(&mut rx);
     move_to(&mut state, 1, a);
     finish_spawn(&mut state, &mut output);
-    assert_eq!(sent_events(&mut rx), [stop(3003)]);
+    assert_eq!(sent_events(&mut rx), [stop(STOP_RAIN)]);
 }
 
 #[test]
@@ -333,7 +349,7 @@ fn weather_and_lightning_packets_pass_the_send_hooks_and_start_game_keeps_the_le
 }
 
 /// The lightning packets of a tick.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 struct Bolts {
     /// Bolts shown: runtime ID and position.
     shown: Vec<(u64, [f32; 3])>,
@@ -395,7 +411,7 @@ fn a_bolt_shows_with_its_sounds_to_those_who_see_it_and_goes_a_second_later() {
         Bolts {
             shown: vec![(before, at.to_f32())],
             sounds: sounds.to_vec(),
-            removed: vec![],
+            removed: Vec::new(),
         }
     );
     assert_eq!(bolt_packets(&received(&mut rx2).0), Bolts::default());

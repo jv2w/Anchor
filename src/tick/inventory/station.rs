@@ -1,6 +1,6 @@
-//! Station windows' request actions: enchanting, anvil, smithing, stonecutter, loom, beacon
-//! payment and trades.
+//! The request actions of the station windows.
 //!
+//! The stations are enchanting, anvil, smithing, stonecutter, loom, beacon payment and trades.
 //! The executor hands a station everything it does not do itself: [`takes_craft_recipe`] says
 //! whether a `CraftRecipe` belongs to the open station (an enchanting option, a stonecutter or
 //! smithing recipe, a trade offer) and [`takes_auto_craft`] whether a `CraftRecipeAuto` does (a
@@ -19,11 +19,12 @@
 
 mod anvil;
 mod enchant;
-#[cfg(test)]
-mod tests;
 
-pub(super) use self::enchant::Choice;
-use super::super::{SessionId, State, block_entity, dispatch, interact, survival, trade};
+pub(super) use enchant::Choice;
+pub(in crate::tick) use enchant::enchant as enchant_item;
+
+use tracing::warn;
+
 use super::request::{Created, Error, Exec, Made, Result};
 use super::{SlotRef, Station, WindowKind};
 use crate::block;
@@ -37,26 +38,28 @@ use crate::protocol::{
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
+use crate::tick::{SessionId, State, block_entity, dispatch, interact, survival, trade};
 use crate::world::BlockPos;
-pub(in crate::tick) use enchant::enchant as enchant_item;
 
-/// The most patterns a loom puts on a banner (Bedrock).
-const MAX_LOOM_PATTERNS: usize = 6;
-/// The chance in 100 that using an anvil damages it (dragonfly: 12%).
-const ANVIL_DAMAGE_PERCENT: u32 = 12;
 /// The random stream purpose of anvil damage.
 const ANVIL: u64 = random::tag("anvil-damage");
+/// The chance in 100 that using an anvil damages it (dragonfly: 12%).
+const ANVIL_DAMAGE_PERCENT: u32 = 12;
+/// The most patterns a loom puts on a banner (Bedrock).
+const MAX_LOOM_PATTERNS: usize = 6;
+/// The most enchantments of an option a listener sets (one of each kind is far fewer).
+const MAX_OPTION_ENCHANTMENTS: usize = 16;
+/// The longest option name a listener may set, in bytes (the client shows a few words).
+const MAX_OPTION_NAME: usize = 64;
 
 /// What a station window shows besides its slots: the enchanting options for its input now.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct Shown {
     /// The input the options were made for, one of it.
     input: Stack,
     /// The options with their recipe network IDs, at most three.
     options: Vec<(u32, enchant::Choice)>,
 }
-
-crate::tick::checkpoint::fields!(Shown { input, options });
 
 impl Shown {
     /// The options shown, with their recipe network IDs (tests).
@@ -65,8 +68,9 @@ impl Shown {
         &self.options
     }
 
+    /// Hashes the input and the options into `h` (tests).
     #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
+    pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self { input, options } = self;
         super::hash_stack(h, input);
         h.usize(options.len());
@@ -81,11 +85,13 @@ impl Shown {
     }
 }
 
+crate::tick::checkpoint::fields!(Shown { input, options });
+
 /// What a request's station actions need from outside the inventory.
 #[derive(Debug, Default)]
 pub(super) struct Context {
-    /// The player's experience level: 0 with `experience = false`, so a survival player takes no
-    /// enchanting option or anvil work, which all cost levels.
+    /// The player's experience level, 0 with `experience = false`.
+    /// A survival player then takes no enchanting option or anvil work, which all cost levels.
     level: u32,
     /// The request's filter strings (an anvil's new name).
     filter: Vec<String>,
@@ -99,7 +105,73 @@ pub(super) struct Context {
     pub(super) creative: u16,
 }
 
-/// Reads what the stations need for `request` of `session` (the executor sees only the inventory).
+/// A station craft in progress in a request, with what it must consume.
+#[derive(Debug, Clone)]
+pub(super) enum Craft {
+    /// An enchanting option: the input (one) and the lapis it costs.
+    Enchant {
+        input: Stack,
+        lapis: u8,
+        /// The levels the option takes (its index plus one).
+        cost: u32,
+    },
+    /// An anvil: the whole input and `material` of the material.
+    Anvil {
+        input: Stack,
+        material: Stack,
+        material_used: u8,
+        cost: u32,
+    },
+    /// A smithing recipe: one of each of the three slots.
+    Smithing {
+        input: Stack,
+        material: Stack,
+        template: Stack,
+    },
+    /// A stonecutter recipe `times` times.
+    Stonecutter { ingredient: Ingredient, times: u8 },
+    /// A loom pattern on `times` banners, with as many dyes.
+    Loom {
+        banner: Stack,
+        dye: Stack,
+        times: u8,
+    },
+    /// A beacon payment of one item.
+    Beacon { primary: i32, secondary: i32 },
+    /// A trade `times` times.
+    Trade {
+        net_id: u32,
+        offer: trade::Offer,
+        times: u8,
+        payments: Payments,
+    },
+}
+
+/// Where a trade's payments come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Payments {
+    /// `CraftRecipe`: the two payment slots, the first payment from the first.
+    Slots,
+    /// `CraftRecipeAuto`, the quick trade: the payment slots and the main inventory, in any mix.
+    /// The trade button and a right click on the arrow send it.
+    Anywhere,
+}
+
+/// What a committed station craft does besides moving items.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Effect {
+    /// Enchanted: `cost` levels taken and a new enchanting seed.
+    Enchanted { cost: u32 },
+    /// An anvil used: `cost` levels taken; with finite resources it may be damaged.
+    Anvil { cost: u32, finite: bool },
+    /// Beacon effects chosen.
+    Beacon { primary: i32, secondary: i32 },
+    /// `times` trades of offer `net_id`.
+    Traded { net_id: u32, times: u32 },
+}
+
+/// What the stations need for `request` of `session`, read before the request runs.
+/// The executor sees only the inventory.
 pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequest) -> Context {
     let Some(player) = state.players.get(&session) else {
         return Context::default();
@@ -149,83 +221,14 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
     }
 }
 
-/// A station craft in progress in a request, with what it must consume.
-#[derive(Debug, Clone)]
-pub(super) enum Craft {
-    /// An enchanting option: the input (one) and the lapis it costs.
-    Enchant {
-        input: Stack,
-        lapis: u8,
-        /// The levels the option takes (its index plus one).
-        cost: u32,
-    },
-    /// A stonecutter recipe `times` times.
-    Stonecutter { ingredient: Ingredient, times: u8 },
-    /// A smithing recipe: one of each of the three slots.
-    Smithing {
-        input: Stack,
-        material: Stack,
-        template: Stack,
-    },
-    /// An anvil: the whole input and `material` of the material.
-    Anvil {
-        input: Stack,
-        material: Stack,
-        material_used: u8,
-        cost: u32,
-    },
-    /// A loom pattern on `times` banners, with as many dyes.
-    Loom {
-        banner: Stack,
-        dye: Stack,
-        times: u8,
-    },
-    /// A beacon payment of one item.
-    Beacon { primary: i32, secondary: i32 },
-    /// A trade `times` times.
-    Trade {
-        net_id: u32,
-        offer: trade::Offer,
-        times: u8,
-        payments: Payments,
-    },
-}
-
-/// Where a trade's payments come from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Payments {
-    /// `CraftRecipe`: the two payment slots, the first payment from the first.
-    Slots,
-    /// `CraftRecipeAuto` (the quick trade: the trade button, a right click on the arrow): the
-    /// payment slots and the main inventory, in any mix.
-    Anywhere,
-}
-
-/// What a committed station craft does besides moving items.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum Effect {
-    /// Enchanted: `cost` levels taken and a new enchanting seed.
-    Enchanted { cost: u32 },
-    /// An anvil used: `cost` levels taken; with finite resources it may be damaged.
-    Anvil { cost: u32, finite: bool },
-    /// Beacon effects chosen.
-    Beacon { primary: i32, secondary: i32 },
-    /// `times` trades of offer `net_id`.
-    Traded { net_id: u32, times: u32 },
-}
-
-/// The kind of the open station, if one is open.
-fn station(exec: &Exec<'_>) -> Option<Station> {
-    match exec.window?.kind {
-        WindowKind::Station { kind, .. } => Some(kind),
-        _ => None,
-    }
-}
-
-/// Whether a trade window is open.
-fn trading(exec: &Exec<'_>) -> bool {
-    exec.window
-        .is_some_and(|w| matches!(w.kind, WindowKind::Trade { .. }))
+/// Whether the open window's station handles `CraftRecipe` itself.
+/// That is enchanting options, trade offers, smithing and stonecutter recipes (P6).
+pub(super) fn takes_craft_recipe(exec: &Exec<'_>) -> bool {
+    trading(exec)
+        || matches!(
+            station(exec),
+            Some(Station::Enchant | Station::Smithing | Station::Stonecutter)
+        )
 }
 
 /// Whether the open window's station handles `CraftRecipeAuto` itself (a quick trade).
@@ -233,41 +236,34 @@ pub(super) fn takes_auto_craft(exec: &Exec<'_>) -> bool {
     trading(exec)
 }
 
-/// Whether the open window's station handles `CraftRecipe` itself (enchanting options, trade
-/// offers, stonecutter and smithing recipes; P6).
-pub(super) fn takes_craft_recipe(exec: &Exec<'_>) -> bool {
-    trading(exec)
-        || matches!(
-            station(exec),
-            Some(Station::Enchant | Station::Stonecutter | Station::Smithing)
-        )
-}
-
 /// Whether a station craft is in progress, so consume actions are allowed.
 pub(super) fn crafting(exec: &Exec<'_>) -> bool {
     exec.station.is_some()
 }
 
-/// Whether a destroy action is a beacon's payment (dragonfly: the client destroys the payment
-/// after `BeaconPayment`), taken as a consume.
+/// Whether a destroy action is a beacon's payment, taken as a consume.
+/// The client destroys the payment after `BeaconPayment` (dragonfly).
 pub(super) fn takes_destroy(exec: &Exec<'_>) -> bool {
     matches!(exec.station, Some(Craft::Beacon { .. }))
 }
 
-/// A request action only a station takes.
+/// Runs a request action only a station takes.
 pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result<()> {
     if exec.station.is_some() {
         return Err(Error::Crafting);
     }
     let craft = match (action, station(exec)) {
+        (StackRequestAction::BeaconPayment(a), Some(Station::Beacon)) => {
+            begin_beacon(exec, a.primary_effect, a.secondary_effect)?
+        }
         (StackRequestAction::CraftRecipe(a), Some(Station::Enchant)) => {
             begin_enchant(exec, a.recipe_network_id)?
         }
-        (StackRequestAction::CraftRecipe(a), Some(Station::Stonecutter)) => {
-            begin_stonecutter(exec, a.recipe_network_id, a.number_of_crafts)?
-        }
         (StackRequestAction::CraftRecipe(a), Some(Station::Smithing)) => {
             begin_smithing(exec, a.recipe_network_id)?
+        }
+        (StackRequestAction::CraftRecipe(a), Some(Station::Stonecutter)) => {
+            begin_stonecutter(exec, a.recipe_network_id, a.number_of_crafts)?
         }
         (StackRequestAction::CraftRecipe(a), None) if trading(exec) => begin_trade(
             exec,
@@ -288,25 +284,31 @@ pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result
         (StackRequestAction::CraftLoomRecipe(a), Some(Station::Loom)) => {
             begin_loom(exec, &a.pattern, a.times_crafted)?
         }
-        (StackRequestAction::BeaconPayment(a), Some(Station::Beacon)) => {
-            begin_beacon(exec, a.primary_effect, a.secondary_effect)?
-        }
         _ => return Err(Error::Unsupported),
     };
     exec.station = Some(craft);
     Ok(())
 }
 
-/// The stack in the window's own slot `i` as the request has left it.
-fn ui(exec: &Exec<'_>, i: u8) -> Result<Stack> {
-    exec.slot(SlotRef::Ui(i)).map(|s| s.stack)
+/// Begins `BeaconPayment` (dragonfly `handleBeaconPayment`; PMMP keeps only the effect IDs).
+/// The effects must be allowed for the beacon's pyramid, the secondary only at level 4. The
+/// payment item is checked in [`finish`], on what the request consumed.
+fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Craft> {
+    let level = exec.ctx.beacon_level;
+    if !block_entity::beacon_effect_allowed(primary, level)
+        || !block_entity::beacon_effect_allowed(secondary, level)
+        || (level < block_entity::BEACON_MAX_LEVEL && secondary != 0)
+    {
+        return Err(Error::Recipe);
+    }
+    Ok(Craft::Beacon { primary, secondary })
 }
 
-/// `CraftRecipe` on an enchanting table: the option with that recipe network ID enchants the
-/// input (PMMP `ItemStackRequestExecutor`, `EnchantingTransaction`): the option must be shown
-/// for the input there now (PMMP shows new options as the input changes, so old IDs fail); with
-/// finite resources the player needs the option's level, and the lapis spent is the option's
-/// index plus one (P6).
+/// Begins `CraftRecipe` on an enchanting table (PMMP `EnchantingTransaction`).
+/// The option with that recipe network ID enchants the input. It must be shown for the input
+/// there now (PMMP shows new options as the input changes, so old IDs fail). With finite
+/// resources the player needs the option's level, and the lapis spent is the option's index plus
+/// one (P6).
 fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let window = exec.window.ok_or(Error::NoSlot)?;
     let (index, choice) = window
@@ -341,30 +343,8 @@ fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     })
 }
 
-/// `CraftRecipe` on a stonecutter (dragonfly `handleStonecutting`; PMMP crafts it as any
-/// recipe): a stonecutter recipe `times` times from the input slot.
-fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
-    let Some(Recipe::Shapeless(r)) = exec.ctx.custom.recipe(id) else {
-        return Err(Error::Recipe);
-    };
-    let (ShapelessType::Stonecutter, [ingredient], [result]) = (r.kind, r.ingredients, r.results)
-    else {
-        return Err(Error::Recipe);
-    };
-    let result = result.to_item().ok_or(Error::Recipe)?;
-    if times == 0 || !ingredient.accepts(&ui(exec, 0)?) {
-        return Err(Error::Recipe);
-    }
-    exec.set_created(Some(Created::of(&result, u32::from(times))))?;
-    made(exec, result, times);
-    Ok(Craft::Stonecutter {
-        ingredient: *ingredient,
-        times,
-    })
-}
-
-/// `CraftRecipe` on a smithing table (dragonfly `handleSmithing`; PMMP has no smithing): the
-/// input, material and template must be the recipe's; a transform turns the input into the
+/// Begins `CraftRecipe` on a smithing table (dragonfly `handleSmithing`; PMMP has no smithing).
+/// The input, material and template must be the recipe's. A transform turns the input into the
 /// result's item keeping its data (damage, enchantments, name), a trim adds the armour trim of
 /// the template's pattern and the material (`Trim {Material, Pattern}`).
 fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
@@ -422,8 +402,65 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     })
 }
 
-/// `CraftRecipeOptional` on an anvil ([`anvil::craft`]): the request's filter string at the
-/// action's index is the new name.
+/// Begins `CraftRecipe` on a stonecutter (dragonfly `handleStonecutting`).
+/// A stonecutter recipe is cut `times` times from the input slot; PMMP crafts it as any recipe.
+fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
+    let Some(Recipe::Shapeless(r)) = exec.ctx.custom.recipe(id) else {
+        return Err(Error::Recipe);
+    };
+    let (ShapelessType::Stonecutter, [ingredient], [result]) = (r.kind, r.ingredients, r.results)
+    else {
+        return Err(Error::Recipe);
+    };
+    let result = result.to_item().ok_or(Error::Recipe)?;
+    if times == 0 || !ingredient.accepts(&ui(exec, 0)?) {
+        return Err(Error::Recipe);
+    }
+    exec.set_created(Some(Created::of(&result, u32::from(times))))?;
+    made(exec, result, times);
+    Ok(Craft::Stonecutter {
+        ingredient: *ingredient,
+        times,
+    })
+}
+
+/// Begins `CraftRecipe` (BDS, P6) or `CraftRecipeAuto` in a trade window.
+/// The offer with that network ID is traded `times` times; its payments come from where
+/// `payments` says.
+fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8, payments: Payments) -> Result<Craft> {
+    let offer = exec
+        .ctx
+        .offers
+        .iter()
+        .find_map(|(id, o)| (*id == net_id).then(|| o.clone()))
+        .ok_or(Error::Recipe)?;
+    // At most the offer's uses left, capped at 256 by trading; the action's count is a byte.
+    if times == 0
+        || u32::from(times) > offer.max_times
+        || offer.sell.is_empty()
+        || offer.buy_a.is_empty()
+    {
+        return Err(Error::Recipe);
+    }
+    exec.set_created(Some(Created::of(&offer.sell, u32::from(times))))?;
+    if exec.describe {
+        exec.made = Some(Made::Trade {
+            net_id,
+            inputs: [offer.buy_a.clone(), offer.buy_b.clone()],
+            output: offer.sell.clone(),
+            times: u32::from(times),
+        });
+    }
+    Ok(Craft::Trade {
+        net_id,
+        offer,
+        times,
+        payments,
+    })
+}
+
+/// Begins `CraftRecipeOptional` on an anvil ([`anvil::craft`]).
+/// The request's filter string at the action's index is the new name.
 fn begin_anvil(exec: &mut Exec<'_>, filter_index: i32) -> Result<Craft> {
     let (input, material) = (ui(exec, 0)?, ui(exec, 1)?);
     let rename = if exec.ctx.filter.is_empty() {
@@ -445,9 +482,10 @@ fn begin_anvil(exec: &mut Exec<'_>, filter_index: i32) -> Result<Craft> {
     })
 }
 
-/// `CraftLoomRecipe` (dragonfly `handleLoomCraft`; PMMP has no loom): the pattern goes on
-/// `times` banners in the dye's colour. Patterns that need a pattern item cannot be made (PMMP
-/// has no banner pattern items); an ominous banner takes none; a banner holds at most six.
+/// Begins `CraftLoomRecipe` (dragonfly `handleLoomCraft`; PMMP has no loom).
+/// The pattern goes on `times` banners in the dye's colour. Patterns that need a pattern item
+/// cannot be made (PMMP has no banner pattern items); an ominous banner takes none; a banner
+/// holds at most six.
 fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
     let (banner, dye) = (ui(exec, 0)?, ui(exec, 1)?);
     let banner_type = banner.item().ok_or(Error::Recipe)?;
@@ -490,65 +528,27 @@ fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
     })
 }
 
-/// Whether a banner pattern needs its pattern item in the loom (dragonfly
-/// `BannerPatternType.Item`).
-fn needs_pattern_item(pattern: &str) -> bool {
-    matches!(
-        pattern,
-        "bri" | "cre" | "cbo" | "flo" | "moj" | "sku" | "glb" | "pig" | "flw" | "gus"
-    )
+/// The kind of the open station, if one is open.
+fn station(exec: &Exec<'_>) -> Option<Station> {
+    match exec.window?.kind {
+        WindowKind::Station { kind, .. } => Some(kind),
+        _ => None,
+    }
 }
 
-/// `BeaconPayment` (dragonfly `handleBeaconPayment`; PMMP keeps only the effect IDs): the effects
-/// must be allowed for the beacon's pyramid, the secondary only at level 4. The payment item is
-/// checked in [`finish`], on what the request consumed.
-fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Craft> {
-    let level = exec.ctx.beacon_level;
-    if !block_entity::beacon_effect_allowed(primary, level)
-        || !block_entity::beacon_effect_allowed(secondary, level)
-        || (level < block_entity::BEACON_MAX_LEVEL && secondary != 0)
-    {
-        return Err(Error::Recipe);
-    }
-    Ok(Craft::Beacon { primary, secondary })
+/// Whether a trade window is open.
+fn trading(exec: &Exec<'_>) -> bool {
+    exec.window
+        .is_some_and(|w| matches!(w.kind, WindowKind::Trade { .. }))
 }
 
-/// `CraftRecipe` (BDS, P6) or `CraftRecipeAuto` in a trade window: the offer with that network
-/// ID, `times` times; its payments come from where `payments` says.
-fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8, payments: Payments) -> Result<Craft> {
-    let offer = exec
-        .ctx
-        .offers
-        .iter()
-        .find_map(|(id, o)| (*id == net_id).then(|| o.clone()))
-        .ok_or(Error::Recipe)?;
-    // At most the offer's uses left, capped at 256 by trading; the action's count is a byte.
-    if times == 0
-        || u32::from(times) > offer.max_times
-        || offer.sell.is_empty()
-        || offer.buy_a.is_empty()
-    {
-        return Err(Error::Recipe);
-    }
-    exec.set_created(Some(Created::of(&offer.sell, u32::from(times))))?;
-    if exec.describe {
-        exec.made = Some(Made::Trade {
-            net_id,
-            inputs: [offer.buy_a.clone(), offer.buy_b.clone()],
-            output: offer.sell.clone(),
-            times: u32::from(times),
-        });
-    }
-    Ok(Craft::Trade {
-        net_id,
-        offer,
-        times,
-        payments,
-    })
+/// The stack in the window's own slot `i` as the request has left it.
+fn ui(exec: &Exec<'_>, i: u8) -> Result<Stack> {
+    exec.slot(SlotRef::Ui(i)).map(|s| s.stack)
 }
 
-/// Describes a station recipe making `result` `times` times for the events (its inputs come from
-/// what the request consumes).
+/// Describes a station recipe making `result` `times` times for the events.
+/// Its inputs come from what the request consumes.
 fn made(exec: &mut Exec<'_>, result: Stack, times: u8) {
     if exec.describe {
         exec.made = Some(Made::Craft {
@@ -559,68 +559,17 @@ fn made(exec: &mut Exec<'_>, result: Stack, times: u8) {
     }
 }
 
-/// What the consume actions took from the window's own slot `i`: the count, and whether every
-/// stack was `like` (the same item, damage and data).
-fn taken_from(exec: &Exec<'_>, i: u8, like: impl Fn(&Stack) -> bool) -> (u32, bool) {
-    let mut count = 0u32;
-    let mut all = true;
-    for (r, stack) in &exec.consumed {
-        if *r == Some(SlotRef::Ui(i)) {
-            count += u32::from(stack.count());
-            all &= like(stack);
-        }
-    }
-    (count, all)
+/// Whether a banner pattern needs its pattern item in the loom.
+/// This is dragonfly's `BannerPatternType.Item`.
+fn needs_pattern_item(pattern: &str) -> bool {
+    matches!(
+        pattern,
+        "bri" | "cre" | "cbo" | "flo" | "moj" | "sku" | "glb" | "pig" | "flw" | "gus"
+    )
 }
 
-/// Whether every consume action took from the window's own slots in `allowed`.
-fn only_from(exec: &Exec<'_>, allowed: &[u8]) -> bool {
-    exec.consumed
-        .iter()
-        .all(|(r, _)| matches!(r, Some(SlotRef::Ui(i)) if allowed.contains(i)))
-}
-
-/// Whether `stack` is `want`'s item with its damage and data (the count aside).
-fn same(want: &Stack) -> impl Fn(&Stack) -> bool + '_ {
-    move |s: &Stack| s.can_stack_with(want)
-}
-
-/// Whether a trade payment `stack` is the offer's `want` ([`trade::is_payment`]).
-fn pays(want: &Stack, damage: trade::Damage) -> impl Fn(&Stack) -> bool + '_ {
-    move |s: &Stack| trade::is_payment(want, damage, s)
-}
-
-/// Whether the consume actions of a quick trade took exactly `times` of the offer's payments,
-/// from the payment slots and the main inventory. A stack that pays both payments (the same item
-/// twice) counts towards whichever still needs it.
-fn paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
-    let want_a = u32::from(offer.buy_a.count()) * times;
-    let want_b = u32::from(offer.buy_b.count()) * times;
-    let (pays_a, pays_b) = (
-        pays(&offer.buy_a, offer.damage_a),
-        pays(&offer.buy_b, offer.damage_b),
-    );
-    let (mut only_a, mut only_b, mut either) = (0u32, 0u32, 0u32);
-    for (r, stack) in &exec.consumed {
-        if !matches!(r, Some(SlotRef::Ui(0 | 1) | SlotRef::Main(_))) {
-            return false;
-        }
-        let count = u32::from(stack.count());
-        let total = match (pays_a(stack), want_b > 0 && pays_b(stack)) {
-            (true, true) => &mut either,
-            (true, false) => &mut only_a,
-            (false, true) => &mut only_b,
-            (false, false) => return false,
-        };
-        *total = total.saturating_add(count);
-    }
-    only_a <= want_a
-        && only_b <= want_b
-        && only_a.saturating_add(only_b).saturating_add(either) == want_a + want_b
-}
-
-/// The station's end-of-request checks: the craft consumed exactly its inputs; its effect waits
-/// for the commit.
+/// Ends a station craft: checks that the request consumed exactly the craft's inputs.
+/// Its effect waits for the commit.
 pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
     let Some(craft) = exec.station.take() else {
         return Ok(());
@@ -641,19 +590,6 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             exec.effects.push(Effect::Enchanted { cost: *cost });
             only_from(exec, &[0, 1]) && exact(exec, 0, 1, &same(input)) && lapis_ok
         }
-        Craft::Stonecutter { ingredient, times } => {
-            only_from(exec, &[0]) && exact(exec, 0, u32::from(*times), &|s| ingredient.accepts(s))
-        }
-        Craft::Smithing {
-            input,
-            material,
-            template,
-        } => {
-            only_from(exec, &[0, 1, 2])
-                && exact(exec, 0, 1, &same(input))
-                && exact(exec, 1, 1, &same(material))
-                && exact(exec, 2, 1, &same(template))
-        }
         Craft::Anvil {
             input,
             material,
@@ -668,6 +604,19 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             only_from(exec, &[0, 1])
                 && exact(exec, 0, u32::from(input.count()), &same(input))
                 && exact(exec, 1, u32::from(*material_used), &same(material))
+        }
+        Craft::Smithing {
+            input,
+            material,
+            template,
+        } => {
+            only_from(exec, &[0, 1, 2])
+                && exact(exec, 0, 1, &same(input))
+                && exact(exec, 1, 1, &same(material))
+                && exact(exec, 2, 1, &same(template))
+        }
+        Craft::Stonecutter { ingredient, times } => {
+            only_from(exec, &[0]) && exact(exec, 0, u32::from(*times), &|s| ingredient.accepts(s))
         }
         Craft::Loom { banner, dye, times } => {
             only_from(exec, &[0, 1])
@@ -715,10 +664,71 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
     if ok { Ok(()) } else { Err(Error::Consumed) }
 }
 
-/// Applies the effects of the committed request `request` of `session`: levels, the enchanting
-/// seed, the anvil's damage, the beacon's effects, the trade's count. Then, if the request
-/// changed an enchanting table's input, its options are worked out again and sent (PMMP
-/// `EnchantInventory::onSlotChange`; BDS sends the empty list after an enchant, P6).
+/// What the consume actions took from the window's own slot `i`.
+/// That is the count, and whether every stack was `like` (the same item, damage and data).
+fn taken_from(exec: &Exec<'_>, i: u8, like: impl Fn(&Stack) -> bool) -> (u32, bool) {
+    let mut count = 0_u32;
+    let mut all = true;
+    for (r, stack) in &exec.consumed {
+        if *r == Some(SlotRef::Ui(i)) {
+            count += u32::from(stack.count());
+            all &= like(stack);
+        }
+    }
+    (count, all)
+}
+
+/// Whether every consume action took from the window's own slots in `allowed`.
+fn only_from(exec: &Exec<'_>, allowed: &[u8]) -> bool {
+    exec.consumed
+        .iter()
+        .all(|(r, _)| matches!(r, Some(SlotRef::Ui(i)) if allowed.contains(i)))
+}
+
+/// Whether a stack is `want`'s item with its damage and data, the count aside.
+fn same(want: &Stack) -> impl Fn(&Stack) -> bool + '_ {
+    move |s: &Stack| s.can_stack_with(want)
+}
+
+/// Whether a stack is the offer's payment `want` ([`trade::is_payment`]).
+fn pays(want: &Stack, damage: trade::Damage) -> impl Fn(&Stack) -> bool + '_ {
+    move |s: &Stack| trade::is_payment(want, damage, s)
+}
+
+/// Whether the consume actions of a quick trade took exactly `times` of the offer's payments.
+/// They come from the payment slots and the main inventory. A stack that pays both payments (the
+/// same item twice) counts towards whichever still needs it.
+fn paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
+    let want_a = u32::from(offer.buy_a.count()) * times;
+    let want_b = u32::from(offer.buy_b.count()) * times;
+    let (pays_a, pays_b) = (
+        pays(&offer.buy_a, offer.damage_a),
+        pays(&offer.buy_b, offer.damage_b),
+    );
+    let (mut only_a, mut only_b, mut either) = (0_u32, 0_u32, 0_u32);
+    for (r, stack) in &exec.consumed {
+        if !matches!(r, Some(SlotRef::Ui(0 | 1) | SlotRef::Main(_))) {
+            return false;
+        }
+        let count = u32::from(stack.count());
+        let total = match (pays_a(stack), want_b > 0 && pays_b(stack)) {
+            (true, true) => &mut either,
+            (true, false) => &mut only_a,
+            (false, true) => &mut only_b,
+            (false, false) => return false,
+        };
+        *total = total.saturating_add(count);
+    }
+    only_a <= want_a
+        && only_b <= want_b
+        && only_a.saturating_add(only_b).saturating_add(either) == want_a + want_b
+}
+
+/// Applies the effects of the committed request `request` of `session`.
+/// They are the levels, the enchanting seed, the anvil's damage, the beacon's effects and the
+/// trade's count. Then, if the request changed an enchanting table's input, its options are
+/// worked out again and sent (PMMP `EnchantInventory::onSlotChange`; BDS sends the empty list
+/// after an enchant, P6).
 pub(super) fn apply(
     state: &mut State,
     session: SessionId,
@@ -786,164 +796,9 @@ pub(super) fn apply(
     }
 }
 
-/// Works out an enchanting table's options for its input again and sends them.
-fn refresh_options(state: &mut State, session: SessionId, world: WorldIndex, pos: BlockPos) {
-    let shelves = state
-        .worlds
-        .get(world)
-        .map_or(0, |w| enchant::bookshelves(w, pos));
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    let seed = survival::enchantment_seed(player);
-    let input = enchant_input(state, session);
-    let mut choices = enchant::options(&input, shelves, seed);
-    if !choices.is_empty() && dispatch::heard::<PlayerEnchantingOptionsRequest>(state) {
-        let mut event = PlayerEnchantingOptionsRequest {
-            player: crate::player::Id::new(session),
-            world: crate::world::Id::of(world),
-            pos,
-            options: choices.iter().map(option_of).collect(),
-            cancelled: false,
-        };
-        dispatch::call(state, &mut event);
-        let moved = dispatch::listened::<PlayerEnchantingOptionsRequest>(state)
-            && (window_of(state, session)
-                != Some(WindowKind::Station {
-                    world,
-                    pos,
-                    kind: Station::Enchant,
-                })
-                || enchant_input(state, session) != input);
-        if moved {
-            return;
-        }
-        choices = if event.cancelled {
-            Vec::new()
-        } else {
-            event.options.iter().map(choice_of).collect()
-        };
-        show_options(state, session, &input, choices);
-        dispatch::watch(state, &event);
-        return;
-    }
-    show_options(state, session, &input, choices);
-}
-
-/// The kind of `session`'s window.
-fn window_of(state: &State, session: SessionId) -> Option<WindowKind> {
-    state
-        .players
-        .get(&session)?
-        .inventory
-        .window
-        .as_ref()
-        .map(|w| w.kind)
-}
-
-/// The input slot of `session`'s station window.
-fn enchant_input(state: &State, session: SessionId) -> Stack {
-    state
-        .players
-        .get(&session)
-        .and_then(|p| p.inventory.window.as_ref())
-        .and_then(|w| w.ui.first())
-        .map(|s| s.stack.clone())
-        .unwrap_or_default()
-}
-
-/// The longest option name a listener may set, in bytes (the client shows a few words).
-const MAX_OPTION_NAME: usize = 64;
-/// The most enchantments of an option a listener sets (one of each kind is far fewer).
-const MAX_OPTION_ENCHANTMENTS: usize = 16;
-
-/// An option as the event shows it.
-fn option_of(c: &Choice) -> EnchantOption {
-    EnchantOption {
-        required_level: c.level,
-        name: c.name.clone(),
-        enchantments: c.enchantments.clone(),
-    }
-}
-
-/// An option a listener set, kept within what the packet and the client take: the name cut to
-/// [`MAX_OPTION_NAME`] bytes at a character, at most [`MAX_OPTION_ENCHANTMENTS`] enchantments,
-/// none of level 0.
-fn choice_of(o: &EnchantOption) -> Choice {
-    let mut end = o.name.len().min(MAX_OPTION_NAME);
-    while !o.name.is_char_boundary(end) {
-        end -= 1;
-    }
-    Choice {
-        level: o.required_level,
-        name: o.name.get(..end).unwrap_or_default().to_owned(),
-        enchantments: o
-            .enchantments
-            .iter()
-            .copied()
-            .filter(|(_, level)| *level > 0)
-            .take(MAX_OPTION_ENCHANTMENTS)
-            .collect(),
-    }
-}
-
-/// Shows `choices` for `input` in `session`'s enchanting window, each with a new recipe network
-/// ID after every recipe, the server's own too (P6: BDS never reuses one).
-fn show_options(state: &mut State, session: SessionId, input: &Stack, choices: Vec<Choice>) {
-    let first = state.custom.first_special_id();
-    let Some(player) = state.players.get_mut(&session) else {
-        return;
-    };
-    let inv = &mut player.inventory;
-    let mut options = Vec::with_capacity(choices.len());
-    for c in choices {
-        let id = inv.next_option_id.max(first);
-        inv.next_option_id = id.checked_add(1).unwrap_or(first);
-        options.push((id, c));
-    }
-    let packet = options_packet(enchant::slot(input.item()), &options);
-    if let Some(w) = inv.window.as_mut() {
-        w.station = Shown {
-            input: input.with_count(1),
-            options,
-        };
-    }
-    player.send_packet(packet);
-}
-
-/// `PlayerEnchantOptions` of `options` for an input of enchantment slot `slot` in BDS's shape
-/// (P6 `enchant`): the slot flag, and each enchantment in the list of its activation
-/// ([`enchant::activation`]). PMMP sends slot 0 and every enchantment in the first list.
-pub(super) fn options_packet(slot: i32, options: &[(u32, enchant::Choice)]) -> Packet {
-    Packet::PlayerEnchantOptions(PlayerEnchantOptions {
-        options: options
-            .iter()
-            .map(|(id, c)| {
-                let mut lists: [Vec<EnchantmentInstance>; 3] = Default::default();
-                for (e, l) in &c.enchantments {
-                    if let Some(list) = lists.get_mut(enchant::activation(*e)) {
-                        list.push(EnchantmentInstance {
-                            r#type: e.id(),
-                            level: *l,
-                        });
-                    }
-                }
-                EnchantmentOption {
-                    cost: c.level,
-                    enchantments: ItemEnchantments {
-                        slot,
-                        enchantments: lists,
-                    },
-                    name: c.name.clone(),
-                    recipe_network_id: *id,
-                }
-            })
-            .collect(),
-    })
-}
-
-/// An anvil was used (dragonfly): with finite resources it takes damage with a 12% chance, one
-/// stage at a time (anvil, chipped, damaged, gone); the use or break sound plays.
+/// Uses an anvil (dragonfly): with finite resources it takes damage with a 12% chance.
+/// It goes one stage at a time (anvil, chipped, damaged, gone), and the use or break sound
+/// plays. A block that is no anvil any more is left as it is.
 fn use_anvil(
     state: &mut State,
     session: SessionId,
@@ -977,7 +832,8 @@ fn use_anvil(
         match block.name() {
             "minecraft:anvil" => interact::props::renamed(block, "minecraft:chipped_anvil"),
             "minecraft:chipped_anvil" => interact::props::renamed(block, "minecraft:damaged_anvil"),
-            _ => Some(block::AIR),
+            "minecraft:damaged_anvil" => Some(block::AIR),
+            _ => None,
         }
     } else {
         None
@@ -990,12 +846,13 @@ fn use_anvil(
     crate::tick::emit::sound(state, world, interact::block_vec(pos), used);
     if let Some(next) = next {
         if let Some(w) = state.worlds.get_mut(world)
-            && w.set_block(pos, next).is_err()
+            && let Err(error) = w.set_block(pos, next)
         {
-            tracing::warn!(
+            warn!(
                 x = pos.x,
                 y = pos.y,
                 z = pos.z,
+                error = &error as &(dyn std::error::Error + 'static),
                 "could not damage the anvil"
             );
         }
@@ -1004,3 +861,163 @@ fn use_anvil(
         }
     }
 }
+
+/// Works out an enchanting table's options for its input again and sends them.
+/// A listener of [`PlayerEnchantingOptionsRequest`] hears them for every input, also one the
+/// table gives no option, and sees the options as they are applied.
+fn refresh_options(state: &mut State, session: SessionId, world: WorldIndex, pos: BlockPos) {
+    let shelves = state
+        .worlds
+        .get(world)
+        .map_or(0, |w| enchant::bookshelves(w, pos));
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    let seed = survival::enchantment_seed(player);
+    let input = enchant_input(state, session);
+    let mut choices = enchant::options(&input, shelves, seed);
+    if !input.is_empty() && dispatch::heard::<PlayerEnchantingOptionsRequest>(state) {
+        let mut event = PlayerEnchantingOptionsRequest {
+            player: crate::player::Id::new(session),
+            world: crate::world::Id::of(world),
+            pos,
+            options: choices.iter().map(option_of).collect(),
+            cancelled: false,
+        };
+        dispatch::call(state, &mut event);
+        let moved = dispatch::listened::<PlayerEnchantingOptionsRequest>(state)
+            && (window_of(state, session)
+                != Some(WindowKind::Station {
+                    world,
+                    pos,
+                    kind: Station::Enchant,
+                })
+                || enchant_input(state, session) != input);
+        if moved {
+            return;
+        }
+        choices = if event.cancelled {
+            Vec::new()
+        } else {
+            event.options.iter().map(choice_of).collect()
+        };
+        event.options = choices.iter().map(option_of).collect();
+        show_options(state, session, &input, choices);
+        dispatch::watch(state, &event);
+        return;
+    }
+    show_options(state, session, &input, choices);
+}
+
+/// The kind of `session`'s window.
+fn window_of(state: &State, session: SessionId) -> Option<WindowKind> {
+    state
+        .players
+        .get(&session)?
+        .inventory
+        .window
+        .as_ref()
+        .map(|w| w.kind)
+}
+
+/// The input slot of `session`'s station window.
+fn enchant_input(state: &State, session: SessionId) -> Stack {
+    state
+        .players
+        .get(&session)
+        .and_then(|p| p.inventory.window.as_ref())
+        .and_then(|w| w.ui.first())
+        .map(|s| s.stack.clone())
+        .unwrap_or_default()
+}
+
+/// An option as the event shows it.
+fn option_of(c: &Choice) -> EnchantOption {
+    EnchantOption {
+        required_level: c.level,
+        name: c.name.clone(),
+        enchantments: c.enchantments.clone(),
+    }
+}
+
+/// An option a listener set, kept within what the packet and the client take.
+/// The name is cut to [`MAX_OPTION_NAME`] bytes at a character, at most
+/// [`MAX_OPTION_ENCHANTMENTS`] enchantments stay, none of level 0.
+fn choice_of(o: &EnchantOption) -> Choice {
+    let mut end = o.name.len().min(MAX_OPTION_NAME);
+    while !o.name.is_char_boundary(end) {
+        end -= 1;
+    }
+    Choice {
+        level: o.required_level,
+        name: o.name.get(..end).unwrap_or_default().to_owned(),
+        enchantments: o
+            .enchantments
+            .iter()
+            .copied()
+            .filter(|(_, level)| *level > 0)
+            .take(MAX_OPTION_ENCHANTMENTS)
+            .collect(),
+    }
+}
+
+/// Shows `choices` for `input` in `session`'s enchanting window.
+/// Each gets the player's next recipe network ID, counted on from the first ID after the
+/// server's recipes, so no ID is used twice for one player (P6: the official server counts one
+/// server-wide counter and never reuses an ID either).
+fn show_options(state: &mut State, session: SessionId, input: &Stack, choices: Vec<Choice>) {
+    let first = state.custom.first_special_id();
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let inv = &mut player.inventory;
+    let mut options = Vec::with_capacity(choices.len());
+    for c in choices {
+        let id = inv.next_option_id.max(first);
+        inv.next_option_id = id.checked_add(1).unwrap_or(first);
+        options.push((id, c));
+    }
+    let packet = options_packet(enchant::slot(input.item()), &options);
+    if let Some(w) = inv.window.as_mut() {
+        w.station = Shown {
+            input: input.with_count(1),
+            options,
+        };
+    }
+    player.send_packet(packet);
+}
+
+/// The `PlayerEnchantOptions` of `options` for an input of enchantment slot `slot`.
+/// It has BDS's shape (P6 `enchant`): the slot flag, and each enchantment in the list of its
+/// activation ([`enchant::activation`]). PMMP sends slot 0 and every enchantment in the first
+/// list.
+pub(super) fn options_packet(slot: i32, options: &[(u32, enchant::Choice)]) -> Packet {
+    Packet::PlayerEnchantOptions(PlayerEnchantOptions {
+        options: options
+            .iter()
+            .map(|(id, c)| {
+                let mut lists: [Vec<EnchantmentInstance>; 3] = Default::default();
+                for (e, l) in &c.enchantments {
+                    if let Some(list) = lists.get_mut(enchant::activation(*e)) {
+                        list.push(EnchantmentInstance {
+                            r#type: e.id(),
+                            level: *l,
+                        });
+                    }
+                }
+                EnchantmentOption {
+                    cost: c.level,
+                    enchantments: ItemEnchantments {
+                        slot,
+                        enchantments: lists,
+                    },
+                    name: c.name.clone(),
+                    recipe_network_id: *id,
+                }
+            })
+            .collect(),
+    })
+}
+
+#[cfg(test)]
+mod tests;

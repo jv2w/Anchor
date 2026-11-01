@@ -1,7 +1,7 @@
-//! Enchanting table options (PMMP `EnchantingHelper`): the bookshelves around the table, three
-//! options from the player's enchanting seed, and the enchanted item an option makes.
+//! The enchanting table's options (PMMP `EnchantingHelper`) and the item an option makes.
 //!
-//! The draws come from the engine's random streams keyed by the seed alone, so the same seed and
+//! An option comes from the bookshelves around the table and the player's enchanting seed. The
+//! draws come from the engine's random streams keyed by the seed alone, so the same seed and
 //! input always give the same options (PMMP draws them from its `Random` seeded the same way).
 
 use crate::block;
@@ -31,12 +31,13 @@ crate::tick::checkpoint::fields!(Choice {
     enchantments
 });
 
-/// The bookshelves that power a table at `pos` (PMMP `countBookshelves`): the two-high ring two
-/// blocks out, each column only with air between it and the table, at most 15.
+/// The bookshelves that power a table at `pos` (PMMP `countBookshelves`).
+/// They are the two-high ring two blocks out, each column only with air between it and the
+/// table, at most 15.
 pub(in crate::tick) fn bookshelves(world: &World, pos: BlockPos) -> u8 {
     let mut count = 0;
-    for x in -2i32..=2 {
-        for z in -2i32..=2 {
+    for x in -2_i32..=2 {
+        for z in -2_i32..=2 {
             if x.abs() != 2 && z.abs() != 2 {
                 continue;
             }
@@ -64,9 +65,8 @@ pub(in crate::tick) fn bookshelves(world: &World, pos: BlockPos) -> u8 {
     count
 }
 
-/// The three options for `input` with `bookshelves` and the player's `seed` (PMMP
-/// `generateOptions`); none for an empty or already enchanted item, or one that takes no
-/// enchantments.
+/// The three options for `input` (PMMP `generateOptions`).
+/// They come from the `bookshelves` and the player's `seed`. None for an empty or already enchanted item, or one that takes no enchantments.
 pub(in crate::tick) fn options(input: &Stack, bookshelves: u8, seed: i32) -> Vec<Choice> {
     let Some(item) = input.item() else {
         return Vec::new();
@@ -87,10 +87,10 @@ pub(in crate::tick) fn options(input: &Stack, bookshelves: u8, seed: i32) -> Vec
         .collect()
 }
 
-/// PMMP `createOption`.
+/// Makes the option of `level` for `input` (PMMP `createOption`).
 fn choice(rng: &mut Random, input: &Stack, level: i32) -> Choice {
     let item = input.item();
-    let enchantability = i32::from(item.map_or(0, crate::item::Type::enchantability));
+    let enchantability = i32::from(item.map_or(0, Type::enchantability));
     let mut power =
         level + rng.range(0, enchantability >> 2) + rng.range(0, enchantability >> 2) + 1;
     // A bonus between 0.85 and 1.15.
@@ -118,7 +118,7 @@ fn choice(rng: &mut Random, input: &Stack, level: i32) -> Choice {
     }
 }
 
-/// PHP `round`: half away from zero, as an `i32`.
+/// The value rounded half away from zero, as PHP `round` does, as an `i32`.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "safety: the power is at most a few hundred"
@@ -127,8 +127,8 @@ fn round(v: f64) -> i32 {
     v.round() as i32
 }
 
-/// PMMP `getAvailableEnchantments`: for each enchantment the table can give the item, its
-/// highest level whose power range holds `power`.
+/// The enchantments the table can give the item (PMMP `getAvailableEnchantments`).
+/// Each comes with its highest level whose power range holds `power`.
 fn available(power: i32, input: &Stack) -> Vec<(Enchantment, u8)> {
     let Some(item) = input.item() else {
         return Vec::new();
@@ -150,7 +150,7 @@ fn available(power: i32, input: &Stack) -> Vec<(Enchantment, u8)> {
     list
 }
 
-/// PMMP `getRandomWeightedEnchantment`: by rarity weight.
+/// An enchantment of `list` drawn by rarity weight (PMMP `getRandomWeightedEnchantment`).
 fn weighted(rng: &mut Random, list: &[(Enchantment, u8)]) -> Option<(Enchantment, u8)> {
     let total: i32 = list.iter().map(|(e, _)| i32::from(e.rarity())).sum();
     if list.is_empty() || total <= 0 {
@@ -166,7 +166,7 @@ fn weighted(rng: &mut Random, list: &[(Enchantment, u8)]) -> Option<(Enchantment
     None
 }
 
-/// PMMP `getRandomOptionName`: 5 to 15 letters.
+/// A name of 5 to 15 random letters (PMMP `getRandomOptionName`).
 fn name(rng: &mut Random) -> String {
     let len = rng.range(5, 15);
     (0..len)
@@ -176,13 +176,14 @@ fn name(rng: &mut Random) -> String {
         .collect()
 }
 
-/// The item an option makes of `input` (PMMP `enchantItem`): a book becomes an enchanted book;
-/// each enchantment replaces one of its type. Fails if the result would be over a stack limit.
+/// The item an option makes of `input` (PMMP `enchantItem`).
+/// A book becomes an enchanted book; each enchantment replaces one of its type. Fails if the
+/// result would be over a stack limit.
 pub(in crate::tick) fn enchant(
     input: &Stack,
     enchantments: &[(Enchantment, u8)],
 ) -> crate::item::Result<Stack> {
-    let base = if input.item().and_then(crate::item::Type::kind) == Some(Kind::Book) {
+    let base = if input.item().and_then(Type::kind) == Some(Kind::Book) {
         Stack::new(Kind::EnchantedBook.default_type(), input.count())
     } else {
         input.clone()
@@ -194,9 +195,9 @@ pub(in crate::tick) fn enchant(
     base.with_extra(Some(extra))
 }
 
-/// The `Slot` of the `PlayerEnchantOptions` for `input`: the item's enchantment slot flag, as BDS
-/// sends it (P6 `enchants`): PMMP's `ItemFlags` values except that BDS gives leggings 8 and boots 4
-/// (PMMP 4 and 8), and a book -1; 0 for other items.
+/// The `Slot` of the `PlayerEnchantOptions` for `input`: the item's enchantment slot flag.
+/// It is as BDS sends it (P6 `enchants`): PMMP's `ItemFlags` values except that BDS gives
+/// leggings 8 and boots 4 (PMMP 4 and 8), and a book -1; 0 for other items.
 pub(in crate::tick) fn slot(input: Option<Type>) -> i32 {
     let Some(item) = input else {
         return 0;
@@ -229,12 +230,12 @@ pub(in crate::tick) fn slot(input: Option<Type>) -> i32 {
     .unwrap_or(0)
 }
 
-/// The list of a `PlayerEnchantOptions` option an enchantment goes in: 0 for armour
-/// enchantments worn (equipped), 1 for those that act through the held item, 2 for the item's
-/// own (self). The lists are the ones gophertunnel documents for the vanilla server, and BDS sends
-/// a pickaxe's unbreaking in list 1 and efficiency in list 2 (P6 `enchant`). Swift sneak, missing
-/// from that documentation, is worn armour (not verified against BDS; no enchanting table gives
-/// it).
+/// The list of a `PlayerEnchantOptions` option an enchantment goes in.
+/// It is 0 for armour enchantments worn (equipped), 1 for those that act through the held item,
+/// 2 for the item's own (self). The lists are the ones gophertunnel documents for the vanilla
+/// server, and BDS sends a pickaxe's unbreaking in list 1 and efficiency in list 2 (P6
+/// `enchant`). Swift sneak, missing from that documentation, is worn armour (not verified
+/// against BDS; no enchanting table gives it).
 pub(in crate::tick) fn activation(e: Enchantment) -> usize {
     match e {
         Enchantment::Protection
@@ -283,7 +284,7 @@ mod tests {
         assert_eq!(slot_of(Kind::IronPickaxe), 1024);
         assert_eq!(slot_of(Kind::IronShovel), 2048);
         assert_eq!(slot_of(Kind::FishingRod), 4096);
-        assert_eq!(slot_of(Kind::Trident), 32768);
+        assert_eq!(slot_of(Kind::Trident), 32_768);
     }
 
     #[test]

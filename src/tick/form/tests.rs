@@ -4,9 +4,13 @@
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::display::{BossBar, Colour, Error as DisplayError, Scoreboard, Slot, Sort};
+use crate::display::{
+    BossBar, Colour, Error as DisplayError, MAX_LINES, MAX_SIDEBAR_LINES, MAX_TEXT, Scoreboard,
+    Slot, Sort,
+};
 use crate::event::Listeners;
 use crate::form::{Custom, Menu, Modal, Value};
+use crate::protocol::BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
 use crate::protocol::consts::{BossEventType, ScoreboardIdentity};
 use crate::tick::Output;
 use crate::tick::queue::{Input, Outbound};
@@ -46,23 +50,6 @@ fn send(state: &mut State, session: u64, form: impl Into<Form>) -> Calls {
         .send_form(id(session), form, handler)
         .expect("sent");
     calls
-}
-
-fn calls(calls: &mut Calls) -> Vec<(u64, Response)> {
-    let mut out = Vec::new();
-    while let Ok(c) = calls.try_recv() {
-        out.push(c);
-    }
-    out
-}
-
-fn answer(session: u64, seq: u64, form_id: u32, data: Option<&[u8]>, cancel: Option<u8>) -> Input {
-    let p = ModalFormResponse {
-        form_id,
-        response_data: data.map(<[u8]>::to_vec),
-        cancel_reason: cancel,
-    };
-    input(session, seq, packet(Packet::ModalFormResponse(p)))
 }
 
 /// Runs one tick of `inputs`.
@@ -119,7 +106,7 @@ fn a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase() {
     let _a = send(&mut state, 1, menu());
     let _b = send(&mut state, 1, Modal::new("t", "c", "y", "n"));
     let _c = send(&mut state, 2, menu());
-    run(&mut state, vec![]);
+    run(&mut state, Vec::new());
     let sent = requests(&mut rx[0]);
     assert_eq!(
         sent.iter().map(|r| r.form_id).collect::<Vec<_>>(),
@@ -132,6 +119,23 @@ fn a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase() {
     assert_eq!(value["type"], "modal");
     assert_eq!(requests(&mut rx[1])[0].form_id, 0);
     assert_eq!(pending(&state, 1), [0, 1]);
+}
+
+fn calls(calls: &mut Calls) -> Vec<(u64, Response)> {
+    let mut out = Vec::new();
+    while let Ok(c) = calls.try_recv() {
+        out.push(c);
+    }
+    out
+}
+
+fn answer(session: u64, seq: u64, form_id: u32, data: Option<&[u8]>, cancel: Option<u8>) -> Input {
+    let p = ModalFormResponse {
+        form_id,
+        response_data: data.map(<[u8]>::to_vec),
+        cancel_reason: cancel,
+    };
+    input(session, seq, packet(Packet::ModalFormResponse(p)))
 }
 
 // pmmp: Form::handleResponse
@@ -160,7 +164,7 @@ fn a_valid_answer_calls_the_handler_once_with_the_typed_response() {
             1,
             Response::Custom(vec![
                 Value::Empty,
-                Value::Text("Alex".into()),
+                Value::Text("Alex".to_owned()),
                 Value::Bool(true)
             ])
         )]
@@ -307,7 +311,7 @@ fn an_invalid_form_is_not_sent() {
     let bad = Custom::new("C").dropdown("d", Vec::<String>::new(), 0);
     let sent = Context { state: &mut state }.send_form(id(1), bad, handler);
     assert!(matches!(sent, Err(Error::Invalid(_))));
-    run(&mut state, vec![]);
+    run(&mut state, Vec::new());
     assert!(requests(&mut rx[0]).is_empty());
     assert!(pending(&state, 1).is_empty());
 }
@@ -432,7 +436,7 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
     Context { state: &mut state }
         .set_scoreboard(id(1), board.clone())
         .unwrap();
-    run(&mut state, vec![]);
+    run(&mut state, Vec::new());
     let sent = packets(&mut rx[0]);
     assert_eq!(sent.len(), 2);
     let Packet::SetDisplayObjective(d) = &sent[0] else {
@@ -450,8 +454,8 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
     assert_eq!(
         scores(&sent[1]),
         [
-            (-1025, fake, 1, "a".into(), 0),
-            (-1026, fake, 2, "§2".into(), 0),
+            (-1025, fake, 1, "a".to_owned(), 0),
+            (-1026, fake, 2, "§2".to_owned(), 0),
             (rid2, player, 3, String::new(), rid2),
         ]
     );
@@ -467,7 +471,7 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
         .line("a", 1)
         .line("b", 2);
     cx.set_scoreboard(id(1), changed).unwrap();
-    run(&mut state, vec![]);
+    run(&mut state, Vec::new());
     let sent = packets(&mut rx[0]);
     assert_eq!(sent.len(), 2);
     assert_eq!(
@@ -477,7 +481,7 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
             (rid2, gone, 3, String::new(), 0)
         ]
     );
-    assert_eq!(scores(&sent[1]), [(-1026, fake, 2, "b".into(), 0)]);
+    assert_eq!(scores(&sent[1]), [(-1026, fake, 2, "b".to_owned(), 0)]);
 
     // A new title or sort order sends the whole scoreboard again.
     let mut cx = Context { state: &mut state };
@@ -486,9 +490,12 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
         .line("a", 1);
     cx.set_scoreboard(id(1), sorted).unwrap();
     assert!(cx.remove_scoreboard(id(1), Slot::Sidebar));
-    assert!(cx.remove_scoreboard(id(1), Slot::Sidebar));
+    assert!(
+        !cx.remove_scoreboard(id(1), Slot::Sidebar),
+        "nothing is shown any more"
+    );
     assert!(!cx.remove_scoreboard(id(9), Slot::Sidebar));
-    run(&mut state, vec![]);
+    run(&mut state, Vec::new());
     let sent = packets(&mut rx[0]);
     let kinds: Vec<u32> = sent.iter().map(Packet::id).collect();
     assert_eq!(
@@ -583,7 +590,7 @@ fn scoreboards_that_break_a_bound_are_refused() {
 fn a_boss_bar_title_longer_than_a_client_decodes_is_refused() {
     let (mut state, _rx) = server();
     let mut cx = Context { state: &mut state };
-    let max = crate::protocol::BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
+    let max = BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
     assert!(
         cx.set_boss_bar(id(1), BossBar::new("x".repeat(max)))
             .is_ok()
@@ -631,18 +638,65 @@ fn a_boss_bar_is_shown_on_the_players_own_entity_and_updated_by_what_changed() {
     cx.set_boss_bar(id(1), BossBar::new("b").colour(Colour::Red))
         .unwrap();
     assert!(cx.remove_boss_bar(id(1)));
-    assert!(cx.remove_boss_bar(id(1)));
+    assert!(!cx.remove_boss_bar(id(1)), "no boss bar is shown any more");
     assert!(!cx.remove_boss_bar(id(9)));
-    run(&mut state, vec![]);
+    run(&mut state, Vec::new());
     assert_eq!(
         events(&mut rx[0]),
         [
-            (show, "a".into(), 0.5, purple),
-            (title, "b".into(), 0.5, purple),
-            (health, "b".into(), 1.0, purple),
-            (hide, "b".into(), 1.0, purple),
-            (show, "b".into(), 1.0, red),
-            (hide, "b".into(), 1.0, red),
+            (show, "a".to_owned(), 0.5, purple),
+            (title, "b".to_owned(), 0.5, purple),
+            (health, "b".to_owned(), 1.0, purple),
+            (hide, "b".to_owned(), 1.0, purple),
+            (show, "b".to_owned(), 1.0, red),
+            (hide, "b".to_owned(), 1.0, red),
         ]
     );
+}
+
+#[test]
+fn a_player_line_that_only_moves_or_goes_does_not_send_the_others_again() {
+    let (mut state, mut rx) = server();
+    let rid1 = i64::try_from(state.players[&SessionId::new(1)].runtime_id).unwrap();
+    let gone = u8::from(ScoreboardIdentity::Remove);
+    let board = |first: u64, second: u64| {
+        Scoreboard::new(Slot::List, "t")
+            .player(id(first), i32::try_from(first).unwrap())
+            .player(id(second), i32::try_from(second).unwrap())
+    };
+    let mut cx = Context { state: &mut state };
+    cx.set_scoreboard(id(1), board(1, 2)).unwrap();
+    run(&mut state, Vec::new());
+    packets(&mut rx[0]);
+    let mut cx = Context { state: &mut state };
+    cx.set_scoreboard(id(1), board(2, 1)).unwrap();
+    cx.set_scoreboard(id(1), Scoreboard::new(Slot::List, "t").player(id(2), 2))
+        .unwrap();
+    run(&mut state, Vec::new());
+    let sent = packets(&mut rx[0]);
+    assert_eq!(sent.len(), 1, "only the line that went is removed");
+    assert_eq!(scores(&sent[0]), [(rid1, gone, 1, String::new(), 0)]);
+}
+
+#[test]
+fn the_docs_name_the_limits_the_build_checks() {
+    let thousands = |n: usize| format!("{},{:03}", n / 1000, n % 1000);
+    let [forms, display] = [include_str!("../form.rs"), include_str!("display.rs")]
+        .map(|s| s.replace("\n    /// ", " "));
+    for text in [
+        format!("has {MAX_PENDING} forms waiting"),
+        "sent 2^32 forms".to_owned(),
+    ] {
+        assert!(forms.contains(&text), "{text}");
+    }
+    for text in [
+        format!(
+            "({MAX_SIDEBAR_LINES} in the sidebar, {} elsewhere)",
+            thousands(MAX_LINES)
+        ),
+        format!("longer than {} bytes", thousands(MAX_TEXT)),
+        format!("title is longer than {BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN} bytes"),
+    ] {
+        assert!(display.contains(&text), "{text}");
+    }
 }

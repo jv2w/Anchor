@@ -50,7 +50,7 @@ use tracing::warn;
 
 use super::interact::{self, Destroy};
 use super::view::{self, Key};
-use super::{Context, State, block_entity, dispatch, entity};
+use super::{Context, State, block_entity, dispatch, entity, inventory};
 use crate::block::{self, Class, Face, Kind};
 use crate::event::{Actor, BlockUpdate};
 use crate::item::Stack;
@@ -791,7 +791,8 @@ fn run_neighbours(state: &mut State, world: WorldIndex) {
 /// Moves changed blocks of `world` from its change feed into its neighbour queue while there
 /// is room (PMMP `internalNotifyNeighbourBlockUpdate`: the block, then its six neighbours). A
 /// changed block with a block entity first checks that the entity still belongs to it
-/// ([`block_entity::block_changed`]), before any neighbour update runs.
+/// ([`block_entity::block_changed`]), before any neighbour update runs; a changed block that has
+/// a window open closes the windows it no longer shows ([`inventory::close_replaced`]).
 fn refill(state: &mut State, world: WorldIndex) {
     let State { worlds, rules, .. } = state;
     let Some(w) = worlds.get_mut(world) else {
@@ -800,10 +801,14 @@ fn refill(state: &mut State, world: WorldIndex) {
     let queue = rules.updates.neighbours_mut(world);
     // Allocates only when a changed block has or takes a block entity.
     let mut with_entity = Vec::new();
+    let mut with_window = Vec::new();
     while queue.fifo.len() + 7 <= MAX_NEIGHBOUR_QUEUE {
         let Some(pos) = w.next_changed() else {
             break;
         };
+        if !rules.block_entities.viewers(world, pos).is_empty() {
+            with_window.push(pos);
+        }
         if rules.block_entities.get(world, pos).is_some()
             || w.block(pos).is_some_and(block_entity::takes_entity)
         {
@@ -815,6 +820,9 @@ fn refill(state: &mut State, world: WorldIndex) {
                 queue.fifo.push_back(p);
             }
         }
+    }
+    for pos in with_window {
+        inventory::close_replaced(state, world, pos);
     }
     for pos in with_entity {
         block_entity::block_changed(state, world, pos);

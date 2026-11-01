@@ -54,9 +54,9 @@ use std::sync::Arc;
 use super::Entity;
 use super::custom::{self, EntityTypes};
 use super::kind::{
-    ARROW_LIFE, Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY, Falling, Form,
-    Item, Kind, MAX_CLOUD_EFFECTS, MAX_DESPAWN_DELAY, MAX_FUSE, MAX_NAME_TAG_BYTES, NEVER, Orb,
-    Painting, Pickup, Projectile, Shot, TRIDENT_DAMAGE, Tnt, Trident,
+    Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind,
+    MAX_DESPAWN_DELAY, MAX_NAME_TAG_BYTES, NEVER, Orb, Painting, Pickup, Projectile, Shot, Tnt,
+    Trident,
 };
 use super::object::{data_facing, facing_data};
 use super::physics::{self, Body};
@@ -457,7 +457,7 @@ fn load_kind(
         }
         "minecraft:tnt" | "PrimedTNT" | "PrimedTnt" => Kind::Tnt(Tnt {
             fuse: match c.get("Fuse") {
-                Some(Value::Short(f)) => u16::try_from(*f).ok().filter(|f| *f <= MAX_FUSE)?,
+                Some(Value::Short(f)) => u16::try_from(*f).ok().filter(|f| *f <= Tnt::MAX_FUSE)?,
                 _ => super::TNT_FUSE,
             },
             underwater: matches!(c.get("AllowUnderwater"), Some(Value::Byte(b)) if *b != 0),
@@ -615,7 +615,7 @@ fn load_projectile(c: &Compound, shot: Shot) -> Option<Kind> {
         Some(_) => return None,
         None => match shot {
             Shot::Arrow(_) => super::projectile::ARROW_DAMAGE,
-            Shot::Trident(_) => TRIDENT_DAMAGE,
+            Shot::Trident(_) => Trident::DAMAGE,
             _ => 0.0,
         },
     };
@@ -710,7 +710,7 @@ fn load_arrow(c: &Compound) -> Arrow {
         pickup: byte("pickup").map_or(Pickup::Any, Pickup::from_byte),
         punch: byte("punch").unwrap_or(0),
         life: match c.get("life") {
-            Some(Value::Short(l)) => (*l).clamp(0, ARROW_LIFE),
+            Some(Value::Short(l)) => (*l).clamp(0, Arrow::MAX_LIFE),
             _ => 0,
         },
     }
@@ -748,7 +748,7 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
         Some(Value::List(List::Compound(list))) => {
             effects.extend(
                 list.iter()
-                    .take(MAX_CLOUD_EFFECTS)
+                    .take(Cloud::MAX_EFFECTS)
                     .filter_map(effect::Instance::from_nbt),
             );
         }
@@ -1132,7 +1132,7 @@ pub(super) mod tests {
                     creative: false,
                     can_collide: true,
                 }),
-                TRIDENT_DAMAGE,
+                Trident::DAMAGE,
                 Some(BlockPos::new(5, -61, -4)),
             ),
             projectile(
@@ -1141,7 +1141,7 @@ pub(super) mod tests {
                     creative: true,
                     can_collide: true,
                 }),
-                TRIDENT_DAMAGE,
+                Trident::DAMAGE,
                 None,
             ),
             projectile(Shot::IceBomb, 0.0, None),
@@ -1153,7 +1153,6 @@ pub(super) mod tests {
                     ("FireworkFlicker".to_owned(), Value::Byte(1)),
                 ])],
                 owner: None,
-                owner_runtime_id: 0,
                 flight: 1,
             }),
             // The longest `item-despawn-ticks`, past what the saved `Age` holds.
@@ -1339,7 +1338,7 @@ pub(super) mod tests {
         .entity_mut(back)
         .expect("not flagged")
         .attack(1.0);
-        for _ in 0..crate::tick::entity::kind::MAX_DEAD_TICKS {
+        for _ in 0..crate::tick::entity::kind::Character::MAX_DEAD_TICKS {
             h.step(Vec::new());
         }
         assert_eq!(drops(&h), first, "no second drop");

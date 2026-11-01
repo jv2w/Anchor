@@ -63,7 +63,7 @@ const COMMIT_BYTES: usize = MAX_BYTES / 4;
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The written format's version: the layout of the log and of the checkpoints it holds, which
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 24;
+const FORMAT: u32 = 25;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or

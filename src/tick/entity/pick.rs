@@ -2,54 +2,17 @@
 //! `Entity::getPickedItem` and the overrides of `EndCrystal`, `FallingBlock`, `Painting`,
 //! `PrimedTNT`, `Villager` and `Zombie`).
 
-use super::super::interact::props;
-use super::super::{Phase, SessionId, State, dispatch, inventory, survival};
 use super::find;
 use super::kind::{Character, Form, Kind};
 use crate::block;
 use crate::event::PlayerEntityPick;
 use crate::item::{self, Stack};
 use crate::protocol::packet::ActorPickRequest;
+use crate::tick::interact::props;
+use crate::tick::{Phase, SessionId, State, dispatch, inventory, survival};
 
-/// The item picking an entity of `kind` gives (PMMP `getPickedItem`); `None` for the kinds that
-/// give none (items, orbs, projectiles, clouds, rockets, human and custom NPCs).
-pub(super) fn picked_item(kind: &Kind) -> Option<Stack> {
-    let one = |t: item::Type| Stack::new(t, 1);
-    let block_item = |b: block::State| match b.item() {
-        block::ItemForm::Item(t) => Some(one(t)),
-        block::ItemForm::BlockEntity | block::ItemForm::None => None,
-    };
-    match kind {
-        Kind::EndCrystal(_) => Some(one(item::Kind::EndCrystal.default_type())),
-        Kind::FallingBlock(f) => block_item(f.block),
-        Kind::Painting(_) => Some(one(item::Kind::Painting.default_type())),
-        Kind::Tnt(t) => {
-            let tnt = block::Kind::Tnt.default_state();
-            if t.underwater {
-                block_item(props::renamed(tnt, "minecraft:underwater_tnt")?)
-            } else {
-                block_item(tnt)
-            }
-        }
-        Kind::Npc(Character {
-            form: Form::Villager { .. },
-            ..
-        }) => Some(one(item::Kind::VillagerSpawnEgg.default_type())),
-        Kind::Npc(Character {
-            form: Form::Zombie { .. },
-            ..
-        }) => Some(one(item::Kind::ZombieSpawnEgg.default_type())),
-        Kind::Item(_)
-        | Kind::ExperienceOrb(_)
-        | Kind::Projectile(_)
-        | Kind::Cloud(_)
-        | Kind::Npc(_)
-        | Kind::Firework(_) => None,
-    }
-}
-
-/// `ActorPickRequest` from the client (PMMP `Player::pickEntity`): the item of the entity with
-/// that unique ID in the player's world goes to its hand ([`inventory::equip_or_add`]) after
+/// Handles `ActorPickRequest` from the client (PMMP `Player::pickEntity`): the item of the entity
+/// with that unique ID in the player's world goes to its hand ([`inventory::equip_or_add`]) after
 /// [`PlayerEntityPick`]. Only a creative player gets an item it does not have; others select or
 /// swap one they carry (PMMP raises the event cancelled then; Anchor raises none).
 pub(in crate::tick) fn on_actor_pick_request(
@@ -110,40 +73,59 @@ fn pick(state: &State, session: SessionId, runtime_id: u64) -> Option<(crate::en
     (!finite || inventory::has(player, &picked)).then_some((id, picked))
 }
 
+/// The item picking an entity of `kind` gives (PMMP `getPickedItem`); `None` for the kinds that
+/// give none (items, orbs, projectiles, clouds, rockets, human and custom NPCs).
+pub(super) fn picked_item(kind: &Kind) -> Option<Stack> {
+    let one = |t: item::Type| Stack::new(t, 1);
+    let block_item = |b: block::State| match b.item() {
+        block::ItemForm::Item(t) => Some(one(t)),
+        block::ItemForm::BlockEntity | block::ItemForm::None => None,
+    };
+    match kind {
+        Kind::Item(_)
+        | Kind::ExperienceOrb(_)
+        | Kind::Projectile(_)
+        | Kind::Cloud(_)
+        | Kind::Firework(_) => None,
+        Kind::FallingBlock(f) => block_item(f.block),
+        Kind::Tnt(t) => {
+            let tnt = block::Kind::Tnt.default_state();
+            if t.underwater {
+                block_item(props::renamed(tnt, "minecraft:underwater_tnt")?)
+            } else {
+                block_item(tnt)
+            }
+        }
+        Kind::Npc(Character { form, .. }) => match form {
+            Form::Villager { .. } => Some(one(item::Kind::VillagerSpawnEgg.default_type())),
+            Form::Zombie { .. } => Some(one(item::Kind::ZombieSpawnEgg.default_type())),
+            Form::Human { .. } | Form::Custom(_) => None,
+        },
+        Kind::Painting(_) => Some(one(item::Kind::Painting.default_type())),
+        Kind::EndCrystal(_) => Some(one(item::Kind::EndCrystal.default_type())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-
-    use super::super::tests::{Harness, at, standing};
     use super::*;
+
     use crate::block::Face;
     use crate::config::GameMode;
     use crate::entity::{Id, PaintingMotive};
     use crate::event::{Listeners, Priority};
     use crate::protocol::packet::Packet;
     use crate::tick::Context;
+    use crate::tick::entity::tests::{Harness, at, standing};
     use crate::tick::tests::{input, packet};
     use crate::world::{self, BlockPos};
-
-    const WORLD: world::Id = world::Id::DEFAULT;
 
     thread_local! {
         /// What listeners and monitors wrote down; they run on the test's thread.
         static NOTES: std::cell::Cell<Vec<String>> = const { std::cell::Cell::new(Vec::new()) };
     }
 
-    /// Writes down `note`.
-    fn note(note: String) {
-        NOTES.with(|n| {
-            let mut list = n.take();
-            list.push(note);
-            n.set(list);
-        });
-    }
-
-    /// What was written down since the last call.
-    fn notes() -> Vec<String> {
-        NOTES.with(std::cell::Cell::take)
-    }
+    const WORLD: world::Id = world::Id::DEFAULT;
 
     fn item(kind: item::Kind) -> Stack {
         Stack::new(kind.default_type(), 1)
@@ -204,11 +186,11 @@ mod tests {
             Some(item(item::Kind::VillagerSpawnEgg))
         );
         assert_eq!(picked(&h, zombie), Some(item(item::Kind::ZombieSpawnEgg)));
-        assert_eq!(picked(&h, human), None, "PMMP `Human` gives none");
+        assert_eq!(picked(&h, human), None, "a human NPC gives none");
         assert_eq!(picked(&h, dropped), None);
     }
 
-    /// A zombie east of player 1 and its runtime ID, after the tick that shows it.
+    /// Spawns a zombie east of player 1 and shows it; returns its ID and runtime ID.
     fn zombie(h: &mut Harness) -> (Id, u64) {
         let id = Context {
             state: &mut h.state,
@@ -219,7 +201,7 @@ mod tests {
         (id, h.state.rules.entities.get(id).unwrap().runtime_id)
     }
 
-    /// Player 1 picks the entity of `runtime_id`.
+    /// Makes player 1 pick the entity of `runtime_id`.
     fn pick(h: &mut Harness, runtime_id: u64) {
         let p = ActorPickRequest {
             entity_unique_id: runtime_id.cast_signed(),
@@ -275,6 +257,20 @@ mod tests {
         let guide = h.state.rules.entities.get(guide).unwrap().runtime_id;
         pick(&mut h, guide);
         assert!(player(&mut h).inventory.held().is_empty());
+    }
+
+    /// Writes down `note`.
+    fn note(note: String) {
+        NOTES.with(|n| {
+            let mut list = n.take();
+            list.push(note);
+            n.set(list);
+        });
+    }
+
+    /// What was written down since the last call.
+    fn notes() -> Vec<String> {
+        NOTES.with(std::cell::Cell::take)
     }
 
     // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity, PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel, PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled

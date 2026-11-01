@@ -1,7 +1,9 @@
-//! The public entity API (PMMP `Entity`, `Living`, `object\*` (with `Painting`, `EndCrystal`,
-//! `FireworkRocket`), `projectile\*` (with `Trident`, `IceBomb`), `Human`, `Villager`,
-//! `World::dropItem`, `World::getNearbyEntities`...): what an [`Entity`] shows, what an [`Mut`]
-//! changes, and the [`Context`] methods that find, lend and spawn entities.
+//! The public entity API.
+//!
+//! It is what an [`Entity`] shows, what a [`Mut`] changes, and the [`Context`] methods that find,
+//! lend and spawn entities. It covers PMMP `Entity`, `Living`, `object\*` (with `Painting`,
+//! `EndCrystal`, `FireworkRocket`), `projectile\*` (with `Trident`, `IceBomb`), `Human`,
+//! `Villager`, `World::dropItem` and `World::getNearbyEntities`.
 //!
 //! Setters change the entity at once, mark its chunk for the next save and, for what viewers
 //! draw (name tag, scale, kind values), mark it for the next movement pass, which sends it with
@@ -13,18 +15,18 @@
 //! slots in `Id` order.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::ops::Deref;
 
 use super::kind::{
-    Arrow, Character, Cloud, Falling, Form, Item, Kind, MAX_CLOUD_EFFECTS, MAX_DESPAWN_DELAY,
-    MAX_FUSE, MAX_NAME_TAG_BYTES, NEVER, Orb, Pickup, Projectile, Shot, TRIDENT_DAMAGE, Tnt,
-    Trident,
+    Arrow, Character, Cloud, Falling, Form, Item, Kind, MAX_DESPAWN_DELAY, MAX_NAME_TAG_BYTES,
+    NEVER, Orb, Projectile, Shot, Tnt, Trident,
 };
 use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
 use super::{
     Cause, EYE_HEIGHT, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD,
-    MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, actor_event, chunk_of, create, drop_stack,
-    hurt_in, is_valid_position, is_valid_scale, object, physics, projectile, send_to,
+    MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, chunk_of, create, drop_stack, hurt_in,
+    is_valid_position, is_valid_scale, item_despawn_delay, object, physics, projectile, send_to,
 };
 use crate::action;
 use crate::block::{self, Face};
@@ -35,15 +37,800 @@ use crate::item::Stack;
 use crate::math::{self, Aabb, Vec3, to_f32};
 use crate::nbt::Compound;
 use crate::player;
-use crate::protocol::consts::ActorEvent;
 use crate::random::{self, Random};
 use crate::tick::world_api::index;
 use crate::tick::{Context, Phase, Player, survival};
 use crate::world::{self, BlockPos, ChunkPos, World};
 
+/// The random stream of a rocket the API launches.
+const LAUNCH_RANDOM: u64 = random::tag("api-firework-launch");
+
+/// An entity lent to change ([`Context::entity_mut`]); it reads as the [`Entity`] it changes.
+/// Each setter changes the entity at once and returns false, changing nothing, for a value it
+/// does not take or a kind the value does not apply to.
+pub struct Mut<'a> {
+    id: Id,
+    entities: &'a mut Entities,
+    worlds: &'a [World],
+    players: &'a mut BTreeMap<SessionId, Player>,
+    /// The despawn delay a new dropped item gets now, which a dropped item may be set past.
+    item_despawn_delay: i32,
+}
+
+impl Mut<'_> {
+    /// Its ID.
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// The entity, to change.
+    /// Its chunk is marked for the next save. While the entity tick applies its steps (a
+    /// listener's change), it moves again from its new state rather than by the step computed
+    /// before the change.
+    pub(super) fn entity(&mut self) -> &mut Entity {
+        self.parts().0
+    }
+
+    /// The entity, to change what its viewers see too.
+    pub(super) fn shown(&mut self) -> &mut Entity {
+        let e = self.entity();
+        e.resend = true;
+        e
+    }
+
+    /// Sets its motion in blocks per tick, each component cut to ±10.
+    /// False for a motion that is not finite. A projectile stuck in a block stays there until
+    /// the block goes.
+    #[doc(alias = "Entity::setMotion")]
+    #[doc(alias = "Entity::addMotion")]
+    pub fn set_motion(&mut self, motion: Vec3) -> bool {
+        if !motion.is_finite() {
+            return false;
+        }
+        let e = self.entity();
+        e.body.motion = physics::bounded(motion);
+        e.forced = true;
+        true
+    }
+
+    /// Sets its yaw and pitch in degrees, kept to float precision as saved.
+    /// False for an angle that is not finite as a float.
+    #[doc(alias = "Entity::setRotation")]
+    pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> bool {
+        if !survival::is_float_angle(yaw) || !survival::is_float_angle(pitch) {
+            return false;
+        }
+        let e = self.entity();
+        e.yaw = f64::from(to_f32(yaw));
+        e.pitch = f64::from(to_f32(pitch));
+        true
+    }
+
+    /// Turns its eyes to `target` (PMMP `Living::lookAt`). False for a target that is not finite.
+    #[doc(alias = "Living::lookAt")]
+    pub fn look_at(&mut self, target: Vec3) -> bool {
+        if !target.is_finite() {
+            return false;
+        }
+        let (at, eye) = (self.position(), self.eye_height());
+        let (dx, dz) = (target.x - at.x, target.z - at.z);
+        let horizontal = (dx * dx + dz * dz).sqrt();
+        let vertical = target.y - (at.y + eye);
+        let pitch = -math::degrees(math::atan2(vertical, horizontal));
+        let mut yaw = math::degrees(math::atan2(dz, dx)) - 90.0;
+        if yaw < 0.0 {
+            yaw += 360.0;
+        }
+        self.set_rotation(yaw, pitch)
+    }
+
+    /// Moves it to `pos` in `world`, at rest (PMMP `Entity::teleport`).
+    /// It has no motion and no fall distance afterwards; the rotation stays. False, moving
+    /// nothing, if the world does not exist, `pos` is not finite or outside the world border, its
+    /// chunk is not loaded, another world is at its entity limit, or it is a painting (it hangs
+    /// on its wall: PMMP never moves a painting on clients either).
+    #[doc(alias = "Entity::teleport")]
+    pub fn teleport(&mut self, world: world::Id, pos: Vec3) -> bool {
+        if matches!(self.kind, Kind::Painting(_)) {
+            return false;
+        }
+        let to = world.index();
+        let loaded = self
+            .worlds
+            .get(to)
+            .is_some_and(|w| is_valid_position(pos) && w.is_chunk_loaded(chunk_of(pos)));
+        let from = self.world;
+        if !loaded || (to != from && self.entities.count(to) >= MAX_ENTITIES_PER_WORLD) {
+            return false;
+        }
+        let e = self.entity();
+        e.body.position = pos;
+        e.body.motion = Vec3::ZERO;
+        e.body.fall_distance = 0.0;
+        e.forced = true;
+        if let Kind::Projectile(p) = &mut e.kind {
+            p.stuck = None;
+        }
+        if to != from {
+            self.entities.move_world(self.id, to);
+        }
+        self.entities.reindex(self.id);
+        true
+    }
+
+    /// Sets its name tag (a human NPC's name). False over [`MAX_NAME_TAG_BYTES`].
+    #[doc(alias = "Entity::setNameTag")]
+    pub fn set_name_tag(&mut self, name: &str) -> bool {
+        if name.len() > MAX_NAME_TAG_BYTES {
+            return false;
+        }
+        name.clone_into(&mut self.shown().name_tag);
+        true
+    }
+
+    /// Sets whether the name tag shows when a player looks at it.
+    #[doc(alias = "Entity::setNameTagVisible")]
+    pub fn set_name_tag_visible(&mut self, visible: bool) {
+        self.shown().name_tag_visible = visible;
+    }
+
+    /// Sets whether the name tag always shows.
+    #[doc(alias = "Entity::setNameTagAlwaysVisible")]
+    pub fn set_name_tag_always_visible(&mut self, visible: bool) {
+        self.shown().name_tag_always_visible = visible;
+    }
+
+    /// Sets the size multiplier of its box and model, kept to float precision as saved.
+    /// False unless it is above 0 and the scaled box is at most 16 blocks wide and high, and for
+    /// a painting, whose box is its picture on the wall.
+    #[doc(alias = "Entity::setScale")]
+    pub fn set_scale(&mut self, scale: f64) -> bool {
+        let scale = f64::from(to_f32(scale));
+        if matches!(self.kind, Kind::Painting(_)) || !is_valid_scale(scale, &self.kind) {
+            return false;
+        }
+        let e = self.shown();
+        e.scale = scale;
+        e.forced = true;
+        true
+    }
+
+    /// Sets whether clients draw it.
+    #[doc(alias = "Entity::setInvisible")]
+    pub fn set_invisible(&mut self, invisible: bool) {
+        self.entity().invisible = invisible;
+    }
+
+    /// Sets whether gravity pulls it.
+    #[doc(alias = "Entity::setHasGravity")]
+    pub fn set_has_gravity(&mut self, gravity: bool) {
+        let e = self.entity();
+        e.gravity = gravity;
+        e.forced = true;
+    }
+
+    /// Sets whether it is saved with its chunk (a minigame's entities need not be).
+    /// False, changing nothing, for `true` on a kind that is never saved with its chunk: a
+    /// firework rocket, or an entity of a temporary custom type.
+    #[doc(alias = "Entity::setCanSaveWithChunk")]
+    pub fn set_can_save_with_chunk(&mut self, saved: bool) -> bool {
+        if saved && !self.kind.is_saved() {
+            return false;
+        }
+        self.entity().saved = saved;
+        true
+    }
+
+    /// Sets it on fire for `seconds` (PMMP `setOnFire`).
+    /// Nothing changes if it burns longer already or is fire-proof.
+    #[doc(alias = "Entity::setOnFire")]
+    #[doc(alias = "Living::setOnFire")]
+    pub fn set_on_fire(&mut self, seconds: u16) {
+        let seconds = i16::try_from(seconds).unwrap_or(i16::MAX);
+        self.entity().set_on_fire(seconds);
+    }
+
+    /// Sets the ticks it burns, at most 32,767; 0 puts its fire out.
+    /// A fire-proof entity burns none. This merges PMMP `extinguish`: a direct call raises no
+    /// event.
+    #[doc(alias = "Entity::setFireTicks")]
+    #[doc(alias = "Entity::extinguish")]
+    pub fn set_fire_ticks(&mut self, ticks: u16) {
+        let e = self.entity();
+        if !e.kind.is_fire_proof() {
+            e.fire_ticks = i16::try_from(ticks).unwrap_or(i16::MAX);
+        }
+    }
+
+    /// Sets its health, at most its maximum (PMMP `setHealth`).
+    /// 0 or less kills it. False for a value that is not a number, and for a dying NPC.
+    #[doc(alias = "Entity::setHealth")]
+    #[doc(alias = "Living::setHealth")]
+    pub fn set_health(&mut self, health: f64) -> bool {
+        if health.is_nan() || !self.is_alive() {
+            return false;
+        }
+        if health <= 0.0 {
+            self.kill();
+            return true;
+        }
+        let e = self.entity();
+        e.health = math::min(health, e.kind.max_health());
+        true
+    }
+
+    /// Adds `amount` to its health, at most its maximum (PMMP `heal`).
+    /// False for an amount that is not finite or below 0, and for an entity that does not live.
+    #[doc(alias = "Entity::heal")]
+    pub fn heal(&mut self, amount: f64) -> bool {
+        amount.is_finite() && amount >= 0.0 && self.set_health(self.health + amount)
+    }
+
+    /// Hurts it by `amount` (PMMP `attack` with `CAUSE_CUSTOM`, without the event).
+    /// An NPC follows its hit cooldown and shows the hit, and dies at 0 health; anything else
+    /// that reaches 0 is removed. Falling blocks, primed TNT, projectiles and invulnerable NPCs
+    /// take no damage but the void's. False if nothing was taken, as for an amount that is below
+    /// 0 or above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE), or not finite.
+    #[doc(alias = "Entity::attack")]
+    #[doc(alias = "Living::attack")]
+    pub fn attack(&mut self, amount: f64) -> bool {
+        let id = self.id;
+        let key = (self.world, self.chunk);
+        let result = hurt_in(self.entities, self.players, id, Cause::Custom, amount, None);
+        self.entities.changed.insert(key);
+        result != Hurt::Ignored
+    }
+
+    /// Kills it (PMMP `kill`): its health becomes 0.
+    /// An NPC shows its death and goes 25 ticks later, a hurt end crystal explodes at its next
+    /// tick, anything else goes at the end of the tick (a painting drops its item). Nothing for
+    /// an entity that does not live.
+    #[doc(alias = "Entity::kill")]
+    pub fn kill(&mut self) {
+        if !self.is_alive() {
+            return;
+        }
+        let id = self.id;
+        let (e, players) = self.parts();
+        e.health = 0.0;
+        if let Kind::Npc(c) = &mut e.kind {
+            c.dead_ticks = Some(0);
+            send_to(players, &e.viewers, &Animation::Death.packet(e.runtime_id));
+        } else if !matches!(&e.kind, Kind::EndCrystal(c) if c.primed) {
+            self.entities.doom(id);
+        }
+    }
+
+    /// Knocks a living NPC back away along (`x`, `z`) with `force` (PMMP `Living::knockBack`).
+    /// It goes up at most `vertical_limit`; PMMP's defaults are 0.4 and 0.4. False for another
+    /// kind, values that are not finite, or no horizontal direction.
+    #[doc(alias = "Living::knockBack")]
+    pub fn knock_back(&mut self, x: f64, z: f64, force: f64, vertical_limit: f64) -> bool {
+        if !self.kind.is_living() || ![x, z, force, vertical_limit].iter().all(|v| v.is_finite()) {
+            return false;
+        }
+        let knock = Knock {
+            x,
+            z,
+            force,
+            vertical: vertical_limit,
+        };
+        let Some(motion) = knock.applied_to(self.motion()) else {
+            return false;
+        };
+        self.set_motion(motion)
+    }
+
+    /// Removes it at the end of the tick, with its removal sent to its viewers.
+    /// Nothing if it is gone already.
+    #[doc(alias = "Entity::flagForDespawn")]
+    #[doc(alias = "Entity::close")]
+    pub fn flag_for_despawn(&mut self) {
+        let id = self.id;
+        self.entities.doom(id);
+    }
+
+    /// Sets whether only the void hurts an NPC or a custom entity. False for another kind.
+    pub fn set_invulnerable(&mut self, invulnerable: bool) -> bool {
+        match &mut self.entity().kind {
+            Kind::Npc(c) => {
+                c.invulnerable = invulnerable;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets a dropped item's ticks until a player may pick it up; -1 never.
+    #[doc(alias = "ItemEntity::setPickupDelay")]
+    pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> bool {
+        match &mut self.entity().kind {
+            Kind::Item(item) => {
+                item.pickup_delay = ticks.max(NEVER);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets a dropped item's or orb's ticks until it disappears.
+    /// It is -1 never, otherwise 0 to 38,767 (what the saved `Age` holds); a dropped item may
+    /// also take up to `item-despawn-ticks` when that is more.
+    #[doc(alias = "ItemEntity::setDespawnDelay")]
+    #[doc(alias = "ExperienceOrb::setDespawnDelay")]
+    pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> bool {
+        let longest = match &self.kind {
+            Kind::Item(_) => MAX_DESPAWN_DELAY.max(self.item_despawn_delay),
+            _ => MAX_DESPAWN_DELAY,
+        };
+        if ticks != i32::from(NEVER) && !(0..=longest).contains(&ticks) {
+            return false;
+        }
+        match &mut self.entity().kind {
+            Kind::Item(Item { despawn_delay, .. })
+            | Kind::ExperienceOrb(Orb { despawn_delay, .. }) => {
+                *despawn_delay = ticks;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets a dropped item's owner (a player name, at most [`MAX_NAME_TAG_BYTES`]).
+    #[doc(alias = "ItemEntity::setOwner")]
+    pub fn set_owner(&mut self, owner: &str) -> bool {
+        if owner.len() > MAX_NAME_TAG_BYTES {
+            return false;
+        }
+        match &mut self.entity().kind {
+            Kind::Item(item) => {
+                owner.clone_into(&mut item.owner);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets who threw a dropped item (a player name, at most [`MAX_NAME_TAG_BYTES`]).
+    #[doc(alias = "ItemEntity::setThrower")]
+    pub fn set_thrower(&mut self, thrower: &str) -> bool {
+        if thrower.len() > MAX_NAME_TAG_BYTES {
+            return false;
+        }
+        match &mut self.entity().kind {
+            Kind::Item(item) => {
+                thrower.clone_into(&mut item.thrower);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets an orb's experience points, 1 to 32,767 (the saved short).
+    #[doc(alias = "ExperienceOrb::setXpValue")]
+    pub fn set_xp_value(&mut self, value: u16) -> bool {
+        if value == 0 || value > Orb::MAX_VALUE {
+            return false;
+        }
+        match &mut self.shown().kind {
+            Kind::ExperienceOrb(orb) => {
+                orb.value = value;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets primed TNT's ticks until it explodes, at most 32,767.
+    #[doc(alias = "PrimedTNT::setFuse")]
+    pub fn set_fuse_ticks(&mut self, ticks: u16) -> bool {
+        if ticks > Tnt::MAX_FUSE {
+            return false;
+        }
+        match &mut self.shown().kind {
+            Kind::Tnt(t) => {
+                t.fuse = ticks;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets whether primed TNT is shown as underwater TNT.
+    #[doc(alias = "PrimedTNT::setWorksUnderwater")]
+    pub fn set_works_underwater(&mut self, underwater: bool) -> bool {
+        match &mut self.shown().kind {
+            Kind::Tnt(t) => {
+                t.underwater = underwater;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets a projectile's base damage, from 0 to the most an arrow of a strong bow deals.
+    /// That is an arrow shot from a bow of Power
+    /// [`MAX_ENCHANTMENT_LEVEL`](crate::item::MAX_ENCHANTMENT_LEVEL). False for another kind or a
+    /// damage outside that range. A potion, an experience bottle and an ice bomb deal no damage,
+    /// so it changes nothing for them.
+    #[doc(alias = "Projectile::setBaseDamage")]
+    pub fn set_base_damage(&mut self, damage: f64) -> bool {
+        if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {
+            return false;
+        }
+        match &mut self.entity().kind {
+            Kind::Projectile(p) => {
+                p.damage = damage;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets whether an arrow is critical.
+    #[doc(alias = "entity\\projectile\\Arrow::setCritical")]
+    pub fn set_critical(&mut self, critical: bool) -> bool {
+        self.with_arrow(|a| a.critical = critical)
+    }
+
+    /// Sets who may pick up an arrow once stuck.
+    #[doc(alias = "entity\\projectile\\Arrow::setPickupMode")]
+    pub fn set_pickup_mode(&mut self, pickup: ArrowPickup) -> bool {
+        self.with_arrow(|a| a.pickup = pickup)
+    }
+
+    /// Sets an arrow's Punch level.
+    #[doc(alias = "entity\\projectile\\Arrow::setPunchKnockback")]
+    pub fn set_punch_knockback(&mut self, level: u8) -> bool {
+        self.with_arrow(|a| a.punch = level)
+    }
+
+    /// Sets whether a thrown potion leaves a cloud.
+    #[doc(alias = "entity\\projectile\\SplashPotion::setLinger")]
+    pub fn set_linger(&mut self, linger: bool) -> bool {
+        match &mut self.entity().kind {
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { linger: l, .. },
+                ..
+            }) => {
+                *l = linger;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Makes a villager or a zombie a baby or a grown-up.
+    /// Viewers see the change (the `Baby` flag). False for another kind (PMMP has no setter: its
+    /// villagers are never babies).
+    pub fn set_baby(&mut self, baby: bool) -> bool {
+        match &mut self.shown().kind {
+            Kind::Npc(Character {
+                form: Form::Villager { baby: b, .. } | Form::Zombie { baby: b },
+                ..
+            }) => {
+                *b = baby;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets a villager NPC's profession (the actor variant).
+    #[doc(alias = "Villager::setProfession")]
+    pub fn set_profession(&mut self, profession: u8) -> bool {
+        match &mut self.shown().kind {
+            Kind::Npc(Character {
+                form: Form::Villager { profession: p, .. },
+                ..
+            }) => {
+                *p = profession;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets who a projectile counts as shot or thrown by, or a firework rocket as launched by.
+    /// A projectile's hit is credited to that player, and an ender pearl teleports it; none
+    /// clears it. False for another kind, or a player who is not online.
+    #[doc(alias = "Entity::setOwningEntity")]
+    pub fn set_owning_player(&mut self, owner: Option<player::Id>) -> bool {
+        let runtime_id = match owner {
+            Some(id) => match self.players.get(&id.session()) {
+                Some(p) if p.phase != Phase::Loading => p.runtime_id,
+                _ => return false,
+            },
+            None => 0,
+        };
+        match &mut self.shown().kind {
+            Kind::Projectile(p) => {
+                p.owner = owner.map(player::Id::session);
+                p.owner_runtime_id = runtime_id;
+                true
+            }
+            Kind::Firework(f) => {
+                f.owner = owner.map(player::Id::session);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets the player an orb flies to, or none.
+    /// With none it looks for the nearest again within a second. False for another kind, or a
+    /// player who is not online.
+    #[doc(alias = "ExperienceOrb::setTargetPlayer")]
+    pub fn set_target_player(&mut self, target: Option<player::Id>) -> bool {
+        if target.is_some_and(|id| {
+            self.players
+                .get(&id.session())
+                .is_none_or(|p| p.phase == Phase::Loading)
+        }) {
+            return false;
+        }
+        match &mut self.entity().kind {
+            Kind::ExperienceOrb(orb) => {
+                orb.target = target.map(player::Id::session);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets how many items a dropped item holds, 1 to the item's stack size.
+    /// Viewers see the new count (PMMP `setStackSize` with its
+    /// `ItemEntityStackSizeChangeAnimation`). False for another count or kind.
+    #[doc(alias = "ItemEntity::setStackSize")]
+    pub fn set_stack_size(&mut self, count: u8) -> bool {
+        let max = match &self.kind {
+            Kind::Item(item) => item
+                .stack
+                .item()
+                .map_or(0, crate::item::Type::max_stack_size),
+            _ => 0,
+        };
+        if count == 0 || count > max {
+            return false;
+        }
+        let (e, players) = self.parts();
+        if let Kind::Item(item) = &mut e.kind {
+            item.stack = item.stack.with_count(count);
+        }
+        let packet = Animation::ItemStackSize { count }.packet(e.runtime_id);
+        send_to(players, &e.viewers, &packet);
+        true
+    }
+
+    /// Sets a thrown potion's type.
+    #[doc(alias = "entity\\projectile\\SplashPotion::setPotionType")]
+    pub fn set_potion(&mut self, potion: Potion) -> bool {
+        match &mut self.shown().kind {
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { potion: p, .. },
+                ..
+            }) => {
+                *p = potion;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets whether an end crystal shows its bedrock base. False for another kind.
+    #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
+    pub fn set_show_base(&mut self, show: bool) -> bool {
+        match &mut self.entity().kind {
+            Kind::EndCrystal(c) => {
+                c.show_base = show;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets the block an end crystal's beam points at, or none. False for another kind.
+    #[doc(alias = "entity\\object\\EndCrystal::setBeamTarget")]
+    pub fn set_beam_target(&mut self, target: Option<BlockPos>) -> bool {
+        match &mut self.shown().kind {
+            Kind::EndCrystal(c) => {
+                c.beam_target = target;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets a firework rocket's explosions (see [`Entity::firework_explosions`]).
+    /// False, changing nothing, for another kind, more than 256 explosions, or a compound PMMP
+    /// does not read as one (a shape byte 0 to 4, at least one colour, colours 0 to 15) or that is
+    /// bigger than Anchor takes (more than 16 colours in a list, or a key other than the five PMMP
+    /// reads).
+    #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
+    pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> bool {
+        let Some(explosions) = object::checked_explosions(explosions) else {
+            return false;
+        };
+        if !matches!(self.kind, Kind::Firework(_)) {
+            return false;
+        }
+        if let Kind::Firework(f) = &mut self.shown().kind {
+            f.explosions = explosions;
+        }
+        true
+    }
+
+    /// Sets the age in ticks at which a firework rocket bursts.
+    /// An age it has reached bursts it at its next tick. Its item shows the flight multiplier of
+    /// the new time. False for another kind.
+    #[doc(alias = "entity\\object\\FireworkRocket::setMaxFlightTimeTicks")]
+    pub fn set_max_flight_time_ticks(&mut self, ticks: u32) -> bool {
+        match &mut self.shown().kind {
+            Kind::Firework(f) => {
+                f.max_flight = ticks;
+                f.flight = object::flight_multiplier(ticks);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets the item a thrown trident holds, which a player who picks it up gets.
+    /// False for another kind or an empty stack.
+    #[doc(alias = "entity\\projectile\\Trident::setItem")]
+    pub fn set_item(&mut self, item: Stack) -> bool {
+        let trident = matches!(
+            self.kind,
+            Kind::Projectile(Projectile {
+                shot: Shot::Trident(_),
+                ..
+            })
+        );
+        if item.is_empty() || !trident {
+            return false;
+        }
+        if let Kind::Projectile(Projectile {
+            shot: Shot::Trident(t),
+            ..
+        }) = &mut self.entity().kind
+        {
+            t.item = item;
+        }
+        true
+    }
+
+    /// Sets the age at which a cloud goes, 0 to 24,000 ticks (as the saved form reads it).
+    #[doc(alias = "AreaEffectCloud::setMaxAge")]
+    pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> bool {
+        (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_shown_cloud(|c| c.max_age = ticks)
+    }
+
+    /// Sets the change of a cloud's maximum age for each entity it affects, -24,000 to 24,000.
+    #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
+    pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> bool {
+        (-MAX_CLOUD_AGE..=MAX_CLOUD_AGE).contains(&ticks)
+            && self.with_cloud(|c| c.max_age_on_use = ticks)
+    }
+
+    /// Sets the ticks before a cloud affects the same entity again, 0 to 24,000.
+    #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
+    pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> bool {
+        (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_cloud(|c| c.reapplication_delay = ticks)
+    }
+
+    /// Sets the change of a cloud's radius when a bottle takes from it, -64 to 64 blocks.
+    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnPickup")]
+    pub fn set_cloud_radius_change_on_pickup(&mut self, blocks: f64) -> bool {
+        let blocks = f64::from(to_f32(blocks));
+        is_radius_change(blocks) && self.with_shown_cloud(|c| c.radius_on_pickup = blocks)
+    }
+
+    /// Sets the change of a cloud's radius for each entity it affects, -64 to 64 blocks.
+    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnUse")]
+    pub fn set_cloud_radius_change_on_use(&mut self, blocks: f64) -> bool {
+        let blocks = f64::from(to_f32(blocks));
+        is_radius_change(blocks) && self.with_cloud(|c| c.radius_on_use = blocks)
+    }
+
+    /// Sets the change of a cloud's radius per tick, -64 to 64 blocks.
+    #[doc(alias = "AreaEffectCloud::setRadiusChangePerTick")]
+    pub fn set_cloud_radius_change_per_tick(&mut self, blocks: f64) -> bool {
+        let blocks = f64::from(to_f32(blocks));
+        is_radius_change(blocks) && self.with_cloud(|c| c.radius_per_tick = blocks)
+    }
+
+    /// The entity and the players, to change both.
+    /// The entity's chunk is marked for the next save, as [`Self::entity`] says.
+    fn parts(&mut self) -> (&mut Entity, &mut BTreeMap<SessionId, Player>) {
+        let key = {
+            let e = &**self;
+            (e.world, e.chunk)
+        };
+        self.entities.changed.insert(key);
+        if self.entities.applying {
+            self.entities.restep.insert(self.id);
+        }
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a `Mut` is made for a live entity and holds the store's only \
+                      mutable borrow, so nothing removes it while the `Mut` lives"
+        )]
+        let entity = self
+            .entities
+            .get_mut(self.id)
+            .expect("the lent entity is in the store");
+        (entity, &mut *self.players)
+    }
+
+    /// Runs `f` on an arrow's own data; false for another kind.
+    fn with_arrow(&mut self, f: impl FnOnce(&mut Arrow)) -> bool {
+        match &mut self.entity().kind {
+            Kind::Projectile(Projectile {
+                shot: Shot::Arrow(a),
+                ..
+            }) => {
+                f(a);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Runs `f` on a cloud's own data; false for another kind.
+    fn with_cloud(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
+        match &mut self.entity().kind {
+            Kind::Cloud(c) => {
+                f(c);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Runs `f` on a cloud's own data, which viewers see; false for another kind.
+    fn with_shown_cloud(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
+        match &mut self.shown().kind {
+            Kind::Cloud(c) => {
+                f(c);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Debug for Mut<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Mut")
+            .field("id", &self.id)
+            .field("entity", &**self)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Deref for Mut<'_> {
+    type Target = Entity;
+
+    fn deref(&self) -> &Entity {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a `Mut` is made for a live entity and holds the store's only \
+                      mutable borrow, so nothing removes it while the `Mut` lives"
+        )]
+        self.entities
+            .get(self.id)
+            .expect("the lent entity is in the store")
+    }
+}
+
 impl Entity {
-    /// The runtime ID clients know it by (PMMP `getId`); `None` for an entity whose chunk loaded
-    /// this tick, which gets one at the next entity tick.
+    /// How high an entity steps up blocks.
+    /// It is PMMP's `Entity::$stepHeight` default, which none of its kinds that Anchor has
+    /// changes.
+    const STEP_HEIGHT: f64 = 0.0;
+
+    /// The runtime ID clients know it by (PMMP `getId`), or `None` before it has one.
+    /// An entity whose chunk loaded this tick gets one at the next entity tick.
     #[doc(alias = "Entity::getId")]
     pub fn runtime_id(&self) -> Option<u64> {
         (self.runtime_id != 0).then_some(self.runtime_id)
@@ -93,8 +880,9 @@ impl Entity {
         self.body.motion
     }
 
-    /// The height of its eyes above its position (PMMP `EntitySizeInfo`: a human NPC's is a
-    /// player's, else half its height plus 0.1, at most its height), times its scale.
+    /// The height of its eyes above its position, times its scale.
+    /// A human NPC's is a player's, else half its height plus 0.1, at most its height (PMMP
+    /// `EntitySizeInfo`).
     #[doc(alias = "Entity::getEyeHeight")]
     pub fn eye_height(&self) -> f64 {
         if let Kind::Npc(Character {
@@ -163,7 +951,7 @@ impl Entity {
         self.body.fall_distance
     }
 
-    /// Whether fire and lava leave it alone (netherite items, clouds).
+    /// Whether fire and lava leave it alone (netherite items, clouds, end crystals).
     #[doc(alias = "Entity::isFireProof")]
     pub fn is_fire_proof(&self) -> bool {
         self.kind.is_fire_proof()
@@ -211,15 +999,16 @@ impl Entity {
         self.saved
     }
 
-    /// Whether it blocks placing a block in its box (falling blocks, primed TNT, living NPCs, end
-    /// crystals).
+    /// Whether it blocks placing a block in its box.
+    /// Falling blocks, primed TNT, living NPCs and end crystals do.
     #[doc(alias = "Entity::canBeCollidedWith")]
     pub fn can_be_collided_with(&self) -> bool {
         self.blocks_placing()
     }
 
-    /// Whether only the void hurts it (NPCs spawn so, custom entities do not; other kinds are
-    /// never).
+    /// Whether an NPC takes no damage but the void's.
+    /// Villager and human NPCs spawn so, zombies and custom entities do not. It is false for
+    /// every other kind, whatever it takes ([`Mut::attack`] says which).
     pub fn is_invulnerable(&self) -> bool {
         matches!(&self.kind, Kind::Npc(c) if c.invulnerable)
     }
@@ -230,8 +1019,8 @@ impl Entity {
         self.viewers.iter().map(|&s| player::Id::new(s))
     }
 
-    /// A dropped item's stack, or the trident item a thrown trident holds (what a player who
-    /// picks it up gets).
+    /// A dropped item's stack, or the trident item a thrown trident holds.
+    /// A player who picks the trident up gets that item.
     #[doc(alias = "ItemEntity::getItem")]
     #[doc(alias = "entity\\projectile\\Trident::getItem")]
     pub fn item(&self) -> Option<&Stack> {
@@ -302,9 +1091,9 @@ impl Entity {
         }
     }
 
-    /// The item a player who picks it (middle click) gets: an end crystal, the block of a falling
-    /// block or primed TNT, a painting, or the spawn egg of a villager or a zombie; `None` for
-    /// the other kinds.
+    /// The item a player gets who picks it with a middle click.
+    /// It is an end crystal, the block of a falling block or primed TNT, a painting, or the spawn
+    /// egg of a villager or a zombie; `None` for the other kinds.
     #[doc(alias = "Entity::getPickedItem")]
     #[doc(alias = "entity\\object\\EndCrystal::getPickedItem")]
     #[doc(alias = "FallingBlock::getPickedItem")]
@@ -349,8 +1138,8 @@ impl Entity {
         }
     }
 
-    /// The player who shot or threw a projectile or launched a firework rocket, while it is in
-    /// the server.
+    /// The player who shot or threw a projectile or launched a firework rocket.
+    /// It is `None` once the player has left the server.
     #[doc(alias = "Entity::getOwningEntity")]
     #[doc(alias = "Entity::getOwningEntityId")]
     pub fn owning_player(&self) -> Option<player::Id> {
@@ -435,25 +1224,25 @@ impl Entity {
         }
     }
 
-    /// The name of an NPC (PMMP `Living::getName`): a human NPC's name tag, `Villager` for a
-    /// villager, `Zombie` for a zombie, a custom entity's type. `None` for kinds that do not
-    /// live.
+    /// The name of an NPC (PMMP `Living::getName`), or `None` for kinds that do not live.
+    /// It is a human NPC's name tag, `Villager` for a villager, `Zombie` for a zombie, and a
+    /// custom entity's type.
     #[doc(alias = "Villager::getName")]
     #[doc(alias = "Zombie::getName")]
     pub fn name(&self) -> Option<&str> {
         match &self.kind {
             Kind::Npc(Character { form, .. }) => Some(match form {
-                Form::Human { .. } => &self.name_tag,
                 Form::Villager { .. } => "Villager",
                 Form::Zombie { .. } => "Zombie",
+                Form::Human { .. } => &self.name_tag,
                 Form::Custom(c) => &c.spec.identifier,
             }),
             _ => None,
         }
     }
 
-    /// Whether it is a baby: a villager or a zombie made one with [`Mut::set_baby`]; false for
-    /// every other kind.
+    /// Whether it is a baby.
+    /// A villager or a zombie is one if [`Mut::set_baby`] made it so; false for every other kind.
     #[doc(alias = "entity\\Ageable")]
     #[doc(alias = "entity\\Ageable::isBaby")]
     #[doc(alias = "Villager::isBaby")]
@@ -461,9 +1250,9 @@ impl Entity {
         self.kind.is_baby()
     }
 
-    /// The downward acceleration its kind falls with, in blocks per tick² (PMMP's per kind:
-    /// 0.04 for items, 0.05 for arrows, 0.03 for thrown items...), whether or not gravity pulls
-    /// it now ([`Self::has_gravity`]).
+    /// The downward acceleration its kind falls with, in blocks per tick².
+    /// It is PMMP's per kind: 0.04 for items, 0.05 for arrows, 0.03 for thrown items... Gravity
+    /// may not pull it now ([`Self::has_gravity`]).
     #[doc(alias = "Entity::getGravity")]
     pub fn gravity(&self) -> f64 {
         self.kind.physics().gravity
@@ -476,7 +1265,7 @@ impl Entity {
         reason = "consistency: an entity's value, read like its other physics getters"
     )]
     pub fn step_height(&self) -> f64 {
-        STEP_HEIGHT
+        Self::STEP_HEIGHT
     }
 
     /// A thrown potion's effects (PMMP: the potion type's, none for water).
@@ -494,8 +1283,8 @@ impl Entity {
         }
     }
 
-    /// The side of its wall a painting hangs on: north, south, west or east (PMMP `getFacing`:
-    /// the face of the wall block it covers).
+    /// The side of its wall a painting hangs on: north, south, west or east.
+    /// This is PMMP `getFacing`, the face of the wall block it covers.
     #[doc(alias = "Painting::getFacing")]
     pub fn painting_facing(&self) -> Option<Face> {
         match &self.kind {
@@ -519,8 +1308,9 @@ impl Entity {
         }
     }
 
-    /// A firework rocket's explosions, as a firework item's `Explosions` holds them (compounds of
-    /// `FireworkType`, `FireworkColor`, `FireworkFade`, `FireworkFlicker`, `FireworkTrail`).
+    /// A firework rocket's explosions, as a firework item's `Explosions` holds them.
+    /// They are compounds of `FireworkType`, `FireworkColor`, `FireworkFade`, `FireworkFlicker`
+    /// and `FireworkTrail`.
     #[doc(alias = "entity\\object\\FireworkRocket::getExplosions")]
     pub fn firework_explosions(&self) -> Option<&[Compound]> {
         match &self.kind {
@@ -538,16 +1328,9 @@ impl Entity {
         }
     }
 
-    /// A cloud's own data.
-    fn cloud(&self) -> Option<&Cloud> {
-        match &self.kind {
-            Kind::Cloud(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    /// A cloud's effects, which each entity in it gets for a quarter of their duration (instant
-    /// ones at half strength).
+    /// A cloud's effects.
+    /// Each entity in it gets them for a quarter of their duration, instant ones at half
+    /// strength.
     #[doc(alias = "AreaEffectCloud::getEffects")]
     pub fn cloud_effects(&self) -> Option<&[Instance]> {
         self.cloud().map(|c| c.effects.as_slice())
@@ -583,8 +1366,8 @@ impl Entity {
         self.cloud().map(|c| c.initial_radius)
     }
 
-    /// The change of a cloud's radius when a bottle takes from it (kept for the saved form:
-    /// Anchor has no dragon's breath).
+    /// The change of a cloud's radius when a bottle takes from it.
+    /// Anchor keeps it for the saved form: it has no dragon's breath.
     #[doc(alias = "AreaEffectCloud::getRadiusChangeOnPickup")]
     pub fn cloud_radius_change_on_pickup(&self) -> Option<f64> {
         self.cloud().map(|c| c.radius_on_pickup)
@@ -601,806 +1384,13 @@ impl Entity {
     pub fn cloud_radius_change_per_tick(&self) -> Option<f64> {
         self.cloud().map(|c| c.radius_per_tick)
     }
-}
 
-/// How high an entity steps up blocks: PMMP's `Entity::$stepHeight` default, which none of its
-/// kinds that Anchor has changes.
-const STEP_HEIGHT: f64 = 0.0;
-/// The random stream of a rocket the API launches.
-const LAUNCH_RANDOM: u64 = random::tag("api-firework-launch");
-
-/// An arrow's own data.
-fn arrow(kind: &Kind) -> Option<&Arrow> {
-    match kind {
-        Kind::Projectile(Projectile {
-            shot: Shot::Arrow(a),
-            ..
-        }) => Some(a),
-        _ => None,
-    }
-}
-
-/// An entity lent to change ([`Context::entity_mut`]); it reads as the [`Entity`] it changes.
-/// Each setter changes the entity at once and returns false, changing nothing, for a value it
-/// does not take or a kind the value does not apply to.
-pub struct Mut<'a> {
-    id: Id,
-    entities: &'a mut Entities,
-    worlds: &'a [World],
-    players: &'a mut BTreeMap<SessionId, Player>,
-}
-
-impl Deref for Mut<'_> {
-    type Target = Entity;
-
-    fn deref(&self) -> &Entity {
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: a `Mut` is made for a live entity and holds the store's only \
-                      mutable borrow, so nothing removes it while the `Mut` lives"
-        )]
-        self.entities
-            .get(self.id)
-            .expect("the lent entity is in the store")
-    }
-}
-
-impl std::fmt::Debug for Mut<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Mut")
-            .field("id", &self.id)
-            .field("entity", &**self)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Mut<'_> {
-    /// The entity, to change; its chunk is marked for the next save. While the entity tick
-    /// applies its steps (a listener's change), it moves again from its new state rather than by
-    /// the step computed before the change.
-    pub(super) fn entity(&mut self) -> &mut Entity {
-        let key = {
-            let e = &**self;
-            (e.world, e.chunk)
-        };
-        self.entities.changed.insert(key);
-        if self.entities.applying {
-            self.entities.restep.insert(self.id);
+    /// A cloud's own data.
+    fn cloud(&self) -> Option<&Cloud> {
+        match &self.kind {
+            Kind::Cloud(c) => Some(c),
+            _ => None,
         }
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: a `Mut` is made for a live entity and holds the store's only \
-                      mutable borrow, so nothing removes it while the `Mut` lives"
-        )]
-        self.entities
-            .get_mut(self.id)
-            .expect("the lent entity is in the store")
-    }
-
-    /// The entity, to change what its viewers see too.
-    pub(super) fn shown(&mut self) -> &mut Entity {
-        let e = self.entity();
-        e.resend = true;
-        e
-    }
-
-    /// Its ID.
-    pub fn id(&self) -> Id {
-        self.id
-    }
-
-    /// Sets its motion in blocks per tick (cut to the physics' speed bound). False for a motion
-    /// that is not finite.
-    #[doc(alias = "Entity::setMotion")]
-    #[doc(alias = "Entity::addMotion")]
-    pub fn set_motion(&mut self, motion: Vec3) -> bool {
-        if !motion.is_finite() {
-            return false;
-        }
-        let e = self.entity();
-        e.body.motion = physics::bounded(motion);
-        e.forced = true;
-        true
-    }
-
-    /// Sets its yaw and pitch in degrees (kept to float precision, as saved). False for an angle
-    /// that is not finite as a float.
-    #[doc(alias = "Entity::setRotation")]
-    pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> bool {
-        if !survival::is_float_angle(yaw) || !survival::is_float_angle(pitch) {
-            return false;
-        }
-        let e = self.entity();
-        e.yaw = f64::from(to_f32(yaw));
-        e.pitch = f64::from(to_f32(pitch));
-        true
-    }
-
-    /// Turns its eyes to `target` (PMMP `Living::lookAt`). False for a target that is not finite.
-    #[doc(alias = "Living::lookAt")]
-    pub fn look_at(&mut self, target: Vec3) -> bool {
-        if !target.is_finite() {
-            return false;
-        }
-        let (at, eye) = (self.position(), self.eye_height());
-        let (dx, dz) = (target.x - at.x, target.z - at.z);
-        let horizontal = (dx * dx + dz * dz).sqrt();
-        let vertical = target.y - (at.y + eye);
-        let pitch = -math::degrees(math::atan2(vertical, horizontal));
-        let mut yaw = math::degrees(math::atan2(dz, dx)) - 90.0;
-        if yaw < 0.0 {
-            yaw += 360.0;
-        }
-        self.set_rotation(yaw, pitch)
-    }
-
-    /// Moves it to `pos` in `world`, at rest (PMMP `Entity::teleport`: no motion, no fall
-    /// distance; the rotation stays). False, moving nothing, if the world does not exist, `pos` is
-    /// not finite or outside the world border, its chunk is not loaded, another world is at its entity limit, or it is a painting
-    /// (it hangs on its wall: PMMP never moves a painting on clients either).
-    #[doc(alias = "Entity::teleport")]
-    pub fn teleport(&mut self, world: world::Id, pos: Vec3) -> bool {
-        if matches!(self.kind, Kind::Painting(_)) {
-            return false;
-        }
-        let to = world.index();
-        let loaded = self
-            .worlds
-            .get(to)
-            .is_some_and(|w| is_valid_position(pos) && w.is_chunk_loaded(chunk_of(pos)));
-        let from = self.world;
-        if !loaded || (to != from && self.entities.count(to) >= MAX_ENTITIES_PER_WORLD) {
-            return false;
-        }
-        let e = self.entity();
-        e.body.position = pos;
-        e.body.motion = Vec3::ZERO;
-        e.body.fall_distance = 0.0;
-        e.forced = true;
-        if let Kind::Projectile(p) = &mut e.kind {
-            p.stuck = None;
-        }
-        if to != from {
-            self.entities.move_world(self.id, to);
-        }
-        self.entities.reindex(self.id);
-        true
-    }
-
-    /// Sets its name tag (a human NPC's name). False over [`MAX_NAME_TAG_BYTES`].
-    #[doc(alias = "Entity::setNameTag")]
-    pub fn set_name_tag(&mut self, name: &str) -> bool {
-        if name.len() > MAX_NAME_TAG_BYTES {
-            return false;
-        }
-        name.clone_into(&mut self.shown().name_tag);
-        true
-    }
-
-    /// Sets whether the name tag shows when a player looks at it.
-    #[doc(alias = "Entity::setNameTagVisible")]
-    pub fn set_name_tag_visible(&mut self, visible: bool) {
-        self.shown().name_tag_visible = visible;
-    }
-
-    /// Sets whether the name tag always shows.
-    #[doc(alias = "Entity::setNameTagAlwaysVisible")]
-    pub fn set_name_tag_always_visible(&mut self, visible: bool) {
-        self.shown().name_tag_always_visible = visible;
-    }
-
-    /// Sets the size multiplier of its box and model (kept to float precision, as saved). False
-    /// unless it is above 0 and the scaled box is at most 16 blocks wide and high.
-    #[doc(alias = "Entity::setScale")]
-    pub fn set_scale(&mut self, scale: f64) -> bool {
-        let scale = f64::from(to_f32(scale));
-        if !is_valid_scale(scale, &self.kind) {
-            return false;
-        }
-        let e = self.shown();
-        e.scale = scale;
-        e.forced = true;
-        true
-    }
-
-    /// Sets whether clients draw it.
-    #[doc(alias = "Entity::setInvisible")]
-    pub fn set_invisible(&mut self, invisible: bool) {
-        self.entity().invisible = invisible;
-    }
-
-    /// Sets whether gravity pulls it.
-    #[doc(alias = "Entity::setHasGravity")]
-    pub fn set_has_gravity(&mut self, gravity: bool) {
-        let e = self.entity();
-        e.gravity = gravity;
-        e.forced = true;
-    }
-
-    /// Sets whether it is saved with its chunk (a minigame's entities need not be; a firework
-    /// rocket never is).
-    #[doc(alias = "Entity::setCanSaveWithChunk")]
-    pub fn set_can_save_with_chunk(&mut self, saved: bool) {
-        let e = self.entity();
-        e.saved = saved && e.kind.can_be_saved();
-    }
-
-    /// Sets it on fire for `seconds` unless it burns longer already or is fire-proof (PMMP
-    /// `setOnFire`).
-    #[doc(alias = "Entity::setOnFire")]
-    #[doc(alias = "Living::setOnFire")]
-    pub fn set_on_fire(&mut self, seconds: u16) {
-        let seconds = i16::try_from(seconds).unwrap_or(i16::MAX);
-        self.entity().set_on_fire(seconds);
-    }
-
-    /// Sets the ticks it burns, at most 32,767 (none for a fire-proof entity); 0 puts its fire
-    /// out (PMMP `extinguish`, merged: a direct call raises no event).
-    #[doc(alias = "Entity::setFireTicks")]
-    #[doc(alias = "Entity::extinguish")]
-    pub fn set_fire_ticks(&mut self, ticks: u16) {
-        let e = self.entity();
-        if !e.kind.is_fire_proof() {
-            e.fire_ticks = i16::try_from(ticks).unwrap_or(i16::MAX);
-        }
-    }
-
-    /// Sets its health, at most its maximum (PMMP `setHealth`); 0 or less kills it. False for a
-    /// value that is not a number, and for a dying NPC.
-    #[doc(alias = "Entity::setHealth")]
-    #[doc(alias = "Living::setHealth")]
-    pub fn set_health(&mut self, health: f64) -> bool {
-        if health.is_nan() || !self.is_alive() {
-            return false;
-        }
-        if health <= 0.0 {
-            self.kill();
-            return true;
-        }
-        let e = self.entity();
-        e.health = math::min(health, e.kind.max_health());
-        true
-    }
-
-    /// Adds `amount` to its health, at most its maximum (PMMP `heal`). False for an amount that is
-    /// not finite or below 0, and for an entity that does not live.
-    #[doc(alias = "Entity::heal")]
-    pub fn heal(&mut self, amount: f64) -> bool {
-        amount.is_finite() && amount >= 0.0 && self.set_health(self.health + amount)
-    }
-
-    /// Hurts it by `amount` (PMMP `attack` with `CAUSE_CUSTOM`, without the event): an NPC
-    /// follows its hit cooldown and shows the hit, and dies at 0 health; anything else that
-    /// reaches 0 is removed. Falling blocks, primed TNT, projectiles and invulnerable NPCs take
-    /// no damage but the void's. False if nothing was taken, as for an amount that is below 0 or
-    /// above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE), or not finite.
-    #[doc(alias = "Entity::attack")]
-    #[doc(alias = "Living::attack")]
-    pub fn attack(&mut self, amount: f64) -> bool {
-        let id = self.id;
-        let key = (self.world, self.chunk);
-        let result = hurt_in(self.entities, self.players, id, Cause::Custom, amount, None);
-        self.entities.changed.insert(key);
-        result != Hurt::Ignored
-    }
-
-    /// Kills it (PMMP `kill`): health 0; an NPC shows its death and goes 25 ticks later, a hurt
-    /// end crystal explodes at its next tick, anything else goes at the end of the tick (a
-    /// painting drops its item). Nothing for an entity that does not live.
-    #[doc(alias = "Entity::kill")]
-    pub fn kill(&mut self) {
-        if !self.is_alive() {
-            return;
-        }
-        let id = self.id;
-        let e = self.entity();
-        e.health = 0.0;
-        let (runtime_id, viewers) = (e.runtime_id, e.viewers.clone());
-        if let Kind::Npc(c) = &mut e.kind {
-            c.dead_ticks = Some(0);
-            send_to(
-                self.players,
-                &viewers,
-                &actor_event(runtime_id, ActorEvent::Death, 0),
-            );
-        } else if !matches!(&e.kind, Kind::EndCrystal(c) if c.primed) {
-            self.entities.doom(id);
-        }
-    }
-
-    /// Knocks a living NPC back away along (`x`, `z`) with `force`, up at most `vertical_limit`
-    /// (PMMP `Living::knockBack`, whose defaults are 0.4 and 0.4). False for another kind, values
-    /// that are not finite, or no horizontal direction.
-    #[doc(alias = "Living::knockBack")]
-    pub fn knock_back(&mut self, x: f64, z: f64, force: f64, vertical_limit: f64) -> bool {
-        if !self.kind.is_living() || ![x, z, force, vertical_limit].iter().all(|v| v.is_finite()) {
-            return false;
-        }
-        let knock = Knock {
-            x,
-            z,
-            force,
-            vertical: vertical_limit,
-        };
-        let Some(motion) = knock.applied_to(self.motion()) else {
-            return false;
-        };
-        self.set_motion(motion)
-    }
-
-    /// Removes it at the end of the tick (with its removal sent to its viewers). Nothing if it is
-    /// gone already.
-    #[doc(alias = "Entity::flagForDespawn")]
-    #[doc(alias = "Entity::close")]
-    pub fn flag_for_despawn(&mut self) {
-        let id = self.id;
-        self.entities.doom(id);
-    }
-
-    /// Sets whether only the void hurts an NPC or a custom entity. False for another kind.
-    pub fn set_invulnerable(&mut self, invulnerable: bool) -> bool {
-        match &mut self.entity().kind {
-            Kind::Npc(c) => {
-                c.invulnerable = invulnerable;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets a dropped item's ticks until a player may pick it up; -1 never.
-    #[doc(alias = "ItemEntity::setPickupDelay")]
-    pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> bool {
-        match &mut self.entity().kind {
-            Kind::Item(item) => {
-                item.pickup_delay = ticks.max(NEVER);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets a dropped item's or orb's ticks until it disappears: -1 never, otherwise 0 to 38,767
-    /// (what the saved `Age` holds).
-    #[doc(alias = "ItemEntity::setDespawnDelay")]
-    #[doc(alias = "ExperienceOrb::setDespawnDelay")]
-    pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> bool {
-        if ticks != i32::from(NEVER) && !(0..=MAX_DESPAWN_DELAY).contains(&ticks) {
-            return false;
-        }
-        match &mut self.entity().kind {
-            Kind::Item(Item { despawn_delay, .. })
-            | Kind::ExperienceOrb(Orb { despawn_delay, .. }) => {
-                *despawn_delay = ticks;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets a dropped item's owner (a player name, at most [`MAX_NAME_TAG_BYTES`]).
-    #[doc(alias = "ItemEntity::setOwner")]
-    pub fn set_owner(&mut self, owner: &str) -> bool {
-        if owner.len() > MAX_NAME_TAG_BYTES {
-            return false;
-        }
-        match &mut self.entity().kind {
-            Kind::Item(item) => {
-                owner.clone_into(&mut item.owner);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets who threw a dropped item (a player name, at most [`MAX_NAME_TAG_BYTES`]).
-    #[doc(alias = "ItemEntity::setThrower")]
-    pub fn set_thrower(&mut self, thrower: &str) -> bool {
-        if thrower.len() > MAX_NAME_TAG_BYTES {
-            return false;
-        }
-        match &mut self.entity().kind {
-            Kind::Item(item) => {
-                thrower.clone_into(&mut item.thrower);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets an orb's experience points, 1 to 32,767 (the saved short).
-    #[doc(alias = "ExperienceOrb::setXpValue")]
-    pub fn set_xp_value(&mut self, value: u16) -> bool {
-        if value == 0 || value > i16::MAX.cast_unsigned() {
-            return false;
-        }
-        match &mut self.shown().kind {
-            Kind::ExperienceOrb(orb) => {
-                orb.value = value;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets primed TNT's ticks until it explodes, at most 32,767.
-    #[doc(alias = "PrimedTNT::setFuse")]
-    pub fn set_fuse_ticks(&mut self, ticks: u16) -> bool {
-        if ticks > MAX_FUSE {
-            return false;
-        }
-        match &mut self.shown().kind {
-            Kind::Tnt(t) => {
-                t.fuse = ticks;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets whether primed TNT is shown as underwater TNT.
-    #[doc(alias = "PrimedTNT::setWorksUnderwater")]
-    pub fn set_works_underwater(&mut self, underwater: bool) -> bool {
-        match &mut self.shown().kind {
-            Kind::Tnt(t) => {
-                t.underwater = underwater;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets a projectile's base damage, from 0 to that of an arrow shot from a bow of Power
-    /// [`MAX_ENCHANTMENT_LEVEL`](crate::item::MAX_ENCHANTMENT_LEVEL). False for another kind or
-    /// a damage outside that range.
-    #[doc(alias = "Projectile::setBaseDamage")]
-    pub fn set_base_damage(&mut self, damage: f64) -> bool {
-        if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {
-            return false;
-        }
-        match &mut self.entity().kind {
-            Kind::Projectile(p) => {
-                p.damage = damage;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets whether an arrow is critical.
-    #[doc(alias = "entity\\projectile\\Arrow::setCritical")]
-    pub fn set_critical(&mut self, critical: bool) -> bool {
-        self.with_arrow(|a| a.critical = critical)
-    }
-
-    /// Sets who may pick up an arrow once stuck.
-    #[doc(alias = "entity\\projectile\\Arrow::setPickupMode")]
-    pub fn set_pickup_mode(&mut self, pickup: ArrowPickup) -> bool {
-        self.with_arrow(|a| a.pickup = pickup)
-    }
-
-    /// Sets an arrow's Punch level.
-    #[doc(alias = "entity\\projectile\\Arrow::setPunchKnockback")]
-    pub fn set_punch_knockback(&mut self, level: u8) -> bool {
-        self.with_arrow(|a| a.punch = level)
-    }
-
-    /// Runs `f` on an arrow's own data; false for another kind.
-    fn with_arrow(&mut self, f: impl FnOnce(&mut Arrow)) -> bool {
-        match &mut self.entity().kind {
-            Kind::Projectile(Projectile {
-                shot: Shot::Arrow(a),
-                ..
-            }) => {
-                f(a);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets whether a thrown potion leaves a cloud.
-    #[doc(alias = "entity\\projectile\\SplashPotion::setLinger")]
-    pub fn set_linger(&mut self, linger: bool) -> bool {
-        match &mut self.entity().kind {
-            Kind::Projectile(Projectile {
-                shot: Shot::Potion { linger: l, .. },
-                ..
-            }) => {
-                *l = linger;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Makes a villager or a zombie a baby or a grown-up; viewers see the change (the `Baby`
-    /// flag). False for another kind (PMMP has no setter: its villagers are never babies).
-    pub fn set_baby(&mut self, baby: bool) -> bool {
-        match &mut self.shown().kind {
-            Kind::Npc(Character {
-                form: Form::Villager { baby: b, .. } | Form::Zombie { baby: b },
-                ..
-            }) => {
-                *b = baby;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets a villager NPC's profession (the actor variant).
-    #[doc(alias = "Villager::setProfession")]
-    pub fn set_profession(&mut self, profession: u8) -> bool {
-        match &mut self.shown().kind {
-            Kind::Npc(Character {
-                form: Form::Villager { profession: p, .. },
-                ..
-            }) => {
-                *p = profession;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets the player a projectile counts as shot or thrown by (who its hit is credited to and,
-    /// for an ender pearl, who it teleports) or a firework rocket as launched by, or none. False
-    /// for another kind, or a player who is not online.
-    #[doc(alias = "Entity::setOwningEntity")]
-    pub fn set_owning_player(&mut self, owner: Option<player::Id>) -> bool {
-        let runtime_id = match owner {
-            Some(id) => match self.players.get(&id.session()) {
-                Some(p) if p.phase != Phase::Loading => p.runtime_id,
-                _ => return false,
-            },
-            None => 0,
-        };
-        match &mut self.shown().kind {
-            Kind::Projectile(p) => {
-                p.owner = owner.map(player::Id::session);
-                p.owner_runtime_id = runtime_id;
-                true
-            }
-            Kind::Firework(f) => {
-                f.owner = owner.map(player::Id::session);
-                f.owner_runtime_id = runtime_id;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets the player an orb flies to, or none (it looks for the nearest again within a second).
-    /// False for another kind, or a player who is not online.
-    #[doc(alias = "ExperienceOrb::setTargetPlayer")]
-    pub fn set_target_player(&mut self, target: Option<player::Id>) -> bool {
-        if target.is_some_and(|id| {
-            self.players
-                .get(&id.session())
-                .is_none_or(|p| p.phase == Phase::Loading)
-        }) {
-            return false;
-        }
-        match &mut self.entity().kind {
-            Kind::ExperienceOrb(orb) => {
-                orb.target = target.map(player::Id::session);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets how many items a dropped item holds, 1 to the item's stack size, and shows the new
-    /// count (PMMP `setStackSize` with its `ItemEntityStackSizeChangeAnimation`). False for
-    /// another count or kind.
-    #[doc(alias = "ItemEntity::setStackSize")]
-    pub fn set_stack_size(&mut self, count: u8) -> bool {
-        let max = match &self.kind {
-            Kind::Item(item) => item
-                .stack
-                .item()
-                .map_or(0, crate::item::Type::max_stack_size),
-            _ => 0,
-        };
-        if count == 0 || count > max {
-            return false;
-        }
-        let e = self.entity();
-        if let Kind::Item(item) = &mut e.kind {
-            item.stack = item.stack.with_count(count);
-        }
-        let packet = Animation::ItemStackSize { count }.packet(e.runtime_id);
-        let viewers = e.viewers.clone();
-        send_to(self.players, &viewers, &packet);
-        true
-    }
-
-    /// Sets a thrown potion's type.
-    #[doc(alias = "entity\\projectile\\SplashPotion::setPotionType")]
-    pub fn set_potion(&mut self, potion: Potion) -> bool {
-        match &mut self.shown().kind {
-            Kind::Projectile(Projectile {
-                shot: Shot::Potion { potion: p, .. },
-                ..
-            }) => {
-                *p = potion;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets whether an end crystal shows its bedrock base. False for another kind.
-    #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
-    pub fn set_show_base(&mut self, show: bool) -> bool {
-        match &mut self.entity().kind {
-            Kind::EndCrystal(c) => {
-                c.show_base = show;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets the block an end crystal's beam points at, or none. False for another kind.
-    #[doc(alias = "entity\\object\\EndCrystal::setBeamTarget")]
-    pub fn set_beam_target(&mut self, target: Option<BlockPos>) -> bool {
-        match &mut self.shown().kind {
-            Kind::EndCrystal(c) => {
-                c.beam_target = target;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets a firework rocket's explosions (see [`Entity::firework_explosions`]). False, changing
-    /// nothing, for another kind, more than 256 explosions, or a compound PMMP does not read as
-    /// one (a shape byte 0 to 4, at least one colour, colours 0 to 15).
-    #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
-    pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> bool {
-        let Some(explosions) = object::checked_explosions(explosions) else {
-            return false;
-        };
-        if !matches!(self.kind, Kind::Firework(_)) {
-            return false;
-        }
-        if let Kind::Firework(f) = &mut self.shown().kind {
-            f.explosions = explosions;
-        }
-        true
-    }
-
-    /// Sets the age in ticks at which a firework rocket bursts (an age it has reached bursts it at
-    /// its next tick). False for another kind.
-    #[doc(alias = "entity\\object\\FireworkRocket::setMaxFlightTimeTicks")]
-    pub fn set_max_flight_time_ticks(&mut self, ticks: u32) -> bool {
-        match &mut self.entity().kind {
-            Kind::Firework(f) => {
-                f.max_flight = ticks;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets the item a thrown trident holds (what a player who picks it up gets). False for
-    /// another kind or an empty stack.
-    #[doc(alias = "entity\\projectile\\Trident::setItem")]
-    pub fn set_item(&mut self, item: Stack) -> bool {
-        let trident = matches!(
-            self.kind,
-            Kind::Projectile(Projectile {
-                shot: Shot::Trident(_),
-                ..
-            })
-        );
-        if item.is_empty() || !trident {
-            return false;
-        }
-        if let Kind::Projectile(Projectile {
-            shot: Shot::Trident(t),
-            ..
-        }) = &mut self.entity().kind
-        {
-            t.item = item;
-        }
-        true
-    }
-
-    /// Runs `f` on a cloud's own data; false for another kind.
-    fn with_cloud(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
-        match &mut self.entity().kind {
-            Kind::Cloud(c) => {
-                f(c);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Sets the age at which a cloud goes, 0 to 24,000 ticks (as the saved form reads it).
-    #[doc(alias = "AreaEffectCloud::setMaxAge")]
-    pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> bool {
-        (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_cloud(|c| c.max_age = ticks)
-    }
-
-    /// Sets the change of a cloud's maximum age for each entity it affects, -24,000 to 24,000.
-    #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
-    pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> bool {
-        (-MAX_CLOUD_AGE..=MAX_CLOUD_AGE).contains(&ticks)
-            && self.with_cloud(|c| c.max_age_on_use = ticks)
-    }
-
-    /// Sets the ticks before a cloud affects the same entity again, 0 to 24,000.
-    #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
-    pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> bool {
-        (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_cloud(|c| c.reapplication_delay = ticks)
-    }
-
-    /// Sets the change of a cloud's radius when a bottle takes from it, -64 to 64 blocks.
-    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnPickup")]
-    pub fn set_cloud_radius_change_on_pickup(&mut self, blocks: f64) -> bool {
-        let blocks = f64::from(to_f32(blocks));
-        is_radius_change(blocks) && self.with_cloud(|c| c.radius_on_pickup = blocks)
-    }
-
-    /// Sets the change of a cloud's radius for each entity it affects, -64 to 64 blocks.
-    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnUse")]
-    pub fn set_cloud_radius_change_on_use(&mut self, blocks: f64) -> bool {
-        let blocks = f64::from(to_f32(blocks));
-        is_radius_change(blocks) && self.with_cloud(|c| c.radius_on_use = blocks)
-    }
-
-    /// Sets the change of a cloud's radius per tick, -64 to 64 blocks.
-    #[doc(alias = "AreaEffectCloud::setRadiusChangePerTick")]
-    pub fn set_cloud_radius_change_per_tick(&mut self, blocks: f64) -> bool {
-        let blocks = f64::from(to_f32(blocks));
-        is_radius_change(blocks) && self.with_cloud(|c| c.radius_per_tick = blocks)
-    }
-}
-
-/// Whether a cloud takes `blocks` as a radius change (finite, within the saved form's bound).
-fn is_radius_change(blocks: f64) -> bool {
-    (-MAX_CLOUD_RADIUS..=MAX_CLOUD_RADIUS).contains(&blocks)
-}
-
-impl Entities {
-    /// Moves a live entity's count to world `to`; the caller checked the cap and reindexes it.
-    fn move_world(&mut self, id: Id, to: usize) {
-        let Some(e) = self.get_mut(id) else {
-            return;
-        };
-        let (from, chunk) = (e.world, e.chunk);
-        e.world = to;
-        if let Some(n) = self.counts.get_mut(&from) {
-            *n = n.saturating_sub(1);
-            if *n == 0 {
-                self.counts.remove(&from);
-            }
-        }
-        *self.counts.entry(to).or_insert(0) += 1;
-        // The index entry moves as a chunk change of the old world to a chunk of the new one.
-        if let Some(column) = self.columns.get_mut(&(from, chunk)) {
-            column.ids.remove(&id);
-            if column.ids.is_empty() {
-                self.columns.remove(&(from, chunk));
-            }
-        }
-        let column = self.columns.entry((to, chunk)).or_default();
-        column.ids.insert(id);
-        column.arrived.insert(id);
-        self.changed.insert((from, chunk));
-        self.changed.insert((to, chunk));
-    }
-
-    /// The live, unflagged entities of `world` in `Id` order: the store's slots, filtered.
-    fn of_world(&self, world: usize) -> impl Iterator<Item = (Id, &Entity)> + '_ {
-        (0u32..).zip(&self.slots).filter_map(move |(i, s)| {
-            let e = s.entity.as_ref()?;
-            (e.world == world && !e.flagged).then_some((Id::new(i, s.generation), e))
-        })
     }
 }
 
@@ -1410,23 +1400,6 @@ impl Context<'_> {
         self.state.rules.entities.get(id).filter(|e| !e.flagged)
     }
 
-    /// The entity `id`, to change it.
-    pub fn entity_mut(&mut self, id: Id) -> Option<Mut<'_>> {
-        let State {
-            rules,
-            worlds,
-            players,
-            ..
-        } = &mut *self.state;
-        rules.entities.get(id).filter(|e| !e.flagged)?;
-        Some(Mut {
-            id,
-            entities: &mut rules.entities,
-            worlds,
-            players,
-        })
-    }
-
     /// The entity clients know by `runtime_id` (an index lookup; players are not entities here).
     #[doc(alias = "WorldManager::findEntity")]
     #[doc(alias = "World::getEntity")]
@@ -1434,8 +1407,8 @@ impl Context<'_> {
         super::find(self.state, runtime_id).filter(|&id| self.entity(id).is_some())
     }
 
-    /// The entities of `world` in `Id` order (none for a world the server does not have). It
-    /// visits every slot of the store, so a rule that needs the entities of a place asks
+    /// The entities of `world` in `Id` order (none for a world the server does not have).
+    /// It visits every slot of the store, so a rule that needs the entities of a place asks
     /// [`Self::entities_in`] instead.
     #[doc(alias = "World::getEntities")]
     pub fn entities(&self, world: world::Id) -> impl Iterator<Item = (Id, &Entity)> + '_ {
@@ -1460,9 +1433,9 @@ impl Context<'_> {
             .filter_map(|&id| entities.get(id).filter(|e| !e.flagged).map(|e| (id, e)))
     }
 
-    /// The entities of `world` whose box overlaps `area` (PMMP `getNearbyEntities` and
-    /// `getCollidingEntities`), in chunk then `Id` order, through the chunk index. Empty for a
-    /// world the server does not have or an area that is not finite.
+    /// The entities of `world` whose box overlaps `area`, in chunk then `Id` order.
+    /// This is PMMP `getNearbyEntities` and `getCollidingEntities`, through the chunk index.
+    /// Empty for a world the server does not have or an area that is not finite.
     #[doc(alias = "World::getNearbyEntities")]
     #[doc(alias = "World::getCollidingEntities")]
     pub fn entities_in(&self, world: world::Id, area: Aabb) -> Vec<Id> {
@@ -1474,9 +1447,9 @@ impl Context<'_> {
         }
     }
 
-    /// The nearest entity of `world` within `max_distance` of `pos` that `filter` accepts, by
-    /// the distance of its position (PMMP `getNearestEntity`; ties go to the lower `Id`). `None`
-    /// for a world the server does not have, or a `pos` or distance that is not finite.
+    /// The nearest entity of `world` within `max_distance` of `pos` that `filter` accepts.
+    /// The distance is that of its position (PMMP `getNearestEntity`); ties go to the lower `Id`.
+    /// `None` for a world the server does not have, or a `pos` or distance that is not finite.
     #[doc(alias = "World::getNearestEntity")]
     pub fn nearest_entity(
         &self,
@@ -1507,10 +1480,58 @@ impl Context<'_> {
         best.map(|(_, id)| id)
     }
 
-    /// Drops `stack` as an item entity at `pos` in `world` (PMMP `World::dropItem`): with
-    /// `motion`, or PMMP's random one for `None`, and a pickup delay of 10 ticks. `Err` gives the
-    /// stack back when it is empty, the world does not exist, `pos` is not finite, outside the
-    /// world border or not loaded, or the world is at its entity limit.
+    /// Whether a painting of `motive` can hang in the block `pos` of `world`.
+    /// It hangs on the wall behind `facing` (PMMP `Painting::canFit` with the overlap check).
+    /// Every block it covers must be loaded and not solid with a solid block behind it, and no
+    /// other painting may be there. False for a world the server does not have or an up or down
+    /// facing.
+    #[doc(alias = "Painting::canFit")]
+    pub fn can_hang_painting(
+        &self,
+        world: world::Id,
+        pos: BlockPos,
+        facing: Face,
+        motive: PaintingMotive,
+    ) -> bool {
+        index(self.state, world)
+            .is_some_and(|w| object::can_hang(self.state, w, pos, facing, motive))
+    }
+
+    /// Whether the player `viewer` may see the player `target` (PMMP `canSee`).
+    /// It may if `target` is not hidden from it.
+    #[doc(alias = "Player::canSee")]
+    pub fn can_see(&self, viewer: player::Id, target: player::Id) -> bool {
+        !self
+            .state
+            .rules
+            .entities
+            .hidden
+            .contains(&(viewer.session(), target.session()))
+    }
+
+    /// The entity `id`, to change it.
+    pub fn entity_mut(&mut self, id: Id) -> Option<Mut<'_>> {
+        let delay = item_despawn_delay(self.state);
+        let State {
+            rules,
+            worlds,
+            players,
+            ..
+        } = &mut *self.state;
+        rules.entities.get(id).filter(|e| !e.flagged)?;
+        Some(Mut {
+            id,
+            entities: &mut rules.entities,
+            worlds,
+            players,
+            item_despawn_delay: delay,
+        })
+    }
+
+    /// Drops `stack` as an item entity at `pos` in `world` (PMMP `World::dropItem`).
+    /// It gets `motion`, or PMMP's random one for `None`, and a pickup delay of 10 ticks. `Err`
+    /// gives the stack back when it is empty, the world does not exist, `pos` is not finite,
+    /// outside the world border or not loaded, or the world is at its entity limit.
     #[doc(alias = "World::dropItem")]
     pub fn drop_item(
         &mut self,
@@ -1530,11 +1551,11 @@ impl Context<'_> {
         drop_stack(self.state, w, pos, stack, motion, delay, String::new()).ok_or(back)
     }
 
-    /// Drops `amount` experience points as orbs at `pos` in `world` (PMMP
-    /// `World::dropExperience`: split into the orb sizes, each with a random motion) and returns
-    /// the points dropped: fewer at the world's entity limit, none for a world the server does
-    /// not have, a `pos` that is not loaded, or with `experience = false` or
-    /// `experience-orbs = false`.
+    /// Drops `amount` experience points as orbs at `pos` in `world`.
+    /// This is PMMP `World::dropExperience`: the points split into the orb sizes, each with a
+    /// random motion. It returns the points dropped: fewer at the world's entity limit, none for
+    /// a world the server does not have, a `pos` that is not loaded, or with `experience = false`
+    /// or `experience-orbs = false`.
     #[doc(alias = "World::dropExperience")]
     pub fn drop_experience(&mut self, world: world::Id, pos: Vec3, amount: u32) -> u32 {
         match index(self.state, world) {
@@ -1548,7 +1569,7 @@ impl Context<'_> {
     /// `experience-orbs = false`.
     #[doc(alias = "ExperienceOrb::__construct")]
     pub fn spawn_experience_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Option<Id> {
-        if !self.state.settings.has_orbs() || value == 0 || value > i16::MAX.cast_unsigned() {
+        if !self.state.settings.has_orbs() || value == 0 || value > Orb::MAX_VALUE {
             return None;
         }
         let orb = Orb {
@@ -1560,9 +1581,9 @@ impl Context<'_> {
         self.spawn(world, pos, Kind::ExperienceOrb(orb), Vec3::ZERO)
     }
 
-    /// Spawns a falling block of `block` at `pos` in `world` (the world's block there stays as it
-    /// is); it lands as a block, or drops its item where it cannot. `None` where
-    /// [`Self::drop_item`] fails.
+    /// Spawns a falling block of `block` at `pos` in `world`.
+    /// The world's block there stays as it is; the falling block lands as a block, or drops its
+    /// item where it cannot. `None` where [`Self::drop_item`] fails.
     #[doc(alias = "FallingBlock::__construct")]
     pub fn spawn_falling_block(
         &mut self,
@@ -1574,10 +1595,10 @@ impl Context<'_> {
         self.spawn(world, pos, kind, Vec3::ZERO)
     }
 
-    /// Spawns primed TNT at `pos` in `world` that explodes after `fuse_ticks` ticks (at most
-    /// 32,767). `None` for a longer fuse, or where [`Self::drop_item`] fails.
+    /// Spawns primed TNT at `pos` in `world` that explodes after `fuse_ticks` ticks.
+    /// The fuse is at most 32,767. `None` for a longer fuse, or where [`Self::drop_item`] fails.
     pub fn spawn_tnt(&mut self, world: world::Id, pos: Vec3, fuse_ticks: u16) -> Option<Id> {
-        if fuse_ticks > MAX_FUSE {
+        if fuse_ticks > Tnt::MAX_FUSE {
             return None;
         }
         let kind = Kind::Tnt(Tnt {
@@ -1587,9 +1608,9 @@ impl Context<'_> {
         self.spawn(world, pos, kind, Vec3::ZERO)
     }
 
-    /// Launches `projectile` from `pos` in `world` with `motion` in blocks per tick (cut to the
-    /// physics' speed bound); it has no owner. `None` for a motion that is not finite, or where
-    /// [`Self::drop_item`] fails.
+    /// Launches `projectile` from `pos` in `world` with `motion` in blocks per tick.
+    /// Each component of the motion is cut to ±10. The projectile has no owner. `None` for a
+    /// motion that is not finite, or where [`Self::drop_item`] fails.
     #[doc(alias = "Projectile::__construct")]
     pub fn spawn_projectile(
         &mut self,
@@ -1606,7 +1627,7 @@ impl Context<'_> {
             P::Arrow { critical } => {
                 let arrow = Arrow {
                     critical,
-                    pickup: Pickup::Any,
+                    pickup: ArrowPickup::Any,
                     punch: 0,
                     life: 0,
                 };
@@ -1642,10 +1663,11 @@ impl Context<'_> {
         self.spawn(world, pos, kind, motion)
     }
 
-    /// Spawns a human NPC named `name` (at most [`MAX_NAME_TAG_BYTES`]) at `pos` (its feet) in
-    /// `world`, with `skin` or the default skin, and its name always showing. Like every NPC Anchor
-    /// spawns it is invulnerable ([`Mut::set_invulnerable`]) and has no AI. `None` for a longer
-    /// name, or where [`Self::drop_item`] fails.
+    /// Spawns a human NPC at `pos` (its feet) in `world`, named `name`.
+    /// The name is at most [`MAX_NAME_TAG_BYTES`]. The NPC has `skin` or the default skin, and
+    /// its name always showing. Like a villager NPC it is invulnerable
+    /// ([`Mut::set_invulnerable`]) and has no AI. `None` for a longer name, or where
+    /// [`Self::drop_item`] fails.
     #[doc(alias = "Human::__construct")]
     pub fn spawn_human(
         &mut self,
@@ -1662,8 +1684,8 @@ impl Context<'_> {
         super::spawn_npc(self.state, w, pos, npc)
     }
 
-    /// Spawns a zombie at `pos` (its feet) in `world` (PMMP `Zombie`, which has no AI either): it
-    /// stands where it is put, falls, burns, takes damage and at its death drops rotten flesh
+    /// Spawns a zombie at `pos` (its feet) in `world` (PMMP `Zombie`, which has no AI either).
+    /// It stands where it is put, falls, burns, takes damage and at its death drops rotten flesh
     /// and sometimes an iron ingot, a carrot or a potato, and 5 experience. `None` where
     /// [`Self::drop_item`] fails.
     pub fn spawn_zombie(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
@@ -1671,9 +1693,9 @@ impl Context<'_> {
         super::spawn_npc(self.state, w, pos, Npc::Zombie)
     }
 
-    /// Spawns a cloud at `pos` in `world` that gives `effects` (at most 32) with PMMP's defaults
-    /// for a lingering potion's: radius 3, gone after 600 ticks, shrinking as it is used. `None`
-    /// for more effects, or where [`Self::drop_item`] fails.
+    /// Spawns a cloud at `pos` in `world` that gives `effects` (at most 32).
+    /// It has PMMP's defaults for a lingering potion's: radius 3, gone after 600 ticks, shrinking
+    /// as it is used. `None` for more effects, or where [`Self::drop_item`] fails.
     #[doc(alias = "AreaEffectCloud::__construct")]
     pub fn spawn_area_effect_cloud(
         &mut self,
@@ -1681,17 +1703,17 @@ impl Context<'_> {
         pos: Vec3,
         effects: &[Instance],
     ) -> Option<Id> {
-        if effects.len() > MAX_CLOUD_EFFECTS {
+        if effects.len() > Cloud::MAX_EFFECTS {
             return None;
         }
         let kind = Kind::Cloud(projectile::new_cloud(effects));
         self.spawn(world, pos, kind, Vec3::ZERO)
     }
 
-    /// Hangs a painting of `motive` in the block `pos` of `world`, on the wall behind `facing`
-    /// (north, south, west or east), whether or not it fits there (see [`Self::can_hang_painting`];
-    /// a neighbour update that finds it does not fit makes it fall). `None` for an up or down
-    /// facing, or where [`Self::drop_item`] fails.
+    /// Hangs a painting of `motive` in the block `pos` of `world`, on the wall behind `facing`.
+    /// The facing is north, south, west or east. The painting hangs whether or not it fits there
+    /// (see [`Self::can_hang_painting`]); a neighbour update that finds it does not fit makes it
+    /// fall. `None` for an up or down facing, or where [`Self::drop_item`] fails.
     #[doc(alias = "Painting::__construct")]
     pub fn spawn_painting(
         &mut self,
@@ -1707,30 +1729,14 @@ impl Context<'_> {
         self.spawn(world, corner, object::painting(facing, motive), Vec3::ZERO)
     }
 
-    /// Whether a painting of `motive` can hang in the block `pos` of `world` on the wall behind
-    /// `facing` (PMMP `Painting::canFit` with the overlap check): every block it covers is loaded
-    /// and not solid with a solid block behind it, and no other painting is there. False for a
-    /// world the server does not have or an up or down facing.
-    #[doc(alias = "Painting::canFit")]
-    pub fn can_hang_painting(
-        &self,
-        world: world::Id,
-        pos: BlockPos,
-        facing: Face,
-        motive: PaintingMotive,
-    ) -> bool {
-        index(self.state, world)
-            .is_some_and(|w| object::can_hang(self.state, w, pos, facing, motive))
-    }
-
-    /// Spawns an end crystal at `pos` (the middle of its bottom) in `world`, without its base or
-    /// a beam. `None` where [`Self::drop_item`] fails.
+    /// Spawns an end crystal at `pos` (the middle of its bottom) in `world`.
+    /// It has no base and no beam. `None` where [`Self::drop_item`] fails.
     pub fn spawn_end_crystal(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
         self.spawn(world, pos, object::crystal(), Vec3::ZERO)
     }
 
-    /// Launches a firework rocket from `pos` in `world` with `motion` in blocks per tick that
-    /// bursts with `explosions` (see [`Entity::firework_explosions`]) at the age of
+    /// Launches a firework rocket from `pos` in `world` with `motion` in blocks per tick.
+    /// It bursts with `explosions` (see [`Entity::firework_explosions`]) at the age of
     /// `max_flight_ticks`; it has no owner and is never saved. `None` for explosions
     /// [`Mut::set_firework_explosions`] refuses, a motion that is not finite, or where
     /// [`Self::drop_item`] fails.
@@ -1752,10 +1758,10 @@ impl Context<'_> {
         self.spawn(world, pos, kind, motion)
     }
 
-    /// Launches a firework rocket without explosions from `pos` in `world` as a used rocket item
-    /// without its `Fireworks` data launches: it flies 20 ticks and up to 12 more, starting slowly
-    /// upwards with a little random drift. It has no owner and is never saved. `None` where
-    /// [`Self::drop_item`] fails.
+    /// Launches a firework rocket without explosions from `pos` in `world`.
+    /// It launches as a used rocket item without its `Fireworks` data does: it flies 20 ticks and
+    /// up to 12 more, starting slowly upwards with a little random drift. It has no owner and is
+    /// never saved. `None` where [`Self::drop_item`] fails.
     pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
         let w = index(self.state, world).filter(|_| is_valid_position(pos))?;
         if !super::can_create(self.state, w, pos) {
@@ -1770,10 +1776,10 @@ impl Context<'_> {
         object::launch(self.state, w, pos, item, None, &mut random)
     }
 
-    /// Throws a trident holding `item` from `pos` in `world` with `motion` in blocks per tick
-    /// (cut to the physics' speed bound); it has no owner, deals PMMP's 8 damage and is picked
-    /// up as `item`. `Err` gives `item` back when it is empty, the motion is not finite, or where
-    /// [`Self::drop_item`] fails.
+    /// Throws a trident holding `item` from `pos` in `world` with `motion` in blocks per tick.
+    /// Each component of the motion is cut to ±10. The trident has no owner, deals PMMP's 8
+    /// damage and is picked up as `item`. `Err` gives `item` back when it is empty, the motion
+    /// is not finite, or where [`Self::drop_item`] fails.
     #[doc(alias = "entity\\projectile\\Trident::__construct")]
     pub fn spawn_trident(
         &mut self,
@@ -1792,7 +1798,7 @@ impl Context<'_> {
                 creative: false,
                 can_collide: true,
             }),
-            damage: TRIDENT_DAMAGE,
+            damage: Trident::DAMAGE,
             stuck: None,
             owner: None,
             owner_runtime_id: 0,
@@ -1800,9 +1806,10 @@ impl Context<'_> {
         self.spawn(world, pos, kind, motion).ok_or(back)
     }
 
-    /// Plays `animation` on `actor` for the players who see it (PMMP `broadcastAnimation`: a
-    /// player sees its own too). A cosmetic packet like a sound: a player whose outbox is nearly
-    /// full misses it. False if the actor is gone or not yet shown (an entity loaded this tick).
+    /// Plays `animation` on `actor` for the players who see it (PMMP `broadcastAnimation`).
+    /// A player sees its own too. It is a cosmetic packet like a sound: a player whose outbox is
+    /// nearly full misses it. False if the actor is gone, or is an entity loaded this tick, which
+    /// has no runtime ID.
     #[doc(alias = "Entity::broadcastAnimation")]
     #[doc(alias = "Player::broadcastAnimation")]
     pub fn play_animation(&mut self, actor: Actor, animation: Animation) -> bool {
@@ -1822,10 +1829,11 @@ impl Context<'_> {
         }
     }
 
-    /// Stops showing the player `target` to the player `viewer` until [`Self::show_player`] or
-    /// either leaves: `viewer`'s client removes it at the end of the tick and is not sent it
-    /// again (PMMP `hidePlayer`). True if `target` is hidden from `viewer` now; false if either is
-    /// not online, they are the same player, or `viewer` hides 1,024 players already.
+    /// Stops showing the player `target` to the player `viewer` (PMMP `hidePlayer`).
+    /// It stays hidden until [`Self::show_player`] or either leaves: `viewer`'s client removes it
+    /// at the end of the tick and is not sent it again. True if `target` is hidden from `viewer`
+    /// now; false if either is not online, they are the same player, or `viewer` hides 1,024
+    /// players already.
     #[doc(alias = "Player::hidePlayer")]
     pub fn hide_player(&mut self, viewer: player::Id, target: player::Id) -> bool {
         if viewer == target || self.player(viewer).is_none() || self.player(target).is_none() {
@@ -1846,8 +1854,8 @@ impl Context<'_> {
         hidden.insert((v, t))
     }
 
-    /// Shows the player `target` to the player `viewer` again (PMMP `showPlayer`): it is sent at
-    /// the end of the tick if `viewer` sees its chunk. False if it was not hidden.
+    /// Shows the player `target` to the player `viewer` again (PMMP `showPlayer`).
+    /// It is sent at the end of the tick if `viewer` sees its chunk. False if it was not hidden.
     #[doc(alias = "Player::showPlayer")]
     pub fn show_player(&mut self, viewer: player::Id, target: player::Id) -> bool {
         self.state
@@ -1855,18 +1863,6 @@ impl Context<'_> {
             .entities
             .hidden
             .remove(&(viewer.session(), target.session()))
-    }
-
-    /// Whether the player `viewer` may see the player `target`: it is not hidden from it (PMMP
-    /// `canSee`).
-    #[doc(alias = "Player::canSee")]
-    pub fn can_see(&self, viewer: player::Id, target: player::Id) -> bool {
-        !self
-            .state
-            .rules
-            .entities
-            .hidden
-            .contains(&(viewer.session(), target.session()))
     }
 
     /// Creates an entity of `kind` at `pos` in `world` with `motion` and no rotation.
@@ -1895,6 +1891,60 @@ impl action::Sealed for action::Explode {
         };
         super::explode(cx.state, w, center, size, fire, Raise::Events);
     }
+}
+
+impl Entities {
+    /// The live, unflagged entities of `world` in `Id` order: the store's slots, filtered.
+    fn of_world(&self, world: usize) -> impl Iterator<Item = (Id, &Entity)> + '_ {
+        (0_u32..).zip(&self.slots).filter_map(move |(i, s)| {
+            let e = s.entity.as_ref()?;
+            (e.world == world && !e.flagged).then_some((Id::new(i, s.generation), e))
+        })
+    }
+
+    /// Moves a live entity's count to world `to`; the caller checked the cap and reindexes it.
+    fn move_world(&mut self, id: Id, to: usize) {
+        let Some(e) = self.get_mut(id) else {
+            return;
+        };
+        let (from, chunk) = (e.world, e.chunk);
+        e.world = to;
+        if let Some(n) = self.counts.get_mut(&from) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                self.counts.remove(&from);
+            }
+        }
+        *self.counts.entry(to).or_insert(0) += 1;
+        // The index entry moves as a chunk change of the old world to a chunk of the new one.
+        if let Some(column) = self.columns.get_mut(&(from, chunk)) {
+            column.ids.remove(&id);
+            if column.ids.is_empty() {
+                self.columns.remove(&(from, chunk));
+            }
+        }
+        let column = self.columns.entry((to, chunk)).or_default();
+        column.ids.insert(id);
+        column.arrived.insert(id);
+        self.changed.insert((from, chunk));
+        self.changed.insert((to, chunk));
+    }
+}
+
+/// An arrow's own data.
+fn arrow(kind: &Kind) -> Option<&Arrow> {
+    match kind {
+        Kind::Projectile(Projectile {
+            shot: Shot::Arrow(a),
+            ..
+        }) => Some(a),
+        _ => None,
+    }
+}
+
+/// Whether a cloud takes `blocks` as a radius change (finite, within the saved form's bound).
+fn is_radius_change(blocks: f64) -> bool {
+    (-MAX_CLOUD_RADIUS..=MAX_CLOUD_RADIUS).contains(&blocks)
 }
 
 #[cfg(test)]

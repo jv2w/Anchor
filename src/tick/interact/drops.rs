@@ -4,17 +4,25 @@
 //!
 //! PMMP picks a method by the class of the block, leaf first; [`resolve`] walks the PMMP class
 //! chain of the state's kind the same way, so a subclass's rule wins over its parent's. Random
-//! amounts come from the caller's engine stream; PMMP draws from PHP's global generator.
+//! amounts come from the caller's engine stream; PMMP draws from PHP's global generator. A
+//! lectern's book is its block entity's, which `block_entity::drops` adds to the drops.
 
-use crate::block::{Class, ItemForm, Kind, PropertyValue, State};
+use super::props;
+use crate::block::{Class, ItemForm, Kind, PropertyValue, State, ToolType};
 use crate::item::{self, Enchantment, Stack};
 use crate::random::Random;
 
-use super::props;
+/// The rolls of a ripe crop's extra drops, and of a stem's seeds, before Fortune adds one per
+/// level.
+const EXTRA_ROLLS: u32 = 3;
+/// The chance of each roll of a ripe crop's extra drops.
+const RIPE_CROP_CHANCE: f64 = 4.0 / 7.0;
+/// The `growth` of a ripe crop.
+const RIPE_GROWTH: u32 = 7;
 
 /// What a block drops: item stacks, and how many of the block's own item only its block entity
 /// can name (a bed's colour, a banner's patterns: `ItemForm::BlockEntity`).
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct Drops {
     /// The stacks, none empty.
     pub(super) items: Vec<Stack>,
@@ -23,17 +31,9 @@ pub(super) struct Drops {
 }
 
 impl Drops {
-    /// Adds `count` of `item` (nothing for 0, as PMMP drops no empty stack).
-    fn add(&mut self, item: item::Type, count: u32) {
-        if count > 0 {
-            let count = u8::try_from(count).unwrap_or(u8::MAX);
-            self.items.push(Stack::new(item, count));
-        }
-    }
-
-    /// Adds `count` of a vanilla item.
-    fn add_kind(&mut self, kind: item::Kind, count: u32) {
-        self.add(kind.default_type(), count);
+    /// Adds `count` of the item form of a block kind's default state.
+    fn add_block(&mut self, kind: Kind, count: u32) {
+        self.add_own(kind.default_state(), count);
     }
 
     /// Adds `count` of the item form of `state` (PMMP `asItem()->setCount`).
@@ -49,54 +49,50 @@ impl Drops {
         }
     }
 
-    /// Adds `count` of the item form of a block kind's default state.
-    fn add_block(&mut self, kind: Kind, count: u32) {
-        self.add_own(kind.default_state(), count);
+    /// Adds `count` of a vanilla item.
+    fn add_kind(&mut self, kind: item::Kind, count: u32) {
+        self.add(kind.default_type(), count);
+    }
+
+    /// Adds `count` of `item` (nothing for 0, as PMMP drops no empty stack).
+    fn add(&mut self, item: item::Type, count: u32) {
+        if count > 0 {
+            let count = u8::try_from(count).unwrap_or(u8::MAX);
+            self.items.push(Stack::new(item, count));
+        }
     }
 }
 
-/// The level of an enchantment on a stack, 0 if it has none.
-pub(in crate::tick) fn level(stack: &Stack, enchantment: Enchantment) -> u16 {
-    stack.enchantment_level(enchantment).unwrap_or(0)
+/// How a class overrides `Block::getDrops`.
+#[derive(Clone, Copy)]
+enum Rule {
+    /// `Block::getDrops`.
+    Base,
+    /// Only one half drops (beds' heads, doors' bottoms, double plants' tops): whether this half
+    /// is it.
+    Half(bool),
+    /// Nothing (nether portals).
+    Nothing,
+    /// Only shears get anything (glow lichen, vines).
+    ShearsOnly,
 }
 
-/// Whether the item is shears (PMMP `getBlockToolType() & SHEARS`).
-fn is_shears(tool: &Stack) -> bool {
-    tool.item().is_some_and(|t| {
-        t.block_tool_type()
-            .intersects(crate::block::ToolType::SHEARS)
-    })
+/// Works out the drops of an explosion of the state (PMMP `Explosion::explodeB`): the compatible
+/// tool's drops for an empty hand where the block is explosion harvestable, else `getDrops` by
+/// hand.
+pub(super) fn explosion(state: State, rng: &mut Random) -> Drops {
+    if state.break_info().is_explosion_harvestable() {
+        let mut out = Drops::default();
+        compatible(state, &Stack::EMPTY, rng, &mut out);
+        out
+    } else {
+        drops(state, &Stack::EMPTY, rng)
+    }
 }
 
-/// Whether `tool` is a compatible tool for `state` (PMMP `BlockBreakInfo::isToolCompatible`).
-pub(super) fn is_compatible(state: State, tool: &Stack) -> bool {
-    let (tool_type, level) = tool.item().map_or((crate::block::ToolType::NONE, 0), |t| {
-        (t.block_tool_type(), t.block_tool_harvest_level())
-    });
-    state.break_info().is_tool_compatible(tool_type, level)
-}
-
-/// The rule of the first class in the state's PMMP class chain (leaf first) that `pick` knows,
-/// as PHP resolves an overridden method; `None` if no class has one (only for methods
-/// [`Class::Block`] lacks).
-fn resolve<T>(state: State, pick: impl Fn(Class) -> Option<T>) -> Option<T> {
-    state.kind().classes().iter().find_map(|c| pick(*c))
-}
-
-/// PMMP `Block::getDrops($tool)` for the state, with the class overrides of `getDrops`.
+/// Works out the drops of the state broken with `tool` (PMMP `Block::getDrops`, with the class
+/// overrides of `getDrops`).
 pub(super) fn drops(state: State, tool: &Stack, rng: &mut Random) -> Drops {
-    /// The `getDrops` overrides.
-    #[derive(Clone, Copy)]
-    enum Rule {
-        /// `Block::getDrops`.
-        Base,
-        /// Only one half drops (beds' heads, doors' bottoms, double plants' tops).
-        Half(bool),
-        /// Only shears get anything (glow lichen, vines).
-        ShearsOnly,
-        /// Nothing (nether portals, unknown blocks).
-        Nothing,
-    }
     let rule = resolve(state, |c| match c {
         Class::Bed => Some(Rule::Half(
             props::flag(state, "head_piece_bit") == Some(true),
@@ -109,22 +105,54 @@ pub(super) fn drops(state: State, tool: &Stack, rng: &mut Random) -> Drops {
         )),
         Class::GlowLichen | Class::Vine => Some(Rule::ShearsOnly),
         Class::NetherPortal => Some(Rule::Nothing),
-        // Lectern adds its book, which its block entity holds (block_entity::drops adds it to a broken block's drops).
-        Class::Block => Some(Rule::Base),
         _ => None,
     })
     .unwrap_or(Rule::Base);
     let mut out = Drops::default();
     match rule {
         Rule::Base | Rule::Half(true) => base(state, tool, rng, &mut out),
-        Rule::ShearsOnly if is_shears(tool) => compatible(state, tool, rng, &mut out),
-        Rule::Half(false) | Rule::ShearsOnly | Rule::Nothing => {}
+        Rule::Half(false) | Rule::Nothing => {}
+        Rule::ShearsOnly => {
+            if is_shears(tool) {
+                compatible(state, tool, rng, &mut out);
+            }
+        }
     }
     out
 }
 
-/// PMMP `Block::getDrops`: the compatible tool's drops (Silk Touch's where it applies), else the
-/// incompatible tool's.
+/// Works out the experience of the state broken with `tool` (PMMP `getXpDropForTool`): nothing
+/// with Silk Touch or an incompatible tool, else the class's `getXpDropAmount`.
+pub(super) fn experience(state: State, tool: &Stack, rng: &mut Random) -> u32 {
+    if level(tool, Enchantment::SilkTouch) > 0 || !is_compatible(state, tool) {
+        return 0;
+    }
+    match resolve(state, |c| {
+        matches!(
+            c,
+            Class::CoalOre
+                | Class::DiamondOre
+                | Class::EmeraldOre
+                | Class::LapisOre
+                | Class::MonsterSpawner
+                | Class::NetherQuartzOre
+                | Class::RedstoneOre
+                | Class::Sculk
+        )
+        .then_some(c)
+    }) {
+        Some(Class::CoalOre) => range(rng, 0, 2),
+        Some(Class::DiamondOre | Class::EmeraldOre) => range(rng, 3, 7),
+        Some(Class::LapisOre | Class::NetherQuartzOre) => range(rng, 2, 5),
+        Some(Class::MonsterSpawner) => range(rng, 15, 43),
+        Some(Class::RedstoneOre) => range(rng, 1, 5),
+        Some(Class::Sculk) => 1,
+        _ => 0,
+    }
+}
+
+/// Adds the drops of `Block::getDrops` to `out`: the compatible tool's (Silk Touch's where it
+/// applies), else the incompatible tool's.
 fn base(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
     if is_compatible(state, tool) {
         if state.is_affected_by_silk_touch() && level(tool, Enchantment::SilkTouch) > 0 {
@@ -137,77 +165,74 @@ fn base(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
     }
 }
 
-/// The drops of an explosion of the state (PMMP `Explosion::explodeB`): the compatible tool's
-/// drops for an empty hand where the block is explosion harvestable, else `getDrops` by hand.
-pub(super) fn explosion(state: State, rng: &mut Random) -> Drops {
-    if state.break_info().is_explosion_harvestable() {
-        let mut out = Drops::default();
-        compatible(state, &Stack::EMPTY, rng, &mut out);
-        out
-    } else {
-        drops(state, &Stack::EMPTY, rng)
+/// Adds the drops of `getSilkTouchDrops` with its class overrides to `out`.
+fn silk_touch(state: State, out: &mut Drops) {
+    match resolve(state, |c| {
+        matches!(c, Class::InfestedStone | Class::RedMushroomBlock).then_some(c)
+    }) {
+        Some(Class::InfestedStone) => {
+            let imitated = match state.kind() {
+                Kind::InfestedChiseledStoneBrick => Kind::ChiseledStoneBricks,
+                Kind::InfestedCobblestone => Kind::Cobblestone,
+                Kind::InfestedCrackedStoneBrick => Kind::CrackedStoneBricks,
+                Kind::InfestedDeepslate => Kind::Deepslate,
+                Kind::InfestedMossyStoneBrick => Kind::MossyStoneBricks,
+                Kind::InfestedStone => Kind::Stone,
+                Kind::InfestedStoneBrick => Kind::StoneBricks,
+                other => other,
+            };
+            out.add_block(imitated, 1);
+        }
+        Some(Class::RedMushroomBlock) => {
+            // The all-cap form (Bedrock `huge_mushroom_bits` 14).
+            let cap = props::with_int(state, "huge_mushroom_bits", 14).unwrap_or(state);
+            out.add_own(cap, 1);
+        }
+        _ => out.add_own(state, 1),
     }
 }
 
-/// PMMP `FortuneDropHelper::weighted`.
-fn weighted(tool: &Stack, rng: &mut Random, min: u32, max_base: u32) -> u32 {
-    let fortune = u32::from(level(tool, Enchantment::Fortune));
-    let max = if fortune > 0 && rng.unit() > 2.0 / f64::from(fortune + 2) {
-        max_base.saturating_mul(fortune + 1)
-    } else {
-        max_base
+/// Adds the drops of `getDropsForIncompatibleTool` with its class overrides to `out`.
+fn incompatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
+    let tall_grass = |rng: &mut Random, out: &mut Drops| {
+        if bonus_divisor(tool, rng, 8, 2) {
+            out.add_kind(item::Kind::WheatSeeds, 1);
+        }
     };
-    range(rng, min, max)
-}
-
-/// PMMP `FortuneDropHelper::binomial`: `min` plus a success per roll, `min_rolls + fortune`
-/// rolls.
-fn binomial(fortune: u16, rng: &mut Random, min: u32, min_rolls: u32, chance: f64) -> u32 {
-    let rolls = min_rolls + u32::from(fortune);
-    (0..rolls).fold(min, |n, _| n + u32::from(rng.unit() < chance))
-}
-
-/// PMMP `FortuneDropHelper::discrete`.
-fn discrete(tool: &Stack, rng: &mut Random, min: u32, max_base: u32) -> u32 {
-    let max = max_base + u32::from(level(tool, Enchantment::Fortune));
-    range(rng, min, max)
-}
-
-/// PMMP `FortuneDropHelper::bonusChanceDivisor`: one in `base - fortune × per_level` (at least
-/// one).
-fn bonus_divisor(tool: &Stack, rng: &mut Random, base: u32, per_level: u32) -> bool {
-    let fortune = u32::from(level(tool, Enchantment::Fortune));
-    let divisor = base
-        .saturating_sub(fortune.saturating_mul(per_level))
-        .max(1);
-    rng.below(divisor) == 0
-}
-
-/// PMMP `FortuneDropHelper::bonusChanceFixed`.
-fn bonus_fixed(tool: &Stack, rng: &mut Random, base: f64, per_level: f64) -> bool {
-    let fortune = f64::from(level(tool, Enchantment::Fortune));
-    rng.unit() < crate::math::min(1.0, base + fortune * per_level)
-}
-
-/// A number in `lo..=hi` (PHP `mt_rand`).
-fn range(rng: &mut Random, lo: u32, hi: u32) -> u32 {
-    if hi <= lo {
-        return lo;
+    let class = resolve(state, |c| {
+        matches!(
+            c,
+            Class::AmethystCluster
+                | Class::Bell
+                | Class::DeadBush
+                | Class::DoubleTallGrass
+                | Class::HangingRoots
+                | Class::TallGrass
+        )
+        .then_some(c)
+    });
+    match class {
+        Some(Class::AmethystCluster) => {
+            if state.name() == "minecraft:amethyst_cluster" {
+                out.add_kind(item::Kind::AmethystShard, weighted(tool, rng, 2, 2));
+            }
+        }
+        Some(Class::Bell) => out.add_own(state, 1),
+        Some(Class::DeadBush) => out.add_kind(item::Kind::Stick, range(rng, 0, 2)),
+        Some(Class::DoubleTallGrass) => {
+            if props::flag(state, "upper_block_bit") == Some(true) {
+                tall_grass(rng, out);
+            }
+        }
+        Some(Class::HangingRoots) if level(tool, Enchantment::SilkTouch) > 0 => {
+            compatible(state, tool, rng, out);
+        }
+        Some(Class::TallGrass) => tall_grass(rng, out),
+        _ => {}
     }
-    lo + rng.below(hi - lo + 1)
 }
 
-/// An integer property as a count (0 when missing or negative).
-fn count_of(state: State, name: &str) -> u32 {
-    props::int(state, name).map_or(0, |v| u32::try_from(v).unwrap_or(0))
-}
-
-/// A crop's age (Bedrock `growth`).
-fn growth(state: State) -> u32 {
-    count_of(state, "growth")
-}
-
-/// PMMP `getDropsForCompatibleTool` with its class overrides.
+/// Adds the drops of `getDropsForCompatibleTool` with its class overrides to `out`.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one match arm per PMMP class keeps the port side by side with PMMP"
@@ -216,20 +241,18 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
     use item::Kind as I;
     // Anonymous classes of VanillaBlocks (stone, deepslate, reinforced deepslate) by kind.
     match state.kind() {
-        Kind::Stone => return out.add_block(Kind::Cobblestone, 1),
         Kind::Deepslate => return out.add_block(Kind::CobbledDeepslate, 1),
         Kind::ReinforcedDeepslate => return,
+        Kind::Stone => return out.add_block(Kind::Cobblestone, 1),
         _ => {}
     }
-    let fortune = level(tool, Enchantment::Fortune);
-    let Some(class) = resolve(state, |c| {
+    let class = resolve(state, |c| {
         matches!(
             c,
             Class::AmethystCluster
                 | Class::BaseCoral
                 | Class::BaseFire
                 | Class::Beetroot
-                | Class::Block
                 | Class::BlueIce
                 | Class::Bookshelf
                 | Class::BrownMushroomBlock
@@ -296,9 +319,8 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
                 | Class::Wheat
         )
         .then_some(c)
-    }) else {
-        return out.add_own(state, 1);
-    };
+    })
+    .unwrap_or(Class::Block);
     match class {
         Class::AmethystCluster => {
             if state.name() == "minecraft:amethyst_cluster" {
@@ -321,16 +343,18 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
         | Class::PackedIce
         | Class::Sculk => {}
         Class::Beetroot => {
-            if growth(state) >= 7 {
+            if growth(state) >= RIPE_GROWTH {
                 out.add_kind(I::Beetroot, 1);
-                out.add_kind(I::BeetrootSeeds, binomial(fortune, rng, 0, 3, 4.0 / 7.0));
+                out.add_kind(
+                    I::BeetrootSeeds,
+                    binomial(tool, rng, 0, EXTRA_ROLLS, RIPE_CROP_CHANCE),
+                );
             } else {
                 out.add_kind(I::BeetrootSeeds, 1);
             }
         }
         Class::Bookshelf => out.add_kind(I::Book, 3),
         Class::BrownMushroomBlock => out.add_block(Kind::BrownMushroom, range(rng, 0, 2)),
-        Class::RedMushroomBlock => out.add_block(Kind::RedMushroom, range(rng, 0, 2)),
         Class::CakeWithCandle => {
             // The candle of the cake's colour: `minecraft:<colour>_candle_cake` holds
             // `minecraft:<colour>_candle`.
@@ -347,36 +371,15 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
                 out.add_own(candle, 1);
             }
         }
-        Class::SoulCampfire => out.add_block(Kind::SoulSoil, 1),
         Class::Campfire => out.add_kind(I::Charcoal, 2),
         Class::Candle => out.add_own(state, count_of(state, "candles") + 1),
         Class::Carrot => {
-            let n = if growth(state) >= 7 {
-                binomial(fortune, rng, 1, 3, 4.0 / 7.0)
+            let n = if growth(state) >= RIPE_GROWTH {
+                binomial(tool, rng, 1, EXTRA_ROLLS, RIPE_CROP_CHANCE)
             } else {
                 1
             };
             out.add_kind(I::Carrot, n);
-        }
-        Class::Potato => {
-            let ripe = growth(state) >= 7;
-            let n = if ripe {
-                binomial(fortune, rng, 1, 3, 4.0 / 7.0)
-            } else {
-                1
-            };
-            out.add_kind(I::Potato, n);
-            if ripe && rng.below(50) == 0 {
-                out.add_kind(I::PoisonousPotato, 1);
-            }
-        }
-        Class::Wheat => {
-            if growth(state) >= 7 {
-                out.add_kind(I::Wheat, 1);
-                out.add_kind(I::WheatSeeds, binomial(fortune, rng, 0, 3, 4.0 / 7.0));
-            } else {
-                out.add_kind(I::WheatSeeds, 1);
-            }
         }
         Class::CaveVines => {
             if state.name().ends_with("_with_berries") {
@@ -390,15 +393,6 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
         }
         Class::Clay => out.add_kind(I::Clay, 4),
         Class::CoalOre => out.add_kind(I::Coal, weighted(tool, rng, 1, 1)),
-        Class::DiamondOre => out.add_kind(I::Diamond, weighted(tool, rng, 1, 1)),
-        Class::EmeraldOre => out.add_kind(I::Emerald, weighted(tool, rng, 1, 1)),
-        Class::GoldOre => out.add_kind(I::RawGold, weighted(tool, rng, 1, 1)),
-        Class::IronOre => out.add_kind(I::RawIron, weighted(tool, rng, 1, 1)),
-        Class::CopperOre => out.add_kind(I::RawCopper, weighted(tool, rng, 2, 5)),
-        Class::LapisOre => out.add_kind(I::LapisLazuli, weighted(tool, rng, 4, 9)),
-        Class::NetherGoldOre => out.add_kind(I::GoldNugget, weighted(tool, rng, 2, 6)),
-        Class::NetherQuartzOre => out.add_kind(I::NetherQuartz, weighted(tool, rng, 1, 1)),
-        Class::RedstoneOre => out.add_kind(I::RedstoneDust, discrete(tool, rng, 4, 5)),
         Class::Cobweb => {
             if is_shears(tool) {
                 out.add_own(state, 1);
@@ -414,7 +408,9 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
             };
             out.add_kind(I::CocoaBeans, n);
         }
+        Class::CopperOre => out.add_kind(I::RawCopper, weighted(tool, rng, 2, 5)),
         Class::CoralBlock => out.add_own(props::dead_coral(state).unwrap_or(state), 1),
+        Class::DiamondOre => out.add_kind(I::Diamond, weighted(tool, rng, 1, 1)),
         Class::DoublePitcherCrop => {
             // PMMP age 1 (the last) is Bedrock growth 4.
             if growth(state) >= 4 {
@@ -423,11 +419,11 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
                 out.add_kind(I::PitcherPod, 1);
             }
         }
+        Class::EmeraldOre => out.add_kind(I::Emerald, weighted(tool, rng, 1, 1)),
         Class::EnderChest => out.add_block(Kind::Obsidian, 8),
         Class::Farmland | Class::Grass | Class::GrassPath | Class::Mycelium | Class::Podzol => {
             out.add_block(Kind::Dirt, 1);
         }
-        Class::Nylium => out.add_block(Kind::Netherrack, 1),
         Class::GildedBlackstone => {
             if bonus_divisor(tool, rng, 10, 3) {
                 out.add_kind(I::GoldNugget, range(rng, 2, 5));
@@ -435,6 +431,10 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
                 out.add_own(state, 1);
             }
         }
+        Class::Glowstone => {
+            out.add_kind(I::GlowstoneDust, discrete(tool, rng, 2, 4).min(4));
+        }
+        Class::GoldOre => out.add_kind(I::RawGold, weighted(tool, rng, 1, 1)),
         Class::Gravel => {
             if bonus_divisor(tool, rng, 10, 3) {
                 out.add_kind(I::Flint, 1);
@@ -442,11 +442,12 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
                 out.add_own(state, 1);
             }
         }
-        Class::Glowstone => {
-            out.add_kind(I::GlowstoneDust, discrete(tool, rng, 2, 4).min(4));
-        }
+        Class::IronOre => out.add_kind(I::RawIron, weighted(tool, rng, 1, 1)),
+        Class::LapisOre => out.add_kind(I::LapisLazuli, weighted(tool, rng, 4, 9)),
         Class::Leaves => leaves(state, tool, rng, out),
         Class::Melon => out.add_kind(I::Melon, discrete(tool, rng, 3, 7).min(9)),
+        Class::NetherGoldOre => out.add_kind(I::GoldNugget, weighted(tool, rng, 2, 6)),
+        Class::NetherQuartzOre => out.add_kind(I::NetherQuartz, weighted(tool, rng, 1, 1)),
         Class::NetherReactor => {
             out.add_kind(I::IronIngot, 6);
             out.add_kind(I::Diamond, 3);
@@ -464,11 +465,26 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
             };
             out.add_own(state, n);
         }
+        Class::Nylium => out.add_block(Kind::Netherrack, 1),
         Class::PinkPetals => out.add_own(state, growth(state) + 1),
-        Class::SeaPickle => out.add_own(state, count_of(state, "cluster_count") + 1),
+        Class::Potato => {
+            let ripe = growth(state) >= RIPE_GROWTH;
+            let n = if ripe {
+                binomial(tool, rng, 1, EXTRA_ROLLS, RIPE_CROP_CHANCE)
+            } else {
+                1
+            };
+            out.add_kind(I::Potato, n);
+            if ripe && rng.below(50) == 0 {
+                out.add_kind(I::PoisonousPotato, 1);
+            }
+        }
+        Class::RedMushroomBlock => out.add_block(Kind::RedMushroom, range(rng, 0, 2)),
+        Class::RedstoneOre => out.add_kind(I::RedstoneDust, discrete(tool, rng, 4, 5)),
         Class::SeaLantern => {
             out.add_kind(I::PrismarineCrystals, discrete(tool, rng, 2, 3).min(5));
         }
+        Class::SeaPickle => out.add_own(state, count_of(state, "cluster_count") + 1),
         Class::Slab => {
             let double = props::is_double_slab(state);
             out.add_own(state, if double { 2 } else { 1 });
@@ -484,10 +500,11 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
             let layers = count_of(state, "height") + 1;
             out.add_kind(I::Snowball, (layers / 2).max(1));
         }
+        Class::SoulCampfire => out.add_block(Kind::SoulSoil, 1),
         Class::Stem => {
             // Not changed by Fortune (PMMP passes an empty hand).
             let chance = f64::from(growth(state) + 1) / 15.0;
-            out.add_own(state, binomial(0, rng, 0, 3, chance));
+            out.add_own(state, binomial(&Stack::EMPTY, rng, 0, EXTRA_ROLLS, chance));
         }
         Class::SweetBerryBush => {
             let n = match growth(state) {
@@ -497,12 +514,23 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
             };
             out.add_own(state, n);
         }
+        Class::Wheat => {
+            if growth(state) >= RIPE_GROWTH {
+                out.add_kind(I::Wheat, 1);
+                out.add_kind(
+                    I::WheatSeeds,
+                    binomial(tool, rng, 0, EXTRA_ROLLS, RIPE_CROP_CHANCE),
+                );
+            } else {
+                out.add_kind(I::WheatSeeds, 1);
+            }
+        }
         _ => out.add_own(state, 1),
     }
 }
 
-/// PMMP `Leaves::getDropsForCompatibleTool`: itself with shears, else saplings, apples and
-/// sticks by chance.
+/// Adds the drops of `Leaves::getDropsForCompatibleTool` to `out`: itself with shears, else
+/// saplings, apples and sticks by chance.
 fn leaves(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
     if is_shears(tool) {
         return out.add_own(state, 1);
@@ -511,20 +539,20 @@ fn leaves(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
     if bonus_divisor(tool, rng, 20, 4) {
         let sapling = match kind {
             Kind::AcaciaLeaves => Some(Kind::AcaciaSapling),
+            Kind::AzaleaLeaves | Kind::MangroveLeaves => Some(Kind::Azalea),
             Kind::BirchLeaves => Some(Kind::BirchSapling),
             Kind::DarkOakLeaves => Some(Kind::DarkOakSapling),
+            Kind::FloweringAzaleaLeaves => Some(Kind::FloweringAzalea),
             Kind::JungleLeaves => Some(Kind::JungleSapling),
             Kind::OakLeaves => Some(Kind::OakSapling),
             Kind::SpruceLeaves => Some(Kind::SpruceSapling),
-            Kind::MangroveLeaves | Kind::AzaleaLeaves => Some(Kind::Azalea),
-            Kind::FloweringAzaleaLeaves => Some(Kind::FloweringAzalea),
             _ => None,
         };
         if let Some(sapling) = sapling {
             out.add_block(sapling, 1);
         }
     }
-    if matches!(kind, Kind::OakLeaves | Kind::DarkOakLeaves) && bonus_divisor(tool, rng, 200, 20) {
+    if matches!(kind, Kind::DarkOakLeaves | Kind::OakLeaves) && bonus_divisor(tool, rng, 200, 20) {
         out.add_kind(item::Kind::Apple, 1);
     }
     if bonus_divisor(tool, rng, 50, 5) {
@@ -532,132 +560,96 @@ fn leaves(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
     }
 }
 
-/// PMMP `getDropsForIncompatibleTool` with its class overrides.
-fn incompatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
-    let tall_grass = |rng: &mut Random, out: &mut Drops| {
-        if bonus_divisor(tool, rng, 8, 2) {
-            out.add_kind(item::Kind::WheatSeeds, 1);
-        }
+/// Draws a count as PMMP `FortuneDropHelper::weighted`.
+fn weighted(tool: &Stack, rng: &mut Random, min: u32, max_base: u32) -> u32 {
+    let fortune = u32::from(level(tool, Enchantment::Fortune));
+    let max = if fortune > 0 && rng.unit() > 2.0 / f64::from(fortune + 2) {
+        max_base.saturating_mul(fortune + 1)
+    } else {
+        max_base
     };
-    let class = resolve(state, |c| {
-        matches!(
-            c,
-            Class::AmethystCluster
-                | Class::Bell
-                | Class::Block
-                | Class::DeadBush
-                | Class::DoubleTallGrass
-                | Class::HangingRoots
-                | Class::TallGrass
-        )
-        .then_some(c)
+    range(rng, min, max)
+}
+
+/// Draws a count as PMMP `FortuneDropHelper::binomial`: `min` plus a success per roll,
+/// `min_rolls + fortune` rolls.
+fn binomial(tool: &Stack, rng: &mut Random, min: u32, min_rolls: u32, chance: f64) -> u32 {
+    let rolls = min_rolls + u32::from(level(tool, Enchantment::Fortune));
+    (0..rolls).fold(min, |n, _| n + u32::from(rng.unit() < chance))
+}
+
+/// Draws a count as PMMP `FortuneDropHelper::discrete`.
+fn discrete(tool: &Stack, rng: &mut Random, min: u32, max_base: u32) -> u32 {
+    let max = max_base + u32::from(level(tool, Enchantment::Fortune));
+    range(rng, min, max)
+}
+
+/// Draws whether a bonus drops as PMMP `FortuneDropHelper::bonusChanceDivisor`: one chance in
+/// `base - fortune × per_level` (at least one).
+fn bonus_divisor(tool: &Stack, rng: &mut Random, base: u32, per_level: u32) -> bool {
+    let fortune = u32::from(level(tool, Enchantment::Fortune));
+    let divisor = base
+        .saturating_sub(fortune.saturating_mul(per_level))
+        .max(1);
+    rng.below(divisor) == 0
+}
+
+/// Draws whether a bonus drops as PMMP `FortuneDropHelper::bonusChanceFixed`.
+fn bonus_fixed(tool: &Stack, rng: &mut Random, base: f64, per_level: f64) -> bool {
+    let fortune = f64::from(level(tool, Enchantment::Fortune));
+    rng.unit() < crate::math::min(1.0, base + fortune * per_level)
+}
+
+/// A crop's age (Bedrock `growth`).
+fn growth(state: State) -> u32 {
+    count_of(state, "growth")
+}
+
+/// An integer property as a count (0 when missing or negative).
+fn count_of(state: State, name: &str) -> u32 {
+    props::int(state, name).map_or(0, |v| u32::try_from(v).unwrap_or(0))
+}
+
+/// Draws a number in `lo..=hi` (PHP `mt_rand`); `lo` without a draw when the range holds one
+/// number.
+fn range(rng: &mut Random, lo: u32, hi: u32) -> u32 {
+    if hi <= lo {
+        return lo;
+    }
+    lo + rng.below(hi - lo + 1)
+}
+
+/// The rule of the first class in the state's PMMP class chain (leaf first) that `pick` knows, as
+/// PHP resolves an overridden method; `None` if no class has one.
+fn resolve<T>(state: State, pick: impl Fn(Class) -> Option<T>) -> Option<T> {
+    state.kind().classes().iter().find_map(|c| pick(*c))
+}
+
+/// Whether `tool` is a compatible tool for `state` (PMMP `BlockBreakInfo::isToolCompatible`).
+pub(super) fn is_compatible(state: State, tool: &Stack) -> bool {
+    let (tool_type, level) = tool.item().map_or((ToolType::NONE, 0), |t| {
+        (t.block_tool_type(), t.block_tool_harvest_level())
     });
-    match class {
-        Some(Class::AmethystCluster) => {
-            if state.name() == "minecraft:amethyst_cluster" {
-                out.add_kind(item::Kind::AmethystShard, weighted(tool, rng, 2, 2));
-            }
-        }
-        Some(Class::Bell) => out.add_own(state, 1),
-        Some(Class::DeadBush) => out.add_kind(item::Kind::Stick, range(rng, 0, 2)),
-        Some(Class::DoubleTallGrass) => {
-            if props::flag(state, "upper_block_bit") == Some(true) {
-                tall_grass(rng, out);
-            }
-        }
-        Some(Class::TallGrass) => tall_grass(rng, out),
-        Some(Class::HangingRoots) if level(tool, Enchantment::SilkTouch) > 0 => {
-            compatible(state, tool, rng, out);
-        }
-        _ => {}
-    }
+    state.break_info().is_tool_compatible(tool_type, level)
 }
 
-/// PMMP `getSilkTouchDrops` with its class overrides.
-fn silk_touch(state: State, out: &mut Drops) {
-    match resolve(state, |c| {
-        matches!(
-            c,
-            Class::InfestedStone | Class::RedMushroomBlock | Class::Block
-        )
-        .then_some(c)
-    }) {
-        Some(Class::InfestedStone) => {
-            let imitated = match state.kind() {
-                Kind::InfestedStone => Kind::Stone,
-                Kind::InfestedCobblestone => Kind::Cobblestone,
-                Kind::InfestedStoneBrick => Kind::StoneBricks,
-                Kind::InfestedMossyStoneBrick => Kind::MossyStoneBricks,
-                Kind::InfestedCrackedStoneBrick => Kind::CrackedStoneBricks,
-                Kind::InfestedChiseledStoneBrick => Kind::ChiseledStoneBricks,
-                Kind::InfestedDeepslate => Kind::Deepslate,
-                other => other,
-            };
-            out.add_block(imitated, 1);
-        }
-        Some(Class::RedMushroomBlock) => {
-            // The all-cap form (Bedrock `huge_mushroom_bits` 14).
-            let cap = props::with_int(state, "huge_mushroom_bits", 14).unwrap_or(state);
-            out.add_own(cap, 1);
-        }
-        _ => out.add_own(state, 1),
-    }
+/// Whether the item is shears (PMMP `getBlockToolType() & SHEARS`).
+fn is_shears(tool: &Stack) -> bool {
+    tool.item()
+        .is_some_and(|t| t.block_tool_type().intersects(ToolType::SHEARS))
 }
 
-/// PMMP `getXpDropForTool`: nothing with Silk Touch or an incompatible tool, else the class's
-/// `getXpDropAmount`.
-pub(super) fn experience(state: State, tool: &Stack, rng: &mut Random) -> u32 {
-    if level(tool, Enchantment::SilkTouch) > 0 || !is_compatible(state, tool) {
-        return 0;
-    }
-    match resolve(state, |c| {
-        matches!(
-            c,
-            Class::CoalOre
-                | Class::DiamondOre
-                | Class::EmeraldOre
-                | Class::LapisOre
-                | Class::MonsterSpawner
-                | Class::NetherQuartzOre
-                | Class::RedstoneOre
-                | Class::Sculk
-                | Class::Block
-        )
-        .then_some(c)
-    }) {
-        Some(Class::CoalOre) => range(rng, 0, 2),
-        Some(Class::DiamondOre | Class::EmeraldOre) => range(rng, 3, 7),
-        Some(Class::LapisOre | Class::NetherQuartzOre) => range(rng, 2, 5),
-        Some(Class::MonsterSpawner) => range(rng, 15, 43),
-        Some(Class::RedstoneOre) => range(rng, 1, 5),
-        Some(Class::Sculk) => 1,
-        _ => 0,
-    }
+/// The level of an enchantment on a stack, 0 if it has none.
+pub(in crate::tick) fn level(stack: &Stack, enchantment: Enchantment) -> u16 {
+    stack.enchantment_level(enchantment).unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::{GoldenDrop, GoldenItems};
     use crate::item::Extra;
-
-    /// `tool` with Silk Touch.
-    fn silk(tool: crate::item::Type) -> Stack {
-        let extra = Extra {
-            enchantments: vec![(Enchantment::SilkTouch, 1)],
-            ..Extra::default()
-        };
-        Stack::new(tool, 1).with_extra(Some(extra)).unwrap()
-    }
-
-    /// `tool` with Fortune of `level`.
-    fn fortune(tool: crate::item::Type, level: u16) -> Stack {
-        let extra = Extra {
-            enchantments: vec![(Enchantment::Fortune, level)],
-            ..Extra::default()
-        };
-        Stack::new(tool, 1).with_extra(Some(extra)).unwrap()
-    }
 
     /// The drops as (item, count) sorted, for comparing with the golden stacks.
     fn sorted(drops: &Drops) -> Vec<(crate::item::Type, u8)> {
@@ -705,6 +697,15 @@ mod tests {
         exact
     }
 
+    /// `tool` with Silk Touch.
+    fn silk(tool: crate::item::Type) -> Stack {
+        let extra = Extra {
+            enchantments: vec![(Enchantment::SilkTouch, 1)],
+            ..Extra::default()
+        };
+        Stack::new(tool, 1).with_extra(Some(extra)).unwrap()
+    }
+
     /// Every state's drops by hand, with the lowest compatible tool and with Silk Touch are the
     /// PMMP dump's deterministic drops, and XP is in the dump's range.
     #[test]
@@ -734,6 +735,15 @@ mod tests {
             wrong.len(),
             &wrong[..wrong.len().min(20)]
         );
+    }
+
+    /// `tool` with Fortune of `level`.
+    fn fortune(tool: crate::item::Type, level: u16) -> Stack {
+        let extra = Extra {
+            enchantments: vec![(Enchantment::Fortune, level)],
+            ..Extra::default()
+        };
+        Stack::new(tool, 1).with_extra(Some(extra)).unwrap()
     }
 
     /// The drop counts PMMP draws at random stay within PMMP's ranges.

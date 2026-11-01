@@ -320,7 +320,7 @@ struct Taken {
     /// The health it loses.
     damage: f64,
     /// The cooldown a cold hit starts, in ticks.
-    cooldown: u8,
+    cooldown: u32,
 }
 
 impl Taken {
@@ -329,7 +329,7 @@ impl Taken {
         Self {
             base,
             damage: plan.previous.map_or(base, |p| base - p),
-            cooldown: ATTACK_COOLDOWN,
+            cooldown: u32::from(ATTACK_COOLDOWN),
         }
     }
 }
@@ -746,7 +746,6 @@ impl Entity {
                 max_flight,
                 explosions,
                 owner,
-                owner_runtime_id,
                 flight: _,
             }) => {
                 h.u64(9);
@@ -756,7 +755,6 @@ impl Entity {
                     super::extra::hash_nbt(h, c);
                 }
                 h.u64(owner.map_or(0, |s| s.get().wrapping_add(1)));
-                h.u64(*owner_runtime_id);
             }
         }
         h.bytes(name_tag.as_bytes());
@@ -2297,7 +2295,7 @@ fn apply(
         let t = t.saturating_add(1);
         c.dead_ticks = Some(t);
         let (world, at) = (e.world, e.body.position);
-        if t >= kind::MAX_DEAD_TICKS {
+        if t >= kind::Character::MAX_DEAD_TICKS {
             entities.doom(id);
         }
         if t == 1 {
@@ -2344,9 +2342,9 @@ fn apply(
         Rule::Tnt => explosion::tnt_tick(state, id, budget, hooks),
         Rule::Projectile => projectile::tick(state, id),
         Rule::Cloud => projectile::cloud_tick(state, id, hooks),
-        Rule::Npc => npc::tick(state, id, hooks),
+        Rule::Npc => npc::tick(state, id),
         Rule::Custom => {
-            npc::tick(state, id, hooks);
+            npc::tick(state, id);
             custom::tick(state, id);
         }
         Rule::Firework => object::firework_tick(state, id, hooks),
@@ -2370,10 +2368,10 @@ fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
                     .entities
                     .get(id)
                     .is_some_and(|e| e.kind.is_living());
-                if harm.living_only() && !living {
+                if harm.is_living_only() && !living {
                     continue;
                 }
-                if harm.ends_fall() && harm.living_only() {
+                if harm.is_fall_ending() && harm.is_living_only() {
                     with(state, id, |e| e.body.fall_distance = 0.0);
                 }
                 let cause = match harm.cause() {
@@ -2585,7 +2583,7 @@ fn damage_event(
     let taken = Taken {
         base: e.base_damage,
         damage: e.final_damage(),
-        cooldown: u8::try_from(e.attack_cooldown_ticks).unwrap_or(u8::MAX),
+        cooldown: e.attack_cooldown_ticks,
     };
     let knock = knock.map(|k| Knock {
         force: e.knockback,
@@ -4186,7 +4184,7 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
                     eye: target.position,
                     game_mode,
                     held: inv.held(),
-                    data: survival::full_metadata(&state.settings, target),
+                    data: survival::full_metadata(target),
                     device_id: &target.identity.client.device_id,
                     build_platform: target.identity.device_os,
                 })

@@ -22,7 +22,7 @@ use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, EntityProperties,
     FlagSet, GameRule, GameRuleValue, MetadataValue,
 };
-use crate::tick::{Phase, Player, SessionId, Settings, State};
+use crate::tick::{Phase, Player, SessionId, Settings, State, entity};
 
 /// Health changed.
 pub(super) const HEALTH: u16 = 1;
@@ -40,8 +40,9 @@ pub(super) const EXPERIENCE: u16 = 1 << 5;
 pub(super) const ABSORPTION: u16 = 1 << 6;
 /// Movement speed changed (sprinting, speed and slowness).
 pub(super) const MOVEMENT: u16 = 1 << 7;
-/// Every attribute (respawn).
-pub(super) const ALL: u16 = 0xff;
+/// Every attribute.
+pub(super) const ALL: u16 =
+    HEALTH | HUNGER | SATURATION | EXHAUSTION | LEVEL | EXPERIENCE | ABSORPTION | MOVEMENT;
 /// Abilities changed (game mode, flying).
 pub(super) const ABILITIES: u16 = 1 << 8;
 /// The name tag or the score tag changed.
@@ -51,33 +52,10 @@ pub(super) const DATA: u16 = 1 << 10;
 /// The adventure settings changed (auto jump).
 pub(super) const ADVENTURE: u16 = 1 << 11;
 
-/// The base movement speed (BDS and PMMP `Attribute::MOVEMENT_SPEED` default).
-pub(super) const BASE_SPEED: f64 = 0.1;
 /// The absorption maximum BDS sends; more absorption raises it.
 const ABSORPTION_MAX: f32 = 16.0;
-
-/// What changes an attribute: its dirty bit, or 0 for one that never changes.
-#[derive(Debug, Clone, Copy)]
-struct Def {
-    name: &'static str,
-    min: f32,
-    max: f32,
-    default: f32,
-    bit: u16,
-}
-
-impl Def {
-    const fn new(name: &'static str, min: f32, max: f32, default: f32, bit: u16) -> Self {
-        Self {
-            name,
-            min,
-            max,
-            default,
-            bit,
-        }
-    }
-}
-
+/// The base movement speed (BDS and PMMP `Attribute::MOVEMENT_SPEED` default).
+pub(super) const BASE_SPEED: f64 = 0.1;
 /// The attributes of a player in the order BDS sends them, with BDS's ranges and defaults
 /// (P6: 17 attributes, no modifiers).
 const DEFS: [Def; 17] = [
@@ -111,7 +89,7 @@ const DEFS: [Def; 17] = [
     ),
     Def::new("minecraft:player.experience", 0.0, 1.0, 0.0, EXPERIENCE),
     Def::new(
-        "minecraft:health",
+        HEALTH_ATTRIBUTE,
         0.0,
         to_f32(MAX_HEALTH),
         to_f32(MAX_HEALTH),
@@ -119,7 +97,13 @@ const DEFS: [Def; 17] = [
     ),
     Def::new("minecraft:follow_range", 0.0, 2048.0, 16.0, 0),
     Def::new("minecraft:knockback_resistance", -2.0, 1.0, 0.0, 0),
-    Def::new("minecraft:movement", 0.0, f32::MAX, 0.1, MOVEMENT),
+    Def::new(
+        "minecraft:movement",
+        0.0,
+        f32::MAX,
+        to_f32(BASE_SPEED),
+        MOVEMENT,
+    ),
     Def::new("minecraft:underwater_movement", 0.0, f32::MAX, 0.02, 0),
     Def::new("minecraft:lava_movement", 0.0, f32::MAX, 0.02, 0),
     Def::new("minecraft:attack_damage", 1.0, 1.0, 1.0, 0),
@@ -129,78 +113,38 @@ const DEFS: [Def; 17] = [
     Def::new("minecraft:bounciness", 0.0, 1.0, 0.0, 0),
     Def::new("minecraft:air_drag_modifier", 0.0, 256.0, 1.0, 0),
 ];
+/// The box width and height of a dying player, as BDS sends them at the death (P6 `others`).
+pub(super) const DYING_SIZE: [f32; 2] = [0.2, 0.2];
+/// The name of the health attribute.
+pub(crate) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
+/// `PlayerFlagSleep`: bit 1 of the player flags (PMMP `PlayerMetadataFlags::SLEEP`).
+const PLAYER_FLAG_SLEEP: u8 = 1 << 1;
+/// The game rule that sets random block ticks per sub-chunk per tick.
+const RANDOM_TICK_SPEED: &str = "randomTickSpeed";
+/// The box height of a sneaking player (PMMP `Living::recalculateSize`).
+const SNEAKING_HEIGHT: f32 = 1.49;
 
-/// The movement speed: the base (0.1 unless the API set another), times 1.3 sprinting, times 1 + 0.2 per speed level, times
-/// 1 - 0.15 per slowness level (at least 0). PMMP multiplies and divides the attribute as each
-/// changes, which drifts and stays at 0 once slowness reached it; Anchor works it out again.
-pub(super) fn movement_speed(s: &Survival) -> f64 {
-    let sprint = if s.motion.sprinting { 1.3 } else { 1.0 };
-    let speed = 1.0 + 0.2 * f64::from(s.effect_level(effect::Type::Speed));
-    let slow = 1.0 - 0.15 * f64::from(s.effect_level(effect::Type::Slowness));
-    let slow = if slow > 0.0 { slow } else { 0.0 };
-    s.custom.movement_speed * sprint * speed * slow
+/// An attribute's name, range and default, and the dirty bit that marks it changed (0 for one
+/// that never changes).
+#[derive(Debug, Clone, Copy)]
+struct Def {
+    name: &'static str,
+    min: f32,
+    max: f32,
+    default: f32,
+    bit: u16,
 }
 
-/// One attribute with its current value.
-fn attribute(def: &Def, s: &Survival) -> Attribute {
-    let (value, max) = match def.bit {
-        HUNGER => (to_f32(s.food), def.max),
-        SATURATION => (to_f32(s.saturation), def.max),
-        EXHAUSTION => (to_f32(s.exhaustion), def.max),
-        LEVEL => (to_f32(f64::from(s.xp_level)), def.max),
-        EXPERIENCE => (to_f32(s.xp_progress), def.max),
-        HEALTH => (to_f32(s.health.ceil()), to_f32(s.max_health())),
-        MOVEMENT => (to_f32(movement_speed(s)), def.max),
-        ABSORPTION => {
-            let value = to_f32(s.absorption);
-            (value, if value > def.max { value } else { def.max })
-        }
-        _ => (def.default, def.max),
-    };
-    Attribute {
-        attribute_value: AttributeValue {
-            name: def.name.to_owned(),
-            value,
+impl Def {
+    const fn new(name: &'static str, min: f32, max: f32, default: f32, bit: u16) -> Self {
+        Self {
+            name,
+            min,
             max,
-            min: def.min,
-        },
-        default_min: def.min,
-        default_max: def.max,
-        default: def.default,
-        modifiers: Vec::new(),
+            default,
+            bit,
+        }
     }
-}
-
-/// Every attribute of the player (spawn and respawn) but those of a system the settings turn off
-/// (`hunger`, `experience`): the client shows their defaults, and the server never changes them.
-pub(in crate::tick) fn all_attributes(player: &Player) -> Packet {
-    let on = player.survival.switches;
-    let hunger = if on.hunger {
-        0
-    } else {
-        HUNGER | SATURATION | EXHAUSTION
-    };
-    let experience = if on.experience { 0 } else { LEVEL | EXPERIENCE };
-    attributes_of(player, |d| d.bit & (hunger | experience) == 0)
-}
-
-/// The attributes whose bits are set in `bits`, in BDS order.
-fn attributes_packet(player: &Player, bits: u16) -> Packet {
-    attributes_of(player, |d| d.bit & bits != 0)
-}
-
-/// The attributes `keep` keeps, in BDS order.
-fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
-    let s = &player.survival;
-    Packet::UpdateAttributes(UpdateAttributes {
-        entity_runtime_id: player.runtime_id,
-        attributes: DEFS
-            .iter()
-            .filter(|d| keep(d))
-            .map(|d| attribute(d, s))
-            .collect(),
-        tick: 0,
-    })
 }
 
 /// The entity data of a player that changes (keys 0, 7, 26, 28, 42, 53, 54, 92, 127, 129, 131).
@@ -225,19 +169,8 @@ pub(super) struct Shown {
     effects: i64,
 }
 
-crate::tick::checkpoint::fields!(Shown {
-    flags,
-    air,
-    max_air,
-    player_flags,
-    bed,
-    died,
-    death,
-    size,
-    effects,
-});
-
 impl Shown {
+    /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -268,18 +201,297 @@ impl Shown {
     }
 }
 
-/// `PlayerFlagSleep`: bit 1 of the player flags (PMMP `PlayerMetadataFlags::SLEEP`).
-const PLAYER_FLAG_SLEEP: u8 = 1 << 1;
+crate::tick::checkpoint::fields!(Shown {
+    flags,
+    air,
+    max_air,
+    player_flags,
+    bed,
+    died,
+    death,
+    size,
+    effects,
+});
+
+/// Sends every spawned player the attributes, abilities, adventure settings and entity data that
+/// changed this tick: these to the player, the entity data and the health also to the players
+/// that see it.
+pub(super) fn flush(state: &mut State) {
+    let mut next = first_session(state);
+    while let Some(session) = next {
+        next = next_session(state, session);
+        flush_one(state, session);
+    }
+}
+
+/// [`flush`] for one player, if it is spawned.
+pub(super) fn flush_one(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    if player.phase != Phase::Spawned {
+        return;
+    }
+    let dirty = player.survival.dirty;
+    let now = shown(player);
+    let old = player.survival.shown;
+    let abilities = (dirty & ABILITIES != 0).then(|| update_abilities(player));
+    let adventure =
+        (dirty & ADVENTURE != 0).then(|| adventure_packet(player.survival.custom.auto_jump));
+    let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
+    let health = (dirty & HEALTH != 0).then(|| health_packet(player));
+    let tags = dirty & TAGS != 0;
+    let metadata = (now != old || tags).then(|| {
+        let mut m = EntityMetadata::new();
+        changed_metadata(&now, Some(&old), &mut m);
+        if tags {
+            m.insert(
+                EntityDataKey::Name.into(),
+                MetadataValue::String(player.name_tag().to_owned()),
+            );
+            m.insert(
+                EntityDataKey::Score.into(),
+                MetadataValue::String(player.score_tag().to_owned()),
+            );
+        }
+        m
+    });
+    let runtime_id = player.runtime_id;
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    player.survival.dirty = 0;
+    player.survival.shown = now;
+    let answer_tick = player.survival.motion.answer_tick.take();
+    for packet in [attributes, abilities, adventure].into_iter().flatten() {
+        player.send_packet(packet);
+    }
+    if let Some(entity_metadata) = metadata {
+        // The answer tick is the player's own input's: the viewers get none.
+        let own = answer_tick.map(|tick| actor_data(runtime_id, entity_metadata.clone(), tick));
+        let viewed = actor_data(runtime_id, entity_metadata, 0);
+        broadcast_to_viewers(state, session, &viewed);
+        if let Some(player) = state.players.get_mut(&session) {
+            player.send_packet(own.unwrap_or(viewed));
+        }
+    }
+    if let Some(health) = health {
+        broadcast_to_viewers(state, session, &health);
+    }
+}
+
+/// Marks the player's current entity data as known to the client (its spawn window held it).
+/// The spawn window's adventure settings jump by themselves: a player the API keeps from it gets
+/// its own at the next flush.
+pub(super) fn spawned(player: &mut Player) {
+    let now = shown(player);
+    player.survival.shown = now;
+    player.survival.dirty = if player.survival.custom.auto_jump {
+        0
+    } else {
+        ADVENTURE
+    };
+    player.survival.custom.touched = false;
+}
+
+/// Every attribute of the player (spawn and respawn) but those of a system the settings turn off
+/// (`hunger`, `experience`): the client shows their defaults, and the server never changes them.
+pub(in crate::tick) fn all_attributes(player: &Player) -> Packet {
+    let on = player.survival.switches;
+    let hunger = if on.hunger {
+        0
+    } else {
+        HUNGER | SATURATION | EXHAUSTION
+    };
+    let experience = if on.experience { 0 } else { LEVEL | EXPERIENCE };
+    attributes_of(player, |d| d.bit & (hunger | experience) == 0)
+}
+
+/// The player's health for those who see it, as BDS tells them at a hit, a death and a respawn
+/// (P6 `others`). BDS sends viewers the player's food and exhaustion too, which the client shows
+/// nobody but the player: left out, they would cost a packet per viewer each time they move.
+pub(super) fn health_packet(player: &Player) -> Packet {
+    attributes_packet(player, HEALTH)
+}
+
+/// `UpdateAbilities` for the player, with BDS's values: a member's permissions, or an operator's
+/// (P6: `op` sends command permissions 1 and player permissions 2).
+pub(in crate::tick) fn update_abilities(player: &Player) -> Packet {
+    let (player_permissions, command_permissions) = if player.survival.custom.operator {
+        (
+            PermissionLevel::Operator,
+            CommandPermissionLevel::GameDirectors,
+        )
+    } else {
+        (PermissionLevel::Member, CommandPermissionLevel::Any)
+    };
+    Packet::UpdateAbilities(UpdateAbilities {
+        ability_data: AbilityData {
+            entity_unique_id: entity::unique_id(player.runtime_id),
+            player_permissions: player_permissions.into(),
+            command_permissions: command_permissions.into(),
+            layers: layers(&player.survival),
+        },
+    })
+}
+
+/// `UpdateAdventureSettings` as BDS sends it (P6).
+pub(in crate::tick) fn adventure_settings() -> Packet {
+    adventure_packet(true)
+}
+
+/// The 39 game rules BDS sends, in its order (P6), with the values Anchor's rules have: what Anchor
+/// does not simulate (mob spawning, weather, insomnia, freezing, command blocks, respawn anchors
+/// exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`, the day cycle,
+/// drowning, fall damage, the coordinates, the waypoints, the immediate respawn and the death
+/// messages come from the settings, and players respawn on the spawn block (`spawnRadius` 0).
+pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
+    use GameRuleValue::{Bool, Uint32};
+    let rules = [
+        ("commandBlockOutput", Bool(true)),
+        ("doDayLightCycle", Bool(settings.daylight_cycle)),
+        ("doEntityDrops", Bool(true)),
+        ("doFireTick", Bool(true)),
+        ("recipesUnlock", Bool(true)),
+        ("doLimitedCrafting", Bool(false)),
+        ("doMobLoot", Bool(true)),
+        ("doMobSpawning", Bool(false)),
+        ("doTileDrops", Bool(true)),
+        ("doWeatherCycle", Bool(false)),
+        ("drowningDamage", Bool(settings.drowning)),
+        ("fallDamage", Bool(settings.fall_damage)),
+        ("fireDamage", Bool(true)),
+        ("keepInventory", Bool(false)),
+        ("mobGriefing", Bool(true)),
+        ("pvp", Bool(settings.pvp)),
+        ("showCoordinates", Bool(settings.show_coordinates)),
+        // BDS saves 0 in a world without the others' waypoints, 1 by default; it saves no
+        // `locatorbar`.
+        ("playerWaypoints", Uint32(u32::from(settings.locator_bar))),
+        ("locatorbar", Bool(true)),
+        ("showDaysPlayed", Bool(false)),
+        ("naturalRegeneration", Bool(true)),
+        ("tntExplodes", Bool(true)),
+        ("sendCommandFeedback", Bool(true)),
+        ("maxCommandChainLength", Uint32(65_535)),
+        ("doInsomnia", Bool(false)),
+        ("commandBlocksEnabled", Bool(false)),
+        (RANDOM_TICK_SPEED, Uint32(settings.random_tick_speed)),
+        ("doImmediateRespawn", Bool(settings.immediate_respawn)),
+        ("showDeathMessages", Bool(settings.show_death_messages)),
+        ("functionCommandLimit", Uint32(10_000)),
+        ("spawnRadius", Uint32(0)),
+        ("showTags", Bool(true)),
+        ("freezeDamage", Bool(false)),
+        ("respawnBlocksExplode", Bool(false)),
+        ("showBorderEffect", Bool(true)),
+        ("showRecipeMessages", Bool(true)),
+        ("playersSleepingPercentage", Uint32(100)),
+        ("projectilesCanBreakBlocks", Bool(false)),
+        ("tntExplosionDropDecay", Bool(false)),
+    ];
+    Packet::GameRulesChanged(GameRulesChanged {
+        game_rules: rules
+            .into_iter()
+            .map(|(name, value)| rule(name, value))
+            .collect(),
+    })
+}
+
+/// The packet that tells a player the random tick speed is now `speed`.
+pub(in crate::tick) fn random_tick_speed_changed(speed: u32) -> Packet {
+    Packet::GameRulesChanged(GameRulesChanged {
+        game_rules: vec![rule(RANDOM_TICK_SPEED, GameRuleValue::Uint32(speed))],
+    })
+}
+
+/// The whole entity data of a player as BDS sends it at spawn (P6: 73 keys; the types match BDS's
+/// packet size).
+pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
+    use EntityDataKey as K;
+    use MetadataValue as V;
+    let mut m = EntityMetadata::new();
+    let mut put = |key: EntityDataKey, value: MetadataValue| {
+        m.insert(key.into(), value);
+    };
+    put(K::StructuralIntegrity, V::Int32(1));
+    put(K::Variant, V::Int32(0));
+    put(K::ColorIndex, V::Byte(0));
+    put(K::Name, V::String(player.name_tag().to_owned()));
+    put(K::Owner, V::Int64(-1));
+    put(K::Target, V::Int64(0));
+    put(K::ChargeAmount, V::Byte(0));
+    put(K::PlayerIndex, V::Int32(1));
+    put(K::LeashHolder, V::Int64(0));
+    put(K::HasNpc, V::Byte(0));
+    put(K::MarkVariant, V::Int32(0));
+    put(K::ContainerType, V::Byte(0));
+    put(K::ContainerSize, V::Int32(0));
+    put(K::ContainerStrengthModifier, V::Int32(0));
+    put(K::FuseTime, V::Int32(-1));
+    put(K::SeatLockPassengerRotation, V::Byte(0));
+    put(K::SeatLockPassengerRotationDegrees, V::Float32(0.0));
+    put(K::SeatRotationOffset, V::Byte(0));
+    put(K::SeatRotationOffsetDegrees, V::Float32(0.0));
+    put(K::HasCommandBlock, V::Byte(0));
+    put(K::CommandName, V::String(String::new()));
+    put(K::LastCommandOutput, V::String(String::new()));
+    put(K::TrackCommandOutput, V::Byte(1));
+    put(K::Strength, V::Int32(0));
+    put(K::StrengthMax, V::Int32(0));
+    put(K::DataSpellCastingColor, V::Int32(0));
+    put(K::DataLifetimeTicks, V::Int32(-1));
+    put(K::AlwaysShowNameTag, V::Byte(1));
+    put(K::ColorTwoIndex, V::Byte(0));
+    put(K::Score, V::String(player.score_tag().to_owned()));
+    put(K::Agent, V::Int64(-1));
+    put(K::EatingCounter, V::Int32(0));
+    put(K::InteractText, V::String(String::new()));
+    put(K::TradeTier, V::Int32(0));
+    put(K::MaxTradeTier, V::Int32(0));
+    put(K::TradeExperience, V::Int32(0));
+    put(K::SkinId, V::Int32(0));
+    put(K::CommandBlockTickDelay, V::Int32(3));
+    put(K::CommandBlockExecuteOnFirstTick, V::Byte(1));
+    put(K::AmbientSoundInterval, V::Float32(8.0));
+    put(K::AmbientSoundIntervalRange, V::Float32(16.0));
+    put(K::AmbientSoundEventName, V::String("ambient".to_owned()));
+    put(K::FallDamageMultiplier, V::Float32(1.0));
+    put(K::LowTierCuredTradeDiscount, V::Int32(0));
+    put(K::HighTierCuredTradeDiscount, V::Int32(0));
+    put(K::NearbyCuredTradeDiscount, V::Int32(0));
+    put(K::NearbyCuredDiscountTimeStamp, V::Int32(0));
+    put(K::HitBox, V::CompoundTag(crate::nbt::Compound::new()));
+    put(K::IsBuoyant, V::Byte(0));
+    put(K::FreezingEffectStrength, V::Float32(0.0));
+    put(K::MovementSoundDistanceOffset, V::Float32(1.0));
+    put(K::HeartbeatIntervalTicks, V::Int32(20));
+    put(K::HeartbeatSoundEvent, V::Int32(614));
+    put(K::PlayerLastDeathDimension, V::Int32(0));
+    put(K::FilteredName, V::String(String::new()));
+    // BDS sends this key as three floats (P6 `others` data types).
+    put(K::EnterBedPosition, V::Vec3([0.0; 3]));
+    put(K::SeatThirdPersonCameraRadius, V::Float32(0.0));
+    put(K::SeatCameraRelaxDistanceSmoothing, V::Float32(0.0));
+    put(K::AimAssistPriorityPresetId, V::Int32(-1));
+    put(K::AimAssistPriorityCategoryId, V::Int32(-1));
+    // BDS sends this key as an int32 (P6 `others` data types).
+    put(K::AimAssistPriorityActorId, V::Int32(-1));
+    put(K::NameplateRenderDistanceMax, V::Float32(64.0));
+    // BDS 1.26.60 sends players this byte, 0 (P6 `spawn` and `others`).
+    put(K::Reserved141, V::Byte(0));
+    changed_metadata(&shown(player), None, &mut m);
+    m
+}
 
 /// The changing entity data of a player now.
 pub(super) fn shown(player: &Player) -> Shown {
     let s = &player.survival;
-    let mode = player.survival.mode();
     let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
     // BDS sends these for every player (P6); PMMP sets `CAN_CLIMB` for players too.
     flags.insert(EntityDataFlag::HiddenWhenInvisible);
     flags.insert(EntityDataFlag::PushTowardsClosestSpace);
-    if mode != GameMode::Spectator {
+    if s.mode() != GameMode::Spectator {
         flags.insert(EntityDataFlag::HasCollision);
     }
     if !s.effects.contains_key(&effect::Type::Levitation) {
@@ -335,21 +547,18 @@ pub(super) fn shown(player: &Player) -> Shown {
 }
 
 /// The box width and height of the player's pose, sent as entity data 53 and 54 (PMMP
-/// `Living::recalculateSize`): 0.6 by 1.8, 1.49 high sneaking, as high as wide swimming or
-/// gliding.
+/// `Living::recalculateSize`): 0.6 by 1.8, [`SNEAKING_HEIGHT`] high sneaking, as high as wide
+/// swimming or gliding.
 pub(super) fn size(s: &Survival) -> [f32; 2] {
     let width = to_f32(PLAYER_WIDTH);
     if s.motion.swimming || s.motion.gliding {
         [width, width]
     } else if s.motion.sneaking {
-        [width, 1.49]
+        [width, SNEAKING_HEIGHT]
     } else {
         [width, to_f32(PLAYER_HEIGHT)]
     }
 }
-
-/// The box width and height of a dying player, as BDS sends them at the death (P6 `others`).
-pub(super) const DYING_SIZE: [f32; 2] = [0.2, 0.2];
 
 /// `SetActorData` with a player's box width and height (keys 53, 54). The client keeps a dead
 /// player's small box (it hits and draws the name tag by it) until these keys come, so BDS sends
@@ -358,12 +567,79 @@ pub(super) fn size_data(runtime_id: u64, [width, height]: [f32; 2]) -> Packet {
     let mut m = EntityMetadata::new();
     m.insert(EntityDataKey::Width.into(), MetadataValue::Float32(width));
     m.insert(EntityDataKey::Height.into(), MetadataValue::Float32(height));
+    actor_data(runtime_id, m, 0)
+}
+
+/// `SetActorData` with `entity_metadata` of the entity with `runtime_id`, answering the input of
+/// `tick` (0 for none); it carries no entity properties.
+pub(crate) fn actor_data(runtime_id: u64, entity_metadata: EntityMetadata, tick: u64) -> Packet {
     Packet::SetActorData(SetActorData {
         entity_runtime_id: runtime_id,
-        entity_metadata: m,
+        entity_metadata,
         entity_properties: EntityProperties::default(),
+        tick,
+    })
+}
+
+/// The attributes whose bits are set in `bits`, in BDS order.
+fn attributes_packet(player: &Player, bits: u16) -> Packet {
+    attributes_of(player, |d| d.bit & bits != 0)
+}
+
+/// The attributes `keep` keeps, in BDS order.
+fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
+    let s = &player.survival;
+    Packet::UpdateAttributes(UpdateAttributes {
+        entity_runtime_id: player.runtime_id,
+        attributes: DEFS
+            .iter()
+            .filter(|d| keep(d))
+            .map(|d| attribute(d, s))
+            .collect(),
         tick: 0,
     })
+}
+
+/// One attribute with its current value.
+fn attribute(def: &Def, s: &Survival) -> Attribute {
+    let (value, max) = match def.bit {
+        HUNGER => (to_f32(s.food), def.max),
+        SATURATION => (to_f32(s.saturation), def.max),
+        EXHAUSTION => (to_f32(s.exhaustion), def.max),
+        LEVEL => (to_f32(f64::from(s.xp_level)), def.max),
+        EXPERIENCE => (to_f32(s.xp_progress), def.max),
+        HEALTH => (to_f32(s.health.ceil()), to_f32(s.max_health())),
+        MOVEMENT => (to_f32(movement_speed(s)), def.max),
+        ABSORPTION => {
+            let value = to_f32(s.absorption);
+            (value, if value > def.max { value } else { def.max })
+        }
+        _ => (def.default, def.max),
+    };
+    Attribute {
+        attribute_value: AttributeValue {
+            name: def.name.to_owned(),
+            value,
+            max,
+            min: def.min,
+        },
+        default_min: def.min,
+        default_max: def.max,
+        default: def.default,
+        modifiers: Vec::new(),
+    }
+}
+
+/// The movement speed: the base (0.1 unless the API set another), times 1.3 sprinting, times
+/// 1 + 0.2 per speed level, times 1 - 0.15 per slowness level (at least 0). PMMP multiplies and
+/// divides the attribute as each changes, which drifts and stays at 0 once slowness reached it;
+/// Anchor works it out again.
+pub(super) fn movement_speed(s: &Survival) -> f64 {
+    let sprint = if s.motion.sprinting { 1.3 } else { 1.0 };
+    let speed = 1.0 + 0.2 * f64::from(s.effect_level(effect::Type::Speed));
+    let slow = 1.0 - 0.15 * f64::from(s.effect_level(effect::Type::Slowness));
+    let slow = if slow > 0.0 { slow } else { 0.0 };
+    s.custom.movement_speed * sprint * speed * slow
 }
 
 /// The values of the changing keys whose value differs from `old`. When `old` is `None`: all of
@@ -449,83 +725,45 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
     }
 }
 
-/// The whole entity data of a player as BDS sends it at spawn (P6: 73 keys; the types match BDS's
-/// packet size). The settings argument is the spawn module's calling form.
-pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> EntityMetadata {
-    use EntityDataKey as K;
-    use MetadataValue as V;
-    let mut m = EntityMetadata::new();
-    let mut put = |key: EntityDataKey, value: MetadataValue| {
-        m.insert(key.into(), value);
-    };
-    put(K::StructuralIntegrity, V::Int32(1));
-    put(K::Variant, V::Int32(0));
-    put(K::ColorIndex, V::Byte(0));
-    put(K::Name, V::String(player.name_tag().to_owned()));
-    put(K::Owner, V::Int64(-1));
-    put(K::Target, V::Int64(0));
-    put(K::ChargeAmount, V::Byte(0));
-    put(K::PlayerIndex, V::Int32(1));
-    put(K::LeashHolder, V::Int64(0));
-    put(K::HasNpc, V::Byte(0));
-    put(K::MarkVariant, V::Int32(0));
-    put(K::ContainerType, V::Byte(0));
-    put(K::ContainerSize, V::Int32(0));
-    put(K::ContainerStrengthModifier, V::Int32(0));
-    put(K::FuseTime, V::Int32(-1));
-    put(K::SeatLockPassengerRotation, V::Byte(0));
-    put(K::SeatLockPassengerRotationDegrees, V::Float32(0.0));
-    put(K::SeatRotationOffset, V::Byte(0));
-    put(K::SeatRotationOffsetDegrees, V::Float32(0.0));
-    put(K::HasCommandBlock, V::Byte(0));
-    put(K::CommandName, V::String(String::new()));
-    put(K::LastCommandOutput, V::String(String::new()));
-    put(K::TrackCommandOutput, V::Byte(1));
-    put(K::Strength, V::Int32(0));
-    put(K::StrengthMax, V::Int32(0));
-    put(K::DataSpellCastingColor, V::Int32(0));
-    put(K::DataLifetimeTicks, V::Int32(-1));
-    put(K::AlwaysShowNameTag, V::Byte(1));
-    put(K::ColorTwoIndex, V::Byte(0));
-    put(K::Score, V::String(player.score_tag().to_owned()));
-    put(K::Agent, V::Int64(-1));
-    put(K::EatingCounter, V::Int32(0));
-    put(K::InteractText, V::String(String::new()));
-    put(K::TradeTier, V::Int32(0));
-    put(K::MaxTradeTier, V::Int32(0));
-    put(K::TradeExperience, V::Int32(0));
-    put(K::SkinId, V::Int32(0));
-    put(K::CommandBlockTickDelay, V::Int32(3));
-    put(K::CommandBlockExecuteOnFirstTick, V::Byte(1));
-    put(K::AmbientSoundInterval, V::Float32(8.0));
-    put(K::AmbientSoundIntervalRange, V::Float32(16.0));
-    put(K::AmbientSoundEventName, V::String("ambient".to_owned()));
-    put(K::FallDamageMultiplier, V::Float32(1.0));
-    put(K::LowTierCuredTradeDiscount, V::Int32(0));
-    put(K::HighTierCuredTradeDiscount, V::Int32(0));
-    put(K::NearbyCuredTradeDiscount, V::Int32(0));
-    put(K::NearbyCuredDiscountTimeStamp, V::Int32(0));
-    put(K::HitBox, V::CompoundTag(crate::nbt::Compound::new()));
-    put(K::IsBuoyant, V::Byte(0));
-    put(K::FreezingEffectStrength, V::Float32(0.0));
-    put(K::MovementSoundDistanceOffset, V::Float32(1.0));
-    put(K::HeartbeatIntervalTicks, V::Int32(20));
-    put(K::HeartbeatSoundEvent, V::Int32(614));
-    put(K::PlayerLastDeathDimension, V::Int32(0));
-    put(K::FilteredName, V::String(String::new()));
-    // BDS sends this key as three floats (P6 `others` data types).
-    put(K::EnterBedPosition, V::Vec3([0.0; 3]));
-    put(K::SeatThirdPersonCameraRadius, V::Float32(0.0));
-    put(K::SeatCameraRelaxDistanceSmoothing, V::Float32(0.0));
-    put(K::AimAssistPriorityPresetId, V::Int32(-1));
-    put(K::AimAssistPriorityCategoryId, V::Int32(-1));
-    // BDS sends this key as an int32 (P6 `others` data types).
-    put(K::AimAssistPriorityActorId, V::Int32(-1));
-    put(K::NameplateRenderDistanceMax, V::Float32(64.0));
-    // BDS 1.26.60 sends players this byte, 0 (P6 `spawn` and `others`).
-    put(K::Reserved141, V::Byte(0));
-    changed_metadata(&shown(player), None, &mut m);
-    m
+/// The player's ability layers: its game mode's base layer with what the API set (PMMP
+/// `NetworkSession::syncAbilities`): operator commands and teleporting for an operator, flight
+/// allowed, flying in any mode, block collision and the flight speed. Without block collision
+/// outside spectator mode, a spectator layer makes the client fly, as PMMP does: the client
+/// falls through the blocks otherwise.
+fn layers(s: &Survival) -> Vec<AbilityLayer> {
+    let mode = s.mode();
+    let mut values = mode_abilities(mode, s.motion.flying);
+    let collides = s.collides();
+    for (on, ability) in [
+        (s.custom.operator, Ability::OperatorCommands),
+        (s.custom.operator, Ability::Teleport),
+        (s.may_fly(), Ability::MayFly),
+        (
+            mode == GameMode::Spectator || s.motion.flying,
+            Ability::Flying,
+        ),
+        (!collides, Ability::NoClip),
+    ] {
+        if on {
+            values.insert(ability);
+        } else {
+            values.remove(ability);
+        }
+    }
+    let mut layers = vec![layer_of(values, s.custom.flight_speed)];
+    if !collides && mode != GameMode::Spectator {
+        let flying: FlagSet<Ability> = [Ability::Flying].into_iter().collect();
+        let bits = ability_bits(flying);
+        layers.push(AbilityLayer {
+            r#type: AbilityLayerType::Spectator.into(),
+            abilities: bits,
+            values: bits,
+            fly_speed: 0.0,
+            vertical_fly_speed: 0.0,
+            walk_speed: 0.0,
+        });
+    }
+    layers
 }
 
 /// The base abilities of a game mode, as BDS sends them for a member (P6: survival `Values` 63).
@@ -564,84 +802,24 @@ fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<Ability> {
 /// The base ability layer with `values`, every ability defined (BDS).
 fn layer_of(values: FlagSet<Ability>, fly_speed: f32) -> AbilityLayer {
     let all: FlagSet<Ability> = Ability::ALL.into_iter().collect();
-    let [values, ..] = values.words();
-    let [abilities, ..] = all.words();
     AbilityLayer {
         r#type: AbilityLayerType::Base.into(),
-        abilities: u32::try_from(abilities).unwrap_or(u32::MAX),
-        values: u32::try_from(values).unwrap_or(0),
+        abilities: ability_bits(all),
+        values: ability_bits(values),
         fly_speed,
         vertical_fly_speed: ABILITY_BASE_VERTICAL_FLY_SPEED,
         walk_speed: ABILITY_BASE_WALK_SPEED,
     }
 }
 
-/// The player's ability layers: its game mode's base layer with what the API set (PMMP
-/// `NetworkSession::syncAbilities`): operator commands and teleporting for an operator, flight
-/// allowed, flying in any mode, block collision and the flight speed. Without block collision outside spectator mode, a spectator layer makes the
-/// client fly, as PMMP does: the client falls through the blocks otherwise.
-fn layers(s: &Survival) -> Vec<AbilityLayer> {
-    let mode = s.mode();
-    let mut values = mode_abilities(mode, s.motion.flying);
-    let collides = s.collides();
-    for (on, ability) in [
-        (s.custom.operator, Ability::OperatorCommands),
-        (s.custom.operator, Ability::Teleport),
-        (s.may_fly(), Ability::MayFly),
-        (
-            mode == GameMode::Spectator || s.motion.flying,
-            Ability::Flying,
-        ),
-        (!collides, Ability::NoClip),
-    ] {
-        if on {
-            values.insert(ability);
-        } else {
-            values.remove(ability);
-        }
-    }
-    let mut layers = vec![layer_of(values, s.custom.flight_speed)];
-    if !collides && mode != GameMode::Spectator {
-        let flying: FlagSet<Ability> = [Ability::Flying].into_iter().collect();
-        let [bits, ..] = flying.words();
-        let bits = u32::try_from(bits).unwrap_or(0);
-        layers.push(AbilityLayer {
-            r#type: AbilityLayerType::Spectator.into(),
-            abilities: bits,
-            values: bits,
-            fly_speed: 0.0,
-            vertical_fly_speed: 0.0,
-            walk_speed: 0.0,
-        });
-    }
-    layers
-}
-
-/// `UpdateAbilities` for the player, with BDS's values: a member's permissions, or an operator's
-/// (P6: `op` sends command permissions 1 and player permissions 2). The settings argument is the
-/// spawn module's calling form.
-pub(in crate::tick) fn update_abilities(_settings: &Settings, player: &Player) -> Packet {
-    let (player_permissions, command_permissions) = if player.survival.custom.operator {
-        (
-            PermissionLevel::Operator,
-            CommandPermissionLevel::GameDirectors,
-        )
-    } else {
-        (PermissionLevel::Member, CommandPermissionLevel::Any)
-    };
-    Packet::UpdateAbilities(UpdateAbilities {
-        ability_data: AbilityData {
-            entity_unique_id: crate::tick::entity::unique_id(player.runtime_id),
-            player_permissions: player_permissions.into(),
-            command_permissions: command_permissions.into(),
-            layers: layers(&player.survival),
-        },
-    })
-}
-
-/// `UpdateAdventureSettings` as BDS sends it (P6).
-pub(in crate::tick) fn adventure_settings() -> Packet {
-    adventure_packet(true)
+/// The bits of a set of abilities, as the layer carries them.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: every ability has a bit below 32"
+)]
+fn ability_bits(abilities: FlagSet<Ability>) -> u32 {
+    let [bits, ..] = abilities.words();
+    u32::try_from(bits).expect("an ability bit is below 32")
 }
 
 /// `UpdateAdventureSettings` with BDS's values and `auto_jump` (PMMP
@@ -656,67 +834,6 @@ fn adventure_packet(auto_jump: bool) -> Packet {
     })
 }
 
-/// The 39 game rules BDS sends, in its order (P6), with the values Anchor's rules have: what Anchor
-/// does not simulate (mob spawning, weather, insomnia, freezing, command blocks, respawn anchors
-/// exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`, the day cycle,
-/// drowning, fall damage, the coordinates, the waypoints, the immediate respawn and the death
-/// messages come from the settings, and players respawn on the spawn block (`spawnRadius` 0).
-pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
-    use GameRuleValue::{Bool, Uint32};
-    let rules = [
-        ("commandBlockOutput", Bool(true)),
-        ("doDayLightCycle", Bool(settings.daylight_cycle)),
-        ("doEntityDrops", Bool(true)),
-        ("doFireTick", Bool(true)),
-        ("recipesUnlock", Bool(true)),
-        ("doLimitedCrafting", Bool(false)),
-        ("doMobLoot", Bool(true)),
-        ("doMobSpawning", Bool(false)),
-        ("doTileDrops", Bool(true)),
-        ("doWeatherCycle", Bool(false)),
-        ("drowningDamage", Bool(settings.drowning)),
-        ("fallDamage", Bool(settings.fall_damage)),
-        ("fireDamage", Bool(true)),
-        ("keepInventory", Bool(false)),
-        ("mobGriefing", Bool(true)),
-        ("pvp", Bool(settings.pvp)),
-        ("showCoordinates", Bool(settings.show_coordinates)),
-        // BDS saves 0 in a world without the others' waypoints, 1 by default; it saves no
-        // `locatorbar`.
-        ("playerWaypoints", Uint32(u32::from(settings.locator_bar))),
-        ("locatorbar", Bool(true)),
-        ("showDaysPlayed", Bool(false)),
-        ("naturalRegeneration", Bool(true)),
-        ("tntExplodes", Bool(true)),
-        ("sendCommandFeedback", Bool(true)),
-        ("maxCommandChainLength", Uint32(65_535)),
-        ("doInsomnia", Bool(false)),
-        ("commandBlocksEnabled", Bool(false)),
-        (RANDOM_TICK_SPEED, Uint32(settings.random_tick_speed)),
-        ("doImmediateRespawn", Bool(settings.immediate_respawn)),
-        ("showDeathMessages", Bool(settings.show_death_messages)),
-        ("functionCommandLimit", Uint32(10_000)),
-        ("spawnRadius", Uint32(0)),
-        ("showTags", Bool(true)),
-        ("freezeDamage", Bool(false)),
-        ("respawnBlocksExplode", Bool(false)),
-        ("showBorderEffect", Bool(true)),
-        ("showRecipeMessages", Bool(true)),
-        ("playersSleepingPercentage", Uint32(100)),
-        ("projectilesCanBreakBlocks", Bool(false)),
-        ("tntExplosionDropDecay", Bool(false)),
-    ];
-    Packet::GameRulesChanged(GameRulesChanged {
-        game_rules: rules
-            .into_iter()
-            .map(|(name, value)| rule(name, value))
-            .collect(),
-    })
-}
-
-/// The game rule that sets random block ticks per sub-chunk per tick.
-const RANDOM_TICK_SPEED: &str = "randomTickSpeed";
-
 /// A game rule as the client gets it.
 fn rule(name: &str, value: GameRuleValue) -> GameRule {
     GameRule {
@@ -724,108 +841,6 @@ fn rule(name: &str, value: GameRuleValue) -> GameRule {
         can_be_modified_by_player: true,
         value,
     }
-}
-
-/// The packet that tells a player the random tick speed is now `speed`.
-pub(in crate::tick) fn random_tick_speed_changed(speed: u32) -> Packet {
-    Packet::GameRulesChanged(GameRulesChanged {
-        game_rules: vec![rule(RANDOM_TICK_SPEED, GameRuleValue::Uint32(speed))],
-    })
-}
-
-/// Sends every spawned player the attributes, abilities and entity data that changed this tick:
-/// attributes and abilities to the player, entity data to the player and its viewers.
-pub(super) fn flush(state: &mut State) {
-    let mut next = first_session(state);
-    while let Some(session) = next {
-        next = next_session(state, session);
-        flush_one(state, session);
-    }
-}
-
-/// [`flush`] for one player, if it is spawned.
-pub(super) fn flush_one(state: &mut State, session: SessionId) {
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    if player.phase != Phase::Spawned {
-        return;
-    }
-    let dirty = player.survival.dirty;
-    let now = shown(player);
-    let old = player.survival.shown;
-    let abilities = (dirty & ABILITIES != 0).then(|| update_abilities(&state.settings, player));
-    let adventure =
-        (dirty & ADVENTURE != 0).then(|| adventure_packet(player.survival.custom.auto_jump));
-    let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
-    let health = (dirty & HEALTH != 0).then(|| health_packet(player));
-    let tags = dirty & TAGS != 0;
-    let metadata = (now != old || tags).then(|| {
-        let mut m = EntityMetadata::new();
-        changed_metadata(&now, Some(&old), &mut m);
-        if tags {
-            m.insert(
-                EntityDataKey::Name.into(),
-                MetadataValue::String(player.name_tag().to_owned()),
-            );
-            m.insert(
-                EntityDataKey::Score.into(),
-                MetadataValue::String(player.score_tag().to_owned()),
-            );
-        }
-        m
-    });
-    let runtime_id = player.runtime_id;
-    let Some(player) = state.players.get_mut(&session) else {
-        return;
-    };
-    player.survival.dirty = 0;
-    player.survival.shown = now;
-    let answer_tick = player.survival.motion.answer_tick.take();
-    for packet in [attributes, abilities, adventure].into_iter().flatten() {
-        player.send_packet(packet);
-    }
-    if let Some(entity_metadata) = metadata {
-        let data = |entity_metadata, tick| {
-            Packet::SetActorData(SetActorData {
-                entity_runtime_id: runtime_id,
-                entity_metadata,
-                entity_properties: EntityProperties::default(),
-                tick,
-            })
-        };
-        // The answer tick is the player's own input's: the viewers get none.
-        let own = answer_tick.map(|tick| data(entity_metadata.clone(), tick));
-        let viewed = data(entity_metadata, 0);
-        broadcast_to_viewers(state, session, &viewed);
-        if let Some(player) = state.players.get_mut(&session) {
-            player.send_packet(own.unwrap_or(viewed));
-        }
-    }
-    if let Some(health) = health {
-        broadcast_to_viewers(state, session, &health);
-    }
-}
-
-/// The player's health for those who see it, as BDS tells them at a hit, a death and a respawn
-/// (P6 `others`). BDS sends viewers the player's food and exhaustion too, which the client shows
-/// nobody but the player: left out, they would cost a packet per viewer each time they move.
-pub(super) fn health_packet(player: &Player) -> Packet {
-    attributes_packet(player, HEALTH)
-}
-
-/// Marks the player's current entity data as known to the client (its spawn window held it).
-/// The spawn window's adventure settings jump by themselves: a player the API keeps from it gets
-/// its own at the next flush.
-pub(super) fn spawned(player: &mut Player) {
-    let now = shown(player);
-    player.survival.shown = now;
-    player.survival.dirty = if player.survival.custom.auto_jump {
-        0
-    } else {
-        ADVENTURE
-    };
-    player.survival.custom.touched = false;
 }
 
 #[cfg(test)]
@@ -876,5 +891,16 @@ mod tests {
         let [w0, w1, _] = flags.words();
         assert_eq!(w0, 844_424_930_656_256);
         assert_eq!(w1, 35_184_405_643_264);
+    }
+
+    #[test]
+    fn all_is_every_attribute_bit() {
+        assert_eq!(DEFS.iter().fold(0, |bits, d| bits | d.bit), ALL);
+    }
+
+    #[test]
+    fn the_movement_attribute_starts_at_the_base_speed() {
+        let movement = DEFS.iter().find(|d| d.bit == MOVEMENT);
+        assert_eq!(movement.map(|d| d.default), Some(0.1_f32));
     }
 }

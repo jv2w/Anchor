@@ -1265,6 +1265,28 @@ fn effect_listeners_refuse_or_keep_effects_but_not_expired_ones() {
     assert_eq!(drain(&mut seen), [2, 0]);
 }
 
+// pmmp: EntityEffectRemoveEvent
+#[test]
+fn an_effect_a_listener_gives_in_place_of_a_removed_one_stays() {
+    let listeners = on(|_: &mut EntityEffectRemove, ctx: &mut Context<'_>| {
+        let given = effect::Type::Speed
+            .instance()
+            .with_duration_ticks(200)
+            .with_amplifier(1);
+        ctx.player_mut(pid(1)).unwrap().add_effect(given);
+    });
+    let mut game = Game::new(1, listeners);
+    effects::add(
+        &mut game.state,
+        sid(1),
+        effect::Type::Speed,
+        effects::Active::new(100, 0),
+    );
+    effects::remove(&mut game.state, sid(1), effect::Type::Speed);
+    let kept = game.survival(1).effects.get(&effect::Type::Speed).copied();
+    assert_eq!(kept.map(|a| (a.duration, a.amplifier)), Some((200, 1)));
+}
+
 // pmmp: EntityCombustEvent, EntityCombustByEntityEvent, EntityExtinguishEvent
 #[test]
 fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
@@ -1665,6 +1687,22 @@ fn skin_changes_reach_everyone_or_go_back_to_the_player() {
     game.idle(1);
     assert!(skins(&game.take(2)).is_empty());
     assert_eq!(game.player(1).skin().full_id, "new");
+}
+
+// pmmp: PlayerChangeSkinEvent
+#[test]
+fn a_skin_a_listener_sets_through_the_api_is_not_overwritten_by_the_change() {
+    let listeners = on(|_: &mut PlayerChangeSkin, ctx: &mut Context<'_>| {
+        ctx.player_mut(pid(1))
+            .unwrap()
+            .set_skin(skin("api"))
+            .unwrap();
+    });
+    let mut game = Game::new(2, listeners);
+    let input = skin_input(&mut game, 1, skin("asked"));
+    game.run(vec![input]);
+    assert_eq!(game.player(1).skin().full_id, "api");
+    assert_eq!(skins(&game.take(2)), ["api"]);
 }
 
 /// A valid skin of about 4 MB with full ID `id`: a 1000 × 1000 image (the budget counts bytes

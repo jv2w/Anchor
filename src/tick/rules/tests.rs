@@ -2,30 +2,71 @@
 
 use std::sync::Arc;
 
-use super::reads::{self, Reads};
+use super::reads::Reads;
+use super::*;
 use crate::block::{self, Class};
-use crate::custom::Registry;
 use crate::entity::Custom as Definition;
 use crate::event::Listeners;
 use crate::item::{Kind as ItemKind, Stack};
 use crate::nbt::{Compound, List, Value};
 use crate::random::Fnv;
 use crate::save::{Loaded, Response, Snapshot};
-use crate::storage::ChunkKind;
 use crate::tick::State;
 use crate::tick::entity::Customs;
 use crate::tick::tests::{new_state, settings};
-use crate::tick::{ChunkRules, Context, view};
-use crate::world::{BlockPos, Chunk, ChunkPos, Flat, SUB_CHUNKS};
+use crate::tick::{Context, view};
+use crate::world::{BlockPos, ChunkPos, Flat, SUB_CHUNKS};
 
-/// The chunk the file holds terrain and extras for: it loads from the disk.
-const DISK: ChunkPos = ChunkPos::new(40, 40);
-/// The chunk the file holds only extras for: it is generated.
-const GENERATED: ChunkPos = ChunkPos::new(41, 40);
-/// The height of the fixture's blocks: the first air above the flat ground.
-const Y: i32 = -60;
 /// Chests of the disk chunk, each with every slot full.
 const CHESTS: i32 = 8;
+/// The chunk the file holds terrain and extras for: it loads from the disk.
+const DISK: ChunkPos = ChunkPos::new(40, 40);
+/// The outcome of the fixture in each of the [`RUNS`] (state hash, rules hash, client bytes,
+/// changed lists). The state and rules hashes also hash the command soft enums, the skin budget,
+/// whether the run has started, an NPC's held item, the offline player holds and the worlds'
+/// ages.
+const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
+    [
+        0x4608_9c15_44be_1146,
+        0x14e7_922d_7c94_0dc9,
+        0xc4d0_b7b4_ec98_80fa,
+        0xd918_290c_b7b6_6526,
+    ],
+    [
+        0xea64_4c8f_5bd4_b6b0,
+        0x81b0_a3fb_45b5_5c0f,
+        0xc4d0_b7b4_ec98_80fa,
+        0x4d77_8f37_abd2_cb55,
+    ],
+];
+/// What reading the fixture's extras counts in each of the [`RUNS`]: 13 block entities (8 chests,
+/// the shulker box, 1 + 3 strays), 8 entity compounds, 19 update entries, 225 stacks (216 in the
+/// chests, 2 in the shulker box, 4 in strays, 3 dropped items) and 18 or 16 saved compounds
+/// cloned (every block entity, the 2 entries kept raw, and the compounds that are no entity: the
+/// pig, and the custom entities on a server without their type).
+const EXPECTED_READS: [Reads; 2] = [
+    Reads {
+        block_entities: 13,
+        entities: 8,
+        updates: 19,
+        stacks: 225,
+        clones: 18,
+    },
+    Reads {
+        block_entities: 13,
+        entities: 8,
+        updates: 19,
+        stacks: 225,
+        clones: 16,
+    },
+];
+/// The chunk the file holds only extras for: it is generated.
+const GENERATED: ChunkPos = ChunkPos::new(41, 40);
+/// The two runs (custom content, experience): vanilla with orbs, and with the custom item and
+/// entity type without orbs.
+const RUNS: [(bool, bool); 2] = [(false, true), (true, false)];
+/// The height of the fixture's blocks: the first air above the flat ground.
+const Y: i32 = -60;
 
 fn at(pos: ChunkPos, x: i32, y: i32, z: i32) -> BlockPos {
     BlockPos::new(pos.x * 16 + x, y, pos.z * 16 + z)
@@ -53,6 +94,60 @@ fn slotted(slot: u8, stack: &Stack) -> Compound {
 
 fn stick(count: u8) -> Stack {
     Stack::new(ItemKind::Stick.default_type(), count)
+}
+
+/// The disk chunk's terrain and block entities of [`fixture`].
+fn disk_block_entities(custom: Option<&Registry>) -> (Chunk, Vec<Compound>) {
+    let chest = block::Kind::Chest.default_state();
+    let shulker = block::State::all()
+        .find(|b| b.is(Class::ShulkerBox))
+        .unwrap();
+    let block::ItemForm::Item(shulker_item) = shulker.item() else {
+        panic!("a shulker box has an item");
+    };
+    let mut terrain = Chunk::generate(&Flat, 5, DISK);
+    let mut block_entities = Vec::new();
+    for i in 0..CHESTS {
+        let local = u8::try_from(2 * i).unwrap();
+        terrain.set_block(local, Y, 1, chest).unwrap();
+        let items = (0_u8..27)
+            .map(|slot| {
+                let stack = match (custom, i, slot) {
+                    (Some(r), 0, 0) => {
+                        let ruby = r
+                            .resolve(crate::custom::ItemRef::Custom(&crate::custom::tests::RUBY))
+                            .unwrap();
+                        Stack::new(ruby, 3)
+                    }
+                    _ if slot % 2 == 0 => stick(slot + 1),
+                    _ => Stack::new(ItemKind::Diamond.default_type(), slot),
+                };
+                slotted(slot, &stack)
+            })
+            .collect();
+        let mut c = block_entity("Chest", at(DISK, 2 * i, Y, 1), items);
+        if i == 3 {
+            c.insert("CustomName".to_owned(), Value::String("Loot".to_owned()));
+        }
+        block_entities.push(c);
+    }
+    terrain.set_block(0, Y, 8, shulker).unwrap();
+    block_entities.push(block_entity(
+        "ShulkerBox",
+        at(DISK, 0, Y, 8),
+        vec![
+            slotted(0, &stick(4)),
+            slotted(1, &Stack::new(shulker_item, 1)),
+        ],
+    ));
+    block_entities.push(block_entity(
+        "Chest",
+        at(DISK, 1, Y, 12),
+        vec![slotted(0, &stick(7)), slotted(5, &stick(9))],
+    ));
+    block_entities.push(block_entity("Chest", at(DISK, 0, Y, 1), Vec::new()));
+    block_entities.push(block_entity("Chest", at(GENERATED, 0, Y, 1), Vec::new()));
+    (terrain, block_entities)
 }
 
 /// A saved entity compound of `identifier` at `pos`, with `rest`.
@@ -189,60 +284,6 @@ fn fixture(custom: Option<&Registry>) -> Snapshot {
     }
 }
 
-/// The disk chunk's terrain and block entities of [`fixture`].
-fn disk_block_entities(custom: Option<&Registry>) -> (Chunk, Vec<Compound>) {
-    let chest = block::Kind::Chest.default_state();
-    let shulker = block::State::all()
-        .find(|b| b.is(Class::ShulkerBox))
-        .unwrap();
-    let block::ItemForm::Item(shulker_item) = shulker.item() else {
-        panic!("a shulker box has an item");
-    };
-    let mut terrain = Chunk::generate(&Flat, 5, DISK);
-    let mut block_entities = Vec::new();
-    for i in 0..CHESTS {
-        let local = u8::try_from(2 * i).unwrap();
-        terrain.set_block(local, Y, 1, chest).unwrap();
-        let items = (0u8..27)
-            .map(|slot| {
-                let stack = match (custom, i, slot) {
-                    (Some(r), 0, 0) => {
-                        let ruby = r
-                            .resolve(crate::custom::ItemRef::Custom(&crate::custom::tests::RUBY))
-                            .unwrap();
-                        Stack::new(ruby, 3)
-                    }
-                    _ if slot % 2 == 0 => stick(slot + 1),
-                    _ => Stack::new(ItemKind::Diamond.default_type(), slot),
-                };
-                slotted(slot, &stack)
-            })
-            .collect();
-        let mut c = block_entity("Chest", at(DISK, 2 * i, Y, 1), items);
-        if i == 3 {
-            c.insert("CustomName".to_owned(), Value::String("Loot".to_owned()));
-        }
-        block_entities.push(c);
-    }
-    terrain.set_block(0, Y, 8, shulker).unwrap();
-    block_entities.push(block_entity(
-        "ShulkerBox",
-        at(DISK, 0, Y, 8),
-        vec![
-            slotted(0, &stick(4)),
-            slotted(1, &Stack::new(shulker_item, 1)),
-        ],
-    ));
-    block_entities.push(block_entity(
-        "Chest",
-        at(DISK, 1, Y, 12),
-        vec![slotted(0, &stick(7)), slotted(5, &stick(9))],
-    ));
-    block_entities.push(block_entity("Chest", at(DISK, 0, Y, 1), Vec::new()));
-    block_entities.push(block_entity("Chest", at(GENERATED, 0, Y, 1), Vec::new()));
-    (terrain, block_entities)
-}
-
 /// A server holding the two fixture chunks, with the custom item and entity type when
 /// `custom`, and orbs when `experience`.
 fn server(custom: bool, experience: bool) -> (State, Arc<Registry>) {
@@ -265,7 +306,7 @@ fn server(custom: bool, experience: bool) -> (State, Arc<Registry>) {
     let id = state.worlds[0].id();
     let mut cx = Context { state: &mut state };
     for pos in [DISK, GENERATED] {
-        cx.hold_chunks(id, pos, 0).unwrap();
+        let _ticket = cx.hold_chunks(id, pos, 0).unwrap();
     }
     (state, registry)
 }
@@ -338,7 +379,7 @@ fn load(custom: bool, experience: bool) -> (Reads, Reads, [u64; 4]) {
             state.entity_types(),
         )
         .unwrap();
-        assert!(again == stored.rules, "the load read the extras");
+        assert_eq!(again, stored.rules, "the load read the extras");
     }
     assert_eq!(
         origins,
@@ -356,58 +397,11 @@ fn load(custom: bool, experience: bool) -> (Reads, Reads, [u64; 4]) {
     (off_tick, on_tick, outcome(&mut state))
 }
 
-/// What the tick read of the fixture when it read the extras itself (the code before the reads
-/// moved to the save thread, counted the same way): 13 block entities (8 chests, the shulker
-/// box, 1 + 3 strays), 8 entity compounds, 19 update entries, 225 stacks (216 in the chests, 2
-/// in the shulker box, 4 in strays, 3 dropped items) and 18 or 16 saved compounds cloned (every
-/// block entity, the 2 entries kept raw, and the compounds that are no entity: the pig, and the
-/// custom entities on a server without their type).
-const READ_ON_THE_TICK_BEFORE: [Reads; 2] = [
-    Reads {
-        block_entities: 13,
-        entities: 8,
-        updates: 19,
-        stacks: 225,
-        clones: 18,
-    },
-    Reads {
-        block_entities: 13,
-        entities: 8,
-        updates: 19,
-        stacks: 225,
-        clones: 16,
-    },
-];
-
-/// The outcome of the fixture with the code before the reads moved to the save thread (state
-/// hash, rules hash, client bytes, changed lists), recorded from that code; the state and rules
-/// hashes in the form they have now, which also hashes the command soft enums, the skin budget,
-/// whether the run has started, an NPC's held item, the offline player holds and the worlds'
-/// ages, and loads entities at rest still.
-const OUTCOME_BEFORE: [[u64; 4]; 2] = [
-    [
-        0x4608_9c15_44be_1146,
-        0x14e7_922d_7c94_0dc9,
-        0xc4d0_b7b4_ec98_80fa,
-        0xd918_290c_b7b6_6526,
-    ],
-    [
-        0xea64_4c8f_5bd4_b6b0,
-        0x81b0_a3fb_45b5_5c0f,
-        0xc4d0_b7b4_ec98_80fa,
-        0x4d77_8f37_abd2_cb55,
-    ],
-];
-
-/// The two runs (custom content, experience): vanilla with orbs, and with the custom item and
-/// entity type without orbs.
-const RUNS: [(bool, bool); 2] = [(false, true), (true, false)];
-
 #[test]
-fn extras_read_on_the_save_thread_load_the_same_state_as_read_on_the_tick() {
+fn extras_read_on_the_save_thread_load_the_recorded_state() {
     for (i, (custom, experience)) in RUNS.into_iter().enumerate() {
         let (_, _, outcome) = load(custom, experience);
-        assert_eq!(outcome, OUTCOME_BEFORE[i], "custom {custom}");
+        assert_eq!(outcome, EXPECTED_OUTCOME[i], "custom {custom}");
     }
 }
 
@@ -416,8 +410,8 @@ fn a_chunk_load_reads_no_extras_on_the_tick() {
     for (i, (custom, experience)) in RUNS.into_iter().enumerate() {
         let (off_tick, on_tick, _) = load(custom, experience);
         assert_eq!(
-            off_tick, READ_ON_THE_TICK_BEFORE[i],
-            "the reads moved, custom {custom}"
+            off_tick, EXPECTED_READS[i],
+            "the load reads the extras, custom {custom}"
         );
         assert_eq!(on_tick, Reads::default(), "custom {custom}");
     }

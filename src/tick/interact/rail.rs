@@ -4,29 +4,18 @@
 //! A rail's shape is Bedrock `rail_direction` (the legacy meta PMMP names): two connections, each
 //! a horizontal face, one of which may ascend a block.
 
+use super::place::block_at;
+use super::props;
 use crate::block::{Class, Face, State};
 use crate::world::{BlockPos, World};
 
-use super::place::block_at;
-use super::props;
-
-/// A connection of a rail: toward a face, and whether it goes up a block that way.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Link {
-    face: Face,
-    ascend: bool,
-}
-
-const fn flat(face: Face) -> Link {
-    Link {
-        face,
-        ascend: false,
-    }
-}
-
-const fn up(face: Face) -> Link {
-    Link { face, ascend: true }
-}
+/// The curved shapes of plain rails, `rail_direction` 6 to 9 (PMMP `CURVE_CONNECTIONS`).
+const CURVES: [[Link; 2]; 4] = [
+    [flat(Face::South), flat(Face::East)],
+    [flat(Face::South), flat(Face::West)],
+    [flat(Face::North), flat(Face::West)],
+    [flat(Face::North), flat(Face::East)],
+];
 
 /// The shapes every rail has, by `rail_direction` (PMMP `RailConnectionInfo::CONNECTIONS`).
 const STRAIGHT: [[Link; 2]; 6] = [
@@ -38,129 +27,15 @@ const STRAIGHT: [[Link; 2]; 6] = [
     [flat(Face::North), up(Face::South)],
 ];
 
-/// The curved shapes of plain rails, `rail_direction` 6 to 9 (PMMP `CURVE_CONNECTIONS`).
-const CURVES: [[Link; 2]; 4] = [
-    [flat(Face::South), flat(Face::East)],
-    [flat(Face::South), flat(Face::West)],
-    [flat(Face::North), flat(Face::West)],
-    [flat(Face::North), flat(Face::East)],
-];
-
-/// The face a rail of shape `direction` (`rail_direction`) climbs toward; `None` for a flat
-/// shape.
-pub(in crate::tick) fn ascent(direction: i32) -> Option<Face> {
-    let links = STRAIGHT.get(usize::try_from(direction).ok()?)?;
-    links.iter().find(|l| l.ascend).map(|l| l.face)
+/// A connection of a rail: toward a face, and whether it goes up a block that way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Link {
+    face: Face,
+    ascend: bool,
 }
 
-/// Whether the rail can curve (PMMP `Rail`; powered, detector and activator rails cannot).
-fn curves(state: State) -> bool {
-    state.is(Class::Rail)
-}
-
-/// The rail's two connections, if it is a rail.
-fn shape(state: State) -> Option<[Link; 2]> {
-    if !state.is(Class::BaseRail) {
-        return None;
-    }
-    let direction = usize::try_from(props::int(state, "rail_direction")?).ok()?;
-    match direction.checked_sub(STRAIGHT.len()) {
-        None => STRAIGHT.get(direction).copied(),
-        Some(curve) if curves(state) => CURVES.get(curve).copied(),
-        Some(_) => None,
-    }
-}
-
-/// The rail state with the shape of `links` (PMMP `setShapeFromConnections`: as given or
-/// reversed, straight shapes first).
-fn with_shape(state: State, links: [Link; 2]) -> Option<State> {
-    let reversed = [links[1], links[0]];
-    let find = |table: &[[Link; 2]]| {
-        table
-            .iter()
-            .position(|s| *s == links)
-            .or_else(|| table.iter().position(|s| *s == reversed))
-    };
-    let direction = find(&STRAIGHT).or_else(|| {
-        if curves(state) {
-            find(&CURVES).map(|c| c + STRAIGHT.len())
-        } else {
-            None
-        }
-    })?;
-    props::with_int(state, "rail_direction", i32::try_from(direction).ok()?)
-}
-
-/// The rail a link of the rail at `pos` reaches, and the link it needs back: one up for an
-/// ascending link, one down when the neighbour is a lower rail whose slope rises to this one.
-fn neighbour(world: &World, pos: BlockPos, link: Link) -> Option<(BlockPos, State, Link)> {
-    let side = pos.step(link.face)?;
-    let back = link.face.opposite();
-    if link.ascend {
-        let p = side.step(Face::Up)?;
-        return Some((p, block_at(world, Some(p)), flat(back)));
-    }
-    let s = block_at(world, Some(side));
-    if s.is(Class::BaseRail) {
-        return Some((side, s, flat(back)));
-    }
-    let p = side.step(Face::Down)?;
-    Some((p, block_at(world, Some(p)), up(back)))
-}
-
-/// The links of the rail at `pos` that a rail answers (PMMP `getConnectedDirections`).
-fn connected(world: &World, pos: BlockPos, state: State) -> Vec<Link> {
-    let Some(links) = shape(state) else {
-        return Vec::new();
-    };
-    links
-        .into_iter()
-        .filter(|link| {
-            neighbour(world, pos, *link)
-                .is_some_and(|(_, other, back)| shape(other).is_some_and(|o| o.contains(&back)))
-        })
-        .collect()
-}
-
-/// The links the rail could still make, in PMMP's order (`getPossibleConnectionDirections`).
-fn possible(state: State, constraints: &[Link]) -> Vec<Link> {
-    match constraints {
-        [] => Face::HORIZONTAL
-            .into_iter()
-            .map(flat)
-            .chain(Face::HORIZONTAL.into_iter().map(up))
-            .collect(),
-        [only] => {
-            let opposite = only.face.opposite();
-            let mut out = vec![flat(opposite)];
-            if !only.ascend {
-                out.push(up(opposite));
-                if curves(state) {
-                    out.extend(
-                        Face::HORIZONTAL
-                            .into_iter()
-                            .filter(|d| *d != only.face && *d != opposite)
-                            .map(flat),
-                    );
-                }
-            }
-            out
-        }
-        _ => Vec::new(),
-    }
-}
-
-/// The shape of a rail with `links` (one link goes straight through, PMMP `setConnections`).
-fn shaped(state: State, links: &[Link]) -> Option<State> {
-    match links {
-        [one] => with_shape(state, [*one, flat(one.face.opposite())]),
-        [a, b] => with_shape(state, [*a, *b]),
-        _ => None,
-    }
-}
-
-/// PMMP `BaseRail::tryReconnect` for the rail just placed at `pos`: it joins neighbouring rails
-/// that have a free end, turning them toward it. The blocks to set, in order.
+/// The blocks that join the rail just placed at `pos` to the neighbouring rails with a free end,
+/// turning those toward it, in the order to set them (PMMP `BaseRail::tryReconnect`).
 pub(super) fn reconnect(world: &World, pos: BlockPos) -> Vec<(BlockPos, State)> {
     let mut out = Vec::new();
     let this = block_at(world, Some(pos));
@@ -203,9 +78,136 @@ pub(super) fn reconnect(world: &World, pos: BlockPos) -> Vec<(BlockPos, State)> 
     out
 }
 
+/// The face a rail of shape `direction` (`rail_direction`) climbs toward; `None` for a flat
+/// shape.
+pub(in crate::tick) fn ascent(direction: i32) -> Option<Face> {
+    let links = STRAIGHT.get(usize::try_from(direction).ok()?)?;
+    links.iter().find(|l| l.ascend).map(|l| l.face)
+}
+
+/// The links of the rail at `pos` that a rail answers (PMMP `getConnectedDirections`).
+fn connected(world: &World, pos: BlockPos, state: State) -> Vec<Link> {
+    let Some(links) = shape(state) else {
+        return Vec::new();
+    };
+    links
+        .into_iter()
+        .filter(|link| {
+            neighbour(world, pos, *link)
+                .is_some_and(|(_, other, back)| shape(other).is_some_and(|o| o.contains(&back)))
+        })
+        .collect()
+}
+
+/// The rail a link of the rail at `pos` reaches, and the link it needs back: one up for an
+/// ascending link, one down when the neighbour is a lower rail whose slope rises to this one.
+fn neighbour(world: &World, pos: BlockPos, link: Link) -> Option<(BlockPos, State, Link)> {
+    let side = pos.step(link.face)?;
+    let back = link.face.opposite();
+    if link.ascend {
+        let p = side.step(Face::Up)?;
+        return Some((p, block_at(world, Some(p)), flat(back)));
+    }
+    let s = block_at(world, Some(side));
+    if s.is(Class::BaseRail) {
+        return Some((side, s, flat(back)));
+    }
+    let p = side.step(Face::Down)?;
+    Some((p, block_at(world, Some(p)), up(back)))
+}
+
+/// The links the rail could still make, in PMMP's order (`getPossibleConnectionDirections`).
+fn possible(state: State, constraints: &[Link]) -> Vec<Link> {
+    match constraints {
+        [] => Face::HORIZONTAL
+            .into_iter()
+            .map(flat)
+            .chain(Face::HORIZONTAL.into_iter().map(up))
+            .collect(),
+        [only] => {
+            let opposite = only.face.opposite();
+            let mut out = vec![flat(opposite)];
+            if !only.ascend {
+                out.push(up(opposite));
+                if curves(state) {
+                    out.extend(
+                        Face::HORIZONTAL
+                            .into_iter()
+                            .filter(|d| *d != only.face && *d != opposite)
+                            .map(flat),
+                    );
+                }
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The shape of a rail with `links` (one link goes straight through, PMMP `setConnections`).
+fn shaped(state: State, links: &[Link]) -> Option<State> {
+    match links {
+        [one] => with_shape(state, [*one, flat(one.face.opposite())]),
+        [a, b] => with_shape(state, [*a, *b]),
+        _ => None,
+    }
+}
+
+/// The rail state with the shape of `links` (PMMP `setShapeFromConnections`: as given or
+/// reversed, straight shapes first).
+fn with_shape(state: State, links: [Link; 2]) -> Option<State> {
+    let reversed = [links[1], links[0]];
+    let find = |table: &[[Link; 2]]| {
+        table
+            .iter()
+            .position(|s| *s == links)
+            .or_else(|| table.iter().position(|s| *s == reversed))
+    };
+    let direction = find(&STRAIGHT).or_else(|| {
+        if curves(state) {
+            find(&CURVES).map(|c| c + STRAIGHT.len())
+        } else {
+            None
+        }
+    })?;
+    props::with_int(state, "rail_direction", i32::try_from(direction).ok()?)
+}
+
+/// The rail's two connections, if it is a rail.
+fn shape(state: State) -> Option<[Link; 2]> {
+    if !state.is(Class::BaseRail) {
+        return None;
+    }
+    let direction = usize::try_from(props::int(state, "rail_direction")?).ok()?;
+    match direction.checked_sub(STRAIGHT.len()) {
+        None => STRAIGHT.get(direction).copied(),
+        Some(curve) if curves(state) => CURVES.get(curve).copied(),
+        Some(_) => None,
+    }
+}
+
+/// Whether the rail can curve (PMMP `Rail`; powered, detector and activator rails cannot).
+fn curves(state: State) -> bool {
+    state.is(Class::Rail)
+}
+
+/// A connection toward `face` on the same level.
+const fn flat(face: Face) -> Link {
+    Link {
+        face,
+        ascend: false,
+    }
+}
+
+/// A connection toward `face` that goes up a block.
+const fn up(face: Face) -> Link {
+    Link { face, ascend: true }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::Kind;
     use crate::world::{Chunk, ChunkPos, Kind as WorldKind};
 

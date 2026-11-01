@@ -3,27 +3,18 @@
 //! ([`PlayerDropItem`]), each built only when heard.
 //!
 //! PMMP raises only one of the first four (a crafting transaction raises `CraftItemEvent`
-//! instead of `InventoryTransactionEvent`); Anchor raises the transaction for every request, so a
-//! listener that guards every slot change also sees crafts and trades.
+//! instead of `InventoryTransactionEvent`); Anchor raises the transaction for every request that
+//! changes a slot, so a listener that guards every slot change also sees crafts and trades.
 
-use super::super::super::{SessionId, State, dispatch, trade};
-use super::super::{SlotRef, WindowKind};
-use super::{Error, Made, Plan, Result};
+use super::{Describe, Error, Made, Plan, Result};
 use crate::event::{
     CraftItem, EnchantOption, Inventory, InventoryTransaction, PlayerDropItem, PlayerItemEnchant,
     SlotChange, Trade,
 };
 use crate::inventory::Kind;
 use crate::item::Stack;
-
-/// Whether anyone listens to or monitors a request event, so that the plan describes itself.
-pub(super) fn heard(state: &State) -> bool {
-    dispatch::heard::<InventoryTransaction>(state)
-        || dispatch::heard::<CraftItem>(state)
-        || dispatch::heard::<PlayerItemEnchant>(state)
-        || dispatch::heard::<Trade>(state)
-        || dispatch::heard::<PlayerDropItem>(state)
-}
+use crate::tick::inventory::{SlotRef, WindowKind};
+use crate::tick::{SessionId, State, dispatch, trade};
 
 /// The events of one request, those heard.
 #[derive(Debug)]
@@ -72,6 +63,101 @@ impl Raised {
             drop,
         }
     }
+
+    /// Whether a listener (not only a monitor) of a raised event ran, so the game may have
+    /// changed.
+    pub(super) fn listened(&self, state: &State) -> bool {
+        (self.transaction.is_some() && dispatch::listened::<InventoryTransaction>(state))
+            || (self.craft.is_some() && dispatch::listened::<CraftItem>(state))
+            || (self.enchant.is_some() && dispatch::listened::<PlayerItemEnchant>(state))
+            || (self.trade.is_some() && dispatch::listened::<Trade>(state))
+            || (self.drop.is_some() && dispatch::listened::<PlayerDropItem>(state))
+    }
+
+    /// Calls the listeners of each event in order; a cancelled one refuses the request and the
+    /// later events are not raised.
+    pub(super) fn call(&mut self, state: &mut State) -> Result<()> {
+        fn one<E: crate::event::Event>(
+            state: &mut State,
+            event: Option<&mut E>,
+            cancelled: fn(&E) -> bool,
+        ) -> Result<()> {
+            if let Some(e) = event {
+                dispatch::call(state, e);
+                if cancelled(e) {
+                    return Err(Error::Cancelled);
+                }
+            }
+            Ok(())
+        }
+        one(state, self.transaction.as_mut(), |e| e.cancelled)?;
+        one(state, self.craft.as_mut(), |e| e.cancelled)?;
+        one(state, self.enchant.as_mut(), |e| e.cancelled)?;
+        one(state, self.trade.as_mut(), |e| e.cancelled)?;
+        one(state, self.drop.as_mut(), |e| e.cancelled)
+    }
+
+    /// Calls the monitors of each raised event, after the request applied.
+    pub(super) fn watch(self, state: &mut State) {
+        let Self {
+            transaction,
+            craft,
+            enchant,
+            trade,
+            drop,
+        } = self;
+        if let Some(e) = transaction {
+            dispatch::watch(state, &e);
+        }
+        if let Some(e) = craft {
+            dispatch::watch(state, &e);
+        }
+        if let Some(e) = enchant {
+            dispatch::watch(state, &e);
+        }
+        if let Some(e) = trade {
+            dispatch::watch(state, &e);
+        }
+        if let Some(e) = drop {
+            dispatch::watch(state, &e);
+        }
+    }
+}
+
+/// What the plan of a request describes of itself: the slots it changes before and after when a
+/// handler of the open menu `edit` or a listener of the transaction hears them, what it makes or
+/// drops when only another request event is heard, else nothing.
+pub(super) fn describes(state: &State, edit: Option<crate::menu::Id>) -> Describe {
+    if edit.is_some() || dispatch::heard::<InventoryTransaction>(state) {
+        Describe::Slots
+    } else if dispatch::heard::<CraftItem>(state)
+        || dispatch::heard::<PlayerItemEnchant>(state)
+        || dispatch::heard::<Trade>(state)
+        || dispatch::heard::<PlayerDropItem>(state)
+    {
+        Describe::Made
+    } else {
+        Describe::Nothing
+    }
+}
+
+/// The slots the described `plan` changes, as events name them, in `window`.
+pub(super) fn changes(plan: &Plan, window: Option<WindowKind>) -> Vec<SlotChange> {
+    plan.writes
+        .iter()
+        .zip(&plan.before)
+        .filter_map(|((r, after), before)| change(*r, before, &after.stack, window))
+        .collect()
+}
+
+/// Every slot `plan` names, changed or not, as events name them in the window `inv` has open; the
+/// created output is left out.
+pub(super) fn named(plan: &Plan, inv: &crate::tick::inventory::Inventory) -> Vec<(Inventory, u8)> {
+    let window = inv.window.as_ref().map(|w| w.kind);
+    plan.touched
+        .iter()
+        .filter_map(|&(container, slot)| place(inv.locate(container, slot)?, window))
+        .collect()
 }
 
 /// The heard events of what `plan` makes.
@@ -141,86 +227,6 @@ fn made(
         _ => {}
     }
     (craft, enchant, traded)
-}
-
-impl Raised {
-    /// Calls the listeners of each event in order; a cancelled one refuses the request and the
-    /// later events are not raised.
-    pub(super) fn call(&mut self, state: &mut State) -> Result<()> {
-        fn one<E: crate::event::Event>(
-            state: &mut State,
-            event: Option<&mut E>,
-            cancelled: fn(&E) -> bool,
-        ) -> Result<()> {
-            if let Some(e) = event {
-                dispatch::call(state, e);
-                if cancelled(e) {
-                    return Err(Error::Cancelled);
-                }
-            }
-            Ok(())
-        }
-        one(state, self.transaction.as_mut(), |e| e.cancelled)?;
-        one(state, self.craft.as_mut(), |e| e.cancelled)?;
-        one(state, self.enchant.as_mut(), |e| e.cancelled)?;
-        one(state, self.trade.as_mut(), |e| e.cancelled)?;
-        one(state, self.drop.as_mut(), |e| e.cancelled)
-    }
-
-    /// Whether a listener (not only a monitor) of a raised event ran, so the game may have
-    /// changed.
-    pub(super) fn listened(&self, state: &State) -> bool {
-        (self.transaction.is_some() && dispatch::listened::<InventoryTransaction>(state))
-            || (self.craft.is_some() && dispatch::listened::<CraftItem>(state))
-            || (self.enchant.is_some() && dispatch::listened::<PlayerItemEnchant>(state))
-            || (self.trade.is_some() && dispatch::listened::<Trade>(state))
-            || (self.drop.is_some() && dispatch::listened::<PlayerDropItem>(state))
-    }
-
-    /// Calls the monitors of each raised event, after the request applied.
-    pub(super) fn watch(self, state: &mut State) {
-        let Self {
-            transaction,
-            craft,
-            enchant,
-            trade,
-            drop,
-        } = self;
-        if let Some(e) = transaction {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = craft {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = enchant {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = trade {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = drop {
-            dispatch::watch(state, &e);
-        }
-    }
-}
-
-/// The slots the described `plan` changes, as events name them, in `window`.
-pub(super) fn changes(plan: &Plan, window: Option<WindowKind>) -> Vec<SlotChange> {
-    plan.writes
-        .iter()
-        .zip(&plan.before)
-        .filter_map(|((r, after), before)| change(*r, before, &after.stack, window))
-        .collect()
-}
-
-/// Every slot `plan` names, changed or not, as events name them in the window `inv` has open; the
-/// created output is left out.
-pub(super) fn named(plan: &Plan, inv: &super::super::Inventory) -> Vec<(Inventory, u8)> {
-    let window = inv.window.as_ref().map(|w| w.kind);
-    plan.touched
-        .iter()
-        .filter_map(|&(container, slot)| place(inv.locate(container, slot)?, window))
-        .collect()
 }
 
 /// The change of request slot `r` from `before` to `after`, as events name it; `None` if it

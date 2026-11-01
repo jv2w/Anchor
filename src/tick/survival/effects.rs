@@ -12,6 +12,22 @@ use crate::protocol::consts::MobEffectOperation;
 use crate::protocol::packet::{MobEffect, Packet};
 use crate::tick::{Phase, Player, SessionId, State};
 
+/// The health an instant damage effect takes at its lowest level (PMMP `InstantDamageEffect`:
+/// 6 << amplifier).
+const INSTANT_DAMAGE_AMOUNT: f64 = 6.0;
+/// The health an instant health effect restores at its lowest level (PMMP `InstantHealthEffect`:
+/// 4 << amplifier).
+const INSTANT_HEALTH_AMOUNT: f64 = 4.0;
+/// The most effects the packed entity data holds (PMMP `Living::syncNetworkData`).
+const MAX_PACKED_EFFECTS: usize = 8;
+/// The ticks between two applications of poison at its lowest level (PMMP
+/// `Effect::getApplyInterval`).
+const POISON_INTERVAL_TICKS: u32 = 25;
+/// The ticks between two applications of regeneration at its lowest level.
+const REGENERATION_INTERVAL_TICKS: u32 = 50;
+/// The ticks between two applications of wither at its lowest level.
+const WITHER_INTERVAL_TICKS: u32 = 40;
+
 /// An active effect (PMMP `EffectInstance`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Active {
@@ -26,14 +42,6 @@ pub(super) struct Active {
     /// Whether it never ends (saved as duration -1).
     pub(super) infinite: bool,
 }
-
-crate::tick::checkpoint::fields!(Active {
-    duration,
-    amplifier,
-    visible,
-    ambient,
-    infinite,
-});
 
 impl Active {
     /// The effect a potion, food or the API gives.
@@ -90,22 +98,13 @@ impl Active {
     }
 }
 
-/// Ticks between applications of an effect (PMMP `Effect::getApplyInterval`); 0 never applies.
-pub(super) fn interval(effect: Type, amplifier: u8) -> u32 {
-    let shifted = |base: u32| base.checked_shr(u32::from(amplifier)).unwrap_or(0).max(1);
-    match effect {
-        Type::Poison | Type::FatalPoison => shifted(25),
-        Type::Wither => shifted(40),
-        Type::Regeneration => shifted(50),
-        Type::Hunger | Type::InstantDamage | Type::InstantHealth | Type::Saturation => 1,
-        _ => 0,
-    }
-}
-
-/// Whether `new` may replace `old`, both of type `effect` ([`Instance::can_replace`]).
-fn can_replace(effect: Type, old: Active, new: Active) -> bool {
-    new.instance(effect).can_replace(old.instance(effect))
-}
+crate::tick::checkpoint::fields!(Active {
+    duration,
+    amplifier,
+    visible,
+    ambient,
+    infinite,
+});
 
 /// Adds an effect to the player (PMMP `EffectManager::add`): false if a stronger or longer one is
 /// active or an [`EntityEffectAdd`] listener cancels it. A replaced effect is removed first, so
@@ -141,16 +140,16 @@ pub(super) fn add(state: &mut State, session: SessionId, effect: Type, new: Acti
     added
 }
 
-/// [`add`] on a player at hand.
+/// Adds an effect to a player at hand ([`add`] without its event).
 pub(super) fn add_to(player: &mut Player, effect: Type, new: Active) -> bool {
     let s = &mut player.survival;
     let old = s.effects.get(&effect).copied();
     if old.is_some_and(|old| !can_replace(effect, old, new)) {
         return false;
     }
-    if let Some(old) = old {
+    if old.is_some() {
         s.effects.remove(&effect);
-        on_remove(s, effect, old);
+        on_remove(s, effect);
     }
     s.effects.insert(effect, new);
     on_add(s, effect, new);
@@ -161,14 +160,14 @@ pub(super) fn add_to(player: &mut Player, effect: Type, new: Active) -> bool {
         MobEffectOperation::Add
     };
     if player.phase == Phase::Spawned {
-        let packet = packet(player, effect, Some(new), operation);
+        let packet = packet(player, effect, new, operation);
         player.send_packet(packet);
     }
     true
 }
 
-/// Removes an effect, undoing what it changed, unless an [`EntityEffectRemove`] listener keeps
-/// it (one that ran out cannot stay).
+/// Removes an effect, undoing what it changed, unless an [`EntityEffectRemove`] listener keeps it
+/// (one that ran out cannot stay) or changes the player's effect of the type (the new one stays).
 pub(super) fn remove(state: &mut State, session: SessionId, effect: Type) {
     let active = |state: &State| {
         state
@@ -187,7 +186,7 @@ pub(super) fn remove(state: &mut State, session: SessionId, effect: Type) {
             cancelled: false,
         },
         EntityEffectRemove::is_cancelled,
-        |state, _| active(state).is_some(),
+        |state, _| active(state) == Some(old),
     ) else {
         return;
     };
@@ -197,16 +196,17 @@ pub(super) fn remove(state: &mut State, session: SessionId, effect: Type) {
     super::watch(state, event.as_ref());
 }
 
-/// [`remove`] on a player at hand; false if the effect was not active.
+/// Removes an effect from a player at hand ([`remove`] without its event); false if the effect
+/// was not active.
 pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
     let Some(old) = player.survival.effects.remove(&effect) else {
         return false;
     };
-    on_remove(&mut player.survival, effect, old);
+    on_remove(&mut player.survival, effect);
     player.data_dirty = true;
     if player.phase == Phase::Spawned {
         // BDS's removal carries the effect's amplifier and the time it had left (P6 `syntax`).
-        let packet = packet(player, effect, Some(old), MobEffectOperation::Remove);
+        let packet = packet(player, effect, old, MobEffectOperation::Remove);
         player.send_packet(packet);
     }
     true
@@ -215,103 +215,24 @@ pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
 /// Removes every effect (milk, respawn, a totem), in effect ID order as BDS removes them (P6
 /// `syntax` `effect @s clear`).
 pub(super) fn clear(state: &mut State, session: SessionId) {
-    let mut active = active_types(state, session);
-    active.sort_unstable_by_key(|t| t.map(Type::id));
-    for effect in active.into_iter().flatten() {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    for effect in active_types_by_id(&player.survival).into_iter().flatten() {
         remove(state, session, effect);
     }
 }
 
-/// The active effect types, without allocating (at most one per type).
-fn active_types(state: &State, session: SessionId) -> [Option<Type>; effect::TYPE_COUNT] {
-    let mut out = [None; effect::TYPE_COUNT];
-    if let Some(player) = state.players.get(&session) {
-        for (slot, &effect) in out.iter_mut().zip(player.survival.effects.keys()) {
-            *slot = Some(effect);
-        }
-    }
-    out
-}
-
-/// What an effect changes when it starts (PMMP `Effect::add`).
-fn on_add(s: &mut Survival, effect: Type, new: Active) {
-    match effect {
-        Type::Absorption => {
-            let amount = 4.0 * f64::from(new.level());
-            if amount > s.absorption {
-                s.absorption = amount;
-            }
-            s.mark(ABSORPTION);
-        }
-        Type::HealthBoost => s.mark(HEALTH),
-        Type::Speed | Type::Slowness => s.mark(MOVEMENT),
-        _ => {}
-    }
-}
-
-/// What an effect undoes when it ends (PMMP `Effect::remove`).
-fn on_remove(s: &mut Survival, effect: Type, _old: Active) {
-    match effect {
-        Type::Absorption => {
-            s.absorption = 0.0;
-            s.mark(ABSORPTION);
-        }
-        Type::HealthBoost => {
-            let max = s.max_health();
-            if s.health > max {
-                s.health = max;
-            }
-            s.mark(HEALTH);
-        }
-        Type::Speed | Type::Slowness => s.mark(MOVEMENT),
-        _ => {}
-    }
-}
-
-/// The `MobEffect` packet for an effect change.
-fn packet(
-    player: &Player,
-    effect: Type,
-    active: Option<Active>,
-    operation: MobEffectOperation,
-) -> Packet {
-    let active = active.unwrap_or(Active::new(0, 0));
-    Packet::MobEffect(MobEffect {
-        entity_runtime_id: player.runtime_id,
-        operation: u8::from(operation),
-        effect_type: i32::from(effect.id()),
-        amplifier: i32::from(active.amplifier),
-        particles: active.visible,
-        duration: if active.infinite {
-            -1
-        } else {
-            i32::try_from(active.duration).unwrap_or(i32::MAX)
-        },
-        tick: 0,
-        ambient: active.ambient,
-    })
-}
-
-/// The `MobEffect` packets for every active effect (a player that just spawned).
-pub(super) fn all_packets(player: &Player) -> impl Iterator<Item = Packet> + '_ {
-    player
-        .survival
-        .effects
-        .iter()
-        .map(|(&effect, &active)| packet(player, effect, Some(active), MobEffectOperation::Add))
-}
-
-/// One tick of the living player's effects (PMMP `EffectManager::tick`): each effect acts if its
-/// interval divides its remaining duration, then counts down and ends at 0.
+/// Counts one tick of the living player's effects (PMMP `EffectManager::tick`): each effect acts
+/// if its interval divides its remaining duration, then counts down and ends at 0.
 pub(super) fn tick(state: &mut State, session: SessionId) {
-    if state
-        .players
-        .get(&session)
-        .is_none_or(|p| p.survival.is_dead())
-    {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    if player.survival.is_dead() {
         return;
     }
-    for effect in active_types(state, session).into_iter().flatten() {
+    for effect in active_types(&player.survival).into_iter().flatten() {
         let Some(active) = state
             .players
             .get(&session)
@@ -340,6 +261,66 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
             remove(state, session, effect);
         }
     }
+}
+
+/// The `MobEffect` packets for every active effect (a player that just spawned).
+pub(super) fn all_packets(player: &Player) -> impl Iterator<Item = Packet> + '_ {
+    player
+        .survival
+        .effects
+        .iter()
+        .map(|(&effect, &active)| packet(player, effect, active, MobEffectOperation::Add))
+}
+
+/// The visible effects packed for the entity data (PMMP `Living::syncNetworkData`): up to
+/// [`MAX_PACKED_EFFECTS`] effects with particles, by ID, 7 bits each (6-bit ID, ambient bit).
+pub(super) fn packed(s: &Survival) -> i64 {
+    let mut ids = [(0_u8, false); effect::TYPE_COUNT];
+    let mut count = 0;
+    let shown = s
+        .effects
+        .iter()
+        .filter(|&(effect, active)| effect::shows_bubbles(&active.instance(*effect)));
+    for (slot, (effect, active)) in ids.iter_mut().zip(shown) {
+        *slot = (effect.id(), active.ambient);
+        count += 1;
+    }
+    let (ids, _) = ids.split_at_mut(count);
+    ids.sort_unstable_by_key(|&(id, _)| id);
+    ids.iter()
+        .take(MAX_PACKED_EFFECTS)
+        .fold(0_i64, |data, &(id, ambient)| {
+            (data << 7) | (i64::from(id & 0x3f) << 1) | i64::from(ambient)
+        })
+}
+
+/// The effects a consumable gives, as active effects.
+pub(super) fn of_instances(instances: &[effect::Instance]) -> impl Iterator<Item = (Type, Active)> {
+    instances.iter().map(|i| (i.effect(), Active::of(*i)))
+}
+
+/// The ticks between applications of an effect (PMMP `Effect::getApplyInterval`); 0 never
+/// applies.
+pub(super) fn interval(effect: Type, amplifier: u8) -> u32 {
+    let shifted = |base: u32| base.checked_shr(u32::from(amplifier)).unwrap_or(0).max(1);
+    match effect {
+        Type::Poison | Type::FatalPoison => shifted(POISON_INTERVAL_TICKS),
+        Type::Wither => shifted(WITHER_INTERVAL_TICKS),
+        Type::Regeneration => shifted(REGENERATION_INTERVAL_TICKS),
+        Type::Hunger | Type::InstantDamage | Type::InstantHealth | Type::Saturation => 1,
+        _ => 0,
+    }
+}
+
+/// What an instant effect at full potency heals or hurts (PMMP `InstantHealthEffect`,
+/// `InstantDamageEffect`), for players and entities, drunk or splashed; 0 for any other effect.
+pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
+    let base = match effect {
+        Type::InstantHealth => INSTANT_HEALTH_AMOUNT,
+        Type::InstantDamage => INSTANT_DAMAGE_AMOUNT,
+        _ => 0.0,
+    };
+    base * doubled(amplifier)
 }
 
 /// What an effect does when it acts (PMMP `Effect::applyEffect`).
@@ -383,46 +364,83 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
     }
 }
 
-/// What an instant effect at full potency heals or hurts (PMMP `InstantHealthEffect`:
-/// 4 << amplifier, `InstantDamageEffect`: 6 << amplifier), for players and entities, drunk or
-/// splashed; 0 for any other effect.
-pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
-    let base = match effect {
-        Type::InstantHealth => 4.0,
-        Type::InstantDamage => 6.0,
-        _ => 0.0,
-    };
-    base * doubled(amplifier)
+/// Whether `new` may replace `old`, both of type `effect` ([`Instance::can_replace`]).
+fn can_replace(effect: Type, old: Active, new: Active) -> bool {
+    new.instance(effect).can_replace(old.instance(effect))
+}
+
+/// The active effect types in effect ID order, without allocating.
+pub(super) fn active_types_by_id(s: &Survival) -> [Option<Type>; effect::TYPE_COUNT] {
+    let mut out = active_types(s);
+    out.sort_unstable_by_key(|t| t.map(Type::id));
+    out
+}
+
+/// The active effect types, without allocating (at most one per type).
+fn active_types(s: &Survival) -> [Option<Type>; effect::TYPE_COUNT] {
+    let mut out = [None; effect::TYPE_COUNT];
+    for (slot, &effect) in out.iter_mut().zip(s.effects.keys()) {
+        *slot = Some(effect);
+    }
+    out
+}
+
+/// What an effect changes when it starts (PMMP `Effect::add`).
+fn on_add(s: &mut Survival, effect: Type, new: Active) {
+    match effect {
+        Type::Absorption => {
+            let amount = 4.0 * f64::from(new.level());
+            if amount > s.absorption {
+                s.absorption = amount;
+            }
+            s.mark(ABSORPTION);
+        }
+        Type::HealthBoost => s.mark(HEALTH),
+        Type::Speed | Type::Slowness => s.mark(MOVEMENT),
+        _ => {}
+    }
+}
+
+/// What an effect undoes when it ends (PMMP `Effect::remove`).
+fn on_remove(s: &mut Survival, effect: Type) {
+    match effect {
+        Type::Absorption => {
+            s.absorption = 0.0;
+            s.mark(ABSORPTION);
+        }
+        Type::HealthBoost => {
+            let max = s.max_health();
+            if s.health > max {
+                s.health = max;
+            }
+            s.mark(HEALTH);
+        }
+        Type::Speed | Type::Slowness => s.mark(MOVEMENT),
+        _ => {}
+    }
+}
+
+/// The `MobEffect` packet for an effect change.
+fn packet(player: &Player, effect: Type, active: Active, operation: MobEffectOperation) -> Packet {
+    Packet::MobEffect(MobEffect {
+        entity_runtime_id: player.runtime_id,
+        operation: u8::from(operation),
+        effect_type: i32::from(effect.id()),
+        amplifier: i32::from(active.amplifier),
+        particles: active.visible,
+        duration: if active.infinite {
+            -1
+        } else {
+            i32::try_from(active.duration).unwrap_or(i32::MAX)
+        },
+        tick: 0,
+        ambient: active.ambient,
+    })
 }
 
 /// 2 to the power `n` (PMMP's `x << amplifier`, without the integer overflow).
 fn doubled(n: u8) -> f64 {
     (0..n).fold(1.0, |v, _| v * 2.0)
-}
-
-/// The visible effects packed for the entity data (PMMP `Living::syncNetworkData`): up to 8
-/// effects with particles, by ID, 7 bits each (6-bit ID, ambient bit).
-pub(super) fn packed(s: &Survival) -> i64 {
-    let mut ids = [(0_u8, false); effect::TYPE_COUNT];
-    let mut n = 0;
-    for (effect, active) in &s.effects {
-        if let Some(slot) = ids.get_mut(n)
-            && effect::shows_bubbles(&active.instance(*effect))
-        {
-            *slot = (effect.id(), active.ambient);
-            n += 1;
-        }
-    }
-    let ids = ids.get_mut(..n).unwrap_or_default();
-    ids.sort_unstable_by_key(|&(id, _)| id);
-    ids.iter().take(8).fold(0_i64, |data, &(id, ambient)| {
-        (data << 7) | (i64::from(id & 0x3f) << 1) | i64::from(ambient)
-    })
-}
-
-/// The effects a consumable gives, as active effects.
-pub(super) fn of_instances(instances: &[effect::Instance]) -> impl Iterator<Item = (Type, Active)> {
-    instances.iter().map(|i| (i.effect(), Active::of(*i)))
 }
 
 #[cfg(test)]
@@ -488,5 +506,20 @@ mod tests {
             (poison, speed)
         };
         assert_eq!(packed(&s), (a << 1) << 7 | b << 1);
+    }
+
+    #[test]
+    fn active_effects_list_in_id_order() {
+        let mut s = Survival::default();
+        for effect in [Type::Speed, Type::Poison, Type::Regeneration] {
+            s.effects.insert(effect, Active::new(10, 0));
+        }
+        let ids: Vec<u8> = active_types_by_id(&s)
+            .into_iter()
+            .flatten()
+            .map(Type::id)
+            .collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.is_sorted());
     }
 }

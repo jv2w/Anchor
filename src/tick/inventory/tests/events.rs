@@ -1,11 +1,11 @@
-//! Tests of the inventory, crafting, station, furnace, brewing, campfire, chest and trade events
-//!: the listener sees the right fields, cancelling keeps the game and
-//! resyncs the client, changed fields change the outcome, monitors see the applied state, and a
-//! listener that changes the game so the check fails cancels the action.
+//! Tests of the inventory, crafting, station, furnace, brewing, campfire, chest and trade events.
+//!
+//! The listener sees the right fields, cancelling keeps the game and resyncs the client, changed
+//! fields change the outcome, monitors see the applied state, and a listener that changes the
+//! game so the check fails cancels the action.
 
 use std::cell::Cell;
 
-use super::super::super::{Context, entity, trade};
 use super::*;
 use crate::block::PropertyValue;
 use crate::event::{
@@ -18,13 +18,21 @@ use crate::inventory::Kind;
 use crate::math::Vec3;
 use crate::nbt::{List, Value};
 use crate::protocol::packet::{BlockPickRequest, MobEquipment};
+use crate::tick::tests::leave;
+use crate::tick::{Context, entity, survival, trade};
 use crate::world;
+
+/// The position of the blocks the tests place, next to the spawn.
+const AT: BlockPos = BlockPos::new(3, -60, 3);
+/// The request container of the main inventory and the hotbar together.
+const COMBINED: C = C::CombinedHotBarAndInventory;
 
 thread_local! {
     /// What the listeners of a test saw, in order.
     static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
 }
 
+/// Records what a listener saw, for the test to compare.
 fn log(line: String) {
     let mut lines = LOG.take();
     lines.push(line);
@@ -43,10 +51,6 @@ fn on<E: Event>(listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static)
     l
 }
 
-/// The position of the blocks the tests place, next to the spawn.
-const AT: BlockPos = BlockPos::new(3, -60, 3);
-const COMBINED: C = C::CombinedHotBarAndInventory;
-
 /// A survival world with one player holding `stacks` from main slot 0.
 fn world_with(listeners: Listeners, stacks: &[Stack]) -> (World, SessionId) {
     LOG.set(Vec::new());
@@ -55,30 +59,9 @@ fn world_with(listeners: Listeners, stacks: &[Stack]) -> (World, SessionId) {
     for stack in stacks {
         w.give(s, stack.clone());
     }
-    super::super::super::survival::add_experience(w.player(s), 100_000);
+    survival::add_experience(w.player(s), 100_000);
     w.sent(s);
     (w, s)
-}
-
-/// Sends a request; every packet the player got for it.
-fn send(w: &mut World, s: SessionId, id: i32, actions: Vec<StackRequestAction>) -> Vec<Packet> {
-    w.state.tick += 1;
-    let request = ItemStackRequest {
-        request_id: id,
-        actions,
-        filter_strings: Vec::new(),
-        filter_cause: 0,
-    };
-    on_item_stack_request(&mut w.state, s, &request);
-    w.sent(s)
-}
-
-/// Whether `packets` hold an ok response.
-fn accepted(packets: &[Packet]) -> bool {
-    packets.iter().any(|p| match p {
-        Packet::ItemStackResponse(r) => r.responses.iter().all(ok),
-        _ => false,
-    })
 }
 
 /// Moves `count` from main slot `from` into request slot `to`.
@@ -91,10 +74,7 @@ fn put(w: &mut World, s: SessionId, from: u8, count: u8, to: (C, u8)) {
     assert!(ok(&r), "{r:?}");
 }
 
-fn named(name: &str) -> Type {
-    Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap()
-}
-
+/// A stack of `count` sticks.
 fn sticks(count: u8) -> Stack {
     Stack::new(item(it::Kind::Stick), count)
 }
@@ -142,6 +122,27 @@ fn a_request_is_one_transaction_with_its_slot_changes_and_monitors_see_it_applie
             "applied 7".to_owned()
         ]
     );
+}
+
+/// Sends a request; every packet the player got for it.
+fn send(w: &mut World, s: SessionId, id: i32, actions: Vec<StackRequestAction>) -> Vec<Packet> {
+    w.state.tick += 1;
+    let request = ItemStackRequest {
+        request_id: id,
+        actions,
+        filter_strings: Vec::new(),
+        filter_cause: 0,
+    };
+    on_item_stack_request(&mut w.state, s, &request);
+    w.sent(s)
+}
+
+/// Whether `packets` hold an ok response.
+fn accepted(packets: &[Packet]) -> bool {
+    packets.iter().any(|p| match p {
+        Packet::ItemStackResponse(r) => r.responses.iter().all(ok),
+        _ => false,
+    })
 }
 
 // pmmp: InventoryTransactionEvent
@@ -370,6 +371,14 @@ fn enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result() {
             ));
         },
     );
+    l.push_monitor(|e: &PlayerEnchantingOptionsRequest, _: &Context<'_>| {
+        let option = &e.options()[0];
+        log(format!(
+            "shown {} {}",
+            option.name().len(),
+            option.enchantments().len()
+        ));
+    });
     let (mut w, s) = enchanting(l);
     let options = w.inv(s).window.as_ref().unwrap().station.options().to_vec();
     assert_eq!(options.len(), 1);
@@ -381,11 +390,16 @@ fn enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result() {
         pick.extra().unwrap().enchantments,
         [(Enchantment::Efficiency, 5)]
     );
+    // The monitor sees the option as it is applied: the name cut, the level 0 enchantment gone.
+    // The enchanted pickaxe has no options of its own, and the listener hears that too.
     assert_eq!(
         logged(),
         [
             "options 3".to_owned(),
-            format!("cost 1 {:?}", [(Enchantment::Efficiency, 5)])
+            "shown 64 1".to_owned(),
+            format!("cost 1 {:?}", [(Enchantment::Efficiency, 5)]),
+            "options 0".to_owned(),
+            "shown 64 1".to_owned(),
         ]
     );
 
@@ -423,6 +437,35 @@ fn enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result() {
             .station
             .options()
             .is_empty()
+    );
+}
+
+// pmmp: PlayerEnchantingOptionsRequestEvent
+/// A listener gives options for an item the table offers none for, and they enchant it.
+#[test]
+fn a_listener_gives_options_for_an_item_the_table_offers_none() {
+    let l = on(
+        |e: &mut PlayerEnchantingOptionsRequest, _: &mut Context<'_>| {
+            assert!(e.options().is_empty());
+            e.set_options(vec![EnchantOption::new(
+                1,
+                "x".to_owned(),
+                vec![(Enchantment::Efficiency, 1)],
+            )]);
+        },
+    );
+    let (mut w, s) = world_with(l, &[sticks(1), Stack::new(item(it::Kind::LapisLazuli), 3)]);
+    w.place_block(AT, blk::Kind::EnchantingTable.default_state());
+    w.open_block(s, AT);
+    put(&mut w, s, 0, 1, (C::EnchantingInput, 14));
+    put(&mut w, s, 1, 3, (C::EnchantingMaterial, 15));
+    let options = w.inv(s).window.as_ref().unwrap().station.options().to_vec();
+    assert_eq!(options.len(), 1);
+    assert!(ok(&enchant_with(&mut w, s, 0)));
+    let stick = w.inv(s).get(SlotRef::Ui(0)).unwrap().stack;
+    assert_eq!(
+        stick.extra().unwrap().enchantments,
+        [(Enchantment::Efficiency, 1)]
     );
 }
 
@@ -511,8 +554,8 @@ fn trading_raises_trade_open_and_trade_and_cancelling_keeps_the_payment() {
     assert!(w.inv(s).window.is_none());
 }
 
-/// A quick trade (`CraftRecipeAuto`: the trade button, a right click on the arrow) pays from the
-/// main inventory, the payment slots or both, exactly the price.
+/// A quick trade pays from the main inventory, the payment slots or both, exactly the price.
+/// It is `CraftRecipeAuto`: the trade button, a right click on the arrow.
 #[test]
 fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
     let (mut w, s) = world_with(
@@ -572,8 +615,8 @@ fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
     assert_eq!(totals(&w.state), before);
 }
 
-/// Unpairing or pairing chests through the API closes the windows on them without an event: a
-/// direct call raises none.
+/// Unpairing or pairing chests through the API closes the windows on them without an event.
+/// A direct call raises none.
 #[test]
 fn the_chest_pair_api_closes_windows_without_close_events() {
     let (mut w, s) = world_with(
@@ -718,7 +761,7 @@ fn a_menu_a_close_listener_opens_stays_open_in_place_of_the_closed_window() {
     let (mut w, s) = world_with(menu_on_close(), &[]);
     w.place_block(AT, blk::Kind::Barrel.default_state());
     w.open_block(s, AT);
-    w.tick(vec![super::super::super::tests::leave(1, 90)]);
+    w.tick(vec![leave(1, 90)]);
     assert!(w.state.players.is_empty());
     assert_eq!(w.state.menus.len(), 0);
 }
@@ -840,6 +883,11 @@ fn pick_block_raises_block_pick_and_cancelling_gives_nothing() {
     assert!(pick(true).is_empty());
 }
 
+/// The item type named `name`.
+fn named(name: &str) -> Type {
+    Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap()
+}
+
 /// The furnace's slots after `ticks` ticks of a furnace with two raw iron and one coal.
 fn furnace(listeners: Listeners, ticks: u32) -> Vec<Stack> {
     let (mut w, _) = world_with(listeners, &[]);
@@ -863,8 +911,8 @@ fn furnace(listeners: Listeners, ticks: u32) -> Vec<Stack> {
         .clone()
 }
 
-/// A `FurnaceBurn` listener that swaps the fuel cancels this burn, and the furnace burns the new
-/// fuel the next tick as after any other change of its slots.
+/// A `FurnaceBurn` listener that swaps the fuel cancels this burn.
+/// The furnace burns the new fuel the next tick, as after any other change of its slots.
 #[test]
 fn a_furnace_whose_fuel_a_listener_swaps_burns_it_the_next_tick() {
     let swap_coal = || {
@@ -1064,10 +1112,10 @@ fn chest_pair_names_the_halves_and_cancelling_keeps_them_single() {
     assert!(!seen.is_empty());
 }
 
-/// Listeners for the conservation model (`run_model`) from `seed`: on every request event they
-/// cancel, cancel and uncancel, or move items themselves through the Context (swap two main
-/// slots, move a main stack into the model's chest or a chest stack into the inventory), keeping
-/// the item totals.
+/// Listeners for the conservation model (`run_model`), drawn from `seed`.
+/// On every request event they cancel, cancel and uncancel, or move items themselves through the
+/// Context (swap two main slots, move a main stack into the model's chest or a chest stack into
+/// the inventory), keeping the item totals.
 pub(super) fn random_listeners(seed: i64) -> Listeners {
     fn act(
         rng: &mut Random,
@@ -1075,7 +1123,7 @@ pub(super) fn random_listeners(seed: i64) -> Listeners {
         cx: &mut Context<'_>,
         cancel: &mut dyn FnMut(bool),
     ) {
-        let chest = BlockPos::new(3, -60, 3);
+        let chest = AT;
         let from = usize::try_from(rng.below(36)).unwrap();
         let to = usize::try_from(rng.below(36)).unwrap();
         match rng.below(8) {
@@ -1119,7 +1167,7 @@ pub(super) fn random_listeners(seed: i64) -> Listeners {
         }
     }
     let mut l = Listeners::default();
-    let mut n = 0u64;
+    let mut n = 0_u64;
     l.push(
         Priority::Normal,
         move |e: &mut InventoryTransaction, cx: &mut Context<'_>| {
@@ -1134,7 +1182,7 @@ pub(super) fn random_listeners(seed: i64) -> Listeners {
             }
         },
     );
-    let mut n = 0u64;
+    let mut n = 0_u64;
     l.push(
         Priority::High,
         move |e: &mut CraftItem, cx: &mut Context<'_>| {
@@ -1147,7 +1195,7 @@ pub(super) fn random_listeners(seed: i64) -> Listeners {
             }
         },
     );
-    let mut n = 0u64;
+    let mut n = 0_u64;
     l.push(
         Priority::Low,
         move |e: &mut PlayerDropItem, cx: &mut Context<'_>| {

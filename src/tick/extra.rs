@@ -5,14 +5,16 @@
 //! # Contract for rule modules
 //!
 //! - **Arrival.** A chunk's extras arrive with its terrain, in the same load answer, and the tick
-//!   calls [`Extras::chunk_loaded`] right after it puts the terrain into its world. A player's
-//!   extra arrives with its saved data and the tick calls [`player_loaded`] when it places the
-//!   player. A module that owns a kind (or a player key) converts the raw NBT into its typed state
-//!   there and from then on owns that state; the raw copy it converted is no longer the truth.
+//!   calls [`Extras::chunk_loaded`] right after it puts the terrain into its world; the rule
+//!   modules take them over as [`super::rules`] says. A player's extra arrives with its saved
+//!   data and the tick calls [`player_loaded`] when it places the player. A module that owns a
+//!   key of it reads its typed state from [`PlayerExtra::raw`] there and from then on owns that
+//!   state.
 //! - **Snapshot.** At a save snapshot the tick asks for every chunk kind marked dirty
-//!   ([`Extras::take_dirty`]) and for the extra of every player whose `data_dirty` is set
-//!   ([`player_saved`]). A module that owns a kind writes its typed state back as NBT there; the
-//!   snapshot clears the chunk marks.
+//!   ([`Extras::take_dirty`]); the modules wrote their changed typed state back as NBT before
+//!   ([`super::rules`]), and the snapshot clears the chunk marks. For every player whose
+//!   `data_dirty` is set it copies the compound as saved ([`player_saved`]) and every module that
+//!   owns a key writes its typed state over it.
 //! - **Unload.** When the last holder of a chunk releases it, [`Extras::chunk_unloaded`] gives
 //!   the chunk's extras back as NBT. If a kind is dirty, or a snapshot in flight holds the chunk,
 //!   the tick keeps them in memory with the terrain until a commit holds them; holding the chunk
@@ -27,7 +29,7 @@
 //!   none. Lists are NBT compounds in the shape their module defines; an empty list deletes the
 //!   stored value at the next commit.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::view::Key;
 use crate::nbt::Compound;
@@ -39,10 +41,137 @@ use crate::world::ChunkPos;
 #[derive(Debug, Default)]
 pub(super) struct Extras {
     chunks: BTreeMap<Key, Held>,
+    /// The chunks with a kind marked dirty, so that a snapshot visits only those.
+    dirty: BTreeSet<Key>,
+}
+
+impl Extras {
+    /// Reads what [`Self::checkpoint`] wrote, the lists of unmarked chunks from `stored`.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        stored: &mut BTreeMap<Key, ChunkExtras>,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::{Codec, Error};
+        let n = r.len()?;
+        let mut chunks = BTreeMap::new();
+        let mut dirty = BTreeSet::new();
+        for _ in 0..n {
+            let key = Key::decode(r)?;
+            let held = Held::restore(r, stored.remove(&key))?;
+            if held.is_dirty() {
+                dirty.insert(key);
+            }
+            if chunks.insert(key, held).is_some() {
+                return Err(Error::Format("repeated chunk extras"));
+            }
+        }
+        Ok(Self { chunks, dirty })
+    }
+
+    /// The extras of a loaded chunk.
+    #[cfg(test)]
+    pub(super) fn get(&self, key: Key) -> Option<&ChunkExtras> {
+        self.chunks.get(&key).map(|h| &h.extras)
+    }
+
+    /// The number of chunks with an entry: the loaded ones (for leak tests).
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.chunks.len()
+    }
+
+    /// Takes the extras that arrived with a chunk's terrain, which is now loaded: the raw lists
+    /// from the file (empty for a chunk without any), unchanged.
+    pub(super) fn chunk_loaded(&mut self, key: Key, extras: ChunkExtras) {
+        self.chunks.insert(key, Held { extras, dirty: 0 });
+        self.dirty.remove(&key);
+    }
+
+    /// Gives back the extras of a chunk that unloads (or is quarantined) as NBT with their marks,
+    /// if it was loaded.
+    pub(super) fn chunk_unloaded(&mut self, key: Key) -> Option<Held> {
+        self.dirty.remove(&key);
+        self.chunks.remove(&key)
+    }
+
+    /// Takes the extras of a chunk that unloaded before a commit held them and is loaded again
+    /// from memory.
+    pub(super) fn chunk_restored(&mut self, key: Key, held: Held) {
+        if held.is_dirty() {
+            self.dirty.insert(key);
+        } else {
+            self.dirty.remove(&key);
+        }
+        self.chunks.insert(key, held);
+    }
+
+    /// The `kind` list of a loaded chunk to change, marked dirty; `None` if the chunk is not
+    /// loaded.
+    pub(super) fn get_mut(&mut self, key: Key, kind: ChunkKind) -> Option<&mut Vec<Compound>> {
+        let held = self.chunks.get_mut(&key)?;
+        let list = held.extras.get_mut(kind);
+        held.dirty |= bit(kind);
+        self.dirty.insert(key);
+        Some(list)
+    }
+
+    /// Takes the changed lists of `world`'s loaded chunks for a snapshot, in chunk then kind
+    /// order, and clears their marks.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a chunk in the dirty set is held"
+    )]
+    pub(super) fn take_dirty(
+        &mut self,
+        world: WorldIndex,
+    ) -> Vec<(ChunkPos, ChunkKind, Vec<Compound>)> {
+        let first = (world, ChunkPos::new(i32::MIN, i32::MIN));
+        let last = (world, ChunkPos::new(i32::MAX, i32::MAX));
+        let keys: Vec<Key> = self.dirty.range(first..=last).copied().collect();
+        let mut out = Vec::new();
+        for key in keys {
+            self.dirty.remove(&key);
+            let held = self
+                .chunks
+                .get_mut(&key)
+                .expect("invariant: a chunk in the dirty set is held");
+            out.extend(
+                held.take_dirty()
+                    .into_iter()
+                    .map(|(kind, list)| (key.1, kind, list)),
+            );
+        }
+        out
+    }
+
+    /// Writes each loaded chunk's [`Held::checkpoint`].
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        // The dirty set repeats the marks of the chunks, which `Held::checkpoint` writes.
+        let Self { chunks, dirty: _ } = self;
+        w.len(chunks.len());
+        for (key, held) in chunks {
+            key.encode(w);
+            held.checkpoint(w);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        // The dirty set repeats the marks of the chunks, which `Held::hash_into` hashes.
+        let Self { chunks, dirty: _ } = self;
+        h.usize(chunks.len());
+        for (&(world, pos), held) in chunks {
+            h.usize(world);
+            h.u64(u64::from(pos.x.cast_unsigned()));
+            h.u64(u64::from(pos.z.cast_unsigned()));
+            held.hash_into(h);
+        }
+    }
 }
 
 /// One chunk's extras and which kinds changed since a snapshot took them.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct Held {
     extras: ChunkExtras,
     /// Bit `kind as u8` set: that kind changed since a snapshot last took it.
@@ -50,6 +179,26 @@ pub(super) struct Held {
 }
 
 impl Held {
+    /// Reads what [`Self::checkpoint`] wrote; `stored` gives the lists the server file or the
+    /// generator has for the chunk, used when no kind is marked.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        stored: Option<ChunkExtras>,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::{Codec, Error};
+        let dirty = u8::decode(r)?;
+        let extras = if dirty == 0 {
+            stored.ok_or(Error::Format("chunk extras the server file does not give"))?
+        } else {
+            let mut extras = ChunkExtras::default();
+            for kind in ChunkKind::EXTRAS {
+                *extras.get_mut(kind) = Codec::decode(r)?;
+            }
+            extras
+        };
+        Ok(Self { extras, dirty })
+    }
+
     /// The lists as held.
     pub(super) fn extras(&self) -> &ChunkExtras {
         &self.extras
@@ -60,7 +209,7 @@ impl Held {
         self.dirty != 0
     }
 
-    /// The changed lists, cloned for a snapshot, with their marks cleared.
+    /// Takes the changed lists, cloned for a snapshot, and clears their marks.
     pub(super) fn take_dirty(&mut self) -> Vec<(ChunkKind, Vec<Compound>)> {
         let mut out = Vec::new();
         for kind in ChunkKind::EXTRAS {
@@ -70,6 +219,19 @@ impl Held {
         }
         self.dirty = 0;
         out
+    }
+
+    /// Writes the marks, and the lists when a kind is marked: an unmarked list is the world
+    /// file's or the generator's (`Self::hash_into`), which a replay reads again.
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        let Self { extras, dirty } = self;
+        dirty.encode(w);
+        if *dirty != 0 {
+            for kind in ChunkKind::EXTRAS {
+                w.slice(extras.get(kind));
+            }
+        }
     }
 
     #[cfg(test)]
@@ -91,102 +253,39 @@ impl Held {
     }
 }
 
-/// The dirty bit of an extras kind.
-const fn bit(kind: ChunkKind) -> u8 {
-    1 << kind as u8
-}
-
-impl Extras {
-    /// A chunk's extras arrived with its terrain, which is now loaded: the raw lists from the
-    /// file (empty for a chunk without any), unchanged.
-    pub(super) fn chunk_loaded(&mut self, key: Key, extras: ChunkExtras) {
-        self.chunks.insert(key, Held { extras, dirty: 0 });
-    }
-
-    /// A chunk unloads (or is quarantined): its extras as NBT with their marks, if it was loaded.
-    pub(super) fn chunk_unloaded(&mut self, key: Key) -> Option<Held> {
-        self.chunks.remove(&key)
-    }
-
-    /// A chunk unloaded before a commit held its extras is loaded again from memory.
-    pub(super) fn chunk_restored(&mut self, key: Key, held: Held) {
-        self.chunks.insert(key, held);
-    }
-
-    /// The extras of a loaded chunk.
-    #[cfg(test)]
-    pub(super) fn get(&self, key: Key) -> Option<&ChunkExtras> {
-        self.chunks.get(&key).map(|h| &h.extras)
-    }
-
-    /// The `kind` list of a loaded chunk to change, marked dirty; `None` if the chunk is not
-    /// loaded.
-    pub(super) fn get_mut(&mut self, key: Key, kind: ChunkKind) -> Option<&mut Vec<Compound>> {
-        let held = self.chunks.get_mut(&key)?;
-        let list = held.extras.get_mut(kind);
-        held.dirty |= bit(kind);
-        Some(list)
-    }
-
-    /// The changed lists of `world`'s loaded chunks for a snapshot, in chunk then kind order,
-    /// with their marks cleared.
-    pub(super) fn take_dirty(
-        &mut self,
-        world: WorldIndex,
-    ) -> Vec<(ChunkPos, ChunkKind, Vec<Compound>)> {
-        let first = (world, ChunkPos::new(i32::MIN, i32::MIN));
-        let last = (world, ChunkPos::new(i32::MAX, i32::MAX));
-        let mut out = Vec::new();
-        for (&(_, pos), held) in self.chunks.range_mut(first..=last) {
-            if held.is_dirty() {
-                out.extend(
-                    held.take_dirty()
-                        .into_iter()
-                        .map(|(kind, list)| (pos, kind, list)),
-                );
-            }
-        }
-        out
-    }
-
-    /// The number of chunks with an entry: the loaded ones (for leak tests).
-    #[cfg(test)]
-    pub(super) fn len(&self) -> usize {
-        self.chunks.len()
-    }
-
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self { chunks } = self;
-        h.usize(chunks.len());
-        for (&(world, pos), held) in chunks {
-            h.usize(world);
-            h.u64(u64::from(pos.x.cast_unsigned()));
-            h.u64(u64::from(pos.z.cast_unsigned()));
-            held.hash_into(h);
-        }
-    }
-}
-
 /// What the rule modules keep of an online player, between [`player_loaded`] and
 /// [`player_saved`], and the user's values on it (`task::PlayerUser`: its data, saved under one
 /// key of the compound, and its extensions, never saved).
 #[derive(Debug, Default)]
 pub(super) struct PlayerExtra {
-    /// The compound as saved; modules take their keys out of it when they own them.
+    /// The compound as saved: modules read their keys from it when the player loads, and a save
+    /// copies it ([`player_saved`]) before they write their keys over the copy.
+    /// [`Self::keep_saved`] keeps the newest saved form of one key.
     raw: Compound,
     /// The user's data and extensions.
     pub(super) user: super::task::PlayerUser,
 }
 
 impl PlayerExtra {
+    /// Reads what [`Self::checkpoint`] wrote.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        data: &super::task::UserData,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::Codec;
+        Ok(Self {
+            raw: Codec::decode(r)?,
+            user: data.restore_player(r)?,
+        })
+    }
+
     /// The compound as saved, for the modules that own keys in it to read on load.
     pub(super) fn raw(&self) -> &Compound {
         &self.raw
     }
 
-    /// A save wrote `saved`: the value of `key` in it becomes the one kept as saved, so a later
-    /// save that cannot write that key keeps the newest saved form.
+    /// Keeps the value of `key` in `saved`, which a save wrote, as the one kept as saved, so a
+    /// later save that cannot write that key keeps the newest saved form.
     pub(super) fn keep_saved(&mut self, key: &str, saved: &Compound) {
         match saved.get(key) {
             Some(value) => self.raw.insert(key.to_owned(), value.clone()),
@@ -194,81 +293,6 @@ impl PlayerExtra {
         };
     }
 
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The user's values are hashed with their types' codecs (`task::UserData::hash_into`).
-        let Self { raw, user: _ } = self;
-        hash_nbt(h, raw);
-    }
-}
-
-impl Held {
-    /// Writes the marks, and the lists when a kind is marked: an unmarked list is the world
-    /// file's or the generator's (`Self::hash_into`), which a replay reads again.
-    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
-        let Self { extras, dirty } = self;
-        dirty.encode(w);
-        if *dirty != 0 {
-            for kind in ChunkKind::EXTRAS {
-                w.slice(extras.get(kind));
-            }
-        }
-    }
-
-    /// Reads what [`Self::checkpoint`] wrote; `stored` gives the lists the server file or the
-    /// generator has for the chunk, used when no kind is marked.
-    pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
-        stored: Option<ChunkExtras>,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
-        let dirty = u8::decode(r)?;
-        let extras = if dirty == 0 {
-            stored.ok_or(Error::Format("chunk extras the server file does not give"))?
-        } else {
-            let mut extras = ChunkExtras::default();
-            for kind in ChunkKind::EXTRAS {
-                *extras.get_mut(kind) = Codec::decode(r)?;
-            }
-            extras
-        };
-        Ok(Self { extras, dirty })
-    }
-}
-
-impl Extras {
-    /// Writes each loaded chunk's [`Held::checkpoint`].
-    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
-        let Self { chunks } = self;
-        w.len(chunks.len());
-        for (key, held) in chunks {
-            key.encode(w);
-            held.checkpoint(w);
-        }
-    }
-
-    /// Reads what [`Self::checkpoint`] wrote, the lists of unmarked chunks from `stored`.
-    pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
-        stored: &mut BTreeMap<Key, ChunkExtras>,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
-        let n = r.len()?;
-        let mut chunks = BTreeMap::new();
-        for _ in 0..n {
-            let key = Key::decode(r)?;
-            let held = Held::restore(r, stored.remove(&key))?;
-            if chunks.insert(key, held).is_some() {
-                return Err(Error::Format("repeated chunk extras"));
-            }
-        }
-        Ok(Self { chunks })
-    }
-}
-
-impl PlayerExtra {
     /// Writes the compound as saved and the user's values ([`UserData::checkpoint_player`]).
     ///
     /// [`UserData::checkpoint_player`]: super::task::UserData::checkpoint_player
@@ -283,20 +307,16 @@ impl PlayerExtra {
         data.checkpoint_player(user, w);
     }
 
-    /// Reads what [`Self::checkpoint`] wrote.
-    pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
-        data: &super::task::UserData,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
-        Ok(Self {
-            raw: Codec::decode(r)?,
-            user: data.restore_player(r)?,
-        })
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        // The user's values are hashed with their types' codecs (`task::UserData::hash_into`).
+        let Self { raw, user: _ } = self;
+        hash_nbt(h, raw);
     }
 }
 
-/// A player's saved extra arrived (empty for a new player): what the player keeps while online.
+/// What the player keeps while online, made from the saved extra that arrived with it (empty for
+/// a new player).
 pub(super) fn player_loaded(extra: Compound) -> PlayerExtra {
     PlayerExtra {
         raw: extra,
@@ -304,9 +324,14 @@ pub(super) fn player_loaded(extra: Compound) -> PlayerExtra {
     }
 }
 
-/// The extra to save for a player: every module's keys, and the raw keys no module owns.
+/// A copy of the extra as saved, for a save to write the keys of the modules over.
 pub(super) fn player_saved(extra: &PlayerExtra) -> Compound {
     extra.raw.clone()
+}
+
+/// The dirty bit of an extras kind.
+const fn bit(kind: ChunkKind) -> u8 {
+    1 << kind as u8
 }
 
 /// Hashes a compound by its little-endian NBT bytes.
@@ -321,16 +346,17 @@ pub(super) fn hash_nbt(h: &mut super::Fnv, compound: &Compound) {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::super::queue::Input;
-    use super::super::tests::{answer, join, new_state, radius, settings};
-    use super::super::{InputLog, Output, Phase, State, boundary, deliver, step};
     use super::*;
+
     use crate::event::Listeners;
     use crate::nbt::Value;
     use crate::pool::Pool;
     use crate::protocol::Rng;
     use crate::save::{PlayerData, PlayerLoad, Request, Response, Snapshot, Stored};
     use crate::storage::codec::tests::random_compound;
+    use crate::tick::queue::{Input, Outbound};
+    use crate::tick::tests::{answer, join, leave, new_state, radius, settings, teleported};
+    use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, step};
 
     /// The extras the stand-in save thread answers for a chunk, as if the file held them: a
     /// function of the position, so a replay gets them again. One chunk in five has every kind,
@@ -377,7 +403,7 @@ pub(super) mod tests {
         answers: Vec<Response>,
         commits: Vec<Snapshot>,
         /// Receivers of the joined sessions; dropping one would drop its session.
-        receivers: Vec<tokio::sync::mpsc::Receiver<super::super::queue::Outbound>>,
+        receivers: Vec<tokio::sync::mpsc::Receiver<Outbound>>,
     }
 
     impl Driver {
@@ -451,12 +477,46 @@ pub(super) mod tests {
             assert_eq!(extras, Some(&sample(world, pos).extras), "{pos:?}");
             assert!(!held.is_dirty());
         }
-        driver.tick(&mut state, vec![super::super::tests::leave(1, 2)]);
+        driver.tick(&mut state, vec![leave(1, 2)]);
         assert_eq!(state.chunks.extras.len(), 9, "only the spawn chunks stay");
         assert_one_entry_per_loaded_chunk(&state);
         assert!(
             state.chunks.unsaved.is_empty(),
             "unchanged extras are not kept"
+        );
+    }
+
+    #[test]
+    fn a_snapshot_takes_the_changed_lists_of_its_world_once() {
+        let mut extras = Extras::default();
+        let near = (0, ChunkPos::new(1, 2));
+        let far = (0, ChunkPos::new(-5, 7));
+        let other = (1, ChunkPos::new(1, 2));
+        for key in [near, far, other] {
+            extras.chunk_loaded(key, ChunkExtras::default());
+        }
+        let added = random_compound(&mut Rng(0xe7_0003), 3);
+        extras
+            .get_mut(far, ChunkKind::Entities)
+            .unwrap()
+            .push(added.clone());
+        extras
+            .get_mut(other, ChunkKind::BlockEntities)
+            .unwrap()
+            .push(added.clone());
+        assert_eq!(
+            extras.take_dirty(0),
+            [(far.1, ChunkKind::Entities, vec![added.clone()])]
+        );
+        assert!(extras.take_dirty(0).is_empty(), "the marks were cleared");
+        // A changed chunk that unloads takes its marks along, and coming back brings them again.
+        let held = extras.chunk_unloaded(other).unwrap();
+        assert!(held.is_dirty());
+        assert!(extras.take_dirty(1).is_empty());
+        extras.chunk_restored(other, held);
+        assert_eq!(
+            extras.take_dirty(1),
+            [(other.1, ChunkKind::BlockEntities, vec![added])]
         );
     }
 
@@ -467,7 +527,7 @@ pub(super) mod tests {
         let far = [150.5, -58.38, 0.5];
         let home = [0.5, -58.38, 0.5];
         driver.join(&mut state, vec![radius(1, 1, 1)]);
-        super::super::tests::teleported(&mut state, 1, far);
+        teleported(&mut state, 1, far);
         driver.tick(&mut state, Vec::new());
         driver.settle(&mut state);
         let key = (0, ChunkPos::new(9, 0));
@@ -482,20 +542,20 @@ pub(super) mod tests {
         let changed = list.clone();
 
         // The view leaves before any save: terrain and extras wait in memory, extras dirty.
-        super::super::tests::teleported(&mut state, 1, home);
+        teleported(&mut state, 1, home);
         driver.tick(&mut state, Vec::new());
         assert!(!state.worlds[0].is_chunk_loaded(key.1));
         let unsaved = &state.chunks.unsaved[&key];
         assert!(unsaved.snapshot.is_none() && unsaved.extras.is_dirty());
         assert!(!unsaved.chunk.is_dirty(), "the terrain did not change");
         // Coming back takes them from memory, still dirty, without a load.
-        super::super::tests::teleported(&mut state, 1, far);
+        teleported(&mut state, 1, far);
         driver.tick(&mut state, Vec::new());
         assert!(!state.chunks.requested.contains(&key));
         let held = &state.chunks.extras.chunks[&key];
         assert!(held.is_dirty());
         assert_eq!(held.extras.get(ChunkKind::Entities), changed.as_slice());
-        super::super::tests::teleported(&mut state, 1, home);
+        teleported(&mut state, 1, home);
         driver.tick(&mut state, Vec::new());
 
         // A snapshot takes the changed list alone, byte for byte; the terrain is not written.
@@ -522,11 +582,11 @@ pub(super) mod tests {
         assert_eq!(state.chunks.unsaved[&key].snapshot, Some(start));
 
         // Held again and released again before the commit: still in memory, clean.
-        super::super::tests::teleported(&mut state, 1, far);
+        teleported(&mut state, 1, far);
         driver.tick(&mut state, Vec::new());
         assert!(!state.chunks.requested.contains(&key));
         assert!(!state.chunks.extras.chunks[&key].is_dirty());
-        super::super::tests::teleported(&mut state, 1, home);
+        teleported(&mut state, 1, home);
         driver.tick(&mut state, Vec::new());
         assert_eq!(state.chunks.unsaved[&key].snapshot, Some(start));
         assert_eq!(
@@ -541,7 +601,7 @@ pub(super) mod tests {
         driver.answers.push(Response::Committed { start });
         driver.tick(&mut state, Vec::new());
         assert!(!state.chunks.unsaved.contains_key(&key));
-        super::super::tests::teleported(&mut state, 1, far);
+        teleported(&mut state, 1, far);
         driver.tick(&mut state, Vec::new());
         assert!(state.chunks.requested.contains(&key));
     }
@@ -569,7 +629,7 @@ pub(super) mod tests {
         assert_eq!(player.phase, Phase::Joined);
         assert_eq!(player.extra.raw(), &extra);
         // A move makes the data dirty; the snapshot carries the extra as it came.
-        super::super::tests::teleported(&mut state, 1, [4.5, -58.38, 3.5]);
+        teleported(&mut state, 1, [4.5, -58.38, 3.5]);
         driver.tick(&mut state, Vec::new());
         state.saving.requested = true;
         driver.tick(&mut state, Vec::new());
@@ -580,10 +640,10 @@ pub(super) mod tests {
         assert!(kept(&snapshot.players[0].1.extra));
         assert_eq!(
             snapshot.players[0].1.position,
-            [4.5, f64::from(-58.38f32), 3.5]
+            [4.5, f64::from(-58.38_f32), 3.5]
         );
         // Leaving before the commit keeps the data, extra included, in memory.
-        driver.tick(&mut state, vec![super::super::tests::leave(1, 2)]);
+        driver.tick(&mut state, vec![leave(1, 2)]);
         let offline = state.saving.offline.values().next().unwrap();
         assert!(kept(&offline.data.extra));
     }

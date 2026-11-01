@@ -1,18 +1,29 @@
-//! Tests of the public inventory API: a player's inventories, the hotbar, the window, container
-//! blocks; every write reaches the clients with a new stack network ID and raises no event.
+//! Tests of the public inventory API.
+//!
+//! They cover a player's inventories, the hotbar, the window and container blocks. Every write reaches the clients with a new stack network ID and raises no event.
 
 use std::cell::Cell;
 
-use super::super::super::Context;
 use super::*;
 use crate::event::{InventoryClose, InventoryTransaction, Priority, Window as Shown};
 use crate::inventory::{Error, Kind};
+use crate::tick::{Context, Shared, entity, extra, save, spawn};
 use crate::world;
 
+/// The block position the tests place their blocks at, next to the spawn.
+const AT: BlockPos = BlockPos::new(3, -60, 3);
+
+thread_local! {
+    /// How many events the listeners of a test heard.
+    static HEARD: Cell<u32> = const { Cell::new(0) };
+}
+
+/// A stack of `count` sticks.
 fn sticks(count: u8) -> Stack {
     Stack::new(item(it::Kind::Stick), count)
 }
 
+/// A stack of `count` coal.
 fn coal(count: u8) -> Stack {
     Stack::new(item(it::Kind::Coal), count)
 }
@@ -189,7 +200,7 @@ fn the_hotbar_selection_and_the_window_are_the_players() {
 fn container_blocks_read_both_chest_halves_and_tell_every_viewer() {
     let mut w = World::new(GameMode::Survival);
     let viewer = w.join(1);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     let other = w.double_chest(chest);
     w.open_block(viewer, chest);
     w.sent(viewer);
@@ -224,10 +235,6 @@ fn container_blocks_read_both_chest_halves_and_tell_every_viewer() {
     check_slots(&w.state);
 }
 
-thread_local! {
-    static HEARD: Cell<u32> = const { Cell::new(0) };
-}
-
 #[test]
 fn direct_writes_and_closes_raise_no_events() {
     let mut l = Listeners::default();
@@ -246,7 +253,7 @@ fn direct_writes_and_closes_raise_no_events() {
     HEARD.set(0);
     let mut w = World::with_listeners(GameMode::Survival, l);
     let s = w.join(1);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.place_block(chest, blk::Kind::Chest.default_state());
     w.open_block(s, chest);
     let mut cx = Context {
@@ -271,8 +278,8 @@ fn direct_writes_and_closes_raise_no_events() {
     assert_eq!(HEARD.get(), 1);
 }
 
-/// A stick whose saved form takes exactly `bytes` as the stack limits count it (with a `Slot`),
-/// padded with a byte array.
+/// A stick padded with a byte array until its saved form takes exactly `bytes`.
+/// The stack limits count the bytes with a `Slot`.
 fn padded(bytes: usize) -> it::Result<Stack> {
     let with_pad = |len: usize| {
         sticks(1).with_extra(Some(Extra {
@@ -301,8 +308,8 @@ fn shulker_box() -> (blk::State, Type) {
     (state, item)
 }
 
-/// A plugin cannot make a stack over the limits: the call fails and the stack it started from
-/// stays as it was.
+/// A plugin cannot make a stack over the limits.
+/// The call fails and the stack it started from stays as it was.
 #[test]
 fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
     let largest = padded(it::MAX_NBT_BYTES).expect("a stack at the limit is made");
@@ -315,10 +322,10 @@ fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
     assert_eq!(padded(it::MAX_NBT_BYTES), Ok(largest));
 }
 
-/// A player holding the largest stack in each of its 146 places (main, armour, offhand, ender
-/// chest, cursor, grid and the stacks waiting for room) and 16 user data values of the largest
-/// size commits and reads back: its extra compound is over one NBT root (4 MiB) but within its
-/// record.
+/// A player holding the largest stack everywhere commits and reads back.
+/// It holds the largest stack in each of its 146 places (main, armour, offhand, ender chest,
+/// cursor, grid and the stacks waiting for room) and 16 user data values of the largest size.
+/// Its extra compound is over one NBT root (4 MiB) but within its record.
 #[test]
 fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
     use crate::storage::codec::PlayerRecord;
@@ -333,7 +340,7 @@ fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
         })
         .collect();
     let p = w.player(s);
-    p.extra = super::super::super::extra::player_loaded(crate::nbt::Compound::from([(
+    p.extra = extra::player_loaded(crate::nbt::Compound::from([(
         "anchor:data".to_owned(),
         crate::nbt::Value::Compound(values),
     )]));
@@ -351,7 +358,7 @@ fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
         }
     }
     p.inventory.pending = vec![largest; MAX_SAVED_PENDING - 5];
-    let data = super::super::super::save::data_of(&w.state, &w.state.players[&s]);
+    let data = save::data_of(&w.state, &w.state.players[&s]);
     let record = PlayerRecord {
         world: data.world,
         position: data.position,
@@ -368,12 +375,13 @@ fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
     assert_eq!(back, record);
 }
 
-/// A shulker box takes no shulker box and no stack over 3 KiB through the API either (PMMP's
-/// `setItem` does not check), so the box with its items is always one stack.
+/// A shulker box takes through the API only what its item can carry.
+/// It takes no shulker box and no stack over 3 KiB (PMMP's `setItem` does not check), so the box
+/// with its items is always one stack.
 #[test]
 fn a_shulker_box_takes_through_the_api_only_what_its_item_can_carry() {
     let mut w = World::new(GameMode::Survival);
-    let pos = BlockPos::new(3, -60, 3);
+    let pos = AT;
     let (shulker, box_item) = shulker_box();
     w.place_block(pos, shulker);
     let mut cx = Context {
@@ -392,18 +400,19 @@ fn a_shulker_box_takes_through_the_api_only_what_its_item_can_carry() {
         inv.set_contents(&[sticks(3), Stack::new(box_item, 1)]),
         Err(Error::NotAccepted)
     );
-    assert!(
-        inv.view().item(0) == Some(&most),
+    assert_eq!(
+        inv.view().item(0),
+        Some(&most),
         "a refused set_contents changes nothing"
     );
 }
 
-/// A placed shulker box item made by a plugin with a stack its slots do not take drops that
-/// stack beside the box and keeps the rest.
+/// A placed shulker box item drops the stack its slots do not take.
+/// A plugin made the item with that stack; it drops beside the box and the rest is kept.
 #[test]
 fn a_placed_shulker_box_drops_what_its_slots_do_not_take() {
     let mut w = World::new(GameMode::Survival);
-    let pos = BlockPos::new(3, -60, 3);
+    let pos = AT;
     let (shulker, box_item) = shulker_box();
     let over = padded(it::MAX_STORED_BYTES + 100).unwrap();
     let entry = |stack: &Stack, slot: u8| {
@@ -431,14 +440,15 @@ fn a_placed_shulker_box_drops_what_its_slots_do_not_take() {
     assert_eq!(dropped(), vec![over]);
 }
 
-/// A chest of 27 shulker boxes, each full of the largest stacks a shulker box takes and named
-/// with the longest name, commits and reads back: the box's item is within the stack limit and
-/// the chest within one NBT root. A plugin's box item holding more is refused.
+/// A chest of full shulker boxes of the largest items commits and reads back.
+/// The chest holds 27 shulker boxes, each full of the largest stacks a shulker box takes and
+/// named with the longest name: the box's item is within the stack limit and the chest within
+/// one NBT root. A plugin's box item holding more is refused.
 #[test]
 fn a_chest_of_full_shulker_boxes_of_the_largest_items_commits_and_reads_back() {
     let mut w = World::new(GameMode::Survival);
     let (shulker, box_item) = shulker_box();
-    let (box_pos, chest_pos) = (BlockPos::new(3, -60, 3), BlockPos::new(5, -60, 3));
+    let (box_pos, chest_pos) = (AT, BlockPos::new(5, -60, 3));
     w.place_block(box_pos, shulker);
     w.place_block(chest_pos, blk::Kind::Chest.default_state());
     let most = padded(it::MAX_STORED_BYTES).unwrap();
@@ -485,7 +495,7 @@ fn a_chest_of_full_shulker_boxes_of_the_largest_items_commits_and_reads_back() {
     );
     // A box item holding 27 stacks of 8 KiB is not made.
     let big = padded(8 << 10).unwrap();
-    let entries = (0u8..27)
+    let entries = (0_u8..27)
         .map(|slot| {
             let mut nbt = big.to_nbt();
             nbt.insert("Slot".to_owned(), crate::nbt::Value::Byte(slot));
@@ -507,7 +517,7 @@ fn a_chest_of_full_shulker_boxes_of_the_largest_items_commits_and_reads_back() {
 fn block_inventory_viewers_are_the_players_with_its_window_open() {
     let mut w = World::new(GameMode::Survival);
     let (a, b) = (w.join(1), w.join(2));
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     let other = w.double_chest(chest);
     let anvil = BlockPos::new(6, -60, 3);
     w.place_block(anvil, blk::Kind::Anvil.default_state());
@@ -553,10 +563,10 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     let mut custom = builder.setup.custom;
     custom.finish().unwrap();
     let mut w = World::new(GameMode::Creative);
-    w.state.shared = super::super::super::Shared::new(
+    w.state.shared = Shared::new(
         crate::protocol::batch::Settings::default(),
         &custom,
-        &super::super::super::entity::Customs::default(),
+        &entity::Customs::default(),
     )
     .unwrap();
     w.state.custom = std::sync::Arc::new(custom);
@@ -564,7 +574,7 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     let p = crate::player::Id::new(s);
     // The creative batches the output phase sends `s` now, by inventory.
     let sent = |w: &mut World| {
-        let out = super::super::super::spawn::output(&mut w.state, &w.pool, &BTreeMap::default());
+        let out = spawn::output(&mut w.state, &w.pool, &BTreeMap::default());
         let batches = w.state.shared.creative_batches();
         out.into_iter()
             .filter(|(to, _)| *to == s)
@@ -617,9 +627,9 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     check_slots(&w.state);
 }
 
-/// The totem animation reaches its player alone: the off hand shows a totem of undying while the
-/// client takes the event on the player's own runtime ID, then what it holds again with its
-/// stack network ID; the stacks do not change.
+/// The totem animation reaches its player alone.
+/// The off hand shows a totem of undying while the client takes the event on the player's own
+/// runtime ID, then what it holds again with its stack network ID; the stacks do not change.
 #[test]
 fn the_totem_animation_shows_its_player_alone_a_totem_in_the_off_hand() {
     let mut w = World::new(GameMode::Survival);

@@ -27,9 +27,8 @@ use crate::event::{
 use crate::item::{Class, Enchantment, Stack, Type};
 use crate::math::{self, Vec3};
 use crate::player;
-use crate::protocol::EntityProperties;
 use crate::protocol::consts::{ActorEvent, RespawnState};
-use crate::protocol::packet::{self, DeathInfo, Packet, Respawn, SetActorData};
+use crate::protocol::packet::{self, DeathInfo, Packet, Respawn};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::entity::{
@@ -1545,9 +1544,11 @@ fn drop_death(
         stacks.into_iter().filter(keeps_on_death).collect()
     };
     let to_drop = match &event {
-        Some((e, original)) if free && e.drops != *original => {
-            replace_drops(stacks, original, valid_drops(&e.drops))
-        }
+        Some((e, original)) if free && e.drops != *original => replace_drops(
+            stacks,
+            original,
+            super::valid_stacks(&e.drops, super::MAX_LISTENER_DROPS),
+        ),
         _ => stacks,
     };
     let xp = if keep_xp {
@@ -1582,19 +1583,6 @@ fn carried(player: &Player) -> Vec<Stack> {
         .chain(std::iter::once(inv.offhand()))
         .filter(|s| !s.is_empty() && level_of(s, Enchantment::Vanishing) == 0 && !keeps_on_death(s))
         .cloned()
-        .collect()
-}
-
-/// Drops a listener set, checked: at most one inventory of non-empty stacks, each within its
-/// item's stack size.
-fn valid_drops(drops: &[Stack]) -> Vec<Stack> {
-    drops
-        .iter()
-        .filter_map(|s| {
-            let max = s.item()?.max_stack_size();
-            (!s.is_empty()).then(|| s.with_count(s.count().min(max)))
-        })
-        .take(super::MAX_LISTENER_DROPS)
         .collect()
 }
 
@@ -1803,15 +1791,10 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     };
     let mut out = vec![
         attributes::all_attributes(player),
-        attributes::update_abilities(&state.settings, player),
+        attributes::update_abilities(player),
     ];
     inventory::spawn_packets(player, &mut out);
-    let data = Packet::SetActorData(SetActorData {
-        entity_runtime_id: player.runtime_id,
-        entity_metadata: attributes::full_metadata(&state.settings, player),
-        entity_properties: EntityProperties::default(),
-        tick: 0,
-    });
+    let data = attributes::actor_data(player.runtime_id, attributes::full_metadata(player), 0);
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
     let health = attributes::health_packet(player);

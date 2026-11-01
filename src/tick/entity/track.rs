@@ -14,8 +14,8 @@ use crate::math::{Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::{
     ABILITY_BASE_FLY_SPEED, ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability,
-    AbilityLayerType, ArmSize, CommandPermissionLevel, EntityDataFlag, EntityDataKey, GameType,
-    MoveFlag, PermissionLevel, PlayerListAction, PlayerLocationType, WaypointAction,
+    AbilityLayerType, CommandPermissionLevel, EntityDataFlag, EntityDataKey, GameType, MoveFlag,
+    PermissionLevel, PlayerListAction, PlayerLocationType, WaypointAction,
 };
 use crate::protocol::packet::{
     AddActor, AddItemActor, AddPainting, AddPlayer, LocatorBar, MobArmourEquipment, MobEquipment,
@@ -30,26 +30,53 @@ use crate::protocol::{
 use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFF_HAND_WINDOW_BYTE};
 use crate::tick::trade::Offers;
 
-/// Ticks over which the client spreads a `MoveActorDelta`: BDS sends 0 for items, orbs and
-/// villagers (P6 game captures; 3 only for its own mobs, which Anchor does not have).
-const MOVE_TICKS: u64 = 0;
 /// The values of the base ability layer BDS sends with `AddPlayer` (P6 `duplicate`): build,
 /// mine, doors and switches, open containers, attack players and mobs (a combination with no
 /// single generated constant).
 const ABILITY_VALUES: u32 = 63;
+/// The particle a potion's cloud shows (BDS, P6 `potions`).
+const CLOUD_PARTICLE: i32 = 35;
 /// The potion splash colour of an effect-less potion or cloud (PMMP
 /// `PotionSplashParticle::DEFAULT_COLOR`, ARGB 0x385dc6).
 pub(super) const DEFAULT_POTION_COLOUR: [u8; 4] = [0x38, 0x5d, 0xc6, 0xff];
-/// The default skin of human NPCs: one opaque colour on the standard 64 × 32 model (the API can
-/// give an NPC its own skin).
+/// Ticks over which the client spreads a `MoveActorDelta`: BDS sends 0 for items, orbs and
+/// villagers (P6 game captures; 3 only for its own mobs, which Anchor does not have).
+const MOVE_TICKS: u64 = 0;
+/// The colour of the default skin of human NPCs: one opaque colour.
 const NPC_SKIN_COLOUR: [u8; 4] = [0x9a, 0x6e, 0x52, 0xff];
-/// The health attribute (PMMP `Attribute::HEALTH`).
-const HEALTH: &str = "minecraft:health";
+/// The ID of the default skin of human NPCs.
+const NPC_SKIN_ID: &str = "Standard_Custom";
+/// The pixels of the default skin of human NPCs: the standard 64 × 32 model.
+const NPC_SKIN_PIXELS: usize = 64 * 32;
+/// The update flags of BDS's waypoint add (all) (P6 `others`).
+const WAYPOINT_ALL: u32 = 63;
+/// The update flags of BDS's waypoint update right after the add (P6 `others`).
+const WAYPOINT_FOLLOW: u32 = 44;
+/// The update flag BDS gives a change of visibility (P6 `others`: 2, where gophertunnel's
+/// `WaypointUpdateFlagVisible` is 1).
+const WAYPOINT_VISIBLE: u32 = 2;
+
+/// What a viewer needs to draw another player.
+#[derive(Debug, Clone)]
+pub(super) struct Shown<'a> {
+    pub(super) runtime_id: u64,
+    pub(super) uuid: Uuid,
+    pub(super) name: &'a str,
+    /// The eye position.
+    pub(super) eye: Vec3,
+    pub(super) game_mode: GameMode,
+    pub(super) held: &'a Stack,
+    /// The player's whole entity data, as its own client gets it (`survival::full_metadata`).
+    pub(super) data: EntityMetadata,
+    /// The device ID and the build platform (device OS) its client gave.
+    pub(super) device_id: &'a str,
+    pub(super) build_platform: i32,
+}
 
 /// The flags of an entity (PMMP `Entity::syncNetworkData` and the kinds' additions): gravity,
 /// collision, the name tag shown, invisible, burning, no client prediction while it rests
-/// (`still`); a critical arrow, a lingering potion, lit TNT, an end crystal's base, a trident's
-/// enchantment glint.
+/// (`still`); lit TNT, a critical arrow, a lingering potion, a trident's enchantment glint, an end
+/// crystal's base.
 pub(super) fn flags(entity: &Entity, still: bool) -> u64 {
     let mut set = FlagSet::<EntityDataFlag>::new();
     if entity.gravity {
@@ -69,6 +96,7 @@ pub(super) fn flags(entity: &Entity, still: bool) -> u64 {
         set.insert(EntityDataFlag::NoAi);
     }
     match &entity.kind {
+        Kind::Tnt(_) => set.insert(EntityDataFlag::Ignited),
         Kind::Projectile(Projectile {
             shot: Shot::Arrow(a),
             ..
@@ -83,239 +111,11 @@ pub(super) fn flags(entity: &Entity, still: bool) -> u64 {
         }) if t.item.extra().is_some_and(|x| !x.enchantments.is_empty()) => {
             set.insert(EntityDataFlag::Enchanted);
         }
-        Kind::Tnt(_) => set.insert(EntityDataFlag::Ignited),
         Kind::EndCrystal(c) if c.show_base => set.insert(EntityDataFlag::ShowBottom),
         kind if kind.is_baby() => set.insert(EntityDataFlag::Baby),
         _ => {}
     }
     set.words()[0]
-}
-
-/// The ARGB int of an RGBA colour (PMMP `Color::toARGB`, [`crate::tile::to_argb`]).
-pub(super) fn argb([r, g, b, a]: [u8; 4]) -> i32 {
-    crate::tile::to_argb(crate::protocol::Rgba { r, g, b, a })
-}
-
-/// The bubble colour of effects (PMMP `EffectCollection::getBubbleColor` and `Color::mix`: the
-/// mean of each visible effect's colour, once per level); the default colour without one.
-pub(super) fn effect_colour(effects: &[crate::effect::Instance]) -> [u8; 4] {
-    crate::effect::mix(effects.iter().filter(|e| e.is_visible())).unwrap_or(DEFAULT_POTION_COLOUR)
-}
-
-/// The metadata of an entity (PMMP `syncNetworkData` and the kinds' additions), with the flags
-/// last sent.
-pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
-    let (width, height) = entity.size();
-    let mut m = EntityMetadata::new();
-    let mut put = |k: EntityDataKey, v: MetadataValue| {
-        m.insert(k as u32, v);
-    };
-    put(
-        EntityDataKey::Flags,
-        MetadataValue::Int64(entity.sent.flags.cast_signed()),
-    );
-    put(
-        EntityDataKey::AlwaysShowNameTag,
-        MetadataValue::Byte(u8::from(entity.name_tag_always_visible)),
-    );
-    put(
-        EntityDataKey::Height,
-        MetadataValue::Float32(to_f32(height)),
-    );
-    put(EntityDataKey::Width, MetadataValue::Float32(to_f32(width)));
-    put(
-        EntityDataKey::Scale,
-        MetadataValue::Float32(to_f32(entity.scale)),
-    );
-    put(EntityDataKey::LeashHolder, MetadataValue::Int64(-1));
-    // A firework rocket shows no owner (BDS, P6 `entities`).
-    let owner = match &entity.kind {
-        Kind::Projectile(p) if p.owner_runtime_id != 0 => super::unique_id(p.owner_runtime_id),
-        _ => -1,
-    };
-    put(EntityDataKey::Owner, MetadataValue::Int64(owner));
-    put(EntityDataKey::Target, MetadataValue::Int64(0));
-    put(
-        EntityDataKey::Name,
-        MetadataValue::String(entity.name_tag.clone()),
-    );
-    put(EntityDataKey::Score, MetadataValue::String(String::new()));
-    put(EntityDataKey::ColorIndex, MetadataValue::Byte(0));
-    match &entity.kind {
-        Kind::Item(_)
-        | Kind::Projectile(_)
-        | Kind::Painting(_)
-        | Kind::Npc(Character {
-            form: Form::Human { .. } | Form::Custom(_) | Form::Zombie { .. },
-            ..
-        }) => {}
-        Kind::EndCrystal(_) | Kind::Firework(_) => object_metadata(&entity.kind, &mut put),
-        Kind::ExperienceOrb(orb) => {
-            put(
-                EntityDataKey::Value,
-                MetadataValue::Int32(i32::from(orb.value)),
-            );
-        }
-        Kind::FallingBlock(falling) => {
-            let id = falling.block.network_id().cast_signed();
-            put(EntityDataKey::Variant, MetadataValue::Int32(id));
-        }
-        Kind::Tnt(tnt) => {
-            put(
-                EntityDataKey::Variant,
-                MetadataValue::Int32(i32::from(tnt.underwater)),
-            );
-            put(
-                EntityDataKey::FuseTime,
-                MetadataValue::Int32(i32::from(tnt.fuse)),
-            );
-        }
-        Kind::Cloud(cloud) => cloud_metadata(cloud, &mut put),
-        Kind::Npc(Character {
-            form: Form::Villager {
-                profession, offers, ..
-            },
-            ..
-        }) => {
-            put(
-                EntityDataKey::Variant,
-                MetadataValue::Int32(i32::from(*profession)),
-            );
-            // BDS `villager_v2` (P6 `trade`): the tier, the top tier, the trade experience and a
-            // skin (BDS picks one of a few at random; Anchor shows the first).
-            put(EntityDataKey::TradeTier, trade_tier(offers));
-            put(
-                EntityDataKey::MaxTradeTier,
-                MetadataValue::Int32(i32::from(MAX_TRADE_TIER)),
-            );
-            put(EntityDataKey::TradeExperience, trade_experience(offers));
-            put(EntityDataKey::SkinId, MetadataValue::Int32(0));
-        }
-    }
-    if let Kind::Projectile(Projectile {
-        shot: Shot::Potion { potion, .. },
-        ..
-    }) = &entity.kind
-    {
-        put(
-            EntityDataKey::AuxValueData,
-            MetadataValue::Int16(i16::from(potion.id())),
-        );
-    }
-    m
-}
-
-/// An end crystal's and a firework rocket's own metadata (PMMP `EndCrystal::syncNetworkData`: the
-/// beam target, (0, 0, 0) without one; a rocket as BDS shows it (P6 `entities`): the item's NBT
-/// with the explosions and the flight, the direction (0, 1, 0) and no attached entity (-1)).
-fn object_metadata(kind: &Kind, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
-    match kind {
-        Kind::EndCrystal(c) => {
-            let t = c.beam_target.unwrap_or_default();
-            put(
-                EntityDataKey::BlockTarget,
-                MetadataValue::BlockPos([t.x, t.y, t.z]),
-            );
-        }
-        Kind::Firework(f) => {
-            let explosions = List::Compound(f.explosions.clone());
-            let fireworks = Compound::from([(
-                object::TAG_FIREWORKS.to_owned(),
-                Value::Compound(Compound::from([
-                    (object::TAG_EXPLOSIONS.to_owned(), Value::List(explosions)),
-                    (object::TAG_FLIGHT.to_owned(), Value::Byte(f.flight)),
-                ])),
-            )]);
-            put(
-                EntityDataKey::DISPLAY_FIREWORK,
-                MetadataValue::CompoundTag(fireworks),
-            );
-            put(
-                EntityDataKey::DisplayOffset,
-                MetadataValue::Vec3([0.0, 1.0, 0.0]),
-            );
-            put(EntityDataKey::CustomDisplay, MetadataValue::Int64(-1));
-        }
-        _ => {}
-    }
-}
-
-/// A villager's `TradeTier`.
-fn trade_tier(offers: &Offers) -> MetadataValue {
-    MetadataValue::Int32(i32::from(offers.tier()))
-}
-
-/// A villager's `TradeExperience` (kept at most `i32::MAX`).
-fn trade_experience(offers: &Offers) -> MetadataValue {
-    MetadataValue::Int32(i32::try_from(offers.experience()).unwrap_or(i32::MAX))
-}
-
-/// The `SetActorData` of a villager whose tier or trade experience changed from `before`: only
-/// the changed keys, as BDS sends after a trade (P6 `trade`); `None` if neither changed.
-pub(super) fn trade_data(runtime_id: u64, offers: &Offers, before: (u8, u32)) -> Option<Packet> {
-    let mut m = EntityMetadata::new();
-    if offers.tier() != before.0 {
-        m.insert(EntityDataKey::TradeTier as u32, trade_tier(offers));
-    }
-    if offers.experience() != before.1 {
-        m.insert(
-            EntityDataKey::TradeExperience as u32,
-            trade_experience(offers),
-        );
-    }
-    (!m.is_empty()).then(|| {
-        Packet::SetActorData(SetActorData {
-            entity_runtime_id: runtime_id,
-            entity_metadata: m,
-            ..SetActorData::default()
-        })
-    })
-}
-
-/// The particle a potion's cloud shows (BDS, P6 `potions`).
-const CLOUD_PARTICLE: i32 = 35;
-
-/// A cloud's metadata as BDS shows a lingering potion's (P6 `potions`; PMMP
-/// `AreaEffectCloud::syncNetworkData` names the keys): the radius, colour, particle, duration,
-/// radius change on pickup and pickup count. The radius change per tick stays 0: the server
-/// shrinks the cloud and sends its radius.
-fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
-    put(
-        EntityDataKey::DataRadius,
-        MetadataValue::Float32(to_f32(cloud.radius)),
-    );
-    put(
-        EntityDataKey::EffectColor,
-        MetadataValue::Int32(argb(effect_colour(&cloud.effects))),
-    );
-    put(
-        EntityDataKey::DataParticle,
-        MetadataValue::Int32(CLOUD_PARTICLE),
-    );
-    put(
-        EntityDataKey::DataDuration,
-        MetadataValue::Int32(cloud.max_age),
-    );
-    put(
-        EntityDataKey::DataChangeOnPickup,
-        MetadataValue::Float32(to_f32(cloud.radius_on_pickup)),
-    );
-    put(EntityDataKey::DataChangeRate, MetadataValue::Float32(0.0));
-    put(
-        EntityDataKey::DataPickupCount,
-        MetadataValue::Int32(cloud.pickup_count),
-    );
-}
-
-/// Where the client draws the entity.
-pub(super) fn shown_at(entity: &Entity) -> [f32; 3] {
-    let offset = Vec3::new(0.0, entity.kind.network_offset(), 0.0);
-    (entity.body.position + offset).to_f32()
-}
-
-/// The network form of a stack (PMMP `ItemStackWrapper::legacy`: no stack network ID).
-pub(super) fn instance(stack: &Stack) -> ItemInstance {
-    stack.to_instance(0)
 }
 
 /// The packets that show an entity to a player ([`add`]), then an NPC's held item: `AddActor`
@@ -446,95 +246,268 @@ fn add_painting(entity: &Entity, painting: Painting) -> Packet {
     })
 }
 
-/// The skin of human NPCs ([`NPC_SKIN_COLOUR`] on the standard model).
+/// The default skin of human NPCs ([`NPC_SKIN_COLOUR`] on the standard model).
 fn npc_skin() -> Skin {
-    Skin {
-        skin_id: "Standard_Custom".to_owned(),
-        full_id: "Standard_Custom".to_owned(),
-        skin_resource_patch: br#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_vec(),
-        skin_image_width: 64,
-        skin_image_height: 32,
-        skin_data: NPC_SKIN_COLOUR.repeat(64 * 32),
-        skin_geometry: crate::entity::NO_CUSTOM_GEOMETRY.to_vec(),
-        geometry_data_engine_version: b"0.0.0".to_vec(),
-        arm_size: ArmSize::Wide.into(),
-        trusted: true,
-        ..Skin::default()
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the ID is not empty and the image has an accepted size"
+    )]
+    let skin = crate::entity::Skin::new(NPC_SKIN_ID, NPC_SKIN_COLOUR.repeat(NPC_SKIN_PIXELS))
+        .expect("the default NPC skin is a valid skin");
+    skin.to_protocol()
+}
+
+/// All the metadata of an entity with `flags`, after the API changed some of it (PMMP sends the
+/// dirty properties; a change through the API is rare, so all of them go).
+pub(super) fn all_data(entity: &Entity, flags: u64) -> Packet {
+    let mut m = metadata(entity);
+    m.insert(
+        EntityDataKey::Flags as u32,
+        MetadataValue::Int64(flags.cast_signed()),
+    );
+    Packet::SetActorData(SetActorData {
+        entity_runtime_id: entity.runtime_id,
+        entity_metadata: m,
+        ..SetActorData::default()
+    })
+}
+
+/// The flags of an entity that changed, and a cloud's radius (PMMP sends the dirty properties).
+pub(super) fn data(runtime_id: u64, flags: u64, radius: Option<f64>) -> Packet {
+    let mut m = EntityMetadata::new();
+    m.insert(
+        EntityDataKey::Flags as u32,
+        MetadataValue::Int64(flags.cast_signed()),
+    );
+    if let Some(r) = radius {
+        m.insert(
+            EntityDataKey::DataRadius as u32,
+            MetadataValue::Float32(to_f32(r)),
+        );
+        m.insert(
+            EntityDataKey::Width as u32,
+            MetadataValue::Float32(to_f32(r * 2.0)),
+        );
+    }
+    Packet::SetActorData(SetActorData {
+        entity_runtime_id: runtime_id,
+        entity_metadata: m,
+        ..SetActorData::default()
+    })
+}
+
+/// The metadata of an entity (PMMP `syncNetworkData` and the kinds' additions), with the flags
+/// last sent.
+fn metadata(entity: &Entity) -> EntityMetadata {
+    let (width, height) = entity.size();
+    let mut m = EntityMetadata::new();
+    let mut put = |k: EntityDataKey, v: MetadataValue| {
+        m.insert(k as u32, v);
+    };
+    put(
+        EntityDataKey::Flags,
+        MetadataValue::Int64(entity.sent.flags.cast_signed()),
+    );
+    put(
+        EntityDataKey::AlwaysShowNameTag,
+        MetadataValue::Byte(u8::from(entity.name_tag_always_visible)),
+    );
+    put(
+        EntityDataKey::Height,
+        MetadataValue::Float32(to_f32(height)),
+    );
+    put(EntityDataKey::Width, MetadataValue::Float32(to_f32(width)));
+    put(
+        EntityDataKey::Scale,
+        MetadataValue::Float32(to_f32(entity.scale)),
+    );
+    put(EntityDataKey::LeashHolder, MetadataValue::Int64(-1));
+    // A firework rocket shows no owner (BDS, P6 `entities`).
+    let owner = match &entity.kind {
+        Kind::Projectile(p) if p.owner_runtime_id != 0 => super::unique_id(p.owner_runtime_id),
+        _ => -1,
+    };
+    put(EntityDataKey::Owner, MetadataValue::Int64(owner));
+    put(EntityDataKey::Target, MetadataValue::Int64(0));
+    put(
+        EntityDataKey::Name,
+        MetadataValue::String(entity.name_tag.clone()),
+    );
+    put(EntityDataKey::Score, MetadataValue::String(String::new()));
+    put(EntityDataKey::ColorIndex, MetadataValue::Byte(0));
+    match &entity.kind {
+        Kind::Item(_)
+        | Kind::Projectile(_)
+        | Kind::Painting(_)
+        | Kind::Npc(Character {
+            form: Form::Zombie { .. } | Form::Human { .. } | Form::Custom(_),
+            ..
+        }) => {}
+        Kind::ExperienceOrb(orb) => {
+            put(
+                EntityDataKey::Value,
+                MetadataValue::Int32(i32::from(orb.value)),
+            );
+        }
+        Kind::FallingBlock(falling) => {
+            let id = falling.block.network_id().cast_signed();
+            put(EntityDataKey::Variant, MetadataValue::Int32(id));
+        }
+        Kind::Tnt(tnt) => {
+            put(
+                EntityDataKey::Variant,
+                MetadataValue::Int32(i32::from(tnt.underwater)),
+            );
+            put(
+                EntityDataKey::FuseTime,
+                MetadataValue::Int32(i32::from(tnt.fuse)),
+            );
+        }
+        Kind::Cloud(cloud) => cloud_metadata(cloud, &mut put),
+        Kind::Npc(Character {
+            form: Form::Villager {
+                profession, offers, ..
+            },
+            ..
+        }) => {
+            put(
+                EntityDataKey::Variant,
+                MetadataValue::Int32(i32::from(*profession)),
+            );
+            // BDS `villager_v2` (P6 `trade`): the tier, the top tier, the trade experience and a
+            // skin (BDS picks one of a few at random; Anchor shows the first).
+            put(EntityDataKey::TradeTier, trade_tier(offers));
+            put(
+                EntityDataKey::MaxTradeTier,
+                MetadataValue::Int32(i32::from(MAX_TRADE_TIER)),
+            );
+            put(EntityDataKey::TradeExperience, trade_experience(offers));
+            put(EntityDataKey::SkinId, MetadataValue::Int32(0));
+        }
+        Kind::EndCrystal(_) | Kind::Firework(_) => object_metadata(&entity.kind, &mut put),
+    }
+    if let Kind::Projectile(Projectile {
+        shot: Shot::Potion { potion, .. },
+        ..
+    }) = &entity.kind
+    {
+        put(
+            EntityDataKey::AuxValueData,
+            MetadataValue::Int16(i16::from(potion.id())),
+        );
+    }
+    m
+}
+
+/// Puts an end crystal's and a firework rocket's own metadata (PMMP `EndCrystal::
+/// syncNetworkData`: the beam target, (0, 0, 0) without one; a rocket as BDS shows it (P6
+/// `entities`): the item's NBT with the explosions and the flight, the direction (0, 1, 0) and no
+/// attached entity (-1)).
+fn object_metadata(kind: &Kind, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
+    match kind {
+        Kind::EndCrystal(c) => {
+            let t = c.beam_target.unwrap_or_default();
+            put(
+                EntityDataKey::BlockTarget,
+                MetadataValue::BlockPos([t.x, t.y, t.z]),
+            );
+        }
+        Kind::Firework(f) => {
+            let explosions = List::Compound(f.explosions.clone());
+            let fireworks = Compound::from([(
+                object::TAG_FIREWORKS.to_owned(),
+                Value::Compound(Compound::from([
+                    (object::TAG_EXPLOSIONS.to_owned(), Value::List(explosions)),
+                    (object::TAG_FLIGHT.to_owned(), Value::Byte(f.flight)),
+                ])),
+            )]);
+            put(
+                EntityDataKey::DISPLAY_FIREWORK,
+                MetadataValue::CompoundTag(fireworks),
+            );
+            put(
+                EntityDataKey::DisplayOffset,
+                MetadataValue::Vec3([0.0, 1.0, 0.0]),
+            );
+            put(EntityDataKey::CustomDisplay, MetadataValue::Int64(-1));
+        }
+        _ => {}
     }
 }
 
-/// The player list UUID of a human NPC with runtime ID `runtime_id` (version 4 form; the bytes
-/// are a fixed tag and the runtime ID, so no player's UUID equals it in practice).
-pub(super) fn npc_uuid(runtime_id: u64) -> Uuid {
-    let [r0, r1, r2, r3, r4, r5, r6, r7] = runtime_id.to_be_bytes();
-    Uuid::from_bytes([
-        b'a',
-        b'n',
-        b'c',
-        b'h',
-        b'o',
-        b'r',
-        (b'N' & 0x0f) | 0x40,
-        b'P',
-        (r0 & 0x3f) | 0x80,
-        r1,
-        r2,
-        r3,
-        r4,
-        r5,
-        r6,
-        r7,
-    ])
+/// Puts a cloud's metadata as BDS shows a lingering potion's (P6 `potions`; PMMP
+/// `AreaEffectCloud::syncNetworkData` names the keys): the radius, colour, particle, duration,
+/// radius change on pickup and pickup count. The radius change per tick stays 0: the server
+/// shrinks the cloud and sends its radius.
+fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
+    put(
+        EntityDataKey::DataRadius,
+        MetadataValue::Float32(to_f32(cloud.radius)),
+    );
+    put(
+        EntityDataKey::EffectColor,
+        MetadataValue::Int32(argb(effect_colour(&cloud.effects))),
+    );
+    put(
+        EntityDataKey::DataParticle,
+        MetadataValue::Int32(CLOUD_PARTICLE),
+    );
+    put(
+        EntityDataKey::DataDuration,
+        MetadataValue::Int32(cloud.max_age),
+    );
+    put(
+        EntityDataKey::DataChangeOnPickup,
+        MetadataValue::Float32(to_f32(cloud.radius_on_pickup)),
+    );
+    put(EntityDataKey::DataChangeRate, MetadataValue::Float32(0.0));
+    put(
+        EntityDataKey::DataPickupCount,
+        MetadataValue::Int32(cloud.pickup_count),
+    );
 }
 
-/// The health attribute of a custom entity (PMMP `Living` sends its attributes with `AddActor`;
-/// the health as `Living::setHealth` shows it, rounded up), for the resource pack's queries; `None`
-/// for other kinds, whose health clients do not show.
-pub(super) fn health(entity: &Entity) -> Option<AttributeValue> {
-    let custom = entity.kind.custom()?;
-    Some(AttributeValue {
-        name: HEALTH.to_owned(),
-        value: to_f32(entity.health.ceil()),
-        max: to_f32(custom.spec.max_health),
-        min: 0.0,
+/// The colour of the effects `effects` show (PMMP `Color::mix` of each visible effect's colour,
+/// once per level); the default colour without one.
+pub(super) fn effect_colour(effects: &[crate::effect::Instance]) -> [u8; 4] {
+    crate::effect::mix(effects.iter().filter(|e| e.is_visible())).unwrap_or(DEFAULT_POTION_COLOUR)
+}
+
+/// The ARGB int of an RGBA colour (PMMP `Color::toARGB`, [`crate::tile::to_argb`]).
+fn argb([r, g, b, a]: [u8; 4]) -> i32 {
+    crate::tile::to_argb(crate::protocol::Rgba { r, g, b, a })
+}
+
+/// The `SetActorData` of a villager whose tier or trade experience changed from `before`: only
+/// the changed keys, as BDS sends after a trade (P6 `trade`); `None` if neither changed.
+pub(super) fn trade_data(runtime_id: u64, offers: &Offers, before: (u8, u32)) -> Option<Packet> {
+    let mut m = EntityMetadata::new();
+    if offers.tier() != before.0 {
+        m.insert(EntityDataKey::TradeTier as u32, trade_tier(offers));
+    }
+    if offers.experience() != before.1 {
+        m.insert(
+            EntityDataKey::TradeExperience as u32,
+            trade_experience(offers),
+        );
+    }
+    (!m.is_empty()).then(|| {
+        Packet::SetActorData(SetActorData {
+            entity_runtime_id: runtime_id,
+            entity_metadata: m,
+            ..SetActorData::default()
+        })
     })
 }
 
-/// A custom entity's health after it changed (PMMP `Living` sends its dirty attributes); `None`
-/// for other kinds.
-pub(super) fn health_update(entity: &Entity) -> Option<Packet> {
-    let value = health(entity)?;
-    let max = value.max;
-    Some(Packet::UpdateAttributes(UpdateAttributes {
-        entity_runtime_id: entity.runtime_id,
-        attributes: vec![Attribute {
-            attribute_value: value,
-            default_min: 0.0,
-            default_max: max,
-            default: max,
-            modifiers: Vec::new(),
-        }],
-        tick: 0,
-    }))
+/// A villager's `TradeTier`.
+fn trade_tier(offers: &Offers) -> MetadataValue {
+    MetadataValue::Int32(i32::from(offers.tier()))
 }
 
-/// The packet that removes an entity or player from a client.
-pub(super) fn remove(runtime_id: u64) -> Packet {
-    Packet::RemoveActor(RemoveActor {
-        entity_unique_id: super::unique_id(runtime_id),
-    })
-}
-
-/// Where the client drew the entity when it was last sent.
-fn shown_before(entity: &Entity) -> [f32; 3] {
-    let offset = Vec3::new(0.0, entity.kind.network_offset(), 0.0);
-    (entity.sent.position + offset).to_f32()
-}
-
-/// Whether an axis of the drawn position changed since it was last sent (BDS sends a
-/// `MoveActorDelta` every tick an entity moves, P6 `crops`).
-pub(super) fn has_moved(entity: &Entity) -> bool {
-    shown_at(entity) != shown_before(entity)
+/// A villager's `TradeExperience` (kept at most `i32::MAX`).
+fn trade_experience(offers: &Offers) -> MetadataValue {
+    MetadataValue::Int32(i32::try_from(offers.experience()).unwrap_or(i32::MAX))
 }
 
 /// The movement of an entity since `sent` as BDS sends it: only the axes and angles that
@@ -580,60 +553,85 @@ pub(super) fn movement(entity: &Entity) -> Packet {
     })
 }
 
-/// All the metadata of an entity with `flags`, after the API changed some of it (PMMP sends the
-/// dirty properties; a change through the API is rare, so all of them go).
-pub(super) fn all_data(entity: &Entity, flags: u64) -> Packet {
-    let mut m = metadata(entity);
-    m.insert(
-        EntityDataKey::Flags as u32,
-        MetadataValue::Int64(flags.cast_signed()),
-    );
-    Packet::SetActorData(SetActorData {
-        entity_runtime_id: entity.runtime_id,
-        entity_metadata: m,
-        ..SetActorData::default()
-    })
+/// Whether an axis of the drawn position changed since it was last sent (BDS sends a
+/// `MoveActorDelta` every tick an entity moves, P6 `crops`).
+pub(super) fn has_moved(entity: &Entity) -> bool {
+    shown_at(entity) != shown_before(entity)
 }
 
-/// The flags of an entity that changed, and a cloud's radius (PMMP sends the dirty properties).
-pub(super) fn data(runtime_id: u64, flags: u64, radius: Option<f64>) -> Packet {
-    let mut m = EntityMetadata::new();
-    m.insert(
-        EntityDataKey::Flags as u32,
-        MetadataValue::Int64(flags.cast_signed()),
-    );
-    if let Some(r) = radius {
-        m.insert(
-            EntityDataKey::DataRadius as u32,
-            MetadataValue::Float32(to_f32(r)),
-        );
-        m.insert(
-            EntityDataKey::Width as u32,
-            MetadataValue::Float32(to_f32(r * 2.0)),
-        );
-    }
-    Packet::SetActorData(SetActorData {
+/// A player's movement and look to the players who see it (PMMP `Entity::broadcastMovement`,
+/// dragonfly `ViewEntityMovement`): `MoveActorAbsolute` at the eye position with the ground flag
+/// and without the teleport flag, so the client interpolates it over the next frames. The client
+/// puts an actor at a `MovePlayer` at once, so that packet is only for a player's own position and
+/// for teleports (BDS sends `MovePlayer` here, which makes other players jump 20 times a second).
+pub(super) fn player_moved(
+    runtime_id: u64,
+    eye: Vec3,
+    yaw: f64,
+    pitch: f64,
+    on_ground: bool,
+) -> Packet {
+    let yaw = to_f32(yaw);
+    Packet::MoveActorAbsolute(MoveActorAbsolute {
         entity_runtime_id: runtime_id,
-        entity_metadata: m,
-        ..SetActorData::default()
+        flags: if on_ground {
+            u8::from(MoveFlag::OnGround)
+        } else {
+            0
+        },
+        position: eye.to_f32(),
+        rotation: [to_f32(pitch), yaw, yaw],
     })
 }
 
-/// What a viewer needs to draw another player.
-#[derive(Debug, Clone)]
-pub(super) struct Shown<'a> {
-    pub(super) runtime_id: u64,
-    pub(super) uuid: Uuid,
-    pub(super) name: &'a str,
-    /// The eye position.
-    pub(super) eye: Vec3,
-    pub(super) game_mode: GameMode,
-    pub(super) held: &'a Stack,
-    /// The player's whole entity data, as its own client gets it (`survival::full_metadata`).
-    pub(super) data: EntityMetadata,
-    /// The device ID and the build platform (device OS) its client gave.
-    pub(super) device_id: &'a str,
-    pub(super) build_platform: i32,
+/// Where the client drew the entity when it was last sent.
+fn shown_before(entity: &Entity) -> [f32; 3] {
+    let offset = Vec3::new(0.0, entity.kind.network_offset(), 0.0);
+    (entity.sent.position + offset).to_f32()
+}
+
+/// Where the client draws the entity.
+fn shown_at(entity: &Entity) -> [f32; 3] {
+    let offset = Vec3::new(0.0, entity.kind.network_offset(), 0.0);
+    (entity.body.position + offset).to_f32()
+}
+
+/// A custom entity's health after it changed (PMMP `Living` sends its dirty attributes); `None`
+/// for other kinds.
+pub(super) fn health_update(entity: &Entity) -> Option<Packet> {
+    let value = health(entity)?;
+    let max = value.max;
+    Some(Packet::UpdateAttributes(UpdateAttributes {
+        entity_runtime_id: entity.runtime_id,
+        attributes: vec![Attribute {
+            attribute_value: value,
+            default_min: 0.0,
+            default_max: max,
+            default: max,
+            modifiers: Vec::new(),
+        }],
+        tick: 0,
+    }))
+}
+
+/// The health attribute of a custom entity (PMMP `Living` sends its attributes with `AddActor`;
+/// the health as `Living::setHealth` shows it, rounded up), for the resource pack's queries; `None`
+/// for other kinds, whose health clients do not show.
+fn health(entity: &Entity) -> Option<AttributeValue> {
+    let custom = entity.kind.custom()?;
+    Some(AttributeValue {
+        name: survival::HEALTH_ATTRIBUTE.to_owned(),
+        value: to_f32(entity.health.ceil()),
+        max: to_f32(custom.spec.max_health),
+        min: 0.0,
+    })
+}
+
+/// The packet that removes an entity or player from a client.
+pub(super) fn remove(runtime_id: u64) -> Packet {
+    Packet::RemoveActor(RemoveActor {
+        entity_unique_id: super::unique_id(runtime_id),
+    })
 }
 
 /// The packet that shows a player to another as BDS shows it (P6 `others`): the feet position, the
@@ -696,31 +694,14 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
 }
 
 /// Every ability bit, as BDS defines them all in a base layer.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: there are fewer than 32 abilities"
+)]
 fn every_ability() -> u32 {
     let all: FlagSet<Ability> = Ability::ALL.into_iter().collect();
     let [bits, ..] = all.words();
-    u32::try_from(bits).unwrap_or(u32::MAX)
-}
-
-/// The update flag BDS gives a change of visibility (P6 `others`: 2, where gophertunnel's
-/// `WaypointUpdateFlagVisible` is 1).
-const WAYPOINT_VISIBLE: u32 = 2;
-/// The update flags of BDS's waypoint add (all) and of its update right after (P6 `others`).
-const WAYPOINT_ALL: u32 = 63;
-const WAYPOINT_FOLLOW: u32 = 44;
-
-/// A waypoint of the player with runtime ID `runtime_id`; its group handle is made of the ID
-/// (BDS's is a random UUID per player, P6 `others`).
-fn waypoint(runtime_id: u64, action: u8, waypoint: Waypoint) -> Packet {
-    let mut handle = [0; 16];
-    handle[8..].copy_from_slice(&runtime_id.to_be_bytes());
-    Packet::LocatorBar(LocatorBar {
-        waypoints: vec![LocatorBarWaypoint {
-            group_handle: Uuid::from_bytes(handle),
-            waypoint,
-            action,
-        }],
-    })
+    u32::try_from(bits).expect("the abilities fit a u32")
 }
 
 /// What a player sees of another on its locator bar when it starts seeing it, as BDS sends it (P6
@@ -801,28 +782,17 @@ pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet>
     ]
 }
 
-/// A player's movement and look to the players who see it (PMMP `Entity::broadcastMovement`,
-/// dragonfly `ViewEntityMovement`): `MoveActorAbsolute` at the eye position with the ground flag
-/// and without the teleport flag, so the client interpolates it over the next frames. The client
-/// puts an actor at a `MovePlayer` at once, so that packet is only for a player's own position and
-/// for teleports (BDS sends `MovePlayer` here, which makes other players jump 20 times a second).
-pub(super) fn player_moved(
-    runtime_id: u64,
-    eye: Vec3,
-    yaw: f64,
-    pitch: f64,
-    on_ground: bool,
-) -> Packet {
-    let yaw = to_f32(yaw);
-    Packet::MoveActorAbsolute(MoveActorAbsolute {
-        entity_runtime_id: runtime_id,
-        flags: if on_ground {
-            u8::from(MoveFlag::OnGround)
-        } else {
-            0
-        },
-        position: eye.to_f32(),
-        rotation: [to_f32(pitch), yaw, yaw],
+/// A waypoint of the player with runtime ID `runtime_id`; its group handle is made of the ID
+/// (BDS's is a random UUID per player, P6 `others`).
+fn waypoint(runtime_id: u64, action: u8, waypoint: Waypoint) -> Packet {
+    let mut handle = [0; 16];
+    handle[8..].copy_from_slice(&runtime_id.to_be_bytes());
+    Packet::LocatorBar(LocatorBar {
+        waypoints: vec![LocatorBarWaypoint {
+            group_handle: Uuid::from_bytes(handle),
+            waypoint,
+            action,
+        }],
     })
 }
 
@@ -861,9 +831,53 @@ pub(super) fn armour(runtime_id: u64, armour: &[Stack; 4]) -> Packet {
     }))
 }
 
+/// The network form of a stack (PMMP `ItemStackWrapper::legacy`: no stack network ID).
+fn instance(stack: &Stack) -> ItemInstance {
+    stack.to_instance(0)
+}
+
+/// The player list UUID of a human NPC with runtime ID `runtime_id` (version 4 form; the bytes
+/// are a fixed tag and the runtime ID, so no player's UUID equals it in practice).
+pub(super) fn npc_uuid(runtime_id: u64) -> Uuid {
+    let [r0, r1, r2, r3, r4, r5, r6, r7] = runtime_id.to_be_bytes();
+    Uuid::from_bytes([
+        b'a',
+        b'n',
+        b'c',
+        b'h',
+        b'o',
+        b'r',
+        (b'N' & 0x0f) | 0x40,
+        b'P',
+        (r0 & 0x3f) | 0x80,
+        r1,
+        r2,
+        r3,
+        r4,
+        r5,
+        r6,
+        r7,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_npc_skin_is_one_colour_on_the_standard_model() {
+        let skin = npc_skin();
+        assert_eq!(skin.skin_id, NPC_SKIN_ID);
+        assert_eq!(skin.full_id, NPC_SKIN_ID);
+        assert_eq!(
+            skin.skin_resource_patch,
+            br#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_vec()
+        );
+        assert_eq!((skin.skin_image_width, skin.skin_image_height), (64, 32));
+        assert_eq!(skin.skin_data, NPC_SKIN_COLOUR.repeat(NPC_SKIN_PIXELS));
+        assert_eq!(skin.skin_geometry, b"{}".to_vec());
+        assert!(skin.trusted);
+    }
 
     #[test]
     fn the_npc_skin_is_one_a_login_accepts() {
@@ -876,7 +890,7 @@ mod tests {
     /// leaves out.
     #[test]
     fn a_cloud_shows_bds_cloud_data() {
-        let cloud = super::super::projectile::new_cloud(&[]);
+        let cloud = crate::tick::entity::projectile::new_cloud(&[]);
         let mut m = EntityMetadata::new();
         cloud_metadata(&cloud, &mut |k, v| {
             m.insert(k as u32, v);

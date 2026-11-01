@@ -10,8 +10,6 @@
 //! needs a `Context`, and the forms are kept in the state beside the players.
 
 mod display;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -24,14 +22,43 @@ use crate::form::{self, Error, Form, MAX_PENDING, MAX_RESPONSE_BYTES, Response, 
 use crate::player;
 use crate::protocol::packet::{ClientBoundCloseForm, ModalFormRequest, ModalFormResponse, Packet};
 
-/// What runs when a form is answered.
-type Handler = Box<dyn FnOnce(&mut Context<'_>, player::Id, Response) + Send>;
-
 /// The open forms and displays of every player, by session.
 #[derive(Debug, Default)]
 pub(crate) struct Forms {
     players: BTreeMap<SessionId, Open>,
 }
+
+impl Forms {
+    /// How many players have an entry and how many forms wait in all.
+    #[cfg(test)]
+    fn counts(&self) -> (usize, usize) {
+        let pending = self.players.values().map(|o| o.pending.len()).sum();
+        (self.players.len(), pending)
+    }
+
+    /// Hashes what a replay must reproduce: form IDs, waiting forms and what is shown.
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self { players } = self;
+        h.usize(players.len());
+        for (session, open) in players {
+            let Open {
+                next,
+                pending,
+                display,
+            } = open;
+            h.u64(session.get());
+            h.u64(*next);
+            h.usize(pending.len());
+            for id in pending.keys() {
+                h.u64(u64::from(*id));
+            }
+            display.hash_into(h);
+        }
+    }
+}
+
+super::checkpoint::fields!(Forms { players });
 
 /// What one player has open.
 #[derive(Debug, Default)]
@@ -43,22 +70,6 @@ struct Open {
     /// The scoreboards and the boss bar last sent.
     display: display::Shown,
 }
-
-/// A form waiting for its answer.
-struct Pending {
-    shape: Shape,
-    handler: Handler,
-}
-
-impl fmt::Debug for Pending {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Pending")
-            .field("shape", &self.shape)
-            .finish_non_exhaustive()
-    }
-}
-
-super::checkpoint::fields!(Forms { players });
 
 /// A waiting form's handler is a closure: it has no checkpoint form, so a waiting form makes the
 /// checkpoint opaque, and reads back as none.
@@ -84,38 +95,21 @@ impl super::checkpoint::Codec for Open {
     }
 }
 
-impl Forms {
-    /// Hashes what a replay must reproduce: form IDs, waiting forms and what is shown.
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        h.usize(self.players.len());
-        for (session, open) in &self.players {
-            h.u64(session.get());
-            h.u64(open.next);
-            h.usize(open.pending.len());
-            for id in open.pending.keys() {
-                h.u64(u64::from(*id));
-            }
-            open.display.hash_into(h);
-        }
-    }
+/// What runs when a form is answered.
+type Handler = Box<dyn FnOnce(&mut Context<'_>, player::Id, Response) + Send>;
 
-    /// How many players have an entry and how many forms wait in all.
-    #[cfg(test)]
-    fn counts(&self) -> (usize, usize) {
-        let pending = self.players.values().map(|o| o.pending.len()).sum();
-        (self.players.len(), pending)
-    }
+/// A form waiting for its answer.
+struct Pending {
+    shape: Shape,
+    handler: Handler,
 }
 
-/// The player of `id` and its entry, if it is in the game (spawning or spawned, not loading).
-fn open(state: &mut State, id: player::Id) -> Option<(&mut Player, &mut Open)> {
-    let session = id.session();
-    let player = state.players.get_mut(&session)?;
-    if player.phase == Phase::Loading {
-        return None;
+impl fmt::Debug for Pending {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Pending")
+            .field("shape", &self.shape)
+            .finish_non_exhaustive()
     }
-    Some((player, state.forms.players.entry(session).or_default()))
 }
 
 impl Context<'_> {
@@ -124,8 +118,9 @@ impl Context<'_> {
     /// not show it. An answer that does not fit the form is dropped, and the handler never runs;
     /// so does a form whose player leaves first.
     ///
-    /// Fails, sending nothing, if the player is not in the game, has 16 forms waiting, was sent
-    /// `u32::MAX` forms already, or the form is invalid ([`form::Error`]).
+    /// Fails, sending nothing, with the first of these that holds: the form is invalid
+    /// ([`form::Error`]), the player is not in the game, the player has 16 forms waiting, or the
+    /// player was sent 2^32 forms already.
     #[doc(alias = "Player::sendForm")]
     #[doc(alias = "Form::handleResponse")]
     pub fn send_form(
@@ -216,3 +211,16 @@ pub(super) fn on_response(state: &mut State, session: SessionId, packet: &ModalF
 pub(super) fn left(state: &mut State, session: SessionId) {
     state.forms.players.remove(&session);
 }
+
+/// The player of `id` and its entry, if it is in the game (spawning or spawned, not loading).
+fn open(state: &mut State, id: player::Id) -> Option<(&mut Player, &mut Open)> {
+    let session = id.session();
+    let player = state.players.get_mut(&session)?;
+    if player.phase == Phase::Loading {
+        return None;
+    }
+    Some((player, state.forms.players.entry(session).or_default()))
+}
+
+#[cfg(test)]
+mod tests;

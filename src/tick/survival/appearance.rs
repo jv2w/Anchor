@@ -39,9 +39,8 @@ const SKIN_REFILL_BYTES_PER_TICK: usize = (128 << 10) / Context::TICKS_PER_SECON
 /// skin bytes that holds one skin of the largest size and refills by
 /// [`SKIN_REFILL_BYTES_PER_TICK`]. Each broadcast is held once for all its receivers
 /// ([`Player::send_shared`]) and encoded and compressed once for all their sessions, but every
-/// receiver's link carries it. A change that
-/// does not fit stays marked, and only the player's latest skin goes out when it does, so a
-/// player that changes fast costs one waiting broadcast.
+/// receiver's link carries it. A change that does not fit stays marked, and only the player's
+/// latest skin goes out when it does, so a player that changes fast costs one waiting broadcast.
 ///
 /// [`Player::send_shared`]: crate::tick::Player::send_shared
 #[derive(Debug)]
@@ -54,18 +53,6 @@ pub(in crate::tick) struct SkinBudget {
     /// session order from it and round to it, so with a spent budget every waiting player gets
     /// its turn instead of the lowest sessions first.
     turn: SessionId,
-}
-
-crate::tick::checkpoint::fields!(SkinBudget { bytes, at, turn });
-
-impl Default for SkinBudget {
-    fn default() -> Self {
-        Self {
-            bytes: MAX_SKIN_BYTES,
-            at: 0,
-            turn: SessionId::new(0),
-        }
-    }
 }
 
 impl SkinBudget {
@@ -89,8 +76,20 @@ impl SkinBudget {
     }
 }
 
+impl Default for SkinBudget {
+    fn default() -> Self {
+        Self {
+            bytes: MAX_SKIN_BYTES,
+            at: 0,
+            turn: SessionId::new(0),
+        }
+    }
+}
+
+crate::tick::checkpoint::fields!(SkinBudget { bytes, at, turn });
+
 /// When a player last emoted and changed its skin, and the skin it last asked for.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Appearance {
     /// The tick of the last emote shown.
     emote: Option<u64>,
@@ -100,12 +99,6 @@ pub(super) struct Appearance {
     /// back a skin the server sent it, which must not count as a change.
     skin_id: Option<String>,
 }
-
-crate::tick::checkpoint::fields!(Appearance {
-    emote,
-    skin,
-    skin_id
-});
 
 impl Appearance {
     /// Hashes every field (state hash).
@@ -126,7 +119,13 @@ impl Appearance {
     }
 }
 
-/// `Emote`: see [`super::on_emote`].
+crate::tick::checkpoint::fields!(Appearance {
+    emote,
+    skin,
+    skin_id
+});
+
+/// Plays the emote of an `Emote` packet; see [`super::on_emote`].
 pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
     let tick = state.tick;
     let ready = |state: &State| {
@@ -186,7 +185,7 @@ pub(super) fn valid_emote(id: &str) -> bool {
     !id.is_empty() && id.len() <= MAX_EMOTE_ID
 }
 
-/// `PlayerSkin`: see [`super::on_skin`].
+/// Changes the skin of a `PlayerSkin` packet's player; see [`super::on_skin`].
 pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin) {
     let tick = state.tick;
     let Some(player) = state.players.get_mut(&session) else {
@@ -223,12 +222,20 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
             cancelled: false,
         },
         PlayerChangeSkin::is_cancelled,
-        |state, e| state.players.contains_key(&session) && e.new_skin.is_acceptable(),
+        // A skin a listener set through the API in between is the player's now: a change that
+        // went on would overwrite it.
+        |state, e| {
+            state
+                .players
+                .get(&session)
+                .is_some_and(|p| Arc::ptr_eq(p.identity.skin.shared(), old.shared()))
+                && e.new_skin.is_acceptable()
+        },
     );
     let Ok(event) = event else {
-        // The client shows the skin it asked for: give it its own back.
+        // The client shows the skin it asked for: give it the skin the player has back.
         if let Some(player) = state.players.get_mut(&session) {
-            let packet = skin_packet(player.identity.uuid, &old);
+            let packet = skin_packet(player.identity.uuid, &player.identity.skin);
             player.send_packet(packet);
         }
         return;
@@ -241,11 +248,6 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
     // Broadcast at the end of the tick within the server's skin budget (`send_skins`).
     player.survival.custom.skin = true;
     super::watch(state, event.as_ref());
-}
-
-/// Whether the player's skin changed and waits to be broadcast ([`send_skins`]).
-pub(in crate::tick) fn skin_waits(player: &Player) -> bool {
-    player.survival.custom.skin
 }
 
 /// Broadcasts the changed skins of the spawned players while they fit in the server's skin
@@ -273,6 +275,11 @@ pub(in crate::tick) fn send_skins(state: &mut State) {
             }
         }
     }
+}
+
+/// Whether the player's skin changed and waits to be broadcast ([`send_skins`]).
+pub(in crate::tick) fn skin_waits(player: &Player) -> bool {
+    player.survival.custom.skin
 }
 
 /// Sends the skin of the player of `session` to every player (PMMP `Human::sendSkin` to all),

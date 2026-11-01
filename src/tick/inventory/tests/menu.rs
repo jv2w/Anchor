@@ -1,41 +1,91 @@
-//! Tests of fake blocks and menu windows: who is sent what and when, the bounds, and that a menu
-//! never moves an item.
+//! Tests of fake blocks and menu windows.
+//!
+//! They cover who is sent what and when, the bounds, and that a menu never moves an item.
 
 use std::cell::Cell;
 
-use super::super::super::Context;
-use super::super::super::tests::{blocks_set, input, packet};
-use super::super::super::view::MAX_FAKE_BLOCKS;
 use super::*;
 use crate::menu::{self as m, Action, Click, Kind as MenuKind, Menu, Response};
 use crate::protocol::consts::ContainerType;
 use crate::protocol::packet::SubChunkRequest;
+use crate::tick::inventory::{load, restore, save};
+use crate::tick::tests::{blocks_set, input, leave, packet};
+use crate::tick::view::MAX_FAKE_BLOCKS;
+use crate::tick::{Context, Phase, entity, survival};
+
+/// The block position the tests place their blocks at, next to the spawn.
+const AT: BlockPos = BlockPos::new(3, -60, 3);
+/// The player's slot the handler of the store test writes with each change.
+/// A box keeps a menu's items this way.
+const STORE_SLOT: u8 = 0;
+/// The main slot the request of the handler-writes test puts a stick into.
+/// The request names it by its own ID, so no stack network ID goes stale.
+const TO: u8 = 5;
 
 thread_local! {
+    /// What a lending menu's handler answers a change with.
+    static ANSWER: Cell<Response> = const { Cell::new(Response::Keep) };
+    /// How many closes the handler had heard as a quit's monitor ran.
+    static AT_MONITOR: Cell<Option<usize>> = const { Cell::new(None) };
+    /// The changes the handlers of a test heard.
+    static CHANGES: Cell<Vec<m::Change>> = const { Cell::new(Vec::new()) };
     /// The clicks the handlers of a test heard.
     static CLICKS: Cell<Vec<Click>> = const { Cell::new(Vec::new()) };
+    /// The closes the handlers of a test heard.
+    static CLOSES: Cell<Vec<m::Close>> = const { Cell::new(Vec::new()) };
+    /// How many quit events a test's listener and monitor heard.
+    static QUITS: Cell<u32> = const { Cell::new(0) };
+    /// The sticks a lending menu's handler keeps: its menu's slots and the lent ones.
+    static STORE: Cell<i64> = const { Cell::new(0) };
+    /// How many transactions a test's listener heard.
+    static TRANSACTIONS: Cell<u32> = const { Cell::new(0) };
+    /// The result of the cursor write a close handler tried.
+    static WROTE: Cell<Option<crate::inventory::Result<()>>> = const { Cell::new(None) };
 }
 
+/// What an editable menu's handler answers a change with.
+type Answer = fn(&mut Context<'_>, crate::player::Id, &m::Change) -> Response;
+
+/// How a test closes a menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Way {
+    Client,
+    Far,
+    OtherWindow,
+    Death,
+    Teleport,
+    Leave,
+    ChangeCloses,
+    ClickCloses,
+    CloseWindow,
+    OtherMenu,
+}
+
+/// The clicks the handlers heard since the last call.
 fn heard() -> Vec<Click> {
     CLICKS.take()
 }
 
+/// Keeps `click` for [`heard`].
 fn record(click: &Click) {
     let mut c = CLICKS.take();
     c.push(click.clone());
     CLICKS.set(c);
 }
 
+/// A glass block.
 fn glass() -> blk::State {
     blk::Kind::Glass.default_state()
 }
 
+/// The context over the world's state.
 fn cx(w: &mut World) -> Context<'_> {
     Context {
         state: &mut w.state,
     }
 }
 
+/// The player ID of session `s`.
 fn id(s: SessionId) -> crate::player::Id {
     crate::player::Id::new(s)
 }
@@ -175,7 +225,7 @@ fn fake_blocks_are_bounded_and_go_with_their_player() {
     w.tick(Vec::new());
     assert_eq!(cx(&mut w).send_fake_block(id(a), extra, glass()), Ok(()));
     assert_eq!(w.player(a).view.fake_count(), 1);
-    w.tick(vec![super::super::super::tests::leave(1, 90)]);
+    w.tick(vec![leave(1, 90)]);
     assert!(!w.state.players.contains_key(&a));
     assert_eq!(
         cx(&mut w).send_fake_block(id(a), extra, glass()),
@@ -184,47 +234,9 @@ fn fake_blocks_are_bounded_and_go_with_their_player() {
     assert!(!cx(&mut w).clear_fake_blocks(id(a)));
 }
 
-/// Opens `menu` for `s` with a handler that records each click and answers `response(click)`,
-/// and runs the ticks until its window opens; the packets `s` got meanwhile.
-fn open(
-    w: &mut World,
-    s: SessionId,
-    menu: Menu,
-    response: fn(&mut Context<'_>, crate::player::Id, &Click) -> Response,
-) -> (m::Id, Vec<Packet>) {
-    heard();
-    let menu = cx(w)
-        .open_menu(id(s), menu, move |cx, player, input| match input {
-            m::Input::Click(click) => {
-                record(&click);
-                response(cx, player, &click)
-            }
-            m::Input::Close(_) => Response::Keep,
-            m::Input::Change(_) => panic!("no slot is editable: {input:?}"),
-        })
-        .unwrap();
-    let mut got = Vec::new();
-    for _ in 0..3 {
-        // The client acknowledges a window the server closed for the menu.
-        w.ack(s);
-        got.extend(tick_each(w, Vec::new()).swap_remove(0));
-    }
-    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id != 0), Some(true));
-    (menu, got)
-}
-
-fn keep(_: &mut Context<'_>, _: crate::player::Id, _: &Click) -> Response {
-    Response::Keep
-}
-
+/// A diamond sword.
 fn sword() -> Stack {
     Stack::new(item(it::Kind::DiamondSword), 1)
-}
-
-/// The menu window's ID and the stack network ID of menu slot `slot`.
-fn shown(w: &World, s: SessionId, slot: usize) -> (u8, i32) {
-    let window = w.inv(s).window.as_ref().unwrap();
-    (window.id, window.ids[slot].net)
 }
 
 // pmmp: Player::setCurrentWindow
@@ -292,6 +304,40 @@ fn a_menu_opens_on_fake_blocks_with_its_title_then_its_window() {
     assert_eq!(c.content[13].stack.count, 1);
     assert_ne!(c.content[13].stack_network_id, 0);
     assert_eq!(c.content[0].stack.count, 0);
+}
+
+/// Opens `menu` for `s` with a handler that records each click and answers `response(click)`.
+/// It runs the ticks until the window opens, and returns the packets `s` got meanwhile.
+fn open(
+    w: &mut World,
+    s: SessionId,
+    menu: Menu,
+    response: fn(&mut Context<'_>, crate::player::Id, &Click) -> Response,
+) -> (m::Id, Vec<Packet>) {
+    heard();
+    let menu = cx(w)
+        .open_menu(id(s), menu, move |cx, player, input| match input {
+            m::Input::Click(click) => {
+                record(&click);
+                response(cx, player, &click)
+            }
+            m::Input::Close(_) => Response::Keep,
+            m::Input::Change(_) => panic!("no slot is editable: {input:?}"),
+        })
+        .unwrap();
+    let mut got = Vec::new();
+    for _ in 0..3 {
+        // The client acknowledges a window the server closed for the menu.
+        w.ack(s);
+        got.extend(tick_each(w, Vec::new()).swap_remove(0));
+    }
+    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id != 0), Some(true));
+    (menu, got)
+}
+
+/// A click handler answer that keeps the click as it is.
+fn keep(_: &mut Context<'_>, _: crate::player::Id, _: &Click) -> Response {
+    Response::Keep
 }
 
 #[test]
@@ -394,6 +440,13 @@ fn menu_ids_are_refused_once_used_up_and_never_wrap() {
     assert_eq!(w.state.menus.len(), 1);
 }
 
+/// The menu window's ID and the stack network ID of menu slot `slot`.
+fn shown(w: &World, s: SessionId, slot: usize) -> (u8, i32) {
+    let window = w.inv(s).window.as_ref().unwrap();
+    (window.id, window.ids[slot].net)
+}
+
+/// The request action taking one item from menu slot `slot` onto the cursor.
 fn take_from_menu(slot: u8, net: i32) -> StackRequestAction {
     take(1, at(C::LevelEntity, slot, net), at(C::Cursor, 0, 0))
 }
@@ -525,7 +578,7 @@ fn a_handler_changes_menu_items_and_closes_the_menu() {
 fn a_client_close_far_player_leave_or_other_window_closes_the_menu() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.place_block(chest, blk::Kind::Chest.default_state());
     for way in 0..4 {
         let (menu, _) = open(&mut w, s, Menu::new(MenuKind::Chest), keep);
@@ -564,7 +617,7 @@ fn a_client_close_far_player_leave_or_other_window_closes_the_menu() {
         w.ack(s);
     }
     let (_, _) = open(&mut w, s, Menu::new(MenuKind::Chest), keep);
-    w.tick(vec![super::super::super::tests::leave(1, 90)]);
+    w.tick(vec![leave(1, 90)]);
     assert_eq!(w.state.menus.len(), 0);
 }
 
@@ -574,7 +627,7 @@ fn opening_and_closing_many_menus_leaves_every_table_at_its_start() {
     let s = w.join(1);
     tick_each(&mut w, Vec::new());
     let next_id = w.inv(s).next_id;
-    for i in 0..100u8 {
+    for i in 0_u8..100 {
         let kind = [MenuKind::Chest, MenuKind::DoubleChest, MenuKind::Hopper][usize::from(i % 3)];
         let (_, _) = open(&mut w, s, Menu::new(kind).item(0, sword()), keep);
         let net = shown(&w, s, 0).1;
@@ -596,20 +649,14 @@ fn opening_and_closing_many_menus_leaves_every_table_at_its_start() {
     assert!(w.inv(s).next_id > next_id, "stack IDs only grow");
 }
 
-thread_local! {
-    /// The changes the handlers of a test heard.
-    static CHANGES: Cell<Vec<m::Change>> = const { Cell::new(Vec::new()) };
-}
-
+/// The changes the handlers heard since the last call.
 fn changes() -> Vec<m::Change> {
     CHANGES.take()
 }
 
-/// What an editable menu's handler answers a change with.
-type Answer = fn(&mut Context<'_>, crate::player::Id, &m::Change) -> Response;
-
-/// Opens `menu` for `s` with a handler that records each click (answering [`Response::Keep`]) and
-/// each change (answering `answer(change)`), and runs the ticks until its window opens.
+/// Opens `menu` for `s` with a handler that records each click and each change.
+/// It answers a click with [`Response::Keep`] and a change with `answer(change)`, and runs the
+/// ticks until the window opens.
 fn open_editable(w: &mut World, s: SessionId, menu: Menu, answer: Answer) -> m::Id {
     heard();
     changes();
@@ -636,10 +683,12 @@ fn open_editable(w: &mut World, s: SessionId, menu: Menu, answer: Answer) -> m::
     menu
 }
 
+/// A change handler answer that keeps the change.
 fn keep_change(_: &mut Context<'_>, _: crate::player::Id, _: &m::Change) -> Response {
     Response::Keep
 }
 
+/// A change handler answer that refuses the change.
 fn refuse_change(_: &mut Context<'_>, _: crate::player::Id, _: &m::Change) -> Response {
     Response::Refuse
 }
@@ -660,8 +709,9 @@ fn described(change: &m::Change) -> Vec<(bool, u8, Stack, Stack)> {
         .collect()
 }
 
-fn sticks(n: u8) -> Stack {
-    Stack::new(item(it::Kind::Stick), n)
+/// A stack of `count` sticks.
+fn sticks(count: u8) -> Stack {
+    Stack::new(item(it::Kind::Stick), count)
 }
 
 /// The totals key of `kind` without damage or extra data.
@@ -993,9 +1043,6 @@ fn a_change_whose_handler_changes_a_slot_it_names_is_refused() {
 
 #[test]
 fn a_kept_change_the_handler_made_do_otherwise_is_logged_as_the_handlers() {
-    /// The main slot the request puts a stick into, named by the request's own ID (no stack
-    /// network ID to go stale).
-    const TO: u8 = 5;
     fn fill(cx: &mut Context<'_>, player: crate::player::Id, _: &m::Change) -> Response {
         cx.player_mut(player)
             .unwrap()
@@ -1036,21 +1083,19 @@ fn a_kept_change_the_handler_made_do_otherwise_is_logged_as_the_handlers() {
 
 #[test]
 fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
-    /// The player's slot the handler writes with each change, as a box keeps a menu's items.
-    const STORE: u8 = 0;
     fn write_store(
         cx: &mut Context<'_>,
         player: crate::player::Id,
         change: &m::Change,
     ) -> Response {
         let main = crate::inventory::Kind::Main;
-        if change.is_slot_named(crate::event::Inventory::Player(main), STORE) {
+        if change.is_slot_named(crate::event::Inventory::Player(main), STORE_SLOT) {
             return Response::Refuse;
         }
         cx.player_mut(player)
             .unwrap()
             .inventory_mut(main)
-            .set(usize::from(STORE), sticks(1))
+            .set(usize::from(STORE_SLOT), sticks(1))
             .unwrap();
         Response::Keep
     }
@@ -1060,19 +1105,19 @@ fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
         w.give(s, sticks(3));
         let menu = Menu::new(MenuKind::Chest).item(0, sword()).editable(0);
         open_editable(&mut w, s, menu, write_store);
-        let stick = w.id(s, C::CombinedHotBarAndInventory, STORE);
+        let stick = w.id(s, C::CombinedHotBarAndInventory, STORE_SLOT);
         let (_, net) = shown(&w, s, 0);
         // A crafted request: a stick out of the store's slot and back, then the sword taken.
         let actions = vec![
             take(
                 1,
-                at(C::CombinedHotBarAndInventory, STORE, stick),
+                at(C::CombinedHotBarAndInventory, STORE_SLOT, stick),
                 at(C::CombinedHotBarAndInventory, 1, 0),
             ),
             place(
                 1,
                 at(C::CombinedHotBarAndInventory, 1, -1),
-                at(C::CombinedHotBarAndInventory, STORE, -1),
+                at(C::CombinedHotBarAndInventory, STORE_SLOT, -1),
             ),
             take_from_menu(0, net),
         ];
@@ -1091,7 +1136,7 @@ fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
             "no main slot changes"
         );
         assert_eq!(
-            w.inv(s).main.stack(STORE),
+            w.inv(s).main.stack(STORE_SLOT),
             &sticks(3),
             "the store is as it was"
         );
@@ -1099,7 +1144,7 @@ fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
         // A change that does not name the store's slot is written and made.
         let (_, net) = shown(&w, s, 0);
         assert!(ok(&w.request_as(s, -3, vec![take_from_menu(0, net)])));
-        assert_eq!(w.inv(s).main.stack(STORE), &sticks(1));
+        assert_eq!(w.inv(s).main.stack(STORE_SLOT), &sticks(1));
         assert_eq!(w.inv(s).cursor.stack(0), &sword());
         w.close(s);
         assert_eq!(w.state.menus.len(), 0);
@@ -1180,29 +1225,9 @@ fn closing_an_editable_menu_gives_the_cursor_back_and_leaves_the_items_to_the_ha
     assert_eq!(w.state.menus.len(), 0);
 }
 
-thread_local! {
-    /// The closes the handlers of a test heard.
-    static CLOSES: Cell<Vec<m::Close>> = const { Cell::new(Vec::new()) };
-}
-
-/// How a test closes a menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Way {
-    Client,
-    Far,
-    OtherWindow,
-    Death,
-    Teleport,
-    Leave,
-    ChangeCloses,
-    ClickCloses,
-    CloseWindow,
-    OtherMenu,
-}
-
-/// Opens for `s` a menu with a sword in editable slot 0 and a stick in slot 1, a button: a click
-/// on it closes the menu, so does a change if `way` says so, and the handler records each close,
-/// answering `answer`. The sword is then taken onto the cursor.
+/// Opens for `s` a menu with a sword in editable slot 0 and a stick in slot 1, a button.
+/// A click on it closes the menu, so does a change if `way` says so, and the handler records
+/// each close, answering `answer`. The sword is then taken onto the cursor.
 fn open_closing(w: &mut World, s: SessionId, way: Way, answer: Response) -> m::Id {
     CLOSES.take();
     let menu = Menu::new(MenuKind::Chest)
@@ -1244,17 +1269,13 @@ fn close_by(w: &mut World, s: SessionId, way: Way, chest: BlockPos) {
         Way::OtherWindow => w.open_block(s, chest),
         Way::Death => {
             // Only a spawned player dies; the test client never says it spawned.
-            w.player(s).phase = super::super::super::Phase::Spawned;
+            w.player(s).phase = Phase::Spawned;
             assert!(w.player(s).kill());
             w.tick(Vec::new());
         }
         Way::Teleport => {
             let eye = w.player(s).position;
-            let feet = Vec3::new(
-                eye.x,
-                eye.y - super::super::super::survival::EYE_HEIGHT,
-                eye.z,
-            );
+            let feet = Vec3::new(eye.x, eye.y - survival::EYE_HEIGHT, eye.z);
             let id = crate::player::Id::new(s);
             Context {
                 state: &mut w.state,
@@ -1309,7 +1330,7 @@ fn a_closing_menu_hands_its_handler_the_cursor_once_on_every_close_but_a_direct_
             );
             let mut w = World::with_listeners(GameMode::Survival, listeners);
             let s = w.join(1);
-            let chest = BlockPos::new(3, -60, 3);
+            let chest = AT;
             w.place_block(chest, blk::Kind::Chest.default_state());
             let answer = if take {
                 Response::Refuse
@@ -1348,9 +1369,6 @@ fn a_closing_menu_hands_its_handler_the_cursor_once_on_every_close_but_a_direct_
 
 #[test]
 fn a_close_s_handler_cannot_hold_more_than_the_waiting_bound_allows() {
-    thread_local! {
-        static WROTE: Cell<Option<crate::inventory::Result<()>>> = const { Cell::new(None) };
-    }
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let menu = Menu::new(MenuKind::Chest).item(0, sword()).editable(0);
@@ -1416,15 +1434,12 @@ fn a_menu_a_far_close_s_handler_opens_for_another_far_player_stays_open() {
     let new = cx(&mut w).menu(id(b));
     assert!(
         new.is_some_and(|m| m != old),
-        "B's new menu, opened beside it, stays open: {new:?}"
+        "player B's new menu, opened beside it, stays open: {new:?}"
     );
 }
 
 #[test]
 fn a_leaving_player_s_menu_closes_after_the_quit_listeners_and_monitors_and_before_the_save() {
-    thread_local! {
-        static QUITS: Cell<u32> = const { Cell::new(0) };
-    }
     fn quit_heard() {
         assert!(CLOSES.take().is_empty(), "the menu is still open");
         QUITS.set(QUITS.get() + 1);
@@ -1465,10 +1480,6 @@ fn a_leaving_player_s_menu_closes_after_the_quit_listeners_and_monitors_and_befo
 
 #[test]
 fn a_quit_listener_s_teleport_closes_the_menu_before_the_quit_monitors() {
-    thread_local! {
-        /// How many closes the handler had heard as the quit's monitor ran.
-        static AT_MONITOR: Cell<Option<usize>> = const { Cell::new(None) };
-    }
     let mut listeners = crate::event::Listeners::default();
     listeners.push(
         crate::event::Priority::Normal,
@@ -1497,9 +1508,6 @@ fn a_quit_listener_s_teleport_closes_the_menu_before_the_quit_monitors() {
 
 #[test]
 fn an_inventory_transaction_names_menu_slots_as_the_window_and_may_cancel() {
-    thread_local! {
-        static HEARD: Cell<u32> = const { Cell::new(0) };
-    }
     let mut listeners = crate::event::Listeners::default();
     listeners.push(
         crate::event::Priority::Normal,
@@ -1509,7 +1517,7 @@ fn an_inventory_transaction_names_menu_slots_as_the_window_and_may_cancel() {
                     .iter()
                     .any(|c| c.inventory() == crate::event::Inventory::Window && c.slot() == 4)
             );
-            HEARD.set(HEARD.get() + 1);
+            TRANSACTIONS.set(TRANSACTIONS.get() + 1);
             e.cancel();
         },
     );
@@ -1519,7 +1527,7 @@ fn an_inventory_transaction_names_menu_slots_as_the_window_and_may_cancel() {
     open_editable(&mut w, s, menu, keep_change);
     let (_, net) = shown(&w, s, 4);
     assert!(!ok(&w.request(s, vec![take_from_menu(4, net)])));
-    assert_eq!(HEARD.get(), 1, "the listener heard the request");
+    assert_eq!(TRANSACTIONS.get(), 1, "the listener heard the request");
     assert!(changes().is_empty(), "a cancelled request changes nothing");
     assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[4], sword());
     assert!(w.inv(s).cursor.stack(0).is_empty());
@@ -1530,7 +1538,7 @@ fn editable_menus_opened_changed_and_closed_leave_every_table_at_its_start() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     tick_each(&mut w, Vec::new());
-    for i in 0..60u8 {
+    for i in 0_u8..60 {
         let kind = [MenuKind::Chest, MenuKind::DoubleChest, MenuKind::Hopper][usize::from(i % 3)];
         let menu = Menu::new(kind).item(0, sticks(1)).editable(0);
         open_editable(&mut w, s, menu, keep_change);
@@ -1570,15 +1578,8 @@ fn an_editable_slot_past_the_end_opens_nothing() {
     assert_eq!(w.state.menus.len(), 0);
 }
 
-thread_local! {
-    /// The sticks a lending menu's handler keeps: its menu's slots and the lent ones.
-    static STORE: Cell<i64> = const { Cell::new(0) };
-    /// What a lending menu's handler answers a change with.
-    static ANSWER: Cell<Response> = const { Cell::new(Response::Keep) };
-}
-
-/// Opens for `s` a lending menu holding `stacks` in editable slots and a sword button in slot 26,
-/// and runs the ticks until its window opens. Its handler keeps its sticks in [`STORE`] as the
+/// Opens for `s` a lending menu holding `stacks` in editable slots and a sword button in slot 26.
+/// It runs the ticks until the window opens. Its handler keeps its sticks in [`STORE`] as the
 /// lent counts say ([`m::Change::lent_before`]), records each change and close, answers a change
 /// with [`ANSWER`] (or closes the menu if `closes`) and a close with `on_close`, taking the
 /// cursor's own sticks on [`Response::Refuse`]; a click closes the menu.
@@ -1649,11 +1650,11 @@ fn count_sticks<'a>(stacks: impl IntoIterator<Item = &'a Stack>) -> u64 {
         .sum()
 }
 
-/// The sticks the player's saved data holds, and those a player loaded from it holds: what a
-/// commit keeps and a restart finds.
+/// The sticks the player's saved data holds, and those a player loaded from it holds.
+/// That is what a commit keeps and a restart finds.
 fn saved_sticks(w: &World, s: SessionId) -> (u64, u64) {
     let mut extra = Compound::new();
-    super::super::save(w.inv(s), &mut extra);
+    save(w.inv(s), &mut extra);
     let saved: Vec<Stack> = extra
         .values()
         .filter_map(|v| match v {
@@ -1664,14 +1665,15 @@ fn saved_sticks(w: &World, s: SessionId) -> (u64, u64) {
         .filter_map(Stack::from_nbt)
         .collect();
     let mut loaded = Inventory::default();
-    super::super::load(&mut loaded, &extra, &w.state.custom);
-    super::super::restore(&mut loaded);
+    load(&mut loaded, &extra, &w.state.custom);
+    restore(&mut loaded);
     let restored = count_sticks(loaded.main.stacks.iter().chain(&loaded.pending));
     (count_sticks(&saved), restored)
 }
 
-/// Checks that the sticks are `total`, each once: those the player's saved data holds, those it
-/// threw and the handler's; and that the handler keeps the menu's sticks and the lent ones.
+/// Asserts that the sticks are `total`, each once.
+/// They are those the player's saved data holds, those it threw and the handler's; the handler
+/// keeps the menu's sticks and the lent ones.
 fn check_once(w: &mut World, s: SessionId, total: i64) {
     let (saved, restored) = saved_sticks(w, s);
     assert_eq!(saved, restored, "a restart finds what was saved");
@@ -1836,7 +1838,7 @@ fn a_swap_of_the_cursor_lends_a_menu_slot_s_stack_only_for_lent_items() {
     w.inv(s).encode(&mut writer);
     let (bytes, opaque) = writer.into_parts();
     assert!(opaque.is_none());
-    let entities = super::super::super::entity::Customs::default();
+    let entities = entity::Customs::default();
     let mut reader = checkpoint::Reader::new(&bytes, &w.state.custom, &entities);
     assert_eq!(Inventory::decode(&mut reader).unwrap().lent, 3);
     let net = w.id(s, C::Cursor, 0);
@@ -1895,8 +1897,8 @@ fn a_move_or_swap_of_the_cursor_with_itself_keeps_its_lent_items() {
     }
 }
 
-/// Opens a lending menu of three sticks for a player with four of its own in main slot 0, and
-/// takes the three onto its cursor.
+/// Opens a lending menu of three sticks for a player with four of its own in main slot 0.
+/// The three are then taken onto its cursor.
 fn lend_three(w: &mut World) -> SessionId {
     let s = w.join(1);
     w.give(s, sticks(4));
@@ -2100,7 +2102,7 @@ fn a_lending_menu_s_lent_items_stay_the_handler_s_on_every_close() {
             );
             let mut w = World::with_listeners(GameMode::Survival, listeners);
             let s = w.join(1);
-            let chest = BlockPos::new(3, -60, 3);
+            let chest = AT;
             w.place_block(chest, blk::Kind::Chest.default_state());
             w.give(s, sticks(2));
             open_lending(&mut w, s, &[sticks(3)], way == Way::ChangeCloses, on_close);
@@ -2267,7 +2269,7 @@ fn lending_menus_opened_taken_and_closed_leave_every_table_at_its_start() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     tick_each(&mut w, Vec::new());
-    for i in 0..60u8 {
+    for i in 0_u8..60 {
         open_lending(&mut w, s, &[sticks(1)], false, Response::Keep);
         let net = shown(&w, s, 0).1;
         assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));

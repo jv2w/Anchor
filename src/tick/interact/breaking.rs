@@ -2,33 +2,46 @@
 //! `BlockBreakInfo::getBreakTime`, `Tool::getMiningEfficiency`, `Sword::getMiningEfficiency`,
 //! `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`, `Durable::applyDamage`).
 
+use super::drops::level;
 use crate::block::{Inert, State};
 use crate::item::{self, Enchantment, Stack};
 use crate::random::Random;
 use crate::tick::{Context, Settings};
 
-use super::drops::level;
+/// How many times longer breaking takes in the air (off the ground and not flying).
+const AIRBORNE_BREAK_SLOWDOWN: f64 = 5.0;
+/// The roll out of 100 that Unbreaking on armour must beat to spare a point of wear, so it spares
+/// at most 40% of the points (PMMP `Armor::getUnbreakingDamageReduction`).
+const ARMOR_UNBREAKING_ROLL: i32 = 60;
+/// What each level of Mining Fatigue multiplies the break speed by.
+const FATIGUE_BREAK_FACTOR: f64 = 0.21;
+/// What each level of Haste multiplies the break speed by, besides [`HASTE_BREAK_STEP`].
+const HASTE_BREAK_FACTOR: f64 = 1.2;
+/// The part of the break speed each level of Haste adds (`1 + step × level`).
+const HASTE_BREAK_STEP: f64 = 0.2;
+/// How many times longer breaking takes underwater without Aqua Affinity.
+const UNDERWATER_BREAK_SLOWDOWN: f64 = 5.0;
 
 /// What changes how fast a player breaks blocks besides the tool (PMMP reads these from the
 /// player each tick).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Conditions {
-    /// Standing on a block.
+    /// Whether the player stands on a block.
     pub(super) on_ground: bool,
-    /// Flying (creative abilities).
+    /// Whether the player flies (creative abilities).
     pub(super) flying: bool,
-    /// The eyes are in water.
+    /// Whether the eyes are in water.
     pub(super) underwater: bool,
-    /// The helmet has Aqua Affinity.
+    /// Whether the helmet has Aqua Affinity.
     pub(super) aqua_affinity: bool,
-    /// Haste level (0: none).
+    /// The Haste level (0: none).
     pub(super) haste: u8,
-    /// Mining Fatigue level (0: none).
+    /// The Mining Fatigue level (0: none).
     pub(super) fatigue: u8,
 }
 
 impl Conditions {
-    /// On the ground, out of water, no effects.
+    /// A player on the ground, out of water, with no effects.
     #[cfg(test)]
     pub(super) const PLAIN: Self = Self {
         on_ground: true,
@@ -40,49 +53,30 @@ impl Conditions {
     };
 }
 
-/// The seconds `state` takes to break with `tool` ([`State::break_time_secs`]: PMMP
-/// `BlockBreakInfo::getBreakTime` with the leaf, bamboo and wool exceptions); `None` for a block
-/// that cannot be broken.
-fn break_time(state: State, tool: &Stack) -> Option<f64> {
-    if !state.break_info().is_breakable() {
-        return None;
-    }
-    state.break_time_secs(tool)
-}
-
-/// `base` to the power `n` by repeated multiplication (std's `powi` is not deterministic).
-fn power(base: f64, n: u8) -> f64 {
-    (0..n).fold(1.0, |acc, _| acc * base)
-}
-
-/// PMMP `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`: the share of the block one
-/// tick breaks (1 or more breaks it at once; 0 for a block that cannot be broken).
+/// The share of the block one tick of breaking takes (PMMP
+/// `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`): 1 or more breaks it at once, 0 for
+/// a block that cannot be broken.
 pub(super) fn progress_per_tick(state: State, tool: &Stack, conditions: Conditions) -> f64 {
-    progress(break_time(state, tool), conditions)
+    progress(state.break_time_secs(tool), conditions)
 }
 
-/// [`progress_per_tick`] for an inert block, which breaks as its [`Inert::break_info`] says.
+/// The share of an inert block one tick of breaking takes, as its [`Inert::break_info`] says.
 pub(super) fn inert_progress_per_tick(state: Inert, tool: &Stack, conditions: Conditions) -> f64 {
-    let info = state.break_info();
-    let seconds = info
-        .is_breakable()
-        .then(|| info.break_time_secs(tool))
-        .flatten();
-    progress(seconds, conditions)
+    progress(state.break_info().break_time_secs(tool), conditions)
 }
 
-/// The share of a block one tick breaks when it takes `seconds` with the held tool (`None`: it
-/// cannot be broken).
+/// The share of a block one tick of breaking takes when it takes `seconds` with the held tool
+/// (`None`: it cannot be broken).
 fn progress(seconds: Option<f64>, conditions: Conditions) -> f64 {
     let Some(seconds) = seconds else {
         return 0.0;
     };
     let mut ticks = seconds * f64::from(Context::TICKS_PER_SECOND);
     if !conditions.on_ground && !conditions.flying {
-        ticks *= 5.0;
+        ticks *= AIRBORNE_BREAK_SLOWDOWN;
     }
     if conditions.underwater && !conditions.aqua_affinity {
-        ticks *= 5.0;
+        ticks *= UNDERWATER_BREAK_SLOWDOWN;
     }
     if ticks <= 0.0 {
         return 1.0;
@@ -90,19 +84,26 @@ fn progress(seconds: Option<f64>, conditions: Conditions) -> f64 {
     let mut progress = 1.0 / ticks;
     if conditions.haste > 0 {
         let level = f64::from(conditions.haste);
-        progress *= (1.0 + 0.2 * level) * power(1.2, conditions.haste);
+        progress *= (1.0 + HASTE_BREAK_STEP * level) * power(HASTE_BREAK_FACTOR, conditions.haste);
     }
     if conditions.fatigue > 0 {
-        progress *= power(0.21, conditions.fatigue);
+        progress *= power(FATIGUE_BREAK_FACTOR, conditions.fatigue);
     }
     progress
 }
 
-/// PMMP `Durable::applyDamage($amount)` on a copy of `tool`: Unbreaking may spare each point (by
-/// `1 / (level + 1)` chance it counts; armour only 40% of the time at best); a tool worn to its
-/// durability breaks (the stack loses one item). The stack unchanged for items without
-/// durability, unbreakable items and broken ones, and for every item with `durability = false`:
-/// every rule that wears an item (tools, weapons, armour, bows, tridents) comes here.
+/// The power `base` to `n`, by repeated multiplication (std's `powi` is not deterministic).
+fn power(base: f64, n: u8) -> f64 {
+    (0..n).fold(1.0, |acc, _| acc * base)
+}
+
+/// Wears a copy of `tool` by `amount` points (PMMP `Durable::applyDamage`).
+///
+/// Under Unbreaking each point is spared with chance `1 - 1 / (level + 1)`, on armour only on 40%
+/// of the points at best. A tool worn to its durability breaks (the stack loses one item). The
+/// stack comes back unchanged for items without durability, unbreakable items and broken ones, and
+/// for every item with `durability = false`: every rule that wears an item (tools, weapons, armour,
+/// bows, tridents) comes here.
 #[expect(
     clippy::expect_used,
     reason = "invariant: an item that wears keeps 0 and a damage below its durability"
@@ -137,7 +138,7 @@ pub(in crate::tick) fn damage(
         let chance = 1.0 / (f64::from(unbreaking) + 1.0);
         for _ in 0..amount {
             let spared = if armor {
-                rng.range(1, 100) > 60 && rng.unit() > chance
+                rng.range(1, 100) > ARMOR_UNBREAKING_ROLL && rng.unit() > chance
             } else {
                 rng.unit() > chance
             };
@@ -151,15 +152,16 @@ pub(in crate::tick) fn damage(
         return tool
             .with_count(tool.count() - 1)
             .with_damage(0)
-            .expect("invariant: every item keeps no damage");
+            .expect("every item can hold no damage");
     }
     tool.with_damage(damage)
-        .expect("invariant: a damage below the durability is kept")
+        .expect("a damage below the durability is kept")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::Kind;
     use crate::item::{Extra, Kind as I};
 
@@ -176,7 +178,7 @@ mod tests {
     }
 
     fn seconds(block: Kind, with: &Stack) -> f64 {
-        break_time(block.default_state(), with).unwrap()
+        block.default_state().break_time_secs(with).unwrap()
     }
 
     fn close(a: f64, b: f64) -> bool {
@@ -218,7 +220,7 @@ mod tests {
             );
         }
         assert_eq!(
-            break_time(Kind::Bedrock.default_state(), &Stack::EMPTY),
+            Kind::Bedrock.default_state().break_time_secs(&Stack::EMPTY),
             None
         );
         assert_eq!(seconds(Kind::Wheat, &Stack::EMPTY), 0.0);

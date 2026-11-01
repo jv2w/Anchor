@@ -1,27 +1,22 @@
 //! Tests of inventories, windows and item stack requests: item conservation and crafting.
 
+mod api;
+mod events;
+mod menu;
+
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use tokio::sync::mpsc::Receiver;
 
-mod api;
-mod events;
-mod menu;
-
-use super::super::queue::{Input, Message, Outbound};
-use super::super::tests::{answer, join, new_state, radius, settings};
-use super::super::{
-    InputLog, Output, Player, SessionId, State, block_entity, boundary, deliver, step,
-};
 use super::*;
 use crate::block::{self as blk, ItemForm};
 use crate::config::GameMode;
 use crate::crafting::{self, Ingredient, Recipe, ShapelessType};
-use crate::event::Listeners;
+use crate::event::{InventoryOpen, Listeners, Priority};
 use crate::item::{self as it, Enchantment, Extra, Type};
 use crate::pool::Pool;
-use crate::protocol::consts::ContainerId as C;
+use crate::protocol::consts::{ContainerId as C, ItemStackResponseStatus};
 use crate::protocol::packet::{ContainerClose, Interact, Packet};
 use crate::protocol::{
     AutoCraftRecipeStackRequestAction, ConsumeStackRequestAction, CraftCreativeStackRequestAction,
@@ -33,6 +28,11 @@ use crate::protocol::{
 };
 use crate::random::Random;
 use crate::save::Response;
+use crate::tick::queue::{Input, Message, Outbound};
+use crate::tick::tests::{answer, join, new_state, radius, settings};
+use crate::tick::{
+    Context, InputLog, Output, Player, SessionId, State, block_entity, boundary, deliver, step,
+};
 
 thread_local! {
     /// The test stand-in for item entities: `Some(room)` while a test counts drops itself; each
@@ -449,8 +449,6 @@ pub(super) fn ok(r: &ItemStackResponse) -> bool {
     r.status == ItemStackResponseStatus::Ok as u8
 }
 
-use crate::protocol::consts::ItemStackResponseStatus;
-
 /// The crafting recipes in network ID order with their ingredients and their one result.
 fn crafting_recipes() -> Vec<(u32, Recipe<'static>)> {
     (1..)
@@ -782,15 +780,17 @@ fn stack_network_ids_and_responses_follow_the_bds_craft_scenario() {
     );
 }
 
+/// What tells the items of the totals apart: the type, the damage and the extra data.
+type TotalKey = (Option<Type>, u16, String);
+
 /// Everything players, containers, waiting lists and dropped items hold, by item.
-pub(super) fn totals(state: &State) -> BTreeMap<(Option<Type>, u16, String), u64> {
+pub(super) fn totals(state: &State) -> BTreeMap<TotalKey, u64> {
     let mut out: BTreeMap<_, u64> = BTreeMap::new();
     let mut add = |s: &Stack| {
         if s.is_empty() {
             return;
         }
-        let extra = s.extra().map(|e| format!("{e:?}")).unwrap_or_default();
-        *out.entry((s.item(), s.damage(), extra)).or_default() += u64::from(s.count());
+        *out.entry(total_key(s)).or_default() += u64::from(s.count());
     };
     for p in state.players.values() {
         let inv = &p.inventory;
@@ -820,6 +820,12 @@ pub(super) fn totals(state: &State) -> BTreeMap<(Option<Type>, u16, String), u64
         add(&s);
     }
     out
+}
+
+/// The key of `s` in the totals.
+fn total_key(s: &Stack) -> TotalKey {
+    let extra = s.extra().map(|e| format!("{e:?}")).unwrap_or_default();
+    (s.item(), s.damage(), extra)
 }
 
 /// Every slot and stack network ID of a player.
@@ -990,12 +996,8 @@ fn expected_change(
     w: &World,
     s: SessionId,
     actions: &[StackRequestAction],
-) -> BTreeMap<(Option<Type>, u16, String), i64> {
+) -> BTreeMap<TotalKey, i64> {
     let mut out: BTreeMap<_, i64> = BTreeMap::new();
-    let key = |st: &Stack| {
-        let extra = st.extra().map(|e| format!("{e:?}")).unwrap_or_default();
-        (st.item(), st.damage(), extra)
-    };
     let mut made: Option<Stack> = None;
     let mut outputs: Vec<Stack> = Vec::new();
     let is_created = |i: &StackRequestSlotInfo| {
@@ -1003,14 +1005,15 @@ fn expected_change(
     };
     for a in actions {
         match a {
-            StackRequestAction::CraftRecipe(c) => {
-                outputs = crafting::recipe(c.recipe_network_id)
-                    .map(results)
-                    .unwrap_or_default();
-                made = outputs.first().cloned().filter(|_| outputs.len() == 1);
-            }
-            StackRequestAction::AutoCraftRecipe(c) => {
-                outputs = crafting::recipe(c.recipe_network_id)
+            StackRequestAction::CraftRecipe(CraftRecipeStackRequestAction {
+                recipe_network_id,
+                ..
+            })
+            | StackRequestAction::AutoCraftRecipe(AutoCraftRecipeStackRequestAction {
+                recipe_network_id,
+                ..
+            }) => {
+                outputs = crafting::recipe(*recipe_network_id)
                     .map(results)
                     .unwrap_or_default();
                 made = outputs.first().cloned().filter(|_| outputs.len() == 1);
@@ -1028,12 +1031,12 @@ fn expected_change(
                 transfer_stack_request_action: t,
             }) if is_created(&t.source) => {
                 if let Some(m) = &made {
-                    *out.entry(key(m)).or_default() += i64::from(t.count);
+                    *out.entry(total_key(m)).or_default() += i64::from(t.count);
                 }
             }
             StackRequestAction::Drop(d) if is_created(&d.source) => {
                 if let Some(m) = &made {
-                    *out.entry(key(m)).or_default() += i64::from(d.count);
+                    *out.entry(total_key(m)).or_default() += i64::from(d.count);
                 }
             }
             StackRequestAction::Consume(ConsumeStackRequestAction {
@@ -1046,7 +1049,7 @@ fn expected_change(
                     .into_iter()
                     .find(|c| *c as u8 == d.source.container.container_id);
                 if let Some(slot) = c.and_then(|c| w.try_slot(s, c, d.source.slot)) {
-                    *out.entry(key(&slot.stack)).or_default() -= i64::from(d.count);
+                    *out.entry(total_key(&slot.stack)).or_default() -= i64::from(d.count);
                 }
             }
             _ => {}
@@ -1518,7 +1521,7 @@ fn open_model_menu(w: &mut World, s: SessionId, k: u32) {
         crate::menu::Kind::Hopper,
     ][k as usize];
     let menu = crate::menu::Menu::new(kind).item(1, Stack::new(item(it::Kind::Stick), 3));
-    let opened = super::super::Context {
+    let opened = Context {
         state: &mut w.state,
     }
     .open_menu(crate::player::Id::new(s), menu, |cx, player, input| {
@@ -2395,7 +2398,7 @@ fn every_crafting_recipe_crafts_from_its_grid_and_shifted_or_short_grids_are_ref
         let made = attempt(&mut w, &cells);
         assert!(made.is_ok(), "recipe {id} crafts from {cells:?}: {made:?}");
         crafted += 1;
-        if let Recipe::Shaped(r) = recipe {
+        if matches!(recipe, Recipe::Shaped(_)) {
             let mirror = mirror_cells(&cells);
             if mirror != cells {
                 assert!(
@@ -2404,7 +2407,7 @@ fn every_crafting_recipe_crafts_from_its_grid_and_shifted_or_short_grids_are_ref
                 );
                 mirrored += 1;
             }
-            if let Some(moved) = shift_one(&cells, r.width, r.height) {
+            if let Some(moved) = shift_one(&cells) {
                 assert!(
                     attempt(&mut w, &moved).is_err(),
                     "recipe {id} refuses {moved:?}"
@@ -2523,7 +2526,7 @@ fn pattern(cells: &[Stack]) -> Vec<Vec<bool>> {
 
 /// One occupied cell moved to a neighbouring empty cell so that the occupied cells no longer
 /// form the recipe's shape or its mirror image: such a grid can never lay out the recipe.
-fn shift_one(cells: &[Stack], _width: u8, _height: u8) -> Option<Vec<Stack>> {
+fn shift_one(cells: &[Stack]) -> Option<Vec<Stack>> {
     let original = pattern(cells);
     let mirrored: Vec<Vec<bool>> = original
         .iter()
@@ -2617,12 +2620,12 @@ fn crafting_refuses_ingredients_swapped_after_the_craft_began() {
 
 #[test]
 fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
-    use super::super::{entity, survival};
-    use crate::nbt::{List, Value};
+    use crate::tick::entity;
+    use crate::tick::tests::initialised;
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let runtime_id = w.player(s).runtime_id;
-    w.tick(vec![super::super::tests::initialised(1, 2, runtime_id)]);
+    w.tick(vec![initialised(1, 2, runtime_id)]);
     // Distinct items, so none merge: the main slots full and the most waiting stacks.
     let mut items = crafting_samples()
         .into_values()
@@ -2690,4 +2693,70 @@ fn placing_over_a_stale_shulker_entity_drops_its_items() {
     w.place_block(pos, shulker);
     assert_eq!(dropped(), vec![Stack::new(item(it::Kind::Stick), 7)]);
     assert_eq!(totals(&w.state), before);
+}
+
+/// An `InventoryOpen` listener that opens a menu and does not cancel keeps the menu: the window it
+/// was asked about does not open in place of it.
+#[test]
+fn an_open_listener_that_opens_a_menu_keeps_the_menu_in_place_of_the_window() {
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |e: &mut InventoryOpen, cx: &mut Context<'_>| {
+            let menu = crate::menu::Menu::new(crate::menu::Kind::Chest);
+            cx.open_menu(e.player(), menu, |_, _, _| crate::menu::Response::Keep)
+                .expect("the menu opens");
+        },
+    );
+    let mut w = World::with_listeners(GameMode::Survival, listeners);
+    let s = w.join(1);
+    let barrel = BlockPos::new(3, -60, 3);
+    w.place_block(barrel, blk::Kind::Barrel.default_state());
+    w.open_block(s, barrel);
+    assert!(matches!(
+        w.inv(s).window.as_ref().map(|window| window.kind),
+        Some(WindowKind::Menu { .. })
+    ));
+    assert!(w.inv(s).menu.is_some());
+    assert!(w.state.rules.block_entities.viewers(0, barrel).is_empty());
+}
+
+/// A menu whose blocks cannot stand within reach of the player's eyes (it is far above the world)
+/// opens nothing.
+#[test]
+fn a_menu_opens_nothing_for_a_player_out_of_reach_of_its_blocks() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.player(s).position = Vec3::new(0.5, 400.0, 0.5);
+    let menu = crate::menu::Menu::new(crate::menu::Kind::Chest);
+    let opened = Context {
+        state: &mut w.state,
+    }
+    .open_menu(crate::player::Id::new(s), menu, |_, _, _| {
+        crate::menu::Response::Keep
+    });
+    assert_eq!(opened, Err(crate::menu::Error::OutsideWorld));
+    assert!(w.inv(s).window.is_none());
+    assert!(w.inv(s).menu.is_none());
+    assert_eq!(w.state.menus.len(), 0);
+}
+
+/// A crafting table or station window closes once its block is replaced, and stays while it is
+/// there.
+#[test]
+fn a_station_window_closes_once_its_block_is_replaced() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let anvil = BlockPos::new(3, -60, 3);
+    w.place_block(anvil, blk::Kind::Anvil.default_state());
+    w.open_block(s, anvil);
+    assert!(w.inv(s).window.is_some());
+    close_replaced(&mut w.state, 0, anvil);
+    assert!(w.inv(s).window.is_some(), "the anvil is still there");
+    w.state.worlds[0]
+        .set_block(anvil, blk::Kind::Stone.default_state())
+        .unwrap();
+    close_replaced(&mut w.state, 0, anvil);
+    assert!(w.inv(s).window.is_none());
+    assert!(w.state.rules.block_entities.viewers(0, anvil).is_empty());
 }

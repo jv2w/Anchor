@@ -3,34 +3,31 @@
 //! of [`Editor`].
 //!
 //! A write outside a request gives the slot a new stack network ID and sends it to the client
-//! that shows it ([`super::set_own`] for a player's slots; [`request::notify`] for every viewer of
+//! that shows it ([`set_own`] for a player's slots; [`request::notify`] for every viewer of
 //! a container), so the next request of a client that still shows the old stack is refused. An
 //! offline player's slots have no client: a write only changes the record. Writes raise no
 //! events.
 
-use super::super::entity::Raise;
-use super::super::{Context, Offline, Player, State, block_entity};
 use super::{
-    Inventory as Slots, MAX_SAVED_PENDING, Notice, PublicWindow as Window, Slot, SlotRef,
-    WINDOW_ID_OFF_HAND, block_entity_halves, close_now, content_packet, public_window, request,
-    select,
+    HOTBAR, Inventory as Slots, MAX_SAVED_PENDING, Slot, SlotRef, StackId, block_entity_halves,
+    close_window_without_event, content_packet, held_count, public_window, request, select,
+    set_own,
 };
+use crate::event::Window;
 use crate::inventory::{BlockSlots, Editor, Error, Inventory, Kind, MAX_STACK, Result, Target};
 use crate::item::Stack;
+use crate::protocol::consts::WINDOW_ID_OFF_HAND;
 use crate::save::WorldIndex;
+use crate::tick::{Context, Offline, Player, State, block_entity};
 use crate::world::{self, BlockPos};
 
-/// Inventory `kind` of a player's slots `inv`, to read.
-fn view_of(inv: &Slots, kind: Kind) -> Inventory<'_> {
-    let stacks: &[Stack] = match kind {
-        Kind::Main => &inv.main.stacks,
-        Kind::Armor => &inv.armor.stacks,
-        Kind::Offhand => &inv.offhand.stacks,
-        Kind::Cursor => &inv.cursor.stacks,
-        Kind::Crafting => &inv.grid.stacks,
-        Kind::EnderChest => &inv.ender.stacks,
-    };
-    Inventory::new(stacks, &[], MAX_STACK)
+/// What planned writes do ([`Editor::write`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Planned {
+    /// Each write puts more of the item into its slot.
+    Add,
+    /// Each write takes some of the item out of its slot.
+    Remove,
 }
 
 impl Player {
@@ -45,30 +42,10 @@ impl Player {
         view_of(&self.inventory, kind)
     }
 
-    /// One of the player's inventories, to change; each write is sent to its client.
-    pub fn inventory_mut(&mut self, kind: Kind) -> Editor<'_> {
-        Editor {
-            target: Target::Player(self, kind),
-        }
-    }
-
     /// The selected hotbar slot, 0 to 8.
     #[doc(alias = "PlayerInventory::getHeldItemIndex")]
     pub fn held_slot(&self) -> u8 {
         self.inventory.held
-    }
-
-    /// Selects hotbar slot `slot` (0 to 8), stopping the item in use (a drawn bow, eating or
-    /// drinking), and tells the client; false, changing nothing, for another slot.
-    #[doc(alias = "PlayerInventory::setHeldItemIndex")]
-    pub fn set_held_slot(&mut self, slot: u8) -> bool {
-        if slot >= super::HOTBAR {
-            return false;
-        }
-        if slot != self.inventory.held {
-            select(self, slot);
-        }
-        true
     }
 
     /// The stack in the selected hotbar slot.
@@ -100,6 +77,26 @@ impl Player {
             .as_ref()
             .and_then(|w| w.ui.get(slot))
             .map(|s| &s.stack)
+    }
+
+    /// One of the player's inventories, to change; each write is sent to its client.
+    pub fn inventory_mut(&mut self, kind: Kind) -> Editor<'_> {
+        Editor {
+            target: Target::Player(self, kind),
+        }
+    }
+
+    /// Selects hotbar slot `slot` (0 to 8), stopping the item in use (a drawn bow, eating or
+    /// drinking), and tells the client; false, changing nothing, for another slot.
+    #[doc(alias = "PlayerInventory::setHeldItemIndex")]
+    pub fn set_held_slot(&mut self, slot: u8) -> bool {
+        if slot >= HOTBAR {
+            return false;
+        }
+        if slot != self.inventory.held {
+            select(self, slot);
+        }
+        true
     }
 
     /// Shows this player alone the screen animation of a totem of undying saving it (the
@@ -145,21 +142,6 @@ impl Context<'_> {
         Some(block_view(self.state, world.index(), pos, pair, max))
     }
 
-    /// The slots of the container block at `pos` in `world`, to change; each write is sent to
-    /// every player with its window open.
-    pub fn block_inventory_mut(&mut self, world: world::Id, pos: BlockPos) -> Option<Editor<'_>> {
-        let (pos, pair, max) = container(self.state, world.index(), pos)?;
-        Some(Editor {
-            target: Target::Block(BlockSlots {
-                state: self.state,
-                world: world.index(),
-                pos,
-                pair,
-                max,
-            }),
-        })
-    }
-
     /// The players with a window open on the block at `pos` in `world` (a container, both halves
     /// of a double chest from either half, or a station such as an anvil), in the order they
     /// opened it; how many there are is the iterator's length.
@@ -176,6 +158,39 @@ impl Context<'_> {
             .viewers(world.index(), pos)
             .iter()
             .map(|s| crate::player::Id::new(*s))
+    }
+
+    /// The name of the alternative creative inventory `player` sees; `None` for the default one
+    /// or a player who has left.
+    #[doc(alias = "Player::getCreativeInventory")]
+    pub fn creative_inventory(&self, player: crate::player::Id) -> Option<&'static str> {
+        let p = self.state.players.get(&player.session())?;
+        self.state.custom.creative_name(p.inventory.creative)
+    }
+
+    /// The items of a creative inventory, one of each entry in order (a player's request names
+    /// the entry at index `i` as creative item `i + 1`): the alternative registered as
+    /// `inventory`, or the default one for `None`; `None` for a name not registered.
+    #[doc(alias = "CreativeInventory::getAll")]
+    pub fn creative_items(&self, inventory: Option<&str>) -> Option<&[Stack]> {
+        let custom = &self.state.custom;
+        let index = custom.creative_index(inventory)?;
+        Some(custom.creatives().get(usize::from(index))?.stacks())
+    }
+
+    /// The slots of the container block at `pos` in `world`, to change; each write is sent to
+    /// every player with its window open.
+    pub fn block_inventory_mut(&mut self, world: world::Id, pos: BlockPos) -> Option<Editor<'_>> {
+        let (pos, pair, max) = container(self.state, world.index(), pos)?;
+        Some(Editor {
+            target: Target::Block(BlockSlots {
+                state: self.state,
+                world: world.index(),
+                pos,
+                pair,
+                max,
+            }),
+        })
     }
 
     /// Switches the creative inventory `player` sees (PMMP `Player::setCreativeInventory`): the
@@ -203,24 +218,6 @@ impl Context<'_> {
         true
     }
 
-    /// The name of the alternative creative inventory `player` sees; `None` for the default one
-    /// or a player who has left.
-    #[doc(alias = "Player::getCreativeInventory")]
-    pub fn creative_inventory(&self, player: crate::player::Id) -> Option<&'static str> {
-        let p = self.state.players.get(&player.session())?;
-        self.state.custom.creative_name(p.inventory.creative)
-    }
-
-    /// The items of a creative inventory, one of each entry in order (a player's request names
-    /// the entry at index `i` as creative item `i + 1`): the alternative registered as
-    /// `inventory`, or the default one for `None`; `None` for a name not registered.
-    #[doc(alias = "CreativeInventory::getAll")]
-    pub fn creative_items(&self, inventory: Option<&str>) -> Option<&[Stack]> {
-        let custom = &self.state.custom;
-        let index = custom.creative_index(inventory)?;
-        Some(custom.creatives().get(usize::from(index))?.stacks())
-    }
-
     /// Closes the player's window, a menu too: the cursor (but a lending menu's lent items, which
     /// stay its handler's), the crafting grid and the window's own slots go back to its inventory
     /// (the player throws what does not fit), and a menu's blocks show again. False if the player
@@ -235,59 +232,10 @@ impl Context<'_> {
             .get(&session)
             .is_some_and(|p| p.inventory.window.is_some());
         if open {
-            close_now(self.state, session, Notice::Send, Raise::Quiet);
+            close_window_without_event(self.state, session);
         }
         open
     }
-}
-
-/// The container block at `pos`: its first slots' block (a double chest's left half), the other
-/// half, and the most items a slot holds; `None` for a block without container slots.
-fn container(
-    state: &State,
-    world: WorldIndex,
-    pos: BlockPos,
-) -> Option<(BlockPos, Option<BlockPos>, u8)> {
-    let entity = state.rules.block_entities.get(world, pos)?;
-    match entity.kind {
-        block_entity::Kind::Chest { .. } => {
-            let (left, right) = block_entity_halves(&state.rules.block_entities, world, pos);
-            Some((left, right, MAX_STACK))
-        }
-        block_entity::Kind::Barrel
-        | block_entity::Kind::ShulkerBox { .. }
-        | block_entity::Kind::Hopper
-        | block_entity::Kind::Furnace(_)
-        | block_entity::Kind::BrewingStand(_) => Some((pos, None, MAX_STACK)),
-        // PMMP `CampfireInventory`: one item a slot.
-        block_entity::Kind::Campfire(_) => Some((pos, None, 1)),
-        _ => None,
-    }
-}
-
-/// The slots of the container at `pos` and its other half.
-fn block_view(
-    state: &State,
-    world: WorldIndex,
-    pos: BlockPos,
-    pair: Option<BlockPos>,
-    max: u8,
-) -> Inventory<'_> {
-    let blocks = &state.rules.block_entities;
-    let items = |p: Option<BlockPos>| {
-        p.and_then(|p| blocks.get(world, p))
-            .map_or(&[][..], |e| e.items.as_slice())
-    };
-    let view = Inventory::new(items(Some(pos)), items(pair), max);
-    match blocks.get(world, pos).map(|e| &e.kind) {
-        Some(block_entity::Kind::ShulkerBox { .. }) => view.of_shulker_box(),
-        _ => view,
-    }
-}
-
-/// How many stacks the player holds outside its slots now ([`super::held_count`]).
-fn held_now(inv: &super::Inventory) -> usize {
-    super::held_count(inv, |r| inv.get(r).is_some_and(|s| !s.stack.is_empty()))
 }
 
 impl Editor<'_> {
@@ -300,7 +248,8 @@ impl Editor<'_> {
         }
     }
 
-    /// Puts `stack` into `slot` (an empty stack clears it) and tells the clients that show it.
+    /// Puts `stack` into `slot` (an empty stack clears it) and tells the clients that show it. A
+    /// changed stack in a player's held slot stops the item in use.
     #[doc(alias = "Inventory::setItem")]
     #[doc(alias = "BaseInventory::setItem")]
     #[doc(alias = "CraftingGrid::setItem")]
@@ -365,8 +314,7 @@ impl Editor<'_> {
     #[doc(alias = "BaseInventory::clearAll")]
     pub fn clear_all(&mut self) {
         for i in 0..self.view().size() {
-            // Clearing a slot cannot fail.
-            let _cleared = self.set(i, Stack::EMPTY);
+            self.clear(i);
         }
     }
 
@@ -395,7 +343,7 @@ impl Editor<'_> {
     pub fn remove_all(&mut self, stack: &Stack) {
         let slots: Vec<usize> = self.view().all(stack).map(|(i, _)| i).collect();
         for i in slots {
-            let _cleared = self.set(i, Stack::EMPTY);
+            self.clear(i);
         }
     }
 
@@ -417,6 +365,16 @@ impl Editor<'_> {
             self.set(a, sb)?;
             self.set(b, sa)
         }
+    }
+
+    /// Empties slot `slot` of the inventory.
+    fn clear(&mut self, slot: usize) {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: an empty stack goes into every slot the inventory has"
+        )]
+        self.set(slot, Stack::EMPTY)
+            .expect("an empty stack goes into a slot of the inventory");
     }
 
     /// Writes planned slots; a write that fails gives its items back to `left` (added items
@@ -441,19 +399,10 @@ impl Editor<'_> {
     }
 }
 
-/// What planned writes do ([`Editor::write`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Planned {
-    /// Each write puts more of the item into its slot.
-    Add,
-    /// Each write takes some of the item out of its slot.
-    Remove,
-}
-
 /// Writes slot `slot` of a player's inventory `kind`.
 fn put_player(player: &mut Player, kind: Kind, slot: usize, stack: Stack) -> Result<()> {
     if let Some(r) = own_slot(&player.inventory, kind, slot, &stack)? {
-        super::set_own(player, r, stack);
+        set_own(player, r, stack);
     }
     Ok(())
 }
@@ -466,7 +415,7 @@ fn put_offline(record: &mut Offline, kind: Kind, slot: usize, stack: Stack) -> R
     };
     let slot = Slot {
         stack,
-        id: super::StackId::default(),
+        id: StackId::default(),
     };
     #[expect(
         clippy::expect_used,
@@ -476,7 +425,7 @@ fn put_offline(record: &mut Offline, kind: Kind, slot: usize, stack: Stack) -> R
         .inventory
         .put(r, slot)
         .then_some(())
-        .expect("invariant: own_slot gives an own slot");
+        .expect("own_slot gives an own slot");
     record.change_inventory();
     Ok(())
 }
@@ -501,10 +450,7 @@ fn own_slot(inv: &Slots, kind: Kind, slot: usize, stack: &Stack) -> Result<Optio
         clippy::expect_used,
         reason = "invariant: a slot below kind's size is one of the player's own slots"
     )]
-    let before = inv
-        .get(r)
-        .expect("invariant: own_slot's slot is an own slot")
-        .stack;
+    let before = inv.get(r).expect("own_slot's slot is an own slot").stack;
     if before == *stack {
         return Ok(None);
     }
@@ -543,4 +489,66 @@ fn put_block(b: &mut BlockSlots<'_>, slot: usize, stack: Stack) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The container block at `pos`: its first slots' block (a double chest's left half), the other
+/// half, and the most items a slot holds; `None` for a block without container slots.
+fn container(
+    state: &State,
+    world: WorldIndex,
+    pos: BlockPos,
+) -> Option<(BlockPos, Option<BlockPos>, u8)> {
+    let entity = state.rules.block_entities.get(world, pos)?;
+    match entity.kind {
+        block_entity::Kind::Chest { .. } => {
+            let (left, right) = block_entity_halves(&state.rules.block_entities, world, pos);
+            Some((left, right, MAX_STACK))
+        }
+        block_entity::Kind::Barrel
+        | block_entity::Kind::ShulkerBox { .. }
+        | block_entity::Kind::Hopper
+        | block_entity::Kind::Furnace(_)
+        | block_entity::Kind::BrewingStand(_) => Some((pos, None, MAX_STACK)),
+        // PMMP `CampfireInventory`: one item a slot.
+        block_entity::Kind::Campfire(_) => Some((pos, None, 1)),
+        _ => None,
+    }
+}
+
+/// The slots of the container at `pos` and its other half.
+fn block_view(
+    state: &State,
+    world: WorldIndex,
+    pos: BlockPos,
+    pair: Option<BlockPos>,
+    max: u8,
+) -> Inventory<'_> {
+    let blocks = &state.rules.block_entities;
+    let items = |p: Option<BlockPos>| {
+        p.and_then(|p| blocks.get(world, p))
+            .map_or(&[][..], |e| e.items.as_slice())
+    };
+    let view = Inventory::new(items(Some(pos)), items(pair), max);
+    match blocks.get(world, pos).map(|e| &e.kind) {
+        Some(block_entity::Kind::ShulkerBox { .. }) => view.of_shulker_box(),
+        _ => view,
+    }
+}
+
+/// How many stacks the player holds outside its slots now ([`held_count`]).
+fn held_now(inv: &Slots) -> usize {
+    held_count(inv, |r| inv.get(r).is_some_and(|s| !s.stack.is_empty()))
+}
+
+/// Inventory `kind` of a player's slots `inv`, to read.
+fn view_of(inv: &Slots, kind: Kind) -> Inventory<'_> {
+    let stacks: &[Stack] = match kind {
+        Kind::Main => &inv.main.stacks,
+        Kind::Armor => &inv.armor.stacks,
+        Kind::Offhand => &inv.offhand.stacks,
+        Kind::Cursor => &inv.cursor.stacks,
+        Kind::Crafting => &inv.grid.stacks,
+        Kind::EnderChest => &inv.ender.stacks,
+    };
+    Inventory::new(stacks, &[], MAX_STACK)
 }

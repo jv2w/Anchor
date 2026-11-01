@@ -43,63 +43,7 @@ pub(super) struct Network {
     link: Option<mpsc::Sender<Control>>,
 }
 
-super::checkpoint::fields!(Network {
-    tick_times,
-    latest,
-    connections,
-    logged_in,
-    memory,
-    uptime_ms;
-    threads,
-    controls,
-    link,
-});
-
 impl Network {
-    /// Sends the controls to the networking from now on.
-    pub(super) fn connect(&mut self, link: mpsc::Sender<Control>) {
-        self.link = Some(link);
-    }
-
-    /// Takes the measures of a checkpoint's `restored` state, keeping where controls go and the
-    /// threads.
-    pub(super) fn restore(&mut self, restored: Self) {
-        let link = self.link.take();
-        *self = Self {
-            link,
-            threads: self.threads,
-            ..restored
-        };
-    }
-
-    /// Queues `control` for the end of the tick; false, queuing nothing, past
-    /// [`MAX_CONTROLS_PER_TICK`] this tick.
-    pub(super) fn control(&mut self, control: Control) -> bool {
-        if self.controls.len() >= MAX_CONTROLS_PER_TICK {
-            return false;
-        }
-        self.controls.push(control);
-        true
-    }
-
-    /// Hands this tick's controls to the networking without waiting. The networking takes them
-    /// as they come; if it has fallen four ticks behind, the rest are dropped with a warning.
-    pub(super) fn flush(&mut self) {
-        let Some(link) = &self.link else {
-            self.controls.clear();
-            return;
-        };
-        for control in self.controls.drain(..) {
-            match link.try_send(control) {
-                Ok(()) => {}
-                Err(TrySendError::Full(control)) => {
-                    warn!(?control, "the networking is not taking controls; dropped");
-                }
-                Err(TrySendError::Closed(_)) => debug!("networking stopped; control dropped"),
-            }
-        }
-    }
-
     /// How long the latest measured tick took (PMMP `Server::getTickUsage`, which gives it as a
     /// percentage of 50 ms).
     pub(super) fn mspt(&self) -> Duration {
@@ -147,6 +91,50 @@ impl Network {
         self.threads
     }
 
+    /// Sends the controls to the networking from now on.
+    pub(super) fn connect(&mut self, link: mpsc::Sender<Control>) {
+        self.link = Some(link);
+    }
+
+    /// Takes the measures of a checkpoint's `restored` state, keeping where controls go and the
+    /// threads.
+    pub(super) fn restore(&mut self, restored: Self) {
+        let link = self.link.take();
+        *self = Self {
+            link,
+            threads: self.threads,
+            ..restored
+        };
+    }
+
+    /// Queues `control` for the end of the tick; false, queuing nothing, past
+    /// [`MAX_CONTROLS_PER_TICK`] this tick.
+    pub(super) fn control(&mut self, control: Control) -> bool {
+        if self.controls.len() >= MAX_CONTROLS_PER_TICK {
+            return false;
+        }
+        self.controls.push(control);
+        true
+    }
+
+    /// Hands this tick's controls to the networking without waiting. The networking takes them
+    /// as they come; if it has fallen four ticks behind, the rest are dropped with a warning.
+    pub(super) fn flush(&mut self) {
+        let Some(link) = &self.link else {
+            self.controls.clear();
+            return;
+        };
+        for control in self.controls.drain(..) {
+            match link.try_send(control) {
+                Ok(()) => {}
+                Err(TrySendError::Full(control)) => {
+                    warn!(?control, "the networking is not taking controls; dropped");
+                }
+                Err(TrySendError::Closed(_)) => debug!("networking stopped; control dropped"),
+            }
+        }
+    }
+
     /// Hashes every field kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
@@ -172,13 +160,22 @@ impl Network {
     }
 }
 
-/// The ticks a second a tick of `micros` allows, at most a full-speed tick's (PMMP's 0.001
-/// seconds floor lies below the full-speed tick, so the cap covers it).
-fn tps_of(micros: u32) -> f64 {
-    if u128::from(micros) <= TICK.as_micros() {
-        1.0 / TICK.as_secs_f64()
-    } else {
-        1_000_000.0 / f64::from(micros)
+super::checkpoint::fields!(Network {
+    tick_times,
+    latest,
+    connections,
+    logged_in,
+    memory,
+    uptime_ms;
+    threads,
+    controls,
+    link,
+});
+
+impl State {
+    /// Records the threads the running server started with, which `/status` shows.
+    pub(crate) fn set_threads(&mut self, threads: ThreadTotals) {
+        self.network.threads = threads;
     }
 }
 
@@ -208,24 +205,28 @@ pub(super) fn apply(state: &mut State, session: SessionId, measure: Measure) {
     }
 }
 
-impl State {
-    /// Records the threads the running server started with, which `/status` shows.
-    pub(crate) fn set_threads(&mut self, threads: ThreadTotals) {
-        self.network.threads = threads;
+/// The ticks a second a tick of `micros` allows, at most a full-speed tick's (PMMP's 0.001
+/// seconds floor lies below the full-speed tick, so the cap covers it).
+fn tps_of(micros: u32) -> f64 {
+    if u128::from(micros) <= TICK.as_micros() {
+        1.0 / TICK.as_secs_f64()
+    } else {
+        1_000_000.0 / f64::from(micros)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::net::IpAddr;
 
-    use super::*;
     use crate::event::Listeners;
     use crate::pool::Pool;
     use crate::tick::log::{EntryKind, InputLog};
     use crate::tick::queue::{Input, InputKind, control_queue};
-    use crate::tick::tests::{new_state, settings};
-    use crate::tick::{Context, Output, step};
+    use crate::tick::tests::{join, new_state, radius, settings, tick};
+    use crate::tick::{Context, Output, deliver, step};
 
     fn measured(session: SessionId, seq: u64, measure: Measure) -> Input {
         Input {
@@ -243,7 +244,7 @@ mod tests {
     fn apply(state: &mut State, mut inputs: Vec<Input>, pool: &Pool, log: &mut InputLog) -> u64 {
         let mut output = Output::default();
         step(state, &mut inputs, &mut Vec::new(), pool, &mut output, log);
-        super::super::deliver(state, &mut output, log);
+        deliver(state, &mut output, log);
         state.hash()
     }
 
@@ -370,7 +371,6 @@ mod tests {
     /// tick: no control waits past the tick, where its checkpoint would not keep it.
     #[test]
     fn controls_of_a_quit_in_the_delivery_leave_in_the_same_tick() {
-        use crate::tick::tests::{join, radius, tick};
         let mut listeners = Listeners::default();
         listeners.push(
             crate::event::Priority::Normal,

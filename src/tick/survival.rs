@@ -27,8 +27,8 @@ pub(super) use crate::player::{HEIGHT as PLAYER_HEIGHT, WIDTH as PLAYER_WIDTH};
 pub(super) use api::{marked, sync};
 pub(super) use appearance::{SkinBudget, send_skins, skin_waits};
 pub(super) use attributes::{
-    adventure_settings, all_attributes, full_metadata, game_rules, random_tick_speed_changed,
-    update_abilities,
+    HEALTH_ATTRIBUTE, actor_data, adventure_settings, all_attributes, full_metadata, game_rules,
+    random_tick_speed_changed, update_abilities,
 };
 pub(super) use clock::{
     Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
@@ -577,6 +577,19 @@ fn notify<E: Event>(state: &mut State, build: impl FnOnce() -> E) {
         dispatch::call(state, &mut event);
         dispatch::watch(state, &event);
     }
+}
+
+/// Checks the stacks a listener set: at most `limit` non-empty stacks, each within its item's
+/// stack size.
+fn valid_stacks(stacks: &[Stack], limit: usize) -> Vec<Stack> {
+    stacks
+        .iter()
+        .filter_map(|s| {
+            let max = s.item()?.max_stack_size();
+            (!s.is_empty()).then(|| s.with_count(s.count().min(max)))
+        })
+        .take(limit)
+        .collect()
 }
 
 /// Asks the [`PlayerGameModeChange`] listeners whether the player of `session` may change to

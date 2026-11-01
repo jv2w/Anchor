@@ -1,20 +1,18 @@
-//! Tests of the station windows: each station's rules, conservation (items in = items out +
-//! consumed), the same request twice, closing mid-use, and open/close cycles leaving no state
-//! behind; the furnace and brewing stand windows and their block entity ticks; breaking containers.
+//! Tests of the station windows.
+//!
+//! They cover each station's rules, conservation, the same request twice and open/close cycles.
+//! Conservation means items in = items out + consumed, and the cycles leave no state behind. The
+//! furnace and brewing stand windows with their block entity ticks, and breaking containers, are
+//! tested here too.
 
 use std::collections::BTreeMap;
 
-use super::super::super::interact::{self, Destroy};
-use super::super::super::{State, block_entity, survival};
-use super::super::tests::{
-    World, at, check_slots, consume, craft, created, dropped, item, ok, place, swap, take, totals,
-};
-use super::super::{Slot, SlotRef, StackId, close_window, on_item_stack_request, open_trade};
 use super::*;
 use crate::block::{self as blk, Face};
 use crate::config::GameMode;
 use crate::crafting::ShapelessType;
-use crate::item::{Extra, Kind, Type};
+use crate::custom::ItemRef;
+use crate::item::{Enchantment, Extra, Kind, Type};
 use crate::nbt::Compound;
 use crate::protocol::consts::ContainerId as C;
 use crate::protocol::packet::Packet;
@@ -22,22 +20,27 @@ use crate::protocol::{
     BeaconPaymentStackRequestAction, CraftLoomRecipeStackRequestAction,
     CraftRecipeOptionalStackRequestAction, ItemStackResponse,
 };
+use crate::tick::interact::Destroy;
+use crate::tick::inventory::tests::{
+    World, at, check_slots, consume, craft, created, dropped, item, ok, place, swap, take, totals,
+};
+use crate::tick::inventory::{
+    Slot, SlotRef, StackId, close_window, on_item_stack_request, open_trade,
+};
 use crate::world::BlockPos;
 
 /// A station block's position, next to the spawn.
 const AT: BlockPos = BlockPos::new(3, -60, 3);
+/// The request container of the main inventory and the hotbar together.
 const COMBINED: C = C::CombinedHotBarAndInventory;
 
+/// The item type named `name`.
 fn named(name: &str) -> Type {
     Type::from_name(name, 0, None, &Compound::new()).unwrap()
 }
 
-fn named_meta(name: &str, meta: u16) -> Type {
-    Type::from_name(name, meta, None, &Compound::new()).unwrap()
-}
-
 /// A world with one survival player holding `stacks` (one per main slot from 0) and many levels.
-fn world(stacks: &[Stack]) -> (World, super::super::super::SessionId) {
+fn world(stacks: &[Stack]) -> (World, SessionId) {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     for stack in stacks {
@@ -48,57 +51,14 @@ fn world(stacks: &[Stack]) -> (World, super::super::super::SessionId) {
     (w, s)
 }
 
-/// Sends a request with filter strings; its response.
-fn request_filter(
-    w: &mut World,
-    s: super::super::super::SessionId,
-    id: i32,
-    actions: Vec<StackRequestAction>,
-    filter: &str,
-) -> ItemStackResponse {
-    w.state.tick += 1;
-    let request = ItemStackRequest {
-        request_id: id,
-        actions,
-        filter_strings: vec![filter.to_owned()],
-        filter_cause: 0,
-    };
-    on_item_stack_request(&mut w.state, s, &request);
-    w.sent(s)
-        .into_iter()
-        .find_map(|p| match p {
-            Packet::ItemStackResponse(r) => r.responses.into_iter().next(),
-            _ => None,
-        })
-        .unwrap()
-}
-
 /// Moves `count` from main slot `from` into the open window's request slot.
-fn put(w: &mut World, s: super::super::super::SessionId, from: u8, count: u8, to: (C, u8)) {
+fn put(w: &mut World, s: SessionId, from: u8, count: u8, to: (C, u8)) {
     let id = w.id(s, COMBINED, from);
     let r = w.request(
         s,
         vec![place(count, at(COMBINED, from, id), at(to.0, to.1, 0))],
     );
     assert!(ok(&r), "{r:?}");
-}
-
-/// The window's own slot `i`.
-fn ui_stack(w: &World, s: super::super::super::SessionId, i: u8) -> Stack {
-    w.inv(s).get(SlotRef::Ui(i)).unwrap().stack
-}
-
-/// Sets the window's own slot `i` directly (outside a request) with stack network ID `net`.
-fn set_ui(w: &mut World, s: super::super::super::SessionId, i: u8, stack: Stack, net: i32) {
-    let slot = Slot {
-        stack,
-        id: StackId { net, request: None },
-    };
-    assert!(w.player(s).inventory.put(SlotRef::Ui(i), slot));
-}
-
-fn total_count(state: &State) -> u64 {
-    totals(state).values().sum()
 }
 
 #[test]
@@ -117,7 +77,7 @@ fn a_furnace_window_cooks_with_bds_data_and_the_output_gives_its_experience() {
             _ => None,
         })
         .collect();
-    assert_eq!(keys, vec![0, 1, 2, 3], "BDS sends keys 0 to 3 on open");
+    assert_eq!(keys, vec![0, 1, 2, 3], "keys 0 to 3 go out on open (BDS)");
     put(&mut w, s, 0, 1, (C::FurnaceFuel, 1));
     put(&mut w, s, 1, 2, (C::FurnaceIngredient, 0));
     w.tick(Vec::new());
@@ -190,7 +150,7 @@ fn a_furnace_opens_without_block_actor_data_and_its_tick_keeps_the_ids_of_counts
         !w.sent(s)
             .iter()
             .any(|p| matches!(p, Packet::BlockActorData(_))),
-        "BDS sends no BlockActorData when a window opens"
+        "no BlockActorData goes out when a window opens (BDS)"
     );
     put(&mut w, s, 0, 1, (C::FurnaceFuel, 1));
     put(&mut w, s, 1, 3, (C::FurnaceIngredient, 0));
@@ -224,14 +184,14 @@ fn a_furnace_opens_without_block_actor_data_and_its_tick_keeps_the_ids_of_counts
     );
     let coal = Stack::new(item(Kind::Coal), 1).to_nbt();
     let mut fuel = coal.clone();
-    fuel.insert("WasPickedUp".to_owned(), crate::nbt::Value::Byte(0));
+    fuel.insert("WasPickedUp".to_owned(), Value::Byte(0));
     assert_eq!(
         last_fuel,
         vec![Compound::from([(
             "LastFuel".to_owned(),
-            crate::nbt::Value::Compound(fuel)
+            Value::Compound(fuel)
         )])],
-        "BDS: the last fuel with WasPickedUp, once"
+        "the last fuel with WasPickedUp, once (BDS)"
     );
     check_slots(&w.state);
 }
@@ -254,7 +214,7 @@ fn a_brewing_stand_window_brews_every_bottle_with_one_ingredient_and_blaze_powde
     for _ in 0..401 {
         w.tick(Vec::new());
     }
-    let awkward = crate::crafting::brew_potion_type(
+    let awkward = crafting::brew_potion_type(
         &Stack::new(water, 1),
         &Stack::new(named("minecraft:nether_wart"), 1),
     )
@@ -265,15 +225,9 @@ fn a_brewing_stand_window_brews_every_bottle_with_one_ingredient_and_blaze_powde
     assert!(w.slot(s, C::BrewingStandFuel, 4).stack.is_empty());
 }
 
-/// Opens an enchanting table with a pickaxe in main slot 0 and lapis in slot 1, puts the pickaxe
-/// in: the options shown.
-fn enchanting(
-    lapis: u8,
-) -> (
-    World,
-    super::super::super::SessionId,
-    Vec<(u32, enchant::Choice)>,
-) {
+/// An enchanting table opened, and the options it shows.
+/// An iron pickaxe is in its input and `lapis` lapis lazuli in its material slot.
+fn enchanting(lapis: u8) -> (World, SessionId, Vec<(u32, enchant::Choice)>) {
     let (mut w, s) = world(&[
         Stack::new(item(Kind::IronPickaxe), 1),
         Stack::new(item(Kind::LapisLazuli), lapis),
@@ -290,7 +244,7 @@ fn enchanting(
     put(&mut w, s, 1, lapis, (C::EnchantingMaterial, 15));
     let options = w.inv(s).window.as_ref().unwrap().station.options.clone();
     assert_eq!(options.len(), 3);
-    assert!(options[0].0 >= crate::crafting::first_special_id());
+    assert!(options[0].0 >= crafting::first_special_id());
     (w, s, options)
 }
 
@@ -335,16 +289,26 @@ fn enchanting_options_have_the_bds_shape() {
         assert_eq!(all.len(), choice.enchantments.len());
     }
     // BDS: unbreaking in the held list, efficiency in the self list (P6 `enchant`).
-    assert_eq!(enchant::activation(crate::item::Enchantment::Unbreaking), 1);
-    assert_eq!(enchant::activation(crate::item::Enchantment::Efficiency), 2);
+    assert_eq!(enchant::activation(Enchantment::Unbreaking), 1);
+    assert_eq!(enchant::activation(Enchantment::Efficiency), 2);
     assert_eq!(enchant::slot(Some(item(Kind::IronPickaxe))), 1024);
     assert_eq!(enchant::slot(None), 0);
+}
+
+/// The number of items in the whole world.
+fn total_count(state: &State) -> u64 {
+    totals(state).values().sum()
+}
+
+/// The window's own slot `i`.
+fn ui_stack(w: &World, s: SessionId, i: u8) -> Stack {
+    w.inv(s).get(SlotRef::Ui(i)).unwrap().stack
 }
 
 /// The BDS enchant request for option `index` (P6).
 fn enchant_request(
     w: &World,
-    s: super::super::super::SessionId,
+    s: SessionId,
     option: u32,
     index: u8,
     id: i32,
@@ -385,7 +349,7 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
     assert_eq!(
         survival::enchantment_seed(w.player(s)),
         0,
-        "a new seed is drawn"
+        "the seed is reset and drawn again on the player's next tick"
     );
     assert_eq!(total_count(&w.state), before - 2);
     // The enchanted input has no options: the empty list went out with the response.
@@ -393,7 +357,8 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
     check_slots(&w.state);
 }
 
-// PMMP `EnchantingTransaction::execute`: levels go with finite resources, every mode but creative.
+/// Levels go with finite resources, every game mode but creative.
+/// This is PMMP's `EnchantingTransaction::execute`.
 #[test]
 fn a_spectator_enchanting_spends_the_levels() {
     let (mut w, s, options) = enchanting(3);
@@ -451,7 +416,7 @@ fn enchanting_refuses_an_option_after_the_input_is_swapped() {
 
 #[test]
 fn enchanting_option_ids_follow_custom_recipes() {
-    use crate::custom::{Ingredient, ItemRef, Recipe, Registry};
+    use crate::custom::{Ingredient, Recipe, Registry};
     let mut custom = Registry::default();
     for result in [Kind::Diamond, Kind::Emerald] {
         custom.add_recipe(Recipe::shapeless(
@@ -461,7 +426,7 @@ fn enchanting_option_ids_follow_custom_recipes() {
     }
     custom.finish().unwrap();
     let first = custom.first_special_id();
-    assert_eq!(first, crate::crafting::first_special_id() + 2);
+    assert_eq!(first, crafting::first_special_id() + 2);
     let (mut w, s) = world(&[
         Stack::new(item(Kind::IronPickaxe), 1),
         Stack::new(item(Kind::LapisLazuli), 3),
@@ -475,6 +440,31 @@ fn enchanting_option_ids_follow_custom_recipes() {
     // No option shares a network ID with a custom recipe.
     assert_eq!(options[0].0, first);
     assert!(options.iter().all(|(id, _)| *id >= first));
+}
+
+/// Sends a request with filter strings; its response.
+fn request_filter(
+    w: &mut World,
+    s: SessionId,
+    id: i32,
+    actions: Vec<StackRequestAction>,
+    filter: &str,
+) -> ItemStackResponse {
+    w.state.tick += 1;
+    let request = ItemStackRequest {
+        request_id: id,
+        actions,
+        filter_strings: vec![filter.to_owned()],
+        filter_cause: 0,
+    };
+    on_item_stack_request(&mut w.state, s, &request);
+    w.sent(s)
+        .into_iter()
+        .find_map(|p| match p {
+            Packet::ItemStackResponse(r) => r.responses.into_iter().next(),
+            _ => None,
+        })
+        .unwrap()
 }
 
 #[test]
@@ -522,7 +512,7 @@ fn the_anvil_renames_and_repairs_for_levels() {
 }
 
 /// A survival player with 64 sticks at an open anvil.
-fn anvil_world() -> (World, super::super::super::SessionId) {
+fn anvil_world() -> (World, SessionId) {
     let (mut w, s) = world(&[Stack::new(item(Kind::Stick), 64)]);
     w.place_block(AT, blk::Kind::Anvil.default_state());
     w.open_block(s, AT);
@@ -530,12 +520,7 @@ fn anvil_world() -> (World, super::super::super::SessionId) {
 }
 
 /// Sends a request in the current tick, which the server takes.
-fn send_now(
-    w: &mut World,
-    s: super::super::super::SessionId,
-    id: i32,
-    actions: Vec<StackRequestAction>,
-) {
+fn send_now(w: &mut World, s: SessionId, id: i32, actions: Vec<StackRequestAction>) {
     let request = ItemStackRequest {
         request_id: id,
         actions,
@@ -551,7 +536,7 @@ fn send_now(
 }
 
 /// Renames one stick into main slot 1 in the current tick; whether the anvil took damage.
-fn rename_stick(w: &mut World, s: super::super::super::SessionId) -> bool {
+fn rename_stick(w: &mut World, s: SessionId) -> bool {
     let before = w.state.worlds[0].block(AT);
     let id = w.next_id(s);
     let from = w.id(s, COMBINED, 0);
@@ -608,8 +593,8 @@ fn anvil_uses_in_one_tick_draw_their_damage_apart() {
     );
 }
 
-/// A refused request earlier in the tick does not change how an anvil use comes out
-/// (idempotence: a repeated request leaves the game as one).
+/// A refused request earlier in the tick does not change how an anvil use comes out.
+/// This is idempotence: a repeated request leaves the game as one.
 #[test]
 fn a_refused_repeat_does_not_change_a_later_anvil_use() {
     let (mut once, s) = anvil_world();
@@ -636,9 +621,22 @@ fn a_refused_repeat_does_not_change_a_later_anvil_use() {
     }
 }
 
-/// Stacks a server gives with the highest enchantment level, or the highest prior work, go into
-/// the anvil: the level cannot climb past the maximum and the prior-work cost does not overflow.
-/// With no rename the work is nothing or too expensive, so each is refused and nothing changes.
+/// The anvil refuses the highest enchantment level and the highest prior work, changing nothing.
+/// The level cannot climb past the maximum and the prior-work cost does not overflow. With no
+/// rename the work is nothing or too expensive.
+/// An anvil window outliving its anvil never damages the block that stands there now.
+#[test]
+fn a_use_of_an_anvil_window_whose_block_is_no_anvil_leaves_the_block() {
+    let (mut w, s) = anvil_world();
+    let stone = blk::Kind::Stone.default_state();
+    w.state.worlds[0].set_block(AT, stone).unwrap();
+    for _ in 0..64 {
+        w.state.tick += 1;
+        rename_stick(&mut w, s);
+        assert_eq!(w.state.worlds[0].block(AT), Some(stone));
+    }
+}
+
 #[test]
 fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
     let sword = |damage: u16, extra: Extra| {
@@ -649,14 +647,11 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
             .unwrap()
     };
     let highest = Extra {
-        enchantments: vec![(
-            crate::item::Enchantment::Sharpness,
-            crate::item::MAX_ENCHANTMENT_LEVEL,
-        )],
+        enchantments: vec![(Enchantment::Sharpness, crate::item::MAX_ENCHANTMENT_LEVEL)],
         ..Extra::default()
     };
     let worked = Extra {
-        nbt: Compound::from([("RepairCost".to_owned(), crate::nbt::Value::Int(i32::MAX))]),
+        nbt: Compound::from([("RepairCost".to_owned(), Value::Int(i32::MAX))]),
         ..Extra::default()
     };
     for (input, material) in [
@@ -698,8 +693,8 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
     }
 }
 
-/// `experience = false`: the levels a player kept count as none, so a survival player takes no
-/// enchanting option and no anvil work, and keeps its levels.
+/// With `experience = false` the levels a player kept count as none.
+/// A survival player then takes no enchanting option and no anvil work, and keeps its levels.
 #[test]
 fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
     let (mut w, s, options) = enchanting(3);
@@ -744,8 +739,17 @@ fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
     check_slots(&w.state);
 }
 
-/// A stack an ingredient takes (exact items as they are, wildcards by name, tags by their
-/// first item).
+/// Sets the window's own slot `i` directly (outside a request) with stack network ID `net`.
+fn set_ui(w: &mut World, s: SessionId, i: u8, stack: Stack, net: i32) {
+    let slot = Slot {
+        stack,
+        id: StackId { net, request: None },
+    };
+    assert!(w.player(s).inventory.put(SlotRef::Ui(i), slot));
+}
+
+/// A stack an ingredient takes.
+/// Exact items are taken as they are, wildcards by name, tags by their first item.
 fn sample(i: &Ingredient) -> Option<Stack> {
     match i {
         Ingredient::Exact(e) => {
@@ -766,7 +770,7 @@ fn every_stonecutter_recipe_cuts_and_a_wrong_input_is_refused() {
     w.open_block(s, AT);
     let mut cut = 0;
     for rid in 1.. {
-        let Some(recipe) = crate::crafting::recipe(rid) else {
+        let Some(recipe) = crafting::recipe(rid) else {
             break;
         };
         let Recipe::Shapeless(r) = recipe else {
@@ -811,8 +815,8 @@ fn every_stonecutter_recipe_cuts_and_a_wrong_input_is_refused() {
     assert!(cut > 100, "{cut} stonecutter recipes");
 }
 
-/// The smithing request for recipe `rid` making `result` (dragonfly; BDS consumes each slot).
-fn smith(w: &mut World, s: super::super::super::SessionId, rid: u32) -> ItemStackResponse {
+/// The smithing request for recipe `rid` (dragonfly; BDS consumes each slot).
+fn smith(w: &mut World, s: SessionId, rid: u32) -> ItemStackResponse {
     let ids: Vec<i32> = (0..3)
         .map(|i| w.inv(s).get(SlotRef::Ui(i)).unwrap().id.net)
         .collect();
@@ -833,7 +837,7 @@ fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
         .with_damage(30)
         .unwrap()
         .with_extra(Some(Extra {
-            enchantments: vec![(crate::item::Enchantment::Sharpness, 3)],
+            enchantments: vec![(Enchantment::Sharpness, 3)],
             ..Extra::default()
         }))
         .unwrap();
@@ -851,7 +855,7 @@ fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
     put(&mut w, s, 1, 1, (C::SmithingTableMaterial, 52));
     put(&mut w, s, 2, 1, (C::SmithingTableTemplate, 53));
     let recipes: Vec<(u32, Recipe<'static>)> = (1..)
-        .map_while(|id| crate::crafting::recipe(id).map(|r| (id, r)))
+        .map_while(|id| crafting::recipe(id).map(|r| (id, r)))
         .collect();
     let upgrade = recipes
         .iter()
@@ -882,19 +886,19 @@ fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
     let trim_tag = trimmed.extra().unwrap().nbt.get("Trim").cloned();
     assert_eq!(
         trim_tag,
-        Some(crate::nbt::Value::Compound(Compound::from([
-            (
-                "Material".to_owned(),
-                crate::nbt::Value::String("gold".to_owned())
-            ),
-            (
-                "Pattern".to_owned(),
-                crate::nbt::Value::String("ward".to_owned())
-            ),
+        Some(Value::Compound(Compound::from([
+            ("Material".to_owned(), Value::String("gold".to_owned())),
+            ("Pattern".to_owned(), Value::String("ward".to_owned())),
         ])))
     );
 }
 
+/// The item type named `name` with `meta`.
+fn named_meta(name: &str, meta: u16) -> Type {
+    Type::from_name(name, meta, None, &Compound::new()).unwrap()
+}
+
+/// The loom request action putting `pattern` on `times` banners.
 fn loom(pattern: &str, times: u8) -> StackRequestAction {
     StackRequestAction::CraftLoomRecipe(CraftLoomRecipeStackRequestAction {
         pattern: pattern.to_owned(),
@@ -937,16 +941,14 @@ fn the_loom_adds_a_pattern_in_the_dye_colour_and_refuses_item_patterns() {
     // Red is dye 14: inverted 1.
     assert_eq!(
         patterns,
-        crate::nbt::Value::List(crate::nbt::List::Compound(vec![Compound::from([
-            (
-                "Pattern".to_owned(),
-                crate::nbt::Value::String("bo".to_owned())
-            ),
-            ("Color".to_owned(), crate::nbt::Value::Int(1)),
+        Value::List(List::Compound(vec![Compound::from([
+            ("Pattern".to_owned(), Value::String("bo".to_owned())),
+            ("Color".to_owned(), Value::Int(1)),
         ])]))
     );
 }
 
+/// The beacon payment request action choosing the effects `primary` and `secondary`.
 fn payment(primary: i32, secondary: i32) -> StackRequestAction {
     StackRequestAction::BeaconPayment(BeaconPaymentStackRequestAction {
         primary_effect: primary,
@@ -1191,12 +1193,9 @@ fn beds_banners_and_heads_keep_their_item_data() {
     let mut tag = Compound::new();
     tag.insert(
         "Patterns".to_owned(),
-        crate::nbt::Value::List(crate::nbt::List::Compound(vec![Compound::from([
-            (
-                "Pattern".to_owned(),
-                crate::nbt::Value::String("bo".to_owned()),
-            ),
-            ("Color".to_owned(), crate::nbt::Value::Int(3)),
+        Value::List(List::Compound(vec![Compound::from([
+            ("Pattern".to_owned(), Value::String("bo".to_owned())),
+            ("Color".to_owned(), Value::Int(3)),
         ])])),
     );
     let banner_type = named_meta("minecraft:banner", 4);
@@ -1210,10 +1209,7 @@ fn beds_banners_and_heads_keep_their_item_data() {
 }
 
 /// [`world`] on a server with the recipes of `builder`.
-fn custom_world(
-    builder: crate::ServerBuilder,
-    stacks: &[Stack],
-) -> (World, super::super::super::SessionId) {
+fn custom_world(builder: crate::ServerBuilder, stacks: &[Stack]) -> (World, SessionId) {
     let (mut w, s) = world(stacks);
     let mut custom = builder.setup.custom;
     custom.finish().unwrap();
@@ -1221,12 +1217,14 @@ fn custom_world(
     (w, s)
 }
 
-fn own(kind: Kind) -> crate::custom::ItemRef {
-    crate::custom::ItemRef::Item(item(kind))
+/// The reference to the vanilla item of `kind`.
+fn own(kind: Kind) -> ItemRef {
+    ItemRef::Item(item(kind))
 }
 
-/// A server whose stonecutter cuts a diamond into four sticks and whose smithing table turns a
-/// golden sword with an emerald and a netherite upgrade template into a diamond sword.
+/// A server with two station recipes.
+/// Its stonecutter cuts a diamond into four sticks and its smithing table turns a golden sword
+/// with an emerald and a netherite upgrade template into a diamond sword.
 fn station_recipes() -> crate::ServerBuilder {
     use crate::custom::{Ingredient as I, Recipe as R};
     crate::Server::builder()
@@ -1235,7 +1233,7 @@ fn station_recipes() -> crate::ServerBuilder {
             (own(Kind::Stick), 4),
         ))
         .recipe(R::smithing_transform(
-            I::Item(crate::custom::ItemRef::Item(named(
+            I::Item(ItemRef::Item(named(
                 "minecraft:netherite_upgrade_smithing_template",
             ))),
             // Any damage: an exact ingredient takes an undamaged item only (PMMP).
@@ -1245,8 +1243,9 @@ fn station_recipes() -> crate::ServerBuilder {
         ))
 }
 
-/// The stonecutter request cutting `times` diamonds with server recipe `rid`.
-fn cut(w: &mut World, s: super::super::super::SessionId, rid: u32, times: u8, id: i32) -> bool {
+/// Sends the stonecutter request cutting `times` diamonds with server recipe `rid`.
+/// It returns whether the request was accepted.
+fn cut(w: &mut World, s: SessionId, rid: u32, times: u8, id: i32) -> bool {
     let net = w.inv(s).get(SlotRef::Ui(0)).unwrap().id.net;
     let actions = vec![
         craft(rid, times),
@@ -1260,7 +1259,7 @@ fn cut(w: &mut World, s: super::super::super::SessionId, rid: u32, times: u8, id
 fn a_servers_stonecutter_recipe_cuts_once_per_request_and_keeps_the_count() {
     let run = |twice: bool| {
         let (mut w, s) = custom_world(station_recipes(), &[Stack::new(item(Kind::Diamond), 3)]);
-        let rid = crate::crafting::first_special_id();
+        let rid = crafting::first_special_id();
         w.place_block(AT, blk::Kind::Stonecutter.default_state());
         w.open_block(s, AT);
         put(&mut w, s, 0, 3, (C::StonecutterInput, 3));
@@ -1300,7 +1299,7 @@ fn a_servers_smithing_recipe_transforms_keeping_the_inputs_data_once() {
         .with_damage(7)
         .unwrap()
         .with_extra(Some(Extra {
-            enchantments: vec![(crate::item::Enchantment::Sharpness, 1)],
+            enchantments: vec![(Enchantment::Sharpness, 1)],
             ..Extra::default()
         }))
         .unwrap();
@@ -1313,7 +1312,7 @@ fn a_servers_smithing_recipe_transforms_keeping_the_inputs_data_once() {
                 Stack::new(named("minecraft:netherite_upgrade_smithing_template"), 1),
             ],
         );
-        let rid = crate::crafting::first_special_id() + 1;
+        let rid = crafting::first_special_id() + 1;
         w.place_block(AT, blk::Kind::SmithingTable.default_state());
         w.open_block(s, AT);
         put(&mut w, s, 0, 1, (C::SmithingTableInput, 51));
@@ -1358,14 +1357,14 @@ fn a_brewing_stand_brews_a_servers_recipes_after_pmmps_container_changes() {
     let splash = named("minecraft:splash_potion");
     let builder = crate::Server::builder()
         .recipe(R::brewing(
-            I::Item(crate::custom::ItemRef::Item(water)),
+            I::Item(ItemRef::Item(water)),
             I::Item(own(Kind::Emerald)),
-            crate::custom::ItemRef::Item(named_meta("minecraft:potion", 7)),
+            ItemRef::Item(named_meta("minecraft:potion", 7)),
         ))
         .recipe(R::brewing_container(
-            crate::custom::ItemRef::Item(splash),
+            ItemRef::Item(splash),
             I::Item(own(Kind::Emerald)),
-            crate::custom::ItemRef::Item(named("minecraft:lingering_potion")),
+            ItemRef::Item(named("minecraft:lingering_potion")),
         ));
     let (mut w, s) = custom_world(
         builder,

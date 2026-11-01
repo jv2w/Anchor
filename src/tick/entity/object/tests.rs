@@ -1,12 +1,8 @@
 //! Tests of paintings, end crystals, firework rockets, thrown tridents and ice bombs: their item
 //! uses as packets, their rules, what viewers are sent and what is saved.
 
-use super::super::kind::Shot;
-use super::super::saved::tests::stack;
-use super::super::tests::{Harness, adds, at, standing};
-use super::super::{
-    Entities, MAX_ENTITIES_PER_WORLD, Npc, drop_item, release_trident, saved, spawn_npc,
-};
+use std::cell::Cell;
+
 use super::*;
 use crate::block::Kind as BlockKind;
 use crate::config::GameMode;
@@ -18,15 +14,27 @@ use crate::protocol::{
     FlagSet, InventoryTransactionData, MetadataValue, ReleaseItemTransactionData,
     UseItemOnEntityTransactionData, UseItemTransactionData,
 };
+use crate::tick::entity::kind::Shot;
+use crate::tick::entity::saved::tests::stack;
+use crate::tick::entity::tests::{Harness, adds, at, removes, standing};
+use crate::tick::entity::{
+    Entities, Entity, MAX_ENTITIES_PER_WORLD, Npc, drop_item, release_trident, saved, spawn_npc,
+};
 use crate::tick::tests::{input, packet};
 use crate::tick::{Context, inventory};
-use std::cell::Cell;
+
+thread_local! {
+    /// Whether the launch listener cancels (listeners run on the test's thread).
+    static CANCEL_LAUNCH: Cell<bool> = const { Cell::new(true) };
+    /// Whether the particle listener cancels.
+    static CANCEL_PARTICLE: Cell<bool> = const { Cell::new(false) };
+    /// Whether the pickup listener cancels.
+    static CANCEL_PICKUP: Cell<bool> = const { Cell::new(true) };
+    /// The particles a `WorldParticle` listener saw.
+    static PARTICLES: Cell<Vec<(Vec3, Particle)>> = const { Cell::new(Vec::new()) };
+}
 
 const WORLD: crate::world::Id = crate::world::Id::DEFAULT;
-
-fn session(n: u64) -> SessionId {
-    SessionId::new(n)
-}
 
 /// A harness with player 1 standing at block (0, 0), spawned, in survival.
 fn harness() -> Harness {
@@ -35,10 +43,8 @@ fn harness() -> Harness {
     h
 }
 
-fn context(h: &mut Harness) -> Context<'_> {
-    Context {
-        state: &mut h.state,
-    }
+fn session(n: u64) -> SessionId {
+    SessionId::new(n)
 }
 
 fn hold(h: &mut Harness, stack: Stack) {
@@ -53,14 +59,14 @@ fn set(h: &mut Harness, pos: BlockPos, block: block::State) {
     h.state.worlds[0].set_block(pos, block).unwrap();
 }
 
-fn block_at_pos(h: &Harness, pos: BlockPos) -> block::State {
-    h.state.worlds[0].block(pos).unwrap()
-}
-
-fn game_mode(h: &mut Harness, mode: GameMode) {
-    let p = h.state.players.get_mut(&session(1)).unwrap();
-    assert!(p.set_game_mode(mode));
-    h.step(Vec::new());
+/// Builds a stone wall facing west at x = 3: z from -2 to 2, y from -60 to -57.
+fn wall(h: &mut Harness) {
+    let stone = BlockKind::Stone.default_state();
+    for z in -2..=2 {
+        for y in -60..=-57 {
+            set(h, BlockPos::new(3, y, z), stone);
+        }
+    }
 }
 
 /// Sends player 1's `InventoryTransaction` of `data` and runs one tick.
@@ -78,7 +84,7 @@ fn use_data(h: &Harness, action: UseItemAction) -> UseItemTransactionData {
     let mut data = UseItemTransactionData {
         action_type: action.into(),
         hot_bar_slot: i32::from(h.state.players[&session(1)].inventory.held_slot()),
-        ..Default::default()
+        ..UseItemTransactionData::default()
     };
     data.held_item.stack.item_type.network_id =
         held.item().map_or(0, |t| i32::from(t.runtime_id()));
@@ -86,7 +92,7 @@ fn use_data(h: &Harness, action: UseItemAction) -> UseItemTransactionData {
     data
 }
 
-/// Player 1 clicks `face` of the block `pos` at `click` with the held item.
+/// Makes player 1 click `face` of the block `pos` at `click` with the held item.
 fn use_on(h: &mut Harness, pos: BlockPos, face: Face, click: [f32; 3]) {
     let mut data = use_data(h, UseItemAction::ClickBlock);
     data.block_position = [pos.x, pos.y, pos.z];
@@ -102,29 +108,6 @@ fn use_on(h: &mut Harness, pos: BlockPos, face: Face, click: [f32; 3]) {
     transaction(h, InventoryTransactionData::UseItem(Box::new(data)));
 }
 
-/// Player 1 uses the held item in the air.
-fn use_in_air(h: &mut Harness) {
-    let data = use_data(h, UseItemAction::ClickAir);
-    transaction(h, InventoryTransactionData::UseItem(Box::new(data)));
-}
-
-/// Player 1 lets go of the held item.
-fn release(h: &mut Harness) {
-    let data = ReleaseItemTransactionData::default();
-    transaction(h, InventoryTransactionData::ReleaseItem(Box::new(data)));
-}
-
-/// Player 1 hits the entity `id`.
-fn hit(h: &mut Harness, id: Id) {
-    let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    let data = UseItemOnEntityTransactionData {
-        target_entity_runtime_id: runtime_id,
-        action_type: 1,
-        ..Default::default()
-    };
-    transaction(h, InventoryTransactionData::UseItemOnEntity(Box::new(data)));
-}
-
 /// The live, unflagged entities of type `t`.
 fn of_type(h: &Harness, t: crate::entity::Type) -> Vec<Id> {
     let entities = &h.state.rules.entities;
@@ -138,7 +121,7 @@ fn of_type(h: &Harness, t: crate::entity::Type) -> Vec<Id> {
         .collect()
 }
 
-fn entity(h: &Harness, id: Id) -> &super::super::Entity {
+fn entity(h: &Harness, id: Id) -> &Entity {
     h.state.rules.entities.get(id).unwrap()
 }
 
@@ -154,68 +137,6 @@ fn on_ground(h: &Harness, item: item::Kind) -> u64 {
             _ => None,
         })
         .sum()
-}
-
-/// How many of `item` player 1 carries.
-fn carried(h: &Harness, item: item::Kind) -> u64 {
-    let inv = &h.state.players[&session(1)].inventory;
-    (0..=u8::MAX)
-        .map_while(|i| inv.main_stack(i))
-        .filter(|s| s.item().and_then(item::Type::kind) == Some(item))
-        .map(|s| u64::from(s.count()))
-        .sum()
-}
-
-/// A vulnerable human NPC standing at `pos`.
-fn target(h: &mut Harness, pos: Vec3) -> Id {
-    let npc = Npc::Human {
-        name: "target".to_owned(),
-        skin: None,
-    };
-    let id = spawn_npc(&mut h.state, 0, pos, npc).unwrap();
-    with(&mut h.state, id, |e| {
-        if let Kind::Npc(c) = &mut e.kind {
-            c.invulnerable = false;
-        }
-    });
-    id
-}
-
-/// A stone wall facing west at x = 3: z from -2 to 2, y from -60 to -57.
-fn wall(h: &mut Harness) {
-    let stone = BlockKind::Stone.default_state();
-    for z in -2..=2 {
-        for y in -60..=-57 {
-            set(h, BlockPos::new(3, y, z), stone);
-        }
-    }
-}
-
-/// The metadata of the `AddActor` of `runtime_id` in `packets`.
-fn added(packets: &[Packet], runtime_id: u64) -> crate::protocol::EntityMetadata {
-    packets
-        .iter()
-        .find_map(|p| match p {
-            Packet::AddActor(a) if a.entity_runtime_id == runtime_id => {
-                Some(a.entity_metadata.clone())
-            }
-            _ => None,
-        })
-        .expect("added")
-}
-
-fn flags_of(m: &crate::protocol::EntityMetadata) -> FlagSet<EntityDataFlag> {
-    let Some(MetadataValue::Int64(f)) = m.get(&(EntityDataKey::Flags as u32)) else {
-        panic!("flags");
-    };
-    let mut set = FlagSet::<EntityDataFlag>::new();
-    for flag in EntityDataFlag::ALL {
-        let bit = flag as u32;
-        if bit < 64 && (f.cast_unsigned() >> bit) & 1 == 1 {
-            set.insert(flag);
-        }
-    }
-    set
 }
 
 #[test]
@@ -298,6 +219,29 @@ fn a_painting_hangs_the_largest_motive_that_fits_and_falls_with_its_wall() {
         if e.event_type == i32::from(LevelEvent::ParticlesDestroyBlock))));
 }
 
+fn context(h: &mut Harness) -> Context<'_> {
+    Context {
+        state: &mut h.state,
+    }
+}
+
+fn game_mode(h: &mut Harness, mode: GameMode) {
+    let p = h.state.players.get_mut(&session(1)).unwrap();
+    assert!(p.set_game_mode(mode));
+    h.step(Vec::new());
+}
+
+/// Makes player 1 hit the entity `id`.
+fn hit(h: &mut Harness, id: Id) {
+    let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
+    let data = UseItemOnEntityTransactionData {
+        target_entity_runtime_id: runtime_id,
+        action_type: 1,
+        ..UseItemOnEntityTransactionData::default()
+    };
+    transaction(h, InventoryTransactionData::UseItemOnEntity(Box::new(data)));
+}
+
 // pmmp: Painting::__construct, Painting::canFit
 #[test]
 fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
@@ -353,6 +297,37 @@ fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
     h.step(Vec::new());
     assert!(h.state.rules.entities.get(id).is_none());
     assert_eq!(on_ground(&h, item::Kind::Painting), 1, "nothing more");
+}
+
+fn block_at_pos(h: &Harness, pos: BlockPos) -> block::State {
+    h.state.worlds[0].block(pos).unwrap()
+}
+
+/// The metadata of the `AddActor` of `runtime_id` in `packets`.
+fn added(packets: &[Packet], runtime_id: u64) -> crate::protocol::EntityMetadata {
+    packets
+        .iter()
+        .find_map(|p| match p {
+            Packet::AddActor(a) if a.entity_runtime_id == runtime_id => {
+                Some(a.entity_metadata.clone())
+            }
+            _ => None,
+        })
+        .expect("added")
+}
+
+fn flags_of(m: &crate::protocol::EntityMetadata) -> FlagSet<EntityDataFlag> {
+    let Some(MetadataValue::Int64(f)) = m.get(&(EntityDataKey::Flags as u32)) else {
+        panic!("flags");
+    };
+    let mut set = FlagSet::<EntityDataFlag>::new();
+    for flag in EntityDataFlag::ALL {
+        let bit = flag as u32;
+        if bit < 64 && (f.cast_unsigned() >> bit) & 1 == 1 {
+            set.insert(flag);
+        }
+    }
+    set
 }
 
 // pmmp: entity\object\EndCrystal::setShowBase, entity\object\EndCrystal::setBeamTarget
@@ -469,6 +444,21 @@ fn an_end_crystal_the_void_kills_does_not_explode_and_chains_go_off() {
     assert_eq!(blasts(&mut h), 2);
 }
 
+/// A vulnerable human NPC standing at `pos`.
+fn target(h: &mut Harness, pos: Vec3) -> Id {
+    let npc = Npc::Human {
+        name: "target".to_owned(),
+        skin: None,
+    };
+    let id = spawn_npc(&mut h.state, 0, pos, npc).unwrap();
+    with(&mut h.state, id, |e| {
+        if let Kind::Npc(c) = &mut e.kind {
+            c.invulnerable = false;
+        }
+    });
+    id
+}
+
 // pmmp: entity\object\FireworkRocket::__construct, entity\object\FireworkRocket::setExplosions, entity\object\FireworkRocket::setMaxFlightTimeTicks
 #[test]
 fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
@@ -544,6 +534,33 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
         Packet::ActorEvent(a) if a.entity_runtime_id == quiet_runtime_id && a.event_type == 25)));
     assert!(!sent.iter().any(|p| matches!(p, Packet::LevelSoundEvent(s)
         if s.sound_type == "blast" || s.sound_type == "large.blast")));
+}
+
+#[test]
+fn explosions_past_the_colour_and_key_bounds_are_refused() {
+    let explosion = |colours: usize| {
+        Compound::from([
+            (TAG_TYPE.to_owned(), Value::Byte(0)),
+            (TAG_COLOURS.to_owned(), Value::ByteArray(vec![1; colours])),
+        ])
+    };
+    let dyes = usize::from(COLOURS);
+    assert!(checked_explosions(vec![explosion(dyes)]).is_some());
+    assert!(checked_explosions(vec![explosion(dyes + 1)]).is_none());
+    let mut long_fade = explosion(1);
+    long_fade.insert(TAG_FADE.to_owned(), Value::ByteArray(vec![2; dyes + 1]));
+    assert!(checked_explosions(vec![long_fade]).is_none());
+    let mut stranger = explosion(1);
+    stranger.insert("Stranger".to_owned(), Value::ByteArray(vec![0; 1 << 20]));
+    assert!(checked_explosions(vec![stranger]).is_none());
+}
+
+#[test]
+fn the_multiplier_an_api_rocket_shows_inverts_the_flight_time_of_an_item() {
+    for multiplier in 1..=MAX_FLIGHT_MULTIPLIER {
+        let flight_ticks = (u32::from(multiplier) + 1) * FLIGHT_STEP_TICKS;
+        assert_eq!(flight_multiplier(flight_ticks), multiplier);
+    }
 }
 
 /// An API launch flies as a rocket item without `Fireworks` data: 20 ticks and up to 12 more, a
@@ -657,7 +674,19 @@ fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
     assert!(h.state.rules.entities.get(id).is_none(), "burst by tick 42");
 }
 
-/// Player 1, looking east and down, draws the held trident for `ticks` and lets it go.
+/// Makes player 1 use the held item in the air.
+fn use_in_air(h: &mut Harness) {
+    let data = use_data(h, UseItemAction::ClickAir);
+    transaction(h, InventoryTransactionData::UseItem(Box::new(data)));
+}
+
+/// Makes player 1 let go of the held item.
+fn release(h: &mut Harness) {
+    let data = ReleaseItemTransactionData::default();
+    transaction(h, InventoryTransactionData::ReleaseItem(Box::new(data)));
+}
+
+/// Makes player 1, looking east and down, draw the held trident for `ticks` and let it go.
 fn throw_trident(h: &mut Harness, ticks: u32) {
     h.look(1, 270.0, 40.0);
     use_in_air(h);
@@ -681,6 +710,16 @@ fn a_trident_throw_sounds_at_the_middle_of_the_body() {
     });
     let [_, y, _] = throw.expect("the throw sound");
     assert!((f64::from(y) - (feet + 0.9)).abs() < 1e-4, "{y} {feet}");
+}
+
+/// How many of `item` player 1 carries.
+fn carried(h: &Harness, item: item::Kind) -> u64 {
+    let inv = &h.state.players[&session(1)].inventory;
+    (0..=u8::MAX)
+        .map_while(|i| inv.main_stack(i))
+        .filter(|s| s.item().and_then(item::Type::kind) == Some(item))
+        .map(|s| u64::from(s.count()))
+        .sum()
 }
 
 #[test]
@@ -881,7 +920,7 @@ fn an_ice_bomb_freezes_the_water_around_where_it_lands_and_hurts_no_one() {
 }
 
 #[test]
-fn at_the_entity_cap_the_new_kinds_are_refused_and_items_stay() {
+fn at_the_entity_cap_paintings_crystals_rockets_and_tridents_are_refused_and_items_stay() {
     let mut h = harness();
     wall(&mut h);
     let obsidian = BlockKind::Obsidian.default_state();
@@ -946,7 +985,7 @@ fn at_the_entity_cap_the_new_kinds_are_refused_and_items_stay() {
 }
 
 #[test]
-fn spawning_and_removing_the_new_kinds_leaves_every_table_at_its_start() {
+fn spawning_and_removing_each_kind_leaves_every_table_at_its_start() {
     let mut h = harness();
     wall(&mut h);
     for _ in 0..3 {
@@ -954,7 +993,7 @@ fn spawning_and_removing_the_new_kinds_leaves_every_table_at_its_start() {
     }
     h.state.rules.entities.take_changed();
     let start = h.state.rules.entities.count(0);
-    for round in 0..200i32 {
+    for round in 0..200_i32 {
         let mut cx = context(&mut h);
         let z = f64::from(round % 5) - 2.0;
         let mut ids = vec![
@@ -1000,7 +1039,7 @@ fn spawning_and_removing_the_new_kinds_leaves_every_table_at_its_start() {
         "removed, not broken"
     );
     let packets = h.take(1);
-    let removed = super::super::tests::removes(&packets).len();
+    let removed = removes(&packets).len();
     assert_eq!(adds(&packets).len(), removed);
 }
 
@@ -1014,13 +1053,6 @@ fn paintings_whose_blocks_are_not_loaded_stay() {
         fits(&world, near, Face::West, PaintingMotive::Kebab),
         Some(false)
     );
-}
-
-thread_local! {
-    /// Whether the launch listener cancels (listeners run on the test's thread).
-    static CANCEL_LAUNCH: Cell<bool> = const { Cell::new(true) };
-    /// Whether the pickup listener cancels.
-    static CANCEL_PICKUP: Cell<bool> = const { Cell::new(true) };
 }
 
 #[test]
@@ -1077,12 +1109,6 @@ fn a_tridents_launch_and_pickup_ask_their_listeners() {
     h.step(Vec::new());
     assert!(h.state.rules.entities.get(id).is_none_or(|e| e.flagged));
     assert_eq!(carried(&h, item::Kind::Trident), 1);
-}
-
-thread_local! {
-    /// The particles a `WorldParticle` listener saw, and whether it cancels them.
-    static PARTICLES: Cell<Vec<(Vec3, Particle)>> = const { Cell::new(Vec::new()) };
-    static CANCEL_PARTICLE: Cell<bool> = const { Cell::new(false) };
 }
 
 #[test]

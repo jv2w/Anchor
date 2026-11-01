@@ -158,6 +158,12 @@ impl Commands {
         self.stopping
     }
 
+    /// The sessions with a grant and the sessions waiting for a resend (leak tests).
+    #[cfg(test)]
+    pub(super) fn session_entries(&self) -> (usize, usize) {
+        (self.grants.len(), self.resend.len())
+    }
+
     /// Hashes the state (state hash): grants, pending resends, the soft enums, the run count, the
     /// lists and the save and stop switches.
     #[cfg(test)]

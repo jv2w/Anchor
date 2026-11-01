@@ -5,17 +5,118 @@
 //! [`placement`] only reads the world: it returns the blocks to set, which the caller checks
 //! (entities in the way, adventure mode, events) and then applies.
 
+use super::props::{self, Axis};
 use crate::block::{self, Class, Face, Kind, State, SupportType, Trait, TypeTag};
 use crate::item;
 use crate::math::Vec3;
 use crate::random::Random;
+use crate::tick::update;
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
-use super::super::update;
-use super::props::{self, Axis};
+/// The distance in blocks that decides whether a barrel faces up or down: the player's feet closer
+/// than this sideways, the eyes higher than this above it (PMMP `Barrel::place`).
+const BARREL_NEAR: f64 = 2.0;
+/// The `candles` of a full set of four candles.
+const CANDLES_FULL: i32 = 3;
+/// The `cluster_count` of four sea pickles.
+const CLUSTER_FULL: i32 = 3;
+/// The brightest light. A red mushroom counts a chunk that is not lit yet as this, so the
+/// placement is refused until the light is there.
+const FULL_LIGHT: u8 = 15;
+/// The most blocks one placement sets: two for doors, beds and tall plants.
+const MAX_BLOCKS: usize = 2;
+/// The `growth` of four pink petals.
+const PETALS_FULL: i32 = 3;
+/// The brightest light a red mushroom may be placed in on ground that is not mycelium, podzol or
+/// nylium (PMMP `RedMushroom::canBeSupportedAt`).
+const RED_MUSHROOM_MAX_LIGHT: u8 = 12;
+/// The `height` of a full block of eight snow layers.
+const SNOW_FULL: i32 = 7;
 
-/// The blocks a placement sets, in position order (at most a few: doors, beds, tall plants).
-pub(super) type Blocks = Vec<(BlockPos, State)>;
+/// One placement attempt (PMMP `Item::getPlacementTransaction`).
+struct Attempt<'a> {
+    world: &'a World,
+    item: item::Type,
+    /// Where the block goes, and what is there.
+    replace: BlockPos,
+    replace_state: State,
+    clicked: BlockPos,
+    clicked_state: State,
+    /// The face PMMP passes: up for the first attempt.
+    face: Face,
+    click: Vec3,
+    placer: Option<&'a Placer>,
+}
+
+impl Attempt<'_> {
+    /// Whether the attached block `state` holds on the `face` side of the replaced position
+    /// ([`update::attached_support`]); `None` for a class without that rule.
+    fn attached(&self, state: State, face: Face) -> Option<bool> {
+        update::attached_support(state, face, self.support(face))
+    }
+
+    /// The placer's horizontal facing; `None` without a placer.
+    fn facing(&self) -> Option<Face> {
+        self.placer.map(Placer::facing)
+    }
+
+    /// The block next to the replaced position toward `face`.
+    fn side(&self, face: Face) -> State {
+        block_at(self.world, self.replace.step(face))
+    }
+
+    /// The support the block toward `face` of the replaced position gives back.
+    fn support(&self, face: Face) -> SupportType {
+        adjacent_support(self.world, self.replace, face)
+    }
+
+    /// Whether the block goes in the upper half: against the bottom of the block above, or high
+    /// up on a side (PMMP `Slab::place`, `Stair::place`, `Trapdoor::place`).
+    fn upper_half(&self) -> bool {
+        (self.face != Face::Up && self.click.y > 0.5) || self.face == Face::Down
+    }
+}
+
+/// The blocks a placement sets, in position order: one, or two for doors, beds and tall plants.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Blocks {
+    slots: [Option<(BlockPos, State)>; MAX_BLOCKS],
+}
+
+impl Blocks {
+    /// The block `first` and the block `second` with it, if there is one, in position order.
+    fn new(first: (BlockPos, State), second: Option<(BlockPos, State)>) -> Self {
+        let slots = match second {
+            Some(second) if second.0 < first.0 => [Some(second), Some(first)],
+            _ => [Some(first), second],
+        };
+        Self { slots }
+    }
+
+    /// The first block in position order.
+    pub(super) fn first(&self) -> Option<&(BlockPos, State)> {
+        self.iter().next()
+    }
+
+    /// The blocks in position order.
+    pub(super) fn iter(&self) -> impl Iterator<Item = &(BlockPos, State)> {
+        self.into_iter()
+    }
+
+    /// The blocks as a list, to hand to an event.
+    pub(super) fn to_vec(&self) -> Vec<(BlockPos, State)> {
+        self.iter().copied().collect()
+    }
+}
+
+impl<'a> IntoIterator for &'a Blocks {
+    type Item = &'a (BlockPos, State);
+    type IntoIter = std::iter::Flatten<std::slice::Iter<'a, Option<(BlockPos, State)>>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.slots.iter().flatten()
+    }
+}
 
 /// What the placing player shows the placement rules (PMMP reads these from the `Player`).
 #[derive(Debug, Clone, Copy)]
@@ -31,48 +132,9 @@ pub(super) struct Placer {
 }
 
 impl Placer {
-    /// PMMP `Entity::getHorizontalFacing`.
+    /// The horizontal facing (PMMP `Entity::getHorizontalFacing`).
     fn facing(&self) -> Face {
         props::horizontal_facing(self.yaw)
-    }
-}
-
-/// The block at `pos`, air where there is none (an unloaded chunk, outside the world), so the
-/// neighbour rules never load a chunk. An inert block reads as its stand-in
-/// ([`block::Inert::stand_in`]) and an unknown state as bedrock (solid, full and unchanged, as
-/// the neighbour updates read it), neither of which a placement replaces.
-pub(super) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
-    match pos.and_then(|p| world.entry(p)) {
-        None => block::AIR,
-        Some(Entry::Known(s)) => s,
-        Some(Entry::Inert(s, _)) => s.stand_in(),
-        Some(Entry::Unknown(_)) => block::BEDROCK,
-    }
-}
-
-/// The block at `pos` as placements see it: an inert block as its stand-in; `None` if the chunk
-/// is not loaded, `pos` is outside the world height or the state is unknown.
-pub(super) fn placed_on(world: &World, pos: BlockPos) -> Option<State> {
-    match world.entry(pos)? {
-        Entry::Known(s) => Some(s),
-        Entry::Inert(s, _) => Some(s.stand_in()),
-        Entry::Unknown(_) => None,
-    }
-}
-
-/// PMMP `Block::getAdjacentSupportType`: the support the block toward `face` gives back.
-fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
-    block_at(world, pos.step(face)).support(face.opposite())
-}
-
-/// PMMP `Block::isFullCube`: one collision box filling the cell.
-fn is_full_cube(state: State) -> bool {
-    match state.collision_boxes() {
-        [b] => {
-            let (dx, dy, dz) = (b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
-            dx == dy && dy == dz && dx >= 1.0
-        }
-        _ => false,
     }
 }
 
@@ -94,7 +156,7 @@ pub(super) fn placement(
     if clicked_state == block::AIR {
         return None;
     }
-    let ctx = |replace: BlockPos, face: Face| Context {
+    let attempt = |replace: BlockPos, face: Face| Attempt {
         world,
         item,
         replace,
@@ -105,61 +167,23 @@ pub(super) fn placement(
         click,
         placer,
     };
-    if let Some(blocks) = transaction(&ctx(clicked, Face::Up), rng) {
+    if let Some(blocks) = transaction(&attempt(clicked, Face::Up), rng) {
         return Some(blocks);
     }
     let replace = clicked.step(face)?;
     placed_on(world, replace)?;
-    transaction(&ctx(replace, face), rng)
-}
-
-/// One placement attempt (PMMP `Item::getPlacementTransaction`).
-struct Context<'a> {
-    world: &'a World,
-    item: item::Type,
-    /// Where the block goes, and what is there.
-    replace: BlockPos,
-    replace_state: State,
-    clicked: BlockPos,
-    clicked_state: State,
-    /// The face PMMP passes: up for the first attempt.
-    face: Face,
-    click: Vec3,
-    placer: Option<&'a Placer>,
-}
-
-impl Context<'_> {
-    /// The block next to the replaced position toward `face`.
-    fn side(&self, face: Face) -> State {
-        block_at(self.world, self.replace.step(face))
-    }
-
-    /// The support the block toward `face` of the replaced position gives back.
-    fn support(&self, face: Face) -> SupportType {
-        adjacent_support(self.world, self.replace, face)
-    }
-
-    /// Whether the attached block `state` holds on the `face` side of the replaced position
-    /// ([`update::attached_support`]); `None` for a class without that rule.
-    fn attached(&self, state: State, face: Face) -> Option<bool> {
-        update::attached_support(state, face, self.support(face))
-    }
-
-    /// The placer's horizontal facing; `None` without a placer.
-    fn facing(&self) -> Option<Face> {
-        self.placer.map(Placer::facing)
-    }
+    transaction(&attempt(replace, face), rng)
 }
 
 /// The transaction of one attempt: the item's block for the face, checked and placed.
-fn transaction(ctx: &Context<'_>, rng: &mut Random) -> Option<Blocks> {
-    for state in candidates(ctx) {
-        if !can_be_placed_at(ctx, state) {
+fn transaction(attempt: &Attempt<'_>, rng: &mut Random) -> Option<Blocks> {
+    for state in candidates(attempt).into_iter().flatten() {
+        if !can_be_placed_at(attempt, state) {
             continue;
         }
         // A form whose rules refuse leaves the next to try (PMMP
         // `HangingSign::getPlacementTransaction`).
-        let Some(blocks) = place(ctx, state, rng) else {
+        let Some(blocks) = place(attempt, state, rng) else {
             continue;
         };
         if blocks.iter().any(|(p, _)| !(MIN_Y..=MAX_Y).contains(&p.y)) {
@@ -172,49 +196,55 @@ fn transaction(ctx: &Context<'_>, rng: &mut Random) -> Option<Blocks> {
 
 /// The blocks the item tries for the face, in order: one for most items; a hanging sign tries
 /// its ceiling forms (PMMP `HangingSign::getPlacementTransaction`).
-fn candidates(ctx: &Context<'_>) -> Vec<State> {
-    let Some(state) = ctx.item.placed_block(Some(ctx.face)) else {
-        return Vec::new();
+fn candidates(attempt: &Attempt<'_>) -> [Option<State>; 2] {
+    let Some(state) = attempt.item.placed_block(Some(attempt.face)) else {
+        return [None, None];
     };
     if !state.has_type_tag(TypeTag::HangingSign) {
-        return vec![state];
+        return [Some(state), None];
     }
     let hanging = |hanging: bool, attached: bool| {
         props::with_flag(state, "hanging", hanging)
             .and_then(|s| props::with_flag(s, "attached_bit", attached))
     };
-    if ctx.face != Face::Down {
-        return hanging(false, false).into_iter().collect();
+    if attempt.face != Face::Down {
+        return [hanging(false, false), None];
     }
-    let edges = ctx
+    let edges = attempt
         .placer
         .is_none_or(|p| !p.sneaking)
         .then(|| hanging(true, false))
         .flatten();
-    edges.into_iter().chain(hanging(true, true)).collect()
+    [edges, hanging(true, true)]
 }
 
-/// PMMP `Block::canBePlacedAt` of the state's class.
-fn can_be_placed_at(ctx: &Context<'_>, state: State) -> bool {
-    let replace = ctx.replace_state;
-    let is_clicked = ctx.replace == ctx.clicked;
+/// Whether the state can be placed at the replaced position (PMMP `Block::canBePlacedAt` of its
+/// class).
+fn can_be_placed_at(attempt: &Attempt<'_>, state: State) -> bool {
+    let replace = attempt.replace_state;
+    let is_clicked = attempt.replace == attempt.clicked;
+    let static_support = state.has_trait(Trait::StaticSupport);
     for class in state.kind().classes() {
         match class {
             Class::Candle => {
                 return if replace.kind() == state.kind() {
-                    props::int(replace, "candles").is_some_and(|c| c < 3)
+                    props::int(replace, "candles").is_some_and(|c| c < CANDLES_FULL)
                 } else {
                     replace.can_be_replaced()
                 };
             }
+            Class::Flowable if !static_support => return flowable_placeable(state, replace),
+            Class::Light => {
+                return replace.can_be_replaced() && replace.kind() != state.kind();
+            }
             Class::PinkPetals => {
                 return (replace.kind() == state.kind()
-                    && props::int(replace, "growth").is_some_and(|c| c < 3))
-                    || (supported_at(ctx, state) && flowable_placeable(state, replace));
+                    && props::int(replace, "growth").is_some_and(|c| c < PETALS_FULL))
+                    || (supported_at(attempt, state) && flowable_placeable(state, replace));
             }
             Class::SeaPickle => {
                 return (replace.kind() == state.kind()
-                    && props::int(replace, "cluster_count").is_some_and(|c| c < 3))
+                    && props::int(replace, "cluster_count").is_some_and(|c| c < CLUSTER_FULL))
                     || replace.can_be_replaced();
             }
             Class::Slab => {
@@ -223,33 +253,29 @@ fn can_be_placed_at(ctx: &Context<'_>, state: State) -> bool {
                 }
                 if replace.kind() == state.kind() && !props::is_double_slab(replace) {
                     return if is_top_slab(replace) {
-                        ctx.click.y <= 0.5 || (!is_clicked && ctx.face == Face::Up)
+                        attempt.click.y <= 0.5 || (!is_clicked && attempt.face == Face::Up)
                     } else {
-                        ctx.click.y >= 0.5 || (!is_clicked && ctx.face == Face::Down)
+                        attempt.click.y >= 0.5 || (!is_clicked && attempt.face == Face::Down)
                     };
                 }
                 return false;
             }
             Class::WaterLily => {
                 return !replace.is(Class::Water)
-                    && supported_at(ctx, state)
+                    && supported_at(attempt, state)
                     && flowable_placeable(state, replace);
             }
-            Class::Light => {
-                return replace.can_be_replaced() && replace.kind() != state.kind();
+            _ if static_support => {
+                return supported_at(attempt, state) && flowable_placeable(state, replace);
             }
-            _ if state.has_trait(Trait::StaticSupport) => {
-                return supported_at(ctx, state) && flowable_placeable(state, replace);
-            }
-            Class::Flowable => return flowable_placeable(state, replace),
             _ => {}
         }
     }
     replace.can_be_replaced()
 }
 
-/// PMMP `Flowable::canBePlacedAt` (a block liquids destroy does not go into a liquid), or
-/// `Block::canBePlacedAt` for blocks that are not flowable.
+/// Whether the state can go into `replace` (PMMP `Flowable::canBePlacedAt`: a block liquids
+/// destroy does not go into a liquid; `Block::canBePlacedAt` for blocks that are not flowable).
 fn flowable_placeable(state: State, replace: State) -> bool {
     if state.is(Class::Flowable) && state.can_be_flowed_into() && replace.is(Class::Liquid) {
         return false;
@@ -257,123 +283,44 @@ fn flowable_placeable(state: State, replace: State) -> bool {
     replace.can_be_replaced()
 }
 
-/// PMMP `canBeSupportedAt` of the state's class, at the replaced position ([`update::static_support`]
-/// with the placement reads; a class without a rule stands).
-fn supported_at(ctx: &Context<'_>, state: State) -> bool {
-    update::static_support(state, ctx.replace, |p| Some(block_at(ctx.world, Some(p))))
-        .unwrap_or(true)
+/// Whether the state stands at the replaced position (PMMP `canBeSupportedAt` of its class,
+/// [`update::static_support`] with the placement reads; a class without a rule stands).
+fn supported_at(attempt: &Attempt<'_>, state: State) -> bool {
+    update::static_support(state, attempt.replace, |p| {
+        Some(block_at(attempt.world, Some(p)))
+    })
+    .unwrap_or(true)
 }
 
-/// Whether a single slab is in the top half.
-fn is_top_slab(state: State) -> bool {
-    props::string(state, "minecraft:vertical_half") == Some("top")
-}
-
-/// The double form of a slab state (its `*_double_slab` name, same half).
-fn double_slab(state: State) -> Option<State> {
-    let name = state.name();
-    let double = DOUBLE_SLABS
-        .iter()
-        .find(|(single, _)| *single == name)
-        .map(|(_, d)| *d)?;
-    props::renamed(state, double)
-}
-
-/// Every single slab name with its double form, where the double is not `<name>` with
-/// `_slab` replaced by `_double_slab` (Bedrock's copper slabs put `double` in front).
-const DOUBLE_SLABS: [(&str, &str); 8] = [
-    (
-        "minecraft:cut_copper_slab",
-        "minecraft:double_cut_copper_slab",
-    ),
-    (
-        "minecraft:exposed_cut_copper_slab",
-        "minecraft:exposed_double_cut_copper_slab",
-    ),
-    (
-        "minecraft:weathered_cut_copper_slab",
-        "minecraft:weathered_double_cut_copper_slab",
-    ),
-    (
-        "minecraft:oxidized_cut_copper_slab",
-        "minecraft:oxidized_double_cut_copper_slab",
-    ),
-    (
-        "minecraft:waxed_cut_copper_slab",
-        "minecraft:waxed_double_cut_copper_slab",
-    ),
-    (
-        "minecraft:waxed_exposed_cut_copper_slab",
-        "minecraft:waxed_exposed_double_cut_copper_slab",
-    ),
-    (
-        "minecraft:waxed_weathered_cut_copper_slab",
-        "minecraft:waxed_weathered_double_cut_copper_slab",
-    ),
-    (
-        "minecraft:waxed_oxidized_cut_copper_slab",
-        "minecraft:waxed_oxidized_double_cut_copper_slab",
-    ),
-];
-
-/// The double form of a single slab: the copper exceptions, else `*_double_slab`.
-fn slab_doubled(state: State) -> Option<State> {
-    if let Some(d) = double_slab(state) {
-        return Some(d);
-    }
-    let base = state.name().strip_suffix("_slab")?;
-    let mut name = String::with_capacity(base.len() + 12);
-    name.push_str(base);
-    name.push_str("_double_slab");
-    props::renamed(state, &name)
-}
-
-/// PMMP `Block::place` of the state's class, with the traits that place: the blocks to set.
+/// The blocks to set to place the state (PMMP `Block::place` of its class, with the traits that
+/// place).
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one arm per PMMP class keeps the port side by side with PMMP"
 )]
-fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
+fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
     let mut s = state;
-    let mut extra: Blocks = Vec::new();
-    let face = ctx.face;
+    let mut second: Option<(BlockPos, State)> = None;
+    let face = attempt.face;
     let set_facing = |s: State, f: Face| props::with_facing(s, f).unwrap_or(s);
-    let opposite_player = |s: State| ctx.facing().map_or(s, |f| set_facing(s, f.opposite()));
+    let opposite_player = |s: State| attempt.facing().map_or(s, |f| set_facing(s, f.opposite()));
     for class in state.kind().classes() {
         match class {
             Class::AmethystCluster | Class::Button | Class::ItemFrame => {
-                if !ctx.attached(state, face.opposite())? {
+                if !attempt.attached(state, face.opposite())? {
                     return None;
                 }
                 s = set_facing(s, face);
             }
             Class::Anvil => {
-                if let Some(f) = ctx.facing() {
-                    s = set_facing(s, props::rotate_y(f, false));
+                if let Some(f) = attempt.facing() {
+                    s = set_facing(s, props::rotate_counterclockwise(f));
                 }
             }
             Class::Barrel => {
-                if let Some(p) = ctx.placer {
-                    s = set_facing(s, barrel_facing(ctx.replace, p));
+                if let Some(p) = attempt.placer {
+                    s = set_facing(s, barrel_facing(attempt.replace, p));
                 }
-            }
-            Class::FloorBanner | Class::OminousFloorBanner | Class::FloorSign => {
-                if face != Face::Up {
-                    return None;
-                }
-                if let Some(p) = ctx.placer {
-                    s = props::with_int(s, props::ROTATION, props::rotation_from_yaw(p.yaw))
-                        .unwrap_or(s);
-                }
-            }
-            Class::WallBanner
-            | Class::OminousWallBanner
-            | Class::WallSign
-            | Class::TripwireHook => {
-                if Axis::of(face) == Axis::Y {
-                    return None;
-                }
-                s = set_facing(s, face);
             }
             Class::BaseBanner | Class::BaseOminousBanner => {
                 // The supporting face: down for a floor banner, behind a wall banner.
@@ -383,13 +330,13 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 } else {
                     behind
                 };
-                if !ctx.side(support).is_solid() {
+                if !attempt.side(support).is_solid() {
                     return None;
                 }
             }
             Class::BaseBigDripleaf => {
-                let below_pos = ctx.replace.step(Face::Down)?;
-                let below = block_at(ctx.world, Some(below_pos));
+                let below_pos = attempt.replace.step(Face::Down)?;
+                let below = block_at(attempt.world, Some(below_pos));
                 let head = below.is(Class::BaseBigDripleaf)
                     && props::flag(below, "big_dripleaf_head") == Some(true);
                 if !(head
@@ -403,31 +350,31 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 if below.is(Class::BaseBigDripleaf) {
                     let f = props::facing(below)?;
                     s = set_facing(s, f);
-                    extra.push((
+                    second = Some((
                         below_pos,
                         set_facing(Kind::BigDripleafStem.default_state(), f),
                     ));
                 }
             }
             Class::BaseRail => {
-                if !ctx.support(Face::Down).has_edge_support() {
+                if !attempt.support(Face::Down).has_edge_support() {
                     return None;
                 }
             }
-            Class::Bed => return bed(ctx, s),
+            Class::Bed => return bed(attempt, s),
             Class::Bell => {
-                if ctx.support(face.opposite()) == SupportType::None {
+                if attempt.support(face.opposite()) == SupportType::None {
                     return None;
                 }
                 let attachment = match face {
+                    Face::Down => "hanging",
                     Face::Up => {
                         s = opposite_player(s);
                         "standing"
                     }
-                    Face::Down => "hanging",
                     _ => {
                         s = set_facing(s, face);
-                        if ctx.support(face) == SupportType::None {
+                        if attempt.support(face) == SupportType::None {
                             "side"
                         } else {
                             "multiple"
@@ -436,23 +383,32 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 };
                 s = props::with_string(s, "attachment", attachment)?;
             }
+            Class::Block => {
+                if s.has_trait(Trait::FacesOppositePlacingPlayer) {
+                    s = opposite_player(s);
+                }
+                if s.has_trait(Trait::PillarRotation) {
+                    s = props::with_axis(s, Axis::of(face)).unwrap_or(s);
+                }
+                return Some(Blocks::new((attempt.replace, s), second));
+            }
             Class::Campfire => {
-                if ctx.side(Face::Down).is(Class::Campfire) {
+                if attempt.side(Face::Down).is(Class::Campfire) {
                     return None;
                 }
-                if let Some(f) = ctx.facing() {
+                if let Some(f) = attempt.facing() {
                     s = set_facing(s, f);
                 }
                 s = props::with_flag(s, "extinguished", false)?;
             }
             Class::Candle => {
-                if !ctx.support(Face::Down).has_center_support() {
+                if !attempt.support(Face::Down).has_center_support() {
                     return None;
                 }
-                let existing = ctx.replace_state;
+                let existing = attempt.replace_state;
                 if existing.kind() == s.kind() {
                     let count = props::int(existing, "candles")?;
-                    if count >= 3 {
+                    if count >= CANDLES_FULL {
                         return None;
                     }
                     s = props::with_int(s, "candles", count + 1)?;
@@ -463,15 +419,11 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 // PMMP draws the age that limits how far the vine grows.
                 s = props::with_int(s, "growing_plant_age", rng.range(0, update::MAX_VINE_AGE))?;
             }
-            Class::NetherVines => {
-                let age = rng.range(0, update::MAX_VINE_AGE - 1);
-                s = props::with_int(s, update::nether_vines_age(s), age)?;
-            }
             Class::CeilingCenterHangingSign => {
                 if face != Face::Down {
                     return None;
                 }
-                if let Some(p) = ctx.placer {
+                if let Some(p) = attempt.placer {
                     s = props::with_int(s, props::ROTATION, props::rotation_from_yaw(p.yaw))
                         .unwrap_or(s);
                 }
@@ -481,7 +433,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                     return None;
                 }
                 s = opposite_player(s);
-                let up = ctx.side(Face::Up);
+                let up = attempt.side(Face::Up);
                 let along = |other: State| {
                     (other.is(Class::WallHangingSign) || other.is(Class::CeilingEdgesHangingSign))
                         && props::facing(other).map(Axis::of) == props::facing(s).map(Axis::of)
@@ -491,52 +443,62 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::CocoaBlock => {
-                let jungle = ctx.clicked_state.is(Class::Wood)
-                    && matches!(ctx.clicked_state.kind(), Kind::JungleLog | Kind::JungleWood);
+                let jungle = attempt.clicked_state.is(Class::Wood)
+                    && matches!(
+                        attempt.clicked_state.kind(),
+                        Kind::JungleLog | Kind::JungleWood
+                    );
                 if Axis::of(face) == Axis::Y || !jungle {
                     return None;
                 }
                 s = set_facing(s, face);
             }
-            Class::Door => return door(ctx, s),
+            Class::Door => return door(attempt, s),
             Class::DoublePlant => {
-                let up = ctx.replace.step(Face::Up)?;
-                if !ctx.side(Face::Down).has_type_tag(TypeTag::Dirt)
-                    || !block_at(ctx.world, Some(up)).can_be_replaced()
+                let up = attempt.replace.step(Face::Up)?;
+                if !attempt.side(Face::Down).has_type_tag(TypeTag::Dirt)
+                    || !block_at(attempt.world, Some(up)).can_be_replaced()
                 {
                     return None;
                 }
                 let top = props::with_flag(s, "upper_block_bit", true)?;
-                return Some(sorted(vec![(ctx.replace, s), (up, top)]));
+                return Some(Blocks::new((attempt.replace, s), Some((up, top))));
             }
             Class::EndRod => {
                 let mut f = face;
-                if ctx.clicked_state.is(Class::EndRod)
-                    && props::facing(ctx.clicked_state) == Some(f)
+                if attempt.clicked_state.is(Class::EndRod)
+                    && props::facing(attempt.clicked_state) == Some(f)
                 {
                     f = f.opposite();
                 }
                 s = set_facing(s, f);
             }
             Class::FenceGate => {
-                if let Some(f) = ctx.facing() {
+                if let Some(f) = attempt.facing() {
                     s = set_facing(s, f);
                 }
             }
-            Class::FloorCoralFan => {
-                if let Some(p) = ctx.placer {
-                    s = props::with_int(s, "coral_fan_direction", coral_fan_axis(ctx.replace, p))
-                        .unwrap_or(s);
-                }
-                s = coral_dead(ctx, s);
-            }
-            Class::WallCoralFan => {
-                if Axis::of(face) == Axis::Y || !ctx.attached(state, face.opposite())? {
+            Class::FloorBanner | Class::FloorSign | Class::OminousFloorBanner => {
+                if face != Face::Up {
                     return None;
                 }
-                s = set_facing(s, face);
-                s = coral_dead(ctx, s);
+                if let Some(p) = attempt.placer {
+                    s = props::with_int(s, props::ROTATION, props::rotation_from_yaw(p.yaw))
+                        .unwrap_or(s);
+                }
             }
+            Class::FloorCoralFan => {
+                if let Some(p) = attempt.placer {
+                    s = props::with_int(
+                        s,
+                        "coral_fan_direction",
+                        coral_fan_axis(attempt.replace, p),
+                    )
+                    .unwrap_or(s);
+                }
+                s = coral_dead(attempt, s);
+            }
+            Class::GlowLichen | Class::ResinClump => s = multi_support(attempt, s)?,
             Class::Hopper => {
                 let f = if face == Face::Down {
                     Face::Down
@@ -546,28 +508,28 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 s = set_facing(s, f);
             }
             Class::Ladder => {
-                if !ctx.attached(state, face.opposite())? || Axis::of(face) == Axis::Y {
+                if !attempt.attached(state, face.opposite())? || Axis::of(face) == Axis::Y {
                     return None;
                 }
                 s = set_facing(s, face);
             }
             Class::Lantern => {
-                let down = ctx.attached(state, Face::Down)?;
-                if !down && !ctx.attached(state, Face::Up)? {
+                let down = attempt.attached(state, Face::Down)?;
+                if !down && !attempt.attached(state, Face::Up)? {
                     return None;
                 }
                 s = props::with_flag(s, "hanging", face == Face::Down || !down)?;
             }
             Class::Leaves => s = props::with_flag(s, "persistent_bit", true)?,
             Class::Lever => {
-                if !ctx.attached(state, face.opposite())? {
+                if !attempt.attached(state, face.opposite())? {
                     return None;
                 }
-                let x = ctx.facing().is_none_or(|f| Axis::of(f) == Axis::X);
+                let east_west = attempt.facing().is_none_or(|f| Axis::of(f) == Axis::X);
                 let direction = match face {
-                    Face::Down if x => "down_east_west",
+                    Face::Down if east_west => "down_east_west",
                     Face::Down => "down_north_south",
-                    Face::Up if x => "up_east_west",
+                    Face::Up if east_west => "up_east_west",
                     Face::Up => "up_north_south",
                     other => props::face_name(other),
                 };
@@ -581,10 +543,23 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 // The rotation on the floor is the block entity's.
                 s = set_facing(s, face);
             }
+            Class::NetherVines => {
+                let age = rng.range(0, update::MAX_VINE_AGE - 1);
+                s = props::with_int(s, update::nether_vines_age(s), age)?;
+            }
+            Class::OminousWallBanner
+            | Class::TripwireHook
+            | Class::WallBanner
+            | Class::WallSign => {
+                if Axis::of(face) == Axis::Y {
+                    return None;
+                }
+                s = set_facing(s, face);
+            }
             Class::PinkPetals => {
-                let existing = ctx.replace_state;
+                let existing = attempt.replace_state;
                 if existing.kind() == s.kind()
-                    && let Some(count) = props::int(existing, "growth").filter(|c| *c < 3)
+                    && let Some(count) = props::int(existing, "growth").filter(|c| *c < PETALS_FULL)
                 {
                     s = props::with_int(s, "growth", count + 1)?;
                     s = set_facing(s, props::facing(existing)?);
@@ -593,9 +568,12 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::RedMushroom => {
-                let below = ctx.side(Face::Down);
-                let light = ctx.world.full_light(ctx.replace, 0).unwrap_or(15);
-                if !((light <= 12 && !below.is_transparent())
+                let below = attempt.side(Face::Down);
+                let light = attempt
+                    .world
+                    .full_light(attempt.replace, attempt.world.time_ticks())
+                    .unwrap_or(FULL_LIGHT);
+                if !((light <= RED_MUSHROOM_MAX_LIGHT && !below.is_transparent())
                     || matches!(below.kind(), Kind::Mycelium | Kind::Podzol)
                     || below.has_type_tag(TypeTag::Nylium))
                 {
@@ -606,71 +584,71 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
             Class::SeaPickle => {
                 // PMMP places sea pickles out of water (dead) until it has water logic.
                 s = props::with_flag(s, "dead_bit", true)?;
-                let existing = ctx.replace_state;
+                let existing = attempt.replace_state;
                 if existing.kind() == s.kind()
-                    && let Some(count) = props::int(existing, "cluster_count").filter(|c| *c < 3)
+                    && let Some(count) =
+                        props::int(existing, "cluster_count").filter(|c| *c < CLUSTER_FULL)
                 {
                     s = props::with_int(s, "cluster_count", count + 1)?;
                 }
             }
-            Class::Slab => s = slab(ctx, s)?,
+            Class::Slab => s = slab(attempt, s)?,
             Class::SmallDripleaf => {
-                let up = ctx.replace.step(Face::Up)?;
-                if block_at(ctx.world, Some(up)) != block::AIR
-                    || ctx.side(Face::Down).kind() != Kind::Clay
+                let up = attempt.replace.step(Face::Up)?;
+                if block_at(attempt.world, Some(up)) != block::AIR
+                    || attempt.side(Face::Down).kind() != Kind::Clay
                 {
                     return None;
                 }
                 s = opposite_player(s);
                 let top = props::with_flag(s, "upper_block_bit", true)?;
-                extra.push((up, top));
+                second = Some((up, top));
             }
             Class::SnowLayer => {
-                let existing = ctx.replace_state;
+                let existing = attempt.replace_state;
                 if existing.kind() == s.kind() {
                     let height = props::int(existing, "height")?;
-                    if height >= 7 {
+                    if height >= SNOW_FULL {
                         return None;
                     }
                     s = props::with_int(s, "height", height + 1)?;
                 }
-                if ctx.support(Face::Down) != SupportType::Full {
+                if attempt.support(Face::Down) != SupportType::Full {
                     return None;
                 }
             }
             Class::Stair => {
-                if let Some(f) = ctx.facing() {
+                if let Some(f) = attempt.facing() {
                     s = set_facing(s, f);
                 }
-                let upside_down = (ctx.click.y > 0.5 && face != Face::Up) || face == Face::Down;
-                s = props::with_flag(s, "upside_down_bit", upside_down)?;
+                s = props::with_flag(s, "upside_down_bit", attempt.upper_half())?;
             }
             Class::Sugarcane => {
-                let below_pos = ctx.replace.step(Face::Down)?;
-                let below = block_at(ctx.world, Some(below_pos));
+                let below_pos = attempt.replace.step(Face::Down)?;
+                let below = block_at(attempt.world, Some(below_pos));
                 if below.kind() != s.kind() {
                     let water = Face::HORIZONTAL
                         .into_iter()
-                        .map(|f| block_at(ctx.world, below_pos.step(f)))
+                        .map(|f| block_at(attempt.world, below_pos.step(f)))
                         .any(|b| b.is(Class::Water) || b.is(Class::FrostedIce));
                     if !water {
                         return None;
                     }
                 }
             }
-            Class::Torch => s = torch(ctx, s)?,
+            Class::Torch => s = torch(attempt, s)?,
             Class::Trapdoor => {
                 s = opposite_player(s);
-                if (ctx.click.y > 0.5 && face != Face::Up) || face == Face::Down {
+                if attempt.upper_half() {
                     s = props::with_flag(s, "upside_down_bit", true)?;
                 }
             }
             Class::Vine => {
-                let behind = block_at(ctx.world, ctx.replace.step(face.opposite()));
+                let behind = block_at(attempt.world, attempt.replace.step(face.opposite()));
                 if !is_full_cube(behind) || Axis::of(face) == Axis::Y {
                     return None;
                 }
-                let existing = ctx.replace_state;
+                let existing = attempt.replace_state;
                 let bits = if existing.kind() == s.kind() {
                     props::int(existing, "vine_direction_bits")?
                 } else {
@@ -679,39 +657,28 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 let bit = props::vine_bit(face.opposite()).unwrap_or(0);
                 s = props::with_int(s, "vine_direction_bits", bits | bit)?;
             }
-            Class::WallHangingSign => s = wall_hanging_sign(ctx, s)?,
-            Class::GlowLichen | Class::ResinClump => s = multi_support(ctx, s)?,
-            Class::Block => {
-                if s.has_trait(Trait::FacesOppositePlacingPlayer) {
-                    s = opposite_player(s);
+            Class::WallCoralFan => {
+                if Axis::of(face) == Axis::Y || !attempt.attached(state, face.opposite())? {
+                    return None;
                 }
-                if s.has_trait(Trait::PillarRotation) {
-                    s = props::with_axis(s, Axis::of(face)).unwrap_or(s);
-                }
-                extra.push((ctx.replace, s));
-                return Some(sorted(extra));
+                s = set_facing(s, face);
+                s = coral_dead(attempt, s);
             }
+            Class::WallHangingSign => s = wall_hanging_sign(attempt, s)?,
             _ => {}
         }
     }
-    extra.push((ctx.replace, s));
-    Some(sorted(extra))
+    Some(Blocks::new((attempt.replace, s), second))
 }
 
-/// The blocks in position order.
-fn sorted(mut blocks: Blocks) -> Blocks {
-    blocks.sort_by_key(|(p, _)| *p);
-    blocks
-}
-
-/// PMMP `Barrel::place`: up or down when the player is close and above or below, else toward
-/// the player.
+/// The facing of a barrel placed at `pos` by the placer `p` (PMMP `Barrel::place`): up or down
+/// when the player is close and above or below, else toward the player.
 fn barrel_facing(pos: BlockPos, p: &Placer) -> Face {
-    let near =
-        (p.feet.x - f64::from(pos.x)).abs() < 2.0 && (p.feet.z - f64::from(pos.z)).abs() < 2.0;
+    let near = (p.feet.x - f64::from(pos.x)).abs() < BARREL_NEAR
+        && (p.feet.z - f64::from(pos.z)).abs() < BARREL_NEAR;
     if near {
         let y = p.eye.y;
-        if y - f64::from(pos.y) > 2.0 {
+        if y - f64::from(pos.y) > BARREL_NEAR {
             return Face::Up;
         }
         if f64::from(pos.y) - y > 0.0 {
@@ -721,9 +688,51 @@ fn barrel_facing(pos: BlockPos, p: &Placer) -> Face {
     p.facing().opposite()
 }
 
-/// PMMP `FloorCoralFan::place`'s axis (Bedrock `coral_fan_direction`, X 0 and Z 1): X when the
-/// fan is more south of the player's block than east or west, else Z (PMMP's `atan2` test,
-/// with its 45° edges on Z).
+/// The blocks of a bed (PMMP `Bed::place`): the foot here and the head one block toward the
+/// player's facing, both supported from below.
+fn bed(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
+    let supported =
+        |pos: BlockPos| adjacent_support(attempt.world, pos, Face::Down) != SupportType::None;
+    if !supported(attempt.replace) {
+        return None;
+    }
+    let facing = attempt.facing().unwrap_or(Face::North);
+    let foot = props::with_facing(state, facing)?;
+    let next = attempt.replace.step(facing)?;
+    if !block_at(attempt.world, Some(next)).can_be_replaced() || !supported(next) {
+        return None;
+    }
+    let head = props::with_flag(foot, "head_piece_bit", true)?;
+    Some(Blocks::new((attempt.replace, foot), Some((next, head))))
+}
+
+/// The blocks of a door (PMMP `Door::place`): on top of a block only, the top half above, hinged
+/// right next to another door or against a wall.
+fn door(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
+    if attempt.face != Face::Up {
+        return None;
+    }
+    let up = attempt.replace.step(Face::Up)?;
+    if !block_at(attempt.world, Some(up)).can_be_replaced()
+        || !attempt.support(Face::Down).has_edge_support()
+    {
+        return None;
+    }
+    let mut bottom = state;
+    let facing = attempt.facing().or_else(|| props::facing(state))?;
+    bottom = props::with_facing(bottom, facing)?;
+    let next = attempt.side(props::rotate_counterclockwise(facing));
+    let next2 = attempt.side(props::rotate_clockwise(facing));
+    if next.kind() == state.kind() || (!next2.is_transparent() && next.is_transparent()) {
+        bottom = props::with_flag(bottom, "door_hinge_bit", true)?;
+    }
+    let top = props::with_flag(bottom, "upper_block_bit", true)?;
+    Some(Blocks::new((attempt.replace, bottom), Some((up, top))))
+}
+
+/// The axis of a coral fan placed at `pos` by the placer `p` (PMMP `FloorCoralFan::place`;
+/// Bedrock `coral_fan_direction`, X 0 and Z 1): X when the fan is more south of the player's
+/// block than east or west, else Z (PMMP's `atan2` test, with its 45° edges on Z).
 fn coral_fan_axis(pos: BlockPos, p: &Placer) -> i32 {
     let feet = p.feet.floor();
     let dx = f64::from(pos.x) - feet.x;
@@ -731,127 +740,101 @@ fn coral_fan_axis(pos: BlockPos, p: &Placer) -> i32 {
     i32::from(dz <= dx.abs())
 }
 
-/// PMMP `BaseCoral::isCoveredWithWater`: dead unless water is next to the replaced position.
-fn coral_dead(ctx: &Context<'_>, state: State) -> State {
-    let water = Face::ALL.into_iter().any(|f| ctx.side(f).is(Class::Water));
+/// The coral state: dead unless water is next to the replaced position (PMMP
+/// `BaseCoral::isCoveredWithWater`).
+fn coral_dead(attempt: &Attempt<'_>, state: State) -> State {
+    let water = Face::ALL
+        .into_iter()
+        .any(|f| attempt.side(f).is(Class::Water));
     if water {
         return state;
     }
     props::dead_coral(state).unwrap_or(state)
 }
 
-/// PMMP `MultiAnySupportTrait::place`: the existing faces, plus the clicked side if it gives full
-/// support, else the first face that does.
-fn multi_support(ctx: &Context<'_>, state: State) -> Option<State> {
-    let existing = ctx.replace_state;
+/// The state with the existing faces plus the clicked side if it gives full support, else the
+/// first face that does (PMMP `MultiAnySupportTrait::place`).
+fn multi_support(attempt: &Attempt<'_>, state: State) -> Option<State> {
+    let existing = attempt.replace_state;
     let mut bits = if existing.kind() == state.kind() {
         props::int(existing, "multi_face_direction_bits")?
     } else {
         0
     };
-    let available: Vec<Face> = Face::ALL
-        .into_iter()
-        .filter(|f| bits & props::multi_face_bit(*f) == 0 && ctx.support(*f) == SupportType::Full)
-        .collect();
-    let placed = if available.contains(&ctx.face.opposite()) {
-        ctx.face.opposite()
+    let free = |face: Face| {
+        bits & props::multi_face_bit(face) == 0 && attempt.support(face) == SupportType::Full
+    };
+    let opposite = attempt.face.opposite();
+    let placed = if free(opposite) {
+        opposite
     } else {
-        *available.first()?
+        Face::ALL.into_iter().find(|face| free(*face))?
     };
     bits |= props::multi_face_bit(placed);
     props::with_int(state, "multi_face_direction_bits", bits)
 }
 
-/// PMMP `Slab::place`: merges into the existing slab's empty half, else the top or bottom half.
-fn slab(ctx: &Context<'_>, state: State) -> Option<State> {
-    let existing = ctx.replace_state;
-    let face = ctx.face;
+/// The slab state (PMMP `Slab::place`): the double slab when it merges into the existing slab's
+/// empty half, else the top or bottom half.
+fn slab(attempt: &Attempt<'_>, state: State) -> Option<State> {
+    let existing = attempt.replace_state;
+    let face = attempt.face;
     if existing.kind() == state.kind() && !props::is_double_slab(existing) {
         let top = is_top_slab(existing);
-        if (top && (ctx.click.y <= 0.5 || face == Face::Up))
-            || (!top && (ctx.click.y >= 0.5 || face == Face::Down))
+        if (top && (attempt.click.y <= 0.5 || face == Face::Up))
+            || (!top && (attempt.click.y >= 0.5 || face == Face::Down))
         {
-            return slab_doubled(state);
+            return props::double_slab(state);
         }
     }
-    let top = (face != Face::Up && ctx.click.y > 0.5) || face == Face::Down;
-    props::with_string(
-        state,
-        "minecraft:vertical_half",
-        if top { "top" } else { "bottom" },
-    )
+    let half = if attempt.upper_half() {
+        "top"
+    } else {
+        "bottom"
+    };
+    props::with_string(state, "minecraft:vertical_half", half)
 }
 
-/// PMMP `Torch::place`: against the clicked side if it gives full support, else the first of
-/// south, west, north, east and below that supports it.
-fn torch(ctx: &Context<'_>, state: State) -> Option<State> {
-    let face = ctx.face;
-    let facing = if face != Face::Down && ctx.attached(state, face.opposite())? {
+/// The torch state (PMMP `Torch::place`): against the clicked side if it gives full support, else
+/// the first of south, west, north, east and below that supports it.
+fn torch(attempt: &Attempt<'_>, state: State) -> Option<State> {
+    let face = attempt.face;
+    let facing = if face != Face::Down && attempt.attached(state, face.opposite())? {
         face
     } else {
         [Face::South, Face::West, Face::North, Face::East, Face::Down]
             .into_iter()
-            .find(|f| ctx.attached(state, *f) == Some(true))?
+            .find(|f| attempt.attached(state, *f) == Some(true))?
             .opposite()
     };
     props::with_facing(state, facing)
 }
 
-/// PMMP `Bed::place`: the foot here and the head one block toward the player's facing, both
-/// supported from below.
-fn bed(ctx: &Context<'_>, state: State) -> Option<Blocks> {
-    let supported =
-        |pos: BlockPos| adjacent_support(ctx.world, pos, Face::Down) != SupportType::None;
-    if !supported(ctx.replace) {
-        return None;
+/// Whether the state is one collision box filling the cell (PMMP `Block::isFullCube`).
+fn is_full_cube(state: State) -> bool {
+    match state.collision_boxes() {
+        [b] => {
+            let (dx, dy, dz) = (b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
+            dx == dy && dy == dz && dx >= 1.0
+        }
+        _ => false,
     }
-    let facing = ctx.facing().unwrap_or(Face::North);
-    let foot = props::with_facing(state, facing)?;
-    let next = ctx.replace.step(facing)?;
-    if !block_at(ctx.world, Some(next)).can_be_replaced() || !supported(next) {
-        return None;
-    }
-    let head = props::with_flag(foot, "head_piece_bit", true)?;
-    Some(sorted(vec![(ctx.replace, foot), (next, head)]))
 }
 
-/// PMMP `Door::place`: on top of a block only, the top half above, hinged right next to another
-/// door or against a wall.
-fn door(ctx: &Context<'_>, state: State) -> Option<Blocks> {
-    if ctx.face != Face::Up {
-        return None;
-    }
-    let up = ctx.replace.step(Face::Up)?;
-    if !block_at(ctx.world, Some(up)).can_be_replaced()
-        || !ctx.support(Face::Down).has_edge_support()
-    {
-        return None;
-    }
-    let mut bottom = state;
-    let facing = ctx.facing().or_else(|| props::facing(state))?;
-    bottom = props::with_facing(bottom, facing)?;
-    let next = ctx.side(props::rotate_y(facing, false));
-    let next2 = ctx.side(props::rotate_y(facing, true));
-    if next.kind() == state.kind() || (!next2.is_transparent() && next.is_transparent()) {
-        bottom = props::with_flag(bottom, "door_hinge_bit", true)?;
-    }
-    let top = props::with_flag(bottom, "upper_block_bit", true)?;
-    Some(sorted(vec![(ctx.replace, bottom), (up, top)]))
-}
-
-/// PMMP `WallHangingSign::place`: hung from the block beside it (or the one opposite), facing
-/// the player where it can.
-fn wall_hanging_sign(ctx: &Context<'_>, state: State) -> Option<State> {
-    let player = ctx.facing()?;
-    let attach = if Axis::of(ctx.face) == Axis::Y {
-        props::rotate_y(player, true)
+/// The wall hanging sign state (PMMP `WallHangingSign::place`): hung from the block beside it
+/// (or the one opposite), facing the player where it can.
+fn wall_hanging_sign(attempt: &Attempt<'_>, state: State) -> Option<State> {
+    let player = attempt.facing()?;
+    let attach = if Axis::of(attempt.face) == Axis::Y {
+        props::rotate_clockwise(player)
     } else {
-        ctx.face
+        attempt.face
     };
     let supported = |f: Face| {
-        let b = ctx.side(f);
+        let b = attempt.side(f);
         (b.is(Class::WallHangingSign)
-            && props::facing(b).map(|bf| Axis::of(props::rotate_y(bf, true))) == Some(Axis::of(f)))
+            && props::facing(b).map(|bf| Axis::of(props::rotate_clockwise(bf)))
+                == Some(Axis::of(f)))
             || b.support(f.opposite()) == SupportType::Full
     };
     let direction = if supported(attach) {
@@ -861,19 +844,55 @@ fn wall_hanging_sign(ctx: &Context<'_>, state: State) -> Option<State> {
     } else {
         return None;
     };
-    let mut facing = props::rotate_y(direction.opposite(), true);
+    let mut facing = props::rotate_clockwise(direction.opposite());
     if facing == player {
         facing = facing.opposite();
     }
     props::with_facing(state, facing)
 }
 
+/// Whether a single slab is in the top half.
+fn is_top_slab(state: State) -> bool {
+    props::string(state, "minecraft:vertical_half") == Some("top")
+}
+
+/// The support the block next to `pos` toward `face` gives back (PMMP
+/// `Block::getAdjacentSupportType`).
+fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
+    block_at(world, pos.step(face)).support(face.opposite())
+}
+
+/// The block at `pos`, air where there is none (an unloaded chunk, outside the world), so the
+/// neighbour rules never load a chunk. An inert block reads as its stand-in
+/// ([`block::Inert::stand_in`]) and an unknown state as bedrock (solid, full and unchanged, as
+/// the neighbour updates read it), neither of which a placement replaces.
+pub(crate) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
+    match pos.and_then(|p| world.entry(p)) {
+        None => block::AIR,
+        Some(Entry::Known(s)) => s,
+        Some(Entry::Inert(s, _)) => s.stand_in(),
+        Some(Entry::Unknown(_)) => block::BEDROCK,
+    }
+}
+
+/// The block at `pos` as placements see it: an inert block as its stand-in; `None` if the chunk
+/// is not loaded, `pos` is outside the world height or the state is unknown.
+pub(super) fn placed_on(world: &World, pos: BlockPos) -> Option<State> {
+    match world.entry(pos)? {
+        Entry::Known(s) => Some(s),
+        Entry::Inert(s, _) => Some(s.stand_in()),
+        Entry::Unknown(_) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use serde_json::Value;
+
     use crate::block::PropertyValue;
     use crate::world::{Chunk, ChunkPos, Kind as WorldKind};
-    use serde_json::Value;
 
     /// The PMMP placement golden table (`xtask/php/place.php`).
     const GOLDEN: &str = include_str!("../../../xtask/data/pmmp/place.json");
@@ -1001,12 +1020,38 @@ mod tests {
             &mut Random::new(0, 0, 0),
         )
         .expect("the centre form places");
-        let [(pos, state)] = blocks.as_slice() else {
+        let list = blocks.to_vec();
+        let [(pos, state)] = list.as_slice() else {
             panic!("one block: {blocks:?}");
         };
         assert_eq!(*pos, BlockPos::new(0, 0, 0));
         assert_eq!(props::flag(*state, "hanging"), Some(true));
         assert_eq!(props::flag(*state, "attached_bit"), Some(true));
+    }
+
+    /// A red mushroom goes down where the world's light at its time of day is dim: the open sky at
+    /// night, not at noon (PMMP `RedMushroom::canBeSupportedAt` reads `getFullLightAt`).
+    #[test]
+    fn a_red_mushroom_is_placed_under_the_night_sky_only() {
+        let block::ItemForm::Item(mushroom) = Kind::RedMushroom.default_state().item() else {
+            panic!("a red mushroom has an item");
+        };
+        let placed_at = |time_ticks: i64| {
+            let mut w = world();
+            w.set_time(time_ticks);
+            set(&mut w, 0, 0, 0, Kind::Stone.default_state());
+            placement(
+                &w,
+                mushroom,
+                BlockPos::new(0, 0, 0),
+                Face::Up,
+                click(Face::Up, 1.0),
+                None,
+                &mut Random::new(0, 0, 0),
+            )
+        };
+        assert!(placed_at(18_000).is_some());
+        assert!(placed_at(0).is_none());
     }
 
     /// Every item PMMP places, in every scenario of the golden table (floor, wall, ceiling and
@@ -1104,7 +1149,7 @@ mod tests {
                 let same = match (&got, want.as_array()) {
                     (None, None) => true,
                     (Some(got), Some(want)) => {
-                        got.len() == want.len()
+                        got.iter().count() == want.len()
                             && got.iter().zip(want).all(|((p, s), w)| {
                                 let w = w.as_array().unwrap();
                                 let at = |k: usize| i32::try_from(w[k].as_i64().unwrap()).unwrap();

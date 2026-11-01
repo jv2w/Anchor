@@ -396,7 +396,7 @@ fn place_held(
         let mut e = BlockPlace {
             player: player::Id::new(actor.session),
             world: crate::world::Id::of(world),
-            blocks: blocks.clone(),
+            blocks: blocks.to_vec(),
             block_against: pos,
             item: held.clone(),
             cancelled: false,
@@ -548,6 +548,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
             | Class::Beacon
             | Class::BrewingStand
             | Class::CartographyTable
+            | Class::Chest
             | Class::CraftingTable
             | Class::EnchantingTable
             | Class::EnderChest
@@ -558,14 +559,6 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
             | Class::SmithingTable
             | Class::Stonecutter => {
                 open_window(state, u);
-                return true;
-            }
-            Class::Chest => {
-                // A chest under a solid block stays shut (its pair's check is the window's).
-                let above = get(state, u.actor.world, u.pos.step(Face::Up));
-                if above.is_transparent() {
-                    open_window(state, u);
-                }
                 return true;
             }
             // With `beds = false` a bed is a plain block.
@@ -690,7 +683,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 return true;
             }
             Class::RedstoneOre => {
-                if !block.name().contains(":lit_")
+                if !props::is_lit(block)
                     && let Some(lit) = props::with_lit(block, true)
                 {
                     set(state, u.actor.world, u.pos, lit);
@@ -806,7 +799,9 @@ fn bell_rings(u: &Use) -> bool {
     match props::string(u.block, "attachment") {
         Some("hanging") => true,
         Some("standing") => props::Axis::of(hit) == props::Axis::of(facing),
-        _ => hit == props::rotate_y(facing, false) || hit == props::rotate_y(facing, true),
+        _ => {
+            hit == props::rotate_counterclockwise(facing) || hit == props::rotate_clockwise(facing)
+        }
     }
 }
 

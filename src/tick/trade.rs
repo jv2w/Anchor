@@ -85,6 +85,7 @@ const DEFAULT_DISPLAY_NAME: &str = "entity.villager.name";
 const HOOKS: Hooks = Hooks {
     villager: entity_villager,
     offers_mut: entity::offers_mut,
+    can_open_window: inventory::can_open_trade,
     open_window: inventory::open_trade,
     close_window: inventory::close_window,
     close_window_without_event: inventory::close_window_without_event,
@@ -230,6 +231,8 @@ struct Hooks {
     villager: for<'a> fn(&'a State, Id) -> Option<Villager<'a>>,
     /// The offers of the villager NPC `id`, to change.
     offers_mut: for<'a> fn(&'a mut State, Id) -> Option<&'a mut Offers>,
+    /// Whether a trade window may open for the player (`inventory::can_open_trade`).
+    can_open_window: fn(&State, SessionId) -> bool,
     /// What opens the trade window (`inventory::open_trade`).
     open_window: fn(&mut State, SessionId, Id) -> Option<u8>,
     /// What closes the player's window for a game rule (`inventory::close_window`).
@@ -331,6 +334,9 @@ fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) 
 
 /// Opens the trade window of a villager the player may trade with ([`open_with`]).
 fn open_now(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
+    if !(hooks.can_open_window)(state, session) {
+        return false;
+    }
     allocate_net_ids(state, villager, hooks);
     let Some(view) = View::of(state, villager, hooks) else {
         return false;

@@ -34,6 +34,58 @@ pub(crate) const MAX_DEFERRED: usize = 4096;
 /// the tick, and the rest run in the next tick.
 const MAX_DEFERRED_RUNS_PER_TICK: u32 = 16_384;
 
+/// A callback waiting to run after the current one.
+type Callback = Box<dyn FnOnce(&mut Context<'_>) + Send>;
+
+/// Callbacks queued with [`Context::defer`] and [`Context::perform`], in queueing order.
+#[derive(Default)]
+pub(crate) struct Deferred(VecDeque<Callback>);
+
+impl Deferred {
+    /// How many callbacks wait.
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl fmt::Debug for Deferred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Deferred")
+            .field("len", &self.0.len())
+            .finish()
+    }
+}
+
+impl Context<'_> {
+    /// Runs `callback` after the callback that is running now has returned, in the same tick and
+    /// in queueing order. Use it from a listener for work that should follow the event. A tick
+    /// runs at most 16,384 deferred callbacks; a callback that keeps deferring more leaves the
+    /// rest to the next tick.
+    ///
+    /// Fails, queueing nothing, while 4,096 callbacks wait.
+    pub fn defer(
+        &mut self,
+        callback: impl FnOnce(&mut Context<'_>) + Send + 'static,
+    ) -> action::Result<()> {
+        let queue = &mut self.state.deferred.0;
+        if queue.len() >= MAX_DEFERRED {
+            return Err(action::Error::Full);
+        }
+        queue.push_back(Box::new(callback));
+        Ok(())
+    }
+
+    /// Does `action` the way a player or the game would, through the game rules and with its
+    /// events, after the running callback has returned ([`defer`](Self::defer)). Direct calls
+    /// such as [`teleport`](Self::teleport) raise no events; this does. The action makes its
+    /// checks when it runs, and nothing reports one that fails: it then does nothing.
+    ///
+    /// Fails, queueing nothing, while 4,096 callbacks wait.
+    pub fn perform(&mut self, action: impl Action) -> action::Result<()> {
+        self.defer(move |cx| action::Sealed::perform(action, cx))
+    }
+}
+
 /// Whether anyone listens to or monitors `E`; when not, the rule builds no event.
 pub(crate) fn heard<E: Event>(state: &State) -> bool {
     !E::list_ref(&state.listeners).is_empty()
@@ -60,55 +112,6 @@ pub(crate) fn watch<E: Event>(state: &mut State, event: &E) {
     *E::list(&mut state.listeners) = list;
 }
 
-/// A callback waiting to run after the current one.
-type Callback = Box<dyn FnOnce(&mut Context<'_>) + Send>;
-
-/// Callbacks queued with [`Context::defer`] and [`Context::perform`], in queueing order.
-#[derive(Default)]
-pub(crate) struct Deferred(VecDeque<Callback>);
-
-impl Deferred {
-    /// How many callbacks wait.
-    pub(crate) fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-impl fmt::Debug for Deferred {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Deferred")
-            .field("len", &self.0.len())
-            .finish()
-    }
-}
-
-impl Context<'_> {
-    /// Runs `callback` after the callback that is running now has returned, in the same tick and
-    /// in queueing order. Use it from a listener for work that should follow the event.
-    ///
-    /// Fails, queueing nothing, while 4,096 callbacks wait.
-    pub fn defer(
-        &mut self,
-        callback: impl FnOnce(&mut Context<'_>) + Send + 'static,
-    ) -> action::Result<()> {
-        let queue = &mut self.state.deferred.0;
-        if queue.len() >= MAX_DEFERRED {
-            return Err(action::Error::Full);
-        }
-        queue.push_back(Box::new(callback));
-        Ok(())
-    }
-
-    /// Does `action` the way a player or the game would, through the game rules and with its
-    /// events, after the running callback has returned ([`defer`](Self::defer)). Direct calls
-    /// such as [`teleport`](Self::teleport) raise no events; this does.
-    ///
-    /// Fails, queueing nothing, while 4,096 callbacks wait.
-    pub fn perform(&mut self, action: impl Action) -> action::Result<()> {
-        self.defer(move |cx| action::Sealed::perform(action, cx))
-    }
-}
-
 /// Runs the deferred callbacks, including those they queue, up to the tick's limit.
 pub(super) fn run_deferred(state: &mut State, runs: &mut u32) {
     while *runs < MAX_DEFERRED_RUNS_PER_TICK {
@@ -128,20 +131,22 @@ pub(super) fn run_deferred(state: &mut State, runs: &mut u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{new_state, settings};
     use super::*;
+
     use crate::event::{Listeners, PlayerDuplicateLogin, Priority};
-    use crate::tick::queue::{Identity, Skin};
+    use crate::protocol::Uuid;
+    use crate::tick::queue::{Client, Identity, Skin};
+    use crate::tick::tests::{new_state, settings};
 
     fn identity(name: &str) -> Identity {
         Identity {
             name: name.to_owned(),
             xuid: None,
-            uuid: crate::protocol::Uuid::from_bytes([1; 16]),
+            uuid: Uuid::from_bytes([1; 16]),
             skin: Skin::default(),
             device_os: -1,
             address: None,
-            client: crate::tick::queue::Client::default(),
+            client: Client::default(),
         }
     }
 

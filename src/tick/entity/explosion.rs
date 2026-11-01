@@ -29,7 +29,7 @@
 
 use tracing::debug;
 
-use super::kind::{Kind, MAX_FUSE, Tnt};
+use super::kind::{Kind, Tnt};
 use super::{
     Blow, Budget, Cause, Hooks, Knock, Raise, State, create, hurt, hurt_in, is_live,
     is_valid_explosion, level_event, level_of, physics, push_entity, survival, with,
@@ -255,7 +255,7 @@ pub(super) fn light(
         return false;
     }
     let tnt = Tnt {
-        fuse: u16::try_from(fuse).map_or(MAX_FUSE, |f| f.min(MAX_FUSE)),
+        fuse: u16::try_from(fuse).map_or(Tnt::MAX_FUSE, |f| f.min(Tnt::MAX_FUSE)),
         underwater: block.name() == "minecraft:underwater_tnt",
     };
     let Some(w) = state.worlds.get_mut(world) else {
@@ -749,7 +749,7 @@ fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
                     lerp(y, bounds.min.y, bounds.max.y),
                     lerp(z, bounds.min.z, bounds.max.z) + z_offset,
                 );
-                if physics::clear(w, origin, point) {
+                if physics::is_clear(w, origin, point) {
                     hits += 1;
                 }
                 checks += 1;

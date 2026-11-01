@@ -1,4 +1,6 @@
-//! Custom entity types on the tick: the registry the builder fills, the entries the engine adds to
+//! Custom entity types on the tick.
+//!
+//! This is the registry the builder fills, the entries the engine adds to
 //! `AvailableActorIdentifiers`, the calls of the types' behaviours, and the API that spawns custom
 //! entities and reads and changes the data and held item of NPCs.
 //!
@@ -31,53 +33,17 @@ use crate::tick::Context;
 use crate::tick::world_api::index;
 use crate::world;
 
-/// The most custom entity types a server registers.
-pub(crate) const MAX_TYPES: usize = 1024;
-/// The largest custom data of one entity, in bytes of its saved (little-endian NBT) form: a
-/// chunk of a thousand custom entities stays within a few MiB.
-pub(super) const MAX_DATA_BYTES: usize = 4096;
-/// The largest box side of a type, in blocks, and of any entity's scaled box.
-pub(super) const MAX_SIZE: f64 = 16.0;
-/// The largest maximum health of a type.
-const MAX_HEALTH: f64 = 1_000_000.0;
 /// The allocation budget for reading the vanilla identifier list (it is 8,907 bytes).
 const LIST_BUDGET: usize = 1 << 20;
-
-/// A registered custom entity type: what every entity of it shares.
-#[derive(Debug, PartialEq)]
-pub(super) struct Spec {
-    /// Its place in the registry.
-    pub(super) index: u16,
-    pub(super) identifier: String,
-    pub(super) summonable: bool,
-    pub(super) spawn_egg: bool,
-    /// Its box and how it moves (PMMP `Living`'s rules with the type's size, gravity and drag).
-    pub(super) physics: Physics,
-    pub(super) max_health: f64,
-    /// The name tag of a new entity.
-    pub(super) name_tag: String,
-    /// Whether its entities are saved with their chunk.
-    pub(super) saved: bool,
-    /// Ticks of an entity's age between behaviour ticks, at least 1.
-    pub(super) tick_period: u32,
-}
-
-/// The custom entity types of a server without their behaviours: what reading a saved entity
-/// needs, so the save thread reads loaded chunks with them too. Fixed when the server is built.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct EntityTypes {
-    /// The types in registration order.
-    types: Vec<Arc<Spec>>,
-    /// Type index by identifier.
-    by_name: BTreeMap<String, u16>,
-}
-
-impl EntityTypes {
-    /// The type named `identifier`.
-    pub(super) fn find(&self, identifier: &str) -> Option<&Arc<Spec>> {
-        self.types.get(usize::from(*self.by_name.get(identifier)?))
-    }
-}
+/// The largest custom data of one entity, in bytes of its saved (little-endian NBT) form.
+/// A chunk of a thousand custom entities stays within a few MiB.
+pub(super) const MAX_DATA_BYTES: usize = 4096;
+/// The largest maximum health of a type.
+const MAX_HEALTH: f64 = 1_000_000.0;
+/// The largest box side of a type, in blocks, and of any entity's scaled box.
+pub(super) const MAX_SIZE: f64 = 16.0;
+/// The most custom entity types a server registers.
+pub(crate) const MAX_TYPES: usize = 1024;
 
 /// The custom entity types of a server, fixed when it is built.
 #[derive(Default)]
@@ -90,16 +56,65 @@ pub(crate) struct Customs {
     refused: Option<Error>,
 }
 
-impl fmt::Debug for Customs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Customs")
-            .field("types", &self.types.by_name.keys().collect::<Vec<_>>())
-            .finish_non_exhaustive()
-    }
-}
-
 impl Customs {
-    /// Adds a type; a type that breaks a rule is refused, and [`Self::finish`] reports the first.
+    /// The type named `identifier`.
+    pub(super) fn find(&self, identifier: &str) -> Option<&Arc<Spec>> {
+        self.types.find(identifier)
+    }
+
+    /// The types without their behaviours.
+    pub(crate) fn types(&self) -> &Arc<EntityTypes> {
+        &self.types
+    }
+
+    /// The `AvailableActorIdentifiers` list with one entry per type appended to `base`.
+    /// `base` is the vanilla list, network NBT `{idlist: [..]}`. The entries follow registration
+    /// order, as BDS lists an add-on's entities (`bid` empty, `hasspawnegg`, `id`, `rid` after the
+    /// largest vanilla one, `summonable`). Without types it is `base`, byte for byte.
+    pub(crate) fn identifier_list(&self, base: &[u8]) -> protocol::Result<Vec<u8>> {
+        let types = &self.types.types;
+        if types.is_empty() {
+            return Ok(base.to_vec());
+        }
+        let mut root = Reader::new(base, LIST_BUDGET, 0).nbt(nbt::Encoding::NetworkLittleEndian)?;
+        let Some(Value::List(List::Compound(list))) = root.get_mut("idlist") else {
+            return Err(protocol::Error::InvalidValue {
+                field: "idlist",
+                reason: "not a list of compounds",
+            });
+        };
+        let mut rid = list
+            .iter()
+            .filter_map(|c| match c.get("rid") {
+                Some(Value::Int(r)) => Some(*r),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        list.reserve(types.len());
+        for spec in types {
+            rid = rid.saturating_add(1);
+            list.push(Compound::from([
+                ("bid".to_owned(), Value::String(String::new())),
+                (
+                    "hasspawnegg".to_owned(),
+                    Value::Byte(u8::from(spec.spawn_egg)),
+                ),
+                ("id".to_owned(), Value::String(spec.identifier.clone())),
+                ("rid".to_owned(), Value::Int(rid)),
+                (
+                    "summonable".to_owned(),
+                    Value::Byte(u8::from(spec.summonable)),
+                ),
+            ]));
+        }
+        let mut w = Writer::new(Vec::with_capacity(base.len().saturating_mul(2)), 0);
+        w.nbt(&root, nbt::Encoding::NetworkLittleEndian)?;
+        Ok(w.into_inner())
+    }
+
+    /// Adds a type.
+    /// A type that breaks a rule is refused, and [`Self::finish`] reports the first.
     pub(crate) fn register(&mut self, entity: Definition) {
         if self.refused.is_some() {
             return;
@@ -151,6 +166,11 @@ impl Customs {
         }
     }
 
+    /// Takes the first refused registration, which the build reports.
+    pub(crate) fn finish(&mut self) -> Result<(), Error> {
+        self.refused.take().map_or(Ok(()), Err)
+    }
+
     /// The index a new type would get, or why it is refused.
     fn check(&self, e: &Definition) -> Result<u16, Error> {
         let identifier = &e.identifier;
@@ -193,172 +213,81 @@ impl Customs {
             None => Ok(index),
         }
     }
+}
 
-    /// The first refused registration, at build.
-    pub(crate) fn finish(&mut self) -> Result<(), Error> {
-        self.refused.take().map_or(Ok(()), Err)
+impl fmt::Debug for Customs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Customs")
+            .field("types", &self.types.by_name.keys().collect::<Vec<_>>())
+            .finish_non_exhaustive()
     }
+}
 
+/// The custom entity types of a server without their behaviours.
+/// It is what reading a saved entity needs, so the save thread reads loaded chunks with it too.
+/// Fixed when the server is built.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EntityTypes {
+    /// The types in registration order.
+    types: Vec<Arc<Spec>>,
+    /// The type index by identifier.
+    by_name: BTreeMap<String, u16>,
+}
+
+impl EntityTypes {
     /// The type named `identifier`.
     pub(super) fn find(&self, identifier: &str) -> Option<&Arc<Spec>> {
-        self.types.find(identifier)
-    }
-
-    /// The types without their behaviours.
-    pub(crate) fn types(&self) -> &Arc<EntityTypes> {
-        &self.types
-    }
-
-    /// The `AvailableActorIdentifiers` list: `base` (the vanilla list, network NBT
-    /// `{idlist: [..]}`) with an entry per type appended in registration order, as BDS lists an
-    /// add-on's entities (`bid` empty, `hasspawnegg`, `id`, `rid` after the largest vanilla one,
-    /// `summonable`). Without types it is `base`, byte for byte.
-    pub(crate) fn identifier_list(&self, base: &[u8]) -> protocol::Result<Vec<u8>> {
-        let types = &self.types.types;
-        if types.is_empty() {
-            return Ok(base.to_vec());
-        }
-        let mut root = Reader::new(base, LIST_BUDGET, 0).nbt(nbt::Encoding::NetworkLittleEndian)?;
-        let Some(Value::List(List::Compound(list))) = root.get_mut("idlist") else {
-            return Err(protocol::Error::InvalidValue {
-                field: "idlist",
-                reason: "not a list of compounds",
-            });
-        };
-        let mut rid = list
-            .iter()
-            .filter_map(|c| match c.get("rid") {
-                Some(Value::Int(r)) => Some(*r),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0);
-        list.reserve(types.len());
-        for spec in types {
-            rid = rid.saturating_add(1);
-            list.push(Compound::from([
-                ("bid".to_owned(), Value::String(String::new())),
-                (
-                    "hasspawnegg".to_owned(),
-                    Value::Byte(u8::from(spec.spawn_egg)),
-                ),
-                ("id".to_owned(), Value::String(spec.identifier.clone())),
-                ("rid".to_owned(), Value::Int(rid)),
-                (
-                    "summonable".to_owned(),
-                    Value::Byte(u8::from(spec.summonable)),
-                ),
-            ]));
-        }
-        let mut w = Writer::new(Vec::with_capacity(base.len().saturating_mul(2)), 0);
-        w.nbt(&root, nbt::Encoding::NetworkLittleEndian)?;
-        Ok(w.into_inner())
+        self.types.get(usize::from(*self.by_name.get(identifier)?))
     }
 }
 
-/// Whether `data` may be an NPC's: its saved form takes at most [`MAX_DATA_BYTES`].
-/// Writing stops as it passes the limit, so a huge compound costs no more than the limit.
-pub(super) fn fits(data: &Compound) -> bool {
-    let mut w = Writer::new(Vec::with_capacity(MAX_DATA_BYTES), 0);
-    w.nbt_within(data, nbt::Encoding::LittleEndian, MAX_DATA_BYTES)
-        .is_ok()
-}
-
-/// The kind of a new custom entity of `spec`: alive, not invulnerable, with empty data and
-/// empty-handed.
-pub(super) fn kind(spec: Arc<Spec>) -> Kind {
-    Kind::Npc(Character {
-        form: Form::Custom(Custom { spec }),
-        invulnerable: false,
-        attack_time: 0,
-        last_damage: 0.0,
-        dead_ticks: None,
-        data: Compound::new(),
-        held: Stack::EMPTY,
-    })
+/// A registered custom entity type: what every entity of it shares.
+#[derive(Debug, PartialEq)]
+pub(super) struct Spec {
+    /// Its place in the registry.
+    pub(super) index: u16,
+    /// Its identifier, such as `example:ghost`.
+    pub(super) identifier: String,
+    /// Whether the `summon` command takes it.
+    pub(super) summonable: bool,
+    /// Whether it has a spawn egg.
+    pub(super) spawn_egg: bool,
+    /// Its box and how it moves (PMMP `Living`'s rules with the type's size, gravity and drag).
+    pub(super) physics: Physics,
+    /// The health of a new entity of it.
+    pub(super) max_health: f64,
+    /// The name tag of a new entity.
+    pub(super) name_tag: String,
+    /// Whether its entities are saved with their chunk.
+    pub(super) saved: bool,
+    /// The ticks of an entity's age between behaviour ticks, at least 1.
+    pub(super) tick_period: u32,
 }
 
 impl Entities {
+    /// The custom entity types without their behaviours: what reading saved entities needs.
+    pub(in crate::tick) fn types(&self) -> &Arc<EntityTypes> {
+        self.custom.types()
+    }
+
     /// Takes the custom entity types of the server (at start, before any chunk loads).
     pub(crate) fn set_customs(&mut self, customs: Customs) {
         self.custom = customs;
     }
 
-    /// Lends out the custom entity types, as a checkpoint's restore reads saved custom entities
-    /// with them; [`Self::set_customs`] gives them back.
+    /// Lends out the custom entity types.
+    /// A checkpoint's restore reads saved custom entities with them; [`Self::set_customs`] gives
+    /// them back.
     pub(crate) fn take_customs(&mut self) -> Customs {
         std::mem::take(&mut self.custom)
     }
-
-    /// The custom entity types without their behaviours: what reading saved entities needs.
-    pub(in crate::tick) fn types(&self) -> &Arc<EntityTypes> {
-        self.custom.types()
-    }
-}
-
-/// Runs `f` with the behaviour of type `index` and a context on the whole state, if the type has
-/// a behaviour; the registry lends it out meanwhile.
-fn call(state: &mut State, index: u16, f: impl FnOnce(&mut dyn Behaviour, &mut Context<'_>)) {
-    let slot = usize::from(index);
-    let Some(mut behaviour) = state
-        .rules
-        .entities
-        .custom
-        .behaviours
-        .get_mut(slot)
-        .and_then(Option::take)
-    else {
-        return;
-    };
-    f(behaviour.as_mut(), &mut Context { state });
-    if let Some(back) = state.rules.entities.custom.behaviours.get_mut(slot) {
-        *back = Some(behaviour);
-    }
-}
-
-/// The type index of the live, unflagged custom entity `id`.
-fn live_type(state: &State, id: Id) -> Option<u16> {
-    let e = state.rules.entities.get(id).filter(|e| !e.flagged)?;
-    e.kind
-        .custom()
-        .filter(|_| e.kind.is_living())
-        .map(|c| c.spec.index)
-}
-
-/// A custom entity's own tick, after its NPC rules: its behaviour's
-/// [`on_tick`](Behaviour::on_tick) when its age is a multiple of the type's period.
-pub(super) fn tick(state: &mut State, id: Id) {
-    let due = state.rules.entities.get(id).is_some_and(|e| {
-        e.kind
-            .custom()
-            .is_some_and(|c| e.age % c.spec.tick_period == 0)
-    });
-    if !due {
-        return;
-    }
-    if let Some(index) = live_type(state, id) {
-        call(state, index, |b, cx| b.on_tick(cx, id));
-    }
-}
-
-/// `session` interacts with the custom entity `target`, within reach (checked by the caller):
-/// its behaviour's [`on_interact`](Behaviour::on_interact). False if `target` is not a live
-/// custom entity.
-pub(super) fn interact(state: &mut State, session: SessionId, target: Id) -> bool {
-    let Some(index) = live_type(state, target) else {
-        return false;
-    };
-    call(state, index, |b, cx| {
-        b.on_interact(cx, target, player::Id::new(session));
-    });
-    true
 }
 
 impl ServerBuilder {
-    /// Registers the custom entity type `entity`, which [`Context::spawn_custom_entity`] spawns
-    /// by its identifier and the client draws from a resource pack. [`build`](Self::build) fails
-    /// with [`Error`] if a type's identifier is not a custom one or is taken, a value is out of
-    /// range, or more than 1,024 types are registered.
+    /// Registers the custom entity type `entity`.
+    /// [`Context::spawn_custom_entity`] spawns it by its identifier, and the client draws it from
+    /// a resource pack. [`build`](Self::build) fails with [`Error`] if a type's identifier is not
+    /// a custom one or is taken, a value is out of range, or more than 1,024 types are registered.
     #[doc(alias = "EntityFactory")]
     #[doc(alias = "EntityFactory::register")]
     #[must_use]
@@ -369,9 +298,9 @@ impl ServerBuilder {
 }
 
 impl Context<'_> {
-    /// Spawns an entity of the custom type `identifier` at `pos` (its feet) in `world`, at rest,
-    /// with the type's health and name tag and empty data. It is shown to the players who see its
-    /// chunk at the end of the tick.
+    /// Spawns an entity of the custom type `identifier` at `pos` (its feet) in `world`.
+    /// It is at rest, with the type's health and name tag and empty data, and is shown to the
+    /// players who see its chunk at the end of the tick.
     #[doc(alias = "Entity::spawnToAll")]
     pub fn spawn_custom_entity(
         &mut self,
@@ -398,9 +327,9 @@ impl Entity {
         self.kind.custom().map(|c| c.spec.identifier.as_str())
     }
 
-    /// An NPC's data, saved with it (empty until set): a custom entity's, a villager's
-    /// ([`Context::spawn_villager`]), a human's ([`Context::spawn_human`]) or a zombie's. `None`
-    /// for another kind.
+    /// An NPC's data, saved with it, empty until set.
+    /// It is a custom entity's, a villager's ([`Context::spawn_villager`]), a human's
+    /// ([`Context::spawn_human`]) or a zombie's. `None` for another kind.
     pub fn custom_data(&self) -> Option<&Compound> {
         match &self.kind {
             Kind::Npc(c) => Some(&c.data),
@@ -418,29 +347,122 @@ impl Entity {
 }
 
 impl Mut<'_> {
-    /// Sets an NPC's data ([`Entity::custom_data`]), saved with it. False, changing nothing, for
-    /// another kind or data whose saved form takes more than 4,096 bytes.
+    /// Sets an NPC's data ([`Entity::custom_data`]), saved with it.
+    /// False, changing nothing, for another kind or data whose saved form takes more than 4,096
+    /// bytes.
     pub fn set_custom_data(&mut self, data: Compound) -> bool {
-        if !matches!(self.kind, Kind::Npc(_)) || !fits(&data) {
+        if !fits(&data) {
             return false;
         }
-        if let Kind::Npc(c) = &mut self.entity().kind {
-            c.data = data;
-        }
+        let Kind::Npc(c) = &mut self.entity().kind else {
+            return false;
+        };
+        c.data = data;
         true
     }
 
-    /// Puts `stack` in an NPC's hand ([`Entity::held_item`]; [`Stack::EMPTY`] empties it): its
-    /// viewers see it, and it is saved with the NPC. False, changing nothing, for another kind.
+    /// Puts `stack` in an NPC's hand ([`Entity::held_item`]; [`Stack::EMPTY`] empties it).
+    /// Its viewers see it, and it is saved with the NPC. False, changing nothing, for another
+    /// kind.
     pub fn set_held_item(&mut self, stack: Stack) -> bool {
-        if !matches!(self.kind, Kind::Npc(_)) {
+        let Kind::Npc(c) = &mut self.entity().kind else {
             return false;
-        }
-        if let Kind::Npc(c) = &mut self.shown().kind {
-            c.held = stack;
-        }
+        };
+        c.held = stack;
+        self.shown();
         true
     }
+}
+
+/// Ticks the custom entity `id` after its NPC rules.
+/// It calls its behaviour's [`on_tick`](Behaviour::on_tick) when its age is a multiple of the
+/// type's period.
+pub(super) fn tick(state: &mut State, id: Id) {
+    let due = state.rules.entities.get(id).is_some_and(|e| {
+        e.kind
+            .custom()
+            .is_some_and(|c| e.age % c.spec.tick_period == 0)
+    });
+    if !due {
+        return;
+    }
+    if let Some(index) = live_type(state, id) {
+        call(state, index, |b, cx| b.on_tick(cx, id));
+    }
+}
+
+/// Calls the behaviour of the custom entity `target` for an interaction by `session`.
+/// The caller checked the reach. It calls [`on_interact`](Behaviour::on_interact); false if
+/// `target` is not a live custom entity.
+pub(super) fn interact(state: &mut State, session: SessionId, target: Id) -> bool {
+    let Some(index) = live_type(state, target) else {
+        return false;
+    };
+    call(state, index, |b, cx| {
+        b.on_interact(cx, target, player::Id::new(session));
+    });
+    true
+}
+
+/// The type index of the live, unflagged custom entity `id`.
+fn live_type(state: &State, id: Id) -> Option<u16> {
+    let e = state.rules.entities.get(id).filter(|e| !e.flagged)?;
+    e.kind
+        .custom()
+        .filter(|_| e.kind.is_living())
+        .map(|c| c.spec.index)
+}
+
+/// Runs `f` with the behaviour of type `index` and a context on the whole state.
+/// It does nothing if the type has no behaviour; the registry lends the behaviour out meanwhile.
+fn call(state: &mut State, index: u16, f: impl FnOnce(&mut dyn Behaviour, &mut Context<'_>)) {
+    let slot = usize::from(index);
+    let Some(mut behaviour) = state
+        .rules
+        .entities
+        .custom
+        .behaviours
+        .get_mut(slot)
+        .and_then(Option::take)
+    else {
+        return;
+    };
+    f(behaviour.as_mut(), &mut Context { state });
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the behaviour list never shrinks after the build, so the slot the \
+                  behaviour was taken from is still there"
+    )]
+    let back = state
+        .rules
+        .entities
+        .custom
+        .behaviours
+        .get_mut(slot)
+        .expect("the behaviour slot is in the registry");
+    *back = Some(behaviour);
+}
+
+/// Whether `data` may be an NPC's: its saved form takes at most [`MAX_DATA_BYTES`].
+/// Writing stops as it passes the limit, so a huge compound costs no more than the limit.
+pub(super) fn fits(data: &Compound) -> bool {
+    let mut w = Writer::new(Vec::new(), 0);
+    w.nbt_within(data, nbt::Encoding::LittleEndian, MAX_DATA_BYTES)
+        .is_ok()
+}
+
+/// The kind of a new custom entity of `spec`.
+/// It is alive, not invulnerable, with empty data and empty-handed.
+pub(super) fn kind(spec: Arc<Spec>) -> Kind {
+    Kind::Npc(Character {
+        form: Form::Custom(Custom { spec }),
+        invulnerable: false,
+        attack_time: 0,
+        last_damage: 0.0,
+        dead_ticks: None,
+        data: Compound::new(),
+        held: Stack::EMPTY,
+    })
 }
 
 #[cfg(test)]

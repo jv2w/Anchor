@@ -1,7 +1,8 @@
-//! Lightning bolts: [`Context::strike_lightning`](crate::Context::strike_lightning) shows a bolt as
-//! BDS's `summon lightning_bolt` does (P6 `weather`): the `minecraft:lightning_bolt` actor at the
-//! strike with its `thunder` and `explode` sounds to the players who see the chunk, and the actor's
-//! removal a second later.
+//! Lightning bolts, shown as BDS's `summon lightning_bolt` shows them (P6 `weather`).
+//!
+//! [`Context::strike_lightning`](crate::Context::strike_lightning) sends the
+//! `minecraft:lightning_bolt` actor at the strike with its `thunder` and `explode` sounds to the
+//! players who see the chunk, and the actor's removal a second later.
 //!
 //! The bolt is no entity of the store: it does nothing after its strike and nothing touches it,
 //! so it is its packets and the removal it waits for ([`Bolt`]). What it does, it does at once
@@ -27,54 +28,44 @@ use crate::protocol::packet::{AddActor, LevelSoundEvent, Packet};
 use crate::protocol::{EntityMetadata, MetadataValue};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
+use crate::tick::checkpoint::fields;
 use crate::tick::queue::SessionId;
 use crate::tick::{State, survival, world_api};
 use crate::world::{BlockPos, Lightning};
 
 /// The entity type of a bolt.
 const BOLT: &str = "minecraft:lightning_bolt";
-/// How long a bolt stays with its viewers: BDS removes it between one and two seconds after the
-/// strike (P6), dragonfly after one.
-const LIFETIME_TICKS: u64 = 20;
-/// The most bolts waiting for their removal; a strike beyond it is refused.
-pub(super) const MAX_BOLTS: usize = 1024;
-/// The damage of a bolt (BDS: 5, P6 `weather`).
-const DAMAGE: f64 = 5.0;
 /// How long a struck player or entity burns (dragonfly and Java: 8 seconds).
 const BURN_SECONDS: i16 = 8;
-/// How far around and below the strike a bolt hurts, and how far above.
-const REACH: f64 = 3.0;
-const REACH_UP: f64 = 9.0;
-/// The fires a bolt tries to start next to its block (dragonfly, Java).
-const FIRE_TRIES: usize = 4;
+/// The damage of a bolt (BDS: 5, P6 `weather`).
+const DAMAGE: f64 = 5.0;
 /// The random stream of a bolt's fires.
 const FIRE_RANDOM: u64 = random::tag("lightning-fire");
+/// The fires a bolt tries to start next to its block (dragonfly, Java).
+const FIRE_TRIES: usize = 4;
+/// The most bolts waiting for their removal; a strike beyond it is refused.
+pub(super) const MAX_BOLTS: usize = 1024;
+/// How far around and below the strike a bolt hurts, in blocks.
+const REACH: f64 = 3.0;
+/// How far above the strike a bolt hurts, in blocks.
+const REACH_UP: f64 = 9.0;
 
 /// A bolt that was shown and waits for its removal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Bolt {
     /// The tick of its removal.
     until: u64,
+    /// Its runtime ID, which is also its unique ID.
     runtime_id: u64,
     /// The players it was shown to.
     viewers: BTreeSet<SessionId>,
 }
 
-crate::tick::checkpoint::fields!(Bolt {
-    until,
-    runtime_id,
-    viewers,
-});
-
-impl super::Entities {
-    /// The bolts waiting for their removal.
-    #[cfg(test)]
-    pub(in crate::tick) fn bolts_waiting(&self) -> usize {
-        self.bolts.len()
-    }
-}
-
 impl Bolt {
+    /// How long a bolt stays with its viewers, in ticks.
+    /// BDS removes it between one and two seconds after the strike (P6), dragonfly after one.
+    const LIFETIME_TICKS: u64 = 20;
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -91,9 +82,23 @@ impl Bolt {
     }
 }
 
-/// Strikes a bolt at `at` in the loaded `world` with what `lightning` asks for. False, with
-/// nothing done, for an `at` that is not finite or outside the world border, [`MAX_BOLTS`] bolts
-/// waiting, or runtime IDs run out.
+fields!(Bolt {
+    until,
+    runtime_id,
+    viewers,
+});
+
+impl super::Entities {
+    /// The bolts waiting for their removal.
+    #[cfg(test)]
+    pub(in crate::tick) fn bolts_waiting(&self) -> usize {
+        self.bolts.len()
+    }
+}
+
+/// Strikes a bolt at `at` in the loaded `world` with what `lightning` asks for.
+/// False, with nothing done, for an `at` that is not finite or outside the world border,
+/// [`MAX_BOLTS`] bolts waiting, or runtime IDs run out.
 pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: Lightning) -> bool {
     if !is_valid_position(at) || state.rules.entities.bolts.len() >= MAX_BOLTS {
         return false;
@@ -113,9 +118,9 @@ pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: 
     true
 }
 
-/// Sends the bolt and its sounds to the players who see the chunk of `at` and keeps it for its
-/// removal. A player whose outbox is nearly full is skipped, as for what every viewer gets
-/// (`Player::has_viewer_room`).
+/// Shows the bolt and its sounds to the players who see the chunk of `at`.
+/// It keeps the bolt for its removal. A player whose outbox is nearly full is skipped, as for
+/// what every viewer gets (`Player::has_viewer_room`).
 fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
     let position = at.to_f32();
     let unique = super::unique_id(runtime_id);
@@ -147,10 +152,15 @@ fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
         sound(SoundEvent::Thunder),
         sound(SoundEvent::Explode),
     ];
-    let chunk = chunk_of(at);
     let mut viewers = BTreeSet::new();
-    for (&session, p) in &mut state.players {
-        if p.world == world && p.view.sees(chunk) && p.has_viewer_room() {
+    let State {
+        players, chunks, ..
+    } = &mut *state;
+    for session in chunks.viewers_of(chunk_of(at)) {
+        if let Some(p) = players.get_mut(&session)
+            && p.world == world
+            && p.has_viewer_room()
+        {
             for packet in &packets {
                 p.send_packet(packet.clone());
             }
@@ -159,15 +169,16 @@ fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
     }
     if !viewers.is_empty() {
         state.rules.entities.bolts.push_back(Bolt {
-            until: state.tick.saturating_add(LIFETIME_TICKS),
+            until: state.tick.saturating_add(Bolt::LIFETIME_TICKS),
             runtime_id,
             viewers,
         });
     }
 }
 
-/// Sends the removal of every bolt whose time is up to the players it was shown to that are
-/// still here (in any world: the bolt is no entity their view takes away).
+/// Sends the removal of every bolt whose time is up.
+/// The players it was shown to that are still here get it, in any world: the bolt is no entity
+/// their view takes away.
 pub(super) fn remove_due(state: &mut State) {
     let State {
         rules,
@@ -186,7 +197,7 @@ pub(super) fn remove_due(state: &mut State) {
     }
 }
 
-/// The players and living entities near `at` burn and take the bolt's damage.
+/// Burns and hurts the players and living entities near `at` with the bolt's damage.
 fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
     let area = Aabb::new(
         at - Vec3::new(REACH, REACH, REACH),
@@ -205,7 +216,7 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
             &mut rules.entities,
             players,
             id,
-            Cause::Custom,
+            Cause::Lightning,
             DAMAGE,
             None,
         );
@@ -222,9 +233,9 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
     }
 }
 
-/// Sets fire in the block of `at` and tries [`FIRE_TRIES`] random blocks next to it, at normal
-/// and hard difficulty only: BDS's bolt sets no fire at peaceful and easy (P6 `boltpeaceful`,
-/// `bolteasy`; dragonfly and Java the same) and hurts at every difficulty.
+/// Sets fire in the block of `at` and tries [`FIRE_TRIES`] random blocks next to it.
+/// It does so at normal and hard difficulty only: BDS's bolt sets no fire at peaceful and easy
+/// (P6 `boltpeaceful`, `bolteasy`; dragonfly and Java the same) and hurts at every difficulty.
 fn ignite(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
     if matches!(
         world_api::difficulty(state, world),

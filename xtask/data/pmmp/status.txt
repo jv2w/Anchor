@@ -826,6 +826,7 @@ pocketmine\entity\Human::parseSkinNBT skipped entity NBT is internal to the chun
 pocketmine\entity\EntityDataHelper** skipped entity NBT is internal to the chunk store
 pocketmine\entity\EntityFactory** skipped entity types are a closed enum made with `Context::spawn_*`
 pocketmine\entity\NeverSavedWithChunkEntity merged Entity::canSaveWithChunk
+pocketmine\entity\Entity::addMotion differs `Mut::set_motion` replaces the motion; it does not add to it
 pocketmine\entity\**::getResultDamage skipped projectile rule code: listeners see EntityDamage
 pocketmine\entity\**::onHit skipped projectile rule code: listeners see ProjectileHitBlock and ProjectileHitEntity
 pocketmine\entity\**::getDrops skipped entity rule code: listeners see and change the drops in EntityDeath

@@ -15,21 +15,17 @@ use std::collections::BTreeMap;
 
 use tokio::sync::mpsc;
 
-use super::super::queue::{Input, Outbound};
-use super::super::{Output, State, save, survival, task};
 use super::client::{self, Client, Seen};
-use super::{initialised, input, join, new_state, packet, radius, received, settings, tick};
+use super::*;
 use crate::block::{self, Kind as BlockKind};
 use crate::crafting::{self, Recipe};
-use crate::event::Listeners;
 use crate::item::{Kind as ItemKind, Stack, Type};
-use crate::math::Vec3;
 use crate::nbt::{List, Value};
 use crate::protocol::consts::{
     ContainerId as C, InputFlag, PlayerAction as Action, UseItemAction, UseItemOnEntityAction,
 };
 use crate::protocol::packet::{
-    ContainerClose, ItemStackRequest as RequestPacket, MobEquipment, Packet, PlayerAuthInput,
+    ContainerClose, ItemStackRequest as RequestPacket, MobEquipment, PlayerAuthInput,
 };
 use crate::protocol::{
     ConsumeStackRequestAction, CraftRecipeStackRequestAction,
@@ -43,8 +39,6 @@ use crate::world::BlockPos;
 
 /// The player's feet: on the grass at the spawn, looking east.
 const FEET: Vec3 = Vec3::new(0.5, -60.0, 0.5);
-/// The eye height.
-const EYE: f64 = 1.62;
 /// Looking east (+x): everything the scenario uses lies east of the player.
 const YAW: f32 = 270.0;
 /// Where logs and stone are set, one at a time, and where the wheat grows: next to the player.
@@ -61,9 +55,7 @@ const VILLAGER: Vec3 = Vec3::new(2.5, -60.0, -2.5);
 /// Block faces as clients number them.
 const FACE_UP: i32 = 1;
 const FACE_WEST: i32 = 4;
-/// The UI slots of the 2x2 grid, the 3x3 grid, the enchanting input and material and the first
-/// trade payment.
-const GRID_2X2: u8 = 28;
+/// The UI slots of the 3x3 grid, the enchanting input and material and the first trade payment.
 const GRID_3X3: u8 = 32;
 const ENCHANT_INPUT: u8 = 14;
 const ENCHANT_LAPIS: u8 = 15;
@@ -72,17 +64,6 @@ const PAYMENT: u8 = 4;
 const FURNACE_INPUT: u8 = 0;
 const FURNACE_FUEL: u8 = 1;
 const FURNACE_OUTPUT: u8 = 2;
-
-fn item(kind: ItemKind) -> Type {
-    kind.default_type()
-}
-
-fn block_item(kind: BlockKind) -> Type {
-    let block::ItemForm::Item(t) = kind.default_state().item() else {
-        panic!("{kind:?} has an item");
-    };
-    t
-}
 
 /// The server, the player's connection and its client.
 struct Scenario {
@@ -131,8 +112,85 @@ impl Scenario {
         s
     }
 
-    fn player(&self) -> &super::super::Player {
+    fn player(&self) -> &Player {
         self.state.players.values().next().unwrap()
+    }
+
+    /// Where the player's eyes are.
+    fn eye(&self) -> Vec3 {
+        self.feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0)
+    }
+
+    fn block(&self, pos: BlockPos) -> block::State {
+        self.state.worlds[0].block(pos).unwrap()
+    }
+
+    /// The main slot holding `item`, as the client knows its slots.
+    fn slot_of(&self, item: Type) -> Option<u8> {
+        (0_u8..36).find(|&i| {
+            self.player()
+                .inventory
+                .main_stack(i)
+                .is_some_and(|s| s.item() == Some(item))
+        })
+    }
+
+    fn stack_in(&self, slot: u8) -> Stack {
+        self.player()
+            .inventory
+            .main_stack(slot)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The first empty main slot.
+    fn empty_slot(&self) -> u8 {
+        (0_u8..36)
+            .find(|&i| {
+                self.player()
+                    .inventory
+                    .main_stack(i)
+                    .is_some_and(Stack::is_empty)
+            })
+            .expect("an empty slot")
+    }
+
+    /// A request slot of the inventory, named by the ID the client knows.
+    fn main(&self, slot: u8) -> StackRequestSlotInfo {
+        let c = C::CombinedHotBarAndInventory as u8;
+        client::slot_info(c, slot, self.client.net(c, slot))
+    }
+
+    /// A request slot of another container, named by the ID the client knows.
+    fn other(&self, container: C, slot: u8) -> StackRequestSlotInfo {
+        let c = container as u8;
+        client::slot_info(c, slot, self.client.net(c, slot))
+    }
+
+    /// The held item as the client sends it with a click.
+    fn held_click(&self, pos: BlockPos, face: i32) -> UseItemTransactionData {
+        let slot = self.player().inventory.held_slot();
+        let c = C::CombinedHotBarAndInventory as u8;
+        UseItemTransactionData {
+            action_type: UseItemAction::ClickBlock.into(),
+            block_position: [pos.x, pos.y, pos.z],
+            block_face: face,
+            hot_bar_slot: i32::from(slot),
+            held_item: self.stack_in(slot).to_instance(self.client.net(c, slot)),
+            position: self.eye().to_f32(),
+            clicked_position: [0.5, 1.0, 0.5],
+            ..UseItemTransactionData::default()
+        }
+    }
+
+    /// The item types in the inventory.
+    fn inventory_types(&self) -> Vec<Type> {
+        (0_u8..36).filter_map(|i| self.stack_in(i).item()).collect()
+    }
+
+    /// The damage of the first stack of `item`.
+    fn damage(&self, item: Type) -> u16 {
+        self.stack_in(self.slot_of(item).unwrap()).damage()
     }
 
     /// One tick with `inputs`; the client learns from what it receives.
@@ -153,13 +211,13 @@ impl Scenario {
         }
     }
 
-    /// The packets received since the last call.
+    /// Takes the packets received since the last call.
     fn take(&mut self) -> Vec<Packet> {
         std::mem::take(&mut self.inbox)
     }
 
-    /// One tick in which the client sends `packets` after its movement input, as clients send a
-    /// `PlayerAuthInput` every tick.
+    /// Runs one tick in which the client sends `packets` after its movement input, as clients
+    /// send a `PlayerAuthInput` every tick.
     fn send(&mut self, packets: Vec<Packet>) {
         self.send_with(None, None, packets);
     }
@@ -177,14 +235,13 @@ impl Scenario {
         if item.is_some() {
             flags.insert(InputFlag::PerformItemInteraction);
         }
-        let eye = self.feet + Vec3::new(0.0, EYE, 0.0);
         let auth = Packet::PlayerAuthInput(Box::new(PlayerAuthInput {
             yaw: YAW,
-            position: eye.to_f32(),
+            position: self.eye().to_f32(),
             input_data: InputFlags::from_set(&flags),
             item_interaction_data: item,
             block_actions: actions,
-            ..Default::default()
+            ..PlayerAuthInput::default()
         }));
         let mut inputs = Vec::with_capacity(packets.len() + 1);
         for p in std::iter::once(auth).chain(packets) {
@@ -204,7 +261,7 @@ impl Scenario {
         }
     }
 
-    /// `n` ticks of movement input only.
+    /// Runs `n` ticks of movement input only.
     fn idle(&mut self, n: u32) {
         for _ in 0..n {
             self.send(Vec::new());
@@ -212,7 +269,7 @@ impl Scenario {
     }
 
     /// A task's view of the server, for the setup.
-    fn task(&mut self) -> task::Context<'_> {
+    fn context_mut(&mut self) -> task::Context<'_> {
         task::Context {
             state: &mut self.state,
         }
@@ -220,7 +277,7 @@ impl Scenario {
 
     /// Gives the player `stack` through the task API.
     fn give(&mut self, stack: &Stack) {
-        let mut ctx = self.task();
+        let mut ctx = self.context_mut();
         let player = ctx.player_exact("player1").unwrap();
         let left = ctx
             .player_mut(player)
@@ -231,57 +288,11 @@ impl Scenario {
     }
 
     /// Sets a block through the task API.
-    fn set(&mut self, pos: BlockPos, kind: BlockKind) {
-        self.task()
+    fn set_block(&mut self, pos: BlockPos, kind: BlockKind) {
+        self.context_mut()
             .default_world_mut()
             .set_block(pos, kind.default_state())
             .unwrap();
-    }
-
-    fn block(&self, pos: BlockPos) -> block::State {
-        self.state.worlds[0].block(pos).unwrap()
-    }
-
-    /// The main slot holding `item`, as the client knows its slots.
-    fn slot_of(&self, item: Type) -> Option<u8> {
-        (0u8..36).find(|&i| {
-            self.player()
-                .inventory
-                .main_stack(i)
-                .is_some_and(|s| s.item() == Some(item))
-        })
-    }
-
-    fn stack_in(&self, slot: u8) -> Stack {
-        self.player()
-            .inventory
-            .main_stack(slot)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// The first empty main slot.
-    fn empty_slot(&self) -> u8 {
-        (0u8..36)
-            .find(|&i| {
-                self.player()
-                    .inventory
-                    .main_stack(i)
-                    .is_some_and(Stack::is_empty)
-            })
-            .expect("an empty slot")
-    }
-
-    /// A request slot of the inventory, named by the ID the client knows.
-    fn main(&self, slot: u8) -> StackRequestSlotInfo {
-        let c = C::CombinedHotBarAndInventory as u8;
-        client::slot_info(c, slot, self.client.net(c, slot))
-    }
-
-    /// A request slot of another container, named by the ID the client knows.
-    fn other(&self, container: C, slot: u8) -> StackRequestSlotInfo {
-        let c = container as u8;
-        client::slot_info(c, slot, self.client.net(c, slot))
     }
 
     /// Sends one item stack request (`build` gets its request ID) with this tick's movement
@@ -346,28 +357,11 @@ impl Scenario {
         assert_eq!(self.player().inventory.held().item(), Some(item));
     }
 
-    /// The held item as the client sends it with a click.
-    fn held_click(&self, pos: BlockPos, face: i32) -> UseItemTransactionData {
-        let slot = self.player().inventory.held_slot();
-        let c = C::CombinedHotBarAndInventory as u8;
-        let eye = self.feet + Vec3::new(0.0, EYE, 0.0);
-        UseItemTransactionData {
-            action_type: UseItemAction::ClickBlock.into(),
-            block_position: [pos.x, pos.y, pos.z],
-            block_face: face,
-            hot_bar_slot: i32::from(slot),
-            held_item: self.stack_in(slot).to_instance(self.client.net(c, slot)),
-            position: eye.to_f32(),
-            clicked_position: [0.5, 1.0, 0.5],
-            ..Default::default()
-        }
-    }
-
     /// Clicks `face` of the block at `pos` with the held item (placing, using, opening), then
     /// waits the client's repeat interval.
     fn click(&mut self, pos: BlockPos, face: i32) {
         let data = self.held_click(pos, face);
-        self.send(vec![client::transaction(
+        self.send(vec![client::transaction_packet(
             InventoryTransactionData::UseItem(Box::new(data)),
         )]);
         self.idle(2);
@@ -378,7 +372,7 @@ impl Scenario {
     fn break_block(&mut self, pos: BlockPos) {
         let tool = self.player().inventory.held().clone();
         let seconds = self.block(pos).break_time_secs(&tool).unwrap();
-        let mut ticks = 0u32;
+        let mut ticks = 0_u32;
         while f64::from(ticks) < seconds * 20.0 {
             ticks += 1;
         }
@@ -392,12 +386,12 @@ impl Scenario {
         assert_eq!(self.block(pos), block::AIR, "the block broke");
     }
 
-    /// One tick whose movement input carries the block actions `kinds` on the west face of
+    /// Runs one tick whose movement input carries the block actions `kinds` on the west face of
     /// `pos`.
     fn act(&mut self, pos: BlockPos, kinds: &[Action]) {
         let actions = kinds
             .iter()
-            .map(|&k| client::action(k, pos, FACE_WEST))
+            .map(|&k| client::block_action(k, pos, FACE_WEST))
             .collect();
         self.send_with(Some(actions), None, Vec::new());
     }
@@ -446,14 +440,18 @@ impl Scenario {
     fn craft(&mut self, result: &str, side: u8) {
         let (id, cells, made) = recipe(result, side, &self.inventory_types());
         let (result_type, made) = (made.item().expect("a result"), made.count());
-        let base = if side == 2 { GRID_2X2 } else { GRID_3X3 };
+        let base = if side == 2 {
+            client::GRID_2X2
+        } else {
+            GRID_3X3
+        };
         let grid = C::CraftingInput as u8;
         // Each cell from a slot that still has the item, as a client's drag spreads them.
-        let mut left: Vec<u8> = (0u8..36).map(|i| self.stack_in(i).count()).collect();
+        let mut left: Vec<u8> = (0_u8..36).map(|i| self.stack_in(i).count()).collect();
         let lay: Vec<(u8, u8)> = cells
             .iter()
             .map(|&(cell, t)| {
-                let from = (0u8..36)
+                let from = (0_u8..36)
                     .find(|&i| self.stack_in(i).item() == Some(t) && left[usize::from(i)] > 0)
                     .expect("an ingredient");
                 left[usize::from(from)] -= 1;
@@ -466,7 +464,7 @@ impl Scenario {
                 .collect()
         }));
         // The result goes onto a stack of its kind with room, else into an empty slot.
-        let dest = (0u8..36)
+        let dest = (0_u8..36)
             .find(|&i| {
                 let have = self.stack_in(i);
                 have.item() == Some(result_type)
@@ -490,7 +488,7 @@ impl Scenario {
                 }
                 actions.push(client::place(
                     made,
-                    client::created(req),
+                    client::created_slot(req),
                     client::slot_info(C::CombinedHotBarAndInventory as u8, dest, dest_id),
                 ));
                 actions
@@ -499,13 +497,8 @@ impl Scenario {
         );
     }
 
-    /// The item types in the inventory.
-    fn inventory_types(&self) -> Vec<Type> {
-        (0u8..36).filter_map(|i| self.stack_in(i).item()).collect()
-    }
-
-    /// What a commit would save of the player, by item name, and that nothing lies around or
-    /// waits in a block (a furnace, the tables' grids).
+    /// Takes what a commit would save of the player, by item name, and checks that nothing lies
+    /// around or waits in a block (a furnace, the tables' grids).
     fn contents(&mut self) -> BTreeMap<&'static str, u64> {
         assert_eq!(loose(&mut self.state), 0, "nothing lies on the ground");
         assert!(
@@ -518,8 +511,8 @@ impl Scenario {
         );
         let data = save::data_of(&self.state, self.player());
         let mut out = BTreeMap::new();
-        for key in ["Inventory", "Armor", "Offhand", "PendingItems"] {
-            if let Some(Value::List(List::Compound(list))) = data.extra.get(key) {
+        for value in data.extra.values() {
+            if let Value::List(List::Compound(list)) = value {
                 for s in list.iter().filter_map(Stack::from_nbt) {
                     if let Some(t) = s.item() {
                         *out.entry(t.name()).or_default() += u64::from(s.count());
@@ -531,7 +524,7 @@ impl Scenario {
     }
 
     /// Checks [`Self::contents`] against `want` (name without the namespace, count).
-    fn expect(&mut self, stage: &str, want: &[(&str, u64)]) {
+    fn assert_contents(&mut self, stage: &str, want: &[(&str, u64)]) {
         let want: BTreeMap<String, u64> = want
             .iter()
             .map(|(n, c)| (format!("minecraft:{n}"), *c))
@@ -543,11 +536,10 @@ impl Scenario {
             .collect();
         assert_eq!(have, want, "after {stage}");
     }
+}
 
-    /// The damage of the first stack of `item`.
-    fn damage(&self, item: Type) -> u16 {
-        self.stack_in(self.slot_of(item).unwrap()).damage()
-    }
+fn item(kind: ItemKind) -> Type {
+    kind.default_type()
 }
 
 fn consume(count: u8, source: StackRequestSlotInfo) -> StackRequestAction {
@@ -568,7 +560,7 @@ fn recipe(result: &str, side: u8, have: &[Type]) -> (u32, Vec<(u8, Type)>, Stack
             let (cells, results): (Vec<(u8, Type)>, _) = match r {
                 Recipe::Shaped(s) if s.width <= side && s.height <= side => {
                     let mut cells = Vec::new();
-                    for (i, cell) in (0u8..).zip(s.grid) {
+                    for (i, cell) in (0_u8..).zip(s.grid) {
                         if let Some(ing) = cell {
                             let (row, col) = (i / s.width, i % s.width);
                             cells.push((row * side + col, pick(ing)?));
@@ -580,7 +572,7 @@ fn recipe(result: &str, side: u8, have: &[Type]) -> (u32, Vec<(u8, Type)>, Stack
                     if s.kind == crafting::ShapelessType::Crafting
                         && s.ingredients.len() <= usize::from(side * side) =>
                 {
-                    let cells = (0u8..)
+                    let cells = (0_u8..)
                         .zip(s.ingredients)
                         .map(|(i, ing)| Some((i, pick(ing)?)))
                         .collect::<Option<_>>()?;
@@ -594,6 +586,56 @@ fn recipe(result: &str, side: u8, have: &[Type]) -> (u32, Vec<(u8, Type)>, Stack
         .unwrap_or_else(|| panic!("a recipe for {result}"))
 }
 
+/// An empty inventory slot as a request destination.
+fn empty_main(slot: u8) -> StackRequestSlotInfo {
+    client::slot_info(C::CombinedHotBarAndInventory as u8, slot, 0)
+}
+
+/// The item entities and experience orbs of the loaded chunks, as a save writes them.
+fn loose(state: &mut State) -> usize {
+    state.rules.flush(&mut state.chunks.extras);
+    let mut n = 0;
+    for pos in state.worlds[0].loaded() {
+        let Some(extras) = state.chunks.extras.get((0, pos)) else {
+            continue;
+        };
+        n += extras
+            .get(ChunkKind::Entities)
+            .iter()
+            .filter(|c| {
+                matches!(c.get("identifier"), Some(Value::String(id))
+                    if id == "minecraft:item" || id == "minecraft:xp_orb")
+            })
+            .count();
+    }
+    n
+}
+
+/// A crop's growth stage.
+fn crop_growth(b: block::State) -> i32 {
+    match b.value("growth") {
+        Some(block::PropertyValue::Int(g)) => g,
+        _ => 0,
+    }
+}
+
+/// The `netId` of every offer of a trade screen.
+fn offer_ids(serialised: &[u8]) -> Vec<u32> {
+    let offers = crate::protocol::Reader::new(serialised, serialised.len() * 64, 0)
+        .nbt(crate::nbt::Encoding::NetworkLittleEndian)
+        .unwrap();
+    let Some(Value::List(List::Compound(recipes))) = offers.get("Recipes") else {
+        panic!("no recipes");
+    };
+    recipes
+        .iter()
+        .map(|r| match r.get("netId") {
+            Some(Value::Int(id)) => u32::try_from(*id).unwrap(),
+            other => panic!("no netId: {other:?}"),
+        })
+        .collect()
+}
+
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -601,37 +643,37 @@ fn recipe(result: &str, side: u8, have: &[Type]) -> (u32, Vec<(u8, Type)>, Stack
 )]
 fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     let mut s = Scenario::new();
-    s.expect("joining", &[]);
+    s.assert_contents("joining", &[]);
 
     // 1. Three oak logs broken by hand (3 s each), their drops picked up. A destroy predicted
     // too early is refused.
-    s.set(WORK, BlockKind::OakLog);
+    s.set_block(WORK, BlockKind::OakLog);
     s.idle(1);
     s.act(WORK, &[Action::StartBreak]);
     s.idle(20);
     s.act(WORK, &[Action::PredictDestroyBlock]);
     assert_eq!(s.block(WORK).kind(), BlockKind::OakLog, "1 s is not 3 s");
     for _ in 0..3 {
-        s.set(WORK, BlockKind::OakLog);
+        s.set_block(WORK, BlockKind::OakLog);
         s.idle(1);
         s.break_block(WORK);
         s.pick_up();
     }
-    s.expect("breaking logs", &[("oak_log", 3)]);
+    s.assert_contents("breaking logs", &[("oak_log", 3)]);
 
     // 2. Planks in the inventory's 2x2 grid, then a crafting table.
     for _ in 0..3 {
         s.craft("oak_planks", 2);
     }
-    s.expect("crafting planks", &[("oak_planks", 12)]);
+    s.assert_contents("crafting planks", &[("oak_planks", 12)]);
     s.craft("crafting_table", 2);
-    s.expect(
+    s.assert_contents(
         "crafting a table",
         &[("oak_planks", 8), ("crafting_table", 1)],
     );
 
     // 3. The table placed on the grass and opened; sticks, a pickaxe and a hoe in its 3x3 grid.
-    s.hold(block_item(BlockKind::CraftingTable));
+    s.hold(block_item(BlockKind::CraftingTable, 1).item().unwrap());
     s.click(TABLE.offset(0, -1, 0).unwrap(), FACE_UP);
     assert_eq!(s.block(TABLE).kind(), BlockKind::CraftingTable);
     let window = s.open(TABLE);
@@ -639,7 +681,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     s.craft("wooden_pickaxe", 3);
     s.craft("wooden_hoe", 3);
     s.close(window);
-    s.expect(
+    s.assert_contents(
         "crafting tools",
         &[("oak_planks", 1), ("wooden_pickaxe", 1), ("wooden_hoe", 1)],
     );
@@ -648,13 +690,13 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     let pickaxe = item(ItemKind::WoodenPickaxe);
     s.hold(pickaxe);
     for _ in 0..8 {
-        s.set(WORK, BlockKind::Stone);
+        s.set_block(WORK, BlockKind::Stone);
         s.idle(1);
         s.break_block(WORK);
         s.pick_up();
     }
     assert_eq!(s.damage(pickaxe), 8, "one use a block");
-    s.expect(
+    s.assert_contents(
         "mining stone",
         &[
             ("oak_planks", 1),
@@ -670,7 +712,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     s.close(window);
     s.give(&Stack::new(item(ItemKind::Coal), 1));
     s.give(&Stack::new(item(ItemKind::RawIron), 2));
-    s.hold(block_item(BlockKind::Furnace));
+    s.hold(block_item(BlockKind::Furnace, 1).item().unwrap());
     s.click(FURNACE.offset(0, -1, 0).unwrap(), FACE_UP);
     assert!(s.block(FURNACE).is(block::Class::Furnace));
     let window = s.open(FURNACE);
@@ -700,7 +742,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         survival::lifetime_experience(s.player()) > xp_before,
         "the smelting experience"
     );
-    s.expect(
+    s.assert_contents(
         "smelting",
         &[
             ("oak_planks", 1),
@@ -723,7 +765,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     assert_eq!(s.block(WORK).kind(), BlockKind::Wheat);
     s.hold(item(ItemKind::BoneMeal));
     let mut meal = 0;
-    while props_growth(s.block(WORK)) < 7 {
+    while crop_growth(s.block(WORK)) < 7 {
         s.click(WORK, FACE_UP);
         meal += 1;
         assert!(meal <= 8, "bone meal ripens wheat");
@@ -745,13 +787,13 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         farmed.push(("wheat_seeds", seeds));
     }
     farmed.retain(|(_, n)| *n > 0);
-    s.expect("farming", &farmed);
+    s.assert_contents("farming", &farmed);
 
     // 7. The pickaxe enchanted at an enchanting table with lapis and levels.
-    s.set(ENCHANTING, BlockKind::EnchantingTable);
+    s.set_block(ENCHANTING, BlockKind::EnchantingTable);
     s.give(&Stack::new(item(ItemKind::LapisLazuli), 3));
     {
-        let mut ctx = s.task();
+        let mut ctx = s.context_mut();
         let player = ctx.player_exact("player1").unwrap();
         ctx.player_mut(player).unwrap().add_xp(300);
     }
@@ -789,7 +831,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         consume(1, s.other(C::EnchantingMaterial, ENCHANT_LAPIS)),
         client::place(
             1,
-            client::created(req),
+            client::created_slot(req),
             client::slot_info(C::EnchantingInput as u8, ENCHANT_INPUT, req),
         ),
     ]));
@@ -815,7 +857,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     );
     let mut enchanted_stage = farmed.clone();
     enchanted_stage.push(("lapis_lazuli", 2));
-    s.expect("enchanting", &enchanted_stage);
+    s.assert_contents("enchanting", &enchanted_stage);
 
     // 8. A trade with a villager NPC: two emeralds for bread.
     s.give(&Stack::new(item(ItemKind::Emerald), 4));
@@ -825,7 +867,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         4,
     );
     assert!(
-        s.task()
+        s.context_mut()
             .spawn_villager(crate::world::Id::DEFAULT, VILLAGER, 1, &[offer])
             .is_ok()
     );
@@ -848,10 +890,10 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         hot_bar_slot: i32::from(held),
         hand: 0,
         held_item: s.stack_in(held).to_instance(s.client.net(c, held)),
-        position: (s.feet + Vec3::new(0.0, EYE, 0.0)).to_f32(),
+        position: s.eye().to_f32(),
         clicked_position: [0.0, 0.0, 0.0],
     };
-    s.send(vec![client::transaction(
+    s.send(vec![client::transaction_packet(
         InventoryTransactionData::UseItemOnEntity(Box::new(data)),
     )]);
     let screen = s
@@ -875,63 +917,13 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
             number_of_crafts: 1,
         }),
         consume(2, s.other(C::TradeTwoIngredientOne, PAYMENT)),
-        client::place(3, client::created(req), empty_main(dest)),
+        client::place(3, client::created_slot(req), empty_main(dest)),
     ]));
     s.close(screen.window_id);
     s.pick_up();
     let mut traded = enchanted_stage;
     traded.push(("emerald", 2));
     traded.push(("bread", 3));
-    s.expect("trading", &traded);
+    s.assert_contents("trading", &traded);
     assert!(!s.player().inventory.has_window());
-}
-
-/// An empty inventory slot as a request destination.
-fn empty_main(slot: u8) -> StackRequestSlotInfo {
-    client::slot_info(C::CombinedHotBarAndInventory as u8, slot, 0)
-}
-
-/// The item entities and experience orbs of the loaded chunks, as a save writes them.
-fn loose(state: &mut State) -> usize {
-    state.rules.flush(&mut state.chunks.extras);
-    let mut n = 0;
-    for pos in state.worlds[0].loaded() {
-        let Some(extras) = state.chunks.extras.get((0, pos)) else {
-            continue;
-        };
-        n += extras
-            .get(ChunkKind::Entities)
-            .iter()
-            .filter(|c| {
-                matches!(c.get("identifier"), Some(Value::String(id))
-                    if id == "minecraft:item" || id == "minecraft:xp_orb")
-            })
-            .count();
-    }
-    n
-}
-
-/// A crop's growth stage.
-fn props_growth(b: block::State) -> i32 {
-    match b.value("growth") {
-        Some(block::PropertyValue::Int(g)) => g,
-        _ => 0,
-    }
-}
-
-/// The `netId` of every offer of a trade screen.
-fn offer_ids(serialised: &[u8]) -> Vec<u32> {
-    let offers = crate::protocol::Reader::new(serialised, serialised.len() * 64, 0)
-        .nbt(crate::nbt::Encoding::NetworkLittleEndian)
-        .unwrap();
-    let Some(Value::List(List::Compound(recipes))) = offers.get("Recipes") else {
-        panic!("no recipes");
-    };
-    recipes
-        .iter()
-        .map(|r| match r.get("netId") {
-            Some(Value::Int(id)) => u32::try_from(*id).unwrap(),
-            other => panic!("no netId: {other:?}"),
-        })
-        .collect()
 }

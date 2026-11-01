@@ -15,7 +15,9 @@
 //! reads such blocks as air and drops it); a firework item's broken explosion compound is left
 //! out instead of making the whole item unreadable.
 
-use super::kind::{Crystal, Firework, Kind, MAX_EXPLOSIONS, Painting};
+use tracing::debug;
+
+use super::kind::{Crystal, Firework, Kind, Painting};
 use super::{
     Blow, Cause, Hooks, Knock, Raise, SessionId, State, create, drop_item, hurt, physics,
     push_player, send_to, survival, with,
@@ -28,43 +30,71 @@ use crate::math::{Aabb, Vec3};
 use crate::nbt::{Compound, List, Value};
 use crate::random::Random;
 use crate::save::WorldIndex;
+use crate::tick::emit;
 use crate::tick::interact::block_vec;
-use crate::tick::interact::props::rotate_y;
+use crate::tick::interact::props::rotate_clockwise;
 use crate::world::{BlockPos, Particle, Sound, World};
 
-/// How much of its block a painting leaves free in front: it is 1/16 thick (PMMP
-/// `getPaintingBB`: `trim($facing, 15 / 16)`).
-const PAINTING_TRIM: f64 = 15.0 / 16.0;
-/// How far above the block it is placed on an end crystal stands.
-const CRYSTAL_LIFT: f64 = 1.0;
-/// Ticks a firework rocket speeds up (PMMP: "vanilla fireworks only live about 52 ticks").
-const FIREWORK_BOOST_TICKS: u32 = 60;
-/// The horizontal speed-up and the climb per tick of a firework rocket.
-const FIREWORK_SPREAD: f64 = 0.15;
-const FIREWORK_CLIMB: f64 = 0.04;
+/// The damage of a burst at its centre before its explosions add theirs (PMMP
+/// `FireworkRocket::explode`).
+const BURST_DAMAGE_BASE: f64 = 5.0;
+/// The damage each explosion adds to a burst (PMMP `FireworkRocket::explode`).
+const BURST_DAMAGE_PER_EXPLOSION: f64 = 2.0;
 /// How far a burst reaches players and NPCs (PMMP: within 5 blocks).
 const BURST_REACH: f64 = 5.0;
-/// The largest flight multiplier of a firework item (PMMP `setFlightTimeMultiplier`: 1 to 127).
-const MAX_FLIGHT_MULTIPLIER: u8 = 127;
+/// The number of dye colours (dye IDs 0 to 15): a colour list holds at most one entry per dye.
+const COLOURS: u8 = 16;
+/// How far above the block it is placed on an end crystal stands.
+const CRYSTAL_LIFT: f64 = 1.0;
 /// The flight multiplier of a firework item without one (PMMP
 /// `FireworkRocket::$flightTimeMultiplier`).
 pub(super) const DEFAULT_FLIGHT_MULTIPLIER: u8 = 1;
+/// The keys an explosion compound may hold: a key of another name is refused, so the compound
+/// every viewer is sent stays small.
+const EXPLOSION_KEYS: [&str; 5] = [TAG_COLOURS, TAG_FADE, TAG_TRAIL, TAG_TWINKLE, TAG_TYPE];
+/// Ticks a firework rocket speeds up (PMMP: "vanilla fireworks only live about 52 ticks").
+const FIREWORK_BOOST_TICKS: u32 = 60;
+/// The climb per tick of a firework rocket.
+const FIREWORK_CLIMB: f64 = 0.04;
+/// The horizontal speed-up per tick of a firework rocket.
+const FIREWORK_SPREAD: f64 = 0.15;
 /// A firework item's flight random part, 0 to this many ticks (PMMP `mt_rand(0, 12)`).
 const FLIGHT_RANDOM_TICKS: i32 = 12;
-/// The explosion shapes (PMMP `FireworkRocketTypeIdMap`: small ball 0, large ball 1, star 2,
-/// creeper 3, burst 4) and the colours (dye IDs 0 to 15).
+/// The ticks one step of the flight multiplier adds: a rocket flies (multiplier + 1) steps (PMMP
+/// `item\FireworkRocket::onInteractBlock`).
+const FLIGHT_STEP_TICKS: u32 = 10;
+/// The shape of a large ball in the explosion shapes (PMMP `FireworkRocketTypeIdMap`: small ball
+/// 0, large ball 1, star 2, creeper 3, burst 4).
 const LARGE_BALL: u8 = 1;
+/// The upward speed of a launched rocket at its start.
+const LAUNCH_CLIMB: f64 = 0.05;
+/// The largest sideways speed a launched rocket starts with.
+const LAUNCH_DRIFT: f64 = 0.0023;
+/// The pitch of a launched rocket, in degrees: straight up.
+const LAUNCH_PITCH_DEGREES: f64 = 90.0;
+/// The largest flight multiplier of a firework item (PMMP `setFlightTimeMultiplier`: 1 to 127).
+const MAX_FLIGHT_MULTIPLIER: u8 = 127;
+/// The largest explosion shape.
 const MAX_SHAPE: u8 = 4;
-const COLOURS: u8 = 16;
-/// The item NBT keys (PMMP `FireworkRocket`, `FireworkRocketExplosion`).
-pub(super) const TAG_FIREWORKS: &str = "Fireworks";
-pub(super) const TAG_FLIGHT: &str = "Flight";
-pub(super) const TAG_EXPLOSIONS: &str = "Explosions";
-const TAG_TYPE: &str = "FireworkType";
+/// How much of its block a painting leaves free in front: it is 1/16 thick (PMMP
+/// `getPaintingBB`: `trim($facing, 15 / 16)`).
+const PAINTING_TRIM: f64 = 15.0 / 16.0;
+/// The item NBT key of an explosion's colours (PMMP `FireworkRocketExplosion`).
 const TAG_COLOURS: &str = "FireworkColor";
+/// The item NBT key of the explosions (PMMP `FireworkRocket`).
+pub(super) const TAG_EXPLOSIONS: &str = "Explosions";
+/// The item NBT key of an explosion's fade colours (PMMP `FireworkRocketExplosion`).
 const TAG_FADE: &str = "FireworkFade";
-const TAG_TWINKLE: &str = "FireworkFlicker";
+/// The item NBT key of the firework compound (PMMP `FireworkRocket`).
+pub(super) const TAG_FIREWORKS: &str = "Fireworks";
+/// The item NBT key of the flight multiplier (PMMP `FireworkRocket`).
+pub(super) const TAG_FLIGHT: &str = "Flight";
+/// The item NBT key of an explosion's trail (PMMP `FireworkRocketExplosion`).
 const TAG_TRAIL: &str = "FireworkTrail";
+/// The item NBT key of an explosion's twinkle (PMMP `FireworkRocketExplosion`).
+const TAG_TWINKLE: &str = "FireworkFlicker";
+/// The item NBT key of an explosion's shape (PMMP `FireworkRocketExplosion`).
+const TAG_TYPE: &str = "FireworkType";
 
 /// What a use of an item that makes an entity did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,150 +105,6 @@ pub(in crate::tick) enum Placed {
     Made,
     /// Refused: the world is at its entity limit (the player keeps the item).
     Full,
-}
-
-/// Whether a painting can face `face`: north, south, west or east.
-pub(super) fn is_horizontal(face: Face) -> bool {
-    !matches!(face, Face::Up | Face::Down)
-}
-
-/// The blocks a motive reaches to the clockwise side and down from the block it hangs in (PMMP
-/// `ceil(size / 2) - 1`).
-fn starts(motive: PaintingMotive) -> (i32, i32) {
-    let start = |n: u8| (i32::from(n) + 1) / 2 - 1;
-    (start(motive.width()), start(motive.height()))
-}
-
-/// The box of a painting of `motive` facing `facing` that hangs in the block `pos` (PMMP
-/// `getPaintingBB` offset to the block).
-pub(super) fn painting_box(pos: BlockPos, facing: Face, motive: PaintingMotive) -> Aabb {
-    let (horizontal, vertical) = starts(motive);
-    let (width, height) = (i32::from(motive.width()), i32::from(motive.height()));
-    let mut min = Vec3::ZERO;
-    let mut max = Vec3::new(1.0, 1.0, 1.0);
-    let mut extend = |face: Face, d: f64| match face {
-        Face::Down => min.y -= d,
-        Face::Up => max.y += d,
-        Face::North => min.z -= d,
-        Face::South => max.z += d,
-        Face::West => min.x -= d,
-        Face::East => max.x += d,
-    };
-    extend(facing, -PAINTING_TRIM);
-    extend(rotate_y(facing, true), f64::from(horizontal));
-    extend(
-        rotate_y(facing, true).opposite(),
-        f64::from(width - 1 - horizontal),
-    );
-    extend(Face::Down, f64::from(vertical));
-    extend(Face::Up, f64::from(height - 1 - vertical));
-    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
-    Aabb::new(min + at, max + at)
-}
-
-/// Whether a painting of `motive` facing `facing` fits from the block `pos` (PMMP
-/// `Painting::canFit` without the overlap check): each block it covers is not solid and has a
-/// solid block behind it. `None` when that cannot be told: no block fails, and one of them is not
-/// loaded or outside the world.
-pub(super) fn fits(
-    world: &World,
-    pos: BlockPos,
-    facing: Face,
-    motive: PaintingMotive,
-) -> Option<bool> {
-    if !is_horizontal(facing) {
-        return Some(false);
-    }
-    let (horizontal, vertical) = starts(motive);
-    let (cx, _, cz) = rotate_y(facing, true).offset();
-    let (bx, _, bz) = facing.opposite().offset();
-    let start = pos.offset(cx * horizontal, -vertical, cz * horizontal)?;
-    let mut known = true;
-    for w in 0..i32::from(motive.width()) {
-        for h in 0..i32::from(motive.height()) {
-            // The painting runs counter-clockwise from its start (PMMP `rotateY($facing, false)`).
-            let at = start.offset(-cx * w, h, -cz * w);
-            let block = at.and_then(|p| world.block(p));
-            let behind = at
-                .and_then(|p| p.offset(bx, 0, bz))
-                .and_then(|p| world.block(p));
-            match (block, behind) {
-                (Some(block), Some(behind)) => {
-                    if block.is_solid() || !behind.is_solid() {
-                        return Some(false);
-                    }
-                }
-                _ => known = false,
-            }
-        }
-    }
-    known.then_some(true)
-}
-
-/// Whether another painting's box meets the box a painting of `motive` would have there (PMMP
-/// `canFit`'s overlap check).
-fn overlaps_painting(
-    state: &State,
-    world: WorldIndex,
-    pos: BlockPos,
-    facing: Face,
-    motive: PaintingMotive,
-) -> bool {
-    let entities = &state.rules.entities;
-    entities
-        .nearby(world, painting_box(pos, facing, motive))
-        .into_iter()
-        .any(|id| {
-            entities
-                .get(id)
-                .is_some_and(|e| matches!(e.kind, Kind::Painting(_)))
-        })
-}
-
-/// Whether a painting of `motive` facing `facing` can be hung from the block `pos` now: it fits
-/// and meets no other painting.
-pub(super) fn can_hang(
-    state: &State,
-    world: WorldIndex,
-    pos: BlockPos,
-    facing: Face,
-    motive: PaintingMotive,
-) -> bool {
-    state
-        .worlds
-        .get(world)
-        .and_then(|w| fits(w, pos, facing, motive))
-        == Some(true)
-        && !overlaps_painting(state, world, pos, facing, motive)
-}
-
-/// The facing byte of a painting (PMMP `Painting::FACING_TO_DATA`).
-pub(super) fn facing_data(facing: Face) -> u8 {
-    match facing {
-        Face::South => 0,
-        Face::West => 1,
-        Face::East => 3,
-        Face::North | Face::Up | Face::Down => 2,
-    }
-}
-
-/// The facing of a painting's byte (PMMP `DATA_TO_FACING`; north for an unknown one, as PMMP).
-pub(super) fn data_facing(data: u8) -> Face {
-    match data {
-        0 => Face::South,
-        1 => Face::West,
-        3 => Face::East,
-        _ => Face::North,
-    }
-}
-
-/// A new painting's kind.
-pub(super) fn painting(facing: Face, motive: PaintingMotive) -> Kind {
-    Kind::Painting(Painting {
-        motive,
-        facing,
-        drops: true,
-    })
 }
 
 /// Hangs a painting on the `face` side of the block `clicked` (PMMP
@@ -247,15 +133,21 @@ pub(super) fn place_painting(
         }
         picks.push(motive);
     }
-    let last = i32::try_from(picks.len())
-        .unwrap_or(i32::MAX)
-        .saturating_sub(1);
-    let Some(&motive) = usize::try_from(random.range(0, last))
-        .ok()
-        .and_then(|i| picks.get(i))
-    else {
+    if picks.is_empty() {
         return Placed::Nothing;
-    };
+    }
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a painting has fewer than 2^32 motives to pick from"
+    )]
+    let count = u32::try_from(picks.len()).expect("the picks fit a u32");
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `below(count)` is below the number of picks"
+    )]
+    let motive = *picks
+        .get(random.below(count) as usize)
+        .expect("the index is below the number of picks");
     let made = create(state, world, block_vec(pos), painting(face, motive), |_| {
         (Vec3::ZERO, 0.0, 0.0)
     });
@@ -267,8 +159,8 @@ pub(super) fn place_painting(
     Placed::Made
 }
 
-/// A neighbour update reached the painting `id` (PMMP `Painting::onNearbyBlockChange`): it dies
-/// when it no longer fits (its item drops at its removal).
+/// Dooms the painting `id` when it no longer fits, after a neighbour update reached it (PMMP
+/// `Painting::onNearbyBlockChange`); its item drops at its removal.
 pub(super) fn check_painting(state: &mut State, id: Id) {
     let Some(e) = state.rules.entities.get(id).filter(|e| !e.flagged) else {
         return;
@@ -288,28 +180,163 @@ pub(super) fn check_painting(state: &mut State, id: Id) {
     }
 }
 
-/// A painting that died at `at` is removed (PMMP `Painting::onDeath`): it drops its item unless
-/// a player with infinite items broke it, and shows oak planks breaking. At the world's entity
+/// Ends a painting that died at `at` (PMMP `Painting::onDeath`): it drops its item unless a
+/// player with infinite items broke it, and shows oak planks breaking. At the world's entity
 /// limit the item is lost (as an NPC's death drops are).
 pub(super) fn painting_broke(state: &mut State, world: WorldIndex, at: Vec3, painting: Painting) {
     if painting.drops {
         let stack = Stack::new(item::Kind::Painting.default_type(), 1);
         if !drop_item(state, world, at, stack) {
-            tracing::debug!(world, "a painting's item did not fit the world");
+            debug!(world, "a painting's item did not fit the world");
         }
     }
     let centre = at + Vec3::new(0.5, 0.5, 0.5);
     let planks = Particle::BlockBreak(block::Kind::OakPlanks.default_state());
-    super::super::emit::particle(state, world, centre, planks);
+    emit::particle(state, world, centre, planks);
 }
 
-/// A new end crystal's kind.
-pub(super) fn crystal() -> Kind {
-    Kind::EndCrystal(Crystal {
-        show_base: false,
-        beam_target: None,
-        primed: false,
+/// A new painting's kind.
+pub(super) fn painting(facing: Face, motive: PaintingMotive) -> Kind {
+    Kind::Painting(Painting {
+        motive,
+        facing,
+        drops: true,
     })
+}
+
+/// Whether a painting of `motive` facing `facing` can be hung from the block `pos` now: it fits
+/// and meets no other painting.
+pub(super) fn can_hang(
+    state: &State,
+    world: WorldIndex,
+    pos: BlockPos,
+    facing: Face,
+    motive: PaintingMotive,
+) -> bool {
+    state
+        .worlds
+        .get(world)
+        .and_then(|w| fits(w, pos, facing, motive))
+        == Some(true)
+        && !is_overlapping_painting(state, world, pos, facing, motive)
+}
+
+/// Whether another painting's box meets the box a painting of `motive` would have there (PMMP
+/// `canFit`'s overlap check).
+fn is_overlapping_painting(
+    state: &State,
+    world: WorldIndex,
+    pos: BlockPos,
+    facing: Face,
+    motive: PaintingMotive,
+) -> bool {
+    let entities = &state.rules.entities;
+    entities
+        .nearby(world, painting_box(pos, facing, motive))
+        .into_iter()
+        .any(|id| {
+            entities
+                .get(id)
+                .is_some_and(|e| matches!(e.kind, Kind::Painting(_)))
+        })
+}
+
+/// Whether a painting of `motive` facing `facing` fits from the block `pos` (PMMP
+/// `Painting::canFit` without the overlap check): each block it covers is not solid and has a
+/// solid block behind it. `None` when that cannot be told: no block fails, and one of them is not
+/// loaded or outside the world.
+pub(super) fn fits(
+    world: &World,
+    pos: BlockPos,
+    facing: Face,
+    motive: PaintingMotive,
+) -> Option<bool> {
+    if !is_horizontal(facing) {
+        return Some(false);
+    }
+    let (horizontal, vertical) = starts(motive);
+    let (cx, _, cz) = rotate_clockwise(facing).offset();
+    let (bx, _, bz) = facing.opposite().offset();
+    let start = pos.offset(cx * horizontal, -vertical, cz * horizontal)?;
+    let mut known = true;
+    for w in 0..i32::from(motive.width()) {
+        for h in 0..i32::from(motive.height()) {
+            // The painting runs counter-clockwise from its start (PMMP `rotateY($facing, false)`).
+            let at = start.offset(-cx * w, h, -cz * w);
+            let block = at.and_then(|p| world.block(p));
+            let behind = at
+                .and_then(|p| p.offset(bx, 0, bz))
+                .and_then(|p| world.block(p));
+            match (block, behind) {
+                (Some(block), Some(behind)) => {
+                    if block.is_solid() || !behind.is_solid() {
+                        return Some(false);
+                    }
+                }
+                _ => known = false,
+            }
+        }
+    }
+    known.then_some(true)
+}
+
+/// The box of a painting of `motive` facing `facing` that hangs in the block `pos` (PMMP
+/// `getPaintingBB` offset to the block).
+pub(super) fn painting_box(pos: BlockPos, facing: Face, motive: PaintingMotive) -> Aabb {
+    let (horizontal, vertical) = starts(motive);
+    let (width, height) = (i32::from(motive.width()), i32::from(motive.height()));
+    let mut min = Vec3::ZERO;
+    let mut max = Vec3::new(1.0, 1.0, 1.0);
+    let mut extend = |face: Face, d: f64| match face {
+        Face::Down => min.y -= d,
+        Face::Up => max.y += d,
+        Face::North => min.z -= d,
+        Face::South => max.z += d,
+        Face::West => min.x -= d,
+        Face::East => max.x += d,
+    };
+    extend(facing, -PAINTING_TRIM);
+    extend(rotate_clockwise(facing), f64::from(horizontal));
+    extend(
+        rotate_clockwise(facing).opposite(),
+        f64::from(width - 1 - horizontal),
+    );
+    extend(Face::Down, f64::from(vertical));
+    extend(Face::Up, f64::from(height - 1 - vertical));
+    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+    Aabb::new(min + at, max + at)
+}
+
+/// The blocks a motive reaches to the clockwise side and down from the block it hangs in (PMMP
+/// `ceil(size / 2) - 1`).
+fn starts(motive: PaintingMotive) -> (i32, i32) {
+    let start = |n: u8| (i32::from(n) + 1) / 2 - 1;
+    (start(motive.width()), start(motive.height()))
+}
+
+/// Whether a painting can face `face`: north, south, west or east.
+pub(super) fn is_horizontal(face: Face) -> bool {
+    !matches!(face, Face::Down | Face::Up)
+}
+
+/// The facing byte of a painting (PMMP `Painting::FACING_TO_DATA`).
+pub(super) fn facing_data(facing: Face) -> u8 {
+    match facing {
+        Face::Down | Face::Up | Face::North => 2,
+        Face::South => 0,
+        Face::West => 1,
+        Face::East => 3,
+    }
+}
+
+/// The facing of a painting's byte (PMMP `DATA_TO_FACING`; north for an unknown one, as PMMP).
+pub(super) fn data_facing(data: u8) -> Face {
+    match data {
+        0 => Face::South,
+        1 => Face::West,
+        3 => Face::East,
+        _ => Face::North,
+    }
 }
 
 /// Places an end crystal on the block `clicked` (PMMP `item\EndCrystal::onInteractBlock`): on
@@ -336,72 +363,12 @@ pub(super) fn place_end_crystal(state: &mut State, world: WorldIndex, clicked: B
     }
 }
 
-/// Whether `c` is a firework explosion compound PMMP reads (`FireworkRocketExplosion::
-/// fromCompoundTag`): a known shape, at least one colour and only known colours.
-fn is_explosion(c: &Compound) -> bool {
-    let colours = |k: &str, required: bool| match c.get(k) {
-        Some(Value::ByteArray(b)) => (!required || !b.is_empty()) && b.iter().all(|&d| d < COLOURS),
-        None => !required,
-        Some(_) => false,
-    };
-    let flag = |k: &str| matches!(c.get(k), None | Some(Value::Byte(_)));
-    matches!(c.get(TAG_TYPE), Some(Value::Byte(t)) if *t <= MAX_SHAPE)
-        && colours(TAG_COLOURS, true)
-        && colours(TAG_FADE, false)
-        && flag(TAG_TWINKLE)
-        && flag(TAG_TRAIL)
-}
-
-/// `explosions` if each is a firework explosion and there are at most [`MAX_EXPLOSIONS`].
-pub(super) fn checked_explosions(explosions: Vec<Compound>) -> Option<Vec<Compound>> {
-    (explosions.len() <= MAX_EXPLOSIONS && explosions.iter().all(is_explosion))
-        .then_some(explosions)
-}
-
-/// A firework item's flight multiplier (1 to 127) and explosions (PMMP `FireworkRocket::
-/// deserializeCompoundTag`); an item without its `Fireworks` compound flies as the default one.
-fn firework_item(stack: &Stack) -> (u8, Vec<Compound>) {
-    let Some(Value::Compound(fireworks)) = stack.extra().and_then(|x| x.nbt.get(TAG_FIREWORKS))
-    else {
-        return (DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
-    };
-    let flight = match fireworks.get(TAG_FLIGHT) {
-        Some(Value::Byte(f)) => (*f).clamp(1, MAX_FLIGHT_MULTIPLIER),
-        _ => DEFAULT_FLIGHT_MULTIPLIER,
-    };
-    let explosions = match fireworks.get(TAG_EXPLOSIONS) {
-        Some(Value::List(List::Compound(list))) => list
-            .iter()
-            .filter(|c| is_explosion(c))
-            .take(MAX_EXPLOSIONS)
-            .cloned()
-            .collect(),
-        _ => Vec::new(),
-    };
-    (flight, explosions)
-}
-
-/// The flight multiplier a rocket without an item shows (an API rocket): the one whose flight
-/// time, (multiplier + 1) × 10 ticks, comes nearest below its own (at least 1; the client only
-/// draws it, the server decides the burst).
-pub(super) fn flight_multiplier(max_flight: u32) -> u8 {
-    let tens = (max_flight / 10).saturating_sub(1);
-    u8::try_from(tens).map_or(MAX_FLIGHT_MULTIPLIER, |t| t.clamp(1, MAX_FLIGHT_MULTIPLIER))
-}
-
-/// A new firework rocket's kind; `flight` is the multiplier its item shows.
-pub(super) fn firework(
-    max_flight: u32,
-    flight: u8,
-    explosions: Vec<Compound>,
-    owner: Option<(SessionId, u64)>,
-) -> Kind {
-    Kind::Firework(Firework {
-        max_flight,
-        explosions,
-        owner: owner.map(|(s, _)| s),
-        owner_runtime_id: owner.map_or(0, |(_, r)| r),
-        flight,
+/// A new end crystal's kind.
+pub(super) fn crystal() -> Kind {
+    Kind::EndCrystal(Crystal {
+        show_base: false,
+        beam_target: None,
+        primed: false,
     })
 }
 
@@ -416,31 +383,34 @@ pub(super) fn launch_firework(
     item: &Stack,
     random: &mut Random,
 ) -> bool {
-    let owner = state.players.get(&session).map(|p| (session, p.runtime_id));
+    let owner = state.players.contains_key(&session).then_some(session);
     launch(state, world, at, firework_item(item), owner, random).is_some()
 }
 
 /// Launches a firework rocket of flight `multiplier` and `explosions` at `at` as a used rocket
-/// item does: a flight of (multiplier + 1) × 10 ticks and up to 12 more, a slow start up with a
-/// little random drift, looking straight up with a random yaw (all from `random`).
+/// item does: a flight of (multiplier + 1) × [`FLIGHT_STEP_TICKS`] ticks and up to
+/// [`FLIGHT_RANDOM_TICKS`] more, a slow start up with a little random drift, looking straight up
+/// with a random yaw (all from `random`).
 pub(super) fn launch(
     state: &mut State,
     world: WorldIndex,
     at: Vec3,
     (multiplier, explosions): (u8, Vec<Compound>),
-    owner: Option<(SessionId, u64)>,
+    owner: Option<SessionId>,
     random: &mut Random,
 ) -> Option<Id> {
-    let flight =
-        (u32::from(multiplier) + 1) * 10 + random.range(0, FLIGHT_RANDOM_TICKS).unsigned_abs();
+    let flight = (u32::from(multiplier) + 1) * FLIGHT_STEP_TICKS
+        + random.range(0, FLIGHT_RANDOM_TICKS).unsigned_abs();
     let yaw = super::random_yaw(random);
-    let mut drift = || (random.unit() - random.unit()) * 0.0023;
-    let motion = Vec3::new(drift(), 0.05, drift());
+    let mut drift = || (random.unit() - random.unit()) * LAUNCH_DRIFT;
+    let motion = Vec3::new(drift(), LAUNCH_CLIMB, drift());
     let kind = firework(flight, multiplier, explosions, owner);
-    create(state, world, at, kind, |_| (motion, yaw, 90.0))
+    create(state, world, at, kind, |_| {
+        (motion, yaw, LAUNCH_PITCH_DEGREES)
+    })
 }
 
-/// A firework rocket's tick (PMMP `FireworkRocket::onFirstUpdate`, `entityBaseTick`): the launch
+/// Ticks a firework rocket (PMMP `FireworkRocket::onFirstUpdate`, `entityBaseTick`): the launch
 /// sound on its first tick, a speed-up for its first 60, and at its flight time it bursts and
 /// goes.
 pub(super) fn firework_tick(state: &mut State, id: Id, hooks: Hooks) {
@@ -450,7 +420,7 @@ pub(super) fn firework_tick(state: &mut State, id: Id, hooks: Hooks) {
     let Kind::Firework(f) = &e.kind else {
         return;
     };
-    let (world, at, age, max_flight) = (e.world, e.body.position, e.age, f.max_flight);
+    let (world, at, age, max_flight_ticks) = (e.world, e.body.position, e.age, f.max_flight);
     if age == 1 {
         super::play(state, world, at, Sound::FireworkLaunch);
     }
@@ -461,17 +431,17 @@ pub(super) fn firework_tick(state: &mut State, id: Id, hooks: Hooks) {
             e.body.motion = physics::bounded(m + push);
         });
     }
-    if age >= max_flight {
+    if age >= max_flight_ticks {
         state.rules.entities.doom(id);
         burst(state, id, hooks);
     }
 }
 
-/// A firework rocket bursts (PMMP `FireworkRocket::explode`): the viewers see the burst event (as
-/// BDS sends it, explosions or not: P6 `entities`); with explosions they hear each one (a large
-/// ball louder, a twinkle crackling), and the players and NPCs within 5 blocks of it that a ray to
-/// their feet or their middle reaches without a block take (explosions × 2 + 5) × √((5 − distance)
-/// / 5) damage from it.
+/// Bursts the firework rocket `id` (PMMP `FireworkRocket::explode`): the viewers see the burst
+/// event (as BDS sends it, explosions or not: P6 `entities`); with explosions they hear each one
+/// (a large ball louder, a twinkle crackling), and the players and NPCs within 5 blocks of it
+/// that a ray to their feet or their middle reaches without a block take (explosions × 2 + 5) ×
+/// √((5 − distance) / 5) damage from it.
 fn burst(state: &mut State, id: Id, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
@@ -497,7 +467,9 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
             (sound, twinkle)
         })
         .collect();
-    let force = f64::from(u32::try_from(sounds.len()).unwrap_or(u32::MAX)) * 2.0 + 5.0;
+    let force = sounds.iter().fold(BURST_DAMAGE_BASE, |force, _| {
+        force + BURST_DAMAGE_PER_EXPLOSION
+    });
     send_to(
         &mut state.players,
         &viewers,
@@ -520,7 +492,7 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
         feet.distance_squared(at) <= BURST_REACH * BURST_REACH
             && (0..2).any(|i| {
                 let target = feet + Vec3::new(0.0, 0.5 * f64::from(i) * height, 0.0);
-                physics::clear(w, at, target)
+                physics::is_clear(w, at, target)
             })
     };
     let damage_at = |feet: Vec3| {
@@ -560,6 +532,80 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
             push_player(state, session, push, Raise::Events);
         }
     }
+}
+
+/// A firework item's flight multiplier (1 to 127) and explosions (PMMP `FireworkRocket::
+/// deserializeCompoundTag`); an item without its `Fireworks` compound flies as the default one.
+fn firework_item(stack: &Stack) -> (u8, Vec<Compound>) {
+    let Some(Value::Compound(fireworks)) = stack.extra().and_then(|x| x.nbt.get(TAG_FIREWORKS))
+    else {
+        return (DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
+    };
+    let flight = match fireworks.get(TAG_FLIGHT) {
+        Some(Value::Byte(f)) => (*f).clamp(1, MAX_FLIGHT_MULTIPLIER),
+        _ => DEFAULT_FLIGHT_MULTIPLIER,
+    };
+    let explosions = match fireworks.get(TAG_EXPLOSIONS) {
+        Some(Value::List(List::Compound(list))) => list
+            .iter()
+            .filter(|c| is_explosion(c))
+            .take(Firework::MAX_EXPLOSIONS)
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    };
+    (flight, explosions)
+}
+
+/// `explosions` if each is a firework explosion and there are at most [`Firework::MAX_EXPLOSIONS`].
+pub(super) fn checked_explosions(explosions: Vec<Compound>) -> Option<Vec<Compound>> {
+    (explosions.len() <= Firework::MAX_EXPLOSIONS && explosions.iter().all(is_explosion))
+        .then_some(explosions)
+}
+
+/// Whether `c` is a firework explosion compound PMMP reads (`FireworkRocketExplosion::
+/// fromCompoundTag`) that keeps to Anchor's bounds: a known shape, at least one colour, only known
+/// colours (at most [`COLOURS`] of each list) and no key but [`EXPLOSION_KEYS`].
+fn is_explosion(c: &Compound) -> bool {
+    let colours = |k: &str, required: bool| match c.get(k) {
+        Some(Value::ByteArray(b)) => {
+            b.len() <= usize::from(COLOURS)
+                && (!required || !b.is_empty())
+                && b.iter().all(|&d| d < COLOURS)
+        }
+        None => !required,
+        Some(_) => false,
+    };
+    let flag = |k: &str| matches!(c.get(k), None | Some(Value::Byte(_)));
+    c.keys().all(|k| EXPLOSION_KEYS.contains(&k.as_str()))
+        && colours(TAG_COLOURS, true)
+        && colours(TAG_FADE, false)
+        && flag(TAG_TRAIL)
+        && flag(TAG_TWINKLE)
+        && matches!(c.get(TAG_TYPE), Some(Value::Byte(t)) if *t <= MAX_SHAPE)
+}
+
+/// The flight multiplier a rocket without an item shows (an API rocket): the one whose flight
+/// time, (multiplier + 1) × [`FLIGHT_STEP_TICKS`] ticks, comes nearest below its own (at least 1;
+/// the client only draws it, the server decides the burst).
+pub(super) fn flight_multiplier(max_flight_ticks: u32) -> u8 {
+    let steps = (max_flight_ticks / FLIGHT_STEP_TICKS).saturating_sub(1);
+    u8::try_from(steps).map_or(MAX_FLIGHT_MULTIPLIER, |s| s.clamp(1, MAX_FLIGHT_MULTIPLIER))
+}
+
+/// A new firework rocket's kind; `flight` is the multiplier its item shows.
+pub(super) fn firework(
+    max_flight_ticks: u32,
+    flight: u8,
+    explosions: Vec<Compound>,
+    owner: Option<SessionId>,
+) -> Kind {
+    Kind::Firework(Firework {
+        max_flight: max_flight_ticks,
+        explosions,
+        owner,
+        flight,
+    })
 }
 
 #[cfg(test)]

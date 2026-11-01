@@ -31,19 +31,19 @@ pub(super) fn sound_as(state: &mut State, world: WorldIndex, at: Vec3, sound: So
         state.broadcast(world, chunk_of(at), &sound.packet(at), None);
         return;
     }
-    let mut e = WorldSound {
+    let mut event = WorldSound {
         world: world::Id::of(world),
         position: at,
         sound,
         recipients: viewers(state, world, at),
         cancelled: false,
     };
-    dispatch::call(state, &mut e);
-    if e.cancelled {
+    dispatch::call(state, &mut event);
+    if event.cancelled {
         return;
     }
-    send(state, world, at, &e.sound.packet(at), &e.recipients);
-    dispatch::watch(state, &e);
+    send(state, world, at, &event.sound.packet(at), &event.recipients);
+    dispatch::watch(state, &event);
 }
 
 /// Shows `particle` at `at` in `world` for the game, with [`WorldParticle`].
@@ -52,19 +52,25 @@ pub(super) fn particle(state: &mut State, world: WorldIndex, at: Vec3, particle:
         state.broadcast(world, chunk_of(at), &particle.packet(at), None);
         return;
     }
-    let mut e = WorldParticle {
+    let mut event = WorldParticle {
         world: world::Id::of(world),
         position: at,
         particle,
         recipients: viewers(state, world, at),
         cancelled: false,
     };
-    dispatch::call(state, &mut e);
-    if e.cancelled {
+    dispatch::call(state, &mut event);
+    if event.cancelled {
         return;
     }
-    send(state, world, at, &e.particle.packet(at), &e.recipients);
-    dispatch::watch(state, &e);
+    send(
+        state,
+        world,
+        at,
+        &event.particle.packet(at),
+        &event.recipients,
+    );
+    dispatch::watch(state, &event);
 }
 
 /// The players who see the chunk of `at` in `world`, in session order.
@@ -94,6 +100,78 @@ fn send(
             && p.view.sees(chunk)
         {
             p.send_to_viewer(packet.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::event::{Listeners, Priority};
+    use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
+    use crate::tick::{Context, Output};
+
+    /// The packets player 1 gets in the tick after `play` ran in a server with `listeners`, the
+    /// player standing at the world spawn.
+    fn played(listeners: Listeners, play: fn(&mut State, Vec3)) -> Vec<Packet> {
+        let mut state = new_state(settings(|_| {}), listeners);
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut output);
+        tick(&mut state, &mut vec![radius(1, 1, 2)], &mut output);
+        let runtime_id = state.players[&SessionId::new(1)].runtime_id;
+        tick(
+            &mut state,
+            &mut vec![initialised(1, 2, runtime_id)],
+            &mut output,
+        );
+        for _ in 0..3 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        received(&mut rx);
+        let spawn = state.worlds[0].spawn();
+        let at = Vec3::new(
+            f64::from(spawn.x) + 0.5,
+            f64::from(spawn.y),
+            f64::from(spawn.z) + 0.5,
+        );
+        play(&mut state, at);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        received(&mut rx).0
+    }
+
+    fn play_sound(state: &mut State, at: Vec3) {
+        sound(state, 0, at, Sound::AnvilBreak);
+    }
+
+    fn play_particle(state: &mut State, at: Vec3) {
+        particle(state, 0, at, Particle::AngryVillager);
+    }
+
+    /// Listeners and monitors for sounds and particles that change nothing.
+    fn empty_listeners() -> Listeners {
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            |_: &mut WorldSound, _: &mut Context<'_>| {},
+        );
+        listeners.push_monitor(|_: &WorldSound, _: &Context<'_>| {});
+        listeners.push(
+            Priority::Normal,
+            |_: &mut WorldParticle, _: &mut Context<'_>| {},
+        );
+        listeners.push_monitor(|_: &WorldParticle, _: &Context<'_>| {});
+        listeners
+    }
+
+    #[test]
+    fn an_empty_listener_and_no_listener_play_the_same_packets() {
+        let idle = played(Listeners::default(), |_, _| {});
+        for play in [play_sound, play_particle] {
+            let plain = played(Listeners::default(), play);
+            assert_ne!(plain, idle, "the packets play");
+            assert_eq!(played(empty_listeners(), play), plain);
         }
     }
 }

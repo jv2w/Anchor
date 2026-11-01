@@ -18,6 +18,7 @@ use crate::tick::{Output, SessionId, State};
 const TEST_HOOKS: Hooks = Hooks {
     villager: villager_of,
     offers_mut: offers_of,
+    can_open_window: |_, _| true,
     open_window,
     close_window,
     close_window_without_event,

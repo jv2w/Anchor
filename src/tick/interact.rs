@@ -20,7 +20,7 @@ mod custom;
 mod decor;
 pub(super) mod drops;
 mod inert;
-mod place;
+pub(super) mod place;
 pub(super) mod props;
 mod rail;
 pub(super) mod sign;

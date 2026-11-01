@@ -6,24 +6,23 @@
 
 use tracing::{debug, trace};
 
+use super::interact::sign::clean;
 use super::queue::SessionId;
-use super::{Context, Phase, State, dispatch, inventory, player};
-
+use super::{Context, Phase, Player, State, dispatch, inventory, player};
 use crate::command::{Line, Sender};
 use crate::event::PlayerChat;
 use crate::player::{Id, MAX_TEXT, Message, Packets};
 use crate::protocol::consts::TextType;
 use crate::protocol::packet::Text;
 
-/// The longest chat line BDS relays, in bytes (P6 `limits`, `xtask/data/p6/facts.md`).
-const MAX_CHAT_BYTES: usize = 512;
-
-/// Chat lines and command requests a player may send in one tick, together (PMMP
-/// `Player::$messageCounter`, which its command requests spend as chat lines).
-const LINES_PER_TICK: u8 = 2;
 /// The translation key of a chat line, `<name> message` (PMMP `StandardChatFormatter`), for a
 /// speaker whose name does not fit a chat source ([`standard`]).
 const CHAT_FORMAT: &str = "chat.type.text";
+/// Chat lines and command requests a player may send in one tick, together (PMMP
+/// `Player::$messageCounter`, which its command requests spend as chat lines).
+const LINES_PER_TICK: u8 = 2;
+/// The longest chat line BDS relays, in bytes (P6 `limits`, `xtask/data/p6/facts.md`).
+const MAX_CHAT_BYTES: usize = 512;
 
 /// The lines a chat message carries, ready to send.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +42,14 @@ enum Part {
     Command(String),
 }
 
+impl Context<'_> {
+    /// Says `message` in chat as `player` would have typed it ([`crate::action::Chat`]): the same
+    /// limits as the client's chat, its commands and its [`PlayerChat`] events.
+    pub(crate) fn chat_as(&mut self, player: Id, message: &str) {
+        chat(self.state, player.session(), message);
+    }
+}
+
 /// Handles a `Text` packet of `session`: a chat message of a spawned player. Every other text
 /// type, and the sender name and XUID the packet carries, are ignored: the server knows who
 /// speaks.
@@ -58,8 +65,8 @@ pub(super) fn on_text(state: &mut State, session: SessionId, packet: &Text) {
     chat(state, session, &packet.message);
 }
 
-/// `session` says `message` as PMMP's `Player::chat` does: only a spawned player, which closes
-/// its open window first; then the message is checked and applied.
+/// Says `message` for `session` as PMMP's `Player::chat` does: only a spawned player speaks, and
+/// it closes its open window first; then the message is checked and applied.
 fn chat(state: &mut State, session: SessionId, message: &str) {
     if !state
         .players
@@ -71,24 +78,6 @@ fn chat(state: &mut State, session: SessionId, message: &str) {
     inventory::close_window(state, session);
     if let Some(lines) = check(state, session, message) {
         apply(state, session, lines);
-    }
-}
-
-impl Context<'_> {
-    /// `player` says `message` in chat as if it had typed it ([`crate::action::Chat`]): the same
-    /// limits as the client's chat, its commands and its [`PlayerChat`] events.
-    pub(crate) fn chat_as(&mut self, player: Id, message: &str) {
-        chat(self.state, player.session(), message);
-    }
-}
-
-/// The lines of the per-tick limit `player` has left at engine tick `tick`.
-fn lines_left(player: &super::Player, tick: u64) -> u8 {
-    let (at, used) = player.marks.chat;
-    if at == tick {
-        LINES_PER_TICK.saturating_sub(used)
-    } else {
-        LINES_PER_TICK
     }
 }
 
@@ -110,11 +99,11 @@ pub(super) fn spend_line(state: &mut State, session: SessionId) -> bool {
 
 /// The lines `message` holds (PMMP `Player::chat`): nothing once the player sent 2 lines this
 /// tick or for a message longer than the lines it may still send; then the message is cleaned
-/// (private-use characters and terminal escapes removed, `§` codes kept) and split at line
-/// breaks into at most the lines left. Blank lines and lines over 512 bytes (BDS's limit, P6
-/// `limits`; PMMP's is 512 characters or 2,048 bytes) are dropped; each kept line spends one of
-/// the limit. A line that starts with `/` (or `./`,
-/// whose dot is dropped) is a command, as in PMMP.
+/// (private-use characters and terminal escapes removed, `§` codes kept) and split at every line
+/// break. Blank lines and lines over 512 bytes (BDS's limit, P6 `limits`; PMMP's is 512
+/// characters or 2,048 bytes) are dropped, and the first lines that remain are kept up to the
+/// limit left, each spending one of it. A line that starts with `/` (or `./`, whose dot is
+/// dropped) is a command, as in PMMP.
 fn check(state: &State, session: SessionId, message: &str) -> Option<Lines> {
     let player = state.players.get(&session)?;
     let mut left = lines_left(player, state.tick);
@@ -123,9 +112,11 @@ fn check(state: &State, session: SessionId, message: &str) -> Option<Lines> {
     }
     let cleaned = clean(message);
     let mut lines = Vec::with_capacity(usize::from(left));
-    for part in cleaned.splitn(usize::from(left) + 1, '\n') {
-        let fits = part.len() <= MAX_CHAT_BYTES;
-        if trim(part).is_empty() || !fits || left == 0 {
+    for part in cleaned.split('\n') {
+        if left == 0 {
+            break;
+        }
+        if part.len() > MAX_CHAT_BYTES || trim(part).is_empty() {
             continue;
         }
         left -= 1;
@@ -142,6 +133,16 @@ fn check(state: &State, session: SessionId, message: &str) -> Option<Lines> {
         lines,
         spent: LINES_PER_TICK - left,
     })
+}
+
+/// The lines of the per-tick limit `player` has left at engine tick `tick`.
+fn lines_left(player: &Player, tick: u64) -> u8 {
+    let (at, used) = player.marks.chat;
+    if at == tick {
+        LINES_PER_TICK.saturating_sub(used)
+    } else {
+        LINES_PER_TICK
+    }
 }
 
 /// Spends the player's limit and does its lines in order: a command runs as the player's (PMMP
@@ -184,7 +185,11 @@ fn command(state: &mut State, session: SessionId, line: &str) {
             }
         };
         if let Err(e) = player.send(message) {
-            debug!(session = session.get(), error = %e, "command output not sent");
+            debug!(
+                session = session.get(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "command output not sent"
+            );
         }
     }
 }
@@ -192,27 +197,35 @@ fn command(state: &mut State, session: SessionId, line: &str) {
 /// Sends one chat line of the player of `session`, if it is online. Without [`PlayerChat`]
 /// listeners it goes to every online player in the standard format. A listener may change the
 /// speaker, the message, the recipients and the format; what it leaves is checked again: the
-/// speaker must still be online, a recipient that left or is listed twice is skipped, and a line
-/// a client would not decode (over 65,536 bytes) is not sent.
+/// speaker must still be online, and a recipient that left or is listed twice is skipped. A line
+/// a client would not decode (over 65,536 bytes) is not sent, and no monitor sees it, as with a
+/// cancel.
 fn say(state: &mut State, session: SessionId, line: String) {
-    let Some(name) = online(state, Id::new(session)).map(|p| p.display_name().to_owned()) else {
-        return;
-    };
     if !dispatch::heard::<PlayerChat>(state) {
+        let Some(name) = display_name(state, Id::new(session)) else {
+            return;
+        };
         debug!(session = session.get(), %name, message = %line, "chat");
         match standard(&name, &line) {
             Ok(packets) => {
                 player::broadcast_packets(state, &packets);
             }
-            Err(e) => debug!(session = session.get(), error = %e, "chat line not sent"),
+            Err(e) => debug!(
+                session = session.get(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "chat line not sent"
+            ),
         }
+        return;
+    }
+    if online(state, Id::new(session)).is_none() {
         return;
     }
     let recipients = state
         .players
         .values()
         .filter(|p| p.gets_broadcasts())
-        .map(crate::player::Player::id)
+        .map(Player::id)
         .collect();
     let mut event = PlayerChat {
         player: Id::new(session),
@@ -225,7 +238,7 @@ fn say(state: &mut State, session: SessionId, line: String) {
     if event.cancelled {
         return;
     }
-    let Some(name) = online(state, event.player).map(|p| p.display_name().to_owned()) else {
+    let Some(name) = display_name(state, event.player) else {
         return;
     };
     event.recipients.sort_unstable();
@@ -243,21 +256,28 @@ fn say(state: &mut State, session: SessionId, line: String) {
             Message::Raw(text).into_packets()
         }
     };
+    let packets = match packets {
+        Ok(packets) => packets,
+        Err(e) => {
+            debug!(
+                session = session.get(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "chat line not sent"
+            );
+            return;
+        }
+    };
     debug!(session = session.get(), %name, message = %event.message, "chat");
-    match packets {
-        Ok(packets) => {
-            for &id in &event.recipients {
-                if online(state, id).is_none() {
-                    continue;
-                }
-                if let Some(p) = state.players.get_mut(&id.session()) {
-                    for packet in packets.iter().flatten() {
-                        p.send_packet(packet.clone());
-                    }
-                }
+    for &id in &event.recipients {
+        if let Some(p) = state
+            .players
+            .get_mut(&id.session())
+            .filter(|p| p.gets_broadcasts())
+        {
+            for packet in packets.iter().flatten() {
+                p.send_packet(packet.clone());
             }
         }
-        Err(e) => debug!(session = session.get(), error = %e, "chat line not sent"),
     }
     dispatch::watch(state, &event);
 }
@@ -281,8 +301,13 @@ fn standard(name: &str, line: &str) -> crate::player::Result<Packets> {
     })
 }
 
+/// The display name of the player `id` if it is online.
+fn display_name(state: &State, id: Id) -> Option<String> {
+    online(state, id).map(|p| p.display_name().to_owned())
+}
+
 /// The player `id` if it is online: joined and not leaving.
-fn online(state: &State, id: Id) -> Option<&crate::player::Player> {
+fn online(state: &State, id: Id) -> Option<&Player> {
     state
         .players
         .get(&id.session())
@@ -323,36 +348,6 @@ fn push_bounded(out: &mut String, text: &str) -> Option<()> {
     Some(())
 }
 
-/// `message` without Unicode private-use characters (U+E000 to U+F8FF) and terminal escape
-/// sequences (PMMP `TextFormat::clean` keeping the format codes).
-fn clean(message: &str) -> String {
-    let mut out = String::with_capacity(message.len());
-    let mut chars = message.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\u{e000}'..='\u{f8ff}' => {}
-            '\u{1b}' => {
-                // PMMP's `\x1b[\(\][[0-9;\[\(]+[Bm]` is removed whole (the class holds `(`, `]`,
-                // `[`, digits and `;`); any other escape character is dropped alone.
-                let mut ahead = chars.clone();
-                let mut body = 0_usize;
-                while ahead
-                    .peek()
-                    .is_some_and(|&c| matches!(c, '(' | ']' | '[' | ';' | '0'..='9'))
-                {
-                    ahead.next();
-                    body += 1;
-                }
-                if body > 0 && matches!(ahead.next(), Some('B' | 'm')) {
-                    chars = ahead;
-                }
-            }
-            c => out.push(c),
-        }
-    }
-    out
-}
-
 /// `text` without the white space PHP's `trim` removes.
 fn trim(text: &str) -> &str {
     text.trim_matches([' ', '\t', '\n', '\r', '\0', '\u{b}'])
@@ -360,11 +355,12 @@ fn trim(text: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use tokio::sync::mpsc;
 
-    use super::*;
     use crate::event::Listeners;
-    use crate::protocol::packet::Packet;
+    use crate::protocol::packet::{CommandRequest, Packet};
     use crate::tick::Output;
     use crate::tick::queue::{Input, Outbound};
     use crate::tick::tests::{
@@ -427,7 +423,7 @@ mod tests {
                     let name = t
                         .source_name
                         .strip_suffix("§r")
-                        .expect("BDS's source suffix");
+                        .expect("the source name ends with a reset code");
                     Some(vec![name.to_owned(), t.message])
                 }
                 _ => None,
@@ -559,12 +555,35 @@ mod tests {
 
     #[test]
     fn cleaning_removes_private_use_characters_and_terminal_escapes_but_keeps_format_codes() {
-        assert_eq!(clean("§ahi\u{e000}!\u{f8ff}"), "§ahi!");
-        assert_eq!(clean("a\u{1b}[31mred\u{1b}(B"), "ared");
-        assert_eq!(clean("\u{1b}[1;2x"), "[1;2x");
-        assert_eq!(clean("a\u{1b}]0;mb"), "ab");
-        assert_eq!(clean("lone\u{1b}x"), "lonex");
+        let (mut state, [_rx1, mut rx2]) = server();
+        let cases = [
+            ("§ahi\u{e000}!\u{f8ff}", "§ahi!"),
+            ("a\u{1b}[31mred\u{1b}(B", "ared"),
+            ("\u{1b}[1;2x", "[1;2x"),
+            ("a\u{1b}\u{e000}[31mb", "ab"),
+        ];
+        for (seq, (said, shown)) in (10..).zip(cases) {
+            run(&mut state, vec![chat(1, seq, said)]);
+            assert_eq!(lines(&mut rx2), [["player1".to_owned(), shown.to_owned()]]);
+        }
+    }
+
+    #[test]
+    fn trimming_removes_the_white_space_php_removes() {
         assert_eq!(trim("\0 x \u{b}"), "x");
+    }
+
+    #[test]
+    fn every_line_break_ends_a_line_so_no_line_carries_one() {
+        let (mut state, [_rx1, mut rx2]) = server();
+        run(&mut state, vec![chat(1, 10, "\n\nhi\n§e<Admin> x")]);
+        assert_eq!(
+            lines(&mut rx2),
+            [
+                ["player1".to_owned(), "hi".to_owned()],
+                ["player1".to_owned(), "§e<Admin> x".to_owned()],
+            ]
+        );
     }
 
     #[test]
@@ -579,12 +598,10 @@ mod tests {
         input(
             session,
             seq,
-            packet(Packet::CommandRequest(
-                crate::protocol::packet::CommandRequest {
-                    command_line: line.to_owned(),
-                    ..Default::default()
-                },
-            )),
+            packet(Packet::CommandRequest(CommandRequest {
+                command_line: line.to_owned(),
+                ..CommandRequest::default()
+            })),
         )
     }
 
@@ -660,5 +677,22 @@ mod tests {
             run(&mut state, vec![chat(1, 10, "hi")]);
             assert!(lines(&mut rx2).is_empty(), "idle listener: {idle}");
         }
+    }
+
+    #[test]
+    fn a_line_no_client_decodes_is_sent_to_nobody_and_no_monitor_sees_it() {
+        let (seen, mut monitored) = mpsc::channel(4);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            crate::event::Priority::Normal,
+            |e: &mut PlayerChat, _: &mut Context<'_>| e.set_message("x".repeat(MAX_TEXT + 1)),
+        );
+        listeners.push_monitor(move |_: &PlayerChat, _: &Context<'_>| {
+            seen.try_send(()).expect("room");
+        });
+        let (mut state, [_rx1, mut rx2]) = server_with(listeners);
+        run(&mut state, vec![chat(1, 10, "hi")]);
+        assert!(lines(&mut rx2).is_empty());
+        assert!(monitored.try_recv().is_err(), "the monitor saw the line");
     }
 }

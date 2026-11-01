@@ -3,7 +3,7 @@
 //! perform actions, scheduled tasks and blocking jobs; its clients also chat, run commands and
 //! answer forms. One and many pool threads must give the same ticks, and the input log (job results
 //! included) must replay them. A run with idle listeners and monitors on every event must give the
-//! base run's ticks.
+//! ticks of the run without listeners, with the base script and with the script of API inputs.
 
 use std::num::NonZeroU32;
 
@@ -22,6 +22,12 @@ use crate::protocol::{CommandOrigin, Rng};
 
 /// The most unanswered forms the script remembers per session (the server keeps 16).
 pub(super) const MAX_REMEMBERED_FORMS: usize = 32;
+
+/// Seeds of the run with listeners: two keep it near the base run's time, with more work per tick.
+const BUSY_SEEDS: [u64; 2] = [SEEDS[0], SEEDS[2]];
+
+/// What the API inputs must have reached over all seeds, besides [`REACHED`].
+const BUSY_REACHED: [&str; 1] = ["form"];
 
 /// Chat lines the clients send: plain, a command typed in chat, one a listener kicks for.
 const CHAT: [&str; 5] = ["hello", "gg", "/me dances", "/list", "bye"];
@@ -49,6 +55,9 @@ const ANSWERS: [Option<&[u8]>; 5] = [
     Some(b"[1]"),
     Some(b"{oops"),
 ];
+
+/// A script made from a seed and a number of sessions.
+type MakeScript = fn(u64, usize) -> Script;
 
 /// One API input of a client: a chat line, a command, or an answer to one of `forms` (sometimes to
 /// a form already answered or never sent).
@@ -110,7 +119,7 @@ pub(super) fn job_results(rng: &mut Rng, state: &State) -> Vec<Input> {
     out
 }
 
-/// A listener's call counter: true on every `k`th call.
+/// Whether the `n`th call of a listener is one of every `k`th.
 fn every(n: u32, k: u32) -> bool {
     n.is_multiple_of(k)
 }
@@ -368,12 +377,6 @@ pub(super) fn idle() -> Listeners {
     l
 }
 
-/// Seeds of the run with listeners: two keep it near the base run's time, with more work per tick.
-const BUSY_SEEDS: [u64; 2] = [SEEDS[0], SEEDS[2]];
-
-/// What the API inputs must have reached over all seeds, besides [`REACHED`].
-const BUSY_REACHED: [&str; 1] = ["form"];
-
 #[test]
 fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and_replay() {
     let many = crate::runtime::logical_cpus().max(4);
@@ -424,15 +427,27 @@ fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and
 }
 
 #[test]
-fn idle_listeners_and_monitors_on_every_event_leave_the_m7_ticks_unchanged() {
+fn idle_listeners_and_monitors_on_every_event_leave_the_ticks_unchanged() {
     let threads = crate::runtime::logical_cpus().max(4);
-    let (without, log_without, seen) =
-        live(threads, Script::new(SEEDS[1], 64), Listeners::default());
-    let (with, log_with, seen_with) = live(threads, Script::new(SEEDS[1], 64), idle());
-    assert_eq!(with.len(), without.len());
-    for (tick, (a, b)) in with.iter().zip(&without).enumerate() {
-        assert_eq!(a, b, "tick {tick}");
-    }
-    assert_eq!(seen_with, seen);
-    assert_eq!(log_with.encode().unwrap(), log_without.encode().unwrap());
+    // The base script, then the script with the API inputs (chat, commands, form answers, job
+    // results), which pass the paths a listener changes.
+    let scripts: [(u64, MakeScript); 3] = [
+        (SEEDS[1], Script::new),
+        (BUSY_SEEDS[0], Script::busy),
+        (BUSY_SEEDS[1], Script::busy),
+    ];
+    side_by_side(&scripts, |&(seed, script)| {
+        let (without, log_without, seen) = live(threads, script(seed, 64), Listeners::default());
+        let (with, log_with, seen_with) = live(threads, script(seed, 64), idle());
+        assert_eq!(with.len(), without.len(), "seed {seed:#x}");
+        for (tick, (a, b)) in with.iter().zip(&without).enumerate() {
+            assert_eq!(a, b, "seed {seed:#x}: tick {tick}");
+        }
+        assert_eq!(seen_with, seen, "seed {seed:#x}");
+        assert_eq!(
+            log_with.encode().unwrap(),
+            log_without.encode().unwrap(),
+            "seed {seed:#x}"
+        );
+    });
 }

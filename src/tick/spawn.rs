@@ -43,13 +43,13 @@ use crate::protocol::consts::{
 };
 use crate::protocol::packet::{
     self, AvailableActorIdentifiers, ChunkRadiusUpdated, CurrentStructureFeature, Disconnect,
-    Packet, PlayStatus, PlayerFog, PlayerList, RequestChunkRadius, Respawn, SetActorData,
-    SetCommandsEnabled, SetDifficulty, SetHealth, SetLocalPlayerAsInitialised, SetSpawnPosition,
-    StartGame, TrimData, VoxelShapes,
+    Packet, PlayStatus, PlayerFog, PlayerList, RequestChunkRadius, Respawn, SetCommandsEnabled,
+    SetDifficulty, SetHealth, SetLocalPlayerAsInitialised, SetSpawnPosition, StartGame, TrimData,
+    VoxelShapes,
 };
 use crate::protocol::{self, batch};
 use crate::protocol::{
-    EntityProperties, PLAYER_LIST_ENTRIES_MAX_LEN, PlayerListEntry, PlayerMovementSettings, Rgba,
+    PLAYER_LIST_ENTRIES_MAX_LEN, PlayerListEntry, PlayerMovementSettings, Rgba,
     ServerJoinInformation, TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
 };
 use crate::save::{PlayerData, PlayerLoad, Request, WorldIndex};
@@ -712,7 +712,7 @@ fn spawn_window(
     })));
     out.extend(super::weather::joined(world.weather()).map(packet));
     out.push(packet(survival::adventure_settings()));
-    let abilities = survival::update_abilities(settings, player);
+    let abilities = survival::update_abilities(player);
     out.push(packet(abilities.clone()));
     out.push(packet(survival::game_rules(settings)));
     out.extend(window.player_list());
@@ -742,12 +742,11 @@ fn spawn_window(
             entity_runtime_id: 0,
         })));
     }
-    out.push(packet(Packet::SetActorData(SetActorData {
-        entity_runtime_id: player.runtime_id,
-        entity_metadata: survival::full_metadata(settings, player),
-        entity_properties: EntityProperties::default(),
-        tick: 0,
-    })));
+    out.push(packet(survival::actor_data(
+        player.runtime_id,
+        survival::full_metadata(player),
+        0,
+    )));
     // The structure the player is in: none, as Anchor generates no vanilla structures.
     out.push(packet(Packet::CurrentStructureFeature(
         CurrentStructureFeature {
@@ -1514,7 +1513,7 @@ fn start_game(
         blocks: shared.blocks.to_vec(),
         // PMMP `PreSpawnPacketHandler`: the world's time, so the day cycle starts where it is.
         time: world.time_ticks(),
-        day_cycle_lock_time: survival::day_cycle_lock_time(settings, world.time_ticks()),
+        day_cycle_lock_time: survival::day_cycle_lock_time(settings, world),
         rain_level,
         lightning_level,
         // Education features stay off, as PMMP leaves them: the Education items are never

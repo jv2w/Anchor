@@ -4,12 +4,9 @@
 
 use tokio::sync::mpsc;
 
-use super::super::queue::Outbound;
-use super::super::{Output, State, block_entity, entity};
 use super::crash::ground;
-use super::{join, new_state, radius, settings, tick};
+use super::*;
 use crate::block::{self, Face, Kind as BlockKind};
-use crate::event::Listeners;
 use crate::item::{Kind as ItemKind, Stack, Type};
 use crate::nbt::Compound;
 use crate::world::BlockPos;
@@ -28,13 +25,6 @@ fn server() -> (State, Output, mpsc::Receiver<Outbound>) {
     (state, output, rx)
 }
 
-fn block_item(kind: BlockKind) -> Type {
-    let block::ItemForm::Item(t) = kind.default_state().item() else {
-        panic!("{kind:?} has an item");
-    };
-    t
-}
-
 /// Sets `block` at `pos` with its block entity, as placing it would.
 fn place(state: &mut State, pos: BlockPos, block: block::State) {
     state.worlds[0].set_block(pos, block).unwrap();
@@ -51,18 +41,18 @@ fn on_ground(state: &mut State, item: Type) -> u64 {
         .sum()
 }
 
-/// Runs ticks until the block at `pos` is no longer of `kind` (at most `limit`); the ticks run.
+/// Runs ticks until the block at `pos` is no longer of `kind`, at most `limit` ticks.
 fn until_replaced(
     state: &mut State,
     output: &mut Output,
     pos: BlockPos,
     kind: BlockKind,
     limit: u32,
-) -> u32 {
-    for n in 1..=limit {
+) {
+    for _ in 0..limit {
         tick(state, &mut Vec::new(), output);
         if state.worlds[0].block(pos).is_some_and(|b| b.kind() != kind) {
-            return n;
+            return;
         }
     }
     panic!("{kind:?} at {pos:?} was not replaced in {limit} ticks");
@@ -109,8 +99,10 @@ fn water_flowing_into_a_flower_pot_drops_the_pot_and_its_plant_once() {
     // The drops and the change feed's check both ran.
     tick(&mut state, &mut Vec::new(), &mut output);
     assert!(state.rules.block_entities.get(0, AT).is_none());
-    assert_eq!(on_ground(&mut state, block_item(BlockKind::FlowerPot)), 1);
-    assert_eq!(on_ground(&mut state, block_item(BlockKind::Dandelion)), 1);
+    let pot_item = block_item(BlockKind::FlowerPot, 1).item().unwrap();
+    let dandelion_item = block_item(BlockKind::Dandelion, 1).item().unwrap();
+    assert_eq!(on_ground(&mut state, pot_item), 1);
+    assert_eq!(on_ground(&mut state, dandelion_item), 1);
 }
 
 #[test]

@@ -11,74 +11,28 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use super::super::queue::{Input, Outbound};
-use super::super::{
-    InputLog, Output, Part, Phase, Settings, State, boundary, deliver, entity, step_marked,
-    survival,
-};
-use super::{initialised, input, join, new_state, packet, radius, settings};
+use super::*;
 use crate::block::{self, PropertyValue};
-use crate::config::{Config, Lighting};
-use crate::event::Listeners;
 use crate::item::{Stack, Type};
-use crate::math::Vec3;
 use crate::nbt::Compound;
-use crate::pool::Pool;
-use crate::protocol::packet::{Packet, PlayerAuthInput};
-use crate::save::{Loaded, PlayerLoad, Request, Response};
-use crate::world::{BlockPos, Chunk, Flat};
+use crate::protocol::packet::PlayerAuthInput;
 
-/// The names of the [`Part`]s, in order; "output" also holds the delivery and the boundary.
-const PHASES: [&str; 10] = [
-    "input", "survival", "interact", "update", "entity", "trade", "blockent", "light", "view",
-    "output",
-];
 /// The view distance of every measurement.
 const VIEW_DISTANCE: u8 = 8;
 /// A walking player's speed in blocks per tick (4.317 blocks per second).
 const WALK: f64 = 0.215;
 /// The feet height on the flat world.
 const FEET: f64 = -60.0;
-
-/// The stand-in save thread of the measurements: chunks are generated and lit on the CPU pool
-/// and their extras read (as `save::load_chunks` does), players are new, commits succeed.
-fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
-    let lighting = state.settings.lighting.is_calculated();
-    let mut out = Vec::new();
-    let mut chunks = Vec::new();
-    for request in requests {
-        match request {
-            Request::Chunks(keys) => chunks.extend(keys),
-            Request::Player(key) => out.push(Response::Player {
-                key,
-                data: PlayerLoad::Absent,
-            }),
-            Request::Commit(snapshot) => out.push(Response::Committed {
-                start: snapshot.start,
-            }),
-            Request::Worlds(_) | Request::DeleteWorlds(_) | Request::Finish => {}
-        }
-    }
-    let seeds: Vec<i64> = state.worlds.iter().map(crate::world::World::seed).collect();
-    let (custom, types) = (&**state.custom(), &**state.entity_types());
-    out.extend(pool.map(&chunks, |&(world, pos)| {
-        let seed = seeds.get(world).copied().unwrap_or_default();
-        let mut chunk = Box::new(Chunk::generate(&Flat, seed, pos));
-        if lighting {
-            chunk.populate_light();
-        }
-        let mut stored = crate::tick::extra::tests::sample(world, pos);
-        stored.rules =
-            crate::tick::ChunkRules::read((world, pos), &stored.extras, &chunk, custom, types)
-                .unwrap();
-        Response::Chunk {
-            world,
-            pos,
-            loaded: Loaded::Generated(chunk, stored),
-        }
-    }));
-    out
-}
+/// The ticks a measurement times.
+const MEASURED_TICKS: u32 = 300;
+/// The most empty ticks [`Bench::settle`] runs after its minimum.
+const MAX_SETTLE_TICKS: u32 = 2_000;
+/// The most ticks [`Bench::join`] waits for the players to spawn.
+const MAX_SPAWN_TICKS: u32 = 1_000;
+/// The fewest ticks [`burst`] runs after the changes.
+const MIN_BURST_TICKS: u32 = 100;
+/// The most ticks [`burst`] waits for the light work to end.
+const MAX_BURST_TICKS: u32 = 10_000;
 
 /// A server and its sessions, run tick by tick.
 struct Bench {
@@ -86,7 +40,9 @@ struct Bench {
     pool: Pool,
     output: Output,
     receivers: Vec<mpsc::Receiver<Outbound>>,
-    phases: [Duration; PHASES.len()],
+    /// The time of each [`Part`] summed over the ticks since the last [`Bench::reset`], in the order
+    /// the parts first ended.
+    phases: Vec<(Part, Duration)>,
     /// The measured time of each tick since the last [`Bench::reset`].
     ticks: Vec<Duration>,
 }
@@ -107,15 +63,48 @@ impl Bench {
         bench
     }
 
+    /// A server with `settings` and `listeners`, and a CPU pool of `threads` threads.
     fn with(settings: Settings, listeners: Listeners, threads: usize) -> Self {
         Self {
             state: new_state(settings, listeners),
-            pool: crate::runtime::cpu_pool(threads).expect("CPU pool"),
+            pool: crate::runtime::cpu_pool(threads).expect("the CPU pool starts"),
             output: Output::default(),
             receivers: Vec::new(),
-            phases: [Duration::ZERO; PHASES.len()],
+            phases: Vec::new(),
             ticks: Vec::new(),
         }
+    }
+
+    /// Prints the measured ticks: mean, 99th percentile and worst, and the mean per phase.
+    #[expect(
+        clippy::print_stderr,
+        reason = "consistency: a measurement prints its result"
+    )]
+    fn report(&self, name: &str) {
+        let mut sorted = self.ticks.clone();
+        sorted.sort_unstable();
+        let n = u32::try_from(sorted.len())
+            .expect("the tick count fits a u32")
+            .max(1);
+        let total: Duration = sorted.iter().sum();
+        let ms = |d: Duration| d.as_secs_f64() * 1e3;
+        let p99 = sorted
+            .get(sorted.len().saturating_sub(1) * 99 / 100)
+            .copied()
+            .unwrap_or_default();
+        let worst = sorted.last().copied().unwrap_or_default();
+        eprintln!(
+            "{name:<34} {n:>4} ticks  mean {:>7.3} ms  p99 {:>7.3} ms  max {:>7.3} ms",
+            ms(total / n),
+            ms(p99),
+            ms(worst)
+        );
+        let phases: Vec<String> = self
+            .phases
+            .iter()
+            .map(|&(part, d)| format!("{} {:.3}", part_name(part), ms(d / n)))
+            .collect();
+        eprintln!("    per phase (ms): {}", phases.join(", "));
     }
 
     /// Runs one tick of `inputs` and records its time: the step, the delivery and the boundary.
@@ -138,9 +127,7 @@ impl Bench {
             &mut log,
             |part: Part| {
                 let now = Instant::now();
-                if let Some(p) = phases.get_mut(part as usize) {
-                    *p += now - lap;
-                }
+                add_phase(phases, part, now - lap);
                 lap = now;
             },
         );
@@ -148,9 +135,7 @@ impl Bench {
         deliver(&mut self.state, &mut self.output, &mut log);
         boundary(&mut self.state, &mut self.output, &mut log);
         let end = Instant::now();
-        if let Some(output) = self.phases.last_mut() {
-            *output += end - delivered;
-        }
+        add_phase(&mut self.phases, Part::Output, end - delivered);
         self.ticks.push(end - start);
         let requests = std::mem::take(&mut self.output.requests);
         self.output.answers = answer(&self.state, &self.pool, requests);
@@ -159,12 +144,13 @@ impl Bench {
         }
     }
 
-    /// Runs empty ticks until the world's light work is done, at most `limit` more than `at_least`.
+    /// Runs `at_least` empty ticks, then empty ticks until the world's light work is done (at most
+    /// [`MAX_SETTLE_TICKS`] more).
     fn settle(&mut self, at_least: u32) {
         for _ in 0..at_least {
             self.tick(Vec::new());
         }
-        for _ in 0..2_000 {
+        for _ in 0..MAX_SETTLE_TICKS {
             if self.state.worlds[0].is_light_idle() && self.output.answers.is_empty() {
                 break;
             }
@@ -181,7 +167,7 @@ impl Bench {
             inputs.extend([j, radius(s, 1, i32::from(VIEW_DISTANCE))]);
         }
         self.tick(inputs);
-        for _ in 0..1_000 {
+        for _ in 0..MAX_SPAWN_TICKS {
             let spawning: Vec<Input> = self
                 .state
                 .players
@@ -192,7 +178,7 @@ impl Bench {
             let players = &self.state.players;
             assert_eq!(
                 players.len(),
-                usize::try_from(n).expect("few"),
+                usize::try_from(n).expect("the player count fits a usize"),
                 "a player left"
             );
             if players.values().all(|p| p.phase == Phase::Spawned) {
@@ -205,39 +191,74 @@ impl Bench {
 
     /// Forgets the times measured so far.
     fn reset(&mut self) {
-        self.phases = [Duration::ZERO; PHASES.len()];
+        self.phases.clear();
         self.ticks.clear();
     }
+}
 
-    /// Prints the measured ticks: mean, 99th percentile and worst, and the mean per phase.
-    #[expect(
-        clippy::print_stderr,
-        reason = "consistency: a measurement prints its result"
-    )]
-    fn report(&self, name: &str) {
-        let mut sorted = self.ticks.clone();
-        sorted.sort_unstable();
-        let n = u32::try_from(sorted.len()).expect("few ticks").max(1);
-        let total: Duration = sorted.iter().sum();
-        let ms = |d: Duration| d.as_secs_f64() * 1e3;
-        let p99 = sorted
-            .get(sorted.len().saturating_sub(1) * 99 / 100)
-            .copied()
-            .unwrap_or_default();
-        let worst = sorted.last().copied().unwrap_or_default();
-        eprintln!(
-            "{name:<34} {n:>4} ticks  mean {:>7.3} ms  p99 {:>7.3} ms  max {:>7.3} ms",
-            ms(total / n),
-            ms(p99),
-            ms(worst)
-        );
-        let phases: Vec<String> = PHASES
-            .iter()
-            .zip(self.phases)
-            .map(|(p, d)| format!("{p} {:.3}", ms(d / n)))
-            .collect();
-        eprintln!("    per phase (ms): {}", phases.join(", "));
+/// The listeners of a measurement and the label its report ends with.
+#[derive(Clone, Copy)]
+struct Run {
+    listeners: fn() -> Listeners,
+    label: &'static str,
+}
+
+/// The name of `part` in a report; "output" also holds the delivery and the boundary.
+fn part_name(part: Part) -> &'static str {
+    match part {
+        Part::Input => "input",
+        Part::Survival => "survival",
+        Part::Interact => "interact",
+        Part::Update => "update",
+        Part::Entity => "entity",
+        Part::Trade => "trade",
+        Part::BlockEntity => "block entity",
+        Part::Light => "light",
+        Part::View => "view",
+        Part::Output => "output",
     }
+}
+
+/// Adds `time` to the total of `part`, which a part not timed yet starts.
+fn add_phase(phases: &mut Vec<(Part, Duration)>, part: Part, time: Duration) {
+    match phases.iter_mut().find(|(p, _)| *p == part) {
+        Some((_, total)) => *total += time,
+        None => phases.push((part, time)),
+    }
+}
+
+/// The stand-in save thread of the measurements: chunks are generated and lit on the CPU pool
+/// and their extras read (as `save::load_chunks` does), every other request is answered as the
+/// stand-in of the other tests does.
+fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
+    let mut chunks = Vec::new();
+    let mut others = Vec::new();
+    for request in requests {
+        match request {
+            Request::Chunks(keys) => chunks.extend(keys),
+            other => others.push(other),
+        }
+    }
+    let lighting = state.settings.lighting.is_calculated();
+    let seeds: Vec<i64> = state.worlds.iter().map(World::seed).collect();
+    let (custom, types) = (&**state.custom(), &**state.entity_types());
+    let mut out = super::answer(state, others);
+    out.extend(pool.map(&chunks, |&(world, pos)| {
+        let seed = seeds.get(world).copied().unwrap_or_default();
+        let mut chunk = Box::new(Chunk::generate(&Flat, seed, pos));
+        if lighting {
+            chunk.populate_light();
+        }
+        let mut stored = extra::tests::sample(world, pos);
+        stored.rules =
+            ChunkRules::read((world, pos), &stored.extras, &chunk, custom, types).unwrap();
+        Response::Chunk {
+            world,
+            pos,
+            loaded: Loaded::Generated(chunk, stored),
+        }
+    }));
+    out
 }
 
 /// A `PlayerAuthInput` of session `s` with the eye at `eye`.
@@ -245,7 +266,7 @@ fn walked(s: u64, seq: u64, eye: Vec3) -> Input {
     let p = PlayerAuthInput {
         position: eye.to_f32(),
         tick: seq,
-        ..Default::default()
+        ..PlayerAuthInput::default()
     };
     input(s, seq, packet(Packet::PlayerAuthInput(Box::new(p))))
 }
@@ -254,21 +275,21 @@ fn walked(s: u64, seq: u64, eye: Vec3) -> Input {
 fn grid(i: u64, n: u64) -> Vec3 {
     let side = (1..=n).find(|s| s * s >= n).unwrap_or(1);
     let at = |k: u64| {
-        (f64::from(u32::try_from(k).expect("small"))
-            - f64::from(u32::try_from(side).expect("small")) / 2.0)
+        (f64::from(u32::try_from(k).expect("the grid index fits a u32"))
+            - f64::from(u32::try_from(side).expect("the grid side fits a u32")) / 2.0)
             * 16.0
             + 0.5
     };
     Vec3::new(at(i % side), FEET, at(i / side))
 }
 
-/// `n` players spawned, placed on a grid, then walking east together for 300 ticks (each
-/// crossing about four chunks, so views keep loading and sending chunks).
+/// `n` players spawned, placed on a grid, then walking east together for [`MEASURED_TICKS`] ticks
+/// (each crossing about four chunks, so views keep loading and sending chunks).
 fn players_walking(n: u64, run: Run) {
     let mut b = Bench::new((run.listeners)(), |_| {});
     b.join(n);
     let sessions: Vec<_> = b.state.players.keys().copied().collect();
-    for (i, s) in (0u64..).zip(&sessions) {
+    for (i, s) in (0_u64..).zip(&sessions) {
         survival::teleport(
             &mut b.state,
             *s,
@@ -279,8 +300,8 @@ fn players_walking(n: u64, run: Run) {
     // The teleported views fill up first (4 chunks per tick).
     b.settle(100);
     b.reset();
-    for t in 1..=300u32 {
-        let inputs = (0u64..)
+    for t in 1..=MEASURED_TICKS {
+        let inputs = (0_u64..)
             .zip(&sessions)
             .map(|(i, s)| {
                 let feet = grid(i, n) + Vec3::new(WALK * f64::from(t), 0.0, 0.0);
@@ -302,7 +323,7 @@ fn items(count: u32, run: Run) {
     let mut b = Bench::new((run.listeners)(), |_| {});
     b.join(1);
     let sword =
-        Type::from_name("minecraft:diamond_sword", 0, None, &Compound::new()).expect("sword");
+        Type::from_name("minecraft:diamond_sword", 0, None, &Compound::new()).expect("a sword");
     let spawn = b.state.worlds[0].spawn();
     for i in 0..count {
         let x = f64::from(spawn.x) + f64::from(i % 100) * 0.5 - 25.0 + 0.25;
@@ -320,26 +341,26 @@ fn items(count: u32, run: Run) {
     }
     b.settle(60);
     b.reset();
-    for _ in 0..300 {
+    for _ in 0..MEASURED_TICKS {
         b.tick(Vec::new());
     }
     b.report(&format!("{count} items lying{}", run.label));
 }
 
 /// The block state `name` with `properties`.
-fn state(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> block::State {
-    block::State::find(name, properties).expect("block state")
+fn block_state(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> block::State {
+    block::State::find(name, properties).expect("a block state")
 }
 
 /// Wheat on wet farmland on every column of the chunks within the tick radius (4) of one player,
 /// at the default random tick speed (3).
 fn crops(run: Run) {
     let mut b = Bench::new((run.listeners)(), |_| {});
-    let farmland = state(
+    let farmland = block_state(
         "minecraft:farmland",
         &[("moisturized_amount", PropertyValue::Int(7))],
     );
-    let wheat = state("minecraft:wheat", &[("growth", PropertyValue::Int(0))]);
+    let wheat = block_state("minecraft:wheat", &[("growth", PropertyValue::Int(0))]);
     let center = b.state.worlds[0].spawn().chunk();
     let mut planted = Vec::with_capacity(81 * 256);
     for cx in -4..=4 {
@@ -350,9 +371,9 @@ fn crops(run: Run) {
                     let world = &mut b.state.worlds[0];
                     world
                         .set_block(BlockPos::new(bx, -61, bz), farmland)
-                        .expect("farmland");
+                        .expect("farmland is set");
                     let at = BlockPos::new(bx, -60, bz);
-                    world.set_block(at, wheat).expect("wheat");
+                    world.set_block(at, wheat).expect("wheat is set");
                     planted.push(at);
                 }
             }
@@ -362,7 +383,7 @@ fn crops(run: Run) {
     b.join(1);
     b.settle(40);
     b.reset();
-    for _ in 0..300 {
+    for _ in 0..MEASURED_TICKS {
         b.tick(Vec::new());
     }
     let grown = planted
@@ -379,7 +400,7 @@ fn crops(run: Run) {
 
 /// One player at the spawn, then 1,000 glowstone blocks set at once in the air around it (each
 /// a light source that also shades the sky light below), and the ticks after it until the light
-/// work is done (at least 100).
+/// work is done (at least [`MIN_BURST_TICKS`]).
 fn burst(lighting: bool, run: Run) {
     let mut b = Bench::new((run.listeners)(), |c| {
         c.developer.lighting = if lighting {
@@ -391,7 +412,7 @@ fn burst(lighting: bool, run: Run) {
     b.join(1);
     b.settle(20);
     b.reset();
-    let glowstone = state("minecraft:glowstone", &[]);
+    let glowstone = block_state("minecraft:glowstone", &[]);
     let spawn = b.state.worlds[0].spawn();
     for i in 0..1_000 {
         // A 10 × 10 × 10 lattice, 5 blocks apart, from y -55.
@@ -402,19 +423,19 @@ fn burst(lighting: bool, run: Run) {
         );
         b.state.worlds[0]
             .set_block(pos, glowstone)
-            .expect("glowstone");
+            .expect("glowstone is set");
     }
     b.tick(Vec::new());
     let first = b.ticks.last().copied().unwrap_or_default();
-    let mut after = 1u32;
+    let mut after = 1_u32;
     let mut lit_after = None;
-    while after < 100 || lit_after.is_none() {
+    while after < MIN_BURST_TICKS || lit_after.is_none() {
         if lit_after.is_none() && b.state.worlds[0].is_light_idle() {
             lit_after = Some(after);
         }
         b.tick(Vec::new());
         after += 1;
-        assert!(after < 10_000, "the light work did not end");
+        assert!(after < MAX_BURST_TICKS, "the light work did not end");
     }
     let name = format!(
         "1000 changes, lighting {}{}",
@@ -435,15 +456,8 @@ fn burst(lighting: bool, run: Run) {
     }
 }
 
-/// The listeners of a measurement and the label its report ends with.
-#[derive(Clone, Copy)]
-struct Run {
-    listeners: fn() -> Listeners,
-    label: &'static str,
-}
-
 #[test]
-#[ignore = "measurement; run in release with --ignored --nocapture"]
+#[ignore = "measurement"]
 fn tick_costs() {
     let runs = [
         Run {

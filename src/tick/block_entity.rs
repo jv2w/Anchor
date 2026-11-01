@@ -1913,7 +1913,7 @@ fn tick_furnace(
     block: block::State,
     seed: i64,
 ) {
-    let lit = block.name().contains(":lit_");
+    let lit = interact::props::is_lit(block);
     let mut rng = Random::new(
         seed,
         state.tick,

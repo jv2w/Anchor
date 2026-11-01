@@ -6,20 +6,20 @@
 //! [`WorldSound`](crate::event::WorldSound).
 //!
 //! BDS was seen sending the experience pickup sound (`LevelEvent` 1051); the other sounds follow
-//! PMMP's packets (verification needed (P6): BDS's sounds for the other events).
+//! PMMP's packets.
 
 use super::{broadcast_from, feet};
 use crate::math::Vec3;
 use crate::protocol::consts::SoundEvent;
 use crate::protocol::packet::{self, Packet};
-use crate::tick::{SessionId, State, emit};
+use crate::tick::{SessionId, State, emit, entity};
 use crate::world::Sound;
 
 /// The entity type PMMP names in the sounds a player makes (`Human::getNetworkTypeId`).
 const PLAYER_TYPE: &str = "minecraft:player";
 
-/// A sound at the player's feet (PMMP `XpCollectSound`, `TotemUseSound`, `XpLevelUpSound`,
-/// `BurpSound`, `ItemBreakSound`).
+/// Plays a sound at the player's feet (PMMP `XpCollectSound`, `TotemUseSound`,
+/// `XpLevelUpSound`, `BurpSound`, `ItemBreakSound`).
 pub(super) fn at_feet(state: &mut State, session: SessionId, sound: Sound) {
     let Some((world, at)) = state.players.get(&session).map(|p| (p.world, feet(p))) else {
         return;
@@ -27,14 +27,13 @@ pub(super) fn at_feet(state: &mut State, session: SessionId, sound: Sound) {
     emit::sound(state, world, at, sound);
 }
 
-/// A sound the player makes (PMMP `EntityLandSound`, `EntityLongFallSound`,
+/// Plays a sound the player makes (PMMP `EntityLandSound`, `EntityLongFallSound`,
 /// `EntityShortFallSound`): it names the player's entity type and runtime ID.
 pub(super) fn of_player(state: &mut State, session: SessionId, sound: SoundEvent, extra: i32) {
     let Some((at, runtime_id)) = state.players.get(&session).map(|p| (feet(p), p.runtime_id))
     else {
         return;
     };
-    let id = crate::tick::entity::unique_id(runtime_id);
     let packet = Packet::LevelSoundEvent(packet::LevelSoundEvent {
         sound_type: sound.as_str().to_owned(),
         position: at.to_f32(),
@@ -42,14 +41,14 @@ pub(super) fn of_player(state: &mut State, session: SessionId, sound: SoundEvent
         entity_type: PLAYER_TYPE.to_owned(),
         baby_mob: false,
         disable_relative_volume: false,
-        entity_unique_id: id,
+        entity_unique_id: entity::unique_id(runtime_id),
         fire_at_position: None,
     });
     broadcast_from(state, session, &packet);
 }
 
-/// A player's hit sound at `at` in the world of `session` (PMMP `World::addSound` at the hit
-/// player or entity: `EntityAttackSound`, `EntityAttackNoDamageSound`).
+/// Plays a player's hit sound at `at` in the world of `session` (PMMP `World::addSound` at the
+/// hit player or entity: `EntityAttackSound`, `EntityAttackNoDamageSound`).
 pub(super) fn hit(state: &mut State, session: SessionId, at: Vec3, sound: Sound) {
     let Some(world) = state.players.get(&session).map(|p| p.world) else {
         return;
