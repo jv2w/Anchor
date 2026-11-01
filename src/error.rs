@@ -80,7 +80,8 @@ pub enum Error {
     CustomEntity(entity::Error),
     /// The registered custom items, blocks or recipes break a rule; the source says which.
     Custom(crate::custom::Error),
-    /// The registered user data types break a rule; the source says which.
+    /// The registered user data types break a rule, or a saved server data value does not
+    /// deserialize into its registered type (the value stays as saved); the source says which.
     Data(data::Error),
     /// A resource pack cannot be read or offered; the source says why. Lets a program's `main`
     /// use `?` on [`Pack::from_bytes`](crate::pack::Pack::from_bytes) and the other pack calls.

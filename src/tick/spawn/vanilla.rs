@@ -14,9 +14,9 @@ use crate::protocol::{
     CameraAimAssistPriorities, CameraAimAssistPriority, CameraPreset, Reader,
 };
 
-/// `CloudburstMC`'s `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`): the
-/// `StructureData` BDS sends (P6 `bot cloudburst`, 209,309-byte packet). Without it the official
-/// client leaves the join with "disconnectionScreen.missingStructureData".
+/// `CloudburstMC`'s `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
+/// is; BDS 1.26.52 sent its version of that `StructureData` (P6 `bot cloudburst`). Without it the
+/// official client leaves the join with "disconnectionScreen.missingStructureData".
 const JIGSAW_STRUCTURE_DATA: &[u8] =
     include_bytes!("../../../xtask/data/reference/jigsaw_structure_data.dat");
 
@@ -26,14 +26,106 @@ const JIGSAW_STRUCTURE_DATA: &[u8] =
 const ENTITY_PROPERTIES: &[u8] =
     include_bytes!("../../../xtask/data/reference/entity_properties.dat");
 
-/// The entity types of [`ENTITY_PROPERTIES`].
+/// The number of entity types in [`ENTITY_PROPERTIES`].
 const ENTITY_PROPERTY_TYPES: usize = 13;
 
 /// BDS's `CameraPresets` and `CameraAimAssistPresets` from a P6 capture (the file names its
 /// source); no pinned data source holds them.
 const CAMERA: &str = include_str!("../../../xtask/data/reference/bds_camera.json");
 
-/// `JigsawStructureData` with [`JIGSAW_STRUCTURE_DATA`].
+/// `bds_camera.json`; its `source` is for readers only.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct CameraFile {
+    camera_presets: PresetsJson,
+    camera_aim_assist_presets: AimAssistJson,
+}
+
+/// `CameraPresets` with the preset fields BDS sets; another field fails the parse.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct PresetsJson {
+    presets: Vec<PresetJson>,
+}
+
+/// One camera preset.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct PresetJson {
+    name: String,
+    parent: String,
+    pos_x: Option<f32>,
+    pos_y: Option<f32>,
+    pos_z: Option<f32>,
+    rot_x: Option<f32>,
+    rot_y: Option<f32>,
+    view_offset: Option<[f32; 2]>,
+    entity_offset: Option<[f32; 3]>,
+    radius: Option<f32>,
+    apply_inherited_starting_rotation: bool,
+}
+
+/// `CameraAimAssistPresets`.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct AimAssistJson {
+    categories: Vec<CategoryJson>,
+    presets: Vec<AimPresetJson>,
+    operation: u8,
+}
+
+/// One aim assist category.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct CategoryJson {
+    name: String,
+    priorities: PrioritiesJson,
+}
+
+/// The priorities of an aim assist category.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct PrioritiesJson {
+    entities: Vec<PriorityJson>,
+    blocks: Vec<PriorityJson>,
+    block_tags: Vec<PriorityJson>,
+    entity_type_families: Vec<PriorityJson>,
+    entity_default: Option<i32>,
+    block_default: Option<i32>,
+}
+
+/// One aim assist priority.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct PriorityJson {
+    identifier: String,
+    priority: i32,
+}
+
+/// One aim assist preset.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct AimPresetJson {
+    identifier: String,
+    block_exclusions: Vec<String>,
+    entity_exclusions: Vec<String>,
+    block_tag_exclusions: Vec<String>,
+    entity_type_family_exclusions: Vec<String>,
+    liquid_targets: Vec<String>,
+    item_settings: Vec<ItemSettingsJson>,
+    default_item_settings: Option<String>,
+    hand_settings: Option<String>,
+}
+
+/// The aim assist category of one item.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+struct ItemSettingsJson {
+    item: String,
+    category: String,
+}
+
+/// Decodes `JigsawStructureData` with [`JIGSAW_STRUCTURE_DATA`].
 pub(super) fn jigsaw_structure_data() -> Packet {
     let id = Packet::JigsawStructureData(JigsawStructureData::default()).id();
     let mut budget = usize::MAX;
@@ -45,7 +137,7 @@ pub(super) fn jigsaw_structure_data() -> Packet {
         .expect("jigsaw_structure_data.dat decodes")
 }
 
-/// One `SyncActorProperty` per entity type of [`ENTITY_PROPERTIES`], in BDS's order.
+/// Decodes one `SyncActorProperty` per entity type of [`ENTITY_PROPERTIES`], in BDS's order.
 pub(super) fn actor_properties() -> Vec<Packet> {
     let mut r = Reader::new(ENTITY_PROPERTIES, usize::MAX, 0);
     let mut out = Vec::with_capacity(ENTITY_PROPERTY_TYPES);
@@ -64,8 +156,8 @@ pub(super) fn actor_properties() -> Vec<Packet> {
     out
 }
 
-/// BDS's camera packets in its order: the presets, the aim assist presets and an empty spline
-/// list.
+/// Builds BDS's camera packets in its order: the presets, the aim assist presets and an empty
+/// spline list.
 pub(super) fn camera() -> [Packet; 3] {
     #[expect(
         clippy::expect_used,
@@ -150,101 +242,10 @@ pub(super) fn camera() -> [Packet; 3] {
     ]
 }
 
-/// `bds_camera.json`; its `source` is for readers only.
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct CameraFile {
-    camera_presets: PresetsJson,
-    camera_aim_assist_presets: AimAssistJson,
-}
-
-/// `CameraPresets` with the preset fields BDS sets; another field fails the parse.
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct PresetsJson {
-    presets: Vec<PresetJson>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct PresetJson {
-    name: String,
-    parent: String,
-    pos_x: Option<f32>,
-    pos_y: Option<f32>,
-    pos_z: Option<f32>,
-    rot_x: Option<f32>,
-    rot_y: Option<f32>,
-    view_offset: Option<[f32; 2]>,
-    entity_offset: Option<[f32; 3]>,
-    radius: Option<f32>,
-    apply_inherited_starting_rotation: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct AimAssistJson {
-    categories: Vec<CategoryJson>,
-    presets: Vec<AimPresetJson>,
-    operation: u8,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct CategoryJson {
-    name: String,
-    priorities: PrioritiesJson,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct PrioritiesJson {
-    entities: Vec<PriorityJson>,
-    blocks: Vec<PriorityJson>,
-    block_tags: Vec<PriorityJson>,
-    entity_type_families: Vec<PriorityJson>,
-    entity_default: Option<i32>,
-    block_default: Option<i32>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct PriorityJson {
-    identifier: String,
-    priority: i32,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct AimPresetJson {
-    identifier: String,
-    block_exclusions: Vec<String>,
-    entity_exclusions: Vec<String>,
-    block_tag_exclusions: Vec<String>,
-    entity_type_family_exclusions: Vec<String>,
-    liquid_targets: Vec<String>,
-    item_settings: Vec<ItemSettingsJson>,
-    default_item_settings: Option<String>,
-    hand_settings: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-struct ItemSettingsJson {
-    item: String,
-    category: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The packet's payload: the bytes after its header.
-    fn payload(packet: &Packet) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
-        bytes
-    }
+    use crate::tick::spawn::tests::payload;
 
     #[test]
     fn the_jigsaw_structure_data_is_the_committed_cloudburst_data_at_bds_size() {

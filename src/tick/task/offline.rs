@@ -4,7 +4,7 @@
 //! changed through [`Offline`], until its last ticket is let go or the player joins.
 //!
 //! The newest data of a player who is not online is its held record, else its data waiting for a
-//! commit since it left (`save::Saving::offline`), else the server file's. The save thread answers
+//! commit since it left (`save::Saving::offline`), else the data file's. The save thread answers
 //! in request order and data waiting for a commit stays in memory until the tick learns of the
 //! commit, so a load that finds neither in memory when its answer arrives read the newest data.
 //! A held record's changes go to wait for a commit as a departed player's data does, when a
@@ -16,15 +16,15 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use super::super::checkpoint::{Codec as _, Reader, Writer};
-use super::super::extra::{self, PlayerExtra};
-use super::super::inventory::{self, Inventory};
-use super::super::{PlayerKey, State, save};
 use super::{Context, UserData};
 use crate::login::check_user_name;
 use crate::player::{Error, Result, Ticket};
 use crate::save::{PlayerData, PlayerLoad, Request};
 use crate::storage::PlayerKey as StoredPlayer;
+use crate::tick::checkpoint::{self, Codec, Reader, Writer};
+use crate::tick::extra::{self, PlayerExtra};
+use crate::tick::inventory::{self, Inventory};
+use crate::tick::{PlayerKey, State, save};
 
 /// The most tickets held or asked for at once.
 const MAX_TICKETS: usize = 64;
@@ -50,7 +50,13 @@ pub struct Offline {
 }
 
 impl Offline {
-    /// The record of saved data `data`, read as a join reads it.
+    /// Marks an inventory changed by a write.
+    pub(in crate::tick) fn change_inventory(&mut self) {
+        self.inventory_changed = true;
+        self.dirty = true;
+    }
+
+    /// Reads the record of saved data `data` as a join reads it.
     fn load(state: &State, data: PlayerData) -> Self {
         let PlayerData {
             world,
@@ -88,12 +94,6 @@ impl Offline {
             extra,
         }
     }
-
-    /// A write changed an inventory.
-    pub(in crate::tick) fn change_inventory(&mut self) {
-        self.inventory_changed = true;
-        self.dirty = true;
-    }
 }
 
 impl fmt::Debug for Offline {
@@ -106,18 +106,6 @@ impl fmt::Debug for Offline {
             .field("dirty", &self.dirty)
             .finish_non_exhaustive()
     }
-}
-
-/// A held record and the tickets that hold it.
-struct Held {
-    record: Offline,
-    tickets: BTreeSet<u64>,
-}
-
-/// The loads of one player waiting for the save thread's answer, in the order they were asked.
-pub(in crate::tick) struct Waiting {
-    key: PlayerKey,
-    loads: Vec<(u64, Done)>,
 }
 
 /// The offline players' records held and the loads waiting for the save thread.
@@ -149,29 +137,11 @@ impl Holds {
         } = self;
         w.opaque("offline player loads waiting", waiting.len());
         w.opaque("offline players held", held.len());
-        next_ticket.encode(w);
-    }
-
-    /// Reads what [`Self::checkpoint`] wrote: nothing held or waiting, and the next ticket number.
-    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> super::super::checkpoint::Result<()> {
-        *self = Self {
-            next_ticket: crate::tick::checkpoint::Codec::decode(r)?,
-            ..Self::default()
-        };
-        Ok(())
-    }
-
-    /// Whether nothing is held or waiting (for leak tests).
-    #[cfg(test)]
-    fn is_idle(&self) -> bool {
-        self.tickets.is_empty()
-            && self.held.is_empty()
-            && self.waiting.is_empty()
-            && self.unsent.is_empty()
+        Codec::encode(next_ticket, w);
     }
 
     #[cfg(test)]
-    pub(super) fn hash_into(&self, data: &UserData, h: &mut super::super::Fnv) {
+    pub(super) fn hash_into(&self, data: &UserData, h: &mut crate::tick::Fnv) {
         let Self {
             tickets,
             next_ticket,
@@ -227,6 +197,24 @@ impl Holds {
             h.bytes(key.as_str().as_bytes());
         }
     }
+
+    /// Reads what [`Self::checkpoint`] wrote: nothing held or waiting, and the next ticket number.
+    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
+        *self = Self {
+            next_ticket: Codec::decode(r)?,
+            ..Self::default()
+        };
+        Ok(())
+    }
+
+    /// Whether nothing is held or waiting (for leak tests).
+    #[cfg(test)]
+    fn is_idle(&self) -> bool {
+        self.tickets.is_empty()
+            && self.held.is_empty()
+            && self.waiting.is_empty()
+            && self.unsent.is_empty()
+    }
 }
 
 impl fmt::Debug for Holds {
@@ -240,7 +228,31 @@ impl fmt::Debug for Holds {
     }
 }
 
+/// A held record and the tickets that hold it.
+struct Held {
+    record: Offline,
+    tickets: BTreeSet<u64>,
+}
+
+/// The loads of one player waiting for the save thread's answer, in the order they were asked.
+pub(in crate::tick) struct Waiting {
+    key: PlayerKey,
+    loads: Vec<(u64, Done)>,
+}
+
 impl Context<'_> {
+    /// The record `ticket` holds; `None` while its load waits, and once it was let go or its
+    /// player joined.
+    pub fn offline_player(&self, ticket: Ticket) -> Option<&Offline> {
+        let holds = &self.state.tasks.offline;
+        let key = holds.tickets.get(&ticket.get())?;
+        holds
+            .held
+            .get(key)
+            .filter(|held| held.tickets.contains(&ticket.get()))
+            .map(|held| &held.record)
+    }
+
     /// Loads the saved data of the player with Xbox user ID `xuid`, or, without Xbox sign-in
     /// (`None`), named `name` in any ASCII case: the key Anchor saves a player under
     /// ([`Player::xuid`](crate::player::Player::xuid),
@@ -280,7 +292,8 @@ impl Context<'_> {
             return Err(Error::Full);
         }
         let n = holds.next_ticket;
-        holds.next_ticket = n.saturating_add(1);
+        // 2^64 tickets are never given; refuse rather than reuse a number.
+        holds.next_ticket = n.checked_add(1).ok_or(Error::Full)?;
         let stored = save::storage_key(&key);
         holds.tickets.insert(n, stored.clone());
         let load: (u64, Done) = (n, Box::new(done));
@@ -297,20 +310,8 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// The record `ticket` holds; `None` while its load waits, and once it was let go or its
-    /// player joined.
-    pub fn offline_player(&self, ticket: Ticket) -> Option<&Offline> {
-        let holds = &self.state.tasks.offline;
-        let key = holds.tickets.get(&ticket.get())?;
-        holds
-            .held
-            .get(key)
-            .filter(|held| held.tickets.contains(&ticket.get()))
-            .map(|held| &held.record)
-    }
-
-    /// [`offline_player`](Self::offline_player) to change; the changes are saved by the next
-    /// snapshot.
+    /// Lends the record `ticket` holds to change, as [`offline_player`](Self::offline_player)
+    /// finds it; the changes are saved by the next snapshot.
     #[doc(alias = "Server::saveOfflinePlayerData")]
     pub fn offline_player_mut(&mut self, ticket: Ticket) -> Option<&mut Offline> {
         let holds = &mut self.state.tasks.offline;
@@ -347,15 +348,7 @@ impl Context<'_> {
     }
 }
 
-/// A record leaves memory: its changes wait for a commit as a departed player's data does.
-fn let_go(state: &mut State, key: StoredPlayer, record: &Offline) {
-    if record.dirty {
-        let data = record.saved(&state.data);
-        save::keep(&mut state.saving, key, data);
-    }
-}
-
-/// Every held record's changes go to wait for a commit, before a snapshot takes the data that
+/// Sends every held record's changes to wait for a commit, before a snapshot takes the data that
 /// waits.
 pub(in crate::tick) fn flush(state: &mut State) {
     let State {
@@ -375,8 +368,8 @@ pub(in crate::tick) fn flush(state: &mut State) {
     }
 }
 
-/// The player of `key` joins: its held record leaves memory, its changes waiting where the join
-/// takes a departed player's data, and its tickets hold nothing from now on.
+/// Lets the held record of `key` go as its player joins: its changes wait where the join takes a
+/// departed player's data, and its tickets hold nothing from now on.
 pub(in crate::tick) fn joined(state: &mut State, key: &StoredPlayer) {
     let Some(held) = state.tasks.offline.held.remove(key) else {
         return;
@@ -387,20 +380,20 @@ pub(in crate::tick) fn joined(state: &mut State, key: &StoredPlayer) {
     let_go(state, key.clone(), &held.record);
 }
 
-/// The load requests asked for since the last tick boundary, in order.
+/// Takes the load requests asked for since the last tick boundary, in order.
 pub(in crate::tick) fn requests(state: &mut State) -> impl Iterator<Item = Request> {
     std::mem::take(&mut state.tasks.offline.unsent)
         .into_iter()
         .map(Request::Player)
 }
 
-/// The loads waiting for the save thread's answer for `key`, taken out to answer them.
+/// Takes out the loads waiting for the save thread's answer for `key`, to answer them.
 pub(in crate::tick) fn take_loads(state: &mut State, key: &StoredPlayer) -> Option<Waiting> {
     state.tasks.offline.waiting.remove(key)
 }
 
-/// The save thread answered `load` for `key`: each waiting load's callback runs in order, with
-/// its ticket holding the record or why it holds nothing.
+/// Answers the loads `waiting` for `key` with the save thread's `load`: each callback runs in
+/// order, with its ticket holding the record or why it holds nothing.
 pub(in crate::tick) fn answer_loads(
     state: &mut State,
     key: &StoredPlayer,
@@ -414,6 +407,14 @@ pub(in crate::tick) fn answer_loads(
             state.tasks.offline.tickets.remove(&n);
         }
         done(&mut Context { state }, held.map(|()| Ticket::new(n)));
+    }
+}
+
+/// Lets a record leave memory: its changes wait for a commit as a departed player's data does.
+fn let_go(state: &mut State, key: StoredPlayer, record: &Offline) {
+    if record.dirty {
+        let data = record.saved(&state.data);
+        save::keep(&mut state.saving, key, data);
     }
 }
 
@@ -452,24 +453,24 @@ fn hold(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::sync::Arc;
 
     use serde::{Deserialize, Serialize};
 
-    use super::super::super::queue::{Input, SessionId};
-    use super::super::super::tests::{join, new_state, settings, tick};
-    use super::super::super::{Output, Phase};
-    use super::super::data::DATA_KEY;
-    use super::super::data::tests::snapshot;
-    use super::super::registered;
-    use super::*;
     use crate::event::Listeners;
     use crate::inventory::Kind;
     use crate::item::{Kind as ItemKind, Stack};
     use crate::nbt::{Compound, List, Value};
     use crate::save::Response;
+    use crate::tick::queue::{Input, SessionId};
+    use crate::tick::task::data::tests::snapshot;
+    use crate::tick::task::data::{DATA_KEY, registered};
+    use crate::tick::tests::{join, new_state, settings, tick};
+    use crate::tick::{Output, Phase};
 
-    #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
     struct Kills(u32);
 
     #[derive(Debug, Default, Serialize, Deserialize)]
@@ -494,7 +495,7 @@ mod tests {
         std::mem::take(&mut *seen.lock().unwrap())
     }
 
-    /// A server that saves player data, with player data `Kills`.
+    /// Makes a server that saves player data, with player data `Kills`.
     fn state() -> State {
         let mut state = new_state(
             settings(|c| c.general.save_player_data = true),
@@ -508,7 +509,7 @@ mod tests {
         Stack::new(ItemKind::Stick.default_type(), count)
     }
 
-    /// A saved record: 3 kills, 5 sticks in main slot 0, and a key no module reads.
+    /// Makes a saved record: 3 kills, 5 sticks in main slot 0, and a key no module reads.
     fn saved() -> PlayerData {
         let mut slot = stick(5).to_nbt();
         slot.insert("Slot".to_owned(), Value::Byte(0));
@@ -525,31 +526,6 @@ mod tests {
             world: "world".to_owned(),
             position: [0.5, 1.62, 0.5],
             extra,
-        }
-    }
-
-    /// Runs two ticks: the first applies `batch` and sends the loads asked for, the save thread
-    /// answers each player load with `load`, and the second applies the answers.
-    fn answered(state: &mut State, mut batch: Vec<Input>, output: &mut Output, load: &PlayerLoad) {
-        tick(state, &mut batch, output);
-        for answer in &mut output.answers {
-            if let Response::Player { data, .. } = answer {
-                *data = load.clone();
-            }
-        }
-        tick(state, &mut Vec::new(), output);
-    }
-
-    /// Holds the player of `join(1, _)` with the saved record [`saved`]: its ticket.
-    fn held(state: &mut State, output: &mut Output) -> Ticket {
-        let seen = Seen::default();
-        Context { state: &mut *state }
-            .hold_offline_player(Some(XUID), "", note(&seen))
-            .unwrap();
-        answered(state, Vec::new(), output, &PlayerLoad::Found(saved()));
-        match taken(&seen)[..] {
-            [Ok(ticket)] => ticket,
-            ref other => panic!("{other:?}"),
         }
     }
 
@@ -613,6 +589,31 @@ mod tests {
         assert_eq!(again.inventory(Kind::Main).item(0), Some(&stick(5)));
         assert_eq!(again.inventory(Kind::EnderChest).item(2), Some(&stick(1)));
         assert!(state.saving.is_idle(), "the commit lets the data go");
+    }
+
+    /// Runs two ticks: the first applies `batch` and sends the loads asked for, the save thread
+    /// answers each player load with `load`, and the second applies the answers.
+    fn answered(state: &mut State, mut batch: Vec<Input>, output: &mut Output, load: &PlayerLoad) {
+        tick(state, &mut batch, output);
+        for answer in &mut output.answers {
+            if let Response::Player { data, .. } = answer {
+                *data = load.clone();
+            }
+        }
+        tick(state, &mut Vec::new(), output);
+    }
+
+    /// Holds the player of `join(1, _)` with the saved record [`saved`]: its ticket.
+    fn held(state: &mut State, output: &mut Output) -> Ticket {
+        let seen = Seen::default();
+        Context { state: &mut *state }
+            .hold_offline_player(Some(XUID), "", note(&seen))
+            .unwrap();
+        answered(state, Vec::new(), output, &PlayerLoad::Found(saved()));
+        match taken(&seen)[..] {
+            [Ok(ticket)] => ticket,
+            ref other => panic!("{other:?}"),
+        }
     }
 
     #[test]

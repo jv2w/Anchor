@@ -6,47 +6,29 @@
 //! An action that would drop an item first checks that the world can take one more entity
 //! (at the entity limit the action is refused and nothing changes).
 
-use super::super::block_entity::{self, BlockEntity, Kind, Plant};
-use super::super::{SessionId, State, dispatch, entity};
 use super::using::{self, Use};
-use super::{Actor, center, level_event, open_sign_editor, props, sound};
-use crate::block::{self, ChiseledBookshelfSlot, Class, Face, TypeTag};
+use super::{Actor, block_vec, center, level_event, open_sign_editor, props};
+use crate::block::{self, ChiseledBookshelfSlot, Face, TypeTag};
 use crate::item::{self, Stack};
 use crate::math::Vec3;
 use crate::protocol::consts::LevelEvent as Event;
 use crate::protocol::packet::LecternUpdate;
 use crate::save::WorldIndex;
+use crate::tick::block_entity::{self, BlockEntity, Kind, Plant};
+use crate::tick::{SessionId, State, dispatch, emit, entity};
+use crate::tile::{DyeColour, SIGN_LINES, check_lines};
 use crate::world::BlockPos;
 use crate::world::Sound;
 
-/// The block entity at `pos` to change.
-fn entity_mut(state: &mut State, world: WorldIndex, pos: BlockPos) -> Option<&mut BlockEntity> {
-    state.rules.block_entities.get_mut(world, pos)
-}
-
-/// The block entity at `pos`.
-fn entity_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<&BlockEntity> {
-    state.rules.block_entities.get(world, pos)
-}
-
-/// The dye colour of a dye-like item (PMMP: dyes, and bone meal white, lapis blue, cocoa brown).
-fn dye_like(t: item::Type) -> Option<u8> {
-    match t.kind() {
-        Some(item::Kind::BoneMeal) => Some(0),
-        Some(item::Kind::LapisLazuli) => Some(11),
-        Some(item::Kind::CocoaBeans) => Some(12),
-        _ => item::dye_colour(t),
-    }
-}
-
-/// The colour a dye-like item gives a sign (PMMP `BaseSign::onInteract`; black is pure black),
-/// as signed ARGB.
-fn sign_colour(stack: &Stack) -> Option<i32> {
-    let colour = dye_like(stack.item()?)?;
-    if colour == 15 {
-        return Some(block_entity::BLACK_TEXT);
-    }
-    item::dye_argb(colour).map(u32::cast_signed)
+/// What a sign's block entity holds of its text: the lines of each side and whether it is waxed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SignText {
+    /// The front side's lines.
+    pub(super) front: [String; SIGN_LINES],
+    /// The back side's lines.
+    pub(super) back: [String; SIGN_LINES],
+    /// A waxed sign takes no edits.
+    pub(super) waxed: bool,
 }
 
 /// What a held item does to one side of a sign (PMMP `BaseSign::onInteract`).
@@ -60,8 +42,49 @@ enum SignUse {
     Wax,
 }
 
-/// What the held item does to the side (`front` or back) of the sign at `u.pos`: `None` when it
-/// changes nothing (the editor opens instead) or there is no sign block entity.
+/// Finds the block entity at `pos` to change.
+fn entity_mut(state: &mut State, world: WorldIndex, pos: BlockPos) -> Option<&mut BlockEntity> {
+    state.rules.block_entities.get_mut(world, pos)
+}
+
+/// Finds the block entity at `pos`.
+fn entity_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<&BlockEntity> {
+    state.rules.block_entities.get(world, pos)
+}
+
+/// Returns the middle of the top of the block at `pos`, where a lectern's book and a jukebox's
+/// record drop.
+fn top_center(pos: BlockPos) -> Vec3 {
+    Vec3::new(
+        f64::from(pos.x) + 0.5,
+        f64::from(pos.y) + 1.0,
+        f64::from(pos.z) + 0.5,
+    )
+}
+
+/// Returns the dye colour ID of a dye-like item (PMMP: dyes, and bone meal white, lapis blue,
+/// cocoa brown).
+fn dye_like(t: item::Type) -> Option<u8> {
+    match t.kind() {
+        Some(item::Kind::BoneMeal) => Some(DyeColour::White as u8),
+        Some(item::Kind::LapisLazuli) => Some(DyeColour::Blue as u8),
+        Some(item::Kind::CocoaBeans) => Some(DyeColour::Brown as u8),
+        _ => item::dye_colour(t),
+    }
+}
+
+/// Returns the colour a dye-like item gives a sign (PMMP `BaseSign::onInteract`; black is pure
+/// black), as signed ARGB.
+fn sign_colour(stack: &Stack) -> Option<i32> {
+    let colour = dye_like(stack.item()?)?;
+    if colour == DyeColour::Black as u8 {
+        return Some(block_entity::BLACK_TEXT);
+    }
+    item::dye_argb(colour).map(u32::cast_signed)
+}
+
+/// Works out what the held item does to the side (`front` or back) of the sign at `u.pos`:
+/// `None` when it changes nothing (the editor opens instead) or there is no sign block entity.
 fn sign_use(state: &State, u: &Use, front: bool) -> Option<SignUse> {
     let BlockEntity {
         kind: Kind::Sign(sign),
@@ -83,10 +106,10 @@ fn sign_use(state: &State, u: &Use, front: bool) -> Option<SignUse> {
     }
 }
 
-/// PMMP `BaseSign::onInteract`: a waxed sign does nothing; a dye colours the side the player
-/// faces, ink sacs light or dim it (each a [`SignChange`](crate::event::SignChange), PMMP
-/// `doSignChange`; cancelled, the editor opens), honeycomb waxes it; anything else opens the
-/// editor.
+/// Uses a sign (PMMP `BaseSign::onInteract`): a waxed sign does nothing; a dye colours the side
+/// the player faces, ink sacs light or dim it (each a
+/// [`SignChange`](crate::event::SignChange), PMMP `doSignChange`; cancelled, the editor opens),
+/// honeycomb waxes it; anything else opens the editor.
 pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
     let front = using::sign_front(u.block, u.actor.feet, u.pos);
     let world = u.actor.world;
@@ -139,11 +162,12 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
         {
             return true;
         }
-        let Some(checked) = super::sign::check(&e.new_text) else {
+        // PMMP writes a listener's text as it is; Anchor keeps a sign's bounds.
+        if check_lines(e.new_text.iter().map(String::as_str)).is_err() {
             open_sign_editor(state, u.actor.session, world, u.pos, front);
             return true;
-        };
-        lines = Some(checked);
+        }
+        lines = Some(e.new_text.clone());
         u.watched = Some(using::Watched::Sign(e));
     }
     let Some(BlockEntity {
@@ -172,27 +196,16 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
         sign.side_mut(front).lines = lines;
     }
     u.pop();
-    let at = super::block_vec(u.pos);
+    let at = block_vec(u.pos);
     match played {
-        Some(played) => sound(state, world, at, played),
+        Some(played) => u.play(at, played),
         None => level_event(state, world, at, Event::WaxOn, 0),
     }
     block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
-/// What a sign's block entity holds of its text: the lines of each side and whether it is waxed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SignText {
-    /// The front side's lines.
-    pub(super) front: [String; crate::tile::SIGN_LINES],
-    /// The back side's lines.
-    pub(super) back: [String; crate::tile::SIGN_LINES],
-    /// A waxed sign takes no edits.
-    pub(super) waxed: bool,
-}
-
-/// The text of the sign at `pos`; `None` without a sign block entity.
+/// Reads the text of the sign at `pos`; `None` without a sign block entity.
 pub(super) fn sign_text(state: &State, world: WorldIndex, pos: BlockPos) -> Option<SignText> {
     let BlockEntity {
         kind: Kind::Sign(sign),
@@ -215,7 +228,7 @@ pub(super) fn write_sign(
     world: WorldIndex,
     pos: BlockPos,
     front: bool,
-    lines: [String; crate::tile::SIGN_LINES],
+    lines: [String; SIGN_LINES],
 ) {
     let Some(BlockEntity {
         kind: Kind::Sign(sign),
@@ -228,9 +241,10 @@ pub(super) fn write_sign(
     block_entity::mark_spawn(state, world, pos);
 }
 
-/// PMMP `FlowerPot::onInteract`: a pottable plant goes in an empty pot; a full pot gives its plant
-/// to the player (what does not fit drops), unless the held item could be potted too (vanilla
-/// then places it). A plant Anchor does not know stays, as an inert block has no rules.
+/// Uses a flower pot (PMMP `FlowerPot::onInteract`): a pottable plant goes in an empty pot; a
+/// full pot gives its plant to the player (what does not fit drops), unless the held item could
+/// be potted too (vanilla then places it). A plant Anchor does not know stays, as an inert block
+/// has no rules.
 pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let plant = u
@@ -285,8 +299,8 @@ pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
     }
 }
 
-/// PMMP `ItemFrame::onInteract`: a framed item turns an eighth; an empty frame takes one of the
-/// held item.
+/// Uses an item frame (PMMP `ItemFrame::onInteract`): a framed item turns an eighth; an empty
+/// frame takes one of the held item.
 pub(super) fn item_frame(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let Some(BlockEntity {
@@ -306,13 +320,14 @@ pub(super) fn item_frame(state: &mut State, u: &mut Use) -> bool {
     } else {
         return true;
     };
-    sound(state, world, super::block_vec(u.pos), played);
+    u.play(block_vec(u.pos), played);
     block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
-/// PMMP `ItemFrame::onAttack` and `Lectern::onAttack`: hitting a frame drops its item (with the
-/// frame's drop chance) and a lectern its book. True when the hit was used up (a frame).
+/// Hits a frame or a lectern (PMMP `ItemFrame::onAttack` and `Lectern::onAttack`): a frame drops
+/// its item (with the frame's drop chance) and a lectern its book. True when the hit was used up
+/// (a frame).
 pub(super) fn attack(
     state: &mut State,
     actor: &Actor,
@@ -325,15 +340,9 @@ pub(super) fn attack(
             let keep = rng.unit() <= f64::from(f.drop_chance);
             (keep.then(|| f.item.clone()), center(pos), true)
         }
-        Some(Kind::Lectern { book, .. }) if !book.is_empty() => (
-            Some(book.clone()),
-            Vec3::new(
-                f64::from(pos.x) + 0.5,
-                f64::from(pos.y) + 1.0,
-                f64::from(pos.z) + 0.5,
-            ),
-            false,
-        ),
+        Some(Kind::Lectern { book, .. }) if !book.is_empty() => {
+            (Some(book.clone()), top_center(pos), false)
+        }
         _ => return false,
     };
     // PMMP sounds the removal with the drop alone: a failed drop chance clears silently.
@@ -356,19 +365,15 @@ pub(super) fn attack(
         _ => {}
     }
     if sounded {
-        sound(
-            state,
-            world,
-            super::block_vec(pos),
-            Sound::ItemFrameRemoveItem,
-        );
+        emit::sound(state, world, block_vec(pos), Sound::ItemFrameRemoveItem);
     }
     block_entity::mark_spawn(state, world, pos);
     frame
 }
 
-/// PMMP `Jukebox::onInteract`: a record comes out (dropped above), or a held record goes in. The
-/// music is the client's; only the state is kept.
+/// Uses a jukebox (PMMP `Jukebox::onInteract`): a record comes out (dropped above), or a held
+/// record goes in. Only
+/// the record is kept: no music starts, and taking the record out stops the music.
 pub(super) fn jukebox(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let Some(BlockEntity {
@@ -380,12 +385,7 @@ pub(super) fn jukebox(state: &mut State, u: &mut Use) -> bool {
     };
     let record = record.clone();
     if !record.is_empty() {
-        let at = Vec3::new(
-            f64::from(u.pos.x) + 0.5,
-            f64::from(u.pos.y) + 1.0,
-            f64::from(u.pos.z) + 0.5,
-        );
-        if !entity::drop_item(state, world, at, record) {
+        if !entity::drop_item(state, world, top_center(u.pos), record) {
             return true;
         }
         if let Some(BlockEntity {
@@ -395,7 +395,7 @@ pub(super) fn jukebox(state: &mut State, u: &mut Use) -> bool {
         {
             *record = Stack::EMPTY;
         }
-        sound(state, world, center(u.pos), Sound::RecordStop);
+        u.play(center(u.pos), Sound::RecordStop);
     } else if u.item.item().is_some_and(|t| t.is(item::Class::Record)) {
         let disc = u.item.with_count(1);
         u.pop();
@@ -413,7 +413,7 @@ pub(super) fn jukebox(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// PMMP `Lectern::onInteract`: a writable or written book goes on an empty lectern.
+/// Puts a writable or written book on an empty lectern (PMMP `Lectern::onInteract`).
 pub(super) fn lectern(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let is_book = u
@@ -436,13 +436,18 @@ pub(super) fn lectern(state: &mut State, u: &mut Use) -> bool {
     *book = u.item.with_count(1);
     *page = 0;
     u.pop();
-    sound(state, world, center(u.pos), Sound::LecternPlaceBook);
+    u.play(center(u.pos), Sound::LecternPlaceBook);
     block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
-/// PMMP `Lectern::onPageTurn` (`LecternUpdate`): the page must be in the book.
-pub(super) fn on_lectern_update(state: &mut State, session: SessionId, packet: &LecternUpdate) {
+/// Turns a lectern's page for a client's `LecternUpdate` (PMMP `Lectern::onPageTurn`): the page
+/// must be in the book.
+pub(in crate::tick) fn on_lectern_update(
+    state: &mut State,
+    session: SessionId,
+    packet: &LecternUpdate,
+) {
     let Some(actor) = super::actor(state, session) else {
         return;
     };
@@ -467,8 +472,13 @@ pub(super) fn on_lectern_update(state: &mut State, session: SessionId, packet: &
     block_entity::mark_spawn(state, world, pos);
 }
 
-/// PMMP `ChiseledBookshelf::onInteract`: on its front, the shelf slot under the click gives its
-/// book back or takes a book from the hand; the block shows which slots hold books.
+/// Uses a chiseled bookshelf (PMMP `ChiseledBookshelf::onInteract`): on its front, the shelf slot
+/// under the click gives its book back or takes a book from the hand; the block shows which slots
+/// hold books.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a chiseled bookshelf slot is 0 to 5"
+)]
 pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     if props::facing(u.block) != Some(u.face) {
@@ -486,6 +496,18 @@ pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
         return false;
     };
     let slot = slot.slot();
+    // The book that comes out drops if the player has no room for it.
+    let comes_out = matches!(
+        entity_at(state, world, u.pos),
+        Some(BlockEntity {
+            kind: Kind::ChiseledBookshelf { .. },
+            items,
+            ..
+        }) if items.get(slot).is_some_and(|s| !s.is_empty())
+    );
+    if comes_out && !entity::has_room(state, world, 1) {
+        return false;
+    }
     let Some(BlockEntity {
         kind: Kind::ChiseledBookshelf { last },
         items,
@@ -510,7 +532,7 @@ pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
     } else {
         return true;
     }
-    *last = i32::try_from(slot).unwrap_or(0) + 1;
+    *last = i32::try_from(slot).expect("a shelf slot is 0 to 5") + 1;
     let stored = items
         .iter()
         .enumerate()
@@ -522,11 +544,11 @@ pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// PMMP `Campfire::onInteract` (after lighting and putting out): an item with a campfire recipe
-/// goes into a free slot.
+/// Puts an item with a campfire recipe into a free slot of a campfire (PMMP
+/// `Campfire::onInteract`, after lighting and putting out).
 pub(super) fn campfire_cook(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
-    let kind = block_entity::campfire_kind(u.block.is(Class::SoulCampfire));
+    let kind = block_entity::campfire_kind(u.block);
     if u.item.is_empty() || !block_entity::campfire_cooks(kind, &u.item, &state.custom) {
         return false;
     }
@@ -544,24 +566,19 @@ pub(super) fn campfire_cook(state: &mut State, u: &mut Use) -> bool {
     *free = u.item.with_count(1);
     u.pop();
     state.rules.block_entities.wake(world, u.pos);
-    sound(
-        state,
-        world,
-        super::block_vec(u.pos),
-        Sound::ItemFrameAddItem,
-    );
+    u.play(block_vec(u.pos), Sound::ItemFrameAddItem);
     block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
-/// PMMP `WaterCauldron::onInteract` with a dye (an ink sac is black): the water takes the
-/// colour, mixed with the one it has (PMMP `Color::mix`: the mean of each channel).
+/// Dyes a water cauldron (PMMP `WaterCauldron::onInteract` with a dye; an ink sac is black): the
+/// water takes the colour, mixed with the one it has (PMMP `Color::mix`: the mean of each channel).
 pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let water = props::string(u.block, "cauldron_liquid") == Some("water")
         && props::int(u.block, "fill_level").is_some_and(|l| l > 0);
     let colour = match u.item.item().and_then(|t| match t.kind() {
-        Some(item::Kind::InkSac) => Some(15),
+        Some(item::Kind::InkSac) => Some(DyeColour::Black as u8),
         _ => dye_like(t),
     }) {
         Some(c) if water => c,
@@ -587,12 +604,12 @@ pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
     };
     cauldron.colour = Some(mixed.cast_signed());
     u.pop();
-    sound(state, world, super::block_vec(u.pos), Sound::CauldronAddDye);
+    u.play(block_vec(u.pos), Sound::CauldronAddDye);
     block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
-/// PMMP `Color::mix` of two ARGB colours: each channel's mean.
+/// Mixes two ARGB colours (PMMP `Color::mix`): returns each channel's mean.
 fn mix(a: u32, b: u32) -> u32 {
     (0..4).fold(0, |out, i| {
         let shift = i * 8;

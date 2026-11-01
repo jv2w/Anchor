@@ -10,12 +10,12 @@ use super::{
 use crate::block::{self, Inert};
 use crate::event::BlockBreak;
 use crate::item::Stack;
-use crate::tick::dispatch;
+use crate::tick::{block_entity, dispatch};
 use crate::world::BlockPos;
 
-/// The client says it broke the inert block `block` at `pos`, in reach. False (the caller
-/// resyncs) for a spectator, an adventure player whose tool's `CanDestroy` does not name it, a
-/// block that cannot be broken, a break before its time when `counted`, or a [`BlockBreak`]
+/// Breaks the inert block `block` at `pos`, in reach, that the client says it broke. False (the
+/// caller resyncs) for a spectator, an adventure player whose tool's `CanDestroy` does not name
+/// it, a block that cannot be broken, a break before its time when `counted`, or a [`BlockBreak`]
 /// listener that cancels it. The event names [`block::INFO_UPDATE`] in its place (the block
 /// Anchor stands in for states it does not implement) and starts with no drops; drops and
 /// experience a listener gives are dropped.
@@ -76,17 +76,22 @@ pub(super) fn break_block(
         .as_ref()
         .map_or((Vec::new(), 0), |e| (e.drops.clone(), e.xp_drop_amount));
     let broke = finish_break_with(state, &actor, pos, |state| {
-        destroy(state, &actor, pos, block, &tool, drops, xp)
-    });
+        destroy(state, &actor, pos, block, &tool, drops, xp).then_some(())
+    })
+    .is_some();
     if let Some(e) = event.filter(|_| broke) {
         dispatch::watch(state, &e);
     }
     broke
 }
 
-/// The block becomes air with its block entity gone, the viewers see it break, the listener's
-/// drops fall and the tool wears. False (nothing changes) if the drops find no room for
-/// entities.
+/// Destroys the inert block: it becomes air with its block entity gone, the viewers see it break,
+/// the listener's drops fall and the tool wears. False (nothing changes) if the drops find no
+/// room for entities.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: the block was just read from a loaded chunk, and no user code ran since"
+)]
 fn destroy(
     state: &mut State,
     actor: &Actor,
@@ -108,12 +113,13 @@ fn destroy(
         Event::ParticlesDestroyBlock,
         id,
     );
-    super::super::block_entity::removed(state, actor.world, pos);
-    if let Some(w) = state.worlds.get_mut(actor.world)
-        && let Err(e) = w.set_block(pos, block::AIR)
-    {
-        debug!(?pos, %e, "broken block not set");
-    }
+    block_entity::removed(state, actor.world, pos);
+    state
+        .worlds
+        .get_mut(actor.world)
+        .expect("the world of a break is loaded")
+        .set_block(pos, block::AIR)
+        .expect("a broken block is in a loaded chunk inside the world");
     spawn_drops(state, actor.world, pos, drops, xp);
     wear_after_break(state, actor, pos, tool, block.break_info());
     true

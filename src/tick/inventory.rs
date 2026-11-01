@@ -2100,15 +2100,7 @@ fn window_of(block: block::State, world: WorldIndex, pos: BlockPos) -> Option<Wi
     } else if is(Class::Hopper) {
         container(Container::Hopper)
     } else if is(Class::Furnace) {
-        let name = block.name();
-        let furnace = if name.ends_with("blast_furnace") {
-            FurnaceType::BlastFurnace
-        } else if name.ends_with("smoker") {
-            FurnaceType::Smoker
-        } else {
-            FurnaceType::Furnace
-        };
-        container(Container::Furnace(furnace))
+        container(Container::Furnace(block_entity::furnace_type(block)))
     } else if is(Class::BrewingStand) {
         container(Container::BrewingStand)
     } else if is(Class::EnchantingTable) {

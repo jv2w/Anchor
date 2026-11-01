@@ -23,6 +23,7 @@ pub(crate) struct Encoder {
 }
 
 impl Encoder {
+    /// Returns an encoder with an empty match table.
     pub(crate) fn new() -> Self {
         Self {
             table: vec![0; MAX_TABLE].into_boxed_slice(),
@@ -40,7 +41,7 @@ impl Encoder {
         out.push(len.to_le_bytes()[0]);
         for block in input.chunks(MAX_BLOCK) {
             if block.len() < MIN_NON_LITERAL_BLOCK {
-                emit_literal(out, block);
+                emit_literal(block, out);
             } else {
                 encode_block(&mut self.table, block, out);
             }
@@ -48,30 +49,9 @@ impl Encoder {
     }
 }
 
-/// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+/// Returns the most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
 pub(crate) fn max_compressed_len(input_len: usize) -> usize {
     input_len.saturating_add(input_len / 6).saturating_add(32)
-}
-
-const fn hash(bytes: u32, shift: u32) -> usize {
-    (bytes.wrapping_mul(0x1e35_a7bd) >> shift) as usize
-}
-
-#[expect(
-    clippy::indexing_slicing,
-    reason = "invariant: callers load inside the block"
-)]
-fn load32(src: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([src[at], src[at + 1], src[at + 2], src[at + 3]])
-}
-
-#[expect(
-    clippy::indexing_slicing,
-    reason = "invariant: callers load inside the block"
-)]
-fn load64(src: &[u8], at: usize) -> u64 {
-    let b = &src[at..at + 8];
-    u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
 /// Encodes one block of `MIN_NON_LITERAL_BLOCK..=MAX_BLOCK` bytes (Go `encodeBlock`).
@@ -115,7 +95,7 @@ fn encode_block(table: &mut [u16], src: &[u8], out: &mut Vec<u8>) {
                 break;
             }
         }
-        emit_literal(out, &src[next_emit..s]);
+        emit_literal(&src[next_emit..s], out);
 
         // Emit copies while the next position matches too.
         loop {
@@ -126,7 +106,7 @@ fn encode_block(table: &mut [u16], src: &[u8], out: &mut Vec<u8>) {
                 i += 1;
                 s += 1;
             }
-            emit_copy(out, base - candidate, s - base);
+            emit_copy(base - candidate, s - base, out);
             next_emit = s;
             if s >= s_limit {
                 break 'blocks;
@@ -144,12 +124,33 @@ fn encode_block(table: &mut [u16], src: &[u8], out: &mut Vec<u8>) {
         }
     }
     if next_emit < src.len() {
-        emit_literal(out, &src[next_emit..]);
+        emit_literal(&src[next_emit..], out);
     }
 }
 
+const fn hash(bytes: u32, shift: u32) -> usize {
+    (bytes.wrapping_mul(0x1e35_a7bd) >> shift) as usize
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: callers load inside the block"
+)]
+fn load32(src: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([src[at], src[at + 1], src[at + 2], src[at + 3]])
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: callers load inside the block"
+)]
+fn load64(src: &[u8], at: usize) -> u64 {
+    let b = &src[at..at + 8];
+    u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
+}
+
 /// Emits a literal of 1..=65536 bytes with the shortest standard tag.
-fn emit_literal(out: &mut Vec<u8>, literal: &[u8]) {
+fn emit_literal(literal: &[u8], out: &mut Vec<u8>) {
     let n = literal.len() - 1;
     let [lo, hi, ..] = n.to_le_bytes();
     if n < 60 {
@@ -163,7 +164,7 @@ fn emit_literal(out: &mut Vec<u8>, literal: &[u8]) {
 }
 
 /// Emits a copy with an offset in 1..2^16 and a length of at least 4 (Go `emitCopy`).
-fn emit_copy(out: &mut Vec<u8>, offset: usize, mut len: usize) {
+fn emit_copy(offset: usize, mut len: usize, out: &mut Vec<u8>) {
     let [o0, o1, ..] = offset.to_le_bytes();
     while len >= 68 {
         out.extend_from_slice(&[(63 << 2) | 2, o0, o1]);
@@ -186,7 +187,7 @@ fn emit_copy(out: &mut Vec<u8>, offset: usize, mut len: usize) {
 ///
 /// A declared length above `limit` or above 22 times the input size is a size error, checked
 /// before anything is allocated.
-pub(crate) fn decompress(input: &[u8], out: &mut Vec<u8>, limit: usize) -> Result<()> {
+pub(crate) fn decompress(input: &[u8], limit: usize, out: &mut Vec<u8>) -> Result<()> {
     out.clear();
     let (declared, mut rest) = read_length(input)?;
     let limit = limit.min(input.len().saturating_mul(MAX_RATIO));
@@ -244,7 +245,7 @@ pub(crate) fn decompress(input: &[u8], out: &mut Vec<u8>, limit: usize) -> Resul
                 (offset, 1 + usize::from(tag >> 2))
             }
         };
-        copy(out, offset, len, declared)?;
+        copy(offset, len, declared, out)?;
     }
     if out.len() == declared {
         Ok(())
@@ -269,8 +270,9 @@ fn read_length(mut rest: &[u8]) -> Result<(u32, &[u8])> {
     Err(Error::Varint)
 }
 
-/// Appends `len` bytes starting `offset` bytes back; overlapping copies repeat the pattern.
-fn copy(out: &mut Vec<u8>, offset: usize, len: usize, declared: usize) -> Result<()> {
+/// Appends `len` bytes starting `offset` bytes back, keeping `out` within `declared` bytes;
+/// overlapping copies repeat the pattern.
+fn copy(offset: usize, len: usize, declared: usize, out: &mut Vec<u8>) -> Result<()> {
     if offset == 0 {
         return Err(Error::ZeroOffset);
     }
@@ -299,13 +301,13 @@ fn copy(out: &mut Vec<u8>, offset: usize, len: usize, declared: usize) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::{Encoder, Error, MAX_RATIO, decompress};
+    use super::*;
 
     const LIMIT: usize = 16 * 1024 * 1024;
 
-    fn decode(input: &[u8]) -> Result<Vec<u8>, Error> {
+    fn decode(input: &[u8]) -> Result<Vec<u8>> {
         let mut out = Vec::new();
-        decompress(input, &mut out, LIMIT)?;
+        decompress(input, LIMIT, &mut out)?;
         Ok(out)
     }
 
@@ -412,14 +414,14 @@ mod tests {
     fn declared_length_over_the_limit_is_a_size_error_before_allocating() {
         let mut out = Vec::new();
         // u32::MAX declared in a 5-byte prefix.
-        let result = decompress(&[0xff, 0xff, 0xff, 0xff, 0x0f], &mut out, LIMIT);
+        let result = decompress(&[0xff, 0xff, 0xff, 0xff, 0x0f], LIMIT, &mut out);
         assert!(matches!(result, Err(Error::Size { .. })));
         assert_eq!(out.capacity(), 0);
 
         // Within the ratio but above the limit: 1 MiB + 1 declared, padded input.
         let mut input = vec![0x81, 0x80, 0x40];
         input.resize(64 * 1024, 0);
-        let result = decompress(&input, &mut out, 1024 * 1024);
+        let result = decompress(&input, 1024 * 1024, &mut out);
         assert_eq!(result, Err(Error::Size { limit: 1024 * 1024 }));
         assert_eq!(out.capacity(), 0);
     }
@@ -429,7 +431,7 @@ mod tests {
         let input = [0x80, 0x80, 0x01, 0, b'a'];
         let mut out = Vec::new();
         assert_eq!(
-            decompress(&input, &mut out, LIMIT),
+            decompress(&input, LIMIT, &mut out),
             Err(Error::Size {
                 limit: input.len() * MAX_RATIO
             })

@@ -152,9 +152,8 @@ impl Encoder {
         let max_len = self.compressor.max_compressed_len(payload.len());
         out.reserve(max_len.saturating_add(1 + CHECKSUM));
         out.push(self.settings.compression.header());
-        self.compressor
-            .compress(payload, out, limit)
-            .map_err(Error::Compression)
+        self.compressor.compress(payload, out);
+        Ok(())
     }
 }
 
@@ -208,7 +207,7 @@ impl Decoder {
             return Err(Error::Header(header));
         }
         self.decompressor
-            .decompress(body, out, limit)
+            .decompress(body, limit, out)
             .map_err(Error::Compression)
     }
 }
@@ -524,7 +523,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
-    use super::super::compression::tests::{ROUND_TRIP_SIZES, sample};
     use super::super::io::tests::Rng;
     use super::super::io::{MAX_LIST_DEPTH, Writer};
     use super::super::packet::{Login, Packet, SetTime};
@@ -532,6 +530,7 @@ mod tests {
         CHECKSUM, Compression, Decoder, Encoder, Error, Header, MAX_PACKET_ID, MAX_PACKETS,
         SPLIT_BYTES, Settings, compression, decode_packets, encode_packets, protocol, split,
     };
+    use crate::protocol::compression::tests::{Content, ROUND_TRIP_SIZES, sample};
 
     const MIB: usize = 1024 * 1024;
     const KIB: usize = 1024;
@@ -838,8 +837,8 @@ mod tests {
             let mut encoder = Encoder::new(settings(compression));
             let mut decoder = Decoder::new(settings(compression));
             for len in ROUND_TRIP_SIZES {
-                for repetitive in [false, true] {
-                    let input = sample(len, repetitive, 13);
+                for content in [Content::Random, Content::Repetitive] {
+                    let input = sample(len, content, 13);
                     encoder.encode(&input, &mut body).unwrap();
                     decoder.decode(&body, &mut payload).unwrap();
                     assert_eq!(payload, input, "{compression:?} len {len}");
@@ -867,7 +866,9 @@ mod tests {
             assert!(body.len() < 256);
             // Incompressible: zlib's stored output fills its bound.
             let mut fresh = Vec::new();
-            encoder.encode(&sample(300, false, 1), &mut fresh).unwrap();
+            encoder
+                .encode(&sample(300, Content::Random, 1), &mut fresh)
+                .unwrap();
             assert!(fresh.capacity() >= fresh.len() + CHECKSUM);
         }
     }
@@ -980,7 +981,7 @@ mod tests {
             let mut decoder = Decoder::new(settings(compression));
             let mut body = Vec::new();
             encoder
-                .encode(&sample(20_000, true, 21), &mut body)
+                .encode(&sample(20_000, Content::Repetitive, 21), &mut body)
                 .unwrap();
             for _ in 0..2000 {
                 let mut input = body.clone();

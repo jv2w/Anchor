@@ -9,12 +9,11 @@
 //! performance: the JSON is encoded on the tick thread, at the snapshot's tick boundary
 //! ([`UserData::take_changes`], [`save_player`]). The values are game state that a snapshot must
 //! take whole at one boundary (atomicity comes before performance), so the encoding is not capped
-//! per snapshot: a cap would save part of a boundary. The cost is bounded instead: only server
+//! per snapshot: a cap would save part of a boundary. The cost is bounded instead: only the server
 //! values changed since the last snapshot ([`MAX_SERVER_TYPES`] × [`MAX_SERVER_VALUE_BYTES`] at
 //! most) and the players marked dirty ([`MAX_PLAYER_TYPES`] × [`MAX_PLAYER_VALUE_BYTES`] each),
-//! once per save interval (10 minutes by default), with a write that stops at each value's
-//! limit. The values are `Send + Sync`, so the encoding could move to the CPU pool if a
-//! measurement shows the boundary tick's MSPT matters; that needs the pool at the boundary.
+//! once per snapshot (a snapshot waits while the one before is being committed), with a write
+//! that stops at each value's limit and one read back of each value written.
 
 use std::any::{Any, TypeId};
 use std::collections::BTreeMap;
@@ -22,28 +21,21 @@ use std::fmt;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tracing::{error, warn};
+use tracing::error;
 
-use super::super::checkpoint::{self, Codec as _, Reader, Writer};
-use super::super::extra::PlayerExtra;
-use super::super::{Offline, Player};
-use super::Context;
+use super::{Context, Offline};
 use crate::ServerBuilder;
 use crate::data::{
     Codec, Error, MAX_EXTENSIONS, MAX_PLAYER_TYPES, MAX_PLAYER_VALUE_BYTES, MAX_SERVER_TYPES,
     MAX_SERVER_VALUE_BYTES, Result, Value, check_name,
 };
 use crate::nbt::{self, Compound};
+use crate::player::Player;
+use crate::tick::checkpoint::{self, Reader, Writer};
+use crate::tick::extra::PlayerExtra;
 
 /// The key of the player's extra compound that holds its data values.
 pub(in crate::tick) const DATA_KEY: &str = "anchor:data";
-
-/// A server value and whether it changed since a snapshot last took it.
-struct Server {
-    codec: Codec,
-    value: Value,
-    dirty: bool,
-}
 
 /// The registered data types and the server's values, fixed at build.
 #[derive(Default)]
@@ -51,7 +43,7 @@ pub(crate) struct UserData {
     /// Player data types, in registration order.
     players: Vec<Codec>,
     /// Server values, in registration order.
-    servers: Vec<Server>,
+    servers: Vec<ServerValue>,
     /// The place of each server type in `servers`.
     server_index: BTreeMap<TypeId, usize>,
     /// The first registration that broke a rule, reported by [`Self::finish`].
@@ -59,117 +51,53 @@ pub(crate) struct UserData {
 }
 
 impl UserData {
-    /// Registers `T` as player data under `name`.
-    fn register_player<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
-        &mut self,
-        name: String,
-    ) {
-        let check = || {
-            check_name(&name)?;
-            if self.players.len() >= MAX_PLAYER_TYPES {
-                return Err(Error::TooManyTypes);
-            }
-            if self.players.iter().any(|c| c.name == name) {
-                return Err(Error::DuplicateName { name: name.clone() });
-            }
-            if self.players.iter().any(|c| c.type_id == TypeId::of::<T>()) {
-                return Err(Error::DuplicateType { name: name.clone() });
-            }
-            Ok(())
-        };
-        match check() {
-            Ok(()) => self.players.push(Codec::of::<T>(name)),
-            Err(e) => {
-                self.error.get_or_insert(e);
-            }
-        }
-    }
-
-    /// Registers `T` as server data under `name`, at its default until [`Self::load`].
-    fn register_server<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
-        &mut self,
-        name: String,
-    ) {
-        let check = || {
-            check_name(&name)?;
-            if self.servers.len() >= MAX_SERVER_TYPES {
-                return Err(Error::TooManyTypes);
-            }
-            if self.servers.iter().any(|s| s.codec.name == name) {
-                return Err(Error::DuplicateName { name: name.clone() });
-            }
-            if self.server_index.contains_key(&TypeId::of::<T>()) {
-                return Err(Error::DuplicateType { name: name.clone() });
-            }
-            Ok(())
-        };
-        match check() {
-            Ok(()) => {
-                let codec = Codec::of::<T>(name);
-                self.server_index
-                    .insert(TypeId::of::<T>(), self.servers.len());
-                self.servers.push(Server {
-                    value: codec.default_value(),
-                    codec,
-                    dirty: false,
-                });
-            }
-            Err(e) => {
-                self.error.get_or_insert(e);
-            }
-        }
-    }
-
     /// The first registration that broke a rule; the server is not built then.
     pub(crate) fn finish(&self) -> Result<()> {
         self.error.clone().map_or(Ok(()), Err)
     }
 
-    /// Reads the saved server values before the threads start. A value never saved stays at its
-    /// default. A damaged value, or one that does not deserialize into its type, refuses the start
-    /// and stays as saved.
-    pub(crate) fn load(&mut self, thread: &mut crate::save::Thread) -> crate::Result<()> {
-        let names: Vec<&str> = self.servers.iter().map(|s| s.codec.name.as_str()).collect();
-        let saved = thread.read_user(&names)?;
-        for (server, json) in self.servers.iter_mut().zip(saved) {
-            let Some(json) = json else {
-                continue;
-            };
-            let Some(value) = server.codec.decode(&json) else {
-                let name = server.codec.name.clone();
-                error!(
-                    name,
-                    "saved server data does not deserialize into its type; the start is refused and the value kept as saved"
-                );
-                return Err(crate::Error::WorldDamaged(Box::new(Error::Undecodable {
-                    name,
-                })));
-            };
-            server.value = value;
+    /// Writes the server values by their JSON (as `Self::hash_into` hashes them), with their
+    /// marks; the types are code, fixed at build. A value whose JSON does not encode makes the
+    /// checkpoint opaque.
+    pub(in crate::tick) fn checkpoint(&self, w: &mut Writer) {
+        w.len(self.servers.len());
+        for server in &self.servers {
+            checkpoint::Codec::encode(&server.dirty, w);
+            json(w, &server.codec, &server.value);
         }
-        Ok(())
     }
 
-    /// The JSON of every server value changed since the last call, for a snapshot. A value whose
-    /// JSON is over its limit is not written (the saved form stays) and is tried again by the
-    /// next snapshot.
-    pub(in crate::tick) fn take_changes(&mut self) -> Vec<(String, Vec<u8>)> {
-        let mut out = Vec::new();
-        for server in self.servers.iter_mut().filter(|s| s.dirty) {
-            match server.codec.encode(&server.value, MAX_SERVER_VALUE_BYTES) {
-                Ok(json) => {
-                    server.dirty = false;
-                    out.push((server.codec.name.clone(), json));
-                }
-                Err(e) => warn!(
-                    name = server.codec.name,
-                    error = ?e,
-                    max_bytes = MAX_SERVER_VALUE_BYTES,
-                    "server data not saved: its json is over max_bytes or does not serialize; the last saved value stays"
-                ),
+    /// Writes a player's data values by their JSON, one per registered player type that has a
+    /// value. An extension has no checkpoint form (it is not serializable): it makes the
+    /// checkpoint opaque.
+    pub(in crate::tick) fn checkpoint_player(&self, user: &PlayerUser, w: &mut Writer) {
+        let PlayerUser { data, extensions } = user;
+        w.opaque("player extensions", extensions.len());
+        for codec in &self.players {
+            let value = data.get(&codec.type_id);
+            checkpoint::Codec::encode(&value.is_some(), w);
+            if let Some(value) = value {
+                json(w, codec, value);
             }
         }
-        out
+    }
+
+    /// Reads what [`Self::checkpoint_player`] wrote: the values, and no extension.
+    pub(in crate::tick) fn restore_player(
+        &self,
+        r: &mut Reader<'_>,
+    ) -> checkpoint::Result<PlayerUser> {
+        let mut data = BTreeMap::new();
+        for codec in &self.players {
+            let has_value: bool = checkpoint::Codec::decode(r)?;
+            if has_value {
+                data.insert(codec.type_id, value(r, codec)?);
+            }
+        }
+        Ok(PlayerUser {
+            data,
+            extensions: BTreeMap::new(),
+        })
     }
 
     /// Hashes the server values and every player's data values by their JSON, and how many
@@ -177,10 +105,10 @@ impl UserData {
     #[cfg(test)]
     pub(in crate::tick) fn hash_into(
         &self,
-        players: &BTreeMap<super::super::queue::SessionId, Player>,
-        h: &mut super::super::Fnv,
+        players: &BTreeMap<crate::tick::queue::SessionId, Player>,
+        h: &mut crate::tick::Fnv,
     ) {
-        let json = |h: &mut super::super::Fnv, codec: &Codec, value: &Value| match codec
+        let json = |h: &mut crate::tick::Fnv, codec: &Codec, value: &Value| match codec
             .encode(value, usize::MAX)
         {
             Ok(bytes) => h.bytes(&bytes),
@@ -203,18 +131,53 @@ impl UserData {
             }
         }
     }
-}
 
-impl UserData {
-    /// Writes the server values by their JSON (as `Self::hash_into` hashes them), with their
-    /// marks; the types are code, fixed at build. A value whose JSON does not encode makes the
-    /// checkpoint opaque.
-    pub(in crate::tick) fn checkpoint(&self, w: &mut Writer) {
-        w.len(self.servers.len());
-        for server in &self.servers {
-            server.dirty.encode(w);
-            json(w, &server.codec, &server.value);
+    /// Reads the saved server values before the threads start. A value never saved stays at its
+    /// default. A damaged value, or one that does not deserialize into its type, refuses the start
+    /// and stays as saved.
+    pub(crate) fn load(&mut self, thread: &mut crate::save::Thread) -> crate::Result<()> {
+        let names: Vec<&str> = self.servers.iter().map(|s| s.codec.name.as_str()).collect();
+        let saved = thread.read_user(&names)?;
+        for (server, json) in self.servers.iter_mut().zip(saved) {
+            let Some(json) = json else {
+                continue;
+            };
+            match server.codec.decode(&json) {
+                Ok(value) => server.value = value,
+                Err(e) => {
+                    let name = server.codec.name.clone();
+                    error!(
+                        name,
+                        error = %e,
+                        "saved server data does not deserialize into its type; the start is refused and the value kept as saved"
+                    );
+                    return Err(crate::Error::Data(Error::Undecodable { name }));
+                }
+            }
         }
+        Ok(())
+    }
+
+    /// Takes the JSON of every server value changed since the last call, for a snapshot. A value
+    /// with no JSON within its limit is not written (the saved form stays) and is tried again by
+    /// the next snapshot.
+    pub(in crate::tick) fn take_changes(&mut self) -> Vec<(String, Vec<u8>)> {
+        let mut changes = Vec::new();
+        for server in self.servers.iter_mut().filter(|s| s.dirty) {
+            match server.codec.encode(&server.value, MAX_SERVER_VALUE_BYTES) {
+                Ok(json) => {
+                    server.dirty = false;
+                    changes.push((server.codec.name.clone(), json));
+                }
+                Err(e) => error!(
+                    name = server.codec.name,
+                    error = %e,
+                    max_bytes = MAX_SERVER_VALUE_BYTES,
+                    "server data not saved; the last saved value stays"
+                ),
+            }
+        }
+        changes
     }
 
     /// Reads what [`Self::checkpoint`] wrote into the types registered at build.
@@ -223,63 +186,49 @@ impl UserData {
             return Err(checkpoint::Error::Format("server data types"));
         }
         for server in &mut self.servers {
-            server.dirty = bool::decode(r)?;
+            server.dirty = checkpoint::Codec::decode(r)?;
             server.value = value(r, &server.codec)?;
         }
         Ok(())
     }
 
-    /// Writes a player's data values by their JSON, one per registered player type that has a
-    /// value. An extension has no checkpoint form (it is not serializable): it makes the
-    /// checkpoint opaque.
-    pub(in crate::tick) fn checkpoint_player(&self, user: &PlayerUser, w: &mut Writer) {
-        let PlayerUser { data, extensions } = user;
-        w.opaque("player extensions", extensions.len());
-        for codec in &self.players {
-            match data.get(&codec.type_id) {
-                Some(v) => {
-                    w.u8(1);
-                    json(w, codec, v);
-                }
-                None => w.u8(0),
+    /// Registers `T` as player data under `name`.
+    fn register_player<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        name: String,
+    ) {
+        let type_id = TypeId::of::<T>();
+        match check_registration(&name, type_id, self.players.iter(), MAX_PLAYER_TYPES) {
+            Ok(()) => self.players.push(Codec::of::<T>(name)),
+            Err(e) => {
+                self.error.get_or_insert(e);
             }
         }
     }
 
-    /// Reads what [`Self::checkpoint_player`] wrote: the values, and no extension.
-    pub(in crate::tick) fn restore_player(
-        &self,
-        r: &mut Reader<'_>,
-    ) -> checkpoint::Result<PlayerUser> {
-        let mut data = BTreeMap::new();
-        for codec in &self.players {
-            if bool::decode(r)? {
-                data.insert(codec.type_id, value(r, codec)?);
+    /// Registers `T` as server data under `name`, at its default until [`Self::load`].
+    fn register_server<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        name: String,
+    ) {
+        let type_id = TypeId::of::<T>();
+        let registered = self.servers.iter().map(|s| &s.codec);
+        match check_registration(&name, type_id, registered, MAX_SERVER_TYPES) {
+            Ok(()) => {
+                let codec = Codec::of::<T>(name);
+                let value = codec.default_value();
+                self.server_index.insert(type_id, self.servers.len());
+                self.servers.push(ServerValue {
+                    codec,
+                    value,
+                    dirty: false,
+                });
+            }
+            Err(e) => {
+                self.error.get_or_insert(e);
             }
         }
-        Ok(PlayerUser {
-            data,
-            extensions: BTreeMap::new(),
-        })
     }
-}
-
-/// Writes a value's JSON; one that does not encode makes the checkpoint opaque.
-fn json(w: &mut Writer, codec: &crate::data::Codec, value: &Value) {
-    if let Ok(bytes) = codec.encode(value, usize::MAX) {
-        w.bytes(&bytes);
-    } else {
-        w.opaque("user data that does not serialize", 1);
-        w.len(0);
-    }
-}
-
-/// Reads a value's JSON into its type.
-fn value(r: &mut Reader<'_>, codec: &crate::data::Codec) -> checkpoint::Result<Value> {
-    let bytes = Vec::<u8>::decode(r)?;
-    codec
-        .decode(&bytes)
-        .ok_or(checkpoint::Error::Format("user data"))
 }
 
 impl fmt::Debug for UserData {
@@ -295,6 +244,13 @@ impl fmt::Debug for UserData {
     }
 }
 
+/// A server value and whether it changed since a snapshot last took it.
+struct ServerValue {
+    codec: Codec,
+    value: Value,
+    dirty: bool,
+}
+
 /// The user's part of an online player: its data values (one per registered type that has a
 /// value; a saved value that does not deserialize has none and stays as saved) and its
 /// extensions.
@@ -302,6 +258,20 @@ impl fmt::Debug for UserData {
 pub(in crate::tick) struct PlayerUser {
     data: BTreeMap<TypeId, Value>,
     extensions: BTreeMap<TypeId, Value>,
+}
+
+impl PlayerUser {
+    /// The value of the registered player data type `T`, if it has one.
+    fn value<T: Any>(&self) -> Option<&T> {
+        self.data
+            .get(&TypeId::of::<T>())
+            .and_then(|v| v.downcast_ref())
+    }
+
+    /// Lends [`Self::value`] to change.
+    fn value_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.data.get_mut(&TypeId::of::<T>())?.downcast_mut()
+    }
 }
 
 impl fmt::Debug for PlayerUser {
@@ -313,91 +283,49 @@ impl fmt::Debug for PlayerUser {
     }
 }
 
-/// The player's saved data values, from its extra compound: what [`DATA_KEY`] holds, if it is a
-/// compound.
-fn saved_values(extra: &Compound) -> Option<&Compound> {
-    match extra.get(DATA_KEY) {
-        Some(nbt::Value::Compound(values)) => Some(values),
-        _ => None,
+impl ServerBuilder {
+    /// Gives every player a value of `T`, saved under `name` with the player's other data in
+    /// the same commit ([`Player::data`]; [`crate::data`] tells what is saved). A new player
+    /// starts at `T::default()`. `name` follows the rule of [`Error::InvalidName`]; at most
+    /// [`MAX_PLAYER_TYPES`] types. [`build`](Self::build) fails on a bad or repeated name or type.
+    #[must_use]
+    pub fn player_data<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
+        mut self,
+        name: impl Into<String>,
+    ) -> Self {
+        self.setup.data.register_player::<T>(name.into());
+        self
+    }
+
+    /// Gives the server one value of `T`, saved under `name` in the same commit as the rest of
+    /// the game ([`Context::data`]; [`crate::data`] tells what is saved), and read back at start.
+    /// Names follow [`Self::player_data`]; at most [`MAX_SERVER_TYPES`] types.
+    #[must_use]
+    pub fn server_data<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
+        mut self,
+        name: impl Into<String>,
+    ) -> Self {
+        self.setup.data.register_server::<T>(name.into());
+        self
     }
 }
 
-/// A player is placed in the game (a new player, or its saved data arrived): its data values
-/// come from its saved extra, or are their types' defaults. A saved value that does not
-/// deserialize into its type is left as saved and reads as `None`.
-pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
-    let mut values = BTreeMap::new();
-    let raw = extra.raw();
-    let foreign = raw.contains_key(DATA_KEY) && saved_values(raw).is_none();
-    let saved = saved_values(raw);
-    for codec in &data.players {
-        let value = match saved.and_then(|c| c.get(&codec.name)) {
-            None if !foreign => Some(codec.default_value()),
-            Some(nbt::Value::ByteArray(json)) => codec.decode(json),
-            None | Some(_) => None,
-        };
-        if let Some(value) = value {
-            values.insert(codec.type_id, value);
-        } else {
-            error!(
-                name = codec.name,
-                "saved player data does not deserialize into its type; it reads as none and is kept as saved"
-            );
-        }
-    }
-    extra.user.data = values;
-}
-
-/// Writes the player's data values into `out`, the extra compound a save writes (it starts as
-/// the one kept as saved). A value whose JSON is over its limit keeps its saved form.
-pub(in crate::tick) fn save_player(data: &UserData, extra: &PlayerExtra, out: &mut Compound) {
-    if extra.user.data.is_empty() {
-        return;
-    }
-    let mut values = match out.remove(DATA_KEY) {
-        Some(nbt::Value::Compound(values)) => values,
-        None => Compound::new(),
-        Some(other) => {
-            // Not written by Anchor: kept as it is (`placed` read no value from it).
-            out.insert(DATA_KEY.to_owned(), other);
-            return;
-        }
-    };
-    for codec in &data.players {
-        let Some(value) = extra.user.data.get(&codec.type_id) else {
-            continue;
-        };
-        match codec.encode(value, MAX_PLAYER_VALUE_BYTES) {
-            Ok(json) => {
-                values.insert(codec.name.clone(), nbt::Value::ByteArray(json));
-            }
-            Err(e) => warn!(
-                name = codec.name,
-                error = ?e,
-                max_bytes = MAX_PLAYER_VALUE_BYTES,
-                "player data not saved: its json is over max_bytes or does not serialize; the last saved value stays"
-            ),
-        }
-    }
-    out.insert(DATA_KEY.to_owned(), nbt::Value::Compound(values));
-}
-
-/// A snapshot took `saved` for the player: its data values in it become the ones kept as saved.
-pub(in crate::tick) fn player_saved(extra: &mut PlayerExtra, saved: &Compound) {
-    extra.keep_saved(DATA_KEY, saved);
-}
-
-impl PlayerUser {
-    /// The value of the registered player data type `T`, if it has one.
-    fn value<T: Any>(&self) -> Option<&T> {
-        self.data
-            .get(&TypeId::of::<T>())
-            .and_then(|v| v.downcast_ref())
+impl Context<'_> {
+    /// The server's value of the registered server data type `T`
+    /// ([`ServerBuilder::server_data`]): loaded at start, its [`Default`] if never saved.
+    /// `None` if `T` is not registered.
+    pub fn data<T: Any>(&self) -> Option<&T> {
+        let &i = self.state.data.server_index.get(&TypeId::of::<T>())?;
+        self.state.data.servers.get(i)?.value.downcast_ref()
     }
 
-    /// [`Self::value`] to change.
-    fn value_mut<T: Any>(&mut self) -> Option<&mut T> {
-        self.data.get_mut(&TypeId::of::<T>())?.downcast_mut()
+    /// Lends [`Self::data`] to change; it is saved with the next snapshot.
+    pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
+        let &i = self.state.data.server_index.get(&TypeId::of::<T>())?;
+        let server = self.state.data.servers.get_mut(i)?;
+        let value = server.value.downcast_mut()?;
+        server.dirty = true;
+        Some(value)
     }
 }
 
@@ -410,7 +338,8 @@ impl Player {
         self.extra.user.value()
     }
 
-    /// [`Self::data`] to change; the player is saved with the next snapshot.
+    /// Lends [`Self::data`] to change; the player is saved with the next snapshot, even when
+    /// the value is left as it was.
     pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
         let value = self.extra.user.value_mut()?;
         self.data_dirty = true;
@@ -427,7 +356,7 @@ impl Player {
             .and_then(|v| v.downcast_ref())
     }
 
-    /// [`Self::extension`] to change.
+    /// Lends [`Self::extension`] to change.
     pub fn extension_mut<T: Any>(&mut self) -> Option<&mut T> {
         self.extra
             .user
@@ -462,7 +391,7 @@ impl Offline {
         self.extra.user.value()
     }
 
-    /// [`Self::data`] to change; the record is saved with the next snapshot.
+    /// Lends [`Self::data`] to change; the record is saved with the next snapshot.
     pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
         let value = self.extra.user.value_mut()?;
         self.data_changed = true;
@@ -471,54 +400,134 @@ impl Offline {
     }
 }
 
-impl Context<'_> {
-    /// The server's value of the registered server data type `T`
-    /// ([`ServerBuilder::server_data`]): loaded at start, its [`Default`] if never saved.
-    /// `None` if `T` is not registered.
-    pub fn data<T: Any>(&self) -> Option<&T> {
-        let &i = self.state.data.server_index.get(&TypeId::of::<T>())?;
-        self.state.data.servers.get(i)?.value.downcast_ref()
+/// Places the player's data values in the game (a new player, or its saved data arrived): each
+/// is read from its saved extra, or is its type's default when none is saved. A saved value that
+/// is not a JSON byte array or does not deserialize into its type is left as saved and reads as
+/// `None`.
+pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
+    let mut values = BTreeMap::new();
+    let saved = extra.raw().get(DATA_KEY);
+    // A key not written by Anchor is kept as it is, and every value reads as none.
+    let foreign = saved.is_some_and(|v| !matches!(v, nbt::Value::Compound(_)));
+    for codec in &data.players {
+        let json = match saved {
+            Some(nbt::Value::Compound(saved_values)) => saved_values.get(&codec.name),
+            _ => None,
+        };
+        let value = match json {
+            None if !foreign => codec.default_value(),
+            Some(nbt::Value::ByteArray(json)) => match codec.decode(json) {
+                Ok(value) => value,
+                Err(e) => {
+                    error!(
+                        name = codec.name,
+                        error = %e,
+                        "saved player data does not deserialize into its type; it reads as none and is kept as saved"
+                    );
+                    continue;
+                }
+            },
+            None | Some(_) => {
+                error!(
+                    name = codec.name,
+                    "saved player data is not json; it reads as none and is kept as saved"
+                );
+                continue;
+            }
+        };
+        values.insert(codec.type_id, value);
     }
+    extra.user.data = values;
+}
 
-    /// [`Self::data`] to change; it is saved with the next snapshot.
-    pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
-        let &i = self.state.data.server_index.get(&TypeId::of::<T>())?;
-        let server = self.state.data.servers.get_mut(i)?;
-        let value = server.value.downcast_mut()?;
-        server.dirty = true;
-        Some(value)
+/// Writes the player's data values into `out`, the extra compound a save writes (it starts as
+/// the one kept as saved). A value with no JSON within its limit keeps its saved form.
+pub(in crate::tick) fn save_player(data: &UserData, extra: &PlayerExtra, out: &mut Compound) {
+    if extra.user.data.is_empty() {
+        return;
+    }
+    let mut values = match out.remove(DATA_KEY) {
+        Some(nbt::Value::Compound(values)) => values,
+        None => Compound::new(),
+        Some(other) => {
+            // Not written by Anchor: kept as it is (`placed` read no value from it).
+            out.insert(DATA_KEY.to_owned(), other);
+            return;
+        }
+    };
+    for codec in &data.players {
+        let Some(value) = extra.user.data.get(&codec.type_id) else {
+            continue;
+        };
+        match codec.encode(value, MAX_PLAYER_VALUE_BYTES) {
+            Ok(json) => {
+                values.insert(codec.name.clone(), nbt::Value::ByteArray(json));
+            }
+            Err(e) => error!(
+                name = codec.name,
+                error = %e,
+                max_bytes = MAX_PLAYER_VALUE_BYTES,
+                "player data not saved; the last saved value stays"
+            ),
+        }
+    }
+    out.insert(DATA_KEY.to_owned(), nbt::Value::Compound(values));
+}
+
+/// Keeps the data values of `saved`, the extra compound a snapshot took for the player, as the
+/// ones kept as saved.
+pub(in crate::tick) fn player_saved(extra: &mut PlayerExtra, saved: &Compound) {
+    extra.keep_saved(DATA_KEY, saved);
+}
+
+/// Checks the registration of the type `type_id` under `name` beside the `registered` types of
+/// its kind, of which there are at most `max`.
+fn check_registration<'a>(
+    name: &str,
+    type_id: TypeId,
+    registered: impl ExactSizeIterator<Item = &'a Codec>,
+    max: usize,
+) -> Result<()> {
+    check_name(name)?;
+    if registered.len() >= max {
+        return Err(Error::TooManyTypes);
+    }
+    let mut type_registered = false;
+    for codec in registered {
+        if codec.name == name {
+            return Err(Error::DuplicateName {
+                name: name.to_owned(),
+            });
+        }
+        type_registered |= codec.type_id == type_id;
+    }
+    if type_registered {
+        return Err(Error::DuplicateType {
+            name: name.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// Writes a value's JSON; one that does not encode makes the checkpoint opaque.
+fn json(w: &mut Writer, codec: &Codec, value: &Value) {
+    if let Ok(bytes) = codec.encode(value, usize::MAX) {
+        w.slice(&bytes);
+    } else {
+        w.opaque("user data that does not serialize", 1);
+        w.len(0);
     }
 }
 
-impl ServerBuilder {
-    /// Gives every player a value of `T`, saved under `name` with the player's other data in
-    /// the same commit ([`Player::data`], [`crate::data`]). A new player starts at
-    /// `T::default()`. `name` is 1 to 64 bytes of `a-z`, `0-9`, `_`, `-`, `.`, `:`; at most 16
-    /// types. [`build`](Self::build) fails on a bad or repeated name or type.
-    #[must_use]
-    pub fn player_data<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
-        mut self,
-        name: impl Into<String>,
-    ) -> Self {
-        self.setup.data.register_player::<T>(name.into());
-        self
-    }
-
-    /// Gives the server one value of `T`, saved under `name` in the same commit as the rest of
-    /// the game ([`Context::data`], [`crate::data`]), and read back at start. Names follow
-    /// [`Self::player_data`]; at most 64 types.
-    #[must_use]
-    pub fn server_data<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
-        mut self,
-        name: impl Into<String>,
-    ) -> Self {
-        self.setup.data.register_server::<T>(name.into());
-        self
-    }
+/// Reads a value's JSON into its type.
+fn value(r: &mut Reader<'_>, codec: &Codec) -> checkpoint::Result<Value> {
+    let bytes: Vec<u8> = checkpoint::Codec::decode(r)?;
+    codec
+        .decode(&bytes)
+        .map_err(|_| checkpoint::Error::Format("user data"))
 }
 
-/// The tick's user data for tests: `T` registered as player data under `name` and `S` as
-/// server data under `server`.
+/// Registers `T` as player data under `name` and `S` as server data under `server`, for tests.
 #[cfg(test)]
 pub(in crate::tick) fn registered<T, S>(name: &str, server: &str) -> UserData
 where
@@ -533,27 +542,28 @@ where
 
 #[cfg(test)]
 pub(super) mod tests {
+    use super::*;
+
     use std::sync::Arc;
 
     use serde::Deserialize;
 
-    use super::super::super::queue::SessionId;
-    use super::super::super::tests::{join, leave, new_state, settings, tick};
-    use super::super::super::{Output, Phase, State};
-    use super::*;
     use crate::event::Listeners;
     use crate::save::{PlayerData, PlayerLoad, Request, Response, Snapshot};
+    use crate::tick::queue::{Outbound, SessionId};
+    use crate::tick::tests::{join, leave, new_state, settings, tick};
+    use crate::tick::{InputLog, Output, Phase, State, boundary};
 
-    #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
     struct Kills {
         total: u32,
         names: Vec<String>,
     }
 
-    #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
     struct Round(u32);
 
-    /// A state with player data `Kills` and server data `Round` and player data on.
+    /// Makes a state with player data `Kills`, server data `Round` and player data on.
     fn state() -> State {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         state.data = registered::<Kills, Round>("kills", "round");
@@ -562,10 +572,7 @@ pub(super) mod tests {
     }
 
     /// Joins session 1, answering its load with `load`; returns its queue.
-    fn join_with(
-        state: &mut State,
-        load: &PlayerLoad,
-    ) -> tokio::sync::mpsc::Receiver<super::super::super::queue::Outbound> {
+    fn join_with(state: &mut State, load: &PlayerLoad) -> tokio::sync::mpsc::Receiver<Outbound> {
         let (j, rx) = join(1, 0);
         let mut output = Output::default();
         tick(state, &mut vec![j], &mut output);
@@ -581,32 +588,6 @@ pub(super) mod tests {
 
     fn player(state: &mut State) -> &mut Player {
         state.players.get_mut(&SessionId::new(1)).unwrap()
-    }
-
-    /// The snapshot the next tick boundary takes, then its commit.
-    pub(in crate::tick::task) fn snapshot(state: &mut State) -> Snapshot {
-        state.saving.requested = true;
-        let mut output = Output::default();
-        let mut log = super::super::super::InputLog::default();
-        super::super::super::boundary(state, &mut output, &mut log);
-        let snapshot = output
-            .requests
-            .into_iter()
-            .find_map(|r| match r {
-                Request::Commit(s) => Some(*s),
-                _ => None,
-            })
-            .expect("a snapshot");
-        super::super::super::save::committed(state, &mut log, snapshot.start);
-        snapshot
-    }
-
-    fn found(extra: Compound) -> PlayerLoad {
-        PlayerLoad::Found(PlayerData {
-            world: "world".to_owned(),
-            position: [0.5, -58.38, 0.5],
-            extra,
-        })
     }
 
     #[test]
@@ -653,6 +634,32 @@ pub(super) mod tests {
         assert_eq!(Arc::strong_count(&held), 2);
         tick(&mut state, &mut vec![leave(1, 1)], &mut Output::default());
         assert_eq!(Arc::strong_count(&held), 1, "dropped with the player");
+    }
+
+    /// Takes the snapshot of the next tick boundary and commits it.
+    pub(in crate::tick::task) fn snapshot(state: &mut State) -> Snapshot {
+        state.saving.requested = true;
+        let mut output = Output::default();
+        let mut log = InputLog::default();
+        boundary(state, &mut output, &mut log);
+        let snapshot = output
+            .requests
+            .into_iter()
+            .find_map(|r| match r {
+                Request::Commit(s) => Some(*s),
+                _ => None,
+            })
+            .expect("a snapshot");
+        crate::tick::save::committed(state, &mut log, snapshot.start);
+        snapshot
+    }
+
+    fn found(extra: Compound) -> PlayerLoad {
+        PlayerLoad::Found(PlayerData {
+            world: "world".to_owned(),
+            position: [0.5, -58.38, 0.5],
+            extra,
+        })
     }
 
     #[test]
@@ -754,6 +761,25 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn a_value_whose_json_does_not_read_back_keeps_its_last_saved_form() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        state.data = registered::<f64, f64>("speed", "ratio");
+        state.saving.players = true;
+        let _rx = join_with(&mut state, &PlayerLoad::Absent);
+        *player(&mut state).data_mut::<f64>().unwrap() = 0.5;
+        *Context { state: &mut state }.data_mut::<f64>().unwrap() = 1.5;
+        let first = snapshot(&mut state);
+        assert_eq!(first.user, [("ratio".to_owned(), b"1.5".to_vec())]);
+        let kept = first.players[0].1.extra.get(DATA_KEY).cloned();
+        // serde_json writes these as `null`, which would not read back as a float.
+        *player(&mut state).data_mut::<f64>().unwrap() = f64::NAN;
+        *Context { state: &mut state }.data_mut::<f64>().unwrap() = f64::INFINITY;
+        let second = snapshot(&mut state);
+        assert!(second.user.is_empty(), "{:?}", second.user);
+        assert_eq!(second.players[0].1.extra.get(DATA_KEY).cloned(), kept);
+    }
+
+    #[test]
     fn server_data_is_saved_once_per_change_and_an_oversized_value_waits() {
         let mut state = state();
         let cx = Context { state: &mut state };
@@ -847,6 +873,33 @@ pub(super) mod tests {
         ));
     }
 
+    /// Commits `snapshot` through the save thread on `dir`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test waits for the save thread"
+    )]
+    fn commit(dir: &crate::save::tests::TempDir, snapshot: Snapshot) {
+        let opened = crate::save::open(&dir.0, crate::save::tests::specs()).unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let (answer, mut answers) = tokio::sync::mpsc::channel(1);
+        let thread = opened.thread;
+        let handle = crate::runtime::spawn_save(move || {
+            let pool = crate::runtime::cpu_pool(1).unwrap();
+            let result = crate::save::run(thread, &pool, rx, &answer);
+            assert!(pool.shutdown());
+            result
+        })
+        .unwrap();
+        tx.blocking_send(Request::Commit(Box::new(snapshot)))
+            .unwrap();
+        assert!(matches!(
+            answers.blocking_recv(),
+            Some(Response::Committed { .. })
+        ));
+        drop(tx);
+        handle.join().unwrap().unwrap();
+    }
+
     #[test]
     fn saved_server_data_loads_at_start_and_an_undecodable_value_refuses_it() {
         use crate::save::tests::{TempDir, specs};
@@ -877,41 +930,18 @@ pub(super) mod tests {
             Some(&Round(7))
         );
         drop(opened);
-        // A value of another type refuses the start; the value stays as saved.
+        // A value of another type refuses the start as a type that does not read its value, not
+        // as a damaged file; the value stays as saved.
         let mut opened = crate::save::open(&dir.0, specs()).unwrap();
         let mut data = registered::<Kills, Kills>("kills", "round");
         let e = data.load(&mut opened.thread).unwrap_err();
-        assert!(matches!(e, crate::Error::WorldDamaged(_)), "{e:?}");
+        assert!(
+            matches!(e, crate::Error::Data(Error::Undecodable { .. })),
+            "{e:?}"
+        );
         assert_eq!(
             opened.thread.read_user(&["round"]).unwrap(),
             [Some(b"7".to_vec())]
         );
-    }
-
-    /// Commits `snapshot` through the save thread on `dir`.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test waits for the save thread"
-    )]
-    fn commit(dir: &crate::save::tests::TempDir, snapshot: Snapshot) {
-        let opened = crate::save::open(&dir.0, crate::save::tests::specs()).unwrap();
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
-        let (answer, mut answers) = tokio::sync::mpsc::channel(1);
-        let thread = opened.thread;
-        let handle = crate::runtime::spawn_save(move || {
-            let pool = crate::runtime::cpu_pool(1).unwrap();
-            let result = crate::save::run(thread, &pool, rx, &answer);
-            assert!(pool.shutdown());
-            result
-        })
-        .unwrap();
-        tx.blocking_send(Request::Commit(Box::new(snapshot)))
-            .unwrap();
-        assert!(matches!(
-            answers.blocking_recv(),
-            Some(Response::Committed { .. })
-        ));
-        drop(tx);
-        handle.join().unwrap().unwrap();
     }
 }

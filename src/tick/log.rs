@@ -2,20 +2,23 @@
 //! saved state.
 //!
 //! The tick moves each input into the log before it applies it, and applies the logged value, so
-//! recording copies nothing large and the log of a tick that panics holds the input that did.
-//! Packets are encoded only when the log is written, on the main thread after the tick thread
-//! ended. The log is a list of segments: one from the start of the process and one per save
-//! snapshot, each starting at the tick its state was taken with a checkpoint of that state
-//! ([`super::checkpoint`]), which a replay starts from with the server file of the same tick.
+//! recording copies nothing large and the log of a tick that panics holds the input that did. A
+//! join is the one exception: the tick logs a copy of its identity, whose skin is shared, and
+//! applies the identity itself, which the new player keeps. Packets are encoded only when the log
+//! is written, on the main thread after the tick thread ended. The log is a list of segments: one
+//! from the start of the process and one per save snapshot, each starting at the tick its state
+//! was taken with a checkpoint of that state ([`super::checkpoint`]), which a replay starts from
+//! with the server file of the same tick.
 //!
-//! Committed segments are kept while there is room: the oldest go only when the bound needs
-//! room ([`MAX_BYTES`], inputs counted by their size on the wire or, for a packet, what decoding
-//! it allocated if that is larger, and the checkpoints of the segments that may go), never the
-//! newest committed one, which the crash log needs. Past the bound the segment being recorded
-//! stops and is marked truncated, and a replay ends there; the next snapshot starts a new
-//! segment. A quarter of the bound recorded since the last commit asks for a snapshot
-//! ([`InputLog::wants_commit`]), so the rest covers the commit's time and a segment is not
-//! truncated in normal running.
+//! The bound ([`MAX_BYTES`]) counts each input by its size on the wire or, for a packet, what
+//! decoding it allocated if that is larger, plus [`ENTRY_COST`]. Recording stops when the inputs
+//! alone would pass it. Committed segments are kept while there is room: the oldest go only when
+//! the inputs and the checkpoints of every kept segment would pass it, never the newest committed
+//! one, which the crash log needs. Checkpoints have no bound of their own. A segment whose
+//! recording stops, at the bound or at a save thread answer that cannot be logged, is marked
+//! truncated, and a replay ends there; the next snapshot starts a new segment. A quarter of the
+//! bound recorded since the last commit asks for a snapshot ([`InputLog::wants_commit`]), so the
+//! rest covers the commit's time and a segment is not truncated in normal running.
 //!
 //! The log chains every input the tick applies, recorded or not, into a commit identity
 //! ([`InputLog::identity`]), from the identity of the state the server file held at the start. A
@@ -30,25 +33,26 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use tracing::warn;
 
-use super::checkpoint::{Checkpoint, capacity};
-#[cfg(test)]
-use super::queue::Skin;
+use super::checkpoint::{Checkpoint, capacity, read_skin, skin_bytes};
 use super::queue::{Client, Identity, JobOutcome, Measure, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
-use crate::protocol::{self, Writer, packet::Packet};
+use crate::protocol::{
+    self, Writer,
+    packet::{PROTOCOL_VERSION, Packet},
+};
 use crate::save::{Loaded, PlayerData, PlayerLoad, Response, WorldIndex};
 use crate::storage::Checked;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::storage::seal::Crc32c;
 use crate::world::ChunkPos;
 
-/// The most input bytes the log holds.
+/// The most bytes the log counts: recording stops where its inputs would pass it, and old
+/// committed segments go where its inputs and checkpoints would.
 pub(crate) const MAX_BYTES: usize = 64 << 20;
 /// The input bytes recorded since the last commit at which the log asks for a snapshot.
 const COMMIT_BYTES: usize = MAX_BYTES / 4;
@@ -56,14 +60,18 @@ const COMMIT_BYTES: usize = MAX_BYTES / 4;
 const ENTRY_COST: usize = 32;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
-/// The written format's version, the only one [`InputLog::decode`] reads: the data files of an
-/// older log are of a storage format this Anchor does not read, so it could not be replayed.
-const FORMAT: u32 = 21;
+/// The written format's version: the layout of the log and of the checkpoints it holds, which
+/// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
+const FORMAT: u32 = 22;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or
 /// not at all.
 pub(crate) const MAX_FILE_BYTES: usize = 1 << 30;
+/// The bytes of the CRC-32C at the end of a written log.
+const CRC_BYTES: usize = 4;
+/// The folder of crash reports in the data folder.
+const CRASH_DIR: &str = "crash";
 const KIND_JOIN: u8 = 0;
 const KIND_PACKET: u8 = 1;
 const KIND_LEAVE: u8 = 2;
@@ -80,6 +88,21 @@ const JOB_DONE: u8 = 0;
 const ADDRESS_NONE: u8 = 0;
 const ADDRESS_V4: u8 = 4;
 const ADDRESS_V6: u8 = 6;
+const ANSWER_CHUNK: u8 = 0;
+const ANSWER_PLAYER: u8 = 1;
+const ANSWER_COMMITTED: u8 = 2;
+const ANSWER_COMMIT_FAILED: u8 = 3;
+const ANSWER_LOAD_FAILED: u8 = 4;
+const ANSWER_CHECKED: u8 = 5;
+const ORIGIN_DISK: u8 = 0;
+const ORIGIN_GENERATED: u8 = 1;
+const ORIGIN_DAMAGED: u8 = 2;
+const PLAYER_FOUND: u8 = 0;
+const PLAYER_ABSENT: u8 = 1;
+const PLAYER_DAMAGED: u8 = 2;
+const CHECK_PASSED: u8 = 0;
+const CHECK_DAMAGED: u8 = 1;
+const CHECK_FAILED: u8 = 2;
 /// What the commit identity chains before each tick, input, forgotten session and answer.
 const CHAIN_TICK: u8 = b'T';
 const CHAIN_INPUT: u8 = b'I';
@@ -107,6 +130,533 @@ pub(crate) struct InputLog {
     planned: Option<std::collections::BTreeSet<u64>>,
     /// The commit identity of the state after the inputs chained so far ([`Self::identity`]).
     chain: super::Fnv,
+}
+
+impl InputLog {
+    /// The tick's log: it starts at `checkpoint`'s state, the one the server file holds at the
+    /// start of the process with commit identity `identity`, and takes a checkpoint at every
+    /// snapshot ([`Self::needs_checkpoint`]).
+    pub(crate) fn new(
+        checkpoint: Checkpoint,
+        fingerprints: Fingerprints,
+        identity: Option<u64>,
+    ) -> Self {
+        let mut log = Self {
+            takes_checkpoints: true,
+            fingerprints,
+            ..Self::from_state(checkpoint.tick(), identity)
+        };
+        log.set_checkpoint(checkpoint);
+        log
+    }
+
+    /// A replay's log: it starts at the restored `checkpoint`, the state the server file holds
+    /// with commit identity `identity`, and takes a checkpoint at every snapshot, to compare with
+    /// the replayed log's; the replayed log's snapshots started at the ticks of `planned`, which
+    /// decide [`Self::wants_commit`].
+    pub(crate) fn replaying(
+        checkpoint: Checkpoint,
+        identity: Option<u64>,
+        planned: std::collections::BTreeSet<u64>,
+    ) -> Self {
+        Self {
+            planned: Some(planned),
+            ..Self::new(checkpoint, Fingerprints::default(), identity)
+        }
+    }
+
+    /// A log whose state starts at tick `start` (which the server file holds), taking no
+    /// checkpoints: tests replay it from a state they know.
+    pub(crate) fn starting_at(start: u64) -> Self {
+        Self::from_state(start, None)
+    }
+
+    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`], whose packets together
+    /// decode within [`MAX_BYTES`]. Its versions are checked first, then its checksum, then every
+    /// count against the bytes left before anything is allocated for it.
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(Error::Format("larger than a log can be"));
+        }
+        let Some((covered, crc)) = bytes.split_last_chunk::<CRC_BYTES>() else {
+            return Err(Error::Format("ends early"));
+        };
+        let mut r = Read(covered);
+        if r.take(MAGIC.len())? != MAGIC {
+            return Err(Error::Format("magic"));
+        }
+        let format = r.u32()?;
+        if format != FORMAT {
+            return Err(Error::OtherFormat(format));
+        }
+        let protocol = r.i32()?;
+        if protocol != PROTOCOL_VERSION {
+            return Err(Error::OtherProtocol(protocol));
+        }
+        let mut check = Crc32c::new();
+        check.update(covered);
+        if check.finish() != u32::from_le_bytes(*crc) {
+            return Err(Error::Checksum);
+        }
+        let fingerprints = Fingerprints {
+            settings: r.array()?,
+            registrations: r.array()?,
+        };
+        // A segment takes at least 15 bytes.
+        let count = r.count(15)?;
+        if count == 0 {
+            return Err(Error::Format("no segment"));
+        }
+        let mut segments = VecDeque::with_capacity(capacity::<Segment>(count, r.0.len()));
+        // The log counted each packet as at least what decoding it allocated, within the bound
+        // for all of them (`InputLog::record`): an item's NBT takes a reader far more than its
+        // bytes.
+        let mut packet_budget = MAX_BYTES;
+        for _ in 0..count {
+            let start = r.u64()?;
+            let committed = r.flag("committed flag")?;
+            let truncated = r.flag("truncated flag")?;
+            let identity = if r.flag("identity flag")? {
+                Some(r.u64()?)
+            } else {
+                None
+            };
+            let checkpoint = if r.flag("checkpoint flag")? {
+                Some(Point::Written(r.bytes()?.to_vec()))
+            } else {
+                None
+            };
+            let ticks = r.count(16)?;
+            let mut segment = Segment {
+                checkpoint,
+                ticks: Vec::with_capacity(capacity::<Tick>(ticks, r.0.len())),
+                truncated,
+                committed,
+                ..Segment::new(start, identity)
+            };
+            for _ in 0..ticks {
+                segment.ticks.push(r.tick(&mut packet_budget)?);
+            }
+            segments.push_back(segment);
+        }
+        if !r.0.is_empty() {
+            return Err(Error::Format("bytes after the last segment"));
+        }
+        Ok(Self {
+            segments,
+            bytes: 0,
+            checkpoint_bytes: 0,
+            takes_checkpoints: false,
+            fingerprints,
+            planned: None,
+            chain: super::Fnv(super::Fnv::OFFSET),
+        })
+    }
+
+    /// The commit identity of the state the inputs chained so far lead to: what the commit of a
+    /// snapshot taken now writes into the server file.
+    pub(crate) fn identity(&self) -> u64 {
+        self.chain.0
+    }
+
+    /// What the run that wrote the log was built with.
+    pub(crate) fn fingerprints(&self) -> Fingerprints {
+        self.fingerprints
+    }
+
+    /// The segments, oldest first.
+    pub(crate) fn segments(&self) -> impl Iterator<Item = &Segment> {
+        self.segments.iter()
+    }
+
+    /// The segment being recorded.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the log keeps at least one segment"
+    )]
+    pub(crate) fn last_segment(&self) -> &Segment {
+        self.segments.back().expect("the log keeps a segment")
+    }
+
+    /// Whether the newest segment waits for the checkpoint of its state: the tick takes it at
+    /// the tick boundary that started the segment, right after the snapshot, before anything
+    /// changes the state.
+    pub(crate) fn needs_checkpoint(&self) -> bool {
+        self.takes_checkpoints && self.last_segment().checkpoint.is_none()
+    }
+
+    /// Whether the inputs recorded since the state of the last commit reach a quarter of the
+    /// bound: the tick then takes a snapshot even with periodic saves off (`/save-off`), so
+    /// recording does not stop at the bound while the commit is written. In a replay's log:
+    /// whether the replayed log's snapshot started at `tick`, the tick of the boundary.
+    pub(crate) fn wants_commit(&self, tick: u64) -> bool {
+        if let Some(planned) = &self.planned {
+            return planned.contains(&tick);
+        }
+        let since: usize = self
+            .segments
+            .iter()
+            .skip(self.newest_committed())
+            .map(|s| s.bytes)
+            .sum();
+        since >= COMMIT_BYTES
+    }
+
+    /// Whether a replay of this log stops before its last tick: a kept segment stopped recording.
+    pub(crate) fn is_truncated(&self) -> bool {
+        self.segments.iter().any(|s| s.truncated)
+    }
+
+    /// The tick of the oldest kept state.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the log keeps at least one segment"
+    )]
+    pub(crate) fn start(&self) -> u64 {
+        self.segments
+            .front()
+            .expect("the log keeps a segment")
+            .start
+    }
+
+    /// The ticks a replay from the oldest segment applies, oldest first.
+    #[cfg(test)]
+    pub(crate) fn ticks(&self) -> Vec<Tick> {
+        self.replayable().cloned().collect()
+    }
+
+    /// Starts a segment at tick `start`, the tick a save snapshot was just taken before.
+    pub(crate) fn snapshot(&mut self, start: u64) {
+        if self.last_segment().start == start {
+            return;
+        }
+        let identity = Some(self.identity());
+        self.segments.push_back(Segment::new(start, identity));
+    }
+
+    /// Gives the newest segment the checkpoint of its state, if it starts at the checkpoint's
+    /// tick and has none.
+    pub(crate) fn set_checkpoint(&mut self, checkpoint: Checkpoint) {
+        let last = self.last_segment_mut();
+        if last.start != checkpoint.tick() || last.checkpoint.is_some() {
+            return;
+        }
+        let point = Point::Taken(Box::new(checkpoint));
+        let size = point.size();
+        last.checkpoint = Some(point);
+        self.checkpoint_bytes = self.checkpoint_bytes.saturating_add(size);
+        self.make_room(0);
+    }
+
+    /// The snapshot taken before tick `start` is committed: its segment is the newest committed
+    /// one. The segments before it stay while there is room. Does nothing if no segment starts
+    /// at `start`.
+    pub(crate) fn committed(&mut self, start: u64) {
+        if let Some(segment) = self.segments.iter_mut().find(|s| s.start == start) {
+            segment.committed = true;
+            self.make_room(0);
+        }
+    }
+
+    /// Starts the record of tick `number`; every tick counts against the bound, even an empty
+    /// one. Nothing is recorded in a truncated segment.
+    pub(crate) fn begin(&mut self, number: u64) {
+        self.chain.raw(&[CHAIN_TICK]);
+        self.chain.u64(number);
+        if self.charge(0) == Charge::Fits {
+            self.last_segment_mut().ticks.push(Tick {
+                number,
+                inputs: Vec::new(),
+                dropped: Vec::new(),
+                responses: Vec::new(),
+            });
+        }
+    }
+
+    /// Records an input of `size` bytes (a packet's
+    /// [`InputKind::Packet`](super::queue::InputKind::Packet) size, a join's
+    /// [`Identity::size`](super::queue::Identity::size), 0 for a leave) before the tick
+    /// applies it, and gives it back for the tick to apply: the logged entry, or the input itself
+    /// when the log no longer records.
+    pub(crate) fn record(
+        &mut self,
+        session: SessionId,
+        seq: u64,
+        kind: EntryKind,
+        size: usize,
+    ) -> Cow<'_, EntryKind> {
+        self.chain_input(session, seq, &kind);
+        if !self.charge_entry(size) {
+            return Cow::Owned(kind);
+        }
+        match self.last_tick() {
+            Some(tick) => Cow::Borrowed(&tick.inputs.push_mut(Entry { session, seq, kind }).kind),
+            None => Cow::Owned(kind),
+        }
+    }
+
+    /// Records that the tick forgot `session` after its output.
+    pub(crate) fn dropped(&mut self, session: SessionId) {
+        self.chain.raw(&[CHAIN_DROPPED]);
+        self.chain.u64(session.get());
+        if self.charge_entry(0)
+            && let Some(tick) = self.last_tick()
+        {
+            tick.dropped.push(session);
+        }
+    }
+
+    /// Records a save thread answer the tick applied. An answer that cannot be logged (a player
+    /// extra that does not encode) ends the segment like the bound does: a replay must not apply
+    /// a tick without it.
+    pub(crate) fn response(&mut self, response: &Response) {
+        self.chain.raw(&[
+            CHAIN_ANSWER,
+            match response {
+                Response::Chunk { .. } => ANSWER_CHUNK,
+                Response::Player { .. } => ANSWER_PLAYER,
+                Response::Committed { .. } => ANSWER_COMMITTED,
+                Response::CommitFailed { .. } => ANSWER_COMMIT_FAILED,
+                Response::LoadFailed => ANSWER_LOAD_FAILED,
+                Response::Checked(_) => ANSWER_CHECKED,
+            },
+        ]);
+        if self.last_segment().truncated {
+            return;
+        }
+        let (answer, size) = match Answer::of(response) {
+            Ok(logged) => logged,
+            Err(e) => {
+                warn!(error = %e, "an answer cannot be logged; ticks until the next save are not recorded");
+                let segment = self.last_segment_mut();
+                segment.truncated = true;
+                segment.ticks.pop();
+                return;
+            }
+        };
+        if self.charge_entry(size)
+            && let Some(tick) = self.last_tick()
+        {
+            tick.responses.push(answer);
+        }
+    }
+
+    /// The written form; tests compare and read it back.
+    #[cfg(test)]
+    pub(crate) fn encode(&self) -> Result<Vec<u8>> {
+        self.encode_from(0, usize::MAX)
+    }
+
+    /// A log whose state starts at tick `start` with commit identity `identity`, taking no
+    /// checkpoints.
+    fn from_state(start: u64, identity: Option<u64>) -> Self {
+        Self {
+            segments: VecDeque::from([Segment {
+                committed: true,
+                ..Segment::new(start, identity)
+            }]),
+            bytes: 0,
+            checkpoint_bytes: 0,
+            takes_checkpoints: false,
+            fingerprints: Fingerprints::default(),
+            planned: None,
+            chain: super::Fnv(identity.unwrap_or(super::Fnv::OFFSET)),
+        }
+    }
+
+    /// The place of the newest committed segment.
+    fn newest_committed(&self) -> usize {
+        self.segments.iter().rposition(|s| s.committed).unwrap_or(0)
+    }
+
+    /// The segment being recorded, to change.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the log keeps at least one segment"
+    )]
+    fn last_segment_mut(&mut self) -> &mut Segment {
+        self.segments.back_mut().expect("the log keeps a segment")
+    }
+
+    /// The tick being recorded.
+    fn last_tick(&mut self) -> Option<&mut Tick> {
+        self.last_segment_mut().ticks.last_mut()
+    }
+
+    /// Drops the oldest segments before the newest committed one while the inputs, the
+    /// checkpoints and `cost` more bytes exceed the bound.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a committed segment follows the one dropped"
+    )]
+    fn make_room(&mut self, cost: usize) {
+        while self
+            .bytes
+            .saturating_add(self.checkpoint_bytes)
+            .saturating_add(cost)
+            > MAX_BYTES
+            && self.newest_committed() > 0
+        {
+            let first = self
+                .segments
+                .pop_front()
+                .expect("a committed segment follows the first");
+            self.bytes = self.bytes.saturating_sub(first.bytes);
+            let size = first.checkpoint.as_ref().map_or(0, Point::size);
+            self.checkpoint_bytes = self.checkpoint_bytes.saturating_sub(size);
+        }
+    }
+
+    /// Chains an input into the commit identity: its place, its kind, a packet's id and the
+    /// values a measure holds.
+    fn chain_input(&mut self, session: SessionId, seq: u64, kind: &EntryKind) {
+        let chain = &mut self.chain;
+        chain.raw(&[CHAIN_INPUT]);
+        chain.u64(session.get());
+        chain.u64(seq);
+        match kind {
+            EntryKind::Join(_) => chain.raw(&[KIND_JOIN]),
+            EntryKind::Packet(packet) => {
+                chain.raw(&[KIND_PACKET]);
+                chain.u64(u64::from(packet.id()));
+            }
+            EntryKind::Leave => chain.raw(&[KIND_LEAVE]),
+            EntryKind::Console(_) => chain.raw(&[KIND_CONSOLE]),
+            EntryKind::Job(_) => chain.raw(&[KIND_JOB]),
+            EntryKind::Measure(measure) => {
+                chain.raw(&[KIND_MEASURE]);
+                match *measure {
+                    Measure::TickTime(v) | Measure::Ping(v) => chain.u64(u64::from(v)),
+                    Measure::Connections { all, logged_in } => {
+                        chain.u64(u64::from(all));
+                        chain.u64(u64::from(logged_in));
+                    }
+                    Measure::Process { memory, uptime_ms } => {
+                        chain.u64(memory);
+                        chain.u64(uptime_ms);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Counts an entry of the tick being recorded; `false` if it is not recorded. When the bound
+    /// is reached in the middle of a tick, that tick is incomplete, so it goes too: a replay
+    /// must not apply part of a tick.
+    fn charge_entry(&mut self, size: usize) -> bool {
+        match self.charge(size) {
+            Charge::Fits => true,
+            Charge::Full => {
+                self.last_segment_mut().ticks.pop();
+                false
+            }
+            Charge::Truncated => false,
+        }
+    }
+
+    /// Counts `size` bytes and an entry's cost against the bound, for the segment being recorded.
+    /// Old committed segments go first if the bound needs room.
+    fn charge(&mut self, size: usize) -> Charge {
+        if self.last_segment().truncated {
+            return Charge::Truncated;
+        }
+        let cost = size.saturating_add(ENTRY_COST);
+        self.make_room(cost);
+        let bytes = self.bytes.saturating_add(cost);
+        if bytes > MAX_BYTES {
+            warn!(
+                bytes = self.bytes,
+                "input log reached its bound; ticks until the next save are not recorded"
+            );
+            self.last_segment_mut().truncated = true;
+            return Charge::Full;
+        }
+        self.bytes = bytes;
+        let segment = self.last_segment_mut();
+        segment.bytes = segment.bytes.saturating_add(cost);
+        Charge::Fits
+    }
+
+    /// The written form if it takes at most `limit` bytes; otherwise the written form from the
+    /// newest committed segment on, which a replay starts from with the server file of the last
+    /// commit, if that fits; otherwise [`Error::TooLarge`].
+    fn encode_within(&self, limit: usize) -> Result<Vec<u8>> {
+        match self.encode_from(0, limit) {
+            Err(Error::TooLarge) if self.newest_committed() > 0 => {
+                self.encode_from(self.newest_committed(), limit)
+            }
+            written => written,
+        }
+    }
+
+    /// The written form of the segments from the one at place `from` on: the header with the
+    /// fingerprints, then each segment (its start, marks, commit identity, checkpoint and ticks),
+    /// then the CRC-32C of everything before it. Integers are little-endian; checkpoints are
+    /// encoded here, on the main thread. [`Error::TooLarge`] as soon as it would take more than
+    /// `limit` bytes.
+    fn encode_from(&self, from: usize, limit: usize) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
+        out.extend_from_slice(MAGIC);
+        out.extend_from_slice(&FORMAT.to_le_bytes());
+        out.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+        out.extend_from_slice(&self.fingerprints.settings);
+        out.extend_from_slice(&self.fingerprints.registrations);
+        put_len(&mut out, self.segments.len().saturating_sub(from))?;
+        let mut body = Vec::new();
+        for segment in self.segments.iter().skip(from) {
+            out.extend_from_slice(&segment.start.to_le_bytes());
+            out.push(u8::from(segment.committed));
+            out.push(u8::from(segment.truncated));
+            match segment.identity {
+                None => out.push(0),
+                Some(identity) => {
+                    out.push(1);
+                    out.extend_from_slice(&identity.to_le_bytes());
+                }
+            }
+            match &segment.checkpoint {
+                None => out.push(0),
+                Some(Point::Taken(c)) => {
+                    out.push(1);
+                    put_bytes(&mut out, &c.to_bytes())?;
+                }
+                Some(Point::Written(bytes)) => {
+                    out.push(1);
+                    put_bytes(&mut out, bytes)?;
+                }
+            }
+            put_len(&mut out, segment.ticks.len())?;
+            for tick in &segment.ticks {
+                put_tick(&mut out, tick, &mut body)?;
+            }
+            if out.len().saturating_add(CRC_BYTES) > limit {
+                return Err(Error::TooLarge);
+            }
+        }
+        let mut crc = Crc32c::new();
+        crc.update(&out);
+        out.extend_from_slice(&crc.finish().to_le_bytes());
+        Ok(out)
+    }
+
+    /// The ticks a replay from the oldest segment applies, oldest first: every kept segment up
+    /// to and including the first truncated one.
+    #[cfg(test)]
+    fn replayable(&self) -> impl Iterator<Item = &Tick> {
+        let end = self
+            .segments
+            .iter()
+            .position(|s| s.truncated)
+            .map_or(self.segments.len(), |i| i.saturating_add(1));
+        self.segments.iter().take(end).flat_map(|s| &s.ticks)
+    }
+}
+
+impl Default for InputLog {
+    /// A log that starts at tick 0 and takes no checkpoints.
+    fn default() -> Self {
+        Self::starting_at(0)
+    }
 }
 
 /// What a replay must have in common with the run that wrote the log: SHA-256 of the tick settings
@@ -144,7 +694,8 @@ pub(crate) struct Segment {
     ticks: Vec<Tick>,
     /// The input bytes charged for this segment.
     bytes: usize,
-    /// Recording stopped at the bound; later ticks of this segment are missing.
+    /// Recording stopped, at the bound or at an answer that cannot be logged; later ticks of
+    /// this segment are missing.
     truncated: bool,
     /// The server file holds the state at `start`: the start of the process, or a commit the tick
     /// learnt of.
@@ -154,36 +705,7 @@ pub(crate) struct Segment {
     identity: Option<u64>,
 }
 
-/// A segment's checkpoint: taken by this process, or read from a written log (its bytes, read
-/// with the server's custom content by the replay).
-#[derive(Debug)]
-enum Point {
-    Taken(Box<Checkpoint>),
-    Written(Vec<u8>),
-}
-
-impl Point {
-    fn size(&self) -> usize {
-        match self {
-            Self::Taken(c) => c.size(),
-            Self::Written(b) => b.len(),
-        }
-    }
-}
-
 impl Segment {
-    fn new(start: u64, committed: bool, identity: Option<u64>) -> Self {
-        Self {
-            start,
-            checkpoint: None,
-            ticks: Vec::new(),
-            bytes: 0,
-            truncated: false,
-            committed,
-            identity,
-        }
-    }
-
     /// The tick of the segment's state.
     pub(crate) fn start(&self) -> u64 {
         self.start
@@ -215,16 +737,39 @@ impl Segment {
         &self.ticks
     }
 
-    /// Whether recording stopped at the bound before the segment's last tick.
+    /// Whether recording stopped before the segment's last tick.
     pub(crate) fn is_truncated(&self) -> bool {
         self.truncated
     }
+
+    /// A segment from tick `start`, of the state with commit identity `identity`, not committed.
+    fn new(start: u64, identity: Option<u64>) -> Self {
+        Self {
+            start,
+            checkpoint: None,
+            ticks: Vec::new(),
+            bytes: 0,
+            truncated: false,
+            committed: false,
+            identity,
+        }
+    }
 }
 
-impl Default for InputLog {
-    /// A log that starts at tick 0 and takes no checkpoints.
-    fn default() -> Self {
-        Self::starting_at(0)
+/// A segment's checkpoint: taken by this process, or read from a written log (its bytes, read
+/// with the server's custom content by the replay).
+#[derive(Debug)]
+enum Point {
+    Taken(Box<Checkpoint>),
+    Written(Vec<u8>),
+}
+
+impl Point {
+    fn size(&self) -> usize {
+        match self {
+            Self::Taken(c) => c.size(),
+            Self::Written(b) => b.len(),
+        }
     }
 }
 
@@ -240,6 +785,29 @@ pub(crate) struct Tick {
     pub(crate) dropped: Vec<SessionId>,
     /// The save thread's answers the tick applied, in order, before the session inputs.
     pub(crate) responses: Vec<Answer>,
+}
+
+/// One applied input.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Entry {
+    pub(crate) session: SessionId,
+    pub(crate) seq: u64,
+    pub(crate) kind: EntryKind,
+}
+
+/// What an input was.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum EntryKind {
+    Join(Identity),
+    Packet(Packet),
+    Leave,
+    /// A console line ([`InputKind::Console`](super::queue::InputKind::Console)).
+    Console(String),
+    /// A blocking job's result ([`InputKind::Job`](super::queue::InputKind::Job)); the entry's
+    /// sequence number is the job's id.
+    Job(JobOutcome),
+    /// A value measured off the tick ([`InputKind::Measure`](super::queue::InputKind::Measure)).
+    Measure(Measure),
 }
 
 /// A save thread answer as the log keeps it: what arrived and where from, not the chunk itself,
@@ -263,85 +831,6 @@ pub(crate) enum Answer {
     CommitFailed(u64),
     LoadFailed,
     Checked(Checked),
-}
-
-/// A player load as the log keeps it: the extra compound as its little-endian NBT bytes, which
-/// the log counts against its bound and copies no tree for.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum LoggedPlayer {
-    Found {
-        world: String,
-        position: [f64; 3],
-        extra: Vec<u8>,
-    },
-    Absent,
-    Damaged,
-}
-
-impl LoggedPlayer {
-    /// The logged form of a load; fails only if the extra does not encode.
-    fn of(load: &PlayerLoad) -> protocol::Result<Self> {
-        Ok(match load {
-            PlayerLoad::Found(data) => {
-                let mut w = Writer::new(Vec::new(), 0);
-                w.nbt_within(&data.extra, Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)?;
-                Self::Found {
-                    world: data.world.clone(),
-                    position: data.position,
-                    extra: w.into_inner(),
-                }
-            }
-            PlayerLoad::Absent => Self::Absent,
-            PlayerLoad::Damaged => Self::Damaged,
-        })
-    }
-
-    /// The load this records, for a replay.
-    pub(crate) fn to_load(&self) -> Result<PlayerLoad> {
-        Ok(match self {
-            Self::Found {
-                world,
-                position,
-                extra,
-            } => PlayerLoad::Found(PlayerData {
-                world: world.clone(),
-                position: *position,
-                extra: read_extra(extra)?,
-            }),
-            Self::Absent => PlayerLoad::Absent,
-            Self::Damaged => PlayerLoad::Damaged,
-        })
-    }
-
-    /// The bytes the log charges for it.
-    fn size(&self) -> usize {
-        match self {
-            Self::Found { world, extra, .. } => world.len().saturating_add(extra.len()),
-            Self::Absent | Self::Damaged => 0,
-        }
-    }
-}
-
-/// A logged player extra: one little-endian NBT root compound and nothing after it, read within
-/// the budget its players record was read with, which it came from.
-fn read_extra(bytes: &[u8]) -> Result<crate::nbt::Compound> {
-    let mut r = protocol::Reader::new(bytes, crate::storage::seal::DECODE_BUDGET, 0);
-    let extra = r
-        .nbt_within(Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)
-        .map_err(Error::Packet)?;
-    if r.remaining().is_empty() {
-        Ok(extra)
-    } else {
-        Err(Error::Format("bytes after a player extra"))
-    }
-}
-
-/// Where a loaded chunk came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Origin {
-    Disk,
-    Generated,
-    Damaged,
 }
 
 impl Answer {
@@ -386,27 +875,69 @@ impl Answer {
     }
 }
 
-/// One applied input.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Entry {
-    pub(crate) session: SessionId,
-    pub(crate) seq: u64,
-    pub(crate) kind: EntryKind,
+/// Where a loaded chunk came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Origin {
+    Disk,
+    Generated,
+    Damaged,
 }
 
-/// What an input was.
+/// A player load as the log keeps it: the extra compound as its little-endian NBT bytes, which
+/// the log counts against its bound and copies no tree for.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum EntryKind {
-    Join(Identity),
-    Packet(Packet),
-    Leave,
-    /// A console line ([`InputKind::Console`](super::queue::InputKind::Console)).
-    Console(String),
-    /// A blocking job's result ([`InputKind::Job`](super::queue::InputKind::Job)); the entry's
-    /// sequence number is the job's id.
-    Job(JobOutcome),
-    /// A value measured off the tick ([`InputKind::Measure`](super::queue::InputKind::Measure)).
-    Measure(Measure),
+pub(crate) enum LoggedPlayer {
+    Found {
+        world: String,
+        position: [f64; 3],
+        extra: Vec<u8>,
+    },
+    Absent,
+    Damaged,
+}
+
+impl LoggedPlayer {
+    /// The load this records, for a replay.
+    pub(crate) fn to_load(&self) -> Result<PlayerLoad> {
+        Ok(match self {
+            Self::Found {
+                world,
+                position,
+                extra,
+            } => PlayerLoad::Found(PlayerData {
+                world: world.clone(),
+                position: *position,
+                extra: read_extra(extra)?,
+            }),
+            Self::Absent => PlayerLoad::Absent,
+            Self::Damaged => PlayerLoad::Damaged,
+        })
+    }
+
+    /// The logged form of a load; fails only if the extra does not encode.
+    fn of(load: &PlayerLoad) -> protocol::Result<Self> {
+        Ok(match load {
+            PlayerLoad::Found(data) => {
+                let mut w = Writer::new(Vec::new(), 0);
+                w.nbt_within(&data.extra, Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)?;
+                Self::Found {
+                    world: data.world.clone(),
+                    position: data.position,
+                    extra: w.into_inner(),
+                }
+            }
+            PlayerLoad::Absent => Self::Absent,
+            PlayerLoad::Damaged => Self::Damaged,
+        })
+    }
+
+    /// The bytes the log charges for it.
+    fn size(&self) -> usize {
+        match self {
+            Self::Found { world, extra, .. } => world.len().saturating_add(extra.len()),
+            Self::Absent | Self::Damaged => 0,
+        }
+    }
 }
 
 /// What counting an entry against the bound gave.
@@ -422,10 +953,16 @@ enum Charge {
 /// A log that cannot be written or read.
 #[derive(Debug)]
 pub(crate) enum Error {
-    /// A logged packet does not encode, or a written one does not decode.
+    /// A logged packet or skin does not encode, or a written one does not decode.
     Packet(protocol::Error),
-    /// The bytes are not a log of this format.
+    /// The bytes are not an input log, or break a rule of its format.
     Format(&'static str),
+    /// The log is of another format version ([`FORMAT`]): another Anchor wrote it.
+    OtherFormat(u32),
+    /// The log is of another protocol version: another Anchor wrote it.
+    OtherProtocol(i32),
+    /// The bytes do not match the log's checksum: the file is damaged.
+    Checksum,
     /// The written log would be larger than a replay reads ([`MAX_FILE_BYTES`]), even from its
     /// newest committed segment on.
     TooLarge,
@@ -438,6 +975,9 @@ impl fmt::Display for Error {
         match self {
             Self::Packet(_) => f.write_str("a logged packet does not encode or decode"),
             Self::Format(what) => write!(f, "not an input log: {what}"),
+            Self::OtherFormat(found) => write!(f, "log format {found}, not {FORMAT}"),
+            Self::OtherProtocol(found) => write!(f, "log protocol {found}, not {PROTOCOL_VERSION}"),
+            Self::Checksum => f.write_str("the checksum does not match: the file is damaged"),
             Self::TooLarge => f.write_str("crash log over the replay limit; replay unavailable"),
         }
     }
@@ -447,507 +987,299 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Packet(e) => Some(e),
-            Self::Format(_) | Self::TooLarge => None,
+            Self::Format(_)
+            | Self::OtherFormat(_)
+            | Self::OtherProtocol(_)
+            | Self::Checksum
+            | Self::TooLarge => None,
         }
     }
 }
 
-impl InputLog {
-    /// A log whose state starts at tick `start` (which the server file holds), taking no
-    /// checkpoints: tests replay it from a state they know.
-    pub(crate) fn starting_at(start: u64) -> Self {
-        Self::from_state(start, None)
-    }
+/// A reader over a written log.
+struct Read<'a>(&'a [u8]);
 
-    /// A log whose state starts at tick `start` with commit identity `identity`, taking no
-    /// checkpoints.
-    fn from_state(start: u64, identity: Option<u64>) -> Self {
-        Self {
-            segments: VecDeque::from([Segment::new(start, true, identity)]),
-            bytes: 0,
-            checkpoint_bytes: 0,
-            takes_checkpoints: false,
-            fingerprints: Fingerprints::default(),
-            planned: None,
-            chain: super::Fnv(identity.unwrap_or(super::Fnv::OFFSET)),
-        }
-    }
-
-    /// The tick's log: it starts at `checkpoint`'s state, the one the server file holds at the
-    /// start of the process with commit identity `identity`, and takes a checkpoint at every
-    /// snapshot ([`Self::needs_checkpoint`]).
-    pub(crate) fn new(
-        checkpoint: Checkpoint,
-        fingerprints: Fingerprints,
-        identity: Option<u64>,
-    ) -> Self {
-        let mut log = Self {
-            takes_checkpoints: true,
-            fingerprints,
-            ..Self::from_state(checkpoint.tick(), identity)
-        };
-        log.set_checkpoint(checkpoint);
-        log
-    }
-
-    /// A replay's log: it starts at the restored `checkpoint`, the state the server file holds
-    /// with commit identity `identity`, and takes a checkpoint at every snapshot, to compare with
-    /// the replayed log's; the replayed log's snapshots started at the ticks of `planned`, which
-    /// decide [`Self::wants_commit`].
-    pub(crate) fn replaying(
-        checkpoint: Checkpoint,
-        identity: Option<u64>,
-        planned: std::collections::BTreeSet<u64>,
-    ) -> Self {
-        Self {
-            planned: Some(planned),
-            ..Self::new(checkpoint, Fingerprints::default(), identity)
-        }
-    }
-
-    /// The commit identity of the state the inputs chained so far lead to: what the commit of a
-    /// snapshot taken now writes into the server file.
-    pub(crate) fn identity(&self) -> u64 {
-        self.chain.0
-    }
-
-    /// What the run that wrote the log was built with.
-    pub(crate) fn fingerprints(&self) -> Fingerprints {
-        self.fingerprints
-    }
-
-    /// The segments, oldest first.
-    pub(crate) fn segments(&self) -> impl Iterator<Item = &Segment> {
-        self.segments.iter()
-    }
-
-    /// The segment being recorded.
-    pub(crate) fn last_segment(&self) -> Option<&Segment> {
-        self.segments.back()
-    }
-
-    /// Starts a segment at tick `start`, the tick a save snapshot was just taken before.
-    pub(crate) fn snapshot(&mut self, start: u64) {
-        if let Some(last) = self.segments.back_mut()
-            && last.start == start
-        {
-            return;
-        }
-        let identity = Some(self.identity());
-        self.segments
-            .push_back(Segment::new(start, false, identity));
-    }
-
-    /// Whether the newest segment waits for the checkpoint of its state: the tick takes it at
-    /// the tick boundary that started the segment, right after the snapshot, before anything
-    /// changes the state.
-    pub(crate) fn needs_checkpoint(&self) -> bool {
-        self.takes_checkpoints && self.segments.back().is_some_and(|s| s.checkpoint.is_none())
-    }
-
-    /// Gives the newest segment the checkpoint of its state, if it starts at the checkpoint's
-    /// tick and has none.
-    pub(crate) fn set_checkpoint(&mut self, checkpoint: Checkpoint) {
-        if let Some(last) = self.segments.back_mut()
-            && last.start == checkpoint.tick()
-            && last.checkpoint.is_none()
-        {
-            let point = Point::Taken(Box::new(checkpoint));
-            self.checkpoint_bytes = self.checkpoint_bytes.saturating_add(point.size());
-            last.checkpoint = Some(point);
-            self.make_room(0);
-        }
-    }
-
-    /// The snapshot taken before tick `start` is committed: its segment is the newest committed
-    /// one. The segments before it stay while there is room. Does nothing if no segment starts
-    /// at `start`.
-    pub(crate) fn committed(&mut self, start: u64) {
-        if let Some(segment) = self.segments.iter_mut().find(|s| s.start == start) {
-            segment.committed = true;
-            self.make_room(0);
-        }
-    }
-
-    /// The place of the newest committed segment.
-    fn newest_committed(&self) -> usize {
-        self.segments.iter().rposition(|s| s.committed).unwrap_or(0)
-    }
-
-    /// Whether the inputs recorded since the state of the last commit reach a quarter of the
-    /// bound: the tick then takes a snapshot even with periodic saves off (`/save-off`), so
-    /// recording does not stop at the bound while the commit is written. In a replay's log:
-    /// whether the replayed log's snapshot started at `tick`, the tick of the boundary.
-    pub(crate) fn wants_commit(&self, tick: u64) -> bool {
-        if let Some(planned) = &self.planned {
-            return planned.contains(&tick);
-        }
-        let since: usize = self
-            .segments
-            .iter()
-            .skip(self.newest_committed())
-            .map(|s| s.bytes)
-            .sum();
-        since >= COMMIT_BYTES
-    }
-
-    /// Drops the oldest segments before the newest committed one while the inputs, the
-    /// checkpoints and `cost` more bytes exceed the bound.
-    fn make_room(&mut self, cost: usize) {
-        while self
-            .bytes
-            .saturating_add(self.checkpoint_bytes)
-            .saturating_add(cost)
-            > MAX_BYTES
-            && self.newest_committed() > 0
-        {
-            if let Some(first) = self.segments.pop_front() {
-                self.bytes = self.bytes.saturating_sub(first.bytes);
-                let size = first.checkpoint.as_ref().map_or(0, Point::size);
-                self.checkpoint_bytes = self.checkpoint_bytes.saturating_sub(size);
-            }
-        }
-    }
-
-    /// Starts the record of tick `number`; every tick counts against the bound, even an empty
-    /// one. Nothing is recorded in a truncated segment.
-    pub(crate) fn begin(&mut self, number: u64) {
-        self.chain.raw(&[CHAIN_TICK]);
-        self.chain.u64(number);
-        if self.charge(0) == Charge::Fits
-            && let Some(segment) = self.segments.back_mut()
-        {
-            segment.ticks.push(Tick {
-                number,
-                inputs: Vec::new(),
-                dropped: Vec::new(),
-                responses: Vec::new(),
-            });
-        }
-    }
-
-    /// Records an input of `size` bytes (a packet's
-    /// [`InputKind::Packet`](super::queue::InputKind::Packet) size, a join's
-    /// [`Identity::size`](super::queue::Identity::size), 0 for a leave) before the tick
-    /// applies it, and gives it back for the tick to apply: the logged entry, or the input itself
-    /// when the log no longer records.
-    pub(crate) fn record(
-        &mut self,
-        session: SessionId,
-        seq: u64,
-        kind: EntryKind,
-        size: usize,
-    ) -> Cow<'_, EntryKind> {
-        self.chain_input(session, seq, &kind);
-        if !self.charge_entry(size) {
-            return Cow::Owned(kind);
-        }
-        match self.last_tick() {
-            Some(tick) => Cow::Borrowed(&tick.inputs.push_mut(Entry { session, seq, kind }).kind),
-            None => Cow::Owned(kind),
-        }
-    }
-
-    /// Chains an input into the commit identity: its place, its kind, a packet's id and the
-    /// values a measure holds.
-    fn chain_input(&mut self, session: SessionId, seq: u64, kind: &EntryKind) {
-        let chain = &mut self.chain;
-        chain.raw(&[CHAIN_INPUT]);
-        chain.u64(session.get());
-        chain.u64(seq);
-        match kind {
-            EntryKind::Join(_) => chain.raw(&[KIND_JOIN]),
-            EntryKind::Packet(packet) => {
-                chain.raw(&[KIND_PACKET]);
-                chain.u64(u64::from(packet.id()));
-            }
-            EntryKind::Leave => chain.raw(&[KIND_LEAVE]),
-            EntryKind::Console(_) => chain.raw(&[KIND_CONSOLE]),
-            EntryKind::Job(_) => chain.raw(&[KIND_JOB]),
-            EntryKind::Measure(measure) => {
-                chain.raw(&[KIND_MEASURE]);
-                match *measure {
-                    Measure::TickTime(v) | Measure::Ping(v) => chain.u64(u64::from(v)),
-                    Measure::Connections { all, logged_in } => {
-                        chain.u64(u64::from(all));
-                        chain.u64(u64::from(logged_in));
-                    }
-                    Measure::Process { memory, uptime_ms } => {
-                        chain.u64(memory);
-                        chain.u64(uptime_ms);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Records that the tick forgot `session` after its output.
-    pub(crate) fn dropped(&mut self, session: SessionId) {
-        self.chain.raw(&[CHAIN_DROPPED]);
-        self.chain.u64(session.get());
-        if self.charge_entry(0)
-            && let Some(tick) = self.last_tick()
-        {
-            tick.dropped.push(session);
-        }
-    }
-
-    /// Records a save thread answer the tick applied. An answer that cannot be logged (a player
-    /// extra that does not encode) ends the segment like the bound does: a replay must not apply
-    /// a tick without it.
-    pub(crate) fn response(&mut self, response: &Response) {
-        self.chain.raw(&[
-            CHAIN_ANSWER,
-            match response {
-                Response::Chunk { .. } => ANSWER_CHUNK,
-                Response::Player { .. } => ANSWER_PLAYER,
-                Response::Committed { .. } => ANSWER_COMMITTED,
-                Response::CommitFailed { .. } => ANSWER_COMMIT_FAILED,
-                Response::LoadFailed => ANSWER_LOAD_FAILED,
-                Response::Checked(_) => ANSWER_CHECKED,
-            },
-        ]);
-        if self.segments.back().is_none_or(|s| s.truncated) {
-            return;
-        }
-        let (answer, size) = match Answer::of(response) {
-            Ok(logged) => logged,
-            Err(e) => {
-                warn!(error = %e, "an answer cannot be logged; ticks until the next save are not recorded");
-                if let Some(segment) = self.segments.back_mut() {
-                    segment.truncated = true;
-                    segment.ticks.pop();
-                }
-                return;
-            }
-        };
-        if self.charge_entry(size)
-            && let Some(tick) = self.last_tick()
-        {
-            tick.responses.push(answer);
-        }
-    }
-
-    /// The tick being recorded.
-    fn last_tick(&mut self) -> Option<&mut Tick> {
-        self.segments.back_mut()?.ticks.last_mut()
-    }
-
-    /// Whether a replay of this log stops before its last tick: a kept segment stopped at the
-    /// bound.
-    pub(crate) fn is_truncated(&self) -> bool {
-        self.segments.iter().any(|s| s.truncated)
-    }
-
-    /// The tick of the oldest kept state.
-    pub(crate) fn start(&self) -> u64 {
-        self.segments.front().map_or(0, |s| s.start)
-    }
-
-    /// The ticks a replay from the oldest segment applies, oldest first: every kept segment up
-    /// to and including the first truncated one.
-    #[cfg(test)]
-    fn replayable(&self) -> impl Iterator<Item = &Tick> {
-        let end = self
-            .segments
-            .iter()
-            .position(|s| s.truncated)
-            .map_or(self.segments.len(), |i| i.saturating_add(1));
-        self.segments.iter().take(end).flat_map(|s| &s.ticks)
-    }
-
-    /// The ticks a replay from the oldest segment applies, oldest first.
-    #[cfg(test)]
-    pub(crate) fn ticks(&self) -> Vec<Tick> {
-        self.replayable().cloned().collect()
-    }
-
-    /// Counts an entry of the tick being recorded; `false` if it is not recorded. When the bound
-    /// is reached in the middle of a tick, that tick is incomplete, so it goes too: a replay
-    /// must not apply part of a tick.
-    fn charge_entry(&mut self, size: usize) -> bool {
-        match self.charge(size) {
-            Charge::Fits => true,
-            Charge::Full => {
-                if let Some(segment) = self.segments.back_mut() {
-                    segment.ticks.pop();
-                }
-                false
-            }
-            Charge::Truncated => false,
-        }
-    }
-
-    /// Counts `size` bytes and an entry's cost against the bound, for the segment being recorded.
-    /// Old committed segments go first if the bound needs room.
-    fn charge(&mut self, size: usize) -> Charge {
-        if self.segments.back().is_none_or(|s| s.truncated) {
-            return Charge::Truncated;
-        }
-        let cost = size.saturating_add(ENTRY_COST);
-        self.make_room(cost);
-        let bytes = self.bytes.saturating_add(cost);
-        let Some(segment) = self.segments.back_mut() else {
-            return Charge::Truncated;
-        };
-        if bytes > MAX_BYTES {
-            warn!(
-                bytes = self.bytes,
-                "input log reached its bound; ticks until the next save are not recorded"
-            );
-            segment.truncated = true;
-            return Charge::Full;
-        }
-        self.bytes = bytes;
-        segment.bytes = segment.bytes.saturating_add(cost);
-        Charge::Fits
-    }
-
-    /// The written form: the header with the fingerprints, then every segment (its start, marks,
-    /// commit identity, checkpoint and ticks), then the CRC-32C of everything before it. Integers
-    /// are little-endian; checkpoints are encoded here, on the main thread.
-    pub(crate) fn encode(&self) -> Result<Vec<u8>> {
-        self.encode_from(0)
-    }
-
-    /// The written form if it takes at most `limit` bytes; otherwise the written form from the
-    /// newest committed segment on, which a replay starts from with the server file of the last
-    /// commit, if that fits; otherwise [`Error::TooLarge`].
-    fn encode_within(&self, limit: usize) -> Result<Vec<u8>> {
-        let all = self.encode()?;
-        if all.len() <= limit {
-            return Ok(all);
-        }
-        drop(all);
-        let from = self.newest_committed();
-        if from > 0 {
-            let newest = self.encode_from(from)?;
-            if newest.len() <= limit {
-                return Ok(newest);
-            }
-        }
-        Err(Error::TooLarge)
-    }
-
-    /// The written form of the segments from the one at place `from` on.
-    fn encode_from(&self, from: usize) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
-        out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&FORMAT.to_le_bytes());
-        out.extend_from_slice(&protocol::packet::PROTOCOL_VERSION.to_le_bytes());
-        out.extend_from_slice(&self.fingerprints.settings);
-        out.extend_from_slice(&self.fingerprints.registrations);
-        put_len(&mut out, self.segments.len().saturating_sub(from))?;
-        let mut body = Vec::new();
-        for segment in self.segments.iter().skip(from) {
-            out.extend_from_slice(&segment.start.to_le_bytes());
-            out.push(u8::from(segment.committed));
-            out.push(u8::from(segment.truncated));
-            match segment.identity {
-                None => out.push(0),
-                Some(identity) => {
-                    out.push(1);
-                    out.extend_from_slice(&identity.to_le_bytes());
-                }
-            }
-            match &segment.checkpoint {
-                None => out.push(0),
-                Some(Point::Taken(c)) => {
-                    out.push(1);
-                    put_bytes(&mut out, &c.to_bytes())?;
-                }
-                Some(Point::Written(bytes)) => {
-                    out.push(1);
-                    put_bytes(&mut out, bytes)?;
-                }
-            }
-            put_len(&mut out, segment.ticks.len())?;
-            for tick in &segment.ticks {
-                put_tick(&mut out, tick, &mut body)?;
-            }
-        }
-        let mut crc = Crc32c::new();
-        crc.update(&out);
-        out.extend_from_slice(&crc.finish().to_le_bytes());
-        Ok(out)
-    }
-
-    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`], whose packets together
-    /// decode within [`MAX_BYTES`]. It is checked against its checksum first, and every count
-    /// against the bytes left before anything is allocated for it.
-    pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() > MAX_FILE_BYTES {
-            return Err(Error::Format("larger than a log can be"));
-        }
-        let mut r = Read(bytes);
-        if r.take(MAGIC.len())? != MAGIC {
-            return Err(Error::Format("magic"));
-        }
-        if r.u32()? != FORMAT {
-            return Err(Error::Format("format version"));
-        }
-        if r.u32()?.cast_signed() != protocol::packet::PROTOCOL_VERSION {
-            return Err(Error::Format("protocol version"));
-        }
-        let Some((body, crc)) = r.0.split_last_chunk::<4>() else {
+impl<'a> Read<'a> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+        if n > self.0.len() {
             return Err(Error::Format("ends early"));
-        };
-        let mut check = Crc32c::new();
-        check.update(bytes.get(..bytes.len() - 4).unwrap_or_default());
-        if check.finish() != u32::from_le_bytes(*crc) {
-            return Err(Error::Format("checksum"));
         }
-        let mut r = Read(body);
-        let fingerprints = Fingerprints {
-            settings: r.array()?,
-            registrations: r.array()?,
-        };
-        // A segment takes at least 15 bytes.
-        let count = r.count(15)?;
-        if count == 0 {
-            return Err(Error::Format("no segment"));
+        let (head, rest) = self.0.split_at(n);
+        self.0 = rest;
+        Ok(head)
+    }
+
+    fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| Error::Format("fixed width"))
+    }
+
+    fn u8(&mut self) -> Result<u8> {
+        Ok(u8::from_le_bytes(self.array()?))
+    }
+
+    /// A byte that is 0 or 1.
+    fn flag(&mut self, what: &'static str) -> Result<bool> {
+        match self.u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(Error::Format(what)),
         }
-        let mut segments = VecDeque::with_capacity(capacity::<Segment>(count, r.0.len()));
-        // The log counted each packet as at least what decoding it allocated, within the bound
-        // for all of them (`InputLog::record`): an item's NBT takes a reader far more than its
-        // bytes.
-        let mut packet_budget = MAX_BYTES;
-        for _ in 0..count {
-            let start = r.u64()?;
-            let committed = r.flag("committed flag")?;
-            let truncated = r.flag("truncated flag")?;
-            let identity = if r.flag("identity flag")? {
-                Some(r.u64()?)
-            } else {
-                None
+    }
+
+    /// A tick of a written log, whose packets take what decoding them allocates from
+    /// `packet_budget`.
+    fn tick(&mut self, packet_budget: &mut usize) -> Result<Tick> {
+        let number = self.u64()?;
+        // An entry takes at least 17 bytes, a dropped session 8.
+        let entries = self.count(17)?;
+        let mut inputs = Vec::with_capacity(capacity::<Entry>(entries, self.0.len()));
+        for _ in 0..entries {
+            let session = SessionId::new(self.u64()?);
+            let seq = self.u64()?;
+            let kind = match self.u8()? {
+                KIND_JOIN => {
+                    let name = String::from_utf8(self.bytes()?.to_vec())
+                        .map_err(|_| Error::Format("name"))?;
+                    let has_xuid = self.flag("xuid flag")?;
+                    let xuid = self.u64()?;
+                    let uuid: [u8; 16] = self.array()?;
+                    let device_os = self.i32()?;
+                    let skin = read_skin(self.bytes()?).map_err(Error::Packet)?;
+                    let address = self.address()?;
+                    let client = self.client()?;
+                    EntryKind::Join(Identity {
+                        skin,
+                        device_os,
+                        address,
+                        client,
+                        name,
+                        xuid: has_xuid.then_some(xuid),
+                        uuid: protocol::Uuid::from_bytes(uuid),
+                    })
+                }
+                KIND_PACKET => {
+                    let id = self.u32()?;
+                    let payload = self.bytes()?;
+                    let packet = Packet::decode(id, payload, packet_budget, SHIELD_RUNTIME_ID)
+                        .map_err(Error::Packet)?;
+                    EntryKind::Packet(packet)
+                }
+                KIND_LEAVE => EntryKind::Leave,
+                KIND_CONSOLE => EntryKind::Console(self.text()?),
+                KIND_JOB => EntryKind::Job(self.job()?),
+                KIND_MEASURE => EntryKind::Measure(self.measure()?),
+                _ => return Err(Error::Format("input kind")),
             };
-            let mut segment = Segment::new(start, committed, identity);
-            segment.truncated = truncated;
-            segment.checkpoint = match r.u8()? {
-                0 => None,
-                1 => Some(Point::Written(r.bytes()?.to_vec())),
-                _ => return Err(Error::Format("checkpoint flag")),
-            };
-            let ticks = r.count(16)?;
-            segment.ticks = Vec::with_capacity(capacity::<Tick>(ticks, r.0.len()));
-            for _ in 0..ticks {
-                segment.ticks.push(r.tick(&mut packet_budget)?);
-            }
-            segments.push_back(segment);
+            inputs.push(Entry { session, seq, kind });
         }
-        if !r.0.is_empty() {
-            return Err(Error::Format("bytes after the last segment"));
+        let dropped_count = self.count(8)?;
+        let mut dropped = Vec::with_capacity(capacity::<SessionId>(dropped_count, self.0.len()));
+        for _ in 0..dropped_count {
+            dropped.push(SessionId::new(self.u64()?));
         }
-        Ok(Self {
-            segments,
-            bytes: 0,
-            checkpoint_bytes: 0,
-            takes_checkpoints: false,
-            fingerprints,
-            planned: None,
-            chain: super::Fnv(super::Fnv::OFFSET),
+        // An answer takes at least 1 byte (a load failure).
+        let answer_count = self.count(1)?;
+        let mut responses = Vec::with_capacity(capacity::<Answer>(answer_count, self.0.len()));
+        for _ in 0..answer_count {
+            responses.push(self.answer()?);
+        }
+        Ok(Tick {
+            number,
+            inputs,
+            dropped,
+            responses,
         })
     }
+
+    fn u32(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.array()?))
+    }
+
+    fn u64(&mut self) -> Result<u64> {
+        Ok(u64::from_le_bytes(self.array()?))
+    }
+
+    /// A count of items of at least `min` bytes each, which the bytes left must be able to hold.
+    fn count(&mut self, min: usize) -> Result<usize> {
+        let n = usize::try_from(self.u32()?).map_err(|_| Error::Format("count"))?;
+        if n.saturating_mul(min) > self.0.len() {
+            return Err(Error::Format("count larger than the bytes left"));
+        }
+        Ok(n)
+    }
+
+    fn bytes(&mut self) -> Result<&'a [u8]> {
+        let n = self.count(1)?;
+        self.take(n)
+    }
+
+    fn i32(&mut self) -> Result<i32> {
+        Ok(self.u32()?.cast_signed())
+    }
+
+    fn text(&mut self) -> Result<String> {
+        String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
+    }
+
+    fn job(&mut self) -> Result<JobOutcome> {
+        match self.u8()? {
+            JOB_DONE => {
+                let json = self.bytes()?;
+                if json.len() > crate::task::MAX_RESULT_BYTES {
+                    return Err(Error::Format("job result over its limit"));
+                }
+                Ok(Ok(json.to_vec()))
+            }
+            code => crate::task::Error::from_code(code)
+                .map(Err)
+                .ok_or(Error::Format("job outcome")),
+        }
+    }
+
+    /// What a join tells of the client.
+    fn client(&mut self) -> Result<Client> {
+        let locale = self.text()?;
+        let input_mode = crate::protocol::consts::InputMode::try_from(self.u32()?)
+            .map_err(|_| Error::Format("input mode"))?;
+        Ok(Client {
+            locale,
+            input_mode,
+            device_model: self.text()?,
+            device_id: self.text()?,
+            self_signed_id: self.text()?,
+            playfab_id: self.text()?,
+            game_version: self.text()?,
+            server_address: self.text()?,
+            random_id: i64::from_le_bytes(self.array()?),
+            port: u16::from_le_bytes(self.array()?),
+            join_time_ms: i64::from_le_bytes(self.array()?),
+        })
+    }
+
+    fn measure(&mut self) -> Result<Measure> {
+        Ok(match self.u8()? {
+            MEASURE_TICK_TIME => Measure::TickTime(self.u32()?),
+            MEASURE_PING => Measure::Ping(self.u32()?),
+            MEASURE_CONNECTIONS => Measure::Connections {
+                all: self.u32()?,
+                logged_in: self.u32()?,
+            },
+            MEASURE_PROCESS => Measure::Process {
+                memory: self.u64()?,
+                uptime_ms: self.u64()?,
+            },
+            _ => return Err(Error::Format("measure kind")),
+        })
+    }
+
+    fn address(&mut self) -> Result<Option<IpAddr>> {
+        Ok(match self.u8()? {
+            ADDRESS_NONE => None,
+            ADDRESS_V4 => Some(IpAddr::from(self.array::<4>()?)),
+            ADDRESS_V6 => Some(IpAddr::from(self.array::<16>()?)),
+            _ => return Err(Error::Format("address kind")),
+        })
+    }
+
+    /// An answer.
+    fn answer(&mut self) -> Result<Answer> {
+        Ok(match self.u8()? {
+            ANSWER_CHUNK => {
+                let world =
+                    usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))?;
+                let pos = ChunkPos::new(self.i32()?, self.i32()?);
+                let origin = match self.u8()? {
+                    ORIGIN_DISK => Origin::Disk,
+                    ORIGIN_GENERATED => Origin::Generated,
+                    ORIGIN_DAMAGED => Origin::Damaged,
+                    _ => return Err(Error::Format("chunk origin")),
+                };
+                let checksum = self.u32()?;
+                Answer::Chunk {
+                    world,
+                    pos,
+                    origin,
+                    checksum,
+                }
+            }
+            ANSWER_PLAYER => {
+                let key = self.text()?;
+                let data = match self.u8()? {
+                    PLAYER_FOUND => {
+                        let world = self.text()?;
+                        let mut position = [0.0; 3];
+                        for c in &mut position {
+                            *c = f64::from_bits(self.u64()?);
+                        }
+                        let extra = self.bytes()?;
+                        read_extra(extra)?;
+                        LoggedPlayer::Found {
+                            world,
+                            position,
+                            extra: extra.to_vec(),
+                        }
+                    }
+                    PLAYER_ABSENT => LoggedPlayer::Absent,
+                    PLAYER_DAMAGED => LoggedPlayer::Damaged,
+                    _ => return Err(Error::Format("player data kind")),
+                };
+                Answer::Player { key, data }
+            }
+            ANSWER_COMMITTED => Answer::Committed(self.u64()?),
+            ANSWER_COMMIT_FAILED => Answer::CommitFailed(self.u64()?),
+            ANSWER_LOAD_FAILED => Answer::LoadFailed,
+            ANSWER_CHECKED => Answer::Checked(match self.u8()? {
+                CHECK_PASSED => Checked::Passed {
+                    values: self.u64()?,
+                },
+                CHECK_DAMAGED => Checked::Damaged {
+                    values: self.u64()?,
+                    damaged: self.u64()?,
+                    first: self.text()?,
+                },
+                CHECK_FAILED => Checked::Failed(self.text()?),
+                _ => return Err(Error::Format("check result kind")),
+            }),
+            _ => return Err(Error::Format("answer kind")),
+        })
+    }
+}
+
+/// Writes `log` to `<data_dir>/crash/input-<unix seconds>-<last tick>.log` and returns the path:
+/// from its newest committed segment on if the whole log is over [`MAX_FILE_BYTES`], and not at
+/// all if that is too. It never replaces a file. The main thread calls it after the tick thread
+/// has ended.
+#[expect(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "off-tick: the main thread writes the crash log after the tick thread ended"
+)]
+pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Result<PathBuf> {
+    use std::io::Write as _;
+    let bytes = log
+        .encode_within(MAX_FILE_BYTES)
+        .map_err(std::io::Error::other)?;
+    let dir = data_dir.join(CRASH_DIR);
+    std::fs::create_dir_all(&dir)?;
+    let tick = log
+        .segments
+        .iter()
+        .flat_map(|s| &s.ticks)
+        .last()
+        .map_or(log.start(), |t| t.number);
+    let path = dir.join(format!(
+        "input-{}-{tick}.log",
+        clock::unix_now().unwrap_or_default()
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    Ok(path)
 }
 
 /// Appends a tick: its number, its inputs, the sessions it forgot and the answers it applied.
@@ -966,9 +1298,7 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
                 out.extend_from_slice(&identity.xuid.unwrap_or(0).to_le_bytes());
                 out.extend_from_slice(identity.uuid.as_bytes());
                 out.extend_from_slice(&identity.device_os.to_le_bytes());
-                let mut w = Writer::new(Vec::new(), 0);
-                protocol::Codec::encode(identity.skin.get(), &mut w).map_err(Error::Packet)?;
-                put_bytes(out, w.as_bytes())?;
+                put_bytes(out, &skin_bytes(&identity.skin).map_err(Error::Packet)?)?;
                 match identity.address {
                     None => out.push(ADDRESS_NONE),
                     Some(IpAddr::V4(a)) => {
@@ -1075,57 +1405,6 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
     Ok(())
 }
 
-/// The folder of crash reports in the data folder.
-const CRASH_DIR: &str = "crash";
-
-/// Writes `log` to `<data_dir>/crash/input-<unix seconds>-<last tick>.log` and returns the path:
-/// from its newest committed segment on if the whole log is over [`MAX_FILE_BYTES`], and not at
-/// all if that is too. It never replaces a file. The main thread calls it after the tick thread
-/// has ended.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: the main thread writes the crash log after the tick thread ended"
-)]
-pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Result<PathBuf> {
-    use std::io::Write as _;
-    let bytes = log
-        .encode_within(MAX_FILE_BYTES)
-        .map_err(std::io::Error::other)?;
-    let dir = data_dir.join(CRASH_DIR);
-    std::fs::create_dir_all(&dir)?;
-    let tick = log
-        .segments
-        .iter()
-        .flat_map(|s| &s.ticks)
-        .last()
-        .map_or(log.start(), |t| t.number);
-    let path = dir.join(format!(
-        "input-{}-{tick}.log",
-        clock::unix_now().unwrap_or_default()
-    ));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
-    Ok(path)
-}
-
-const ANSWER_CHUNK: u8 = 0;
-const ANSWER_PLAYER: u8 = 1;
-const ANSWER_COMMITTED: u8 = 2;
-const ANSWER_COMMIT_FAILED: u8 = 3;
-const ANSWER_LOAD_FAILED: u8 = 4;
-const ANSWER_CHECKED: u8 = 5;
-const CHECK_PASSED: u8 = 0;
-const CHECK_DAMAGED: u8 = 1;
-const CHECK_FAILED: u8 = 2;
-const PLAYER_FOUND: u8 = 0;
-const PLAYER_ABSENT: u8 = 1;
-const PLAYER_DAMAGED: u8 = 2;
-
 /// Appends an answer: its kind, then its fields.
 fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
     match answer {
@@ -1144,9 +1423,9 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
             out.extend_from_slice(&pos.x.to_le_bytes());
             out.extend_from_slice(&pos.z.to_le_bytes());
             out.push(match origin {
-                Origin::Disk => 0,
-                Origin::Generated => 1,
-                Origin::Damaged => 2,
+                Origin::Disk => ORIGIN_DISK,
+                Origin::Generated => ORIGIN_GENERATED,
+                Origin::Damaged => ORIGIN_DAMAGED,
             });
             out.extend_from_slice(&checksum.to_le_bytes());
         }
@@ -1220,286 +1499,24 @@ fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// A reader over a written log.
-struct Read<'a>(&'a [u8]);
-
-impl<'a> Read<'a> {
-    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        if n > self.0.len() {
-            return Err(Error::Format("ends early"));
-        }
-        let (head, rest) = self.0.split_at(n);
-        self.0 = rest;
-        Ok(head)
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| Error::Format("fixed width"))
-    }
-
-    fn u8(&mut self) -> Result<u8> {
-        Ok(self.take(1)?.first().copied().unwrap_or(0))
-    }
-
-    /// A byte that is 0 or 1.
-    fn flag(&mut self, what: &'static str) -> Result<bool> {
-        match self.u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(Error::Format(what)),
-        }
-    }
-
-    /// A tick of a written log, whose packets take what decoding them allocates from
-    /// `packet_budget`.
-    fn tick(&mut self, packet_budget: &mut usize) -> Result<Tick> {
-        let number = self.u64()?;
-        // An entry takes at least 17 bytes, a dropped session 8.
-        let entries = self.count(17)?;
-        let mut inputs = Vec::with_capacity(capacity::<Entry>(entries, self.0.len()));
-        for _ in 0..entries {
-            let session = SessionId::new(self.u64()?);
-            let seq = self.u64()?;
-            let kind = match self.u8()? {
-                KIND_JOIN => {
-                    let name = String::from_utf8(self.bytes()?.to_vec())
-                        .map_err(|_| Error::Format("name"))?;
-                    let has_xuid = self.u8()?;
-                    let xuid = self.u64()?;
-                    let uuid: [u8; 16] = self.array()?;
-                    let device_os = self.i32()?;
-                    let skin = self.bytes()?;
-                    let mut skin_reader =
-                        protocol::Reader::new(skin, skin.len().saturating_mul(2), 0);
-                    let skin = <protocol::Skin as protocol::Codec>::decode(&mut skin_reader)
-                        .map_err(Error::Packet)?;
-                    let address = self.address()?;
-                    let client = self.client()?;
-                    EntryKind::Join(Identity {
-                        skin: super::queue::Skin::new(Arc::new(skin)),
-                        device_os,
-                        address,
-                        client,
-                        name,
-                        xuid: match has_xuid {
-                            0 => None,
-                            1 => Some(xuid),
-                            _ => return Err(Error::Format("xuid flag")),
-                        },
-                        uuid: protocol::Uuid::from_bytes(uuid),
-                    })
-                }
-                KIND_PACKET => {
-                    let id = self.u32()?;
-                    let payload = self.bytes()?;
-                    let packet = Packet::decode(id, payload, packet_budget, SHIELD_RUNTIME_ID)
-                        .map_err(Error::Packet)?;
-                    EntryKind::Packet(packet)
-                }
-                KIND_LEAVE => EntryKind::Leave,
-                KIND_CONSOLE => EntryKind::Console(self.text()?),
-                KIND_JOB => EntryKind::Job(self.job()?),
-                KIND_MEASURE => EntryKind::Measure(self.measure()?),
-                _ => return Err(Error::Format("input kind")),
-            };
-            inputs.push(Entry { session, seq, kind });
-        }
-        let dropped_count = self.count(8)?;
-        let mut dropped = Vec::with_capacity(capacity::<SessionId>(dropped_count, self.0.len()));
-        for _ in 0..dropped_count {
-            dropped.push(SessionId::new(self.u64()?));
-        }
-        // An answer takes at least 1 byte (a load failure).
-        let answer_count = self.count(1)?;
-        let mut responses = Vec::with_capacity(capacity::<Answer>(answer_count, self.0.len()));
-        for _ in 0..answer_count {
-            responses.push(self.answer()?);
-        }
-        Ok(Tick {
-            number,
-            inputs,
-            dropped,
-            responses,
-        })
-    }
-
-    fn u32(&mut self) -> Result<u32> {
-        let b = self.take(4)?;
-        Ok(u32::from_le_bytes(
-            b.try_into().map_err(|_| Error::Format("u32"))?,
-        ))
-    }
-
-    fn u64(&mut self) -> Result<u64> {
-        let b = self.take(8)?;
-        Ok(u64::from_le_bytes(
-            b.try_into().map_err(|_| Error::Format("u64"))?,
-        ))
-    }
-
-    /// A count of items of at least `min` bytes each, which the bytes left must be able to hold.
-    fn count(&mut self, min: usize) -> Result<usize> {
-        let n = usize::try_from(self.u32()?).map_err(|_| Error::Format("count"))?;
-        if n.saturating_mul(min) > self.0.len() {
-            return Err(Error::Format("count larger than the bytes left"));
-        }
-        Ok(n)
-    }
-
-    fn bytes(&mut self) -> Result<&'a [u8]> {
-        let n = self.count(1)?;
-        self.take(n)
-    }
-
-    fn i32(&mut self) -> Result<i32> {
-        Ok(self.u32()?.cast_signed())
-    }
-
-    fn text(&mut self) -> Result<String> {
-        String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
-    }
-
-    fn job(&mut self) -> Result<JobOutcome> {
-        match self.u8()? {
-            JOB_DONE => {
-                let json = self.bytes()?;
-                if json.len() > crate::task::MAX_RESULT_BYTES {
-                    return Err(Error::Format("job result over its limit"));
-                }
-                Ok(Ok(json.to_vec()))
-            }
-            code => crate::task::Error::from_code(code)
-                .map(Err)
-                .ok_or(Error::Format("job outcome")),
-        }
-    }
-
-    /// What a join tells of the client.
-    fn client(&mut self) -> Result<Client> {
-        let locale = self.text()?;
-        let input_mode = crate::protocol::consts::InputMode::try_from(self.u32()?)
-            .map_err(|_| Error::Format("input mode"))?;
-        Ok(Client {
-            locale,
-            input_mode,
-            device_model: self.text()?,
-            device_id: self.text()?,
-            self_signed_id: self.text()?,
-            playfab_id: self.text()?,
-            game_version: self.text()?,
-            server_address: self.text()?,
-            random_id: i64::from_le_bytes(self.array()?),
-            port: u16::from_le_bytes(self.array()?),
-            join_time_ms: i64::from_le_bytes(self.array()?),
-        })
-    }
-
-    fn measure(&mut self) -> Result<Measure> {
-        Ok(match self.u8()? {
-            MEASURE_TICK_TIME => Measure::TickTime(self.u32()?),
-            MEASURE_PING => Measure::Ping(self.u32()?),
-            MEASURE_CONNECTIONS => Measure::Connections {
-                all: self.u32()?,
-                logged_in: self.u32()?,
-            },
-            MEASURE_PROCESS => Measure::Process {
-                memory: u64::from_le_bytes(self.array()?),
-                uptime_ms: u64::from_le_bytes(self.array()?),
-            },
-            _ => return Err(Error::Format("measure kind")),
-        })
-    }
-
-    fn address(&mut self) -> Result<Option<IpAddr>> {
-        Ok(match self.u8()? {
-            ADDRESS_NONE => None,
-            ADDRESS_V4 => {
-                let b: [u8; 4] = self
-                    .take(4)?
-                    .try_into()
-                    .map_err(|_| Error::Format("ipv4"))?;
-                Some(IpAddr::from(b))
-            }
-            ADDRESS_V6 => {
-                let b: [u8; 16] = self
-                    .take(16)?
-                    .try_into()
-                    .map_err(|_| Error::Format("ipv6"))?;
-                Some(IpAddr::from(b))
-            }
-            _ => return Err(Error::Format("address kind")),
-        })
-    }
-
-    /// An answer.
-    fn answer(&mut self) -> Result<Answer> {
-        Ok(match self.u8()? {
-            ANSWER_CHUNK => {
-                let world =
-                    usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))?;
-                let pos = ChunkPos::new(self.i32()?, self.i32()?);
-                let origin = match self.u8()? {
-                    0 => Origin::Disk,
-                    1 => Origin::Generated,
-                    2 => Origin::Damaged,
-                    _ => return Err(Error::Format("chunk origin")),
-                };
-                let checksum = self.u32()?;
-                Answer::Chunk {
-                    world,
-                    pos,
-                    origin,
-                    checksum,
-                }
-            }
-            ANSWER_PLAYER => {
-                let key = self.text()?;
-                let data = match self.u8()? {
-                    PLAYER_FOUND => {
-                        let world = self.text()?;
-                        let mut position = [0.0; 3];
-                        for c in &mut position {
-                            *c = f64::from_bits(self.u64()?);
-                        }
-                        let extra = self.bytes()?;
-                        read_extra(extra)?;
-                        LoggedPlayer::Found {
-                            world,
-                            position,
-                            extra: extra.to_vec(),
-                        }
-                    }
-                    PLAYER_ABSENT => LoggedPlayer::Absent,
-                    PLAYER_DAMAGED => LoggedPlayer::Damaged,
-                    _ => return Err(Error::Format("player data kind")),
-                };
-                Answer::Player { key, data }
-            }
-            ANSWER_COMMITTED => Answer::Committed(self.u64()?),
-            ANSWER_COMMIT_FAILED => Answer::CommitFailed(self.u64()?),
-            ANSWER_LOAD_FAILED => Answer::LoadFailed,
-            ANSWER_CHECKED => Answer::Checked(match self.u8()? {
-                CHECK_PASSED => Checked::Passed {
-                    values: self.u64()?,
-                },
-                CHECK_DAMAGED => Checked::Damaged {
-                    values: self.u64()?,
-                    damaged: self.u64()?,
-                    first: self.text()?,
-                },
-                CHECK_FAILED => Checked::Failed(self.text()?),
-                _ => return Err(Error::Format("check result kind")),
-            }),
-            _ => return Err(Error::Format("answer kind")),
-        })
+/// A logged player extra: one little-endian NBT root compound and nothing after it, read within
+/// the budget its players record was read with, which it came from.
+fn read_extra(bytes: &[u8]) -> Result<crate::nbt::Compound> {
+    let mut r = protocol::Reader::new(bytes, crate::storage::seal::DECODE_BUDGET, 0);
+    let extra = r
+        .nbt_within(Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)
+        .map_err(Error::Packet)?;
+    if r.remaining().is_empty() {
+        Ok(extra)
+    } else {
+        Err(Error::Format("bytes after a player extra"))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tick::queue::Skin;
 
     #[test]
     fn an_empty_tick_counts_against_the_bound() {
@@ -1558,7 +1575,7 @@ mod tests {
         log.begin(4);
         log.record(SessionId::new(1), 2, EntryKind::Leave, 0);
         assert_eq!(starts(&log), [3, 4]);
-        assert!(!log.last_segment().is_some_and(Segment::is_truncated));
+        assert!(!log.last_segment().is_truncated());
         // The same snapshot twice starts one segment.
         log.snapshot(4);
         assert_eq!(starts(&log), [3, 4]);
@@ -1590,6 +1607,19 @@ mod tests {
         assert_eq!((log.start(), numbers(&log)), (1, vec![1]));
     }
 
+    /// A replay's log from the checkpoint of a new test state, with the replayed log's snapshots
+    /// at the ticks of `planned`.
+    fn replay_log(planned: std::collections::BTreeSet<u64>) -> InputLog {
+        let state = crate::tick::tests::new_state(
+            crate::tick::tests::settings(|_| {}),
+            crate::event::Listeners::default(),
+        );
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let checkpoint = state.checkpoint(&pool);
+        assert!(pool.shutdown());
+        InputLog::replaying(checkpoint, Some(7), planned)
+    }
+
     #[test]
     fn a_quarter_of_the_bound_since_the_last_commit_asks_for_a_commit() {
         let mut log = InputLog::default();
@@ -1608,24 +1638,11 @@ mod tests {
         assert!(replay.wants_commit(9) && !replay.wants_commit(8));
     }
 
-    /// A replay's log from the checkpoint of a new test state, with the replayed log's snapshots
-    /// at the ticks of `planned`.
-    fn replay_log(planned: std::collections::BTreeSet<u64>) -> InputLog {
-        let state = crate::tick::tests::new_state(
-            crate::tick::tests::settings(|_| {}),
-            crate::event::Listeners::default(),
-        );
-        let pool = crate::runtime::cpu_pool(1).unwrap();
-        let checkpoint = state.checkpoint(&pool);
-        assert!(pool.shutdown());
-        InputLog::replaying(checkpoint, Some(7), planned)
-    }
-
     #[test]
     fn a_replay_log_starts_with_its_checkpoint_and_takes_none_before_a_snapshot() {
         let mut log = replay_log(std::collections::BTreeSet::new());
         assert!(!log.needs_checkpoint());
-        let first = log.last_segment().unwrap();
+        let first = log.last_segment();
         assert!(first.taken().is_some());
         assert_eq!(first.identity(), Some(7));
         assert_eq!(
@@ -1646,13 +1663,13 @@ mod tests {
         // Format 7: not truncated, start 0, no ticks.
         let mut bytes = MAGIC.to_vec();
         bytes.extend_from_slice(&7_u32.to_le_bytes());
-        bytes.extend_from_slice(&protocol::packet::PROTOCOL_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
         bytes.push(0);
         bytes.extend_from_slice(&0_u64.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         assert!(matches!(
             InputLog::decode(&bytes),
-            Err(Error::Format("format version"))
+            Err(Error::OtherFormat(7))
         ));
     }
 
@@ -1717,7 +1734,7 @@ mod tests {
         assert_eq!(full.identity(), a.identity());
         assert_ne!(full.identity(), run(11, MAX_BYTES).identity());
         // The snapshot's segment keeps the identity its commit writes.
-        assert_eq!(a.last_segment().unwrap().identity(), Some(a.identity()));
+        assert_eq!(a.last_segment().identity(), Some(a.identity()));
         assert_eq!(a.segments[0].identity(), Some(3));
     }
 
@@ -1774,8 +1791,18 @@ mod tests {
         assert_eq!(read.ticks(), log.ticks());
     }
 
+    /// Puts the checksum of the bytes before it at the end of a written log.
+    fn reseal(bytes: &mut [u8]) {
+        let Some(at) = bytes.len().checked_sub(4) else {
+            return;
+        };
+        let mut crc = Crc32c::new();
+        crc.update(&bytes[..at]);
+        bytes[at..].copy_from_slice(&crc.finish().to_le_bytes());
+    }
+
     #[test]
-    fn a_log_of_another_format_is_refused() {
+    fn a_log_of_another_format_or_protocol_is_refused_with_its_version() {
         let mut log = InputLog::default();
         log.begin(0);
         let ping = EntryKind::Measure(Measure::Ping(1));
@@ -1787,11 +1814,56 @@ mod tests {
             let mut other = written.clone();
             other[at..at + 4].copy_from_slice(&format.to_le_bytes());
             reseal(&mut other);
-            assert!(matches!(
-                InputLog::decode(&other),
-                Err(Error::Format("format version"))
-            ));
+            let read = InputLog::decode(&other).map(drop);
+            assert!(
+                matches!(read, Err(Error::OtherFormat(f)) if f == format),
+                "{read:?}"
+            );
         }
+        for protocol in [PROTOCOL_VERSION - 1, PROTOCOL_VERSION + 1] {
+            let mut other = written.clone();
+            other[at + 4..at + 8].copy_from_slice(&protocol.to_le_bytes());
+            reseal(&mut other);
+            let read = InputLog::decode(&other).map(drop);
+            assert!(
+                matches!(read, Err(Error::OtherProtocol(p)) if p == protocol),
+                "{read:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_join_whose_skin_has_bytes_after_it_is_refused() {
+        let identity = Identity {
+            name: "Steve".to_owned(),
+            xuid: None,
+            uuid: protocol::Uuid::from_bytes([1; 16]),
+            skin: Skin::default(),
+            device_os: 7,
+            address: None,
+            client: Client::default(),
+        };
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.record(SessionId::new(1), 0, EntryKind::Join(identity), 0);
+        let written = log.encode().unwrap();
+        assert!(InputLog::decode(&written).is_ok());
+        // The skin as the log writes it, after its length; the same bytes and one more after it.
+        let skin = skin_bytes(&Skin::default()).unwrap();
+        let mut logged = u32::try_from(skin.len()).unwrap().to_le_bytes().to_vec();
+        logged.extend_from_slice(&skin);
+        let at = written
+            .windows(logged.len())
+            .position(|w| w == logged)
+            .expect("the log holds the skin");
+        let mut longer = written[..at].to_vec();
+        longer.extend_from_slice(&u32::try_from(skin.len() + 1).unwrap().to_le_bytes());
+        longer.extend_from_slice(&skin);
+        longer.push(0);
+        longer.extend_from_slice(&written[at + logged.len()..]);
+        reseal(&mut longer);
+        let read = InputLog::decode(&longer).map(drop);
+        assert!(matches!(read, Err(Error::Packet(_))), "{read:?}");
     }
 
     #[test]
@@ -1816,16 +1888,6 @@ mod tests {
         assert_eq!(identities(&read), [None]);
     }
 
-    /// Puts the checksum of the bytes before it at the end of a written log.
-    fn reseal(bytes: &mut [u8]) {
-        let Some(at) = bytes.len().checked_sub(4) else {
-            return;
-        };
-        let mut crc = Crc32c::new();
-        crc.update(&bytes[..at]);
-        bytes[at..].copy_from_slice(&crc.finish().to_le_bytes());
-    }
-
     #[test]
     fn console_lines_and_addresses_survive_the_written_log() {
         let identity = |address| Identity {
@@ -1835,7 +1897,7 @@ mod tests {
             skin: Skin::default(),
             device_os: 7,
             address,
-            client: crate::tick::queue::Client::default(),
+            client: Client::default(),
         };
         let mut log = InputLog::default();
         log.begin(0);
@@ -2097,10 +2159,7 @@ mod tests {
         // the fields themselves are checked with the checksum made right again.
         let mut flipped = bytes.clone();
         flipped[40] ^= 1;
-        assert!(matches!(
-            InputLog::decode(&flipped),
-            Err(Error::Format("checksum"))
-        ));
+        assert!(matches!(InputLog::decode(&flipped), Err(Error::Checksum)));
         crate::protocol::fuzz(&bytes, 5_000, |b| {
             let mut b = b.to_vec();
             reseal(&mut b);

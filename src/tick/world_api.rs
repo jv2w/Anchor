@@ -7,8 +7,8 @@
 //! Sounds, particles and packets go out at once from the call (no queue): each is one packet per
 //! player who was sent the chunk of the position, queued in the player's outbox for the end of the
 //! tick. A player whose outbox is nearly full (a loop of effects) is skipped rather than
-//! disconnected, as for everything a player gets as a viewer: effects are cosmetic, and the
-//! outbox keeps [`EFFECT_RESERVE`] packets for the player's own.
+//! disconnected, as for every cosmetic packet a player gets as a viewer: the outbox keeps
+//! [`EFFECT_RESERVE`] packets for the player's own.
 
 mod lifecycle;
 mod recipes;
@@ -25,44 +25,29 @@ use crate::player;
 use crate::protocol::packet::Packet;
 use crate::world::{self, BlockPos, ChunkPos, Lightning, Particle, Sound, Weather, World};
 
-/// Outbox room that what a player gets as a viewer (sounds, particles, API packets, what other
-/// players and entities do) leaves to the player's own packets: none is sent once its outbox
-/// holds `MAX_OUTBOX - EFFECT_RESERVE` packets ([`super::Player::send_to_viewer`]).
+/// Outbox room that the cosmetic packets a player gets as a viewer (sounds, particles, API
+/// packets, the swings and hit sounds of others) leave to the player's own packets: none is sent
+/// once its outbox holds `MAX_OUTBOX - EFFECT_RESERVE` packets
+/// ([`super::Player::send_to_viewer`]).
 pub(super) const EFFECT_RESERVE: usize = 1024;
 
-/// The most blocks a box of [`World::collision_boxes`] spans on each axis: at most 34 × 33 × 33
-/// cells are looked at, with the cells under and over it.
+/// The most blocks a box of [`World::collision_boxes`] spans on each axis: it overlaps at most 33
+/// cells on each axis, and the cells under and over it are looked at too (33 × 35 × 33 cells, x,
+/// y, z).
 const MAX_COLLISION_SPAN: f64 = 32.0;
-
-/// Queues `packet` for every player of `world` past its start-game packets. A change made while
-/// a player waits for its spawn chunks reaches it too, after its `StartGame` (the outbox follows
-/// the start-game packets); a spawn window that then repeats the same state is harmless.
-pub(super) fn send_to_world(state: &mut State, world: usize, packet: &Packet) {
-    for p in state.players.values_mut() {
-        if p.world == world && p.phase != Phase::Loading {
-            p.send_packet(packet.clone());
-        }
-    }
-}
-
-/// The world index of `world` if the server has it loaded.
-pub(super) fn index(state: &State, world: world::Id) -> Option<usize> {
-    let i = world.index();
-    state.catalog.is_loaded(i).then_some(i)
-}
 
 impl Context<'_> {
     /// The world `id`, if it is loaded (the default world always is).
     #[doc(alias = "WorldManager::getWorld")]
     #[doc(alias = "Position::isValid")]
     pub fn world(&self, id: world::Id) -> Option<&World> {
-        self.state.worlds.get(index(self.state, id)?)
+        Some(world_at(self.state, index(self.state, id)?))
     }
 
-    /// The world `id`, to change it.
+    /// The world `id`, to change it, if it is loaded (the default world always is).
     pub fn world_mut(&mut self, id: world::Id) -> Option<&mut World> {
         let i = index(self.state, id)?;
-        self.state.worlds.get_mut(i)
+        Some(world_at_mut(self.state, i))
     }
 
     /// Every loaded world, in `Id` order (the settings' world first).
@@ -77,8 +62,9 @@ impl Context<'_> {
             .map(|(_, w)| w)
     }
 
-    /// The players in `world` who have their saved data (joining or spawned), in `Id` order. A
-    /// player teleported this tick is in its new [`world`](crate::player::Player::world).
+    /// The players in `world` who have their saved data (joining or spawned), in `Id` order;
+    /// nobody for a world that is not loaded. A player teleported this tick is in its new
+    /// [`world`](crate::player::Player::world).
     #[doc(alias = "World::getPlayers")]
     pub fn players_in(&self, world: world::Id) -> impl Iterator<Item = player::Id> + '_ {
         let loaded = index(self.state, world).is_some();
@@ -90,8 +76,9 @@ impl Context<'_> {
     }
 
     /// The players in `world` who were sent the chunk `chunk` (they see what happens in it), in
-    /// `Id` order: those [`Self::broadcast_packet`] reaches there. For the viewers of a block,
-    /// pass [`BlockPos::chunk`]. None for a world the server does not have.
+    /// `Id` order; nobody for a world that is not loaded. [`Self::broadcast_packet`] sends there to
+    /// each of them whose outbox is not nearly full. For the viewers of a block, pass
+    /// [`BlockPos::chunk`].
     #[doc(alias = "World::getChunkPlayers")]
     #[doc(alias = "World::getViewersForPosition")]
     pub fn chunk_viewers(
@@ -99,24 +86,22 @@ impl Context<'_> {
         world: world::Id,
         chunk: ChunkPos,
     ) -> impl Iterator<Item = player::Id> + '_ {
-        let w = index(self.state, world).unwrap_or(usize::MAX);
+        let w = index(self.state, world);
         self.state
             .players
             .iter()
-            .filter(move |(_, p)| p.world == w && p.view.sees(chunk))
+            .filter(move |(_, p)| Some(p.world) == w && p.view.sees(chunk))
             .map(|(&s, _)| player::Id::new(s))
     }
 
     /// Sets the time of `world` to `time_ticks` (its clock; the day cycle follows it) and sends
-    /// its players the clock at once. False for a world the server does not have.
+    /// its players the clock at once. False for a world that is not loaded.
     #[doc(alias = "World::setTime")]
     pub fn set_time(&mut self, world: world::Id, time_ticks: i64) -> bool {
         let Some(w) = index(self.state, world) else {
             return false;
         };
-        if let Some(world) = self.state.worlds.get_mut(w) {
-            world.set_time(time_ticks);
-        }
+        world_at_mut(self.state, w).set_time(time_ticks);
         let packet = survival::clock_state(self.state, w);
         send_to_world(self.state, w, &packet);
         true
@@ -131,9 +116,7 @@ impl Context<'_> {
         let Some(w) = index(self.state, world) else {
             return false;
         };
-        let Some(world) = self.state.worlds.get_mut(w) else {
-            return false;
-        };
+        let world = world_at_mut(self.state, w);
         let from = world.weather();
         world.set_weather(weather);
         for packet in weather::changes(from, weather) {
@@ -153,25 +136,27 @@ impl Context<'_> {
             .is_some_and(|w| entity::strike_lightning(self.state, w, pos, lightning))
     }
 
-    /// Plays `sound` at `pos` in `world` to the players who see its chunk (PMMP
-    /// `World::addSound`). False for a world the server does not have or a `pos` that is not
-    /// finite.
+    /// Plays `sound` at `pos` in `world` to the players who see its chunk, as
+    /// [`Self::broadcast_packet`] sends (PMMP `World::addSound`). False for a world that is not
+    /// loaded or a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::addSound")]
     pub fn add_sound(&mut self, world: world::Id, pos: Vec3, sound: Sound) -> bool {
-        pos.is_finite() && self.broadcast_packet(world, pos, &sound.packet(pos))
+        self.broadcast_packet(world, pos, &sound.packet(pos))
     }
 
-    /// Shows `particle` at `pos` in `world` to the players who see its chunk (PMMP
-    /// `World::addParticle`). False for a world the server does not have or a `pos` that is not
-    /// finite.
+    /// Shows `particle` at `pos` in `world` to the players who see its chunk, as
+    /// [`Self::broadcast_packet`] sends (PMMP `World::addParticle`). False for a world that is not
+    /// loaded or a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::addParticle")]
     pub fn add_particle(&mut self, world: world::Id, pos: Vec3, particle: Particle) -> bool {
-        pos.is_finite() && self.broadcast_packet(world, pos, &particle.packet(pos))
+        self.broadcast_packet(world, pos, &particle.packet(pos))
     }
 
     /// Sends `packet` to the players who see the chunk of `pos` in `world` (PMMP
-    /// `World::broadcastPacketToViewers`). False for a world the server does not have or a `pos`
-    /// that is not finite or outside the world border.
+    /// `World::broadcastPacketToViewers`). A player whose outbox is nearly full is skipped, as for
+    /// every cosmetic packet; [`Player::send_packet`](crate::player::Player::send_packet) sends
+    /// what must arrive. False for a world that is not loaded or a `pos` that is not finite or
+    /// outside the world border.
     #[doc(alias = "World::broadcastPacketToViewers")]
     pub fn broadcast_packet(&mut self, world: world::Id, pos: Vec3, packet: &Packet) -> bool {
         let Some(w) = index(self.state, world) else {
@@ -184,13 +169,15 @@ impl Context<'_> {
         true
     }
 
-    /// An explosion of `size` (at most 8) at `center` in `world` (PMMP `Explosion`, `explodeA`
-    /// then `explodeB`): blocks break and drop with a 1 / size chance, TNT it reaches is lit, and
-    /// entities and players near it are hurt and pushed by their exposure. It stops at chunks
-    /// that are not loaded. False, with nothing done, for a world the server does not have, a
-    /// `center` that is not finite or outside the world border, or a size that is not above 0.
-    /// Like every direct call it raises no events (the entity hits and pushes included);
-    /// [`action::Explode`](crate::action::Explode) explodes with them.
+    /// Explodes with `size` at `center` in `world` (PMMP `Explosion`, `explodeA` then
+    /// `explodeB`): blocks break and drop with a 1 / size chance, TNT it reaches is lit, and
+    /// entities and players near it are hurt and pushed by their exposure. A size above 8
+    /// explodes as 8. Its rays stop at chunks that are not loaded and at blocks neither Anchor
+    /// nor clients know; blocks only clients know weaken them and stay. False, with nothing done,
+    /// for a world that is not loaded, a `center` that is not finite or outside the world border,
+    /// or a size that is not finite or not above 0. Like every direct call it raises no events
+    /// (the entity hits and pushes included); [`action::Explode`](crate::action::Explode)
+    /// explodes with them.
     #[doc(alias = "Explosion::__construct")]
     #[doc(alias = "Explosion::explodeA")]
     #[doc(alias = "Explosion::explodeB")]
@@ -198,14 +185,14 @@ impl Context<'_> {
         self.explosion(world, center, size, false)
     }
 
-    /// [`Self::explode`] that also sets a third of the broken blocks on fire (PMMP's default fire
-    /// chance) where the block under them can hold fire.
+    /// Explodes as [`Self::explode`] does, and sets a third of the broken blocks on fire (PMMP's
+    /// default fire chance) where the block under them can hold fire.
     #[doc(alias = "Explosion::setFireChance")]
     pub fn explode_with_fire(&mut self, world: world::Id, center: Vec3, size: f64) -> bool {
         self.explosion(world, center, size, true)
     }
 
-    /// [`Self::explode`], with or without fire.
+    /// Explodes as [`Self::explode`] does, setting fire when `fire`.
     fn explosion(&mut self, world: world::Id, center: Vec3, size: f64, fire: bool) -> bool {
         let Some(w) = index(self.state, world) else {
             return false;
@@ -220,18 +207,25 @@ impl Context<'_> {
 
 impl World {
     /// Where a player two blocks tall stands safely at the column of `pos`: the first block at
-    /// or above `pos` (its y kept in the world height) that is free with a free block over it,
-    /// free meaning not solid or in a chunk that is not loaded. The respawn rule uses the same
-    /// test (PMMP `World::getSafeSpawn`; PMMP also looks down first, and loads the chunk).
+    /// or above `pos` (its y first kept in the world height) that is free with a free block over
+    /// it, free meaning that an entity can be in it, as the entity rules see it; every block of a
+    /// chunk that is not loaded is free. A column with no such room gives the y one above the
+    /// world height. The respawn rule uses it (PMMP `World::getSafeSpawn`; PMMP also looks down
+    /// first, and loads the chunk).
     #[doc(alias = "World::getSafeSpawn")]
     pub fn safe_spawn(&self, pos: BlockPos) -> BlockPos {
-        let free = |y: i32| {
-            self.block(BlockPos::new(pos.x, y, pos.z))
-                .is_none_or(|b| !b.is_solid())
-        };
         let mut y = pos.y.clamp(world::MIN_Y, world::MAX_Y);
-        while y <= world::MAX_Y && !(free(y) && free(y.saturating_add(1))) {
-            y = y.saturating_add(1);
+        if self.is_chunk_loaded(pos.chunk()) {
+            // Each step looks at one new block, the one over the block below it.
+            let mut free = !entity::is_solid(self, pos.x, y, pos.z);
+            while y <= world::MAX_Y {
+                let free_above = !entity::is_solid(self, pos.x, y + 1, pos.z);
+                if free && free_above {
+                    break;
+                }
+                free = free_above;
+                y += 1;
+            }
         }
         BlockPos::new(pos.x, y, pos.z)
     }
@@ -254,6 +248,41 @@ impl World {
         entity::collisions(self, area, &mut boxes);
         Some(boxes)
     }
+}
+
+/// The world index of `world` if the server has it loaded.
+pub(super) fn index(state: &State, world: world::Id) -> Option<usize> {
+    let i = world.index();
+    state.catalog.is_loaded(i).then_some(i)
+}
+
+/// Queues `packet` for every player of `world` past its start-game packets. A change made while
+/// a player waits for its spawn chunks reaches it too, after its `StartGame` (the outbox follows
+/// the start-game packets); a spawn window that then repeats the same state is harmless.
+pub(super) fn send_to_world(state: &mut State, world: usize, packet: &Packet) {
+    for p in state.players.values_mut() {
+        if p.world == world && p.phase != Phase::Loading {
+            p.send_packet(packet.clone());
+        }
+    }
+}
+
+/// The world at `index`, an index of a world the server has had this run.
+fn world_at(state: &State, index: usize) -> &World {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the server keeps every world it had this run at its index"
+    )]
+    &state.worlds[index]
+}
+
+/// The world at `index`, an index of a world the server has had this run, to change it.
+fn world_at_mut(state: &mut State, index: usize) -> &mut World {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the server keeps every world it had this run at its index"
+    )]
+    &mut state.worlds[index]
 }
 
 #[cfg(test)]

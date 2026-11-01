@@ -21,9 +21,9 @@ pub(super) const MAX_PIECES: usize = 128;
 /// Most skin animations read. The client sends a few at most.
 const MAX_ANIMATIONS: usize = 32;
 /// Longest language code read (BCP 47 tags in practice are under 20 characters).
-const MAX_LANGUAGE_CODE: usize = 64;
+const MAX_LANGUAGE_CODE_BYTES: usize = 64;
 /// Longest host name in a server address (DNS limit).
-const MAX_HOST: usize = 253;
+const MAX_HOST_BYTES: usize = 253;
 /// The persona piece type names of the login data and their protocol types; any other name is
 /// [`PieceType::Unknown`].
 const PIECE_TYPES: [(&str, PieceType); 28] = [
@@ -58,8 +58,8 @@ const PIECE_TYPES: [(&str, PieceType); 28] = [
 ];
 /// The login tint piece types whose protocol name is not the login name without `persona_`: the
 /// protocol names a tint's piece by the `persona::PieceType` name in lower case (Mojang protocol
-/// docs, the Cloudburst protocol library), which drops the underscore of these. gophertunnel only drops `persona_`,
-/// so its codec would send `facial_hair`, a name the client does not read.
+/// docs, the Cloudburst protocol library), which drops the underscore of these. gophertunnel
+/// only drops `persona_`, so its codec would send `facial_hair`, a name the client does not read.
 const TINT_PROTOCOL_NAMES: [(&str, &str); 7] = [
     ("persona_facial_hair", "facialhair"),
     ("persona_face_accessory", "faceaccessory"),
@@ -142,47 +142,35 @@ pub(crate) struct ClientData {
     pub(crate) nonce: String,
 }
 
-/// A piece of a persona skin.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "PascalCase")]
-pub(crate) struct PersonaPiece {
-    pub(crate) is_default: bool,
-    pub(crate) pack_id: String,
-    pub(crate) piece_id: String,
-    pub(crate) piece_type: String,
-    pub(crate) product_id: String,
-}
-
-/// Tint colours of a persona piece (ARGB hex).
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "PascalCase")]
-pub(crate) struct PersonaPieceTintColour {
-    #[serde(rename = "Colors")]
-    pub(crate) colours: [String; 4],
-    pub(crate) piece_type: String,
-}
-
-/// A skin animation.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "PascalCase")]
-pub(crate) struct SkinAnimation {
-    pub(crate) frames: f64,
-    pub(crate) image: String,
-    pub(crate) image_height: i64,
-    pub(crate) image_width: i64,
-    pub(crate) r#type: i64,
-    pub(crate) animation_expression: i64,
-}
-
 impl ClientData {
+    /// Verifies the client data JWT with the client's key and validates the claims.
+    pub(crate) fn verify(token: &str, key: &PublicKey) -> Result<Self> {
+        let jws = parse_jws(token, token.len()).map_err(|e| Error::Crypto("client data", e))?;
+        if jws.header.alg != Algorithm::Es384 {
+            return Err(Error::Algorithm("client data"));
+        }
+        verify_jws(&jws, Verifier::Es384(key)).map_err(|_| Error::Signature("client data"))?;
+        Self::from_json(&jws.payload)
+    }
+
+    /// Parses and validates the claims JSON.
+    pub(super) fn from_json(payload: &[u8]) -> Result<Self> {
+        let mut data: Self =
+            serde_json::from_slice(payload).map_err(|e| Error::Json("client data", e))?;
+        data.bracket_ipv6_address();
+        data.validate()?;
+        Ok(data)
+    }
+
     /// The skin the client sent, as the protocol carries it to other players (PMMP
     /// `ClientDataToSkinDataHelper::fromClientData`, without PMMP's `LegacySkinAdapter`, which
     /// swaps persona skins for a random colour: Anchor keeps the skin as sent). The images,
     /// geometry (`{}` when empty), resource patch and animation data are decoded from base64, tint
     /// piece types take their protocol names ([`TINT_PROTOCOL_NAMES`]); the full skin ID is
     /// the skin ID and the cape ID together (PMMP draws a random UUID; BDS's value is not
-    /// confirmed). Fails if a field does not decode, an image dimension or animation number is
-    /// out of range, or the skin is not acceptable ([`Skin::is_acceptable`]).
+    /// confirmed). Fails if a field does not decode, the geometry or the resource patch is not a
+    /// JSON object or null (gophertunnel `ClientData.Validate`), an image dimension or animation
+    /// number is out of range, or the skin is not acceptable ([`Skin::is_acceptable`]).
     pub(crate) fn skin(&self) -> Result<Skin> {
         // Decoding allocates at most the bound; the texts are counted with the skin after.
         let mut budget = MAX_SKIN_BYTES;
@@ -205,9 +193,21 @@ impl ClientData {
                 expression_type: dimension(a.animation_expression)?,
             });
         }
+        let skin_resource_patch = decode(&self.skin_resource_patch)?;
+        if !is_object_or_null(&skin_resource_patch) {
+            return Err(Error::ClientData("SkinResourcePatch"));
+        }
+        // The login may leave the geometry empty for none; the protocol carries none as `{}`.
+        let skin_geometry = match decode(&self.skin_geometry)? {
+            geometry if geometry.is_empty() => NO_CUSTOM_GEOMETRY.to_vec(),
+            geometry => geometry,
+        };
+        if !is_object_or_null(&skin_geometry) {
+            return Err(Error::ClientData("SkinGeometryData"));
+        }
         let skin = Skin::new(Arc::new(protocol::Skin {
             skin_id: self.skin_id.clone(),
-            skin_resource_patch: decode(&self.skin_resource_patch)?,
+            skin_resource_patch,
             skin_image_width: dimension(self.skin_image_width)?,
             skin_image_height: dimension(self.skin_image_height)?,
             skin_data: decode(&self.skin_data)?,
@@ -215,11 +215,7 @@ impl ClientData {
             cape_image_width: dimension(self.cape_image_width)?,
             cape_image_height: dimension(self.cape_image_height)?,
             cape_data: decode(&self.cape_data)?,
-            // The login may leave the geometry empty for none; the protocol carries none as `{}`.
-            skin_geometry: match decode(&self.skin_geometry)? {
-                geometry if geometry.is_empty() => NO_CUSTOM_GEOMETRY.to_vec(),
-                geometry => geometry,
-            },
+            skin_geometry,
             animation_data: decode(&self.skin_animation_data)?,
             geometry_data_engine_version: decode(&self.skin_geometry_version)?,
             premium_skin: self.premium_skin,
@@ -260,26 +256,7 @@ impl ClientData {
         Ok(skin)
     }
 
-    /// Verifies the client data JWT with the client's key and validates the claims.
-    pub(crate) fn verify(token: &str, key: &PublicKey) -> Result<Self> {
-        let jws = parse_jws(token, token.len()).map_err(|e| Error::Crypto("client data", e))?;
-        if jws.header.alg != Algorithm::Es384 {
-            return Err(Error::Algorithm("client data"));
-        }
-        verify_jws(&jws, Verifier::Es384(key)).map_err(|_| Error::Signature("client data"))?;
-        Self::from_json(&jws.payload)
-    }
-
-    /// Parses and validates the claims JSON.
-    pub(super) fn from_json(payload: &[u8]) -> Result<Self> {
-        let mut data: Self =
-            serde_json::from_slice(payload).map_err(|e| Error::Json("client data", e))?;
-        data.bracket_ipv6_address();
-        data.validate()?;
-        Ok(data)
-    }
-
-    /// Clients do not always bracket an IPv6 server address (gophertunnel `Parse`).
+    /// Brackets an IPv6 server address the client left bare (gophertunnel `Parse`).
     fn bracket_ipv6_address(&mut self) {
         let address = &self.server_address;
         if !address.contains("://")
@@ -291,9 +268,11 @@ impl ClientData {
         }
     }
 
-    /// gophertunnel `ClientData.Validate`, with its defects fixed: the version pattern applies
-    /// to every character, the language code is checked for BCP 47 form without a registry, and
-    /// the server address is checked for form instead of being resolved through DNS.
+    /// Checks the claims as gophertunnel `ClientData.Validate` does, with its defects fixed: the
+    /// version pattern applies to every character, the language code is checked for BCP 47 form
+    /// without a registry, and the server address is checked for form instead of being resolved
+    /// through DNS. The geometry and the resource patch are checked where [`skin`](Self::skin)
+    /// decodes them.
     fn validate(&self) -> Result<()> {
         if !(1..=15).contains(&self.device_os) {
             return Err(Error::ClientData("DeviceOS"));
@@ -352,18 +331,6 @@ impl ClientData {
                 return Err(Error::ClientData("AnimatedImageData"));
             }
         }
-        let geometry = STD
-            .decode(&self.skin_geometry, self.skin_geometry.len())
-            .map_err(|_| Error::ClientData("SkinGeometryData"))?;
-        if !geometry.is_empty() && !is_object_or_null(&geometry) {
-            return Err(Error::ClientData("SkinGeometryData"));
-        }
-        let patch = STD
-            .decode(&self.skin_resource_patch, self.skin_resource_patch.len())
-            .map_err(|_| Error::ClientData("SkinResourcePatch"))?;
-        if !is_object_or_null(&patch) {
-            return Err(Error::ClientData("SkinResourcePatch"));
-        }
         if self.skin_id.is_empty() {
             return Err(Error::ClientData("SkinId"));
         }
@@ -374,8 +341,40 @@ impl ClientData {
     }
 }
 
-/// The protocol's number of a login persona piece type (the login data says `persona_hand`,
-/// the wire `hands`); 0 (unknown) for any other name.
+/// A piece of a persona skin.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub(crate) struct PersonaPiece {
+    pub(crate) is_default: bool,
+    pub(crate) pack_id: String,
+    pub(crate) piece_id: String,
+    pub(crate) piece_type: String,
+    pub(crate) product_id: String,
+}
+
+/// Tint colours of a persona piece (ARGB hex).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub(crate) struct PersonaPieceTintColour {
+    #[serde(rename = "Colors")]
+    pub(crate) colours: [String; 4],
+    pub(crate) piece_type: String,
+}
+
+/// A skin animation.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub(crate) struct SkinAnimation {
+    pub(crate) frames: f64,
+    pub(crate) image: String,
+    pub(crate) image_height: i64,
+    pub(crate) image_width: i64,
+    pub(crate) r#type: i64,
+    pub(crate) animation_expression: i64,
+}
+
+/// Returns the protocol's number of a login persona piece type (the login data says
+/// `persona_hand`, the wire `hands`); 0 (unknown) for any other name.
 fn piece_type(name: &str) -> u32 {
     let name = if name == "persona_hands" {
         "persona_hand"
@@ -389,8 +388,8 @@ fn piece_type(name: &str) -> u32 {
     u32::from(piece_type)
 }
 
-/// The protocol value of a login tint piece type: the codec sends the value without `persona_`
-/// (and `persona_hand` as `hands`), so the types whose protocol name differs
+/// Returns the protocol value of a login tint piece type: the codec sends the value without
+/// `persona_` (and `persona_hand` as `hands`), so the types whose protocol name differs
 /// ([`TINT_PROTOCOL_NAMES`]) take the value the codec reads from that name.
 fn tint_piece_type(name: &str) -> String {
     TINT_PROTOCOL_NAMES
@@ -402,7 +401,7 @@ fn tint_piece_type(name: &str) -> String {
         )
 }
 
-/// The arm size the login data names: slim, or wide for anything else.
+/// Returns the arm size the login data names: slim, or wide for anything else.
 fn arm_size(name: &str) -> ArmSize {
     if name == "slim" {
         ArmSize::Slim
@@ -411,8 +410,8 @@ fn arm_size(name: &str) -> ArmSize {
     }
 }
 
-/// A colour of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin colour is sent
-/// (gophertunnel: "#b37b62"); anything else is transparent black.
+/// Reads a colour of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin colour is
+/// sent (gophertunnel: "#b37b62"); anything else is transparent black.
 fn colour(text: &str) -> Rgba {
     let clear = Rgba {
         r: 0,
@@ -451,7 +450,7 @@ fn image_fits(image: &str, height: i64, width: i64) -> bool {
 /// letter language, then subtags of 1 to 8 letters or digits. gophertunnel also looks the tag up
 /// in the IANA registry; the value is informative only, so the form is enough here.
 fn is_language_tag(code: &str) -> bool {
-    if code.len() > MAX_LANGUAGE_CODE {
+    if code.len() > MAX_LANGUAGE_CODE_BYTES {
         return false;
     }
     let mut subtags = code.split(['_', '-']);
@@ -487,16 +486,18 @@ fn is_server_address(address: &str) -> bool {
         let ip = inner.split_once('%').map_or(inner, |(ip, _zone)| ip);
         return ip.parse::<Ipv6Addr>().is_ok();
     }
-    host.len() <= MAX_HOST
+    host.len() <= MAX_HOST_BYTES
         && host
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
-/// The host and port of the authority of `url` (a URL after its `scheme://`) when it has both:
-/// `host:port` or `[ipv6]:port`.
+/// Splits the authority of `url` (a URL after its `scheme://`) into its host and port when it
+/// has both: `host:port` or `[ipv6]:port`.
 fn url_host_port(url: &str) -> Option<(&str, &str)> {
-    let authority = url.split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = url
+        .split_once(['/', '?', '#'])
+        .map_or(url, |(authority, _)| authority);
     let (host, port) = authority.rsplit_once(':')?;
     let host_ok = match host.strip_prefix('[') {
         Some(inner) => inner.strip_suffix(']').is_some_and(|ip| !ip.is_empty()),

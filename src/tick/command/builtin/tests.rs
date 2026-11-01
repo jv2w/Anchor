@@ -5,8 +5,7 @@ use std::net::IpAddr;
 
 use tokio::sync::mpsc;
 
-use super::super::tests::{id, lines, server, server_with};
-use super::super::{Error, Output, Sender, available_commands, execute};
+use super::*;
 use crate::command::{self, Command};
 use crate::config::{Difficulty, GameMode};
 use crate::effect;
@@ -20,11 +19,216 @@ use crate::permission;
 use crate::protocol::consts::CommandArg;
 use crate::protocol::packet::Packet;
 use crate::runtime::ThreadTotals;
+use crate::tick::command::tests::{id, lines, server, server_with};
+use crate::tick::command::{available_commands, execute};
 use crate::tick::log::InputLog;
 use crate::tick::queue::{Measure, Outbound, SessionId};
-use crate::tick::tests::{received, tick};
+use crate::tick::tests::{initialised, radius, received, tick};
 use crate::tick::{Context, Output as TickOutput, State, save};
 use crate::world::BlockPos;
+
+/// The clock `/time` names: every world's.
+const CLOCK: &str = "minecraft:overworld";
+/// `/time`'s answer when a clock would go below 0.
+const CLOCK_TOO_SMALL: &str = "commands.time.clock.num.tooSmall";
+/// BDS 1.26.60's overloads of the commands Anchor shares with it, from the `AvailableCommands`
+/// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
+/// optional parameter, `soft:` for a soft enum.
+const BDS_OVERLOADS: [&str; 50] = [
+    "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
+    "deop player=target",
+    "difficulty difficulty=enum:Difficulty",
+    "difficulty difficulty=int",
+    "effect player=target Mode=enum:ClearEffects effect=enum:Effect?",
+    "effect player=target effect=enum:Effect seconds=int? amplifier=int? hideParticles=enum:Boolean?",
+    "effect player=target effect=enum:Effect Mode=enum:AddInfiniteEffect amplifier=int? hideParticles=enum:Boolean?",
+    "enchant player=target enchantmentName=enum:Enchant level=int?",
+    "enchant player=target enchantmentId=int level=int?",
+    "gamemode gameMode=enum:GameMode player=target?",
+    "gamemode gameMode=int player=target?",
+    "give player=target itemName=enum:Item amount=int? data=int? components=json?",
+    "kick name=target reason=message",
+    "kill target=target?",
+    "list",
+    "me message=message",
+    "op player=target",
+    "say message=message",
+    "setworldspawn spawnPoint=position?",
+    "spawnpoint player=target? spawnPos=position?",
+    "stop",
+    "tell target=target message=message",
+    "teleport destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=target",
+    "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "time mode=enum:TimeModeAdd amount=int",
+    "time mode=enum:TimeModeSet amount=int",
+    "time mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
+    "time mode=enum:TimeModeQuery time=enum:TimeQuery2",
+    "time mode=enum:TimeModePause",
+    "time mode=enum:TimeModeResume",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeAdd amount=int",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet amount=int",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeQuery clockQuery=enum:ClockTimeQuery",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModePause",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeResume",
+    "title player=target clear=enum:TitleClear",
+    "title player=target reset=enum:TitleReset",
+    "title player=target titleLocation=enum:TitleSet titleText=message",
+    "title player=target times=enum:TitleTimes fadeIn=int stay=int fadeOut=int",
+    "xp amount=int player=target?",
+    "xp amount=suffix:l player=target?",
+];
+/// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
+const BDS_ENUMS: [(&str, &[&str]); 20] = [
+    ("AddInfiniteEffect", &["infinite"]),
+    ("Boolean", &["true", "false"]),
+    ("ClearEffects", &["clear"]),
+    ("ClockTimeQuery", &["time"]),
+    (
+        "Difficulty",
+        &["normal", "peaceful", "easy", "hard", "p", "e", "n", "h"],
+    ),
+    (
+        "Effect",
+        &[
+            "wither",
+            "freezing",
+            "speed",
+            "slowness",
+            "haste",
+            "mining_fatigue",
+            "strength",
+            "instant_health",
+            "instant_damage",
+            "jump_boost",
+            "nausea",
+            "regeneration",
+            "resistance",
+            "fire_resistance",
+            "water_breathing",
+            "invisibility",
+            "blindness",
+            "night_vision",
+            "hunger",
+            "weakness",
+            "poison",
+            "health_boost",
+            "absorption",
+            "saturation",
+            "levitation",
+            "fatal_poison",
+            "conduit_power",
+            "slow_falling",
+            "bad_omen",
+            "village_hero",
+            "darkness",
+            "trial_omen",
+            "wind_charged",
+            "weaving",
+            "oozing",
+            "infested",
+            "raid_omen",
+            "breath_of_the_nautilus",
+        ],
+    ),
+    (
+        "Enchant",
+        &[
+            "protection",
+            "fire_protection",
+            "feather_falling",
+            "blast_protection",
+            "projectile_protection",
+            "thorns",
+            "respiration",
+            "depth_strider",
+            "aqua_affinity",
+            "sharpness",
+            "smite",
+            "bane_of_arthropods",
+            "knockback",
+            "fire_aspect",
+            "looting",
+            "efficiency",
+            "silk_touch",
+            "unbreaking",
+            "fortune",
+            "power",
+            "punch",
+            "flame",
+            "infinity",
+            "luck_of_the_sea",
+            "lure",
+            "frost_walker",
+            "mending",
+            "binding",
+            "vanishing",
+            "impaling",
+            "riptide",
+            "loyalty",
+            "channeling",
+            "multishot",
+            "piercing",
+            "quick_charge",
+            "soul_speed",
+            "swift_sneak",
+            "wind_burst",
+            "density",
+            "breach",
+            "lunge",
+        ],
+    ),
+    (
+        "GameMode",
+        &[
+            "default",
+            "creative",
+            "spectator",
+            "survival",
+            "adventure",
+            "d",
+            "c",
+            "s",
+            "a",
+        ],
+    ),
+    ("TimeMarkerOccurrence", &["next", "previous", "stay"]),
+    ("TimeModeAdd", &["add"]),
+    ("TimeModePause", &["pause"]),
+    ("TimeModeQuery", &["query"]),
+    ("TimeModeResume", &["resume"]),
+    ("TimeModeSet", &["set"]),
+    ("TimeOfCommand", &["of"]),
+    ("TimeQuery2", &["time", "daytime", "gametime", "day"]),
+    ("TitleClear", &["clear"]),
+    ("TitleReset", &["reset"]),
+    ("TitleSet", &["title", "subtitle", "actionbar"]),
+    ("TitleTimes", &["times"]),
+];
+/// BDS's values of the soft enums of [`BDS_OVERLOADS`] when a player joins, from the same packet.
+const BDS_SOFT_ENUMS: [(&str, &[&str]); 1] = [("WorldClocks", &["minecraft:overworld"])];
+
+/// A key and its parameters.
+type Said = (String, Vec<String>);
+
+#[test]
+fn pmmp_texts_fill_each_parameter_once() {
+    let msg = Msg::own("a {%0} b {%1} {%2}");
+    assert_eq!(msg.render(&["{%1}", "x"]).unwrap(), "a {%1} b x {%2}");
+    assert_eq!(Msg::client("k").render(&[]), None);
+    assert_eq!(
+        msg.output(&["1", "2"]).lines().collect::<Vec<_>>(),
+        ["a 1 b 2 {%2}"]
+    );
+}
 
 /// Runs `line` as `sender`, then the actions it queued, as the tick does.
 fn run(state: &mut State, sender: Sender, line: &str) -> command::Result<Output> {
@@ -33,77 +237,9 @@ fn run(state: &mut State, sender: Sender, line: &str) -> command::Result<Output>
     result
 }
 
-/// The output lines (texts or keys) of a success.
+/// Runs `line` as `sender` and collects the output lines (texts or keys) of its success.
 fn ok(state: &mut State, sender: Sender, line: &str) -> Vec<String> {
     lines(run(state, sender, line))
-}
-
-/// The text or key of a failure.
-fn fails(state: &mut State, sender: Sender, line: &str) -> String {
-    match run(state, sender, line) {
-        Err(e) => e.line().text,
-        Ok(out) => panic!("{line:?} succeeded: {out:?}"),
-    }
-}
-
-/// Whether a failure is a line that does not fit the command: a syntax error, or the command's
-/// usage from its handler.
-fn is_usage(result: &command::Result<Output>) -> bool {
-    matches!(result, Err(Error::Syntax { .. } | Error::Usage { .. }))
-}
-
-/// Whether a failure is a missing permission.
-fn is_refused(result: &command::Result<Output>) -> bool {
-    matches!(result, Err(Error::Permission { .. }))
-}
-
-/// A server with player 1 an operator and player 2 not.
-fn with_op() -> (State, Vec<mpsc::Receiver<Outbound>>) {
-    let (mut state, rx) = server(vec![]);
-    Context { state: &mut state }.op("player1").unwrap();
-    (state, rx)
-}
-
-/// The player of `session`.
-fn player(state: &State, session: u64) -> &crate::player::Player {
-    &state.players[&SessionId::new(session)]
-}
-
-/// The chat lines (text or key, parameters) `rx` got after a tick, and the final packet.
-fn chat(
-    state: &mut State,
-    rx: &mut mpsc::Receiver<Outbound>,
-) -> (Vec<(String, Vec<String>)>, Option<Packet>) {
-    let mut output = TickOutput::default();
-    tick(state, &mut vec![], &mut output);
-    let (packets, last, _) = received(rx);
-    let texts = packets
-        .into_iter()
-        .filter_map(|p| match p {
-            Packet::Text(t) => Some((t.message, t.parameters)),
-            _ => None,
-        })
-        .collect();
-    (texts, last)
-}
-
-/// The message a player was disconnected with.
-fn kicked_with(last: Option<Packet>) -> String {
-    match last {
-        Some(Packet::Disconnect(d)) => d.message,
-        other => panic!("not disconnected: {other:?}"),
-    }
-}
-
-#[test]
-fn pmmp_texts_fill_each_parameter_once() {
-    let msg = super::Msg::own("a {%0} b {%1} {%2}");
-    assert_eq!(msg.render(&["{%1}", "x"]).unwrap(), "a {%1} b x {%2}");
-    assert_eq!(super::Msg::client("k").render(&[]), None);
-    assert_eq!(
-        msg.output(&["1", "2"]).lines().collect::<Vec<_>>(),
-        ["a 1 b 2 {%2}"]
-    );
 }
 
 #[test]
@@ -207,6 +343,43 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     );
 }
 
+/// Tells whether a failure is a line that does not fit the command: a syntax error, or the
+/// command's usage from its handler.
+fn is_usage(result: &command::Result<Output>) -> bool {
+    matches!(result, Err(Error::Syntax { .. } | Error::Usage { .. }))
+}
+
+/// Tells whether a failure is a missing permission.
+fn is_refused(result: &command::Result<Output>) -> bool {
+    matches!(result, Err(Error::Permission { .. }))
+}
+
+/// Builds a server with player 1 an operator and player 2 not.
+fn with_op() -> (State, Vec<mpsc::Receiver<Outbound>>) {
+    let (mut state, rx) = server(vec![]);
+    Context { state: &mut state }.op("player1").unwrap();
+    (state, rx)
+}
+
+/// Runs a tick and collects the chat lines (text or key, parameters) `rx` got, and the final
+/// packet.
+fn chat(
+    state: &mut State,
+    rx: &mut mpsc::Receiver<Outbound>,
+) -> (Vec<(String, Vec<String>)>, Option<Packet>) {
+    let mut output = TickOutput::default();
+    tick(state, &mut vec![], &mut output);
+    let (packets, last, _) = received(rx);
+    let texts = packets
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::Text(t) => Some((t.message, t.parameters)),
+            _ => None,
+        })
+        .collect();
+    (texts, last)
+}
+
 #[test]
 fn op_and_deop_change_the_list_tell_the_player_and_copy_operators() {
     let (mut state, mut rx) = with_op();
@@ -247,7 +420,7 @@ fn senders_have_names_get_messages_and_operators_get_copies() {
     cx.send_to(id(2), raw("hi")).unwrap();
     cx.send_to(Sender::Console, raw("logged")).unwrap();
     cx.send_to(id(9), raw("nobody")).unwrap();
-    cx.broadcast_command_message(id(2), "did it");
+    cx.broadcast_command_message(id(2), "did it").unwrap();
     let (to2, _) = chat(&mut state, &mut rx[1]);
     assert_eq!(to2, [("hi".to_owned(), vec![])], "no copy for the sender");
     let (to1, _) = chat(&mut state, &mut rx[0]);
@@ -258,6 +431,14 @@ fn senders_have_names_get_messages_and_operators_get_copies() {
             vec!["player2".to_owned(), "did it".to_owned()]
         )]
     );
+}
+
+/// Reads the message a player was disconnected with.
+fn kicked_with(last: Option<Packet>) -> String {
+    match last {
+        Some(Packet::Disconnect(d)) => d.message,
+        other => panic!("not disconnected: {other:?}"),
+    }
 }
 
 #[test]
@@ -287,6 +468,14 @@ fn ban_and_pardon_keep_the_list_and_kick_the_online_player() {
     );
     assert!(!Context { state: &mut state }.is_banned("player2"));
     assert!(is_usage(&run(&mut state, Sender::Console, "banlist nope")));
+}
+
+/// Runs `line` as `sender` and reads the text or key of its failure.
+fn fails(state: &mut State, sender: Sender, line: &str) -> String {
+    match run(state, sender, line) {
+        Err(e) => e.line().text,
+        Ok(out) => panic!("{line:?} succeeded: {out:?}"),
+    }
 }
 
 #[test]
@@ -389,6 +578,11 @@ fn kick_disconnects_with_the_reason_or_the_clients_kicked_text() {
     assert_eq!(kicked_with(last), "disconnect.kicked");
 }
 
+/// Looks up the player of `session`.
+fn player(state: &State, session: u64) -> &crate::player::Player {
+    &state.players[&SessionId::new(session)]
+}
+
 // pmmp: Player::kick, Player::setGamemode, Entity::teleport, Player::transfer
 #[test]
 fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
@@ -439,6 +633,24 @@ fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
     assert_eq!(player(&state, 2).position(), Vec3::new(1.0, 80.0, 1.0));
     ok(&mut state, id(2), "transferserver example.com");
     assert!(player(&state, 2).is_online(), "the transfer was cancelled");
+}
+
+/// A full deferred queue fails a command on several players before it acts on any of them.
+#[test]
+fn a_command_on_several_players_acts_on_all_of_them_or_none() {
+    let (mut state, _rx) = with_op();
+    let mut cx = Context { state: &mut state };
+    for _ in 1..crate::tick::dispatch::MAX_DEFERRED {
+        cx.defer(|_| {}).unwrap();
+    }
+    assert_eq!(
+        fails(&mut state, id(1), "kick @a"),
+        crate::action::Error::Full.to_string()
+    );
+    assert!(
+        player(&state, 1).is_online() && player(&state, 2).is_online(),
+        "nobody was kicked"
+    );
 }
 
 #[test]
@@ -553,7 +765,7 @@ fn give_fills_the_inventory_in_stacks_and_reports_what_fit() {
     let counts: Vec<u8> = (0..3).map(|i| inv.main_stack(i).unwrap().count()).collect();
     assert_eq!(counts, [64, 36, 0]);
     let packet = run(&mut state, id(1), "give player2 diamond_sword 99999");
-    assert_eq!(packet, Err(super::NUM_TOO_BIG.error(&["99999", "32767"])));
+    assert_eq!(packet, Err(NUM_TOO_BIG.error(&["99999", "32767"])));
     assert!(matches!(
         run(&mut state, Sender::Console, "give player2 no_such_item"),
         Err(Error::Syntax { .. })
@@ -578,15 +790,18 @@ fn clear_counts_and_takes_items_from_every_slot() {
     let stick = crate::command::parse::Names::item("stick").unwrap();
     let p2 = crate::player::Id::new(SessionId::new(2));
     let mut cx = Context { state: &mut state };
-    cx.player_mut(p2)
+    let _left = cx
+        .player_mut(p2)
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
         .add(&Stack::new(stone, 64));
-    cx.player_mut(p2)
+    let _left = cx
+        .player_mut(p2)
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
         .add(&Stack::new(stone, 10));
-    cx.player_mut(p2)
+    let _left = cx
+        .player_mut(p2)
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
         .add(&Stack::new(stick, 5));
@@ -738,7 +953,7 @@ fn enchant_enchants_the_held_item_up_to_the_highest_level() {
     let sword = crate::command::parse::Names::item("diamond_sword").unwrap();
     let book = crate::command::parse::Names::item("book").unwrap();
     let p1 = crate::player::Id::new(SessionId::new(1));
-    Context { state: &mut state }
+    let _left = Context { state: &mut state }
         .player_mut(p1)
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
@@ -758,7 +973,7 @@ fn enchant_enchants_the_held_item_up_to_the_highest_level() {
     );
     assert!(is_refused(&run(&mut state, id(2), "enchant @s sharpness")));
     let p2 = crate::player::Id::new(SessionId::new(2));
-    Context { state: &mut state }
+    let _left = Context { state: &mut state }
         .player_mut(p2)
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
@@ -856,8 +1071,8 @@ fn tp_moves_players_to_players_and_positions() {
     ));
     assert!(is_usage(&run(&mut state, Sender::Console, "tp 0 0 0")));
     assert!(is_usage(&run(&mut state, id(1), "tp player2 @a")));
-    assert_eq!(super::two_decimals(-3.256), "-3.26");
-    assert_eq!(super::two_decimals(70.0), "70.00", "BDS's coordinates");
+    assert_eq!(two_decimals(-3.256), "-3.26");
+    assert_eq!(two_decimals(70.0), "70.00", "BDS's coordinates");
 }
 
 #[test]
@@ -900,15 +1115,7 @@ fn spawnpoint_and_setworldspawn_take_the_senders_block_or_a_position() {
     );
 }
 
-/// The clock `/time` names: every world's.
-const CLOCK: &str = "minecraft:overworld";
-/// `/time`'s answer when a clock would go below 0.
-const CLOCK_TOO_SMALL: &str = "commands.time.clock.num.tooSmall";
-
-/// A key and its parameters.
-type Said = (String, Vec<String>);
-
-/// What the console's `line` answers: the key and parameters of its first line, or of its
+/// Runs the console's `line` and reads the key and parameters of its first line, or of its
 /// failure.
 fn answer(state: &mut State, line: &str) -> Result<Said, Said> {
     match run(state, Sender::Console, line) {
@@ -920,38 +1127,12 @@ fn answer(state: &mut State, line: &str) -> Result<Said, Said> {
     }
 }
 
-/// `key` and `params` as [`answer`] gives them.
+/// Pairs `key` and `params` as [`answer`] gives them.
 fn said(key: &str, params: &[&str]) -> Said {
     (
         key.to_owned(),
         params.iter().map(|p| (*p).to_owned()).collect(),
     )
-}
-
-/// The world `arena`, added to the server.
-fn add_arena(state: &mut State) -> crate::world::Id {
-    state.add_world(crate::world::World::new(
-        "arena",
-        crate::world::Kind::Temporary,
-        0,
-        BlockPos::new(0, 0, 0),
-    ));
-    crate::world::Id::of(1)
-}
-
-/// The clock states (time, paused) of the `SyncWorldClocks` `rx` got after a tick, each packet's.
-fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<(i32, bool)>> {
-    tick(state, &mut vec![], &mut TickOutput::default());
-    received(rx)
-        .0
-        .into_iter()
-        .filter_map(|p| match p {
-            Packet::SyncWorldClocks(c) => {
-                Some(c.sync_states.iter().map(|s| (s.time, s.paused)).collect())
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 /// BDS 1.26.60's `/time set <n>` and `/time add <n>` (P6 `clocks`): the clock takes 0 to
@@ -1095,6 +1276,32 @@ fn the_world_age_goes_on_while_the_clock_is_paused_or_moved() {
         answer(&mut state, "time query gametime"),
         Ok(said("commands.time.query.gametime", &[&age]))
     );
+}
+
+/// Adds the world `arena` to the server and returns its ID.
+fn add_arena(state: &mut State) -> crate::world::Id {
+    state.add_world(crate::world::World::new(
+        "arena",
+        crate::world::Kind::Temporary,
+        0,
+        BlockPos::new(0, 0, 0),
+    ));
+    crate::world::Id::of(1)
+}
+
+/// Runs a tick and collects the clock states (time, paused) of each `SyncWorldClocks` `rx` got.
+fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<(i32, bool)>> {
+    tick(state, &mut vec![], &mut TickOutput::default());
+    received(rx)
+        .0
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::SyncWorldClocks(c) => {
+                Some(c.sync_states.iter().map(|s| (s.time, s.paused)).collect())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// BDS 1.26.60's `/time pause` and `/time resume` (P6 `clocks`) stop and start the clock of every
@@ -1259,6 +1466,27 @@ fn time_acts_on_every_world_and_answers_with_the_senders() {
         answer(&mut state, "time query time"),
         Ok(said("commands.time.clock.query.time", &[CLOCK, "6000"]))
     );
+}
+
+/// Coordinates count from the sender, so they are a place in the sender's world: `/spawnpoint`
+/// and `/tp` with coordinates bring a player of another world there.
+#[test]
+fn coordinates_name_a_place_in_the_senders_world() {
+    let (mut state, _rx) = with_op();
+    let arena = add_arena(&mut state);
+    let two = crate::player::Id::new(SessionId::new(2));
+    Context { state: &mut state }
+        .player_mut(two)
+        .unwrap()
+        .teleport(arena, Vec3::new(0.5, 64.0, 0.5))
+        .unwrap();
+    ok(&mut state, id(1), "spawnpoint player2 ~ ~ ~");
+    assert_eq!(
+        player(&state, 2).spawn().map(|(world, _)| world),
+        Some("world")
+    );
+    ok(&mut state, id(1), "tp player2 ~ ~ ~");
+    assert_eq!(player(&state, 2).world(), crate::world::Id::DEFAULT);
 }
 
 /// The console's world is the default world, also after `set_default_world` named another
@@ -1460,14 +1688,11 @@ fn status_reports_uptime_load_memory_threads_players_and_worlds() {
 /// The memory line rounds to a tenth of a MiB.
 #[test]
 fn status_memory_rounds_to_a_tenth_of_a_mib() {
-    assert_eq!(super::server::memory_line(0), "Memory: unknown");
-    assert_eq!(super::server::memory_line(1), "Memory: 0.0 MiB resident");
+    assert_eq!(server::memory_line(0), "Memory: unknown");
+    assert_eq!(server::memory_line(1), "Memory: 0.0 MiB resident");
+    assert_eq!(server::memory_line(104_858), "Memory: 0.1 MiB resident");
     assert_eq!(
-        super::server::memory_line(104_858),
-        "Memory: 0.1 MiB resident"
-    );
-    assert_eq!(
-        super::server::memory_line(u64::MAX),
+        server::memory_line(u64::MAX),
         "Memory: 1759218604441.5 MiB resident"
     );
 }
@@ -1567,6 +1792,38 @@ fn particle_shows_a_bounded_number_of_known_particles() {
         ok(&mut state, id(1), "particle sonicexplosion ~ ~ ~ 0 0 0"),
         ["commands.particle.success"]
     );
+}
+
+/// Each `/particle` run spreads its particles from a random stream of its own, so two runs of
+/// one player in one tick spread apart.
+#[test]
+fn two_particle_runs_in_one_tick_spread_apart() {
+    let (mut state, _rx) = with_op();
+    let mut output = TickOutput::default();
+    tick(&mut state, &mut vec![radius(1, 1, 2)], &mut output);
+    let runtime_id = player(&state, 1).runtime_id;
+    tick(
+        &mut state,
+        &mut vec![initialised(1, 2, runtime_id)],
+        &mut output,
+    );
+    for _ in 0..3 {
+        tick(&mut state, &mut vec![], &mut output);
+    }
+    let spread = |state: &mut State| {
+        let before = player(state, 1).outbox.len();
+        ok(state, id(1), "particle flame ~ ~ ~ 1 1 1");
+        player(state, 1).outbox[before..]
+            .iter()
+            .filter_map(|p| match p {
+                Packet::LevelEvent(e) => Some(e.position),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = spread(&mut state);
+    assert_eq!(first.len(), 1, "the player sees it");
+    assert_ne!(first, spread(&mut state));
 }
 
 #[test]
@@ -1679,7 +1936,7 @@ fn backup_is_for_operators_and_backs_up_after_the_next_save() {
     assert!(!state.saving.backup && !state.saving.requested);
     assert_eq!(
         ok(&mut state, id(1), "backup"),
-        ["Saving and backing up the world; the server log tells when the backup is made"]
+        ["Saving and backing up the data files; the server log tells when the backup is made"]
     );
     let mut log = InputLog::default();
     let Some(crate::save::Request::Commit(snapshot)) = save::snapshot(&mut state, &mut log, false)
@@ -1783,194 +2040,7 @@ fn transferserver_sends_the_sending_player_only() {
     assert_eq!((t.address.as_str(), t.port), ("example.com", 19132));
 }
 
-/// BDS 1.26.60's overloads of the commands Anchor shares with it, from the `AvailableCommands`
-/// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
-/// optional parameter, `soft:` for a soft enum.
-const BDS_OVERLOADS: [&str; 50] = [
-    "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
-    "deop player=target",
-    "difficulty difficulty=enum:Difficulty",
-    "difficulty difficulty=int",
-    "effect player=target Mode=enum:ClearEffects effect=enum:Effect?",
-    "effect player=target effect=enum:Effect seconds=int? amplifier=int? hideParticles=enum:Boolean?",
-    "effect player=target effect=enum:Effect Mode=enum:AddInfiniteEffect amplifier=int? hideParticles=enum:Boolean?",
-    "enchant player=target enchantmentName=enum:Enchant level=int?",
-    "enchant player=target enchantmentId=int level=int?",
-    "gamemode gameMode=enum:GameMode player=target?",
-    "gamemode gameMode=int player=target?",
-    "give player=target itemName=enum:Item amount=int? data=int? components=json?",
-    "kick name=target reason=message",
-    "kill target=target?",
-    "list",
-    "me message=message",
-    "op player=target",
-    "say message=message",
-    "setworldspawn spawnPoint=position?",
-    "spawnpoint player=target? spawnPos=position?",
-    "stop",
-    "tell target=target message=message",
-    "teleport destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=target",
-    "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "time mode=enum:TimeModeAdd amount=int",
-    "time mode=enum:TimeModeSet amount=int",
-    "time mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
-    "time mode=enum:TimeModeQuery time=enum:TimeQuery2",
-    "time mode=enum:TimeModePause",
-    "time mode=enum:TimeModeResume",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeAdd amount=int",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet amount=int",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeQuery clockQuery=enum:ClockTimeQuery",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModePause",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeResume",
-    "title player=target clear=enum:TitleClear",
-    "title player=target reset=enum:TitleReset",
-    "title player=target titleLocation=enum:TitleSet titleText=message",
-    "title player=target times=enum:TitleTimes fadeIn=int stay=int fadeOut=int",
-    "xp amount=int player=target?",
-    "xp amount=suffix:l player=target?",
-];
-
-/// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
-const BDS_ENUMS: [(&str, &[&str]); 20] = [
-    ("AddInfiniteEffect", &["infinite"]),
-    ("Boolean", &["true", "false"]),
-    ("ClearEffects", &["clear"]),
-    ("ClockTimeQuery", &["time"]),
-    (
-        "Difficulty",
-        &["normal", "peaceful", "easy", "hard", "p", "e", "n", "h"],
-    ),
-    (
-        "Effect",
-        &[
-            "wither",
-            "freezing",
-            "speed",
-            "slowness",
-            "haste",
-            "mining_fatigue",
-            "strength",
-            "instant_health",
-            "instant_damage",
-            "jump_boost",
-            "nausea",
-            "regeneration",
-            "resistance",
-            "fire_resistance",
-            "water_breathing",
-            "invisibility",
-            "blindness",
-            "night_vision",
-            "hunger",
-            "weakness",
-            "poison",
-            "health_boost",
-            "absorption",
-            "saturation",
-            "levitation",
-            "fatal_poison",
-            "conduit_power",
-            "slow_falling",
-            "bad_omen",
-            "village_hero",
-            "darkness",
-            "trial_omen",
-            "wind_charged",
-            "weaving",
-            "oozing",
-            "infested",
-            "raid_omen",
-            "breath_of_the_nautilus",
-        ],
-    ),
-    (
-        "Enchant",
-        &[
-            "protection",
-            "fire_protection",
-            "feather_falling",
-            "blast_protection",
-            "projectile_protection",
-            "thorns",
-            "respiration",
-            "depth_strider",
-            "aqua_affinity",
-            "sharpness",
-            "smite",
-            "bane_of_arthropods",
-            "knockback",
-            "fire_aspect",
-            "looting",
-            "efficiency",
-            "silk_touch",
-            "unbreaking",
-            "fortune",
-            "power",
-            "punch",
-            "flame",
-            "infinity",
-            "luck_of_the_sea",
-            "lure",
-            "frost_walker",
-            "mending",
-            "binding",
-            "vanishing",
-            "impaling",
-            "riptide",
-            "loyalty",
-            "channeling",
-            "multishot",
-            "piercing",
-            "quick_charge",
-            "soul_speed",
-            "swift_sneak",
-            "wind_burst",
-            "density",
-            "breach",
-            "lunge",
-        ],
-    ),
-    (
-        "GameMode",
-        &[
-            "default",
-            "creative",
-            "spectator",
-            "survival",
-            "adventure",
-            "d",
-            "c",
-            "s",
-            "a",
-        ],
-    ),
-    ("TimeMarkerOccurrence", &["next", "previous", "stay"]),
-    ("TimeModeAdd", &["add"]),
-    ("TimeModePause", &["pause"]),
-    ("TimeModeQuery", &["query"]),
-    ("TimeModeResume", &["resume"]),
-    ("TimeModeSet", &["set"]),
-    ("TimeOfCommand", &["of"]),
-    ("TimeQuery2", &["time", "daytime", "gametime", "day"]),
-    ("TitleClear", &["clear"]),
-    ("TitleReset", &["reset"]),
-    ("TitleSet", &["title", "subtitle", "actionbar"]),
-    ("TitleTimes", &["times"]),
-];
-
-/// BDS's values of the soft enums of [`BDS_OVERLOADS`] when a player joins, from the same packet.
-const BDS_SOFT_ENUMS: [(&str, &[&str]); 1] = [("WorldClocks", &["minecraft:overworld"])];
-
-/// The record form of the overloads of an `AvailableCommands`: `command name=type ...`.
+/// Writes the record form of the overloads of an `AvailableCommands`: `command name=type ...`.
 fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
     use crate::protocol::consts::CommandArgType as T;
     let basic = [

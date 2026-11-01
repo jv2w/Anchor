@@ -6,14 +6,24 @@ use std::collections::BTreeMap;
 
 use tokio::sync::mpsc::Receiver;
 
-use super::super::queue::Outbound;
-use super::super::tests::{join, new_state, radius, settings, tick};
-use super::super::{Output, SessionId, State};
 use super::offers::tests::{from_network_bytes, sample, shape, stack};
 use super::*;
 use crate::event::Listeners;
 use crate::item::{Extra, Kind};
 use crate::nbt::{Compound, List, Value};
+use crate::tick::queue::Outbound;
+use crate::tick::tests::{join, new_state, radius, settings, tick};
+use crate::tick::{Output, SessionId, State};
+
+const TEST_HOOKS: Hooks = Hooks {
+    villager: villager_of,
+    offers_mut: offers_of,
+    open_window,
+    close_window,
+    close_window_without_event,
+    drop_experience,
+    villager_traded,
+};
 
 /// A stand-in villager NPC.
 #[derive(Debug)]
@@ -33,8 +43,10 @@ pub(super) struct Fixtures {
     window: u8,
     /// Whether the stand-in inventory refuses to open a window.
     refuse: bool,
-    /// The sessions whose window the stand-in inventory closed.
+    /// The sessions whose window the stand-in inventory closed for a game rule.
     closed: Vec<SessionId>,
+    /// The sessions whose window the stand-in inventory closed for a direct API call.
+    closed_without_event: Vec<SessionId>,
     /// The orbs dropped: world, position, amount.
     drops: Vec<(WorldIndex, Vec3, u32)>,
     /// The villagers told of a trade, with their tier and experience before it.
@@ -43,74 +55,28 @@ pub(super) struct Fixtures {
 
 impl Fixtures {
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
-        h.usize(self.villagers.len());
-        for (id, v) in &self.villagers {
+        let Self {
+            villagers,
+            // The inventory module's window counter, outside the trade state.
+            window: _,
+            // A test switch.
+            refuse: _,
+            // Records of closes, whose effects the inventory module keeps.
+            closed: _,
+            closed_without_event: _,
+            drops,
+            // Records of calls that only send packets.
+            traded: _,
+        } = self;
+        h.usize(villagers.len());
+        for (id, v) in villagers {
             h.u64(u64::from(id.index()));
             v.offers.hash_into(h);
         }
-        h.usize(self.drops.len());
+        // Dropped orbs are entities in the game.
+        h.usize(drops.len());
     }
 }
-
-fn villager_of(state: &State, id: Id) -> Option<Villager<'_>> {
-    state.trades.fixtures.villagers.get(&id).map(|v| Villager {
-        world: v.world,
-        position: v.position,
-        unique_id: v.unique_id,
-        profession: v.profession,
-        offers: &v.offers,
-    })
-}
-
-fn offers_of(state: &mut State, id: Id) -> Option<&mut Offers> {
-    state
-        .trades
-        .fixtures
-        .villagers
-        .get_mut(&id)
-        .map(|v| &mut v.offers)
-}
-
-/// As `inventory::open_trade`: an open trade window closes first (reporting `closed`), window
-/// IDs count from 2 to 99 (PMMP).
-fn open_window(state: &mut State, session: SessionId, _: Id) -> Option<u8> {
-    if state.trades.fixtures.refuse {
-        return None;
-    }
-    if state.trades.sessions.contains_key(&session) {
-        closed(state, session);
-    }
-    let f = &mut state.trades.fixtures;
-    f.window = if f.window >= 99 {
-        2
-    } else {
-        f.window.max(1) + 1
-    };
-    Some(f.window)
-}
-
-/// As `inventory::close_window`: returns the payments and reports `closed`.
-fn close_window(state: &mut State, session: SessionId) {
-    state.trades.fixtures.closed.push(session);
-    closed(state, session);
-}
-
-fn drop_experience(state: &mut State, world: WorldIndex, at: Vec3, amount: u32) {
-    state.trades.fixtures.drops.push((world, at, amount));
-}
-
-fn villager_traded(state: &mut State, villager: Id, before: (u8, u32)) {
-    state.trades.fixtures.traded.push((villager, before));
-}
-
-const TEST_HOOKS: Hooks = Hooks {
-    villager: villager_of,
-    offers_mut: offers_of,
-    open_window,
-    close_window,
-    drop_experience,
-    villager_traded,
-};
 
 /// A test server with joined players 1 to `players`.
 struct Server {
@@ -146,6 +112,27 @@ impl Server {
         }
     }
 
+    fn offers(&self, villager: Id) -> &Offers {
+        &self.state.trades.fixtures.villagers[&villager].offers
+    }
+
+    fn offer(&self, s: u64, net_id: u32) -> Option<Offer> {
+        offer_with(&self.state, SessionId::new(s), net_id, TEST_HOOKS)
+    }
+
+    fn is_trading(&self, s: u64) -> bool {
+        self.state.trades.sessions.contains_key(&SessionId::new(s))
+    }
+
+    /// Whether the session table and its index agree.
+    fn index_matches(&self) -> bool {
+        let t = &self.state.trades;
+        t.by_villager.len() == t.sessions.len()
+            && t.sessions
+                .iter()
+                .all(|(&s, x)| t.by_villager.contains(&(x.villager, s)))
+    }
+
     /// Adds stand-in villager `n` (a farmer at the spawn) with `offers`.
     fn villager(&mut self, n: u32, offers: Offers) -> Id {
         let id = Id::new(n, 0);
@@ -160,16 +147,8 @@ impl Server {
         id
     }
 
-    fn offers(&self, villager: Id) -> &Offers {
-        &self.state.trades.fixtures.villagers[&villager].offers
-    }
-
     fn open(&mut self, s: u64, villager: Id) -> bool {
         open_with(&mut self.state, SessionId::new(s), villager, TEST_HOOKS)
-    }
-
-    fn offer(&self, s: u64, net_id: u32) -> Option<Offer> {
-        offer_with(&self.state, SessionId::new(s), net_id, TEST_HOOKS)
     }
 
     fn traded(&mut self, s: u64, net_id: u32, times: u32) {
@@ -189,7 +168,7 @@ impl Server {
         tick_with(&mut self.state, TEST_HOOKS);
     }
 
-    /// The `UpdateTrade`s queued for player `s` since the last call.
+    /// Takes the `UpdateTrade`s queued for player `s` since the last call.
     fn screens(&mut self, s: u64) -> Vec<UpdateTrade> {
         let p = self.state.players.get_mut(&SessionId::new(s)).unwrap();
         std::mem::take(&mut p.outbox)
@@ -201,24 +180,70 @@ impl Server {
             .collect()
     }
 
-    /// The network IDs of the offers on the last screen of player `s`.
+    /// Takes the last screen of player `s` and gives the network IDs of its offers.
     fn net_ids(&mut self, s: u64) -> Vec<u32> {
-        let screen = self.screens(s).pop().expect("a screen");
+        let screen = self.screens(s).pop().expect("a screen was queued");
         net_ids(&screen)
     }
+}
 
-    fn is_trading(&self, s: u64) -> bool {
-        self.state.trades.sessions.contains_key(&SessionId::new(s))
-    }
+fn villager_of(state: &State, id: Id) -> Option<Villager<'_>> {
+    state.trades.fixtures.villagers.get(&id).map(|v| Villager {
+        world: v.world,
+        position: v.position,
+        unique_id: v.unique_id,
+        profession: v.profession,
+        offers: &v.offers,
+    })
+}
 
-    /// Whether the session table and its index agree.
-    fn index_matches(&self) -> bool {
-        let t = &self.state.trades;
-        t.by_villager.len() == t.sessions.len()
-            && t.sessions
-                .iter()
-                .all(|(&s, x)| t.by_villager.contains(&(x.villager, s)))
+fn offers_of(state: &mut State, id: Id) -> Option<&mut Offers> {
+    state
+        .trades
+        .fixtures
+        .villagers
+        .get_mut(&id)
+        .map(|v| &mut v.offers)
+}
+
+/// Opens a window as `inventory::open_trade` does: an open trade window closes first (reporting
+/// `closed`). Window IDs count from 2 to 99 and start over at 2, on one counter for every player.
+fn open_window(state: &mut State, session: SessionId, _: Id) -> Option<u8> {
+    if state.trades.fixtures.refuse {
+        return None;
     }
+    if state.trades.sessions.contains_key(&session) {
+        closed(state, session);
+    }
+    let f = &mut state.trades.fixtures;
+    f.window = if f.window >= 99 {
+        2
+    } else {
+        f.window.max(1) + 1
+    };
+    Some(f.window)
+}
+
+/// Closes the window as `inventory::close_window` does: returns the payments and reports
+/// `closed`.
+fn close_window(state: &mut State, session: SessionId) {
+    state.trades.fixtures.closed.push(session);
+    closed(state, session);
+}
+
+/// Closes the window as `inventory::close_window_without_event` does: returns the payments and
+/// reports `closed`.
+fn close_window_without_event(state: &mut State, session: SessionId) {
+    state.trades.fixtures.closed_without_event.push(session);
+    closed(state, session);
+}
+
+fn drop_experience(state: &mut State, world: WorldIndex, at: Vec3, amount: u32) {
+    state.trades.fixtures.drops.push((world, at, amount));
+}
+
+fn villager_traded(state: &mut State, villager: Id, before: (u8, u32)) {
+    state.trades.fixtures.traded.push((villager, before));
 }
 
 fn recipes(offers: &Compound) -> Vec<Compound> {
@@ -236,21 +261,6 @@ fn net_ids(screen: &UpdateTrade) -> Vec<u32> {
             other => panic!("no netId: {other:?}"),
         })
         .collect()
-}
-
-/// An offer list whose first offer has `max_uses` uses and the given rewards.
-fn single(max_uses: u32, trader_exp: u32, reward_exp: bool) -> Offers {
-    let mut r = Recipe::new(
-        stack(Kind::Wheat, 20),
-        Stack::EMPTY,
-        stack(Kind::Emerald, 1),
-        max_uses,
-    );
-    r.trader_exp = trader_exp;
-    r.reward_exp = reward_exp;
-    let mut offers = Offers::default();
-    offers.add(r).unwrap();
-    offers
 }
 
 #[test]
@@ -343,6 +353,21 @@ fn only_a_villager_with_offers_in_the_same_world_opens() {
         before,
         "refused openings leave no trace"
     );
+}
+
+/// Builds an offer list whose only offer has `max_uses` uses and the given rewards.
+fn single(max_uses: u32, trader_exp: u32, reward_exp: bool) -> Offers {
+    let mut r = Recipe::new(
+        stack(Kind::Wheat, 20),
+        Stack::EMPTY,
+        stack(Kind::Emerald, 1),
+        max_uses,
+    );
+    r.trader_exp = trader_exp;
+    r.reward_exp = reward_exp;
+    let mut offers = Offers::default();
+    offers.add(r).unwrap();
+    offers
 }
 
 #[test]
@@ -696,6 +721,70 @@ fn changes_are_all_or_nothing_and_reach_the_traders() {
     assert_eq!(screens.len(), 1);
     assert_eq!(net_ids(&screens[0]).len(), 2);
     assert_ne!(server.state.hash(), before);
+}
+
+/// Builds offers too large for one `UpdateTrade`: [`crate::custom::MAX_OFFERS`] offers, each
+/// selling a stack of 60 KB, read as a saved entity's.
+fn too_large_to_send() -> Offers {
+    let sell = stack(Kind::Stick, 1)
+        .with_extra(Some(Extra {
+            nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![3; 60_000]))]),
+            ..Extra::default()
+        }))
+        .unwrap();
+    let recipe = Compound::from([
+        (
+            "buyA".to_owned(),
+            Value::Compound(stack(Kind::Emerald, 1).to_nbt()),
+        ),
+        ("maxUses".to_owned(), Value::Int(1)),
+        ("sell".to_owned(), Value::Compound(sell.to_nbt())),
+    ]);
+    let saved = Compound::from([(
+        "Recipes".to_owned(),
+        Value::List(List::Compound(vec![recipe; crate::custom::MAX_OFFERS])),
+    )]);
+    Offers::from_nbt(&saved, &crate::custom::Registry::default())
+}
+
+/// A changed list too large to send closes its traders' windows without `InventoryClose`: the
+/// change is a direct API call, which raises no event.
+#[test]
+fn a_list_too_large_to_send_closes_the_windows_without_an_event() {
+    let mut server = Server::new(1);
+    let v = server.villager(1, sample());
+    assert!(server.open(1, v));
+    server.screens(1);
+    let big = too_large_to_send();
+    assert_eq!(big.recipes().len(), crate::custom::MAX_OFFERS);
+    server
+        .state
+        .trades
+        .fixtures
+        .villagers
+        .get_mut(&v)
+        .unwrap()
+        .offers = big;
+    change_offers_with(
+        &mut server.state,
+        v,
+        |o| {
+            o.reset_uses();
+            Ok(())
+        },
+        TEST_HOOKS,
+    )
+    .unwrap();
+    assert_eq!(
+        server.state.trades.fixtures.closed_without_event,
+        [SessionId::new(1)]
+    );
+    assert!(
+        server.state.trades.fixtures.closed.is_empty(),
+        "no InventoryClose"
+    );
+    assert!(!server.is_trading(1));
+    assert!(server.screens(1).is_empty());
 }
 
 #[test]

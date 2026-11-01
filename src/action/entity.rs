@@ -46,7 +46,7 @@ pub struct Explode {
 }
 
 impl Explode {
-    /// An explosion of `size` (at most 8) at `center` in `world`, without fire.
+    /// An explosion of `size` at `center` in `world`, without fire; a size above 8 explodes as 8.
     pub fn new(world: world::Id, center: Vec3, size: f64) -> Self {
         Self {
             world,

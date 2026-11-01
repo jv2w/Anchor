@@ -1,9 +1,9 @@
 //! The [`Context`] every task and listener gets: the root handle of the game (PMMP `Server`), and
 //! the user's tasks, blocking jobs and data.
 //!
-//! Build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)) run in registration
-//! order after the tick's inputs, then the scheduled tasks due ([`schedule`]); blocking jobs
-//! ([`job`]) and offline player loads ([`offline`]) answer through the inputs; user data
+//! The build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)) and the scheduled
+//! tasks ([`schedule`]) run in the tick's task step, in the order [`crate::task`] tells; blocking
+//! jobs ([`job`]) and offline player loads ([`offline`]) answer through the inputs; user data
 //! ([`data`]) rides the save snapshots. Every one of them runs only in the tick's serial step, so
 //! a replay of the input log runs them at the same points with the same state.
 //!
@@ -17,21 +17,21 @@ mod job;
 mod offline;
 mod schedule;
 
+pub(crate) use data::UserData;
+pub(super) use data::{PlayerUser, placed, player_saved, save_player};
+pub(super) use job::finish;
+pub use offline::Offline;
+pub(super) use offline::{
+    answer_loads as answer_offline_loads, flush as flush_offline, joined as offline_joined,
+    requests as offline_requests, take_loads as take_offline_loads,
+};
+
 use std::fmt;
 use std::net::IpAddr;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-pub(crate) use self::data::UserData;
-#[cfg(test)]
-use self::data::registered;
-pub(super) use self::data::{PlayerUser, placed, player_saved, save_player};
-pub(super) use self::job::finish;
-pub use self::offline::Offline;
-pub(super) use self::offline::{
-    answer_loads as answer_offline_loads, flush as flush_offline, joined as offline_joined,
-    requests as offline_requests, take_loads as take_offline_loads,
-};
+use super::checkpoint::{self, Reader, Writer};
 use super::queue::{Control, InputSender, SessionId};
 use super::{Phase, State, entity, player, survival, trade};
 use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED};
@@ -40,6 +40,8 @@ use crate::player::{Id as PlayerId, Message, Player, Result as PlayerResult};
 use crate::protocol::Uuid;
 use crate::protocol::packet::GAME_VERSION;
 use crate::world::World;
+#[cfg(test)]
+use data::registered;
 
 /// What a task or a listener can see and change: the engine time, the server, the worlds, the
 /// players and the entities (PMMP `Server`, without its singleton: a callback gets the context).
@@ -47,20 +49,7 @@ pub struct Context<'a> {
     pub(super) state: &'a mut State,
 }
 
-/// Whether the player is online: its saved data has loaded, so it has a place in a world (PMMP
-/// creates the `Player` then).
-fn online(player: &Player) -> bool {
-    player.phase != Phase::Loading
-}
-
 impl Context<'_> {
-    /// The engine time: ticks since the world was created
-    /// ([`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) a second).
-    #[doc(alias = "Server::getTick")]
-    pub fn tick(&self) -> u64 {
-        self.state.tick
-    }
-
     /// The fixed tick rate: the ticks the server runs a second while no tick runs late.
     #[doc(alias = "Server::TARGET_TICKS_PER_SECOND")]
     pub const TICKS_PER_SECOND: u32 = 20;
@@ -77,48 +66,19 @@ impl Context<'_> {
     #[doc(alias = "Server::getPocketMineVersion")]
     pub const ANCHOR_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
+    /// The engine time: ticks since the world was created
+    /// ([`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) a second).
+    #[doc(alias = "Server::getTick")]
+    pub fn tick(&self) -> u64 {
+        self.state.tick
+    }
+
     /// The server name the server list shows: `motd`, or what
     /// [`set_motd`](Self::set_motd) set since.
     #[doc(alias = "Server::getMotd")]
     #[doc(alias = "Network::getName")]
     pub fn motd(&self) -> &str {
         &self.state.settings.motd
-    }
-
-    /// Changes the server name the server list shows (the RakNet pong and NetherNet's
-    /// `GET /v1/join`) until the server stops; the networking shows it once this tick ends.
-    /// False, changing nothing, for a name the `motd` setting refuses (empty, over 256 bytes, or
-    /// with `;` or control characters), or past 256 network changes in one tick.
-    #[doc(alias = "Network::setName")]
-    #[doc(alias = "Network::updateName")]
-    pub fn set_motd(&mut self, motd: impl Into<String>) -> bool {
-        let motd = motd.into();
-        if !crate::config::is_motd(&motd)
-            || !self.state.network.control(Control::Motd(motd.clone()))
-        {
-            return false;
-        }
-        self.state.settings.motd = motd;
-        true
-    }
-
-    /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
-    /// the end of this tick; [`Duration::MAX`] lasts until
-    /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
-    /// replaces its end, as PMMP `Network::blockAddress` does. Players already connected from it
-    /// stay ([`Player::kick`](crate::player::Player::kick) them). False, changing nothing, past
-    /// 256 network changes in one tick; at most 4,096 addresses are blocked at once, and the
-    /// networking refuses a block past that with a warning.
-    #[doc(alias = "Network::blockAddress")]
-    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> bool {
-        self.state.network.control(Control::Block { ip, duration })
-    }
-
-    /// Accepts connections from `ip` again, at the end of this tick. False, changing nothing,
-    /// past 256 network changes in one tick.
-    #[doc(alias = "Network::unblockAddress")]
-    pub fn unblock_address(&mut self, ip: IpAddr) -> bool {
-        self.state.network.control(Control::Unblock(ip))
     }
 
     /// The connections the networking holds, logged in or not, as it last reported (every
@@ -162,19 +122,11 @@ impl Context<'_> {
         self.state.network.average_mspt()
     }
 
-    /// The most players online at once (`max-players`).
+    /// The most players at once (`max-players`), those whose saved data is still loading
+    /// included.
     #[doc(alias = "Server::getMaxPlayers")]
     pub fn max_players(&self) -> u32 {
         self.state.settings.max_players
-    }
-
-    /// Changes the most players online at once until the server stops. Players already online
-    /// stay; joins beyond it are refused. The server list shows the value the server started
-    /// with, and the networking holds at most twice that value of joined and joining players
-    /// (each takes a share of the tick's input queue, sized at start), so a value above it lets
-    /// no more players in.
-    pub fn set_max_players(&mut self, max: u32) {
-        self.state.settings.max_players = max;
     }
 
     /// The difficulty (`difficulty`).
@@ -215,32 +167,27 @@ impl Context<'_> {
         self.state.settings.save_player_data
     }
 
-    /// The online players, in [`Id`](PlayerId) order. A player is online from the moment its
-    /// saved data has loaded until it leaves.
+    /// The players in the game, in [`Id`](PlayerId) order. A player is in the game from the
+    /// moment its saved data has loaded until it leaves; a player kicked or transferred leaves
+    /// at the end of the tick, and until then is here with
+    /// [`Player::is_online`](crate::player::Player::is_online) false.
     #[doc(alias = "Server::getOnlinePlayers")]
     pub fn players(&self) -> impl Iterator<Item = &Player> + '_ {
-        self.state.players.values().filter(|p| online(p))
+        self.state.players.values().filter(|p| in_game(p))
     }
 
-    /// How many players are online.
+    /// The number of players in the game ([`players`](Self::players)).
     pub fn player_count(&self) -> usize {
         self.players().count()
     }
 
-    /// The online player `id`; `None` once it has left.
+    /// The player `id` while it is in the game ([`players`](Self::players)); `None` once it has
+    /// left.
     pub fn player(&self, id: PlayerId) -> Option<&Player> {
-        self.state.players.get(&id.session()).filter(|p| online(p))
+        self.state.players.get(&id.session()).filter(|p| in_game(p))
     }
 
-    /// The online player `id`, to change it; `None` once it has left.
-    pub fn player_mut(&mut self, id: PlayerId) -> Option<&mut Player> {
-        self.state
-            .players
-            .get_mut(&id.session())
-            .filter(|p| online(p))
-    }
-
-    /// The online player whose name is `name`, ignoring ASCII case (PMMP compares with
+    /// The player in the game whose name is `name`, ignoring ASCII case (PMMP compares with
     /// `strtolower`), the first in [`Id`](PlayerId) order if players signed in with Xbox share
     /// it. An index search. The lookups return an [`Id`](PlayerId), so the context stays free for
     /// [`player_mut`](Self::player_mut).
@@ -254,7 +201,7 @@ impl Context<'_> {
             .map(Player::id)
     }
 
-    /// The online player whose name starts with `prefix` (ignoring ASCII case) and is the
+    /// The player in the game whose name starts with `prefix` (ignoring ASCII case) and is the
     /// shortest of those, the first in [`Id`](PlayerId) order on a tie (PMMP
     /// `getPlayerByPrefix`). Only the names with the prefix are looked at.
     #[doc(alias = "Server::getPlayerByPrefix")]
@@ -274,7 +221,7 @@ impl Context<'_> {
             .map(|&(_, session)| PlayerId::new(session))
     }
 
-    /// The online player whose UUID is `uuid` (PMMP `getPlayerByUUID`), the first in
+    /// The player in the game whose UUID is `uuid` (PMMP `getPlayerByUUID`), the first in
     /// [`Id`](PlayerId) order if logins share it. An index search.
     #[doc(alias = "Server::getPlayerByUUID")]
     pub fn player_by_uuid(&self, uuid: Uuid) -> Option<PlayerId> {
@@ -284,16 +231,6 @@ impl Context<'_> {
             .take_while(|(u, _)| *u == uuid)
             .find_map(|&(_, session)| self.player(PlayerId::new(session)))
             .map(Player::id)
-    }
-
-    /// Shows `message` to every online player (PMMP's broadcast methods merged); returns how many
-    /// got it. Fails, sending nothing, for a message a client does not decode.
-    #[doc(alias = "Server::broadcastMessage")]
-    #[doc(alias = "Server::broadcastTip")]
-    #[doc(alias = "Server::broadcastPopup")]
-    #[doc(alias = "Server::broadcastTitle")]
-    pub fn broadcast(&mut self, message: Message) -> PlayerResult<usize> {
-        player::broadcast(self.state, message)
     }
 
     /// The default world, where players join: the one the settings name (`level-name`) unless
@@ -307,7 +244,79 @@ impl Context<'_> {
         &self.state.worlds[self.state.catalog.default_world()]
     }
 
-    /// The default world, to change it.
+    /// The loaded world named `name`, if any.
+    #[doc(alias = "WorldManager::getWorldByName")]
+    pub fn world_named(&self, name: &str) -> Option<&World> {
+        let index = self.state.catalog.named(name)?;
+        self.world(crate::world::Id::of(index))
+    }
+
+    /// Changes the server name the server list shows (the RakNet pong and NetherNet's
+    /// `GET /v1/join`) until the server stops; the networking shows it once this tick ends.
+    /// False, changing nothing, for a name the `motd` setting refuses (empty, over 256 bytes, or
+    /// with `;` or control characters), or past 256 network changes in one tick.
+    #[doc(alias = "Network::setName")]
+    #[doc(alias = "Network::updateName")]
+    pub fn set_motd(&mut self, motd: impl Into<String>) -> bool {
+        let motd = motd.into();
+        if !crate::config::is_motd(&motd)
+            || !self.state.network.control(Control::Motd(motd.clone()))
+        {
+            return false;
+        }
+        self.state.settings.motd = motd;
+        true
+    }
+
+    /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
+    /// the end of this tick; [`Duration::MAX`] lasts until
+    /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
+    /// replaces its end, as PMMP `Network::blockAddress` does. Players already connected from it
+    /// stay ([`Player::kick`](crate::player::Player::kick) them). False, changing nothing, past
+    /// 256 network changes in one tick; at most 4,096 addresses are blocked at once, and the
+    /// networking refuses a block past that with a warning.
+    #[doc(alias = "Network::blockAddress")]
+    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> bool {
+        self.state.network.control(Control::Block { ip, duration })
+    }
+
+    /// Accepts connections from `ip` again, at the end of this tick. False, changing nothing,
+    /// past 256 network changes in one tick.
+    #[doc(alias = "Network::unblockAddress")]
+    pub fn unblock_address(&mut self, ip: IpAddr) -> bool {
+        self.state.network.control(Control::Unblock(ip))
+    }
+
+    /// Changes the most players at once until the server stops. Players already in stay; joins
+    /// beyond it are refused. The server list shows the value the server started with, and the
+    /// networking holds at most twice that value of joined and joining players (each takes a
+    /// share of the tick's input queue, sized at start), so a value above it lets no more
+    /// players in.
+    pub fn set_max_players(&mut self, max: u32) {
+        self.state.settings.max_players = max;
+    }
+
+    /// Lends the player `id` to change while it is in the game ([`players`](Self::players));
+    /// `None` once it has left.
+    pub fn player_mut(&mut self, id: PlayerId) -> Option<&mut Player> {
+        self.state
+            .players
+            .get_mut(&id.session())
+            .filter(|p| in_game(p))
+    }
+
+    /// Shows `message` to every player in the game that is not leaving (PMMP's broadcast methods
+    /// merged); returns how many got it. Fails, sending nothing, for a message a client does not
+    /// decode.
+    #[doc(alias = "Server::broadcastMessage")]
+    #[doc(alias = "Server::broadcastTip")]
+    #[doc(alias = "Server::broadcastPopup")]
+    #[doc(alias = "Server::broadcastTitle")]
+    pub fn broadcast(&mut self, message: Message) -> PlayerResult<usize> {
+        player::broadcast(self.state, message)
+    }
+
+    /// Lends the default world to change.
     pub fn default_world_mut(&mut self) -> &mut World {
         let index = self.state.catalog.default_world();
         #[expect(
@@ -317,21 +326,17 @@ impl Context<'_> {
         &mut self.state.worlds[index]
     }
 
-    /// The loaded world named `name`, if any.
-    #[doc(alias = "WorldManager::getWorldByName")]
-    pub fn world_named(&self, name: &str) -> Option<&World> {
-        let index = self.state.catalog.named(name)?;
-        self.world(crate::world::Id::of(index))
-    }
-
-    /// The loaded world named `name`, to change it.
+    /// Lends the loaded world named `name` to change, if any.
     pub fn world_named_mut(&mut self, name: &str) -> Option<&mut World> {
         let index = self.state.catalog.named(name)?;
         self.world_mut(crate::world::Id::of(index))
     }
 
-    /// Saves every persistent world and the player data at the end of this tick, together, as
-    /// one commit. Calling it again in the same tick changes nothing.
+    /// Asks for a save: the next snapshot commits every persistent world and, with
+    /// `save-player-data`, the player data, together, as one commit. It is taken at the end of
+    /// this tick, or, while the save before is still being committed, at the first tick boundary
+    /// after that commit, with the changes of the ticks between. Calling it again before that
+    /// snapshot changes nothing.
     #[doc(alias = "World::save")]
     pub fn save(&mut self) {
         self.state.saving.requested = true;
@@ -361,9 +366,8 @@ impl Context<'_> {
     /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
     /// [`custom::Error::Offer`](crate::custom::Error::Offer) for offers
     /// [`custom::check_offers`](crate::custom::check_offers) refuses, and with
-    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not exist,
-    /// `pos` is not finite, outside the world border or more than 64 blocks above or below the
-    /// world height, its chunk is not loaded, or the world is at its entity limit.
+    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) where no villager can be
+    /// spawned (that variant tells where).
     pub fn spawn_villager(
         &mut self,
         world: crate::world::Id,
@@ -390,7 +394,7 @@ impl Context<'_> {
         // A player still loading gets the rule in its spawn window (`survival::game_rules`); a
         // joined one whose window has not gone out yet gets it twice, which does no harm.
         for p in self.state.players.values_mut() {
-            if online(p) {
+            if in_game(p) {
                 p.send_packet(packet.clone());
             }
         }
@@ -409,9 +413,6 @@ impl fmt::Debug for Context<'_> {
     }
 }
 
-/// A build-time task body.
-type Body = Box<dyn FnMut(&mut Context<'_>) + Send>;
-
 /// The user's tasks, blocking jobs and offline player holds.
 #[derive(Default)]
 pub(crate) struct Tasks {
@@ -427,6 +428,43 @@ pub(crate) struct Tasks {
 }
 
 impl Tasks {
+    /// Writes what changes while the server runs: the build-time tasks are code, fixed at build
+    /// (their periods are in the registration fingerprint).
+    pub(super) fn checkpoint(&self, w: &mut Writer) {
+        let Self {
+            every: _,
+            queue,
+            jobs,
+            offline,
+        } = self;
+        queue.checkpoint(w);
+        jobs.checkpoint(w);
+        offline.checkpoint(w);
+    }
+
+    /// The ids of the blocking jobs waiting for their result, in order.
+    #[cfg(test)]
+    pub(super) fn waiting_jobs(&self) -> Vec<u64> {
+        self.jobs.waiting()
+    }
+
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, data: &UserData, h: &mut super::Fnv) {
+        let Self {
+            every,
+            queue,
+            jobs,
+            offline,
+        } = self;
+        h.usize(every.len());
+        for (period, _) in every {
+            h.u64(u64::from(period.get()));
+        }
+        queue.hash_into(h);
+        jobs.hash_into(h);
+        offline.hash_into(data, h);
+    }
+
     /// Adds `task`, run on every tick that is a multiple of `period`.
     pub(crate) fn push(
         &mut self,
@@ -458,51 +496,11 @@ impl Tasks {
         schedule::run(state);
     }
 
-    /// Writes what changes while the server runs: the build-time tasks are code, fixed at build
-    /// (their periods are in the registration fingerprint).
-    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        let Self {
-            every: _,
-            queue,
-            jobs,
-            offline,
-        } = self;
-        queue.checkpoint(w);
-        jobs.checkpoint(w);
-        offline.checkpoint(w);
-    }
-
     /// Reads what [`Self::checkpoint`] wrote into the tasks registered at build.
-    pub(super) fn restore(
-        &mut self,
-        r: &mut super::checkpoint::Reader<'_>,
-    ) -> super::checkpoint::Result<()> {
+    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
         self.queue.restore(r)?;
         self.jobs.restore(r)?;
         self.offline.restore(r)
-    }
-
-    /// The ids of the blocking jobs waiting for their result, in order.
-    #[cfg(test)]
-    pub(super) fn waiting_jobs(&self) -> Vec<u64> {
-        self.jobs.waiting()
-    }
-
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, data: &UserData, h: &mut super::Fnv) {
-        let Self {
-            every,
-            queue,
-            jobs,
-            offline,
-        } = self;
-        h.usize(every.len());
-        for (period, _) in every {
-            h.u64(u64::from(period.get()));
-        }
-        queue.hash_into(h);
-        jobs.hash_into(h);
-        offline.hash_into(data, h);
     }
 }
 
@@ -518,17 +516,26 @@ impl fmt::Debug for Tasks {
     }
 }
 
+/// A build-time task body.
+type Body = Box<dyn FnMut(&mut Context<'_>) + Send>;
+
+/// Tells whether the player is in the game: its saved data has loaded, so it has a place in a
+/// world (PMMP creates the `Player` then).
+fn in_game(player: &Player) -> bool {
+    player.phase != Phase::Loading
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use tokio::sync::mpsc;
 
-    use super::*;
     use crate::event::Listeners;
     use crate::item::{Stack, Type};
     use crate::nbt::Compound;
-    use crate::protocol::{GameRuleValue, Uuid};
-    use crate::tick::queue::SessionId;
-    use crate::tick::queue::{Identity, InputKind, Outbound, outbound_queue};
+    use crate::protocol::GameRuleValue;
+    use crate::tick::queue::{Client, Identity, InputKind, Outbound, Skin, outbound_queue};
     use crate::tick::tests::{
         initialised, input, join, new_state, radius, received, settings, tick,
     };
@@ -539,7 +546,7 @@ mod tests {
     /// `minecraft:villager_v2`).
     const FARMER: u8 = 1;
 
-    /// A state with session 1 (`player1`, signed in with Xbox) spawned and session 2
+    /// Makes a state with session 1 (`player1`, signed in with Xbox) spawned and session 2
     /// (`Offline`, no XUID) joined, and their outbound queues.
     fn state() -> (State, [mpsc::Receiver<Outbound>; 2]) {
         let mut state = new_state(settings(|_| {}), Listeners::default());
@@ -550,10 +557,10 @@ mod tests {
             name: "Offline".to_owned(),
             xuid: None,
             uuid: Uuid::from_bytes([9; 16]),
-            skin: crate::tick::queue::Skin::default(),
+            skin: Skin::default(),
             device_os: -1,
             address: None,
-            client: crate::tick::queue::Client::default(),
+            client: Client::default(),
         };
         let second = input(
             2,
@@ -572,11 +579,6 @@ mod tests {
             &mut output,
         );
         (state, [rx1, rx2])
-    }
-
-    fn stick(count: u8) -> Stack {
-        let stick = Type::from_name("minecraft:stick", 0, None, &Compound::new()).unwrap();
-        Stack::new(stick, count)
     }
 
     // pmmp: Server::getPlayerExact
@@ -598,14 +600,14 @@ mod tests {
 
     // pmmp: Server::getOnlinePlayers
     #[test]
-    fn players_are_lent_in_id_order_while_online() {
+    fn players_are_lent_in_id_order_while_in_the_game() {
         let (mut state, _rx) = state();
         let ctx = Context { state: &mut state };
         let ids: Vec<PlayerId> = ctx.players().map(Player::id).collect();
         assert_eq!(ids, [1, 2].map(|s| PlayerId::new(SessionId::new(s))));
         assert_eq!(ctx.player_count(), 2);
         assert_eq!(ctx.player(ids[1]).map(Player::name), Some("Offline"));
-        // A player whose data is still loading is not online yet.
+        // A player whose data is still loading is not in the game yet.
         state.players.get_mut(&SessionId::new(2)).unwrap().phase = Phase::Loading;
         let mut ctx = Context { state: &mut state };
         assert_eq!(ctx.player_count(), 1);
@@ -617,7 +619,7 @@ mod tests {
 
     // pmmp: Server::getPlayerByUUID
     #[test]
-    fn players_are_found_by_uuid_while_online() {
+    fn players_are_found_by_uuid_while_in_the_game() {
         let (mut state, _rx) = state();
         let ctx = Context { state: &mut state };
         let second = PlayerId::new(SessionId::new(2));
@@ -662,7 +664,7 @@ mod tests {
         assert!(!ctx.should_save_player_data());
         assert_eq!(ctx.tick(), state.tick);
         Context { state: &mut state }.set_max_players(2);
-        let (third, mut rx3) = crate::tick::tests::join(3, 0);
+        let (third, mut rx3) = join(3, 0);
         tick(&mut state, &mut vec![third], &mut Output::default());
         assert!(received(&mut rx3).1.is_some(), "refused");
         assert_eq!(state.players.len(), 2);
@@ -670,15 +672,15 @@ mod tests {
 
     // pmmp: Server::broadcastMessage, Server::broadcastTip, Server::broadcastPopup, Server::broadcastTitle
     #[test]
-    fn broadcasts_reach_every_online_player_once() {
+    fn broadcasts_reach_every_player_in_the_game_once() {
         let (mut state, mut rx) = state();
         for r in &mut rx {
             received(r);
         }
         let mut ctx = Context { state: &mut state };
-        let tip = crate::player::Message::Tip("hi".to_owned());
+        let tip = Message::Tip("hi".to_owned());
         assert_eq!(ctx.broadcast(tip), Ok(2));
-        let long = crate::player::Message::Popup("x".repeat(70_000));
+        let long = Message::Popup("x".repeat(70_000));
         assert_eq!(ctx.broadcast(long), Err(crate::player::Error::TooLong));
         tick(&mut state, &mut Vec::new(), &mut Output::default());
         for r in &mut rx {
@@ -817,6 +819,11 @@ mod tests {
             panic!("the final snapshot is always taken");
         };
         assert_eq!(snapshot.user, [("quits".to_owned(), b"1".to_vec())]);
+    }
+
+    fn stick(count: u8) -> Stack {
+        let stick = Type::from_name("minecraft:stick", 0, None, &Compound::new()).unwrap();
+        Stack::new(stick, count)
     }
 
     #[test]

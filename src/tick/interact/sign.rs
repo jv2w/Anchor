@@ -5,10 +5,10 @@
 //! lines joined by newlines. This module checks and cleans it; the block entity keeps it. The
 //! editor opens when a player places or uses a sign, or through [`Context::open_sign_editor`].
 
-use super::super::{Context, Phase};
 use crate::block::Class;
 use crate::nbt::{Compound, Value};
 use crate::player;
+use crate::tick::Context;
 use crate::tile::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::world::BlockPos;
 
@@ -21,18 +21,13 @@ impl Context<'_> {
     /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`
     /// (PMMP `Player::openSignEditor`): the player may then write that sign once, as after
     /// placing it (a waxed sign still refuses the text), and its edit raises
-    /// [`SignChange`](crate::event::SignChange). False, sending nothing, if the player is not in
-    /// the game or the block there is not a sign (or its chunk is not loaded).
+    /// [`SignChange`](crate::event::SignChange). A sign set by code gets its empty block entity
+    /// now. False, sending nothing, if the player is not spawned or is dead (it could send no
+    /// edit), or the block there is not a sign (or its chunk is not loaded).
     #[doc(alias = "Player::openSignEditor")]
     pub fn open_sign_editor(&mut self, player: player::Id, pos: BlockPos, side: Side) -> bool {
         let session = player.session();
-        let Some(world) = self
-            .state
-            .players
-            .get(&session)
-            .filter(|p| p.phase != Phase::Loading)
-            .map(|p| p.world)
-        else {
+        let Some(world) = super::actor(self.state, session).map(|a| a.world) else {
             return false;
         };
         let sign = self
@@ -74,8 +69,8 @@ pub(super) fn parse(nbt: &Compound) -> Result<Edit, Refused> {
     })
 }
 
-/// One side's lines (PMMP `SignText::fromBlob`: split at newlines into at most four lines, the
-/// rest dropped), each cleaned (PMMP `TextFormat::clean($line, false)`).
+/// Reads one side's lines (PMMP `SignText::fromBlob`: split at newlines into at most four lines,
+/// the rest dropped), each cleaned (PMMP `TextFormat::clean($line, false)`).
 fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     let Some(Value::Compound(side)) = nbt.get(tag) else {
         return Err(Refused::Malformed);
@@ -94,16 +89,9 @@ fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     Ok(lines)
 }
 
-/// Lines a listener set, checked like the player's ([`check_lines`]) and cleaned; `None` if they
-/// fail.
-pub(super) fn check(lines: &[String; SIGN_LINES]) -> Option<[String; SIGN_LINES]> {
-    check_lines(lines.iter().map(String::as_str)).ok()?;
-    Some(lines.each_ref().map(|l| clean(l)))
-}
-
-/// PMMP `TextFormat::clean($text, false)`: drops private-use characters and terminal escape
-/// sequences, keeping colour codes.
-pub(super) fn clean(text: &str) -> String {
+/// Drops private-use characters and terminal escape sequences, keeping colour codes (PMMP
+/// `TextFormat::clean($text, false)`).
+pub(in crate::tick) fn clean(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     // The private-use characters go first, so a sequence they split still goes.
     let mut chars = text

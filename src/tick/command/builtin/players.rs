@@ -4,19 +4,75 @@
 
 use std::time::Duration;
 
-use super::super::super::inventory;
-use super::super::super::player::is_valid_address;
 use super::{
-    Msg, PLAYER_USER_ONLY, Results, announce, bounded, display_name_of, game_mode_name, in_world,
-    notify, perform, permitted_targets, player_name, tell, tell_object, two_decimals, usage,
+    MAX_COORD, Msg, PLAYER_USER_ONLY, Results, announce, bounded, display_name_of, game_mode_arg,
+    game_mode_name, game_mode_param, has_room, in_world, notify, perform, permitted_targets,
+    player_name, sender_world, tell, tell_object, two_decimals, usage,
 };
 use crate::action;
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::item::Stack;
 use crate::permission;
 use crate::player::{self, Message, Player, TitleTimes};
-use crate::tick::Context;
+use crate::tick::player::is_valid_address;
+use crate::tick::{Context, TICK, inventory};
 use crate::world::BlockPos;
+
+const CLEAR_FAILURE: Msg = Msg::client("commands.clear.failure.no.items");
+const CLEAR_SUCCESS: Msg = Msg::client("commands.clear.success");
+const CLEAR_TESTING: Msg = Msg::client("commands.clear.testing");
+const EFFECT_NOT_ACTIVE: Msg = Msg::client("commands.effect.failure.notActive");
+const EFFECT_NOT_ACTIVE_ALL: Msg = Msg::client("commands.effect.failure.notActive.all");
+const EFFECT_REMOVED: Msg = Msg::client("commands.effect.success.removed");
+const EFFECT_REMOVED_ALL: Msg = Msg::client("commands.effect.success.removed.all");
+const EFFECT_SUCCESS: Msg = Msg::client("commands.effect.success");
+const EFFECT_SUCCESS_INFINITE: Msg = Msg::client("commands.effect.success.infinite");
+const ENCHANT_NO_ITEM: Msg = Msg::client("commands.enchant.noItem");
+const ENCHANT_SUCCESS: Msg = Msg::client("commands.enchant.success");
+const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
+const GAMEMODE_FAILURE: Msg = Msg::own("The game mode of {%0} stays as it is");
+const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self");
+const GAMEMODE_SUCCESS_OTHER: Msg = Msg::client("commands.gamemode.success.other");
+const GAME_MODE_CHANGED: Msg = Msg::client("gameMode.changed");
+const GIVE_SUCCESS: Msg = Msg::client("commands.give.success");
+const GIVE_SUCCESS_RECIPIENT: Msg = Msg::client("commands.give.successRecipient");
+const KILL_SUCCESSFUL: Msg = Msg::client("commands.kill.successful");
+const SPAWNPOINT_SUCCESS: Msg = Msg::client("commands.spawnpoint.success.single");
+const TP_SUCCESS: Msg = Msg::client("commands.tp.success");
+const TP_SUCCESS_COORDINATES: Msg = Msg::client("commands.tp.success.coordinates");
+const TP_SUCCESS_VICTIM: Msg = Msg::client("commands.tp.successVictim");
+const XP_WITHDRAW: Msg = Msg::client("commands.xp.failure.widthdrawXp");
+const XP_SUCCESS: Msg = Msg::client("commands.xp.success");
+const XP_SUCCESS_LEVELS: Msg = Msg::client("commands.xp.success.levels");
+const XP_TAKEN_LEVELS: Msg = Msg::client("commands.xp.success.negative.levels");
+const TITLE_SUCCESS: Msg = Msg::client("commands.title.success");
+const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
+const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
+const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
+/// How whispers look: aqua, italic.
+const WHISPER_PREFIX: &str = "§b§o";
+/// The longest `/give` amount (PMMP `GiveCommand`).
+const MAX_GIVE: i32 = 32_767;
+/// The port `/transferserver` uses when none is given.
+const DEFAULT_PORT: i32 = 19_132;
+
+/// A slot `/clear` empties, in PMMP's order: the inventory, the cursor, the armour, the off hand.
+#[derive(Debug, Clone, Copy)]
+enum Slot {
+    Main(u8),
+    Cursor,
+    Armor(usize),
+    Offhand,
+}
+
+/// What `/xp` gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Xp {
+    /// `/xp <amount>`.
+    Points,
+    /// `/xp <amount>L`.
+    Levels,
+}
 
 /// Adds the commands of this module.
 #[expect(
@@ -82,7 +138,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .permission(permission::COMMAND_GAMEMODE_SELF)
             .permission(permission::COMMAND_GAMEMODE_OTHER)
             .overload(
-                &[super::game_mode_param(), Param::target("player").optional()],
+                &[game_mode_param(), Param::target("player").optional()],
                 gamemode,
             )
             .overload(
@@ -197,54 +253,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
     ]);
 }
 
-const CLEAR_FAILURE: Msg = Msg::client("commands.clear.failure.no.items");
-const CLEAR_SUCCESS: Msg = Msg::client("commands.clear.success");
-const CLEAR_TESTING: Msg = Msg::client("commands.clear.testing");
-const EFFECT_NOT_ACTIVE: Msg = Msg::client("commands.effect.failure.notActive");
-const EFFECT_NOT_ACTIVE_ALL: Msg = Msg::client("commands.effect.failure.notActive.all");
-const EFFECT_REMOVED: Msg = Msg::client("commands.effect.success.removed");
-const EFFECT_REMOVED_ALL: Msg = Msg::client("commands.effect.success.removed.all");
-const EFFECT_SUCCESS: Msg = Msg::client("commands.effect.success");
-const EFFECT_SUCCESS_INFINITE: Msg = Msg::client("commands.effect.success.infinite");
-const ENCHANT_NO_ITEM: Msg = Msg::client("commands.enchant.noItem");
-const ENCHANT_SUCCESS: Msg = Msg::client("commands.enchant.success");
-const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
-const GAMEMODE_FAILURE: Msg = Msg::own("The game mode of {%0} stays as it is");
-const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self");
-const GAMEMODE_SUCCESS_OTHER: Msg = Msg::client("commands.gamemode.success.other");
-const GAME_MODE_CHANGED: Msg = Msg::client("gameMode.changed");
-const GIVE_SUCCESS: Msg = Msg::client("commands.give.success");
-const GIVE_SUCCESS_RECIPIENT: Msg = Msg::client("commands.give.successRecipient");
-const KILL_SUCCESSFUL: Msg = Msg::client("commands.kill.successful");
-const SPAWNPOINT_SUCCESS: Msg = Msg::client("commands.spawnpoint.success.single");
-const TP_SUCCESS: Msg = Msg::client("commands.tp.success");
-const TP_SUCCESS_COORDINATES: Msg = Msg::client("commands.tp.success.coordinates");
-const TP_SUCCESS_VICTIM: Msg = Msg::client("commands.tp.successVictim");
-const XP_WITHDRAW: Msg = Msg::client("commands.xp.failure.widthdrawXp");
-const XP_SUCCESS: Msg = Msg::client("commands.xp.success");
-const XP_SUCCESS_LEVELS: Msg = Msg::client("commands.xp.success.levels");
-const XP_TAKEN_LEVELS: Msg = Msg::client("commands.xp.success.negative.levels");
-const TITLE_SUCCESS: Msg = Msg::client("commands.title.success");
-const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
-const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
-const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
-/// How whispers look: aqua, italic.
-const WHISPER_PREFIX: &str = "§b§o";
-/// The longest `/give` amount (PMMP `GiveCommand`).
-const MAX_GIVE: i32 = 32_767;
-/// The port `/transferserver` uses when none is given.
-const DEFAULT_PORT: i32 = 19_132;
-
-/// A slot `/clear` empties, in PMMP's order: the inventory, the cursor, the armour, the off hand.
-#[derive(Debug, Clone, Copy)]
-enum Slot {
-    Main(u8),
-    Cursor,
-    Armor(usize),
-    Offhand,
-}
-
-/// The slots `/clear` empties and what they hold.
+/// Lists the slots `/clear` empties and what they hold.
 fn slots(p: &Player) -> Vec<(Slot, &Stack)> {
     let inv = &p.inventory;
     let mut out: Vec<(Slot, &Stack)> = (0u8..)
@@ -271,9 +280,9 @@ fn set_slot(p: &mut Player, slot: Slot, stack: Stack) {
     }
 }
 
-/// `/clear [player] [item] [data] [maxCount]` (PMMP `ClearCommand`, BDS's parameters): empties
-/// the inventory, cursor, armour and off hand, or takes the stacks of `item` with damage `data`
-/// (-1 or none: any damage), at most `maxCount` items of them (-1: all; 0 only counts them).
+/// Empties the inventory, cursor, armour and off hand, or takes the stacks of `item` with damage
+/// `data` (-1 or none: any damage), at most `maxCount` items of them (-1: all; 0 only counts
+/// them) (`/clear [player] [item] [data] [maxCount]`, PMMP `ClearCommand`, BDS's parameters).
 fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_CLEAR_SELF,
@@ -282,7 +291,7 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let targets = permitted_targets(cx, *sender, args, "player", own, "clear")?;
     let item = args.item("itemName");
     let data = args.int("data").filter(|&d| d != -1);
-    let max = args.int("maxCount").map(|n| n.clamp(-1, super::MAX_COORD));
+    let max = args.int("maxCount").map(|n| n.clamp(-1, MAX_COORD));
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
@@ -335,10 +344,11 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     results.finish()
 }
 
-/// `/effect <player> clear` and `/effect <player> <effect> [seconds|infinite] [amplifier]
-/// [hideParticles]` (PMMP `EffectCommand`, in BDS's overloads): 0 seconds takes the effect away;
-/// no seconds gives its default duration; `infinite` never ends. It goes through the game rules,
-/// so the effect events' listeners decide.
+/// Clears the players' effects, or gives or takes one (`/effect <player> clear` and
+/// `/effect <player> <effect> [seconds|infinite] [amplifier] [hideParticles]`, PMMP
+/// `EffectCommand`, in BDS's overloads): 0 seconds takes the effect away; no seconds gives its
+/// default duration; `infinite` never ends. It goes through the game rules, so the effect events'
+/// listeners decide.
 fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_EFFECT_SELF,
@@ -358,8 +368,7 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
         .int("seconds")
         .map(|s| bounded(s, 0, i32::MAX / Context::TICKS_PER_SECOND.cast_signed()))
         .transpose()?;
-    let amplifier = bounded(args.int("amplifier").unwrap_or(0), 0, 255)?;
-    let amplifier = u8::try_from(amplifier).unwrap_or(u8::MAX);
+    let amplifier = bounded(args.int("amplifier").unwrap_or(0), 0_u8, u8::MAX)?;
     let duration = seconds.map_or(kind.default_duration_ticks(), |s| {
         s.unsigned_abs() * Context::TICKS_PER_SECOND
     });
@@ -408,9 +417,9 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     results.finish()
 }
 
-/// `/enchant <player> <enchantment> [level]` (PMMP `EnchantCommand`): enchants the held item at
-/// the level (1 by default, at most the enchantment's highest); a book becomes an enchanted
-/// book. Like PMMP it does not check what the item may take.
+/// Enchants the held item at the level (1 by default, at most the enchantment's highest); a
+/// book becomes an enchanted book (`/enchant <player> <enchantment> [level]`, PMMP
+/// `EnchantCommand`). Like PMMP it does not check what the item may take.
 fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_ENCHANT_SELF,
@@ -420,12 +429,7 @@ fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output>
     let Some(kind) = args.enchantment("enchantmentName") else {
         return Err(usage(cx, "enchant"));
     };
-    let level = bounded(
-        args.int("level").unwrap_or(1),
-        1,
-        i32::from(kind.max_level()),
-    )?;
-    let level = u8::try_from(level).unwrap_or(1);
+    let level = bounded(args.int("level").unwrap_or(1), 1_u8, kind.max_level())?;
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
@@ -437,8 +441,8 @@ fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output>
             results.add(Err(ENCHANT_NO_ITEM.error(&[])));
             continue;
         }
-        // A held item at the stack size limit takes no more (BDS's message for an item that
-        // cannot take the enchantment).
+        // An item whose data the enchantment would take past its size limits takes none (BDS's
+        // message for an item that cannot take the enchantment).
         let Ok(enchanted) = inventory::enchant_item(held, &[(kind, level)]) else {
             results.add(Err(ENCHANT_CANT.error(&[&name])));
             continue;
@@ -449,20 +453,22 @@ fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output>
     results.finish()
 }
 
-/// `/gamemode <mode> [player]` (PMMP `GamemodeCommand`): a player already in the mode is a
-/// failure; the player is told its new mode, the sender too as BDS does (PMMP tells only another
-/// player). The [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listeners decide
-/// once the command has returned, so the result and the message come before them (PMMP asks
-/// first and reports a cancel as a failure).
+/// Changes the players' game mode (`/gamemode <mode> [player]`, PMMP `GamemodeCommand`): a
+/// player already in the mode is a failure; the player is told its new mode, the sender too as
+/// BDS does (PMMP tells only another player). The
+/// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listeners decide once the command
+/// has returned, so the result and the message come before them (PMMP asks first and reports a
+/// cancel as a failure).
 fn gamemode(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_GAMEMODE_SELF,
         permission::COMMAND_GAMEMODE_OTHER,
     );
     let targets = permitted_targets(cx, *sender, args, "player", own, "gamemode")?;
-    let Some(mode) = super::game_mode_arg(args, Some(cx.default_game_mode())) else {
+    let Some(mode) = game_mode_arg(args, Some(cx.default_game_mode())) else {
         return Err(usage(cx, "gamemode"));
     };
+    has_room(cx, targets.len())?;
     let mode_name = game_mode_name(mode);
     let mut results = Results::default();
     for id in targets {
@@ -484,10 +490,10 @@ fn gamemode(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     results.finish()
 }
 
-/// `/give <player> <item> [amount]` (PMMP `GiveCommand`): `amount` items (1 to 32,767; a full
-/// stack by default) in full stacks where they fit. PMMP loses what does not fit; here it stays
-/// out, and the result counts what was given. The player is told what it got, as BDS does.
-/// Left out: PMMP's `item:damage` names and NBT tags.
+/// Gives the players `amount` items (1 to 32,767; a full stack by default) in full stacks where
+/// they fit (`/give <player> <item> [amount]`, PMMP `GiveCommand`). PMMP loses what does not
+/// fit; here it stays out, and the result counts what was given. The player is told what it got,
+/// as BDS does. Left out: PMMP's `item:damage` names and NBT tags.
 fn give(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_GIVE_SELF,
@@ -526,8 +532,8 @@ fn give(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     results.finish()
 }
 
-/// `/kill [player]` (PMMP `KillCommand`): kills with the generic death (PMMP deals suicide damage
-/// of the full health, which the damage event may cancel).
+/// Kills the players with the generic death (`/kill [player]`, PMMP `KillCommand`, which deals
+/// suicide damage of the full health that the damage event may cancel).
 fn kill(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_KILL_SELF,
@@ -549,39 +555,38 @@ fn kill(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     results.finish()
 }
 
-/// `/spawnpoint [player]` and `/spawnpoint <player> <x> <y> <z>` (PMMP `SpawnpointCommand`):
-/// the players respawn at the block of the sender's feet, or at the position, in their own
-/// world. Without a position only a player may use it.
+/// Sets where the players respawn: the block of the sender's feet, or the position, in the
+/// sender's world (the default world for the console), where the coordinates count from
+/// (`/spawnpoint [player]` and `/spawnpoint <player> <x> <y> <z>`, PMMP `SpawnpointCommand`).
+/// Without a position only a player may use it.
 fn spawnpoint(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_SPAWNPOINT_SELF,
         permission::COMMAND_SPAWNPOINT_OTHER,
     );
     let targets = permitted_targets(cx, *sender, args, "player", own, "spawnpoint")?;
-    let at = match (args.position("spawnPos"), *sender) {
-        (Some(pos), _) => (None, BlockPos::containing(in_world(pos))),
+    let pos = match (args.position("spawnPos"), *sender) {
+        (Some(pos), _) => BlockPos::containing(in_world(pos)),
         (None, Sender::Player(me)) => {
             let Some(p) = cx.player(me) else {
                 return Ok(Output::new());
             };
-            (
-                Some(p.world()),
-                BlockPos::containing(in_world(p.position())),
-            )
+            BlockPos::containing(in_world(p.position()))
         }
         (None, Sender::Console) => return Err(usage(cx, "spawnpoint")),
     };
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a sender's world, a player's or the default one, is loaded"
+    )]
+    let world_name = cx
+        .world(sender_world(cx, *sender))
+        .expect("the sender's world is loaded")
+        .name()
+        .to_owned();
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
-        let Some(world) = at.0.or_else(|| cx.player(id).map(Player::world)) else {
-            continue;
-        };
-        let world_name = cx
-            .world(world)
-            .map(|w| w.name().to_owned())
-            .unwrap_or_default();
-        let pos = at.1;
         if let Some(p) = cx.player_mut(id) {
             p.set_spawn(Some((&world_name, pos)))
                 .map_err(|e| Error::failed(e.to_string()))?;
@@ -597,12 +602,14 @@ fn spawnpoint(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
     results.finish()
 }
 
-/// `/tp <destination>`, `/tp <x> <y> <z>`, `/tp <victim> <destination>` and
-/// `/tp <victim> <x> <y> <z>` (PMMP `TeleportCommand`). Relative coordinates count from the
-/// sender, as Bedrock's do (PMMP: from the player moved). The destination is one player. Each
-/// player moved is told where to, as BDS does. The [`EntityTeleport`](crate::event::EntityTeleport)
-/// listeners decide once the command has returned, after the result, as in PMMP. Left out until
-/// the player API turns players: PMMP's yaw and pitch forms.
+/// Teleports the players to a player or to a position in the sender's world (the default world
+/// for the console), whose relative coordinates count from the sender, as Bedrock's do (PMMP:
+/// from the player moved) (`/tp <destination>`, `/tp <x> <y> <z>`, `/tp <victim> <destination>`
+/// and `/tp <victim> <x> <y> <z>`, PMMP `TeleportCommand`). The destination is one player. Each
+/// player moved is told where to, as BDS does. The
+/// [`EntityTeleport`](crate::event::EntityTeleport) listeners decide once the command has
+/// returned, after the result, as in PMMP. Left out: PMMP's yaw and pitch forms, which turn the
+/// player, and the player API turns no player.
 fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_TELEPORT_SELF,
@@ -617,6 +624,7 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
         let Some((world, feet)) = cx.player(to).map(|p| (p.world(), p.position())) else {
             return results.finish();
         };
+        has_room(cx, victims.len())?;
         let to_name = player_name(cx, to);
         for id in victims {
             let name = player_name(cx, id);
@@ -629,11 +637,11 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     let Some(pos) = args.position("destination").map(in_world) else {
         return Err(usage(cx, "tp"));
     };
+    let world = sender_world(cx, *sender);
+    has_room(cx, victims.len())?;
     for id in victims {
         let name = player_name(cx, id);
-        if let Some(world) = cx.player(id).map(Player::world) {
-            perform(cx, action::Teleport::new(id, world, pos).by_command())?;
-        }
+        perform(cx, action::Teleport::new(id, world, pos).by_command())?;
         let [x, y, z] = [pos.x, pos.y, pos.z].map(two_decimals);
         tell_object(cx, id, TP_SUCCESS_VICTIM, &[&format!("{x}, {y}, {z}")]);
         let params = [name.as_str(), &x, &y, &z];
@@ -642,18 +650,9 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     results.finish()
 }
 
-/// What `/xp` gives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Xp {
-    /// `/xp <amount>`.
-    Points,
-    /// `/xp <amount>L`.
-    Levels,
-}
-
-/// `/xp <amount>[L] [player]` (PMMP `XpCommand`): points, or levels with `L` (BDS's suffixed
-/// number, any case); negative levels take levels away, negative points are refused. Fails with
-/// `experience = false`.
+/// Gives the players points, or levels with `L` (BDS's suffixed number, any case); negative
+/// levels take levels away, negative points are refused (`/xp <amount>[L] [player]`, PMMP
+/// `XpCommand`). Fails with `experience = false`.
 fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Output> {
     if !cx.state.settings.experience {
         return Err(Error::failed(player::Error::Disabled.to_string()));
@@ -684,8 +683,7 @@ fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Ou
                 results.add(Ok(XP_TAKEN_LEVELS.output(&[&taken.to_string(), &name])));
             }
         } else {
-            let points = value.clamp(-super::MAX_COORD, i32::MAX);
-            let Ok(points) = u32::try_from(points) else {
+            let Ok(points) = u32::try_from(value) else {
                 return Err(XP_WITHDRAW.error(&[]));
             };
             p.add_xp(points);
@@ -695,12 +693,13 @@ fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Ou
     results.finish()
 }
 
-/// The title timing of a number of ticks (negative: none).
+/// Turns a number of ticks into a title timing (negative: none).
 fn ticks(n: i32) -> Duration {
-    Duration::from_millis(u64::try_from(n).unwrap_or(0).saturating_mul(50))
+    TICK.saturating_mul(u32::try_from(n).unwrap_or(0))
 }
 
-/// `/title <player> clear|reset|title|subtitle|actionbar|times ...` (PMMP `TitleCommand`).
+/// Shows, clears or resets the players' title or sets its timing (`/title <player>
+/// clear|reset|title|subtitle|actionbar|times ...`, PMMP `TitleCommand`).
 fn title(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_TITLE_SELF,
@@ -713,11 +712,7 @@ fn title(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     } else if args.has("reset") {
         Message::ResetTitle
     } else if args.has("times") {
-        let int = |name| {
-            args.int(name)
-                .unwrap_or(0)
-                .clamp(-super::MAX_COORD, super::MAX_COORD)
-        };
+        let int = |name| args.int(name).unwrap_or(0).clamp(-MAX_COORD, MAX_COORD);
         Message::TitleTimes(TitleTimes {
             fade_in: ticks(int("fadeIn")),
             stay: ticks(int("stay")),
@@ -740,8 +735,8 @@ fn title(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     Ok(TITLE_SUCCESS.output(&[]))
 }
 
-/// `/tell <player> <message>` (aliases `/w`, `/msg`; PMMP `TellCommand`): whispers to each
-/// player but the sender; a line naming only the sender is a failure.
+/// Whispers to each player but the sender; a line naming only the sender is a failure
+/// (`/tell <player> <message>`, aliases `/w` and `/msg`, PMMP `TellCommand`).
 fn tell_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let text = args.string("message").unwrap_or_default();
     let to: Vec<player::Id> = args
@@ -769,19 +764,14 @@ fn tell_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Ou
     results.finish()
 }
 
-/// `/transferserver <server> [port]` (PMMP `TransferServerCommand`): sends the sending player to
-/// another server (port 19132 by default), once the
-/// [`PlayerTransfer`](crate::event::PlayerTransfer) listeners have let it.
+/// Sends the sending player to another server (port 19132 by default), once the
+/// [`PlayerTransfer`](crate::event::PlayerTransfer) listeners have let it
+/// (`/transferserver <server> [port]`, PMMP `TransferServerCommand`).
 fn transferserver(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let Sender::Player(me) = *sender else {
         return Err(PLAYER_USER_ONLY.error(&[]));
     };
-    let port = bounded(
-        args.int("port").unwrap_or(DEFAULT_PORT),
-        0,
-        i32::from(u16::MAX),
-    )?;
-    let port = u16::try_from(port).unwrap_or_default();
+    let port = bounded(args.int("port").unwrap_or(DEFAULT_PORT), 0_u16, u16::MAX)?;
     let address = args.string("server").unwrap_or_default();
     if !is_valid_address(address) {
         return Err(Error::failed(player::Error::InvalidAddress.to_string()));

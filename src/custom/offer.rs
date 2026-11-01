@@ -18,7 +18,7 @@ pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 /// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience
 pub const MAX_TRADE_COUNTER: u32 = i32::MAX.cast_unsigned();
 /// The most offers one villager holds ([`check_offers`](super::check_offers)): well above the
-/// largest vanilla list (about 20), and one `UpdateTrade` stays far below the 4 MiB NBT limit.
+/// largest vanilla list (about 20); the saved offers take at most 2 MiB apart from it.
 pub const MAX_OFFERS: usize = 128;
 /// The highest villager tier, master (BDS `MaxTradeTier`); tiers start at 0, novice.
 pub const MAX_TRADE_TIER: u8 = 4;

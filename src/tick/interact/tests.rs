@@ -1,11 +1,14 @@
 //! Tick tests of interaction: packets in, state and packets out.
 
+mod book;
+mod custom;
+mod events;
+
+use std::cell::Cell;
+use std::fmt::Debug;
+
 use tokio::sync::mpsc;
 
-use super::super::queue::{Input, InputKind, Message, Outbound, SessionId};
-use super::super::survival::EYE_HEIGHT;
-use super::super::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
-use super::super::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
 use super::*;
 use crate::block::Kind;
 use crate::config::Config;
@@ -17,10 +20,22 @@ use crate::protocol::{
     FlagSet, InputFlags, InventoryTransactionData, NormalTransactionData, PlayerBlockAction,
     UseItemTransactionData,
 };
+use crate::tick::queue::{Input, InputKind, Message, Outbound, SessionId};
+use crate::tick::survival::EYE_HEIGHT;
+use crate::tick::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
+use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
+
+/// The notes of listeners and hooks.
+const SEEN: usize = 0;
+/// The notes of monitors.
+const WATCHED: usize = 1;
 
 thread_local! {
     /// A CPU pool per test thread; tests do not shut it down.
     static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
+    /// What listeners and hooks ([`SEEN`]) and monitors ([`WATCHED`]) write down for the test to
+    /// read, as `Debug` text; they run on the test's thread, in its tick.
+    static NOTES: [Cell<Vec<String>>; 2] = const { [Cell::new(Vec::new()), Cell::new(Vec::new())] };
 }
 
 /// The player's feet: on the flat world's grass at the spawn.
@@ -181,6 +196,25 @@ impl Harness {
     fn held(&self) -> Stack {
         self.player().inventory.held().clone()
     }
+}
+
+/// Writes down `v` in `notes`.
+fn note(notes: usize, v: impl Debug) {
+    NOTES.with(|n| {
+        let mut list = n[notes].take();
+        list.push(format!("{v:?}"));
+        n[notes].set(list);
+    });
+}
+
+/// Returns what was written down in `notes` since the last call.
+fn notes(notes: usize) -> Vec<String> {
+    NOTES.with(|n| n[notes].take())
+}
+
+/// Returns `v` as a note.
+fn dbg(v: impl Debug) -> String {
+    format!("{v:?}")
 }
 
 fn action(kind: PlayerAction, pos: BlockPos, face: Face) -> PlayerBlockAction {
@@ -548,7 +582,7 @@ fn a_refused_click_on_a_fake_block_shows_the_fake_block_again() {
     let ground = BlockPos::new(0, -61, 0);
     let fake = Kind::Diamond.default_state();
     let player = crate::player::Id::new(SessionId::new(1));
-    crate::Context {
+    Context {
         state: &mut h.state,
     }
     .send_fake_block(player, ground, fake)
@@ -572,7 +606,7 @@ fn a_refused_click_on_a_fake_block_shows_the_fake_block_again() {
         "the fake block"
     );
     // Without the fake block, the real one.
-    let cleared = crate::Context {
+    let cleared = Context {
         state: &mut h.state,
     }
     .clear_fake_block(player, ground);
@@ -719,16 +753,22 @@ fn placing_a_sign_opens_its_editor_and_only_the_editor_may_write() {
     assert_eq!(updates(&h.packets()), vec![other]);
 }
 
+/// A normal transaction that is no Q key drop (here one without actions) changes nothing: the
+/// held items stay and nothing drops.
 #[test]
-fn normal_transactions_do_nothing() {
+fn a_normal_transaction_that_is_no_q_key_drop_changes_nothing() {
     let mut h = Harness::new(|_| {});
+    let sticks = stack(crate::item::Kind::Stick).with_count(5);
+    h.hold(sticks.clone());
+    let entities = h.state.rules.entities.count(0);
     let tx = InventoryTransaction {
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
         ..Default::default()
     };
     let input = h.input(Packet::InventoryTransaction(tx));
     h.run(vec![input]);
-    assert_eq!(h.block(TARGET), block::AIR);
+    assert_eq!(h.held(), sticks);
+    assert_eq!(h.state.rules.entities.count(0), entities);
 }
 
 /// Frosted ice is ice: the world or a survival player breaking it leaves water (PMMP `FrostedIce`
@@ -762,7 +802,10 @@ fn destroying_for_each_cause_follows_pmmp() {
         &mut h.state,
         0,
         TARGET,
-        Destroy::Explosion { size: 4.0 }
+        Destroy::Explosion {
+            size: 4.0,
+            raise: Raise::Events
+        }
     ));
     assert_eq!(h.block(TARGET), block::AIR);
     // Air is not destroyed again.
@@ -812,7 +855,7 @@ fn cauldron_colour(h: &mut Harness, colour: Option<i32>) -> Option<i32> {
         .get_mut(0, TARGET)
         .map(|e| &mut e.kind)
     {
-        Some(super::super::block_entity::Kind::Cauldron(c)) => {
+        Some(crate::tick::block_entity::Kind::Cauldron(c)) => {
             if colour.is_some() {
                 c.colour = colour;
             }
@@ -820,6 +863,18 @@ fn cauldron_colour(h: &mut Harness, colour: Option<i32>) -> Option<i32> {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// Makes a stack of one item of the item name `name`.
+fn named(name: &str) -> Stack {
+    let t = crate::item::Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap();
+    Stack::new(t, 1)
+}
+
+/// Sets `block` at [`TARGET`] with its block entity, as placing it would.
+fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
+    h.set(TARGET, block);
+    crate::tick::block_entity::placed(&mut h.state, 0, TARGET, None, item, Face::West);
 }
 
 /// A dye of another colour than the water's is used even when the mix keeps the colour; the
@@ -841,6 +896,34 @@ fn a_dye_is_weighed_by_its_own_colour() {
     cauldron_colour(&mut h, Some(0xffb0_2e26_u32.cast_signed()));
     use_on_target(&mut h);
     assert_eq!(h.held().count(), 1, "the water's own colour");
+}
+
+/// Emptying a dyed cauldron, or pouring clear water into it, washes the dye out (PMMP
+/// `Cauldron::writeStateToWorld`, `WaterCauldron::onInteract`); a bottle of water taken out of a
+/// fuller one keeps it.
+#[test]
+fn emptying_or_pouring_clear_water_into_a_dyed_cauldron_washes_the_dye_out() {
+    let water = |level: i32| {
+        props::with_string(Kind::Cauldron.default_state(), "cauldron_liquid", "water")
+            .and_then(|s| props::with_int(s, "fill_level", level))
+            .unwrap()
+    };
+    let red = 0xffb0_2e26_u32.cast_signed();
+    let cases = [
+        (6, crate::item::Kind::Bucket, None),
+        (6, crate::item::Kind::GlassBottle, Some(red)),
+        (2, crate::item::Kind::GlassBottle, None),
+        (2, crate::item::Kind::Potion, None),
+        (2, crate::item::Kind::WaterBucket, None),
+    ];
+    for (level, held, colour) in cases {
+        let mut h = Harness::new(|_| {});
+        set_with_entity(&mut h, water(level), &named("minecraft:cauldron"));
+        cauldron_colour(&mut h, Some(red));
+        h.hold(stack(held));
+        use_on_target(&mut h);
+        assert_eq!(cauldron_colour(&mut h, None), colour, "{level} {held:?}");
+    }
 }
 
 #[test]
@@ -1035,17 +1118,6 @@ fn break_progress_does_not_carry_over_to_a_new_block() {
     assert!(updates(&h.packets()).contains(&TARGET), "resynced");
 }
 
-fn named(name: &str) -> Stack {
-    let t = crate::item::Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap();
-    Stack::new(t, 1)
-}
-
-/// Sets `block` at [`TARGET`] with its block entity, as placing it would.
-fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
-    h.set(TARGET, block);
-    super::super::block_entity::placed(&mut h.state, 0, TARGET, None, item, Face::West);
-}
-
 /// Window opening clicks squeezed into one tick by a client that changes each click a little
 /// (so none is a repeat) and acknowledges every close at once.
 const CLICKS: usize = 1_000;
@@ -1091,7 +1163,7 @@ fn a_client_opens_a_block_window_at_most_once_a_tick() {
     }
 }
 
-fn entity_at(h: &Harness) -> super::super::block_entity::Kind {
+fn entity_at(h: &Harness) -> crate::tick::block_entity::Kind {
     h.state
         .rules
         .block_entities
@@ -1104,7 +1176,7 @@ fn entity_at(h: &Harness) -> super::super::block_entity::Kind {
 /// The sign side texts at [`TARGET`]: (front lines, colour, glowing, waxed).
 fn sign_at(h: &Harness) -> (Vec<String>, i32, bool, bool) {
     match entity_at(h) {
-        super::super::block_entity::Kind::Sign(s) => {
+        crate::tick::block_entity::Kind::Sign(s) => {
             let side = if s.front.lines.iter().any(|l| !l.is_empty())
                 || s.back.lines.iter().all(String::is_empty)
             {
@@ -1147,7 +1219,7 @@ fn signs_keep_their_text_and_take_dye_glow_and_wax() {
     assert_eq!(&lines[..2], ["hello", "world"]);
     assert_eq!(
         (colour, glowing, waxed),
-        (super::super::block_entity::BLACK_TEXT, false, false)
+        (crate::tick::block_entity::BLACK_TEXT, false, false)
     );
     let sent = h.packets();
     assert!(sent.iter().any(|p| matches!(p, Packet::BlockActorData(d)
@@ -1205,14 +1277,77 @@ fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
     assert_eq!(sign_at(&h).0[0], "second");
 }
 
+// pmmp: Player::openSignEditor
+/// A sign set by code, without a block entity, takes the edit of an editor the API opens; a dead
+/// player, who could send no edit, gets no editor.
+#[test]
+fn a_sign_set_by_code_takes_the_edit_of_an_editor_the_api_opens() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::OakSign.default_state());
+    h.run(Vec::new());
+    assert!(h.state.rules.block_entities.get(0, TARGET).is_none());
+    let id = crate::player::Id::new(SessionId::new(1));
+    let mut cx = Context {
+        state: &mut h.state,
+    };
+    assert!(cx.open_sign_editor(id, TARGET, crate::tile::Side::Front));
+    sign_edit(&mut h, "by code");
+    assert_eq!(sign_at(&h).0[0], "by code");
+    assert!(h.player_mut().kill());
+    h.run(Vec::new());
+    let mut cx = Context {
+        state: &mut h.state,
+    };
+    assert!(!cx.open_sign_editor(id, TARGET, crate::tile::Side::Front));
+}
+
+/// At the world's entity limit a chiseled bookshelf keeps its books: one taken out may have to
+/// drop, so the shelf refuses as a flower pot does.
+#[test]
+fn a_chiseled_bookshelf_keeps_its_books_at_the_entity_limit() {
+    let mut h = Harness::new(|_| {});
+    let shelf = props::with_facing(Kind::ChiseledBookshelf.default_state(), Face::West).unwrap();
+    set_with_entity(&mut h, shelf, &Stack::EMPTY);
+    let book = stack(crate::item::Kind::Book);
+    let books = |h: &Harness| {
+        let contents = h.state.rules.block_entities.get(0, TARGET).unwrap();
+        contents.items.iter().filter(|s| !s.is_empty()).count()
+    };
+    let contents = h.state.rules.block_entities.get_mut(0, TARGET).unwrap();
+    for slot in &mut contents.items {
+        *slot = book.clone();
+    }
+    let mut i = 0u32;
+    while entity::has_room(&h.state, 0, 1) {
+        let at = Vec3::new(
+            f64::from(i % 64) - 32.0,
+            -59.0,
+            f64::from(i / 64 % 64) - 32.0,
+        );
+        assert!(entity::drop_item(&mut h.state, 0, at, book.clone()));
+        i += 1;
+    }
+    h.hold(Stack::EMPTY);
+    let _ = interact_block(
+        &mut h.state,
+        SessionId::new(1),
+        TARGET,
+        Face::West,
+        Vec3::new(0.0, 0.75, 0.5),
+        Source::Action,
+    );
+    assert_eq!(books(&h), 6);
+    assert!(h.held().is_empty());
+}
+
 /// A pot's plant Anchor does not know has no rules, as an inert block: an empty hand takes
 /// nothing out and a flower does not replace it.
 #[test]
 fn a_flower_pot_keeps_a_plant_anchor_does_not_know_when_used() {
     let mut h = Harness::new(|_| {});
     set_with_entity(&mut h, Kind::FlowerPot.default_state(), &Stack::EMPTY);
-    let unknown = super::super::block_entity::Kind::FlowerPot {
-        plant: Some(super::super::block_entity::Plant::Unknown {
+    let unknown = crate::tick::block_entity::Kind::FlowerPot {
+        plant: Some(crate::tick::block_entity::Plant::Unknown {
             nbt: crate::nbt::Compound::from([(
                 "name".to_owned(),
                 crate::nbt::Value::String("minecraft:cherry_sapling".to_owned()),
@@ -1245,14 +1380,14 @@ fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     use_on_target(&mut h);
     assert!(matches!(
         entity_at(&h),
-        super::super::block_entity::Kind::FlowerPot { plant: Some(_) }
+        crate::tick::block_entity::Kind::FlowerPot { plant: Some(_) }
     ));
     assert!(h.held().is_empty());
     h.run(Vec::new());
     use_on_target(&mut h);
     assert!(matches!(
         entity_at(&h),
-        super::super::block_entity::Kind::FlowerPot { plant: None }
+        crate::tick::block_entity::Kind::FlowerPot { plant: None }
     ));
     assert_eq!(h.held(), flower);
 
@@ -1270,7 +1405,7 @@ fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     h.run(Vec::new());
     use_on_target(&mut h);
     match entity_at(&h) {
-        super::super::block_entity::Kind::ItemFrame(f) => {
+        crate::tick::block_entity::Kind::ItemFrame(f) => {
             assert_eq!(f.item, stack(crate::item::Kind::Stick));
             assert_eq!(f.rotation, 1);
         }
@@ -1279,7 +1414,7 @@ fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     assert_eq!(h.held().count(), 2);
     h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
     match entity_at(&h) {
-        super::super::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
+        crate::tick::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
         other => panic!("{other:?}"),
     }
 
@@ -1290,12 +1425,12 @@ fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     h.hold(disc.clone());
     use_on_target(&mut h);
     assert!(
-        matches!(entity_at(&h), super::super::block_entity::Kind::Jukebox { record } if record == disc)
+        matches!(entity_at(&h), crate::tick::block_entity::Kind::Jukebox { record } if record == disc)
     );
     h.run(Vec::new());
     use_on_target(&mut h);
     assert!(
-        matches!(entity_at(&h), super::super::block_entity::Kind::Jukebox { record } if record.is_empty())
+        matches!(entity_at(&h), crate::tick::block_entity::Kind::Jukebox { record } if record.is_empty())
     );
 
     // A lectern takes a book; a page beyond it is refused.
@@ -1312,7 +1447,7 @@ fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     ));
     h.run(vec![turn]);
     assert!(matches!(entity_at(&h),
-        super::super::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
+        crate::tick::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
 }
 
 #[test]
@@ -1437,7 +1572,7 @@ fn breaking_a_bed_or_banner_drops_its_block_entity_item() {
     let at = place_on_grass(&mut h, &Stack::new(blue, 1));
     assert!(h.block(at).is(Class::Bed));
     assert_eq!(
-        super::super::block_entity::own_item(&h.state, 0, at),
+        crate::tick::block_entity::own_item(&h.state, 0, at),
         Some(Stack::new(blue, 1))
     );
 }
@@ -1637,19 +1772,13 @@ fn explosions_break_both_door_halves_once_without_break_particles() {
     h.set(up, top);
     h.run(Vec::new());
     h.packets();
-    assert!(destroy(
-        &mut h.state,
-        0,
-        up,
-        Destroy::Explosion { size: 1.0 }
-    ));
+    let explosion = Destroy::Explosion {
+        size: 1.0,
+        raise: Raise::Events,
+    };
+    assert!(destroy(&mut h.state, 0, up, explosion.clone()));
     assert_eq!((h.block(TARGET), h.block(up)), (block::AIR, block::AIR));
-    assert!(!destroy(
-        &mut h.state,
-        0,
-        TARGET,
-        Destroy::Explosion { size: 1.0 }
-    ));
+    assert!(!destroy(&mut h.state, 0, TARGET, explosion));
     h.run(Vec::new());
     let sent = h.packets();
     let particles = sent.iter().any(|p| {
@@ -1891,7 +2020,7 @@ fn a_frame_hit_without_a_drop_makes_no_sound() {
         .get_mut(0, TARGET)
         .map(|e| &mut e.kind)
     {
-        Some(super::super::block_entity::Kind::ItemFrame(f)) => {
+        Some(crate::tick::block_entity::Kind::ItemFrame(f)) => {
             f.item = stack(crate::item::Kind::Stick);
             f.drop_chance = 0.0;
         }
@@ -1901,7 +2030,7 @@ fn a_frame_hit_without_a_drop_makes_no_sound() {
     h.packets();
     h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
     match entity_at(&h) {
-        super::super::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
+        crate::tick::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
         other => panic!("{other:?}"),
     }
     let removed = i32::from(Event::SoundItemFrameRemoveItem);
@@ -1931,7 +2060,7 @@ fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
         .get_mut(0, TARGET)
         .map(|e| &mut e.kind)
     {
-        Some(super::super::block_entity::Kind::ItemFrame(f)) => f.item = sword.clone(),
+        Some(crate::tick::block_entity::Kind::ItemFrame(f)) => f.item = sword.clone(),
         other => panic!("{other:?}"),
     }
     for i in 0..u32::try_from(entity::MAX_ENTITIES_PER_WORLD).unwrap() {
@@ -1951,7 +2080,10 @@ fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
         &mut h.state,
         0,
         TARGET,
-        Destroy::Explosion { size: 1.0 }
+        Destroy::Explosion {
+            size: 1.0,
+            raise: Raise::Events
+        }
     ));
     assert_eq!(h.block(TARGET), block::AIR);
     let kept: Vec<Stack> = h.state.rules.block_entities.all_items().cloned().collect();
@@ -1962,7 +2094,7 @@ fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
 /// `canBeCollidedWith`: alive and not a spectator); a living one does.
 #[test]
 fn dead_players_do_not_block_placing() {
-    use super::super::tests::initialised;
+    use crate::tick::tests::initialised;
     let mut h = Harness::new(|_| {});
     let (j, _rx) = join(2, 1);
     h.run(vec![j, radius(2, 2, 4)]);
@@ -2019,7 +2151,7 @@ fn spawn_eggs_hatch_a_zombie_or_a_villager_and_are_used_up() {
         hatched.push(h.held().count());
     }
     assert_eq!(hatched, [1, 1, 2], "a squid's egg does nothing");
-    let cx = super::super::Context {
+    let cx = Context {
         state: &mut h.state,
     };
     let mut found: Vec<_> = cx
@@ -2071,7 +2203,7 @@ fn villagers_hatched_or_spawned_without_offers_have_an_empty_trade_list() {
     );
     h.run(vec![input]);
     h.run(Vec::new());
-    let mut cx = super::super::Context {
+    let mut cx = Context {
         state: &mut h.state,
     };
     let spawned = cx
@@ -2094,14 +2226,14 @@ fn villagers_hatched_or_spawned_without_offers_have_an_empty_trade_list() {
     }
     let session = SessionId::new(1);
     for v in &villagers {
-        assert!(!super::super::trade::open(&mut h.state, session, *v));
+        assert!(!crate::tick::trade::open(&mut h.state, session, *v));
     }
     let offer = crate::custom::Offer::new(
         Stack::new(crate::item::Kind::Emerald.default_type(), 1),
         Stack::new(crate::item::Kind::Apple.default_type(), 1),
         4,
     );
-    let mut cx = super::super::Context {
+    let mut cx = Context {
         state: &mut h.state,
     };
     assert!(cx.set_trade_offers(spawned, &[offer]).is_ok());
@@ -2114,7 +2246,10 @@ fn stored(name: &str) -> crate::nbt::Compound {
     Compound::from([
         ("name".to_owned(), Value::String(name.to_owned())),
         ("states".to_owned(), Value::Compound(Compound::new())),
-        ("version".to_owned(), Value::Int(18_168_865)),
+        (
+            "version".to_owned(),
+            Value::Int(crate::import::BLOCK_STATE_VERSION),
+        ),
     ])
 }
 
@@ -2278,10 +2413,6 @@ fn a_player_on_the_ground_has_its_feet_above_the_ground() {
     let actor = actor(&h.state, SessionId::new(1)).unwrap();
     assert_eq!(BlockPos::containing(actor.feet), BlockPos::new(0, -60, 0));
 }
-
-mod book;
-mod custom;
-mod events;
 
 /// A hotbar slot selected through the API or by a pick stops eating like the client's selection,
 /// even with the same food in the new slot.

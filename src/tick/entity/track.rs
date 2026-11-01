@@ -24,7 +24,7 @@ use crate::protocol::packet::{
 };
 use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, FlagSet, ItemInstance,
-    LocatorBarWaypoint, MetadataValue, PlayerListEntry, Rgba, Skin, Uuid, Waypoint,
+    LocatorBarWaypoint, MetadataValue, PlayerListEntry, Skin, Uuid, Waypoint,
     WaypointWorldPosition,
 };
 use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFF_HAND_WINDOW_BYTE};
@@ -361,12 +361,7 @@ fn add(entity: &Entity) -> Vec<Packet> {
                 username: name.clone(),
                 build_platform: -1,
                 skin: std::sync::Arc::new(skin.as_ref().map_or_else(npc_skin, |s| s.to_protocol())),
-                player_colour: Rgba {
-                    r: 237,
-                    g: 237,
-                    b: 237,
-                    a: 255,
-                },
+                player_colour: crate::tick::spawn::PLAYER_LIST_COLOUR,
                 ..PlayerListEntry::default()
             };
             let add = Packet::AddPlayer(Box::new(AddPlayer {
@@ -713,9 +708,6 @@ const WAYPOINT_VISIBLE: u32 = 2;
 /// The update flags of BDS's waypoint add (all) and of its update right after (P6 `others`).
 const WAYPOINT_ALL: u32 = 63;
 const WAYPOINT_FOLLOW: u32 = 44;
-/// A player's waypoint colour: its player list colour (BDS gives both the same value, P6
-/// `others`), ARGB.
-const WAYPOINT_COLOUR: i32 = 0xffed_eded_u32.cast_signed();
 
 /// A waypoint of the player with runtime ID `runtime_id`; its group handle is made of the ID
 /// (BDS's is a random UUID per player, P6 `others`).
@@ -754,7 +746,9 @@ pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
                 }),
                 texture_path: Some("textures/ui/locator_bar_dot_3".to_owned()),
                 icon_size: Some([0.2, 0.2]),
-                colour: Some(WAYPOINT_COLOUR),
+                // A player's waypoint colour is its player list colour (BDS gives both, P6
+                // `others`).
+                colour: Some(crate::tile::to_argb(crate::tick::spawn::PLAYER_LIST_COLOUR)),
                 client_position_authority: Some(false),
                 actor_unique_id: Some(unique_id),
             },

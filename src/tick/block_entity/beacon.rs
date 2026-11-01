@@ -2,122 +2,21 @@
 //! dragonfly `block.Beacon`): every 80 ticks the pyramid of mineral blocks below is counted (0 to 4
 //! levels) and, under an open column, the players within range get the effects.
 
-use super::super::{Context, State, survival};
 use crate::block;
 use crate::effect::{Instance, Type};
 use crate::item;
 use crate::save::WorldIndex;
+use crate::tick::{Context, State, survival};
 use crate::world::{BlockPos, MAX_Y, World};
 
 /// Ticks between beacon updates (dragonfly: 80).
-pub(in crate::tick) const INTERVAL: u64 = 80;
+pub(in crate::tick) const INTERVAL_TICKS: u16 = 80;
 /// The most pyramid levels.
-pub(super) const MAX_LEVEL: u8 = 4;
-
-/// Whether a block counts in a beacon pyramid (vanilla's `beacon_base_blocks`).
-fn powers(state: block::State) -> bool {
-    matches!(
-        state.name(),
-        "minecraft:iron_block"
-            | "minecraft:gold_block"
-            | "minecraft:diamond_block"
-            | "minecraft:emerald_block"
-            | "minecraft:netherite_block"
-    )
-}
-
-/// Whether an item pays for beacon effects (vanilla's `beacon_payment_items`).
-pub(in crate::tick) fn is_payment(item: item::Type) -> bool {
-    matches!(
-        item.name(),
-        "minecraft:iron_ingot"
-            | "minecraft:gold_ingot"
-            | "minecraft:diamond"
-            | "minecraft:emerald"
-            | "minecraft:netherite_ingot"
-    )
-}
-
-/// The pyramid levels under the beacon at `pos` (dragonfly `recalculateLevel`): each level is a
-/// full square of mineral blocks one wider on every side than the one above.
-pub(in crate::tick) fn level(world: &World, pos: BlockPos) -> u8 {
-    let mut level = 0;
-    for step in 1..=i32::from(MAX_LEVEL) {
-        let y = pos.y - step;
-        for x in pos.x - step..=pos.x + step {
-            for z in pos.z - step..=pos.z + step {
-                if !world.block(BlockPos::new(x, y, z)).is_some_and(powers) {
-                    return level;
-                }
-            }
-        }
-        level += 1;
-    }
-    level
-}
-
-/// Whether a block above the beacon stops its beam (dragonfly `obstructed`: a block that blocks
-/// direct sky light).
-fn obstructed(world: &World, pos: BlockPos) -> bool {
-    let Some(top) = world.highest_block(pos.x, pos.z) else {
-        return false;
-    };
-    ((pos.y + 1)..=top.min(MAX_Y)).any(|y| {
-        world
-            .block(BlockPos::new(pos.x, y, pos.z))
-            .is_some_and(block::State::blocks_direct_sky_light)
-    })
-}
-
-/// Whether an effect ID may be chosen at `level` (dragonfly `validBeaconEffect`): speed and haste
-/// from 1, resistance and jump boost from 2, strength from 3, regeneration (secondary) at 4; 0
-/// is none.
-pub(in crate::tick) fn allowed(id: i32, level: u8) -> bool {
-    if id == 0 {
-        return true;
-    }
-    let need = match Type::from_id(id) {
-        Some(Type::Speed | Type::Haste) => 1,
-        Some(Type::Resistance | Type::JumpBoost) => 2,
-        Some(Type::Strength) => 3,
-        Some(Type::Regeneration) => 4,
-        _ => return false,
-    };
-    level >= need
-}
-
-/// The effects a beacon of `level` gives (dragonfly `broadcastBeaconEffects`): the primary from
-/// level 1 if it is allowed there; at level 4 the secondary, or the primary one level stronger
-/// when both are the same. They last 9 + 2 × level seconds (one less at level 4).
-pub(in crate::tick) fn effects(level: u8, primary: i32, secondary: i32) -> Vec<Instance> {
-    if level == 0 || primary == 0 || !allowed(primary, level) {
-        return Vec::new();
-    }
-    let Some(primary_type) = Type::from_id(primary) else {
-        return Vec::new();
-    };
-    let mut seconds = 9 + 2 * u32::from(level);
-    if level == MAX_LEVEL {
-        seconds -= 1;
-    }
-    let ticks = seconds * Context::TICKS_PER_SECOND;
-    let effect = |t: Type, amplifier: u8| Instance::new(t, ticks, amplifier, true, true);
-    if level < MAX_LEVEL || secondary == 0 {
-        return vec![effect(primary_type, 0)];
-    }
-    if secondary == primary {
-        return vec![effect(primary_type, 1)];
-    }
-    match Type::from_id(secondary) {
-        Some(second) if allowed(secondary, level) => {
-            vec![effect(primary_type, 0), effect(second, 0)]
-        }
-        _ => vec![effect(primary_type, 0)],
-    }
-}
+pub(in crate::tick) const MAX_LEVEL: u8 = 4;
 
 /// One beacon update at `pos`: the level is counted again, and the effects go to the players
-/// within 10 + 10 × level blocks across (any height) when the beam is open.
+/// within 10 + 10 × level blocks of it along both horizontal axes (any height) when the beam is
+/// open.
 pub(in crate::tick) fn update(
     state: &mut State,
     world: WorldIndex,
@@ -154,6 +53,108 @@ pub(in crate::tick) fn update(
             let _ = survival::add_effect(state, session, *e);
         }
     }
+}
+
+/// The pyramid levels under the beacon at `pos` (dragonfly `recalculateLevel`): each level is a
+/// full square of mineral blocks one wider on every side than the one above.
+pub(in crate::tick) fn level(world: &World, pos: BlockPos) -> u8 {
+    let mut level = 0;
+    for step in 1..=i32::from(MAX_LEVEL) {
+        let y = pos.y - step;
+        for x in pos.x - step..=pos.x + step {
+            for z in pos.z - step..=pos.z + step {
+                if !world.block(BlockPos::new(x, y, z)).is_some_and(powers) {
+                    return level;
+                }
+            }
+        }
+        level += 1;
+    }
+    level
+}
+
+/// Whether a block above the beacon stops its beam (dragonfly `obstructed`: a block that blocks
+/// direct sky light).
+fn obstructed(world: &World, pos: BlockPos) -> bool {
+    let Some(top) = world.highest_block(pos.x, pos.z) else {
+        return false;
+    };
+    ((pos.y + 1)..=top.min(MAX_Y)).any(|y| {
+        world
+            .block(BlockPos::new(pos.x, y, pos.z))
+            .is_some_and(block::State::blocks_direct_sky_light)
+    })
+}
+
+/// The effects a beacon of `level` gives (dragonfly `broadcastBeaconEffects`): the primary from
+/// level 1 if it is allowed there; at level 4 the secondary, or the primary one level stronger
+/// when both are the same. They last 9 + 2 × level seconds (one less at level 4).
+pub(in crate::tick) fn effects(level: u8, primary: i32, secondary: i32) -> Vec<Instance> {
+    if level == 0 || primary == 0 || !allowed(primary, level) {
+        return Vec::new();
+    }
+    let Some(primary_type) = Type::from_id(primary) else {
+        return Vec::new();
+    };
+    let mut seconds = 9 + 2 * u32::from(level);
+    if level == MAX_LEVEL {
+        seconds -= 1;
+    }
+    let ticks = seconds * Context::TICKS_PER_SECOND;
+    let effect = |t: Type, amplifier: u8| Instance::new(t, ticks, amplifier, true, true);
+    if level < MAX_LEVEL || secondary == 0 {
+        return vec![effect(primary_type, 0)];
+    }
+    if secondary == primary {
+        return vec![effect(primary_type, 1)];
+    }
+    match Type::from_id(secondary) {
+        Some(second) if allowed(secondary, level) => {
+            vec![effect(primary_type, 0), effect(second, 0)]
+        }
+        _ => vec![effect(primary_type, 0)],
+    }
+}
+
+/// Whether an effect ID may be chosen at `level`, as the primary or the secondary alike
+/// (dragonfly `validBeaconEffect`): speed and haste from 1, resistance and jump boost from 2,
+/// strength from 3, regeneration at 4; 0 is none.
+pub(in crate::tick) fn allowed(id: i32, level: u8) -> bool {
+    if id == 0 {
+        return true;
+    }
+    let need = match Type::from_id(id) {
+        Some(Type::Speed | Type::Haste) => 1,
+        Some(Type::Resistance | Type::JumpBoost) => 2,
+        Some(Type::Strength) => 3,
+        Some(Type::Regeneration) => 4,
+        _ => return false,
+    };
+    level >= need
+}
+
+/// Whether a block counts in a beacon pyramid (vanilla's `beacon_base_blocks`).
+fn powers(state: block::State) -> bool {
+    matches!(
+        state.name(),
+        "minecraft:iron_block"
+            | "minecraft:gold_block"
+            | "minecraft:diamond_block"
+            | "minecraft:emerald_block"
+            | "minecraft:netherite_block"
+    )
+}
+
+/// Whether an item pays for beacon effects (vanilla's `beacon_payment_items`).
+pub(in crate::tick) fn is_payment(item: item::Type) -> bool {
+    matches!(
+        item.name(),
+        "minecraft:iron_ingot"
+            | "minecraft:gold_ingot"
+            | "minecraft:diamond"
+            | "minecraft:emerald"
+            | "minecraft:netherite_ingot"
+    )
 }
 
 #[cfg(test)]

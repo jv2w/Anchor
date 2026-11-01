@@ -5,7 +5,7 @@
 use crate::block::BrewingStandSlot;
 use crate::custom::Registry;
 use crate::item::Stack;
-use crate::nbt::{Compound, Value};
+use crate::nbt::Compound;
 
 /// The ingredient slot.
 pub(in crate::tick) const INGREDIENT: usize = 0;
@@ -27,6 +27,8 @@ pub(in crate::tick) const FUEL_BREWS: u16 = 20;
 pub(in crate::tick) const DATA_BREW_TIME: i32 = 0;
 pub(in crate::tick) const DATA_FUEL_AMOUNT: i32 = 1;
 pub(in crate::tick) const DATA_FUEL_TOTAL: i32 = 2;
+/// The slots the bottle results depend on: the ingredient, then the bottles in [`BOTTLES`] order.
+const RECIPE_SLOTS: [usize; 4] = [INGREDIENT, BOTTLES[0], BOTTLES[1], BOTTLES[2]];
 
 /// A brewing stand's timers.
 #[derive(Debug, Clone, Default)]
@@ -37,37 +39,9 @@ pub(in crate::tick) struct Brewing {
     pub(in crate::tick) fuel: u16,
     /// Brews the last blaze powder gave.
     pub(in crate::tick) fuel_total: u16,
-    /// The results of the bottles for the ingredient last looked up: derived, so neither saved,
-    /// hashed nor compared.
+    /// The [`RECIPE_SLOTS`] stacks last looked up and the result of each bottle: derived, so
+    /// neither saved, hashed nor compared.
     recipes: Option<([Stack; 4], [Option<Stack>; 3])>,
-}
-
-impl PartialEq for Brewing {
-    fn eq(&self, other: &Self) -> bool {
-        let Self {
-            brew,
-            fuel,
-            fuel_total,
-            recipes: _,
-        } = self;
-        (*brew, *fuel, *fuel_total) == (other.brew, other.fuel, other.fuel_total)
-    }
-}
-
-/// What one brewing tick did.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(in crate::tick) struct Step {
-    /// Bit `i`: slot `i` changed.
-    pub(in crate::tick) slots: u8,
-    /// Bit `i`: slot `i` changed only its count (the same item before and after), so its viewers
-    /// keep its stack network ID (BDS, P6: an ingredient shrinking).
-    pub(in crate::tick) kept: u8,
-    /// A brew finished with something brewed (PMMP `PotionFinishBrewingSound`).
-    pub(in crate::tick) brewed: bool,
-    /// The `ContainerSetData` values that changed.
-    pub(in crate::tick) data: super::DataChanges,
-    /// Whether the stand needs another tick.
-    pub(in crate::tick) active: bool,
 }
 
 impl Brewing {
@@ -75,13 +49,9 @@ impl Brewing {
     /// PMMP the timers stay without fuel: the tick that begins a brew with the last fuel leaves
     /// one, and a checkpoint reads back as it was.
     pub(in crate::tick) fn read(nbt: &mut Compound) -> Self {
-        let short = |nbt: &mut Compound, key: &str| match nbt.remove(key) {
-            Some(Value::Short(v)) => u16::try_from(v).unwrap_or(0),
-            _ => 0,
-        };
-        let brew = short(nbt, "CookTime").min(BREW_TICKS);
-        let fuel = short(nbt, "FuelAmount");
-        let mut fuel_total = short(nbt, "FuelTotal");
+        let brew = super::take_timer(nbt, "CookTime").min(BREW_TICKS);
+        let fuel = super::take_timer(nbt, "FuelAmount");
+        let mut fuel_total = super::take_timer(nbt, "FuelTotal");
         if fuel_total == 0 {
             fuel_total = fuel;
         }
@@ -93,14 +63,6 @@ impl Brewing {
         }
     }
 
-    /// The saved keys, which clients get too.
-    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
-        let short = |v: u16| Value::Short(i16::try_from(v).unwrap_or(i16::MAX));
-        nbt.insert("CookTime".to_owned(), short(self.brew));
-        nbt.insert("FuelTotal".to_owned(), short(self.fuel_total));
-        nbt.insert("FuelAmount".to_owned(), short(self.fuel));
-    }
-
     /// The `ContainerSetData` values a viewer gets when it opens the window.
     pub(in crate::tick) fn data(&self) -> [(i32, i32); 3] {
         [
@@ -110,20 +72,22 @@ impl Brewing {
         ]
     }
 
-    /// The result of each bottle (PMMP `getBrewableRecipes`), looked up again only when the
-    /// ingredient or a bottle changed.
-    fn results(&mut self, items: &[Stack], custom: &Registry) -> [Option<Stack>; 3] {
-        let key: [Stack; 4] = std::array::from_fn(|i| {
-            items
-                .get(if i == 0 { INGREDIENT } else { i })
-                .cloned()
-                .unwrap_or_default()
-        });
+    /// The result of each bottle slot for the ingredient now (PMMP `getBrewableRecipes`), looked
+    /// up again only when the ingredient or a bottle changed.
+    pub(in crate::tick) fn bottle_results(
+        &mut self,
+        items: &[Stack],
+        custom: &Registry,
+    ) -> [Option<Stack>; 3] {
         if let Some((last, results)) = &self.recipes
-            && *last == key
+            && last
+                .iter()
+                .zip(RECIPE_SLOTS)
+                .all(|(last, i)| items.get(i).map_or(last.is_empty(), |s| last.same(s)))
         {
             return results.clone();
         }
+        let key = RECIPE_SLOTS.map(|i| items.get(i).cloned().unwrap_or_default());
         let [ingredient, b0, b1, b2] = &key;
         let results = [b0, b1, b2].map(|bottle| {
             if ingredient.is_empty() || bottle.is_empty() {
@@ -134,6 +98,20 @@ impl Brewing {
         });
         self.recipes = Some((key, results.clone()));
         results
+    }
+
+    /// Whether a blaze powder is to be used now (PMMP `checkFuel`'s condition: no fuel left,
+    /// something can brew, the fuel slot holds blaze powder; PMMP raises its event cancelled
+    /// for another item, Anchor raises none).
+    pub(in crate::tick) fn fuel_due(&mut self, items: &[Stack], custom: &Registry) -> bool {
+        let powder = items.get(FUEL).cloned().unwrap_or_default();
+        self.fuel == 0
+            && self
+                .bottle_results(items, custom)
+                .iter()
+                .any(Option::is_some)
+            && powder.item().and_then(crate::item::Type::kind)
+                == Some(crate::item::Kind::BlazePowder)
     }
 
     /// One tick (PMMP `BrewingStand::onUpdate`) without events: [`begin`](Self::begin), the
@@ -165,26 +143,6 @@ impl Brewing {
         }
     }
 
-    /// The result of each bottle slot for the ingredient now.
-    pub(in crate::tick) fn bottle_results(
-        &mut self,
-        items: &[Stack],
-        custom: &Registry,
-    ) -> [Option<Stack>; 3] {
-        self.results(items, custom)
-    }
-
-    /// Whether a blaze powder is to be used now (PMMP `checkFuel`'s condition: no fuel left,
-    /// something can brew, the fuel slot holds blaze powder; PMMP raises its event cancelled
-    /// for another item, Anchor raises none).
-    pub(in crate::tick) fn fuel_due(&mut self, items: &[Stack], custom: &Registry) -> bool {
-        let powder = items.get(FUEL).cloned().unwrap_or_default();
-        self.fuel == 0
-            && self.results(items, custom).iter().any(Option::is_some)
-            && powder.item().and_then(crate::item::Type::kind)
-                == Some(crate::item::Kind::BlazePowder)
-    }
-
     /// Uses up one blaze powder for `brews` brews of fuel (at least 1).
     pub(in crate::tick) fn refuel(&mut self, items: &mut [Stack], brews: u16, t: &mut Tick) {
         let powder = items.get(FUEL).cloned().unwrap_or_default();
@@ -205,7 +163,7 @@ impl Brewing {
         custom: &Registry,
         t: &mut Tick,
     ) -> Option<[Option<Stack>; 3]> {
-        let results = self.results(items, custom);
+        let results = self.bottle_results(items, custom);
         let can_brew = results.iter().any(Option::is_some);
         if self.fuel > 0 {
             if can_brew {
@@ -247,6 +205,41 @@ impl Brewing {
         out.active |= out.slots != 0;
         out
     }
+
+    /// The saved keys, which clients get too.
+    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+        nbt.insert("CookTime".to_owned(), super::timer_value(self.brew));
+        nbt.insert("FuelTotal".to_owned(), super::timer_value(self.fuel_total));
+        nbt.insert("FuelAmount".to_owned(), super::timer_value(self.fuel));
+    }
+}
+
+impl PartialEq for Brewing {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            brew,
+            fuel,
+            fuel_total,
+            recipes: _,
+        } = self;
+        (*brew, *fuel, *fuel_total) == (other.brew, other.fuel, other.fuel_total)
+    }
+}
+
+/// What one brewing tick did.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(in crate::tick) struct Step {
+    /// Bit `i`: slot `i` changed.
+    pub(in crate::tick) slots: u8,
+    /// Bit `i`: slot `i` changed only its count (the same item before and after), so its viewers
+    /// keep its stack network ID (BDS, P6: an ingredient shrinking).
+    pub(in crate::tick) kept: u8,
+    /// A brew finished with something brewed (PMMP `PotionFinishBrewingSound`).
+    pub(in crate::tick) brewed: bool,
+    /// The `ContainerSetData` values that changed.
+    pub(in crate::tick) data: super::DataChanges,
+    /// Whether the stand needs another tick.
+    pub(in crate::tick) active: bool,
 }
 
 /// A brewing tick in progress.

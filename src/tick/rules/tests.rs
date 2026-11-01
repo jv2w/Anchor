@@ -386,13 +386,13 @@ const READ_ON_THE_TICK_BEFORE: [Reads; 2] = [
 /// ages, and loads entities at rest still.
 const OUTCOME_BEFORE: [[u64; 4]; 2] = [
     [
-        0xd90c_d148_dbf5_d1fc,
+        0x4608_9c15_44be_1146,
         0x14e7_922d_7c94_0dc9,
         0xc4d0_b7b4_ec98_80fa,
         0xd918_290c_b7b6_6526,
     ],
     [
-        0xd4b9_0dc6_0ea9_6c62,
+        0xea64_4c8f_5bd4_b6b0,
         0x81b0_a3fb_45b5_5c0f,
         0xc4d0_b7b4_ec98_80fa,
         0x4d77_8f37_abd2_cb55,

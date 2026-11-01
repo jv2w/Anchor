@@ -303,7 +303,7 @@ builtin! {
     /// administrative broadcast channel).
     #[doc(alias = "DefaultPermissionNames")]
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
-    /// Back up the world while the server runs (`/backup`; Anchor's own, PMMP has none).
+    /// Back up the data files while the server runs (`/backup`; Anchor's own, PMMP has none).
     COMMAND_BACKUP = "anchor.command.backup", Op;
     /// Check the server file while the server runs (`/check`; Anchor's own, PMMP has none).
     COMMAND_CHECK = "anchor.command.check", Op;

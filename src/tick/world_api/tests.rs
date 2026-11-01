@@ -14,41 +14,8 @@ use crate::world::{BlockPos, ChunkPos, Flat, Generator, Kind};
 
 const WORLD: world::Id = world::Id::DEFAULT;
 
-/// A state with session 1 spawned at the world spawn with a view of radius 2 and session 2
-/// joined without a view, and their queues.
-fn state() -> (State, [mpsc::Receiver<Outbound>; 2]) {
-    let mut state = new_state(settings(|_| {}), Listeners::default());
-    let mut output = Output::default();
-    let (first, rx1) = join(1, 0);
-    let (second, rx2) = join(2, 0);
-    tick(&mut state, &mut vec![first, second], &mut output);
-    tick(&mut state, &mut vec![radius(1, 1, 2)], &mut output);
-    let runtime_id = state.players[&SessionId::new(1)].runtime_id;
-    tick(
-        &mut state,
-        &mut vec![initialised(1, 2, runtime_id)],
-        &mut output,
-    );
-    for _ in 0..3 {
-        tick(&mut state, &mut Vec::new(), &mut output);
-    }
-    (state, [rx1, rx2])
-}
-
 fn context(state: &mut State) -> Context<'_> {
     Context { state }
-}
-
-/// The level events in what `rx` was sent.
-fn level_events(rx: &mut mpsc::Receiver<Outbound>) -> Vec<LevelEventPacket> {
-    received(rx)
-        .0
-        .into_iter()
-        .filter_map(|p| match p {
-            P::LevelEvent(e) => Some(e),
-            _ => None,
-        })
-        .collect()
 }
 
 // pmmp: WorldManager::getWorld, WorldManager::isWorldLoaded, Position::isValid, WorldManager::getWorlds, World::getId, World::getFolderName, World::getDisplayName
@@ -120,6 +87,39 @@ fn moving_the_spawn_moves_the_held_spawn_chunks() {
     let hash = state.hash();
     context(&mut state).world_mut(WORLD).unwrap().set_spawn(far);
     assert_eq!(state.hash(), hash);
+}
+
+/// A state with session 1 spawned at the world spawn with a view of radius 2 and session 2
+/// joined without a view, and their queues.
+fn state() -> (State, [mpsc::Receiver<Outbound>; 2]) {
+    let mut state = new_state(settings(|_| {}), Listeners::default());
+    let mut output = Output::default();
+    let (first, rx1) = join(1, 0);
+    let (second, rx2) = join(2, 0);
+    tick(&mut state, &mut vec![first, second], &mut output);
+    tick(&mut state, &mut vec![radius(1, 1, 2)], &mut output);
+    let runtime_id = state.players[&SessionId::new(1)].runtime_id;
+    tick(
+        &mut state,
+        &mut vec![initialised(1, 2, runtime_id)],
+        &mut output,
+    );
+    for _ in 0..3 {
+        tick(&mut state, &mut Vec::new(), &mut output);
+    }
+    (state, [rx1, rx2])
+}
+
+/// The level events in what `rx` was sent.
+fn level_events(rx: &mut mpsc::Receiver<Outbound>) -> Vec<LevelEventPacket> {
+    received(rx)
+        .0
+        .into_iter()
+        .filter_map(|p| match p {
+            P::LevelEvent(e) => Some(e),
+            _ => None,
+        })
+        .collect()
 }
 
 // pmmp: World::addSound, World::addParticle, World::broadcastPacketToViewers
@@ -247,6 +247,36 @@ fn the_safe_spawn_is_the_first_two_free_blocks_up_the_column() {
     // A chunk that is not loaded is free.
     let far = BlockPos::new(5000, -64, 5000);
     assert_eq!(world.safe_spawn(far), far);
+}
+
+/// The stored state of the block `name` with no properties, which Anchor does not know.
+fn stored_state(name: &str) -> crate::nbt::Compound {
+    use crate::nbt::{Compound, Value};
+    Compound::from([
+        ("name".to_owned(), Value::String(name.to_owned())),
+        ("states".to_owned(), Value::Compound(Compound::new())),
+        (
+            "version".to_owned(),
+            Value::Int(crate::import::BLOCK_STATE_VERSION),
+        ),
+    ])
+}
+
+/// The safe spawn stands no player in a block the entity rules find solid: a solid block only
+/// clients know, or a block neither Anchor nor clients know.
+#[test]
+fn the_safe_spawn_finds_solid_the_blocks_anchor_does_not_know() {
+    let (mut state, _rx) = state();
+    let spawn = state.worlds[0].spawn();
+    let column = |y| BlockPos::new(spawn.x + 1, y, spawn.z);
+    let world = &mut state.worlds[0];
+    world
+        .put_unknown(column(-60), stored_state("minecraft:moss_block"))
+        .unwrap();
+    world
+        .put_unknown(column(-58), stored_state("minecraft:no_such_block"))
+        .unwrap();
+    assert_eq!(world.safe_spawn(column(-61)), column(-57));
 }
 
 // pmmp: World::getBlockCollisionBoxes

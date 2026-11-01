@@ -3,6 +3,8 @@
 //! cooked, custom items kept through a save and a restart, and a custom item that breaks nothing
 //! in creative mode.
 
+use std::sync::Arc;
+
 use super::*;
 use crate::Context as Ctx;
 use crate::crafting::FurnaceType;
@@ -11,15 +13,14 @@ use crate::custom::{Behaviour, Block, Ingredient, ItemRef, Offer, Property, Reci
 use crate::item::Extra;
 use crate::save::{Request, Response};
 use crate::world;
-use std::sync::Arc;
 
-/// The block above `pos`.
+/// Returns the block above `pos`.
 fn above(pos: BlockPos) -> BlockPos {
     BlockPos::new(pos.x, pos.y + 1, pos.z)
 }
 
 /// A switch that lights when used, and marks the block above it with stone when placed and
-/// dirt when broken.
+/// dirt when broken. Placed, it notes the placer's held count; broken, the world's entities.
 struct Switch;
 
 impl Behaviour for Switch {
@@ -44,8 +45,10 @@ impl Behaviour for Switch {
         pos: BlockPos,
         state: block::State,
     ) {
-        assert!(player.is_some());
+        let session = player.unwrap().session();
         assert_eq!(state.value("lit"), Some(block::PropertyValue::Byte(0)));
+        let held = ctx.state.players[&session].inventory.held().count();
+        note(SEEN, ("placed", held));
         let stone = Kind::Stone.default_state();
         ctx.world_mut(world)
             .unwrap()
@@ -61,6 +64,7 @@ impl Behaviour for Switch {
         pos: BlockPos,
         _state: block::State,
     ) {
+        note(SEEN, ("broken", ctx.state.rules.entities.count(0)));
         let w = ctx.world_mut(world).unwrap();
         assert_eq!(w.block(pos), Some(block::AIR));
         w.set_block(above(pos), Kind::Dirt.default_state()).unwrap();
@@ -153,6 +157,8 @@ fn a_creative_player_breaks_nothing_with_an_item_made_so() {
     }
 }
 
+/// A custom block is placed, used and broken through its behaviour, whose hooks run once their
+/// action is applied: `on_place` after the item was used, `on_break` after the drop fell.
 #[test]
 fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     let (mut h, r) = harness();
@@ -173,6 +179,7 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     assert_eq!(h.block(at), switch);
     assert_eq!(h.held().count(), 2);
     assert_eq!(h.block(above(at)).kind(), Kind::Stone, "on_place ran");
+    assert_eq!(notes(SEEN), [dbg(("placed", 2))], "after the item was used");
     // The client is told the custom state's hash (with the stone above, in one packet).
     let sent = h.packets();
     let told = sent.iter().any(|p| match p {
@@ -192,8 +199,9 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
         Some(block::PropertyValue::Byte(1))
     );
     assert_eq!(h.held().count(), 2);
-    // Breaking it removes it, then calls the hook.
+    // Breaking it removes it and drops it, then calls the hook.
     let session = SessionId::new(1);
+    let entities = h.state.rules.entities.count(0);
     assert!(destroy(
         &mut h.state,
         0,
@@ -205,6 +213,11 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     ));
     assert_eq!(h.block(at), block::AIR);
     assert_eq!(h.block(above(at)).kind(), Kind::Dirt, "on_break ran");
+    assert_eq!(
+        notes(SEEN),
+        [dbg(("broken", entities + 1))],
+        "after the drop fell"
+    );
 }
 
 /// The drops of the custom ore at the target with `tool`: (stacks, experience).
@@ -587,12 +600,12 @@ impl Harness {
 fn place_with_entity(h: &mut Harness, pos: BlockPos, block: block::State) {
     h.set(pos, block);
     let empty = Stack::EMPTY;
-    super::super::super::block_entity::placed(&mut h.state, 0, pos, None, &empty, Face::West);
+    crate::tick::block_entity::placed(&mut h.state, 0, pos, None, &empty, Face::West);
 }
 
 #[test]
 fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
-    use super::super::super::block_entity::Kind as Entity;
+    use crate::tick::block_entity::Kind as Entity;
     let (mut h, r) = harness();
     h.state.saving.players = true;
     let ruby = rubies(&r, 5);

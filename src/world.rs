@@ -148,7 +148,8 @@ impl ChunkPos {
 /// A world of the server: its place in the order the server first had it (the settings' world
 /// first, then the worlds of [`ServerBuilder::world`](crate::ServerBuilder::world) in
 /// registration order, then those made or loaded while it runs). A world keeps its `Id` while
-/// the server runs, through unloads and loads; another world never takes it.
+/// the server runs, through unloads and loads; only a world made again under its name, after a
+/// temporary world of that name unloaded or a persistent one was deleted, takes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(u32);
 
@@ -190,7 +191,8 @@ pub enum Kind {
 /// A world operation that failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// The position is outside the world height, or a local position outside its chunk.
+    /// The position is outside the world height or border, or a local position outside its
+    /// chunk.
     OutOfRange,
     /// The chunk of the position is not loaded.
     NotLoaded,
@@ -1181,13 +1183,12 @@ crate::tick::checkpoint::fields!(Kept { light, chunks });
 
 impl Kept {
     /// The bytes it holds or will encode to, about: the light arrays, the queued light work and
-    /// the terrain (a sub-chunk at 4 KiB).
+    /// the terrain ([`terrain_size`](crate::tick::checkpoint::terrain_size)).
     pub(crate) fn size(&self) -> usize {
         self.chunks
             .iter()
             .map(|(_, c, l)| {
-                usize::from(c.sub_chunk_limit())
-                    .saturating_mul(4 << 10)
+                crate::tick::checkpoint::terrain_size(c)
                     .saturating_add(l.as_ref().map_or(0, light::ChunkLight::heap_bytes))
             })
             .fold(self.light.heap_bytes(), usize::saturating_add)

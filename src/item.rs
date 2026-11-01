@@ -1,12 +1,13 @@
-//! Item types: every item type Anchor knows, in Bedrock form, with its 1.26.60
-//! runtime ID, the lookups from the forms clients and saved data use, and the item registry and
-//! creative inventory sent at spawn.
+//! Item types: every item type Anchor knows, in Bedrock form, with its runtime ID in the supported
+//! version ([`GAME_VERSION`](crate::protocol::packet::GAME_VERSION)), the lookups from the forms
+//! clients and saved data use, and the item registry and creative inventory sent at spawn.
 //!
 //! The types are PMMP's item types (its item registry, the item form of every block state and
 //! every name PMMP parses) merged by Bedrock form, with PMMP's data for each:
 //! PMMP type and class, stack size, durability, tool, armour, food, fuel, enchanting, cooldown;
 //! and the enchantment, item tag and tool tier tables. All data lives in static tables generated
-//! by `cargo xtask gen`, so nothing is built at start and a lookup never allocates.
+//! by `cargo xtask gen`, so a lookup never allocates; only the item registry and creative
+//! inventory packets are built from them, once, when the server is built.
 
 mod creative;
 mod registry;
@@ -33,8 +34,53 @@ use crate::effect;
 use crate::nbt::{self, StaticCompound};
 use crate::protocol::{self, ItemType, packet};
 
+/// The data of a custom block's item: a plain block item of 64.
+static CUSTOM_BLOCK_ITEM: Info = Info::custom(64, 0, 1, None);
+
+/// The ticks eating a custom food takes (dragonfly's default consume duration, 1.6 seconds); its
+/// clients are sent it as the item's `use_duration`.
+const CUSTOM_EAT_TICKS: u16 = 32;
+
+/// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
+const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
+/// [`Trait`] bits of a PMMP food item (`Food`: consumable, food source, releasable).
+const TRAITS_FOOD: u32 = TRAITS_ITEM
+    | 1 << Trait::Consumable as u32
+    | 1 << Trait::ConsumableItem as u32
+    | 1 << Trait::FoodSource as u32
+    | 1 << Trait::FoodSourceItem as u32
+    | 1 << Trait::Releasable as u32;
+
+/// The state index sentinel of [`table::TYPE_PLACES`]: none.
+const NO_STATE: u16 = 0xffff;
+
+/// The NBT key PMMP's `CreativeInventoryCache` sets on a group icon to the group's index (its
+/// workaround for a 1.21.60 client glitch).
+pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
+
+/// The dye colours by PMMP `DyeColorIdMap` ID (white 0 … black 15): the dye item's name and the
+/// colour's RGB value (PMMP `DyeColor::getRgbValue`).
+const DYES: [(&str, u32); 16] = [
+    ("minecraft:white_dye", 0xf0_f0f0),
+    ("minecraft:orange_dye", 0xf9_801d),
+    ("minecraft:magenta_dye", 0xc7_4ebd),
+    ("minecraft:light_blue_dye", 0x3a_b3da),
+    ("minecraft:yellow_dye", 0xfe_d83d),
+    ("minecraft:lime_dye", 0x80_c71f),
+    ("minecraft:pink_dye", 0xf3_8baa),
+    ("minecraft:gray_dye", 0x47_4f52),
+    ("minecraft:light_gray_dye", 0x9d_9d97),
+    ("minecraft:cyan_dye", 0x16_9c9c),
+    ("minecraft:purple_dye", 0x89_32b8),
+    ("minecraft:blue_dye", 0x3c_44aa),
+    ("minecraft:brown_dye", 0x83_5432),
+    ("minecraft:green_dye", 0x5e_7c16),
+    ("minecraft:red_dye", 0xb0_2e26),
+    ("minecraft:black_dye", 0x1d_1d21),
+];
+
 /// An item type: a Bedrock item name with its meta value and, for a block item, the block state
-/// it places.
+/// of its saved form ([`Type::block`]).
 ///
 /// It is a small `Copy` value: a number into Anchor's static item table, or a custom item or the
 /// item of a custom block the server registered ([`custom::Item`], [`custom::Block`]), which
@@ -42,50 +88,6 @@ use crate::protocol::{self, ItemType, packet};
 /// types ([`Context::custom_item`](crate::Context::custom_item)).
 #[derive(Clone, Copy)]
 pub struct Type(Repr);
-
-/// What a [`Type`] is.
-#[derive(Clone, Copy)]
-enum Repr {
-    /// An index of the static item table.
-    Vanilla(u16),
-    /// A custom item and its runtime ID.
-    Item(&'static custom::Item, i16),
-    /// A custom block's item, its runtime ID and the network ID of the block's default state
-    /// (the block it places and is sent with).
-    Block(&'static custom::Block, i16, u32),
-}
-
-/// One row of the item table.
-#[derive(Debug)]
-struct Data {
-    name: &'static str,
-    meta: u16,
-    block: Option<block::State>,
-    /// The network ID of the block state the item is sent with; 0 for items without a block.
-    block_network_id: u32,
-    nbt: Option<StaticCompound>,
-    runtime_id: i16,
-}
-
-impl Data {
-    const fn new(
-        name: &'static str,
-        meta: u16,
-        block: Option<block::State>,
-        block_network_id: u32,
-        nbt: Option<StaticCompound>,
-        runtime_id: i16,
-    ) -> Self {
-        Self {
-            name,
-            meta,
-            block,
-            block_network_id,
-            nbt,
-            runtime_id,
-        }
-    }
-}
 
 impl Type {
     /// The type with this table index. Only generated tables call it, with indices of the item
@@ -101,14 +103,95 @@ impl Type {
         Self(Repr::Item(item, runtime_id))
     }
 
-    /// The item of the registered custom block `block`, with the runtime ID the server gave it;
-    /// `None` if the block has no default state (a registered block always has one).
-    pub(crate) fn from_custom_block(
-        block: &'static custom::Block,
-        runtime_id: i16,
+    /// The item of the registered custom block `block`, with the runtime ID the server gave it.
+    /// Only the custom registry and the block's states call it, for blocks it has checked.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a checked custom block has at least one state"
+    )]
+    pub(crate) fn from_custom_block(block: &'static custom::Block, runtime_id: i16) -> Self {
+        let placed =
+            block::State::custom(block, 0, runtime_id).expect("a checked block has a state 0");
+        Self(Repr::Block(block, runtime_id, placed.network_id()))
+    }
+
+    /// The type of an item in saved Bedrock form: its name, meta, the block state of a block item
+    /// and the stack NBT (empty if none).
+    ///
+    /// Among the types of the name and block, it is the one with this meta. Where several have
+    /// it (a black banner and an ominous banner are both `minecraft:banner` meta 0), it is the
+    /// one with the most type NBT that is part of `nbt`. Where none has it and the name and block
+    /// have a single type, it is that type, as PMMP reads such a meta as stack state (a tool's
+    /// damage, a firework star's colour); the caller keeps the meta with the stack. A block item
+    /// needs its block state, since several states can share an item name; a state no type of
+    /// the name has stands for the item of its block form, as PMMP reads a saved block (the
+    /// official server saves a block item with its vanilla creative state, which can differ from
+    /// the state the item places). Anything else is `None`.
+    #[doc(alias = "ItemDeserializer::deserializeType")]
+    pub fn from_name(
+        name: &str,
+        meta: u16,
+        block: Option<block::State>,
+        nbt: &nbt::Compound,
     ) -> Option<Self> {
-        let placed = block::State::custom(block, 0, runtime_id)?;
-        Some(Self(Repr::Block(block, runtime_id, placed.network_id())))
+        let (_, runtime_id) = equal_range(&table::NAMES, |(n, _)| (*n).cmp(name)).first()?;
+        let rows = Self::rows(*runtime_id);
+        let places = |e: &(i16, u32, u16, u16)| Self::from_index(e.3).block() == block;
+        match block {
+            Some(state) if !rows.iter().any(places) => {
+                let block::ItemForm::Item(form) = state.item() else {
+                    return None;
+                };
+                Self::lookup(rows, |e| Self::from_index(e.3) == form, Some(meta), nbt)
+            }
+            _ => Self::lookup(rows, places, Some(meta), nbt),
+        }
+    }
+
+    /// The type of an item in network form, as a client sends it: runtime ID, meta, the network
+    /// ID of the block a block item is sent with (0 for others) and the stack NBT. The rules are
+    /// those of [`Type::from_name`]; a meta beyond 16 bits matches only as stack state.
+    #[doc(alias = "ItemTranslator::fromNetworkId")]
+    pub fn from_network(
+        runtime_id: i32,
+        meta: u32,
+        block_runtime_id: i32,
+        nbt: &nbt::Compound,
+    ) -> Option<Self> {
+        let runtime_id = i16::try_from(runtime_id).ok()?;
+        let block = block_runtime_id.cast_unsigned();
+        Self::lookup(
+            Self::rows(runtime_id),
+            |e| e.1 == block,
+            u16::try_from(meta).ok(),
+            nbt,
+        )
+    }
+
+    /// The inverse of [`network_stack`] for tests: [`Type::from_network`] with the block, else
+    /// the one type of the runtime ID and meta with any block; `None` if several types could be
+    /// meant.
+    #[cfg(test)]
+    pub(crate) fn from_network_any_block(
+        runtime_id: i32,
+        meta: u32,
+        block_runtime_id: i32,
+        nbt: &nbt::Compound,
+    ) -> Option<Self> {
+        Self::from_network(runtime_id, meta, block_runtime_id, nbt).or_else(|| {
+            let all = Self::rows(i16::try_from(runtime_id).ok()?);
+            let meta = u16::try_from(meta).ok();
+            let mut exact = all.iter().filter(|e| Some(e.2) == meta);
+            let only = match all {
+                [one] => Some(one),
+                _ => None,
+            };
+            let one = exact.next().or(only)?;
+            if exact.next().is_some() {
+                return None;
+            }
+            Some(Self::from_index(one.3))
+        })
     }
 
     /// The custom item this is, `None` for any other type.
@@ -127,24 +210,6 @@ impl Type {
             Repr::Block(block, ..) => Some(block),
             Repr::Vanilla(_) | Repr::Item(..) => None,
         }
-    }
-
-    /// The index into the static tables, `None` for a custom type.
-    #[inline]
-    fn vanilla(self) -> Option<usize> {
-        match self.0 {
-            Repr::Vanilla(i) => Some(usize::from(i)),
-            Repr::Item(..) | Repr::Block(..) => None,
-        }
-    }
-
-    #[inline]
-    fn data(index: u16) -> &'static Data {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: a Type is only made from an index of the item table"
-        )]
-        &table::ITEMS[usize::from(index)]
     }
 
     /// The Bedrock item name, such as `minecraft:stick`, or a custom item's or block's
@@ -168,7 +233,9 @@ impl Type {
         }
     }
 
-    /// The block state a block item places.
+    /// The block state of a block item's saved form, which tells apart the types of one item
+    /// name; `None` for items without a block. The state placing the item puts down is
+    /// [`Type::placed_block`] (a bamboo item places a bamboo sapling).
     pub fn block(self) -> Option<block::State> {
         match self.0 {
             Repr::Vanilla(i) => Self::data(i).block,
@@ -179,7 +246,7 @@ impl Type {
 
     /// The network ID of the block state a block item is sent with, 0 for other items. It is the
     /// state BDS sends with the item (the vanilla creative state), which may differ from the
-    /// state the item places.
+    /// state of its saved form.
     #[inline]
     pub(crate) fn block_network_id(self) -> u32 {
         match self.0 {
@@ -189,8 +256,8 @@ impl Type {
         }
     }
 
-    /// The 1.26.60 network runtime ID of the name; for a custom type, the one the server gave it
-    /// (after every vanilla runtime ID, in registration order).
+    /// The network runtime ID of the name in the supported version; for a custom type, the one
+    /// the server gave it (after every vanilla runtime ID, in registration order).
     #[inline]
     pub fn runtime_id(self) -> i16 {
         match self.0 {
@@ -207,740 +274,8 @@ impl Type {
         }
     }
 
-    /// The type of an item in saved Bedrock form: its name, meta, the block state of a block item
-    /// and the stack NBT (empty if none).
-    ///
-    /// Among the types of the name and block, it is the one with this meta. Where several have
-    /// it (a black banner and an ominous banner are both `minecraft:banner` meta 0), it is the
-    /// one with the most type NBT that is part of `nbt`. Where none has it and the name and block
-    /// have a single type, it is that type, as PMMP reads such a meta as stack state (a tool's
-    /// damage, a firework star's colour); the caller keeps the meta with the stack. A block item
-    /// needs its block state, since several states can share an item name. Anything else is
-    /// `None`.
-    #[doc(alias = "ItemDeserializer::deserializeType")]
-    pub fn from_name(
-        name: &str,
-        meta: u16,
-        block: Option<block::State>,
-        nbt: &nbt::Compound,
-    ) -> Option<Self> {
-        let index = table::NAMES
-            .binary_search_by(|(n, _)| (*n).cmp(name))
-            .ok()?;
-        let (_, runtime_id) = table::NAMES.get(index)?;
-        Self::lookup(
-            *runtime_id,
-            |e| Self::from_index(e.3).block() == block,
-            Some(meta),
-            nbt,
-        )
-    }
-
-    /// The type of an item in network form, as a client sends it: runtime ID, meta, the network
-    /// ID of the block a block item is sent with (0 for others) and the stack NBT. The rules are
-    /// those of [`Type::from_name`]; a meta beyond 16 bits matches only as stack state.
-    #[doc(alias = "ItemTranslator::fromNetworkId")]
-    pub fn from_network(
-        runtime_id: i32,
-        meta: u32,
-        block_runtime_id: i32,
-        nbt: &nbt::Compound,
-    ) -> Option<Self> {
-        let runtime_id = i16::try_from(runtime_id).ok()?;
-        let block = block_runtime_id.cast_unsigned();
-        Self::lookup(runtime_id, |e| e.1 == block, u16::try_from(meta).ok(), nbt)
-    }
-
-    /// The type of an item in network form whose block a client may send differently (P6:
-    /// BDS matches requests by network ID, count and stack ID, not by the block runtime ID):
-    /// [`Type::from_network`] with the block, else the one type of the runtime ID and meta with
-    /// any block; `None` if several types could be meant.
-    #[cfg(test)]
-    pub(crate) fn from_network_any_block(
-        runtime_id: i32,
-        meta: u32,
-        block_runtime_id: i32,
-        nbt: &nbt::Compound,
-    ) -> Option<Self> {
-        Self::from_network(runtime_id, meta, block_runtime_id, nbt).or_else(|| {
-            let runtime_id = i16::try_from(runtime_id).ok()?;
-            let meta = u16::try_from(meta).ok();
-            let all = equal_range(&table::BY_NETWORK, |e| e.0.cmp(&runtime_id));
-            let mut exact = all.iter().filter(|e| Some(e.2) == meta);
-            let only = match all {
-                [one] => Some(one),
-                _ => None,
-            };
-            let one = exact.next().or(only)?;
-            if exact.next().is_some() {
-                return None;
-            }
-            Some(Self::from_index(one.3))
-        })
-    }
-
-    /// The lookup rules of [`Type::from_name`] among the types of a runtime ID that `block`
-    /// accepts; `meta` is `None` when it cannot be a type's meta. A runtime ID has few types (at
-    /// most the kinds of potion), so the scans are short.
-    fn lookup(
-        runtime_id: i16,
-        block: impl Fn(&(i16, u32, u16, u16)) -> bool,
-        meta: Option<u16>,
-        nbt: &nbt::Compound,
-    ) -> Option<Self> {
-        let all = equal_range(&table::BY_NETWORK, |e| e.0.cmp(&runtime_id));
-        let candidates = || all.iter().filter(|e| block(e));
-        let exact = || candidates().filter(|e| Some(e.2) == meta);
-        let found = match exact().count() {
-            // Where none has the meta, a single type of the name and block takes it as stack state.
-            0 => {
-                let mut only = candidates();
-                let one = only.next()?;
-                if only.next().is_some() {
-                    return None;
-                }
-                one
-            }
-            1 => exact().next()?,
-            // The generator checked that type NBT sizes differ here, so the best is unique.
-            _ => exact()
-                .filter(|e| {
-                    Self::from_index(e.3)
-                        .nbt()
-                        .is_none_or(|need| nbt::contains(nbt, need))
-                })
-                .max_by_key(|e| Self::from_index(e.3).nbt().map_or(0, <[_]>::len))?,
-        };
-        Some(Self::from_index(found.3))
-    }
-}
-
-impl fmt::Debug for Type {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Type")
-            .field("name", &self.name())
-            .field("meta", &self.meta())
-            .finish()
-    }
-}
-
-impl PartialEq for Type {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        match (self.0, other.0) {
-            (Repr::Vanilla(a), Repr::Vanilla(b)) => a == b,
-            // A server gives each custom type its own runtime ID.
-            (Repr::Item(a, x), Repr::Item(b, y)) => x == y && a.identifier() == b.identifier(),
-            (Repr::Block(a, x, _), Repr::Block(b, y, _)) => {
-                x == y && a.identifier() == b.identifier()
-            }
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Type {}
-
-impl PartialOrd for Type {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// Types of the table come first, in table order; then custom types by runtime ID and
-/// identifier (never by address, so the order is the same on every run).
-impl Ord for Type {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let key = |t: &Self| match t.0 {
-            Repr::Vanilla(i) => (0, i32::from(i), ""),
-            Repr::Item(item, id) => (1, i32::from(id), item.identifier()),
-            Repr::Block(block, id, _) => (1, i32::from(id), block.identifier()),
-        };
-        key(self).cmp(&key(other))
-    }
-}
-
-impl Hash for Type {
-    fn hash<H: Hasher>(&self, h: &mut H) {
-        match self.0 {
-            Repr::Vanilla(i) => i.hash(h),
-            Repr::Item(_, id) | Repr::Block(_, id, _) => id.hash(h),
-        }
-    }
-}
-
-/// The data of a custom block's item: a plain block item of 64.
-static CUSTOM_BLOCK_ITEM: Info = Info::custom(64, 0, 1, None);
-
-/// The ticks eating a custom food takes (dragonfly's default consume duration, 1.6 seconds); its
-/// clients are sent it as the item's `use_duration`.
-const CUSTOM_EAT_TICKS: u16 = 32;
-
-/// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
-const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
-/// [`Trait`] bits of a PMMP food item (`Food`: consumable, food source, releasable).
-const TRAITS_FOOD: u32 = TRAITS_ITEM
-    | 1 << Trait::Consumable as u32
-    | 1 << Trait::ConsumableItem as u32
-    | 1 << Trait::FoodSource as u32
-    | 1 << Trait::FoodSourceItem as u32
-    | 1 << Trait::Releasable as u32;
-
-/// A row of the item data table: PMMP's data for an item type. A custom item holds one of its
-/// own ([`Info::custom`]).
-#[derive(Debug)]
-pub(crate) struct Info {
-    kind: Option<Kind>,
-    /// The first of the type's classes in [`table::CLASS_CHAINS`] and their count.
-    class: (u16, u8),
-    /// [`Trait`] bits.
-    traits: u32,
-    max_stack: u8,
-    /// 0 for items without durability.
-    max_durability: u16,
-    fire_proof: bool,
-    attack_points: u8,
-    defense_points: u8,
-    tool_type: ToolType,
-    harvest_level: u8,
-    efficiency: f64,
-    tier: Option<ToolTier>,
-    armor: Option<Armor>,
-    food: Option<Food>,
-    consumable: Option<Consumable>,
-    /// The ticks the client takes to eat or drink one: the `use_duration` of the item data it is
-    /// sent; 0 for items not consumed.
-    use_ticks: u16,
-    fuel_time: u16,
-    fuel_residue: Option<Type>,
-    enchantability: u8,
-    primary_enchantments: EnchantmentSet,
-    enchantments: EnchantmentSet,
-    cooldown: Option<Cooldown>,
-    throw_force: Option<f64>,
-    potion: Option<effect::Potion>,
-}
-
-impl Info {
-    /// The row of a custom item: a plain PMMP item (enchantability 1, like every `Item`) with
-    /// this stack size, durability (0: none), attack damage and food. A food item is a PMMP
-    /// `Food`: consumed whole, leaving nothing, with no effects.
-    pub(crate) const fn custom(
-        max_stack: u8,
-        max_durability: u16,
-        attack_points: u8,
-        food: Option<Food>,
-    ) -> Self {
-        let edible = food.is_some();
-        Self {
-            kind: None,
-            class: (0, 0),
-            traits: if edible { TRAITS_FOOD } else { TRAITS_ITEM },
-            max_stack,
-            max_durability,
-            fire_proof: false,
-            attack_points,
-            defense_points: 0,
-            tool_type: ToolType::NONE,
-            harvest_level: 0,
-            efficiency: 1.0,
-            tier: None,
-            armor: None,
-            food,
-            consumable: if edible {
-                Some(Consumable::new(None, Some((0, 0))))
-            } else {
-                None
-            },
-            use_ticks: if edible { CUSTOM_EAT_TICKS } else { 0 },
-            fuel_time: 0,
-            fuel_residue: None,
-            enchantability: 1,
-            primary_enchantments: EnchantmentSet(0),
-            enchantments: EnchantmentSet(0),
-            cooldown: None,
-            throw_force: None,
-            potion: None,
-        }
-    }
-
-    /// The most items a stack holds.
-    pub(crate) const fn max_stack(&self) -> u8 {
-        self.max_stack
-    }
-
-    /// The durability; 0 for none.
-    #[inline]
-    pub(crate) const fn max_durability(&self) -> u16 {
-        self.max_durability
-    }
-
-    /// What eating restores.
-    pub(crate) const fn food(&self) -> Option<Food> {
-        self.food
-    }
-
-    /// The ticks eating or drinking one takes; 0 for items not consumed.
-    pub(crate) const fn use_ticks(&self) -> u16 {
-        self.use_ticks
-    }
-
-    /// The damage of a hit.
-    pub(crate) const fn attack_points(&self) -> u8 {
-        self.attack_points
-    }
-}
-
-/// The state index sentinel of [`table::TYPE_PLACES`]: none.
-const NO_STATE: u16 = 0xffff;
-
-/// An armour slot (PMMP `ArmorInventory` slots).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ArmorSlot {
-    /// Slot 0.
-    Head,
-    /// Slot 1.
-    Chest,
-    /// Slot 2.
-    Legs,
-    /// Slot 3.
-    Feet,
-}
-
-impl ArmorSlot {
-    /// The slot's index among a player's armour slots (PMMP `ArmorInventory`): head 0, chest 1,
-    /// legs 2, feet 3.
-    pub(crate) const fn index(self) -> usize {
-        match self {
-            Self::Head => 0,
-            Self::Chest => 1,
-            Self::Legs => 2,
-            Self::Feet => 3,
-        }
-    }
-
-    /// The slot at armour index `index`; `None` past the feet.
-    pub(crate) fn from_index(index: usize) -> Option<Self> {
-        [Self::Head, Self::Chest, Self::Legs, Self::Feet]
-            .into_iter()
-            .find(|s| s.index() == index)
-    }
-}
-
-/// What an armour item is (PMMP `ArmorTypeInfo`; defence is [`Type::defense_points`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Armor {
-    slot: u8,
-    toughness: u8,
-}
-
-impl Armor {
-    const fn new(slot: u8, toughness: u8) -> Self {
-        Self { slot, toughness }
-    }
-
-    /// The slot it is worn in.
-    #[doc(alias = "Armor::getArmorSlot")]
-    pub fn slot(self) -> ArmorSlot {
-        ArmorSlot::from_index(usize::from(self.slot)).unwrap_or(ArmorSlot::Feet)
-    }
-
-    /// The armour toughness (PMMP keeps it but does not use it).
-    #[doc(alias = "ArmorTypeInfo::getToughness")]
-    pub fn toughness(self) -> u8 {
-        self.toughness
-    }
-}
-
-/// What eating an item restores (PMMP `FoodSource`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Food {
-    points: u8,
-    saturation: f64,
-    requires_hunger: bool,
-}
-
-impl Food {
-    pub(crate) const fn new(points: u8, saturation: f64, requires_hunger: bool) -> Self {
-        Self {
-            points,
-            saturation,
-            requires_hunger,
-        }
-    }
-
-    /// The food points restored.
-    #[doc(alias = "FoodSource::getFoodRestore")]
-    pub fn food_restore(self) -> u8 {
-        self.points
-    }
-
-    /// The saturation restored.
-    #[doc(alias = "FoodSource::getSaturationRestore")]
-    pub fn saturation_restore(self) -> f64 {
-        self.saturation
-    }
-
-    /// Whether the player must be hungry to eat it.
-    #[doc(alias = "FoodSource::requiresHunger")]
-    pub fn requires_hunger(self) -> bool {
-        self.requires_hunger
-    }
-}
-
-/// What consuming an item leaves and does (PMMP `ConsumableItem`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pmmp-class: Consumable
-pub struct Consumable {
-    residue: Option<Type>,
-    /// The first of the effects in [`table::CONSUME_EFFECTS`] and their count; `None` if PMMP
-    /// draws them at random.
-    effects: Option<(u16, u8)>,
-}
-
-impl Consumable {
-    const fn new(residue: Option<Type>, effects: Option<(u16, u8)>) -> Self {
-        Self { residue, effects }
-    }
-
-    /// The item left after consuming one (a bowl, a glass bottle).
-    #[doc(alias = "ConsumableItem::getResidue")]
-    pub fn residue(self) -> Option<Type> {
-        self.residue
-    }
-
-    /// The effects consuming one gives; `None` if PMMP draws them at random (a poisonous potato
-    /// poisons six times in ten), which the eating rules work out.
-    #[doc(alias = "Consumable::getAdditionalEffects")]
-    pub fn effects(self) -> Option<&'static [effect::Instance]> {
-        let (start, count) = self.effects?;
-        let start = usize::from(start);
-        table::CONSUME_EFFECTS.get(start..start.saturating_add(usize::from(count)))
-    }
-}
-
-/// The cooldown after using an item (PMMP `Item::getCooldownTicks`, `getCooldownTag`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Cooldown {
-    ticks: u16,
-    tag: Option<&'static str>,
-}
-
-impl Cooldown {
-    const fn new(ticks: u16, tag: Option<&'static str>) -> Self {
-        Self { ticks, tag }
-    }
-
-    /// The cooldown in ticks.
-    #[doc(alias = "Item::getCooldownTicks")]
-    pub fn ticks(self) -> u16 {
-        self.ticks
-    }
-
-    /// The tag items sharing the cooldown have; `None`: the item type alone.
-    #[doc(alias = "Item::getCooldownTag")]
-    pub fn tag(self) -> Option<&'static str> {
-        self.tag
-    }
-}
-
-/// A set of enchantments, as bits by [`Enchantment`] order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct EnchantmentSet(u32);
-
-impl EnchantmentSet {
-    /// Whether the set holds the enchantment.
-    pub fn contains(self, e: Enchantment) -> bool {
-        self.0 & (1 << e as u32) != 0
-    }
-
-    /// Whether the set is empty.
-    pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
-    /// The enchantments of the set, in [`Enchantment`] order.
-    pub fn iter(self) -> impl Iterator<Item = Enchantment> {
-        Enchantment::all()
-            .iter()
-            .copied()
-            .filter(move |e| self.contains(*e))
-    }
-}
-
-/// A row of the enchantment table.
-#[derive(Debug)]
-struct EnchantmentData {
-    id: u8,
-    text: &'static str,
-    rarity: u8,
-    max_level: u8,
-    available: bool,
-    incompatible: EnchantmentSet,
-    /// (min, max) enchanting power of each level from 1.
-    power: &'static [(u16, u16)],
-}
-
-impl EnchantmentData {
-    const fn new(
-        id: u8,
-        text: &'static str,
-        rarity: u8,
-        max_level: u8,
-        available: bool,
-        incompatible: EnchantmentSet,
-        power: &'static [(u16, u16)],
-    ) -> Self {
-        Self {
-            id,
-            text,
-            rarity,
-            max_level,
-            available,
-            incompatible,
-            power,
-        }
-    }
-}
-
-impl Enchantment {
-    #[inline]
-    fn data(self) -> &'static EnchantmentData {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated enchantment table has a row per enchantment"
-        )]
-        &table::ENCHANTMENT_DATA[self as usize]
-    }
-
-    /// Every enchantment, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::ENCHANTMENTS
-    }
-
-    /// The enchantment with this save and network ID, or `None`.
-    #[doc(alias = "EnchantmentIdMap::fromId")]
-    pub fn from_id(id: i16) -> Option<Self> {
-        let id = usize::try_from(id).ok()?;
-        table::ENCHANTMENTS_BY_ID.get(id).copied().flatten()
-    }
-
-    /// The save and network ID.
-    #[doc(alias = "EnchantmentIdMap::toId")]
-    pub fn id(self) -> u8 {
-        self.data().id
-    }
-
-    /// The translation key of the name, such as `enchantment.damage.all`.
-    #[doc(alias = "Enchantment::getName")]
-    pub fn text(self) -> &'static str {
-        self.data().text
-    }
-
-    /// The weight of the enchantment in random choices (PMMP `Rarity`: common 10, uncommon 5,
-    /// rare 2, mythic 1).
-    #[doc(alias = "Enchantment::getRarity")]
-    pub fn rarity(self) -> u8 {
-        self.data().rarity
-    }
-
-    /// The highest level.
-    #[doc(alias = "Enchantment::getMaxLevel")]
-    pub fn max_level(self) -> u8 {
-        self.data().max_level
-    }
-
-    /// Whether enchanting tables and anvils offer it (PMMP `AvailableEnchantmentRegistry`).
-    #[doc(alias = "AvailableEnchantmentRegistry::isRegistered")]
-    pub fn is_available(self) -> bool {
-        self.data().available
-    }
-
-    /// The other enchantments an item cannot have with this one.
-    pub fn incompatible(self) -> EnchantmentSet {
-        self.data().incompatible
-    }
-
-    /// Whether an item can have both enchantments. An enchantment is compatible with itself
-    /// here; PMMP leaves combining the same enchantment to the anvil rules.
-    #[doc(alias = "Enchantment::isCompatibleWith")]
-    pub fn is_compatible_with(self, other: Self) -> bool {
-        !self.incompatible().contains(other)
-    }
-
-    /// The least enchanting power for the level at an enchanting table, or `None` past the
-    /// highest level.
-    #[doc(alias = "Enchantment::getMinEnchantingPower")]
-    pub fn min_enchanting_power(self, level: u8) -> Option<u16> {
-        let at = usize::from(level).checked_sub(1)?;
-        self.data().power.get(at).map(|p| p.0)
-    }
-
-    /// The most enchanting power for the level at an enchanting table, or `None` past the
-    /// highest level.
-    #[doc(alias = "Enchantment::getMaxEnchantingPower")]
-    pub fn max_enchanting_power(self, level: u8) -> Option<u16> {
-        let at = usize::from(level).checked_sub(1)?;
-        self.data().power.get(at).map(|p| p.1)
-    }
-}
-
-/// An item tag (PMMP `ItemTagToIdMap`), such as `minecraft:logs`: recipes name a tag to accept
-/// any of its items.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Tag(u8);
-
-impl Tag {
-    /// The tag at this index of the tag table. Only generated tables call it.
-    #[inline]
-    pub(crate) const fn from_index(index: u8) -> Self {
-        Self(index)
-    }
-
-    /// The tag with this name, or `None`.
-    pub fn find(name: &str) -> Option<Self> {
-        let at = table::TAG_NAMES.binary_search(&name).ok()?;
-        u8::try_from(at).ok().map(Self)
-    }
-
-    /// The name.
-    #[inline]
-    pub fn name(self) -> &'static str {
-        table::TAG_NAMES
-            .get(usize::from(self.0))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// Whether the item type has the tag.
-    pub fn contains(self, item: Type) -> bool {
-        let Some(index) = item.vanilla() else {
-            return false;
-        };
-        let set = table::TYPE_TAGS
-            .get(index)
-            .and_then(|s| table::TAG_SETS.get(usize::from(*s)));
-        set.is_some_and(|set| set & (1 << self.0) != 0)
-    }
-}
-
-impl fmt::Debug for Tag {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Tag").field(&self.name()).finish()
-    }
-}
-
-impl Kind {
-    /// Every kind, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::KINDS
-    }
-
-    /// The `VanillaItems` name, lowercase, such as `iron_ingot`.
-    #[inline]
-    pub fn name(self) -> &'static str {
-        table::KIND_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// The item type `VanillaItems` gives for the kind (a kind with variants, such as potions,
-    /// has more types).
-    #[doc(alias = "VanillaItems")]
-    pub fn default_type(self) -> Type {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated tables have a default type per kind"
-        )]
-        table::KIND_DEFAULTS[self as usize]
-    }
-}
-
-impl Class {
-    /// The PMMP class name, such as `Food`.
-    #[inline]
-    pub fn name(self) -> &'static str {
-        table::CLASS_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-impl Trait {
-    /// The PMMP name without `Trait`, such as `Releasable`.
-    #[inline]
-    pub fn name(self) -> &'static str {
-        table::TRAIT_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-impl ToolTier {
-    #[inline]
-    fn data(self) -> (ToolTier, u8, u16, u8, u8, u8) {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated tier table has a row per tier, in enum order"
-        )]
-        table::TOOL_TIERS[self as usize]
-    }
-
-    /// The harvest level a tool of this tier has.
-    #[doc(alias = "ToolTier::getHarvestLevel")]
-    pub fn harvest_level(self) -> u8 {
-        self.data().1
-    }
-
-    /// The durability of a tool of this tier.
-    #[doc(alias = "ToolTier::getMaxDurability")]
-    #[inline]
-    pub fn max_durability(self) -> u16 {
-        self.data().2
-    }
-
-    /// The base attack points of this tier's tools.
-    #[doc(alias = "ToolTier::getBaseAttackPoints")]
-    pub fn base_attack_points(self) -> u8 {
-        self.data().3
-    }
-
-    /// The base mining efficiency of this tier's tools.
-    #[doc(alias = "ToolTier::getBaseEfficiency")]
-    pub fn base_efficiency(self) -> u8 {
-        self.data().4
-    }
-
-    /// The enchantability of this tier's tools.
-    #[doc(alias = "ToolTier::getEnchantability")]
-    pub fn enchantability(self) -> u8 {
-        self.data().5
-    }
-}
-
-impl Type {
-    #[inline]
-    fn info(self) -> &'static Info {
-        match self.0 {
-            Repr::Vanilla(i) =>
-            {
-                #[expect(
-                    clippy::indexing_slicing,
-                    reason = "invariant: the generated tables have a data row index per item \
-                              type, and each indexes the data table"
-                )]
-                &table::INFO[usize::from(table::TYPE_INFO[usize::from(i)])]
-            }
-            Repr::Item(item, _) => item.info(),
-            Repr::Block(..) => &CUSTOM_BLOCK_ITEM,
-        }
-    }
-
     /// The PMMP item type (`VanillaItems` entry); `None` for block items, whose block state has
-    /// a [`block::Kind`].
+    /// a [`block::Kind`], and for custom items.
     #[doc(alias = "Item::getTypeId")]
     #[inline]
     pub fn kind(self) -> Option<Kind> {
@@ -951,21 +286,29 @@ impl Type {
     #[inline]
     pub fn classes(self) -> &'static [Class] {
         match self.0 {
-            Repr::Vanilla(_) => {}
-            Repr::Item(item, _) => return item.classes(),
-            Repr::Block(..) => return &[Class::ItemBlock, Class::Item],
+            Repr::Vanilla(_) => {
+                let (start, count) = self.info().class;
+                let start = usize::from(start);
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: the generator writes class ranges inside the class \
+                              chain table"
+                )]
+                &table::CLASS_CHAINS[start..start + usize::from(count)]
+            }
+            Repr::Item(item, _) => item.classes(),
+            Repr::Block(..) => &[Class::ItemBlock, Class::Item],
         }
-        let (start, count) = self.info().class;
-        let start = usize::from(start);
-        table::CLASS_CHAINS
-            .get(start..start.saturating_add(usize::from(count)))
-            .unwrap_or_default()
     }
 
     /// The PMMP class, such as [`Class::Sword`].
     #[inline]
     pub fn class(self) -> Class {
-        self.classes().first().copied().unwrap_or(Class::Item)
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every class chain ends with `Class::Item`, so none is empty"
+        )]
+        self.classes()[0]
     }
 
     /// Whether the item is of the PMMP class or a subclass of it (`instanceof`).
@@ -1123,10 +466,12 @@ impl Type {
             Repr::Item(..) => return None,
             Repr::Block(..) => return self.block(),
         };
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated placing tables have a row per item type"
+        )]
         let state = |table: &[u16]| {
-            table
-                .get(index)
-                .copied()
+            Some(table[index])
                 .filter(|s| *s != NO_STATE)
                 .map(block::State::from_index)
         };
@@ -1136,10 +481,852 @@ impl Type {
             Some(_) => state(&table::TYPE_PLACES_ON_WALL).or(floor),
         }
     }
+
+    /// The index into the static tables, `None` for a custom type.
+    #[inline]
+    fn vanilla(self) -> Option<usize> {
+        match self.0 {
+            Repr::Vanilla(i) => Some(usize::from(i)),
+            Repr::Item(..) | Repr::Block(..) => None,
+        }
+    }
+
+    /// The item table row at `index`.
+    #[inline]
+    fn data(index: u16) -> &'static Data {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: a Type is only made from an index of the item table"
+        )]
+        &table::ITEMS[usize::from(index)]
+    }
+
+    /// The item data row.
+    #[inline]
+    fn info(self) -> &'static Info {
+        match self.0 {
+            Repr::Vanilla(i) =>
+            {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: the generated tables have a data row index per item \
+                              type, and each indexes the data table"
+                )]
+                &table::INFO[usize::from(table::TYPE_INFO[usize::from(i)])]
+            }
+            Repr::Item(item, _) => item.info(),
+            Repr::Block(..) => &CUSTOM_BLOCK_ITEM,
+        }
+    }
+
+    /// The rows of [`table::BY_NETWORK`] with this runtime ID. A runtime ID has few types (at
+    /// most the kinds of potion), so the scans over them are short.
+    fn rows(runtime_id: i16) -> &'static [(i16, u32, u16, u16)] {
+        equal_range(&table::BY_NETWORK, |e| e.0.cmp(&runtime_id))
+    }
+
+    /// The lookup rules of [`Type::from_name`] among the `rows` of a runtime ID that `block`
+    /// accepts; `meta` is `None` when it cannot be a type's meta.
+    fn lookup(
+        rows: &[(i16, u32, u16, u16)],
+        block: impl Fn(&(i16, u32, u16, u16)) -> bool,
+        meta: Option<u16>,
+        nbt: &nbt::Compound,
+    ) -> Option<Self> {
+        let candidates = || rows.iter().filter(|e| block(e));
+        let mut exact = candidates().filter(|e| Some(e.2) == meta);
+        let found = match (exact.next(), exact.next()) {
+            (Some(one), None) => one,
+            // Where none has the meta, a single type of the name and block takes it as stack state.
+            (None, _) => {
+                let mut only = candidates();
+                let one = only.next()?;
+                if only.next().is_some() {
+                    return None;
+                }
+                one
+            }
+            // The generator checked that type NBT sizes differ here, so the best is unique.
+            (Some(_), Some(_)) => candidates()
+                .filter(|e| Some(e.2) == meta)
+                .filter(|e| {
+                    Self::from_index(e.3)
+                        .nbt()
+                        .is_none_or(|need| nbt::contains(nbt, need))
+                })
+                .max_by_key(|e| Self::from_index(e.3).nbt().map_or(0, <[_]>::len))?,
+        };
+        Some(Self::from_index(found.3))
+    }
+}
+
+impl fmt::Debug for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Type")
+            .field("name", &self.name())
+            .field("meta", &self.meta())
+            .finish()
+    }
+}
+
+impl PartialEq for Type {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        match (self.0, other.0) {
+            (Repr::Vanilla(a), Repr::Vanilla(b)) => a == b,
+            // A server gives each custom type its own runtime ID.
+            (Repr::Item(a, x), Repr::Item(b, y)) => x == y && a.identifier() == b.identifier(),
+            (Repr::Block(a, x, _), Repr::Block(b, y, _)) => {
+                x == y && a.identifier() == b.identifier()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Type {}
+
+impl PartialOrd for Type {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Types of the table come first, in table order; then custom types by runtime ID and
+/// identifier (never by address, so the order is the same on every run).
+impl Ord for Type {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let key = |t: &Self| match t.0 {
+            Repr::Vanilla(i) => (0, i32::from(i), ""),
+            Repr::Item(item, id) => (1, i32::from(id), item.identifier()),
+            Repr::Block(block, id, _) => (1, i32::from(id), block.identifier()),
+        };
+        key(self).cmp(&key(other))
+    }
+}
+
+impl Hash for Type {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        match self.0 {
+            Repr::Vanilla(i) => i.hash(h),
+            Repr::Item(_, id) | Repr::Block(_, id, _) => id.hash(h),
+        }
+    }
+}
+
+/// What a [`Type`] is.
+#[derive(Clone, Copy)]
+enum Repr {
+    /// An index of the static item table.
+    Vanilla(u16),
+    /// A custom item and its runtime ID.
+    Item(&'static custom::Item, i16),
+    /// A custom block's item, its runtime ID and the network ID of the block's default state
+    /// (the block it places and is sent with).
+    Block(&'static custom::Block, i16, u32),
+}
+
+/// One row of the item table.
+#[derive(Debug)]
+struct Data {
+    name: &'static str,
+    meta: u16,
+    block: Option<block::State>,
+    /// The network ID of the block state the item is sent with; 0 for items without a block.
+    block_network_id: u32,
+    nbt: Option<StaticCompound>,
+    runtime_id: i16,
+}
+
+impl Data {
+    const fn new(
+        name: &'static str,
+        meta: u16,
+        block: Option<block::State>,
+        block_network_id: u32,
+        nbt: Option<StaticCompound>,
+        runtime_id: i16,
+    ) -> Self {
+        Self {
+            name,
+            meta,
+            block,
+            block_network_id,
+            nbt,
+            runtime_id,
+        }
+    }
+}
+
+/// A row of the item data table: PMMP's data for an item type. A custom item holds one of its
+/// own ([`Info::custom`]).
+#[derive(Debug)]
+pub(crate) struct Info {
+    kind: Option<Kind>,
+    /// The first of the type's classes in [`table::CLASS_CHAINS`] and their count.
+    class: (u16, u8),
+    /// [`Trait`] bits.
+    traits: u32,
+    max_stack: u8,
+    /// 0 for items without durability.
+    max_durability: u16,
+    fire_proof: bool,
+    attack_points: u8,
+    defense_points: u8,
+    tool_type: ToolType,
+    harvest_level: u8,
+    efficiency: f64,
+    tier: Option<ToolTier>,
+    armor: Option<Armor>,
+    food: Option<Food>,
+    consumable: Option<Consumable>,
+    /// The ticks the client takes to eat or drink one: the `use_duration` of the item data it is
+    /// sent; 0 for items not consumed.
+    use_ticks: u16,
+    fuel_time: u16,
+    fuel_residue: Option<Type>,
+    enchantability: u8,
+    primary_enchantments: EnchantmentSet,
+    enchantments: EnchantmentSet,
+    cooldown: Option<Cooldown>,
+    throw_force: Option<f64>,
+    potion: Option<effect::Potion>,
+}
+
+impl Info {
+    /// The row of a custom item: a plain PMMP item (enchantability 1, like every `Item`) with
+    /// this stack size, durability (0: none), attack damage and food. A food item is a PMMP
+    /// `Food`: consumed whole, leaving nothing, with no effects.
+    pub(crate) const fn custom(
+        max_stack: u8,
+        max_durability: u16,
+        attack_points: u8,
+        food: Option<Food>,
+    ) -> Self {
+        let edible = food.is_some();
+        Self {
+            kind: None,
+            class: (0, 0),
+            traits: if edible { TRAITS_FOOD } else { TRAITS_ITEM },
+            max_stack,
+            max_durability,
+            fire_proof: false,
+            attack_points,
+            defense_points: 0,
+            tool_type: ToolType::NONE,
+            harvest_level: 0,
+            efficiency: 1.0,
+            tier: None,
+            armor: None,
+            food,
+            consumable: if edible {
+                Some(Consumable::new(None, Some((0, 0))))
+            } else {
+                None
+            },
+            use_ticks: if edible { CUSTOM_EAT_TICKS } else { 0 },
+            fuel_time: 0,
+            fuel_residue: None,
+            enchantability: 1,
+            primary_enchantments: EnchantmentSet(0),
+            enchantments: EnchantmentSet(0),
+            cooldown: None,
+            throw_force: None,
+            potion: None,
+        }
+    }
+
+    /// The most items a stack holds.
+    pub(crate) const fn max_stack(&self) -> u8 {
+        self.max_stack
+    }
+
+    /// The durability; 0 for none.
+    #[inline]
+    pub(crate) const fn max_durability(&self) -> u16 {
+        self.max_durability
+    }
+
+    /// What eating restores.
+    pub(crate) const fn food(&self) -> Option<Food> {
+        self.food
+    }
+
+    /// The ticks eating or drinking one takes; 0 for items not consumed.
+    pub(crate) const fn use_ticks(&self) -> u16 {
+        self.use_ticks
+    }
+
+    /// The damage of a hit.
+    pub(crate) const fn attack_points(&self) -> u8 {
+        self.attack_points
+    }
+}
+
+/// An armour slot (PMMP `ArmorInventory` slots).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArmorSlot {
+    /// Slot 0.
+    Head,
+    /// Slot 1.
+    Chest,
+    /// Slot 2.
+    Legs,
+    /// Slot 3.
+    Feet,
+}
+
+impl ArmorSlot {
+    /// The slot at armour index `index`; `None` past the feet.
+    pub(crate) fn from_index(index: usize) -> Option<Self> {
+        [Self::Head, Self::Chest, Self::Legs, Self::Feet]
+            .into_iter()
+            .find(|s| s.index() == index)
+    }
+
+    /// The slot's index among a player's armour slots (PMMP `ArmorInventory`): head 0, chest 1,
+    /// legs 2, feet 3.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Head => 0,
+            Self::Chest => 1,
+            Self::Legs => 2,
+            Self::Feet => 3,
+        }
+    }
+}
+
+/// What an armour item is (PMMP `ArmorTypeInfo`; defence is [`Type::defense_points`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Armor {
+    slot: u8,
+    toughness: u8,
+}
+
+impl Armor {
+    const fn new(slot: u8, toughness: u8) -> Self {
+        Self { slot, toughness }
+    }
+
+    /// The slot it is worn in.
+    #[doc(alias = "Armor::getArmorSlot")]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "invariant: the generator writes armour slots 0 to 3"
+    )]
+    pub fn slot(self) -> ArmorSlot {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the generator writes armour slots 0 to 3"
+        )]
+        ArmorSlot::from_index(usize::from(self.slot)).expect("an armour slot is from 0 to 3")
+    }
+
+    /// The armour toughness (PMMP keeps it but does not use it).
+    #[doc(alias = "ArmorTypeInfo::getToughness")]
+    pub fn toughness(self) -> u8 {
+        self.toughness
+    }
+}
+
+/// What eating an item restores (PMMP `FoodSource`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Food {
+    points: u8,
+    saturation: f64,
+    requires_hunger: bool,
+}
+
+impl Food {
+    pub(crate) const fn new(points: u8, saturation: f64, requires_hunger: bool) -> Self {
+        Self {
+            points,
+            saturation,
+            requires_hunger,
+        }
+    }
+
+    /// The food points restored.
+    #[doc(alias = "FoodSource::getFoodRestore")]
+    pub fn food_restore(self) -> u8 {
+        self.points
+    }
+
+    /// The saturation restored.
+    #[doc(alias = "FoodSource::getSaturationRestore")]
+    pub fn saturation_restore(self) -> f64 {
+        self.saturation
+    }
+
+    /// Whether the player must be hungry to eat it.
+    #[doc(alias = "FoodSource::requiresHunger")]
+    pub fn requires_hunger(self) -> bool {
+        self.requires_hunger
+    }
+}
+
+/// What consuming an item leaves and does (PMMP `ConsumableItem`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pmmp-class: Consumable
+pub struct Consumable {
+    residue: Option<Type>,
+    /// The first of the effects in [`table::CONSUME_EFFECTS`] and their count; `None` if PMMP
+    /// draws them at random.
+    effects: Option<(u16, u8)>,
+}
+
+impl Consumable {
+    const fn new(residue: Option<Type>, effects: Option<(u16, u8)>) -> Self {
+        Self { residue, effects }
+    }
+
+    /// The item left after consuming one (a bowl, a glass bottle).
+    #[doc(alias = "ConsumableItem::getResidue")]
+    pub fn residue(self) -> Option<Type> {
+        self.residue
+    }
+
+    /// The effects consuming one gives; `None` if PMMP draws them at random (a poisonous potato
+    /// poisons six times in ten), which the eating rules work out.
+    #[doc(alias = "Consumable::getAdditionalEffects")]
+    pub fn effects(self) -> Option<&'static [effect::Instance]> {
+        let (start, count) = self.effects?;
+        let start = usize::from(start);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generator writes effect ranges inside the effect table"
+        )]
+        Some(&table::CONSUME_EFFECTS[start..start + usize::from(count)])
+    }
+}
+
+/// The cooldown after using an item (PMMP `Item::getCooldownTicks`, `getCooldownTag`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Cooldown {
+    ticks: u16,
+    tag: Option<&'static str>,
+}
+
+impl Cooldown {
+    const fn new(ticks: u16, tag: Option<&'static str>) -> Self {
+        Self { ticks, tag }
+    }
+
+    /// The cooldown in ticks.
+    #[doc(alias = "Item::getCooldownTicks")]
+    pub fn ticks(self) -> u16 {
+        self.ticks
+    }
+
+    /// The tag items sharing the cooldown have; `None`: the item type alone.
+    #[doc(alias = "Item::getCooldownTag")]
+    pub fn tag(self) -> Option<&'static str> {
+        self.tag
+    }
+}
+
+/// A set of enchantments, as bits by [`Enchantment`] order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct EnchantmentSet(u32);
+
+impl EnchantmentSet {
+    /// Whether the set holds the enchantment.
+    pub fn contains(self, e: Enchantment) -> bool {
+        self.0 & (1 << e as u32) != 0
+    }
+
+    /// Whether the set is empty.
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The enchantments of the set, in [`Enchantment`] order.
+    pub fn iter(self) -> impl Iterator<Item = Enchantment> {
+        Enchantment::all()
+            .iter()
+            .copied()
+            .filter(move |e| self.contains(*e))
+    }
+}
+
+impl Enchantment {
+    /// Every enchantment, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::ENCHANTMENTS
+    }
+
+    /// The enchantment with this save and network ID, or `None`.
+    #[doc(alias = "EnchantmentIdMap::fromId")]
+    pub fn from_id(id: i16) -> Option<Self> {
+        let id = usize::try_from(id).ok()?;
+        table::ENCHANTMENTS_BY_ID.get(id).copied().flatten()
+    }
+
+    /// The save and network ID.
+    #[doc(alias = "EnchantmentIdMap::toId")]
+    pub fn id(self) -> u8 {
+        self.data().id
+    }
+
+    /// The translation key of the name, such as `enchantment.damage.all`.
+    #[doc(alias = "Enchantment::getName")]
+    pub fn text(self) -> &'static str {
+        self.data().text
+    }
+
+    /// The weight of the enchantment in random choices (PMMP `Rarity`: common 10, uncommon 5,
+    /// rare 2, mythic 1).
+    #[doc(alias = "Enchantment::getRarity")]
+    pub fn rarity(self) -> u8 {
+        self.data().rarity
+    }
+
+    /// The highest level.
+    #[doc(alias = "Enchantment::getMaxLevel")]
+    pub fn max_level(self) -> u8 {
+        self.data().max_level
+    }
+
+    /// Whether enchanting tables and anvils offer it (PMMP `AvailableEnchantmentRegistry`).
+    #[doc(alias = "AvailableEnchantmentRegistry::isRegistered")]
+    pub fn is_available(self) -> bool {
+        self.data().available
+    }
+
+    /// The other enchantments an item cannot have with this one.
+    pub fn incompatible(self) -> EnchantmentSet {
+        self.data().incompatible
+    }
+
+    /// Whether an item can have both enchantments. An enchantment is compatible with itself
+    /// here; PMMP leaves combining the same enchantment to the anvil rules.
+    #[doc(alias = "Enchantment::isCompatibleWith")]
+    pub fn is_compatible_with(self, other: Self) -> bool {
+        !self.incompatible().contains(other)
+    }
+
+    /// The least enchanting power for the level at an enchanting table, or `None` past the
+    /// highest level.
+    #[doc(alias = "Enchantment::getMinEnchantingPower")]
+    pub fn min_enchanting_power(self, level: u8) -> Option<u16> {
+        let at = usize::from(level).checked_sub(1)?;
+        self.data().power.get(at).map(|p| p.0)
+    }
+
+    /// The most enchanting power for the level at an enchanting table, or `None` past the
+    /// highest level.
+    #[doc(alias = "Enchantment::getMaxEnchantingPower")]
+    pub fn max_enchanting_power(self, level: u8) -> Option<u16> {
+        let at = usize::from(level).checked_sub(1)?;
+        self.data().power.get(at).map(|p| p.1)
+    }
+
+    /// The enchantment table row.
+    #[inline]
+    fn data(self) -> &'static EnchantmentData {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated enchantment table has a row per enchantment"
+        )]
+        &table::ENCHANTMENT_DATA[self as usize]
+    }
+}
+
+/// A row of the enchantment table.
+#[derive(Debug)]
+struct EnchantmentData {
+    id: u8,
+    text: &'static str,
+    rarity: u8,
+    max_level: u8,
+    available: bool,
+    incompatible: EnchantmentSet,
+    /// (min, max) enchanting power of each level from 1.
+    power: &'static [(u16, u16)],
+}
+
+impl EnchantmentData {
+    const fn new(
+        id: u8,
+        text: &'static str,
+        rarity: u8,
+        max_level: u8,
+        available: bool,
+        incompatible: EnchantmentSet,
+        power: &'static [(u16, u16)],
+    ) -> Self {
+        Self {
+            id,
+            text,
+            rarity,
+            max_level,
+            available,
+            incompatible,
+            power,
+        }
+    }
+}
+
+/// An item tag (PMMP `ItemTagToIdMap`), such as `minecraft:logs`: recipes name a tag to accept
+/// any of its items.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Tag(u8);
+
+impl Tag {
+    /// The tag at this index of the tag table. Only generated tables call it.
+    #[inline]
+    pub(crate) const fn from_index(index: u8) -> Self {
+        Self(index)
+    }
+
+    /// The tag with this name, or `None`.
+    pub fn find(name: &str) -> Option<Self> {
+        let at = table::TAG_NAMES.binary_search(&name).ok()?;
+        u8::try_from(at).ok().map(Self)
+    }
+
+    /// The name.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: a tag is an index of the tag name table"
+        )]
+        table::TAG_NAMES[usize::from(self.0)]
+    }
+
+    /// Whether the item type has the tag.
+    pub fn contains(self, item: Type) -> bool {
+        let Some(index) = item.vanilla() else {
+            return false;
+        };
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tables have a tag set index per item type, and \
+                      each indexes the tag set table"
+        )]
+        let set = table::TAG_SETS[usize::from(table::TYPE_TAGS[index])];
+        set & (1 << self.0) != 0
+    }
+}
+
+impl fmt::Debug for Tag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Tag").field(&self.name()).finish()
+    }
+}
+
+impl Kind {
+    /// Every kind, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::KINDS
+    }
+
+    /// The `VanillaItems` name, lowercase, such as `iron_ingot`.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tables have a name per kind"
+        )]
+        table::KIND_NAMES[self as usize]
+    }
+
+    /// The item type `VanillaItems` gives for the kind (a kind with variants, such as potions,
+    /// has more types).
+    #[doc(alias = "VanillaItems")]
+    pub fn default_type(self) -> Type {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tables have a default type per kind"
+        )]
+        table::KIND_DEFAULTS[self as usize]
+    }
+}
+
+impl Class {
+    /// The PMMP class name, such as `Food`.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tables have a name per class"
+        )]
+        table::CLASS_NAMES[self as usize]
+    }
+}
+
+impl Trait {
+    /// The PMMP name without `Trait`, such as `Releasable`.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tables have a name per trait"
+        )]
+        table::TRAIT_NAMES[self as usize]
+    }
+}
+
+impl ToolTier {
+    /// The harvest level a tool of this tier has.
+    #[doc(alias = "ToolTier::getHarvestLevel")]
+    pub fn harvest_level(self) -> u8 {
+        self.data().1
+    }
+
+    /// The durability of a tool of this tier.
+    #[doc(alias = "ToolTier::getMaxDurability")]
+    #[inline]
+    pub fn max_durability(self) -> u16 {
+        self.data().2
+    }
+
+    /// The base attack points of this tier's tools.
+    #[doc(alias = "ToolTier::getBaseAttackPoints")]
+    pub fn base_attack_points(self) -> u8 {
+        self.data().3
+    }
+
+    /// The base mining efficiency of this tier's tools.
+    #[doc(alias = "ToolTier::getBaseEfficiency")]
+    pub fn base_efficiency(self) -> u8 {
+        self.data().4
+    }
+
+    /// The enchantability of this tier's tools.
+    #[doc(alias = "ToolTier::getEnchantability")]
+    pub fn enchantability(self) -> u8 {
+        self.data().5
+    }
+
+    /// The tool tier table row.
+    #[inline]
+    fn data(self) -> (ToolTier, u8, u16, u8, u8, u8) {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tier table has a row per tier, in enum order"
+        )]
+        table::TOOL_TIERS[self as usize]
+    }
+}
+
+/// One entry of the generated item registry.
+#[derive(Debug)]
+struct RegistryEntry {
+    name: &'static str,
+    runtime_id: i16,
+    component_based: bool,
+    version: i32,
+    data: StaticCompound,
+}
+
+impl RegistryEntry {
+    const fn new(
+        name: &'static str,
+        runtime_id: i16,
+        component_based: bool,
+        version: i32,
+        data: StaticCompound,
+    ) -> Self {
+        Self {
+            name,
+            runtime_id,
+            component_based,
+            version,
+            data,
+        }
+    }
+}
+
+/// A stack in a generated table: the type, the network meta (the type's, or stack state such as
+/// a firework star's colour) and the stack NBT.
+#[derive(Debug)]
+struct StaticStack {
+    item: Type,
+    meta: u16,
+    nbt: Option<StaticCompound>,
+}
+
+impl StaticStack {
+    const fn new(item: Type, meta: u16, nbt: Option<StaticCompound>) -> Self {
+        Self { item, meta, nbt }
+    }
+
+    /// One item of this stack.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: every generated stack is within the stack limits"
+    )]
+    fn to_stack(&self) -> Stack {
+        Stack::from_parts(self.item, 1, self.meta, self.nbt.map(nbt::compound))
+            .expect("a generated stack is within the stack limits")
+    }
+
+    /// The network form of one item of this stack.
+    fn to_network(&self) -> protocol::ItemStack {
+        network_stack(self.item, self.meta, 1, self.nbt)
+    }
+}
+
+/// A creative group in a generated table: its `CreativeContent` category, name and icon (`None`
+/// for an anonymous group, sent with an empty name and the air stack as PMMP does).
+#[derive(Debug)]
+struct CreativeGroup {
+    category: u8,
+    name: &'static str,
+    icon: Option<StaticStack>,
+}
+
+impl CreativeGroup {
+    const fn new(category: u8, name: &'static str, icon: Option<StaticStack>) -> Self {
+        Self {
+            category,
+            name,
+            icon,
+        }
+    }
+}
+
+/// A creative item in a generated table: its group index and stack.
+#[derive(Debug)]
+struct CreativeItem {
+    group: u32,
+    stack: StaticStack,
+}
+
+impl CreativeItem {
+    const fn new(group: u32, stack: StaticStack) -> Self {
+        Self { group, stack }
+    }
+
+    /// Its group.
+    fn group(&self) -> &'static CreativeGroup {
+        #[expect(
+            clippy::indexing_slicing,
+            clippy::expect_used,
+            reason = "invariant: a generated creative item's group is an index of the generated \
+                      groups"
+        )]
+        &creative::GROUPS[usize::try_from(self.group).expect("a group index fits a usize")]
+    }
+}
+
+/// One entry of PMMP's creative inventory ([`creative_entry`]).
+#[derive(Debug)]
+pub(crate) struct CreativeEntry {
+    /// The stack a player takes: one item.
+    pub(crate) stack: Stack,
+    /// Its network form.
+    pub(crate) net: protocol::ItemStack,
+    /// Its category number ([`CreativeCategory`](protocol::consts::CreativeCategory)).
+    pub(crate) category: u8,
+    /// Its group's name and icon network form; `None` for the category's anonymous group.
+    pub(crate) group: Option<(&'static str, protocol::ItemStack)>,
 }
 
 /// The run of `sorted` that `cmp` finds equal, by binary search.
-fn equal_range<T>(sorted: &[T], cmp: impl Fn(&T) -> std::cmp::Ordering) -> &[T] {
+fn equal_range<T>(sorted: &[T], cmp: impl Fn(&T) -> Ordering) -> &[T] {
     let start = sorted.partition_point(|e| cmp(e).is_lt());
     let rest = sorted.get(start..).unwrap_or_default();
     let len = rest.partition_point(|e| cmp(e).is_eq());
@@ -1186,41 +1373,12 @@ fn network_stack_with(
     }
 }
 
-/// One entry of the generated item registry.
-#[derive(Debug)]
-struct RegistryEntry {
-    name: &'static str,
-    runtime_id: i16,
-    component_based: bool,
-    version: i32,
-    data: StaticCompound,
-}
-
-impl RegistryEntry {
-    const fn new(
-        name: &'static str,
-        runtime_id: i16,
-        component_based: bool,
-        version: i32,
-        data: StaticCompound,
-    ) -> Self {
-        Self {
-            name,
-            runtime_id,
-            component_based,
-            version,
-            data,
-        }
-    }
-}
-
-/// Whether the item named `name` is an Education Edition item, never offered (creative inventory,
-/// commands): PMMP's
-/// chemistry items and blocks (elements, compounds, bleach, ice bombs, medicine, the chemistry
-/// tables, the heat block, coloured and underwater torches, hardened glass) and the reference
-/// list's other Education entries (balloons, sparklers, glow sticks, rapid fertilizer,
-/// underwater TNT and the old chemistry names). `name` may leave out `minecraft:`. The one
-/// place that says which items they are.
+/// Whether the item named `name` is an Education Edition item, never offered (creative
+/// inventory, commands): PMMP's chemistry items and blocks (elements, compounds, bleach, ice
+/// bombs, medicine, the chemistry tables, the heat block, coloured and underwater torches,
+/// hardened glass) and the reference list's other Education entries (balloons, sparklers, glow
+/// sticks, rapid fertilizer, underwater TNT and the old chemistry names). `name` may leave out
+/// `minecraft:`. The one place that says which items they are.
 pub(crate) fn is_education(name: &str) -> bool {
     const PREFIXES: [&str; 3] = ["element_", "colored_torch_", "hard_"];
     const NAMES: [&str; 15] = [
@@ -1244,9 +1402,9 @@ pub(crate) fn is_education(name: &str) -> bool {
     PREFIXES.iter().any(|p| name.starts_with(p)) || NAMES.contains(&name)
 }
 
-/// The `ItemRegistry` packet: every item of the 1.26.60 reference list with its component data,
-/// in runtime ID order. The client does not depend on the order: PMMP sends the
-/// list by name and dragonfly in Go map order. Built once when the server is built.
+/// The `ItemRegistry` packet: every item of the reference list with its component data, in
+/// runtime ID order. The client does not depend on the order: PMMP sends the list by name and
+/// dragonfly in Go map order. Built once when the server is built.
 pub(crate) fn registry() -> packet::ItemRegistry {
     packet::ItemRegistry {
         items: registry::ENTRIES
@@ -1261,62 +1419,6 @@ pub(crate) fn registry() -> packet::ItemRegistry {
             .collect(),
     }
 }
-
-/// A stack in a generated table: the type, the network meta (the type's, or stack state such as
-/// a firework star's colour) and the stack NBT.
-#[derive(Debug)]
-struct StaticStack {
-    item: Type,
-    meta: u16,
-    nbt: Option<StaticCompound>,
-}
-
-impl StaticStack {
-    const fn new(item: Type, meta: u16, nbt: Option<StaticCompound>) -> Self {
-        Self { item, meta, nbt }
-    }
-
-    /// The network form of one item of this stack.
-    fn to_network(&self) -> protocol::ItemStack {
-        network_stack(self.item, self.meta, 1, self.nbt)
-    }
-}
-
-/// A creative group in a generated table: its `CreativeContent` category, name and icon (`None`
-/// for an anonymous group, sent with an empty name and the air stack as PMMP does).
-#[derive(Debug)]
-struct CreativeGroup {
-    category: u8,
-    name: &'static str,
-    icon: Option<StaticStack>,
-}
-
-impl CreativeGroup {
-    const fn new(category: u8, name: &'static str, icon: Option<StaticStack>) -> Self {
-        Self {
-            category,
-            name,
-            icon,
-        }
-    }
-}
-
-/// A creative item in a generated table: its group index and stack.
-#[derive(Debug)]
-struct CreativeItem {
-    group: u32,
-    stack: StaticStack,
-}
-
-impl CreativeItem {
-    const fn new(group: u32, stack: StaticStack) -> Self {
-        Self { group, stack }
-    }
-}
-
-/// The NBT key PMMP's `CreativeInventoryCache` sets on a group icon to the group's index (its
-/// workaround for a 1.21.60 client glitch).
-pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
 
 /// The generated `CreativeContent` packet: PMMP's creative inventory with its groups, as PMMP's
 /// `CreativeInventoryCache` builds it (here a group icon gets [`GROUP_WORKAROUND`] set to its
@@ -1354,73 +1456,41 @@ pub(crate) fn creative_content() -> packet::CreativeContent {
     }
 }
 
-/// One entry of PMMP's creative inventory ([`creative_entry`]).
-#[derive(Debug)]
-pub(crate) struct CreativeEntry {
-    /// The stack a player takes ([`creative_stack`]).
-    pub(crate) stack: Stack,
-    /// Its network form.
-    pub(crate) net: protocol::ItemStack,
-    /// Its category number ([`CreativeCategory`](protocol::consts::CreativeCategory)).
-    pub(crate) category: u8,
-    /// Its group's name and icon network form; `None` for the category's anonymous group.
-    pub(crate) group: Option<(&'static str, protocol::ItemStack)>,
-}
-
 /// Entry `index` (from 0) of PMMP's creative inventory; `None` past the last one.
 pub(crate) fn creative_entry(index: usize) -> Option<CreativeEntry> {
     let c = creative::ITEMS.get(index)?;
-    let group = creative::GROUPS.get(usize::try_from(c.group).ok()?)?;
-    let named = group
-        .icon
-        .as_ref()
-        .map(|icon| (group.name, icon.to_network()));
+    let group = c.group();
     Some(CreativeEntry {
-        stack: creative_stack(u32::try_from(index).ok()?.checked_add(1)?)?,
+        stack: c.stack.to_stack(),
         net: c.stack.to_network(),
         category: group.category,
-        group: named,
+        group: group
+            .icon
+            .as_ref()
+            .map(|icon| (group.name, icon.to_network())),
     })
 }
 
+/// The stack of PMMP's creative item with this network ID (from 1, in PMMP's order), one item;
+/// `None` for an unknown ID.
+#[cfg(test)]
+pub(crate) fn creative_stack(network_id: u32) -> Option<Stack> {
+    let index = usize::try_from(network_id).ok()?.checked_sub(1)?;
+    Some(creative::ITEMS.get(index)?.stack.to_stack())
+}
+
 /// The highest runtime ID of the vanilla item registry (custom items take the ones after it).
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: the generated item registry is not empty"
+)]
 pub(crate) fn max_runtime_id() -> i16 {
     registry::ENTRIES
         .iter()
         .map(|e| e.runtime_id)
         .max()
-        .unwrap_or(0)
+        .expect("the item registry has entries")
 }
-
-/// The stack of PMMP's creative item with this network ID (from 1, in PMMP's order), one item;
-/// `None` for an unknown ID. O(1).
-pub(crate) fn creative_stack(network_id: u32) -> Option<Stack> {
-    let index = usize::try_from(network_id).ok()?.checked_sub(1)?;
-    let c = creative::ITEMS.get(index)?;
-    let tag = c.stack.nbt.map(nbt::compound);
-    Stack::from_parts(c.stack.item, 1, c.stack.meta, tag).ok()
-}
-
-/// The dye colours by PMMP `DyeColorIdMap` ID (white 0 … black 15): the dye item's name and the
-/// colour's RGB value (PMMP `DyeColor::getRgbValue`).
-const DYES: [(&str, u32); 16] = [
-    ("minecraft:white_dye", 0xf0_f0f0),
-    ("minecraft:orange_dye", 0xf9_801d),
-    ("minecraft:magenta_dye", 0xc7_4ebd),
-    ("minecraft:light_blue_dye", 0x3a_b3da),
-    ("minecraft:yellow_dye", 0xfe_d83d),
-    ("minecraft:lime_dye", 0x80_c71f),
-    ("minecraft:pink_dye", 0xf3_8baa),
-    ("minecraft:gray_dye", 0x47_4f52),
-    ("minecraft:light_gray_dye", 0x9d_9d97),
-    ("minecraft:cyan_dye", 0x16_9c9c),
-    ("minecraft:purple_dye", 0x89_32b8),
-    ("minecraft:blue_dye", 0x3c_44aa),
-    ("minecraft:brown_dye", 0x83_5432),
-    ("minecraft:green_dye", 0x5e_7c16),
-    ("minecraft:red_dye", 0xb0_2e26),
-    ("minecraft:black_dye", 0x1d_1d21),
-];
 
 /// The dye colour ID (PMMP `DyeColorIdMap`, white 0 … black 15) of a dye item.
 #[doc(alias = "Dye::getColor")]
@@ -1597,7 +1667,7 @@ mod tests {
         let mut nbt = want.get("nbt").map(compound).unwrap_or_default();
         if let Some(i) = workaround {
             nbt.insert(
-                "___GroupBugWorkaround___".to_owned(),
+                GROUP_WORKAROUND.to_owned(),
                 Value::Int(i32::try_from(i).unwrap()),
             );
         }
@@ -1781,6 +1851,45 @@ mod tests {
             Type::from_network(i32::from(stick.runtime_id()), 0, block_id(stone), &empty),
             None
         );
+    }
+
+    /// A block item saved with the state the vanilla creative inventory gives it (what the
+    /// official server saves), which can differ from the state of the item's own saved form
+    /// (stairs, furnaces), reads as the item of that state's block form, as PMMP reads it.
+    #[test]
+    fn a_block_item_saved_with_its_vanilla_creative_state_is_known() {
+        let entries: Vec<Json> =
+            serde_json::from_str(include_str!("../xtask/data/reference/item_blocks.json")).unwrap();
+        let empty = Compound::new();
+        let mut checked = BTreeSet::new();
+        for entry in &entries {
+            let saved = Compound::from([
+                (
+                    "name".to_owned(),
+                    Value::String(entry["name"].as_str().unwrap().to_owned()),
+                ),
+                (
+                    "states".to_owned(),
+                    Value::Compound(compound(&entry["states"])),
+                ),
+            ]);
+            let item = entry["item"].as_str().unwrap();
+            let Some(state) = crate::save::find_state(&saved) else {
+                continue;
+            };
+            let block::ItemForm::Item(form) = state.item() else {
+                continue;
+            };
+            if form.name() != item {
+                continue;
+            }
+            let found = Type::from_name(item, 0, Some(state), &empty);
+            assert_eq!(found.map(Type::name), Some(item), "{saved:?}");
+            checked.insert(item);
+        }
+        for item in ["minecraft:oak_stairs", "minecraft:furnace"] {
+            assert!(checked.contains(item), "{item}");
+        }
     }
 
     fn by_name(name: &str) -> Type {

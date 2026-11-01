@@ -643,8 +643,8 @@ getters!(SignChange {
     /// The four lines of the side before.
     #[doc(alias = "SignChangeEvent::getOldText")]
     old_text: &[String; 4],
-    /// The four lines of the side after, without private-use characters and terminal escapes
-    /// (colour codes stay).
+    /// The four lines of the side after. The player's lines come without private-use characters
+    /// and terminal escapes (colour codes stay); a listener's go on as it set them.
     #[doc(alias = "SignChangeEvent::getNewText")]
     new_text: &[String; 4],
     /// The side written on.
@@ -653,8 +653,9 @@ getters!(SignChange {
 });
 
 setters!(SignChange {
-    /// Replaces the lines written. They are checked again like the player's (at most 1,000 bytes
-    /// in all); text that fails cancels the change.
+    /// Replaces the lines written, which go on as they are (PMMP cleans only the player's text).
+    /// They are checked again (no newline, at most 1,000 bytes in all); text that fails cancels
+    /// the change.
     #[doc(alias = "SignChangeEvent::setNewText")]
     set_new_text => new_text: [String; 4],
 });

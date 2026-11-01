@@ -1,14 +1,24 @@
-//! Anvil rules (PMMP has none; dragonfly `handleCraftRecipeOptional`): renaming, repairing with the
-//! material or with a second item of the same kind, combining enchantments, and the level cost,
-//! which grows with the items' prior work (`RepairCost`).
+//! Anvil rules: renaming, repairing with an item's material or with a second item of its type,
+//! joining the enchantments of a second item or an enchanted book, and the level cost, which
+//! grows with the items' prior work (`RepairCost`). PMMP has no anvil; the levels each step costs
+//! are those of dragonfly's anvil.
 
-use crate::item::{self, Enchantment, Kind, Stack, ToolTier};
+use crate::item::{self, Enchantment, Extra, Kind, Stack, ToolTier};
 use crate::nbt::Value;
 
 /// The cost at which the anvil refuses outside creative mode ("too expensive").
 pub(in crate::tick) const TOO_EXPENSIVE: u32 = 40;
 /// The tag key of an item's prior work.
 const REPAIR_COST: &str = "RepairCost";
+/// The levels renaming costs.
+const RENAME_LEVELS: u32 = 1;
+/// The levels repairing with a second item of the same type costs.
+const JOIN_REPAIR_LEVELS: u32 = 2;
+/// The share of the durability, in percent, that repairing with a second item of the same type
+/// adds to the durability the second item has left.
+const JOIN_REPAIR_BONUS_PERCENT: u32 = 12;
+/// How many units of material repair a whole durability, a level each.
+const MATERIAL_UNITS: u16 = 4;
 
 /// What an anvil makes of its input and material.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,49 +48,272 @@ pub(in crate::tick) enum Refused {
     TooLarge(item::Error),
 }
 
-/// An item's prior work (`RepairCost`, dragonfly `AnvilCost`).
-pub(in crate::tick) fn repair_cost(stack: &Stack) -> u32 {
+/// The result taking shape: its damage, its extra data and the levels the work so far costs.
+struct Work {
+    damage: u16,
+    extra: Extra,
+    levels: u32,
+}
+
+impl Work {
+    /// The work on `input` before any step.
+    fn new(input: &Stack) -> Self {
+        Self {
+            damage: input.damage(),
+            extra: input.extra().cloned().unwrap_or_default(),
+            levels: 0,
+        }
+    }
+
+    /// Repairs an item of `item` with up to `units` of its material, each restoring a quarter of
+    /// the durability for a level, until it is whole; the units used.
+    fn repair(&mut self, item: item::Type, units: u8) -> Result<u8, Refused> {
+        let quarter = item.max_durability().map_or(0, |max| max / MATERIAL_UNITS);
+        if self.damage == 0 || quarter == 0 {
+            return Err(Refused::Repaired);
+        }
+        let mut used = 0;
+        while self.damage > 0 && used < units {
+            self.damage -= self.damage.min(quarter);
+            used += 1;
+            self.levels += 1;
+        }
+        Ok(used)
+    }
+
+    /// Joins `material` to `input`, an item of `item`: a second item of the same type that wears
+    /// adds the durability it has left and [`JOIN_REPAIR_BONUS_PERCENT`] of the whole, for
+    /// [`JOIN_REPAIR_LEVELS`]; an enchanted book or a second item gives its enchantments
+    /// ([`Work::join_enchantments`]). Anything else, or enchantments of which none joins, does
+    /// nothing.
+    fn join(&mut self, input: &Stack, item: item::Type, material: &Stack) -> Result<(), Refused> {
+        let book =
+            is_book(material) && material.extra().is_some_and(|e| !e.enchantments.is_empty());
+        if !book {
+            let Some(max) = item
+                .max_durability()
+                .filter(|_| material.item() == Some(item))
+            else {
+                return Err(Refused::Mismatch);
+            };
+            let restored = u32::from(max - material.damage())
+                + u32::from(max) * JOIN_REPAIR_BONUS_PERCENT / 100;
+            // Taking `u16::MAX` or more takes all the damage there is.
+            let damage = self
+                .damage
+                .saturating_sub(u16::try_from(restored).unwrap_or(u16::MAX));
+            if damage < self.damage {
+                self.damage = damage;
+                self.levels += JOIN_REPAIR_LEVELS;
+            }
+        }
+        let (joined, refused) = self.join_enchantments(input, item, material, book);
+        // dragonfly refuses this only for items that do not wear, and so charges a level for
+        // nothing on others; vanilla (Java `AnvilMenu`) refuses it for every item.
+        if refused && !joined {
+            return Err(Refused::Mismatch);
+        }
+        Ok(())
+    }
+
+    /// Joins each enchantment of `material` that `item` takes (any, for a book) and that
+    /// conflicts with none of the input's: at the material's level, or one above an equal level
+    /// of the input's that is not the highest. Each input entry an enchantment conflicts with
+    /// costs a level, and each join its rarity's levels (halved, at least one, from a `book`) for
+    /// each level gained; with more than one input item a join makes the work too expensive.
+    /// Returns whether any joined and whether any did not.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: a tally's place is an index of the result's enchantments"
+    )]
+    fn join_enchantments(
+        &mut self,
+        input: &Stack,
+        item: item::Type,
+        material: &Stack,
+        book: bool,
+    ) -> (bool, bool) {
+        let Some(offered) = material.extra() else {
+            return (false, false);
+        };
+        let takes_any = is_book(input);
+        let mut tallies = Tallies::new(&self.extra.enchantments);
+        let (mut joined, mut refused) = (false, false);
+        for &(e, level) in &offered.enchantments {
+            let conflicts: u32 = e
+                .incompatible()
+                .iter()
+                .map(|other| tallies.get(other).entries)
+                .sum();
+            self.levels = self.levels.saturating_add(conflicts);
+            if conflicts > 0 || !(takes_any || item.enchantments().contains(e)) {
+                refused = true;
+                continue;
+            }
+            // A stack holds levels up to `MAX_ENCHANTMENT_LEVEL`, past the highest when a server
+            // gave it.
+            let can_rise =
+                level != u16::from(e.max_level()) && level != item::MAX_ENCHANTMENT_LEVEL;
+            let tally = tallies.get(e);
+            let (level, gained) = match tally.first_level {
+                None => (level, level),
+                Some(had) if had < level => (level, level - had),
+                Some(had) if had == level && can_rise => (level + 1, 1),
+                Some(_) => {
+                    refused = true;
+                    continue;
+                }
+            };
+            joined = true;
+            if let Some(at) = tally.at {
+                self.extra.enchantments[at].1 = level;
+            } else {
+                tallies.place(e, self.extra.enchantments.len());
+                self.extra.enchantments.push((e, level));
+            }
+            let rarity = if book {
+                (rarity_levels(e) / 2).max(1)
+            } else {
+                rarity_levels(e)
+            };
+            self.levels = self.levels.saturating_add(rarity * u32::from(gained));
+            if input.count() > 1 {
+                self.levels = TOO_EXPENSIVE;
+            }
+        }
+        (joined, refused)
+    }
+
+    /// The result: `input` with the work's damage and extra data.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the work keeps the input's damage or one from 0 to its durability"
+    )]
+    fn into_stack(self, input: &Stack) -> Result<Stack, Refused> {
+        input
+            .with_damage(self.damage)
+            .expect("the damage is one the input keeps")
+            .with_extra(Some(self.extra))
+            .map_err(Refused::TooLarge)
+    }
+}
+
+/// The input's enchantment entries by enchantment.
+struct Tallies(Vec<Tally>);
+
+impl Tallies {
+    /// The tallies of `enchantments`.
+    fn new(enchantments: &[(Enchantment, u16)]) -> Self {
+        let mut tallies = Self(vec![Tally::default(); Enchantment::all().len()]);
+        for (at, &(e, level)) in enchantments.iter().enumerate() {
+            let tally = tallies.slot(e);
+            tally.entries += 1;
+            if tally.at.is_none() {
+                tally.first_level = Some(level);
+                tally.at = Some(at);
+            }
+        }
+        tallies
+    }
+
+    /// The tally of `e`.
+    fn get(&self, e: Enchantment) -> Tally {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: there is a tally per enchantment"
+        )]
+        self.0[e as usize]
+    }
+
+    /// Records that the result's enchantments hold `e` at `at`.
+    fn place(&mut self, e: Enchantment, at: usize) {
+        self.slot(e).at = Some(at);
+    }
+
+    /// The tally of `e`, to change.
+    fn slot(&mut self, e: Enchantment) -> &mut Tally {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: there is a tally per enchantment"
+        )]
+        &mut self.0[e as usize]
+    }
+}
+
+/// What the input says of one enchantment.
+#[derive(Clone, Copy, Default)]
+struct Tally {
+    /// How many entries it has.
+    entries: u32,
+    /// The level of its first entry.
+    first_level: Option<u16>,
+    /// Where the result's enchantments hold it.
+    at: Option<usize>,
+}
+
+/// The anvil's outcome for `input` and `material` with the optional new name `rename`;
+/// `creative` lifts the cost limit.
+pub(in crate::tick) fn craft(
+    input: &Stack,
+    material: &Stack,
+    rename: Option<&str>,
+    creative: bool,
+) -> Result<Outcome, Refused> {
+    let Some(item) = input.item() else {
+        return Err(Refused::NoInput);
+    };
+    let mut work = Work::new(input);
+    let material_used = match material.item() {
+        Some(repairer) if repairs(item, repairer) => work.repair(item, material.count())?,
+        Some(_) => {
+            work.join(input, item, material)?;
+            material.count()
+        }
+        None => 0,
+    };
+    let renamed_only = work.levels == 0 && rename.is_some();
+    if let Some(name) = rename {
+        work.extra.custom_name = Some(name.to_owned()).filter(|n| !n.is_empty());
+        work.levels = work.levels.saturating_add(RENAME_LEVELS);
+    }
+    let mut cost = work
+        .levels
+        .saturating_add(prior_work(input))
+        .saturating_add(prior_work(material));
+    if cost == 0 {
+        return Err(Refused::Nothing);
+    }
+    // Renaming alone is never too expensive.
+    if renamed_only {
+        cost = cost.min(TOO_EXPENSIVE - 1);
+    }
+    if cost >= TOO_EXPENSIVE && !creative {
+        return Err(Refused::TooExpensive);
+    }
+    let prior = prior_work(input).max(prior_work(material));
+    let prior = if renamed_only {
+        prior
+    } else {
+        prior.saturating_mul(2).saturating_add(1)
+    };
+    // The prior work stops at the largest `TAG_Int`, the form it is saved in.
+    work.extra.nbt.insert(
+        REPAIR_COST.to_owned(),
+        Value::Int(i32::try_from(prior).unwrap_or(i32::MAX)),
+    );
+    Ok(Outcome {
+        result: work.into_stack(input)?,
+        material_used,
+        cost,
+    })
+}
+
+/// An item's prior work (`RepairCost`, dragonfly `AnvilCost`); a saved value below 0 is none.
+fn prior_work(stack: &Stack) -> u32 {
     match stack.extra().and_then(|e| e.nbt.get(REPAIR_COST)) {
         Some(Value::Int(c)) => u32::try_from(*c).unwrap_or(0),
         _ => 0,
     }
-}
-
-/// The stack with prior work `cost`.
-fn with_repair_cost(stack: &Stack, cost: u32) -> Result<Stack, Refused> {
-    let mut extra = stack.extra().cloned().unwrap_or_default();
-    extra.nbt.insert(
-        REPAIR_COST.to_owned(),
-        Value::Int(i32::try_from(cost).unwrap_or(i32::MAX)),
-    );
-    stack.with_extra(Some(extra)).map_err(Refused::TooLarge)
-}
-
-/// The durability left (dragonfly `Durability`), 0 for items that do not wear.
-fn durability(stack: &Stack) -> i64 {
-    let max = stack
-        .item()
-        .and_then(item::Type::max_durability)
-        .unwrap_or(0);
-    i64::from(max) - i64::from(stack.damage())
-}
-
-/// The stack with `left` durability.
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: an item keeps a damage from 0 to its durability"
-)]
-fn with_durability(stack: &Stack, left: i64) -> Stack {
-    let max = i64::from(
-        stack
-            .item()
-            .and_then(item::Type::max_durability)
-            .unwrap_or(0),
-    );
-    let damage = (max - left).clamp(0, max);
-    stack
-        .with_damage(u16::try_from(damage).unwrap_or(0))
-        .expect("invariant: the damage is within the durability")
 }
 
 /// Whether `material` repairs `input` (vanilla repair materials: a tool's tier material, an
@@ -129,9 +362,9 @@ fn repairs(input: item::Type, material: item::Type) -> bool {
         .any(|(prefix, want)| name.starts_with(prefix) && kind == *want)
 }
 
-/// The level cost of an enchantment's rarity (dragonfly `Rarity.Cost`: common 1, uncommon 2,
-/// rare 4, very rare 8), from its weight.
-fn rarity_cost(e: Enchantment) -> u32 {
+/// The levels an enchantment's rarity costs per level (dragonfly `Rarity.Cost`: common 1,
+/// uncommon 2, rare 4, very rare 8), from its weight.
+fn rarity_levels(e: Enchantment) -> u32 {
     match e.rarity() {
         10.. => 1,
         5..=9 => 2,
@@ -147,170 +380,55 @@ fn is_book(stack: &Stack) -> bool {
         .is_some_and(|t| t.is(item::Class::EnchantedBook))
 }
 
-/// The anvil's outcome for `input` and `material` with the optional `rename` (dragonfly
-/// `handleCraftRecipeOptional`; `creative` lifts the cost limit).
-pub(in crate::tick) fn craft(
-    input: &Stack,
-    material: &Stack,
-    rename: Option<&str>,
-    creative: bool,
-) -> Result<Outcome, Refused> {
-    let Some(input_type) = input.item() else {
-        return Err(Refused::NoInput);
-    };
-    let mut result = input.clone();
-    let mut anvil_cost = repair_cost(input);
-    if !material.is_empty() {
-        anvil_cost = anvil_cost.saturating_add(repair_cost(material));
-    }
-    let (mut action, mut rename_cost, mut repaired) = (0u32, 0u32, 0u8);
-    if let Some(material_type) = material.item() {
-        if repairs(input_type, material_type) {
-            let max = i64::from(input_type.max_durability().unwrap_or(0));
-            let mut delta = (max - durability(input)).min(max / 4);
-            if delta <= 0 {
-                return Err(Refused::Repaired);
-            }
-            while delta > 0 && repaired < material.count() {
-                result = with_durability(&result, durability(&result) + delta);
-                action += 1;
-                repaired += 1;
-                delta = (max - durability(&result)).min(max / 4);
-            }
-        } else {
-            let book =
-                is_book(material) && material.extra().is_some_and(|e| !e.enchantments.is_empty());
-            let durable = input_type.max_durability().is_some();
-            if !book && (Some(input_type) != material.item() || !durable) {
-                return Err(Refused::Mismatch);
-            }
-            if durable && !book {
-                let max = i64::from(input_type.max_durability().unwrap_or(0));
-                let left = (durability(input) + durability(material) + max * 12 / 100).min(max);
-                if left > durability(input) {
-                    result = with_durability(&result, left);
-                    action += 2;
-                }
-            }
-            let (compatible, incompatible);
-            (result, compatible, incompatible, action) =
-                merge(input, material, result, action, book)?;
-            // dragonfly refuses this only for items that do not wear, and so charges a level for
-            // nothing on others; vanilla (Java `AnvilMenu`) refuses it for every item.
-            if incompatible && !compatible {
-                return Err(Refused::Mismatch);
-            }
-        }
-    }
-    if let Some(name) = rename {
-        rename_cost = 1;
-        action += rename_cost;
-        let mut extra = result.extra().cloned().unwrap_or_default();
-        extra.custom_name = Some(name.to_owned()).filter(|n| !n.is_empty());
-        result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
-    }
-    let mut cost = action.saturating_add(anvil_cost);
-    if cost == 0 {
-        return Err(Refused::Nothing);
-    }
-    if rename_cost == action && rename_cost > 0 && cost >= TOO_EXPENSIVE {
-        cost = TOO_EXPENSIVE - 1;
-    }
-    if cost >= TOO_EXPENSIVE && !creative {
-        return Err(Refused::TooExpensive);
-    }
-    let mut updated = repair_cost(&result);
-    if !material.is_empty() && updated < repair_cost(material) {
-        updated = repair_cost(material);
-    }
-    if rename_cost != action || rename_cost == 0 {
-        updated = updated.saturating_mul(2).saturating_add(1);
-    }
-    let result = with_repair_cost(&result, updated)?;
-    let material_used = if repaired > 0 {
-        repaired
-    } else {
-        material.count()
-    };
-    Ok(Outcome {
-        result,
-        material_used,
-        cost,
-    })
-}
-
-/// dragonfly `mergeEnchantments`: each of the material's enchantments that the input can have
-/// joins the result (equal levels go one up, to the maximum), each conflict with the input's
-/// enchantments costs one; returns the result, whether anything joined, whether anything did not,
-/// and the cost so far.
-fn merge(
-    input: &Stack,
-    material: &Stack,
-    mut result: Stack,
-    mut cost: u32,
-    book: bool,
-) -> Result<(Stack, bool, bool, u32), Refused> {
-    let (mut compatible_any, mut incompatible_any) = (false, false);
-    let Some(input_type) = input.item() else {
-        return Ok((result, false, false, cost));
-    };
-    let input_enchantments = input
-        .extra()
-        .map(|e| e.enchantments.clone())
-        .unwrap_or_default();
-    let material_enchantments = material
-        .extra()
-        .map(|e| e.enchantments.clone())
-        .unwrap_or_default();
-    for (e, material_level) in material_enchantments {
-        let mut compatible = input_type.enchantments().contains(e) || is_book(input);
-        for (other, _) in &input_enchantments {
-            if e != *other && !e.is_compatible_with(*other) {
-                compatible = false;
-                cost += 1;
-            }
-        }
-        if !compatible {
-            incompatible_any = true;
-            continue;
-        }
-        compatible_any = true;
-        let mut level_now = material_level;
-        let mut level_cost = u32::from(material_level);
-        if let Some(existing) = input.enchantment_level(e) {
-            // A stack holds levels up to `MAX_ENCHANTMENT_LEVEL`, past the maximum when a server
-            // gave it.
-            if existing > level_now
-                || (existing == level_now
-                    && (level_now == u16::from(e.max_level())
-                        || level_now == item::MAX_ENCHANTMENT_LEVEL))
-            {
-                incompatible_any = true;
-                continue;
-            } else if existing == level_now {
-                level_now += 1;
-            }
-            level_cost = u32::from(level_now - existing);
-        }
-        let mut rarity = rarity_cost(e);
-        if book {
-            rarity = (rarity / 2).max(1);
-        }
-        let mut extra = result.extra().cloned().unwrap_or_default();
-        extra.set_enchantment(e, level_now);
-        result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
-        cost = cost.saturating_add(rarity * level_cost);
-        if input.count() > 1 {
-            cost = TOO_EXPENSIVE;
-        }
-    }
-    Ok((result, compatible_any, incompatible_any, cost))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::Extra;
+
+    /// The durability `stack` has left.
+    fn left(stack: &Stack) -> u16 {
+        stack.item().and_then(item::Type::max_durability).unwrap() - stack.damage()
+    }
+
+    /// `stack` with `durability` left.
+    fn worn(stack: &Stack, durability: u16) -> Stack {
+        let max = stack.item().and_then(item::Type::max_durability).unwrap();
+        stack.with_damage(max - durability).unwrap()
+    }
+
+    #[test]
+    fn renaming_repairing_and_prior_work_cost_their_levels() {
+        let pick = Stack::new(Kind::IronPickaxe.default_type(), 1);
+        let max = left(&pick);
+        let worn_pick = worn(&pick, max / 10);
+        // Rename only: 1 level, prior work stays 0.
+        let renamed = craft(&pick, &Stack::EMPTY, Some("Pick"), false).unwrap();
+        assert_eq!(renamed.cost, 1);
+        assert_eq!(renamed.result.custom_name(), "Pick");
+        assert_eq!(prior_work(&renamed.result), 0);
+        // Repair with ingots: each restores a quarter of the maximum, one level each.
+        let ingots = Stack::new(Kind::IronIngot.default_type(), 5);
+        let repaired = craft(&worn_pick, &ingots, None, false).unwrap();
+        assert_eq!(repaired.material_used, 4, "a quarter at a time until full");
+        assert_eq!(left(&repaired.result), max);
+        assert_eq!(repaired.cost, 4);
+        assert_eq!(prior_work(&repaired.result), 1);
+        // A second repair costs the prior work too.
+        let again = craft(&worn(&repaired.result, max - 100), &ingots, None, false).unwrap();
+        assert_eq!(again.material_used, 2);
+        assert_eq!(again.cost, 2 + 1);
+        assert_eq!(prior_work(&again.result), 3);
+        // A full item cannot be repaired; a wrong material does nothing.
+        assert_eq!(craft(&pick, &ingots, None, false), Err(Refused::Repaired));
+        let gold = Stack::new(Kind::GoldIngot.default_type(), 1);
+        assert_eq!(
+            craft(&worn_pick, &gold, None, false),
+            Err(Refused::Mismatch)
+        );
+        assert_eq!(
+            craft(&pick, &Stack::EMPTY, None, false),
+            Err(Refused::Nothing)
+        );
+    }
 
     fn enchanted(kind: Kind, list: &[(Enchantment, u16)]) -> Stack {
         Stack::new(kind.default_type(), 1)
@@ -321,42 +439,11 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn the_anvil_cost_table_follows_dragonfly() {
-        let pick = Stack::new(Kind::IronPickaxe.default_type(), 1);
-        let max = i64::from(pick.item().unwrap().max_durability().unwrap());
-        let worn = with_durability(&pick, max / 10);
-        // Rename only: 1 level, prior work stays 0.
-        let renamed = craft(&pick, &Stack::EMPTY, Some("Pick"), false).unwrap();
-        assert_eq!(renamed.cost, 1);
-        assert_eq!(renamed.result.custom_name(), "Pick");
-        assert_eq!(repair_cost(&renamed.result), 0);
-        // Repair with three ingots: each restores a quarter of the maximum, one level each.
-        let ingots = Stack::new(Kind::IronIngot.default_type(), 5);
-        let repaired = craft(&worn, &ingots, None, false).unwrap();
-        assert_eq!(repaired.material_used, 4, "a quarter at a time until full");
-        assert_eq!(durability(&repaired.result), max);
-        assert_eq!(repaired.cost, 4);
-        assert_eq!(repair_cost(&repaired.result), 1);
-        // A second repair costs the prior work too.
-        let again = craft(
-            &with_durability(&repaired.result, max - 100),
-            &ingots,
-            None,
-            false,
-        )
-        .unwrap();
-        assert_eq!(again.material_used, 2);
-        assert_eq!(again.cost, 2 + 1);
-        assert_eq!(repair_cost(&again.result), 3);
-        // A full item cannot be repaired; a wrong material does nothing.
-        assert_eq!(craft(&pick, &ingots, None, false), Err(Refused::Repaired));
-        let gold = Stack::new(Kind::GoldIngot.default_type(), 1);
-        assert_eq!(craft(&worn, &gold, None, false), Err(Refused::Mismatch));
-        assert_eq!(
-            craft(&pick, &Stack::EMPTY, None, false),
-            Err(Refused::Nothing)
-        );
+    /// `stack` with prior work `levels`.
+    fn with_prior_work(stack: &Stack, levels: i32) -> Stack {
+        let mut extra = stack.extra().cloned().unwrap_or_default();
+        extra.nbt.insert(REPAIR_COST.to_owned(), Value::Int(levels));
+        stack.with_extra(Some(extra)).unwrap()
     }
 
     #[test]
@@ -376,17 +463,17 @@ mod tests {
         assert_eq!(craft(&helmet, &blast, None, false), Err(Refused::Mismatch));
         // Two of a kind repair by 12% and merge.
         let sword = Stack::new(Kind::DiamondSword.default_type(), 1);
-        let worn = with_durability(&sword, 100);
-        let other = with_durability(
+        let worn_sword = worn(&sword, 100);
+        let other = worn(
             &enchanted(Kind::DiamondSword, &[(Enchantment::Unbreaking, 1)]),
             100,
         );
-        let both = craft(&worn, &other, None, false).unwrap();
-        let max = i64::from(sword.item().unwrap().max_durability().unwrap());
-        assert_eq!(durability(&both.result), 200 + max * 12 / 100);
+        let both = craft(&worn_sword, &other, None, false).unwrap();
+        let max = u32::from(left(&sword));
+        assert_eq!(u32::from(left(&both.result)), 200 + max * 12 / 100);
         assert_eq!(both.cost, 2 + 2);
         // Too expensive outside creative.
-        let costly = with_repair_cost(&worn, 39).unwrap();
+        let costly = with_prior_work(&worn_sword, 39);
         assert_eq!(
             craft(&costly, &Stack::EMPTY, Some("x"), false)
                 .unwrap()
@@ -398,5 +485,44 @@ mod tests {
             Err(Refused::TooExpensive)
         );
         assert!(craft(&costly, &other, None, true).is_ok());
+    }
+
+    /// Repeated entries count each: each input entry an enchantment conflicts with costs a
+    /// level, and a repeated enchantment of the material joins against the input's level again.
+    #[test]
+    fn repeated_enchantment_entries_count_each() {
+        let helmet = enchanted(
+            Kind::DiamondHelmet,
+            &[(Enchantment::Protection, 1), (Enchantment::Protection, 1)],
+        );
+        let book = enchanted(
+            Kind::EnchantedBook,
+            &[
+                (Enchantment::BlastProtection, 1),
+                (Enchantment::Unbreaking, 1),
+            ],
+        );
+        let out = craft(&helmet, &book, None, false).unwrap();
+        // Two conflicts, then uncommon (2), halved for a book, times one level.
+        assert_eq!(out.cost, 2 + 1);
+        assert_eq!(
+            out.result.extra().unwrap().enchantments,
+            [
+                (Enchantment::Protection, 1),
+                (Enchantment::Protection, 1),
+                (Enchantment::Unbreaking, 1)
+            ]
+        );
+        let sword = enchanted(Kind::DiamondSword, &[(Enchantment::Sharpness, 2)]);
+        let twice = enchanted(
+            Kind::EnchantedBook,
+            &[(Enchantment::Sharpness, 2), (Enchantment::Sharpness, 2)],
+        );
+        let out = craft(&sword, &twice, None, false).unwrap();
+        assert_eq!(out.cost, 1 + 1);
+        assert_eq!(
+            out.result.extra().unwrap().enchantments,
+            [(Enchantment::Sharpness, 3)]
+        );
     }
 }

@@ -506,7 +506,7 @@ fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Cra
     let level = exec.ctx.beacon_level;
     if !block_entity::beacon_effect_allowed(primary, level)
         || !block_entity::beacon_effect_allowed(secondary, level)
-        || (level < 4 && secondary != 0)
+        || (level < block_entity::BEACON_MAX_LEVEL && secondary != 0)
     {
         return Err(Error::Recipe);
     }
@@ -987,7 +987,7 @@ fn use_anvil(
     } else {
         crate::world::Sound::AnvilUse
     };
-    interact::sound(state, world, interact::block_vec(pos), used);
+    crate::tick::emit::sound(state, world, interact::block_vec(pos), used);
     if let Some(next) = next {
         if let Some(w) = state.worlds.get_mut(world)
             && w.set_block(pos, next).is_err()

@@ -32,7 +32,7 @@ Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `C
 | Subject | Reason |
 |---|---|
 | RakNet | The upstream (go-raknet) has many defects: CRC32 cookies, error blocking that lets a spoofed address lock out others, no deduplication of reliable indexes, 24-bit number overflow, quadratic reassembly, no congestion control, effectively unbounded queues |
-| Snappy | The snap crate has `unsafe` on its external input path |
+| Snappy | The snap crate has `unsafe` on its external input path. The encoder follows golang/snappy's `encode.go` and `encode_other.go` (BSD-3-Clause; notice in `THIRD-PARTY-NOTICES.md`) |
 | Signaling HTTP | httparse and hyper are larger than needed, and Anchor must set the limits anyway; a small implementation on tokio is enough |
 | LevelDB reader (import) | rusty-leveldb writes into the source folder when it opens it (LOCK, log replay, compaction) and has `unsafe` and snap on its disk input path |
 | Error types, CRC, base64, UUID, NBT, JWS compact form | Small, and easy to test against ground truth |

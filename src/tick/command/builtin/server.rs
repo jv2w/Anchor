@@ -6,8 +6,8 @@
 use tracing::info;
 
 use super::{
-    Msg, PLAYER_USER_ONLY, announce, display_name_of, game_mode_name, in_world, infallible,
-    require, usage,
+    Msg, PLAYER_USER_ONLY, announce, bounded, display_name_of, game_mode_arg, game_mode_name,
+    game_mode_param, in_world, infallible, require, sender_world, usage,
 };
 use crate::command::parse::NAMESPACE;
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
@@ -21,95 +21,8 @@ use crate::protocol::packet::PROTOCOL_VERSION;
 use crate::random::{self, Random};
 use crate::runtime::ThreadTotals;
 use crate::tick::Context;
-use crate::tick::queue::SessionId;
 use crate::tick::survival::{MARKERS, OVERWORLD_CLOCK_NAME};
 use crate::world::{self, BlockPos, DAY, Particle, World};
-
-/// Adds the commands of this module.
-pub(super) fn add(commands: &mut Vec<Command>) {
-    commands.extend([
-        Command::new("help", "commands.help.description")
-            .alias("?")
-            .permission(permission::COMMAND_HELP)
-            .overload(&[Param::int("page").optional()], help)
-            .overload(&[Param::string("command")], help),
-        Command::new("list", "commands.list.description")
-            .permission(permission::COMMAND_LIST)
-            .overload(&[], infallible(list)),
-        Command::new("me", "commands.me.description")
-            .permission(permission::COMMAND_ME)
-            .overload(&[Param::message("message")], me),
-        Command::new("say", "commands.say.description")
-            .permission(permission::COMMAND_SAY)
-            .overload(&[Param::message("message")], say),
-        Command::new("seed", "Shows the seed of the world")
-            .permission(permission::COMMAND_SEED)
-            .overload(&[], infallible(seed)),
-        Command::new("setworldspawn", "commands.setworldspawn.description")
-            .permission(permission::COMMAND_SETWORLDSPAWN)
-            .overload(&[], setworldspawn)
-            .overload(&[Param::position("spawnPoint")], setworldspawn),
-        Command::new("defaultgamemode", "commands.defaultgamemode.description")
-            .permission(permission::COMMAND_DEFAULTGAMEMODE)
-            .overload(&[super::game_mode_param()], defaultgamemode),
-        Command::new("difficulty", "commands.difficulty.description")
-            .permission(permission::COMMAND_DIFFICULTY)
-            .overload(
-                &[Param::enumeration(
-                    "difficulty",
-                    "Difficulty",
-                    &DIFFICULTIES.map(|(name, _)| name),
-                )],
-                difficulty,
-            )
-            .overload(&[Param::int("difficulty")], difficulty),
-        with_time_forms(
-            Command::new("time", "commands.time.description")
-                .permission(permission::COMMAND_TIME_ADD)
-                .permission(permission::COMMAND_TIME_SET)
-                .permission(permission::COMMAND_TIME_QUERY)
-                .permission(permission::COMMAND_TIME_START)
-                .permission(permission::COMMAND_TIME_STOP),
-        ),
-        Command::new("particle", "commands.particle.description")
-            .permission(permission::COMMAND_PARTICLE)
-            .overload(
-                &[
-                    Param::enumeration("name", "ParticleName", &PARTICLE_NAMES),
-                    Param::position("position"),
-                    Param::float("xd"),
-                    Param::float("yd"),
-                    Param::float("zd"),
-                    Param::int("count").optional(),
-                    Param::string("data").optional(),
-                ],
-                particle,
-            ),
-        Command::new("save-all", "Saves every world and player now")
-            .permission(permission::COMMAND_SAVE_PERFORM)
-            .overload(&[], infallible(save_all)),
-        Command::new("save-off", "Turns automatic saving off until save-on")
-            .permission(permission::COMMAND_SAVE_DISABLE)
-            .overload(&[], infallible(save_off)),
-        Command::new("save-on", "commands.save-on.description")
-            .permission(permission::COMMAND_SAVE_ENABLE)
-            .overload(&[], infallible(save_on)),
-        Command::new("backup", "Saves the server and backs up the world")
-            .permission(permission::COMMAND_BACKUP)
-            .overload(&[], backup),
-        Command::new("status", "Shows how the server is running")
-            .permission(permission::COMMAND_STATUS)
-            .overload(&[], infallible(status)),
-        Command::new("stop", "commands.stop.description")
-            .permission(permission::COMMAND_STOP)
-            .overload(&[], infallible(stop)),
-        Command::new("version", "Shows the Anchor and Minecraft versions")
-            .alias("ver")
-            .alias("about")
-            .permission(permission::COMMAND_VERSION)
-            .overload(&[], infallible(version)),
-    ]);
-}
 
 const HELP_HEADER: Msg = Msg::client("commands.help.header");
 /// The first line of `/help <command>`.
@@ -139,7 +52,7 @@ const PARTICLE_SUCCESS: Msg = Msg::client("commands.particle.success");
 const SAVE_START: Msg = Msg::client("commands.save.start");
 /// PMMP has no backup command.
 const BACKUP_START: Msg =
-    Msg::own("Saving and backing up the world; the server log tells when the backup is made");
+    Msg::own("Saving and backing up the data files; the server log tells when the backup is made");
 /// `backups = false`.
 const BACKUP_OFF: Msg = Msg::own("Backups are turned off on this server");
 const SAVE_DISABLED: Msg = Msg::client("commands.save.disabled");
@@ -148,13 +61,11 @@ const STOP_START: Msg = Msg::client("commands.stop.start");
 /// The `/version` line: the software, its version, the Minecraft version and protocol, and the
 /// operating system.
 const VERSION_LINE: Msg = Msg::own("{%0} {%1} for Minecraft {%2} (protocol {%3}) on {%4}");
-
 /// The most particles one `/particle` shows: PMMP has no bound, and a count of 2^31 would stall
 /// the tick.
 const MAX_PARTICLES: i32 = 1024;
 /// The random stream that spreads `/particle`'s particles.
 const PARTICLE_SPREAD: u64 = random::tag("command-particle-spread");
-
 /// BDS's `Difficulty` enum (P6; PMMP `World::getDifficultyFromString` takes the same words) and
 /// what `/difficulty` reads them as; a number is the difficulty's ID.
 const DIFFICULTIES: [(&str, Difficulty); 8] = [
@@ -213,14 +124,132 @@ const PARTICLE_NAMES: [&str; 35] = [
     "sonicexplosion",
 ];
 
-/// The word of a `/time` form: `word`, BDS's enum `type_name`.
+/// What one form of `/time` does, after its permission and clock are checked.
+type TimeAction = fn(&mut Context<'_>, Sender, &Args) -> Result<Output>;
+
+/// Where `/time set` puts a clock.
+#[derive(Debug, Clone, Copy)]
+enum SetTo<'a> {
+    /// That time.
+    Ticks(i64),
+    /// A time marker at this time of day, at its occurrence `next`, `previous` or `stay`.
+    Marker(i64, &'a str),
+}
+
+impl SetTo<'_> {
+    /// The time a clock at `now` goes to: the marker's first time at or after `now` (`next`), its
+    /// last at or before it (`previous`) or its time on `now`'s day (`stay`).
+    fn time_from(self, now: i64) -> i64 {
+        match self {
+            Self::Ticks(ticks) => ticks,
+            Self::Marker(time_of_day, occurrence) => {
+                let today = now
+                    .saturating_sub(now.rem_euclid(DAY))
+                    .saturating_add(time_of_day);
+                match occurrence {
+                    "next" if today < now => today.saturating_add(DAY),
+                    "previous" if today > now => today.saturating_sub(DAY),
+                    _ => today,
+                }
+            }
+        }
+    }
+}
+
+/// Adds the commands of this module.
+pub(super) fn add(commands: &mut Vec<Command>) {
+    commands.extend([
+        Command::new("help", "commands.help.description")
+            .alias("?")
+            .permission(permission::COMMAND_HELP)
+            .overload(&[Param::int("page").optional()], help)
+            .overload(&[Param::string("command")], help),
+        Command::new("list", "commands.list.description")
+            .permission(permission::COMMAND_LIST)
+            .overload(&[], infallible(list)),
+        Command::new("me", "commands.me.description")
+            .permission(permission::COMMAND_ME)
+            .overload(&[Param::message("message")], me),
+        Command::new("say", "commands.say.description")
+            .permission(permission::COMMAND_SAY)
+            .overload(&[Param::message("message")], say),
+        Command::new("seed", "Shows the seed of the world")
+            .permission(permission::COMMAND_SEED)
+            .overload(&[], infallible(seed)),
+        Command::new("setworldspawn", "commands.setworldspawn.description")
+            .permission(permission::COMMAND_SETWORLDSPAWN)
+            .overload(&[], setworldspawn)
+            .overload(&[Param::position("spawnPoint")], setworldspawn),
+        Command::new("defaultgamemode", "commands.defaultgamemode.description")
+            .permission(permission::COMMAND_DEFAULTGAMEMODE)
+            .overload(&[game_mode_param()], defaultgamemode),
+        Command::new("difficulty", "commands.difficulty.description")
+            .permission(permission::COMMAND_DIFFICULTY)
+            .overload(
+                &[Param::enumeration(
+                    "difficulty",
+                    "Difficulty",
+                    &DIFFICULTIES.map(|(name, _)| name),
+                )],
+                difficulty,
+            )
+            .overload(&[Param::int("difficulty")], difficulty),
+        with_time_forms(
+            Command::new("time", "commands.time.description")
+                .permission(permission::COMMAND_TIME_ADD)
+                .permission(permission::COMMAND_TIME_SET)
+                .permission(permission::COMMAND_TIME_QUERY)
+                .permission(permission::COMMAND_TIME_START)
+                .permission(permission::COMMAND_TIME_STOP),
+        ),
+        Command::new("particle", "commands.particle.description")
+            .permission(permission::COMMAND_PARTICLE)
+            .overload(
+                &[
+                    Param::enumeration("name", "ParticleName", &PARTICLE_NAMES),
+                    Param::position("position"),
+                    Param::float("xd"),
+                    Param::float("yd"),
+                    Param::float("zd"),
+                    Param::int("count").optional(),
+                    Param::string("data").optional(),
+                ],
+                particle,
+            ),
+        Command::new("save-all", "Saves every world and player now")
+            .permission(permission::COMMAND_SAVE_PERFORM)
+            .overload(&[], infallible(save_all)),
+        Command::new("save-off", "Turns automatic saving off until save-on")
+            .permission(permission::COMMAND_SAVE_DISABLE)
+            .overload(&[], infallible(save_off)),
+        Command::new("save-on", "commands.save-on.description")
+            .permission(permission::COMMAND_SAVE_ENABLE)
+            .overload(&[], infallible(save_on)),
+        Command::new("backup", "Saves the server and backs up its data files")
+            .permission(permission::COMMAND_BACKUP)
+            .overload(&[], backup),
+        Command::new("status", "Shows how the server is running")
+            .permission(permission::COMMAND_STATUS)
+            .overload(&[], infallible(status)),
+        Command::new("stop", "commands.stop.description")
+            .permission(permission::COMMAND_STOP)
+            .overload(&[], infallible(stop)),
+        Command::new("version", "Shows the Anchor and Minecraft versions")
+            .alias("ver")
+            .alias("about")
+            .permission(permission::COMMAND_VERSION)
+            .overload(&[], infallible(version)),
+    ]);
+}
+
+/// Builds the word of a `/time` form: `word`, BDS's enum `type_name`.
 fn time_mode(type_name: &str, word: &str) -> Param {
     Param::enumeration("mode", type_name, &[word])
 }
 
-/// `command` with BDS 1.26.60's `/time` forms (P6 `commands`): `add`, `set` a number, `set` a time
-/// marker, `query`, `pause` and `resume`, then the same six after `of <clock>`, whose `query`
-/// reads the time only.
+/// Adds to `command` BDS 1.26.60's `/time` forms (P6 `commands`): `add`, `set` a number, `set` a
+/// time marker, `query`, `pause` and `resume`, then the same six after `of <clock>`, whose
+/// `query` reads the time only.
 fn with_time_forms(mut command: Command) -> Command {
     let of = [
         Param::enumeration("command", "TimeOfCommand", &["of"]),
@@ -257,11 +286,11 @@ fn with_time_forms(mut command: Command) -> Command {
     command
 }
 
-/// `/help [page]` and `/help <command>` (alias `/?`; PMMP `HelpCommand`, in Anchor's layout):
-/// the first usage line of each command the sender may use, in name order, a player's screen
-/// line height a page (7 unless set) and one page for the console; or one command's name, its
-/// description on a line of its own (the client translates a description that is a key, as
-/// Anchor's own commands' are), its usage lines and its other names.
+/// Shows the first usage line of each command the sender may use, in name order, a player's
+/// screen line height a page (7 unless set) and one page for the console; or one command's name,
+/// its description on a line of its own (the client translates a description that is a key), its
+/// usage lines and its other names (`/help [page]` and `/help <command>`, alias `/?`, PMMP
+/// `HelpCommand`, in Anchor's layout).
 fn help(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     if let Some(name) = args.string("command") {
         let command = cx
@@ -304,8 +333,8 @@ fn help(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     Ok(out)
 }
 
-/// `/list` (PMMP `ListCommand`): how many players are online of how many may be, and their
-/// names in text order.
+/// Shows how many players are online of how many may be, and their names in text order
+/// (`/list`, PMMP `ListCommand`).
 fn list(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     let mut names: Vec<&str> = cx.players().map(Player::name).collect();
     names.sort_unstable();
@@ -322,7 +351,7 @@ fn broadcast(cx: &mut Context<'_>, message: Message, text: &str) -> Result<Outpu
     Ok(Output::new())
 }
 
-/// `/me <action>` (PMMP `MeCommand`): `* name action` to everyone.
+/// Shows everyone `* name action` (`/me <action>`, PMMP `MeCommand`).
 fn me(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let action = args.string("message").unwrap_or_default();
     let name = display_name_of(cx, *sender);
@@ -330,8 +359,8 @@ fn me(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     broadcast(cx, EMOTE.chat("", &[&name, &text]), action)
 }
 
-/// `/say <message>` (PMMP `SayCommand`): `[name] message` in light purple to everyone; the
-/// console speaks as `Server`.
+/// Shows everyone `[name] message` in light purple; the console speaks as `Server`
+/// (`/say <message>`, PMMP `SayCommand`).
 fn say(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let message = args.string("message").unwrap_or_default();
     let name = match sender {
@@ -341,26 +370,15 @@ fn say(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     broadcast(cx, ANNOUNCEMENT.chat("§d", &[&name, message]), message)
 }
 
-/// The world `sender` is in: a player's own, the default world for the console.
-fn sender_world(cx: &Context<'_>, sender: Sender) -> world::Id {
-    match sender {
-        Sender::Player(id) => cx
-            .player(id)
-            .map_or_else(|| cx.default_world().id(), Player::world),
-        Sender::Console => cx.default_world().id(),
-    }
-}
-
-/// `/seed` (PMMP `SeedCommand`): the seed of the sender's world.
+/// Shows the seed of the sender's world (`/seed`, PMMP `SeedCommand`).
 fn seed(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
-    let world = sender_world(cx, *sender);
-    let seed = cx.world(world).map_or(0, world::World::seed);
+    let seed = world_of(cx, *sender).seed();
     SEED_SUCCESS.output(&[&seed.to_string()])
 }
 
-/// `/setworldspawn [x y z]` (PMMP `SetWorldSpawnCommand`): moves the spawn of the sender's world
-/// to the block at the position, or at the player's feet. Relative coordinates count from the
-/// sender (the default world's spawn for the console; PMMP: 0 0 0).
+/// Moves the spawn of the sender's world to the block at the position, or at the player's feet;
+/// relative coordinates count from the sender (the default world's spawn for the console; PMMP:
+/// 0 0 0) (`/setworldspawn [x y z]`, PMMP `SetWorldSpawnCommand`).
 fn setworldspawn(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let at = match (args.position("spawnPoint"), *sender) {
         (Some(pos), _) => pos,
@@ -377,19 +395,19 @@ fn setworldspawn(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<O
     Ok(announce(cx, *sender, SETWORLDSPAWN_SUCCESS, &params))
 }
 
-/// `/defaultgamemode <mode>` (PMMP `DefaultGamemodeCommand`): the game mode new players get,
-/// until the server stops.
+/// Sets the game mode new players get, until the server stops (`/defaultgamemode <mode>`, PMMP
+/// `DefaultGamemodeCommand`).
 fn defaultgamemode(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Result<Output> {
     // `default` names no mode here.
-    let Some(mode) = super::game_mode_arg(args, None) else {
+    let Some(mode) = game_mode_arg(args, None) else {
         return Err(usage(cx, "defaultgamemode"));
     };
     cx.set_default_game_mode(mode);
     Ok(DEFAULTGAMEMODE_SUCCESS.output(&[game_mode_name(mode)]))
 }
 
-/// `/difficulty <difficulty>` (PMMP `DifficultyCommand`): the difficulty until the server stops;
-/// always hard on a hardcore server.
+/// Sets the difficulty until the server stops, always hard on a hardcore server
+/// (`/difficulty <difficulty>`, PMMP `DifficultyCommand`).
 fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let chosen = match (args.string("difficulty"), args.int("difficulty")) {
         (Some(name), _) => DIFFICULTIES
@@ -412,13 +430,10 @@ fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
     Ok(announce(cx, *sender, DIFFICULTY_SUCCESS, &[&number]))
 }
 
-/// What one form of `/time` does, after its permission and clock are checked.
-type TimeAction = fn(&mut Context<'_>, Sender, &Args) -> Result<Output>;
-
-/// `/time` as BDS 1.26.60 has it (P6 `clocks`; PMMP `TimeCommand`'s `start` and `stop` are its
-/// `resume` and `pause`), on the clock every world has (`minecraft:overworld`; `of` names it with
-/// or without `minecraft:`, in its case): `add`, `set`, `pause` and `resume` act on every world,
-/// `query` reads the sender's. Each action has its own permission: `pause` that of PMMP's
+/// Runs `/time` as BDS 1.26.60 has it (P6 `clocks`; PMMP `TimeCommand`'s `start` and `stop` are
+/// its `resume` and `pause`), on the clock every world has (`minecraft:overworld`; `of` names it
+/// with or without `minecraft:`, in its case): `add`, `set`, `pause` and `resume` act on every
+/// world, `query` reads the sender's. Each action has its own permission: `pause` that of PMMP's
 /// `/time stop`, `resume` that of `/time start`.
 fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let (needed, action): (Permission, TimeAction) = match args.string("mode") {
@@ -438,19 +453,23 @@ fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     action(cx, *sender, args)
 }
 
-/// Whether `typed` names `name`, a namespaced name, with or without its `minecraft:`, in its
-/// case (BDS's clocks and time markers).
+/// Tells whether `typed` names `name`, a namespaced name, with or without its `minecraft:`, in
+/// its case (BDS's clocks and time markers).
 fn is_named(typed: &str, name: &str) -> bool {
     typed == name || name.strip_prefix(NAMESPACE) == Some(typed)
 }
 
-/// The world `sender` is in ([`sender_world`]).
-fn world_of<'a>(cx: &'a Context<'_>, sender: Sender) -> Result<&'a World> {
+/// Finds the world `sender` is in ([`sender_world`]).
+fn world_of<'a>(cx: &'a Context<'_>, sender: Sender) -> &'a World {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a sender's world, a player's or the default one, is loaded"
+    )]
     cx.world(sender_world(cx, sender))
-        .ok_or_else(|| Error::failed(world::Error::WorldNotLoaded.to_string()))
+        .expect("the sender's world is loaded")
 }
 
-/// Every loaded world and its time.
+/// Lists every loaded world and its time.
 fn world_times(cx: &Context<'_>) -> Vec<(world::Id, i64)> {
     cx.worlds().map(|w| (w.id(), w.time_ticks())).collect()
 }
@@ -463,11 +482,12 @@ fn move_clock(cx: &mut Context<'_>, world: world::Id, now: i64, to: i64) {
     }
 }
 
-/// `/time add <amount>`: every world's clock moves by `amount`, unless that takes one below 0
-/// (BDS then names the smallest amount it takes). The answer has the sender's world's new time.
+/// Moves every world's clock by `amount`, unless that takes one below 0 (BDS then names the
+/// smallest amount it takes) (`/time add <amount>`). The answer has the sender's world's new
+/// time.
 fn time_add(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output> {
     let amount = i64::from(args.int("amount").ok_or_else(|| usage(cx, "time"))?);
-    let sender_now = world_of(cx, sender)?.time_ticks();
+    let sender_now = world_of(cx, sender).time_ticks();
     let worlds = world_times(cx);
     let smallest = worlds
         .iter()
@@ -489,38 +509,9 @@ fn time_add(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output>
     ))
 }
 
-/// Where `/time set` puts a clock.
-#[derive(Debug, Clone, Copy)]
-enum SetTo<'a> {
-    /// That time.
-    Ticks(i64),
-    /// A time marker at this time of day, at its occurrence `next`, `previous` or `stay`.
-    Marker(i64, &'a str),
-}
-
-impl SetTo<'_> {
-    /// The time a clock at `now` goes to: the marker's first time at or after `now` (`next`), its
-    /// last at or before it (`previous`) or its time on `now`'s day (`stay`).
-    fn time_from(self, now: i64) -> i64 {
-        match self {
-            Self::Ticks(ticks) => ticks,
-            Self::Marker(time_of_day, occurrence) => {
-                let today = now
-                    .saturating_sub(now.rem_euclid(DAY))
-                    .saturating_add(time_of_day);
-                match occurrence {
-                    "next" if today < now => today.saturating_add(DAY),
-                    "previous" if today > now => today.saturating_sub(DAY),
-                    _ => today,
-                }
-            }
-        }
-    }
-}
-
-/// `/time set <amount>` and `/time set <marker> [next|previous|stay]` (`next` when left out):
-/// every world's clock goes to `amount`, or to the marker's time from its own time now. No clock
-/// goes below 0. The answer has the sender's world's new time.
+/// Puts every world's clock at `amount`, or at the marker's time from its own time now; no
+/// clock goes below 0 (`/time set <amount>` and `/time set <marker> [next|previous|stay]`, `next`
+/// when left out). The answer has the sender's world's new time.
 fn time_set(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output> {
     let to = match (args.int("amount"), args.string("timeMarkerName")) {
         (Some(amount), _) => SetTo::Ticks(i64::from(amount)),
@@ -535,7 +526,7 @@ fn time_set(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output>
         }
         (None, None) => return Err(usage(cx, "time")),
     };
-    let shown = to.time_from(world_of(cx, sender)?.time_ticks());
+    let shown = to.time_from(world_of(cx, sender).time_ticks());
     let worlds = world_times(cx);
     if shown < 0 || worlds.iter().any(|&(_, now)| to.time_from(now) < 0) {
         return Err(CLOCK_TOO_SMALL.error(&["0"]));
@@ -551,10 +542,10 @@ fn time_set(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output>
     ))
 }
 
-/// `/time query <time|daytime|gametime|day>` (`of`: `time` only) on the sender's world: its
-/// clock, the time of day, its age ([`World::age_ticks`]) or the days passed.
+/// Reads the sender's world's clock, the time of day, its age ([`World::age_ticks`]) or the days
+/// passed (`/time query <time|daytime|gametime|day>`; `of`: `time` only).
 fn time_query(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Output> {
-    let world = world_of(cx, sender)?;
+    let world = world_of(cx, sender);
     let now = world.time_ticks();
     Ok(
         match args.string("time").or_else(|| args.string("clockQuery")) {
@@ -567,10 +558,14 @@ fn time_query(cx: &mut Context<'_>, sender: Sender, args: &Args) -> Result<Outpu
     )
 }
 
-/// `/time pause`: every world's clock stands still ([`Context::stop_time`]). The answer has the
+/// Stops every world's clock ([`Context::stop_time`]) (`/time pause`). The answer has the
 /// sender's world's time.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "consistency: one signature with the other `/time` actions ([`TimeAction`])"
+)]
 fn time_pause(cx: &mut Context<'_>, sender: Sender, _: &Args) -> Result<Output> {
-    let now = world_of(cx, sender)?.time_ticks().to_string();
+    let now = world_of(cx, sender).time_ticks().to_string();
     for (id, _) in world_times(cx) {
         cx.stop_time(id);
     }
@@ -582,10 +577,14 @@ fn time_pause(cx: &mut Context<'_>, sender: Sender, _: &Args) -> Result<Output> 
     ))
 }
 
-/// `/time resume`: every world's clock runs again ([`Context::start_time`]). The answer has the
+/// Runs every world's clock again ([`Context::start_time`]) (`/time resume`). The answer has the
 /// sender's world's time.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "consistency: one signature with the other `/time` actions ([`TimeAction`])"
+)]
 fn time_resume(cx: &mut Context<'_>, sender: Sender, _: &Args) -> Result<Output> {
-    let now = world_of(cx, sender)?.time_ticks().to_string();
+    let now = world_of(cx, sender).time_ticks().to_string();
     for (id, _) in world_times(cx) {
         cx.start_time(id);
     }
@@ -597,18 +596,18 @@ fn time_resume(cx: &mut Context<'_>, sender: Sender, _: &Args) -> Result<Output>
     ))
 }
 
-/// A number PHP reads from `data` (`(int)`): 0 when it is not one.
+/// Reads the number PHP reads from `data` (`(int)`): 0 when it is not one.
 fn data_int(data: Option<&str>, default: i32) -> i32 {
     data.map_or(default, |d| d.parse().unwrap_or(0))
 }
 
-/// The block state of the item named `data`, if it is a block other than air.
+/// Finds the block state of the item named `data`, if it is a block other than air.
 fn data_block(data: Option<&str>) -> Option<crate::block::State> {
     let state = crate::command::parse::Names::item(data?)?.block()?;
     (state.name() != "minecraft:air").then_some(state)
 }
 
-/// The particle `/particle` names with its `data` (PMMP `ParticleCommand::getParticle`).
+/// Finds the particle `/particle` names with its `data` (PMMP `ParticleCommand::getParticle`).
 fn particle_of(name: &str, data: Option<&str>) -> Option<Particle> {
     let black = Rgba {
         r: 0,
@@ -666,16 +665,17 @@ fn particle_of(name: &str, data: Option<&str>) -> Option<Particle> {
     })
 }
 
-/// `/particle <name> <x> <y> <z> <xd> <yd> <zd> [count] [data]` (PMMP `ParticleCommand`): `count`
-/// particles (1 to 1,024) spread at random up to the distances on each axis, in the sender's
-/// world. The spread comes from the engine's random streams, so a replay shows the same.
-/// Particle numbers are gophertunnel's; comparing them with BDS is pending.
+/// Shows `count` particles (1 to 1,024) spread at random up to the distances on each axis, in
+/// the sender's world (`/particle <name> <x> <y> <z> <xd> <yd> <zd> [count] [data]`, PMMP
+/// `ParticleCommand`). The spread comes from the engine's random stream of this command run, so
+/// a replay shows the same and two runs in one tick spread apart. Particle numbers are
+/// gophertunnel's.
 fn particle(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = args.string("name").unwrap_or_default();
     let Some(effect) = particle_of(name, args.string("data")) else {
         return Err(usage(cx, "particle"));
     };
-    let count = super::bounded(args.int("count").unwrap_or(1).max(1), 1, MAX_PARTICLES)?;
+    let count = bounded(args.int("count").unwrap_or(1).max(1), 1, MAX_PARTICLES)?;
     let center = in_world(args.position("position").unwrap_or(Vec3::ZERO));
     let spread = Vec3::new(
         args.float("xd").unwrap_or(0.0),
@@ -684,11 +684,7 @@ fn particle(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     );
     let world = sender_world(cx, *sender);
     let seed = cx.default_world().seed();
-    let session = match sender {
-        Sender::Player(id) => id.session(),
-        Sender::Console => SessionId::CONSOLE,
-    };
-    let key = random::key(PARTICLE_SPREAD, &[session.get()]);
+    let key = random::key(PARTICLE_SPREAD, &[cx.state.commands.runs]);
     let mut rng = Random::new(seed, cx.tick(), key);
     let mut signed = || rng.unit() * 2.0 - 1.0;
     for _ in 0..count {
@@ -702,17 +698,18 @@ fn particle(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     Ok(PARTICLE_SUCCESS.output(&[name, &count.to_string()]))
 }
 
-/// `/save-all` (PMMP `SaveCommand`): saves everything at the end of the tick, as one commit.
-/// PMMP's "Save completed in ... seconds" is left out: the commit ends later, off the tick.
+/// Asks for a save of everything at the end of the tick, as one commit ([`Context::save`])
+/// (`/save-all`, PMMP `SaveCommand`). PMMP's "Save completed in ... seconds" is left out: the
+/// commit ends later, off the tick.
 fn save_all(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     let out = announce(cx, *sender, SAVE_START, &[]);
     cx.save();
     out
 }
 
-/// `/backup` (Anchor's own): saves everything at the end of the tick, then backs up the saved
-/// server file while the server runs ([`Context::backup`]). The backup ends later, off the tick,
-/// so the log tells its result, as for `/save-all`'s commit.
+/// Asks for a save of everything, then a backup of the saved data files while the server runs
+/// ([`Context::backup`]) (`/backup`, Anchor's own). The backup ends later, off the tick, so the
+/// log tells its result, as for `/save-all`'s commit.
 fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
     if !cx.backup() {
         return Err(BACKUP_OFF.error(&[]));
@@ -720,24 +717,24 @@ fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
     Ok(announce(cx, *sender, BACKUP_START, &[]))
 }
 
-/// `/save-off` (PMMP `SaveOffCommand`): turns the periodic save off until the server stops or
-/// `/save-on` ([`Context::set_auto_save`] says what still saves).
+/// Turns the periodic save off until the server stops or `/save-on` (`/save-off`, PMMP
+/// `SaveOffCommand`; [`Context::set_auto_save`] says what still saves).
 fn save_off(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     cx.set_auto_save(false);
     announce(cx, *sender, SAVE_DISABLED, &[])
 }
 
-/// `/save-on` (PMMP `SaveOnCommand`): turns the periodic save back on.
+/// Turns the periodic save back on (`/save-on`, PMMP `SaveOnCommand`).
 fn save_on(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     cx.set_auto_save(true);
     announce(cx, *sender, SAVE_ENABLED, &[])
 }
 
-/// `/status` (PMMP `StatusCommand`, in Anchor's own lines): the uptime by the wall clock and in
-/// ticks, the TPS and tick times now and averaged over the last 20 ticks, the resident memory, the
-/// threads, the players, and each loaded world's chunks, entities and block entities. The uptime,
-/// memory and tick times are measured off the tick and read from the input log, so a replay sees
-/// the same values; the uptime and memory are at most a second old.
+/// Shows the uptime by the wall clock and in ticks, the TPS and tick times now and averaged over
+/// the last 20 ticks, the resident memory, the threads, the players, and each loaded world's
+/// chunks, entities and block entities (`/status`, PMMP `StatusCommand`, in Anchor's own lines).
+/// The uptime, memory and tick times are measured off the tick and read from the input log, so a
+/// replay sees the same values; the uptime and memory are at most a second old.
 fn status(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     let state = &*cx.state;
     let network = &state.network;
@@ -793,7 +790,7 @@ fn status(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     out
 }
 
-/// The memory line of `/status` for `bytes` resident (0: unknown), in MiB to a tenth.
+/// Writes the memory line of `/status` for `bytes` resident (0: unknown), in MiB to a tenth.
 pub(super) fn memory_line(bytes: u64) -> String {
     const MIB: u64 = 1 << 20;
     if bytes == 0 {
@@ -803,15 +800,15 @@ pub(super) fn memory_line(bytes: u64) -> String {
     format!("Memory: {}.{} MiB resident", tenths / 10, tenths % 10)
 }
 
-/// `/stop` (PMMP `StopCommand`): stops the server after this tick.
+/// Stops the server after this tick (`/stop`, PMMP `StopCommand`).
 fn stop(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     let out = announce(cx, *sender, STOP_START, &[]);
     cx.shutdown();
     out
 }
 
-/// `/version` (aliases `/ver`, `/about`; PMMP `VersionCommand`, in Anchor's layout): one line
-/// with [`VERSION_LINE`]. PMMP's PHP lines and plugin lookup are left out.
+/// Shows one line with [`VERSION_LINE`] (`/version`, aliases `/ver` and `/about`, PMMP
+/// `VersionCommand`, in Anchor's layout). PMMP's PHP lines and plugin lookup are left out.
 fn version(_: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     VERSION_LINE.output(&[
         Context::NAME,

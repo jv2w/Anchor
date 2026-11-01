@@ -178,7 +178,9 @@ setters!(FurnaceSmelt {
     set_result => result: Stack,
 });
 
-/// Raised when a player's window closes: the player closed it, left, died or was moved away.
+/// Raised when a player's window other than a menu closes, a trade window included (the pair of
+/// [`TradeOpen`]): the player closed it, left, died, was moved away or opened another window, or
+/// a game rule closed it (its block went away, the villager went away).
 #[doc(alias = "InventoryCloseEvent")]
 #[derive(Debug)]
 pub struct InventoryClose {
@@ -270,7 +272,7 @@ getters!(Trade {
     /// The offer's place in the villager's list, from 0.
     offer: u32,
     /// What one use of the offer costs: the first payment and the second (empty when the offer
-    /// has one).
+    /// has no second payment).
     inputs: &[Stack; 2],
     /// What one use of the offer gives.
     output: &Stack,

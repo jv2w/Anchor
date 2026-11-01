@@ -266,8 +266,8 @@ pub enum Drops {
 
 /// What a custom block does when players use it, place it or break it, and on random ticks: the
 /// extension point for custom block behaviour. Each hook runs in the tick's serial step with the
-/// whole game, after the engine's own rules and events for the action; direct API calls in it
-/// raise no events.
+/// whole game, once the engine has applied the action (its listeners first; the held item, drops
+/// and wear included) and before the action's monitors; direct API calls in it raise no events.
 pub trait Behaviour: Send + Sync {
     /// The player used (right-clicked) the block at `pos`. True if the block did something:
     /// then the held item is neither used nor placed (PMMP `Block::onInteract`).
@@ -295,7 +295,7 @@ pub trait Behaviour: Send + Sync {
         let _ = (ctx, player, world, pos, state);
     }
 
-    /// The block at `pos` was broken and removed (drops already made), by `player` if one broke
+    /// The block at `pos` was broken and removed (its drops have fallen), by `player` if one broke
     /// it (PMMP `Block::onBreak`).
     fn on_break(
         &self,

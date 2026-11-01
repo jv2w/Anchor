@@ -66,9 +66,7 @@ pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
     out.extend_from_slice(&raw_len.to_le_bytes());
     out.extend_from_slice(&[0; 4]);
     if record.len() >= MIN_COMPRESSED {
-        Compressor::new(Compression::Zlib, DEFLATE_LEVEL)
-            .compress(record, &mut out, MAX_RECORD)
-            .map_err(|_| Error::Encode(crate::protocol::Error::Size))?;
+        Compressor::new(Compression::Zlib, DEFLATE_LEVEL).compress(record, &mut out);
     }
     let compressed = out.len() - HEADER;
     if compressed == 0 || compressed >= record.len() {
@@ -154,7 +152,7 @@ fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
         DEFLATE => {
             let mut out = Vec::new();
             zlib::Decoder::new()
-                .decompress_whole(body, &mut out, raw_len, Framing::Raw)
+                .decompress_whole(body, raw_len, Framing::Raw, &mut out)
                 .map_err(Error::Compression)?;
             if out.len() == raw_len {
                 Ok(Cow::Owned(out))
@@ -522,7 +520,7 @@ mod tests {
                 let start = crate::clock::now();
                 for record in records {
                     let mut out = Vec::new();
-                    compressor.compress(record, &mut out, MAX_RECORD).unwrap();
+                    compressor.compress(record, &mut out);
                     packed.push(out);
                 }
                 let compress = crate::clock::now().duration_since(start);
@@ -531,7 +529,7 @@ mod tests {
                 for (record, packed) in records.iter().zip(&packed) {
                     let mut out = Vec::new();
                     decompressor
-                        .decompress(packed, &mut out, record.len())
+                        .decompress(packed, record.len(), &mut out)
                         .unwrap();
                 }
                 let decompress = crate::clock::now().duration_since(start);

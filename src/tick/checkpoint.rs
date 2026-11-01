@@ -42,6 +42,10 @@ use super::{Player, PlayerKey, State};
 
 /// The deepest nesting a checkpoint reads (NBT inside NBT): as deep as NBT itself allows.
 const MAX_DEPTH: usize = nbt::MAX_DEPTH;
+/// The bytes a checkpoint is charged per sub-chunk of terrain, about ([`terrain_size`]).
+const SUB_CHUNK_BYTES: usize = 4 << 10;
+/// The bytes a checkpoint is charged per loaded chunk position, about.
+const POSITION_BYTES: usize = 16;
 
 /// A checkpoint that cannot be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,10 +75,6 @@ pub(crate) struct Writer {
 }
 
 impl Writer {
-    pub(crate) fn into_parts(self) -> (Vec<u8>, Option<String>) {
-        (self.out, self.opaque)
-    }
-
     pub(crate) fn raw(&mut self, bytes: &[u8]) {
         self.out.extend_from_slice(bytes);
     }
@@ -85,21 +85,18 @@ impl Writer {
 
     /// A collection's length.
     pub(crate) fn len(&mut self, n: usize) {
-        self.raw(&u64::try_from(n).unwrap_or(u64::MAX).to_le_bytes());
+        n.encode(self);
     }
 
-    /// A slice as a [`Vec`] writes it: its length, then each item.
+    /// A slice as a [`Vec`] writes it: its length, then its items ([`Codec::encode_all`]).
     pub(crate) fn slice<T: Codec>(&mut self, items: &[T]) {
         self.len(items.len());
-        for v in items {
-            v.encode(self);
-        }
+        T::encode_all(items, self);
     }
 
-    /// Bytes as a `Vec<u8>` writes them, at once.
-    pub(crate) fn bytes(&mut self, bytes: &[u8]) {
-        self.len(bytes.len());
-        self.raw(bytes);
+    /// Text as a [`String`] writes it, without a copy.
+    pub(crate) fn text(&mut self, text: &str) {
+        self.slice(text.as_bytes());
     }
 
     /// Notes something that has no checkpoint form: `count` of `what` (`count` 0 is nothing).
@@ -107,6 +104,10 @@ impl Writer {
         if count > 0 && self.opaque.is_none() {
             self.opaque = Some(format!("{count} {what}"));
         }
+    }
+
+    pub(crate) fn into_parts(self) -> (Vec<u8>, Option<String>) {
+        (self.out, self.opaque)
     }
 }
 
@@ -144,12 +145,6 @@ impl<'a> Reader<'a> {
         Ok(head)
     }
 
-    fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| Error::Format("fixed width"))
-    }
-
     pub(crate) fn u8(&mut self) -> Result<u8> {
         Ok(u8::from_le_bytes(self.array()?))
     }
@@ -164,7 +159,7 @@ impl<'a> Reader<'a> {
         Ok(n)
     }
 
-    /// Bytes as [`Writer::bytes`] wrote them.
+    /// Bytes as [`Writer::slice`] writes a byte slice.
     pub(crate) fn bytes(&mut self) -> Result<&'a [u8]> {
         let n = self.len()?;
         self.take(n)
@@ -180,19 +175,25 @@ impl<'a> Reader<'a> {
         self.depth -= 1;
         value
     }
-}
 
-/// The room to reserve for `n` items of `T` read from `bytes_left` bytes (here and in the input
-/// log): counts are checked against the bytes left, but an item in memory can be larger than its
-/// smallest written form, so the reservation is bounded by the bytes left as well.
-pub(crate) fn capacity<T>(n: usize, bytes_left: usize) -> usize {
-    n.min(bytes_left / size_of::<T>().max(1))
+    fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| Error::Format("fixed width"))
+    }
 }
 
 /// A value with a checkpoint form.
 pub(crate) trait Codec: Sized {
     fn encode(&self, w: &mut Writer);
     fn decode(r: &mut Reader<'_>) -> Result<Self>;
+
+    /// Writes `items` one after another; bytes go at once.
+    fn encode_all(items: &[Self], w: &mut Writer) {
+        for v in items {
+            v.encode(w);
+        }
+    }
 }
 
 /// Implements [`Codec`] for a struct field by field, naming every field: a field added later
@@ -282,7 +283,21 @@ macro_rules! integers {
     };
 }
 
-integers!(u8, u16, u32, u64, i8, i16, i32, i64);
+integers!(u16, u32, u64, i8, i16, i32, i64);
+
+impl Codec for u8 {
+    fn encode(&self, w: &mut Writer) {
+        w.u8(*self);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.u8()
+    }
+
+    fn encode_all(items: &[Self], w: &mut Writer) {
+        w.raw(items);
+    }
+}
 
 impl Codec for usize {
     fn encode(&self, w: &mut Writer) {
@@ -340,13 +355,11 @@ impl Codec for NonZeroU32 {
 
 impl Codec for String {
     fn encode(&self, w: &mut Writer) {
-        w.len(self.len());
-        w.raw(self.as_bytes());
+        w.text(self);
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        let n = r.len()?;
-        Self::from_utf8(r.take(n)?.to_vec()).map_err(|_| Error::Format("text"))
+        Self::from_utf8(r.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
     }
 }
 
@@ -367,10 +380,10 @@ impl<T: Codec> Codec for Vec<T> {
 
 impl<T: Codec> Codec for VecDeque<T> {
     fn encode(&self, w: &mut Writer) {
+        let (front, back) = self.as_slices();
         w.len(self.len());
-        for v in self {
-            v.encode(w);
-        }
+        T::encode_all(front, w);
+        T::encode_all(back, w);
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -462,9 +475,7 @@ impl<T: Codec> Codec for Arc<T> {
 
 impl<T: Codec, const N: usize> Codec for [T; N] {
     fn encode(&self, w: &mut Writer) {
-        for v in self {
-            v.encode(w);
-        }
+        T::encode_all(self, w);
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -579,10 +590,10 @@ variants!(crate::event::Actor {
 
 impl Codec for crate::permission::BanEntry {
     fn encode(&self, w: &mut Writer) {
-        self.name().to_owned().encode(w);
+        w.text(self.name());
         self.ip_address().encode(w);
-        self.reason().to_owned().encode(w);
-        self.source().to_owned().encode(w);
+        w.text(self.reason());
+        w.text(self.source());
         self.created().encode(w);
         self.expires().encode(w);
     }
@@ -607,7 +618,7 @@ fields!(crate::save::PlayerData {
 
 impl Codec for crate::storage::PlayerKey {
     fn encode(&self, w: &mut Writer) {
-        self.as_str().to_owned().encode(w);
+        w.text(self.as_str());
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -656,7 +667,7 @@ variants!(crate::entity::ArrowPickup {
 
 impl Codec for crate::entity::PaintingMotive {
     fn encode(&self, w: &mut Writer) {
-        self.name().to_owned().encode(w);
+        w.text(self.name());
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -667,11 +678,11 @@ impl Codec for crate::entity::PaintingMotive {
 /// A human NPC's skin, checked again as it is made.
 impl Codec for crate::entity::Skin {
     fn encode(&self, w: &mut Writer) {
-        self.id().to_owned().encode(w);
-        self.data().to_vec().encode(w);
-        self.cape().to_vec().encode(w);
-        self.geometry_name().to_owned().encode(w);
-        self.geometry_data().to_vec().encode(w);
+        w.text(self.id());
+        w.slice(self.data());
+        w.slice(self.cape());
+        w.text(self.geometry_name());
+        w.slice(self.geometry_data());
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -757,7 +768,7 @@ impl Codec for crate::effect::Instance {
 
 impl<F: crate::protocol::Flag> Codec for crate::protocol::FlagSet<F> {
     fn encode(&self, w: &mut Writer) {
-        self.words().to_vec().encode(w);
+        w.slice(&self.words());
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -840,28 +851,20 @@ impl Codec for IpAddr {
     }
 }
 
-/// A skin in its protocol form.
+/// A skin in its protocol form ([`skin_bytes`]).
 impl Codec for Skin {
     fn encode(&self, w: &mut Writer) {
-        let mut bytes = crate::protocol::Writer::new(Vec::new(), 0);
-        if crate::protocol::Codec::encode(self.get(), &mut bytes).is_ok() {
-            w.bytes(bytes.as_bytes());
+        if let Ok(bytes) = skin_bytes(self) {
+            w.slice(&bytes);
         } else {
+            // The checkpoint notes what it could not keep; the cause is not part of it.
             w.opaque("skin that does not encode", 1);
             w.len(0);
         }
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        let n = r.len()?;
-        let bytes = r.take(n)?;
-        let mut reader = crate::protocol::Reader::new(bytes, bytes.len().saturating_mul(2), 0);
-        let skin = <crate::protocol::Skin as crate::protocol::Codec>::decode(&mut reader)
-            .map_err(|_| Error::Format("skin"))?;
-        if !reader.remaining().is_empty() {
-            return Err(Error::Format("bytes after a skin"));
-        }
-        Ok(Self::new(Arc::new(skin)))
+        read_skin(r.bytes()?).map_err(|_| Error::Format("skin"))
     }
 }
 
@@ -1019,15 +1022,6 @@ variants!(super::Phase {
     3 => Spawned,
 });
 
-/// What a restore reads the chunks with: the terrain the checkpoint kept of the unloaded chunks
-/// waiting for a commit, and the raw extras of every chunk it names, which the data files or the
-/// generator gives ([`Checkpoint::loaded`], [`Checkpoint::unsaved`]).
-#[derive(Debug, Default)]
-pub(crate) struct Ground {
-    pub(crate) chunks: BTreeMap<Key, Chunk>,
-    pub(crate) extras: BTreeMap<Key, ChunkExtras>,
-}
-
 /// The state at a tick boundary, as a replay starts from it ([`State::checkpoint`]).
 #[derive(Debug, Clone)]
 pub(crate) struct Checkpoint {
@@ -1048,17 +1042,19 @@ pub(crate) struct Checkpoint {
     opaque: Option<String>,
 }
 
-fields!(Checkpoint {
-    tick,
-    worlds,
-    saved,
-    body,
-    kept,
-    unsaved,
-    opaque,
-});
-
 impl Checkpoint {
+    /// Reads a written checkpoint with the server's custom content: its items, blocks and
+    /// entity types.
+    pub(crate) fn read(bytes: &[u8], custom: &Registry, entities: &Customs) -> Result<Self> {
+        let mut r = Reader::new(bytes, custom, entities);
+        let checkpoint = Self::decode(&mut r)?;
+        if r.is_empty() {
+            Ok(checkpoint)
+        } else {
+            Err(Error::Format("bytes after the checkpoint"))
+        }
+    }
+
     /// The engine tick of the state.
     pub(crate) fn tick(&self) -> u64 {
         self.tick
@@ -1098,13 +1094,13 @@ impl Checkpoint {
         let unsaved = self
             .unsaved
             .iter()
-            .map(|(_, c)| usize::from(c.sub_chunk_limit()).saturating_mul(4 << 10))
+            .map(|(_, c)| terrain_size(c))
             .fold(0, usize::saturating_add);
         self.body
             .len()
             .saturating_add(kept)
             .saturating_add(unsaved)
-            .saturating_add(positions.saturating_mul(16))
+            .saturating_add(positions.saturating_mul(POSITION_BYTES))
     }
 
     /// The checkpoint's written form.
@@ -1113,99 +1109,25 @@ impl Checkpoint {
         self.encode(&mut w);
         w.out
     }
-
-    /// Reads a written checkpoint with the server's custom content: its items, blocks and
-    /// entity types.
-    pub(crate) fn read(bytes: &[u8], custom: &Registry, entities: &Customs) -> Result<Self> {
-        let mut r = Reader::new(bytes, custom, entities);
-        let checkpoint = Self::decode(&mut r)?;
-        if r.is_empty() {
-            Ok(checkpoint)
-        } else {
-            Err(Error::Format("bytes after the checkpoint"))
-        }
-    }
 }
 
-/// A player as the body keeps it: every field but the session (the map's key), the key (its
-/// identity's again), the outbound queue (a replay gives a new one) and what is empty between
-/// ticks (the output, the outboxes and the overflow mark, whose player is gone by then).
-fn encode_player(p: &Player, data: &UserData, w: &mut Writer) {
-    let Player {
-        session: _,
-        runtime_id,
-        identity,
-        key: _,
-        world,
-        position,
-        data_dirty,
-        chunk_radius,
-        asked_radius,
-        phase,
-        view,
-        outbound: _,
-        pending: _,
-        extra,
-        inventory,
-        survival,
-        breaking,
-        outbox: _,
-        shared_outbox: _,
-        overflowed: _,
-        marks,
-        presence,
-    } = p;
-    runtime_id.encode(w);
-    identity.encode(w);
-    world.encode(w);
-    position.encode(w);
-    data_dirty.encode(w);
-    chunk_radius.encode(w);
-    asked_radius.encode(w);
-    phase.encode(w);
-    view.encode(w);
-    extra.checkpoint(data, w);
-    inventory.encode(w);
-    survival.encode(w);
-    breaking.encode(w);
-    marks.encode(w);
-    presence.encode(w);
-}
+fields!(Checkpoint {
+    tick,
+    worlds,
+    saved,
+    body,
+    kept,
+    unsaved,
+    opaque,
+});
 
-/// Reads what [`encode_player`] wrote for `session`, with the outbound queue `outbound`.
-fn decode_player(
-    r: &mut Reader<'_>,
-    session: SessionId,
-    data: &UserData,
-    outbound: mpsc::Sender<Outbound>,
-) -> Result<Player> {
-    let runtime_id = Codec::decode(r)?;
-    let identity: Identity = Codec::decode(r)?;
-    let key = PlayerKey::of(&identity);
-    Ok(Player {
-        session,
-        runtime_id,
-        identity,
-        key,
-        world: Codec::decode(r)?,
-        position: Codec::decode(r)?,
-        data_dirty: Codec::decode(r)?,
-        chunk_radius: Codec::decode(r)?,
-        asked_radius: Codec::decode(r)?,
-        phase: Codec::decode(r)?,
-        view: Codec::decode(r)?,
-        outbound,
-        pending: super::spawn::Pending::default(),
-        extra: super::extra::PlayerExtra::restore(r, data)?,
-        inventory: Codec::decode(r)?,
-        survival: Codec::decode(r)?,
-        breaking: Codec::decode(r)?,
-        outbox: Vec::new(),
-        shared_outbox: Vec::new(),
-        overflowed: false,
-        marks: Codec::decode(r)?,
-        presence: Codec::decode(r)?,
-    })
+/// What a restore reads the chunks with: the terrain the checkpoint kept of the unloaded chunks
+/// waiting for a commit, and the raw extras of every chunk it names, which the data files or the
+/// generator gives ([`Checkpoint::loaded`], [`Checkpoint::unsaved`]).
+#[derive(Debug, Default)]
+pub(crate) struct Ground {
+    pub(crate) chunks: BTreeMap<Key, Chunk>,
+    pub(crate) extras: BTreeMap<Key, ChunkExtras>,
 }
 
 impl State {
@@ -1266,7 +1188,7 @@ impl State {
         w.len(encoded.len());
         for ((session, _), (bytes, opaque)) in list.iter().zip(encoded) {
             session.encode(&mut w);
-            w.bytes(&bytes);
+            w.slice(&bytes);
             if let Some(what) = opaque {
                 w.opaque(&what, 1);
             }
@@ -1425,10 +1347,123 @@ impl State {
     }
 }
 
+/// A player as the body keeps it: every field but the session (the map's key), the key (its
+/// identity's again), the outbound queue (a replay gives a new one) and what is empty between
+/// ticks (the output, the outboxes and the overflow mark, whose player is gone by then).
+fn encode_player(p: &Player, data: &UserData, w: &mut Writer) {
+    let Player {
+        session: _,
+        runtime_id,
+        identity,
+        key: _,
+        world,
+        position,
+        data_dirty,
+        chunk_radius,
+        asked_radius,
+        phase,
+        view,
+        outbound: _,
+        pending: _,
+        extra,
+        inventory,
+        survival,
+        breaking,
+        outbox: _,
+        shared_outbox: _,
+        overflowed: _,
+        marks,
+        presence,
+    } = p;
+    runtime_id.encode(w);
+    identity.encode(w);
+    world.encode(w);
+    position.encode(w);
+    data_dirty.encode(w);
+    chunk_radius.encode(w);
+    asked_radius.encode(w);
+    phase.encode(w);
+    view.encode(w);
+    extra.checkpoint(data, w);
+    inventory.encode(w);
+    survival.encode(w);
+    breaking.encode(w);
+    marks.encode(w);
+    presence.encode(w);
+}
+
+/// Reads what [`encode_player`] wrote for `session`, with the outbound queue `outbound`.
+fn decode_player(
+    r: &mut Reader<'_>,
+    session: SessionId,
+    data: &UserData,
+    outbound: mpsc::Sender<Outbound>,
+) -> Result<Player> {
+    let runtime_id = Codec::decode(r)?;
+    let identity: Identity = Codec::decode(r)?;
+    let key = PlayerKey::of(&identity);
+    Ok(Player {
+        session,
+        runtime_id,
+        identity,
+        key,
+        world: Codec::decode(r)?,
+        position: Codec::decode(r)?,
+        data_dirty: Codec::decode(r)?,
+        chunk_radius: Codec::decode(r)?,
+        asked_radius: Codec::decode(r)?,
+        phase: Codec::decode(r)?,
+        view: Codec::decode(r)?,
+        outbound,
+        pending: super::spawn::Pending::default(),
+        extra: super::extra::PlayerExtra::restore(r, data)?,
+        inventory: Codec::decode(r)?,
+        survival: Codec::decode(r)?,
+        breaking: Codec::decode(r)?,
+        outbox: Vec::new(),
+        shared_outbox: Vec::new(),
+        overflowed: false,
+        marks: Codec::decode(r)?,
+        presence: Codec::decode(r)?,
+    })
+}
+
+/// The room to reserve for `n` items of `T` read from `bytes_left` bytes (here and in the input
+/// log): counts are checked against the bytes left, but an item in memory can be larger than its
+/// smallest written form, so the reservation is bounded by the bytes left as well.
+pub(crate) fn capacity<T>(n: usize, bytes_left: usize) -> usize {
+    n.min(bytes_left / size_of::<T>().max(1))
+}
+
+/// The bytes a checkpoint is charged for a chunk's terrain, about: [`SUB_CHUNK_BYTES`] per
+/// sub-chunk, whether it keeps the chunk loaded or waiting for a commit.
+pub(crate) fn terrain_size(chunk: &Chunk) -> usize {
+    usize::from(chunk.sub_chunk_limit()).saturating_mul(SUB_CHUNK_BYTES)
+}
+
+/// The protocol form of a session skin, as a checkpoint and the input log keep it.
+pub(crate) fn skin_bytes(skin: &Skin) -> crate::protocol::Result<Vec<u8>> {
+    let mut w = crate::protocol::Writer::new(Vec::new(), 0);
+    crate::protocol::Codec::encode(skin.get(), &mut w)?;
+    Ok(w.into_inner())
+}
+
+/// Reads a session skin that takes all of `bytes`, as [`skin_bytes`] wrote it.
+pub(crate) fn read_skin(bytes: &[u8]) -> crate::protocol::Result<Skin> {
+    let mut r = crate::protocol::Reader::new(bytes, bytes.len().saturating_mul(2), 0);
+    let skin = <crate::protocol::Skin as crate::protocol::Codec>::decode(&mut r)?;
+    if r.remaining().is_empty() {
+        Ok(Skin::new(Arc::new(skin)))
+    } else {
+        Err(crate::protocol::Error::InvalidValue {
+            field: "skin",
+            reason: "bytes after the skin",
+        })
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
-    //! Checkpoint round trips: the determinism runs check one at every save boundary they reach.
-
     use super::*;
 
     /// The raw extras the data files hold for `state`'s chunks right after a snapshot.
@@ -1447,9 +1482,15 @@ pub(super) mod tests {
         extras
     }
 
-    /// Checks that a checkpoint of `state` reads back to the same bytes and, unless it is opaque,
+    /// An outbound queue whose receiver is gone (nothing is delivered in a round trip).
+    fn outbound_queue_sender() -> mpsc::Sender<Outbound> {
+        crate::tick::queue::outbound_queue().0
+    }
+
+    /// Asserts that a checkpoint of `state` reads back to the same bytes and, unless it is opaque,
     /// restores into `fresh` (a state made as `state` was, at any tick) with the same hash, the
-    /// same indexes and the same checkpoint. Returns whether it was restored.
+    /// same indexes and the same checkpoint; the determinism runs assert it at every save boundary
+    /// they reach. Returns whether it was restored.
     pub(in crate::tick) fn assert_round_trip(state: &State, mut fresh: State, pool: &Pool) -> bool {
         let checkpoint = state.checkpoint(pool);
         let bytes = checkpoint.to_bytes();
@@ -1529,8 +1570,11 @@ pub(super) mod tests {
         assert!(reserved < 1 << 30, "{reserved} bytes reserved");
     }
 
-    /// An outbound queue whose receiver is gone (nothing is delivered in a round trip).
-    fn outbound_queue_sender() -> mpsc::Sender<Outbound> {
-        super::super::queue::outbound_queue().0
+    #[test]
+    fn a_skin_with_bytes_after_it_is_refused() {
+        let mut bytes = skin_bytes(&Skin::default()).unwrap();
+        assert_eq!(read_skin(&bytes).unwrap(), Skin::default());
+        bytes.push(0);
+        assert!(read_skin(&bytes).is_err());
     }
 }

@@ -33,13 +33,18 @@
 //!    minute; clouds shrink and give their effects; NPCs count down their hit cooldown and die;
 //!    end crystals that died explode (within the same budget); firework rockets speed up and
 //!    burst when their flight time is up.
-//!    An explosion changes blocks and pushes entities, so the entities near it that have not
-//!    moved yet this tick move again from their new state (serially), as PMMP's one-by-one
-//!    update would. Then players pick up the items and stuck arrows they touch (what does not
-//!    fit stays on the ground).
+//!    An entity whose body a rule changed after its step was computed (a knockback, a push), and
+//!    the entities near an explosion of this tick (whose blocks changed), move again from their
+//!    new state when their turn comes (serially), as PMMP's one-by-one update would. Then
+//!    players pick up the items and stuck arrows they touch (what does not fit stays on the
+//!    ground).
 //! 3. Removals, then tracking: players who see an entity's chunk are sent it, its movement and
-//!    its removal; players who see each other's chunk are sent each other. Every kind of packet
-//!    has a per-tick bound, and what is over it waits for the next tick.
+//!    its removal; players who see each other's chunk are sent each other. Showing and taking
+//!    away entities and players share one bound per player and tick
+//!    ([`MAX_SPAWNS_PER_PLAYER`]), and movements have their own ([`MAX_MOVEMENTS_PER_TICK`]);
+//!    what is over a bound waits for the next tick. The removal of an entity that goes or of a
+//!    player that leaves, the moves and equipment of players, and what a hit or a merge shows
+//!    are sent at once.
 //!
 //! # Events
 //!
@@ -74,26 +79,23 @@ mod projectile;
 mod saved;
 mod track;
 
+pub use api::Mut;
+pub(crate) use custom::{Customs, EntityTypes};
+pub(super) use explosion::Blast;
+pub use kind::MAX_NAME_TAG_BYTES;
+pub(super) use object::Placed;
+pub(crate) use physics::bounded as bounded_motion;
+pub(super) use physics::{
+    Harm, INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid,
+    is_solid, liquid_depth,
+};
+pub(super) use pick::on_actor_pick_request;
+pub(super) use track::locator_life;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use tracing::{debug, warn};
 
-pub use self::api::Mut;
-pub(crate) use self::custom::{Customs, EntityTypes};
-pub(super) use self::explosion::Blast;
-pub use self::kind::MAX_NAME_TAG_BYTES;
-use self::kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind, NEVER, Orb};
-#[cfg(test)]
-use self::kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
-pub(super) use self::object::Placed;
-pub(crate) use self::physics::bounded as bounded_motion;
-use self::physics::{Body, Inside, Step};
-pub(super) use self::physics::{
-    Harm, INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid,
-    liquid_depth,
-};
-pub(super) use self::pick::on_actor_pick_request;
-pub(super) use self::track::locator_life;
 use super::interact::breaking::damage as worn;
 use super::interact::drops::level as level_of;
 use super::interact::level_event;
@@ -119,17 +121,23 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
 
-/// The most entities one world holds. 16,384 keeps the tick of a world full of falling items within
-/// a few milliseconds (measured in `tick_cost`) and the store's memory near 6 MiB; PMMP and
-/// dragonfly have no cap. At the cap, actions that would create an entity are refused and the
-/// caller keeps its items.
+use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind, NEVER, Orb};
+#[cfg(test)]
+use kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
+use physics::{Body, Inside, Step};
+
+/// The most entities one world holds. `tick_cost` measures the tick of 10,000 falling items at a
+/// few milliseconds, and 16,384 keeps the store's memory near 6 MiB; PMMP and dragonfly have no
+/// cap. At the cap, actions that would create an entity are refused and the caller keeps its
+/// items.
 pub const MAX_ENTITIES_PER_WORLD: usize = 16_384;
 /// The most players one player hides (`Context::hide_player`).
 pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
-/// Spawn and removal packets one player is sent per tick; the rest wait (a view entering a chunk
-/// full of items fills in over ticks instead of overflowing the outbox).
+/// Entities and players one player is shown or has taken away per tick, whatever packets each
+/// takes; the rest wait (a view entering a chunk full of items, or a crowd teleported together,
+/// fills in over ticks instead of overflowing the outbox).
 const MAX_SPAWNS_PER_PLAYER: u32 = 512;
-/// Entities whose movement is sent per tick (each up to three packets per viewer); the others
+/// Entities whose movement is sent per tick (each up to four packets per viewer); the others
 /// keep their last sent state and are sent in a later tick, in turn.
 const MAX_MOVEMENTS_PER_TICK: usize = 256;
 /// Item merges per tick; later candidates check again two ticks on.
@@ -167,62 +175,52 @@ const ANVILS: [&str; 3] = [
     "minecraft:chipped_anvil",
     "minecraft:damaged_anvil",
 ];
-/// The world border (as for players).
-const MAX_COORDINATE: f64 = crate::world::BORDER as f64;
 /// Random streams (`crate::random`), one per purpose.
 const DROP_RANDOM: u64 = random::tag("entity-drop");
 const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
 const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 const ANVIL_RANDOM: u64 = random::tag("entity-anvil-land");
-
-/// An entity, as a [`Context`](crate::Context) lends it (PMMP `Entity`): what it is and where;
-/// [`Mut`] changes it.
-#[derive(Debug, Clone)]
-// pmmp-class: Entity
-pub struct Entity {
-    /// 0 until the tick gives it one (loaded entities).
-    runtime_id: u64,
-    world: WorldIndex,
-    /// The chunk the index lists it in: the chunk of its position.
-    chunk: ChunkPos,
-    body: Body,
-    /// A block changed nearby: it moves at the next tick even at rest.
-    forced: bool,
-    /// Degrees; values a float holds exactly, as saved.
-    yaw: f64,
-    pitch: f64,
-    health: f64,
-    /// Ticks it keeps burning.
-    fire_ticks: i16,
-    /// Ticks it has been ticked.
-    age: u32,
-    kind: Kind,
-    /// The name tag (at most [`kind::MAX_NAME_TAG_BYTES`]); a human NPC's is its name.
-    name_tag: String,
-    /// The name tag shows when looked at (PMMP `nameTagVisible`).
-    name_tag_visible: bool,
-    /// The name tag shows always (PMMP `alwaysShowNameTag`; human NPCs start with it).
-    name_tag_always_visible: bool,
-    /// The size multiplier of its box and model, above 0 and within [`is_valid_scale`].
-    scale: f64,
-    /// Not drawn by clients (PMMP `invisible`).
-    invisible: bool,
-    /// Gravity pulls it (PMMP `gravityEnabled`).
-    gravity: bool,
-    /// Saved with its chunk (PMMP `savedWithChunk`); one that is not goes when the chunk unloads.
-    saved: bool,
-    /// Its metadata changed (name tag, scale, kind values): the viewers get it at the next
-    /// movement pass.
-    resend: bool,
-    /// Gone: removed at the end of a tick, ignored until then.
-    flagged: bool,
-    /// Its motion was zero at the last movement check (PMMP `noClientPredictions`).
-    still: bool,
-    /// The players it was sent to.
-    viewers: BTreeSet<SessionId>,
-    /// What the viewers were last sent.
-    sent: Sent,
-}
+/// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
+pub(super) const KNOCKBACK: f64 = 0.4;
+/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
+pub(super) const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
+/// Ticks within which a weaker hit on an entity or a player does nothing (PMMP
+/// `EntityDamageEvent::$attackCooldown`).
+pub(super) const ATTACK_COOLDOWN: u8 = 10;
+/// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
+pub(super) const VOID_DAMAGE: f64 = 10.0;
+/// At or below this feet height the void hurts: 16 under the lowest block.
+pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
+/// Ticks between the damage of burning (PMMP `Entity::doOnFireTick`).
+pub(super) const FIRE_DAMAGE_TICKS: u8 = 20;
+/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
+pub(super) const SAFE_FALL: f64 = 3.0;
+/// Damage of a tick with the eyes inside a solid block (PMMP `Living::entityBaseTick`).
+pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
+/// The experience a zombie drops (PMMP `Zombie::getXpDropAmount`).
+const ZOMBIE_XP: u32 = 5;
+/// The change of a cloud's radius that is sent (PMMP sends each tick's; a twentieth of a block
+/// is too small to see and saves nine of ten packets).
+const RADIUS_STEP: f64 = 0.05;
+/// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
+/// without one (PMMP `PrimedTNT::initEntity`).
+pub(super) const TNT_FUSE: u16 = 80;
+/// The hooks of the running server.
+const HOOKS: Hooks = Hooks {
+    give: inventory::give,
+    room,
+    pickup_experience: survival::pickup_experience,
+    damage: survival::damage_by,
+    has_attack_cooldown: survival::has_attack_cooldown,
+    add_effect: survival::add_effect,
+    heal: survival::heal,
+    set_on_fire: survival::set_on_fire_by,
+    teleport: survival::teleport,
+    is_alive: survival::is_alive,
+    look: survival::rotation,
+    has_arrow: inventory::has_arrow,
+    take_arrow: inventory::take_arrow,
+};
 
 /// The state players were last sent of an entity's movement and flags (PMMP `lastLocation`,
 /// `lastMotion`).
@@ -238,6 +236,16 @@ struct Sent {
     /// The health (sent to the viewers of custom entities only).
     health: f64,
 }
+
+super::checkpoint::fields!(Sent {
+    position,
+    motion,
+    yaw,
+    pitch,
+    flags,
+    radius,
+    health,
+});
 
 /// What a hit did to an entity ([`Entity::take_hit`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,23 +269,34 @@ struct Knock {
     vertical: f64,
 }
 
-/// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
-pub(super) const KNOCKBACK: f64 = 0.4;
-/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
-pub(super) const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
-/// Ticks within which a weaker hit on an entity or a player does nothing (PMMP
-/// `EntityDamageEvent::$attackCooldown`).
-pub(super) const ATTACK_COOLDOWN: u8 = 10;
-/// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
-pub(super) const VOID_DAMAGE: f64 = 10.0;
-/// At or below this feet height the void hurts: 16 under the lowest block.
-pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
-/// Ticks between the damage of burning (PMMP `Entity::doOnFireTick`).
-pub(super) const FIRE_DAMAGE_TICKS: u8 = 20;
-/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
-pub(super) const SAFE_FALL: f64 = 3.0;
-/// Damage of a tick with the eyes inside a solid block (PMMP `Living::entityBaseTick`).
-pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
+impl Knock {
+    /// The default knockback away along (`x`, `z`).
+    fn new(x: f64, z: f64) -> Self {
+        Self {
+            x,
+            z,
+            force: KNOCKBACK,
+            vertical: KNOCKBACK_VERTICAL_LIMIT,
+        }
+    }
+
+    /// The motion of something moving at `motion` after this knockback; `None` without a
+    /// horizontal direction (PMMP `knockBack`; knockback resistance is 0 for entities and
+    /// players here).
+    fn applied_to(self, motion: Vec3) -> Option<Vec3> {
+        let f = (self.x * self.x + self.z * self.z).sqrt();
+        if f.is_nan() || f <= 0.0 {
+            return None;
+        }
+        let f = 1.0 / f;
+        let y = motion.y / 2.0 + self.force;
+        Some(Vec3::new(
+            motion.x / 2.0 + self.x * f * self.force,
+            crate::math::min(y, self.vertical),
+            motion.z / 2.0 + self.z * f * self.force,
+        ))
+    }
+}
 
 /// How a hit would hurt an entity ([`Entity::plan_hit`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -346,38 +365,53 @@ pub(super) enum Raise {
     Quiet,
 }
 
-/// The actor of a player's session in events.
-fn player_actor(session: SessionId) -> Actor {
-    Actor::Player(crate::player::Id::new(session))
-}
-
-impl Knock {
-    /// The default knockback away along (`x`, `z`).
-    fn new(x: f64, z: f64) -> Self {
-        Self {
-            x,
-            z,
-            force: KNOCKBACK,
-            vertical: KNOCKBACK_VERTICAL_LIMIT,
-        }
-    }
-
-    /// The motion of something moving at `motion` after this knockback; `None` without a
-    /// horizontal direction (PMMP `knockBack`; knockback resistance is 0 for entities and
-    /// players here).
-    fn applied_to(self, motion: Vec3) -> Option<Vec3> {
-        let f = (self.x * self.x + self.z * self.z).sqrt();
-        if f.is_nan() || f <= 0.0 {
-            return None;
-        }
-        let f = 1.0 / f;
-        let y = motion.y / 2.0 + self.force;
-        Some(Vec3::new(
-            motion.x / 2.0 + self.x * f * self.force,
-            crate::math::min(y, self.vertical),
-            motion.z / 2.0 + self.z * f * self.force,
-        ))
-    }
+/// An entity, as a [`Context`](crate::Context) lends it (PMMP `Entity`): what it is and where;
+/// [`Mut`] changes it.
+#[derive(Debug, Clone)]
+// pmmp-class: Entity
+pub struct Entity {
+    /// 0 until the tick gives it one (loaded entities).
+    runtime_id: u64,
+    world: WorldIndex,
+    /// The chunk the index lists it in: the chunk of its position.
+    chunk: ChunkPos,
+    body: Body,
+    /// A block changed nearby: it moves at the next tick even at rest.
+    forced: bool,
+    /// Degrees; values a float holds exactly, as saved.
+    yaw: f64,
+    pitch: f64,
+    health: f64,
+    /// Ticks it keeps burning.
+    fire_ticks: i16,
+    /// Ticks it has been ticked.
+    age: u32,
+    kind: Kind,
+    /// The name tag (at most [`kind::MAX_NAME_TAG_BYTES`]); a human NPC's is its name.
+    name_tag: String,
+    /// The name tag shows when looked at (PMMP `nameTagVisible`).
+    name_tag_visible: bool,
+    /// The name tag shows always (PMMP `alwaysShowNameTag`; human NPCs start with it).
+    name_tag_always_visible: bool,
+    /// The size multiplier of its box and model, above 0 and within [`is_valid_scale`].
+    scale: f64,
+    /// Not drawn by clients (PMMP `invisible`).
+    invisible: bool,
+    /// Gravity pulls it (PMMP `gravityEnabled`).
+    gravity: bool,
+    /// Saved with its chunk (PMMP `savedWithChunk`); one that is not goes when the chunk unloads.
+    saved: bool,
+    /// Its metadata changed (name tag, scale, kind values): the viewers get it at the next
+    /// movement pass.
+    resend: bool,
+    /// Gone: removed at the end of a tick, ignored until then.
+    flagged: bool,
+    /// Its motion was zero at the last movement check (PMMP `noClientPredictions`).
+    still: bool,
+    /// The players it was sent to.
+    viewers: BTreeSet<SessionId>,
+    /// What the viewers were last sent.
+    sent: Sent,
 }
 
 impl Entity {
@@ -752,173 +786,31 @@ impl Entity {
     }
 }
 
-#[cfg(test)]
-fn hash_projectile(h: &mut super::Fnv, p: &Projectile) {
-    let Projectile {
-        shot,
-        damage,
-        stuck,
-        owner,
-        owner_runtime_id,
-    } = p;
-    match shot {
-        Shot::Arrow(kind::Arrow {
-            critical,
-            pickup,
-            punch,
-            life,
-        }) => {
-            h.u64(0);
-            h.u64(u64::from(*critical));
-            h.u64(u64::from(pickup.to_byte()));
-            h.u64(u64::from(*punch));
-            h.u64(u64::from(life.cast_unsigned()));
-        }
-        Shot::Snowball => h.u64(1),
-        Shot::Egg => h.u64(2),
-        Shot::EnderPearl => h.u64(3),
-        Shot::Potion { potion, linger } => {
-            h.u64(4);
-            h.u64(u64::from(potion.id()));
-            h.u64(u64::from(*linger));
-        }
-        Shot::ExperienceBottle => h.u64(5),
-        Shot::Trident(kind::Trident {
-            item,
-            creative,
-            can_collide,
-        }) => {
-            h.u64(6);
-            super::inventory::hash_stack(h, item);
-            h.u64(u64::from(*creative));
-            h.u64(u64::from(*can_collide));
-        }
-        Shot::IceBomb => h.u64(7),
-    }
-    h.u64(damage.to_bits());
-    match stuck {
-        Some(p) => {
-            h.u64(1);
-            for c in [p.x, p.y, p.z] {
-                h.u64(u64::from(c.cast_unsigned()));
-            }
-        }
-        None => h.u64(0),
-    }
-    h.u64(owner.map_or(0, |s| s.get().wrapping_add(1)));
-    h.u64(*owner_runtime_id);
-}
-
-#[cfg(test)]
-fn hash_cloud(h: &mut super::Fnv, c: &Cloud) {
-    let Cloud {
-        effects,
-        age,
-        max_age,
-        max_age_on_use,
-        reapplication_delay,
-        pickup_count,
-        initial_radius,
-        radius,
-        radius_on_pickup,
-        radius_on_use,
-        radius_per_tick,
-        victims,
-    } = c;
-    h.usize(effects.len());
-    for e in effects {
-        h.u64(u64::from(e.effect().id()));
-        h.u64(u64::from(e.duration_ticks()));
-        h.u64(u64::from(e.amplifier()));
-        h.u64(u64::from(e.is_visible()));
-        h.u64(u64::from(e.is_ambient()));
-    }
-    h.u64(u64::from(*age));
-    for v in [
-        *max_age,
-        *max_age_on_use,
-        *reapplication_delay,
-        *pickup_count,
-    ] {
-        h.u64(u64::from(v.cast_unsigned()));
-    }
-    for v in [
-        *initial_radius,
-        *radius,
-        *radius_on_pickup,
-        *radius_on_use,
-        *radius_per_tick,
-    ] {
-        h.u64(v.to_bits());
-    }
-    h.usize(victims.len());
-    for (v, until) in victims {
-        match v {
-            kind::Victim::Player(s) => {
-                h.u64(0);
-                h.u64(s.get());
-            }
-            kind::Victim::Entity(id) => {
-                h.u64(1);
-                hash_id(h, *id);
-            }
-        }
-        h.u64(u64::from(*until));
-    }
-}
-
-#[cfg(test)]
-fn hash_character(h: &mut super::Fnv, c: &Character) {
-    let Character {
-        form,
-        invulnerable,
-        attack_time,
-        last_damage,
-        dead_ticks,
-        data,
-        held,
-    } = c;
-    match form {
-        Form::Villager {
-            profession,
-            offers,
-            baby,
-        } => {
-            h.u64(0);
-            h.u64(u64::from(*profession));
-            offers.hash_into(h);
-            h.u64(u64::from(*baby));
-        }
-        Form::Zombie { baby } => {
-            h.u64(3);
-            h.u64(u64::from(*baby));
-        }
-        Form::Human { uuid, skin } => {
-            h.u64(1);
-            h.bytes(uuid.as_bytes());
-            match skin {
-                Some(s) => {
-                    h.bytes(s.id().as_bytes());
-                    h.bytes(s.data());
-                    h.bytes(s.cape());
-                    h.bytes(s.geometry_name().as_bytes());
-                    h.bytes(s.geometry_data());
-                }
-                None => h.u64(u64::MAX),
-            }
-        }
-        Form::Custom(kind::Custom { spec }) => {
-            h.u64(2);
-            h.u64(u64::from(spec.index));
-        }
-    }
-    super::extra::hash_nbt(h, data);
-    super::inventory::hash_stack(h, held);
-    h.u64(u64::from(*invulnerable));
-    h.u64(u64::from(*attack_time));
-    h.u64(last_damage.to_bits());
-    h.u64(dead_ticks.map_or(0, |t| u64::from(t) + 1));
-}
+super::checkpoint::fields!(Entity {
+    runtime_id,
+    world,
+    chunk,
+    body,
+    forced,
+    yaw,
+    pitch,
+    health,
+    fire_ticks,
+    age,
+    kind,
+    name_tag,
+    name_tag_visible,
+    name_tag_always_visible,
+    scale,
+    invisible,
+    gravity,
+    saved,
+    resend,
+    flagged,
+    still,
+    viewers,
+    sent,
+});
 
 /// A slot of the store.
 #[derive(Debug, Default)]
@@ -928,13 +820,7 @@ struct Slot {
     entity: Option<Entity>,
 }
 
-/// The live entity `id` names among `slots` ([`Entities::get`]).
-fn live(slots: &[Slot], id: Id) -> Option<&Entity> {
-    let slot = slots.get(usize::try_from(id.index()).ok()?)?;
-    (slot.generation == id.generation())
-        .then_some(slot.entity.as_ref())
-        .flatten()
-}
+super::checkpoint::fields!(Slot { generation, entity });
 
 /// The entities of one chunk and the players that see it.
 #[derive(Debug, Default)]
@@ -949,12 +835,23 @@ struct Column {
     arrived: BTreeSet<Id>,
 }
 
+super::checkpoint::fields!(Column {
+    ids,
+    viewers,
+    arrived
+});
+
 /// An entity that left with its chunk, still to be removed from its viewers.
 #[derive(Debug, Clone, PartialEq)]
 struct Departed {
     runtime_id: u64,
     viewers: BTreeSet<SessionId>,
 }
+
+super::checkpoint::fields!(Departed {
+    runtime_id,
+    viewers
+});
 
 /// What other players were last sent of a player.
 #[derive(Debug, Clone, PartialEq)]
@@ -970,6 +867,52 @@ struct Watched {
     off_hand: Stack,
     armour: [Stack; 4],
 }
+
+impl Watched {
+    /// Whether the armour is what `before` holds, piece by piece ([`Stack::same`]).
+    fn same_armour(&self, before: &Self) -> bool {
+        self.armour
+            .iter()
+            .zip(&before.armour)
+            .all(|(a, b)| a.same(b))
+    }
+
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            runtime_id,
+            viewers,
+            position,
+            rotation: (yaw, pitch),
+            held,
+            held_slot,
+            off_hand,
+            armour,
+        } = self;
+        h.u64(*runtime_id);
+        for v in viewers {
+            h.u64(v.get());
+        }
+        for c in [position.x, position.y, position.z, *yaw, *pitch] {
+            h.u64(c.to_bits());
+        }
+        for stack in std::iter::once(held).chain([off_hand]).chain(armour) {
+            super::inventory::hash_stack(h, stack);
+        }
+        h.u64(u64::from(*held_slot));
+    }
+}
+
+super::checkpoint::fields!(Watched {
+    runtime_id,
+    viewers,
+    position,
+    rotation,
+    held,
+    held_slot,
+    off_hand,
+    armour,
+});
 
 /// Every non-player entity, and what players were sent of entities and of each other.
 #[derive(Debug, Default)]
@@ -1004,8 +947,8 @@ pub(super) struct Entities {
     /// The slot where the next movement pass starts, so every entity is sent in turn.
     cursor: u32,
     /// Entities near an explosion of this tick, or changed by a listener while the steps apply,
-    /// that move again from their new state when their turn comes (at most every entity; empty
-    /// between ticks).
+    /// that move again from their new state when their turn comes even if their body is the
+    /// same (at most every entity; empty between ticks).
     restep: BTreeSet<Id>,
     /// The steps are being applied: an entity a listener changes through [`Mut`] moves again
     /// from its new state ([`Self::restep`]) instead of the step computed before.
@@ -1028,41 +971,6 @@ pub(super) struct Entities {
     /// Whether experience exists (`experience`, fixed at start): without it a load drops saved
     /// orbs.
     experience: bool,
-}
-
-/// One compound of a chunk's saved entity list, read off the tick ([`read`]).
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct Saved(Read);
-
-/// What a saved compound is to the store.
-#[derive(Debug, Clone, PartialEq)]
-enum Read {
-    /// An entity, waiting for the store to give it a slot.
-    Entity(Box<saved::Loaded>),
-    /// Not an entity here: the store keeps the compound as saved.
-    Kept(Compound),
-}
-
-/// Reads the saved entity list of chunk `pos` for [`Entities::load`], in list order: off the
-/// tick, as it needs nothing of the tick's state. `types` are the server's custom entity types
-/// and `content` its custom content, which saved items are read through.
-pub(super) fn read(
-    pos: ChunkPos,
-    list: &[Compound],
-    types: &EntityTypes,
-    content: &crate::custom::Registry,
-) -> Vec<Saved> {
-    list.iter()
-        .map(|c| {
-            Saved(if let Some(l) = saved::load(c, pos, types, content) {
-                Read::Entity(Box::new(l))
-            } else {
-                #[cfg(test)]
-                super::rules::reads::add(|r| r.clones += 1);
-                Read::Kept(c.clone())
-            })
-        })
-        .collect()
 }
 
 impl Entities {
@@ -1363,7 +1271,12 @@ impl Entities {
             .get(&key)
             .map(|c| c.ids.iter().copied().collect())
             .unwrap_or_default();
-        let mut list = Vec::with_capacity(ids.len());
+        // Only a chunk that changed hands its list back, so an unchanged one saves no entity.
+        let mut list = if changed {
+            Vec::with_capacity(ids.len())
+        } else {
+            Vec::new()
+        };
         // Only an entity waiting for its runtime ID is in `unassigned`.
         let mut took_unassigned = false;
         for id in ids {
@@ -1376,7 +1289,7 @@ impl Entities {
             if announced && self.despawn_heard && e.runtime_id != 0 {
                 self.left.push(id);
             }
-            if !e.flagged && e.saved {
+            if changed && !e.flagged && e.saved {
                 list.push(saved::save(&e));
             }
             if e.runtime_id != 0 && !e.viewers.is_empty() {
@@ -1395,10 +1308,13 @@ impl Entities {
                     .is_some_and(|s| s.generation == id.generation() && s.entity.is_some())
             });
         }
-        list.extend(self.kept.remove(&key).unwrap_or_default());
+        let kept = self.kept.remove(&key).unwrap_or_default();
         // Taking the entities out marked the chunk; what counts is whether it changed before.
         self.changed.remove(&key);
-        changed.then_some(list)
+        changed.then(|| {
+            list.extend(kept);
+            list
+        })
     }
 
     /// The full lists of the chunks that changed since the last call, for a save snapshot.
@@ -1552,65 +1468,9 @@ impl Entities {
             b.hash_into(h);
         }
     }
-}
 
-super::checkpoint::fields!(Entity {
-    runtime_id,
-    world,
-    chunk,
-    body,
-    forced,
-    yaw,
-    pitch,
-    health,
-    fire_ticks,
-    age,
-    kind,
-    name_tag,
-    name_tag_visible,
-    name_tag_always_visible,
-    scale,
-    invisible,
-    gravity,
-    saved,
-    resend,
-    flagged,
-    still,
-    viewers,
-    sent,
-});
-super::checkpoint::fields!(Sent {
-    position,
-    motion,
-    yaw,
-    pitch,
-    flags,
-    radius,
-    health,
-});
-super::checkpoint::fields!(Slot { generation, entity });
-super::checkpoint::fields!(Column {
-    ids,
-    viewers,
-    arrived
-});
-super::checkpoint::fields!(Departed {
-    runtime_id,
-    viewers
-});
-super::checkpoint::fields!(Watched {
-    runtime_id,
-    viewers,
-    position,
-    rotation,
-    held,
-    held_slot,
-    off_hand,
-    armour,
-});
-
-impl Entities {
-    /// Writes every field but the custom types, which are code fixed at start.
+    /// Writes every field but the custom types and the experience setting, which are fixed at
+    /// start.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
         let Self {
@@ -1693,89 +1553,17 @@ impl Entities {
     }
 }
 
-#[cfg(test)]
-fn hash_key(h: &mut super::Fnv, (w, p): Key) {
-    h.usize(w);
-    h.u64(u64::from(p.x.cast_unsigned()));
-    h.u64(u64::from(p.z.cast_unsigned()));
-}
+/// One compound of a chunk's saved entity list, read off the tick ([`read`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Saved(Read);
 
-#[cfg(test)]
-fn hash_id(h: &mut super::Fnv, id: Id) {
-    h.u64(u64::from(id.index()));
-    h.u64(u64::from(id.generation()));
-}
-
-impl Watched {
-    /// Whether the armour is what `before` holds, piece by piece ([`Stack::same`]).
-    fn same_armour(&self, before: &Self) -> bool {
-        self.armour
-            .iter()
-            .zip(&before.armour)
-            .all(|(a, b)| a.same(b))
-    }
-
-    #[cfg(test)]
-    fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            runtime_id,
-            viewers,
-            position,
-            rotation: (yaw, pitch),
-            held,
-            held_slot,
-            off_hand,
-            armour,
-        } = self;
-        h.u64(*runtime_id);
-        for v in viewers {
-            h.u64(v.get());
-        }
-        for c in [position.x, position.y, position.z, *yaw, *pitch] {
-            h.u64(c.to_bits());
-        }
-        for stack in std::iter::once(held).chain([off_hand]).chain(armour) {
-            super::inventory::hash_stack(h, stack);
-        }
-        h.u64(u64::from(*held_slot));
-    }
-}
-
-/// The unique ID of a player or an entity: its runtime ID. Runtime IDs count up by one from 1
-/// per player and entity, so they stay far below 2^63 and keep their value as `i64`.
-pub(super) fn unique_id(runtime_id: u64) -> i64 {
-    runtime_id.cast_signed()
-}
-
-/// The block coordinate of a world coordinate (entity positions, query areas, a damage value),
-/// saturating at the `i32` range: Rust's `as` saturates and turns NaN into 0.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "consistency: a value past the i32 range saturates, which every caller accepts"
-)]
-fn physics_block(v: f64) -> i32 {
-    v.floor() as i32
-}
-
-/// Whether a point may hold an entity: finite and inside the world border.
-pub(super) fn is_valid_position(v: Vec3) -> bool {
-    v.is_finite() && v.x.abs() <= MAX_COORDINATE && v.z.abs() <= MAX_COORDINATE
-}
-
-/// Whether an explosion of `size` at `center` happens: a valid position and a finite size above
-/// 0.
-pub(super) fn is_valid_explosion(center: Vec3, size: f64) -> bool {
-    is_valid_position(center) && size.is_finite() && size > 0.0
-}
-
-/// Whether `scale` may be the scale of an entity of `kind`: above 0 (PMMP), and its scaled box
-/// at most [`custom::MAX_SIZE`] blocks on a side (physics walks every block the box covers), so
-/// finite.
-fn is_valid_scale(scale: f64, kind: &Kind) -> bool {
-    let physics = kind.physics();
-    scale > 0.0
-        && physics.width * scale <= custom::MAX_SIZE
-        && physics.height * scale <= custom::MAX_SIZE
+/// What a saved compound is to the store.
+#[derive(Debug, Clone, PartialEq)]
+enum Read {
+    /// An entity, waiting for the store to give it a slot.
+    Entity(Box<saved::Loaded>),
+    /// Not an entity here: the store keeps the compound as saved.
+    Kept(Compound),
 }
 
 /// The functions of the player modules (inventory, survival) the entity rules call on players, so
@@ -1812,22 +1600,177 @@ struct Hooks {
     take_arrow: fn(&mut Player) -> bool,
 }
 
-/// The hooks of the running server.
-const HOOKS: Hooks = Hooks {
-    give: inventory::give,
-    room,
-    pickup_experience: survival::pickup_experience,
-    damage: survival::damage_by,
-    has_attack_cooldown: survival::has_attack_cooldown,
-    add_effect: survival::add_effect,
-    heal: survival::heal,
-    set_on_fire: survival::set_on_fire_by,
-    teleport: survival::teleport,
-    is_alive: survival::is_alive,
-    look: survival::rotation,
-    has_arrow: inventory::has_arrow,
-    take_arrow: inventory::take_arrow,
-};
+/// A non-player character to spawn ([`spawn_npc`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Npc {
+    /// A villager-type NPC (network actor `minecraft:villager_v2`): no AI.
+    Villager {
+        /// The profession shown (`EntityVariant`).
+        profession: u8,
+        /// Its trades.
+        offers: super::trade::Offers,
+    },
+    /// A human NPC (PMMP `Human`): shown as a player with `name` and `skin` (`None`: the default
+    /// skin).
+    Human {
+        /// The name tag.
+        name: String,
+        /// The skin.
+        skin: Option<crate::entity::Skin>,
+    },
+    /// A zombie (PMMP `Zombie`): no AI, and unlike the other NPCs it takes damage.
+    Zombie,
+}
+
+/// What the apply phase of one tick may still do: merges, and explosions with the blocks they
+/// affect, bounded so that a chain of explosions spreads over ticks instead of stalling one.
+#[derive(Debug, Default)]
+struct Budget {
+    /// Item merges so far ([`MAX_MERGES_PER_TICK`]).
+    merges: usize,
+    /// Explosions of primed TNT and end crystals so far
+    /// ([`explosion::MAX_EXPLOSIONS_PER_TICK`]).
+    explosions: usize,
+    /// Blocks those explosions affected so far ([`explosion::MAX_BLOCKS_PER_TICK`]).
+    blocks: usize,
+}
+
+/// Which kind rule an entity runs.
+#[derive(Debug, Clone, Copy)]
+enum Rule {
+    /// [`item_tick`].
+    Item,
+    /// [`orb_tick`].
+    Orb,
+    /// [`falling_tick`].
+    Falling,
+    /// [`explosion::tnt_tick`].
+    Tnt,
+    /// [`projectile::tick`].
+    Projectile,
+    /// [`projectile::cloud_tick`].
+    Cloud,
+    /// [`npc::tick`].
+    Npc,
+    /// [`npc::tick`], then [`custom::tick`].
+    Custom,
+    /// [`object::firework_tick`].
+    Firework,
+    /// Nothing of its own (paintings and end crystals: PMMP's `entityBaseTick` only).
+    Inert,
+}
+
+/// What changed of an entity since its viewers were last sent it.
+#[derive(Debug, Clone, Copy)]
+struct Change {
+    /// Its motion is zero now.
+    still: bool,
+    /// The flags to send.
+    flags: u64,
+    /// The position or rotation is to be sent.
+    moved: bool,
+    /// The speed changed enough to record as the last seen one, which tells when the entity
+    /// comes to rest.
+    sped: bool,
+    /// A cloud's radius to send (it changed by [`RADIUS_STEP`] or more).
+    radius: Option<f64>,
+    /// A custom entity's health is to be sent.
+    health: bool,
+}
+
+impl Change {
+    /// What changed of `e`.
+    fn of(e: &Entity) -> Self {
+        let still = e.body.motion.length_squared() == 0.0;
+        let was_still = e.sent.motion.length_squared() == 0.0;
+        let now_still = if still == was_still { e.still } else { still };
+        let turned = (e.yaw - e.sent.yaw) * (e.yaw - e.sent.yaw)
+            + (e.pitch - e.sent.pitch) * (e.pitch - e.sent.pitch)
+            > 1.0;
+        let radius = match &e.kind {
+            Kind::Cloud(c) if (c.radius - e.sent.radius).abs() >= RADIUS_STEP => Some(c.radius),
+            _ => None,
+        };
+        Self {
+            still: now_still,
+            flags: track::flags(e, now_still),
+            moved: track::has_moved(e) || turned || (!was_still && still),
+            sped: (e.body.motion - e.sent.motion).length_squared() > 0.0025 || was_still != still,
+            radius,
+            health: e.kind.custom().is_some() && e.health != e.sent.health,
+        }
+    }
+
+    /// Whether anything is to be sent.
+    fn is_due(self, e: &Entity) -> bool {
+        self.moved
+            || self.sped
+            || self.flags != e.sent.flags
+            || self.radius.is_some()
+            || self.health
+            || e.resend
+    }
+}
+
+/// Reads the saved entity list of chunk `pos` for [`Entities::load`], in list order: off the
+/// tick, as it needs nothing of the tick's state. `types` are the server's custom entity types
+/// and `content` its custom content, which saved items are read through.
+pub(super) fn read(
+    pos: ChunkPos,
+    list: &[Compound],
+    types: &EntityTypes,
+    content: &crate::custom::Registry,
+) -> Vec<Saved> {
+    list.iter()
+        .map(|c| {
+            Saved(if let Some(l) = saved::load(c, pos, types, content) {
+                Read::Entity(Box::new(l))
+            } else {
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
+                Read::Kept(c.clone())
+            })
+        })
+        .collect()
+}
+
+/// The unique ID of a player or an entity: its runtime ID. Runtime IDs count up by one from 1
+/// per player and entity, so they stay far below 2^63 and keep their value as `i64`.
+pub(super) fn unique_id(runtime_id: u64) -> i64 {
+    runtime_id.cast_signed()
+}
+
+/// The block coordinate of a world coordinate (entity positions, query areas, a damage value),
+/// saturating at the `i32` range: Rust's `as` saturates and turns NaN into 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "consistency: a value past the i32 range saturates, which every caller accepts"
+)]
+fn physics_block(v: f64) -> i32 {
+    v.floor() as i32
+}
+
+/// Whether a point may hold an entity: finite and inside the world border on every axis, as a
+/// player's position (so its `f32` in packets is finite too).
+pub(super) fn is_valid_position(v: Vec3) -> bool {
+    super::inside_border(v)
+}
+
+/// Whether an explosion of `size` at `center` happens: a valid position and a finite size above
+/// 0.
+pub(super) fn is_valid_explosion(center: Vec3, size: f64) -> bool {
+    is_valid_position(center) && size.is_finite() && size > 0.0
+}
+
+/// Whether `scale` may be the scale of an entity of `kind`: above 0 (PMMP), and its scaled box
+/// at most [`custom::MAX_SIZE`] blocks on a side (physics walks every block the box covers), so
+/// finite.
+fn is_valid_scale(scale: f64, kind: &Kind) -> bool {
+    let physics = kind.physics();
+    scale > 0.0
+        && physics.width * scale <= custom::MAX_SIZE
+        && physics.height * scale <= custom::MAX_SIZE
+}
 
 /// Whether [`create`] makes an entity at `position` in `world`: the world exists, the position
 /// is valid and loaded, the world is below its cap and runtime IDs remain. A caller that changes
@@ -1894,8 +1837,10 @@ fn discard(state: &mut State, id: Id) {
 /// Announces the entities that left with their chunk ([`EntityDespawn`]) and those that
 /// appeared since the last announcement ([`ItemSpawn`] for dropped items, then [`EntitySpawn`],
 /// PMMP `onFirstUpdate`), in `Id` order. The entity tick calls it before the physics and again
-/// before the removals, so every entity is announced before it goes; entities a listener makes
-/// wait for the next announcement.
+/// before the removals, so every entity is announced before it goes. Entities a listener of
+/// another event makes wait for the next announcement; those a spawn listener makes are never
+/// announced, as [`spawn_heard`] finds no spawn listener while their list is out of the state
+/// ([`dispatch::call`]).
 fn announce(state: &mut State) {
     let left = std::mem::take(&mut state.rules.entities.left);
     if dispatch::heard::<EntityDespawn>(state) {
@@ -2126,8 +2071,9 @@ fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
     announce(state);
     remove_flagged(state);
     lightning::remove_due(state);
-    track_entities(state);
-    track_players(state);
+    let mut budget = spawn_budget(state);
+    track_entities(state, &mut budget);
+    track_players(state, &mut budget);
 }
 
 /// The movement of `e` this tick, from its state now; `None` if its world is gone.
@@ -2148,39 +2094,43 @@ fn step_of(worlds: &[World], tick: u64, e: &Entity) -> Option<Step> {
     Some(physics::step(world, &input))
 }
 
-/// Phase 2: the movement of every ticking entity, on the CPU pool, in `Id` order. Each pool
-/// task reads its entity and builds its input itself, so the tick thread only lists the
-/// entities.
-fn compute(state: &State, pool: &Pool) -> Vec<(Id, Option<Step>)> {
+/// Phase 2: the movement of every ticking entity, on the CPU pool, in `Id` order, with the body
+/// it was computed from. Each pool task reads its entity and builds its input itself, so the
+/// tick thread only lists the entities.
+fn compute(state: &State, pool: &Pool) -> Vec<(Id, Option<(Body, Step)>)> {
     let (slots, worlds, tick) = (&state.rules.entities.slots, &state.worlds, state.tick);
     pool.map(&ticking(state), |&id| {
-        (id, live(slots, id).and_then(|e| step_of(worlds, tick, e)))
+        let computed =
+            live(slots, id).and_then(|e| step_of(worlds, tick, e).map(|step| (e.body, step)));
+        (id, computed)
     })
 }
 
-/// What the apply phase of one tick may still do: merges, and explosions with the blocks they
-/// affect, bounded so that a chain of explosions spreads over ticks instead of stalling one.
-#[derive(Debug, Default)]
-struct Budget {
-    /// Item merges so far ([`MAX_MERGES_PER_TICK`]).
-    merges: usize,
-    /// Explosions of primed TNT so far ([`explosion::MAX_EXPLOSIONS_PER_TICK`]).
-    explosions: usize,
-    /// Blocks those explosions affected so far ([`explosion::MAX_BLOCKS_PER_TICK`]).
-    blocks: usize,
+/// The live entity `id` names among `slots` ([`Entities::get`]).
+fn live(slots: &[Slot], id: Id) -> Option<&Entity> {
+    let slot = slots.get(usize::try_from(id.index()).ok()?)?;
+    (slot.generation == id.generation())
+        .then_some(slot.entity.as_ref())
+        .flatten()
 }
 
-/// Phase 3: the steps applied and the kind rules run, in `Id` order; an entity near an explosion
-/// of this tick moves again from its new state; then the damage falling anvils dealt.
-fn apply_steps(state: &mut State, steps: Vec<(Id, Option<Step>)>, hooks: Hooks) {
+/// Phase 3: the steps applied and the kind rules run, in `Id` order; an entity whose body
+/// changed since its step was computed (a rule's knockback or push), or that is in
+/// [`Entities::restep`], moves again from its new state; then the damage falling anvils dealt.
+fn apply_steps(state: &mut State, steps: Vec<(Id, Option<(Body, Step)>)>, hooks: Hooks) {
     let mut budget = Budget::default();
     let mut hits = Vec::new();
     state.rules.entities.applying = true;
-    for (id, step) in steps {
-        let step = if state.rules.entities.restep.remove(&id) {
-            restep(state, id)
-        } else {
-            step
+    for (id, computed) in steps {
+        let marked = state.rules.entities.restep.remove(&id);
+        let step = match computed {
+            Some((from, step))
+                if !marked && state.rules.entities.get(id).is_some_and(|e| e.body == from) =>
+            {
+                Some(step)
+            }
+            Some(_) => restep(state, id),
+            None => None,
         };
         if let Some(step) = step {
             apply(state, id, step, hooks, &mut budget, &mut hits);
@@ -2188,13 +2138,13 @@ fn apply_steps(state: &mut State, steps: Vec<(Id, Option<Step>)>, hooks: Hooks) 
     }
     state.rules.entities.applying = false;
     state.rules.entities.restep.clear();
-    for (session, damage) in hits {
+    for (session, damage, anvil) in hits {
         (hooks.damage)(
             state,
             session,
             damage,
-            survival::Damage::Entity,
-            DamageSource::None,
+            survival::Damage::FallingBlock,
+            DamageSource::Entity(Actor::Entity(anvil)),
         );
     }
 }
@@ -2275,7 +2225,7 @@ fn apply(
     step: Step,
     hooks: Hooks,
     budget: &mut Budget,
-    hits: &mut Vec<(SessionId, f64)>,
+    hits: &mut Vec<(SessionId, f64, Id)>,
 ) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
@@ -2326,7 +2276,7 @@ fn apply(
         projectile::hit(state, id, flight, step.hit, was_on_ground, hooks);
     }
     if let Some(fall) = step.landed {
-        landed(state, id, fall, hits, hooks);
+        landed(state, id, fall, hooks, hits);
     }
     if !is_live(state, id) {
         return;
@@ -2577,7 +2527,7 @@ fn damage_event(
     plan: Plan,
     knock: Option<Knock>,
 ) -> Option<(Taken, Option<Knock>, EntityDamage)> {
-    let mut e = damage_of(id, blow, plan.previous, knock, false);
+    let mut e = damage_of(id, blow, plan.previous, knock);
     dispatch::call(state, &mut e);
     if e.cancelled
         || (dispatch::listened::<EntityDamage>(state) && plan_of(state, id, blow) != Some(plan))
@@ -2597,15 +2547,9 @@ fn damage_event(
     Some((taken, knock, e))
 }
 
-/// [`EntityDamage`] for `blow` on the entity `id`, starting `cancelled`: with the cooldown
-/// modifier of a hit within the cooldown of a `previous` one, and the knockback `knock` gives.
-fn damage_of(
-    id: Id,
-    blow: Blow,
-    previous: Option<f64>,
-    knock: Option<Knock>,
-    cancelled: bool,
-) -> EntityDamage {
+/// [`EntityDamage`] for `blow` on the entity `id`, not cancelled: with the cooldown modifier of a
+/// hit within the cooldown of a `previous` one, and the knockback `knock` gives.
+fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) -> EntityDamage {
     let mut modifiers = [None; DamageModifier::ALL.len()];
     if let Some(previous) = previous
         && let Some(slot) = modifiers.get_mut(DamageModifier::PreviousDamageCooldown as usize)
@@ -2626,7 +2570,7 @@ fn damage_of(
         attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
         knockback: force,
         vertical_knockback_limit: vertical,
-        cancelled,
+        cancelled: false,
     }
 }
 
@@ -2648,7 +2592,9 @@ fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
         && (0.0..=MAX_DAMAGE).contains(&blow.amount)
         && dispatch::heard::<EntityDamage>(state)
     {
-        dispatch::call(state, &mut damage_of(id, blow, None, knock, true));
+        let mut e = damage_of(id, blow, None, knock);
+        e.cancelled = true;
+        dispatch::call(state, &mut e);
     }
 }
 
@@ -2701,9 +2647,6 @@ fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
         dispatch::watch(state, &e);
     }
 }
-
-/// The experience a zombie drops (PMMP `Zombie::getXpDropAmount`).
-const ZOMBIE_XP: u32 = 5;
 
 /// What a dead zombie drops (PMMP `Zombie::getDrops`): 0 to 2 rotten flesh, and with a 5 in 200
 /// chance one iron ingot, carrot or potato.
@@ -2952,9 +2895,11 @@ fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise
     }
 }
 
-/// Sends a player's motion to it and the players who see it.
+/// Sends a player's motion to it and the players it is shown to ([`Entities::watched`]), so not
+/// to those who hide it.
 fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
-    let Some(p) = state.players.get(&session) else {
+    let State { players, rules, .. } = state;
+    let Some(p) = players.get_mut(&session) else {
         return;
     };
     let packet = Packet::SetActorMotion(crate::protocol::packet::SetActorMotion {
@@ -2962,8 +2907,15 @@ fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
         velocity: motion.to_f32(),
         tick: 0,
     });
-    let (world, chunk) = (p.world, chunk_of(p.position));
-    state.broadcast(world, chunk, &packet, None);
+    p.send_to_viewer(packet.clone());
+    let Some(watched) = rules.entities.watched.get(&session) else {
+        return;
+    };
+    for s in &watched.viewers {
+        if let Some(viewer) = players.get_mut(s) {
+            viewer.send_to_viewer(packet.clone());
+        }
+    }
 }
 
 /// The look direction of a yaw and pitch in degrees, of an entity or a player (PMMP
@@ -2987,31 +2939,6 @@ fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
         event_data: data,
         fire_at_position: None,
     })
-}
-
-/// Which kind rule an entity runs.
-#[derive(Debug, Clone, Copy)]
-enum Rule {
-    /// [`item_tick`].
-    Item,
-    /// [`orb_tick`].
-    Orb,
-    /// [`falling_tick`].
-    Falling,
-    /// [`explosion::tnt_tick`].
-    Tnt,
-    /// [`projectile::tick`].
-    Projectile,
-    /// [`projectile::cloud_tick`].
-    Cloud,
-    /// [`npc::tick`].
-    Npc,
-    /// [`npc::tick`], then [`custom::tick`].
-    Custom,
-    /// [`object::firework_tick`].
-    Firework,
-    /// Nothing of its own (paintings and end crystals: PMMP's `entityBaseTick` only).
-    Inert,
 }
 
 /// The rule of a kind.
@@ -3290,14 +3217,13 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
             return;
         }
     }
-    let feet = |p: &Player| p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     let reach = ORB_TARGET_DISTANCE * ORB_TARGET_DISTANCE;
     let valid = |s: &SessionId| {
         state.players.get(s).filter(|p| {
             p.world == world
                 && collects(state, p, hooks)
                 && p.can_attract_xp_orbs()
-                && feet(p).distance_squared(position) <= reach
+                && survival::feet(p).distance_squared(position) <= reach
         })
     };
     let mut target = orb.target.filter(|s| valid(s).is_some());
@@ -3309,7 +3235,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
                 if p.world != world || !collects(state, p, hooks) || !p.can_attract_xp_orbs() {
                     continue;
                 }
-                let d = feet(p).distance_squared(position);
+                let d = survival::feet(p).distance_squared(position);
                 if d < best {
                     best = d;
                     target = Some(s);
@@ -3323,7 +3249,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let mut pull = Vec3::ZERO;
     let mut picker = None;
     if let Some(p) = target.and_then(|s| state.players.get(&s)) {
-        let aim = feet(p) + Vec3::new(0.0, EYE_HEIGHT / 2.0, 0.0);
+        let aim = survival::feet(p) + Vec3::new(0.0, EYE_HEIGHT / 2.0, 0.0);
         let vector = (aim - position) * (1.0 / ORB_TARGET_DISTANCE);
         let distance = vector.length_squared();
         if distance < 1.0 {
@@ -3467,9 +3393,16 @@ fn harden(world: &World, pos: BlockPos, block: block::State) -> Option<block::St
 }
 
 /// An entity hit the ground after falling `fall` blocks (PMMP `onHitGround`): an NPC tramples
-/// farmland and takes fall damage ([`npc::landed`]); a falling anvil hurts the players and NPCs
-/// under it (PMMP `Anvil::onHitGround`) and may take damage, or break.
-fn landed(state: &mut State, id: Id, fall: f64, hits: &mut Vec<(SessionId, f64)>, hooks: Hooks) {
+/// farmland and takes fall damage ([`npc::landed`]); a falling anvil hurts the players (in
+/// `hits`, with the anvil) and NPCs under it as a falling block (PMMP `Anvil::onHitGround`) and
+/// may take damage, or break.
+fn landed(
+    state: &mut State,
+    id: Id,
+    fall: f64,
+    hooks: Hooks,
+    hits: &mut Vec<(SessionId, f64, Id)>,
+) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
     };
@@ -3491,7 +3424,7 @@ fn landed(state: &mut State, id: Id, fall: f64, hits: &mut Vec<(SessionId, f64)>
             if targetable(state, p, world, hooks)
                 && survival::bounding_box(p).overlaps(bounds, EPSILON)
             {
-                hits.push((s, damage));
+                hits.push((s, damage, id));
             }
         }
         let at = e.body.position;
@@ -3592,22 +3525,23 @@ fn pick_up(state: &mut State, hooks: Hooks) {
             }
             taken += 1;
             let key = (e.world, e.chunk);
-            let viewers = e.viewers.clone();
-            let item_id = e.runtime_id;
-            let packet = if rest.is_empty() {
-                e.flagged = true;
-                state.rules.entities.doomed.insert(id);
+            let whole = rest.is_empty();
+            let packet = if whole {
                 Packet::TakeItemActor(TakeItemActor {
-                    item_entity_runtime_id: item_id,
+                    item_entity_runtime_id: e.runtime_id,
                     taker_entity_runtime_id: runtime_id,
                 })
             } else {
                 let count = rest.count();
                 item.stack = rest;
-                stack_size(item_id, count)
+                stack_size(e.runtime_id, count)
             };
-            state.rules.entities.changed.insert(key);
-            send_to(&mut state.players, &viewers, &packet);
+            send_to(&mut state.players, &e.viewers, &packet);
+            let entities = &mut state.rules.entities;
+            if whole {
+                entities.doom(id);
+            }
+            entities.changed.insert(key);
         }
     }
 }
@@ -3664,28 +3598,23 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
     let Some(en) = entities.get_mut(id) else {
         return false;
     };
-    let (key, viewers, item_id, at, world) = (
-        (en.world, en.chunk),
-        en.viewers.clone(),
-        en.runtime_id,
-        en.body.position,
-        en.world,
-    );
+    let (key, at, world) = ((en.world, en.chunk), en.body.position, en.world);
     let packet = if left == 0 {
-        en.flagged = true;
-        entities.doomed.insert(id);
         Packet::TakeItemActor(TakeItemActor {
-            item_entity_runtime_id: item_id,
+            item_entity_runtime_id: en.runtime_id,
             taker_entity_runtime_id: taker,
         })
     } else {
         if let Kind::Item(item) = &mut en.kind {
             item.stack = stack.with_count(left);
         }
-        stack_size(item_id, left)
+        stack_size(en.runtime_id, left)
     };
+    send_to(&mut state.players, &en.viewers, &packet);
+    if left == 0 {
+        entities.doom(id);
+    }
     entities.changed.insert(key);
-    send_to(&mut state.players, &viewers, &packet);
     if replaced && !drop_item(state, world, at, rest) {
         debug!(
             world,
@@ -3717,6 +3646,11 @@ fn pickup_event(
         return None;
     }
     Some(e)
+}
+
+/// The actor of a player's session in events.
+fn player_actor(session: SessionId) -> Actor {
+    Actor::Player(crate::player::Id::new(session))
 }
 
 /// How much of `stack` a player's inventory takes now, up to its count: what
@@ -3765,25 +3699,26 @@ fn watchers(state: &State) -> Vec<(SessionId, WorldIndex, &View)> {
         .collect()
 }
 
-/// Sends players the entities of the chunks they see and takes away the others, within each
-/// player's per-tick bound; then the movement of up to [`MAX_MOVEMENTS_PER_TICK`] entities.
-fn track_entities(state: &mut State) {
-    let mut budget: BTreeMap<SessionId, u32> = state
+/// Each player's bound of this tick's spawns and removals ([`MAX_SPAWNS_PER_PLAYER`]), which the
+/// tracking of entities and then of players spend.
+fn spawn_budget(state: &State) -> BTreeMap<SessionId, u32> {
+    state
         .players
         .keys()
         .map(|&s| (s, MAX_SPAWNS_PER_PLAYER))
-        .collect();
+        .collect()
+}
+
+/// Sends players the entities of the chunks they see and takes away the others, within each
+/// player's `budget`; then the movement of up to [`MAX_MOVEMENTS_PER_TICK`] entities.
+fn track_entities(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
     let departed = std::mem::take(&mut state.rules.entities.departed);
     for mut d in departed {
-        d.viewers.retain(|s| {
-            let Some(left) = budget.get_mut(s) else {
-                return false;
-            };
-            if *left == 0 {
+        d.viewers.retain(|&s| {
+            if !spend(budget, s) {
                 return true;
             }
-            *left -= 1;
-            if let Some(p) = state.players.get_mut(s) {
+            if let Some(p) = state.players.get_mut(&s) {
                 p.send_packet(track::remove(d.runtime_id));
             }
             false
@@ -3832,7 +3767,7 @@ fn track_entities(state: &mut State) {
             if e.runtime_id == 0 || e.flagged || (e.world, e.chunk) != key {
                 continue;
             }
-            if !show_to(&mut state.players, e, &want, &mut budget) {
+            if !show_to(&mut state.players, e, &want, budget) {
                 held_back.push(id);
             }
         }
@@ -3861,28 +3796,24 @@ fn show_to(
             e.viewers.remove(&s);
             continue;
         };
-        match budget.get_mut(&s) {
-            Some(left) if *left > 0 => {
-                *left -= 1;
-                player.send_packet(track::remove(e.runtime_id));
-                e.viewers.remove(&s);
-            }
-            _ => sent = false,
+        if spend(budget, s) {
+            player.send_packet(track::remove(e.runtime_id));
+            e.viewers.remove(&s);
+        } else {
+            sent = false;
         }
     }
     for s in coming {
         let Some(player) = players.get_mut(&s) else {
             continue;
         };
-        match budget.get_mut(&s) {
-            Some(left) if *left > 0 => {
-                *left -= 1;
-                for packet in track::spawn(e) {
-                    player.send_packet(packet);
-                }
-                e.viewers.insert(s);
+        if spend(budget, s) {
+            for packet in track::spawn(e) {
+                player.send_packet(packet);
             }
-            _ => sent = false,
+            e.viewers.insert(s);
+        } else {
+            sent = false;
         }
     }
     sent
@@ -3965,62 +3896,6 @@ fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
     }
 }
 
-/// What changed of an entity since its viewers were last sent it.
-#[derive(Debug, Clone, Copy)]
-struct Change {
-    /// Its motion is zero now.
-    still: bool,
-    /// The flags to send.
-    flags: u64,
-    /// The position or rotation is to be sent.
-    moved: bool,
-    /// The speed changed enough to record as the last seen one, which tells when the entity
-    /// comes to rest.
-    sped: bool,
-    /// A cloud's radius to send (it changed by [`RADIUS_STEP`] or more).
-    radius: Option<f64>,
-    /// A custom entity's health is to be sent.
-    health: bool,
-}
-
-/// The change of a cloud's radius that is sent (PMMP sends each tick's; a twentieth of a block
-/// is too small to see and saves nine of ten packets).
-const RADIUS_STEP: f64 = 0.05;
-
-impl Change {
-    /// What changed of `e`.
-    fn of(e: &Entity) -> Self {
-        let still = e.body.motion.length_squared() == 0.0;
-        let was_still = e.sent.motion.length_squared() == 0.0;
-        let now_still = if still == was_still { e.still } else { still };
-        let turned = (e.yaw - e.sent.yaw) * (e.yaw - e.sent.yaw)
-            + (e.pitch - e.sent.pitch) * (e.pitch - e.sent.pitch)
-            > 1.0;
-        let radius = match &e.kind {
-            Kind::Cloud(c) if (c.radius - e.sent.radius).abs() >= RADIUS_STEP => Some(c.radius),
-            _ => None,
-        };
-        Self {
-            still: now_still,
-            flags: track::flags(e, now_still),
-            moved: track::has_moved(e) || turned || (!was_still && still),
-            sped: (e.body.motion - e.sent.motion).length_squared() > 0.0025 || was_still != still,
-            radius,
-            health: e.kind.custom().is_some() && e.health != e.sent.health,
-        }
-    }
-
-    /// Whether anything is to be sent.
-    fn is_due(self, e: &Entity) -> bool {
-        self.moved
-            || self.sped
-            || self.flags != e.sent.flags
-            || self.radius.is_some()
-            || self.health
-            || e.resend
-    }
-}
-
 /// Records what [`movement`] sent as the entity's last sent state.
 fn commit_movement(e: &mut Entity, change: Change) {
     e.still = change.still;
@@ -4094,8 +3969,9 @@ fn untrack_gone_players(state: &mut State) {
 
 /// Shows players to each other: a player whose chunk another sees is added to it, moved, its
 /// equipment changes sent, and removed when it leaves the view, the world or the server, or is
-/// hidden from it.
-fn track_players(state: &mut State) {
+/// hidden from it. Adding and removing spend the viewer's `budget`: a viewer over it is shown
+/// the player, or has it taken away, in a later tick.
+fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
     untrack_gone_players(state);
     let mut packets: Vec<(SessionId, Packet)> = Vec::new();
     let mut changes = Vec::new();
@@ -4103,10 +3979,23 @@ fn track_players(state: &mut State) {
         let Some(target) = state.players.get(&t) else {
             continue;
         };
+        let before = state.rules.entities.watched.remove(&t);
+        let old = before.as_ref().map(|w| &w.viewers);
+        let mut viewers = BTreeSet::new();
+        for &s in &want {
+            if old.is_some_and(|v| v.contains(&s)) || spend(budget, s) {
+                viewers.insert(s);
+            }
+        }
+        for &s in old.into_iter().flat_map(|v| v.difference(&want)) {
+            if !spend(budget, s) {
+                viewers.insert(s);
+            }
+        }
         let inv = &target.inventory;
         let now = Watched {
             runtime_id: target.runtime_id,
-            viewers: want,
+            viewers,
             position: target.position,
             rotation: survival::rotation(target),
             held: inv.held().clone(),
@@ -4117,8 +4006,6 @@ fn track_players(state: &mut State) {
         let game_mode = survival::game_mode(state, target);
         // Built only for a tick that has a new viewer.
         let mut add = None;
-        let before = state.rules.entities.watched.remove(&t);
-        let old = before.as_ref().map(|w| &w.viewers);
         for &s in &now.viewers {
             if old.is_some_and(|v| v.contains(&s)) {
                 continue;
@@ -4184,6 +4071,19 @@ fn track_players(state: &mut State) {
     }
 }
 
+/// Takes one spawn or removal from the bound of `session` ([`spawn_budget`]): false, taking
+/// nothing, when none is left; true for a session that is gone, which is sent nothing.
+fn spend(budget: &mut BTreeMap<SessionId, u32>, session: SessionId) -> bool {
+    match budget.get_mut(&session) {
+        Some(left) if *left > 0 => {
+            *left -= 1;
+            true
+        }
+        Some(_) => false,
+        None => true,
+    }
+}
+
 /// The player of `session` left: its hidden pairs ([`Entities::hidden`]) go, both ways (a scan
 /// of every pair, once per leave).
 pub(super) fn left(state: &mut State, session: SessionId) {
@@ -4192,28 +4092,6 @@ pub(super) fn left(state: &mut State, session: SessionId) {
         .entities
         .hidden
         .retain(|(v, t)| *v != session && *t != session);
-}
-
-/// A non-player character to spawn ([`spawn_npc`]).
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum Npc {
-    /// A villager-type NPC (network actor `minecraft:villager_v2`): no AI.
-    Villager {
-        /// The profession shown (`EntityVariant`).
-        profession: u8,
-        /// Its trades.
-        offers: super::trade::Offers,
-    },
-    /// A human NPC (PMMP `Human`): shown as a player with `name` and `skin` (`None`: the default
-    /// skin).
-    Human {
-        /// The name tag.
-        name: String,
-        /// The skin.
-        skin: Option<crate::entity::Skin>,
-    },
-    /// A zombie (PMMP `Zombie`): no AI, and unlike the other NPCs it takes damage.
-    Zombie,
 }
 
 /// Throws the projectile of `item` from `session`'s eyes along its look (snowball, egg, ender
@@ -4271,10 +4149,6 @@ pub(super) fn launch_firework(
 ) -> bool {
     object::launch_firework(state, session, world, at, item, random)
 }
-
-/// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
-/// without one (PMMP `PrimedTNT::initEntity`).
-pub(super) const TNT_FUSE: u16 = 80;
 
 /// Turns the TNT block at `pos` into primed TNT with `fuse` ticks (PMMP `TNT::ignite`). False at
 /// the entity limit (the block stays) or if the block is not TNT.
@@ -4373,10 +4247,12 @@ pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Np
 /// players that are not spectators).
 pub(super) fn occupied(state: &State, world: WorldIndex, area: Aabb) -> bool {
     let entities = &state.rules.entities;
-    let entity = entities.nearby(world, area).into_iter().any(|id| {
-        entities
-            .get(id)
-            .is_some_and(|e| e.blocks_placing() && e.bounding_box().intersects(area))
+    let mut entity = false;
+    entities.each_nearby(world, area, |id| {
+        entity = entity
+            || entities
+                .get(id)
+                .is_some_and(|e| e.blocks_placing() && e.bounding_box().intersects(area));
     });
     entity
         || state.players.values().any(|p| {
@@ -4426,11 +4302,10 @@ pub(super) fn hatch(
 /// asks about many parts of an area gathers them once and tests each part against them alone.
 pub(super) fn boxes_in(state: &State, world: WorldIndex, area: Aabb) -> Vec<Aabb> {
     let entities = &state.rules.entities;
-    let mut boxes: Vec<Aabb> = entities
-        .nearby(world, area)
-        .into_iter()
-        .filter_map(|id| entities.get(id).map(Entity::bounding_box))
-        .collect();
+    let mut boxes = Vec::new();
+    entities.each_nearby(world, area, |id| {
+        boxes.extend(entities.get(id).map(Entity::bounding_box));
+    });
     boxes.extend(
         state
             .players
@@ -4496,16 +4371,17 @@ pub(super) fn villager_traded(state: &mut State, id: Id, before: (u8, u32)) {
     }
 }
 
-/// The offers of the villager NPC `id`, to change (a trade counted); its chunk is saved again.
+/// The offers of the live villager NPC `id`, to change (a trade counted); its chunk is saved
+/// again. `None`, marking nothing, for anything else.
 pub(super) fn offers_mut(state: &mut State, id: Id) -> Option<&mut super::trade::Offers> {
+    villager(state, id)?;
     let entities = &mut state.rules.entities;
-    let e = entities.get(id).filter(|e| !e.flagged)?;
+    let e = entities.get(id)?;
     let key = (e.world, e.chunk);
     entities.changed.insert(key);
     match &mut entities.get_mut(id)?.kind {
         Kind::Npc(Character {
             form: Form::Villager { offers, .. },
-            dead_ticks: None,
             ..
         }) => Some(offers),
         _ => None,
@@ -4513,17 +4389,194 @@ pub(super) fn offers_mut(state: &mut State, id: Id) -> Option<&mut super::trade:
 }
 
 #[cfg(test)]
+fn hash_projectile(h: &mut super::Fnv, p: &Projectile) {
+    let Projectile {
+        shot,
+        damage,
+        stuck,
+        owner,
+        owner_runtime_id,
+    } = p;
+    match shot {
+        Shot::Arrow(kind::Arrow {
+            critical,
+            pickup,
+            punch,
+            life,
+        }) => {
+            h.u64(0);
+            h.u64(u64::from(*critical));
+            h.u64(u64::from(pickup.to_byte()));
+            h.u64(u64::from(*punch));
+            h.u64(u64::from(life.cast_unsigned()));
+        }
+        Shot::Snowball => h.u64(1),
+        Shot::Egg => h.u64(2),
+        Shot::EnderPearl => h.u64(3),
+        Shot::Potion { potion, linger } => {
+            h.u64(4);
+            h.u64(u64::from(potion.id()));
+            h.u64(u64::from(*linger));
+        }
+        Shot::ExperienceBottle => h.u64(5),
+        Shot::Trident(kind::Trident {
+            item,
+            creative,
+            can_collide,
+        }) => {
+            h.u64(6);
+            super::inventory::hash_stack(h, item);
+            h.u64(u64::from(*creative));
+            h.u64(u64::from(*can_collide));
+        }
+        Shot::IceBomb => h.u64(7),
+    }
+    h.u64(damage.to_bits());
+    match stuck {
+        Some(p) => {
+            h.u64(1);
+            for c in [p.x, p.y, p.z] {
+                h.u64(u64::from(c.cast_unsigned()));
+            }
+        }
+        None => h.u64(0),
+    }
+    h.u64(owner.map_or(0, |s| s.get().wrapping_add(1)));
+    h.u64(*owner_runtime_id);
+}
+
+#[cfg(test)]
+fn hash_cloud(h: &mut super::Fnv, c: &Cloud) {
+    let Cloud {
+        effects,
+        age,
+        max_age,
+        max_age_on_use,
+        reapplication_delay,
+        pickup_count,
+        initial_radius,
+        radius,
+        radius_on_pickup,
+        radius_on_use,
+        radius_per_tick,
+        victims,
+    } = c;
+    h.usize(effects.len());
+    for e in effects {
+        h.u64(u64::from(e.effect().id()));
+        h.u64(u64::from(e.duration_ticks()));
+        h.u64(u64::from(e.amplifier()));
+        h.u64(u64::from(e.is_visible()));
+        h.u64(u64::from(e.is_ambient()));
+    }
+    h.u64(u64::from(*age));
+    for v in [
+        *max_age,
+        *max_age_on_use,
+        *reapplication_delay,
+        *pickup_count,
+    ] {
+        h.u64(u64::from(v.cast_unsigned()));
+    }
+    for v in [
+        *initial_radius,
+        *radius,
+        *radius_on_pickup,
+        *radius_on_use,
+        *radius_per_tick,
+    ] {
+        h.u64(v.to_bits());
+    }
+    h.usize(victims.len());
+    for (v, until) in victims {
+        match v {
+            kind::Victim::Player(s) => {
+                h.u64(0);
+                h.u64(s.get());
+            }
+            kind::Victim::Entity(id) => {
+                h.u64(1);
+                hash_id(h, *id);
+            }
+        }
+        h.u64(u64::from(*until));
+    }
+}
+
+#[cfg(test)]
+fn hash_character(h: &mut super::Fnv, c: &Character) {
+    let Character {
+        form,
+        invulnerable,
+        attack_time,
+        last_damage,
+        dead_ticks,
+        data,
+        held,
+    } = c;
+    match form {
+        Form::Villager {
+            profession,
+            offers,
+            baby,
+        } => {
+            h.u64(0);
+            h.u64(u64::from(*profession));
+            offers.hash_into(h);
+            h.u64(u64::from(*baby));
+        }
+        Form::Zombie { baby } => {
+            h.u64(3);
+            h.u64(u64::from(*baby));
+        }
+        Form::Human { uuid, skin } => {
+            h.u64(1);
+            h.bytes(uuid.as_bytes());
+            match skin {
+                Some(s) => {
+                    h.bytes(s.id().as_bytes());
+                    h.bytes(s.data());
+                    h.bytes(s.cape());
+                    h.bytes(s.geometry_name().as_bytes());
+                    h.bytes(s.geometry_data());
+                }
+                None => h.u64(u64::MAX),
+            }
+        }
+        Form::Custom(kind::Custom { spec }) => {
+            h.u64(2);
+            h.u64(u64::from(spec.index));
+        }
+    }
+    super::extra::hash_nbt(h, data);
+    super::inventory::hash_stack(h, held);
+    h.u64(u64::from(*invulnerable));
+    h.u64(u64::from(*attack_time));
+    h.u64(last_damage.to_bits());
+    h.u64(dead_ticks.map_or(0, |t| u64::from(t) + 1));
+}
+
+#[cfg(test)]
+fn hash_key(h: &mut super::Fnv, (w, p): Key) {
+    h.usize(w);
+    h.u64(u64::from(p.x.cast_unsigned()));
+    h.u64(u64::from(p.z.cast_unsigned()));
+}
+
+#[cfg(test)]
+fn hash_id(h: &mut super::Fnv, id: Id) {
+    h.u64(u64::from(id.index()));
+    h.u64(u64::from(id.generation()));
+}
+
+#[cfg(test)]
 mod tests {
+    mod events;
+
     use std::cell::Cell;
 
     use tokio::sync::mpsc;
 
-    use super::super::queue::Message;
-    use super::super::queue::{Input, Outbound};
-    use super::super::tests::{
-        answer, join, leave, moved_to, new_state, radius, settings, teleported,
-    };
-    use super::super::{InputLog, Output, boundary, deliver, step};
     use super::physics::tests::named;
     use super::saved::tests::stack;
     use super::*;
@@ -4531,8 +4584,11 @@ mod tests {
     use crate::protocol::Rng;
     use crate::protocol::consts::MoveFlag;
     use crate::save::Response;
-
-    mod events;
+    use crate::tick::queue::{Input, Message, Outbound};
+    use crate::tick::tests::{
+        answer, join, leave, moved_to, new_state, radius, settings, teleported,
+    };
+    use crate::tick::{InputLog, Output, boundary, deliver, step};
 
     thread_local! {
         /// Items the test inventories still take (one player per test takes items).
@@ -4543,47 +4599,25 @@ mod tests {
         static EXPERIENCE: Cell<u64> = const { Cell::new(0) };
         /// Entities the tracking pass compared with the players of their chunk.
         static TRACKED: Cell<usize> = const { Cell::new(0) };
+        /// The calls the stand-ins saw.
+        static CALLS: Cell<Calls> = Cell::new(Calls::default());
     }
 
-    pub(super) fn count_tracked() {
-        TRACKED.with(|t| t.set(t.get() + 1));
-    }
-
-    pub(super) fn room(n: u32) {
-        ROOM.with(|r| r.set(n));
-    }
-
-    pub(super) fn taken() -> u64 {
-        TAKEN.with(Cell::get)
-    }
-
-    /// A stand-in inventory: takes up to its room.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "consistency: the signature of `inventory::give` it stands in for"
-    )]
-    fn give(_: &mut Player, stack: Stack) -> Stack {
-        let room = ROOM.with(Cell::get);
-        let take = room.min(u32::from(stack.count()));
-        ROOM.with(|r| r.set(room - take));
-        TAKEN.with(|t| t.set(t.get() + u64::from(take)));
-        stack.with_count(stack.count() - u8::try_from(take).unwrap())
-    }
-
-    /// What the stand-in inventory takes of `stack`.
-    fn test_room(_: &Player, stack: &Stack) -> u8 {
-        let room = ROOM.with(Cell::get);
-        u8::try_from(room.min(u32::from(stack.count()))).unwrap()
-    }
-
-    /// A stand-in pickup: counts the points, refused for players in `Calls::xp_cooldown`.
-    fn pickup_experience(_: &mut State, session: SessionId, amount: u32) -> bool {
-        if calls(|c| c.xp_cooldown.contains(&session.get())) {
-            return false;
-        }
-        EXPERIENCE.with(|x| x.set(x.get() + u64::from(amount)));
-        true
-    }
+    pub(super) const TEST_HOOKS: Hooks = Hooks {
+        give,
+        room: test_room,
+        pickup_experience,
+        damage,
+        has_attack_cooldown,
+        add_effect,
+        heal,
+        set_on_fire,
+        teleport,
+        is_alive,
+        look,
+        has_arrow,
+        take_arrow,
+    };
 
     /// What the stand-ins of other modules saw (a test's own thread).
     #[derive(Debug, Default)]
@@ -4608,114 +4642,6 @@ mod tests {
         pub(super) look: (f64, f64),
         /// Arrows the test players carry.
         pub(super) arrows: u32,
-    }
-
-    thread_local! {
-        /// The calls the stand-ins saw.
-        static CALLS: Cell<Calls> = Cell::new(Calls::default());
-    }
-
-    /// Runs `f` on the recorded calls (not from inside another `calls`).
-    pub(super) fn calls<T>(f: impl FnOnce(&mut Calls) -> T) -> T {
-        CALLS.with(|c| {
-            let mut calls = c.take();
-            let out = f(&mut calls);
-            c.set(calls);
-            out
-        })
-    }
-
-    fn damage(
-        _: &mut State,
-        session: SessionId,
-        amount: f64,
-        cause: survival::Damage,
-        _: DamageSource,
-    ) -> bool {
-        calls(|c| {
-            let alive = !c.dead.contains(&session.get());
-            if alive {
-                c.damage.push((session.get(), amount, cause));
-            }
-            alive
-        })
-    }
-
-    fn add_effect(_: &mut State, session: SessionId, effect: crate::effect::Instance) -> bool {
-        calls(|c| c.effects.push((session.get(), effect)));
-        true
-    }
-
-    fn heal(_: &mut State, session: SessionId, amount: f64) {
-        calls(|c| c.heals.push((session.get(), amount)));
-    }
-
-    fn set_on_fire(_: &mut State, session: SessionId, seconds: u32, _: CombustSource) {
-        calls(|c| c.fires.push((session.get(), seconds)));
-    }
-
-    /// Players are named `player<session>` by the tick test harness.
-    fn session_of(player: &Player) -> Option<u64> {
-        player
-            .identity
-            .name
-            .strip_prefix("player")
-            .and_then(|n| n.parse::<u64>().ok())
-    }
-
-    fn has_attack_cooldown(player: &Player) -> bool {
-        let session = session_of(player);
-        calls(|c| session.is_some_and(|s| c.hit_cooldown.contains(&s)))
-    }
-
-    /// A stand-in teleport: records it and moves the player.
-    fn teleport(state: &mut State, session: SessionId, world: usize, eye: Vec3) {
-        calls(|c| c.teleports.push((session.get(), world, eye)));
-        if let Some(p) = state.players.get_mut(&session) {
-            p.position = eye;
-        }
-    }
-
-    fn is_alive(player: &Player) -> bool {
-        let session = session_of(player);
-        calls(|c| session.is_none_or(|s| !c.dead.contains(&s)))
-    }
-
-    fn look(_: &Player) -> (f64, f64) {
-        calls(|c| c.look)
-    }
-
-    fn has_arrow(_: &Player) -> bool {
-        calls(|c| c.arrows > 0)
-    }
-
-    fn take_arrow(_: &mut Player) -> bool {
-        calls(|c| {
-            let had = c.arrows > 0;
-            c.arrows = c.arrows.saturating_sub(1);
-            had
-        })
-    }
-
-    pub(super) const TEST_HOOKS: Hooks = Hooks {
-        give,
-        room: test_room,
-        pickup_experience,
-        damage,
-        has_attack_cooldown,
-        add_effect,
-        heal,
-        set_on_fire,
-        teleport,
-        is_alive,
-        look,
-        has_arrow,
-        take_arrow,
-    };
-
-    /// The eye position of a player standing on the flat ground at block (x, z).
-    pub(super) fn standing(x: f32, z: f32) -> [f32; 3] {
-        [x + 0.5, -58.38, z + 0.5]
     }
 
     /// Runs whole ticks without the network: a stand-in save thread, and the packets the rules
@@ -4854,12 +4780,12 @@ mod tests {
                 pitch,
                 yaw,
                 position,
-                ..Default::default()
+                ..crate::protocol::packet::PlayerAuthInput::default()
             };
-            let input = super::super::tests::input(
+            let input = crate::tick::tests::input(
                 session,
                 seq,
-                super::super::tests::packet(Packet::PlayerAuthInput(Box::new(p))),
+                crate::tick::tests::packet(Packet::PlayerAuthInput(Box::new(p))),
             );
             self.step(vec![input]);
         }
@@ -4911,43 +4837,135 @@ mod tests {
         }
     }
 
+    pub(super) fn count_tracked() {
+        TRACKED.with(|t| t.set(t.get() + 1));
+    }
+
+    pub(super) fn room(n: u32) {
+        ROOM.with(|r| r.set(n));
+    }
+
+    pub(super) fn taken() -> u64 {
+        TAKEN.with(Cell::get)
+    }
+
+    /// A stand-in inventory: takes up to its room.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "consistency: the signature of `inventory::give` it stands in for"
+    )]
+    fn give(_: &mut Player, stack: Stack) -> Stack {
+        let room = ROOM.with(Cell::get);
+        let take = room.min(u32::from(stack.count()));
+        ROOM.with(|r| r.set(room - take));
+        TAKEN.with(|t| t.set(t.get() + u64::from(take)));
+        stack.with_count(stack.count() - u8::try_from(take).unwrap())
+    }
+
+    /// What the stand-in inventory takes of `stack`.
+    fn test_room(_: &Player, stack: &Stack) -> u8 {
+        let room = ROOM.with(Cell::get);
+        u8::try_from(room.min(u32::from(stack.count()))).unwrap()
+    }
+
+    /// A stand-in pickup: counts the points, refused for players in `Calls::xp_cooldown`.
+    fn pickup_experience(_: &mut State, session: SessionId, amount: u32) -> bool {
+        if calls(|c| c.xp_cooldown.contains(&session.get())) {
+            return false;
+        }
+        EXPERIENCE.with(|x| x.set(x.get() + u64::from(amount)));
+        true
+    }
+
+    /// Runs `f` on the recorded calls (not from inside another `calls`).
+    pub(super) fn calls<T>(f: impl FnOnce(&mut Calls) -> T) -> T {
+        CALLS.with(|c| {
+            let mut calls = c.take();
+            let out = f(&mut calls);
+            c.set(calls);
+            out
+        })
+    }
+
+    fn damage(
+        _: &mut State,
+        session: SessionId,
+        amount: f64,
+        cause: survival::Damage,
+        _: DamageSource,
+    ) -> bool {
+        calls(|c| {
+            let alive = !c.dead.contains(&session.get());
+            if alive {
+                c.damage.push((session.get(), amount, cause));
+            }
+            alive
+        })
+    }
+
+    fn add_effect(_: &mut State, session: SessionId, effect: crate::effect::Instance) -> bool {
+        calls(|c| c.effects.push((session.get(), effect)));
+        true
+    }
+
+    fn heal(_: &mut State, session: SessionId, amount: f64) {
+        calls(|c| c.heals.push((session.get(), amount)));
+    }
+
+    fn set_on_fire(_: &mut State, session: SessionId, seconds: u32, _: CombustSource) {
+        calls(|c| c.fires.push((session.get(), seconds)));
+    }
+
+    /// Players are named `player<session>` by the tick test harness.
+    fn session_of(player: &Player) -> Option<u64> {
+        player
+            .identity
+            .name
+            .strip_prefix("player")
+            .and_then(|n| n.parse::<u64>().ok())
+    }
+
+    fn has_attack_cooldown(player: &Player) -> bool {
+        let session = session_of(player);
+        calls(|c| session.is_some_and(|s| c.hit_cooldown.contains(&s)))
+    }
+
+    /// A stand-in teleport: records it and moves the player.
+    fn teleport(state: &mut State, session: SessionId, world: usize, eye: Vec3) {
+        calls(|c| c.teleports.push((session.get(), world, eye)));
+        if let Some(p) = state.players.get_mut(&session) {
+            p.position = eye;
+        }
+    }
+
+    fn is_alive(player: &Player) -> bool {
+        let session = session_of(player);
+        calls(|c| session.is_none_or(|s| !c.dead.contains(&s)))
+    }
+
+    fn look(_: &Player) -> (f64, f64) {
+        calls(|c| c.look)
+    }
+
+    fn has_arrow(_: &Player) -> bool {
+        calls(|c| c.arrows > 0)
+    }
+
+    fn take_arrow(_: &mut Player) -> bool {
+        calls(|c| {
+            let had = c.arrows > 0;
+            c.arrows = c.arrows.saturating_sub(1);
+            had
+        })
+    }
+
+    /// The eye position of a player standing on the flat ground at block (x, z).
+    pub(super) fn standing(x: f32, z: f32) -> [f32; 3] {
+        [x + 0.5, -58.38, z + 0.5]
+    }
+
     pub(super) fn at(x: f64, y: f64, z: f64) -> Vec3 {
         Vec3::new(x, y, z)
-    }
-
-    pub(super) fn adds(packets: &[Packet]) -> Vec<u64> {
-        packets
-            .iter()
-            .filter_map(|p| match p {
-                Packet::AddItemActor(a) => Some(a.entity_runtime_id),
-                Packet::AddActor(a) => Some(a.entity_runtime_id),
-                Packet::AddPlayer(a) => Some(a.entity_runtime_id),
-                Packet::AddPainting(a) => Some(a.entity_runtime_id),
-                _ => None,
-            })
-            .collect()
-    }
-
-    pub(super) fn removes(packets: &[Packet]) -> Vec<u64> {
-        packets
-            .iter()
-            .filter_map(|p| match p {
-                Packet::RemoveActor(r) => Some(r.entity_unique_id.cast_unsigned()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn moves(packets: &[Packet], runtime_id: u64) -> usize {
-        packets
-            .iter()
-            .filter(|p| match p {
-                Packet::MoveActorDelta(m) => m.entity_runtime_id == runtime_id,
-                Packet::MoveActorAbsolute(m) => m.entity_runtime_id == runtime_id,
-                Packet::MovePlayer(m) => m.entity_runtime_id == runtime_id,
-                _ => false,
-            })
-            .count()
     }
 
     #[test]
@@ -5552,6 +5570,19 @@ mod tests {
         }
     }
 
+    pub(super) fn adds(packets: &[Packet]) -> Vec<u64> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                Packet::AddItemActor(a) => Some(a.entity_runtime_id),
+                Packet::AddActor(a) => Some(a.entity_runtime_id),
+                Packet::AddPlayer(a) => Some(a.entity_runtime_id),
+                Packet::AddPainting(a) => Some(a.entity_runtime_id),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// `experience = false` or `experience-orbs = false`: the orbs of a saved chunk are dropped
     /// as it loads, out of the tick radius too (no runtime ID, never sent), and the chunk is
     /// saved without them; with both they stay.
@@ -5713,6 +5744,29 @@ mod tests {
         assert_eq!(EXPERIENCE.with(Cell::get), 3);
     }
 
+    /// An orb measures its distance to a player from the player's feet rounded as PMMP keeps
+    /// them (`survival::feet`): a hair under 8 blocks above them it finds the player, which the
+    /// `f32` eye less the eye height puts a hair over 8.
+    #[test]
+    fn an_orb_finds_a_player_from_its_rounded_feet() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        drop_experience(&mut h.state, 0, at(0.5, -52.000_000_5, 0.5), 1);
+        let id = h.state.rules.entities.ids().last().unwrap();
+        with(&mut h.state, id, |e| {
+            e.gravity = false;
+            e.body.motion = Vec3::ZERO;
+        });
+        for _ in 0..=ORB_LOOK_PERIOD {
+            h.entities();
+        }
+        let target = h.state.rules.entities.get(id).and_then(|e| match &e.kind {
+            Kind::ExperienceOrb(o) => o.target,
+            _ => None,
+        });
+        assert_eq!(target, Some(SessionId::new(1)));
+    }
+
     #[test]
     fn the_entity_cap_refuses_new_entities_and_callers_keep_their_items() {
         let mut h = Harness::new(1);
@@ -5768,6 +5822,33 @@ mod tests {
             at(f64::NAN, 0.0, 0.0),
             stack("minecraft:stick", 1)
         ));
+    }
+
+    /// A finite point above the world border is no place for an entity: its height would be
+    /// infinite as the `f32` of a packet.
+    #[test]
+    fn nothing_is_made_above_the_world_border() {
+        let mut h = Harness::new(1);
+        let next = h.state.next_runtime_id;
+        let high = at(0.5, 1e39, 0.5);
+        assert!(!drop_item(
+            &mut h.state,
+            0,
+            high,
+            stack("minecraft:stick", 1)
+        ));
+        assert!(h.live().is_empty());
+        assert_eq!(h.state.next_runtime_id, next, "no runtime ID is used");
+    }
+
+    pub(super) fn removes(packets: &[Packet]) -> Vec<u64> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                Packet::RemoveActor(r) => Some(r.entity_unique_id.cast_unsigned()),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -5962,6 +6043,32 @@ mod tests {
         assert_eq!(again, vec![(key, list)]);
     }
 
+    /// Asking for the offers of an entity that is no villager marks its chunk for no save.
+    #[test]
+    fn asking_a_non_villager_for_offers_marks_nothing_to_save() {
+        let mut h = Harness::new(1);
+        let npc = Npc::Human {
+            name: "Guide".to_owned(),
+            skin: None,
+        };
+        let id = spawn_npc(&mut h.state, 0, at(3.5, -60.0, 0.5), npc).unwrap();
+        h.state.rules.entities.take_changed();
+        assert!(offers_mut(&mut h.state, id).is_none());
+        assert_eq!(h.state.rules.entities.take_changed(), Vec::new());
+    }
+
+    fn moves(packets: &[Packet], runtime_id: u64) -> usize {
+        packets
+            .iter()
+            .filter(|p| match p {
+                Packet::MoveActorDelta(m) => m.entity_runtime_id == runtime_id,
+                Packet::MoveActorAbsolute(m) => m.entity_runtime_id == runtime_id,
+                Packet::MovePlayer(m) => m.entity_runtime_id == runtime_id,
+                _ => false,
+            })
+            .count()
+    }
+
     #[test]
     fn players_are_sent_the_entities_of_the_chunks_they_see_and_only_those() {
         let mut h = Harness::new(1);
@@ -6083,6 +6190,44 @@ mod tests {
         assert_eq!(sent, [512, 512, 176]);
     }
 
+    /// A viewer whose bound this tick's entity spawns used up is shown a new player in the next
+    /// tick, so a crowd and a chunk full of items together cannot overflow its outbox.
+    #[test]
+    fn a_player_over_the_viewers_bound_is_shown_in_a_later_tick() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(3.0, 3.0));
+        let two = h.runtime_id(2);
+        let pair = (SessionId::new(1), SessionId::new(2));
+        h.step(Vec::new());
+        assert!(adds(&h.take(1)).contains(&two));
+        // Player 1 stops seeing player 2.
+        h.state.rules.entities.hidden.insert(pair);
+        h.entities();
+        assert!(removes(&h.take(1)).contains(&two));
+        for i in 0..MAX_SPAWNS_PER_PLAYER {
+            let x = f64::from(i % 32) * 0.25 + 4.0;
+            let z = f64::from(i / 32) * 0.25 + 4.0;
+            let sword = stack("minecraft:diamond_sword", 1);
+            assert!(drop_item_with(
+                &mut h.state,
+                0,
+                at(x, -60.0, z),
+                sword,
+                Some(Vec3::ZERO),
+                10,
+                String::new()
+            ));
+        }
+        h.state.rules.entities.hidden.remove(&pair);
+        h.entities();
+        let sent = adds(&h.take(1));
+        assert_eq!(sent.len(), usize::try_from(MAX_SPAWNS_PER_PLAYER).unwrap());
+        assert!(!sent.contains(&two), "the items used the bound up");
+        h.entities();
+        assert!(adds(&h.take(1)).contains(&two), "shown in the next tick");
+    }
+
     /// An entity that arrives in a chunk is compared with the chunk's players alone: it is
     /// shown, and its resting neighbours are not looked at again.
     #[test]
@@ -6190,11 +6335,40 @@ mod tests {
         let hits = calls(|c| c.damage.clone());
         assert_eq!(hits.len(), 1, "{hits:?}");
         let (who, amount, cause) = hits[0];
-        assert_eq!((who, cause), (1, survival::Damage::Entity));
+        assert_eq!((who, cause), (1, survival::Damage::FallingBlock));
         // It fell about 10 blocks onto the player's head: (round(fall) − 1) × 2.
         assert!(
             (14.0..=26.0).contains(&amount) && amount % 2.0 == 0.0,
             "{amount}"
+        );
+    }
+
+    /// A falling anvil that lands on a zombie made after it knocks the zombie back, and the
+    /// zombie moves on from the knockback, not by the step computed before the anvil landed.
+    #[test]
+    fn a_knockback_a_rule_gives_a_later_entity_is_not_undone_by_its_step() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(8.0, 8.0));
+        let anvil = named("minecraft:anvil");
+        let pos = BlockPos::new(0, -50, 0);
+        h.state.worlds[0].set_block(pos, anvil).unwrap();
+        assert!(fall(&mut h.state, 0, pos, anvil));
+        // Beside the anvil's cell, its box within the anvil's.
+        let beside = at(1.2, -60.0, 0.5);
+        let zombie = spawn_npc(&mut h.state, 0, beside, Npc::Zombie).unwrap();
+        let health = |h: &Harness| h.state.rules.entities.get(zombie).unwrap().health;
+        let full = health(&h);
+        for _ in 0..60 {
+            h.entities();
+            if health(&h) < full {
+                break;
+            }
+        }
+        assert!(health(&h) < full, "the anvil landed on the zombie");
+        let motion = h.state.rules.entities.get(zombie).unwrap().body.motion;
+        assert!(
+            motion.x > 0.0,
+            "knocked back away from the anvil: {motion:?}"
         );
     }
 
@@ -6280,6 +6454,38 @@ mod tests {
         h.step(Vec::new());
         assert_eq!(removes(&h.take(2)), vec![one]);
         assert!(h.state.rules.entities.watched.keys().all(|s| s.get() == 2));
+    }
+
+    /// A pushed player's motion reaches it and the players it is shown to, not one that hides it.
+    #[test]
+    fn a_pushed_players_motion_is_not_sent_to_a_player_who_hides_it() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(3.0, 3.0));
+        h.spawn(3, standing(-3.0, 3.0));
+        let one = h.runtime_id(1);
+        h.state
+            .rules
+            .entities
+            .hidden
+            .insert((SessionId::new(2), SessionId::new(1)));
+        h.entities();
+        let force = (KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT);
+        knock_player(
+            &mut h.state,
+            SessionId::new(1),
+            (1.0, 0.0),
+            force,
+            Raise::Quiet,
+        );
+        let motions = |n: u64| {
+            h.state.players[&SessionId::new(n)]
+                .outbox
+                .iter()
+                .filter(|p| matches!(p, Packet::SetActorMotion(m) if m.entity_runtime_id == one))
+                .count()
+        };
+        assert_eq!((motions(1), motions(2), motions(3)), (1, 0, 1));
     }
 
     /// Another player's walk and look reach those who see it as `MoveActorAbsolute` at its eyes
@@ -6461,7 +6667,7 @@ mod tests {
             .unwrap();
         let p = h.state.players.get_mut(&SessionId::new(1)).unwrap();
         let slot = p.inventory.held_slot();
-        super::super::inventory::set_main(p, slot, stick);
+        inventory::set_main(p, slot, stick);
         h.step(Vec::new());
         h.take(2);
         h.step(Vec::new());
@@ -6556,7 +6762,7 @@ mod tests {
         reason = "consistency: a measurement prints its result and reads the wall clock"
     )]
     fn tick_cost() {
-        let most = std::thread::available_parallelism().map_or(4, |n| n.get().max(4));
+        let most = crate::runtime::logical_cpus().max(4);
         for (threads, count) in [1, most]
             .into_iter()
             .flat_map(|t| [(t, 1_000u32), (t, 10_000)])
@@ -6596,17 +6802,23 @@ mod tests {
                         phases[i] += lap.elapsed();
                         *lap = std::time::Instant::now();
                     };
+                    // The phases of `tick_with`, timed one by one.
+                    state.rules.entities.despawn_heard = dispatch::heard::<EntityDespawn>(state);
                     assign_runtime_ids(state);
+                    announce(state);
                     let steps = compute(state, &h.pool);
                     mark(0, &mut lap);
                     apply_steps(state, steps, TEST_HOOKS);
                     mark(1, &mut lap);
                     pick_up(state, TEST_HOOKS);
+                    announce(state);
                     remove_flagged(state);
+                    lightning::remove_due(state);
                     mark(2, &mut lap);
-                    track_entities(state);
+                    let mut budget = spawn_budget(state);
+                    track_entities(state, &mut budget);
                     mark(3, &mut lap);
-                    track_players(state);
+                    track_players(state, &mut budget);
                     mark(4, &mut lap);
                     h.collect();
                     h.seen.clear();

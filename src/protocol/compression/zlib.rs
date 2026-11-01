@@ -13,18 +13,19 @@ const MIN_FIRST_BUFFER: usize = 4096;
 pub(crate) struct Encoder(libdeflater::Compressor);
 
 impl Encoder {
-    /// `level` must be in 1..=9.
+    /// Returns an encoder at `level`, which must be in 1..=9.
     pub(crate) fn new(level: u8) -> Self {
         #[expect(
             clippy::expect_used,
             reason = "invariant: every caller passes 1..=9: the level batch settings validated, \
                       or a constant level"
         )]
-        let level = libdeflater::CompressionLvl::new(i32::from(level)).expect("valid zlib level");
+        let level =
+            libdeflater::CompressionLvl::new(i32::from(level)).expect("zlib level is in 1..=9");
         Self(libdeflater::Compressor::new(level))
     }
 
-    /// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+    /// Returns the most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
     pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
         self.0.deflate_compress_bound(input_len)
     }
@@ -51,6 +52,7 @@ impl Encoder {
 pub(crate) struct Decoder(Box<DecompressorOxide>);
 
 impl Decoder {
+    /// Returns a decoder with fresh inflate state.
     pub(crate) fn new() -> Self {
         Self(Box::default())
     }
@@ -59,31 +61,33 @@ impl Decoder {
     ///
     /// The buffer grows only up to `limit + 1` bytes; a stream that needs more is a size error.
     /// Input left after the final block is ignored: only official clients show whether their
-    /// encoder leaves any, so Anchor accepts every case. The input is already
-    /// within the reassembly limit.
+    /// encoder leaves any in a batch, so Anchor accepts every case.
     pub(crate) fn decompress(
         &mut self,
         input: &[u8],
-        out: &mut Vec<u8>,
         limit: usize,
+        out: &mut Vec<u8>,
     ) -> Result<()> {
-        self.inflate(input, out, limit, 0).map(|_| ())
+        self.inflate(input, limit, 0, out).map(|_| ())
     }
 
-    /// [`Self::decompress`] for data on disk, which must be one whole stream and nothing after
-    /// it: with `Framing::Zlib` its RFC 1950 header and Adler-32 checksum are checked too.
+    /// Replaces the contents of `out` with the inflated `input`, which must be one whole stream
+    /// with nothing after it.
+    ///
+    /// The buffer grows as in [`Self::decompress`]. With [`Framing::Zlib`] the stream's RFC 1950
+    /// header and Adler-32 checksum are checked too.
     pub(crate) fn decompress_whole(
         &mut self,
         input: &[u8],
-        out: &mut Vec<u8>,
         limit: usize,
         framing: Framing,
+        out: &mut Vec<u8>,
     ) -> Result<()> {
         let flags = match framing {
-            Framing::Raw => 0,
             Framing::Zlib => inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER,
+            Framing::Raw => 0,
         };
-        if self.inflate(input, out, limit, flags)? == 0 {
+        if self.inflate(input, limit, flags, out)? == 0 {
             Ok(())
         } else {
             Err(Error::TrailingInput)
@@ -95,9 +99,9 @@ impl Decoder {
     fn inflate(
         &mut self,
         input: &[u8],
-        out: &mut Vec<u8>,
         limit: usize,
         flags: u32,
+        out: &mut Vec<u8>,
     ) -> Result<usize> {
         // One byte over the limit tells "ends exactly at the limit" from "needs more".
         let cap = limit.saturating_add(1);
@@ -139,7 +143,7 @@ impl Decoder {
     }
 }
 
-/// How a DEFLATE stream on disk is framed.
+/// How a DEFLATE stream is framed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Framing {
     /// An RFC 1950 zlib header and Adler-32 trailer around the stream.
@@ -150,9 +154,24 @@ pub(crate) enum Framing {
 
 #[cfg(test)]
 mod tests {
-    use super::{Decoder, Encoder, Error, Framing};
+    use super::*;
+    use crate::protocol::compression::tests::{Content, sample};
 
     const LIMIT: usize = 1024 * 1024;
+
+    #[test]
+    fn every_level_round_trips() {
+        let input = sample(100_000, Content::Repetitive, 5);
+        let mut output = Vec::new();
+        for level in 1..=9 {
+            let mut compressed = Vec::new();
+            Encoder::new(level).compress(&input, &mut compressed);
+            Decoder::new()
+                .decompress(&compressed, LIMIT, &mut output)
+                .unwrap();
+            assert_eq!(output, input, "level {level}");
+        }
+    }
 
     fn deflate(input: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
@@ -161,25 +180,11 @@ mod tests {
     }
 
     #[test]
-    fn every_level_round_trips() {
-        let input = super::super::tests::sample(100_000, true, 5);
-        let mut output = Vec::new();
-        for level in 1..=9 {
-            let mut compressed = Vec::new();
-            Encoder::new(level).compress(&input, &mut compressed);
-            Decoder::new()
-                .decompress(&compressed, &mut output, LIMIT)
-                .unwrap();
-            assert_eq!(output, input, "level {level}");
-        }
-    }
-
-    #[test]
     fn small_input_inflating_past_the_limit_is_a_size_error() {
         let bomb = deflate(&vec![0; 64 * LIMIT]);
         assert!(bomb.len() < 128 * 1024, "bomb is {} bytes", bomb.len());
         let mut out = Vec::new();
-        let result = Decoder::new().decompress(&bomb, &mut out, LIMIT);
+        let result = Decoder::new().decompress(&bomb, LIMIT, &mut out);
         assert_eq!(result, Err(Error::Size { limit: LIMIT }));
         assert!(
             out.capacity() <= 2 * (LIMIT + 1),
@@ -193,26 +198,26 @@ mod tests {
         let mut input = deflate(b"hello hello hello");
         input.extend_from_slice(&[0, 0, 0xff, 0xff]);
         let mut out = Vec::new();
-        Decoder::new().decompress(&input, &mut out, LIMIT).unwrap();
+        Decoder::new().decompress(&input, LIMIT, &mut out).unwrap();
         assert_eq!(out, b"hello hello hello");
     }
 
     #[test]
     fn rejects_truncated_and_invalid_streams() {
-        let input = deflate(&super::super::tests::sample(10_000, false, 9));
+        let input = deflate(&sample(10_000, Content::Random, 9));
         let mut out = Vec::new();
         let mut decoder = Decoder::new();
         assert_eq!(
-            decoder.decompress(&input[..input.len() / 2], &mut out, LIMIT),
+            decoder.decompress(&input[..input.len() / 2], LIMIT, &mut out),
             Err(Error::Truncated)
         );
         assert_eq!(
-            decoder.decompress(&[], &mut out, LIMIT),
+            decoder.decompress(&[], LIMIT, &mut out),
             Err(Error::Truncated)
         );
         // Block type 3 is reserved.
         assert_eq!(
-            decoder.decompress(&[0x07], &mut out, LIMIT),
+            decoder.decompress(&[0x07], LIMIT, &mut out),
             Err(Error::Deflate)
         );
     }
@@ -227,26 +232,26 @@ mod tests {
 
     #[test]
     fn whole_streams_decode_with_and_without_the_zlib_frame() {
-        let input = super::super::tests::sample(50_000, true, 4);
+        let input = sample(50_000, Content::Repetitive, 4);
         let mut out = Vec::new();
         let mut decoder = Decoder::new();
         decoder
-            .decompress_whole(&zlib(&input), &mut out, LIMIT, Framing::Zlib)
+            .decompress_whole(&zlib(&input), LIMIT, Framing::Zlib, &mut out)
             .unwrap();
         assert_eq!(out, input);
         decoder
-            .decompress_whole(&deflate(&input), &mut out, LIMIT, Framing::Raw)
+            .decompress_whole(&deflate(&input), LIMIT, Framing::Raw, &mut out)
             .unwrap();
         assert_eq!(out, input);
         // Each framing refuses the other.
         assert!(
             decoder
-                .decompress_whole(&deflate(&input), &mut out, LIMIT, Framing::Zlib)
+                .decompress_whole(&deflate(&input), LIMIT, Framing::Zlib, &mut out)
                 .is_err()
         );
         assert!(
             decoder
-                .decompress_whole(&zlib(&input), &mut out, LIMIT, Framing::Raw)
+                .decompress_whole(&zlib(&input), LIMIT, Framing::Raw, &mut out)
                 .is_err()
         );
     }
@@ -261,7 +266,7 @@ mod tests {
         ] {
             stream.push(0);
             assert_eq!(
-                decoder.decompress_whole(&stream, &mut out, LIMIT, framing),
+                decoder.decompress_whole(&stream, LIMIT, framing, &mut out),
                 Err(Error::TrailingInput)
             );
         }
@@ -269,12 +274,12 @@ mod tests {
         let last = stream.len() - 1;
         stream[last] ^= 1;
         assert_eq!(
-            decoder.decompress_whole(&stream, &mut out, LIMIT, Framing::Zlib),
+            decoder.decompress_whole(&stream, LIMIT, Framing::Zlib, &mut out),
             Err(Error::Deflate)
         );
         let bomb = zlib(&vec![0; 4 * LIMIT]);
         assert_eq!(
-            decoder.decompress_whole(&bomb, &mut out, LIMIT, Framing::Zlib),
+            decoder.decompress_whole(&bomb, LIMIT, Framing::Zlib, &mut out),
             Err(Error::Size { limit: LIMIT })
         );
     }

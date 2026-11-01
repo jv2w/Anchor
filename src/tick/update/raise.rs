@@ -7,15 +7,15 @@
 
 use std::collections::BTreeMap;
 
-use super::super::dispatch;
 use super::Cx;
 use crate::block::State;
 use crate::event::{
     BlockDeath, BlockForm, BlockGrow, BlockMelt, BlockSpread, Event, StructureGrow,
 };
+use crate::tick::dispatch;
 use crate::world::{self, BlockPos};
 
-/// The listeners refused a change: one cancelled it, or changed a block it depends on.
+/// A change the listeners refused: one cancelled it, or changed a block it depends on.
 #[derive(Debug)]
 pub(super) struct Refused;
 
@@ -37,15 +37,9 @@ impl Cx<'_> {
         if !dispatch::heard::<E>(self.state) {
             return Ok(None);
         }
-        let before = at.map(|p| self.get(p));
-        let mut event = build(self);
-        dispatch::call(self.state, &mut event);
-        if cancelled(&event)
-            || (dispatch::listened::<E>(self.state) && at.map(|p| self.get(p)) != before)
-        {
-            return Err(Refused);
-        }
-        Ok(Some(event))
+        let event = build(self);
+        self.call(event, cancelled, |cx| at.map(|p| cx.get(p)))
+            .map(Some)
     }
 
     /// Calls the monitors of an applied change, if its event was built.
@@ -53,6 +47,131 @@ impl Cx<'_> {
         if let Some(event) = event {
             dispatch::watch(self.state, &event);
         }
+    }
+
+    /// Grows the block at `pos` into `new` (PMMP `BlockEventHelper::grow`) from the plant at
+    /// `parent` (`pos` again for a plant that grows in place), by bone meal of the rule's player
+    /// if one used it. Whether the block was set.
+    pub(super) fn grow(&mut self, pos: BlockPos, new: State, parent: BlockPos) -> bool {
+        let player = self.player;
+        self.change(
+            pos,
+            new,
+            parent,
+            |world, block| BlockGrow {
+                world,
+                pos,
+                block,
+                new_state: new,
+                player,
+                cancelled: false,
+            },
+            BlockGrow::is_cancelled,
+        )
+    }
+
+    /// Spreads the block at `source` to `pos` (PMMP `BlockEventHelper::spread`). Whether the
+    /// block was set.
+    pub(super) fn spread(&mut self, pos: BlockPos, new: State, source: BlockPos) -> bool {
+        self.change(
+            pos,
+            new,
+            source,
+            |world, block| BlockSpread {
+                world,
+                pos,
+                block,
+                new_state: new,
+                source,
+                cancelled: false,
+            },
+            BlockSpread::is_cancelled,
+        )
+    }
+
+    /// Forms the block at `pos` into `new` by the block at `cause` (PMMP
+    /// `BlockEventHelper::form`): the water or lava, or the blue ice that makes basalt. Whether
+    /// the block was set.
+    pub(super) fn form(&mut self, pos: BlockPos, new: State, cause: BlockPos) -> bool {
+        self.change(
+            pos,
+            new,
+            cause,
+            |world, block| BlockForm {
+                world,
+                pos,
+                block,
+                new_state: new,
+                causing_block: cause,
+                cancelled: false,
+            },
+            BlockForm::is_cancelled,
+        )
+    }
+
+    /// Melts the block at `pos` into `new` (PMMP `BlockEventHelper::melt`). Whether the block
+    /// was set.
+    pub(super) fn melt(&mut self, pos: BlockPos, new: State) -> bool {
+        self.change(
+            pos,
+            new,
+            pos,
+            |world, block| BlockMelt {
+                world,
+                pos,
+                block,
+                new_state: new,
+                cancelled: false,
+            },
+            BlockMelt::is_cancelled,
+        )
+    }
+
+    /// Turns the block at `pos` into its dead form `new` (PMMP `BlockEventHelper::die`). Whether
+    /// the block was set.
+    pub(super) fn die(&mut self, pos: BlockPos, new: State) -> bool {
+        self.change(
+            pos,
+            new,
+            pos,
+            |world, block| BlockDeath {
+                world,
+                pos,
+                block,
+                new_state: new,
+                cancelled: false,
+            },
+            BlockDeath::is_cancelled,
+        )
+    }
+
+    /// Asks the listeners of [`StructureGrow`] whether the block at `origin` may set `blocks`,
+    /// as [`Self::ask`] does; a listener that changes the growing block or any block of the
+    /// structure refuses it.
+    pub(super) fn ask_structure(
+        &mut self,
+        origin: BlockPos,
+        blocks: &BTreeMap<BlockPos, State>,
+    ) -> Result<Option<StructureGrow>, Refused> {
+        if !dispatch::heard::<StructureGrow>(self.state) {
+            return Ok(None);
+        }
+        let block = self.get(origin).ok_or(Refused)?;
+        let event = StructureGrow {
+            world: self.world_id(),
+            pos: origin,
+            block,
+            blocks: blocks.iter().map(|(&p, &s)| (p, s)).collect(),
+            player: self.player,
+            cancelled: false,
+        };
+        self.call(event, StructureGrow::is_cancelled, |cx| {
+            std::iter::once(origin)
+                .chain(blocks.keys().copied())
+                .map(|p| cx.get(p))
+                .collect::<Vec<_>>()
+        })
+        .map(Some)
     }
 
     /// Sets the block at `pos` to `new` once the listeners of `E` let it; `other` is a second
@@ -81,150 +200,38 @@ impl Cx<'_> {
         done
     }
 
-    /// A plant grows into `new` (PMMP `BlockEventHelper::grow`), by bone meal of the rule's
-    /// player if one used it.
-    pub(super) fn grow(&mut self, pos: BlockPos, new: State) -> bool {
-        let player = self.player;
-        self.change(
-            pos,
-            new,
-            pos,
-            |world, block| BlockGrow {
-                world,
-                pos,
-                block,
-                new_state: new,
-                player,
-                cancelled: false,
-            },
-            BlockGrow::is_cancelled,
-        )
-    }
-
-    /// The block at `source` spreads to `pos` (PMMP `BlockEventHelper::spread`).
-    pub(super) fn spread(&mut self, pos: BlockPos, new: State, source: BlockPos) -> bool {
-        self.change(
-            pos,
-            new,
-            source,
-            |world, block| BlockSpread {
-                world,
-                pos,
-                block,
-                new_state: new,
-                source,
-                cancelled: false,
-            },
-            BlockSpread::is_cancelled,
-        )
-    }
-
-    /// The block forms into `new` by the liquid at `cause` (PMMP `BlockEventHelper::form`).
-    pub(super) fn form(&mut self, pos: BlockPos, new: State, cause: BlockPos) -> bool {
-        self.change(
-            pos,
-            new,
-            cause,
-            |world, block| BlockForm {
-                world,
-                pos,
-                block,
-                new_state: new,
-                causing_block: cause,
-                cancelled: false,
-            },
-            BlockForm::is_cancelled,
-        )
-    }
-
-    /// The block melts into `new` (PMMP `BlockEventHelper::melt`).
-    pub(super) fn melt(&mut self, pos: BlockPos, new: State) -> bool {
-        self.change(
-            pos,
-            new,
-            pos,
-            |world, block| BlockMelt {
-                world,
-                pos,
-                block,
-                new_state: new,
-                cancelled: false,
-            },
-            BlockMelt::is_cancelled,
-        )
-    }
-
-    /// The block dies into `new` (PMMP `BlockEventHelper::die`).
-    pub(super) fn die(&mut self, pos: BlockPos, new: State) -> bool {
-        self.change(
-            pos,
-            new,
-            pos,
-            |world, block| BlockDeath {
-                world,
-                pos,
-                block,
-                new_state: new,
-                cancelled: false,
-            },
-            BlockDeath::is_cancelled,
-        )
-    }
-
-    /// Asks the listeners of [`StructureGrow`] whether the block at `origin` may set `blocks`,
-    /// as [`Self::ask`] does; a listener that changes the growing block or any block of the
-    /// structure cancels it.
-    pub(super) fn ask_structure(
+    /// Calls the listeners of `event`, then checks again the blocks `read` reads: a cancel, or a
+    /// listener that changed one of them, refuses the change. The blocks are read only when a
+    /// listener, not only a monitor, is registered.
+    fn call<E: Event, B: PartialEq>(
         &mut self,
-        origin: BlockPos,
-        blocks: &BTreeMap<BlockPos, State>,
-    ) -> Result<Option<StructureGrow>, Refused> {
-        if !dispatch::heard::<StructureGrow>(self.state) {
-            return Ok(None);
-        }
-        let block = self.get(origin).ok_or(Refused)?;
-        let mut event = StructureGrow {
-            world: self.world_id(),
-            pos: origin,
-            block,
-            blocks: blocks.iter().map(|(&p, &s)| (p, s)).collect(),
-            player: self.player,
-            cancelled: false,
-        };
-        let listened = dispatch::listened::<StructureGrow>(self.state);
-        let positions = || std::iter::once(origin).chain(blocks.keys().copied());
-        let before: Vec<Option<State>> = if listened {
-            positions().map(|p| self.get(p)).collect()
-        } else {
-            Vec::new()
-        };
+        mut event: E,
+        cancelled: fn(&E) -> bool,
+        read: impl Fn(&Self) -> B,
+    ) -> Result<E, Refused> {
+        let before = dispatch::listened::<E>(self.state).then(|| read(self));
         dispatch::call(self.state, &mut event);
-        if event.is_cancelled()
-            || (listened && !positions().zip(before).all(|(p, s)| self.get(p) == s))
-        {
+        if cancelled(&event) || before.is_some_and(|b| read(self) != b) {
             return Err(Refused);
         }
-        Ok(Some(event))
+        Ok(event)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::mpsc;
-
-    use super::super::super::Context;
-    use super::super::super::tests::{new_state, settings};
-    use super::super::{
-        Effect, State as Server, fertilize, on_random, on_scheduled, tick, trample,
-    };
     use super::*;
-    use crate::block::{self, Kind, PropertyValue};
+    use crate::block::{self, Face, Kind, PropertyValue};
     use crate::event::{
         Actor, BlockBurn, BlockUpdate, EntityTrampleFarmland, FarmlandHydrationChange, LeavesDecay,
         Listeners, Priority,
     };
     use crate::player;
-    use crate::tick::SessionId;
+    use crate::tick::tests::{new_state, settings};
+    use crate::tick::update::{
+        Effect, fertilize, fire, on_random, on_scheduled, props, tick, trample,
+    };
+    use crate::tick::{Context, SessionId, State as Server};
 
     /// A test server (light off: every chunk lit, at noon) whose listeners `add` registers.
     fn server(add: impl FnOnce(&mut Listeners)) -> Server {
@@ -234,24 +241,18 @@ mod tests {
             settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
             listeners,
         );
-        state.worlds[0].set_time(6_000);
+        state.worlds[0].set_time(6000);
         state
     }
 
     /// A bounded channel a listener records into.
-    fn record<T: Send + 'static>() -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
-        mpsc::channel(1 << 16)
+    fn record<T: Send + 'static>() -> (tokio::sync::mpsc::Sender<T>, tokio::sync::mpsc::Receiver<T>)
+    {
+        tokio::sync::mpsc::channel(1 << 16)
     }
 
-    fn drain<T>(rx: &mut mpsc::Receiver<T>) -> Vec<T> {
+    fn drain<T>(rx: &mut tokio::sync::mpsc::Receiver<T>) -> Vec<T> {
         std::iter::from_fn(|| rx.try_recv().ok()).collect()
-    }
-
-    fn advance(state: &mut Server, ticks: u32) {
-        for _ in 0..ticks {
-            tick(state);
-            state.tick += 1;
-        }
     }
 
     fn set(state: &mut Server, pos: BlockPos, s: State) {
@@ -353,6 +354,87 @@ mod tests {
         assert!(seen.is_empty());
     }
 
+    /// A stem whose `BlockGrow` listener replaces it while its fruit grows keeps the listener's
+    /// block, and no fruit grows.
+    // pmmp: BlockGrowEvent
+    #[test]
+    fn a_stem_a_growth_listener_replaced_stays_replaced() {
+        let at = BlockPos::new(5, -60, 5);
+        let (tx, mut rx) = record();
+        let mut state = server(|l| {
+            l.push(
+                Priority::Normal,
+                move |e: &mut BlockGrow, cx: &mut Context<'_>| {
+                    tx.try_send(e.new_state().kind()).unwrap();
+                    cx.state.worlds[0].set_block(at, stone()).unwrap();
+                },
+            );
+        });
+        let grown = props::with_int(named("minecraft:melon_stem"), "growth", 7).unwrap();
+        let stem = props::with_facing(grown, Face::Up).unwrap();
+        set(&mut state, at.offset(0, -1, 0).unwrap(), farmland(7));
+        set(&mut state, at, stem);
+        let mut calls = Vec::new();
+        for _ in 0..2000 {
+            on_random(&mut Cx::new(&mut state, 0, at), at, stem);
+            calls = drain(&mut rx);
+            if !calls.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(calls, [Kind::Melon]);
+        assert_eq!(get(&state, at), stone(), "the listener's block stays");
+        for face in Face::HORIZONTAL {
+            assert_eq!(get(&state, at.step(face).unwrap()), block::AIR, "no melon");
+        }
+    }
+
+    /// Sugar cane whose `BlockGrow` listener replaces its bottom block keeps the listener's
+    /// block, and no cane grows.
+    // pmmp: BlockGrowEvent
+    #[test]
+    fn sugar_cane_keeps_the_bottom_a_growth_listener_replaced() {
+        let bottom = BlockPos::new(5, -60, 5);
+        let above = bottom.offset(0, 1, 0).unwrap();
+        let (tx, mut rx) = record();
+        let mut state = server(|l| {
+            l.push(
+                Priority::Normal,
+                move |e: &mut BlockGrow, cx: &mut Context<'_>| {
+                    tx.try_send(e.pos()).unwrap();
+                    cx.state.worlds[0].set_block(bottom, stone()).unwrap();
+                },
+            );
+        });
+        set(&mut state, bottom, Kind::Sugarcane.default_state());
+        assert!(!fertilize(&mut state, 0, bottom, Some(someone())));
+        assert_eq!(drain(&mut rx), [above]);
+        assert_eq!(get(&state, bottom), stone(), "the listener's block stays");
+        assert_eq!(get(&state, above), block::AIR);
+    }
+
+    /// Ready bamboo whose `StructureGrow` listener replaces it keeps the listener's block.
+    // pmmp: StructureGrowEvent
+    #[test]
+    fn bamboo_a_structure_listener_replaced_stays_replaced() {
+        let at = BlockPos::new(5, -60, 5);
+        let (tx, mut rx) = record();
+        let mut state = server(|l| {
+            l.push(
+                Priority::Normal,
+                move |e: &mut StructureGrow, cx: &mut Context<'_>| {
+                    tx.try_send(e.pos()).unwrap();
+                    cx.state.worlds[0].set_block(at, stone()).unwrap();
+                },
+            );
+        });
+        let ready = props::with_flag(Kind::Bamboo.default_state(), "age_bit", true).unwrap();
+        set(&mut state, at, ready);
+        on_random(&mut Cx::new(&mut state, 0, at), at, ready);
+        assert_eq!(drain(&mut rx), [at]);
+        assert_eq!(get(&state, at), stone(), "the listener's block stays");
+    }
+
     // pmmp: StructureGrowEvent
     #[test]
     fn saplings_raise_structure_grow_with_every_block() {
@@ -409,6 +491,13 @@ mod tests {
         assert_eq!(changes.len(), 1, "only the listener's block changed");
         assert_eq!(changes.get(&p), Some(&crate::world::Entry::Known(stone())));
         assert!(seen.is_empty());
+    }
+
+    fn advance(state: &mut Server, ticks: u32) {
+        for _ in 0..ticks {
+            tick(state);
+            state.tick += 1;
+        }
     }
 
     // pmmp: BlockSpreadEvent
@@ -488,7 +577,7 @@ mod tests {
                 BlockPos::new(2, -59, 2),
                 Kind::Fire.default_state(),
             );
-            advance(&mut state, 3_000);
+            advance(&mut state, 3000);
             let left = (0..5)
                 .flat_map(|x| (0..5).map(move |z| BlockPos::new(x, -60, z)))
                 .filter(|p| get(&state, *p) == planks)
@@ -504,6 +593,53 @@ mod tests {
         );
         let (left, calls) = run(false);
         assert!(left < 25 && !calls.is_empty());
+    }
+
+    /// A fire that a `BlockBurn` listener puts out sets nothing else alight in that update.
+    // pmmp: BlockBurnEvent
+    #[test]
+    fn a_fire_a_burn_listener_put_out_spreads_no_further() {
+        let at = BlockPos::new(8, -60, 8);
+        let (tx, mut rx) = record();
+        let mut state = server(|l| {
+            l.push(
+                Priority::Normal,
+                move |e: &mut BlockBurn, cx: &mut Context<'_>| {
+                    cx.state.worlds[0]
+                        .set_block(e.causing_block(), block::AIR)
+                        .unwrap();
+                    e.cancel();
+                    tx.try_send(()).unwrap();
+                },
+            );
+        });
+        let planks = Kind::OakPlanks.default_state();
+        let fire = Kind::Fire.default_state();
+        set(&mut state, at.step(Face::Down).unwrap(), planks);
+        for face in Face::HORIZONTAL {
+            set(&mut state, at.step(face).unwrap(), planks);
+        }
+        let others = |state: &Server| {
+            (7..=9)
+                .flat_map(|x| (-60..=-55).flat_map(move |y| (7..=9).map(move |z| (x, y, z))))
+                .map(|(x, y, z)| BlockPos::new(x, y, z))
+                .filter(|&p| p != at && get(state, p).kind() == Kind::Fire)
+                .collect::<Vec<_>>()
+        };
+        let (mut put_out, mut lit_after) = (0, 0);
+        for _ in 0..300 {
+            for p in others(&state) {
+                set(&mut state, p, block::AIR);
+            }
+            set(&mut state, at, fire);
+            fire::on_random(&mut Cx::new(&mut state, 0, at), at, fire);
+            if !drain(&mut rx).is_empty() {
+                put_out += 1;
+                lit_after += others(&state).len();
+            }
+        }
+        assert!(put_out > 0, "no burn reached the listener");
+        assert_eq!(lit_after, 0, "a fire put out by a listener spread");
     }
 
     // pmmp: BlockFormEvent
@@ -634,7 +770,7 @@ mod tests {
         let (kept, effects, _) = run(Do::Cancel);
         assert!(effects.is_empty());
         assert_eq!(kept.kind(), leaves.kind());
-        assert_eq!(super::super::props::flag(kept, "update_bit"), Some(false));
+        assert_eq!(props::flag(kept, "update_bit"), Some(false));
         let (replaced, effects, _) = run(Do::Replace);
         assert!(effects.is_empty());
         assert_eq!(replaced, stone());

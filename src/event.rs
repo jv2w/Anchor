@@ -101,7 +101,6 @@ pub use block::{
     BlockPreExplode, BlockSpread, BlockTeleport, BlockUpdate, BrewItem, BrewingFuelUse,
     CampfireCook, ChestPair, FarmlandHydrationChange, LeavesDecay, SignChange, StructureGrow,
 };
-pub(crate) use entity::DEFAULT_FIRE_CHANCE;
 pub use entity::{
     AreaEffectCloudApply, CombustSource, DamageCause, DamageModifier, DamageSource,
     EntityBlockChange, EntityCombust, EntityDamage, EntityDeath, EntityDespawn, EntityEffectAdd,
@@ -111,6 +110,7 @@ pub use entity::{
     MAX_DAMAGE, MAX_FROST_WALKER_RADIUS, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
     RegainReason, TeleportCause,
 };
+pub(crate) use entity::{DEFAULT_FIRE_CHANCE, Modifiers};
 pub use inventory::{
     CraftItem, FurnaceBurn, FurnaceSmelt, Inventory, InventoryClose, InventoryOpen,
     InventoryTransaction, SlotChange, Trade, TradeOpen, Window,

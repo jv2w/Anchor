@@ -31,6 +31,24 @@ mod view;
 mod weather;
 mod world_api;
 
+pub(crate) use block_entity::SPILL_ID;
+#[cfg(test)]
+pub(crate) use entity::Customs;
+pub(crate) use entity::EntityTypes;
+pub(crate) use entity::bounded_motion;
+pub use entity::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
+pub use hook::SentPacket;
+pub(crate) use log::{
+    Answer, EntryKind, Fingerprints, InputLog, MAX_FILE_BYTES as MAX_LOG_FILE_BYTES, Origin,
+    Segment, Tick as LoggedTick, write_crash_log,
+};
+pub(crate) use rules::ChunkRules;
+pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
+pub(crate) use task::Tasks;
+pub use task::{Context, Offline};
+pub use trade::check_offers;
+pub use view::{MAX_TICKET_CHUNKS, MAX_TICKET_RADIUS, MAX_TICKETS};
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
@@ -50,25 +68,7 @@ use crate::random::Fnv;
 use crate::save::{Request, Response, WorldIndex};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::World;
-
-pub(crate) use self::log::{
-    Answer, EntryKind, Fingerprints, InputLog, MAX_FILE_BYTES as MAX_LOG_FILE_BYTES, Origin,
-    Segment, Tick as LoggedTick, write_crash_log,
-};
-pub(crate) use block_entity::SPILL_ID;
-#[cfg(test)]
-pub(crate) use entity::Customs;
-pub(crate) use entity::EntityTypes;
-pub(crate) use entity::bounded_motion;
-pub use entity::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
-pub use hook::SentPacket;
 use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
-pub(crate) use rules::ChunkRules;
-pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
-pub(crate) use task::Tasks;
-pub use task::{Context, Offline};
-pub use trade::check_offers;
-pub use view::{MAX_TICKET_CHUNKS, MAX_TICKET_RADIUS, MAX_TICKETS};
 
 /// The length of a tick at [`Context::TICKS_PER_SECOND`].
 pub(crate) const TICK: Duration = Duration::from_millis(1000 / Context::TICKS_PER_SECOND as u64);
@@ -79,206 +79,11 @@ pub(crate) const MAX_INPUTS_PER_TICK: usize = 8_192;
 pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
 /// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms.
 const LIGHT_BUDGET: u32 = 16_384;
-/// The largest coordinate a client may report: the world border.
-const MAX_COORDINATE: i32 = crate::world::BORDER;
-
-/// Whether a player position is finite and inside the world border on every axis.
-fn inside_border(pos: Vec3) -> bool {
-    let border = f64::from(MAX_COORDINATE);
-    pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border)
-}
-
-/// The settings the tick reads, taken from [`Config`] once at start.
-#[derive(Debug, Clone)]
-pub(crate) struct Settings {
-    motd: String,
-    game_mode: GameMode,
-    difficulty: Difficulty,
-    hardcore: bool,
-    /// The view values of a world without `[worlds.<name>]` values.
-    view: ViewLimits,
-    /// The global view values as the keys hold them, which a world made with its own values
-    /// starts from ([`Config::global_view`]).
-    global_view: ViewLimits,
-    /// The view values of the worlds with `[worlds.<name>]` values, by name.
-    named_views: BTreeMap<String, ViewLimits>,
-    /// The view values of the worlds the server started with, by index ([`State::new`]), and
-    /// of the worlds made with their own values since (`Context::create_world`).
-    world_views: Vec<ViewLimits>,
-    max_players: u32,
-    shutdown_message: String,
-    /// Ticks between save snapshots.
-    save_interval: u64,
-    /// Whether player data is loaded and saved (`save-player-data`).
-    save_player_data: bool,
-    /// Whether the server file is backed up at start and on request (`backups`).
-    backups: bool,
-    /// How light is calculated (`lighting`).
-    lighting: Lighting,
-    /// The sky light everywhere with [`Lighting::Fixed`] (`fixed-light-level`).
-    fixed_light_level: u8,
-    /// Whether players can hurt each other (`pvp`).
-    pvp: bool,
-    /// Whether players get hungry (`hunger`).
-    hunger: bool,
-    /// Whether players gain experience (`experience`).
-    experience: bool,
-    /// Whether experience orbs exist and bottles o' enchanting can be thrown (`experience-orbs`);
-    /// the rules ask [`Settings::has_orbs`], which also needs `experience`.
-    experience_orbs: bool,
-    /// Whether falling hurts (`fall-damage`).
-    fall_damage: bool,
-    /// Whether air, drowning and suffocation exist (`drowning`).
-    drowning: bool,
-    /// Whether armour protects and wears (`armor`).
-    armor: bool,
-    /// Whether tools, weapons and armour wear out (`durability`).
-    durability: bool,
-    /// Whether beds can be slept in and set spawn points (`beds`).
-    beds: bool,
-    /// Whether the time of day moves on (`daylight-cycle`).
-    daylight_cycle: bool,
-    /// Ticks a dropped item stays on the ground (`item-despawn-ticks`).
-    item_despawn_ticks: u32,
-    /// When a hit can be critical (`critical-hits`).
-    critical_hits: CriticalHits,
-    /// Whether block breaking time is checked (`break-time-check`).
-    break_time_check: bool,
-    /// Whether moves of more than 15 blocks are refused (`movement-check`).
-    movement_check: bool,
-    /// Whether players see their coordinates (`show-coordinates`).
-    show_coordinates: bool,
-    /// Whether players see the others on the locator bar (`locator-bar`).
-    locator_bar: bool,
-    /// Whether dead players respawn without the death screen (`immediate-respawn`).
-    immediate_respawn: bool,
-    /// Whether every player sees how a player died (`show-death-messages`).
-    show_death_messages: bool,
-    /// Whether a world without players runs one tick in every 100 (`slow-empty-worlds`).
-    slow_empty_worlds: bool,
-    /// Ticks between item pickup checks (`item-pickup-interval`).
-    item_pickup_interval: u8,
-    /// The largest batch a session sends (`max-batch-bytes`), which each player list packet of a
-    /// spawn window fits.
-    max_batch_bytes: usize,
-    /// Whether movement packets sent pass the send hooks (`hook-movement-packets`).
-    hook_movement_packets: bool,
-    /// Whether `PlayerAuthInput` packets pass the receive hooks (`hook-player-input`).
-    hook_player_input: bool,
-    /// Whether players always get the default game mode (`force-gamemode`).
-    force_game_mode: bool,
-    /// Random block ticks per sub-chunk per tick (`random-tick-speed`).
-    random_tick_speed: u32,
-    /// The block kinds that never take random ticks (`disable-block-ticking`), sorted.
-    no_random_ticks: Vec<crate::block::Kind>,
-}
-
-impl Settings {
-    /// The tick settings of `config`.
-    pub(crate) fn new(config: &Config) -> Self {
-        let (general, developer) = (&config.general, &config.developer);
-        Self {
-            motd: general.motd.clone(),
-            game_mode: general.gamemode,
-            difficulty: general.difficulty,
-            hardcore: general.hardcore,
-            view: config.view_limits(None),
-            global_view: config.global_view(),
-            named_views: config
-                .worlds
-                .iter()
-                .map(|(name, world)| (name.clone(), config.view_limits(Some(world))))
-                .collect(),
-            world_views: Vec::new(),
-            max_players: general.max_players,
-            shutdown_message: general.shutdown_message.clone(),
-            save_interval: u64::try_from(
-                u128::from(developer.save_interval_minutes) * 60_000 / TICK.as_millis(),
-            )
-            .unwrap_or(u64::MAX),
-            save_player_data: general.save_player_data,
-            backups: general.backups,
-            lighting: developer.lighting,
-            fixed_light_level: developer.fixed_light_level,
-            pvp: general.pvp,
-            hunger: general.hunger,
-            experience: general.experience,
-            experience_orbs: general.experience_orbs,
-            fall_damage: general.fall_damage,
-            drowning: general.drowning,
-            armor: general.armor,
-            durability: general.durability,
-            beds: general.beds,
-            daylight_cycle: general.daylight_cycle,
-            item_despawn_ticks: general.item_despawn_ticks,
-            critical_hits: general.critical_hits,
-            break_time_check: general.break_time_check,
-            movement_check: general.movement_check,
-            show_coordinates: general.show_coordinates,
-            locator_bar: general.locator_bar,
-            immediate_respawn: general.immediate_respawn,
-            show_death_messages: general.show_death_messages,
-            slow_empty_worlds: developer.slow_empty_worlds,
-            item_pickup_interval: developer.item_pickup_interval,
-            max_batch_bytes: developer.max_batch_bytes,
-            hook_movement_packets: developer.hook_movement_packets,
-            hook_player_input: developer.hook_player_input,
-            force_game_mode: general.force_gamemode,
-            random_tick_speed: developer.random_tick_speed,
-            no_random_ticks: update::untickable(&developer.disable_block_ticking),
-        }
-    }
-
-    /// Whether experience orbs exist: `experience-orbs` with `experience`, as no experience means
-    /// no orbs. Off, no rule works out experience to drop, no orb is made or loaded and no bottle
-    /// o' enchanting is thrown; points and levels follow `experience` alone.
-    fn has_orbs(&self) -> bool {
-        self.experience && self.experience_orbs
-    }
-
-    /// How the worlds' light is worked out (`lighting`, `fixed-light-level`).
-    pub(crate) fn light_mode(&self) -> crate::world::LightMode {
-        crate::world::LightMode::of(self.lighting, self.fixed_light_level)
-    }
-
-    /// The view values in effect in world `world`: its `[worlds.<name>]` values over the global
-    /// ones. A world made while the server runs has its options' values over the global ones; one
-    /// loaded while it runs has the global ones.
-    pub(crate) fn view(&self, world: WorldIndex) -> ViewLimits {
-        self.world_views.get(world).copied().unwrap_or(self.view)
-    }
-}
-
-checkpoint::fields!(ViewLimits {
-    view_distance,
-    chunks_per_tick,
-    spawn_radius,
-    tick_radius,
-});
-
-/// What the user registers on the [`ServerBuilder`](crate::ServerBuilder), fixed when the server is
-/// built and moved into the state when it runs. Each field belongs to the module that uses it.
-#[derive(Debug, Default)]
-pub(crate) struct Setup {
-    /// The event listeners and monitors, each in calling order.
-    pub(crate) listeners: Listeners,
-    /// The scheduled tasks.
-    pub(crate) tasks: Tasks,
-    /// The commands and permissions.
-    pub(crate) commands: command::Commands,
-    /// The packet hooks.
-    pub(crate) hooks: hook::Hooks,
-    /// The user's data types and the server's values.
-    pub(crate) data: task::UserData,
-    /// The custom entity types.
-    pub(crate) custom_entities: entity::Customs,
-    /// The custom items, blocks and recipes, numbered by `build`.
-    pub(crate) custom: crate::custom::Registry,
-    /// The generators worlds are made with, by name.
-    pub(crate) generators: crate::world::Generators,
-    /// What the server was built with, for the input log.
-    pub(crate) fingerprints: log::Fingerprints,
-}
+/// The most packets the serial phases may queue for one player in one tick; more means a runaway
+/// rule, and the player is disconnected instead of growing the queue.
+const MAX_OUTBOX: usize = 4096;
+/// The ticks between the runs of a world without players with `slow-empty-worlds`.
+const SLOW_WORLD_PERIOD: u64 = 100;
 
 /// The game state.
 #[derive(Debug)]
@@ -357,138 +162,6 @@ pub(crate) struct State {
     awake: Vec<Pace>,
 }
 
-/// What makes two logins the same player: the XUID with Xbox sign-in, otherwise the name in ASCII
-/// lowercase (PMMP compares with `strcasecmp`, which folds ASCII only).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum PlayerKey {
-    Xuid(u64),
-    Name(String),
-}
-
-impl PlayerKey {
-    fn of(identity: &Identity) -> Self {
-        Self::new(identity.xuid, &identity.name)
-    }
-
-    /// The key of a player with Xbox user ID `xuid` (`None` without Xbox sign-in) and name `name`.
-    fn new(xuid: Option<u64>, name: &str) -> Self {
-        match xuid {
-            Some(xuid) => Self::Xuid(xuid),
-            None => Self::Name(name.to_ascii_lowercase()),
-        }
-    }
-}
-
-/// A joined player, as a [`Context`] lends it. Its getters show what the player is and has; its
-/// setters change it and tell its client and the players who see it by the end of the tick.
-#[derive(Debug)]
-// pmmp-class: Player
-pub struct Player {
-    /// The player's session: its [`crate::player::Id`].
-    session: SessionId,
-    runtime_id: u64,
-    identity: Identity,
-    /// [`PlayerKey::of`] the identity, kept to leave the index without rebuilding it.
-    key: PlayerKey,
-    /// The world the player is in.
-    world: WorldIndex,
-    /// The eye position, finite and inside the world border.
-    position: Vec3,
-    /// The position changed since the last save snapshot.
-    data_dirty: bool,
-    /// The granted chunk radius, once the client asked.
-    chunk_radius: Option<u8>,
-    /// The radius the player wants, once its client asked: the client's last request or the
-    /// API's last [`Context::set_view_distance`]. Each world grants it up to its own
-    /// `view-distance`.
-    asked_radius: Option<u8>,
-    phase: Phase,
-    /// The chunks the player sees.
-    view: view::View,
-    outbound: mpsc::Sender<Outbound>,
-    /// What the output phase sends this player at the end of the tick; empty between ticks.
-    pending: spawn::Pending,
-    /// What the rule modules keep of the player between joins (`extra`).
-    extra: extra::PlayerExtra,
-    /// Slots, cursor, crafting grids and open windows.
-    inventory: inventory::Inventory,
-    /// Health, hunger, experience, effects, game mode…
-    survival: survival::Survival,
-    /// Block breaking in progress.
-    breaking: interact::Breaking,
-    /// Packets the serial phases queued for this player this tick, sent after the output phase's
-    /// packets ([`Player::send_packet`]).
-    outbox: Vec<Packet>,
-    /// Packets held once for every player they go to (a skin of up to 4 MiB), queued by the
-    /// serial phases this tick and sent after the outbox ([`Player::send_shared`]).
-    shared_outbox: Vec<std::sync::Arc<Packet>>,
-    /// The outbox, or the blocks to send again ([`view::MAX_RESYNCS`]), overflowed this tick: the
-    /// player is disconnected at the end of the tick.
-    overflowed: bool,
-    /// What the public API marked for the end of the tick ([`player::sync`]).
-    marks: player::Marks,
-    /// The latest ping and the play history.
-    presence: player::Presence,
-}
-
-/// The most packets the serial phases may queue for one player in one tick; more means a runaway
-/// rule, and the player is disconnected instead of growing the queue.
-const MAX_OUTBOX: usize = 4096;
-
-impl Player {
-    /// Queues `packet` for this player: it is sent after this tick's other packets. More than
-    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback). A
-    /// packet that does not encode, such as one with a string or list over its Mojang limit
-    /// (the client would refuse it), ends the player's connection when it is sent.
-    #[doc(alias = "NetworkSession::sendDataPacket")]
-    pub fn send_packet(&mut self, packet: Packet) {
-        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
-            self.outbox.push(packet);
-        } else {
-            self.overflowed = true;
-        }
-    }
-
-    /// Queues `packet`, which other players get too, without a copy for this player: it is sent
-    /// after this tick's outbox and counts against the same bound.
-    pub(crate) fn send_shared(&mut self, packet: std::sync::Arc<Packet>) {
-        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
-            self.shared_outbox.push(packet);
-        } else {
-            self.overflowed = true;
-        }
-    }
-
-    /// Queues `packet`, which this player gets as a viewer of what goes on around it (an effect,
-    /// another player's action), unless its outbox is nearly full ([`Self::has_viewer_room`]).
-    pub(crate) fn send_to_viewer(&mut self, packet: Packet) {
-        if self.has_viewer_room() {
-            self.send_packet(packet);
-        }
-    }
-
-    /// Whether the outbox has room for what the player gets as a viewer: that leaves
-    /// [`world_api::EFFECT_RESERVE`] packets of room, so one client's inputs, which can make every
-    /// viewer get packets in a loop, cannot fill another player's outbox and disconnect it.
-    pub(crate) fn has_viewer_room(&self) -> bool {
-        self.outbox.len().saturating_add(self.shared_outbox.len())
-            < MAX_OUTBOX - world_api::EFFECT_RESERVE
-    }
-}
-
-/// How far a player is through spawning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Phase {
-    /// Waiting for the saved player data.
-    Loading,
-    /// `StartGame` sent.
-    Joined,
-    /// The spawn chunks and `PlayStatus(PlayerSpawn)` sent.
-    Spawning,
-    /// The client confirmed with `SetLocalPlayerAsInitialised`.
-    Spawned,
-}
-
 impl State {
     /// A server at engine time `tick` with `worlds` (the default world first, none loaded) and
     /// what the user registered (`setup`, listeners already sorted). The spawn chunks of every
@@ -540,9 +213,9 @@ impl State {
             uuids: BTreeSet::new(),
             listeners,
             tasks,
+            data,
             commands,
             hooks,
-            data,
             forms: form::Forms::default(),
             menus: inventory::Menus::default(),
             deferred: dispatch::Deferred::default(),
@@ -571,15 +244,14 @@ impl State {
         state
     }
 
-    /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
-    pub(crate) fn connect_network(&mut self, link: mpsc::Sender<queue::Control>) {
-        self.network.connect(link);
+    /// The custom content, which the save thread also resolves saved custom blocks against.
+    pub(crate) fn custom(&self) -> &std::sync::Arc<crate::custom::Registry> {
+        &self.custom
     }
 
-    /// Sets the commit identity of the state the server file holds
-    /// ([`crate::save::Opened::identity`]).
-    pub(crate) fn set_identity(&mut self, identity: Option<u64>) {
-        self.identity = identity;
+    /// The custom entity types, which the save thread also reads saved entities with.
+    pub(crate) fn entity_types(&self) -> &std::sync::Arc<EntityTypes> {
+        self.rules.entities.types()
     }
 
     /// Whether world `world` runs its world rules this tick: its time, block updates, block
@@ -592,16 +264,6 @@ impl State {
     /// tick in [`SLOW_WORLD_PERIOD`] ([`wake`]).
     pub(crate) fn is_slowed(&self, world: WorldIndex) -> bool {
         self.awake.get(world) == Some(&Pace::Slowed)
-    }
-
-    /// The custom content, which the save thread also resolves saved custom blocks against.
-    pub(crate) fn custom(&self) -> &std::sync::Arc<crate::custom::Registry> {
-        &self.custom
-    }
-
-    /// The custom entity types, which the save thread also reads saved entities with.
-    pub(crate) fn entity_types(&self) -> &std::sync::Arc<EntityTypes> {
-        self.rules.entities.types()
     }
 
     /// A hash of everything a replay must reproduce, independent of thread count, OS and the
@@ -704,13 +366,11 @@ impl State {
             random_tick_speed,
             no_random_ticks: _,
         } = settings;
+        h.bytes(motd.as_bytes());
         h.u64(u64::from(
             survival::game_mode_id(*game_mode).cast_unsigned(),
         ));
         h.u64(u64::from(spawn::difficulty_id(*difficulty).cast_unsigned()));
-        h.u64(u64::from(*max_players));
-        h.u64(u64::from(*random_tick_speed));
-        h.bytes(motd.as_bytes());
         h.usize(world_views.len());
         for v in world_views {
             h.u64(u64::from(v.view_distance));
@@ -718,11 +378,11 @@ impl State {
             h.u64(u64::from(v.spawn_radius));
             h.u64(u64::from(v.tick_radius));
         }
+        h.u64(u64::from(*max_players));
+        h.u64(u64::from(*random_tick_speed));
         h.u64(*tick);
         h.u64(u64::from(*started));
         h.u64(*next_runtime_id);
-        // Callbacks are code; how many wait is state.
-        h.usize(deferred.len());
         h.usize(players.len());
         for (session, p) in players {
             let Player {
@@ -774,7 +434,12 @@ impl State {
             marks.hash_into(&mut h);
             presence.hash_into(&mut h);
         }
-        catalog.hash_into(&mut h);
+        tasks.hash_into(data, &mut h);
+        data.hash_into(players, &mut h);
+        commands.hash_into(&mut h);
+        forms.hash_into(&mut h);
+        // Callbacks are code; how many wait is state.
+        h.usize(deferred.len());
         for world in worlds {
             h.bytes(world.name().as_bytes());
             h.u64(u64::from(world.kind() == crate::world::Kind::Persistent));
@@ -813,6 +478,7 @@ impl State {
             }
             h.u64(world.light_hash());
         }
+        catalog.hash_into(&mut h);
         chunks.hash_into(&mut h);
         saving.hash_into(&mut h);
         h.usize(loading.len());
@@ -824,10 +490,6 @@ impl State {
         clock.hash_into(&mut h);
         trades.hash_into(&mut h);
         skin_budget.hash_into(&mut h);
-        commands.hash_into(&mut h);
-        forms.hash_into(&mut h);
-        tasks.hash_into(data, &mut h);
-        data.hash_into(players, &mut h);
         network.hash_into(&mut h);
         h.0
     }
@@ -851,19 +513,79 @@ impl State {
             })
     }
 
-    /// Adds a player, which must have a new session and a key no player has.
-    fn insert(&mut self, session: SessionId, player: Player) {
-        self.index.insert(player.key.clone(), session);
-        self.names
-            .insert((player.identity.name.to_ascii_lowercase(), session));
-        self.uuids.insert((player.identity.uuid, session));
-        self.runtime_ids.insert(player.runtime_id, session);
-        self.players.insert(session, player);
+    /// Sets the commit identity of the state the server file holds
+    /// ([`crate::save::Opened::identity`]).
+    pub(crate) fn set_identity(&mut self, identity: Option<u64>) {
+        self.identity = identity;
+    }
+
+    /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
+    pub(crate) fn connect_network(&mut self, link: mpsc::Sender<queue::Control>) {
+        self.network.connect(link);
+    }
+
+    /// Disconnects every player with the shutdown message, then runs the callbacks their quits
+    /// deferred, so that what they change is in the final snapshot.
+    fn close_all(&mut self, output: &mut Output) {
+        let sessions: Vec<SessionId> = self.players.keys().copied().collect();
+        for session in sessions {
+            debug!(session = session.get(), "closing for shutdown");
+            let reason = self.settings.shutdown_message.clone();
+            let packet = Packet::Disconnect(Disconnect {
+                reason: i32::from(DisconnectReason::Shutdown),
+                hide_disconnection_screen: false,
+                message: reason.clone(),
+                filtered_message: String::new(),
+            });
+            self.send_off(
+                session,
+                &reason,
+                String::new(),
+                player::QuitCause::Shutdown,
+                packet,
+                output,
+            );
+        }
+        dispatch::run_deferred(self, &mut 0);
+    }
+
+    /// The player of `session`, if any, is sent off: [`player::quit`] for `reason` with
+    /// `quit_message` and `cause`, then it is forgotten and its session closes with `packet` last
+    /// ([`Self::close`]).
+    fn send_off(
+        &mut self,
+        session: SessionId,
+        reason: &str,
+        quit_message: String,
+        cause: player::QuitCause,
+        packet: Packet,
+        output: &mut Output,
+    ) {
+        player::quit(self, session, reason, quit_message, cause);
+        if let Some(player) = self.remove(session) {
+            self.close(player, packet, output);
+        }
+    }
+
+    /// The player of `session`, if any, leaves for `reason` (PMMP `Player::disconnect` without a
+    /// message to the client): [`player::quit`] with BDS's left line, then it is forgotten and its
+    /// outbound queue closes.
+    fn leave(&mut self, session: SessionId, reason: &str) {
+        player::quit(
+            self,
+            session,
+            reason,
+            player::LEFT.to_owned(),
+            player::QuitCause::Disconnect,
+        );
+        if let Some(p) = self.remove(session) {
+            info!(session = session.get(), name = %p.identity.name, reason, "player left");
+        }
     }
 
     /// Removes the player of `session`, if any, with its index entries and the chunks it held; its
     /// open window closes first, so the cursor and grid items are back in its inventory. Unsaved
-    /// data stays in memory for the next commit. Returns its outbound queue.
+    /// data stays in memory for the next commit. Returns the player.
     fn remove(&mut self, session: SessionId) -> Option<Player> {
         inventory::close_window(self, session);
         let mut player = self.players.remove(&session)?;
@@ -913,20 +635,14 @@ impl State {
         output.closes.push((outbound, messages, packet));
     }
 
-    /// The player of `session`, if any, leaves for `reason` (PMMP `Player::disconnect` without a
-    /// message to the client): [`player::quit`] with BDS's left line, then it is forgotten and its
-    /// outbound queue closes.
-    fn leave(&mut self, session: SessionId, reason: &str) {
-        player::quit(
-            self,
-            session,
-            reason,
-            player::LEFT.to_owned(),
-            player::QuitCause::Disconnect,
-        );
-        if let Some(p) = self.remove(session) {
-            info!(session = session.get(), name = %p.identity.name, reason, "player left");
-        }
+    /// Adds a player, which must have a new session and a key no player has.
+    fn insert(&mut self, session: SessionId, player: Player) {
+        self.index.insert(player.key.clone(), session);
+        self.names
+            .insert((player.identity.name.to_ascii_lowercase(), session));
+        self.uuids.insert((player.identity.uuid, session));
+        self.runtime_ids.insert(player.runtime_id, session);
+        self.players.insert(session, player);
     }
 
     /// Queues `packet` for every player that sees chunk `chunk` of `world`, except `except`
@@ -945,34 +661,337 @@ impl State {
             }
         }
     }
+}
 
-    /// Disconnects every player with the shutdown message, then runs the callbacks their quits
-    /// deferred, so that what they change is in the final snapshot.
-    fn close_all(&mut self, output: &mut Output) {
-        let sessions: Vec<SessionId> = self.players.keys().copied().collect();
-        for session in sessions {
-            let reason = self.settings.shutdown_message.clone();
-            player::quit(
-                self,
-                session,
-                &reason,
-                String::new(),
-                player::QuitCause::Shutdown,
-            );
-            let Some(p) = self.remove(session) else {
-                continue;
-            };
-            debug!(session = session.get(), "closing for shutdown");
-            let packet = Packet::Disconnect(Disconnect {
-                reason: i32::from(DisconnectReason::Shutdown),
-                hide_disconnection_screen: false,
-                message: self.settings.shutdown_message.clone(),
-                filtered_message: String::new(),
-            });
-            self.close(p, packet, output);
+/// The settings the tick reads, taken from [`Config`] once at start.
+#[derive(Debug, Clone)]
+pub(crate) struct Settings {
+    motd: String,
+    game_mode: GameMode,
+    difficulty: Difficulty,
+    hardcore: bool,
+    /// The view values of a world without `[worlds.<name>]` values.
+    view: ViewLimits,
+    /// The global view values as the keys hold them, which a world made or loaded while the
+    /// server runs starts from ([`Config::global_view`]).
+    global_view: ViewLimits,
+    /// The view values of the worlds with `[worlds.<name>]` values, by name.
+    named_views: BTreeMap<String, ViewLimits>,
+    /// The view values of the worlds the server started with, by index ([`State::new`]), and
+    /// of the worlds made or loaded since, from their options (`Context::create_world`,
+    /// `Context::load_world`).
+    world_views: Vec<ViewLimits>,
+    max_players: u32,
+    shutdown_message: String,
+    /// Ticks between save snapshots.
+    save_interval: u64,
+    /// Whether player data is loaded and saved (`save-player-data`).
+    save_player_data: bool,
+    /// Whether the server file is backed up at start and on request (`backups`).
+    backups: bool,
+    /// How light is calculated (`lighting`).
+    lighting: Lighting,
+    /// The sky light everywhere with [`Lighting::Fixed`] (`fixed-light-level`).
+    fixed_light_level: u8,
+    /// Whether players can hurt each other (`pvp`).
+    pvp: bool,
+    /// Whether players get hungry (`hunger`).
+    hunger: bool,
+    /// Whether players gain experience (`experience`).
+    experience: bool,
+    /// Whether experience orbs exist and bottles o' enchanting can be thrown (`experience-orbs`);
+    /// the rules ask [`Settings::has_orbs`], which also needs `experience`.
+    experience_orbs: bool,
+    /// Whether falling hurts (`fall-damage`).
+    fall_damage: bool,
+    /// Whether air, drowning and suffocation exist (`drowning`).
+    drowning: bool,
+    /// Whether armour protects and wears (`armor`).
+    armor: bool,
+    /// Whether tools, weapons and armour wear out (`durability`).
+    durability: bool,
+    /// Whether beds can be slept in and set spawn points (`beds`).
+    beds: bool,
+    /// Whether the time of day moves on (`daylight-cycle`).
+    daylight_cycle: bool,
+    /// Ticks a dropped item stays on the ground (`item-despawn-ticks`).
+    item_despawn_ticks: u32,
+    /// When a hit can be critical (`critical-hits`).
+    critical_hits: CriticalHits,
+    /// Whether block breaking time is checked (`break-time-check`).
+    break_time_check: bool,
+    /// Whether moves of more than 15 blocks are refused (`movement-check`).
+    movement_check: bool,
+    /// Whether players see their coordinates (`show-coordinates`).
+    show_coordinates: bool,
+    /// Whether players see the others on the locator bar (`locator-bar`).
+    locator_bar: bool,
+    /// Whether dead players respawn without the death screen (`immediate-respawn`).
+    immediate_respawn: bool,
+    /// Whether every player sees how a player died (`show-death-messages`).
+    show_death_messages: bool,
+    /// Whether a world without players runs one tick in every 100 (`slow-empty-worlds`).
+    slow_empty_worlds: bool,
+    /// Ticks between item pickup checks (`item-pickup-interval`).
+    item_pickup_interval: u8,
+    /// The largest batch a session sends (`max-batch-bytes`), which each player list packet of a
+    /// spawn window fits.
+    max_batch_bytes: usize,
+    /// Whether movement packets sent pass the send hooks (`hook-movement-packets`).
+    hook_movement_packets: bool,
+    /// Whether `PlayerAuthInput` packets pass the receive hooks (`hook-player-input`).
+    hook_player_input: bool,
+    /// Whether players always get the default game mode (`force-gamemode`).
+    force_game_mode: bool,
+    /// Random block ticks per sub-chunk per tick (`random-tick-speed`).
+    random_tick_speed: u32,
+    /// The block kinds that never take random ticks (`disable-block-ticking`), sorted.
+    no_random_ticks: Vec<crate::block::Kind>,
+}
+
+impl Settings {
+    /// The tick settings of `config`.
+    pub(crate) fn new(config: &Config) -> Self {
+        let (general, developer) = (&config.general, &config.developer);
+        Self {
+            motd: general.motd.clone(),
+            game_mode: general.gamemode,
+            difficulty: general.difficulty,
+            hardcore: general.hardcore,
+            view: config.view_limits(None),
+            global_view: config.global_view(),
+            named_views: config
+                .worlds
+                .iter()
+                .map(|(name, world)| (name.clone(), config.view_limits(Some(world))))
+                .collect(),
+            world_views: Vec::new(),
+            max_players: general.max_players,
+            shutdown_message: general.shutdown_message.clone(),
+            save_interval: u64::from(developer.save_interval_minutes)
+                .saturating_mul(60 * u64::from(Context::TICKS_PER_SECOND)),
+            save_player_data: general.save_player_data,
+            backups: general.backups,
+            lighting: developer.lighting,
+            fixed_light_level: developer.fixed_light_level,
+            pvp: general.pvp,
+            hunger: general.hunger,
+            experience: general.experience,
+            experience_orbs: general.experience_orbs,
+            fall_damage: general.fall_damage,
+            drowning: general.drowning,
+            armor: general.armor,
+            durability: general.durability,
+            beds: general.beds,
+            daylight_cycle: general.daylight_cycle,
+            item_despawn_ticks: general.item_despawn_ticks,
+            critical_hits: general.critical_hits,
+            break_time_check: general.break_time_check,
+            movement_check: general.movement_check,
+            show_coordinates: general.show_coordinates,
+            locator_bar: general.locator_bar,
+            immediate_respawn: general.immediate_respawn,
+            show_death_messages: general.show_death_messages,
+            slow_empty_worlds: developer.slow_empty_worlds,
+            item_pickup_interval: developer.item_pickup_interval,
+            max_batch_bytes: developer.max_batch_bytes,
+            hook_movement_packets: developer.hook_movement_packets,
+            hook_player_input: developer.hook_player_input,
+            force_game_mode: general.force_gamemode,
+            random_tick_speed: developer.random_tick_speed,
+            no_random_ticks: update::untickable(&developer.disable_block_ticking),
         }
-        dispatch::run_deferred(self, &mut 0);
     }
+
+    /// How the worlds' light is worked out (`lighting`, `fixed-light-level`).
+    pub(crate) fn light_mode(&self) -> crate::world::LightMode {
+        crate::world::LightMode::of(self.lighting, self.fixed_light_level)
+    }
+
+    /// The view values in effect in world `world`: for a world the server started with, its
+    /// `[worlds.<name>]` values over the global ones; for one made or loaded while it runs, its
+    /// options' values over the global ones.
+    pub(crate) fn view(&self, world: WorldIndex) -> ViewLimits {
+        self.world_views.get(world).copied().unwrap_or(self.view)
+    }
+
+    /// Whether experience orbs exist: `experience-orbs` with `experience`, as no experience means
+    /// no orbs. Off, no rule works out experience to drop, no orb is made or loaded and no bottle
+    /// o' enchanting is thrown; points and levels follow `experience` alone.
+    fn has_orbs(&self) -> bool {
+        self.experience && self.experience_orbs
+    }
+}
+
+checkpoint::fields!(ViewLimits {
+    view_distance,
+    chunks_per_tick,
+    spawn_radius,
+    tick_radius,
+});
+
+/// What the user registers on the [`ServerBuilder`](crate::ServerBuilder), fixed when the server is
+/// built and moved into the state when it runs. Each field belongs to the module that uses it.
+#[derive(Debug, Default)]
+pub(crate) struct Setup {
+    /// The event listeners and monitors, each in calling order.
+    pub(crate) listeners: Listeners,
+    /// The scheduled tasks.
+    pub(crate) tasks: Tasks,
+    /// The commands and permissions.
+    pub(crate) commands: command::Commands,
+    /// The packet hooks.
+    pub(crate) hooks: hook::Hooks,
+    /// The user's data types and the server's values.
+    pub(crate) data: task::UserData,
+    /// The custom entity types.
+    pub(crate) custom_entities: entity::Customs,
+    /// The custom items, blocks and recipes, numbered by `build`.
+    pub(crate) custom: crate::custom::Registry,
+    /// The generators worlds are made with, by name.
+    pub(crate) generators: crate::world::Generators,
+    /// What the server was built with, for the input log.
+    pub(crate) fingerprints: log::Fingerprints,
+}
+
+/// What makes two logins the same player: the XUID with Xbox sign-in, otherwise the name in ASCII
+/// lowercase (PMMP compares with `strcasecmp`, which folds ASCII only).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum PlayerKey {
+    Xuid(u64),
+    Name(String),
+}
+
+impl PlayerKey {
+    /// The key of a player with Xbox user ID `xuid` (`None` without Xbox sign-in) and name `name`.
+    fn new(xuid: Option<u64>, name: &str) -> Self {
+        match xuid {
+            Some(xuid) => Self::Xuid(xuid),
+            None => Self::Name(name.to_ascii_lowercase()),
+        }
+    }
+
+    /// The key of the player who logged in with `identity`.
+    fn of(identity: &Identity) -> Self {
+        Self::new(identity.xuid, &identity.name)
+    }
+}
+
+/// A joined player, as a [`Context`] lends it. Its getters show what the player is and has; its
+/// setters change it and tell its client and the players who see it by the end of the tick.
+#[derive(Debug)]
+// pmmp-class: Player
+pub struct Player {
+    /// The player's session: its [`crate::player::Id`].
+    session: SessionId,
+    runtime_id: u64,
+    identity: Identity,
+    /// [`PlayerKey::of`] the identity, kept to leave the index without rebuilding it.
+    key: PlayerKey,
+    /// The world the player is in.
+    world: WorldIndex,
+    /// The eye position, finite and inside the world border.
+    position: Vec3,
+    /// The position changed since the last save snapshot.
+    data_dirty: bool,
+    /// The granted chunk radius, once the client asked.
+    chunk_radius: Option<u8>,
+    /// The radius the player wants, once its client asked: the client's last request or the
+    /// API's last [`Context::set_view_distance`]. Each world grants it up to its own
+    /// `view-distance`.
+    asked_radius: Option<u8>,
+    phase: Phase,
+    /// The chunks the player sees.
+    view: view::View,
+    outbound: mpsc::Sender<Outbound>,
+    /// What the output phase sends this player at the end of the tick; empty between ticks.
+    pending: spawn::Pending,
+    /// What the rule modules keep of the player between joins (`extra`).
+    extra: extra::PlayerExtra,
+    /// Slots, cursor, crafting grids and open windows.
+    inventory: inventory::Inventory,
+    /// Health, hunger, experience, effects, game mode…
+    survival: survival::Survival,
+    /// Block breaking in progress.
+    breaking: interact::Breaking,
+    /// Packets the serial phases queued for this player this tick, sent after the output phase's
+    /// packets ([`Player::send_packet`]).
+    outbox: Vec<Packet>,
+    /// Packets held once for every player they go to (a skin of up to 4 MiB), queued by the
+    /// serial phases this tick and sent after the outbox ([`Player::send_shared`]).
+    shared_outbox: Vec<std::sync::Arc<Packet>>,
+    /// The outbox, or the blocks to send again ([`view::MAX_RESYNCS`]), overflowed this tick: the
+    /// player is disconnected at the end of the tick.
+    overflowed: bool,
+    /// What the public API marked for the end of the tick ([`player::sync`]).
+    marks: player::Marks,
+    /// The latest ping and the play history.
+    presence: player::Presence,
+}
+
+impl Player {
+    /// Whether the outbox has room for what the player gets as a viewer: that leaves
+    /// [`world_api::EFFECT_RESERVE`] packets of room, so one client's inputs, which can make every
+    /// viewer get packets in a loop, cannot fill another player's outbox and disconnect it.
+    pub(crate) fn has_viewer_room(&self) -> bool {
+        self.outbox.len().saturating_add(self.shared_outbox.len())
+            < MAX_OUTBOX - world_api::EFFECT_RESERVE
+    }
+
+    /// Queues `packet` for this player: it is sent after this tick's other packets. More than
+    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback). A
+    /// packet that does not encode, such as one with a string or list over its Mojang limit
+    /// (the client would refuse it), ends the player's connection when it is sent.
+    #[doc(alias = "NetworkSession::sendDataPacket")]
+    pub fn send_packet(&mut self, packet: Packet) {
+        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
+            self.outbox.push(packet);
+        } else {
+            self.overflowed = true;
+        }
+    }
+
+    /// Queues `packet`, which other players get too, without a copy for this player: it is sent
+    /// after this tick's outbox and counts against the same bound.
+    pub(crate) fn send_shared(&mut self, packet: std::sync::Arc<Packet>) {
+        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
+            self.shared_outbox.push(packet);
+        } else {
+            self.overflowed = true;
+        }
+    }
+
+    /// Queues `packet`, which this player gets as a viewer of what goes on around it (an effect,
+    /// another player's action), unless its outbox is nearly full ([`Self::has_viewer_room`]).
+    pub(crate) fn send_to_viewer(&mut self, packet: Packet) {
+        if self.has_viewer_room() {
+            self.send_packet(packet);
+        }
+    }
+}
+
+/// How far a player is through spawning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// Waiting for the saved player data.
+    Loading,
+    /// `StartGame` sent.
+    Joined,
+    /// The spawn chunks and `PlayStatus(PlayerSpawn)` sent.
+    Spawning,
+    /// The client confirmed with `SetLocalPlayerAsInitialised`.
+    Spawned,
+}
+
+/// How a world runs its world rules this tick ([`wake`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pace {
+    /// Not held back: the world has players.
+    Every,
+    /// A world without players on its one tick in [`SLOW_WORLD_PERIOD`].
+    Slowed,
+    /// A world without players between its runs.
+    Asleep,
 }
 
 /// What one tick sends, delivered after the step.
@@ -987,52 +1006,23 @@ pub(crate) struct Output {
     requests: Vec<Request>,
     /// A commit or a chunk load failed: the server stops without saving.
     save_failed: bool,
+    /// The deferred callbacks the step ran, which [`boundary`] goes on counting against the
+    /// tick's limit ([`dispatch::run_deferred`]).
+    deferred_runs: u32,
     /// Tests: the answers of a stand-in save thread, applied by the next tick.
     #[cfg(test)]
     answers: Vec<Response>,
 }
 
 impl Output {
-    fn close(&mut self, outbound: mpsc::Sender<Outbound>, packet: Packet) {
-        self.closes.push((outbound, Vec::new(), packet));
-    }
-
     #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.packets.is_empty() && self.closes.is_empty()
     }
-}
 
-/// Applies one tick of `inputs` and save thread `responses`, leaving both empty, and records them
-/// in `log`.
-///
-/// 1. Input (serial): the save thread's answers in arrival order (loaded chunks and player data,
-///    commits), in a run's first tick [`ServerStart`](crate::event::ServerStart), then the
-///    session inputs in (session, seq) order, so the result does not depend on how sessions
-///    interleaved in the queue, each followed by the callbacks it deferred. Then the scheduled
-///    tasks.
-/// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
-///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
-///    entities and light.
-/// 3. Sync (serial): the deferred callbacks, the command and player changes the API marked, the
-///    players whose outbox overflowed this tick ([`drop_overflowed`]), then the views: each
-///    follows its player, picks the chunks to send and asks for the loads it needs; last, the
-///    block entities changed this tick, each sent once ([`block_entity::send_marked`]). A session
-///    whose outbound queue is full is dropped after the step, when the output is delivered.
-/// 4. Output (parallel, read-only): the sub-chunks the answers need, encoded once each, then
-///    every marked player's packets, built on the CPU pool in player order, so the output does
-///    not depend on the thread count.
-///
-/// After the output is delivered, the tick ends with [`boundary`].
-pub(crate) fn step(
-    state: &mut State,
-    inputs: &mut Vec<Input>,
-    responses: &mut Vec<Response>,
-    pool: &Pool,
-    output: &mut Output,
-    log: &mut InputLog,
-) {
-    step_marked(state, inputs, responses, pool, output, log, |_| {});
+    fn close(&mut self, outbound: mpsc::Sender<Outbound>, packet: Packet) {
+        self.closes.push((outbound, Vec::new(), packet));
+    }
 }
 
 /// The parts of a [`step`], in order.
@@ -1052,319 +1042,21 @@ pub(crate) enum Part {
     Output,
 }
 
-/// [`step`], calling `mark` as each [`Part`] ends: the tick cost measurements time the parts, the
-/// tick passes a mark that does nothing.
-fn step_marked(
-    state: &mut State,
-    inputs: &mut Vec<Input>,
-    responses: &mut Vec<Response>,
-    pool: &Pool,
-    output: &mut Output,
-    log: &mut InputLog,
-    mut mark: impl FnMut(Part),
-) {
-    log.begin(state.tick);
-    for response in responses.drain(..) {
-        respond(state, response, output, log);
-    }
-    let mut deferred_runs = 0;
-    if !std::mem::replace(&mut state.started, true) {
-        start(state);
-        dispatch::run_deferred(state, &mut deferred_runs);
-    }
-    // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
-    inputs.sort_unstable_by_key(|i| (i.session, i.seq));
-    // Each input is logged before it applies, so the log of a tick that panics in a user callback
-    // holds the input that raised it.
-    for input in inputs.drain(..) {
-        let (session, seq) = (input.session, input.seq);
-        let entry = match input.kind {
-            InputKind::Join { identity, outbound } => {
-                log.record(
-                    session,
-                    seq,
-                    EntryKind::Join(identity.clone()),
-                    identity.size(),
-                );
-                if let Some(request) = spawn::join(state, session, identity, outbound, output) {
-                    output.requests.push(request);
-                }
-                continue;
-            }
-            InputKind::Packet { packet, size } => {
-                log.record(session, seq, EntryKind::Packet(packet), size)
-            }
-            InputKind::Leave => log.record(session, seq, EntryKind::Leave, 0),
-            InputKind::Console(line) => {
-                let size = line.len();
-                log.record(session, seq, EntryKind::Console(line), size)
-            }
-            InputKind::Job(outcome) => {
-                let size = outcome.as_ref().map_or(0, Vec::len);
-                log.record(session, seq, EntryKind::Job(outcome), size)
-            }
-            InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
-        };
-        match &*entry {
-            EntryKind::Packet(packet) => {
-                if let Some(packet) = hook::receive(state, session, packet) {
-                    apply_packet(state, session, &packet);
-                }
-            }
-            EntryKind::Leave => state.leave(session, "client disconnect"),
-            EntryKind::Console(line) => command::console(state, line),
-            EntryKind::Job(outcome) => task::finish(state, seq, outcome),
-            EntryKind::Measure(measure) => network::apply(state, session, *measure),
-            // A join applied above: its outbound queue is not part of the log.
-            EntryKind::Join(_) => {}
-        }
-        dispatch::run_deferred(state, &mut deferred_runs);
-    }
-    Tasks::run(state);
-    dispatch::run_deferred(state, &mut deferred_runs);
-    mark(Part::Input);
-    rules(state, pool, &mut mark);
-    dispatch::run_deferred(state, &mut deferred_runs);
-    command::sync(state);
-    player::sync(state, output);
-    drop_overflowed(state, output);
-    output.requests.extend(view::update(state));
-    dispatch::run_deferred(state, &mut deferred_runs);
-    block_entity::send_marked(state);
-    let changes = view::take_changes(&mut state.worlds);
-    mark(Part::View);
-    output.packets = spawn::output(state, pool, &changes);
-    state.tick = state.tick.saturating_add(1);
-    mark(Part::Output);
+/// The tick's link to the save thread.
+#[derive(Debug)]
+pub(crate) struct SaveLink {
+    pub(crate) requests: mpsc::Sender<Request>,
+    pub(crate) responses: mpsc::Receiver<Response>,
 }
 
-/// The tick boundary after a step and its delivery: a save snapshot for the save thread if one is
-/// due, the offline player loads the tick asked for, then the tick's controls to the networking.
-/// It comes after the delivery because sessions dropped there change the state of the tick, and
-/// their quit listeners may ask for controls or loads; none waits past the tick, where its
-/// checkpoint would not keep it.
-pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
-    if let Some(request) = save::snapshot(state, log, false) {
-        output.requests.push(request);
-    }
-    output.requests.extend(task::offline_requests(state));
-    state.network.flush();
-}
-
-/// Raises [`ServerStart`](crate::event::ServerStart) in the first tick of a run.
-fn start(state: &mut State) {
-    if dispatch::heard::<crate::event::ServerStart>(state) {
-        let mut e = crate::event::ServerStart {};
-        dispatch::call(state, &mut e);
-        dispatch::watch(state, &e);
-    }
-}
-
-/// Applies one answer of the save thread and records it.
-fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut InputLog) {
-    log.response(&response);
-    match response {
-        Response::Chunk { world, pos, loaded } => view::loaded(state, world, pos, loaded),
-        // A joining player and offline loads may wait on the same answer: the join takes it
-        // first, so the loads find the player joined, or its data damaged if that refused it.
-        Response::Player { key, data } => match task::take_offline_loads(state, &key) {
-            None => spawn::player_loaded(state, &key, data, output),
-            Some(loads) => {
-                spawn::player_loaded(state, &key, data.clone(), output);
-                task::answer_offline_loads(state, &key, loads, &data);
-            }
-        },
-        Response::Committed { start } => save::committed(state, log, start),
-        Response::CommitFailed { start } => {
-            save::failed(start);
-            output.save_failed = true;
-        }
-        Response::LoadFailed => {
-            save::load_failed();
-            output.save_failed = true;
-        }
-        Response::Checked(found) => save::checked(state, &found),
-    }
-}
-
-/// Applies an in-game packet of `session`: each packet goes to the rule module that owns it.
-/// `PlayerAuthInput` runs in PMMP's order: movement, block actions and item interaction, then its
-/// item stack request.
-fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
-    match packet {
-        Packet::RequestChunkRadius(p) => spawn::request_chunk_radius(state, session, p),
-        Packet::SetLocalPlayerAsInitialised(p) => spawn::initialised(state, session, p),
-        Packet::PlayerAuthInput(p) => {
-            survival::on_auth_input(state, session, p);
-            interact::on_auth_input(state, session, p);
-            if let Some(request) = &p.item_stack_request {
-                inventory::on_item_stack_request(state, session, request);
-            }
-        }
-        Packet::SubChunkRequest(p) => {
-            if let Some(player) = state.players.get_mut(&session) {
-                view::queue_request(player, p.clone());
-            }
-        }
-        Packet::ItemStackRequest(p) => {
-            for request in &p.requests {
-                inventory::on_item_stack_request(state, session, request);
-            }
-        }
-        Packet::InventoryTransaction(p) => interact::on_inventory_transaction(state, session, p),
-        Packet::MobEquipment(p) => inventory::on_mob_equipment(state, session, p),
-        Packet::ContainerClose(p) => inventory::on_container_close(state, session, p),
-        Packet::Interact(p) => inventory::on_interact(state, session, p),
-        Packet::BlockPickRequest(p) => inventory::on_block_pick_request(state, session, p),
-        Packet::ActorPickRequest(p) => entity::on_actor_pick_request(state, session, p),
-        Packet::BlockActorData(p) => interact::on_block_actor_data(state, session, p),
-        Packet::LecternUpdate(p) => interact::on_lectern_update(state, session, p),
-        Packet::BookEdit(p) => interact::on_book_edit(state, session, p),
-        Packet::PlayerAction(p) => survival::on_player_action(state, session, p),
-        Packet::Animate(p) => survival::on_animate(state, session, p),
-        Packet::Respawn(p) => survival::on_respawn(state, session, p),
-        Packet::Text(p) => chat::on_text(state, session, p),
-        Packet::Emote(p) => survival::on_emote(state, session, p),
-        Packet::PlayerSkin(p) => survival::on_skin(state, session, p),
-        Packet::CommandRequest(p) => command::on_request(state, session, p),
-        Packet::ModalFormResponse(p) => form::on_response(state, session, p),
-        p => trace!(session = session.get(), id = p.id(), "packet not handled"),
-    }
-}
-
-/// Runs the rule modules' tick after the inputs and tasks (phase 2 of [`step`]): survival and the
-/// world clocks, breaking in progress, block updates, entities, trades with vanished villagers,
-/// block entities, then light work, calling `mark` after each.
-fn rules(state: &mut State, pool: &Pool, mark: &mut impl FnMut(Part)) {
-    wake(state);
-    survival::tick(state);
-    mark(Part::Survival);
-    interact::tick(state);
-    mark(Part::Interact);
-    update::tick(state);
-    mark(Part::Update);
-    entity::tick(state, pool);
-    mark(Part::Entity);
-    trade::tick(state);
-    mark(Part::Trade);
-    block_entity::tick(state);
-    mark(Part::BlockEntity);
-    for index in 0..state.worlds.len() {
-        if state.is_awake(index)
-            && let Some(world) = state.worlds.get_mut(index)
-        {
-            world.step_light(LIGHT_BUDGET);
-        }
-    }
-    mark(Part::Light);
-}
-
-/// The ticks between the runs of a world without players with `slow-empty-worlds`.
-const SLOW_WORLD_PERIOD: u64 = 100;
-
-/// How a world runs its world rules this tick ([`wake`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Pace {
-    /// Not held back: the world has players.
-    Every,
-    /// A world without players on its one tick in [`SLOW_WORLD_PERIOD`].
-    Slowed,
-    /// A world without players between its runs.
-    Asleep,
-}
-
-/// Works out which worlds run their world rules this tick ([`State::is_awake`]): with
-/// `slow-empty-worlds`, world `w` without players only on the ticks `t` where `(t + w) %
-/// SLOW_WORLD_PERIOD == 0`, so empty worlds run on ticks of their own instead of all on one.
-/// Entities and random block ticks need no check: they tick only near players.
-fn wake(state: &mut State) {
-    state.awake.clear();
-    if !state.settings.slow_empty_worlds {
-        return;
-    }
-    let tick = state.tick;
-    state.awake.extend((0..state.worlds.len()).map(|w| {
-        let phase = u64::try_from(w).unwrap_or_default();
-        if tick.wrapping_add(phase).is_multiple_of(SLOW_WORLD_PERIOD) {
-            Pace::Slowed
-        } else {
-            Pace::Asleep
-        }
-    }));
-    for player in state.players.values() {
-        if let Some(pace) = state.awake.get_mut(player.world) {
-            *pace = Pace::Every;
-        }
-    }
-}
-
-/// Disconnects the players whose outbox ([`MAX_OUTBOX`]) or blocks to send again
-/// ([`view::MAX_RESYNCS`]) overflowed this tick.
-fn drop_overflowed(state: &mut State, output: &mut Output) {
-    let overflowed: Vec<SessionId> = state
-        .players
-        .iter()
-        .filter(|(_, p)| p.overflowed)
-        .map(|(&s, _)| s)
-        .collect();
-    for session in overflowed {
-        player::quit(
-            state,
-            session,
-            "too many packets",
-            String::new(),
-            player::QuitCause::Disconnect,
-        );
-        if let Some(p) = state.remove(session) {
-            warn!(
-                session = session.get(),
-                "too many packets queued in one tick; disconnecting"
-            );
-            let disconnect = Packet::Disconnect(Disconnect {
-                reason: i32::from(DisconnectReason::Unknown),
-                hide_disconnection_screen: false,
-                message: String::new(),
-                filtered_message: String::new(),
-            });
-            state.close(p, disconnect, output);
-        }
-    }
-}
-
-/// Sends `output` to the sessions. A session whose queue is full or closed is [`dropped`]; the
-/// tick never waits.
-fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
-    for (session, packets) in output.packets.drain(..) {
-        let Some(player) = state.players.get(&session) else {
-            continue;
-        };
-        match player.outbound.try_send(Outbound::Send(packets)) {
-            Ok(()) => continue,
-            Err(TrySendError::Full(_)) => {
-                warn!(
-                    session = session.get(),
-                    "outbound queue full; dropping the session"
-                );
-            }
-            Err(TrySendError::Closed(_)) => {}
-        }
-        dropped(state, log, session);
-    }
-    for (outbound, messages, packet) in output.closes.drain(..) {
-        // The session closes when the queue does; a full or closed queue only loses what was
-        // left to send.
-        let queued = messages.is_empty() || outbound.try_send(Outbound::Send(messages)).is_ok();
-        if !queued || outbound.try_send(Outbound::Close(packet)).is_err() {
-            debug!("could not queue the last packets of a closed session");
-        }
-    }
-}
-
-/// Forgets a session whose outbound queue was full or closed after the output: its player leaves
-/// as on a disconnect, and `log` records it, so a replay drops it at the same point.
-fn dropped(state: &mut State, log: &mut InputLog, session: SessionId) {
-    log.dropped(session);
-    state.leave(session, "connection lost");
+/// How the tick thread ended, with the input log, which `data/crash/` receives when a save failed.
+#[derive(Debug)]
+pub(crate) enum End {
+    /// Stopped on request; the final snapshot went to the save thread, whose commit may still
+    /// fail.
+    Stopped(InputLog),
+    /// A commit or a chunk load failed: the players were disconnected and nothing more was saved.
+    SaveFailed(InputLog),
 }
 
 /// Hands the input log to the main thread if the tick thread panics, so it can be written to
@@ -1385,27 +1077,10 @@ impl Drop for CrashGuard {
     }
 }
 
-/// The tick's link to the save thread.
-#[derive(Debug)]
-pub(crate) struct SaveLink {
-    pub(crate) requests: mpsc::Sender<Request>,
-    pub(crate) responses: mpsc::Receiver<Response>,
-}
-
-/// How the tick thread ended.
-#[derive(Debug)]
-pub(crate) enum End {
-    /// Stopped on request; the final snapshot went to the save thread.
-    Stopped,
-    /// A commit or a chunk load failed: the players were disconnected and nothing more was saved.
-    /// The input log since the last commit goes to `data/crash/`.
-    SaveFailed(InputLog),
-}
-
 /// The tick thread: runs ticks every [`TICK`] until `stop` receives or closes or a commit fails,
 /// then disconnects every player, hands the final snapshot to the save thread (unless a commit
-/// failed) and returns. `_done` drops when the thread ends, normally or by
-/// panic; on a panic the input log goes to `crash` first.
+/// failed) and returns. `_done` drops when the thread ends, normally or by panic; on a panic the
+/// input log goes to `crash` first.
 pub(crate) fn run(
     mut state: State,
     pool: &Pool,
@@ -1492,11 +1167,12 @@ pub(crate) fn run(
     }
     deliver(&mut state, &mut output, &mut guard.log);
     drop(save);
-    info!(ticks = state.tick, "tick stopped");
+    info!(tick = state.tick, "tick stopped");
+    let log = std::mem::take(&mut guard.log);
     if failed {
-        End::SaveFailed(std::mem::take(&mut guard.log))
+        End::SaveFailed(log)
     } else {
-        End::Stopped
+        End::Stopped(log)
     }
 }
 
@@ -1526,9 +1202,341 @@ pub(crate) fn replay_tick(
     std::mem::take(&mut output.requests)
 }
 
-/// The engine tick of `state`: the next tick it applies.
-pub(crate) fn tick_of(state: &State) -> u64 {
-    state.tick
+/// Applies one tick of `inputs` and save thread `responses`, leaving both empty, and records them
+/// in `log`.
+///
+/// 1. Input (serial): the save thread's answers in arrival order (loaded chunks and player data,
+///    commits), in a run's first tick [`ServerStart`](crate::event::ServerStart), then the
+///    session inputs in (session, seq) order, so the result does not depend on how sessions
+///    interleaved in the queue, each followed by the callbacks it deferred. Then the scheduled
+///    tasks.
+/// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
+///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
+///    entities and light.
+/// 3. Sync (serial): the deferred callbacks, the command and player changes the API marked, the
+///    players whose outbox overflowed this tick ([`drop_overflowed`]), then the views: each
+///    follows its player, picks the chunks to send and asks for the loads it needs; last, the
+///    block entities changed this tick, each sent once ([`block_entity::send_marked`]). A session
+///    whose outbound queue is full is dropped after the step, when the output is delivered.
+/// 4. Output (parallel, read-only): the sub-chunks the answers need, encoded once each, then
+///    every marked player's packets, built on the CPU pool in player order, so the output does
+///    not depend on the thread count.
+///
+/// After the output is delivered, the tick ends with [`boundary`].
+pub(crate) fn step(
+    state: &mut State,
+    inputs: &mut Vec<Input>,
+    responses: &mut Vec<Response>,
+    pool: &Pool,
+    output: &mut Output,
+    log: &mut InputLog,
+) {
+    step_marked(state, inputs, responses, pool, output, log, |_| {});
+}
+
+/// [`step`], calling `mark` as each [`Part`] ends: the tick cost measurements time the parts, the
+/// tick passes a mark that does nothing.
+fn step_marked(
+    state: &mut State,
+    inputs: &mut Vec<Input>,
+    responses: &mut Vec<Response>,
+    pool: &Pool,
+    output: &mut Output,
+    log: &mut InputLog,
+    mut mark: impl FnMut(Part),
+) {
+    log.begin(state.tick);
+    for response in responses.drain(..) {
+        respond(state, response, output, log);
+    }
+    let mut deferred_runs = 0;
+    if !std::mem::replace(&mut state.started, true) {
+        start(state);
+        dispatch::run_deferred(state, &mut deferred_runs);
+    }
+    // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
+    inputs.sort_unstable_by_key(|i| (i.session, i.seq));
+    // Each input is logged before it applies, so the log of a tick that panics in a user callback
+    // holds the input that raised it.
+    for input in inputs.drain(..) {
+        let (session, seq) = (input.session, input.seq);
+        let entry = match input.kind {
+            InputKind::Join { identity, outbound } => {
+                let entry = log.record(
+                    session,
+                    seq,
+                    EntryKind::Join(identity.clone()),
+                    identity.size(),
+                );
+                if let Some(request) = spawn::join(state, session, identity, outbound, output) {
+                    output.requests.push(request);
+                }
+                entry
+            }
+            InputKind::Packet { packet, size } => {
+                log.record(session, seq, EntryKind::Packet(packet), size)
+            }
+            InputKind::Leave => log.record(session, seq, EntryKind::Leave, 0),
+            InputKind::Console(line) => {
+                let size = line.len();
+                log.record(session, seq, EntryKind::Console(line), size)
+            }
+            InputKind::Job(outcome) => {
+                let size = outcome.as_ref().map_or(0, Vec::len);
+                log.record(session, seq, EntryKind::Job(outcome), size)
+            }
+            InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
+        };
+        match &*entry {
+            EntryKind::Packet(packet) => {
+                if let Some(packet) = hook::receive(state, session, packet) {
+                    apply_packet(state, session, &packet);
+                }
+            }
+            EntryKind::Leave => state.leave(session, "client disconnect"),
+            EntryKind::Console(line) => command::console(state, line),
+            EntryKind::Job(outcome) => task::finish(state, seq, outcome),
+            EntryKind::Measure(measure) => network::apply(state, session, *measure),
+            // A join applied above: its outbound queue is not part of the log.
+            EntryKind::Join(_) => {}
+        }
+        dispatch::run_deferred(state, &mut deferred_runs);
+    }
+    Tasks::run(state);
+    dispatch::run_deferred(state, &mut deferred_runs);
+    mark(Part::Input);
+    rules(state, pool, &mut mark);
+    dispatch::run_deferred(state, &mut deferred_runs);
+    command::sync(state);
+    player::sync(state, output);
+    drop_overflowed(state, output);
+    view::update(state, &mut output.requests);
+    dispatch::run_deferred(state, &mut deferred_runs);
+    block_entity::send_marked(state);
+    let changes = view::take_changes(&mut state.worlds);
+    mark(Part::View);
+    output.packets = spawn::output(state, pool, &changes);
+    output.deferred_runs = deferred_runs;
+    state.tick = state.tick.saturating_add(1);
+    mark(Part::Output);
+}
+
+/// Applies one answer of the save thread and records it.
+fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut InputLog) {
+    log.response(&response);
+    match response {
+        Response::Chunk { world, pos, loaded } => view::loaded(state, world, pos, loaded),
+        // A joining player and offline loads may wait on the same answer: the join takes it
+        // first, so the loads find the player joined, or its data damaged if that refused it.
+        Response::Player { key, data } => match task::take_offline_loads(state, &key) {
+            None => spawn::player_loaded(state, &key, data, output),
+            Some(loads) => {
+                spawn::player_loaded(state, &key, data.clone(), output);
+                task::answer_offline_loads(state, &key, loads, &data);
+            }
+        },
+        Response::Committed { start } => save::committed(state, log, start),
+        Response::CommitFailed { start } => {
+            save::failed(start);
+            output.save_failed = true;
+        }
+        Response::LoadFailed => {
+            save::load_failed();
+            output.save_failed = true;
+        }
+        Response::Checked(found) => save::checked(state, &found),
+    }
+}
+
+/// Raises [`ServerStart`](crate::event::ServerStart) in the first tick of a run.
+fn start(state: &mut State) {
+    if dispatch::heard::<crate::event::ServerStart>(state) {
+        let mut e = crate::event::ServerStart {};
+        dispatch::call(state, &mut e);
+        dispatch::watch(state, &e);
+    }
+}
+
+/// Applies an in-game packet of `session`: each packet goes to the rule module that owns it.
+/// `PlayerAuthInput` runs in PMMP's order: movement, block actions and item interaction, then its
+/// item stack request.
+fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
+    match packet {
+        Packet::RequestChunkRadius(p) => spawn::request_chunk_radius(state, session, p),
+        Packet::SetLocalPlayerAsInitialised(p) => spawn::initialised(state, session, p),
+        Packet::PlayerAuthInput(p) => {
+            survival::on_auth_input(state, session, p);
+            interact::on_auth_input(state, session, p);
+            if let Some(request) = &p.item_stack_request {
+                inventory::on_item_stack_request(state, session, request);
+            }
+        }
+        Packet::SubChunkRequest(p) => {
+            if let Some(player) = state.players.get_mut(&session) {
+                view::queue_request(player, p);
+            }
+        }
+        Packet::ItemStackRequest(p) => {
+            for request in &p.requests {
+                inventory::on_item_stack_request(state, session, request);
+            }
+        }
+        Packet::InventoryTransaction(p) => interact::on_inventory_transaction(state, session, p),
+        Packet::MobEquipment(p) => inventory::on_mob_equipment(state, session, p),
+        Packet::ContainerClose(p) => inventory::on_container_close(state, session, p),
+        Packet::Interact(p) => inventory::on_interact(state, session, p),
+        Packet::BlockPickRequest(p) => inventory::on_block_pick_request(state, session, p),
+        Packet::ActorPickRequest(p) => entity::on_actor_pick_request(state, session, p),
+        Packet::BlockActorData(p) => interact::on_block_actor_data(state, session, p),
+        Packet::LecternUpdate(p) => interact::on_lectern_update(state, session, p),
+        Packet::BookEdit(p) => interact::on_book_edit(state, session, p),
+        Packet::PlayerAction(p) => survival::on_player_action(state, session, p),
+        Packet::Animate(p) => survival::on_animate(state, session, p),
+        Packet::Respawn(p) => survival::on_respawn(state, session, p),
+        Packet::Text(p) => chat::on_text(state, session, p),
+        Packet::Emote(p) => survival::on_emote(state, session, p),
+        Packet::PlayerSkin(p) => survival::on_skin(state, session, p),
+        Packet::CommandRequest(p) => command::on_request(state, session, p),
+        Packet::ModalFormResponse(p) => form::on_response(state, session, p),
+        p => trace!(session = session.get(), id = p.id(), "packet not handled"),
+    }
+}
+
+/// Runs the rule modules' tick after the inputs and tasks (phase 2 of [`step`]): survival and the
+/// world clocks, breaking in progress, block updates, entities, trades with vanished villagers,
+/// block entities, then light work, calling `mark` after each.
+fn rules(state: &mut State, pool: &Pool, mark: &mut impl FnMut(Part)) {
+    wake(state);
+    survival::tick(state);
+    mark(Part::Survival);
+    interact::tick(state);
+    mark(Part::Interact);
+    update::tick(state);
+    mark(Part::Update);
+    entity::tick(state, pool);
+    mark(Part::Entity);
+    trade::tick(state);
+    mark(Part::Trade);
+    block_entity::tick(state);
+    mark(Part::BlockEntity);
+    for index in 0..state.worlds.len() {
+        if state.is_awake(index)
+            && let Some(world) = state.worlds.get_mut(index)
+        {
+            world.step_light(LIGHT_BUDGET);
+        }
+    }
+    mark(Part::Light);
+}
+
+/// Works out which worlds run their world rules this tick ([`State::is_awake`]): with
+/// `slow-empty-worlds`, world `w` without players only on the ticks `t` where `(t + w) %
+/// SLOW_WORLD_PERIOD == 0`, so empty worlds run on ticks of their own instead of all on one.
+/// Entities and random block ticks need no check: they tick only near players.
+fn wake(state: &mut State) {
+    state.awake.clear();
+    if !state.settings.slow_empty_worlds {
+        return;
+    }
+    let tick = state.tick;
+    // World `w`'s phase is `w` itself, counted as a `u64` from 0.
+    state
+        .awake
+        .extend((0_u64..).take(state.worlds.len()).map(|phase| {
+            if tick.wrapping_add(phase).is_multiple_of(SLOW_WORLD_PERIOD) {
+                Pace::Slowed
+            } else {
+                Pace::Asleep
+            }
+        }));
+    for player in state.players.values() {
+        if let Some(pace) = state.awake.get_mut(player.world) {
+            *pace = Pace::Every;
+        }
+    }
+}
+
+/// Disconnects the players whose outbox ([`MAX_OUTBOX`]) or blocks to send again
+/// ([`view::MAX_RESYNCS`]) overflowed this tick.
+fn drop_overflowed(state: &mut State, output: &mut Output) {
+    let overflowed: Vec<(SessionId, String)> = state
+        .players
+        .iter()
+        .filter(|(_, p)| p.overflowed)
+        .map(|(&s, p)| (s, p.identity.name.clone()))
+        .collect();
+    for (session, name) in overflowed {
+        warn!(
+            session = session.get(),
+            %name,
+            "too many packets queued in one tick; disconnecting"
+        );
+        let disconnect = Packet::Disconnect(Disconnect {
+            reason: i32::from(DisconnectReason::Unknown),
+            hide_disconnection_screen: false,
+            message: String::new(),
+            filtered_message: String::new(),
+        });
+        state.send_off(
+            session,
+            "too many packets",
+            String::new(),
+            player::QuitCause::Disconnect,
+            disconnect,
+            output,
+        );
+    }
+}
+
+/// Sends `output` to the sessions. A session whose queue is full or closed is [`dropped`]; the
+/// tick never waits.
+fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
+    for (session, packets) in output.packets.drain(..) {
+        let Some(player) = state.players.get(&session) else {
+            continue;
+        };
+        match player.outbound.try_send(Outbound::Send(packets)) {
+            Ok(()) => continue,
+            Err(TrySendError::Full(_)) => {
+                warn!(
+                    session = session.get(),
+                    "outbound queue full; dropping the session"
+                );
+            }
+            Err(TrySendError::Closed(_)) => {}
+        }
+        dropped(state, log, session);
+    }
+    for (outbound, messages, packet) in output.closes.drain(..) {
+        // The session closes when the queue does; a full or closed queue only loses what was
+        // left to send.
+        let queued = messages.is_empty() || outbound.try_send(Outbound::Send(messages)).is_ok();
+        if !queued || outbound.try_send(Outbound::Close(packet)).is_err() {
+            debug!("could not queue the last packets of a closed session");
+        }
+    }
+}
+
+/// Forgets a session whose outbound queue was full or closed after the output: its player leaves
+/// as on a disconnect, and `log` records it, so a replay drops it at the same point.
+fn dropped(state: &mut State, log: &mut InputLog, session: SessionId) {
+    log.dropped(session);
+    state.leave(session, "connection lost");
+}
+
+/// The tick boundary after a step and its delivery: the callbacks that the quits of the sessions
+/// dropped there deferred, a save snapshot for the save thread if one is due, the offline player
+/// loads the tick asked for, then the tick's controls to the networking. It comes after the
+/// delivery because sessions dropped there change the state of the tick, and their quit listeners
+/// may defer callbacks or ask for controls or loads; none waits past the tick, where its
+/// checkpoint would not keep it.
+pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
+    dispatch::run_deferred(state, &mut output.deferred_runs);
+    if let Some(request) = save::snapshot(state, log, false) {
+        output.requests.push(request);
+    }
+    output.requests.extend(task::offline_requests(state));
+    state.network.flush();
 }
 
 /// Sends the waiting requests in order without waiting; what does not fit waits for the next
@@ -1576,6 +1584,18 @@ fn drain<T>(mut next: impl FnMut() -> Result<T, TryRecvError>, batch: &mut Vec<T
     }
 }
 
+/// The engine tick of `state`: the next tick it applies.
+pub(crate) fn tick_of(state: &State) -> u64 {
+    state.tick
+}
+
+/// Whether a player position is finite and inside the world border ([`crate::world::BORDER`])
+/// on every axis.
+fn inside_border(pos: Vec3) -> bool {
+    let border = f64::from(crate::world::BORDER);
+    pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border)
+}
+
 #[cfg(test)]
 mod tests {
     mod bench;
@@ -1599,7 +1619,7 @@ mod tests {
         ChunkRadiusUpdated, PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised,
     };
     use crate::save::{Loaded, PlayerLoad};
-    use crate::world::{Chunk, ChunkPos, Flat, Generator, Kind};
+    use crate::world::{BlockPos, Chunk, ChunkPos, Flat, Generator, Kind};
 
     /// Test settings: no player data (a join needs no load), and every loaded chunk of a view
     /// sent in one tick.
@@ -1615,54 +1635,8 @@ mod tests {
     fn the_save_interval_counts_its_minutes_in_ticks() {
         assert_eq!(settings(|_| {}).save_interval, 12_000);
         let longest = settings(|c| c.developer.save_interval_minutes = u16::MAX);
-        assert_eq!(longest.save_interval, u64::from(u16::MAX) * 1_200);
+        assert_eq!(longest.save_interval, u64::from(u16::MAX) * 1200);
     }
-
-    /// `ServerStart` comes once, at the start of the first tick, before its join; a state restored
-    /// from a checkpoint taken after it does not raise it again, one from before does.
-    #[test]
-    fn the_server_start_comes_once_and_a_replay_raises_it_where_the_run_did() {
-        let (tx, mut started) = mpsc::channel(8);
-        let listeners = || {
-            let tx = tx.clone();
-            let mut listeners = Listeners::default();
-            listeners.push(
-                Priority::Normal,
-                move |_: &mut crate::event::ServerStart, cx: &mut super::Context<'_>| {
-                    tx.try_send((cx.state.tick, cx.state.players.len()))
-                        .unwrap();
-                },
-            );
-            listeners
-        };
-        let mut state = new_state(settings(|_| {}), listeners());
-        let before = POOL.with(|pool| state.checkpoint(pool));
-        let (j, _rx) = join(1, 0);
-        let mut output = Output::default();
-        tick(&mut state, &mut vec![j], &mut output);
-        tick(&mut state, &mut Vec::new(), &mut output);
-        assert_eq!(started.try_recv(), Ok((0, 0)), "in tick 0, before the join");
-        assert!(started.try_recv().is_err(), "once");
-        let after = POOL.with(|pool| state.checkpoint(pool));
-        for (checkpoint, raised) in [(&after, false), (&before, true)] {
-            let mut replay = new_state(settings(|_| {}), listeners());
-            replay
-                .restore(checkpoint, checkpoint::tests::extras_of(&state), |_| {
-                    outbound_queue().0
-                })
-                .unwrap();
-            tick(&mut replay, &mut Vec::new(), &mut Output::default());
-            assert_eq!(started.try_recv().is_ok(), raised);
-        }
-    }
-
-    /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,
-    /// `SyncWorldClocks`, `JigsawStructureData`, `VoxelShapes`, `StartGame`, 13
-    /// `SyncActorProperty`, `ItemRegistry`.
-    const START_GAME: [u32; 20] = [
-        124, 63, 344, 313, 337, 11, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165,
-        165, 162,
-    ];
 
     /// Chunks within this many chunks of the spawn (a square) are loaded before the first tick,
     /// so a spawn needs no load; the others load through the stand-in save thread.
@@ -1766,38 +1740,6 @@ mod tests {
         output.answers = answer(state, requests);
     }
 
-    /// An in-game packet input of its encoded size.
-    pub(super) fn packet(packet: Packet) -> InputKind {
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
-        InputKind::Packet {
-            packet,
-            size: bytes.len(),
-        }
-    }
-
-    /// The blocks `packets` set: (position, network ID), from `UpdateBlock` and
-    /// `UpdateSubChunkBlocks`, in order.
-    pub(super) fn blocks_set(packets: &[Packet]) -> Vec<(BlockPos, u32)> {
-        let mut out = Vec::new();
-        for p in packets {
-            match p {
-                Packet::UpdateBlock(u) => {
-                    let [x, y, z] = u.position;
-                    out.push((BlockPos::new(x, y, z), u.new_block_runtime_id));
-                }
-                Packet::UpdateSubChunkBlocks(u) => {
-                    for b in &u.blocks {
-                        let [x, y, z] = b.block_pos;
-                        out.push((BlockPos::new(x, y, z), b.block_runtime_id));
-                    }
-                }
-                _ => {}
-            }
-        }
-        out
-    }
-
     fn identity(n: u64) -> Identity {
         Identity {
             name: format!("player{n}"),
@@ -1827,114 +1769,42 @@ mod tests {
         (input(session, seq, kind), rx)
     }
 
-    pub(super) fn radius(session: u64, seq: u64, chunk_radius: i32) -> Input {
-        let p = RequestChunkRadius {
-            chunk_radius,
-            max_chunk_radius: 0,
+    /// `ServerStart` comes once, at the start of the first tick, before its join; a state restored
+    /// from a checkpoint taken after it does not raise it again, one from before does.
+    #[test]
+    fn the_server_start_comes_once_and_a_replay_raises_it_where_the_run_did() {
+        let (tx, mut started) = mpsc::channel(8);
+        let listeners = || {
+            let tx = tx.clone();
+            let mut listeners = Listeners::default();
+            listeners.push(
+                Priority::Normal,
+                move |_: &mut crate::event::ServerStart, cx: &mut super::Context<'_>| {
+                    tx.try_send((cx.state.tick, cx.state.players.len()))
+                        .unwrap();
+                },
+            );
+            listeners
         };
-        input(session, seq, packet(Packet::RequestChunkRadius(p)))
-    }
-
-    pub(super) fn initialised(session: u64, seq: u64, entity_runtime_id: u64) -> Input {
-        let p = SetLocalPlayerAsInitialised { entity_runtime_id };
-        let kind = packet(Packet::SetLocalPlayerAsInitialised(p));
-        input(session, seq, kind)
-    }
-
-    pub(super) fn leave(session: u64, seq: u64) -> Input {
-        input(session, seq, InputKind::Leave)
-    }
-
-    /// Runs and delivers one tick per batch.
-    fn run_ticks(settings: Settings, ticks: Vec<Vec<Input>>) -> State {
-        run_ticks_with(settings, Listeners::default(), ticks)
-    }
-
-    /// [`run_ticks`] with event listeners.
-    fn run_ticks_with(settings: Settings, listeners: Listeners, ticks: Vec<Vec<Input>>) -> State {
-        let mut state = new_state(settings, listeners);
+        let mut state = new_state(settings(|_| {}), listeners());
+        let before = POOL.with(|pool| state.checkpoint(pool));
+        let (j, _rx) = join(1, 0);
         let mut output = Output::default();
-        for mut batch in ticks {
-            tick(&mut state, &mut batch, &mut output);
-            assert!(batch.is_empty());
-            assert!(output.is_empty());
-            assert!(state.index_matches_players());
+        tick(&mut state, &mut vec![j], &mut output);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(started.try_recv(), Ok((0, 0)), "in tick 0, before the join");
+        assert!(started.try_recv().is_err(), "once");
+        let after = POOL.with(|pool| state.checkpoint(pool));
+        for (checkpoint, raised) in [(&after, false), (&before, true)] {
+            let mut replay = new_state(settings(|_| {}), listeners());
+            replay
+                .restore(checkpoint, checkpoint::tests::extras_of(&state), |_| {
+                    outbound_queue().0
+                })
+                .unwrap();
+            tick(&mut replay, &mut Vec::new(), &mut Output::default());
+            assert_eq!(started.try_recv().is_ok(), raised);
         }
-        state
-    }
-
-    /// Every packet queued on `rx`, the final packet if the session was closed, and the IDs of
-    /// everything sent in order, the packets of shared batches included.
-    pub(super) fn received(
-        rx: &mut mpsc::Receiver<Outbound>,
-    ) -> (Vec<Packet>, Option<Packet>, Vec<u32>) {
-        let mut packets = Vec::new();
-        let mut close = None;
-        let mut sent = Vec::new();
-        let mut decoder =
-            crate::protocol::batch::Decoder::new(crate::protocol::batch::Settings::default());
-        while let Ok(out) = rx.try_recv() {
-            match out {
-                Outbound::Send(messages) => {
-                    for m in messages {
-                        match m {
-                            Message::Packet(p) => {
-                                sent.push(p.id());
-                                packets.push(p);
-                            }
-                            Message::SharedPacket(p) | Message::SpawnList(p) => {
-                                sent.push(p.id());
-                                packets.push((*p).clone());
-                            }
-                            Message::Shared(batches) => {
-                                for body in batches.iter() {
-                                    let mut payload = Vec::new();
-                                    decoder.decode(body, &mut payload).unwrap();
-                                    for packet in crate::protocol::batch::split(&payload).unwrap() {
-                                        sent.push(packet.0.id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Outbound::Close(p) => close = Some(p),
-            }
-        }
-        (packets, close, sent)
-    }
-
-    fn spawn_status_count(packets: &[Packet]) -> usize {
-        packets
-            .iter()
-            .filter(|p| matches!(p, Packet::PlayStatus(s) if s.status == 3))
-            .count()
-    }
-
-    /// A full spawn of sessions 1..=n over two ticks (the client confirms after the spawn
-    /// status), one input list per session and tick; session k gets runtime ID k.
-    fn spawn_inputs(n: u64) -> ([Vec<Vec<Input>>; 2], Vec<mpsc::Receiver<Outbound>>) {
-        let mut ticks = [Vec::new(), Vec::new()];
-        let mut receivers = Vec::new();
-        for s in 1..=n {
-            let (j, rx) = join(s, 0);
-            receivers.push(rx);
-            ticks[0].push(vec![j, radius(s, 1, 8)]);
-            ticks[1].push(vec![initialised(s, 2, s)]);
-        }
-        (ticks, receivers)
-    }
-
-    fn round_robin(sessions: Vec<Vec<Input>>) -> Vec<Input> {
-        let total = sessions.iter().map(Vec::len).sum();
-        let mut iters: Vec<_> = sessions.into_iter().map(Vec::into_iter).collect();
-        let mut out = Vec::with_capacity(total);
-        while out.len() < total {
-            for it in &mut iters {
-                out.extend(it.next());
-            }
-        }
-        out
     }
 
     /// Runs 101 ticks of a server with `slow-empty-worlds` set to `slow` and, with `player`, one
@@ -2021,6 +1891,24 @@ mod tests {
         assert!(off.iter().all(|w| w.len() == 100), "{off:?}");
     }
 
+    /// An in-game packet input of its encoded size.
+    pub(super) fn packet(packet: Packet) -> InputKind {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes, 0).unwrap();
+        InputKind::Packet {
+            packet,
+            size: bytes.len(),
+        }
+    }
+
+    pub(super) fn radius(session: u64, seq: u64, chunk_radius: i32) -> Input {
+        let p = RequestChunkRadius {
+            chunk_radius,
+            max_chunk_radius: 0,
+        };
+        input(session, seq, packet(Packet::RequestChunkRadius(p)))
+    }
+
     /// A player who went to a world with a smaller `view-distance` gets the radius its client
     /// asked for back in a world that allows it (min(asked, world limit) on every world change).
     #[test]
@@ -2052,6 +1940,119 @@ mod tests {
         assert_eq!(state.players[&session].view.radius(), 8);
     }
 
+    pub(super) fn initialised(session: u64, seq: u64, entity_runtime_id: u64) -> Input {
+        let p = SetLocalPlayerAsInitialised { entity_runtime_id };
+        let kind = packet(Packet::SetLocalPlayerAsInitialised(p));
+        input(session, seq, kind)
+    }
+
+    /// Runs and delivers one tick per batch.
+    fn run_ticks(settings: Settings, ticks: Vec<Vec<Input>>) -> State {
+        run_ticks_with(settings, Listeners::default(), ticks)
+    }
+
+    /// [`run_ticks`] with event listeners.
+    fn run_ticks_with(settings: Settings, listeners: Listeners, ticks: Vec<Vec<Input>>) -> State {
+        let mut state = new_state(settings, listeners);
+        let mut output = Output::default();
+        for mut batch in ticks {
+            tick(&mut state, &mut batch, &mut output);
+            assert!(batch.is_empty());
+            assert!(output.is_empty());
+            assert!(state.index_matches_players());
+        }
+        state
+    }
+
+    /// Every packet queued on `rx`, the final packet if the session was closed, and the IDs of
+    /// everything sent in order, the packets of shared batches included.
+    pub(super) fn received(
+        rx: &mut mpsc::Receiver<Outbound>,
+    ) -> (Vec<Packet>, Option<Packet>, Vec<u32>) {
+        let mut packets = Vec::new();
+        let mut close = None;
+        let mut sent = Vec::new();
+        let mut decoder =
+            crate::protocol::batch::Decoder::new(crate::protocol::batch::Settings::default());
+        while let Ok(out) = rx.try_recv() {
+            match out {
+                Outbound::Send(messages) => {
+                    for m in messages {
+                        match m {
+                            Message::Packet(p) => {
+                                sent.push(p.id());
+                                packets.push(p);
+                            }
+                            Message::SharedPacket(p) | Message::SpawnList(p) => {
+                                sent.push(p.id());
+                                packets.push((*p).clone());
+                            }
+                            Message::Shared(batches) => {
+                                for body in batches.iter() {
+                                    let mut payload = Vec::new();
+                                    decoder.decode(body, &mut payload).unwrap();
+                                    for packet in crate::protocol::batch::split(&payload).unwrap() {
+                                        sent.push(packet.0.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Outbound::Close(p) => close = Some(p),
+            }
+        }
+        (packets, close, sent)
+    }
+
+    /// The blocks `packets` set: (position, network ID), from `UpdateBlock` and
+    /// `UpdateSubChunkBlocks`, in order.
+    pub(super) fn blocks_set(packets: &[Packet]) -> Vec<(BlockPos, u32)> {
+        let mut out = Vec::new();
+        for p in packets {
+            match p {
+                Packet::UpdateBlock(u) => {
+                    let [x, y, z] = u.position;
+                    out.push((BlockPos::new(x, y, z), u.new_block_runtime_id));
+                }
+                Packet::UpdateSubChunkBlocks(u) => {
+                    for b in &u.blocks {
+                        let [x, y, z] = b.block_pos;
+                        out.push((BlockPos::new(x, y, z), b.block_runtime_id));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// A full spawn of sessions 1..=n over two ticks (the client confirms after the spawn
+    /// status), one input list per session and tick; session k gets runtime ID k.
+    fn spawn_inputs(n: u64) -> ([Vec<Vec<Input>>; 2], Vec<mpsc::Receiver<Outbound>>) {
+        let mut ticks = [Vec::new(), Vec::new()];
+        let mut receivers = Vec::new();
+        for s in 1..=n {
+            let (j, rx) = join(s, 0);
+            receivers.push(rx);
+            ticks[0].push(vec![j, radius(s, 1, 8)]);
+            ticks[1].push(vec![initialised(s, 2, s)]);
+        }
+        (ticks, receivers)
+    }
+
+    fn round_robin(sessions: Vec<Vec<Input>>) -> Vec<Input> {
+        let total = sessions.iter().map(Vec::len).sum();
+        let mut iters: Vec<_> = sessions.into_iter().map(Vec::into_iter).collect();
+        let mut out = Vec::with_capacity(total);
+        while out.len() < total {
+            for it in &mut iters {
+                out.extend(it.next());
+            }
+        }
+        out
+    }
+
     #[test]
     fn interleaving_between_sessions_does_not_change_the_state() {
         type Order = fn(Vec<Vec<Input>>) -> Vec<Input>;
@@ -2077,12 +2078,20 @@ mod tests {
         assert_eq!(results[0], results[2]);
     }
 
+    /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,
+    /// `SyncWorldClocks`, `JigsawStructureData`, `VoxelShapes`, `StartGame`, 13
+    /// `SyncActorProperty`, `ItemRegistry`.
+    const START_GAME: [u32; 20] = [
+        124, 63, 344, 313, 337, 11, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165,
+        165, 162,
+    ];
+
     #[test]
     fn a_duplicate_join_changes_nothing() {
         let (j, mut rx) = join(1, 0);
-        let once = run_ticks(settings(|_| {}), vec![vec![j.clone()], vec![]]);
+        let once = run_ticks(settings(|_| {}), vec![vec![j.clone()], Vec::new()]);
         let (j2, mut rx2) = join(1, 1);
-        let same_tick = run_ticks(settings(|_| {}), vec![vec![j.clone(), j2], vec![]]);
+        let same_tick = run_ticks(settings(|_| {}), vec![vec![j.clone(), j2], Vec::new()]);
         let (j3, mut rx3) = join(1, 0);
         let next_tick = run_ticks(settings(|_| {}), vec![vec![j], vec![j3]]);
         assert_eq!(once.hash(), same_tick.hash());
@@ -2091,9 +2100,44 @@ mod tests {
         assert_eq!(received(&mut rx).2, [START_GAME; 3].concat());
         // The duplicates got nothing and their queues were dropped.
         for rx in [&mut rx2, &mut rx3] {
-            assert_eq!(received(rx), (vec![], None, vec![]));
+            assert_eq!(received(rx), (Vec::new(), None, Vec::new()));
             assert!(rx.is_closed());
         }
+    }
+
+    /// The callbacks the listeners of a join defer run right after that join, before the next
+    /// session's input.
+    #[test]
+    fn a_join_s_deferred_callbacks_run_before_the_next_input() {
+        let (tx, mut seen) = mpsc::channel(8);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            move |e: &mut PlayerLogin, cx: &mut super::Context<'_>| {
+                let name = e.info().name().to_owned();
+                tx.try_send(format!("login {name}")).unwrap();
+                let tx = tx.clone();
+                cx.defer(move |_| tx.try_send(format!("deferred {name}")).unwrap())
+                    .unwrap();
+            },
+        );
+        let (a, _rx1) = join(1, 0);
+        let (b, _rx2) = join(2, 0);
+        run_ticks_with(settings(|_| {}), listeners, vec![vec![a, b]]);
+        let order: Vec<String> = std::iter::from_fn(|| seen.try_recv().ok()).collect();
+        assert_eq!(
+            order,
+            [
+                "login player1",
+                "deferred player1",
+                "login player2",
+                "deferred player2"
+            ]
+        );
+    }
+
+    pub(super) fn leave(session: u64, seq: u64) -> Input {
+        input(session, seq, InputKind::Leave)
     }
 
     #[test]
@@ -2116,15 +2160,22 @@ mod tests {
         );
         assert_eq!(once.hash(), twice.hash());
         assert_eq!(once.hash(), unknown.hash());
-        let once_later = run_ticks(settings(|_| {}), vec![first, vec![leave(1, 1)], vec![]]);
+        let once_later = run_ticks(settings(|_| {}), vec![first, vec![leave(1, 1)], Vec::new()]);
         assert_eq!(once_later.hash(), later.hash());
         assert_eq!(once.players.len(), 1);
+    }
+
+    fn spawn_status_count(packets: &[Packet]) -> usize {
+        packets
+            .iter()
+            .filter(|p| matches!(p, Packet::PlayStatus(s) if s.status == 3))
+            .count()
     }
 
     #[test]
     fn a_duplicate_chunk_radius_request_changes_nothing_and_spawns_once() {
         let (j, mut rx) = join(1, 0);
-        let once = run_ticks(settings(|_| {}), vec![vec![j, radius(1, 1, 8)], vec![]]);
+        let once = run_ticks(settings(|_| {}), vec![vec![j, radius(1, 1, 8)], Vec::new()]);
         let packets_once = received(&mut rx).0;
         let (j, mut rx) = join(1, 0);
         let twice = run_ticks(
@@ -2135,7 +2186,7 @@ mod tests {
         let (j, _rx) = join(1, 0);
         let same_tick = run_ticks(
             settings(|_| {}),
-            vec![vec![j, radius(1, 1, 8), radius(1, 2, 8)], vec![]],
+            vec![vec![j, radius(1, 1, 8), radius(1, 2, 8)], Vec::new()],
         );
         assert_eq!(once.hash(), twice.hash());
         assert_eq!(once.hash(), same_tick.hash());
@@ -2154,9 +2205,9 @@ mod tests {
                 vec![vec![j, radius(1, 1, 4)], second, later],
             )
         };
-        let once = spawned(vec![], vec![]);
-        let twice = spawned(vec![initialised(1, 3, 1)], vec![]);
-        let later = spawned(vec![], vec![initialised(1, 3, 1)]);
+        let once = spawned(Vec::new(), Vec::new());
+        let twice = spawned(vec![initialised(1, 3, 1)], Vec::new());
+        let later = spawned(Vec::new(), vec![initialised(1, 3, 1)]);
         assert_eq!(once.hash(), twice.hash());
         assert_eq!(once.hash(), later.hash());
         assert_eq!(once.players[&SessionId::new(1)].phase, Phase::Spawned);
@@ -2248,6 +2299,10 @@ mod tests {
         assert!(rx2.is_closed());
     }
 
+    fn sessions(state: &State) -> Vec<u64> {
+        state.players.keys().map(|s| s.get()).collect()
+    }
+
     #[test]
     fn a_session_with_a_full_outbound_queue_is_dropped() {
         thread_local! {
@@ -2272,7 +2327,7 @@ mod tests {
             vec![
                 vec![input(1, 0, kind), other],
                 vec![radius(1, 1, 4)],
-                vec![],
+                Vec::new(),
             ],
         );
         assert_eq!(sessions(&state), [2]);
@@ -2286,17 +2341,42 @@ mod tests {
         assert!(left, "the other player sees the left line");
     }
 
+    /// The callbacks that the quit of a session the delivery drops defers run in the same tick,
+    /// before its save snapshot and checkpoint.
+    #[test]
+    fn a_dropped_session_s_deferred_callbacks_run_in_its_tick() {
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            |_: &mut PlayerQuit, cx: &mut super::Context<'_>| {
+                cx.defer(|_| {}).unwrap();
+            },
+        );
+        let mut state = new_state(settings(|_| {}), listeners);
+        let mut output = Output::default();
+        let (outbound, _rx) = mpsc::channel(1);
+        let kind = InputKind::Join {
+            identity: identity(1),
+            outbound,
+        };
+        tick(&mut state, &mut vec![input(1, 0, kind)], &mut output);
+        // The join filled the queue; the radius answer does not fit, so the delivery drops it.
+        tick(&mut state, &mut vec![radius(1, 1, 4)], &mut output);
+        assert!(state.players.is_empty());
+        assert_eq!(state.deferred.len(), 0);
+    }
+
     #[test]
     fn the_hash_changes_with_the_difficulty_and_default_game_mode() {
-        let base = run_ticks(settings(|_| {}), vec![]);
-        let mut difficulty = run_ticks(settings(|_| {}), vec![]);
+        let base = run_ticks(settings(|_| {}), Vec::new());
+        let mut difficulty = run_ticks(settings(|_| {}), Vec::new());
         assert!(
             crate::tick::Context {
                 state: &mut difficulty
             }
             .set_difficulty(Difficulty::Peaceful)
         );
-        let mut game_mode = run_ticks(settings(|_| {}), vec![]);
+        let mut game_mode = run_ticks(settings(|_| {}), Vec::new());
         crate::tick::Context {
             state: &mut game_mode,
         }
@@ -2305,36 +2385,6 @@ mod tests {
         assert_ne!(hashes[0], hashes[1]);
         assert_ne!(hashes[0], hashes[2]);
         assert_ne!(hashes[1], hashes[2]);
-    }
-
-    /// The `PlayerList` packets shared among the messages queued on `rx`: those of spawn windows,
-    /// then the others.
-    fn shared_lists(
-        rx: &mut mpsc::Receiver<Outbound>,
-    ) -> (Vec<std::sync::Arc<Packet>>, Vec<std::sync::Arc<Packet>>) {
-        let (mut windows, mut others) = (Vec::new(), Vec::new());
-        while let Ok(Outbound::Send(messages)) = rx.try_recv() {
-            for m in messages {
-                match m {
-                    Message::SpawnList(p) if matches!(*p, Packet::PlayerList(_)) => windows.push(p),
-                    Message::SharedPacket(p) if matches!(*p, Packet::PlayerList(_)) => {
-                        others.push(p);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        (windows, others)
-    }
-
-    #[test]
-    fn a_join_shares_each_skin_once() {
-        joins_share_each_skin_once(hook::Hooks::default());
-    }
-
-    #[test]
-    fn a_send_hook_that_changes_nothing_copies_nothing() {
-        joins_share_each_skin_once(crate::Server::builder().on_send(|_, _| true).setup.hooks);
     }
 
     /// Five players with 3.5 MiB skins (under the 4 MiB a skin may hold, 17.5 MiB in all) are
@@ -2382,7 +2432,7 @@ mod tests {
                 }
                 let header = crate::protocol::batch::Header {
                     id: packet.id(),
-                    ..Default::default()
+                    ..crate::protocol::batch::Header::default()
                 };
                 let mut payload = Vec::new();
                 crate::protocol::batch::encode_packets(
@@ -2396,6 +2446,26 @@ mod tests {
         }
         // The start game window and the spawn window each list all six.
         assert_eq!(listed, 12);
+    }
+
+    /// The `PlayerList` packets shared among the messages queued on `rx`: those of spawn windows,
+    /// then the others.
+    fn shared_lists(
+        rx: &mut mpsc::Receiver<Outbound>,
+    ) -> (Vec<std::sync::Arc<Packet>>, Vec<std::sync::Arc<Packet>>) {
+        let (mut windows, mut others) = (Vec::new(), Vec::new());
+        while let Ok(Outbound::Send(messages)) = rx.try_recv() {
+            for m in messages {
+                match m {
+                    Message::SpawnList(p) if matches!(*p, Packet::PlayerList(_)) => windows.push(p),
+                    Message::SharedPacket(p) if matches!(*p, Packet::PlayerList(_)) => {
+                        others.push(p);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (windows, others)
     }
 
     /// Three players join in one tick and a fourth later, with `hooks`: every player is sent the
@@ -2448,55 +2518,13 @@ mod tests {
     }
 
     #[test]
-    fn packet_listener_panic_log_reproduces() {
-        fn panicking() -> Listeners {
-            let mut listeners = Listeners::default();
-            listeners.push(
-                Priority::Normal,
-                |_: &mut crate::event::PlayerViewDistanceChange, _| {
-                    panic!("listener failed");
-                },
-            );
-            listeners
-        }
-        fn run(state: &mut State, mut batch: Vec<Input>, output: &mut Output, log: &mut InputLog) {
-            let mut answers = std::mem::take(&mut output.answers);
-            POOL.with(|pool| step(state, &mut batch, &mut answers, pool, output, log));
-            deliver(state, output, log);
-            boundary(state, output, log);
-            let requests = std::mem::take(&mut output.requests);
-            output.answers = answer(state, requests);
-        }
-        let mut state = script_state(panicking());
-        let mut output = Output::default();
-        let mut log = InputLog::default();
-        let (j, _rx) = join(1, 0);
-        run(&mut state, vec![j], &mut output, &mut log);
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run(&mut state, vec![radius(1, 1, 4)], &mut output, &mut log);
-        }));
-        assert!(
-            panicked.is_err(),
-            "the chunk radius raises the panicking event"
-        );
-        // The tick that panicked holds the packet that raised the event; a replay of the ticks
-        // before it runs, and of the whole log panics again.
-        let ticks = log.ticks();
-        let (last, before) = ticks.split_last().unwrap();
-        assert!(
-            last.inputs
-                .iter()
-                .any(|e| matches!(e.kind, EntryKind::Packet(Packet::RequestChunkRadius(_)))),
-            "{last:?}"
-        );
-        let pool = crate::runtime::cpu_pool(2).unwrap();
-        let (hashes, _) = replay(before, panicking(), &pool);
-        assert_eq!(hashes.len(), before.len());
-        let replayed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            replay(&ticks, panicking(), &pool)
-        }));
-        assert!(replayed.is_err(), "the replay reproduces the panic");
-        assert!(pool.shutdown());
+    fn a_join_shares_each_skin_once() {
+        joins_share_each_skin_once(hook::Hooks::default());
+    }
+
+    #[test]
+    fn a_send_hook_that_changes_nothing_copies_nothing() {
+        joins_share_each_skin_once(crate::Server::builder().on_send(|_, _| true).setup.hooks);
     }
 
     #[test]
@@ -2505,7 +2533,7 @@ mod tests {
             c.general.view_distance = 6;
             c.developer.spawn_radius = 2;
         });
-        for (requested, granted) in [(1, 1), (3, 3), (6, 6), (7, 6), (1_000, 6)] {
+        for (requested, granted) in [(1, 1), (3, 3), (6, 6), (7, 6), (1000, 6)] {
             let (j, mut rx) = join(1, 0);
             run_ticks(config.clone(), vec![vec![j, radius(1, 1, requested)]]);
             let packets = received(&mut rx).0;
@@ -2619,11 +2647,11 @@ mod tests {
         let (j, _rx) = join(1, 0);
         let (k, _rx2) = join(2, 0);
         let hashes = [
-            run_ticks(settings(|_| {}), vec![]).hash(),
+            run_ticks(settings(|_| {}), Vec::new()).hash(),
             run_ticks(settings(|_| {}), vec![vec![j.clone()]]).hash(),
             run_ticks(settings(|_| {}), vec![vec![k]]).hash(),
             run_ticks(settings(|_| {}), vec![vec![j.clone(), radius(1, 1, 4)]]).hash(),
-            run_ticks(settings(|_| {}), vec![vec![j], vec![]]).hash(),
+            run_ticks(settings(|_| {}), vec![vec![j], Vec::new()]).hash(),
         ];
         for (i, x) in hashes.iter().enumerate() {
             for y in &hashes[i + 1..] {
@@ -2674,10 +2702,6 @@ mod tests {
         (d.reason, d.message)
     }
 
-    fn sessions(state: &State) -> Vec<u64> {
-        state.players.keys().map(|s| s.get()).collect()
-    }
-
     const LOGGED_IN_OTHER_LOCATION: (i32, &str) = (43, "disconnectionScreen.loggedinOtherLocation");
 
     #[test]
@@ -2710,7 +2734,7 @@ mod tests {
             vec![vec![a.clone()], vec![b]],
         );
         assert_eq!(kicked(&mut rx2), (43, "Alex2 over Alex".to_owned()));
-        let alone = run_ticks(settings(|_| {}), vec![vec![a], vec![]]);
+        let alone = run_ticks(settings(|_| {}), vec![vec![a], Vec::new()]);
         assert_eq!(state.hash(), alone.hash(), "the rejection changed nothing");
         assert_eq!(sessions(&state), [1]);
     }
@@ -2844,7 +2868,7 @@ mod tests {
                 let (b, _rx2) = join_as(2, 0, person("Alex", Some(5)));
                 let mut again = b.clone();
                 again.seq = 1;
-                let mut ticks = vec![vec![a], vec![b], vec![]];
+                let mut ticks = vec![vec![a], vec![b], Vec::new()];
                 if let Some(tick) = repeat_at {
                     ticks[tick].push(again);
                 }
@@ -2887,8 +2911,13 @@ mod tests {
         assert!(output.is_empty());
     }
 
+    /// What one session received in a tick: the session, the IDs of everything sent, a hash of the
+    /// encoded packets (their content, not only their order), and the final packet if the session
+    /// was closed.
+    type Received = (u64, Vec<u32>, u64, Option<Packet>);
+
     /// One tick of a determinism run: the state hash after it and what every session received.
-    type Observed = (u64, Vec<(u64, Vec<u32>, Option<Packet>)>);
+    type Observed = (u64, Vec<Received>);
 
     /// A fixed-seed script of inputs for `sessions` sessions: joins (some under one name, so
     /// duplicate logins happen), chunk radius requests (some invalid), right and wrong
@@ -3086,7 +3115,7 @@ mod tests {
         fn measures(&mut self, state: &State, batch: &mut Vec<Input>) {
             let tick = state.tick;
             if tick > 0 {
-                let micros = u32::try_from(tick * 7_919 % 90_000).unwrap();
+                let micros = u32::try_from(tick * 7919 % 90_000).unwrap();
                 batch.push(Input {
                     session: SessionId::ENGINE,
                     seq: tick,
@@ -3118,15 +3147,20 @@ mod tests {
 
         /// What every session received since the last call, by session; each client learns from
         /// its packets.
-        fn received(&mut self) -> Vec<(u64, Vec<u32>, Option<Packet>)> {
+        fn received(&mut self) -> Vec<Received> {
             let mut out = Vec::new();
             for (s, rx) in &mut self.receivers {
                 let Some(rx) = rx.as_mut() else {
                     continue;
                 };
                 let (packets, close, ids) = received(rx);
+                let mut content = Fnv::new();
+                let mut bytes = Vec::new();
                 let client = self.clients.entry(*s).or_default();
                 for p in &packets {
+                    bytes.clear();
+                    p.encode(&mut bytes, 0).unwrap();
+                    content.bytes(&bytes);
                     client.learn(p, &mut self.seen);
                     if let Packet::AddActor(a) = p
                         && a.entity_type == "minecraft:villager_v2"
@@ -3142,7 +3176,7 @@ mod tests {
                     }
                 }
                 if !ids.is_empty() || close.is_some() {
-                    out.push((*s, ids, close));
+                    out.push((*s, ids, content.0, close));
                 }
             }
             out
@@ -3464,9 +3498,11 @@ mod tests {
             let status = Packet::PlayStatus(PlayStatus { status: 0 }).id();
             let sessions = || one.iter().flat_map(|(_, sessions)| sessions);
             let spawned = sessions()
-                .filter(|(_, ids, _)| ids.contains(&status))
+                .filter(|(_, ids, _, _)| ids.contains(&status))
                 .count();
-            let closed = sessions().filter(|(_, _, close)| close.is_some()).count();
+            let closed = sessions()
+                .filter(|(_, _, _, close)| close.is_some())
+                .count();
             let dropped: usize = log_one.ticks().iter().map(|t| t.dropped.len()).sum();
             assert!(
                 spawned > 20 && closed > 0 && dropped > 0,
@@ -3538,6 +3574,58 @@ mod tests {
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert!(read.is_truncated());
         assert_eq!(read.ticks(), log.ticks());
+    }
+
+    #[test]
+    fn packet_listener_panic_log_reproduces() {
+        fn panicking() -> Listeners {
+            let mut listeners = Listeners::default();
+            listeners.push(
+                Priority::Normal,
+                |_: &mut crate::event::PlayerViewDistanceChange, _| {
+                    panic!("listener failed");
+                },
+            );
+            listeners
+        }
+        fn run(state: &mut State, mut batch: Vec<Input>, output: &mut Output, log: &mut InputLog) {
+            let mut answers = std::mem::take(&mut output.answers);
+            POOL.with(|pool| step(state, &mut batch, &mut answers, pool, output, log));
+            deliver(state, output, log);
+            boundary(state, output, log);
+            let requests = std::mem::take(&mut output.requests);
+            output.answers = answer(state, requests);
+        }
+        let mut state = script_state(panicking());
+        let mut output = Output::default();
+        let mut log = InputLog::default();
+        let (j, _rx) = join(1, 0);
+        run(&mut state, vec![j], &mut output, &mut log);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run(&mut state, vec![radius(1, 1, 4)], &mut output, &mut log);
+        }));
+        assert!(
+            panicked.is_err(),
+            "the chunk radius raises the panicking event"
+        );
+        // The tick that panicked holds the packet that raised the event; a replay of the ticks
+        // before it runs, and of the whole log panics again.
+        let ticks = log.ticks();
+        let (last, before) = ticks.split_last().unwrap();
+        assert!(
+            last.inputs
+                .iter()
+                .any(|e| matches!(e.kind, EntryKind::Packet(Packet::RequestChunkRadius(_)))),
+            "{last:?}"
+        );
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        let (hashes, _) = replay(before, panicking(), &pool);
+        assert_eq!(hashes.len(), before.len());
+        let replayed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            replay(&ticks, panicking(), &pool)
+        }));
+        assert!(replayed.is_err(), "the replay reproduces the panic");
+        assert!(pool.shutdown());
     }
 
     #[test]
@@ -3654,7 +3742,7 @@ mod tests {
     pub(super) fn moved_to(session: u64, seq: u64, position: [f32; 3]) -> Input {
         let p = crate::protocol::packet::PlayerAuthInput {
             position,
-            ..Default::default()
+            ..crate::protocol::packet::PlayerAuthInput::default()
         };
         input(session, seq, packet(Packet::PlayerAuthInput(Box::new(p))))
     }
@@ -3899,8 +3987,6 @@ mod tests {
         state
     }
 
-    use crate::world::BlockPos;
-
     #[test]
     fn block_changes_reach_the_players_who_were_sent_the_chunk() {
         let stone = crate::block::State::find("minecraft:stone", &[]).unwrap();
@@ -3911,7 +3997,7 @@ mod tests {
             // Setting the same state again changes nothing.
             (4, BlockPos::new(1, -60, 1), stone),
         ];
-        let mut state = state_with_tasks(block_task(script, vec![]));
+        let mut state = state_with_tasks(block_task(script, Vec::new()));
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
         tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
@@ -4051,7 +4137,7 @@ mod tests {
             } else {
                 vec![(3, at, stone)]
             };
-            let mut state = state_with_tasks(block_task(script, vec![]));
+            let mut state = state_with_tasks(block_task(script, Vec::new()));
             let mut output = Output::default();
             let (j, _rx) = join(1, 0);
             let mut first = vec![j, radius(1, 1, 2)];
@@ -4109,7 +4195,7 @@ mod tests {
     )]
     fn a_failed_commit_stops_the_tick_without_saving_and_hands_over_the_log() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
-        state.tasks = block_task(vec![], vec![1]);
+        state.tasks = block_task(Vec::new(), vec![1]);
         let (_sender, queue) = input_queue(1);
         let (_stop_tx, stop) = mpsc::channel(1);
         let (crash, _crash_log) = oneshot::channel();
@@ -4150,6 +4236,37 @@ mod tests {
         while let Ok(request) = request_queue.try_recv() {
             assert!(!matches!(request, Request::Commit(_)));
         }
+    }
+
+    /// A stop hands over the input log with the final snapshot, so that the server can write it to
+    /// `data/crash/` when that last commit fails.
+    #[test]
+    fn a_stop_hands_over_the_log_with_the_final_snapshot() {
+        let state = new_state(settings(|_| {}), Listeners::default());
+        let (_sender, queue) = input_queue(1);
+        let (stop_tx, stop) = mpsc::channel(1);
+        let (crash, _crash_log) = oneshot::channel();
+        let (done, _done_rx) = oneshot::channel();
+        let (requests, mut request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
+        let (_responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        let link = SaveLink {
+            requests,
+            responses,
+        };
+        stop_tx.try_send(()).unwrap();
+        let thread =
+            crate::runtime::spawn_tick(move || run(state, &pool, queue, link, stop, crash, done))
+                .unwrap();
+        let End::Stopped(log) = thread.join().unwrap() else {
+            panic!("a stop ends the tick without a failed save");
+        };
+        assert_eq!(log.start(), 0);
+        let mut last = None;
+        while let Ok(request) = request_queue.try_recv() {
+            last = Some(request);
+        }
+        assert!(matches!(last, Some(Request::Finish)));
     }
 
     #[test]

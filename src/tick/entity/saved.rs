@@ -1,19 +1,21 @@
 //! The saved form of entities: chunk extras kind 2, one Bedrock-like NBT compound per entity, with
 //! PMMP's keys (`Entity::saveNBT` and the kinds' overrides).
 //!
-//! Common keys: `identifier` (the Bedrock actor type; PMMP's save names `Item`, `XPOrb`,
-//! `FallingSand`, `PrimedTNT`, `Arrow`, `Snowball`, `Egg`, `ThrownEnderpearl`, `ThrownPotion`,
-//! `ThrownExpBottle`, `Villager`, `Painting`, `EnderCrystal`, `minecraft:trident`, `Trident`,
-//! `ThrownTrident` are read too), `Pos` and `Motion` (lists of three doubles; floats
-//! are read too), `Rotation` (yaw and pitch floats), `FallDistance` (float), `Fire` (short),
-//! `OnGround` (byte); with a name tag `CustomName` (string) and `CustomNameVisible` (byte, PMMP's
-//! "shown when looked at"). Anchor's own keys, written only when they differ from the kind's
-//! default: `CustomNameAlwaysVisible` (byte), `Scale` (float), `Invisible` and `NoGravity`
-//! (bytes). An entity that is not saved with its chunk (the API's choice) writes nothing. Then per
-//! kind:
-//! - items: `Item` (the stack, [`Stack::to_nbt`]), `Health`, `Age` and `PickupDelay` (shorts),
-//!   `Owner` and `Thrower` (strings); Anchor's `DespawnDelay` (int) for a despawn delay past what
-//!   `Age` holds (`item-despawn-ticks` goes up to 72,000), which a load takes over `Age`;
+//! Common keys: `identifier` (the Bedrock actor type; a compound without it is read by `id`, and
+//! PMMP's save names `Item`, `XPOrb`, `FallingSand`, `PrimedTNT`, `PrimedTnt`, `Arrow`,
+//! `Snowball`, `Egg`, `ThrownEnderpearl`, `ThrownPotion`, `ThrownExpBottle`, `Villager`,
+//! `Zombie`, `Painting`, `EnderCrystal`, `Trident`, `ThrownTrident` and the Bedrock
+//! types `minecraft:villager` and `minecraft:trident` are read too), `Pos` and `Motion` (lists
+//! of three doubles; floats are read too), `Rotation` (yaw and pitch floats), `FallDistance`
+//! (float), `Fire` (short), `OnGround` (byte); with a name tag `CustomName` (string);
+//! `CustomNameVisible` (byte, PMMP's "shown when looked at") with a name tag or when it is off.
+//! Anchor's own keys, written only when they differ from the kind's default:
+//! `CustomNameAlwaysVisible` (byte), `Scale` (float), `Invisible` and `NoGravity` (bytes). An
+//! entity that is not saved with its chunk (the API's choice) writes nothing. Then per kind:
+//! - items: `Item` (the stack, [`Stack::to_nbt`]), `Health` (short, read up to the maximum
+//!   health), `Age` and `PickupDelay` (shorts), `Owner` and `Thrower` (strings of at most
+//!   [`MAX_NAME_TAG_BYTES`]); Anchor's `DespawnDelay` (int) for a despawn delay past what `Age`
+//!   holds (`item-despawn-ticks` goes up to 72,000), which a load takes over `Age`;
 //! - orbs: `Age`, `Value` (short) and `experience value` (int);
 //! - falling blocks: `FallingBlock` (the block state as Bedrock's disk palette writes it);
 //! - primed TNT: `Fuse` (short), `AllowUnderwater` (byte, only when set);
@@ -31,8 +33,9 @@
 //!   is not at hand here; only the difference is read back);
 //! - NPCs: `Health` (float), `Invulnerable` (byte) and, when not empty, `AnchorData` (the user's
 //!   compound, at most [`custom::MAX_DATA_BYTES`]) and Bedrock's `Mainhand` (the held item, a
-//!   list of one [`Stack::to_nbt`]); villagers `Profession` (int) and `Offers` (the offer list,
-//!   [`Offers::to_nbt`]); human NPCs their name as the name tag and, with a skin, PMMP's `Skin`
+//!   list of one [`Stack::to_nbt`]); villagers `Profession` (int), `Offers` (the offer list,
+//!   [`Offers::to_nbt`]) and Bedrock's `IsBaby` (byte); zombies `IsBaby`; human NPCs their name as
+//!   the name tag and, with a skin, PMMP's `Skin`
 //!   compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin that does not
 //!   pass [`Skin`]'s checks loads as the default skin);
 //! - custom entities: the type's identifier and the NPC keys. One whose type the server does not
@@ -48,7 +51,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::super::trade::Offers;
 use super::Entity;
 use super::custom::{self, EntityTypes};
 use super::kind::{
@@ -66,13 +68,11 @@ use crate::item::Stack;
 use crate::math::{Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::Uuid;
-use crate::world::{BlockPos, ChunkPos, MAX_Y, MIN_Y};
+use crate::tick::trade::Offers;
+use crate::world::{BlockPos, ChunkPos};
 
 /// `Age` that means "never despawns" (PMMP).
 const AGE_NEVER: i16 = i16::MIN;
-/// The farthest a saved position may be from the world's middle, as for players: the world
-/// border.
-const MAX_COORDINATE: f64 = crate::world::BORDER as f64;
 /// How far below and above the world height a saved position may be: entities fall out of the
 /// world and die 16 blocks under it.
 pub(super) const HEIGHT_MARGIN: f64 = 64.0;
@@ -89,6 +89,9 @@ const MAX_EFFECT_TICKS: i32 = 1_000_000;
 pub(super) const DATA_KEY: &str = "AnchorData";
 /// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
 const MAINHAND: &str = "Mainhand";
+/// Bedrock's baby flag of a mob (`IsBaby`).
+const BABY: &str = "IsBaby";
+
 /// What a saved compound describes, before the store gives it a slot.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Loaded {
@@ -140,6 +143,10 @@ pub(super) fn save(entity: &Entity) -> Compound {
     put("OnGround", Value::Byte(u8::from(on_ground)));
     if !entity.name_tag.is_empty() {
         put("CustomName", Value::String(entity.name_tag.clone()));
+    }
+    // A load without the key shows the name tag, so an entity whose tag is off keeps it off
+    // until it gets a tag.
+    if !entity.name_tag.is_empty() || !entity.name_tag_visible {
         put(
             "CustomNameVisible",
             Value::Byte(u8::from(entity.name_tag_visible)),
@@ -175,7 +182,11 @@ pub(super) fn save(entity: &Entity) -> Compound {
         }
         Kind::ExperienceOrb(orb) => {
             put("Age", Value::Short(age(orb.despawn_delay)));
-            let value = i16::try_from(orb.value).unwrap_or(i16::MAX);
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: an orb's value is 1 to `i16::MAX` (`Orb`)"
+            )]
+            let value = i16::try_from(orb.value).expect("an orb's value fits the saved short");
             put("Value", Value::Short(value));
             put("experience value", Value::Int(i32::from(value)));
         }
@@ -186,10 +197,12 @@ pub(super) fn save(entity: &Entity) -> Compound {
             );
         }
         Kind::Tnt(tnt) => {
-            put(
-                "Fuse",
-                Value::Short(i16::try_from(tnt.fuse).unwrap_or(i16::MAX)),
-            );
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: a fuse is at most `MAX_FUSE`, `i16::MAX` (`Tnt`)"
+            )]
+            let fuse = i16::try_from(tnt.fuse).expect("a fuse fits the saved short");
+            put("Fuse", Value::Short(fuse));
             if tnt.underwater {
                 put("AllowUnderwater", Value::Byte(1));
             }
@@ -343,18 +356,13 @@ pub(super) fn load(
     content: &Registry,
 ) -> Option<Loaded> {
     #[cfg(test)]
-    super::super::rules::reads::add(|r| r.entities += 1);
+    crate::tick::rules::reads::add(|r| r.entities += 1);
     let identifier = match c.get("identifier").or_else(|| c.get("id")) {
         Some(Value::String(s)) => s.as_str(),
         _ => return None,
     };
     let position = vector(c.get("Pos"))?;
-    let border = |v: f64| v.abs() <= MAX_COORDINATE;
-    let height = f64::from(MIN_Y) - HEIGHT_MARGIN..=f64::from(MAX_Y) + HEIGHT_MARGIN;
-    if !border(position.x) || !border(position.z) || !height.contains(&position.y) {
-        return None;
-    }
-    if super::chunk_of(position) != chunk {
+    if !super::api::is_placeable(position) || super::chunk_of(position) != chunk {
         return None;
     }
     let motion = match c.get("Motion") {
@@ -388,7 +396,11 @@ pub(super) fn load(
     }
     let looks = load_looks(c, &kind)?;
     let health = match (&kind, c.get("Health")) {
-        (Kind::Item(_), Some(Value::Short(h))) => f64::from(*h),
+        // PMMP `Entity::setHealth`, which the load goes through, keeps the health within 0 and
+        // the maximum.
+        (Kind::Item(_), Some(Value::Short(h))) => {
+            crate::math::clamp(f64::from(*h), 0.0, kind.max_health())
+        }
         (Kind::Npc(_), Some(Value::Float(h))) if h.is_finite() => {
             crate::math::clamp(f64::from(*h), 0.0, kind.max_health())
         }
@@ -562,24 +574,32 @@ fn load_skin(c: &Compound) -> Option<Skin> {
         .with_geometry(geometry, bytes("GeometryData")?)
 }
 
-/// A dropped item's keys (PMMP `ItemEntity::initEntity`); `None` without a valid stack.
+/// A dropped item's keys (PMMP `ItemEntity::initEntity`); `None` without a valid stack, or with
+/// an owner or thrower that is not a string of at most [`MAX_NAME_TAG_BYTES`].
 fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     let Some(Value::Compound(stack)) = c.get("Item") else {
         return None;
     };
     #[cfg(test)]
-    super::super::rules::reads::add(|r| r.stacks += 1);
+    crate::tick::rules::reads::add(|r| r.stacks += 1);
     let stack = Stack::from_nbt_with(stack, content).filter(|s| !s.is_empty())?;
     let pickup_delay = match c.get("PickupDelay") {
         Some(Value::Short(d)) => (*d).max(NEVER),
         _ => 0,
     };
+    // At most what the API takes (`Mut::set_owner`, `Mut::set_thrower`).
     let text = |k: &str| match c.get(k) {
-        Some(Value::String(s)) => s.clone(),
-        _ => String::new(),
+        Some(Value::String(s)) if s.len() <= MAX_NAME_TAG_BYTES => Some(s.clone()),
+        Some(_) => None,
+        None => Some(String::new()),
     };
     // Anchor's key for a delay `Age` cannot hold; a value outside that range is not Anchor's.
-    let longest = i32::try_from(*ITEM_DESPAWN_TICKS.end()).unwrap_or(i32::MAX);
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the longest `item-despawn-ticks` is a constant that fits an int"
+    )]
+    let longest =
+        i32::try_from(*ITEM_DESPAWN_TICKS.end()).expect("the despawn delay bound fits an int");
     let despawn_delay = match c.get("DespawnDelay") {
         Some(Value::Int(d)) if (MAX_DESPAWN_DELAY + 1..=longest).contains(d) => *d,
         _ => despawn_delay(c),
@@ -588,8 +608,8 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
         stack,
         pickup_delay,
         despawn_delay,
-        owner: text("Owner"),
-        thrower: text("Thrower"),
+        owner: text("Owner")?,
+        thrower: text("Thrower")?,
     })
 }
 
@@ -645,7 +665,7 @@ fn load_trident(c: &Compound, content: &Registry) -> Option<Trident> {
         return None;
     };
     #[cfg(test)]
-    super::super::rules::reads::add(|r| r.stacks += 1);
+    crate::tick::rules::reads::add(|r| r.stacks += 1);
     let item = Stack::from_nbt_with(item, content).filter(|s| !s.is_empty())?;
     Some(Trident {
         item,
@@ -808,9 +828,6 @@ fn load_custom(
     load_npc(c, Form::Custom(Custom { spec }), content).map(Kind::Npc)
 }
 
-/// Bedrock's baby flag of a mob (`IsBaby`).
-const BABY: &str = "IsBaby";
-
 /// Whether a saved mob is a baby.
 fn is_baby(c: &Compound) -> bool {
     matches!(c.get(BABY), Some(Value::Byte(b)) if *b != 0)
@@ -855,20 +872,26 @@ fn despawn_delay(c: &Compound) -> i32 {
     }
 }
 
-/// The `Age` short of a despawn delay.
+/// The `Age` short of a despawn delay: the age a delay past [`MAX_DESPAWN_DELAY`] would have
+/// stops above [`AGE_NEVER`].
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a despawn delay other than `NEVER` is not negative (`Item`, `Orb`), so \
+              the age is at most `DEFAULT_DESPAWN_DELAY`"
+)]
 fn age(despawn_delay: i32) -> i16 {
     if despawn_delay == i32::from(NEVER) {
-        AGE_NEVER
-    } else {
-        let a = DEFAULT_DESPAWN_DELAY - despawn_delay;
-        i16::try_from(a.clamp(i32::from(i16::MIN) + 1, i32::from(i16::MAX))).unwrap_or(0)
+        return AGE_NEVER;
     }
+    let a = DEFAULT_DESPAWN_DELAY - despawn_delay;
+    i16::try_from(a.max(i32::from(AGE_NEVER) + 1)).expect("an age fits the saved short")
 }
 
-/// The `Health` short of a health value.
+/// The `Health` short of an item's health.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "invariant: entity health is finite and at most 20; `as` saturates otherwise"
+    reason = "invariant: an item's health is finite and 0 to its maximum health (`Mut::set_health` \
+              and the load keep it there); `as` saturates otherwise"
 )]
 fn health_short(health: f64) -> i16 {
     health.round() as i16
@@ -897,10 +920,11 @@ fn vector(v: Option<&Value>) -> Option<Vec3> {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::super::physics::tests::named;
     use super::*;
     use crate::block::{self, Face};
     use crate::item::{Enchantment, Extra, Type};
+    use crate::tick::entity::physics::tests::named;
+    use crate::tick::entity::tests::{Harness, standing};
 
     /// `count` of the item `name` (a block's item for a block name).
     pub(in crate::tick) fn stack(name: &str, count: u8) -> Stack {
@@ -1161,7 +1185,7 @@ pub(super) mod tests {
                 None,
             ),
             projectile(Shot::IceBomb, 0.0, None),
-            Kind::Firework(super::super::kind::Firework {
+            Kind::Firework(crate::tick::entity::kind::Firework {
                 max_flight: 60,
                 explosions: vec![Compound::from([
                     ("FireworkType".to_owned(), Value::Byte(1)),
@@ -1188,7 +1212,9 @@ pub(super) mod tests {
                     punch: u8::MAX,
                     life: 0,
                 }),
-                super::super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL),
+                crate::tick::entity::projectile::bow_arrow_damage(
+                    crate::item::MAX_ENCHANTMENT_LEVEL,
+                ),
                 None,
             ),
         ]
@@ -1256,7 +1282,7 @@ pub(super) mod tests {
     }
 
     /// The items by count and the experience on the ground.
-    fn drops(h: &super::super::tests::Harness) -> (u32, u32) {
+    fn drops(h: &Harness) -> (u32, u32) {
         let (mut items, mut xp) = (0, 0);
         for e in h.live() {
             match &e.kind {
@@ -1270,7 +1296,6 @@ pub(super) mod tests {
 
     #[test]
     fn a_zombie_killed_then_unloaded_and_loaded_drops_once() {
-        use super::super::tests::{Harness, standing};
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         // Out of the player's pickup reach, in its view.
@@ -1310,7 +1335,7 @@ pub(super) mod tests {
         .entity_mut(back)
         .expect("not flagged")
         .attack(1.0);
-        for _ in 0..super::super::kind::MAX_DEAD_TICKS {
+        for _ in 0..crate::tick::entity::kind::MAX_DEAD_TICKS {
             h.step(Vec::new());
         }
         assert_eq!(drops(&h), first, "no second drop");
@@ -1376,7 +1401,7 @@ pub(super) mod tests {
             e.kind,
             "PMMP's save name"
         );
-        // Out-of-range numbers of the new kinds.
+        // Out-of-range numbers of a fuse, a projectile and a villager.
         let tnt = save(&entity(kinds().remove(6), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = tnt.clone();
         bad.insert("Fuse".to_owned(), Value::Short(-3));
@@ -1395,5 +1420,33 @@ pub(super) mod tests {
         let mut bad = npc;
         bad.insert("Profession".to_owned(), Value::Int(1000));
         assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
+    }
+
+    /// An entity whose name tag is off loads with it off, with or without a name tag.
+    #[test]
+    fn a_name_tag_turned_off_stays_off_through_a_save() {
+        let mut e = entity(kinds().remove(0), Vec3::new(5.25, -59.5, -3.75));
+        e.name_tag_visible = false;
+        let loaded = vanilla_load(&save(&e), ChunkPos::new(0, -1)).expect("loads");
+        assert!(!loaded.looks.name_tag_visible);
+    }
+
+    /// A saved item's health is read within 0 and its maximum, and its owner and thrower within
+    /// what the API takes, as an item the API made has them.
+    #[test]
+    fn a_saved_item_loads_with_the_values_the_api_allows() {
+        let good = save(&entity(kinds().remove(0), Vec3::new(5.25, -59.5, -3.75)));
+        let load_with = |key: &str, value: Value| {
+            let mut c = good.clone();
+            c.insert(key.to_owned(), value);
+            vanilla_load(&c, ChunkPos::new(0, -1))
+        };
+        let health = |h: i16| load_with("Health", Value::Short(h)).expect("loads").health;
+        let max = kinds().remove(0).max_health();
+        assert_eq!(health(30_000), max);
+        assert_eq!(health(-5), 0.0);
+        let long = Value::String("o".repeat(MAX_NAME_TAG_BYTES + 1));
+        assert!(load_with("Owner", long.clone()).is_none());
+        assert!(load_with("Thrower", long).is_none());
     }
 }

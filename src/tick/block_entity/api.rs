@@ -3,21 +3,21 @@
 //!
 //! A read looks the block entity up by position (two ordered-map steps) each time, so a [`Tile`]
 //! holds no borrow of the store's insides. A write checks its value, changes the block entity (its
-//! chunk is saved at the next commit) and sends its client data to the players who see the chunk
-//! (PMMP sends a tile's spawn compound when it changes). Writes raise no events: a direct API call
-//! never re-enters the listeners.
+//! chunk is saved at the next commit) and marks its client data, which the players who see the
+//! chunk get once at the end of the tick (PMMP sends a tile's spawn compound when it changes).
+//! Writes raise no events: a direct API call never re-enters the listeners.
 
-use super::super::interact::book::page_count;
-use super::super::{Context, State, inventory};
 use super::{
     BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon, beacon_effect_allowed,
     block_at, campfire_kind, chests_pair, decor, mark_spawn, set_beacon,
 };
-use crate::block::{self, Class, Face, TypeTag};
+use crate::block::{self, Face, TypeTag};
 use crate::effect;
 use crate::item::{self, Stack};
 use crate::nbt::Compound;
 use crate::protocol::Rgba;
+use crate::tick::interact::book::page_count;
+use crate::tick::{Context, State, inventory};
 use crate::tile::{
     self, BannerPattern, BannerType, DyeColour, Error, MAX_NAME_BYTES, Mut, Result, Side, SignText,
     Tile,
@@ -77,15 +77,6 @@ impl Context<'_> {
 }
 
 impl<'a> Tile<'a> {
-    /// The block entity (present: the state is borrowed since it was found).
-    fn entity(&self) -> Option<&'a BlockEntity> {
-        self.state.rules.block_entities.get(self.world, self.pos)
-    }
-
-    fn kind(&self) -> Option<&'a Kind> {
-        self.entity().map(|e| &e.kind)
-    }
-
     /// The world it is in.
     pub fn world(&self) -> world::Id {
         world::Id::of(self.world)
@@ -97,10 +88,11 @@ impl<'a> Tile<'a> {
         self.pos
     }
 
-    /// Its block.
+    /// Its block; `None` for a block Anchor does not know (an imported block it keeps without
+    /// rules, whose block entity it keeps as saved).
     #[doc(alias = "Tile::getBlock")]
-    pub fn block(&self) -> block::State {
-        block_at(self.state, self.world, self.pos).unwrap_or(block::AIR)
+    pub fn block(&self) -> Option<block::State> {
+        block_at(self.state, self.world, self.pos)
     }
 
     /// The custom name of a container (from a renamed item), shown as its window's title; `None`
@@ -358,6 +350,16 @@ impl<'a> Tile<'a> {
             _ => None,
         }
     }
+
+    /// The block entity (present: the state is borrowed since it was found).
+    fn entity(&self) -> Option<&'a BlockEntity> {
+        self.state.rules.block_entities.get(self.world, self.pos)
+    }
+
+    /// The kind of the block entity, with its data.
+    fn kind(&self) -> Option<&'a Kind> {
+        self.entity().map(|e| &e.kind)
+    }
 }
 
 impl Mut<'_> {
@@ -368,20 +370,6 @@ impl Mut<'_> {
             world: self.world,
             pos: self.pos,
         }
-    }
-
-    /// Changes the block entity with `f` (`None`: not its kind, nothing changed), then marks its
-    /// chunk changed and sends its client data to the players who see it.
-    fn edit(&mut self, f: impl FnOnce(&mut BlockEntity) -> Option<Result<()>>) -> Result<()> {
-        let (world, pos) = (self.world, self.pos);
-        let mut outcome = Err(Error::WrongKind);
-        self.state.rules.block_entities.update(world, pos, |e| {
-            outcome = f(e)?;
-            outcome.ok()
-        });
-        outcome?;
-        mark_spawn(self.state, world, pos);
-        Ok(())
     }
 
     /// Names a container (`None` or an empty name clears it): a chest, a barrel, a shulker box,
@@ -423,51 +411,23 @@ impl Mut<'_> {
         Ok(())
     }
 
-    /// Splits a double chest into two single chests. The windows open on either close first.
+    /// Splits a double chest into two single chests; `Invalid` for a single chest, or while the
+    /// other half's chunk is not loaded (its saved half would stay paired). The windows open on
+    /// either close first.
     #[doc(alias = "block\\tile\\Chest::unpair")]
     pub fn unpair(&mut self) -> Result<()> {
         let (world, pos) = (self.world, self.pos);
-        let other = match self
-            .state
-            .rules
-            .block_entities
-            .get(world, pos)
-            .map(|e| &e.kind)
-        {
+        let entities = &self.state.rules.block_entities;
+        let other = match entities.get(world, pos).map(|e| &e.kind) {
             Some(Kind::Chest { pair: Some(other) }) => *other,
             Some(Kind::Chest { pair: None }) => return Err(Error::Invalid),
             _ => return Err(Error::WrongKind),
         };
+        if !entities.is_loaded(world, other) {
+            return Err(Error::Invalid);
+        }
         self.set_pairs([(pos, None), (other, None)]);
         Ok(())
-    }
-
-    /// Sets the pair of two chests, after closing the windows on them (a window's slots are the
-    /// halves it opened with); both get their client data.
-    fn set_pairs(&mut self, pairs: [(BlockPos, Option<BlockPos>); 2]) {
-        let world = self.world;
-        for (at, _) in pairs {
-            let viewers = self.state.rules.block_entities.viewers(world, at).to_vec();
-            for session in viewers {
-                inventory::close_window_without_event(self.state, session);
-            }
-        }
-        for (at, with) in pairs {
-            let set = self
-                .state
-                .rules
-                .block_entities
-                .update(world, at, |e| match &mut e.kind {
-                    Kind::Chest { pair } => {
-                        *pair = with;
-                        Some(())
-                    }
-                    _ => None,
-                });
-            if set.is_some() {
-                mark_spawn(self.state, world, at);
-            }
-        }
     }
 
     /// Turns a shulker box to open toward `facing`.
@@ -483,14 +443,14 @@ impl Mut<'_> {
     }
 
     /// Sets how long the item in campfire slot `slot` (0 to 3) has cooked, up to the campfire's
-    /// cook time (the item cooks at its next update once the time is reached).
+    /// cook time (the item cooks at its next update once the time is reached). `Invalid` for an
+    /// empty slot: a slot's time starts at 0 when an item goes in.
     #[doc(alias = "block\\Campfire::setCookingTime")]
     pub fn set_cooking_time_ticks(&mut self, slot: usize, ticks: u16) -> Result<()> {
-        let soul = self.view().block().is(Class::SoulCampfire);
-        let most = campfire_kind(soul).cook_ticks();
+        let most = self.view().block().map(|b| campfire_kind(b).cook_ticks());
         self.edit(|e| match &mut e.kind {
-            Kind::Campfire(c) => Some(match c.times.get_mut(slot) {
-                Some(t) if ticks <= most => {
+            Kind::Campfire(c) => Some(match (c.times.get_mut(slot), e.items.get(slot), most) {
+                (Some(t), Some(item), Some(most)) if !item.is_empty() && ticks <= most => {
                     *t = ticks;
                     Ok(())
                 }
@@ -679,7 +639,7 @@ impl Mut<'_> {
     }
 
     /// Puts one of a record into a jukebox (an empty stack empties it). The record before is not
-    /// dropped; the clients play what the jukebox holds.
+    /// dropped. Only the jukebox's data changes: Anchor sends no record sound.
     #[doc(alias = "block\\tile\\Jukebox::setRecord")]
     pub fn set_record(&mut self, record: &Stack) -> Result<()> {
         if !record.is_empty() && !record.item().is_some_and(|t| t.is(item::Class::Record)) {
@@ -761,7 +721,7 @@ impl Mut<'_> {
     #[doc(alias = "block\\MobHead::setRotation")]
     #[doc(alias = "block\\tile\\MobHead::setRotation")]
     pub fn set_skull_rotation(&mut self, rotation: u8) -> Result<()> {
-        if rotation > 15 {
+        if rotation >= decor::SKULL_ROTATIONS {
             return Err(Error::Invalid);
         }
         self.edit(|e| match &mut e.kind {
@@ -813,7 +773,786 @@ impl Mut<'_> {
             _ => None,
         })
     }
+
+    /// Changes the block entity with `f` (`None`: not its kind, nothing changed), then marks its
+    /// chunk changed and its client data for the players who see it.
+    fn edit(&mut self, f: impl FnOnce(&mut BlockEntity) -> Option<Result<()>>) -> Result<()> {
+        let (world, pos) = (self.world, self.pos);
+        let mut outcome = Err(Error::WrongKind);
+        self.state.rules.block_entities.update(world, pos, |e| {
+            outcome = f(e)?;
+            outcome.ok()
+        });
+        outcome?;
+        mark_spawn(self.state, world, pos);
+        Ok(())
+    }
+
+    /// Sets the pair of two chests, after closing the windows on them (a window's slots are the
+    /// halves it opened with); both get their client data.
+    fn set_pairs(&mut self, pairs: [(BlockPos, Option<BlockPos>); 2]) {
+        let world = self.world;
+        for (at, _) in pairs {
+            let viewers = self.state.rules.block_entities.viewers(world, at).to_vec();
+            for session in viewers {
+                inventory::close_window_without_event(self.state, session);
+            }
+        }
+        for (at, with) in pairs {
+            let set = self
+                .state
+                .rules
+                .block_entities
+                .update(world, at, |e| match &mut e.kind {
+                    Kind::Chest { pair } => {
+                        *pair = with;
+                        Some(())
+                    }
+                    _ => None,
+                });
+            if set.is_some() {
+                mark_spawn(self.state, world, at);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    //! Each write changes the block entity, reaches the players who see it as `BlockActorData`
+    //! and is in the chunk's saved form.
+
+    use tokio::sync::mpsc::Receiver;
+
+    use super::*;
+    use crate::effect::Type as Effect;
+    use crate::event::Listeners;
+    use crate::nbt::Value;
+    use crate::pool::Pool;
+    use crate::protocol::packet::Packet;
+    use crate::save::Response;
+    use crate::tick::block_entity::{beside, cardinal, placed, send_marked};
+    use crate::tick::queue::{Input, Outbound};
+    use crate::tick::tests::{answer, join, new_state, radius, settings};
+    use crate::tick::{InputLog, Output, SessionId, boundary, deliver, step};
+
+    const WORLD: world::Id = world::Id::DEFAULT;
+
+    /// A flat world with one player who sees the spawn chunks.
+    struct Harness {
+        state: State,
+        pool: Pool,
+        answers: Vec<Response>,
+        /// Kept so the session stays.
+        receivers: Vec<Receiver<Outbound>>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let mut state = new_state(settings(|_| {}), Listeners::default());
+            let loaded: Vec<_> = state.worlds[0].loaded_chunks().collect();
+            for pos in loaded {
+                let extras = state
+                    .chunks
+                    .extras
+                    .get((0, pos))
+                    .cloned()
+                    .unwrap_or_default();
+                let world = &state.worlds[0];
+                let read = state
+                    .rules
+                    .read((0, pos), &extras, world.chunk(pos).unwrap(), world);
+                state.rules.load((0, pos), read, &extras);
+            }
+            let mut h = Self {
+                state,
+                pool: crate::runtime::cpu_pool(1).unwrap(),
+                answers: Vec::new(),
+                receivers: Vec::new(),
+            };
+            let (j, rx) = join(1, 0);
+            h.receivers.push(rx);
+            h.tick(vec![j, radius(1, 1, 4)]);
+            h.tick(Vec::new());
+            h.sent();
+            h
+        }
+
+        fn tick(&mut self, mut inputs: Vec<Input>) {
+            let mut output = Output::default();
+            let mut log = InputLog::default();
+            let mut answers = std::mem::take(&mut self.answers);
+            step(
+                &mut self.state,
+                &mut inputs,
+                &mut answers,
+                &self.pool,
+                &mut output,
+                &mut log,
+            );
+            deliver(&mut self.state, &mut output, &mut log);
+            boundary(&mut self.state, &mut output, &mut log);
+            self.answers = answer(&self.state, std::mem::take(&mut output.requests));
+        }
+
+        /// Takes the packets queued for the player.
+        fn sent(&mut self) -> Vec<Packet> {
+            let player = self.state.players.get_mut(&SessionId::new(1)).unwrap();
+            std::mem::take(&mut player.outbox)
+        }
+
+        /// The block entity data the player was sent for `pos` by the end of the tick, the last
+        /// first.
+        fn actor_data(&mut self, pos: BlockPos) -> Vec<Compound> {
+            send_marked(&mut self.state);
+            let mut out: Vec<Compound> = self
+                .sent()
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::BlockActorData(d) if d.position == [pos.x, pos.y, pos.z] => {
+                        Some(d.nbt_data)
+                    }
+                    _ => None,
+                })
+                .collect();
+            out.reverse();
+            out
+        }
+
+        /// A free spot on the ground near the spawn, `dx` blocks east.
+        fn spot(&self, dx: i32) -> BlockPos {
+            let y = self.state.worlds[0].highest_block(dx, 2).unwrap() + 1;
+            BlockPos::new(dx, y, 2)
+        }
+
+        /// Sets `block` at `pos` and makes its block entity as a placement does, ending the tick
+        /// of the placement so that only later writes leave a mark.
+        fn place(&mut self, pos: BlockPos, block: block::State) {
+            self.state.worlds[0].set_block(pos, block).unwrap();
+            placed(&mut self.state, 0, pos, None, &Stack::EMPTY, Face::Up);
+            send_marked(&mut self.state);
+            self.sent();
+        }
+
+        fn cx(&mut self) -> Context<'_> {
+            Context {
+                state: &mut self.state,
+            }
+        }
+
+        /// Takes the saved form of every changed chunk and loads the chunks of `at` back from it.
+        fn reload(&mut self, at: &[BlockPos]) {
+            let saved = self.state.rules.block_entities.take_changed();
+            let entities = &mut self.state.rules.block_entities;
+            for pos in at {
+                let key = (0, pos.chunk());
+                let (_, list) = saved.iter().find(|(k, _)| *k == key).unwrap();
+                assert!(
+                    entities.unload(key).is_none(),
+                    "the chunk changed again since the save"
+                );
+                entities.load_list(key, list, &self.state.worlds[0], &self.state.custom);
+            }
+        }
+    }
+
+    fn text(lines: [&str; 4], argb: u32) -> SignText {
+        let colour = crate::tile::from_argb(argb.cast_signed());
+        SignText::new(lines.map(String::from), colour, false).unwrap()
+    }
+
+    fn compound<'a>(nbt: &'a Compound, key: &str) -> &'a Compound {
+        match nbt.get(key) {
+            Some(Value::Compound(c)) => c,
+            other => panic!("{key}: {other:?}"),
+        }
+    }
+
+    // pmmp: World::getTile, World::getTileAt, Chunk::getTile, Tile, Tile::getPosition, Tile::getBlock, BaseSign::getText, BaseSign::getFaceText, Sign::getText, Sign::getBackText, BaseSign::setText, BaseSign::setFaceText, Sign::setText, Sign::setBackText, BaseSign::isWaxed, Sign::isWaxed, BaseSign::setWaxed, Sign::setWaxed
+    #[test]
+    fn a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved() {
+        let mut h = Harness::new();
+        let pos = h.spot(1);
+        let sign = block::Kind::OakSign.default_state();
+        h.place(pos, sign);
+        let above = BlockPos::new(pos.x, pos.y + 3, pos.z);
+        let mut cx = h.cx();
+        assert!(
+            cx.block_entity(WORLD, above).is_none(),
+            "no block entity there"
+        );
+        let tile = cx.block_entity(WORLD, pos).unwrap();
+        assert_eq!(
+            (tile.world(), tile.position(), tile.block()),
+            (WORLD, pos, Some(sign))
+        );
+        assert_eq!(tile.sign_text(Side::Front), Some(&SignText::default()));
+        assert!(!tile.is_sign_waxed());
+        let mut t = cx.block_entity_mut(WORLD, pos).unwrap();
+        t.set_sign_text(Side::Front, text(["Hello", "", "", ""], 0xff00_ff00))
+            .unwrap();
+        t.set_sign_text(Side::Back, text(["", "Back", "", ""], 0xff00_0000))
+            .unwrap();
+        t.set_sign_waxed(true).unwrap();
+        assert_eq!(t.set_cooking_time_ticks(0, 1), Err(Error::WrongKind));
+        let view = t.view();
+        assert_eq!(
+            view.sign_text(Side::Front).map(SignText::colour),
+            Some(Rgba {
+                r: 0,
+                g: 0xff,
+                b: 0,
+                a: 0xff
+            })
+        );
+        assert_eq!(
+            view.sign_text(Side::Back).and_then(|s| s.line(1)),
+            Some("Back")
+        );
+        assert!(view.is_sign_waxed());
+        let sent = h.actor_data(pos);
+        assert_eq!(sent.len(), 1, "one update for the writes of a tick");
+        assert_eq!(
+            compound(&sent[0], "FrontText").get("Text"),
+            Some(&Value::String("Hello".to_owned()))
+        );
+        assert_eq!(sent[0].get("IsWaxed"), Some(&Value::Byte(1)));
+        h.reload(&[pos]);
+        let cx = h.cx();
+        let tile = cx.block_entity(WORLD, pos).unwrap();
+        assert_eq!(
+            tile.sign_text(Side::Back).map(SignText::lines),
+            Some(&["", "Back", "", ""].map(String::from))
+        );
+        assert!(tile.is_sign_waxed());
+    }
+
+    // pmmp: Chunk::getTiles, Nameable::getName, NameableTrait::getName, Nameable::setName, NameableTrait::setName, Container::canOpenWith, ContainerTrait::canOpenWith, block\tile\EnderChest::getViewerCount, block\tile\Chest::getPair, block\tile\Chest::pairWith, block\tile\Chest::unpair, block\tile\ShulkerBox::getFacing, block\tile\ShulkerBox::setFacing
+    #[test]
+    fn containers_take_names_and_chests_pair_side_by_side() {
+        let mut h = Harness::new();
+        let a = h.spot(1);
+        let chest = block::Kind::Chest.default_state();
+        let facing = cardinal(chest).unwrap();
+        let (left, right) = (
+            beside(a, facing.clockwise()).unwrap(),
+            beside(a, facing.clockwise().opposite()).unwrap(),
+        );
+        let behind = beside(a, facing.opposite()).unwrap();
+        let far = beside(left, facing.clockwise()).unwrap();
+        for p in [a, left, right, behind, far] {
+            h.state.worlds[0].set_block(p, chest).unwrap();
+            h.state
+                .rules
+                .block_entities
+                .insert(0, p, BlockEntity::new(Kind::Chest { pair: None }));
+        }
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, a).unwrap();
+        assert_eq!(t.view().name(), None);
+        t.set_name(Some("Loot")).unwrap();
+        assert_eq!(
+            t.set_name(Some(&"x".repeat(MAX_NAME_BYTES + 1))),
+            Err(Error::TooLong)
+        );
+        assert_eq!(t.view().name(), Some("Loot"));
+        assert!(t.view().can_open_with("anything"));
+        assert_eq!(t.view().viewer_count(), 0);
+        assert_eq!(t.unpair(), Err(Error::Invalid), "a single chest");
+        assert_eq!(t.pair_with(far), Err(Error::Invalid), "not beside it");
+        assert_eq!(t.pair_with(behind), Err(Error::Invalid), "behind it");
+        assert_eq!(t.pair_with(a), Err(Error::Invalid), "itself");
+        t.pair_with(left).unwrap();
+        assert_eq!(t.view().chest_pair(), Some(left));
+        assert_eq!(t.pair_with(right), Err(Error::Invalid), "paired already");
+        let sent = h.actor_data(a);
+        assert_eq!(sent[0].get("pairx"), Some(&Value::Int(left.x)));
+        assert_eq!(sent[0].get("pairz"), Some(&Value::Int(left.z)));
+        assert_eq!(
+            sent[0].get("CustomName"),
+            Some(&Value::String("Loot".to_owned()))
+        );
+        let mut cx = h.cx();
+        assert_eq!(cx.block_entity(WORLD, left).unwrap().chest_pair(), Some(a));
+        let in_chunk: Vec<BlockPos> = cx
+            .chunk_block_entities(WORLD, a.chunk())
+            .map(|t| t.position())
+            .collect();
+        assert!(in_chunk.contains(&a) && in_chunk.contains(&left));
+        assert!(in_chunk.windows(2).all(|w| w[0] < w[1]), "in order");
+        let mut t = cx.block_entity_mut(WORLD, left).unwrap();
+        t.unpair().unwrap();
+        assert_eq!(t.view().chest_pair(), None);
+        assert_eq!(cx.block_entity(WORLD, a).unwrap().chest_pair(), None);
+        if let Some(e) = h.state.rules.block_entities.get_mut(0, a) {
+            e.rest
+                .insert("Lock".to_owned(), Value::String("key".to_owned()));
+        }
+        let cx = h.cx();
+        let tile = cx.block_entity(WORLD, a).unwrap();
+        assert!(tile.can_open_with("key") && !tile.can_open_with("other"));
+
+        let box_at = h.spot(6);
+        h.place(box_at, block::Kind::ShulkerBox.default_state());
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, box_at).unwrap();
+        assert_eq!(t.view().shulker_facing(), Some(Face::Up));
+        t.set_shulker_facing(Face::West).unwrap();
+        t.set_name(None).unwrap();
+        assert_eq!(t.view().shulker_facing(), Some(Face::West));
+        assert_eq!(h.actor_data(box_at)[0].get("facing"), Some(&Value::Byte(4)));
+        let sign_at = h.spot(7);
+        h.place(sign_at, block::Kind::OakSign.default_state());
+        let mut cx = h.cx();
+        assert_eq!(
+            cx.block_entity_mut(WORLD, sign_at)
+                .unwrap()
+                .set_name(Some("x")),
+            Err(Error::WrongKind),
+            "a sign has no name"
+        );
+    }
+
+    /// A double chest whose other half's chunk is not loaded stays paired: splitting it would
+    /// leave that half's saved form paired, so the halves would disagree once it loads.
+    #[test]
+    fn a_double_chest_with_its_other_half_unloaded_does_not_split() {
+        let mut h = Harness::new();
+        // x 15 and 16 are in two chunks.
+        let (a, b) = (h.spot(15), h.spot(16));
+        assert_ne!(a.chunk(), b.chunk());
+        for (at, with) in [(a, b), (b, a)] {
+            h.state.worlds[0]
+                .set_block(at, block::Kind::Chest.default_state())
+                .unwrap();
+            h.state.rules.block_entities.insert(
+                0,
+                at,
+                BlockEntity::new(Kind::Chest { pair: Some(with) }),
+            );
+        }
+        assert!(
+            h.state
+                .rules
+                .block_entities
+                .unload((0, b.chunk()))
+                .is_some(),
+            "the chunk changed"
+        );
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, a).unwrap();
+        assert_eq!(t.unpair(), Err(Error::Invalid));
+        assert_eq!(t.view().chest_pair(), Some(b));
+    }
+
+    // pmmp: block\Bed::getColor, block\tile\Bed::getColor, block\Bed::setColor, block\tile\Bed::setColor, BaseBanner::getColor, block\tile\Banner::getBaseColor, BaseBanner::setColor, block\tile\Banner::setBaseColor, BaseBanner::getPatterns, block\tile\Banner::getPatterns, BaseBanner::setPatterns, block\tile\Banner::setPatterns, block\tile\Banner::getType, block\tile\Banner::setType, block\MobHead::getRotation, block\tile\MobHead::getRotation, block\MobHead::setRotation, block\tile\MobHead::setRotation
+    #[test]
+    fn beds_banners_and_heads_keep_their_look() {
+        let mut h = Harness::new();
+        let (bed, banner, head) = (h.spot(1), h.spot(3), h.spot(5));
+        h.place(bed, block::Kind::Bed.default_state());
+        h.place(banner, block::Kind::Banner.default_state());
+        h.place(head, block::Kind::MobHead.default_state());
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, bed).unwrap();
+        assert_eq!(
+            t.view().bed_colour(),
+            Some(DyeColour::White),
+            "the item's meta 0"
+        );
+        t.set_bed_colour(DyeColour::Blue).unwrap();
+        assert_eq!(t.view().bed_colour(), Some(DyeColour::Blue));
+        assert_eq!(t.view().banner_colour(), None, "a bed is no banner");
+        assert_eq!(h.actor_data(bed)[0].get("color"), Some(&Value::Byte(11)));
+
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, banner).unwrap();
+        assert_eq!(t.view().banner_colour(), Some(DyeColour::Black));
+        assert_eq!(t.view().banner_type(), Some(BannerType::Normal));
+        let layers = [
+            BannerPattern::new(block::BannerPattern::Border, DyeColour::White),
+            BannerPattern::new(block::BannerPattern::Creeper, DyeColour::Green),
+        ];
+        t.set_banner_colour(DyeColour::Yellow).unwrap();
+        t.set_banner_patterns(&layers).unwrap();
+        t.set_banner_type(BannerType::Ominous).unwrap();
+        assert_eq!(t.set_banner_patterns(&[layers[0]; 17]), Err(Error::TooLong));
+        assert_eq!(t.set_bed_colour(DyeColour::Red), Err(Error::WrongKind));
+        let view = t.view();
+        assert_eq!(view.banner_colour(), Some(DyeColour::Yellow));
+        assert_eq!(
+            view.banner_patterns().unwrap().collect::<Vec<_>>(),
+            layers.to_vec()
+        );
+        assert_eq!(view.banner_type(), Some(BannerType::Ominous));
+        let sent = h.actor_data(banner);
+        assert_eq!(
+            sent[0].get("Base"),
+            Some(&Value::Int(11)),
+            "yellow, counted down"
+        );
+        assert_eq!(sent[0].get("Type"), Some(&Value::Int(1)));
+
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, head).unwrap();
+        assert_eq!(t.view().skull_rotation(), Some(0));
+        t.set_skull_rotation(12).unwrap();
+        assert_eq!(t.set_skull_rotation(16), Err(Error::Invalid));
+        assert_eq!(t.view().skull_rotation(), Some(12));
+        assert_eq!(
+            h.actor_data(head)[0].get("Rotation"),
+            Some(&Value::Float(270.0))
+        );
+        h.reload(&[bed, banner, head]);
+        let cx = h.cx();
+        assert_eq!(
+            cx.block_entity(WORLD, bed).unwrap().bed_colour(),
+            Some(DyeColour::Blue)
+        );
+        assert_eq!(
+            cx.block_entity(WORLD, banner)
+                .unwrap()
+                .banner_patterns()
+                .unwrap()
+                .count(),
+            2
+        );
+        assert_eq!(
+            cx.block_entity(WORLD, head).unwrap().skull_rotation(),
+            Some(12)
+        );
+    }
+
+    fn item(name: &str, meta: u16) -> Stack {
+        Stack::new(
+            item::Type::from_name(name, meta, None, &Compound::new()).unwrap(),
+            1,
+        )
+    }
+
+    // pmmp: block\FlowerPot::getPlant, block\tile\FlowerPot::getPlant, block\FlowerPot::setPlant, block\tile\FlowerPot::setPlant, block\ItemFrame::getFramedItem, block\tile\ItemFrame::getItem, block\ItemFrame::setFramedItem, block\tile\ItemFrame::setItem, block\ItemFrame::getItemRotation, block\tile\ItemFrame::getItemRotation, block\ItemFrame::setItemRotation, block\tile\ItemFrame::setItemRotation, block\ItemFrame::getItemDropChance, block\tile\ItemFrame::getItemDropChance, block\ItemFrame::setItemDropChance, block\tile\ItemFrame::setItemDropChance, block\Jukebox::getRecord, block\tile\Jukebox::getRecord, block\tile\Jukebox::setRecord
+    #[test]
+    fn pots_frames_and_jukeboxes_hold_what_they_are_given() {
+        let mut h = Harness::new();
+        let (pot, frame, jukebox) = (h.spot(1), h.spot(3), h.spot(5));
+        h.place(pot, block::Kind::FlowerPot.default_state());
+        h.place(frame, block::Kind::ItemFrame.default_state());
+        h.place(jukebox, block::Kind::Jukebox.default_state());
+        let dandelion = block::Kind::Dandelion.default_state();
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, pot).unwrap();
+        assert_eq!(t.view().potted_plant(), None);
+        assert_eq!(
+            t.set_potted_plant(Some(block::Kind::Chest.default_state())),
+            Err(Error::Invalid)
+        );
+        t.set_potted_plant(Some(dandelion)).unwrap();
+        assert_eq!(t.view().potted_plant(), Some(dandelion));
+        assert!(h.actor_data(pot)[0].contains_key("PlantBlock"));
+
+        let sticks = Stack::new(item::Kind::Stick.default_type(), 5);
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, frame).unwrap();
+        assert_eq!(t.view().framed_item(), Some(&Stack::EMPTY));
+        t.set_framed_item(&sticks).unwrap();
+        t.set_frame_rotation(3).unwrap();
+        t.set_frame_drop_chance(0.25).unwrap();
+        assert_eq!(t.set_frame_rotation(8), Err(Error::Invalid));
+        assert_eq!(t.set_frame_drop_chance(f32::NAN), Err(Error::Invalid));
+        assert_eq!(t.set_frame_drop_chance(1.5), Err(Error::Invalid));
+        let view = t.view();
+        assert_eq!(view.framed_item(), Some(&sticks.with_count(1)), "one item");
+        assert_eq!(
+            (view.frame_rotation(), view.frame_drop_chance()),
+            (Some(3), Some(0.25))
+        );
+        let sent = h.actor_data(frame);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].get("ItemRotation"), Some(&Value::Float(135.0)));
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, frame).unwrap();
+        t.set_framed_item(&Stack::EMPTY).unwrap();
+        assert_eq!(
+            t.view().frame_rotation(),
+            Some(0),
+            "an emptied frame turns back for the next item"
+        );
+
+        let disc = item("minecraft:music_disc_13", 0);
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, jukebox).unwrap();
+        assert_eq!(t.set_record(&sticks), Err(Error::Invalid), "not a record");
+        t.set_record(&disc).unwrap();
+        assert_eq!(t.view().record(), Some(&disc));
+        assert!(h.actor_data(jukebox)[0].contains_key("RecordItem"));
+        h.reload(&[pot, frame, jukebox]);
+        let cx = h.cx();
+        assert_eq!(
+            cx.block_entity(WORLD, pot).unwrap().potted_plant(),
+            Some(dandelion)
+        );
+        assert_eq!(
+            cx.block_entity(WORLD, frame).unwrap().frame_drop_chance(),
+            Some(0.25)
+        );
+        assert_eq!(
+            cx.block_entity(WORLD, jukebox).unwrap().record(),
+            Some(&disc)
+        );
+    }
+
+    /// Pages in a list of another type are no pages for a lectern either (PMMP
+    /// `WritableBookBase::deserializeCompoundTag` reads compound or string lists only).
+    #[test]
+    fn a_lectern_book_with_pages_of_another_type_has_none() {
+        let mut h = Harness::new();
+        let lectern = h.spot(1);
+        h.place(lectern, block::Kind::Lectern.default_state());
+        let pages = Compound::from([(
+            "pages".to_owned(),
+            Value::List(crate::nbt::List::Int(vec![1, 2])),
+        )]);
+        let book = Stack::new(item::Kind::WritableBook.default_type(), 1)
+            .with_extra(Some(item::Extra {
+                nbt: pages,
+                ..item::Extra::default()
+            }))
+            .unwrap();
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, lectern).unwrap();
+        t.set_lectern_book(&book).unwrap();
+        assert_eq!(t.set_lectern_page(1), Err(Error::Invalid));
+        let sent = h.actor_data(lectern);
+        assert_eq!(sent[0].get("totalPages"), Some(&Value::Int(0)));
+    }
+
+    // pmmp: block\Lectern::getBook, block\tile\Lectern::getBook, block\Lectern::setBook, block\tile\Lectern::setBook, block\Lectern::getViewedPage, block\tile\Lectern::getViewedPage, block\Lectern::setViewedPage, block\tile\Lectern::setViewedPage, block\ChiseledBookshelf::getLastInteractedSlot, block\tile\ChiseledBookshelf::getLastInteractedSlot, block\ChiseledBookshelf::setLastInteractedSlot, block\tile\ChiseledBookshelf::setLastInteractedSlot
+    #[test]
+    fn lecterns_and_bookshelves_keep_their_books_place() {
+        let mut h = Harness::new();
+        let (lectern, shelf) = (h.spot(1), h.spot(3));
+        h.place(lectern, block::Kind::Lectern.default_state());
+        h.place(shelf, block::Kind::ChiseledBookshelf.default_state());
+        let pages = Compound::from([(
+            "pages".to_owned(),
+            Value::List(crate::nbt::List::Compound(vec![Compound::new(); 3])),
+        )]);
+        let book = Stack::new(item::Kind::WritableBook.default_type(), 2)
+            .with_extra(Some(item::Extra {
+                nbt: pages,
+                ..item::Extra::default()
+            }))
+            .unwrap();
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, lectern).unwrap();
+        assert_eq!(t.set_lectern_page(0), Err(Error::Invalid), "no book");
+        assert_eq!(
+            t.set_lectern_book(&Stack::new(item::Kind::Stick.default_type(), 1)),
+            Err(Error::Invalid)
+        );
+        t.set_lectern_book(&book).unwrap();
+        t.set_lectern_page(2).unwrap();
+        assert_eq!(
+            t.set_lectern_page(3),
+            Err(Error::Invalid),
+            "past the last page"
+        );
+        assert_eq!(t.view().lectern_book(), Some(&book.with_count(1)));
+        assert_eq!(t.view().lectern_page(), Some(2));
+        let sent = h.actor_data(lectern);
+        assert_eq!(sent[0].get("page"), Some(&Value::Int(2)));
+        assert_eq!(sent[0].get("hasBook"), Some(&Value::Byte(1)));
+
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, shelf).unwrap();
+        assert_eq!(t.view().last_interacted_slot(), None);
+        t.set_last_interacted_slot(Some(5)).unwrap();
+        assert_eq!(t.set_last_interacted_slot(Some(6)), Err(Error::Invalid));
+        assert_eq!(t.view().last_interacted_slot(), Some(5));
+        assert!(
+            h.actor_data(shelf).is_empty(),
+            "clients get no bookshelf data"
+        );
+        h.reload(&[lectern, shelf]);
+        let mut cx = h.cx();
+        assert_eq!(
+            cx.block_entity(WORLD, lectern).unwrap().lectern_page(),
+            Some(2)
+        );
+        let mut t = cx.block_entity_mut(WORLD, shelf).unwrap();
+        assert_eq!(t.view().last_interacted_slot(), Some(5));
+        t.set_last_interacted_slot(None).unwrap();
+        assert_eq!(t.view().last_interacted_slot(), None);
+    }
+
+    // pmmp: block\Campfire::getCookingTime, block\Campfire::setCookingTime, block\tile\Beacon::getPrimaryEffect, block\tile\Beacon::getSecondaryEffect, block\tile\Beacon::setPrimaryEffect, block\tile\Beacon::setSecondaryEffect, PotionCauldron::getPotionItem, block\tile\Cauldron::getPotionItem, PotionCauldron::setPotionItem, block\tile\Cauldron::setPotionItem, WaterCauldron::getCustomWaterColor, block\tile\Cauldron::getCustomWaterColor, WaterCauldron::setCustomWaterColor, block\tile\Cauldron::setCustomWaterColor
+    #[test]
+    fn campfires_beacons_and_cauldrons_take_their_values() {
+        let mut h = Harness::new();
+        let (fire, beacon, cauldron) = (h.spot(1), h.spot(3), h.spot(5));
+        h.place(fire, block::Kind::Campfire.default_state());
+        h.place(beacon, block::Kind::Beacon.default_state());
+        h.place(cauldron, block::Kind::Cauldron.default_state());
+        let mut cx = h.cx();
+        cx.block_inventory_mut(WORLD, fire)
+            .unwrap()
+            .set(2, item("minecraft:beef", 0))
+            .unwrap();
+        let mut t = cx.block_entity_mut(WORLD, fire).unwrap();
+        assert_eq!(t.view().cooking_time_ticks(0), Some(0));
+        t.set_cooking_time_ticks(2, 100).unwrap();
+        assert_eq!(
+            t.set_cooking_time_ticks(0, 1),
+            Err(Error::Invalid),
+            "an empty slot"
+        );
+        assert_eq!(
+            t.set_cooking_time_ticks(4, 1),
+            Err(Error::Invalid),
+            "no fifth slot"
+        );
+        assert_eq!(
+            t.set_cooking_time_ticks(2, u16::MAX),
+            Err(Error::Invalid),
+            "past the cook time"
+        );
+        assert_eq!(t.view().cooking_time_ticks(2), Some(100));
+        assert_eq!(t.view().cooking_time_ticks(0), Some(0));
+        assert_eq!(t.view().cooking_time_ticks(4), None);
+
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, beacon).unwrap();
+        assert_eq!(t.view().beacon_effects(), Some((None, None)));
+        t.set_beacon_effects(Some(Effect::Speed), Some(Effect::Regeneration))
+            .unwrap();
+        assert_eq!(
+            t.set_beacon_effects(Some(Effect::Poison), None),
+            Err(Error::Invalid),
+            "not a beacon effect"
+        );
+        assert_eq!(
+            t.view().beacon_effects(),
+            Some((Some(Effect::Speed), Some(Effect::Regeneration)))
+        );
+        assert_eq!(h.actor_data(beacon)[0].get("primary"), Some(&Value::Int(1)));
+
+        let splash = item("minecraft:splash_potion", 5);
+        let mut cx = h.cx();
+        let mut t = cx.block_entity_mut(WORLD, cauldron).unwrap();
+        assert_eq!(t.view().cauldron_potion(), Some(Stack::EMPTY));
+        assert_eq!(t.view().cauldron_water_colour(), None);
+        assert_eq!(
+            t.set_cauldron_potion(&Stack::new(item::Kind::Stick.default_type(), 1)),
+            Err(Error::Invalid)
+        );
+        t.set_cauldron_potion(&splash).unwrap();
+        let teal = Rgba {
+            r: 0x12,
+            g: 0x34,
+            b: 0x56,
+            a: 0xff,
+        };
+        t.set_cauldron_water_colour(Some(teal)).unwrap();
+        assert_eq!(t.view().cauldron_potion(), Some(splash.clone()));
+        assert_eq!(t.view().cauldron_water_colour(), Some(teal));
+        let sent = h.actor_data(cauldron);
+        assert_eq!(sent[0].get("PotionType"), Some(&Value::Short(1)));
+        assert_eq!(sent[0].get("PotionId"), Some(&Value::Short(5)));
+        h.reload(&[fire, beacon, cauldron]);
+        let mut cx = h.cx();
+        assert_eq!(
+            cx.block_entity(WORLD, fire).unwrap().cooking_time_ticks(2),
+            Some(100)
+        );
+        assert_eq!(
+            cx.block_entity(WORLD, cauldron).unwrap().cauldron_potion(),
+            Some(splash)
+        );
+        assert_eq!(
+            cx.block_entity(WORLD, beacon).unwrap().beacon_effects(),
+            Some((Some(Effect::Speed), Some(Effect::Regeneration)))
+        );
+        let mut t = cx.block_entity_mut(WORLD, cauldron).unwrap();
+        t.set_cauldron_potion(&Stack::EMPTY).unwrap();
+        t.set_cauldron_water_colour(None).unwrap();
+        assert_eq!(t.view().cauldron_potion(), Some(Stack::EMPTY));
+        assert_eq!(t.view().cauldron_water_colour(), None);
+    }
+
+    #[test]
+    fn a_write_twice_leaves_the_same_state_as_once() {
+        let mut h = Harness::new();
+        let pos = h.spot(1);
+        h.place(pos, block::Kind::OakSign.default_state());
+        let once = |h: &mut Harness| {
+            let mut cx = h.cx();
+            let mut t = cx.block_entity_mut(WORLD, pos).unwrap();
+            t.set_sign_text(Side::Front, text(["a", "b", "", ""], 0xff00_0000))
+                .unwrap();
+            t.set_sign_waxed(true).unwrap();
+            h.state.hash()
+        };
+        let first = once(&mut h);
+        assert_eq!(once(&mut h), first);
+    }
+
+    /// `/status` counts the block entities of a world's loaded chunks, across chunks, and none
+    /// for another world.
+    #[test]
+    fn block_entities_are_counted_per_world_across_chunks() {
+        let mut h = Harness::new();
+        assert_eq!(h.state.rules.block_entities.count(0), 0);
+        let chest = block::Kind::Chest.default_state();
+        // Two chunks: x 1 and 3 share chunk 0, x -1 is in chunk -1.
+        for dx in [1, 3, -1] {
+            let pos = h.spot(dx);
+            h.place(pos, chest);
+        }
+        assert_eq!(h.state.rules.block_entities.count(0), 3);
+        assert_eq!(h.state.rules.block_entities.count(1), 0);
+    }
+
+    /// A renamed item's name goes to the block entity only for the kinds that have one (PMMP
+    /// `NameableTrait::copyDataFromItem`), the kinds `set_name` takes.
+    #[test]
+    fn only_containers_take_a_placed_items_name() {
+        let mut h = Harness::new();
+        let named = |stack: Stack| {
+            stack
+                .with_extra(Some(item::Extra {
+                    custom_name: Some("x".to_owned()),
+                    ..item::Extra::default()
+                }))
+                .unwrap()
+        };
+        let chest = item::Type::from_name(
+            "minecraft:chest",
+            0,
+            Some(block::Kind::Chest.default_state()),
+            &Compound::new(),
+        )
+        .unwrap();
+        for (dx, block, stack, name) in [
+            (1, block::Kind::OakSign, item("minecraft:oak_sign", 0), None),
+            (3, block::Kind::Chest, Stack::new(chest, 1), Some("x")),
+        ] {
+            let pos = h.spot(dx);
+            h.state.worlds[0]
+                .set_block(pos, block.default_state())
+                .unwrap();
+            placed(&mut h.state, 0, pos, None, &named(stack), Face::Up);
+            let sent = h.actor_data(pos);
+            assert_eq!(
+                sent[0].get("CustomName"),
+                name.map(|n| Value::String(n.to_owned())).as_ref(),
+                "{block:?}"
+            );
+            let cx = h.cx();
+            assert_eq!(
+                cx.block_entity(WORLD, pos).unwrap().name(),
+                name,
+                "{block:?}"
+            );
+        }
+    }
+}

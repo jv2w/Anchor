@@ -379,7 +379,7 @@ fn cell(world: &World, x: i32, y: i32, z: i32) -> Cell {
 }
 
 /// Whether an entity cannot stand in the cell (PMMP `isSolid`).
-fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
+pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
     match cell(world, x, y, z) {
         Cell::Outside => false,
         Cell::Block(state) => state.is_solid(),

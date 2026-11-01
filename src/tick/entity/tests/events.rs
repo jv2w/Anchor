@@ -16,6 +16,17 @@ use crate::event::{
 use crate::tick::Context;
 use crate::tick::dispatch::run_deferred;
 
+thread_local! {
+    /// The modes tests switch their listeners between, by [`Mode`].
+    static MODES: Cell<[u8; 4]> = const { Cell::new([0; 4]) };
+    /// The modes handed out on this thread.
+    static NEXT_MODE: Cell<usize> = const { Cell::new(0) };
+    /// The state of [`roll`].
+    static DICE: Cell<u64> = const { Cell::new(0) };
+    /// An entity a listener acts on.
+    static TARGET: Cell<Option<Id>> = const { Cell::new(None) };
+}
+
 /// What listeners saw: they run on the test's thread (the tick's serial step), and send it
 /// through a bounded channel.
 struct Log<T> {
@@ -37,6 +48,19 @@ struct Sink<T>(mpsc::Sender<T>);
 impl<T> Sink<T> {
     fn push(&self, v: T) {
         assert!(self.0.try_send(v).is_ok(), "room in the log");
+    }
+}
+
+/// A mode a test switches its listener between (0 at first).
+#[derive(Debug, Clone, Copy)]
+struct Mode(usize);
+
+impl Mode {
+    fn new() -> Self {
+        let i = NEXT_MODE.with(Cell::get);
+        NEXT_MODE.with(|n| n.set(i + 1));
+        set(Self(i), 0);
+        Self(i)
     }
 }
 
@@ -66,113 +90,9 @@ fn clear<T: Clone>(l: &Log<T>) {
     l.seen.set(Vec::new());
 }
 
-thread_local! {
-    /// The modes tests switch their listeners between, by [`Mode`].
-    static MODES: Cell<[u8; 4]> = const { Cell::new([0; 4]) };
-    /// The modes handed out on this thread.
-    static NEXT_MODE: Cell<usize> = const { Cell::new(0) };
-    /// The state of [`roll`].
-    static DICE: Cell<u64> = const { Cell::new(0) };
-    /// An entity a listener acts on.
-    static TARGET: Cell<Option<Id>> = const { Cell::new(None) };
-}
-
-/// A mode a test switches its listener between (0 at first).
-#[derive(Debug, Clone, Copy)]
-struct Mode(usize);
-
-impl Mode {
-    fn new() -> Self {
-        let i = NEXT_MODE.with(Cell::get);
-        NEXT_MODE.with(|n| n.set(i + 1));
-        set(Self(i), 0);
-        Self(i)
-    }
-}
-
-fn mode(m: Mode) -> u8 {
-    MODES.with(Cell::get)[m.0]
-}
-
-fn set(m: Mode, v: u8) {
-    MODES.with(|c| {
-        let mut all = c.get();
-        all[m.0] = v;
-        c.set(all);
-    });
-}
-
-/// A roll below `n` from the test's fixed seed.
-fn roll(n: usize) -> usize {
-    let mut r = Rng(DICE.with(Cell::get));
-    let v = r.below(n);
-    DICE.with(|d| d.set(r.0));
-    v
-}
-
-fn session(n: u64) -> SessionId {
-    SessionId::new(n)
-}
-
-fn player_id(n: u64) -> crate::player::Id {
-    crate::player::Id::new(session(n))
-}
-
 /// The newest entity of the store.
 fn newest(h: &Harness) -> Id {
     h.state.rules.entities.ids().last().unwrap()
-}
-
-/// A human NPC at `pos` that takes damage.
-fn npc_at(h: &mut Harness, pos: Vec3) -> Id {
-    let npc = Npc::Human {
-        name: "target".to_owned(),
-        skin: None,
-    };
-    let id = spawn_npc(&mut h.state, 0, pos, npc).unwrap();
-    with(&mut h.state, id, |e| {
-        if let Kind::Npc(c) = &mut e.kind {
-            c.invulnerable = false;
-        }
-    });
-    id
-}
-
-fn health(h: &Harness, id: Id) -> f64 {
-    h.state.rules.entities.get(id).unwrap().health
-}
-
-/// Player 1 (standing at block 0, 0, looking along +z) hits `target` in melee.
-fn hit(h: &mut Harness, target: Id) {
-    npc::attack_with(&mut h.state, session(1), target, TEST_HOOKS);
-}
-
-fn fill(h: &mut Harness, from: BlockPos, to: BlockPos, name: &str) {
-    let s = named(name);
-    for x in from.x..=to.x {
-        for y in from.y..=to.y {
-            for z in from.z..=to.z {
-                h.state.worlds[0]
-                    .set_block(BlockPos::new(x, y, z), s)
-                    .unwrap();
-            }
-        }
-    }
-}
-
-fn block(h: &Harness, pos: BlockPos) -> block::State {
-    h.state.worlds[0].block(pos).unwrap()
-}
-
-fn held(h: &mut Harness, n: u64, stack: Stack) {
-    inventory::set_held(h.state.players.get_mut(&session(n)).unwrap(), stack);
-}
-
-fn projectile_count(h: &Harness) -> usize {
-    h.live()
-        .iter()
-        .filter(|e| matches!(e.kind, Kind::Projectile(_)) && !e.flagged)
-        .count()
 }
 
 // pmmp: EntitySpawnEvent, ItemSpawnEvent, EntityDespawnEvent
@@ -252,6 +172,18 @@ fn spawns_and_despawns_are_announced_once_by_the_entity_tick() {
     let _list = h.state.rules.entities.unload(key);
     h.entities();
     assert_eq!(got(&seen), [("despawn", orb, false)]);
+}
+
+fn mode(m: Mode) -> u8 {
+    MODES.with(Cell::get)[m.0]
+}
+
+fn set(m: Mode, v: u8) {
+    MODES.with(|c| {
+        let mut all = c.get();
+        all[m.0] = v;
+        c.set(all);
+    });
 }
 
 // pmmp: ItemDespawnEvent
@@ -437,6 +369,14 @@ fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
     assert_eq!(w[0].1, Some(8), "the monitor sees the merged stack");
 }
 
+fn session(n: u64) -> SessionId {
+    SessionId::new(n)
+}
+
+fn player_id(n: u64) -> crate::player::Id {
+    crate::player::Id::new(session(n))
+}
+
 // pmmp: EntityItemPickupEvent
 #[test]
 fn a_pickup_offers_what_fits_and_listeners_decide_what_moves() {
@@ -517,6 +457,14 @@ fn a_pickup_offers_what_fits_and_listeners_decide_what_moves() {
     assert_eq!(e.body.position.x, 20.5);
 }
 
+/// A roll below `n` from the test's fixed seed.
+fn roll(n: usize) -> usize {
+    let mut r = Rng(DICE.with(Cell::get));
+    let v = r.below(n);
+    DICE.with(|d| d.set(r.0));
+    v
+}
+
 // pmmp: EntityItemPickupEvent, ItemMergeEvent
 #[test]
 fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items() {
@@ -578,6 +526,30 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
         assert_eq!(h.ground() + taken(), dropped, "tick {tick}");
     }
     assert!(taken() > 0);
+}
+
+/// A human NPC at `pos` that takes damage.
+fn npc_at(h: &mut Harness, pos: Vec3) -> Id {
+    let npc = Npc::Human {
+        name: "target".to_owned(),
+        skin: None,
+    };
+    let id = spawn_npc(&mut h.state, 0, pos, npc).unwrap();
+    with(&mut h.state, id, |e| {
+        if let Kind::Npc(c) = &mut e.kind {
+            c.invulnerable = false;
+        }
+    });
+    id
+}
+
+fn health(h: &Harness, id: Id) -> f64 {
+    h.state.rules.entities.get(id).unwrap().health
+}
+
+/// Player 1 (standing at block 0, 0, looking along +z) hits `target` in melee.
+fn hit(h: &mut Harness, target: Id) {
+    npc::attack_with(&mut h.state, session(1), target, TEST_HOOKS);
 }
 
 // pmmp: EntityDamageEvent, EntityDamageByEntityEvent
@@ -817,6 +789,23 @@ fn fire_sets_entities_burning_through_combust_and_water_puts_them_out() {
     assert_eq!(health(&h, npc), 20.0);
 }
 
+fn fill(h: &mut Harness, from: BlockPos, to: BlockPos, name: &str) {
+    let s = named(name);
+    for x in from.x..=to.x {
+        for y in from.y..=to.y {
+            for z in from.z..=to.z {
+                h.state.worlds[0]
+                    .set_block(BlockPos::new(x, y, z), s)
+                    .unwrap();
+            }
+        }
+    }
+}
+
+fn block(h: &Harness, pos: BlockPos) -> block::State {
+    h.state.worlds[0].block(pos).unwrap()
+}
+
 // pmmp: EntityPreExplodeEvent, EntityExplodeEvent
 #[test]
 fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
@@ -952,6 +941,17 @@ fn a_scaled_falling_block_lands_where_its_scaled_box_says() {
     assert!(h.live().is_empty(), "it landed");
     assert_eq!(block(&h, BlockPos::new(-1, -59, -1)), sand);
     assert_eq!(block(&h, BlockPos::new(0, -60, 0)), block::AIR);
+}
+
+fn held(h: &mut Harness, n: u64, stack: Stack) {
+    inventory::set_held(h.state.players.get_mut(&session(n)).unwrap(), stack);
+}
+
+fn projectile_count(h: &Harness) -> usize {
+    h.live()
+        .iter()
+        .filter(|e| matches!(e.kind, Kind::Projectile(_)) && !e.flagged)
+        .count()
 }
 
 // pmmp: ProjectileLaunchEvent, EntityShootBowEvent
@@ -1295,10 +1295,10 @@ fn healing_an_npc_asks_its_listeners() {
     h.spawn(1, standing(8.0, 8.0));
     let npc = npc_at(&mut h, at(0.5, -60.0, 0.5));
     with(&mut h.state, npc, |e| e.health = 10.0);
-    super::super::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
+    crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert_eq!(health(&h, npc), 10.0, "cancelled");
     set(switch, 1);
-    super::super::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
+    crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert_eq!(health(&h, npc), 11.0, "the listener's amount");
 }
 
@@ -1322,10 +1322,10 @@ fn healing_an_npc_asks_only_below_full_health_and_an_amount_that_does_not_heal_c
     h.spawn(1, standing(8.0, 8.0));
     let npc = npc_at(&mut h, at(0.5, -60.0, 0.5));
     let full = health(&h, npc);
-    super::super::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
+    crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert!(got(&asked).is_empty(), "full health");
     with(&mut h.state, npc, |e| e.health = 10.0);
-    super::super::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
+    crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert_eq!(got(&asked), [4.0]);
     assert!(got(&watched).is_empty(), "cancelled");
     assert_eq!(health(&h, npc), 10.0);

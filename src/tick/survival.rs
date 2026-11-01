@@ -5,9 +5,10 @@
 //! Every rule runs on the tick thread in a serial phase. A player's survival state changes only
 //! here; other modules call the functions below. The client hears about changes at the end of
 //! [`tick`]: changed attributes (`UpdateAttributes`), changed entity data (`SetActorData`), and the
-//! packets the rules queue on the way (effects, respawn, hurt animations). Nothing is sent to a
-//! player before it is spawned (`SetLocalPlayerAsInitialised`), so the spawn window holds only the
-//! start-game packets ([`super::spawn`]).
+//! packets the rules queue on the way (effects, respawn, hurt animations). These updates of a
+//! player's own state wait until it is spawned (`SetLocalPlayerAsInitialised`), so they stay out
+//! of the spawn window ([`super::spawn`]); a teleport before then still tells the client its
+//! position and another world's difficulty, weather and clock.
 
 mod api;
 mod appearance;
@@ -21,6 +22,20 @@ mod saved;
 mod sound;
 #[cfg(test)]
 mod wiring;
+
+pub(super) use crate::player::{HEIGHT as PLAYER_HEIGHT, WIDTH as PLAYER_WIDTH};
+pub(super) use api::{marked, sync};
+pub(super) use appearance::{SkinBudget, send_skins, skin_waits};
+pub(super) use attributes::{
+    adventure_settings, all_attributes, full_metadata, game_rules, random_tick_speed_changed,
+    update_abilities,
+};
+pub(super) use clock::{
+    Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
+    sleeping_players,
+};
+pub(super) use damage::{Damage, bds_cause, respawn_joined};
+pub(super) use saved::{game_mode_id, load_played, save_played};
 
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -44,21 +59,6 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{BlockPos, Weather, World};
 
-pub(super) use api::{marked, sync};
-pub(super) use appearance::{SkinBudget, send_skins, skin_waits};
-pub(super) use attributes::{
-    adventure_settings, all_attributes, full_metadata, game_rules, random_tick_speed_changed,
-    update_abilities,
-};
-pub(super) use clock::{
-    Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
-    sleeping_players,
-};
-pub(super) use damage::{Damage, bds_cause, respawn_joined};
-pub(super) use saved::{game_mode_id, load_played, save_played};
-
-pub(super) use crate::player::{HEIGHT as PLAYER_HEIGHT, WIDTH as PLAYER_WIDTH};
-
 /// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
 pub(super) const EYE_HEIGHT: f64 = 1.62;
 /// How far a player reaches an entity or a player (PMMP
@@ -81,6 +81,9 @@ const MAX_EXHAUSTION: f64 = 20.0;
 const DEFAULT_SATURATION: f64 = 5.0;
 /// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
 const MAX_AIR: i16 = 300;
+/// The lowest air supply in ticks: a player under water reaching it takes drowning damage and
+/// has 0 again (PMMP `Living::doAirSupplyTick`).
+const MIN_AIR: i16 = -20;
 /// The most drops a [`PlayerDeath`](crate::event::PlayerDeath) listener sets that are kept: one
 /// inventory.
 const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
@@ -88,6 +91,8 @@ const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
 /// [`inventory::MAX_SAVED_PENDING`]) and drops a listener set in its place, all refused by the
 /// world.
 const MAX_HELD_BACK: usize = inventory::CARRIED + inventory::MAX_SAVED_PENDING + MAX_LISTENER_DROPS;
+/// The random stream key of the enchanting seed.
+const SEED: u64 = random::tag("player-seed");
 
 /// A player's survival state.
 #[derive(Debug)]
@@ -126,14 +131,15 @@ pub(super) struct Survival {
     effects: BTreeMap<effect::Type, effects::Active>,
     /// Ticks the player keeps burning, 0 to 32,767.
     fire_ticks: u16,
-    /// Air supply in ticks, -20 to 300.
+    /// Air supply in ticks, [`MIN_AIR`] to the largest the API set ([`MAX_AIR`] unless changed).
     air: i16,
     /// Whether the player could breathe at its last tick (the Breathing entity flag): false until
     /// its first tick, as BDS shows a new player (P6).
     breathing: bool,
     /// Blocks fallen since the player last stood on something.
     fall_distance: f64,
-    /// The respawn point set by sleeping (PMMP `Player::setSpawn`).
+    /// The respawn point (PMMP `Player::setSpawn`), set by sleeping, `/spawnpoint` and the API,
+    /// and saved; `None` respawns the player at the default world's spawn.
     spawn: Option<Point>,
     /// Where the player last died.
     death: Option<Point>,
@@ -195,13 +201,6 @@ impl Switches {
 struct Point {
     world: String,
     pos: BlockPos,
-}
-
-#[cfg(test)]
-impl Default for Survival {
-    fn default() -> Self {
-        Self::with_mode(GameMode::Survival, false)
-    }
 }
 
 impl Survival {
@@ -409,6 +408,13 @@ impl Survival {
     }
 }
 
+#[cfg(test)]
+impl Default for Survival {
+    fn default() -> Self {
+        Self::with_mode(GameMode::Survival, false)
+    }
+}
+
 checkpoint::fields!(Survival {
     game_mode,
     default_mode,
@@ -453,6 +459,25 @@ checkpoint::fields!(Switches {
     experience,
     drowning
 });
+
+/// An action [`ask`] refused: a listener cancelled it, or the game the listeners left no longer
+/// allows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Refused;
+
+/// A melee hit a player makes on an entity that is not a player, from the attacker's side (PMMP
+/// `Player::attackEntity`, `EntityDamageByEntityEvent::addAttackerModifiers`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Melee {
+    /// The damage: the held item's attack points with Strength, Weakness, Sharpness and a
+    /// critical hit.
+    pub(super) damage: f64,
+    /// A critical hit (falling, not flying, not blind, not under water, and not sprinting
+    /// under `critical-hits = "sprint"`) that added damage.
+    pub(super) critical: bool,
+    /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
+    pub(super) magic: bool,
+}
 
 #[cfg(test)]
 fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
@@ -514,11 +539,6 @@ pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
 pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin) {
     appearance::on_skin(state, session, packet);
 }
-
-/// An action [`ask`] refused: a listener cancelled it, or the game the listeners left no longer
-/// allows it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Refused;
 
 /// Asks the listeners of `E` whether an action goes ahead ([`dispatch`]): the event is built with
 /// `build` only when something listens to or monitors `E`. [`Refused`] if a listener cancelled it
@@ -723,9 +743,6 @@ fn player_tick(state: &mut State, session: SessionId) {
         movement::end_tick(player);
     }
 }
-
-/// The random stream key of the enchanting seed.
-const SEED: u64 = random::tag("player-seed");
 
 /// A random stream for one draw purpose of a player in a world with `seed`; each call opens a
 /// new stream (the player's draw counter is part of the key), so a tick never opens the same
@@ -949,6 +966,16 @@ pub(super) fn feet(player: &Player) -> Vec3 {
     Vec3::new(round(f.x), round(f.y), round(f.z))
 }
 
+/// The eye position of a player standing at `feet`, in the middle of the block: where a player
+/// joins, respawns, or is sent when its world unloads.
+pub(super) fn standing_eye(feet: BlockPos) -> Vec3 {
+    Vec3::new(
+        f64::from(feet.x) + 0.5,
+        f64::from(feet.y) + EYE_HEIGHT,
+        f64::from(feet.z) + 0.5,
+    )
+}
+
 /// The player's box: its pose's size around its feet (PMMP `Entity::$boundingBox`, which
 /// `Living::recalculateSize` sizes); the one box the survival and the entity rules use.
 pub(super) fn bounding_box(player: &Player) -> crate::math::Aabb {
@@ -1001,12 +1028,12 @@ pub(super) fn add_effect(state: &mut State, session: SessionId, effect: effect::
 
 /// Moves the player's eyes to `pos` in `world` (PMMP `Player::teleport`; ender pearls, chorus
 /// fruit, respawns, commands): its window closes, it wakes, its breaking stops, its fall ends,
-/// the client gets
-/// `MovePlayer` in teleport mode and the players that see it the same packet. Another world
-/// closes the view of the old one, opens it around `pos` in the new one (its chunks are sent
-/// again from the next view phase) and the client gets the new world's clock. Nothing happens for
-/// a position that is not finite or lies outside the world border, a world that is not loaded,
-/// or a player whose data is still loading.
+/// the client gets `MovePlayer` in teleport mode and the players that see it the same packet.
+/// Another world first closes, without an event, a window an `InventoryClose` listener opened
+/// (its blocks stand in the old world), closes the view of the old world, opens it around `pos`
+/// in the new one (its chunks are sent again from the next view phase) and the client gets the
+/// new world's clock. Nothing happens for a position that is not finite or lies outside the
+/// world border, a world that is not loaded, or a player whose data is still loading.
 pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
     let inside = super::inside_border(pos);
     let Some(player) = state.players.get(&session) else {
@@ -1020,6 +1047,7 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
     clock::wake(state, session);
     super::interact::stop_breaking(state, session);
     if other_world {
+        inventory::close_window_without_event(state, session);
         switch_world(state, session, world, pos);
     }
     movement::teleport(state, session, pos);
@@ -1046,10 +1074,9 @@ fn send_rotation(state: &mut State, session: SessionId) {
 
 /// Moves the player into another world: the old world's chunks are let go, the view opens at
 /// `pos` in the new world with the radius the player asked for, up to the new world's
-/// `view-distance`, and the client learns the new world's clock and
-/// sleeping counts (PMMP `Player::setPosition`, `NetworkSession::onEnterWorld`) and its weather.
-/// The other
-/// players see it leave and arrive through entity tracking, which follows the world.
+/// `view-distance`, and the client learns the new world's difficulty, weather, clock and sleeping
+/// counts (PMMP `Player::setPosition`, `NetworkSession::onEnterWorld`). The other players see it
+/// leave and arrive through entity tracking, which follows the world.
 fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
     let Some(mut player) = state.players.remove(&session) else {
         return;
@@ -1084,21 +1111,19 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     // hears of a change.
     let allowed = player
         .asked_radius
-        .map(|asked| asked.min(state.settings.view(world).view_distance));
+        .map(|asked| super::spawn::granted_radius(&state.settings, world, asked));
     if let Some(allowed) = allowed.filter(|a| Some(*a) != player.chunk_radius) {
         super::spawn::grant_radius(state, &mut player, allowed);
     } else if radius > 0 {
         super::view::set_radius(state, &mut player, radius);
     }
-    let spawned = player.phase == Phase::Spawned;
-    // Back in the map first: the sleeping counts include the player that arrives.
+    // Back in the map first: the sleeping counts include the player that arrives. Its client has
+    // the old world's clock and counts from its join, as it has the weather.
     state.players.insert(session, player);
-    if spawned {
-        let packets = [clock_state(state, world), sleeping_players(state, world)];
-        if let Some(player) = state.players.get_mut(&session) {
-            for packet in packets {
-                player.send_packet(packet);
-            }
+    let packets = [clock_state(state, world), sleeping_players(state, world)];
+    if let Some(player) = state.players.get_mut(&session) {
+        for packet in packets {
+            player.send_packet(packet);
         }
     }
 }
@@ -1136,7 +1161,7 @@ pub(super) fn is_sneak_pressed(player: &Player) -> bool {
     player.survival.motion.sneak_pressed
 }
 
-/// The player's yaw and pitch in degrees, yaw in [0, 360) (PMMP `Location::getYaw`,
+/// The player's yaw and pitch in degrees, yaw in [0, 360] (PMMP `Location::getYaw`,
 /// `getPitch`): the facing of placed blocks, the flight of thrown items and arrows.
 pub(super) fn rotation(player: &Player) -> (f64, f64) {
     (player.survival.motion.yaw, player.survival.motion.pitch)
@@ -1227,20 +1252,6 @@ pub(super) fn set_on_fire_by(
 /// counts what it deals beyond the last one and does not knock the player back.
 pub(super) fn has_attack_cooldown(player: &Player) -> bool {
     player.survival.attack_time > 0
-}
-
-/// A melee hit a player makes on an entity that is not a player, from the attacker's side (PMMP
-/// `Player::attackEntity`, `EntityDamageByEntityEvent::addAttackerModifiers`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Melee {
-    /// The damage: the held item's attack points with Strength, Weakness, Sharpness and a
-    /// critical hit.
-    pub(super) damage: f64,
-    /// A critical hit (falling, not flying, not blind, not under water, and not sprinting
-    /// under `critical-hits = "sprint"`) that added damage.
-    pub(super) critical: bool,
-    /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
-    pub(super) magic: bool,
 }
 
 /// The melee hit the player of `session` makes now; `None` if it cannot hit (not spawned, dead
@@ -3138,12 +3149,7 @@ mod tests {
 
     /// The eye position at the default world's spawn.
     fn spawn_eye(state: &State) -> Vec3 {
-        let feet = state.worlds[0].safe_spawn(state.worlds[0].spawn());
-        Vec3::new(
-            f64::from(feet.x) + 0.5,
-            f64::from(feet.y) + EYE_HEIGHT,
-            f64::from(feet.z) + 0.5,
-        )
+        standing_eye(state.worlds[0].safe_spawn(state.worlds[0].spawn()))
     }
 
     #[test]
@@ -3244,33 +3250,6 @@ mod tests {
         })
     }
 
-    /// A world directory removed when the test ends.
-    struct TempDir(std::path::PathBuf);
-
-    impl TempDir {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "off-tick: the test makes the world directory a server start would use"
-        )]
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("anchor-survival-{name}-{}", std::process::id()));
-            drop(std::fs::remove_dir_all(&dir));
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-    }
-
-    impl Drop for TempDir {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "off-tick: the test removes its world directory"
-        )]
-        fn drop(&mut self) {
-            drop(std::fs::remove_dir_all(&self.0));
-        }
-    }
-
     #[test]
     #[expect(
         clippy::disallowed_methods,
@@ -3316,7 +3295,7 @@ mod tests {
             )],
             "the snapshot carries the time and the spawn"
         );
-        let dir = TempDir::new("time");
+        let dir = crate::save::tests::TempDir::new("survival-time");
         let opened = save::open(&dir.0, specs()).unwrap();
         let (requests, queue) = tokio::sync::mpsc::channel(save::REQUEST_CAPACITY);
         let (answers, mut answered) = tokio::sync::mpsc::channel(save::RESPONSE_CAPACITY);
@@ -3986,6 +3965,36 @@ mod tests {
             })
             .collect();
         assert_eq!(set, [0]);
+    }
+
+    /// A player that got its start-game packets has the old world's clock, so a teleport to
+    /// another world before its spawn tells it the new world's, as it does a spawned player.
+    #[test]
+    fn a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_clock() {
+        let mut state = new_state(
+            settings(|c| c.developer.chunks_per_tick = 1),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
+        received(&mut rx);
+        assert_eq!(state.players[&sid(1)].phase, Phase::Joined);
+        let spawn = BlockPos::new(0, -60, 0);
+        let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
+        state.add_world(other);
+        state.worlds[1].set_time(5_000);
+        teleport(&mut state, sid(1), 1, Vec3::new(0.5, -58.38, 0.5));
+        tick(&mut state, &mut Vec::new(), &mut output);
+        let clocks: Vec<i32> = received(&mut rx)
+            .0
+            .iter()
+            .filter_map(|p| match p {
+                Packet::SyncWorldClocks(c) => c.sync_states.first().map(|s| s.time),
+                _ => None,
+            })
+            .collect();
+        assert!(clocks.iter().any(|&time| time >= 5_000), "{clocks:?}");
     }
 
     #[test]

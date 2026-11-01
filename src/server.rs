@@ -387,7 +387,10 @@ impl Server {
             }
         };
         match joined {
-            Ok(tick::End::Stopped) => {
+            Ok(tick::End::Stopped(log)) => {
+                if saved.is_err() {
+                    write_crash(&data_dir, &log);
+                }
                 info!("server stopped");
                 served.and(saved)
             }
@@ -440,7 +443,7 @@ impl Server {
     }
 }
 
-/// Writes the input log since the last commit to `data/crash/`.
+/// Writes the input log to `data/crash/`.
 fn write_crash(data_dir: &Path, log: &tick::InputLog) {
     match tick::write_crash_log(data_dir, log) {
         Ok(path) => error!(

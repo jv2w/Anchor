@@ -1,11 +1,12 @@
 //! The recipe lookups on [`Context`] (PMMP `CraftingManager` and `FurnaceRecipeManager`): what a
-//! crafting grid, a furnace or a brewing stand makes of given items, over PMMP's recipes and the
-//! server's own ([`ServerBuilder::recipe`](crate::ServerBuilder::recipe)).
+//! crafting grid, a furnace or a brewing stand makes of given items, over PMMP's recipes (unless
+//! `vanilla-recipes` is off) and the server's own
+//! ([`ServerBuilder::recipe`](crate::ServerBuilder::recipe)).
 //!
 //! Recipes themselves stay internal: PMMP's are generated static tables and a server's own are
-//! [`custom::Recipe`](crate::custom::Recipe) values fixed at build. Every lookup goes through a
-//! generated item name index, so none scans every recipe; the server's own crafting and furnace
-//! recipes (at most 4,096) are looked at after PMMP's, one by one.
+//! [`custom::Recipe`](crate::custom::Recipe) values fixed at build. PMMP's recipes are looked up
+//! through generated item name indexes, and the server's own through indexes by the item's name
+//! (and tags) built at start, so none scans every recipe; the server's own come after PMMP's.
 
 use crate::Context;
 use crate::crafting::{FurnaceType, Recipe, ShapelessType};
@@ -28,7 +29,7 @@ impl Context<'_> {
         let first = grid.iter().find(|s| !s.is_empty())?.item()?;
         let custom = &self.state.custom;
         custom
-            .crafting_candidates(first.name())
+            .crafting_candidates(first)
             .find_map(|id| {
                 let results = match custom.recipe(id)? {
                     Recipe::Shaped(r) if r.matches(grid, side) => r.results,
@@ -140,9 +141,10 @@ mod tests {
 
     fn block(kind: crate::block::Kind) -> Type {
         match kind.default_state().item() {
-            crate::block::ItemForm::Item(t) => t,
-            other => panic!("{kind:?} has no item: {other:?}"),
+            crate::block::ItemForm::Item(t) => Some(t),
+            crate::block::ItemForm::None | crate::block::ItemForm::BlockEntity => None,
         }
+        .expect("the block has an item of its own")
     }
 
     fn one(t: Type) -> Stack {

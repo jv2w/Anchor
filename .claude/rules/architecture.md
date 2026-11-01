@@ -62,7 +62,7 @@ paths:
 
 ## Public API
 - Only `Server` owns game state; callbacks borrow it through `Context`.
-- Keep nothing across ticks but `Copy` IDs that point at nothing else: numbers never reused (`player::Id`, `world::Id`) or indexes with a generation (`entity::Id`).
+- Keep nothing across ticks but `Copy` IDs that point at nothing else: numbers never reused (`player::Id`), indexes with a generation (`entity::Id`), or a world's place, which only a world made again under its name takes (`world::Id`).
 - Give state access this shape: `ctx.player(id) -> Option<&Player>` to read, `ctx.player_mut(id)` to change.
 - Keep the fields of tick-state structs such as `Player` and `Entity` private.
 - Lend an entity, whose position change must also update an index, through the guard `entity::Mut`.
@@ -74,6 +74,7 @@ paths:
 - Treat a second check that fails because a listener changed the state as a cancel.
 - Without listeners and monitors, build no event and check nothing again. Check again only when a listener, not only a monitor, is registered.
 - Build events as stack values.
+- Run user code that is no event of an action (sound and particle listeners, custom block hooks) only after the action is applied, the held item and drops included.
 - No listener and an empty listener give the same state hash, output, and log bytes.
 - Handle what a direct API call causes (`kick` → the player quits) at the tick's fixed point, and raise its events there.
 - Raise EntitySpawn and ItemSpawn in the entity tick.

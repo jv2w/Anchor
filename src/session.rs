@@ -69,6 +69,23 @@ pub(crate) struct Network {
     accept: JoinHandle<()>,
 }
 
+impl Network {
+    /// Stops accepting, lets sessions send what they still hold (at most [`STOP_GRACE`]) and
+    /// closes every connection. Call it after the tick has stopped: joined sessions end when the
+    /// tick drops their outbound queues.
+    pub(crate) async fn stop(self) {
+        if self.stop.send(()).is_err() {
+            debug!("accept task already ended");
+        }
+        if let Err(e) = self.accept.await {
+            warn!(error = %e, "accept task failed");
+        }
+        // Signaling stops while the UDP task lets both transports' connections deliver their
+        // last messages.
+        tokio::join!(self.udp.shutdown(), self.nethernet.shutdown());
+    }
+}
+
 /// What every session shares, read-only.
 #[derive(Debug)]
 struct Shared {
@@ -100,188 +117,6 @@ enum Event {
     LoggedIn,
     /// A session that had sent [`Event::LoggedIn`] ended.
     Ended,
-}
-
-/// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
-///
-/// The resource packs load first: the `resource-packs` files from `data_dir/packs`, then `packs`
-/// given in code; a pack that cannot be offered stops the start. With `xbox-auth = true` the
-/// authorization keys load next, and a server without keys does not start.
-/// NetherNet loads its identity key from `data_dir`. The accept task takes the
-/// tick's `controls` and reports the connection counts on `inputs`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: one function opens every part of networking in its order"
-)]
-pub(crate) async fn start(
-    config: Arc<Config>,
-    packs: Vec<Pack>,
-    data_dir: &Path,
-    inputs: InputSender,
-    controls: mpsc::Receiver<Control>,
-) -> Result<Network> {
-    let batch = config.batch_settings()?;
-    let paths = config.resource_pack_paths(&data_dir.join(pack::FOLDER));
-    let force = config.general.force_resources;
-    let load = move || Offer::load(&paths, packs, force);
-    let packs = tokio::task::spawn_blocking(load)
-        .await
-        .map_err(|e| Error::Start(std::io::Error::other(e)))?
-        .map_err(Error::from)?;
-    if !packs.packs().is_empty() {
-        info!(count = packs.packs().len(), "resource packs loaded");
-    }
-    let auth = if config.general.xbox_auth {
-        let auth = Auth::start(data_dir, clock::token_now)
-            .await
-            .map_err(|e| Error::Auth(Box::new(e)))?;
-        Some(auth)
-    } else {
-        None
-    };
-    let server_key = ServerKey::generate().map_err(|e| Error::Start(std::io::Error::other(e)))?;
-    let mut guid = [0; 8];
-    crypto::fill_random(&mut guid).map_err(|e| Error::Start(std::io::Error::other(e)))?;
-    let guid = u64::from_le_bytes(guid);
-
-    let general = &config.general;
-    let v4 = Some(general.server_ip);
-    let v6 = general.enable_ipv6.then_some(general.server_ipv6);
-    let settings = raknet::Settings {
-        max_mtu: config.developer.max_mtu_size,
-        // An encrypted RakNet message adds the checksum to the batch.
-        max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM),
-        accept: config.developer.raknet,
-        guid,
-    };
-    let status = Status::new(&config, guid);
-    let (pong_tx, pong_rx) = watch::channel(status.pong(0));
-    let (json_tx, json_rx) = watch::channel(status.json(0));
-
-    let v4 = v4.map(|ip| SocketAddrV4::new(ip, general.server_port));
-    let v6 = v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0));
-    let sockets = udp::Sockets::bind(v4, v6).map_err(Error::Network)?;
-    // The UDP task starts last: a pong then means that every listener is ready.
-    let nethernet_settings = nethernet::Settings {
-        signaling_v4: v4,
-        signaling_v6: v6,
-        public_ip: general.public_ip,
-        max_message: max_message(&batch),
-        tls: config
-            .developer
-            .nethernet_tls_cert
-            .clone()
-            .zip(config.developer.nethernet_tls_key.clone()),
-    };
-    let (nethernet_tx, nethernet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let (nethernet, nethernet_driver) = nethernet::start(
-        nethernet_settings,
-        data_dir,
-        json_rx,
-        auth.clone(),
-        nethernet_tx,
-        Arc::clone(&sockets),
-    )
-    .await?;
-    for addr in nethernet.signaling_addrs() {
-        info!(%addr, "listening for NetherNet signaling on TCP");
-    }
-    let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = match raknet::Driver::new(settings, pong_rx, raknet_tx, Arc::clone(&sockets)) {
-        Ok(raknet) => raknet,
-        Err(e) => {
-            nethernet.shutdown().await;
-            return Err(Error::Network(e));
-        }
-    };
-    let udp = udp::spawn(sockets, raknet, nethernet_driver);
-    let udp_use = if config.developer.raknet {
-        "listening for RakNet, NetherNet game data and server list pings on UDP"
-    } else {
-        "listening for NetherNet game data and server list pings on UDP (raknet = false)"
-    };
-    for addr in udp.local_addrs() {
-        info!(%addr, "{udp_use}");
-    }
-
-    let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let shared = Arc::new(Shared {
-        batch,
-        auth,
-        server_key,
-        packs,
-        inputs,
-        events: events_tx,
-        shutdown: shutdown_rx,
-        shutdown_message: config.general.shutdown_message.clone(),
-        encryption: config.developer.enable_encryption,
-        waiting: Arc::new(Semaphore::new(
-            usize::try_from(config.general.max_players).unwrap_or(usize::MAX),
-        )),
-        max_send_extension: max_send_extension(config.general.max_players),
-    });
-    let (stop_tx, stop_rx) = oneshot::channel();
-    let accept = Accept {
-        network: shared.inputs.session(SessionId::NETWORK),
-        shared,
-        controls,
-        blocks: Blocks::default(),
-        reported: (0, 0),
-        raknet: raknet_rx,
-        nethernet: nethernet_rx,
-        events: events_rx,
-        sessions: JoinSet::new(),
-        next_session: 0,
-        logged_in: 0,
-        status,
-        pong: pong_tx,
-        json: json_tx,
-        shutdown: shutdown_tx,
-    };
-    let accept = tokio::spawn(accept.run(stop_rx));
-    Ok(Network {
-        udp,
-        nethernet,
-        stop: stop_tx,
-        accept,
-    })
-}
-
-impl Network {
-    /// Stops accepting, lets sessions send what they still hold (at most [`STOP_GRACE`]) and
-    /// closes every connection. Call it after the tick has stopped: joined sessions end when the
-    /// tick drops their outbound queues.
-    pub(crate) async fn stop(self) {
-        if self.stop.send(()).is_err() {
-            debug!("accept task already ended");
-        }
-        if let Err(e) = self.accept.await {
-            warn!(error = %e, "accept task failed");
-        }
-        // Signaling stops while the UDP task lets both transports' connections deliver their
-        // last messages.
-        tokio::join!(self.udp.shutdown(), self.nethernet.shutdown());
-    }
-}
-
-/// The largest game message a client may send, without transport framing: the reassembly bound
-/// (the worst Snappy expansion of the largest batch and its header byte).
-fn max_message(batch: &batch::Settings) -> usize {
-    let max = batch.max_batch_bytes();
-    max.saturating_add(max / 6).saturating_add(42)
-}
-
-/// The most a session's output before its spawn status moves its spawn deadline: the time the
-/// player lists sent before it take at the download floor rate ([`packs::send_allowance`]) when
-/// `max_players` players (`max-players` at start) have skins of the largest size. The deadline's
-/// own 60 seconds are left for the rest of that output.
-fn max_send_extension(max_players: u32) -> Duration {
-    let players = usize::try_from(max_players).unwrap_or(usize::MAX);
-    let bytes = players
-        .saturating_mul(SPAWN_PLAYER_LISTS)
-        .saturating_mul(crate::tick::MAX_LIST_ENTRY_BYTES);
-    packs::send_allowance(bytes)
 }
 
 /// The accept task: numbers connections, spawns sessions, reaps them, keeps the status current
@@ -442,6 +277,13 @@ impl Accept {
 struct Blocks(BTreeMap<IpAddr, Option<Instant>>);
 
 impl Blocks {
+    /// Whether connections from `ip` are refused at `now`.
+    fn is_blocked(&self, ip: IpAddr, now: Instant) -> bool {
+        self.0
+            .get(&ip.to_canonical())
+            .is_some_and(|until| until.is_none_or(|until| now < until))
+    }
+
     /// Blocks `ip` from `now` for `duration` (endless if its end is past what [`Instant`]
     /// holds), replacing an earlier block of it. False, blocking nothing, when [`MAX_BLOCKED`]
     /// other addresses stay blocked after the ended blocks are forgotten.
@@ -459,13 +301,6 @@ impl Blocks {
 
     fn unblock(&mut self, ip: IpAddr) {
         self.0.remove(&ip.to_canonical());
-    }
-
-    /// Whether connections from `ip` are refused at `now`.
-    fn is_blocked(&self, ip: IpAddr, now: Instant) -> bool {
-        self.0
-            .get(&ip.to_canonical())
-            .is_some_and(|until| until.is_none_or(|until| now < until))
     }
 
     fn forget_ended(&mut self, now: Instant) {
@@ -486,19 +321,6 @@ struct Status {
     level_name: String,
     mode: GameMode,
     port: u16,
-}
-
-/// The body of `GET /v1/join`, keys in BDS order.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Join<'a> {
-    name: &'a str,
-    protocol: i32,
-    version: &'a str,
-    level: &'a str,
-    players: usize,
-    max_players: u32,
-    game_type: u8,
 }
 
 impl Status {
@@ -548,13 +370,197 @@ impl Status {
             level: &self.level_name,
             players,
             max_players: self.max_players,
-            // Every game type is from 0 to 6.
-            game_type: u8::try_from(i32::from(self.mode.game_type())).unwrap_or_default(),
+            game_type: i32::from(self.mode.game_type()),
         };
-        // Serializing a struct of strings and integers into memory cannot fail; the fallback
-        // keeps that a non-panicking path.
-        Arc::from(serde_json::to_vec(&join).unwrap_or_default())
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a struct of strings and integers serializes into memory"
+        )]
+        let json = serde_json::to_vec(&join).expect("the join status serializes");
+        Arc::from(json)
     }
+}
+
+/// The body of `GET /v1/join`, keys in BDS order.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Join<'a> {
+    name: &'a str,
+    protocol: i32,
+    version: &'a str,
+    level: &'a str,
+    players: usize,
+    max_players: u32,
+    game_type: i32,
+}
+
+/// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
+///
+/// The resource packs load first: the `resource-packs` files from `data_dir/packs`, then `packs`
+/// given in code; a pack that cannot be offered stops the start. With `xbox-auth = true` the
+/// authorization keys load next, and a server without keys does not start.
+/// NetherNet loads its identity key from `data_dir`. The accept task takes the
+/// tick's `controls` and reports the connection counts on `inputs`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "consistency: one function opens every part of networking in its order"
+)]
+pub(crate) async fn start(
+    config: Arc<Config>,
+    packs: Vec<Pack>,
+    data_dir: &Path,
+    inputs: InputSender,
+    controls: mpsc::Receiver<Control>,
+) -> Result<Network> {
+    let batch = config.batch_settings()?;
+    let paths = config.resource_pack_paths(&data_dir.join(pack::FOLDER));
+    let force = config.general.force_resources;
+    let load = move || Offer::load(&paths, packs, force);
+    let packs = tokio::task::spawn_blocking(load)
+        .await
+        .map_err(|e| Error::Start(std::io::Error::other(e)))?
+        .map_err(Error::from)?;
+    if !packs.packs().is_empty() {
+        info!(count = packs.packs().len(), "resource packs loaded");
+    }
+    let auth = if config.general.xbox_auth {
+        let auth = Auth::start(data_dir, clock::token_now)
+            .await
+            .map_err(|e| Error::Auth(Box::new(e)))?;
+        Some(auth)
+    } else {
+        None
+    };
+    let server_key = ServerKey::generate().map_err(|e| Error::Start(std::io::Error::other(e)))?;
+    let mut guid = [0; 8];
+    crypto::fill_random(&mut guid).map_err(|e| Error::Start(std::io::Error::other(e)))?;
+    let guid = u64::from_le_bytes(guid);
+
+    let general = &config.general;
+    let v4 = Some(general.server_ip);
+    let v6 = general.enable_ipv6.then_some(general.server_ipv6);
+    let settings = raknet::Settings {
+        max_mtu: config.developer.max_mtu_size,
+        // An encrypted RakNet message adds the checksum to the batch.
+        max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM),
+        accept: config.developer.raknet,
+        guid,
+    };
+    let status = Status::new(&config, guid);
+    let (pong_tx, pong_rx) = watch::channel(status.pong(0));
+    let (json_tx, json_rx) = watch::channel(status.json(0));
+
+    let v4 = v4.map(|ip| SocketAddrV4::new(ip, general.server_port));
+    let v6 = v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0));
+    let sockets = udp::Sockets::bind(v4, v6).map_err(Error::Network)?;
+    // The UDP task starts last: a pong then means that every listener is ready.
+    let nethernet_settings = nethernet::Settings {
+        signaling_v4: v4,
+        signaling_v6: v6,
+        public_ip: general.public_ip,
+        max_message: max_message(&batch),
+        tls: config
+            .developer
+            .nethernet_tls_cert
+            .clone()
+            .zip(config.developer.nethernet_tls_key.clone()),
+    };
+    let (nethernet_tx, nethernet_rx) = mpsc::channel(ACCEPT_QUEUE);
+    let (nethernet, nethernet_driver) = nethernet::start(
+        nethernet_settings,
+        data_dir,
+        json_rx,
+        auth.clone(),
+        nethernet_tx,
+        Arc::clone(&sockets),
+    )
+    .await?;
+    for addr in nethernet.signaling_addrs() {
+        info!(%addr, "listening for NetherNet signaling on TCP");
+    }
+    let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
+    let raknet = match raknet::Driver::new(settings, pong_rx, raknet_tx, Arc::clone(&sockets)) {
+        Ok(raknet) => raknet,
+        Err(e) => {
+            nethernet.shutdown().await;
+            return Err(Error::Network(e));
+        }
+    };
+    let udp = udp::spawn(sockets, raknet, nethernet_driver);
+    let udp_use = if config.developer.raknet {
+        "listening for RakNet, NetherNet game data and server list pings on UDP"
+    } else {
+        "listening for NetherNet game data and server list pings on UDP (raknet = false)"
+    };
+    for addr in udp.local_addrs() {
+        info!(%addr, "{udp_use}");
+    }
+
+    let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the configuration keeps `max-players` within 1 to 10,000"
+    )]
+    let waiting = usize::try_from(config.general.max_players).expect("max-players fits a usize");
+    let shared = Arc::new(Shared {
+        batch,
+        auth,
+        server_key,
+        packs,
+        inputs,
+        events: events_tx,
+        shutdown: shutdown_rx,
+        shutdown_message: config.general.shutdown_message.clone(),
+        encryption: config.developer.enable_encryption,
+        waiting: Arc::new(Semaphore::new(waiting)),
+        max_send_extension: max_send_extension(config.general.max_players),
+    });
+    let (stop_tx, stop_rx) = oneshot::channel();
+    let network = shared.inputs.session(SessionId::NETWORK);
+    let accept = Accept {
+        shared,
+        controls,
+        blocks: Blocks::default(),
+        network,
+        reported: (0, 0),
+        raknet: raknet_rx,
+        nethernet: nethernet_rx,
+        events: events_rx,
+        sessions: JoinSet::new(),
+        next_session: 0,
+        logged_in: 0,
+        status,
+        pong: pong_tx,
+        json: json_tx,
+        shutdown: shutdown_tx,
+    };
+    let accept = tokio::spawn(accept.run(stop_rx));
+    Ok(Network {
+        udp,
+        nethernet,
+        stop: stop_tx,
+        accept,
+    })
+}
+
+/// Returns the largest game message a client may send, without transport framing: the
+/// reassembly bound (the worst Snappy expansion of the largest batch and its header byte).
+fn max_message(batch: &batch::Settings) -> usize {
+    let max = batch.max_batch_bytes();
+    max.saturating_add(max / 6).saturating_add(42)
+}
+
+/// Returns the most a session's output before its spawn status moves its spawn deadline: the
+/// time the player lists sent before it take at the download floor rate
+/// ([`packs::send_allowance`]) when `max_players` players (`max-players` at start) have skins of
+/// the largest size. The deadline's own 60 seconds are left for the rest of that output.
+fn max_send_extension(max_players: u32) -> Duration {
+    let players = usize::try_from(max_players).unwrap_or(usize::MAX);
+    let bytes = players
+        .saturating_mul(SPAWN_PLAYER_LISTS)
+        .saturating_mul(crate::tick::MAX_LIST_ENTRY_BYTES);
+    packs::send_allowance(bytes)
 }
 
 #[cfg(test)]
@@ -607,7 +613,7 @@ mod tests {
         assert_eq!(blocks.0.len(), 1, "the ended blocks were forgotten");
     }
 
-    /// A pong of the server at `raknet` that contains `name`, within 10 seconds.
+    /// Waits for a pong of the server at `raknet` that contains `name`, at most 10 seconds.
     async fn shows(socket: &tokio::net::UdpSocket, raknet: std::net::SocketAddr, name: &str) {
         let start = clock::now();
         loop {
@@ -623,8 +629,8 @@ mod tests {
         }
     }
 
-    /// The `GET /v1/join` body of the signaling server at `addr`. The limit only catches a
-    /// server that never ends its answer.
+    /// Fetches the `GET /v1/join` body of the signaling server at `addr`. The limit only catches
+    /// a server that never ends its answer.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: a test client reads the whole reply of the server under test"

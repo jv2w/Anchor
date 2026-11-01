@@ -1,6 +1,6 @@
 //! Batch compression: zlib (raw DEFLATE) and Snappy (block format).
 
-mod snappy;
+pub(crate) mod snappy;
 pub(crate) mod zlib;
 
 use std::fmt;
@@ -21,14 +21,6 @@ pub enum Compression {
 }
 
 impl Compression {
-    /// Returns the id that `NetworkSettings` carries for this algorithm.
-    pub const fn network_id(self) -> u16 {
-        match self {
-            Self::Zlib => CompressionAlgorithm::Flate as u16,
-            Self::Snappy => CompressionAlgorithm::Snappy as u16,
-        }
-    }
-
     /// Returns the algorithm for a `NetworkSettings` id, or `None` for an unknown id.
     pub const fn from_network_id(id: u16) -> Option<Self> {
         const FLATE: u16 = CompressionAlgorithm::Flate as u16;
@@ -40,12 +32,18 @@ impl Compression {
         }
     }
 
-    /// Returns the first byte of a batch body compressed with this algorithm.
-    pub(crate) const fn header(self) -> u8 {
+    /// The id that `NetworkSettings` carries for this algorithm.
+    pub const fn network_id(self) -> u16 {
         match self {
-            Self::Zlib => 0x00,
-            Self::Snappy => 0x01,
+            Self::Zlib => CompressionAlgorithm::Flate as u16,
+            Self::Snappy => CompressionAlgorithm::Snappy as u16,
         }
+    }
+
+    /// The first byte of a batch body compressed with this algorithm: the low byte of its
+    /// network id (gophertunnel `packet.Encoder`).
+    pub(crate) const fn header(self) -> u8 {
+        self.network_id().to_le_bytes()[0]
     }
 }
 
@@ -70,9 +68,9 @@ pub enum Error {
     Overrun,
     /// The Snappy output ends shorter than its declared length.
     Underrun,
-    /// Input remains after the Snappy stream ends.
+    /// Input remains after the stream ends.
     TrailingInput,
-    /// The DEFLATE stream is invalid.
+    /// The DEFLATE stream, or its zlib header or checksum, is invalid.
     Deflate,
 }
 
@@ -95,7 +93,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// The result of a compression or decompression.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Reusable compression state for one algorithm.
 pub(crate) enum Compressor {
@@ -104,7 +102,8 @@ pub(crate) enum Compressor {
 }
 
 impl Compressor {
-    /// `zlib_level` must be in 1..=9; it is ignored for Snappy.
+    /// Returns a compressor for `compression`; `zlib_level` must be in 1..=9 and is ignored for
+    /// Snappy.
     pub(crate) fn new(compression: Compression, zlib_level: u8) -> Self {
         match compression {
             Compression::Zlib => Self::Zlib(zlib::Encoder::new(zlib_level)),
@@ -112,7 +111,7 @@ impl Compressor {
         }
     }
 
-    /// The most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
+    /// Returns the most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
     pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
         match self {
             Self::Zlib(encoder) => encoder.max_compressed_len(input_len),
@@ -120,16 +119,14 @@ impl Compressor {
         }
     }
 
-    /// Appends the compressed `input` to `out`. Input longer than `limit` is a size error.
-    pub(crate) fn compress(&mut self, input: &[u8], out: &mut Vec<u8>, limit: usize) -> Result<()> {
-        if input.len() > limit {
-            return Err(Error::Size { limit });
-        }
+    /// Appends the compressed `input` to `out`.
+    ///
+    /// The caller keeps `input` within `u32::MAX` bytes, the most a Snappy length prefix declares.
+    pub(crate) fn compress(&mut self, input: &[u8], out: &mut Vec<u8>) {
         match self {
             Self::Zlib(encoder) => encoder.compress(input, out),
             Self::Snappy(encoder) => encoder.compress(input, out),
         }
-        Ok(())
     }
 }
 
@@ -140,6 +137,7 @@ pub(crate) enum Decompressor {
 }
 
 impl Decompressor {
+    /// Returns a decompressor for `compression`.
     pub(crate) fn new(compression: Compression) -> Self {
         match compression {
             Compression::Zlib => Self::Zlib(zlib::Decoder::new()),
@@ -153,57 +151,23 @@ impl Decompressor {
     pub(crate) fn decompress(
         &mut self,
         input: &[u8],
-        out: &mut Vec<u8>,
         limit: usize,
+        out: &mut Vec<u8>,
     ) -> Result<()> {
         match self {
-            Self::Zlib(decoder) => decoder.decompress(input, out, limit),
-            Self::Snappy => snappy::decompress(input, out, limit),
+            Self::Zlib(decoder) => decoder.decompress(input, limit, out),
+            Self::Snappy => snappy::decompress(input, limit, out),
         }
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::{Compression, Compressor, Decompressor, Error};
-    use crate::protocol::io::tests::Rng;
+    use super::*;
+    use crate::protocol::Rng;
 
     pub(crate) const ROUND_TRIP_SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, 1024 * 1024];
     const LIMIT: usize = 16 * 1024 * 1024;
-
-    /// Random bytes when `repetitive` is false; otherwise runs and repeated phrases.
-    pub(crate) fn sample(len: usize, repetitive: bool, seed: u64) -> Vec<u8> {
-        let mut rng = Rng(seed);
-        let mut data = Vec::with_capacity(len);
-        while data.len() < len {
-            let word = rng.next().to_le_bytes();
-            if repetitive {
-                match word[0] % 3 {
-                    0 => data.extend(std::iter::repeat_n(word[1] % 4, usize::from(word[2]))),
-                    1 => data.extend_from_slice(b"minecraft:stone"),
-                    _ => data.extend_from_slice(&word[..usize::from(word[3] % 8)]),
-                }
-            } else {
-                data.extend_from_slice(&word);
-            }
-        }
-        data.truncate(len);
-        data
-    }
-
-    fn compress(compression: Compression, input: &[u8]) -> Vec<u8> {
-        let mut out = Vec::new();
-        Compressor::new(compression, 6)
-            .compress(input, &mut out, LIMIT)
-            .unwrap();
-        out
-    }
-
-    fn decompress(compression: Compression, input: &[u8], limit: usize) -> super::Result<Vec<u8>> {
-        let mut out = Vec::new();
-        Decompressor::new(compression).decompress(input, &mut out, limit)?;
-        Ok(out)
-    }
 
     #[test]
     fn network_ids_round_trip() {
@@ -220,17 +184,60 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn batch_headers_are_0_for_zlib_and_1_for_snappy() {
+        assert_eq!(Compression::Zlib.header(), 0x00);
+        assert_eq!(Compression::Snappy.header(), 0x01);
+    }
+
+    /// The kind of bytes [`sample`] returns.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum Content {
+        /// Random bytes, which do not compress.
+        Random,
+        /// Runs and repeated phrases, which compress well.
+        Repetitive,
+    }
+
+    /// Returns `len` bytes of `content` drawn from `seed`.
+    pub(crate) fn sample(len: usize, content: Content, seed: u64) -> Vec<u8> {
+        let mut rng = Rng(seed);
+        let mut data = Vec::with_capacity(len);
+        while data.len() < len {
+            let word = rng.next().to_le_bytes();
+            match content {
+                Content::Random => data.extend_from_slice(&word),
+                Content::Repetitive => match word[0] % 3 {
+                    0 => data.extend(std::iter::repeat_n(word[1] % 4, usize::from(word[2]))),
+                    1 => data.extend_from_slice(b"minecraft:stone"),
+                    _ => data.extend_from_slice(&word[..usize::from(word[3] % 8)]),
+                },
+            }
+        }
+        data.truncate(len);
+        data
+    }
+
+    fn compress(compression: Compression, input: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        Compressor::new(compression, 6).compress(input, &mut out);
+        out
+    }
+
+    fn decompress(compression: Compression, input: &[u8], limit: usize) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        Decompressor::new(compression).decompress(input, limit, &mut out)?;
+        Ok(out)
+    }
+
+    #[test]
     fn both_algorithms_round_trip_random_and_repetitive_data() {
         for compression in [Compression::Zlib, Compression::Snappy] {
             for len in ROUND_TRIP_SIZES {
-                for repetitive in [false, true] {
-                    let input = sample(len, repetitive, 7);
+                for content in [Content::Random, Content::Repetitive] {
+                    let input = sample(len, content, 7);
                     let compressed = compress(compression, &input);
                     let output = decompress(compression, &compressed, LIMIT).unwrap();
-                    assert!(
-                        output == input,
-                        "{compression:?} len {len} repetitive {repetitive}"
-                    );
+                    assert_eq!(output, input, "{compression:?} len {len} {content:?}");
                 }
             }
         }
@@ -242,13 +249,18 @@ pub(crate) mod tests {
             let mut compressor = Compressor::new(compression, 6);
             let mut decompressor = Decompressor::new(compression);
             let (mut compressed, mut output) = (Vec::new(), Vec::new());
-            for (seed, len) in [(1, 70_000), (2, 300), (3, 0), (4, 140_000)] {
-                let input = sample(len, seed % 2 == 0, seed);
+            for (seed, len, content) in [
+                (1, 70_000, Content::Random),
+                (2, 300, Content::Repetitive),
+                (3, 0, Content::Random),
+                (4, 140_000, Content::Repetitive),
+            ] {
+                let input = sample(len, content, seed);
                 compressed.clear();
-                compressor.compress(&input, &mut compressed, LIMIT).unwrap();
+                compressor.compress(&input, &mut compressed);
                 assert_eq!(compressed, compress(compression, &input));
                 decompressor
-                    .decompress(&compressed, &mut output, LIMIT)
+                    .decompress(&compressed, LIMIT, &mut output)
                     .unwrap();
                 assert_eq!(output, input);
             }
@@ -256,19 +268,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn input_over_the_limit_is_a_size_error_when_compressing() {
-        let mut out = Vec::new();
-        for compression in [Compression::Zlib, Compression::Snappy] {
-            let result = Compressor::new(compression, 6).compress(&[0; 11], &mut out, 10);
-            assert_eq!(result, Err(Error::Size { limit: 10 }));
-        }
-    }
-
-    #[test]
     fn output_exactly_at_the_limit_decompresses() {
         for compression in [Compression::Zlib, Compression::Snappy] {
-            for repetitive in [false, true] {
-                let input = sample(1024 * 1024, repetitive, 11);
+            for content in [Content::Random, Content::Repetitive] {
+                let input = sample(1024 * 1024, content, 11);
                 let compressed = compress(compression, &input);
                 assert_eq!(
                     decompress(compression, &compressed, input.len()).unwrap(),
@@ -287,10 +290,15 @@ pub(crate) mod tests {
         for compression in [Compression::Zlib, Compression::Snappy] {
             let mut decompressor = Decompressor::new(compression);
             let mut output = Vec::new();
-            let originals: Vec<Vec<u8>> = [(0, false), (300, true), (5000, false), (40_000, true)]
-                .iter()
-                .map(|&(len, repetitive)| compress(compression, &sample(len, repetitive, 3)))
-                .collect();
+            let originals: Vec<Vec<u8>> = [
+                (0, Content::Random),
+                (300, Content::Repetitive),
+                (5000, Content::Random),
+                (40_000, Content::Repetitive),
+            ]
+            .iter()
+            .map(|&(len, content)| compress(compression, &sample(len, content, 3)))
+            .collect();
             for round in 0..4000 {
                 let mut input = originals[round % originals.len()].clone();
                 for _ in 0..=rng.below(4) {
@@ -304,7 +312,7 @@ pub(crate) mod tests {
                         _ => input.truncate(at),
                     }
                 }
-                if decompressor.decompress(&input, &mut output, LIMIT).is_ok() {
+                if decompressor.decompress(&input, LIMIT, &mut output).is_ok() {
                     assert!(output.len() <= LIMIT);
                 }
             }

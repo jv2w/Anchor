@@ -1,42 +1,17 @@
-//! The facings PMMP's serializer writes into block state properties (`BlockStateWriter`,
-//! `ValueMappings`) by the property each block update rule reads; the encodings themselves and
-//! the plain property accessors are the interaction rules'.
+//! Block state properties as the block update rules read them: the accessors of the interaction
+//! rules, which own the encodings, and the few readings only these rules make (a lever's facing,
+//! the faces of vines and multi-face blocks, a state without properties).
+
+pub(super) use crate::tick::interact::props::{
+    Axis, dead_coral, face_name, face_of, facing, flag, int, is_dead_coral, multi_face_bit,
+    renamed, string, vine_bit, with_facing, with_flag, with_int, with_lit, with_string,
+};
 
 use crate::block::{Face, State};
-pub(super) use crate::tick::interact::props::{
-    Axis, face_name, face_of, flag, int, multi_face_bit, string, vine_bit, with_flag, with_int,
-    with_string,
-};
-use crate::tick::interact::props::{Encoding, facing_in};
 
 /// The state of the block named `name`, which has no properties; `None` if it has any.
 pub(super) fn plain(name: &str) -> Option<State> {
     State::find(name, &[])
-}
-
-/// `facing_direction` as PMMP's `Facing` (down, up, north, south, west, east).
-pub(super) fn facing_direction(s: State) -> Option<Face> {
-    facing_in(s, "facing_direction", Encoding::Classic)
-}
-
-/// `minecraft:cardinal_direction` as a facing.
-pub(super) fn cardinal(s: State) -> Option<Face> {
-    facing_in(s, "minecraft:cardinal_direction", Encoding::Cardinal)
-}
-
-/// `direction` in PMMP's south-west-north-east order (bells, beds).
-pub(super) fn direction_swne(s: State) -> Option<Face> {
-    facing_in(s, "direction", Encoding::Swne)
-}
-
-/// `direction` in north-east-south-west order (cocoa: PMMP `horizontalFacingSWNEInverted`).
-pub(super) fn direction_nesw(s: State) -> Option<Face> {
-    facing_in(s, "direction", Encoding::SwneInverted)
-}
-
-/// A torch's facing (PMMP `torchFacing`).
-pub(super) fn torch_facing(s: State) -> Option<Face> {
-    facing_in(s, "torch_facing_direction", Encoding::Torch)
 }
 
 /// A lever's facing (PMMP `LeverFacing::getFacing`).
@@ -46,11 +21,6 @@ pub(super) fn lever_facing(s: State) -> Option<Face> {
         "up_east_west" | "up_north_south" => Face::Up,
         other => face_of(other)?,
     })
-}
-
-/// A wall coral fan's facing (PMMP `horizontalFacingCoral`).
-pub(super) fn coral_facing(s: State) -> Option<Face> {
-    facing_in(s, "coral_direction", Encoding::Coral)
 }
 
 /// The faces of a multi-face block (`multi_face_direction_bits`: glow lichen, resin) or of vines
@@ -102,7 +72,7 @@ mod tests {
                 })
                 .unwrap()
         };
-        assert_eq!(torch_facing(torch("east")), Some(Face::West));
-        assert_eq!(torch_facing(torch("top")), Some(Face::Up));
+        assert_eq!(facing(torch("east")), Some(Face::West));
+        assert_eq!(facing(torch("top")), Some(Face::Up));
     }
 }

@@ -9,25 +9,6 @@ use crate::protocol::consts::BookAction;
 use crate::protocol::packet::BookEdit;
 use crate::tick::Context;
 
-thread_local! {
-    /// What listeners and monitors wrote down; they run on the test's thread.
-    static NOTES: std::cell::Cell<Vec<String>> = const { std::cell::Cell::new(Vec::new()) };
-}
-
-/// Writes down `note`.
-fn note(note: String) {
-    NOTES.with(|n| {
-        let mut list = n.take();
-        list.push(note);
-        n.set(list);
-    });
-}
-
-/// What was written down since the last call.
-fn notes() -> Vec<String> {
-    NOTES.with(std::cell::Cell::take)
-}
-
 /// A book and quill in the player's hand; its slot.
 fn quill(h: &mut Harness) -> i32 {
     h.hold(stack(ItemKind::WritableBook));
@@ -191,7 +172,7 @@ fn a_lectern_turns_no_page_of_a_book_with_pages_of_another_type() {
     ));
     h.run(vec![turn]);
     assert!(matches!(entity_at(&h),
-        super::super::super::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
+        crate::tick::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
 }
 
 /// Page turns of one tick reach the players that see the lectern once, with the last page: the
@@ -255,7 +236,8 @@ fn signing_makes_an_original_written_book_and_only_books_and_quills_are_edited()
     let nbt = &book.extra().unwrap().nbt;
     assert_eq!(nbt.get("title"), Some(&Value::String("Title".to_owned())));
     assert_eq!(nbt.get("author"), Some(&Value::String("Steve".to_owned())));
-    assert_eq!(nbt.get("generation"), Some(&Value::Int(0)));
+    // An original's generation is the type's own NBT, which the extra data does not repeat.
+    assert_eq!(book.tag().unwrap().get("generation"), Some(&Value::Int(0)));
     assert_eq!(pages(&h), ["story"]);
     // A written book is not edited; neither is a slot outside the inventory.
     edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "changed");
@@ -285,16 +267,16 @@ fn listener(then: fn(&mut PlayerEditBook, &mut Context<'_>)) -> Listeners {
     l.push(
         Priority::Normal,
         move |e: &mut PlayerEditBook, cx: &mut Context<'_>| {
-            note(format!(
-                "{:?}",
+            note(
+                SEEN,
                 (
                     e.player(),
                     e.action(),
                     e.old_book().item(),
                     e.new_book().item(),
-                    e.modified_pages()
-                )
-            ));
+                    e.modified_pages(),
+                ),
+            );
             then(e, cx);
         },
     );
@@ -303,7 +285,7 @@ fn listener(then: fn(&mut PlayerEditBook, &mut Context<'_>)) -> Listeners {
             .inventory
             .held()
             .clone();
-        note(format!("{:?}", &held == e.new_book()));
+        note(SEEN, &held == e.new_book());
     });
     l
 }
@@ -326,30 +308,24 @@ fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
     let quill_type = Some(ItemKind::WritableBook.default_type());
     let written = Some(ItemKind::WrittenBook.default_type());
     assert_eq!(
-        notes(),
+        notes(SEEN),
         [
-            format!(
-                "{:?}",
-                (
-                    crate::player::Id::new(SessionId::new(1)),
-                    Edit::SwapPages,
-                    quill_type,
-                    quill_type,
-                    [0u32, 1].as_slice()
-                )
-            ),
-            "true".to_owned(),
-            format!(
-                "{:?}",
-                (
-                    crate::player::Id::new(SessionId::new(1)),
-                    Edit::SignBook,
-                    quill_type,
-                    written,
-                    [0u32; 0].as_slice()
-                )
-            ),
-            "true".to_owned(),
+            dbg((
+                crate::player::Id::new(SessionId::new(1)),
+                Edit::SwapPages,
+                quill_type,
+                quill_type,
+                [0u32, 1].as_slice()
+            )),
+            dbg(true),
+            dbg((
+                crate::player::Id::new(SessionId::new(1)),
+                Edit::SignBook,
+                quill_type,
+                written,
+                [0u32; 0].as_slice()
+            )),
+            dbg(true),
         ]
     );
     assert_eq!(
@@ -373,7 +349,7 @@ fn a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit
     let slot = quill(&mut h);
     edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "a");
     assert!(pages(&h).is_empty());
-    assert_eq!(notes().len(), 1, "no monitor for a cancelled edit");
+    assert_eq!(notes(SEEN).len(), 1, "no monitor for a cancelled edit");
     // A listener that takes the book: the edit does not put it back (nothing is made).
     let l = listener(|_, cx| {
         let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();

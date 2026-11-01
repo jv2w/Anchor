@@ -2,16 +2,15 @@
 //! API, the drops of a broken custom block, and the calls into a custom block's
 //! [`Behaviour`](crate::custom::Behaviour).
 
-use super::super::{Context, SessionId, State};
+use super::drops;
 use crate::block;
 use crate::custom::{self, Drops};
 use crate::item::{self, Enchantment, Stack};
 use crate::nbt::Compound;
 use crate::random::Random;
 use crate::save::WorldIndex;
+use crate::tick::{Context, SessionId, State};
 use crate::world::BlockPos;
-
-use super::drops;
 
 impl Context<'_> {
     /// The item type of the registered custom item `item`; `None` if the server was not given
@@ -42,10 +41,10 @@ impl Context<'_> {
     }
 }
 
-/// What a broken custom block drops (PMMP `Block::getDrops` with the definition's drops): with a
-/// compatible tool its drops, or itself with Silk Touch where its drops are not itself; nothing
-/// with an incompatible tool. The experience is the definition's range, with a compatible tool
-/// and without Silk Touch.
+/// Works out what a broken custom block drops (PMMP `Block::getDrops` with the definition's
+/// drops): with a compatible tool its drops, or itself with Silk Touch where its drops are not
+/// itself; nothing with an incompatible tool. The experience is the definition's range, with a
+/// compatible tool and without Silk Touch.
 pub(super) fn drops_of(
     state: &State,
     block: block::State,
@@ -80,7 +79,8 @@ pub(super) fn drops_of(
     (items, xp)
 }
 
-/// `on_use` of the custom block `block` at `pos`, used by `session`: whether it did something.
+/// Runs `on_use` of the custom block `block` at `pos`, used by `session`: whether it did
+/// something.
 pub(super) fn used(
     state: &mut State,
     session: SessionId,
@@ -103,7 +103,8 @@ pub(super) fn used(
     )
 }
 
-/// `on_place` of the custom block `block` just placed at `pos`.
+/// Runs `on_place` of the custom block `block` just placed at `pos`, once the placement and the
+/// item it used are applied.
 pub(super) fn placed(
     state: &mut State,
     session: Option<SessionId>,
@@ -126,8 +127,8 @@ pub(super) fn placed(
     }
 }
 
-/// `on_random_tick` of the custom block `block` at `pos`, which a random tick reached (the block
-/// update rules call it only for a definition that takes random ticks).
+/// Runs `on_random_tick` of the custom block `block` at `pos`, which a random tick reached (the
+/// block update rules call it only for a definition that takes random ticks).
 pub(in crate::tick) fn random_tick(
     state: &mut State,
     world: WorldIndex,
@@ -143,7 +144,8 @@ pub(in crate::tick) fn random_tick(
     }
 }
 
-/// `on_break` of the custom block `block` just broken at `pos`.
+/// Runs `on_break` of the custom block `block` just broken at `pos`, once the break, its drops
+/// and the tool's wear are applied.
 pub(super) fn broken(
     state: &mut State,
     session: Option<SessionId>,

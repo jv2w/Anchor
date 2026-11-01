@@ -5,14 +5,16 @@
 //!
 //! The extra comes from the server file, so every value is checked on load: a wrong type or a
 //! value out of range keeps the default, except that the health is cut to the maximum health, the
-//! air to -20..=[`MAX_AIR`], the experience level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
+//! air to [`MIN_AIR`]..=[`MAX_AIR`], the experience level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
 //! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
 
 use tracing::warn;
 
 use super::effects::Active;
 use super::food::FOOD_CYCLE;
-use super::{MAX_AIR, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, Point, Survival};
+use super::{
+    MAX_AIR, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, MIN_AIR, Point, Survival,
+};
 use crate::config::GameMode;
 use crate::effect::MAX_DURATION;
 use crate::effect::Type as Effect;
@@ -72,12 +74,16 @@ const SAVED_MODES: [(GameMode, i32); 4] = [
 ];
 
 /// The saved ID of a game mode.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: `SAVED_MODES` lists every game mode"
+)]
 fn saved_mode(mode: GameMode) -> i32 {
-    // Every mode is in the table; 0 only keeps the lookup total.
     SAVED_MODES
         .iter()
         .find(|&&(m, _)| m == mode)
-        .map_or(0, |&(_, id)| id)
+        .map(|&(_, id)| id)
+        .expect("every game mode has a saved ID")
 }
 
 fn int(extra: &Compound, key: &str) -> Option<i32> {
@@ -185,7 +191,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     if s.switches.drowning
         && let Some(air) = short(extra, AIR)
     {
-        s.air = air.clamp(-20, MAX_AIR);
+        s.air = air.clamp(MIN_AIR, MAX_AIR);
     }
     if let Some(fall) = float(extra, FALL, 0.0, MAX_FALL) {
         s.fall_distance = fall;
@@ -281,14 +287,18 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     put(FOOD, Some(Value::Int(food)));
     put(SATURATION, Some(Value::Float(to_f32(s.saturation))));
     put(EXHAUSTION, Some(Value::Float(to_f32(s.exhaustion))));
-    put(
-        FOOD_TIMER,
-        Some(Value::Int(i32::try_from(s.food_timer).unwrap_or(0))),
-    );
-    put(
-        XP_LEVEL,
-        Some(Value::Int(i32::try_from(s.xp_level).unwrap_or(0))),
-    );
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the food timer stays below `FOOD_CYCLE`"
+    )]
+    let food_timer = i32::try_from(s.food_timer).expect("the food timer fits an int");
+    put(FOOD_TIMER, Some(Value::Int(food_timer)));
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the experience level is at most `player::MAX_LEVEL`"
+    )]
+    let xp_level = i32::try_from(s.xp_level).expect("the experience level fits an int");
+    put(XP_LEVEL, Some(Value::Int(xp_level)));
     put(XP_PROGRESS, Some(Value::Float(to_f32(s.xp_progress))));
     put(
         XP_TOTAL,

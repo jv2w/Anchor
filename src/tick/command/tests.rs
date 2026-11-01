@@ -23,11 +23,16 @@ use crate::tick::{Output as TickOutput, boundary, deliver, step};
 
 const FLY: Permission = Permission::new("test.fly", By::Op);
 
+/// Commands by name with their parameters: name, network type, optional.
+type Listed = BTreeMap<String, Vec<(String, u32, bool)>>;
+
+/// Makes the sender of the player of `session`.
 pub(super) fn id(session: u64) -> Sender {
     Sender::Player(player::Id::new(SessionId::new(session)))
 }
 
-/// A command whose overload `params` answers with the debug form of what each getter gave.
+/// Builds a command whose overload `params` answers with the debug form of what each getter
+/// gave.
 fn echo(name: &str, params: &[Param]) -> Command {
     let names: Vec<String> = params.iter().map(|p| p.name().to_owned()).collect();
     Command::new(name, "echoes").overload(params, move |_, _, args| {
@@ -65,12 +70,12 @@ fn echo(name: &str, params: &[Param]) -> Command {
     })
 }
 
-/// A server with `commands` registered and players 1 and 2 joined (not spawned).
+/// Builds a server with `commands` registered and players 1 and 2 joined (not spawned).
 pub(super) fn server(commands: Vec<Command>) -> (State, Vec<mpsc::Receiver<Outbound>>) {
     server_with(commands, Listeners::default())
 }
 
-/// [`server`] with `listeners`.
+/// Builds the server of [`server`] with `listeners`.
 pub(super) fn server_with(
     commands: Vec<Command>,
     listeners: Listeners,
@@ -87,6 +92,7 @@ pub(super) fn server_with(
     (state, vec![rx1, rx2])
 }
 
+/// Collects the texts or keys of the lines of a success.
 pub(super) fn lines(result: command::Result<Output>) -> Vec<String> {
     result.unwrap().lines().map(str::to_owned).collect()
 }
@@ -403,7 +409,11 @@ fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
     let fly = Command::new("fly", "flies")
         .permission(FLY)
         .overload(&[], |_, _, _| Ok("flying".into()));
-    let (mut state, _rx) = server(vec![fly]);
+    let other = Permission::new("lobby.other", By::True);
+    let lobby = Command::new("lobby", "")
+        .permission(other)
+        .overload(&[], |_, _, _| Ok(Output::new()));
+    let (mut state, _rx) = server(vec![fly, lobby]);
     let player1 = player::Id::new(SessionId::new(1));
     let gone = player::Id::new(SessionId::new(9));
     let mut cx = Context { state: &mut state };
@@ -424,7 +434,6 @@ fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
         p == permission::BUILTIN[0] && has == permission::BUILTIN[0].granted_by_default(false)
     }));
     assert_eq!(cx.permission_grants(player1).count(), 0);
-    let other = Permission::new("lobby.other", By::True);
     assert!(cx.set_permission(player1, FLY, true));
     assert!(cx.set_permission(player1, other, false));
     assert_eq!(
@@ -438,6 +447,20 @@ fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
     assert_eq!(cx.permission_grants(player1).count(), 0);
     assert_eq!(effective(&cx, id(1)), Some(false));
     assert!(state.commands.resend.contains(&SessionId::new(1)));
+}
+
+/// A grant is named by its permission in a checkpoint, which a replay reads back only for a
+/// registered permission: one nothing registered is not granted, and keeps its own default.
+#[test]
+fn a_permission_nothing_registered_is_not_granted() {
+    let (mut state, _rx) = server(Vec::new());
+    let player1 = player::Id::new(SessionId::new(1));
+    let unregistered = Permission::new("x.unregistered", By::True);
+    let mut cx = Context { state: &mut state };
+    assert!(!cx.set_permission(player1, unregistered, false));
+    assert!(!cx.is_permission_set(player1, unregistered));
+    assert!(cx.has_permission(id(1), unregistered));
+    assert!(state.commands.grants.is_empty() && state.commands.resend.is_empty());
 }
 
 /// A default the builder sets replaces the permission's own wherever it is checked: `/kill` for
@@ -719,11 +742,8 @@ fn an_enum_type_name_reused_with_the_same_values_builds() {
     assert_eq!(commands.finish(), Ok(()));
 }
 
-/// Commands by name with their parameters: name, network type, optional.
-type Listed = BTreeMap<String, Vec<(String, u32, bool)>>;
-
-/// The commands of an `AvailableCommands` packet by name, with their parameter types, and the
-/// enums by type.
+/// Reads the commands of an `AvailableCommands` packet by name, with their parameter types, and
+/// the enums by type.
 fn listed(packet: &Packet) -> (Listed, BTreeMap<String, Vec<String>>) {
     let Packet::AvailableCommands(p) = packet else {
         panic!("{packet:?}");
@@ -933,7 +953,7 @@ pub(super) fn request(session: u64, seq: u64, line: &str) -> Input {
     )
 }
 
-/// `/mark`: renames its player sender `marked`.
+/// Builds `/mark`, which renames its player sender `marked`.
 fn mark() -> Command {
     Command::new("mark", "").overload(&[], |cx, sender, _| {
         if let Sender::Player(id) = sender
@@ -1128,7 +1148,70 @@ fn a_command_request_answers_with_command_output() {
     );
 }
 
-/// A command that makes its argument an operator, as `/op` will.
+/// A running command cannot run itself again through another of its overloads either.
+#[test]
+fn a_command_cannot_run_itself_through_another_overload() {
+    let twice = Command::new("twice", "")
+        .overload(&[], |cx, sender, _| {
+            let again = cx.dispatch_command(*sender, "twice 1");
+            assert!(matches!(again, Err(Error::Failed { .. })), "{again:?}");
+            Ok(Output::new())
+        })
+        .overload(&[Param::int("n")], |_, _, _| Ok(Output::new()));
+    let (mut state, _rx) = server(vec![twice]);
+    assert_eq!(
+        execute(&mut state, Sender::Console, "twice"),
+        Ok(Output::new())
+    );
+    assert_eq!(
+        execute(&mut state, Sender::Console, "twice 1"),
+        Ok(Output::new()),
+        "the handlers are back"
+    );
+}
+
+/// Pulls the second parameter of each translated chat line queued for the player of `session`.
+fn copied(state: &State, session: u64) -> Vec<String> {
+    state.players[&SessionId::new(session)]
+        .outbox
+        .iter()
+        .filter_map(|p| match p {
+            P::Text(t) => t.parameters.get(1).cloned(),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A command run looks up the operators its results are copied to once, and again after it
+/// changes a permission; between runs nothing is kept.
+#[test]
+fn copies_of_a_command_result_reach_the_operators_it_makes() {
+    let promote = Command::new("promote", "").overload(&[], |cx, sender, _| {
+        cx.broadcast_command_message(*sender, "before").unwrap();
+        cx.op("player2").unwrap();
+        cx.broadcast_command_message(*sender, "after").unwrap();
+        Ok(Output::new())
+    });
+    let (mut state, _rx) = server(vec![promote]);
+    Context { state: &mut state }.op("player1").unwrap();
+    execute(&mut state, Sender::Console, "promote").unwrap();
+    assert_eq!(copied(&state, 1), ["before", "after"]);
+    assert_eq!(copied(&state, 2), ["after"]);
+    assert!(matches!(state.commands.admins, Admins::Idle));
+}
+
+/// A copy of a command result a client does not decode is refused, and nobody gets it.
+#[test]
+fn a_command_result_copy_a_client_cannot_decode_is_refused() {
+    let (mut state, _rx) = server(Vec::new());
+    let mut cx = Context { state: &mut state };
+    cx.op("player1").unwrap();
+    let copy = cx.broadcast_command_message(Sender::Console, &"x".repeat(MAX_TEXT + 1));
+    assert!(matches!(copy, Err(player::Error::TooLong)), "{copy:?}");
+    assert!(copied(&state, 1).is_empty());
+}
+
+/// Builds a command that makes its argument an operator, as `/op` does.
 fn op_command() -> Command {
     Command::new("op", "").overload(&[Param::string("name")], |cx, _, args| {
         cx.op(args.string("name").unwrap_or_default())
@@ -1425,6 +1508,39 @@ fn random_and_nearest_targets_are_deterministic() {
         lines(execute(&mut state, Sender::Console, "t @p")),
         ["targets [2]"]
     );
+}
+
+/// Each `@r` of a line draws on its own stream, so two of them may pick two players.
+#[test]
+fn two_random_targets_of_one_line_draw_apart() {
+    let (mut state, _rx) = server(vec![echo("t", &[Param::target("a"), Param::target("b")])]);
+    let apart = (0..32).any(|_| {
+        let picked = lines(execute(&mut state, Sender::Console, "t @r @r"));
+        picked[0] != picked[1]
+    });
+    assert!(apart);
+}
+
+/// `@r` draws from the default world's seed, also after `set_default_world` named another.
+#[test]
+fn random_targets_draw_from_the_default_worlds_seed() {
+    let picks = |seed: i64| {
+        let (mut state, _rx) = server(vec![echo("t", &[Param::target("who")])]);
+        state.add_world(crate::world::World::new(
+            "arena",
+            crate::world::Kind::Temporary,
+            seed,
+            crate::world::BlockPos::new(0, 0, 0),
+        ));
+        let arena = state.worlds[1].id();
+        Context { state: &mut state }
+            .set_default_world(arena)
+            .unwrap();
+        (0..32)
+            .map(|_| lines(execute(&mut state, Sender::Console, "t @r")))
+            .collect::<Vec<_>>()
+    };
+    assert_ne!(picks(1), picks(2));
 }
 
 #[test]

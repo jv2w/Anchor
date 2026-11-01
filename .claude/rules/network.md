@@ -35,9 +35,10 @@ paths:
 ## Sessions
 - Decompress, decrypt, decode, and verify the login in one session task per connection (tasks run in parallel).
 - Nobody waits on a full queue between a session and the tick: a session whose share of the tick input queue is full ends, and the tick drops a session whose outbound queue is full.
-- Disconnect when a login sequence packet (RequestNetworkSettings, Login, ClientToServerHandshake, ResourcePackClientResponse, ResourcePackChunkRequest) comes out of order or fails to decode. Before Login, any other packet also disconnects.
+- Disconnect when a login sequence packet (RequestNetworkSettings, Login, ClientToServerHandshake, ResourcePackClientResponse, ResourcePackChunkRequest) comes out of order or fails to decode. Before Login, any other packet also disconnects. On an encrypted RakNet connection, a packet after the Login in its batch also disconnects.
 - After Login and before the join, hold every other packet in the deferred queue and hand it to the tick in order after the join (accept and drop ClientCacheStatus).
 - After the spawn, a packet that fails to decode drops only that packet, logged at warn. Charge dropped packets to the input budget too.
+- Treat a packet whose ID only servers send as one that fails to decode.
 - Never charge a packet the client repeats every frame (a right click held on a block) to the packet budget. Drop only its copies, and record in `.claude/docs/network.md` where that can change the tick's result.
 - On a graceful shutdown, the session layer sends Disconnect (`shutdown-message`) to every session past NetworkSettings that has not joined, and to every session whose join the tick did not apply.
 - A second login of the same player never renames the new one: it disconnects the existing player and admits the new one (a listener may cancel). Decide it at the tick's join, not right after login.

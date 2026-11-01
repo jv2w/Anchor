@@ -2,50 +2,18 @@
 //! changing fields do, what monitors see, and that listeners changing the game neither make nor
 //! lose items.
 
-use std::cell::Cell;
-use std::fmt::Debug;
-
 use super::*;
 use crate::event::{
     BlockBreak, BlockExplode, BlockPlace, BlockPreExplode, BlockTeleport, InteractAction,
-    Listeners, PlayerBucketEmpty, PlayerBucketFill, PlayerEntityInteract, PlayerInteract,
-    PlayerItemUse, PlayerRespawnAnchorUse, Priority, RespawnAnchorAction, SignChange,
+    InventoryClose, Listeners, PlayerBucketEmpty, PlayerBucketFill, PlayerEntityInteract,
+    PlayerInteract, PlayerItemUse, PlayerRespawnAnchorUse, Priority, RespawnAnchorAction,
+    SignChange,
 };
 use crate::item::Kind as ItemKind;
 use crate::nbt::{Compound, Value};
 use crate::protocol::consts::{InventoryActionSource, WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY};
 use crate::protocol::{InventoryAction, UseItemOnEntityTransactionData};
 use crate::tick::Context;
-
-thread_local! {
-    /// What listeners ([`SEEN`]) and monitors ([`WATCHED`]) write down for the test to read, as
-    /// `Debug` text; they run on the test's thread, in its tick.
-    static NOTES: [Cell<Vec<String>>; 2] = const { [Cell::new(Vec::new()), Cell::new(Vec::new())] };
-}
-
-/// The notes of listeners.
-const SEEN: usize = 0;
-/// The notes of monitors.
-const WATCHED: usize = 1;
-
-/// Writes down `v` in `notes`.
-fn note(notes: usize, v: impl Debug) {
-    NOTES.with(|n| {
-        let mut list = n[notes].take();
-        list.push(format!("{v:?}"));
-        n[notes].set(list);
-    });
-}
-
-/// What was written down in `notes` since the last call.
-fn notes(notes: usize) -> Vec<String> {
-    NOTES.with(|n| n[notes].take())
-}
-
-/// `v` as a note.
-fn dbg(v: impl Debug) -> String {
-    format!("{v:?}")
-}
 
 /// The player of the harness.
 fn me() -> crate::player::Id {
@@ -63,7 +31,7 @@ fn listen<E: crate::event::Event>(
 
 thread_local! {
     /// How many times a [`cancel`] listener ran on this test's thread (the tick runs there).
-    static CANCELS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static CANCELS: Cell<u32> = const { Cell::new(0) };
 }
 
 /// A listener that cancels `E`, counted in [`cancels`].
@@ -871,7 +839,7 @@ fn a_listener_that_takes_the_bucket_or_the_dye_cancels_the_use() {
     h.hold(named("minecraft:red_dye"));
     use_on_target(&mut h);
     assert_eq!(h.held(), stick);
-    assert_eq!(sign_at(&h).1, super::super::super::block_entity::BLACK_TEXT);
+    assert_eq!(sign_at(&h).1, crate::tick::block_entity::BLACK_TEXT);
 }
 
 /// The front lines of the sign at [`TARGET`].
@@ -955,7 +923,7 @@ fn a_cancelled_sign_dye_keeps_the_dye_and_opens_the_editor() {
     use_on_target(&mut h);
     assert_eq!(h.held(), dye);
     assert_eq!(cancels(), 1);
-    assert_eq!(sign_at(&h).1, super::super::super::block_entity::BLACK_TEXT);
+    assert_eq!(sign_at(&h).1, crate::tick::block_entity::BLACK_TEXT);
     assert!(h.packets().iter().any(|p| matches!(p, Packet::OpenSign(_))));
     // A listener that rewrites the text with the dye writes both.
     let l = listen(|e: &mut SignChange, _: &mut Context<'_>| {
@@ -969,7 +937,7 @@ fn a_cancelled_sign_dye_keeps_the_dye_and_opens_the_editor() {
     use_on_target(&mut h);
     assert_eq!(h.held().count(), 1);
     assert_eq!(sign_at(&h).0[0], "dyed");
-    assert_ne!(sign_at(&h).1, super::super::super::block_entity::BLACK_TEXT);
+    assert_ne!(sign_at(&h).1, crate::tick::block_entity::BLACK_TEXT);
 }
 
 /// A villager NPC two blocks south of the player: its entity ID and runtime ID.
@@ -981,7 +949,7 @@ fn villager(h: &mut Harness) -> (crate::entity::Id, u64) {
         ("sell".to_owned(), Value::Compound(bread.to_nbt())),
         ("maxUses".to_owned(), Value::Int(12)),
     ]);
-    let offers = super::super::super::trade::Offers::from_nbt(
+    let offers = crate::tick::trade::Offers::from_nbt(
         &Compound::from([(
             "Recipes".to_owned(),
             Value::List(crate::nbt::List::Compound(vec![offer])),
@@ -1110,7 +1078,7 @@ fn perform(h: &mut Harness, a: impl crate::action::Action) {
     .perform(a)
     .unwrap();
     let mut runs = 0;
-    super::super::super::dispatch::run_deferred(&mut h.state, &mut runs);
+    crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
 // pmmp: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::attackBlock, Player::interactEntity
@@ -1419,20 +1387,39 @@ fn listeners_that_meddle_at_random_neither_make_nor_lose_items() {
     }
 }
 
+// pmmp: SignChangeEvent::setNewText
+/// A listener's text goes on the sign as it is (PMMP cleans the player's text only) and the
+/// monitors see what went on; text over a sign's 1,000 bytes in all is refused.
 #[test]
-fn listener_text_is_checked_like_the_players() {
-    assert_eq!(
-        sign::check(&["§ca", "b\u{E000}", "", ""].map(String::from)),
-        Some(["§ca", "b", "", ""].map(String::from))
-    );
-    assert_eq!(sign::check(&["a\nb", "", "", ""].map(String::from)), None);
-    let long = [
-        "x".repeat(500),
-        "x".repeat(501),
-        String::new(),
-        String::new(),
-    ];
-    assert_eq!(sign::check(&long), None);
+fn a_listeners_sign_text_goes_on_as_it_is_and_monitors_see_it() {
+    let glyph = ["§ca", "b\u{E000}", "", ""].map(String::from);
+    let mut l = listen(|e: &mut SignChange, _: &mut Context<'_>| {
+        e.set_new_text(["§ca", "b\u{E000}", "", ""].map(String::from));
+    });
+    l.push_monitor(|e: &SignChange, _: &Context<'_>| {
+        note(WATCHED, e.new_text());
+    });
+    let mut h = Harness::with(|_| {}, l);
+    let sign = stack(ItemKind::OakSign);
+    h.hold(sign.clone());
+    place_on_grass(&mut h, &sign);
+    sign_edit(&mut h, "hello");
+    assert_eq!(front_lines(&h), glyph);
+    assert_eq!(notes(WATCHED), [dbg(&glyph)]);
+    let long = listen(|e: &mut SignChange, _: &mut Context<'_>| {
+        e.set_new_text([
+            "x".repeat(500),
+            "x".repeat(501),
+            String::new(),
+            String::new(),
+        ]);
+    });
+    let mut h = Harness::with(|_| {}, long);
+    h.hold(sign.clone());
+    place_on_grass(&mut h, &sign);
+    sign_edit(&mut h, "hello");
+    let empty: [String; 4] = Default::default();
+    assert_eq!(front_lines(&h), empty);
 }
 
 thread_local! {
@@ -1609,24 +1596,24 @@ fn breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total() {
             session: SessionId::new(1),
             tool: Stack::EMPTY,
         },
-        Destroy::Explosion { size: 1.0 },
+        Destroy::Explosion {
+            size: 1.0,
+            raise: Raise::Events,
+        },
     ] {
         // The listener moves the box's items to the player when its window closes.
-        let l = listen(
-            |_: &mut crate::event::InventoryClose, cx: &mut Context<'_>| {
-                let Some(mut inv) = cx.block_inventory_mut(crate::world::Id::DEFAULT, TARGET)
-                else {
-                    return;
-                };
-                inv.clear_all();
-                let diamonds = Stack::new(ItemKind::Diamond.default_type(), 64);
-                let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
-                let left = player
-                    .inventory_mut(crate::inventory::Kind::Main)
-                    .add(&diamonds);
-                assert!(left.is_empty());
-            },
-        );
+        let l = listen(|_: &mut InventoryClose, cx: &mut Context<'_>| {
+            let Some(mut inv) = cx.block_inventory_mut(crate::world::Id::DEFAULT, TARGET) else {
+                return;
+            };
+            inv.clear_all();
+            let diamonds = Stack::new(ItemKind::Diamond.default_type(), 64);
+            let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
+            let left = player
+                .inventory_mut(crate::inventory::Kind::Main)
+                .add(&diamonds);
+            assert!(left.is_empty());
+        });
         let mut h = Harness::with(|_| {}, l);
         set_with_entity(&mut h, Kind::ShulkerBox.default_state(), &Stack::EMPTY);
         h.state
@@ -1641,6 +1628,26 @@ fn breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total() {
         let _destroyed = destroy(&mut h.state, 0, TARGET, cause.clone());
         h.run(Vec::new());
         assert_eq!(every_diamond(&mut h), 64, "{cause:?}");
+    }
+}
+
+/// An explosion of a direct call (`Context::explode`) closes the windows on the blocks it breaks
+/// without [`InventoryClose`]; one of the game raises it.
+#[test]
+fn a_quiet_explosion_closes_windows_without_inventory_close() {
+    for (raise, heard) in [(Raise::Quiet, 0), (Raise::Events, 1)] {
+        let l = listen(|_: &mut InventoryClose, _: &mut Context<'_>| {
+            note(SEEN, "closed");
+        });
+        let mut h = Harness::with(|_| {}, l);
+        set_with_entity(&mut h, Kind::Chest.default_state(), &Stack::EMPTY);
+        h.run(Vec::new());
+        use_on(&mut h, TARGET, Face::West);
+        assert!(h.player().window().is_some(), "the chest is open");
+        let cause = Destroy::Explosion { size: 1.0, raise };
+        assert!(destroy(&mut h.state, 0, TARGET, cause));
+        assert!(h.player().window().is_none(), "{raise:?}");
+        assert_eq!(notes(SEEN).len(), heard, "{raise:?}");
     }
 }
 
@@ -2045,4 +2052,152 @@ fn direct_sounds_particles_and_explosions_raise_no_world_sound_or_particle() {
             .any(|w| w == "world_sound" || w == "world_particle"),
         "{heard:?}"
     );
+}
+
+/// Returns a tool of `kind` with one use left.
+fn worn_out(kind: ItemKind) -> Stack {
+    let tool = stack(kind);
+    let max = tool
+        .item()
+        .and_then(crate::item::Type::max_durability)
+        .unwrap();
+    tool.with_damage(max - 1).unwrap()
+}
+
+// pmmp: WorldSoundEvent, WorldParticleEvent, Player::breakBlock
+/// The listeners of a break's sound and particle hear them once the break is applied: the worn
+/// out tool is gone from the hand and the block from the world.
+#[test]
+fn a_breaks_sound_and_particle_listeners_see_it_applied() {
+    let mut l = listen(|e: &mut crate::event::WorldSound, cx: &mut Context<'_>| {
+        if e.sound() == crate::world::Sound::ItemBreak {
+            let empty = cx.state.players[&SessionId::new(1)]
+                .inventory
+                .held()
+                .is_empty();
+            note(SEEN, ("item break", empty));
+        }
+    });
+    l.push(
+        Priority::Normal,
+        |_: &mut crate::event::WorldParticle, cx: &mut Context<'_>| {
+            note(SEEN, ("block break", cx.state.worlds[0].block(TARGET)));
+        },
+    );
+    let mut h = Harness::with(|c| c.general.break_time_check = false, l);
+    h.set(TARGET, Kind::Stone.default_state());
+    h.hold(worn_out(ItemKind::IronPickaxe));
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), block::AIR);
+    assert!(h.held().is_empty(), "worn out");
+    assert_eq!(
+        notes(SEEN),
+        [
+            dbg(("item break", true)),
+            dbg(("block break", Some(block::AIR))),
+        ]
+    );
+}
+
+// pmmp: WorldSoundEvent, Player::interactBlock
+/// The listeners of a use's sound hear it once the held item is applied: a placed block and a
+/// framed item are already gone from the hand.
+#[test]
+fn a_uses_sound_listeners_hear_it_once_the_held_item_is_applied() {
+    let l = listen(|e: &mut crate::event::WorldSound, cx: &mut Context<'_>| {
+        let held = cx.state.players[&SessionId::new(1)]
+            .inventory
+            .held()
+            .count();
+        note(SEEN, (e.sound(), held));
+    });
+    let mut h = Harness::with(|_| {}, l);
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    place_on_grass(&mut h, &planks);
+    let placed = crate::world::Sound::BlockPlace(Kind::OakPlanks.default_state());
+    assert_eq!(notes(SEEN), [dbg((placed, 4))]);
+    // Hung on the west face of a stone east of it.
+    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
+    let frame = block::State::all()
+        .find(|b| b.name() == "minecraft:frame")
+        .and_then(|f| props::with_facing(f, Face::West))
+        .unwrap();
+    set_with_entity(&mut h, frame, &Stack::EMPTY);
+    h.run(Vec::new());
+    h.hold(stack(ItemKind::Stick).with_count(3));
+    use_on_target(&mut h);
+    let framed = crate::world::Sound::ItemFrameAddItem;
+    assert_eq!(notes(SEEN), [dbg((framed, 2))]);
+}
+
+// pmmp: BlockPlaceEvent, Player::returnItemsFromAction
+/// A place listener that ends creative mode has the block paid for: the item is taken by the mode
+/// the player has once the listeners ran.
+#[test]
+fn a_place_listener_that_ends_creative_mode_has_the_block_paid_for() {
+    let survival = listen(|_: &mut BlockPlace, cx: &mut Context<'_>| {
+        let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
+        assert!(player.set_game_mode(GameMode::Survival));
+    });
+    let mut h = Harness::with(creative, survival);
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    let at = place_on_grass(&mut h, &planks);
+    assert_eq!(h.block(at).kind(), Kind::OakPlanks);
+    assert_eq!(h.held().count(), 4);
+}
+
+// pmmp: BlockPlaceEvent
+/// A place listener that moves the player out of reach cancels the placement, as a right click
+/// listener's does.
+#[test]
+fn a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement() {
+    let away = listen(|_: &mut BlockPlace, cx: &mut Context<'_>| {
+        let eye = Vec3::new(20.5, -60.0 + EYE_HEIGHT, 0.5);
+        survival::teleport(cx.state, SessionId::new(1), 0, eye);
+    });
+    let mut h = Harness::with(|_| {}, away);
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    let at = place_on_grass(&mut h, &planks);
+    assert_eq!(h.block(at), block::AIR);
+    assert_eq!(h.held().count(), 5);
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent::cancel
+/// The monitors of an anchor's use see only a use that was applied: a cancelled explosion keeps
+/// the anchor and tells them nothing.
+#[test]
+fn an_anchor_use_monitor_sees_only_an_applied_use() {
+    let mut l = cancel(BlockPreExplode::cancel);
+    l.push_monitor(|_: &PlayerRespawnAnchorUse, _: &Context<'_>| {
+        note(WATCHED, "used");
+    });
+    let mut h = Harness::with(|_| {}, l);
+    use_charged_anchor(&mut h);
+    assert_eq!(h.block(TARGET), anchor(1));
+    assert_eq!(cancels(), 1);
+    assert!(notes(WATCHED).is_empty());
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent::cancel
+/// An anchor listener that changes the held item and cancels the use keeps the block once held
+/// from being placed: the click goes on only as it was.
+#[test]
+fn an_anchor_listener_that_changes_the_hand_keeps_the_old_block_from_being_placed() {
+    let swap = listen(|e: &mut PlayerRespawnAnchorUse, cx: &mut Context<'_>| {
+        set_hand(cx, stack(ItemKind::Stick));
+        e.cancel();
+    });
+    let mut h = Harness::with(|_| {}, swap);
+    h.set(TARGET, anchor(1));
+    h.hold(block_item(Kind::OakPlanks, 5));
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(h.block(BlockPos::new(1, -60, 0)), block::AIR);
+    assert_eq!(h.held(), stack(ItemKind::Stick));
 }

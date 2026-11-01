@@ -19,7 +19,10 @@ use crate::tick::tests::{
     answer, initialised, join, new_state, radius, received, settings, shared, tick,
 };
 use crate::tick::{EntryKind, InputLog, LoggedTick, Output, Setup, boundary, checkpoint, deliver};
-use crate::world::{BlockPos, ChunkPos, Flat, Lightning, Options, Ticket, Weather};
+use crate::world::{BlockPos, Flat, Lightning, Options, Ticket, Weather};
+
+/// The far chunks a ticket of radius 1 holds in the default world.
+const FAR: ChunkPos = ChunkPos::new(30, -30);
 
 thread_local! {
     /// What the listeners of a test saw, in order.
@@ -99,40 +102,9 @@ fn cx(state: &mut State) -> Context<'_> {
     Context { state }
 }
 
-fn ticks(state: &mut State, output: &mut Output, n: usize) {
-    for _ in 0..n {
-        tick(state, &mut Vec::new(), output);
-    }
-}
-
-/// Runs ticks until every world's light work is done (at most 1,000).
-fn settle(state: &mut State, output: &mut Output) {
-    for _ in 0..1000 {
-        if state.worlds.iter().all(World::is_light_idle) {
-            return;
-        }
-        tick(state, &mut Vec::new(), output);
-    }
-    panic!("the light work never ends");
-}
-
 /// A temporary flat world's options with `seed`.
 fn arena(seed: i64) -> Options {
     Options::new().with_kind(Kind::Temporary).with_seed(seed)
-}
-
-fn stone() -> crate::block::State {
-    crate::block::State::find("minecraft:stone", &[]).unwrap()
-}
-
-/// The eye position on world `w`'s spawn block.
-fn on_spawn(state: &State, w: WorldIndex) -> Vec3 {
-    let spawn = state.worlds[w].spawn();
-    Vec3::new(
-        f64::from(spawn.x) + 0.5,
-        f64::from(spawn.y),
-        f64::from(spawn.z) + 0.5,
-    )
 }
 
 // pmmp: WorldManager::generateWorld, WorldInitEvent, WorldLoadEvent, WorldManager::isWorldGenerated, WorldManager::isWorldLoaded, World::isLoaded, WorldCreationOptions, WorldCreationOptions::create, WorldCreationOptions::getSeed, WorldCreationOptions::setSeed, WorldCreationOptions::getSpawnPosition, WorldCreationOptions::setSpawnPosition, WorldCreationOptions::getGeneratorClass, WorldCreationOptions::setGeneratorClass, WorldCreationOptions::getDifficulty, WorldCreationOptions::setDifficulty, GeneratorManager::addGenerator
@@ -183,11 +155,34 @@ fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
         c.create_world("x", &arena(1).with_generator("normal")),
         Err(world::Error::UnknownGenerator)
     );
+    // A player at the spawn would stand outside the world border.
+    let past = BlockPos::new(world::BORDER, -60, 0);
+    assert_eq!(
+        c.create_world("x", &arena(1).with_spawn(past)),
+        Err(world::Error::OutOfRange)
+    );
     assert_eq!(
         c.load_world("nowhere", &Options::new()),
         Err(world::Error::NotGenerated)
     );
     assert!(!c.is_world_generated("nowhere") && !c.is_world_loaded("nowhere"));
+    assert!(!c.is_world_generated("x"), "nothing made");
+}
+
+fn ticks(state: &mut State, output: &mut Output, n: usize) {
+    for _ in 0..n {
+        tick(state, &mut Vec::new(), output);
+    }
+}
+
+/// The eye position on world `w`'s spawn block.
+fn on_spawn(state: &State, w: WorldIndex) -> Vec3 {
+    let spawn = state.worlds[w].spawn();
+    Vec3::new(
+        f64::from(spawn.x) + 0.5,
+        f64::from(spawn.y),
+        f64::from(spawn.z) + 0.5,
+    )
 }
 
 // pmmp: WorldManager::unloadWorld, WorldUnloadEvent, WorldUnloadEvent::cancel, WorldUnloadEvent::uncancel, WorldUnloadEvent::isCancelled, World::addOnUnloadCallback, World::removeOnUnloadCallback, WorldManager::getDefaultWorld, WorldManager::setDefaultWorld, WorldManager::getWorldByName
@@ -205,10 +200,11 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     assert_eq!(state.players[&SessionId::new(1)].world, 1);
     received(&mut rx);
 
+    // Cancelled, nothing happens and the monitors see nothing.
     CANCEL.set(true);
     assert_eq!(cx(&mut state).unload_world(id), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
-    assert_eq!(logged(), ["unload 1", "monitor true true"]);
+    assert_eq!(logged(), ["unload 1"]);
     assert!(cx(&mut state).world(id).is_some());
     assert_eq!(
         state.players[&SessionId::new(1)].world,
@@ -216,10 +212,11 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
         "a cancelled unload"
     );
 
-    // Forced, the listeners are asked all the same and their cancel is ignored.
+    // Forced, the listeners are asked all the same, their cancel is ignored, and the monitors see
+    // the unload not cancelled.
     assert_eq!(cx(&mut state).force_unload_world(id), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
-    assert_eq!(logged(), ["unload 1", "monitor true false"]);
+    assert_eq!(logged(), ["unload 1", "monitor false false"]);
     let c = cx(&mut state);
     assert!(c.world(id).is_none() && c.world_named("arena").is_none());
     assert!(!c.is_world_loaded("arena") && !c.is_world_generated("arena"));
@@ -270,6 +267,29 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     assert!(c.world(world::Id::DEFAULT).is_some(), "loaded in its place");
 }
 
+/// A listener that makes the unloading world the default one keeps it, even from a forced
+/// unload: the default world never unloads, so the monitors see no unload.
+#[test]
+fn a_listener_that_makes_the_world_the_default_one_keeps_it() {
+    let mut listeners = world_listeners();
+    listeners.push(
+        Priority::Normal,
+        |e: &mut WorldUnload, cx: &mut Context<'_>| {
+            cx.set_default_world(e.world()).unwrap();
+        },
+    );
+    let (mut state, mut output, _rx) = server(listeners);
+    let id = cx(&mut state).create_world("arena", &arena(3)).unwrap();
+    ticks(&mut state, &mut output, 2);
+    logged();
+    assert_eq!(cx(&mut state).force_unload_world(id), Ok(()));
+    tick(&mut state, &mut Vec::new(), &mut output);
+    assert_eq!(logged(), ["unload 1"]);
+    let c = cx(&mut state);
+    assert!(c.world(id).is_some());
+    assert_eq!(c.default_world().id(), id);
+}
+
 // pmmp: World::stopTime, World::startTime
 #[test]
 fn a_stopped_time_stands_still_for_the_world_and_its_players() {
@@ -297,6 +317,16 @@ fn a_stopped_time_stands_still_for_the_world_and_its_players() {
     ticks(&mut state, &mut output, 3);
     assert_eq!(paused(&mut rx), [false]);
     assert_eq!(state.worlds[0].time_ticks(), before + 3);
+}
+
+/// Runs ticks until every world's light work is done (at most 1,000).
+fn settle(state: &mut State, output: &mut Output) {
+    let mut ran = 0;
+    while !state.worlds.iter().all(World::is_light_idle) {
+        assert!(ran < 1000, "the light work never ends");
+        tick(state, &mut Vec::new(), output);
+        ran += 1;
+    }
 }
 
 /// A world made with its own view values (the `[worlds.<name>]` keys) uses them; the others keep
@@ -380,9 +410,6 @@ fn a_world_follows_the_server_difficulty_until_it_has_its_own() {
     assert!(!cx(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Easy)));
     assert!(cx(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Hard)));
 }
-
-/// The far chunks a ticket of radius 1 holds in the default world.
-const FAR: ChunkPos = ChunkPos::new(30, -30);
 
 // pmmp: World::registerChunkLoader, World::unregisterChunkLoader, World::getChunkLoaders, World::isChunkInUse, World::loadChunk, World::requestChunkPopulation, World::orderChunkPopulation, ChunkLoader
 #[test]
@@ -469,6 +496,27 @@ fn tickets_at(state: &mut State, chunks: &[ChunkPos]) -> Vec<Vec<Ticket>> {
         .collect()
 }
 
+/// A state like [`server`]'s world list as a replay makes it from `state`'s checkpoint.
+fn fresh_like(state: &State) -> State {
+    let worlds = state
+        .worlds
+        .iter()
+        .map(|w| {
+            let mut fresh = World::new(w.name(), w.kind(), w.seed(), w.spawn());
+            fresh.set_generator(w.generator());
+            fresh.set_number(w.number());
+            fresh
+        })
+        .collect();
+    State::new(
+        crate::tick::Settings::new(&crate::config::Config::default()),
+        shared(),
+        Setup::default(),
+        worlds,
+        0,
+    )
+}
+
 #[test]
 fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
     let (mut state, mut output, _rx) = server(Listeners::default());
@@ -545,11 +593,14 @@ fn a_hardcore_server_plays_every_world_on_hard() {
         .unwrap();
     state.catalog.stored.insert(
         "old".to_owned(),
-        WorldRecord {
-            number: 7,
-            time: 0,
-            spawn: BlockPos::new(0, -60, 0),
-        },
+        (
+            "old".to_owned(),
+            WorldRecord {
+                number: 7,
+                time: 0,
+                spawn: BlockPos::new(0, -60, 0),
+            },
+        ),
     );
     let old = cx(&mut state)
         .load_world("old", &Options::new().with_difficulty(Difficulty::Easy))
@@ -607,6 +658,24 @@ fn a_load_after_an_unload_in_the_same_call_keeps_the_world() {
     assert_eq!(logged(), Vec::<String>::new(), "the unload was dropped");
 }
 
+/// A world whose spawn moved to another chunk in the tick of its unload holds nothing after the
+/// unload: the view phase holds no spawn chunks of a world that is not loaded.
+#[test]
+fn a_spawn_moved_in_the_tick_of_its_worlds_unload_holds_nothing() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let base = state.chunks.held();
+    let id = cx(&mut state).create_world("arena", &arena(1)).unwrap();
+    ticks(&mut state, &mut output, 3);
+    let mut c = cx(&mut state);
+    c.world_mut(id)
+        .unwrap()
+        .set_spawn(BlockPos::new(800, -60, 800));
+    c.unload_world(id).unwrap();
+    ticks(&mut state, &mut output, 4);
+    assert_eq!(state.worlds[1].loaded_chunks().len(), 0);
+    assert_eq!(state.chunks.held(), base);
+}
+
 /// A server with the flat default world whose session 1 has had its start-game packets and its
 /// spawn window and still waits for its spawn chunks (one is sent a tick), its queue emptied.
 fn in_spawn_window() -> (State, Output, mpsc::Receiver<Outbound>) {
@@ -630,7 +699,7 @@ fn a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes() 
     let (mut state, mut output, mut rx) = in_spawn_window();
     let mut c = cx(&mut state);
     assert!(c.stop_time(world::Id::DEFAULT));
-    assert!(c.set_time(world::Id::DEFAULT, 1_000));
+    assert!(c.set_time(world::Id::DEFAULT, 1000));
     assert!(c.set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Easy)));
     assert!(c.set_difficulty(Difficulty::Hard));
     tick(&mut state, &mut Vec::new(), &mut output);
@@ -644,7 +713,7 @@ fn a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes() 
         })
         .collect();
     assert_eq!(clocks.first().map(|c| c.1), Some(true), "{clocks:?}");
-    assert!(clocks.contains(&(1_000, true)), "{clocks:?}");
+    assert!(clocks.contains(&(1000, true)), "{clocks:?}");
     let set: Vec<u32> = packets
         .iter()
         .filter_map(|p| match p {
@@ -699,6 +768,10 @@ fn tables(state: &State) -> Vec<usize> {
         ]);
     }
     sizes
+}
+
+fn stone() -> crate::block::State {
+    crate::block::State::find("minecraft:stone", &[]).unwrap()
 }
 
 #[test]
@@ -917,7 +990,7 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
         assert!(c.stop_time(id));
         assert!(c.set_world_difficulty(id, Some(Difficulty::Easy)));
         assert!(c.set_weather(id, Weather::Rain));
-        assert!(c.set_time(id, 4_000));
+        assert!(c.set_time(id, 4000));
         c.world_mut(id).unwrap().set_spawn(BlockPos::new(9, -60, 9));
         c.unload_world(id).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
@@ -933,7 +1006,7 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     // The record keeps the state alone, the moved spawn among it: none of the settings the run
     // changed.
     let (_, lobby) = stored.iter().find(|(n, _)| n == "lobby").unwrap();
-    assert!((4_000..4_010).contains(&lobby.time), "{lobby:?}");
+    assert!((4000..4010).contains(&lobby.time), "{lobby:?}");
     assert_eq!(lobby.spawn, BlockPos::new(9, -60, 9));
     drop(opened);
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
@@ -954,7 +1027,7 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let c = cx(&mut state);
     let lobby = c.world(id).unwrap();
     assert_eq!(lobby.block(at), Some(stone()), "the unload's commit");
-    assert!(lobby.time_ticks() >= 4_000, "the saved time goes on");
+    assert!(lobby.time_ticks() >= 4000, "the saved time goes on");
     assert_eq!((lobby.seed(), lobby.spawn()), (6, BlockPos::new(9, -60, 9)));
     assert!(!lobby.is_time_stopped());
     assert_eq!(lobby.difficulty(), Some(Difficulty::Hard));
@@ -1023,7 +1096,8 @@ fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
 }
 
 /// Names that differ only in letter case are one world: a stored world is generated, loads with
-/// its saved time and is deleted under any of them, and keeps its one file.
+/// its saved time, its file's name and the seed of that name, and is deleted under any of them,
+/// and keeps its one file.
 #[test]
 fn a_world_is_found_by_its_name_in_any_letter_case() {
     let dir = crate::save::tests::TempDir::new("world-case");
@@ -1036,7 +1110,7 @@ fn a_world_is_found_by_its_name_in_any_letter_case() {
             .unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         let mut c = cx(&mut state);
-        assert!(c.set_time(id, 4_000));
+        assert!(c.set_time(id, 4000));
         c.unload_world(id).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         finish(link, handle);
@@ -1046,7 +1120,12 @@ fn a_world_is_found_by_its_name_in_any_letter_case() {
         let mut c = cx(&mut state);
         assert!(c.is_world_generated("LOBBY"));
         let id = c.load_world("Lobby", &Options::new()).unwrap();
-        assert!(c.world(id).unwrap().time_ticks() >= 4_000);
+        let lobby = c.world(id).unwrap();
+        assert!(lobby.time_ticks() >= 4000);
+        assert_eq!(
+            (lobby.name(), lobby.seed()),
+            ("lobby", save::default_seed("lobby"))
+        );
         assert_eq!(c.load_world("LOBBY", &Options::new()), Ok(id));
         assert!(c.is_world_loaded("lobby"));
         run_saved(&mut state, &mut link, &pool, 3);
@@ -1134,27 +1213,6 @@ fn a_world_made_by_a_load_listener_loads_its_spawn_chunks_from_the_save_thread()
     }
     finish(link, handle);
     assert!(pool.shutdown());
-}
-
-/// A state like [`server`]'s world list as a replay makes it from `state`'s checkpoint.
-fn fresh_like(state: &State) -> State {
-    let worlds = state
-        .worlds
-        .iter()
-        .map(|w| {
-            let mut fresh = World::new(w.name(), w.kind(), w.seed(), w.spawn());
-            fresh.set_generator(w.generator());
-            fresh.set_number(w.number());
-            fresh
-        })
-        .collect();
-    State::new(
-        crate::tick::Settings::new(&crate::config::Config::default()),
-        shared(),
-        Setup::default(),
-        worlds,
-        0,
-    )
 }
 
 /// The task of the replay runs: it makes, holds, unloads and makes again worlds, stops time,
@@ -1277,23 +1335,28 @@ fn replay(ticks: &[LoggedTick], pool: &Pool) -> Vec<u64> {
         let mut answers: Vec<Response> = t
             .responses
             .iter()
-            .map(|a| match a {
-                crate::tick::Answer::Chunk { world, pos, .. } => Response::Chunk {
-                    world: *world,
-                    pos: *pos,
-                    loaded: crate::tick::extra::tests::sample_loaded(
-                        &state,
-                        *world,
-                        *pos,
-                        Box::new(crate::world::Chunk::generate(
-                            &Flat,
-                            state.worlds[*world].seed(),
+            .map(|a| {
+                match a {
+                    crate::tick::Answer::Chunk { world, pos, .. } => Some(Response::Chunk {
+                        world: *world,
+                        pos: *pos,
+                        loaded: crate::tick::extra::tests::sample_loaded(
+                            &state,
+                            *world,
                             *pos,
-                        )),
-                    ),
-                },
-                crate::tick::Answer::Committed(start) => Response::Committed { start: *start },
-                other => panic!("the script has no {other:?}"),
+                            Box::new(crate::world::Chunk::generate(
+                                &Flat,
+                                state.worlds[*world].seed(),
+                                *pos,
+                            )),
+                        ),
+                    }),
+                    crate::tick::Answer::Committed(start) => {
+                        Some(Response::Committed { start: *start })
+                    }
+                    _ => None,
+                }
+                .expect("the script gets only chunk and commit answers")
             })
             .collect();
         crate::tick::step(

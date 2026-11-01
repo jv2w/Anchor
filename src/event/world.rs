@@ -38,10 +38,11 @@ getters!(WorldLoad {
 });
 
 /// Raised before a world asked to unload ([`Context::unload_world`](crate::Context::unload_world))
-/// does, in the next view phase. Cancelling keeps it loaded, unless the unload was forced. The
-/// monitors see the world gone: its players moved to the default world's spawn, its chunks
-/// unloaded and its changes waiting for the next commit, which the unload asks for. It stands
-/// for PMMP's unload callbacks (`World::addOnUnloadCallback`) too.
+/// does, in the next view phase. Cancelling keeps it loaded, unless the unload was forced; a
+/// listener that makes the world the default one keeps it either way. The monitors see only an
+/// unload that happened, not cancelled, and the world gone: its players moved to the default
+/// world's spawn, its chunks unloaded and its changes waiting for the next commit, which the
+/// unload asks for. It stands for PMMP's unload callbacks (`World::addOnUnloadCallback`) too.
 #[doc(alias = "WorldUnloadEvent")]
 #[doc(alias = "World::addOnUnloadCallback")]
 #[doc(alias = "World::removeOnUnloadCallback")]

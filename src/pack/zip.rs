@@ -252,7 +252,7 @@ pub(super) fn read(entry: &Entry<'_>) -> Result<Vec<u8>, Fault> {
     } else {
         let mut out = Vec::new();
         Decompressor::new(Compression::Zlib)
-            .decompress(entry.data, &mut out, size)
+            .decompress(entry.data, size, &mut out)
             .map_err(|_| "invalid deflate data")?;
         out
     };
@@ -294,8 +294,7 @@ pub(super) mod tests {
             let (method, stored) = if file.deflate {
                 let mut packed = Vec::new();
                 crate::protocol::compression::Compressor::new(Compression::Zlib, 6)
-                    .compress(file.data, &mut packed, usize::MAX)
-                    .unwrap();
+                    .compress(file.data, &mut packed);
                 (METHOD_DEFLATE, packed)
             } else {
                 (METHOD_STORED, file.data.to_vec())

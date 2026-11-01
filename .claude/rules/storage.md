@@ -34,7 +34,7 @@ paths:
 ## Changing the format
 - Raise `storage::seal::FORMAT_VERSION` for every change of the storage format, and describe the new layout in that constant's rustdoc.
 - Keep the number for a change under which every file of the format reads exactly as before: widening a read limit only (such as the entries a list may hold), or reading an optional key no file of the format holds (one Anchor never wrote in that format and the import never carries).
-- Before release, read only the current format. The record decoders (`storage::codec`) know the current layout alone, and a value of any other format is corrupt. Never add reading or migration of old formats. The input log (`tick::log`) has its own format number and also reads only its current format.
+- Before release, read only the current format. The record decoders (`storage::codec`) know the current layout alone, and a value of any other format is corrupt. Never add reading or migration of old formats. The input log (`tick::log`) has its own format number, raised for every change of the log's layout or of a checkpoint codec's layout (`fields!`, `variants!`, a hand-written `Codec`), and also reads only its current format.
 - Test every format change: a round trip of the new format, a value of another format refused as damage with its file unchanged, and no panic on broken values.
 
 ## Saving and committing

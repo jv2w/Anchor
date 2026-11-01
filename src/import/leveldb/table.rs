@@ -501,9 +501,9 @@ pub(super) fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
             out.extend_from_slice(body);
             Ok(())
         }
-        SNAPPY => Decompressor::new(Compression::Snappy).decompress(body, &mut out, MAX_BLOCK),
-        ZLIB => inflate.decompress_whole(body, &mut out, MAX_BLOCK, Framing::Zlib),
-        RAW_DEFLATE => inflate.decompress_whole(body, &mut out, MAX_BLOCK, Framing::Raw),
+        SNAPPY => Decompressor::new(Compression::Snappy).decompress(body, MAX_BLOCK, &mut out),
+        ZLIB => inflate.decompress_whole(body, MAX_BLOCK, Framing::Zlib, &mut out),
+        RAW_DEFLATE => inflate.decompress_whole(body, MAX_BLOCK, Framing::Raw, &mut out),
         _ => return Err(Error::UnknownCompression(kind)),
     };
     decoded.map_err(Error::Compression)?;
@@ -561,8 +561,7 @@ pub(super) mod tests {
             SNAPPY => {
                 let mut body = Vec::new();
                 crate::protocol::compression::Compressor::new(Compression::Snappy, 6)
-                    .compress(block, &mut body, usize::MAX)
-                    .unwrap();
+                    .compress(block, &mut body);
                 body
             }
             ZLIB => {
@@ -575,8 +574,7 @@ pub(super) mod tests {
             _ => {
                 let mut body = Vec::new();
                 crate::protocol::compression::Compressor::new(Compression::Zlib, 6)
-                    .compress(block, &mut body, usize::MAX)
-                    .unwrap();
+                    .compress(block, &mut body);
                 body
             }
         };

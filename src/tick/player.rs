@@ -36,385 +36,11 @@ const NO_REASON: &str = "disconnectionScreen.noReason";
 /// The log message of a transfer unless one is given.
 const TRANSFERRED: &str = "Moved to another server";
 /// The default quit message: BDS's yellow "left the game" line, which the client translates with
-/// the player's name (PMMP `Player::getLeaveMessage`). A [`PlayerQuit`] message left at it is sent
+/// the player's display name (PMMP `Player::getLeaveMessage`). A [`PlayerQuit`] message left at it is sent
 /// so; any other is sent as it is.
 pub(super) const LEFT: &str = "§e%multiplayer.player.left";
 /// The lines a player's screen shows at once unless set (PMMP `Player::getScreenLineHeight`).
 const DEFAULT_LINE_HEIGHT: u32 = 7;
-
-/// What the API marked on a player for the end of the tick, and the chat limit.
-#[derive(Debug, Default)]
-pub(super) struct Marks {
-    /// The name chat shows (PMMP `displayName`); `None` is the player's name. Not saved.
-    display_name: Option<String>,
-    /// Why the player leaves at the end of the tick.
-    leave: Option<Leave>,
-    /// Where the player moves at the end of the tick: the world and the eye position, checked.
-    teleport: Option<(WorldIndex, Vec3)>,
-    /// The tick of the player's last chat line and the lines it sent in that tick (PMMP
-    /// `messageCounter`).
-    pub(super) chat: (u64, u8),
-    /// The lines the player's screen shows at once (PMMP `lineHeight`); `None` is 7. Not saved.
-    line_height: Option<u32>,
-}
-
-/// How a player leaves.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Leave {
-    /// Disconnected with a reason (for the log and its screen).
-    Kick {
-        reason: String,
-        /// What its screen shows instead of the reason.
-        screen_message: Option<String>,
-        /// What the other players see in chat; empty for nothing.
-        quit_message: String,
-    },
-    /// Sent to another server.
-    Transfer {
-        address: String,
-        port: u16,
-        /// For the log.
-        message: String,
-    },
-}
-
-impl Leave {
-    /// Why the player left, for the log and [`PlayerQuit`].
-    fn reason(&self) -> &str {
-        match self {
-            Self::Kick { reason, .. } => reason,
-            Self::Transfer { message, .. } => message,
-        }
-    }
-
-    /// The last packet the player gets, and the message the other players see.
-    fn into_parts(self) -> (Packet, String) {
-        match self {
-            Self::Kick {
-                reason,
-                screen_message,
-                quit_message,
-            } => {
-                let message = screen_message.unwrap_or(reason);
-                let packet = Packet::Disconnect(Disconnect {
-                    reason: DisconnectReason::Kicked.into(),
-                    hide_disconnection_screen: false,
-                    message: if message.is_empty() {
-                        NO_REASON.to_owned()
-                    } else {
-                        message
-                    },
-                    filtered_message: String::new(),
-                });
-                (packet, quit_message)
-            }
-            Self::Transfer { address, port, .. } => {
-                let packet = Packet::Transfer(Box::new(Transfer {
-                    address,
-                    port,
-                    reload_world: false,
-                    gathering_join_info: None,
-                }));
-                (packet, LEFT.to_owned())
-            }
-        }
-    }
-}
-
-super::checkpoint::fields!(Marks {
-    display_name,
-    leave,
-    teleport,
-    chat,
-    line_height,
-});
-super::checkpoint::variants!(Leave {
-    0 => Kick {
-        reason,
-        screen_message,
-        quit_message
-    },
-    1 => Transfer {
-        address,
-        port,
-        message
-    },
-});
-
-/// What the player's connection and saved data tell besides its login: its latest ping and its
-/// play history, in milliseconds since the Unix epoch.
-#[derive(Debug, Default)]
-pub(super) struct Presence {
-    /// The latest round trip time in milliseconds ([`Measure::Ping`](super::queue::Measure));
-    /// `None` until one arrived.
-    ping_ms: Option<u32>,
-    /// When the player first joined (`firstPlayed`).
-    first_played: i64,
-    /// When the player's data was saved before this join (`lastPlayed`).
-    last_played: i64,
-    /// The engine tick the saved data was placed at, which with the join time dates a save.
-    placed_tick: u64,
-}
-
-super::checkpoint::fields!(Presence {
-    ping_ms,
-    first_played,
-    last_played,
-    placed_tick,
-});
-
-impl Presence {
-    pub(super) fn set_ping(&mut self, millis: u32) {
-        self.ping_ms = Some(millis);
-    }
-
-    /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
-    /// new player, which gets `join_ms`, as PMMP gives it the time of its first spawn).
-    pub(super) fn place(
-        &mut self,
-        (first, last): (Option<i64>, Option<i64>),
-        join_ms: i64,
-        tick: u64,
-    ) {
-        self.first_played = first.unwrap_or(join_ms);
-        self.last_played = last.unwrap_or(join_ms);
-        self.placed_tick = tick;
-    }
-
-    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (PMMP
-    /// writes the wall clock; the tick dates it from the join time and the ticks since, one
-    /// [`super::TICK`] each).
-    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
-        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
-        let since =
-            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
-        (self.first_played, join_ms.saturating_add(since))
-    }
-
-    /// Hashes every field (state hash).
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            ping_ms,
-            first_played,
-            last_played,
-            placed_tick,
-        } = self;
-        h.u64(ping_ms.map_or(0, |p| u64::from(p) + 1));
-        h.u64(first_played.cast_unsigned());
-        h.u64(last_played.cast_unsigned());
-        h.u64(*placed_tick);
-    }
-}
-
-/// The wall-clock time `millis` after the Unix epoch.
-fn unix_time(millis: i64) -> SystemTime {
-    let offset = Duration::from_millis(millis.unsigned_abs());
-    let time = if millis >= 0 {
-        UNIX_EPOCH.checked_add(offset)
-    } else {
-        UNIX_EPOCH.checked_sub(offset)
-    };
-    time.unwrap_or(UNIX_EPOCH)
-}
-
-impl Marks {
-    /// Hashes every field (state hash).
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            display_name,
-            leave,
-            teleport,
-            chat,
-            line_height,
-        } = self;
-        match display_name {
-            Some(name) => h.bytes(name.as_bytes()),
-            None => h.u64(u64::MAX),
-        }
-        match leave {
-            Some(Leave::Kick {
-                reason,
-                screen_message,
-                quit_message,
-            }) => {
-                h.bytes(reason.as_bytes());
-                match screen_message {
-                    Some(m) => h.bytes(m.as_bytes()),
-                    None => h.u64(u64::MAX),
-                }
-                h.bytes(quit_message.as_bytes());
-            }
-            Some(Leave::Transfer {
-                address,
-                port,
-                message,
-            }) => {
-                h.bytes(address.as_bytes());
-                h.u64(u64::from(*port));
-                h.bytes(message.as_bytes());
-            }
-            None => h.u64(u64::MAX),
-        }
-        match teleport {
-            Some((world, eye)) => {
-                h.usize(*world);
-                for c in [eye.x, eye.y, eye.z] {
-                    h.u64(c.to_bits());
-                }
-            }
-            None => h.u64(u64::MAX),
-        }
-        h.u64(chat.0);
-        h.u64(u64::from(chat.1));
-        h.u64(line_height.map_or(0, u64::from));
-    }
-}
-
-/// Does what the player setters marked this tick, after the inputs, tasks and rules and before
-/// the views move and the output is built: kicked and transferred players get their last packet
-/// and leave, refused hotbar selections are answered, teleported players move, the survival
-/// marks are done, and changed skins go out within the server's skin budget.
-pub(super) fn sync(state: &mut State, output: &mut Output) {
-    // Most ticks mark no one: one pass over the players finds the marked ones, and the next one
-    // is looked for after each is done, so marks it sets on later players are seen too.
-    let mut after = Bound::Unbounded;
-    // Changed skins go out in turn once the pass is done, on the ticks it met one.
-    let mut skins_wait = false;
-    loop {
-        let marked = state
-            .players
-            .range_mut((after, Bound::Unbounded))
-            .find(|(_, p)| {
-                p.marks.leave.is_some()
-                    || inventory::held_unanswered(p)
-                    || p.marks.teleport.is_some()
-                    || survival::marked(p)
-            });
-        let Some((&session, player)) = marked else {
-            break;
-        };
-        after = Bound::Excluded(session);
-        if let Some(leave) = player.marks.leave.take() {
-            let reason = leave.reason().to_owned();
-            match &leave {
-                Leave::Kick { reason, .. } => {
-                    info!(session = session.get(), name = %player.identity.name, %reason, "player kicked");
-                }
-                Leave::Transfer { address, port, .. } => {
-                    info!(session = session.get(), name = %player.identity.name, %address, port, "player transferred");
-                }
-            }
-            let (packet, quit_message) = leave.into_parts();
-            quit(state, session, &reason, quit_message, QuitCause::Disconnect);
-            if let Some(p) = state.remove(session) {
-                state.close(p, packet, output);
-            }
-            continue;
-        }
-        inventory::answer_held(player);
-        skins_wait |= survival::skin_waits(player);
-        apply_marks(state, session);
-    }
-    if skins_wait {
-        survival::send_skins(state);
-    }
-}
-
-/// Moves the player of `session` if it was teleported and does its survival marks.
-fn apply_marks(state: &mut State, session: SessionId) {
-    if let Some((world, eye)) = state
-        .players
-        .get_mut(&session)
-        .and_then(|p| p.marks.teleport.take())
-    {
-        survival::teleport(state, session, world, eye);
-    }
-    survival::sync(state, session);
-}
-
-/// Why a player quits, as [`PlayerQuit::is_shutdown`] tells it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum QuitCause {
-    /// It left, was kicked or replaced, or its connection ended.
-    Disconnect,
-    /// The server stops.
-    Shutdown,
-}
-
-/// The player of `session` is about to leave for `reason` (PMMP `Player::onPostDisconnect`):
-/// the [`PlayerQuit`] listeners may change `quit_message`, then what the API marked on the
-/// player, the listeners' marks included, takes effect (PMMP saves after the event, so a teleport
-/// is the saved place and a kill dies with its drops), then every other online player sees the
-/// message in chat: [`LEFT`] as BDS's translated line with the player's name, an empty one not at
-/// all, any other as it is. Call it just before the player is removed, in the tick's serial step.
-/// A player still loading its data has not joined, so it raises nothing.
-pub(super) fn quit(
-    state: &mut State,
-    session: SessionId,
-    reason: &str,
-    quit_message: String,
-    cause: QuitCause,
-) {
-    let Some(name) = state
-        .players
-        .get(&session)
-        .filter(|p| p.phase != Phase::Loading)
-        .map(|p| p.identity.name.clone())
-    else {
-        return;
-    };
-    let mut event = None;
-    let message = if dispatch::heard::<PlayerQuit>(state) {
-        let e = event.insert(PlayerQuit {
-            player: Id::new(session),
-            quit_message,
-            quit_reason: reason.to_owned(),
-            shutdown: cause == QuitCause::Shutdown,
-        });
-        dispatch::call(state, e);
-        e.quit_message.clone()
-    } else {
-        quit_message
-    };
-    apply_marks(state, session);
-    if !message.is_empty() {
-        let message = if message == LEFT {
-            Message::Translation {
-                key: message,
-                parameters: vec![name],
-            }
-        } else {
-            Message::Raw(message)
-        };
-        super::spawn::tell_others(state, session, message);
-    }
-    if let Some(e) = &event {
-        dispatch::watch(state, e);
-    }
-}
-
-/// Sends `message` to every online player; returns how many got it. Fails, sending nothing, for a
-/// message a client does not decode.
-pub(super) fn broadcast(state: &mut State, message: Message) -> Result<usize> {
-    Ok(broadcast_packets(state, &message.into_packets()?))
-}
-
-/// Sends the packets of a message to every online player; returns how many got them.
-pub(super) fn broadcast_packets(state: &mut State, packets: &Packets) -> usize {
-    let mut count = 0;
-    for player in state.players.values_mut() {
-        if !player.gets_broadcasts() {
-            continue;
-        }
-        for packet in packets.iter().flatten() {
-            player.send_packet(packet.clone());
-        }
-        count += 1;
-    }
-    count
-}
 
 impl Player {
     /// The handle to keep beyond the tick.
@@ -436,16 +62,6 @@ impl Player {
             .display_name
             .as_deref()
             .unwrap_or(&self.identity.name)
-    }
-
-    /// Sets the name chat shows. Not saved, as in PMMP. Fails for a name longer than 65,536
-    /// bytes.
-    #[doc(alias = "Player::setDisplayName")]
-    pub fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
-        let name = name.into();
-        crate::player::check_text(&name)?;
-        self.marks.display_name = Some(name);
-        Ok(())
     }
 
     /// The Xbox user ID; `None` without Xbox sign-in.
@@ -608,17 +224,6 @@ impl Player {
         self.marks.line_height.unwrap_or(DEFAULT_LINE_HEIGHT)
     }
 
-    /// Sets the lines the player's screen shows at once; `None` goes back to 7. Not saved, as in
-    /// PMMP. Fails for 0.
-    #[doc(alias = "Player::setScreenLineHeight")]
-    pub fn set_screen_line_height(&mut self, height: Option<u32>) -> Result<()> {
-        if height == Some(0) {
-            return Err(Error::OutOfRange);
-        }
-        self.marks.line_height = height;
-        Ok(())
-    }
-
     /// Whether the player stays connected: false once it was kicked or transferred, until it
     /// leaves at the end of the tick.
     #[doc(alias = "Player::isOnline")]
@@ -653,27 +258,47 @@ impl Player {
         self.marks.teleport.map_or(self.position, |(_, eye)| eye)
     }
 
+    /// Sets the name chat shows: chat lines and the join and quit lines name the player by it.
+    /// Not saved, as in PMMP. Fails for a name longer than 65,536 bytes.
+    #[doc(alias = "Player::setDisplayName")]
+    pub fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
+        let name = name.into();
+        crate::player::check_text(&name)?;
+        self.marks.display_name = Some(name);
+        Ok(())
+    }
+
+    /// Sets the lines the player's screen shows at once; `None` goes back to 7. Not saved, as in
+    /// PMMP. Fails for 0.
+    #[doc(alias = "Player::setScreenLineHeight")]
+    pub fn set_screen_line_height(&mut self, height: Option<u32>) -> Result<()> {
+        if height == Some(0) {
+            return Err(Error::OutOfRange);
+        }
+        self.marks.line_height = height;
+        Ok(())
+    }
+
     /// Moves the player's feet to `feet` in `world`: by the end of the tick its window closes,
     /// it wakes, its breaking stops, its fall ends, and its client and viewers see it there;
     /// another world sends its chunks again. [`position`](Self::position) is the new place at
     /// once; a second teleport in the tick wins. The player keeps its rotation unless
     /// [`set_rotation`](Self::set_rotation) turns it. Fails for a position that is not finite or
-    /// lies outside the world border. A world ID of another server is ignored at the end of the
-    /// tick.
+    /// lies outside the world border. A world that is not loaded at the end of the tick (one
+    /// unloaded since, or a world ID of another server) is ignored there.
     #[doc(alias = "Player::teleport")]
     #[doc(alias = "Entity::teleport")]
     pub fn teleport(&mut self, world: world::Id, feet: Vec3) -> Result<()> {
         let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
-        if !inside_border(eye) {
-            return Err(Error::OutsideWorld);
-        }
+        check_position(eye)?;
         self.marks.teleport = Some((world.index(), eye));
         Ok(())
     }
 
     /// Shows the player `message` (PMMP's message methods merged). The packets follow this tick's
     /// other packets. Fails, sending nothing, for a message a client does not decode ([`Message`]
-    /// gives the bounds).
+    /// gives the bounds). More than 4,096 packets queued in one tick disconnect the player
+    /// ([`send_packet`](Self::send_packet)).
     #[doc(alias = "Player::sendMessage")]
     #[doc(alias = "Player::sendTip")]
     #[doc(alias = "Player::sendPopup")]
@@ -757,8 +382,8 @@ impl Player {
     }
 
     /// Disconnects the player at the end of the tick with `reason` on its screen (the client's
-    /// "disconnected" text when empty); the other players see that it left the game. Fails if the player already leaves, or for a reason longer
-    /// than 65,536 bytes.
+    /// "disconnected" text when empty); the other players see that it left the game. Fails if the
+    /// player already leaves, or for a reason longer than 65,536 bytes.
     #[doc(alias = "Player::kick")]
     #[doc(alias = "Player::disconnect")]
     pub fn kick(&mut self, reason: impl Into<String>) -> Result<()> {
@@ -776,8 +401,8 @@ impl Player {
     }
 
     /// Sends the player to the server at `address` (a host name or IP address) and `port` at the
-    /// end of the tick; it leaves this one, and the other players see that it left the game. Fails if the player already leaves, or for an empty
-    /// address or one longer than 253 bytes.
+    /// end of the tick; it leaves this one, and the other players see that it left the game.
+    /// Fails if the player already leaves, or for an empty address or one longer than 253 bytes.
     #[doc(alias = "Player::transfer")]
     pub fn transfer(&mut self, address: impl Into<String>, port: u16) -> Result<()> {
         if self.marks.leave.is_some() {
@@ -800,22 +425,34 @@ impl Context<'_> {
     /// Kicks `player` as [`Player::kick`] does, after asking the [`PlayerKick`] listeners, which
     /// may keep it or change the reason, the screen message and the quit message the other
     /// players see (`quit_message` `None` is the usual "left the game" line, an empty one shows
-    /// nothing). False if it was not kicked: it is gone or
-    /// leaving, a listener cancelled it, or a text is longer than 65,536 bytes.
+    /// nothing). Nothing happens if the player is gone or leaving or a text is longer than 65,536
+    /// bytes, before the listeners are asked or after they changed it, or if a listener cancels
+    /// it.
     pub(crate) fn kick_player(
         &mut self,
         player: Id,
         reason: String,
         screen_message: Option<String>,
         quit_message: Option<String>,
-    ) -> bool {
+    ) {
         let session = player.session();
-        let staying = |state: &State| state.players.get(&session).is_some_and(Player::is_online);
-        if !staying(self.state) {
-            return false;
-        }
+        let can_kick = |state: &State, reason: &str, screen: Option<&str>, quit: &str| {
+            state.players.get(&session).is_some_and(Player::is_online)
+                && [Some(reason), screen, Some(quit)]
+                    .into_iter()
+                    .flatten()
+                    .all(|t| crate::player::check_text(t).is_ok())
+        };
         let (mut reason, mut screen_message) = (reason, screen_message);
         let mut quit_message = quit_message.unwrap_or_else(|| LEFT.to_owned());
+        if !can_kick(
+            self.state,
+            &reason,
+            screen_message.as_deref(),
+            &quit_message,
+        ) {
+            return;
+        }
         let mut event = None;
         if dispatch::heard::<PlayerKick>(self.state) {
             let e = event.insert(PlayerKick {
@@ -826,21 +463,20 @@ impl Context<'_> {
                 cancelled: false,
             });
             dispatch::call(self.state, e);
-            if e.cancelled || (dispatch::listened::<PlayerKick>(self.state) && !staying(self.state))
+            if e.cancelled
+                || (dispatch::listened::<PlayerKick>(self.state)
+                    && !can_kick(
+                        self.state,
+                        &e.disconnect_reason,
+                        e.screen_message.as_deref(),
+                        &e.quit_message,
+                    ))
             {
-                return false;
+                return;
             }
             reason.clone_from(&e.disconnect_reason);
             screen_message.clone_from(&e.screen_message);
             quit_message.clone_from(&e.quit_message);
-        }
-        let texts = [Some(&reason), screen_message.as_ref(), Some(&quit_message)];
-        if texts
-            .into_iter()
-            .flatten()
-            .any(|t| crate::player::check_text(t).is_err())
-        {
-            return false;
         }
         if let Some(p) = self.state.players.get_mut(&session) {
             p.marks.leave = Some(Leave::Kick {
@@ -852,31 +488,35 @@ impl Context<'_> {
         if let Some(e) = &event {
             dispatch::watch(self.state, e);
         }
-        true
     }
 
     /// Sends `player` to the server at `address` and `port` as [`Player::transfer`] does, after
     /// asking the [`PlayerTransfer`] listeners, which may keep it or change the address, the port
-    /// and the log `message` (`None`: "Moved to another server"). False if it was not sent:
-    /// it is gone or leaving, a listener cancelled it, the address is empty or longer than 253
-    /// bytes, or the message is longer than 65,536 bytes.
+    /// and the `message` for the log and [`PlayerQuit`] (`None`: "Moved to another server").
+    /// Nothing happens if the player is gone or leaving, the address is empty or longer than 253
+    /// bytes or the message longer than 65,536 bytes, before the listeners are asked or after
+    /// they changed it, or if a listener cancels it.
     pub(crate) fn transfer_player(
         &mut self,
         player: Id,
         address: String,
         port: u16,
         message: Option<String>,
-    ) -> bool {
+    ) {
         let session = player.session();
-        let staying = |state: &State| state.players.get(&session).is_some_and(Player::is_online);
-        if !staying(self.state) {
-            return false;
-        }
+        let can_send = |state: &State, address: &str, message: &str| {
+            state.players.get(&session).is_some_and(Player::is_online)
+                && is_valid_address(address)
+                && crate::player::check_text(message).is_ok()
+        };
         let mut leave = (
             address,
             port,
             message.unwrap_or_else(|| TRANSFERRED.to_owned()),
         );
+        if !can_send(self.state, &leave.0, &leave.2) {
+            return;
+        }
         let mut event = None;
         if dispatch::heard::<PlayerTransfer>(self.state) {
             let e = event.insert(PlayerTransfer {
@@ -888,16 +528,14 @@ impl Context<'_> {
             });
             dispatch::call(self.state, e);
             if e.cancelled
-                || (dispatch::listened::<PlayerTransfer>(self.state) && !staying(self.state))
+                || (dispatch::listened::<PlayerTransfer>(self.state)
+                    && !can_send(self.state, &e.address, &e.message))
             {
-                return false;
+                return;
             }
             leave = (e.address.clone(), e.port, e.message.clone());
         }
         let (address, port, message) = leave;
-        if !is_valid_address(&address) || crate::player::check_text(&message).is_err() {
-            return false;
-        }
         if let Some(p) = self.state.players.get_mut(&session) {
             p.marks.leave = Some(Leave::Transfer {
                 address,
@@ -908,23 +546,25 @@ impl Context<'_> {
         if let Some(e) = &event {
             dispatch::watch(self.state, e);
         }
-        true
     }
 
     /// Moves `player`'s feet to `feet` in `world` as [`Player::teleport`] does, after asking the
-    /// [`EntityTeleport`] listeners, which may keep it where it is or send it elsewhere. False if
-    /// it was not moved: it is gone, a listener cancelled it, or the place is not finite or lies
-    /// outside the world border.
+    /// [`EntityTeleport`] listeners, which may keep it where it is or send it elsewhere. Nothing
+    /// happens if the player is gone or the place is not finite or lies outside the world border,
+    /// before the listeners are asked or after they changed it, or if a listener cancels it.
     pub(crate) fn teleport_player(
         &mut self,
         player: Id,
         world: world::Id,
         feet: Vec3,
         cause: TeleportCause,
-    ) -> bool {
+    ) {
         let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
-            return false;
+            return;
         };
+        if !inside_border(feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0)) {
+            return;
+        }
         let (mut world, mut feet) = (world, feet);
         let mut event = None;
         if dispatch::heard::<EntityTeleport>(self.state) {
@@ -939,7 +579,7 @@ impl Context<'_> {
             });
             dispatch::call(self.state, e);
             if e.cancelled {
-                return false;
+                return;
             }
             (world, feet) = (e.target_world, e.target);
         }
@@ -949,8 +589,376 @@ impl Context<'_> {
         if moved && let Some(e) = &event {
             dispatch::watch(self.state, e);
         }
-        moved
     }
+}
+
+/// What the API marked on a player for the end of the tick, and the chat limit.
+#[derive(Debug, Default)]
+pub(super) struct Marks {
+    /// The name chat shows (PMMP `displayName`); `None` is the player's name. Not saved.
+    display_name: Option<String>,
+    /// Why the player leaves at the end of the tick.
+    leave: Option<Leave>,
+    /// Where the player moves at the end of the tick: the world and the eye position, checked.
+    teleport: Option<(WorldIndex, Vec3)>,
+    /// The tick of the player's last chat line and the lines it sent in that tick (PMMP
+    /// `messageCounter`).
+    pub(super) chat: (u64, u8),
+    /// The lines the player's screen shows at once (PMMP `lineHeight`); `None` is 7. Not saved.
+    line_height: Option<u32>,
+}
+
+impl Marks {
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            display_name,
+            leave,
+            teleport,
+            chat,
+            line_height,
+        } = self;
+        match display_name {
+            Some(name) => h.bytes(name.as_bytes()),
+            None => h.u64(u64::MAX),
+        }
+        match leave {
+            Some(Leave::Kick {
+                reason,
+                screen_message,
+                quit_message,
+            }) => {
+                h.bytes(reason.as_bytes());
+                match screen_message {
+                    Some(m) => h.bytes(m.as_bytes()),
+                    None => h.u64(u64::MAX),
+                }
+                h.bytes(quit_message.as_bytes());
+            }
+            Some(Leave::Transfer {
+                address,
+                port,
+                message,
+            }) => {
+                h.bytes(address.as_bytes());
+                h.u64(u64::from(*port));
+                h.bytes(message.as_bytes());
+            }
+            None => h.u64(u64::MAX),
+        }
+        match teleport {
+            Some((world, eye)) => {
+                h.usize(*world);
+                for c in [eye.x, eye.y, eye.z] {
+                    h.u64(c.to_bits());
+                }
+            }
+            None => h.u64(u64::MAX),
+        }
+        h.u64(chat.0);
+        h.u64(u64::from(chat.1));
+        h.u64(line_height.map_or(0, u64::from));
+    }
+}
+
+super::checkpoint::fields!(Marks {
+    display_name,
+    leave,
+    teleport,
+    chat,
+    line_height,
+});
+
+/// How a player leaves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Leave {
+    /// Disconnected with a reason (for the log and its screen).
+    Kick {
+        reason: String,
+        /// What its screen shows instead of the reason.
+        screen_message: Option<String>,
+        /// What the other players see in chat; empty for nothing.
+        quit_message: String,
+    },
+    /// Sent to another server.
+    Transfer {
+        address: String,
+        port: u16,
+        /// For the log and [`PlayerQuit`].
+        message: String,
+    },
+}
+
+impl Leave {
+    /// Why the player left, for the log and [`PlayerQuit`].
+    fn reason(&self) -> &str {
+        match self {
+            Self::Kick { reason, .. } => reason,
+            Self::Transfer { message, .. } => message,
+        }
+    }
+
+    /// The last packet the player gets, and the message the other players see.
+    fn into_parts(self) -> (Packet, String) {
+        match self {
+            Self::Kick {
+                reason,
+                screen_message,
+                quit_message,
+            } => {
+                let message = screen_message.unwrap_or(reason);
+                let packet = Packet::Disconnect(Disconnect {
+                    reason: DisconnectReason::Kicked.into(),
+                    hide_disconnection_screen: false,
+                    message: if message.is_empty() {
+                        NO_REASON.to_owned()
+                    } else {
+                        message
+                    },
+                    filtered_message: String::new(),
+                });
+                (packet, quit_message)
+            }
+            Self::Transfer { address, port, .. } => {
+                let packet = Packet::Transfer(Box::new(Transfer {
+                    address,
+                    port,
+                    reload_world: false,
+                    gathering_join_info: None,
+                }));
+                (packet, LEFT.to_owned())
+            }
+        }
+    }
+}
+
+super::checkpoint::variants!(Leave {
+    0 => Kick {
+        reason,
+        screen_message,
+        quit_message
+    },
+    1 => Transfer {
+        address,
+        port,
+        message
+    },
+});
+
+/// What the player's connection and saved data tell besides its login: its latest ping and its
+/// play history, in milliseconds since the Unix epoch.
+#[derive(Debug, Default)]
+pub(super) struct Presence {
+    /// The latest round trip time in milliseconds ([`Measure::Ping`](super::queue::Measure));
+    /// `None` until one arrived.
+    ping_ms: Option<u32>,
+    /// When the player first joined (`firstPlayed`).
+    first_played: i64,
+    /// When the player's data was saved before this join (`lastPlayed`).
+    last_played: i64,
+    /// The engine tick the saved data was placed at, which with the join time dates a save.
+    placed_tick: u64,
+}
+
+impl Presence {
+    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (PMMP
+    /// writes the wall clock; the tick dates it from the join time and the ticks since, one
+    /// [`super::TICK`] each).
+    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
+        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
+        let since =
+            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
+        (self.first_played, join_ms.saturating_add(since))
+    }
+
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            ping_ms,
+            first_played,
+            last_played,
+            placed_tick,
+        } = self;
+        h.u64(ping_ms.map_or(0, |p| u64::from(p) + 1));
+        h.u64(first_played.cast_unsigned());
+        h.u64(last_played.cast_unsigned());
+        h.u64(*placed_tick);
+    }
+
+    /// Sets the latest round trip time to `millis` milliseconds.
+    pub(super) fn set_ping(&mut self, millis: u32) {
+        self.ping_ms = Some(millis);
+    }
+
+    /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
+    /// new player, which gets `join_ms`, as PMMP gives it the time of its first spawn).
+    pub(super) fn place(
+        &mut self,
+        (first, last): (Option<i64>, Option<i64>),
+        join_ms: i64,
+        tick: u64,
+    ) {
+        self.first_played = first.unwrap_or(join_ms);
+        self.last_played = last.unwrap_or(join_ms);
+        self.placed_tick = tick;
+    }
+}
+
+super::checkpoint::fields!(Presence {
+    ping_ms,
+    first_played,
+    last_played,
+    placed_tick,
+});
+
+/// Why a player quits, as [`PlayerQuit::is_shutdown`] tells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum QuitCause {
+    /// It left, was kicked or replaced, or its connection ended.
+    Disconnect,
+    /// The server stops.
+    Shutdown,
+}
+
+/// Does what the player setters marked this tick, after the inputs, tasks and rules and before
+/// the views move and the output is built: kicked and transferred players get their last packet
+/// and leave, refused hotbar selections are answered, teleported players move, the survival
+/// marks are done, and changed skins go out within the server's skin budget.
+pub(super) fn sync(state: &mut State, output: &mut Output) {
+    // Most ticks mark no one: one pass over the players finds the marked ones, and the next one
+    // is looked for after each is done, so marks it sets on later players are seen too.
+    let mut after = Bound::Unbounded;
+    // Changed skins go out in turn once the pass is done, on the ticks it met one.
+    let mut skins_wait = false;
+    loop {
+        let marked = state
+            .players
+            .range_mut((after, Bound::Unbounded))
+            .find(|(_, p)| {
+                p.marks.leave.is_some()
+                    || inventory::held_unanswered(p)
+                    || p.marks.teleport.is_some()
+                    || survival::marked(p)
+            });
+        let Some((&session, player)) = marked else {
+            break;
+        };
+        after = Bound::Excluded(session);
+        if let Some(leave) = player.marks.leave.take() {
+            let reason = leave.reason().to_owned();
+            match &leave {
+                Leave::Kick { .. } => {
+                    info!(session = session.get(), name = %player.identity.name, %reason, "player kicked");
+                }
+                Leave::Transfer { address, port, .. } => {
+                    info!(session = session.get(), name = %player.identity.name, %address, port, %reason, "player transferred");
+                }
+            }
+            let (packet, quit_message) = leave.into_parts();
+            state.send_off(
+                session,
+                &reason,
+                quit_message,
+                QuitCause::Disconnect,
+                packet,
+                output,
+            );
+            continue;
+        }
+        inventory::answer_held(player);
+        skins_wait |= survival::skin_waits(player);
+        apply_marks(state, session);
+    }
+    if skins_wait {
+        survival::send_skins(state);
+    }
+}
+
+/// Moves the player of `session` if it was teleported and does its survival marks.
+fn apply_marks(state: &mut State, session: SessionId) {
+    if let Some((world, eye)) = state
+        .players
+        .get_mut(&session)
+        .and_then(|p| p.marks.teleport.take())
+    {
+        survival::teleport(state, session, world, eye);
+    }
+    survival::sync(state, session);
+}
+
+/// The player of `session` is about to leave for `reason` (PMMP `Player::onPostDisconnect`):
+/// the [`PlayerQuit`] listeners may change `quit_message`, then what the API marked on the
+/// player, the listeners' marks included, takes effect (PMMP saves after the event, so a teleport
+/// is the saved place and a kill dies with its drops), then every other online player sees the
+/// message in chat: [`LEFT`] as BDS's translated line with the player's display name, an empty
+/// one not at all, any other as it is. Call it just before the player is removed, in the tick's
+/// serial step. A player still loading its data has not joined, so it raises nothing.
+pub(super) fn quit(
+    state: &mut State,
+    session: SessionId,
+    reason: &str,
+    quit_message: String,
+    cause: QuitCause,
+) {
+    let Some(name) = state
+        .players
+        .get(&session)
+        .filter(|p| p.phase != Phase::Loading)
+        .map(|p| p.display_name().to_owned())
+    else {
+        return;
+    };
+    let mut event = None;
+    let message = if dispatch::heard::<PlayerQuit>(state) {
+        let e = event.insert(PlayerQuit {
+            player: Id::new(session),
+            quit_message,
+            quit_reason: reason.to_owned(),
+            shutdown: cause == QuitCause::Shutdown,
+        });
+        dispatch::call(state, e);
+        e.quit_message.clone()
+    } else {
+        quit_message
+    };
+    apply_marks(state, session);
+    if !message.is_empty() {
+        let message = if message == LEFT {
+            Message::Translation {
+                key: message,
+                parameters: vec![name],
+            }
+        } else {
+            Message::Raw(message)
+        };
+        super::spawn::tell_others(state, session, message);
+    }
+    if let Some(e) = &event {
+        dispatch::watch(state, e);
+    }
+}
+
+/// Sends `message` to every online player; returns how many got it. Fails, sending nothing, for a
+/// message a client does not decode.
+pub(super) fn broadcast(state: &mut State, message: Message) -> Result<usize> {
+    Ok(broadcast_packets(state, &message.into_packets()?))
+}
+
+/// Sends the packets of a message to every online player; returns how many got them.
+pub(super) fn broadcast_packets(state: &mut State, packets: &Packets) -> usize {
+    let mut count = 0;
+    for player in state.players.values_mut() {
+        if !player.gets_broadcasts() {
+            continue;
+        }
+        for packet in packets.iter().flatten() {
+            player.send_packet(packet.clone());
+        }
+        count += 1;
+    }
+    count
 }
 
 /// Whether `address` can be a transfer address: a host name or IP address, not empty and at most
@@ -967,6 +975,17 @@ fn check_position(pos: Vec3) -> Result<()> {
     Ok(())
 }
 
+/// The wall-clock time `millis` after the Unix epoch.
+fn unix_time(millis: i64) -> SystemTime {
+    let offset = Duration::from_millis(millis.unsigned_abs());
+    let time = if millis >= 0 {
+        UNIX_EPOCH.checked_add(offset)
+    } else {
+        UNIX_EPOCH.checked_sub(offset)
+    };
+    time.unwrap_or(UNIX_EPOCH)
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use tokio::sync::mpsc;
@@ -979,33 +998,6 @@ pub(super) mod tests {
     use crate::tick::log::{EntryKind, InputLog};
     use crate::tick::queue::{Client, Identity, Input, InputKind, Measure, Outbound, SessionId};
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
-
-    /// Players 1 and 2 spawned next to each other, their queues emptied.
-    pub(in crate::tick) fn two() -> (State, [mpsc::Receiver<Outbound>; 2]) {
-        two_with(Listeners::default())
-    }
-
-    /// [`two`] with `listeners`.
-    fn two_with(listeners: Listeners) -> (State, [mpsc::Receiver<Outbound>; 2]) {
-        let mut state = new_state(settings(|_| {}), listeners);
-        let mut output = Output::default();
-        let (j1, mut rx1) = join(1, 0);
-        let (j2, mut rx2) = join(2, 0);
-        tick(
-            &mut state,
-            &mut vec![j1, j2, radius(1, 1, 4), radius(2, 1, 4)],
-            &mut output,
-        );
-        let ids = [1, 2].map(|s| state.players[&SessionId::new(s)].runtime_id);
-        tick(
-            &mut state,
-            &mut vec![initialised(1, 2, ids[0]), initialised(2, 2, ids[1])],
-            &mut output,
-        );
-        received(&mut rx1);
-        received(&mut rx2);
-        (state, [rx1, rx2])
-    }
 
     /// Players 1 to `n` spawned, their queues emptied.
     fn many(n: u64) -> (State, Vec<mpsc::Receiver<Outbound>>) {
@@ -1074,10 +1066,9 @@ pub(super) mod tests {
         );
         drop(first);
         assert!(survival::marked(&state.players[&SessionId::new(2)]));
-        state
-            .players
-            .values_mut()
-            .for_each(|p| p.shared_outbox.clear());
+        for p in state.players.values_mut() {
+            p.shared_outbox.clear();
+        }
         // The second skin goes to everyone once the budget has refilled what it lacks: 2 MiB at
         // 128 KiB a second, 16 seconds.
         let mut skins = vec![Vec::new(); receivers.len()];
@@ -1097,6 +1088,33 @@ pub(super) mod tests {
             }
         }
         assert!(skins.iter().all(|s| s == &["big2"]));
+    }
+
+    /// Players 1 and 2 spawned next to each other, their queues emptied.
+    pub(in crate::tick) fn two() -> (State, [mpsc::Receiver<Outbound>; 2]) {
+        two_with(Listeners::default())
+    }
+
+    /// [`two`] with `listeners`.
+    fn two_with(listeners: Listeners) -> (State, [mpsc::Receiver<Outbound>; 2]) {
+        let mut state = new_state(settings(|_| {}), listeners);
+        let mut output = Output::default();
+        let (j1, mut rx1) = join(1, 0);
+        let (j2, mut rx2) = join(2, 0);
+        tick(
+            &mut state,
+            &mut vec![j1, j2, radius(1, 1, 4), radius(2, 1, 4)],
+            &mut output,
+        );
+        let ids = [1, 2].map(|s| state.players[&SessionId::new(s)].runtime_id);
+        tick(
+            &mut state,
+            &mut vec![initialised(1, 2, ids[0]), initialised(2, 2, ids[1])],
+            &mut output,
+        );
+        received(&mut rx1);
+        received(&mut rx2);
+        (state, [rx1, rx2])
     }
 
     // pmmp: Player::getName, Player::getDisplayName, Player::setDisplayName, Player::getXuid, Player::isAuthenticated, Player::getUniqueId, Human::getSkin
@@ -1207,7 +1225,7 @@ pub(super) mod tests {
         );
         p.send_packet(Packet::Text(Box::new(crate::protocol::packet::Text {
             message: "own".to_owned(),
-            ..Default::default()
+            ..crate::protocol::packet::Text::default()
         })));
         run(&mut state, Vec::new());
         let got = received(&mut rx1).0;
@@ -1303,6 +1321,22 @@ pub(super) mod tests {
             run(&mut state, Vec::new());
             assert_eq!(texts(received(&mut rx2).0), seen, "{reason}");
         }
+    }
+
+    // pmmp: Player::setDisplayName
+    /// The left line names the player by its display name, as the join line and chat do.
+    #[test]
+    fn the_left_line_names_the_player_by_its_display_name() {
+        let (mut state, [_rx1, mut rx2]) = two();
+        let p = player_mut(&mut state, 1);
+        p.set_display_name("§cBoss").unwrap();
+        p.kick("bye").unwrap();
+        run(&mut state, Vec::new());
+        let left = received(&mut rx2).0.into_iter().find_map(|p| match p {
+            Packet::Text(t) if t.message == LEFT => Some(t.parameters),
+            _ => None,
+        });
+        assert_eq!(left, Some(vec!["§cBoss".to_owned()]));
     }
 
     // pmmp: PlayerQuitEvent
@@ -1512,7 +1546,7 @@ pub(super) mod tests {
         let (mut state, [mut rx1, _rx2]) = two_with(listeners());
         let mut output = Output::default();
         state.close_all(&mut output);
-        super::super::deliver(&mut state, &mut output, &mut InputLog::default());
+        crate::tick::deliver(&mut state, &mut output, &mut InputLog::default());
         let (packets, close, _) = received(&mut rx1);
         assert_eq!(texts(packets), ["quit"], "the stop");
         assert!(matches!(close, Some(Packet::Disconnect(_))));
@@ -1524,7 +1558,7 @@ pub(super) mod tests {
     fn a_player_kicked_with_an_overflowed_outbox_gets_only_its_disconnect() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
-        for _ in 0..=super::super::MAX_OUTBOX {
+        for _ in 0..=crate::tick::MAX_OUTBOX {
             p.send(Message::Raw("spam".to_owned())).unwrap();
         }
         p.kick("bye").unwrap();
@@ -1699,7 +1733,7 @@ pub(super) mod tests {
         let data = crate::tick::save::data_of(&state, &state.players[&SessionId::new(1)]);
         let saved = |key: &str| data.extra.get(key).cloned();
         assert_eq!(saved("firstPlayed"), Some(Value::Long(first_join)));
-        assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 5_000)));
+        assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 5000)));
         assert!(
             !player_mut(&mut state, 1).has_played_before(),
             "the last play does not move while the player plays, as in PMMP"
@@ -1759,7 +1793,7 @@ pub(super) mod tests {
         assert_eq!(offline.snapshot, None, "no commit holds it yet");
         let saved = |key: &str| offline.data.extra.get(key).cloned();
         assert_eq!(saved("firstPlayed"), Some(Value::Long(first_join)));
-        assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 1_000)));
+        assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 1000)));
     }
 
     // pmmp: Player::transfer
@@ -1780,5 +1814,37 @@ pub(super) mod tests {
             Some(Packet::Transfer(t)) if t.address == "play.example.com" && t.port == 19133
         ));
         assert_eq!(state.players.len(), 1);
+    }
+
+    /// A kick, a transfer or a teleport that cannot happen raises no event: the listeners are
+    /// asked only about one that can, and the player stays.
+    #[test]
+    fn an_impossible_kick_transfer_or_teleport_asks_no_listener() {
+        let (asked, mut events) = mpsc::channel(8);
+        let mut listeners = Listeners::default();
+        let tx = asked.clone();
+        listeners.push(
+            crate::event::Priority::Normal,
+            move |_: &mut PlayerKick, _: &mut Context<'_>| tx.try_send("kick").unwrap(),
+        );
+        let tx = asked.clone();
+        listeners.push(
+            crate::event::Priority::Normal,
+            move |_: &mut PlayerTransfer, _: &mut Context<'_>| tx.try_send("transfer").unwrap(),
+        );
+        listeners.push(
+            crate::event::Priority::Normal,
+            move |_: &mut EntityTeleport, _: &mut Context<'_>| asked.try_send("teleport").unwrap(),
+        );
+        let (mut state, _rx) = two_with(listeners);
+        let id = Id::new(SessionId::new(1));
+        let mut ctx = Context { state: &mut state };
+        ctx.kick_player(id, "x".repeat(MAX_TEXT + 1), None, None);
+        ctx.transfer_player(id, String::new(), 19132, None);
+        let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
+        ctx.teleport_player(id, world::Id::DEFAULT, nowhere, TeleportCause::Action);
+        assert!(events.try_recv().is_err(), "no listener was asked");
+        let p = &state.players[&SessionId::new(1)];
+        assert!(p.is_online() && p.marks.teleport.is_none());
     }
 }

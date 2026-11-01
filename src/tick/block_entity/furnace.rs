@@ -6,7 +6,7 @@
 use crate::crafting::{self, FurnaceType};
 use crate::custom::Registry;
 use crate::item::Stack;
-use crate::nbt::{Compound, Value};
+use crate::nbt::Compound;
 use crate::random::Random;
 
 /// The input slot.
@@ -22,6 +22,9 @@ pub(in crate::tick) const DATA_COOK: i32 = 0;
 pub(in crate::tick) const DATA_BURN: i32 = 1;
 pub(in crate::tick) const DATA_MAX_BURN: i32 = 2;
 pub(in crate::tick) const DATA_XP: i32 = 3;
+/// The most experience a furnace stores: what its saved `Short` holds, so the save and the
+/// checkpoint read back what the furnace has.
+const MAX_XP: u16 = i16::MAX.cast_unsigned();
 
 /// A furnace-like block entity's timers and stored experience.
 #[derive(Debug, Clone)]
@@ -34,43 +37,11 @@ pub(in crate::tick) struct Furnace {
     pub(in crate::tick) max_burn: u16,
     /// Ticks the input has cooked (PMMP `CookTime`).
     pub(in crate::tick) cook: u16,
-    /// Experience of the smelted items not yet taken (BDS `StoredXPInt`).
+    /// Experience of the smelted items not yet taken (BDS `StoredXPInt`), at most [`MAX_XP`].
     pub(in crate::tick) xp: u16,
-    /// The recipe of the input last looked up: derived, so neither saved, hashed nor compared.
-    recipe: Option<(Stack, Option<u16>)>,
-}
-
-impl PartialEq for Furnace {
-    fn eq(&self, other: &Self) -> bool {
-        let Self {
-            kind,
-            burn,
-            max_burn,
-            cook,
-            xp,
-            recipe: _,
-        } = self;
-        (*kind, *burn, *max_burn, *cook, *xp)
-            == (other.kind, other.burn, other.max_burn, other.cook, other.xp)
-    }
-}
-
-/// What one furnace tick did, for the caller to apply outside.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(in crate::tick) struct Step {
-    /// Bit `i`: slot `i` changed.
-    pub(in crate::tick) slots: u8,
-    /// Bit `i`: slot `i` changed only its count (the same item before and after), so its viewers
-    /// keep its stack network ID (BDS, P6: a furnace's output growing, its input shrinking).
-    pub(in crate::tick) kept: u8,
-    /// The block must become lit (`Some(true)`) or unlit (`Some(false)`).
-    pub(in crate::tick) lit: Option<bool>,
-    /// The fuel item that started burning (BDS `LastFuel`).
-    pub(in crate::tick) fuel: Option<Stack>,
-    /// The `ContainerSetData` values that changed: key and value.
-    pub(in crate::tick) data: super::DataChanges,
-    /// Whether the furnace needs another tick (PMMP `onUpdate`'s return value).
-    pub(in crate::tick) active: bool,
+    /// The input last looked up and what one smelt of it makes: derived, so neither saved,
+    /// hashed nor compared.
+    recipe: Option<(Stack, Option<Stack>)>,
 }
 
 impl Furnace {
@@ -86,18 +57,14 @@ impl Furnace {
         }
     }
 
-    /// PMMP `Furnace::readSaveData`: the burn time of the fuel at least what is left. Unlike PMMP
-    /// a cook time without fuel stays: the tick that burns the last fuel mid-smelt leaves one for
-    /// the next fuel, and a checkpoint reads back as it was.
+    /// PMMP `Furnace::readSaveData`: a missing or zero burn time of the fuel is the burn time
+    /// left. Unlike PMMP a cook time without fuel stays: the tick that burns the last fuel
+    /// mid-smelt leaves one for the next fuel, and a checkpoint reads back as it was.
     pub(in crate::tick) fn read(nbt: &mut Compound, kind: FurnaceType) -> Self {
-        let short = |nbt: &mut Compound, key: &str| match nbt.remove(key) {
-            Some(Value::Short(v)) => u16::try_from(v).unwrap_or(0),
-            _ => 0,
-        };
-        let burn = short(nbt, "BurnTime");
-        let cook = short(nbt, "CookTime");
-        let mut max_burn = short(nbt, "MaxTime");
-        let xp = short(nbt, "StoredXPInt");
+        let burn = super::take_timer(nbt, "BurnTime");
+        let cook = super::take_timer(nbt, "CookTime");
+        let mut max_burn = super::take_timer(nbt, "MaxTime");
+        let xp = super::take_timer(nbt, "StoredXPInt");
         if max_burn == 0 {
             max_burn = burn;
         }
@@ -111,15 +78,6 @@ impl Furnace {
         }
     }
 
-    /// The saved keys (PMMP `writeSaveData` and BDS `StoredXPInt`).
-    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
-        let short = |v: u16| Value::Short(i16::try_from(v).unwrap_or(i16::MAX));
-        nbt.insert("BurnTime".to_owned(), short(self.burn));
-        nbt.insert("CookTime".to_owned(), short(self.cook));
-        nbt.insert("MaxTime".to_owned(), short(self.max_burn));
-        nbt.insert("StoredXPInt".to_owned(), short(self.xp));
-    }
-
     /// The `ContainerSetData` values a viewer gets when it opens the window (BDS sends keys 0
     /// to 3 on open, P6).
     pub(in crate::tick) fn data(&self) -> [(i32, i32); 4] {
@@ -131,50 +89,14 @@ impl Furnace {
         ]
     }
 
-    /// The recipe for `input` among PMMP's and the server's custom ones (`custom`, fixed for
-    /// the server's life), looked up only when the input differs from the last one.
-    fn recipe(&mut self, input: &Stack, custom: &Registry) -> Option<crafting::Furnace> {
-        let one = input.with_count(1);
-        let index = match &self.recipe {
-            Some((last, index)) if last.same(&one) => *index,
-            _ => {
-                let index = custom.furnace_recipe(self.kind, &one);
-                self.recipe = Some((one, index));
-                index
-            }
-        };
-        index.and_then(|i| custom.furnace_at(i))
-    }
-
-    /// One tick (PMMP `Furnace::onUpdate`) without events: [`begin`](Self::begin), the fuel
-    /// that is due burns, the cooking, the smelt that is due, [`finish`](Self::finish). `items`
-    /// are the three slots; `lit` whether the block is lit now. The tick raises its events
-    /// between these steps (`tick_furnace`).
-    #[cfg(test)]
-    pub(in crate::tick) fn step(
-        &mut self,
-        items: &mut [Stack],
-        lit: bool,
-        rng: &mut Random,
-        custom: &Registry,
-    ) -> Step {
-        let mut t = self.begin(lit);
-        if let Some((_, time)) = self.fuel_due(items, custom) {
-            self.burn(items, time, true, &mut t);
-        }
-        if let Some((_, result)) = self.cook(items, custom, &mut t) {
-            self.smelt(items, &result, Some(rng), &mut t);
-        }
-        self.finish(t)
-    }
-
-    /// Starts a tick: what [`finish`](Self::finish) compares with.
-    pub(in crate::tick) fn begin(&self, lit: bool) -> Tick {
-        Tick {
-            prev: (self.cook, self.burn, self.max_burn),
-            lit,
-            out: Step::default(),
-        }
+    /// Whether `result` goes onto the output slot: it is not empty and stacks onto the output
+    /// within the stack size.
+    pub(in crate::tick) fn fits(items: &[Stack], result: &Stack) -> bool {
+        let product = items.get(OUTPUT).cloned().unwrap_or_default();
+        !result.is_empty()
+            && (product.is_empty() || product.can_stack_with(result))
+            && u16::from(product.count()) + u16::from(result.count())
+                <= u16::from(result.max_count())
     }
 
     /// The input and what one smelt of it makes, if it can smelt now: it has a recipe and the
@@ -186,7 +108,7 @@ impl Furnace {
         custom: &Registry,
     ) -> Option<(Stack, Stack)> {
         let raw = items.get(INPUT).cloned().unwrap_or_default();
-        let result = self.recipe(&raw, custom).and_then(|r| r.result.to_item())?;
+        let result = self.result(&raw, custom)?;
         (raw.count() > 0 && Self::fits(items, &result)).then(|| (raw.with_count(1), result))
     }
 
@@ -203,28 +125,47 @@ impl Furnace {
             .then(|| (fuel.with_count(1), time))
     }
 
-    /// Starts burning the fuel of [`fuel_due`](Self::fuel_due) for `time` ticks (at least 1):
-    /// the block lights; when `consume`, the fuel item is used up (its residue stays).
-    pub(in crate::tick) fn burn(
+    /// One tick (PMMP `Furnace::onUpdate`) without events: [`begin`](Self::begin), the fuel
+    /// that is due burns and is used up, the cooking, the smelt that is due,
+    /// [`finish`](Self::finish). `items` are the three slots; `lit` whether the block is lit now.
+    /// The tick raises its events between these steps (`tick_furnace`).
+    #[cfg(test)]
+    pub(in crate::tick) fn step(
         &mut self,
         items: &mut [Stack],
-        time: u16,
-        consume: bool,
-        t: &mut Tick,
-    ) {
-        let fuel = items.get(FUEL).cloned().unwrap_or_default();
+        lit: bool,
+        rng: &mut Random,
+        custom: &Registry,
+    ) -> Step {
+        let mut t = self.begin(lit);
+        if let Some((_, time)) = self.fuel_due(items, custom) {
+            self.burn(items, time, &mut t);
+            use_fuel(items, &mut t);
+        }
+        if let Some((_, result)) = self.cook(items, custom, &mut t) {
+            self.smelt(items, &result, Some(rng), &mut t);
+        }
+        self.finish(t)
+    }
+
+    /// Starts a tick: what [`finish`](Self::finish) compares with.
+    pub(in crate::tick) fn begin(&self, lit: bool) -> Tick {
+        Tick {
+            prev: (self.cook, self.burn, self.max_burn),
+            lit,
+            out: Step::default(),
+        }
+    }
+
+    /// Starts burning the fuel of [`fuel_due`](Self::fuel_due) for `time` ticks (at least 1):
+    /// the block lights and the fuel is the last fuel; [`use_fuel`] uses it up.
+    pub(in crate::tick) fn burn(&mut self, items: &[Stack], time: u16, t: &mut Tick) {
         self.burn = time.max(1);
         self.max_burn = self.burn;
         if !t.lit {
             t.out.lit = Some(true);
         }
-        if consume {
-            let residue = match fuel.item().and_then(crate::item::Type::fuel_residue) {
-                Some(residue) => Stack::new(residue, 1),
-                None => fuel.with_count(fuel.count().saturating_sub(1)),
-            };
-            set(items, FUEL, residue, &mut t.out);
-        }
+        let fuel = items.get(FUEL).cloned().unwrap_or_default();
         t.out.fuel = Some(fuel.with_count(1));
     }
 
@@ -260,18 +201,9 @@ impl Furnace {
         due
     }
 
-    /// Whether `result` goes onto the output slot: it is not empty and stacks onto the output
-    /// within the stack size.
-    pub(in crate::tick) fn fits(items: &[Stack], result: &Stack) -> bool {
-        let product = items.get(OUTPUT).cloned().unwrap_or_default();
-        !result.is_empty()
-            && (product.is_empty() || product.can_stack_with(result))
-            && u16::from(product.count()) + u16::from(result.count())
-                <= u16::from(result.max_count())
-    }
-
     /// Smelts one input into `result` (which [`fits`](Self::fits)) and stores its experience,
-    /// drawn from `experience` (`None` with `experience = false`: nothing is stored).
+    /// drawn from `experience` (`None` with `experience = false`: nothing is stored), up to
+    /// [`MAX_XP`].
     pub(in crate::tick) fn smelt(
         &mut self,
         items: &mut [Stack],
@@ -290,7 +222,7 @@ impl Furnace {
             &mut t.out,
         );
         if let Some(rng) = experience {
-            self.xp = self.xp.saturating_add(earned(result, rng));
+            self.xp = self.xp.saturating_add(earned(result, rng)).min(MAX_XP);
         }
     }
 
@@ -312,6 +244,64 @@ impl Furnace {
         }
         out
     }
+
+    /// The saved keys (PMMP `writeSaveData` and BDS `StoredXPInt`).
+    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+        nbt.insert("BurnTime".to_owned(), super::timer_value(self.burn));
+        nbt.insert("CookTime".to_owned(), super::timer_value(self.cook));
+        nbt.insert("MaxTime".to_owned(), super::timer_value(self.max_burn));
+        nbt.insert("StoredXPInt".to_owned(), super::timer_value(self.xp));
+    }
+
+    /// What one smelt of `input` makes by PMMP's and the server's custom recipes (`custom`,
+    /// fixed for the server's life), looked up only when the input differs from the last one.
+    fn result(&mut self, input: &Stack, custom: &Registry) -> Option<Stack> {
+        let one = input.with_count(1);
+        if let Some((last, result)) = &self.recipe
+            && last.same(&one)
+        {
+            return result.clone();
+        }
+        let result = custom
+            .furnace_recipe(self.kind, &one)
+            .and_then(|i| custom.furnace_at(i))
+            .and_then(|r| r.result.to_item());
+        self.recipe = Some((one, result.clone()));
+        result
+    }
+}
+
+impl PartialEq for Furnace {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            kind,
+            burn,
+            max_burn,
+            cook,
+            xp,
+            recipe: _,
+        } = self;
+        (*kind, *burn, *max_burn, *cook, *xp)
+            == (other.kind, other.burn, other.max_burn, other.cook, other.xp)
+    }
+}
+
+/// What one furnace tick did, for the caller to apply outside.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(in crate::tick) struct Step {
+    /// Bit `i`: slot `i` changed.
+    pub(in crate::tick) slots: u8,
+    /// Bit `i`: slot `i` changed only its count (the same item before and after), so its viewers
+    /// keep its stack network ID (BDS, P6: a furnace's output growing, its input shrinking).
+    pub(in crate::tick) kept: u8,
+    /// The block must become lit (`Some(true)`) or unlit (`Some(false)`).
+    pub(in crate::tick) lit: Option<bool>,
+    /// The fuel item that started burning (BDS `LastFuel`).
+    pub(in crate::tick) fuel: Option<Stack>,
+    /// The `ContainerSetData` values that changed: key and value.
+    pub(in crate::tick) data: super::DataChanges,
+    /// Whether the furnace needs another tick (PMMP `onUpdate`'s return value).
+    pub(in crate::tick) active: bool,
 }
 
 /// A furnace tick in progress.
@@ -324,9 +314,14 @@ pub(in crate::tick) struct Tick {
     out: Step,
 }
 
-/// Sets slot `i` ([`super::tick_set_slot`]).
-fn set(items: &mut [Stack], i: usize, stack: Stack, out: &mut Step) {
-    super::tick_set_slot(items, i, stack, &mut out.slots, &mut out.kept);
+/// Uses up one fuel item of [`Furnace::burn`]; its residue (a lava bucket's bucket) stays.
+pub(in crate::tick) fn use_fuel(items: &mut [Stack], t: &mut Tick) {
+    let fuel = items.get(FUEL).cloned().unwrap_or_default();
+    let residue = match fuel.item().and_then(crate::item::Type::fuel_residue) {
+        Some(residue) => Stack::new(residue, 1),
+        None => fuel.with_count(fuel.count().saturating_sub(1)),
+    };
+    set(items, FUEL, residue, &mut t.out);
 }
 
 /// The experience one smelted `result` earns: the whole part, plus one with the chance of the
@@ -346,6 +341,11 @@ fn earned(result: &Stack, rng: &mut Random) -> u16 {
     )]
     let whole = whole as u16;
     whole.saturating_add(extra)
+}
+
+/// Sets slot `i` ([`super::tick_set_slot`]).
+fn set(items: &mut [Stack], i: usize, stack: Stack, out: &mut Step) {
+    super::tick_set_slot(items, i, stack, &mut out.slots, &mut out.kept);
 }
 
 #[cfg(test)]
@@ -477,5 +477,26 @@ mod tests {
         let mut nbt = Compound::new();
         f.write(&mut nbt);
         assert_eq!(Furnace::read(&mut nbt, FurnaceType::Smoker), f);
+    }
+
+    /// Stored experience stops at what its saved `Short` holds, so the save reads back the
+    /// experience the furnace has.
+    #[test]
+    fn stored_experience_stops_at_what_a_save_holds() {
+        let mut f = Furnace::new(FurnaceType::Furnace);
+        f.xp = MAX_XP;
+        let mut items = vec![stack(Kind::RawGold, 1), Stack::EMPTY, Stack::EMPTY];
+        let mut t = f.begin(false);
+        let mut rng = Random::new(1, 0, 1);
+        f.smelt(
+            &mut items,
+            &stack(Kind::GoldIngot, 1),
+            Some(&mut rng),
+            &mut t,
+        );
+        assert_eq!(f.xp, MAX_XP);
+        let mut nbt = Compound::new();
+        f.write(&mut nbt);
+        assert_eq!(Furnace::read(&mut nbt, FurnaceType::Furnace), f);
     }
 }

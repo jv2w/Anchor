@@ -1,5 +1,7 @@
-//! The queues between sessions and the tick: the input queue, its per-session stamping sender,
-//! and the outbound queue of each session.
+//! The queues between the session layer and the tick, and what travels on them: the input queue
+//! with its per-session stamping senders, each session's outbound queue, and the queue of the
+//! tick's controls to the networking; the verified player identities and skins, the measured
+//! values, and the packet that turns a player away when the server is full.
 
 use std::fmt;
 use std::net::IpAddr;
@@ -7,6 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tracing::debug;
 
 use crate::crypto;
 use crate::entity::{MAX_SKIN_BYTES, MAX_SKIN_JSON_DEPTH};
@@ -20,15 +23,27 @@ use crate::task::MAX_JOBS;
 /// queue never ends another. A client sends a `PlayerAuthInput` on each of its 20 ticks a second
 /// and a few packets per action; the share holds more than a full batch
 /// ([`MAX_PACKETS`](crate::protocol::batch::MAX_PACKETS)).
-pub(crate) const SESSION_INPUTS: usize = 1_024;
+pub(crate) const MAX_SESSION_INPUTS: usize = 1024;
 /// The sessions of the engine that queue inputs besides the connections: the console, the
 /// networking's reports and the process measures.
 const ENGINE_SESSIONS: usize = 3;
 /// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
 /// of waiting.
-const OUTBOUND_CAPACITY: usize = 1_024;
+const OUTBOUND_CAPACITY: usize = 1024;
 /// [`Control`]s one tick may ask for; a call past it changes nothing.
 pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
+/// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 11 length
+/// prefixes of texts and byte fields and 3 of lists (at most 5 bytes each), 4 image sizes (4
+/// each), the arm size (1), the colour (4), 5 bools and the trust text (`"false"`, 5).
+const SKIN_FIXED_BYTES: usize = 101;
+/// The same for one animation: 2 image sizes (4 each), the data's length prefix and 2 varints
+/// (at most 5 each) and the frame count (4).
+const ANIMATION_FIXED_BYTES: usize = 27;
+/// The same for one persona piece: 2 length prefixes (at most 5 each), the type (4), the pack
+/// UUID (16) and a bool.
+const PIECE_FIXED_BYTES: usize = 31;
+/// The same for one tint colour: a length prefix (at most 5) and 4 colours (4 each).
+const TINT_FIXED_BYTES: usize = 21;
 
 /// A session: one connection, numbered by the session layer in connection order and never
 /// reused while the process runs.
@@ -58,7 +73,7 @@ impl SessionId {
     /// connection's inputs.
     pub(crate) const PROCESS: Self = Self(u64::MAX - 4);
 
-    /// The session numbered `id`.
+    /// Returns the session numbered `id`.
     pub(crate) const fn new(id: u64) -> Self {
         Self(id)
     }
@@ -89,6 +104,39 @@ pub(crate) struct Identity {
     pub(crate) address: Option<IpAddr>,
     /// What else the login and the connection tell about the client.
     pub(crate) client: Client,
+}
+
+impl Identity {
+    /// The bytes of its skin and the client's texts: what an input log entry of its join counts
+    /// against the log's bound.
+    pub(crate) fn size(&self) -> usize {
+        self.skin.size().saturating_add(self.client.size())
+    }
+
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            name,
+            xuid,
+            uuid,
+            skin,
+            device_os,
+            address,
+            client,
+        } = self;
+        h.bytes(name.as_bytes());
+        h.u64(xuid.map_or(0, |x| x.wrapping_add(1)));
+        h.bytes(uuid.as_bytes());
+        skin.hash_into(h);
+        h.u64(u64::from(device_os.cast_unsigned()));
+        match address {
+            None => h.u64(0),
+            Some(IpAddr::V4(a)) => h.bytes(&a.octets()),
+            Some(IpAddr::V6(a)) => h.bytes(&a.octets()),
+        }
+        client.hash_into(h);
+    }
 }
 
 super::checkpoint::fields!(Identity {
@@ -134,39 +182,6 @@ pub(crate) struct Client {
     /// When the session handed the player to the tick, in milliseconds since the Unix epoch by
     /// the wall clock the session read.
     pub(crate) join_time_ms: i64,
-}
-
-super::checkpoint::fields!(Client {
-    locale,
-    input_mode,
-    device_model,
-    device_id,
-    self_signed_id,
-    random_id,
-    playfab_id,
-    game_version,
-    server_address,
-    port,
-    join_time_ms,
-});
-
-#[cfg(test)]
-impl Default for Client {
-    fn default() -> Self {
-        Self {
-            locale: String::new(),
-            input_mode: crate::protocol::consts::InputMode::Undefined,
-            device_model: String::new(),
-            device_id: String::new(),
-            self_signed_id: String::new(),
-            random_id: 0,
-            playfab_id: String::new(),
-            game_version: String::new(),
-            server_address: String::new(),
-            port: 0,
-            join_time_ms: 0,
-        }
-    }
 }
 
 impl Client {
@@ -220,60 +235,44 @@ impl Client {
     }
 }
 
-impl Identity {
-    /// Hashes every field (state hash).
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            name,
-            xuid,
-            uuid,
-            skin,
-            device_os,
-            address,
-            client,
-        } = self;
-        h.bytes(name.as_bytes());
-        h.u64(xuid.map_or(0, |x| x.wrapping_add(1)));
-        h.bytes(uuid.as_bytes());
-        skin.hash_into(h);
-        h.u64(u64::from(device_os.cast_unsigned()));
-        match address {
-            None => h.u64(0),
-            Some(IpAddr::V4(a)) => h.bytes(&a.octets()),
-            Some(IpAddr::V6(a)) => h.bytes(&a.octets()),
+#[cfg(test)]
+impl Default for Client {
+    fn default() -> Self {
+        Self {
+            locale: String::new(),
+            input_mode: crate::protocol::consts::InputMode::Undefined,
+            device_model: String::new(),
+            device_id: String::new(),
+            self_signed_id: String::new(),
+            random_id: 0,
+            playfab_id: String::new(),
+            game_version: String::new(),
+            server_address: String::new(),
+            port: 0,
+            join_time_ms: 0,
         }
-        client.hash_into(h);
-    }
-
-    /// The bytes of its skin and the client's texts: what an input log entry of its join counts
-    /// against the log's bound.
-    pub(crate) fn size(&self) -> usize {
-        self.skin.size().saturating_add(self.client.size())
     }
 }
 
-/// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 11 length
-/// prefixes of texts and byte fields and 3 of lists (at most 5 bytes each), 4 image sizes (4
-/// each), the arm size (1), the colour (4), 5 bools and the trust text (`"false"`, 5).
-const SKIN_FIXED_BYTES: usize = 101;
-/// The same for one animation: 2 image sizes (4 each), the data's length prefix and 2 varints
-/// (at most 5 each) and the frame count (4).
-const ANIMATION_FIXED_BYTES: usize = 27;
-/// The same for one persona piece: 2 length prefixes (at most 5 each), the type (4), the pack
-/// UUID (16) and a bool.
-const PIECE_FIXED_BYTES: usize = 31;
-/// The same for one tint colour: a length prefix (at most 5) and 4 colours (4 each).
-const TINT_FIXED_BYTES: usize = 21;
+super::checkpoint::fields!(Client {
+    locale,
+    input_mode,
+    device_model,
+    device_id,
+    self_signed_id,
+    random_id,
+    playfab_id,
+    game_version,
+    server_address,
+    port,
+    join_time_ms,
+});
 
 /// A player's skin as the client sent it at login, where it is checked
-/// ([`Skin::is_acceptable`]). Every copy of the identity shares it. The default is a transparent 64 × 32 skin on the
-/// standard model, for identities without a login (tests).
+/// ([`Skin::is_acceptable`]). Every copy of the identity shares it. The default is a transparent
+/// 64 × 32 skin on the standard model, for identities without a login (tests).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Skin(Arc<protocol::Skin>);
-
-// Equality is reflexive: a skin has no NaN (frame counts are checked finite at login).
-impl Eq for Skin {}
 
 impl Skin {
     /// Wraps a checked skin.
@@ -289,16 +288,6 @@ impl Skin {
     /// The skin as the packets that carry it share it, without a copy.
     pub(crate) fn shared(&self) -> &Arc<protocol::Skin> {
         &self.0
-    }
-
-    /// Hashes the skin by its protocol bytes (state hash).
-    #[cfg(test)]
-    fn hash_into(&self, h: &mut super::Fnv) {
-        let mut w = protocol::Writer::new(Vec::new(), 0);
-        match protocol::Codec::encode(self.get(), &mut w) {
-            Ok(()) => h.bytes(w.as_bytes()),
-            Err(_) => h.u64(u64::MAX),
-        }
     }
 
     /// The most bytes the skin takes on the wire: what it holds (images, geometry, patch,
@@ -360,6 +349,16 @@ impl Skin {
             && crypto::is_json_within_depth(&self.0.skin_geometry, MAX_SKIN_JSON_DEPTH)
             && crypto::is_json_within_depth(&self.0.skin_resource_patch, MAX_SKIN_JSON_DEPTH)
     }
+
+    /// Hashes the skin by its protocol bytes (state hash).
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut super::Fnv) {
+        let mut w = protocol::Writer::new(Vec::new(), 0);
+        match protocol::Codec::encode(self.get(), &mut w) {
+            Ok(()) => h.bytes(w.as_bytes()),
+            Err(_) => h.u64(u64::MAX),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -379,6 +378,9 @@ impl Default for Skin {
         }))
     }
 }
+
+// Equality is reflexive: a skin has no NaN (frame counts are checked finite at login).
+impl Eq for Skin {}
 
 /// One input for the tick, ordered by (`session`, `seq`) before it is applied.
 #[derive(Debug, Clone)]
@@ -402,7 +404,8 @@ pub(crate) enum InputKind {
         outbound: mpsc::Sender<Outbound>,
     },
     /// An in-game packet (after `StartGame`) and the bytes the input log counts for it against
-    /// its bound: the larger of its size on the wire and what decoding it allocated.
+    /// its bound: the larger of its size on the wire and what decoding it allocated. The log does
+    /// not keep the size, and no tick rule reads it.
     Packet { packet: Packet, size: usize },
     /// The connection closed.
     Leave,
@@ -497,16 +500,6 @@ pub(crate) enum Outbound {
     Close(Packet),
 }
 
-/// The packet that turns a player away because the server is full: `PlayStatus` with
-/// `LoginFailedServerFull`, whose text the client shows itself. The session layer sends it when
-/// too many sessions wait to join, the tick when `max-players` players are online or no entity
-/// runtime ID is left.
-pub(crate) fn server_full() -> Packet {
-    Packet::PlayStatus(PlayStatus {
-        status: i32::from(consts::PlayStatus::LoginFailedServerFull),
-    })
-}
-
 /// Why an input was not queued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Error {
@@ -530,40 +523,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The tick input queue of a server of `max_players`: the sending side for the session layer and
-/// the tick's receiver.
-///
-/// The queue holds a [`SESSION_INPUTS`] share for every session that can hold one at once and
-/// the results of every job, so no session or job ever finds it full. Connection sessions hold
-/// a share from their join until the tick takes their leave ([`InputSender::connection`]):
-/// `max_players` online and as many whose join the tick has not applied yet or that it turned
-/// away and whose leave it has not taken.
-pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
-    let connections = usize::try_from(max_players)
-        .unwrap_or(usize::MAX)
-        .saturating_mul(2);
-    let capacity = connections
-        .saturating_add(ENGINE_SESSIONS)
-        .saturating_mul(SESSION_INPUTS)
-        .saturating_add(MAX_JOBS);
-    let (tx, rx) = mpsc::channel(capacity);
-    let sender = InputSender {
-        queue: tx,
-        connections: Arc::new(Semaphore::new(connections)),
-    };
-    (sender, InputReceiver(rx))
-}
-
-/// A session's outbound queue; the sender goes to the tick in [`InputKind::Join`].
-pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbound>) {
-    mpsc::channel(OUTBOUND_CAPACITY)
-}
-
-/// The queue of [`Control`]s from the tick to the networking: four ticks at the tick's bound.
-pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>) {
-    mpsc::channel(4 * MAX_CONTROLS_PER_TICK)
-}
-
 /// An input in the queue with the place it takes in its session's share, which the tick gives
 /// back by taking it; a job's result takes none. A connection's leave also carries its connection
 /// share: the queue is in order, so when the tick takes the leave it has taken every input of the
@@ -584,6 +543,28 @@ pub(crate) struct InputSender {
 }
 
 impl InputSender {
+    /// A sender that stamps the inputs of engine session `id` with its sequence numbers.
+    pub(crate) fn session(&self, id: SessionId) -> SessionInputs {
+        SessionInputs {
+            session: id,
+            next_seq: 0,
+            queue: self.queue.clone(),
+            share: Arc::new(Semaphore::new(MAX_SESSION_INPUTS)),
+            connection: None,
+        }
+    }
+
+    /// Takes one of the queue's connection shares for connection session `id` and returns the
+    /// session's sender, which holds the share until the tick takes its leave; `None` while every
+    /// share is held.
+    pub(crate) fn connection(&self, id: SessionId) -> Option<SessionInputs> {
+        let connection = Arc::clone(&self.connections).try_acquire_owned().ok()?;
+        Some(SessionInputs {
+            connection: Some(connection),
+            ..self.session(id)
+        })
+    }
+
     /// Queues the result of job `id`, waiting for room so that the job's callback always runs.
     /// Fails only if the tick has stopped.
     pub(crate) async fn job(&self, id: u64, outcome: JobOutcome) -> Result<()> {
@@ -599,27 +580,6 @@ impl InputSender {
         };
         self.queue.send(queued).await.map_err(|_| Error::Closed)
     }
-
-    /// A sender that stamps the inputs of engine session `id` with its sequence numbers.
-    pub(crate) fn session(&self, id: SessionId) -> SessionInputs {
-        SessionInputs {
-            session: id,
-            next_seq: 0,
-            queue: self.queue.clone(),
-            share: Arc::new(Semaphore::new(SESSION_INPUTS)),
-            connection: None,
-        }
-    }
-
-    /// A sender for connection session `id`, which holds one of the queue's connection shares
-    /// until the tick takes its leave; `None` while every share is held.
-    pub(crate) fn connection(&self, id: SessionId) -> Option<SessionInputs> {
-        let connection = Arc::clone(&self.connections).try_acquire_owned().ok()?;
-        Some(SessionInputs {
-            connection: Some(connection),
-            ..self.session(id)
-        })
-    }
 }
 
 /// The inputs of one session, stamped in order. Owned by that session's task.
@@ -628,7 +588,7 @@ pub(crate) struct SessionInputs {
     session: SessionId,
     next_seq: u64,
     queue: mpsc::Sender<Queued>,
-    /// [`SESSION_INPUTS`] permits, one taken by each input the tick has not taken yet.
+    /// [`MAX_SESSION_INPUTS`] permits, one taken by each input the tick has not taken yet.
     share: Arc<Semaphore>,
     /// The connection share of a connection session, which its leave carries to the tick.
     connection: Option<OwnedSemaphorePermit>,
@@ -685,7 +645,7 @@ impl SessionInputs {
         };
         // A closed queue means the tick has stopped and forgets every session anyway.
         if self.queue.send(queued).await.is_err() {
-            tracing::debug!(session = self.session.get(), "tick stopped before leave");
+            debug!(session = self.session.get(), "tick stopped before leave");
         }
     }
 }
@@ -696,29 +656,71 @@ impl SessionInputs {
 pub(crate) struct InputReceiver(mpsc::Receiver<Queued>);
 
 impl InputReceiver {
-    /// The next input, without waiting.
-    pub(crate) fn try_recv(&mut self) -> std::result::Result<Input, TryRecvError> {
-        self.0.try_recv().map(|queued| queued.input)
-    }
-
-    /// The next input, waiting for one; `None` once every sender is gone.
-    #[cfg(test)]
-    pub(crate) async fn recv(&mut self) -> Option<Input> {
-        self.0.recv().await.map(|queued| queued.input)
-    }
-
     /// The inputs waiting.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
+
+    /// Takes the next input, without waiting.
+    pub(crate) fn try_recv(&mut self) -> std::result::Result<Input, TryRecvError> {
+        self.0.try_recv().map(|queued| queued.input)
+    }
+
+    /// Waits for the next input and takes it; `None` once every sender is gone.
+    #[cfg(test)]
+    pub(crate) async fn recv(&mut self) -> Option<Input> {
+        self.0.recv().await.map(|queued| queued.input)
+    }
+}
+
+/// Makes the tick input queue of a server of `max_players`: the sending side for the session
+/// layer and the tick's receiver.
+///
+/// The queue holds a [`MAX_SESSION_INPUTS`] share for every session that can hold one at once
+/// and the results of every job, so no session or job ever finds it full. Connection sessions
+/// hold a share from their join until the tick takes their leave ([`InputSender::connection`]):
+/// `max_players` online and as many whose join the tick has not applied yet or that it turned
+/// away and whose leave it has not taken.
+pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
+    let connections = usize::try_from(max_players)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(2);
+    let capacity = connections
+        .saturating_add(ENGINE_SESSIONS)
+        .saturating_mul(MAX_SESSION_INPUTS)
+        .saturating_add(MAX_JOBS);
+    let (tx, rx) = mpsc::channel(capacity);
+    let sender = InputSender {
+        queue: tx,
+        connections: Arc::new(Semaphore::new(connections)),
+    };
+    (sender, InputReceiver(rx))
+}
+
+/// Makes a session's outbound queue; the sender goes to the tick in [`InputKind::Join`].
+pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbound>) {
+    mpsc::channel(OUTBOUND_CAPACITY)
+}
+
+/// Makes the queue of [`Control`]s from the tick to the networking: four ticks at the tick's
+/// bound.
+pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>) {
+    mpsc::channel(4 * MAX_CONTROLS_PER_TICK)
+}
+
+/// Builds the packet that turns a player away because the server is full: `PlayStatus` with
+/// `LoginFailedServerFull`, whose text the client shows itself. The session layer sends it when
+/// too many sessions wait to join, the tick when `max-players` players are online or no entity
+/// runtime ID is left.
+pub(crate) fn server_full() -> Packet {
+    Packet::PlayStatus(PlayStatus {
+        status: i32::from(consts::PlayStatus::LoginFailedServerFull),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
     use super::*;
 
     #[test]
@@ -768,7 +770,7 @@ mod tests {
             sender.connection(SessionId::new(3)).is_none(),
             "two connections at most"
         );
-        for _ in 0..SESSION_INPUTS {
+        for _ in 0..MAX_SESSION_INPUTS {
             a.try_send(InputKind::Leave).unwrap();
         }
         assert_eq!(a.try_send(InputKind::Leave), Err(Error::Full));
@@ -791,13 +793,13 @@ mod tests {
         let (sender, mut rx) = input_queue(1);
         let _b = sender.connection(SessionId::new(1)).unwrap();
         let mut a = sender.connection(SessionId::new(2)).unwrap();
-        for _ in 1..SESSION_INPUTS {
+        for _ in 1..MAX_SESSION_INPUTS {
             a.try_send(InputKind::Leave).unwrap();
         }
-        let leaving = pin!(a.leave());
-        let polled = leaving.poll(&mut Context::from_waker(Waker::noop()));
-        assert_eq!(polled, Poll::Ready(()));
-        for _ in 1..SESSION_INPUTS {
+        let leaving = std::pin::pin!(a.leave());
+        let polled = leaving.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+        assert_eq!(polled, std::task::Poll::Ready(()));
+        for _ in 1..MAX_SESSION_INPUTS {
             rx.try_recv().unwrap();
             assert!(
                 sender.connection(SessionId::new(3)).is_none(),

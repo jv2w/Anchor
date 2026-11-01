@@ -5,9 +5,9 @@
 //! packets. Before the player joins, packets outside the login sequence wait in a short queue
 //! and reach the tick after the join, in order (gophertunnel defers them the same way, without
 //! a bound). Outbound, the tick's packets are batched, compressed and encrypted here, off the
-//! tick, and handed to the connection as it delivers them ([`SEND_LIMIT`]). NetherNet runs the
-//! same handshake but never encrypts (DTLS protects it, as on BDS), and its Login must carry the
-//! key its offer proved.
+//! tick, and handed to the connection as it delivers them ([`MAX_OUTPUT_UNDELIVERED_BYTES`]).
+//! NetherNet runs the same handshake but never encrypts (DTLS protects it, as on BDS), and its
+//! Login must carry the key its offer proved.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -25,6 +25,7 @@ use crate::auth::Keys;
 use crate::bucket::{Bucket, Rate};
 use crate::clock;
 use crate::crypto::encryption::{CHECKSUM, Decryptor, Encryptor, Handshake};
+use crate::item::SHIELD_RUNTIME_ID;
 use crate::login::{self, Login, Mode};
 use crate::protocol::InventoryTransactionData;
 use crate::protocol::batch::{self, Header};
@@ -49,22 +50,22 @@ const SPAWN_DEADLINE: Duration = Duration::from_secs(60);
 /// report is a logged input.
 const PING_REPORT: Duration = Duration::from_secs(5);
 /// The largest message before `NetworkSettings`.
-const FIRST_MESSAGE_BYTES: usize = 1024;
+const MAX_FIRST_MESSAGE_BYTES: usize = 1024;
 /// Packets outside the login sequence held until the join. The official client's order is not
 /// observable; 32 is far above the few packets (cache status, violation warnings) clients send.
 const MAX_DEFERRED: usize = 32;
 /// Reassembled plus decompressed bytes before login verification, in batch limits.
-const PRE_AUTH_BATCHES: usize = 8;
-/// Capacity the reused payload buffers keep between messages: an outbound batch cut (256 KiB)
-/// plus a packet under it. A larger message (a Login or a skin of up to 4 MiB) would otherwise
-/// pin its size until the session ends.
-const KEPT_BUFFER_BYTES: usize = 512 * 1024;
+const MAX_PRE_AUTH_BATCHES: usize = 8;
+/// Capacity the reused payload buffers keep between messages: twice the size at which outbound
+/// batches are cut ([`batch`]), so a cut batch and a packet under it fit. A larger message (a
+/// Login or a skin of up to 4 MiB) would otherwise pin its size until the session ends.
+const MAX_KEPT_BUFFER_BYTES: usize = 512 * 1024;
 /// The input budget refills this fraction of `max-batch-bytes` per second.
 const BUDGET_REFILL_DIVISOR: usize = 4;
 /// The input packet budget: at the default `max-players` the rates of all sessions fit in what
 /// the tick applies (`network.md`). The burst is the session's share of the tick queue.
 const PACKET_RATE: Rate = Rate {
-    capacity: queue::SESSION_INPUTS,
+    capacity: queue::MAX_SESSION_INPUTS,
     per_second: 512,
 };
 /// A copy of the held click ([`Session::held_click`]) within this long of the last one forwarded
@@ -78,7 +79,7 @@ const HELD_CLICK_REPEAT: Duration =
 /// one more batch of the default 16 MiB `max-batch-bytes` (at most 18.7 MiB compressed, plus
 /// about 4.7 MiB of RakNet frame cost at the smallest MTU) stays under the transports' 32 MiB
 /// caps.
-const SEND_LIMIT: usize = 4 * 1024 * 1024;
+const MAX_OUTPUT_UNDELIVERED_BYTES: usize = 4 * 1024 * 1024;
 /// How long after the last handover the session still counts the bodies it handed over on top
 /// of the connection's undelivered count: both transports take the session's messages as they
 /// come and report the count every 10 ms update, so by then the count holds them.
@@ -87,32 +88,8 @@ const REPORT_WAIT: Duration = Duration::from_millis(30);
 /// player lists ([`Pending::SpawnList`]): a link that falls this far behind ends, as the
 /// transports end one with 32 MiB undelivered.
 const MAX_PENDING_BYTES: usize = 32 * 1024 * 1024;
-/// The shield's item network ID, which the item registry Anchor sends names.
-const SHIELD_ID: i32 = crate::item::SHIELD_RUNTIME_ID;
 /// What a player who refuses required packs sees.
 const PACKS_REFUSED_MESSAGE: &str = "This server needs its resource packs: accept them to join";
-
-/// Runs one connection until it closes, then tells the tick and the accept task.
-pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
-    let mut session = Session::new(id, conn, shared);
-    let end = session.serve().await;
-    session.finish(end).await;
-}
-
-/// Where the connection is in the login sequence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stage {
-    /// Waiting for `RequestNetworkSettings`, the one uncompressed message.
-    NetworkSettings,
-    /// Waiting for `Login`, the first packet of the first compressed batch.
-    Login,
-    /// Waiting for `ClientToServerHandshake`, on RakNet the first encrypted packet.
-    Handshake,
-    /// Waiting for the resource pack responses.
-    Packs,
-    /// Joined: packets go to the tick.
-    Joined,
-}
 
 struct Session {
     id: SessionId,
@@ -141,7 +118,8 @@ struct Session {
     out_payload: Vec<u8>,
     /// Batch bodies of the first waiting output, in order and not encrypted yet, reused.
     out_bodies: VecDeque<Vec<u8>>,
-    /// The tick's output after `out_bodies`, waiting for delivery ([`SEND_LIMIT`]), in order.
+    /// The tick's output after `out_bodies`, waiting for delivery
+    /// ([`MAX_OUTPUT_UNDELIVERED_BYTES`]), in order.
     pending: VecDeque<Pending>,
     /// Bytes of the [`Pending::Body`]s and [`Pending::Batches`] in `pending`.
     pending_bytes: usize,
@@ -164,6 +142,7 @@ struct Session {
     /// `.claude/docs/network.md`). Any other use forwarded forgets it.
     held_click: Option<(Header, Vec<u8>, Duration)>,
     pre_auth_bytes: usize,
+    /// The verified player, from the login on.
     identity: Option<Identity>,
     deferred: VecDeque<(Packet, usize)>,
     inputs: Option<SessionInputs>,
@@ -171,98 +150,14 @@ struct Session {
     /// The place among the sessions waiting to join, held from login to the join.
     waiting: Option<OwnedSemaphorePermit>,
     spawned: bool,
-    logged_in: bool,
     /// The ping last reported to the tick, in milliseconds.
     reported_ping: Option<u32>,
-}
-
-/// Tick output waiting for delivery.
-enum Pending {
-    /// A batch body of the session's own packets, compressed and not encrypted yet.
-    Body(Vec<u8>),
-    /// A packet of a spawn window's player list ([`Message::SpawnList`]), encoded into a batch
-    /// of its own as it goes out: a list of every skin outgrows any bound on a copy per session,
-    /// so [`MAX_PENDING_BYTES`] does not count it, and a session gets two lists at most.
-    SpawnList(Arc<Packet>),
-    /// Batches the tick shares among sessions, copied as they go out and counted by their bytes
-    /// meanwhile.
-    Batches(SharedBatches),
-    /// The end of the batches with the spawn status.
-    SpawnStatus,
-}
-
-/// Why a session ended.
-#[derive(Debug)]
-enum End {
-    /// The peer or the transport closed the connection.
-    Closed,
-    /// The tick closed the session (kick, full server, shutdown).
-    Kicked,
-    /// The tick stopped.
-    TickStopped,
-    /// The server is stopping and the player had not joined.
-    Shutdown,
-    /// A deadline passed.
-    Timeout(&'static str),
-    /// The peer broke the protocol or a limit, or sending failed.
-    Failed(Error),
-}
-
-/// A session failure; the connection closes.
-#[derive(Debug)]
-enum Error {
-    Order(&'static str),
-    Limit(&'static str),
-    Protocol(i32),
-    Batch(batch::Error),
-    Packet(crate::protocol::Error),
-    Login(login::Error),
-    /// The Login key is not the key the NetherNet offer proved.
-    Binding,
-    Crypto(crate::crypto::Error),
-    Transport(transport::Error),
-    Queue(queue::Error),
-    Packs(packs::Error),
-}
-
-type Result<T, E = Error> = std::result::Result<T, E>;
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Order(what) => write!(f, "packet out of order: {what}"),
-            Self::Limit(what) => write!(f, "limit exceeded: {what}"),
-            Self::Protocol(version) => write!(f, "unsupported protocol version {version}"),
-            Self::Batch(_) => f.write_str("malformed batch"),
-            Self::Packet(_) => f.write_str("malformed packet"),
-            Self::Login(_) => f.write_str("login rejected"),
-            Self::Binding => f.write_str("login key differs from the nethernet offer key"),
-            Self::Crypto(_) => f.write_str("encryption failed"),
-            Self::Transport(_) => f.write_str("connection failed"),
-            Self::Queue(_) => f.write_str("tick queue unavailable"),
-            Self::Packs(_) => f.write_str("resource pack sequence failed"),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Batch(e) => Some(e),
-            Self::Packet(e) => Some(e),
-            Self::Login(e) => Some(e),
-            Self::Crypto(e) => Some(e),
-            Self::Transport(e) => Some(e),
-            Self::Queue(e) => Some(e),
-            Self::Packs(e) => Some(e),
-            Self::Order(_) | Self::Limit(_) | Self::Protocol(_) | Self::Binding => None,
-        }
-    }
 }
 
 impl Session {
     fn new(id: SessionId, conn: Transport, shared: Arc<Shared>) -> Self {
         let max = shared.batch.max_batch_bytes();
+        let send_extension_left = shared.max_send_extension;
         let started = clock::now();
         let budget_rate = Rate {
             capacity: max,
@@ -271,10 +166,11 @@ impl Session {
         Self {
             id,
             conn,
+            shared,
             stage: Stage::NetworkSettings,
             started,
             spawn_at: started + SPAWN_DEADLINE,
-            send_extension_left: shared.max_send_extension,
+            send_extension_left,
             transfer: Transfer::default(),
             encoder: None,
             decoder: None,
@@ -298,9 +194,7 @@ impl Session {
             outbound: None,
             waiting: None,
             spawned: false,
-            logged_in: false,
             reported_ping: None,
-            shared,
         }
     }
 
@@ -324,7 +218,8 @@ impl Session {
             let undelivered_bytes = *undelivered.borrow();
             let delivered = undelivered_bytes <= MAX_UNDELIVERED;
             let output_waits = !self.out_bodies.is_empty() || !self.pending.is_empty();
-            let output_fits = undelivered_bytes.saturating_add(self.unreported_bytes) <= SEND_LIMIT;
+            let output_fits = undelivered_bytes.saturating_add(self.unreported_bytes)
+                <= MAX_OUTPUT_UNDELIVERED_BYTES;
             tokio::select! {
                 message = self.conn.recv() => {
                     let Some(message) = message else { return End::Closed };
@@ -376,7 +271,7 @@ impl Session {
                     }
                     None => return End::TickStopped,
                 },
-                () = &mut login_deadline, if self.identity.is_none() && !self.logged_in => {
+                () = &mut login_deadline, if self.identity.is_none() => {
                     return End::Timeout("login");
                 }
                 () = &mut spawn_deadline, if !self.spawned => return End::Timeout("spawn"),
@@ -421,7 +316,7 @@ impl Session {
                 debug!(session = self.id.get(), error = %e, "shutdown message not sent");
             }
         }
-        if self.logged_in && self.shared.events.send(Event::Ended).await.is_err() {
+        if self.identity.is_some() && self.shared.events.send(Event::Ended).await.is_err() {
             debug!("accept task gone before the session ended");
         }
         self.conn.close();
@@ -446,14 +341,14 @@ impl Session {
             Err(e) => Err(Error::Batch(e)),
         };
         payload.clear();
-        payload.shrink_to(KEPT_BUFFER_BYTES);
+        payload.shrink_to(MAX_KEPT_BUFFER_BYTES);
         self.payload = payload;
         result
     }
 
-    /// `RequestNetworkSettings`: the only message sent without a compression header.
+    /// Handles `RequestNetworkSettings`, the only message sent without a compression header.
     async fn on_first_message(&mut self, message: &[u8]) -> Result<()> {
-        if message.len() > FIRST_MESSAGE_BYTES {
+        if message.len() > MAX_FIRST_MESSAGE_BYTES {
             return Err(Error::Limit("first message"));
         }
         let mut packets = batch::split(message).map_err(Error::Batch)?;
@@ -461,9 +356,10 @@ impl Session {
         if packets.next().is_some() {
             return Err(Error::Order("more than one packet before network settings"));
         }
-        let mut budget = FIRST_MESSAGE_BYTES;
+        let mut budget = MAX_FIRST_MESSAGE_BYTES;
         let Packet::RequestNetworkSettings(RequestNetworkSettings { client_protocol }) =
-            Packet::decode(header.id, bytes, &mut budget, SHIELD_ID).map_err(Error::Packet)?
+            Packet::decode(header.id, bytes, &mut budget, SHIELD_RUNTIME_ID)
+                .map_err(Error::Packet)?
         else {
             return Err(Error::Order("first packet is not RequestNetworkSettings"));
         };
@@ -490,7 +386,13 @@ impl Session {
         let packets = batch::split(payload).map_err(Error::Batch)?;
         // The whole batch shares one allocation budget, as in `batch::decode_packets`.
         let mut budget = self.shared.batch.decode_budget();
+        let encrypted = self.decryptor.is_some();
         for (header, bytes) in packets {
+            // The Login turns encryption on for the next message: a packet after it in this
+            // plain payload would skip the proof that the client holds its key.
+            if !encrypted && self.decryptor.is_some() {
+                return Err(Error::Order("packet after the login in its batch"));
+            }
             if self.held_click.as_ref().is_some_and(|(h, held, at)| {
                 *h == header && held == bytes && now.saturating_sub(*at) < HELD_CLICK_REPEAT
             }) {
@@ -501,7 +403,17 @@ impl Session {
                 return Err(Error::Limit("input packets per second"));
             }
             let left = budget;
-            match Packet::decode(header.id, bytes, &mut budget, SHIELD_ID) {
+            // Only what clients send decodes (gophertunnel's client packet pool): a packet only
+            // servers send fails as one that does not decode.
+            let decoded = if Packet::is_from_client(header.id) {
+                Packet::decode(header.id, bytes, &mut budget, SHIELD_RUNTIME_ID)
+            } else {
+                Err(crate::protocol::Error::InvalidValue {
+                    field: "packet id",
+                    reason: "only servers send it",
+                })
+            };
+            match decoded {
                 // The input log holds the decoded packet and writes its bytes, so it counts the
                 // larger of the two.
                 Ok(packet) => {
@@ -650,7 +562,6 @@ impl Session {
                 join_time_ms: 0,
             },
         });
-        self.logged_in = true;
         self.conn.logged_in();
         if self.shared.events.send(Event::LoggedIn).await.is_err() {
             debug!("accept task gone during login");
@@ -676,8 +587,8 @@ impl Session {
         Ok(())
     }
 
-    /// The login succeeded (after the handshake, or at once without encryption): the client
-    /// hears so and gets the resource packs on offer.
+    /// Tells the client the login succeeded (after the handshake, or at once without
+    /// encryption) and offers it the resource packs.
     async fn login_success(&mut self) -> Result<()> {
         self.stage = Stage::Packs;
         self.send(&[
@@ -812,14 +723,14 @@ impl Session {
 
     /// Counts bytes against the pre-login total.
     fn charge_pre_auth(&mut self, bytes: usize) -> Result<()> {
-        if self.logged_in {
+        if self.identity.is_some() {
             return Ok(());
         }
         let limit = self
             .shared
             .batch
             .max_batch_bytes()
-            .saturating_mul(PRE_AUTH_BATCHES);
+            .saturating_mul(MAX_PRE_AUTH_BATCHES);
         self.pre_auth_bytes = self.pre_auth_bytes.saturating_add(bytes);
         if self.pre_auth_bytes > limit {
             return Err(Error::Limit("bytes before login"));
@@ -848,20 +759,25 @@ impl Session {
             (header, packet)
         });
         let encoder = &mut self.encoder;
-        let batched = batch::encode_packets(headers, SHIELD_ID, &mut self.out_payload, |payload| {
-            let mut body = Vec::new();
-            match encoder {
-                Some(encoder) => encoder.encode(payload, &mut body)?,
-                // Before compression is on, the payload goes as it is (no header byte).
-                None => body.extend_from_slice(payload),
-            }
-            bodies.push_back(body);
-            Ok(())
-        });
+        let batched = batch::encode_packets(
+            headers,
+            SHIELD_RUNTIME_ID,
+            &mut self.out_payload,
+            |payload| {
+                let mut body = Vec::new();
+                match encoder {
+                    Some(encoder) => encoder.encode(payload, &mut body)?,
+                    // Before compression is on, the payload goes as it is (no header byte).
+                    None => body.extend_from_slice(payload),
+                }
+                bodies.push_back(body);
+                Ok(())
+            },
+        );
         // Cleared first: `shrink_to` never goes below the length.
         self.out_payload.clear();
-        self.out_payload.shrink_to(KEPT_BUFFER_BYTES);
-        batched.map_err(Error::Batch)
+        self.out_payload.shrink_to(MAX_KEPT_BUFFER_BYTES);
+        batched.map_err(Error::Encode)
     }
 
     /// Batches and compresses `packets` into bodies waiting after all the output before them.
@@ -918,7 +834,7 @@ impl Session {
         Ok(())
     }
 
-    /// The next batch body to go out, if any waits: the first output waiting is batched or
+    /// Takes the next batch body to go out, if any waits: the first output waiting is batched or
     /// copied once the bodies before it are gone.
     fn next_body(&mut self) -> Result<Option<Vec<u8>>> {
         loop {
@@ -970,7 +886,117 @@ impl Session {
     }
 }
 
-/// The packet a [`Message::Packet`] carries.
+/// Where the connection is in the login sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    /// Waiting for `RequestNetworkSettings`, the one uncompressed message.
+    NetworkSettings,
+    /// Waiting for `Login`, the first packet of the first compressed batch.
+    Login,
+    /// Waiting for `ClientToServerHandshake`, on RakNet the first encrypted packet.
+    Handshake,
+    /// Waiting for the resource pack responses.
+    Packs,
+    /// Joined: packets go to the tick.
+    Joined,
+}
+
+/// Tick output waiting for delivery.
+enum Pending {
+    /// A batch body of the session's own packets, compressed and not encrypted yet.
+    Body(Vec<u8>),
+    /// A packet of a spawn window's player list ([`Message::SpawnList`]), encoded into a batch
+    /// of its own as it goes out: a list of every skin outgrows any bound on a copy per session,
+    /// so [`MAX_PENDING_BYTES`] does not count it, and a session gets two lists at most.
+    SpawnList(Arc<Packet>),
+    /// Batches the tick shares among sessions, copied as they go out and counted by their bytes
+    /// meanwhile.
+    Batches(SharedBatches),
+    /// The end of the batches with the spawn status.
+    SpawnStatus,
+}
+
+/// Why a session ended.
+#[derive(Debug)]
+enum End {
+    /// The peer or the transport closed the connection.
+    Closed,
+    /// The tick closed the session (kick, full server, shutdown).
+    Kicked,
+    /// The tick stopped.
+    TickStopped,
+    /// The server is stopping and the player had not joined.
+    Shutdown,
+    /// A deadline passed.
+    Timeout(&'static str),
+    /// The peer broke the protocol or a limit, or sending failed.
+    Failed(Error),
+}
+
+/// A session failure; the connection closes.
+#[derive(Debug)]
+enum Error {
+    Order(&'static str),
+    Limit(&'static str),
+    Protocol(i32),
+    /// The Login key is not the key the NetherNet offer proved.
+    Binding,
+    /// A batch the client sent is malformed.
+    Batch(batch::Error),
+    /// The session's own packets did not encode into batches.
+    Encode(batch::Error),
+    Packet(crate::protocol::Error),
+    Login(login::Error),
+    Crypto(crate::crypto::Error),
+    Transport(transport::Error),
+    Queue(queue::Error),
+    Packs(packs::Error),
+}
+
+type Result<T, E = Error> = std::result::Result<T, E>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Order(what) => write!(f, "packet out of order: {what}"),
+            Self::Limit(what) => write!(f, "limit exceeded: {what}"),
+            Self::Protocol(version) => write!(f, "unsupported protocol version {version}"),
+            Self::Binding => f.write_str("login key differs from the nethernet offer key"),
+            Self::Batch(_) => f.write_str("malformed batch"),
+            Self::Encode(_) => f.write_str("server packets not encoded"),
+            Self::Packet(_) => f.write_str("malformed packet"),
+            Self::Login(_) => f.write_str("login rejected"),
+            Self::Crypto(_) => f.write_str("encryption failed"),
+            Self::Transport(_) => f.write_str("connection failed"),
+            Self::Queue(_) => f.write_str("tick queue unavailable"),
+            Self::Packs(_) => f.write_str("resource pack sequence failed"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Order(_) | Self::Limit(_) | Self::Protocol(_) | Self::Binding => None,
+            Self::Batch(e) | Self::Encode(e) => Some(e),
+            Self::Packet(e) => Some(e),
+            Self::Login(e) => Some(e),
+            Self::Crypto(e) => Some(e),
+            Self::Transport(e) => Some(e),
+            Self::Queue(e) => Some(e),
+            Self::Packs(e) => Some(e),
+        }
+    }
+}
+
+/// Runs one connection until it closes, then tells the tick and the accept task.
+pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
+    let mut session = Session::new(id, conn, shared);
+    let end = session.serve().await;
+    session.finish(end).await;
+}
+
+/// Returns the packet a [`Message::Packet`] carries.
 fn packet_of(message: &Message) -> Option<&Packet> {
     match message {
         Message::Packet(packet) => Some(packet),
@@ -978,7 +1004,7 @@ fn packet_of(message: &Message) -> Option<&Packet> {
     }
 }
 
-/// The bytes of the bodies of `batches`.
+/// Counts the bytes of the bodies of `batches`.
 fn bytes_of(batches: &SharedBatches) -> usize {
     batches.iter().map(Vec::len).sum()
 }
@@ -998,14 +1024,14 @@ fn is_spawn_status(packet: &Packet) -> bool {
         if *status == i32::from(consts::PlayStatus::PlayerSpawn))
 }
 
-/// A session's copy of a shared batch body, with room for the encryption checksum.
+/// Copies a shared batch body for the session, with room for the encryption checksum.
 fn owned_body(body: &[u8]) -> Vec<u8> {
     let mut owned = Vec::with_capacity(body.len() + CHECKSUM);
     owned.extend_from_slice(body);
     owned
 }
 
-/// The next tick message, or never when the player has not joined.
+/// Waits for the next tick message, forever when the player has not joined.
 async fn next_outbound(outbound: Option<&mut mpsc::Receiver<Outbound>>) -> Option<Outbound> {
     match outbound {
         Some(receiver) => receiver.recv().await,
@@ -1019,8 +1045,6 @@ fn deadline(at: Instant) -> tokio::time::Sleep {
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::{Semaphore, watch};
-
     use super::*;
     use crate::crypto::ServerKey;
     use crate::pack::Offer;
@@ -1028,19 +1052,22 @@ mod tests {
     use crate::protocol::batch::MAX_PACKETS;
     use crate::tick::TICK;
     use crate::tick::queue::{
-        Input, InputReceiver, InputSender, SESSION_INPUTS, Skin, input_queue,
+        Input, InputReceiver, InputSender, MAX_SESSION_INPUTS, Skin, input_queue,
     };
 
-    /// What the sessions share: offline, unencrypted, no packs, inputs on `inputs`.
+    /// Makes what the sessions share: offline, unencrypted, no packs, inputs on `inputs`.
     fn shared(inputs: InputSender) -> Arc<Shared> {
         sharing(inputs, Offer::new(Vec::new(), false).unwrap()).0
     }
 
-    /// What the sessions share: offline, unencrypted, `packs` on offer, inputs on `inputs`; and
-    /// the shutdown signal, which stops sessions before the join once dropped.
-    fn sharing(inputs: InputSender, packs: Offer) -> (Arc<Shared>, watch::Sender<bool>) {
+    /// Makes what the sessions share: offline, unencrypted, `packs` on offer, inputs on
+    /// `inputs`; and the shutdown signal, which stops sessions before the join once dropped.
+    fn sharing(
+        inputs: InputSender,
+        packs: Offer,
+    ) -> (Arc<Shared>, tokio::sync::watch::Sender<bool>) {
         let (events, _) = mpsc::channel(1);
-        let (stop, shutdown) = watch::channel(false);
+        let (stop, shutdown) = tokio::sync::watch::channel(false);
         let shared = Arc::new(Shared {
             batch: batch::Settings::default(),
             auth: None,
@@ -1051,40 +1078,15 @@ mod tests {
             shutdown,
             shutdown_message: String::new(),
             encryption: false,
-            waiting: Arc::new(Semaphore::new(1)),
+            waiting: Arc::new(tokio::sync::Semaphore::new(1)),
             max_send_extension: crate::session::max_send_extension(1),
         });
         (shared, stop)
     }
 
-    /// Runs a test on its own single-thread runtime with time paused: it jumps ahead whenever
-    /// every task waits.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a test drives a session on a runtime of its own"
-    )]
-    fn run_paused<F: Future>(test: F) -> F::Output {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .start_paused(true)
-            .build()
-            .unwrap()
-            .block_on(test)
-    }
-
-    /// Session `id` as any client gets it after the login and the resource packs: joined, with
-    /// its Join in the tick queue.
-    async fn joined(id: u64, shared: &Arc<Shared>) -> Session {
-        let conn = Transport::Raknet(crate::raknet::tests::detached_connection());
-        joined_on(id, shared, conn).await
-    }
-
-    /// [`joined`] on `conn`.
-    async fn joined_on(id: u64, shared: &Arc<Shared>, conn: Transport) -> Session {
-        let mut session = Session::new(SessionId::new(id), conn, Arc::clone(shared));
-        session.decoder = Some(batch::Decoder::new(shared.batch));
-        session.logged_in = true;
-        session.identity = Some(Identity {
+    /// Makes the identity of player `id`, as its login gives it.
+    fn identity(id: u64) -> Identity {
+        Identity {
             name: format!("Player{id}"),
             xuid: None,
             uuid: crate::protocol::Uuid::from_bytes([1; 16]),
@@ -1092,7 +1094,21 @@ mod tests {
             device_os: -1,
             address: None,
             client: Client::default(),
-        });
+        }
+    }
+
+    /// Makes session `id` as any client gets it after the login and the resource packs: joined,
+    /// with its Join in the tick queue.
+    async fn joined(id: u64, shared: &Arc<Shared>) -> Session {
+        let conn = Transport::Raknet(crate::raknet::tests::detached_connection());
+        joined_on(id, shared, conn).await
+    }
+
+    /// Makes [`joined`]'s session on `conn`.
+    async fn joined_on(id: u64, shared: &Arc<Shared>, conn: Transport) -> Session {
+        let mut session = Session::new(SessionId::new(id), conn, Arc::clone(shared));
+        session.decoder = Some(batch::Decoder::new(shared.batch));
+        session.identity = Some(identity(id));
         session.join().await.unwrap();
         session
     }
@@ -1106,19 +1122,19 @@ mod tests {
             let shared = shared(inputs);
             let mut flooder = joined(0, &shared).await;
             let mut player = joined(1, &shared).await;
-            // Uncompressed batches of SetTime(0), 3 bytes a packet; the tick drains nothing
-            // meanwhile, as between two ticks.
+            // Uncompressed batches of SetLocalPlayerAsInitialised(0), 3 bytes a packet; the tick
+            // drains nothing meanwhile, as between two ticks.
             let mut flood = vec![0xff];
-            flood.extend([0x02, 0x0a, 0x00].repeat(MAX_PACKETS));
+            flood.extend([0x02, 0x71, 0x00].repeat(MAX_PACKETS));
             let mut ended = None;
-            for _ in 0..=SESSION_INPUTS.div_ceil(MAX_PACKETS) {
+            for _ in 0..=MAX_SESSION_INPUTS.div_ceil(MAX_PACKETS) {
                 if let Err(e) = flooder.on_message(flood.clone()).await {
                     ended = Some(e);
                     break;
                 }
             }
             player
-                .on_message(vec![0xff, 0x02, 0x0a, 0x00])
+                .on_message(vec![0xff, 0x02, 0x71, 0x00])
                 .await
                 .expect("the other player's packet is queued");
             assert!(matches!(ended, Some(Error::Queue(_))), "{ended:?}");
@@ -1144,10 +1160,11 @@ mod tests {
             for id in 0..FLOODERS {
                 flooders.push(joined(id, &shared).await);
             }
-            // Uncompressed batches of SetTime(0), 3 bytes a packet: the whole burst.
+            // Uncompressed batches of SetLocalPlayerAsInitialised(0), 3 bytes a packet: the
+            // whole burst.
             let batch = |packets: usize| {
                 let mut b = vec![0xff];
-                b.extend([0x02, 0x0a, 0x00].repeat(packets));
+                b.extend([0x02, 0x71, 0x00].repeat(packets));
                 b
             };
             let burst = [
@@ -1199,7 +1216,7 @@ mod tests {
                 )
             });
             let mut requests = vec![0xff];
-            batch::encode_packets(headers, SHIELD_ID, &mut Vec::new(), |payload| {
+            batch::encode_packets(headers, SHIELD_RUNTIME_ID, &mut Vec::new(), |payload| {
                 requests.extend_from_slice(payload);
                 Ok(())
             })
@@ -1234,19 +1251,24 @@ mod tests {
                 ..packet::InventoryTransaction::default()
             });
             let mut body = Vec::new();
-            packet.encode(&mut body, SHIELD_ID).unwrap();
+            packet.encode(&mut body, SHIELD_RUNTIME_ID).unwrap();
             let mut budget = usize::MAX;
-            Packet::decode(packet.id(), &body, &mut budget, SHIELD_ID).unwrap();
+            Packet::decode(packet.id(), &body, &mut budget, SHIELD_RUNTIME_ID).unwrap();
             let allocated = usize::MAX - budget;
             let mut message = vec![0xff];
             let header = Header {
                 id: packet.id(),
                 ..Header::default()
             };
-            batch::encode_packets([(header, &packet)], SHIELD_ID, &mut Vec::new(), |p| {
-                message.extend_from_slice(p);
-                Ok(())
-            })
+            batch::encode_packets(
+                [(header, &packet)],
+                SHIELD_RUNTIME_ID,
+                &mut Vec::new(),
+                |p| {
+                    message.extend_from_slice(p);
+                    Ok(())
+                },
+            )
             .unwrap();
             player.on_message(message).await.unwrap();
             let mut sizes = Vec::new();
@@ -1286,10 +1308,15 @@ mod tests {
                     id: packet.id(),
                     ..Header::default()
                 };
-                batch::encode_packets([(header, &packet)], SHIELD_ID, &mut Vec::new(), |p| {
-                    message.extend_from_slice(p);
-                    Ok(())
-                })
+                batch::encode_packets(
+                    [(header, &packet)],
+                    SHIELD_RUNTIME_ID,
+                    &mut Vec::new(),
+                    |p| {
+                        message.extend_from_slice(p);
+                        Ok(())
+                    },
+                )
                 .unwrap();
                 message
             };
@@ -1319,6 +1346,135 @@ mod tests {
         });
     }
 
+    /// A packet only servers send never reaches the tick: after the spawn it is dropped as a
+    /// packet that does not decode, and before the spawn it ends the session.
+    #[test]
+    fn a_packet_only_servers_send_never_reaches_the_tick() {
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut player = joined(0, &shared).await;
+            // An uncompressed batch of SetTime(0).
+            let set_time = vec![0xff, 0x02, 0x0a, 0x00];
+            player.spawned = true;
+            player
+                .on_message(set_time.clone())
+                .await
+                .expect("the packet is dropped");
+            let mut forwarded = 0;
+            while let Ok(input) = queue.try_recv() {
+                forwarded += usize::from(matches!(input.kind, InputKind::Packet { .. }));
+            }
+            assert_eq!(forwarded, 0);
+            player.spawned = false;
+            let ended = player.on_message(set_time).await;
+            assert!(matches!(ended, Err(Error::Packet(_))), "{ended:?}");
+        });
+    }
+
+    /// Makes the connection request of an offline Login whose token and client data `key`
+    /// signs.
+    fn login_request(key: &ServerKey) -> Vec<u8> {
+        let token = crate::crypto::sign_jwt(
+            key,
+            &serde_json::json!({"cpk": key.public_key_base64(), "xname": "Steve"}),
+        )
+        .unwrap();
+        let chain = serde_json::json!({
+            "AuthenticationType": 0,
+            "Certificate": serde_json::json!({"chain": []}).to_string(),
+            "Token": token,
+        })
+        .to_string();
+        let patch = br#"{"geometry":{"default":"geometry.humanoid"}}"#;
+        let client_data = crate::crypto::sign_jwt(
+            key,
+            &serde_json::json!({
+                "DeviceOS": 7,
+                "GameVersion": "1.26.60",
+                "LanguageCode": "en_US",
+                "ServerAddress": "127.0.0.1:19132",
+                "SkinData": crate::crypto::STD.encode(&[0; 8]),
+                "SkinImageHeight": 1,
+                "SkinImageWidth": 2,
+                "SkinId": "skin",
+                "SkinResourcePatch": crate::crypto::STD.encode(patch),
+            }),
+        )
+        .unwrap();
+        let mut request = Vec::new();
+        for part in [chain, client_data] {
+            request.extend_from_slice(&i32::try_from(part.len()).unwrap().to_le_bytes());
+            request.extend_from_slice(part.as_bytes());
+        }
+        request
+    }
+
+    /// On an encrypted RakNet connection, the packets after the Login in its plain batch end the
+    /// session: a client that replays another player's Login cannot finish the handshake
+    /// without the key it proves.
+    #[test]
+    fn packets_after_the_login_that_turns_encryption_on_end_the_session() {
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let mut shared = shared(inputs);
+            Arc::get_mut(&mut shared)
+                .expect("the test holds the only reference")
+                .encryption = true;
+            let (conn, _far) = crate::raknet::tests::linked_connection();
+            let mut session = Session::new(
+                SessionId::new(0),
+                Transport::Raknet(conn),
+                Arc::clone(&shared),
+            );
+            session.encoder = Some(batch::Encoder::new(shared.batch));
+            session.decoder = Some(batch::Decoder::new(shared.batch));
+            session.stage = Stage::Login;
+            let key = ServerKey::generate().unwrap();
+            let packets = [
+                Packet::Login(packet::Login {
+                    client_protocol: PROTOCOL_VERSION,
+                    connection_request: login_request(&key),
+                }),
+                Packet::ClientToServerHandshake(packet::ClientToServerHandshake::default()),
+            ];
+            let headers = packets.iter().map(|p| {
+                (
+                    Header {
+                        id: p.id(),
+                        ..Header::default()
+                    },
+                    p,
+                )
+            });
+            let mut message = vec![0xff];
+            batch::encode_packets(headers, SHIELD_RUNTIME_ID, &mut Vec::new(), |payload| {
+                message.extend_from_slice(payload);
+                Ok(())
+            })
+            .unwrap();
+            let ended = session.on_message(message).await;
+            assert!(matches!(ended, Err(Error::Order(_))), "{ended:?}");
+            assert_eq!(session.stage, Stage::Handshake);
+            assert!(queue.try_recv().is_err(), "nothing reached the tick");
+        });
+    }
+
+    /// Runs a test on its own single-thread runtime with time paused: it jumps ahead whenever
+    /// every task waits.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test drives a session on a runtime of its own"
+    )]
+    fn run_paused<F: Future>(test: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap()
+            .block_on(test)
+    }
+
     /// A client that asks for every chunk at once on a link that delivers nothing gets one
     /// chunk, not one every [`CHUNK_INTERVAL`] until the transport's outbound cap, and the rest
     /// as the connection delivers them.
@@ -1334,7 +1490,7 @@ mod tests {
                 Transport::Raknet(conn),
                 Arc::clone(&shared),
             );
-            session.logged_in = true;
+            session.identity = Some(identity(0));
             session.stage = Stage::Packs;
             let id = shared.packs.id(0).to_owned();
             let send_packs = ResourcePackClientResponse {
@@ -1431,7 +1587,7 @@ mod tests {
     /// Batches of 1 MiB the tick sends in the tests below.
     const BATCH_BYTES: usize = 1024 * 1024;
 
-    /// Where the tick sends the session whose Join is next in `queue`.
+    /// Takes the Join next in `queue` and returns where the tick sends its session.
     fn joined_outbound(queue: &mut InputReceiver) -> mpsc::Sender<Outbound> {
         let Ok(Input {
             kind: InputKind::Join { outbound, .. },
@@ -1443,8 +1599,9 @@ mod tests {
         outbound
     }
 
-    /// `count` packets of a spawn window's player list, standing in for entries of large skins
-    /// (the session never looks inside): each [`BATCH_BYTES`] of data filled with its index.
+    /// Makes `count` packets of a spawn window's player list, standing in for entries of large
+    /// skins (the session never looks inside): each [`BATCH_BYTES`] of data filled with its
+    /// index.
     fn numbered_list(count: u8) -> impl Iterator<Item = Message> {
         (0..count).map(|i| {
             Message::SpawnList(Arc::new(Packet::ResourcePackChunkData(
@@ -1467,7 +1624,7 @@ mod tests {
         /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
         const STEP_BYTES: usize = 64 * 1024;
         const STEP: Duration = Duration::from_millis(100);
-        const MOST_TICKS: usize = 4_000;
+        const MOST_TICKS: usize = 4000;
         assert!(usize::from(BATCHES) * BATCH_BYTES > MAX_PENDING_BYTES);
         run_paused(async {
             let (inputs, mut queue) = input_queue(1);
@@ -1500,7 +1657,10 @@ mod tests {
                             assert_eq!(batch.last(), Some(&received), "batch out of order");
                             received += 1;
                             let held = *far.undelivered.borrow();
-                            assert!(held <= SEND_LIMIT, "{held} bytes held before another batch");
+                            assert!(
+                                held <= MAX_OUTPUT_UNDELIVERED_BYTES,
+                                "{held} bytes held before another batch"
+                            );
                             far.undelivered.send_modify(|bytes| *bytes += batch.len());
                         }
                         Ok(None) => panic!("the session dropped the connection"),
@@ -1524,7 +1684,7 @@ mod tests {
     /// fills, and the connection never holds more than the send limit and one batch.
     #[test]
     fn a_link_that_delivers_nothing_ends_on_the_output_waiting_not_the_tick_queue() {
-        const MOST_TICKS: usize = 2_000;
+        const MOST_TICKS: usize = 2000;
         run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1550,7 +1710,10 @@ mod tests {
             let link = async {
                 while let Some(batch) = far.sent().await {
                     let held = *far.undelivered.borrow();
-                    assert!(held <= SEND_LIMIT, "{held} bytes held before another batch");
+                    assert!(
+                        held <= MAX_OUTPUT_UNDELIVERED_BYTES,
+                        "{held} bytes held before another batch"
+                    );
                     far.undelivered.send_modify(|bytes| *bytes += batch.len());
                 }
             };
@@ -1569,7 +1732,7 @@ mod tests {
         });
     }
 
-    /// The tick's spawn status, which the client needs before it can spawn.
+    /// Makes the tick's spawn status, which the client needs before it can spawn.
     fn spawn_status() -> Message {
         Message::Packet(Packet::PlayStatus(PlayStatus {
             status: i32::from(consts::PlayStatus::PlayerSpawn),
@@ -1587,7 +1750,7 @@ mod tests {
     fn output_after_the_spawn_status_does_not_move_the_spawn_deadline() {
         /// 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second if it counted.
         const STEP: Duration = Duration::from_millis(100);
-        const MOST_STEPS: usize = 3_000;
+        const MOST_STEPS: usize = 3000;
         let waited = run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1639,7 +1802,7 @@ mod tests {
     fn output_without_a_spawn_status_moves_the_spawn_deadline_only_so_far() {
         /// 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second.
         const STEP: Duration = Duration::from_millis(100);
-        const MOST_STEPS: usize = 3_000;
+        const MOST_STEPS: usize = 3000;
         let (waited, most) = run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1688,7 +1851,7 @@ mod tests {
         const STEP_BYTES: usize = 64 * 1024;
         const STEP: Duration = Duration::from_millis(100);
         /// 200 seconds, past the spawn deadline and the most the output may add to it.
-        const MOST_TICKS: usize = 4_000;
+        const MOST_TICKS: usize = 4000;
         run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1745,14 +1908,15 @@ mod tests {
     /// end it.
     #[test]
     fn shared_output_waits_within_the_byte_bound() {
-        const SMALL: usize = 2_000;
+        const SMALL: usize = 2000;
         run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let (conn, mut far) = crate::raknet::tests::linked_connection();
             let mut session = joined_on(0, &shared, Transport::Raknet(conn)).await;
             let outbound = joined_outbound(&mut queue);
-            far.undelivered.send_replace(SEND_LIMIT + 1);
+            far.undelivered
+                .send_replace(MAX_OUTPUT_UNDELIVERED_BYTES + 1);
             let soft_enum = Arc::new(Packet::UpdateSoftEnum(packet::UpdateSoftEnum {
                 enum_type: "maps".to_owned(),
                 options: vec!["lobby".to_owned()],

@@ -13,17 +13,19 @@
 //!    tasks and rules alike) gives the block and its six neighbours one `onNearbyBlockChange`,
 //!    through a first-in first-out queue that skips positions already in it. Changes the rules
 //!    make join the same queue, so cascades run in the same tick, at most
-//!    [`MAX_NEIGHBOUR_UPDATES_PER_TICK`]; the rest waits for the next tick.
+//!    [`MAX_NEIGHBOUR_UPDATES_PER_TICK`]; the rest waits for the next tick. The queue of a world
+//!    goes with the world's last loaded chunk.
 //! 3. **Random ticks**: the chunks within `tick-radius` of a player of the world whose view is open
 //!    (as for entities) and whose 3 × 3 neighbourhood is loaded and lit, in position order; in each
 //!    sub-chunk that is not air, `random-tick-speed` positions from the engine random stream of the
 //!    chunk and tick (PMMP uses the global `mt_rand`; dragonfly a per-world generator that depends
-//!    on thread timing: both fixed). Blocks named in `disable-block-ticking` never tick. A custom
-//!    block ticks if its definition asks for it, through its behaviour's `on_random_tick`.
+//!    on thread timing: both fixed). The blocks of every kind that has a state named in
+//!    `disable-block-ticking` never tick. A custom block ticks if its definition asks for it,
+//!    through its behaviour's `on_random_tick`, whatever `disable-block-ticking` names.
 //!
 //! A rule never reads a chunk that is not loaded as air: it waits (PMMP loads it, or reads air
-//! and breaks blocks on chunk borders: fixed). Liquids that need such a block try again after
-//! their tick rate.
+//! and breaks blocks on chunk borders: fixed). Liquids, fire and frosted ice that need such a
+//! block try again later; concrete powder stays as it is until its next neighbour update.
 //!
 //! [`World::next_changed`]: crate::world::World::next_changed
 
@@ -42,6 +44,7 @@ pub(super) use soil::CAULDRON_FULL;
 pub(super) use support::{attached_support, static_support};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::ops::RangeInclusive;
 
 use tracing::warn;
 
@@ -56,13 +59,12 @@ use crate::nbt::{Compound, Value};
 use crate::player;
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::storage::codec::MAX_EXTRA_ENTRIES;
 use crate::world::{self, BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
 
 /// The most scheduled updates a world runs in one tick; the rest run in the next ticks, in
 /// order (PMMP has no limit). Measured (release): a water flow front costs about 4.3 µs an
 /// update, so this keeps a world's scheduled updates under about 18 ms a tick.
-const MAX_SCHEDULED_PER_TICK: usize = 4_096;
+const MAX_SCHEDULED_PER_TICK: usize = 4096;
 /// The most neighbour updates a world runs in one tick (PMMP has no limit); measured at about
 /// 0.25 µs each in a water flow, about 4 ms.
 const MAX_NEIGHBOUR_UPDATES_PER_TICK: usize = 16_384;
@@ -108,65 +110,66 @@ pub(super) struct Updates {
     effects: Vec<Effect>,
 }
 
-/// A world's neighbour update queue (PMMP `neighbourBlockUpdateQueue` and its index).
-#[derive(Debug, Default)]
-struct Neighbours {
-    /// Positions waiting for `onNearbyBlockChange`, oldest first; at most
-    /// [`MAX_NEIGHBOUR_QUEUE`].
-    fifo: VecDeque<BlockPos>,
-    /// The positions in `fifo`.
-    queued: BTreeSet<BlockPos>,
-}
+impl Updates {
+    /// The number of scheduled updates and queued neighbour updates (leak tests).
+    #[cfg(test)]
+    pub(super) fn len(&self) -> (usize, usize, usize) {
+        (
+            self.queue.len(),
+            self.pending.len(),
+            self.neighbours
+                .iter()
+                .map(|n| n.fifo.len() + n.queued.len())
+                .sum(),
+        )
+    }
 
-/// A request a rule made of another module (tests).
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum Effect {
-    /// The block was destroyed with drops ([`interact::destroy`]).
-    Destroyed(BlockPos),
-    /// The block started falling ([`entity::fall`]).
-    Fell(BlockPos, block::State),
-    /// An item was dropped.
-    Dropped(BlockPos, Stack),
-}
-
-/// A chunk's saved scheduled updates read off the tick ([`Parsed::read`]), for
-/// [`Updates::load`].
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct Parsed {
-    /// The well-formed entries in the chunk, position and due tick, in saved order.
-    entries: Vec<(BlockPos, u64)>,
-}
-
-impl Parsed {
-    /// Reads chunk `key`'s saved list, off the tick as it needs nothing of the tick's state: at
-    /// most [`MAX_EXTRA_ENTRIES`] entries; those outside the chunk or the world height are left
-    /// out with a warning.
-    pub(super) fn read(key: Key, list: &[Compound]) -> Self {
-        let (world, chunk) = key;
-        let mut entries = Vec::with_capacity(list.len().min(MAX_EXTRA_ENTRIES));
-        let mut skipped = 0usize;
-        for entry in list.iter().take(MAX_EXTRA_ENTRIES) {
-            match parse(entry) {
-                Some((pos, due)) if pos.chunk() == chunk => entries.push((pos, due)),
-                _ => skipped += 1,
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            queue,
+            pending: _,
+            loaded,
+            changed,
+            next_seq,
+            neighbours,
+            draws,
+            ticking: _,
+            // A test-only record of what the rules asked other modules for: what those requests
+            // did (blocks destroyed, falling blocks, dropped items) is in the hashed state of the
+            // world and the other modules.
+            effects: _,
+        } = self;
+        // `pending` is `queue` by position.
+        h.usize(queue.len());
+        for (&(w, due, seq), pos) in queue {
+            h.usize(w);
+            h.u64(due);
+            h.u64(seq);
+            hash_pos(h, *pos);
+        }
+        for keys in [loaded, changed] {
+            h.usize(keys.len());
+            for &(w, c) in keys {
+                h.usize(w);
+                h.u64(u64::from(c.x.cast_unsigned()));
+                h.u64(u64::from(c.z.cast_unsigned()));
             }
         }
-        if skipped > 0 {
-            warn!(
-                world,
-                x = chunk.x,
-                z = chunk.z,
-                skipped,
-                "malformed scheduled block updates skipped"
-            );
+        h.u64(*next_seq);
+        h.u64(*draws);
+        h.usize(neighbours.len());
+        for n in neighbours {
+            // `queued` is the set of the positions in `fifo`.
+            let Neighbours { fifo, queued: _ } = n;
+            h.usize(fifo.len());
+            for &pos in fifo {
+                hash_pos(h, pos);
+            }
         }
-        Self { entries }
     }
-}
 
-impl Updates {
-    /// A chunk's saved list arrived ([`mod@super::rules`]), read off the tick: its scheduled
+    /// Loads a chunk's saved list, read off the tick ([`mod@super::rules`]): its scheduled
     /// updates are pending again, in their saved order. An entry that repeats a position is left
     /// out; the list counts as unchanged until an update of the chunk changes.
     pub(super) fn load(&mut self, key: Key, parsed: Parsed) {
@@ -179,29 +182,36 @@ impl Updates {
         }
     }
 
-    /// [`Parsed::read`] and [`Self::load`] in one.
+    /// Reads and loads a chunk's saved list ([`Parsed::read`], [`Self::load`]).
     #[cfg(test)]
     pub(super) fn load_list(&mut self, key: Key, list: &[Compound]) {
         self.load(key, Parsed::read(key, list));
     }
 
-    /// A chunk leaves: drops its pending updates; its list if it changed since
-    /// [`Self::take_changed`].
+    /// Drops the pending updates of a chunk that leaves, and returns its list if it changed
+    /// since [`Self::take_changed`]. The world's neighbour queue goes with its last chunk: its
+    /// positions have no block left to run on, and a world loaded again at the same index must
+    /// not run them.
     pub(super) fn unload(&mut self, key: Key) -> Option<Vec<Compound>> {
         if !self.loaded.remove(&key) {
             return None;
         }
         let list = self.changed.remove(&key).then(|| self.list(key));
-        let (world, chunk) = key;
-        let range = (world, chunk, BlockPos::new(i32::MIN, i32::MIN, i32::MIN))
-            ..=(world, chunk, BlockPos::new(i32::MAX, i32::MAX, i32::MAX));
-        for ((w, _, _), (due, seq)) in self.pending.extract_if(range, |_, _| true) {
+        for ((w, _, _), (due, seq)) in self.pending.extract_if(chunk_keys(key), |_, _| true) {
             self.queue.remove(&(w, due, seq));
+        }
+        let (world, _) = key;
+        let world_chunks =
+            (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
+        if self.loaded.range(world_chunks).next().is_none()
+            && let Some(neighbours) = self.neighbours.get_mut(world)
+        {
+            *neighbours = Neighbours::default();
         }
         list
     }
 
-    /// The lists of the chunks that changed since the last call, for a save snapshot.
+    /// Takes the lists of the chunks that changed since the last call, for a save snapshot.
     pub(super) fn take_changed(&mut self) -> Vec<(Key, Vec<Compound>)> {
         let changed = std::mem::take(&mut self.changed);
         changed
@@ -212,12 +222,10 @@ impl Updates {
     }
 
     /// The saved list of a loaded chunk: its pending updates in (tick, sequence) order.
-    fn list(&self, (world, chunk): Key) -> Vec<Compound> {
-        let range = (world, chunk, BlockPos::new(i32::MIN, i32::MIN, i32::MIN))
-            ..=(world, chunk, BlockPos::new(i32::MAX, i32::MAX, i32::MAX));
+    fn list(&self, key: Key) -> Vec<Compound> {
         let mut entries: Vec<((u64, u64), BlockPos)> = self
             .pending
-            .range(range)
+            .range(chunk_keys(key))
             .map(|(&(_, _, pos), &order)| (order, pos))
             .collect();
         entries.sort_unstable();
@@ -274,7 +282,7 @@ impl Updates {
         Some((pos, seq))
     }
 
-    /// The neighbour queue of `world`.
+    /// The neighbour queue of `world`, added when the world has none yet.
     fn neighbours_mut(&mut self, world: WorldIndex) -> &mut Neighbours {
         if self.neighbours.len() <= world {
             self.neighbours
@@ -286,73 +294,7 @@ impl Updates {
         )]
         &mut self.neighbours[world]
     }
-
-    /// The number of scheduled updates and queued neighbour updates (leak tests).
-    #[cfg(test)]
-    pub(super) fn len(&self) -> (usize, usize, usize) {
-        (
-            self.queue.len(),
-            self.pending.len(),
-            self.neighbours
-                .iter()
-                .map(|n| n.fifo.len() + n.queued.len())
-                .sum(),
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            queue,
-            pending: _,
-            loaded,
-            changed,
-            next_seq,
-            neighbours,
-            draws,
-            ticking: _,
-            // A test-only record of what the rules asked other modules for: what those requests
-            // did (blocks destroyed, falling blocks, dropped items) is in the hashed state of the
-            // world and the other modules.
-            effects: _,
-        } = self;
-        // `pending` is `queue` by position.
-        h.usize(queue.len());
-        for (&(w, due, seq), pos) in queue {
-            h.usize(w);
-            h.u64(due);
-            h.u64(seq);
-            hash_pos(h, *pos);
-        }
-        for keys in [loaded, changed] {
-            h.usize(keys.len());
-            for &(w, c) in keys {
-                h.usize(w);
-                h.u64(u64::from(c.x.cast_unsigned()));
-                h.u64(u64::from(c.z.cast_unsigned()));
-            }
-        }
-        h.u64(*next_seq);
-        h.u64(*draws);
-        h.usize(neighbours.len());
-        for n in neighbours {
-            let Neighbours { fifo, queued: _ } = n;
-            h.usize(fifo.len());
-            for &pos in fifo {
-                hash_pos(h, pos);
-            }
-        }
-    }
 }
-
-#[cfg(test)]
-fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
-    for c in [pos.x, pos.y, pos.z] {
-        h.u64(u64::from(c.cast_unsigned()));
-    }
-}
-
-super::checkpoint::fields!(Neighbours { fifo, queued });
 
 /// Every field but the reused chunk list and the test-only record of what the rules asked other
 /// modules for.
@@ -396,7 +338,279 @@ impl super::checkpoint::Codec for Updates {
     }
 }
 
-/// A saved entry: its position and due tick, if well formed.
+/// A world's neighbour update queue (PMMP `neighbourBlockUpdateQueue` and its index).
+#[derive(Debug, Default)]
+struct Neighbours {
+    /// Positions waiting for `onNearbyBlockChange`, oldest first; at most
+    /// [`MAX_NEIGHBOUR_QUEUE`].
+    fifo: VecDeque<BlockPos>,
+    /// The positions in `fifo`.
+    queued: BTreeSet<BlockPos>,
+}
+
+super::checkpoint::fields!(Neighbours { fifo, queued });
+
+/// A request a rule made of another module (tests).
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Effect {
+    /// A block destroyed with drops ([`interact::destroy`]).
+    Destroyed(BlockPos),
+    /// A block that started falling ([`entity::fall`]).
+    Fell(BlockPos, block::State),
+    /// An item dropped.
+    Dropped(BlockPos, Stack),
+}
+
+/// A chunk's saved scheduled updates read off the tick ([`Parsed::read`]), for
+/// [`Updates::load`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(super) struct Parsed {
+    /// The well-formed entries in the chunk, position and due tick, in saved order.
+    entries: Vec<(BlockPos, u64)>,
+}
+
+impl Parsed {
+    /// Reads chunk `key`'s saved list, off the tick as it needs nothing of the tick's state; the
+    /// list's decoder bounds it ([`MAX_EXTRA_ENTRIES`]). Entries outside the chunk or the world
+    /// height are left out with a warning.
+    ///
+    /// [`MAX_EXTRA_ENTRIES`]: crate::storage::codec::MAX_EXTRA_ENTRIES
+    pub(super) fn read(key: Key, list: &[Compound]) -> Self {
+        let (world, chunk) = key;
+        let mut entries = Vec::with_capacity(list.len());
+        let mut skipped = 0usize;
+        for entry in list {
+            match parse(entry) {
+                Some((pos, due)) if pos.chunk() == chunk => entries.push((pos, due)),
+                _ => skipped += 1,
+            }
+        }
+        if skipped > 0 {
+            warn!(
+                world,
+                x = chunk.x,
+                z = chunk.z,
+                skipped,
+                "malformed scheduled block updates skipped"
+            );
+        }
+        Self { entries }
+    }
+}
+
+/// What a rule sees of the server: the world it runs in, with the reads, writes and requests
+/// to other modules the rules need.
+pub(super) struct Cx<'a> {
+    /// The server.
+    state: &'a mut State,
+    /// The world the rule runs in.
+    world: WorldIndex,
+    /// The position the rule runs for (its random stream).
+    at: BlockPos,
+    /// A number that tells apart two runs at the same position in one tick.
+    seq: u64,
+    /// The player whose bone meal runs the rule, named in its growth events.
+    player: Option<player::Id>,
+}
+
+impl<'a> Cx<'a> {
+    fn new(state: &'a mut State, world: WorldIndex, at: BlockPos) -> Self {
+        Self {
+            state,
+            world,
+            at,
+            seq: 0,
+            player: None,
+        }
+    }
+
+    /// The block at `pos`, or `None` if its chunk is not loaded or `pos` is outside the world
+    /// height. A state Anchor does not know reads as bedrock: solid, full and unchanged.
+    #[inline]
+    pub(super) fn get(&self, pos: BlockPos) -> Option<block::State> {
+        match self.w()?.entry(pos)? {
+            Entry::Known(s) => Some(s),
+            Entry::Unknown(_) | Entry::Inert(..) => Some(block::BEDROCK),
+        }
+    }
+
+    /// The block at `pos`, air outside the world height (PMMP `getBlockAt`), or `None` if its
+    /// chunk is not loaded: for rules that read the blocks around a block, which may stand at the
+    /// world's top or bottom.
+    #[inline]
+    pub(super) fn loaded_block(&self, pos: BlockPos) -> Option<block::State> {
+        if (MIN_Y..=MAX_Y).contains(&pos.y) {
+            self.get(pos)
+        } else {
+            Some(block::AIR)
+        }
+    }
+
+    /// The block at `pos`, air where [`Self::get`] has none (PMMP `getBlockAt`, which reads air
+    /// outside the world): for rules that only look for a kind of block, in chunks known to be
+    /// loaded ([`Self::is_area_loaded`]) or where missing a block changes nothing.
+    #[inline]
+    pub(super) fn block(&self, pos: Option<BlockPos>) -> block::State {
+        pos.and_then(|p| self.get(p)).unwrap_or(block::AIR)
+    }
+
+    /// Whether `pos` is in the world height and its chunk is loaded.
+    #[inline]
+    pub(super) fn is_loaded(&self, pos: BlockPos) -> bool {
+        self.get(pos).is_some()
+    }
+
+    /// Whether every chunk within `reach` blocks of `pos` sideways is loaded; `reach` is below
+    /// 16, so the four corners cover them.
+    pub(super) fn is_area_loaded(&self, pos: BlockPos, reach: i32) -> bool {
+        let y = pos.y.clamp(MIN_Y, MAX_Y);
+        [
+            (-reach, -reach),
+            (-reach, reach),
+            (reach, -reach),
+            (reach, reach),
+        ]
+        .into_iter()
+        .all(|(dx, dz)| {
+            self.is_loaded(BlockPos::new(
+                pos.x.saturating_add(dx),
+                y,
+                pos.z.saturating_add(dz),
+            ))
+        })
+    }
+
+    /// The block light at `pos` (0 where not lit yet).
+    pub(super) fn block_light(&self, pos: BlockPos) -> u8 {
+        self.w().and_then(|w| w.block_light(pos)).unwrap_or(0)
+    }
+
+    /// The brightest light at `pos` now, at the world's time of day (PMMP `getFullLightAt`; 0
+    /// where not lit yet).
+    pub(super) fn full_light(&self, pos: BlockPos) -> u8 {
+        self.w()
+            .and_then(|w| w.full_light(pos, w.time_ticks()))
+            .unwrap_or(0)
+    }
+
+    /// The brightest light at `pos` whatever the time of day (PMMP `getPotentialLightAt`).
+    pub(super) fn potential_light(&self, pos: BlockPos) -> u8 {
+        let Some(w) = self.w() else {
+            return 0;
+        };
+        let sky = w.sky_light(pos).unwrap_or(0);
+        sky.max(w.block_light(pos).unwrap_or(0))
+    }
+
+    /// The difficulty as PMMP numbers it (peaceful 0 to hard 3).
+    pub(super) fn difficulty(&self) -> u8 {
+        super::world_api::difficulty(self.state, self.world).id()
+    }
+
+    /// Sets a block (PMMP `setBlock`): neighbours are updated. False if it could not be set.
+    pub(super) fn set(&mut self, pos: BlockPos, s: block::State) -> bool {
+        self.state
+            .worlds
+            .get_mut(self.world)
+            .is_some_and(|w| w.set_block(pos, s).is_ok())
+    }
+
+    /// Sets a block without neighbour updates (PMMP `setBlock` with `update` false).
+    pub(super) fn set_quietly(&mut self, pos: BlockPos, s: block::State) -> bool {
+        self.state
+            .worlds
+            .get_mut(self.world)
+            .is_some_and(|w| w.set_block_quietly(pos, s))
+    }
+
+    /// Destroys the block with drops, as broken by hand (PMMP `useBreakOn` without a player).
+    pub(super) fn destroy(&mut self, pos: BlockPos) {
+        #[cfg(test)]
+        self.state
+            .rules
+            .updates
+            .effects
+            .push(Effect::Destroyed(pos));
+        interact::destroy(self.state, self.world, pos, Destroy::Rules);
+    }
+
+    /// Turns the block into a falling block entity and removes it (PMMP `FallableTrait`); the
+    /// block stays when the entity cannot be made.
+    pub(super) fn fall(&mut self, pos: BlockPos, s: block::State) {
+        #[cfg(test)]
+        self.state.rules.updates.effects.push(Effect::Fell(pos, s));
+        let _fell = entity::fall(self.state, self.world, pos, s);
+    }
+
+    /// Drops an item at the block's corner (PMMP `dropItem`); false (nothing dropped) at the
+    /// world's entity limit.
+    pub(super) fn drop_item(&mut self, pos: BlockPos, stack: Stack) -> bool {
+        #[cfg(test)]
+        self.state
+            .rules
+            .updates
+            .effects
+            .push(Effect::Dropped(pos, stack.clone()));
+        let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        entity::drop_item(self.state, self.world, at, stack)
+    }
+
+    /// Schedules an update of `pos` in `delay` ticks.
+    pub(super) fn schedule(&mut self, pos: BlockPos, delay: u32) {
+        schedule(self.state, self.world, pos, delay);
+    }
+
+    /// Schedules an update of `pos` in `lo..=hi` ticks, drawn from `rng` (PMMP
+    /// `mt_rand(lo, hi)`).
+    pub(super) fn schedule_random(&mut self, rng: &mut Random, pos: BlockPos, lo: u32, hi: u32) {
+        self.schedule(pos, lo + rng.below(hi - lo + 1));
+    }
+
+    /// Opens a random stream of its own for this rule run (PMMP `mt_rand`).
+    pub(super) fn rng(&mut self) -> Random {
+        let updates = &mut self.state.rules.updates;
+        let draw = updates.draws;
+        updates.draws = updates.draws.wrapping_add(1);
+        let seed = self.w().map_or(0, World::seed);
+        let p = self.at;
+        let k = random::key(
+            RULE,
+            &[
+                self.world as u64,
+                u64::from(p.x.cast_unsigned()),
+                u64::from(p.y.cast_unsigned()),
+                u64::from(p.z.cast_unsigned()),
+                self.seq,
+                draw,
+            ],
+        );
+        Random::new(seed, self.state.tick, k)
+    }
+
+    #[inline]
+    fn w(&self) -> Option<&World> {
+        self.state.worlds.get(self.world)
+    }
+
+    /// Whether the block takes random ticks here: PMMP's `ticksRandomly`, copper that can
+    /// oxidize (dragonfly), and not disabled by `disable-block-ticking`; a custom block if its
+    /// definition asks for them ([`crate::custom::Block::random_ticks`]).
+    fn ticks_randomly(&self, block: block::State) -> bool {
+        if block.custom_block().is_some() {
+            return block.ticks_randomly();
+        }
+        (block.ticks_randomly() || soil::is_oxidizable(block))
+            && self
+                .state
+                .settings
+                .no_random_ticks
+                .binary_search_by_key(&(block.kind() as usize), |k| *k as usize)
+                .is_err()
+    }
+}
+
+/// Parses a saved entry into its position and due tick, if well formed.
 fn parse(entry: &Compound) -> Option<(BlockPos, u64)> {
     #[cfg(test)]
     super::rules::reads::add(|r| r.updates += 1);
@@ -412,8 +626,9 @@ fn parse(entry: &Compound) -> Option<(BlockPos, u64)> {
     (MIN_Y..=MAX_Y).contains(&pos.y).then_some((pos, due))
 }
 
-/// The block kinds `disable-block-ticking` names: every kind with a state of one of the Bedrock
-/// block names (PMMP parses item names to block types; unknown names are left out as PMMP does).
+/// Lists the block kinds `disable-block-ticking` names: every kind with a state of one of the
+/// Bedrock block names (PMMP parses item names to block types; unknown names are left out as
+/// PMMP does).
 pub(super) fn untickable(names: &[String]) -> Vec<Kind> {
     let mut kinds: Vec<Kind> = block::State::all()
         .filter(|s| names.iter().any(|n| n == s.name()))
@@ -426,19 +641,22 @@ pub(super) fn untickable(names: &[String]) -> Vec<Kind> {
 
 /// Schedules an update of the block at `pos` in `delay` ticks (PMMP
 /// `World::scheduleDelayedBlockUpdate`). A position outside the world height or in a chunk that
-/// is not loaded is not scheduled.
-pub(super) fn schedule(state: &mut State, world: WorldIndex, pos: BlockPos, delay: u32) {
+/// is not loaded is not scheduled. False if nothing changed.
+pub(super) fn schedule(state: &mut State, world: WorldIndex, pos: BlockPos, delay: u32) -> bool {
     let due = state.tick.saturating_add(u64::from(delay));
-    state.rules.updates.schedule_at(world, pos, due);
+    state.rules.updates.schedule_at(world, pos, due)
 }
 
 impl Context<'_> {
     /// Schedules an update of the block at `pos` in `world` in `delay_ticks` ticks (PMMP
     /// `World::scheduleDelayedBlockUpdate`): the block then reacts as to its own scheduled
     /// updates (a liquid flows, a pressed button pops out, fire burns; a custom block does
-    /// nothing). It runs in the block update pass of that tick, or of the next tick if this
-    /// tick's pass is over. A position has at most one pending update: an earlier request moves
-    /// it, a later one changes nothing. Pending updates are saved with their chunk.
+    /// nothing). It runs no earlier than that tick: in the block update pass of that tick, or of
+    /// the next tick if this tick's pass is over, and later in a world that `slow-empty-worlds`
+    /// runs only on some ticks, or when more than 4,096 updates of the world are due in one tick
+    /// (the rest run in order in the next ticks). A position has at most one pending update: an
+    /// earlier request moves it, a later one changes nothing. Pending updates are saved with
+    /// their chunk.
     ///
     /// False, changing nothing, if the server has no world `world`, `pos` is outside the world
     /// height or in a chunk that is not loaded, or the position has an update due no later.
@@ -452,15 +670,14 @@ impl Context<'_> {
         let Some(world) = super::world_api::index(self.state, world) else {
             return false;
         };
-        let due = self.state.tick.saturating_add(u64::from(delay_ticks));
-        self.state.rules.updates.schedule_at(world, pos, due)
+        schedule(self.state, world, pos, delay_ticks)
     }
 }
 
-/// Bone meal used on the block at `pos` (PMMP `onInteract` with `Fertilizer`: crops, stems,
-/// saplings, grass, sweet berries, bamboo, cocoa…) by `player`: grows it and returns true if the
-/// bone meal is used up. The player is taken to use finite resources (PMMP's chances for saplings
-/// of azalea and fungi), and is named in the growth events.
+/// Grows the block at `pos` with bone meal used by `player` (PMMP `onInteract` with
+/// `Fertilizer`: crops, stems, saplings, grass, sweet berries, bamboo, cocoa…); whether the bone
+/// meal is used up. The player is taken to use finite resources (PMMP's chances for saplings of
+/// azalea and fungi), and is named in the growth events.
 pub(super) fn fertilize(
     state: &mut State,
     world: WorldIndex,
@@ -472,40 +689,10 @@ pub(super) fn fertilize(
     let Some(block) = cx.get(pos) else {
         return false;
     };
-    match block.class() {
-        Class::Wheat
-        | Class::Carrot
-        | Class::Potato
-        | Class::Beetroot
-        | Class::MelonStem
-        | Class::PumpkinStem
-        | Class::Sugarcane
-        | Class::CocoaBlock
-        | Class::SweetBerryBush
-        | Class::Bamboo
-        | Class::BambooSapling
-        | Class::NetherVines
-        | Class::CaveVines
-        | Class::PitcherCrop
-        | Class::DoublePitcherCrop
-        | Class::TorchflowerCrop
-        | Class::GlowLichen
-        | Class::PinkPetals
-        | Class::SmallDripleaf
-        | Class::BigDripleafHead
-        | Class::BigDripleafStem
-        | Class::TallGrass
-        | Class::Sapling
-        | Class::Azalea
-        | Class::NetherFungus => plant::fertilize(&mut cx, pos, block),
-        Class::Grass | Class::Dirt | Class::Netherrack | Class::Nylium => {
-            soil::fertilize(&mut cx, pos, block)
-        }
-        _ => false,
-    }
+    plant::fertilize(&mut cx, pos, block) || soil::fertilize(&mut cx, pos, block)
 }
 
-/// A living entity (a player or a mob) landed on the block at `pos` after falling
+/// Lands a living entity (a player or a mob) on the block at `pos` after a fall of
 /// `fall_distance` blocks (PMMP `Farmland::onEntityLand`): farmland may be trampled to dirt,
 /// raising [`EntityTrampleFarmland`](crate::event::EntityTrampleFarmland).
 pub(super) fn trample(
@@ -518,8 +705,8 @@ pub(super) fn trample(
     soil::trample(&mut Cx::new(state, world, pos), pos, fall_distance, entity);
 }
 
-/// One tick of block updates: due scheduled updates, neighbour updates of the blocks changed
-/// since the last tick, then random ticks.
+/// Runs one tick of block updates: due scheduled updates, neighbour updates of the blocks
+/// changed since the last tick, then random ticks.
 ///
 /// Everything runs on the tick thread, in the serial step, so the rules raise their events where
 /// they change blocks: random ticks of 20 players at `tick-radius` 4 (318 chunks of a flat world)
@@ -632,8 +819,8 @@ fn refill(state: &mut State, world: WorldIndex) {
     }
 }
 
-/// Random ticks of `world` (PMMP `World::tickChunks`) around `centers`, the chunks its players
-/// stand in.
+/// Runs the random ticks of `world` (PMMP `World::tickChunks`) around `centers`, the chunks its
+/// players stand in.
 fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<ChunkPos>>) {
     let speed = state.settings.random_tick_speed;
     let radius = state.settings.view(world).tick_radius;
@@ -655,7 +842,7 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
             ],
         );
         let mut rng = Random::new(world_seed, state.tick, k);
-        for index in 0..SUB_CHUNKS {
+        for (index, base_y) in (0..SUB_CHUNKS).zip((MIN_Y..).step_by(16)) {
             let filled = state
                 .worlds
                 .get(world)
@@ -664,7 +851,6 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
             if !filled {
                 continue;
             }
-            let base_y = MIN_Y + i32::try_from(index).unwrap_or(0) * 16;
             let mut bits = 0;
             for i in 0..speed {
                 if i % 5 == 0 {
@@ -684,9 +870,11 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
     state.rules.updates.ticking = chunks;
 }
 
-/// The position 12 random bits pick in a sub-chunk: x, then y, then z, 4 bits each (PMMP).
+/// Picks the position 12 random bits give in a sub-chunk: x, then y, then z, 4 bits each
+/// (PMMP).
 fn random_position(chunk: ChunkPos, base_y: i32, bits: u64) -> BlockPos {
-    let at = |shift: u32| i32::try_from((bits >> shift) & 15).unwrap_or(0);
+    #[expect(clippy::expect_used, reason = "invariant: four bits fit i32")]
+    let at = |shift: u32| i32::try_from((bits >> shift) & 15).expect("four bits fit i32");
     BlockPos::new(
         chunk.x.wrapping_mul(16).wrapping_add(at(0)),
         base_y + at(4),
@@ -723,48 +911,49 @@ fn ticking_chunks(
     });
 }
 
-/// A scheduled update reached the block (PMMP `onScheduledUpdate`).
+/// Runs a scheduled update of the block (PMMP `onScheduledUpdate`).
 fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     match block.class() {
-        Class::Water | Class::Lava => liquid::on_scheduled(cx, pos, block),
-        Class::Fire => fire::on_random(cx, pos, block),
-        Class::FrostedIce => soil::frosted_ice(cx, pos, block),
-        Class::Coral | Class::FloorCoralFan | Class::WallCoralFan | Class::CoralBlock => {
+        Class::BigDripleafHead => plant::dripleaf_tilt(cx, pos, block),
+        Class::Coral | Class::CoralBlock | Class::FloorCoralFan | Class::WallCoralFan => {
             soil::coral_check(cx, pos, block);
         }
+        Class::Fire => fire::on_random(cx, pos, block),
+        Class::FrostedIce => soil::frosted_ice(cx, pos, block),
+        Class::Lava | Class::Water => liquid::on_scheduled(cx, pos, block),
         Class::StoneButton | Class::WoodenButton => support::release_button(cx, pos, block),
-        Class::BigDripleafHead => plant::dripleaf_tilt(cx, pos, block),
         _ => {}
     }
 }
 
-/// A block at or next to `pos` changed (PMMP `onNearbyBlockChange`).
+/// Runs the block's reaction to a change of itself or a neighbour (PMMP
+/// `onNearbyBlockChange`).
 fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     match block.class() {
         Class::Air => {}
-        Class::Water | Class::Lava => liquid::on_nearby(cx, pos, block),
-        Class::Fire => fire::on_nearby(cx, pos, block),
-        Class::SoulFire => fire::soul_on_nearby(cx, pos),
-        Class::Leaves => soil::leaves_on_nearby(cx, pos, block),
-        Class::Farmland | Class::GrassPath => soil::trample_check(cx, pos),
-        Class::FrostedIce => cx.schedule_random(pos, 20, 40),
-        Class::Coral | Class::FloorCoralFan | Class::WallCoralFan | Class::CoralBlock => {
-            soil::coral_on_nearby(cx, pos, block);
-        }
-        Class::ConcretePowder => soil::concrete_powder(cx, pos, block),
-        Class::RedstoneOre => soil::redstone_ore_on_nearby(cx, pos, block),
-        Class::Cauldron | Class::WaterCauldron | Class::PotionCauldron => {
+        Class::Bed => support::bed_on_nearby(cx, pos, block),
+        Class::Campfire | Class::SoulCampfire => soil::campfire_on_nearby(cx, pos, block),
+        Class::Cauldron | Class::PotionCauldron | Class::WaterCauldron => {
             soil::cauldron_on_nearby(cx, pos, block);
         }
-        Class::Campfire | Class::SoulCampfire => soil::campfire_on_nearby(cx, pos, block),
-        Class::Bed => support::bed_on_nearby(cx, pos, block),
+        Class::ConcretePowder => soil::concrete_powder(cx, pos, block),
+        Class::Coral | Class::CoralBlock | Class::FloorCoralFan | Class::WallCoralFan => {
+            soil::coral_on_nearby(cx, pos, block);
+        }
+        Class::Farmland | Class::GrassPath => soil::trample_check(cx, pos),
+        Class::Fire => fire::on_nearby(cx, pos),
+        Class::FrostedIce => soil::frosted_ice_on_nearby(cx, pos),
+        Class::Lava | Class::Water => liquid::on_nearby(cx, pos, block),
+        Class::Leaves => soil::leaves_on_nearby(cx, pos, block),
         Class::MelonStem | Class::PumpkinStem => plant::stem_on_nearby(cx, pos, block),
+        Class::RedstoneOre => soil::redstone_ore_on_nearby(cx, pos, block),
+        Class::SoulFire => fire::soul_on_nearby(cx, pos),
         Class::Sugarcane => plant::sugarcane_on_nearby(cx, pos, block),
         _ => support::on_nearby(cx, pos, block),
     }
 }
 
-/// A random tick reached the block (PMMP `onRandomTick`); a custom block's goes to its
+/// Runs a random tick of the block (PMMP `onRandomTick`); a custom block's goes to its
 /// behaviour.
 fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if block.custom_block().is_some() {
@@ -772,224 +961,60 @@ fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         return;
     }
     match block.class() {
+        Class::BuddingAmethyst => soil::budding_amethyst(cx, pos),
+        Class::Farmland => soil::farmland(cx, pos, block),
         Class::Fire => fire::on_random(cx, pos, block),
+        Class::FrostedIce => soil::frosted_ice(cx, pos, block),
         Class::Grass => soil::grass(cx, pos),
+        Class::Ice => soil::ice(cx, pos),
+        Class::Leaves => soil::leaves_on_random(cx, pos, block),
         Class::Mycelium => soil::mycelium(cx, pos),
         Class::Nylium => soil::nylium(cx, pos, block),
-        Class::Ice => soil::ice(cx, pos),
-        Class::FrostedIce => soil::frosted_ice(cx, pos, block),
-        Class::SnowLayer => soil::snow_layer(cx, pos),
-        Class::Farmland => soil::farmland(cx, pos, block),
-        Class::Leaves => soil::leaves_on_random(cx, pos, block),
         Class::RedstoneOre => soil::redstone_ore_on_random(cx, pos, block),
-        Class::BuddingAmethyst => soil::budding_amethyst(cx, pos),
+        Class::SnowLayer => soil::snow_layer(cx, pos),
         _ if soil::is_oxidizable(block) => soil::oxidize(cx, pos, block),
         _ => plant::on_random(cx, pos, block),
     }
 }
 
-/// What a rule sees of the server: the world it runs in, with the reads, writes and requests
-/// to other modules the rules need.
-pub(super) struct Cx<'a> {
-    state: &'a mut State,
-    world: WorldIndex,
-    /// The position the rule runs for (its random stream).
-    at: BlockPos,
-    /// A number that tells apart two runs at the same position in one tick.
-    seq: u64,
-    /// The player whose bone meal runs the rule, named in its growth events.
-    player: Option<player::Id>,
+/// Picks an element of `items` with `rng` (PMMP `array_rand`, `mt_rand(0, n - 1)` and
+/// `nextBoundedInt(n)` as an index).
+#[expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "invariant: the rules pick from short lists that are not empty, and `below(n)` is \
+              below n"
+)]
+fn pick<T: Copy>(rng: &mut Random, items: &[T]) -> T {
+    let len = u32::try_from(items.len()).expect("a rule's list length fits u32");
+    items[rng.below(len) as usize]
 }
 
-impl<'a> Cx<'a> {
-    fn new(state: &'a mut State, world: WorldIndex, at: BlockPos) -> Self {
-        Self {
-            state,
-            world,
-            at,
-            seq: 0,
-            player: None,
-        }
-    }
+/// Spans the keys of `pending` in chunk `key`.
+fn chunk_keys((world, chunk): Key) -> RangeInclusive<(WorldIndex, ChunkPos, BlockPos)> {
+    (world, chunk, BlockPos::new(i32::MIN, i32::MIN, i32::MIN))
+        ..=(world, chunk, BlockPos::new(i32::MAX, i32::MAX, i32::MAX))
+}
 
-    #[inline]
-    fn w(&self) -> Option<&World> {
-        self.state.worlds.get(self.world)
-    }
-
-    /// The block at `pos`, or `None` if its chunk is not loaded or `pos` is outside the world
-    /// height. A state Anchor does not know reads as bedrock: solid, full and unchanged.
-    #[inline]
-    pub(super) fn get(&self, pos: BlockPos) -> Option<block::State> {
-        match self.w()?.entry(pos)? {
-            Entry::Known(s) => Some(s),
-            Entry::Unknown(_) | Entry::Inert(..) => Some(block::BEDROCK),
-        }
-    }
-
-    /// The block at `pos`, air outside the world height (PMMP `getBlockAt`), or `None` if its
-    /// chunk is not loaded: for rules that read the blocks around a block, which may stand at the
-    /// world's top or bottom.
-    #[inline]
-    pub(super) fn loaded_block(&self, pos: BlockPos) -> Option<block::State> {
-        if (MIN_Y..=MAX_Y).contains(&pos.y) {
-            self.get(pos)
-        } else {
-            Some(block::AIR)
-        }
-    }
-
-    /// The block at `pos`, air where [`Self::get`] has none (PMMP `getBlockAt`, which reads air
-    /// outside the world): for rules that only look for a kind of block.
-    #[inline]
-    pub(super) fn block(&self, pos: Option<BlockPos>) -> block::State {
-        pos.and_then(|p| self.get(p)).unwrap_or(block::AIR)
-    }
-
-    /// Whether `pos` is in the world height and its chunk is loaded.
-    #[inline]
-    pub(super) fn is_loaded(&self, pos: BlockPos) -> bool {
-        self.get(pos).is_some()
-    }
-
-    /// Sets a block (PMMP `setBlock`): neighbours are updated. False if it could not be set.
-    pub(super) fn set(&mut self, pos: BlockPos, s: block::State) -> bool {
-        self.state
-            .worlds
-            .get_mut(self.world)
-            .is_some_and(|w| w.set_block(pos, s).is_ok())
-    }
-
-    /// Sets a block without neighbour updates (PMMP `setBlock` with `update` false).
-    pub(super) fn set_quietly(&mut self, pos: BlockPos, s: block::State) -> bool {
-        self.state
-            .worlds
-            .get_mut(self.world)
-            .is_some_and(|w| w.set_block_quietly(pos, s))
-    }
-
-    /// Destroys the block with drops, as broken by hand (PMMP `useBreakOn` without a player).
-    pub(super) fn destroy(&mut self, pos: BlockPos) {
-        #[cfg(test)]
-        self.state
-            .rules
-            .updates
-            .effects
-            .push(Effect::Destroyed(pos));
-        interact::destroy(self.state, self.world, pos, Destroy::Rules);
-    }
-
-    /// Turns the block into a falling block entity and removes it (PMMP `FallableTrait`); the
-    /// block stays when the entity cannot be made.
-    pub(super) fn fall(&mut self, pos: BlockPos, s: block::State) {
-        #[cfg(test)]
-        self.state.rules.updates.effects.push(Effect::Fell(pos, s));
-        let _fell = entity::fall(self.state, self.world, pos, s);
-    }
-
-    /// Drops an item at the block's corner plus `offset` (PMMP `dropItem`).
-    pub(super) fn drop_item(&mut self, pos: BlockPos, stack: Stack) {
-        #[cfg(test)]
-        self.state
-            .rules
-            .updates
-            .effects
-            .push(Effect::Dropped(pos, stack.clone()));
-        let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
-        entity::drop_item(self.state, self.world, at, stack);
-    }
-
-    /// Schedules an update of `pos` in `delay` ticks.
-    pub(super) fn schedule(&mut self, pos: BlockPos, delay: u32) {
-        schedule(self.state, self.world, pos, delay);
-    }
-
-    /// Schedules an update of `pos` in `lo..=hi` ticks (PMMP `mt_rand(lo, hi)`).
-    pub(super) fn schedule_random(&mut self, pos: BlockPos, lo: u32, hi: u32) {
-        let mut rng = self.rng();
-        let delay = rng.range(
-            i32::try_from(lo).unwrap_or(0),
-            i32::try_from(hi).unwrap_or(0),
-        );
-        self.schedule(pos, u32::try_from(delay).unwrap_or(lo));
-    }
-
-    /// A random stream of its own for this rule run (PMMP `mt_rand`).
-    pub(super) fn rng(&mut self) -> Random {
-        let updates = &mut self.state.rules.updates;
-        let draw = updates.draws;
-        updates.draws = updates.draws.wrapping_add(1);
-        let seed = self.w().map_or(0, World::seed);
-        let p = self.at;
-        let k = random::key(
-            RULE,
-            &[
-                self.world as u64,
-                u64::from(p.x.cast_unsigned()),
-                u64::from(p.y.cast_unsigned()),
-                u64::from(p.z.cast_unsigned()),
-                self.seq,
-                draw,
-            ],
-        );
-        Random::new(seed, self.state.tick, k)
-    }
-
-    /// The block light at `pos` (0 where not lit yet).
-    pub(super) fn block_light(&self, pos: BlockPos) -> u8 {
-        self.w().and_then(|w| w.block_light(pos)).unwrap_or(0)
-    }
-
-    /// The brightest light at `pos` now, at the world's time of day (PMMP `getFullLightAt`; 0
-    /// where not lit yet).
-    pub(super) fn full_light(&self, pos: BlockPos) -> u8 {
-        self.w()
-            .and_then(|w| w.full_light(pos, w.time_ticks()))
-            .unwrap_or(0)
-    }
-
-    /// The brightest light at `pos` whatever the time of day (PMMP `getPotentialLightAt`).
-    pub(super) fn potential_light(&self, pos: BlockPos) -> u8 {
-        let Some(w) = self.w() else {
-            return 0;
-        };
-        let sky = w.sky_light(pos).unwrap_or(0);
-        sky.max(w.block_light(pos).unwrap_or(0))
-    }
-
-    /// The difficulty as PMMP numbers it (peaceful 0 to hard 3).
-    pub(super) fn difficulty(&self) -> u8 {
-        super::world_api::difficulty(self.state, self.world).id()
-    }
-
-    /// Whether the block takes random ticks here: PMMP's `ticksRandomly`, copper that can
-    /// oxidize (dragonfly), and not disabled by `disable-block-ticking`; a custom block if its
-    /// definition asks for them ([`crate::custom::Block::random_ticks`]).
-    fn ticks_randomly(&self, block: block::State) -> bool {
-        if block.custom_block().is_some() {
-            return block.ticks_randomly();
-        }
-        (block.ticks_randomly() || soil::is_oxidizable(block))
-            && self
-                .state
-                .settings
-                .no_random_ticks
-                .binary_search_by_key(&(block.kind() as usize), |k| *k as usize)
-                .is_err()
+/// Hashes a block position into the state hash.
+#[cfg(test)]
+fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
+    for c in [pos.x, pos.y, pos.z] {
+        h.u64(u64::from(c.cast_unsigned()));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{answer, join, moved_to, new_state, radius, settings};
-    use super::super::{Output, Phase, boundary, deliver, step};
     use super::*;
     use crate::block::PropertyValue;
-    use crate::event::{BlockGrow, BlockSpread, FarmlandHydrationChange, Listeners, Priority};
+    use crate::event::{
+        BlockBurn, BlockGrow, BlockSpread, FarmlandHydrationChange, Listeners, Priority,
+    };
     use crate::pool::Pool;
-    use crate::tick::Context;
-    use crate::tick::InputLog;
     use crate::tick::queue::Input;
+    use crate::tick::tests::{answer, join, moved_to, new_state, radius, settings};
+    use crate::tick::{InputLog, Output, Phase, boundary, deliver, step};
 
     /// A test server with light off (every chunk lit, so random ticks need no light work) and
     /// the spawn area loaded, its chunks held by this module.
@@ -1000,27 +1025,10 @@ mod tests {
         )
     }
 
-    fn pool() -> Pool {
-        crate::runtime::cpu_pool(1).unwrap()
-    }
-
     /// One tick of block updates and nothing else.
     fn advance(state: &mut State) {
         tick(state);
         state.tick += 1;
-    }
-
-    /// A whole tick with `inputs`, as the tick thread runs it, the stand-in save thread
-    /// answering.
-    fn full_tick(state: &mut State, inputs: Vec<Input>, pool: &Pool, output: &mut Output) {
-        let mut batch = inputs;
-        let mut log = InputLog::default();
-        let mut answers = std::mem::take(&mut output.answers);
-        step(state, &mut batch, &mut answers, pool, output, &mut log);
-        deliver(state, output, &mut log);
-        boundary(state, output, &mut log);
-        let requests = std::mem::take(&mut output.requests);
-        output.answers = answer(state, requests);
     }
 
     fn set(state: &mut State, pos: BlockPos, s: block::State) {
@@ -1029,14 +1037,6 @@ mod tests {
 
     fn get(state: &State, pos: BlockPos) -> block::State {
         state.worlds[0].block(pos).unwrap()
-    }
-
-    fn named(name: &str) -> block::State {
-        block::State::all().find(|s| s.name() == name).unwrap()
-    }
-
-    fn find(name: &str, props: &[(&str, PropertyValue<'_>)]) -> block::State {
-        block::State::find(name, props).unwrap()
     }
 
     /// The flat world's block at `y`.
@@ -1166,6 +1166,10 @@ mod tests {
         }
     }
 
+    fn find(name: &str, props: &[(&str, PropertyValue<'_>)]) -> block::State {
+        block::State::find(name, props).unwrap()
+    }
+
     // pmmp: World::scheduleDelayedBlockUpdate
     #[test]
     fn the_api_schedules_one_update_per_position_and_it_runs_when_due() {
@@ -1206,6 +1210,23 @@ mod tests {
         let released = props::with_flag(pressed, "button_pressed_bit", false).unwrap();
         assert_eq!(get(&state, pos), released);
         assert_eq!(state.rules.updates.len().0, 0);
+    }
+
+    fn pool() -> Pool {
+        crate::runtime::cpu_pool(1).unwrap()
+    }
+
+    /// A whole tick with `inputs`, as the tick thread runs it, the stand-in save thread
+    /// answering.
+    fn full_tick(state: &mut State, inputs: Vec<Input>, pool: &Pool, output: &mut Output) {
+        let mut batch = inputs;
+        let mut log = InputLog::default();
+        let mut answers = std::mem::take(&mut output.answers);
+        step(state, &mut batch, &mut answers, pool, output, &mut log);
+        deliver(state, output, &mut log);
+        boundary(state, output, &mut log);
+        let requests = std::mem::take(&mut output.requests);
+        output.answers = answer(state, requests);
     }
 
     /// Lights the block on a random tick.
@@ -1386,6 +1407,10 @@ mod tests {
         assert_eq!(state.rules.updates.len().2, 0);
     }
 
+    fn named(name: &str) -> block::State {
+        block::State::all().find(|s| s.name() == name).unwrap()
+    }
+
     /// A cube of redstone ore: touching it lights every block, each light change updating its
     /// neighbours (PMMP `RedstoneOre::onNearbyBlockChange`), over more than one tick's limit.
     #[test]
@@ -1424,6 +1449,39 @@ mod tests {
         }
         assert_eq!(state.rules.updates.len().2, 0);
         assert_eq!(state.worlds[0].changed_len(), 0);
+    }
+
+    /// The neighbour updates a world leaves waiting go with its last loaded chunk, so a world
+    /// loaded again at the same index never runs them.
+    #[test]
+    fn a_worlds_last_chunk_takes_its_waiting_neighbour_updates() {
+        let mut state = server();
+        let ore = named("minecraft:redstone_ore");
+        for x in 0..30 {
+            for y in 0..30 {
+                for z in 0..30 {
+                    state.worlds[0].set_block_quietly(BlockPos::new(x, -60 + y, z), ore);
+                }
+            }
+        }
+        set(
+            &mut state,
+            BlockPos::new(-1, -60, 0),
+            Kind::Stone.default_state(),
+        );
+        advance(&mut state);
+        assert!(state.rules.updates.len().2 > 0, "neighbour updates wait");
+        let keys: Vec<Key> = state.rules.updates.loaded.iter().copied().collect();
+        let (last, rest) = keys.split_last().unwrap();
+        for &key in rest {
+            state.rules.updates.unload(key);
+        }
+        assert!(
+            state.rules.updates.len().2 > 0,
+            "a world with a loaded chunk keeps them"
+        );
+        state.rules.updates.unload(*last);
+        assert_eq!(state.rules.updates.len().2, 0);
     }
 
     /// Listeners and monitors that change nothing on the events random ticks raise; the
@@ -1767,9 +1825,9 @@ mod tests {
             }
             (light, get(&state, at) != sapling)
         };
-        assert_eq!(grows(6_000), (15, true));
+        assert_eq!(grows(6000), (15, true));
         assert_eq!(grows(18_000), (4, false));
-        assert_eq!(grows(24_000 * 7 + 6_000), (15, true), "every day alike");
+        assert_eq!(grows(24_000 * 7 + 6000), (15, true), "every day alike");
     }
 
     #[test]
@@ -1820,9 +1878,9 @@ mod tests {
             crate::world::TreeType::Birch,
             crate::world::TreeType::Jungle,
             crate::world::TreeType::Acacia,
-            crate::world::TreeType::Azalea,
             crate::world::TreeType::Crimson,
             crate::world::TreeType::Warped,
+            crate::world::TreeType::Azalea,
         ] {
             let mut state = server();
             let at = BlockPos::new(-20, -60, -20);
@@ -1832,7 +1890,8 @@ mod tests {
     }
 
     /// Fire on a wooden floor that reaches the edge of the loaded area: it spreads and burns
-    /// out, never past the loaded chunks, and each change is in the box fire looks at.
+    /// out, never past the loaded chunks, and each change is in the box fire looks at. Fire
+    /// within two blocks of the chunks that are not loaded waits for them.
     #[test]
     fn fire_spreads_within_bounds_and_burns_out() {
         let mut state = server();
@@ -1849,14 +1908,14 @@ mod tests {
             Kind::Fire.default_state(),
         );
         state.worlds[0].take_changes();
-        let fires = |state: &State| {
-            (40..80)
-                .flat_map(|x| {
-                    (0..12).flat_map(move |z| (-60..=-55).map(move |y| BlockPos::new(x, y, z)))
-                })
-                .filter(|p| get(state, *p).kind() == Kind::Fire)
-                .count()
+        let fires = |state: &State, xs: std::ops::Range<i32>| {
+            xs.flat_map(|x| {
+                (0..12).flat_map(move |z| (-60..=-55).map(move |y| BlockPos::new(x, y, z)))
+            })
+            .filter(|p| get(state, *p).kind() == Kind::Fire)
+            .count()
         };
+        let away = 40..78;
         let mut most = 0;
         let mut ticks = 0;
         while ticks < 20_000 {
@@ -1867,14 +1926,32 @@ mod tests {
                 assert!((-1..=12).contains(&pos.z), "{pos:?}");
                 assert!((-61..=-55).contains(&pos.y), "{pos:?}");
             }
-            let n = fires(&state);
+            let n = fires(&state, away.clone());
             most = most.max(n);
             if n == 0 {
                 break;
             }
         }
         assert!(most > 1, "the fire spread");
-        assert_eq!(fires(&state), 0, "the fire burnt out in {ticks} ticks");
+        assert_eq!(
+            fires(&state, away),
+            0,
+            "the fire burnt out in {ticks} ticks"
+        );
+    }
+
+    /// Fire whose box reaches into a chunk that is not loaded waits for it instead of going out
+    /// over the air it would read there.
+    #[test]
+    fn fire_next_to_a_chunk_that_is_not_loaded_waits() {
+        let mut state = server();
+        // Loaded: blocks up to x 79.
+        let pos = BlockPos::new(79, -60, 0);
+        let fire = props::with_int(Kind::Fire.default_state(), "age", 5).unwrap();
+        set(&mut state, pos, fire);
+        on_scheduled(&mut Cx::new(&mut state, 0, pos), pos, fire);
+        assert_eq!(get(&state, pos), fire);
+        assert_eq!(state.rules.updates.len().0, 1, "it tries again");
     }
 
     /// Fire on the lowest layer stands on air outside the world (PMMP `getSide`): with nothing
@@ -1994,6 +2071,71 @@ mod tests {
         );
     }
 
+    /// Fills world 0 with dropped sticks up to its entity limit.
+    fn fill_with_entities(state: &mut State) {
+        let stick = Stack::new(crate::item::Kind::Stick.default_type(), 1);
+        let mut i = 0u32;
+        while state.rules.entities.count(0) < crate::entity::MAX_ENTITIES_PER_WORLD {
+            let x = f64::from(i % 64) - 32.0;
+            let z = f64::from(i / 64 % 64) - 32.0;
+            assert!(entity::drop_item(
+                state,
+                0,
+                Vec3::new(x, -59.0, z),
+                stick.clone()
+            ));
+            i += 1;
+        }
+    }
+
+    /// Fire that cannot prime TNT at the world's entity limit leaves the TNT, and no monitor
+    /// hears of a burn.
+    // pmmp: BlockBurnEvent
+    #[test]
+    fn fire_at_the_entity_limit_leaves_tnt_and_tells_no_burn() {
+        let (asked_tx, mut asked) = tokio::sync::mpsc::channel(1 << 16);
+        let (told_tx, mut told) = tokio::sync::mpsc::channel(1 << 16);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            move |e: &mut BlockBurn, _: &mut Context<'_>| {
+                asked_tx.try_send(e.pos()).unwrap();
+            },
+        );
+        listeners.push_monitor(move |e: &BlockBurn, _: &Context<'_>| {
+            told_tx.try_send(e.pos()).unwrap();
+        });
+        let mut state = new_state(
+            settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
+            listeners,
+        );
+        let tnt = Kind::Tnt.default_state();
+        let fire = BlockPos::new(8, -60, 8);
+        set(
+            &mut state,
+            fire.step(Face::Down).unwrap(),
+            Kind::Stone.default_state(),
+        );
+        for face in Face::HORIZONTAL {
+            set(&mut state, fire.step(face).unwrap(), tnt);
+        }
+        fill_with_entities(&mut state);
+        set(&mut state, fire, Kind::Fire.default_state());
+        let mut burns = 0;
+        for _ in 0..20_000 {
+            advance(&mut state);
+            burns += std::iter::from_fn(|| asked.try_recv().ok()).count();
+            if burns > 0 {
+                break;
+            }
+        }
+        assert!(burns > 0, "the fire reached the TNT");
+        assert_eq!(std::iter::from_fn(|| told.try_recv().ok()).count(), 0);
+        for face in Face::HORIZONTAL {
+            assert_eq!(get(&state, fire.step(face).unwrap()), tnt);
+        }
+    }
+
     /// Blocks that lose what holds them break (with drops, through the interaction rules),
     /// sand falls, and nothing breaks next to a chunk that is not loaded.
     #[test]
@@ -2049,6 +2191,34 @@ mod tests {
         assert!(state.rules.updates.effects.is_empty());
     }
 
+    /// Concrete powder next to a chunk that is not loaded neither falls nor hardens: it cannot
+    /// see the water that may be there.
+    #[test]
+    fn concrete_powder_next_to_a_chunk_that_is_not_loaded_stays() {
+        let mut state = server();
+        let powder = named("minecraft:red_concrete_powder");
+        let pos = BlockPos::new(79, -55, 0);
+        set(&mut state, pos, powder);
+        advance(&mut state);
+        let effects = &state.rules.updates.effects;
+        assert!(effects.is_empty(), "{effects:?}");
+        assert_eq!(get(&state, pos), powder);
+    }
+
+    /// Frosted ice next to a chunk that is not loaded checks again later instead of melting by
+    /// the air it would read there.
+    #[test]
+    fn frosted_ice_next_to_a_chunk_that_is_not_loaded_waits() {
+        let mut state = server();
+        state.worlds[0].set_time(6000);
+        let pos = BlockPos::new(79, -60, 0);
+        let ice = find("minecraft:frosted_ice", &[("age", PropertyValue::Int(3))]);
+        set(&mut state, pos, ice);
+        on_scheduled(&mut Cx::new(&mut state, 0, pos), pos, ice);
+        assert_eq!(get(&state, pos), ice);
+        assert_eq!(state.rules.updates.len().0, 1, "it checks again");
+    }
+
     #[test]
     fn bone_meal_grows_crops_by_pmmp_steps() {
         let mut state = server();
@@ -2082,6 +2252,42 @@ mod tests {
         assert!(grew > 0);
     }
 
+    /// Bone meal on glow lichen is used up only when the lichen spreads (PMMP
+    /// `GlowLichen::onInteract` pops it only then).
+    #[test]
+    fn bone_meal_on_glow_lichen_is_used_only_when_it_spreads() {
+        let mut state = server();
+        let lichen = props::with_int(
+            Kind::GlowLichen.default_state(),
+            "multi_face_direction_bits",
+            props::multi_face_bit(Face::Down),
+        )
+        .unwrap();
+        // In the air, with no full face anywhere near.
+        let alone = BlockPos::new(5, -50, 5);
+        set(&mut state, alone, lichen);
+        assert!(!fertilize(&mut state, 0, alone, None));
+        assert_eq!(get(&state, alone), lichen);
+        // On the grass, beside which it can grow.
+        let on_grass = BlockPos::new(10, -60, 10);
+        set(&mut state, on_grass, lichen);
+        assert!(fertilize(&mut state, 0, on_grass, None));
+    }
+
+    /// Bone meal on full pink petals drops a petal; at the world's entity limit nothing drops
+    /// and the bone meal is not used up.
+    #[test]
+    fn bone_meal_on_full_pink_petals_needs_room_for_the_petal() {
+        let mut state = server();
+        let full = props::with_int(named("minecraft:pink_petals"), "growth", 3).unwrap();
+        let at = BlockPos::new(5, -60, 5);
+        set(&mut state, at, full);
+        assert!(fertilize(&mut state, 0, at, None));
+        fill_with_entities(&mut state);
+        assert!(!fertilize(&mut state, 0, at, None));
+        assert_eq!(get(&state, at), full);
+    }
+
     /// Who lands on farmland in the tests.
     fn lander() -> Actor {
         Actor::Player(player::Id::new(crate::tick::SessionId::new(1)))
@@ -2096,55 +2302,6 @@ mod tests {
         assert_eq!(get(&state, at), named("minecraft:farmland"));
         trample(&mut state, 0, at, 1.5, lander());
         assert_eq!(get(&state, at), block::DIRT);
-    }
-
-    /// Measures random ticks with 20 players at tick radius 4 on the flat world, over a wheat
-    /// field without listeners and with a listener on every growth, and a large water flow:
-    /// `cargo test --release --lib tick::update::tests::block_update_cost -- --ignored --nocapture`.
-    #[test]
-    #[ignore = "measurement"]
-    #[expect(
-        clippy::print_stderr,
-        clippy::disallowed_methods,
-        reason = "consistency: a measurement prints its result and reads the wall clock"
-    )]
-    fn block_update_cost() {
-        let pool = pool();
-        for (wheat, listening) in [(false, false), (true, false), (true, true)] {
-            let (listeners, growths) = pass_through();
-            let listeners = if listening {
-                listeners
-            } else {
-                Listeners::default()
-            };
-            let mut state = new_state(
-                settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
-                listeners,
-            );
-            random_tick_cost(&mut state, &pool, wheat, listening);
-            drop(growths);
-        }
-        // Water sources flowing over the open flat area until it settles.
-        let mut state = server();
-        for i in 0..64 {
-            set(
-                &mut state,
-                BlockPos::new((i % 8) * 16 - 60, -60, (i / 8) * 16 - 60),
-                water(),
-            );
-        }
-        let mut worst = 0.0;
-        let mut total = 0.0;
-        for _ in 0..200 {
-            let start = std::time::Instant::now();
-            advance(&mut state);
-            let took = start.elapsed().as_secs_f64() * 1e3;
-            if took > worst {
-                worst = took;
-            }
-            total += took;
-        }
-        eprintln!("water: 64 sources, 200 ticks: {total:.1} ms in all, worst tick {worst:.2} ms");
     }
 
     /// The random tick part of [`block_update_cost`] on `state`, with wheat everywhere near the
@@ -2201,5 +2358,54 @@ mod tests {
             "random ticks (wheat {wheat}, BlockGrow listener {listening}): {chunks} chunks, {per:.1} us"
         );
         drop(receivers);
+    }
+
+    /// Measures random ticks with 20 players at tick radius 4 on the flat world, over a wheat
+    /// field without listeners and with a listener on every growth, and a large water flow:
+    /// `cargo test --release --lib tick::update::tests::block_update_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement"]
+    #[expect(
+        clippy::print_stderr,
+        clippy::disallowed_methods,
+        reason = "consistency: a measurement prints its result and reads the wall clock"
+    )]
+    fn block_update_cost() {
+        let pool = pool();
+        for (wheat, listening) in [(false, false), (true, false), (true, true)] {
+            let (listeners, growths) = pass_through();
+            let listeners = if listening {
+                listeners
+            } else {
+                Listeners::default()
+            };
+            let mut state = new_state(
+                settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
+                listeners,
+            );
+            random_tick_cost(&mut state, &pool, wheat, listening);
+            drop(growths);
+        }
+        // Water sources flowing over the open flat area until it settles.
+        let mut state = server();
+        for i in 0..64 {
+            set(
+                &mut state,
+                BlockPos::new((i % 8) * 16 - 60, -60, (i / 8) * 16 - 60),
+                water(),
+            );
+        }
+        let mut worst = 0.0;
+        let mut total = 0.0;
+        for _ in 0..200 {
+            let start = std::time::Instant::now();
+            advance(&mut state);
+            let took = start.elapsed().as_secs_f64() * 1e3;
+            if took > worst {
+                worst = took;
+            }
+            total += took;
+        }
+        eprintln!("water: 64 sources, 200 ticks: {total:.1} ms in all, worst tick {worst:.2} ms");
     }
 }

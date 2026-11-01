@@ -1195,8 +1195,7 @@ impl State {
         let index = match self.0 {
             Repr::Vanilla(i) => usize::from(i),
             Repr::Custom(c) => {
-                return item::Type::from_custom_block(c.block, c.item_runtime_id)
-                    .map_or(ItemForm::None, ItemForm::Item);
+                return ItemForm::Item(item::Type::from_custom_block(c.block, c.item_runtime_id));
             }
         };
         match table::STATE_ITEMS.get(index).copied() {

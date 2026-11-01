@@ -9,13 +9,16 @@
 //! actions that cannot happen. The packet's strings are at most 768 bytes, below PMMP's hard
 //! limits, so only the character limits remain.
 
-use super::super::{Phase, SessionId, State, dispatch, inventory};
+use tracing::debug;
+
+use super::can_act;
 use super::sign::clean;
 use crate::event::{BookAction, PlayerEditBook};
 use crate::item::{self, Extra, Stack};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::BookAction as Action;
 use crate::protocol::packet::BookEdit;
+use crate::tick::{SessionId, State, dispatch, inventory};
 
 /// The most pages a player may give a book (PMMP `handleBookEdit`; a book that has more, made by
 /// code, may still be edited without growing).
@@ -42,7 +45,7 @@ struct Page {
 }
 
 impl Page {
-    /// A page of `text` without a photo.
+    /// Makes a page of `text` without a photo.
     fn of(text: String) -> Self {
         Self {
             text,
@@ -51,9 +54,9 @@ impl Page {
     }
 }
 
-/// `BookEdit` from the client (PMMP `handleBookEdit`): the edit of the book and quill in main
-/// slot `inventory_slot`, which [`PlayerEditBook`] may change or cancel. Anything that does not
-/// fit is ignored.
+/// Applies `BookEdit` from the client (PMMP `handleBookEdit`): the edit of the book and quill in
+/// main slot `inventory_slot`, which [`PlayerEditBook`] may change or cancel. Anything that does
+/// not fit is ignored.
 pub(in crate::tick) fn on_book_edit(state: &mut State, session: SessionId, packet: &BookEdit) {
     let Ok(slot) = u8::try_from(packet.inventory_slot) else {
         return;
@@ -62,7 +65,7 @@ pub(in crate::tick) fn on_book_edit(state: &mut State, session: SessionId, packe
         return;
     };
     let Some((action, new, modified)) = edited(&old, packet) else {
-        tracing::debug!(session = session.get(), "book edit refused");
+        debug!(session = session.get(), "book edit refused");
         return;
     };
     let mut new = new;
@@ -95,21 +98,20 @@ pub(in crate::tick) fn on_book_edit(state: &mut State, session: SessionId, packe
     }
 }
 
-/// The book and quill in main slot `slot` of a spawned, living `session`.
+/// Finds the book and quill in main slot `slot` of a spawned, living `session`.
 fn writable(state: &State, session: SessionId, slot: u8) -> Option<&Stack> {
-    let player = state.players.get(&session)?;
-    if player.phase != Phase::Spawned || !player.is_alive() {
-        return None;
-    }
-    player
+    state
+        .players
+        .get(&session)
+        .filter(|p| can_act(p))?
         .inventory
         .main_stack(slot)
         .filter(|s| s.item().is_some_and(|t| t.is(item::Class::WritableBook)))
 }
 
-/// What `packet` makes of the book `old`: the action, the new book and the pages it changed;
-/// `None` for an edit PMMP refuses or cancels, or a book over the stack limits. Every check comes
-/// before the pages are copied, so a refused edit costs nothing like the book's size.
+/// Works out what `packet` makes of the book `old`: the action, the new book and the pages it
+/// changed; `None` for an edit PMMP refuses or cancels, or a book over the stack limits. Every
+/// check comes before the pages are copied, so a refused edit costs nothing like the book's size.
 fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>)> {
     let count = page_count(old);
     // The page count the edit may reach: PMMP lets it shrink or stay, and grow up to 50.
@@ -169,19 +171,20 @@ fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>
     Some((action, with_pages(old, pages)?, modified))
 }
 
-/// A page's text, cleaned (PMMP `TextFormat::clean` keeping colours); `None` over 512 characters.
+/// Returns a page's text, cleaned (PMMP `TextFormat::clean` keeping colours); `None` over 512
+/// characters.
 fn page_text(text: &str) -> Option<String> {
     limited(text, MAX_PAGE_CHARS)
 }
 
-/// `text` cleaned, if it has at most `max` characters.
+/// Returns `text` cleaned, if it has at most `max` characters.
 fn limited(text: &str, max: usize) -> Option<String> {
     let cleaned = clean(text);
     (cleaned.chars().count() <= max).then_some(cleaned)
 }
 
-/// The pages of a book (PMMP `WritableBookBase::deserializeCompoundTag`: compounds with `text`
-/// and `photoname`, or the Java form of strings; anything else is no pages).
+/// Reads the pages of a book (PMMP `WritableBookBase::deserializeCompoundTag`: compounds with
+/// `text` and `photoname`, or the Java form of strings; anything else is no pages).
 fn pages(book: &Stack) -> Vec<Page> {
     let text = |c: &Compound, key: &str| match c.get(key) {
         Some(Value::String(s)) => s.clone(),
@@ -200,7 +203,7 @@ fn pages(book: &Stack) -> Vec<Page> {
     }
 }
 
-/// How many [`pages`] a book has, read without copying them.
+/// Counts the [`pages`] of a book without copying them.
 pub(in crate::tick) fn page_count(book: &Stack) -> usize {
     match book.extra().and_then(|e| e.nbt.get(PAGES)) {
         Some(Value::List(List::Compound(list))) => list.len(),
@@ -209,7 +212,8 @@ pub(in crate::tick) fn page_count(book: &Stack) -> usize {
     }
 }
 
-/// The `pages` list of `pages` (PMMP `WritableBookBase::serializeCompoundTag`); `None` for none.
+/// Returns the `pages` list of `pages` (PMMP `WritableBookBase::serializeCompoundTag`); `None`
+/// for none.
 fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
     (!pages.is_empty()).then(|| {
         let list = pages
@@ -225,17 +229,27 @@ fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
     })
 }
 
-/// `book` with `pages` and its other data as it was; `None` over the stack limits.
+/// Returns `book` with `pages` and its other data as it was; `None` over the stack limits. The
+/// old pages are left out of the copy, as the new ones replace them.
 fn with_pages(book: &Stack, pages: Vec<Page>) -> Option<Stack> {
-    let mut extra = book.extra().cloned().unwrap_or_default();
-    match pages_nbt(pages) {
-        Some(list) => extra.nbt.insert(PAGES.to_owned(), list),
-        None => extra.nbt.remove(PAGES),
-    };
+    let mut extra = book.extra().map_or_else(Extra::default, |old| Extra {
+        custom_name: old.custom_name.clone(),
+        lore: old.lore.clone(),
+        enchantments: old.enchantments.clone(),
+        nbt: old
+            .nbt
+            .iter()
+            .filter(|(key, _)| key.as_str() != PAGES)
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    });
+    if let Some(list) = pages_nbt(pages) {
+        extra.nbt.insert(PAGES.to_owned(), list);
+    }
     book.with_extra(Some(extra)).ok()
 }
 
-/// A new written book of `pages`, by `author`, named `title`, an original (PMMP
+/// Makes a new written book of `pages`, by `author`, named `title`, an original (PMMP
 /// `VanillaItems::WRITTEN_BOOK()->setPages()->setAuthor()->setTitle()->setGeneration(0)`); `None`
 /// over the stack limits.
 fn written(pages: Vec<Page>, author: String, title: String) -> Option<Stack> {

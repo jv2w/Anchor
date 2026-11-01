@@ -8,17 +8,20 @@
 
 mod vanilla;
 
-use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
-
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use super::command;
+use serde::Deserialize;
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
+
+use super::command::{self, Refusal};
 use super::hook::{self, StartHook};
 use super::queue::{self, Identity, Message, Outbound, SessionId, SharedBatches};
 use super::save::storage_key;
+use super::survival::EYE_HEIGHT;
 use super::view::{self, Changes, Encoded};
 use super::{Output, Phase, Player, PlayerKey, Settings, State, inside_border};
 use super::{dispatch, extra, interact, inventory, survival};
@@ -55,7 +58,6 @@ use crate::world::{World, biome};
 
 /// What a player whose saved data is damaged sees.
 const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged. Ask the server operator.";
-use super::survival::EYE_HEIGHT;
 /// The limited world size BDS sends (P6); the client ignores it for infinite worlds.
 const LIMITED_WORLD_SIZE: i32 = 16;
 /// BDS rewinds 40 ticks of movement history for server-authoritative movement (P6).
@@ -75,13 +77,36 @@ const LIST_PACKET_FIXED_BYTES: usize = 15;
 /// The most digits of a XUID (`u64::MAX`).
 const XUID_DIGITS: usize = 20;
 /// The most bytes a `PlayerList` packet of one entry takes in a batch: a name and a PlayFab ID
-/// together as long as the one identity token that holds both and a skin of [`MAX_SKIN_BYTES`]. A spawn window cannot split an
-/// entry, so `max-batch-bytes` is at least this (the settings check it).
+/// together as long as the one identity token that holds both and a skin of [`MAX_SKIN_BYTES`].
+/// A spawn window cannot split an entry, so `max-batch-bytes` is at least this (the settings
+/// check it).
 pub(crate) const MAX_LIST_ENTRY_BYTES: usize = LIST_PACKET_FIXED_BYTES
     + LIST_ENTRY_FIXED_BYTES
     + MAX_TOKEN_PAYLOAD
     + XUID_DIGITS
     + MAX_SKIN_BYTES;
+/// The colour of every entry of the player list (BDS's value, P6).
+pub(super) const PLAYER_LIST_COLOUR: Rgba = Rgba {
+    r: 237,
+    g: 237,
+    b: 237,
+    a: 255,
+};
+/// The entity types of `AvailableActorIdentifiers`: `CloudburstMC`'s `entity_identifiers.dat`
+/// (8,971 bytes), sent as it is; BDS 1.26.52 sent its version of the file byte for byte (P6).
+const ENTITY_IDENTIFIERS: &[u8] =
+    include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
+/// The block collision shapes BDS 1.26.52 sends in `VoxelShapes`: `CloudburstMC`'s
+/// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size (23,178
+/// bytes) equal BDS's (P6).
+const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
+/// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
+/// the eyes and at the feet (P6).
+const RESPAWN_SEARCH_Y: f64 = 32_768.0;
+/// The join message, BDS's yellow "joined the game" line: BDS sends it as a translated `Text`
+/// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
+/// any other as it is (like [`LEFT`](super::player::LEFT)).
+const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
 
 /// The start-game batches every player gets the same, the ones that skip the send hooks
 /// ([`ServerBuilder::on_send`](crate::ServerBuilder::on_send) lists them). Each is encoded and
@@ -104,16 +129,6 @@ pub(crate) struct Shared {
     /// The custom block definitions `StartGame` carries (empty without custom blocks).
     blocks: Arc<[protocol::BlockEntry]>,
 }
-
-/// The entity types BDS 1.26.52 sends in `AvailableActorIdentifiers`: `CloudburstMC`'s
-/// `entity_identifiers.dat`, byte for byte what BDS sends (P6, 8,907 bytes).
-const ENTITY_IDENTIFIERS: &[u8] =
-    include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
-
-/// The block collision shapes BDS 1.26.52 sends in `VoxelShapes`: `CloudburstMC`'s
-/// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size (23,178
-/// bytes) equal BDS's (P6).
-const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
 
 impl Shared {
     /// Builds the batches with the server's batch settings. Fails if a packet cannot be encoded
@@ -170,9 +185,7 @@ impl Shared {
             blocks: custom.block_entries().into(),
         })
     }
-}
 
-impl Shared {
     /// The batches of every creative inventory, in the server's order (tests).
     #[cfg(test)]
     pub(super) fn creative_batches(&self) -> &[SharedBatches] {
@@ -187,7 +200,203 @@ impl Shared {
     }
 }
 
-/// The voxel shapes of [`VOXEL_SHAPES`], names in the file's order (BDS's order).
+/// `voxel_shapes.json`.
+#[derive(Deserialize)]
+struct ShapesFile {
+    names: Names,
+    shapes: Vec<ShapeJson>,
+}
+
+/// The `names` object as pairs in file order.
+struct Names(Vec<(String, u16)>);
+
+impl<'de> Deserialize<'de> for Names {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        /// Collects the entries in order.
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Names;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a map of shape names to IDs")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Names, A::Error> {
+                let mut out = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    out.push(entry);
+                }
+                Ok(Names(out))
+            }
+        }
+        d.deserialize_map(Visitor)
+    }
+}
+
+/// One shape of `voxel_shapes.json`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShapeJson {
+    cells: CellsJson,
+    x_coordinates: Vec<f32>,
+    y_coordinates: Vec<f32>,
+    z_coordinates: Vec<f32>,
+}
+
+/// The cells of a shape.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CellsJson {
+    x_size: u8,
+    y_size: u8,
+    z_size: u8,
+    storage: Vec<u8>,
+}
+
+/// What the output phase sends a player at the end of a tick. The input and view phases set it and
+/// the output phase clears it, so it is empty between ticks.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Pending {
+    /// `StartGame` and the item registry.
+    start_game: bool,
+    /// The answer to the chunk radius requests of the tick.
+    pub(super) radius: Option<RadiusAnswer>,
+    /// `PlayStatus(PlayerSpawn)`: the spawn chunks were sent.
+    pub(super) spawn_status: bool,
+    /// The player's creative inventory again: it was switched once the client asked for its
+    /// chunk radius (the spawn window has it or is sent this tick).
+    pub(super) creative: bool,
+}
+
+/// The answer to a chunk radius request.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RadiusAnswer {
+    /// The granted radius.
+    radius: u8,
+    /// The first answer: the spawn position, the creative inventory and the recipes go first.
+    first: bool,
+}
+
+/// What the spawn windows of a tick share: the player list and each world's clock and sleeping
+/// packets. Built only when a player needs a window this tick.
+#[derive(Debug, Default)]
+struct Window {
+    /// The list of every placed player, in session order, built once for every window: it holds
+    /// each player's skin (up to 4 MiB). A client takes at most
+    /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet and a session sends at most
+    /// `max-batch-bytes` in one batch, so a longer or larger list goes in several.
+    player_list: Vec<Arc<Packet>>,
+    /// The packets of each world a window is in. Only those worlds, as each world's sleeping
+    /// counts look at every player.
+    worlds: BTreeMap<WorldIndex, WorldPackets>,
+}
+
+impl Window {
+    /// Builds what the spawn windows of `marked` share; empty when none goes out this tick.
+    fn new(state: &State, marked: &[(SessionId, &Player)]) -> Self {
+        let mut worlds = BTreeMap::new();
+        for (_, p) in marked {
+            if (p.pending.start_game || p.pending.radius.is_some_and(|r| r.first))
+                && !worlds.contains_key(&p.world)
+            {
+                let w = p.world;
+                worlds.insert(
+                    w,
+                    WorldPackets {
+                        clock_state: survival::clock_state(state, w),
+                        clock_definition: survival::clock_definition(state, w),
+                        sleeping: survival::sleeping_players(state, w),
+                    },
+                );
+            }
+        }
+        if worlds.is_empty() {
+            return Self::default();
+        }
+        let placed: Vec<&Player> = state
+            .players
+            .values()
+            .filter(|p| p.phase != Phase::Loading)
+            .collect();
+        Self {
+            player_list: list_packets(&placed, state.settings.max_batch_bytes),
+            worlds,
+        }
+    }
+
+    /// The packets of `world`, if a window this tick is in it.
+    fn world(&self, world: WorldIndex) -> Option<&WorldPackets> {
+        self.worlds.get(&world)
+    }
+
+    /// The player list of the window, shared.
+    fn player_list(&self) -> impl Iterator<Item = Message> + '_ {
+        self.player_list
+            .iter()
+            .map(|p| Message::SpawnList(Arc::clone(p)))
+    }
+}
+
+/// The packets of one world the spawn windows of a tick send.
+#[derive(Debug)]
+struct WorldPackets {
+    /// The clock state.
+    clock_state: Packet,
+    /// The clock definition.
+    clock_definition: Packet,
+    /// The sleeping counts.
+    sleeping: Packet,
+}
+
+/// What every player's packets of a tick are built from.
+struct Built<'a> {
+    settings: &'a Settings,
+    shared: &'a Shared,
+    encoded: &'a Encoded,
+    changes: &'a Changes,
+    window: &'a Window,
+    starts: &'a [StartHook],
+    /// What the `AvailableCommands` of a player whose spawn window goes out this tick is built
+    /// from: the commands' network form without their handlers, so it is `Sync`.
+    commands: command::Listing<'a>,
+    /// The operators among the players whose `StartGame` goes out this tick.
+    ops: &'a BTreeSet<SessionId>,
+}
+
+/// How a refused join ends: the reason for the log and the session's last packet.
+struct Refused {
+    reason: String,
+    packet: Packet,
+}
+
+impl super::Context<'_> {
+    /// Sets the chunk radius `player` sees (PMMP `Player::setViewDistance`), kept from 1 to
+    /// the `view-distance` of its world: its view grows or shrinks at once, and its client is
+    /// told the radius at the end of the tick. A world the player goes to later grants the
+    /// radius set here up to its own `view-distance`. The client asks again when its own
+    /// setting changes, and that request wins. A direct call: it raises no
+    /// [`PlayerViewDistanceChange`].
+    ///
+    /// Returns the radius set; `None`, changing nothing, if the player is not in the game or its
+    /// client has not asked for a radius yet (the first answer opens the spawn window).
+    #[doc(alias = "Player::setViewDistance")]
+    pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> Option<u8> {
+        let session = player.session();
+        let mut p = self.state.players.remove(&session)?;
+        let asked = distance.max(1);
+        let radius = granted_radius(&self.state.settings, p.world, asked);
+        let ready = p.phase != Phase::Loading && p.chunk_radius.is_some();
+        if ready {
+            p.asked_radius = Some(asked);
+            grant_radius(self.state, &mut p, radius);
+        }
+        self.state.players.insert(session, p);
+        ready.then_some(radius)
+    }
+}
+
+/// Reads the voxel shapes of [`VOXEL_SHAPES`], names in the file's order (BDS's order).
 fn voxel_shapes() -> VoxelShapes {
     #[expect(
         clippy::expect_used,
@@ -220,62 +429,8 @@ fn voxel_shapes() -> VoxelShapes {
     }
 }
 
-/// `voxel_shapes.json`.
-#[derive(serde::Deserialize)]
-struct ShapesFile {
-    names: Names,
-    shapes: Vec<ShapeJson>,
-}
-
-/// The `names` object as pairs in file order.
-struct Names(Vec<(String, u16)>);
-
-impl<'de> serde::Deserialize<'de> for Names {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        /// Collects the entries in order.
-        struct Visitor;
-        impl<'de> serde::de::Visitor<'de> for Visitor {
-            type Value = Names;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a map of shape names to IDs")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> Result<Names, A::Error> {
-                let mut out = Vec::new();
-                while let Some(entry) = map.next_entry()? {
-                    out.push(entry);
-                }
-                Ok(Names(out))
-            }
-        }
-        d.deserialize_map(Visitor)
-    }
-}
-
-/// One shape of `voxel_shapes.json`.
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShapeJson {
-    cells: CellsJson,
-    x_coordinates: Vec<f32>,
-    y_coordinates: Vec<f32>,
-    z_coordinates: Vec<f32>,
-}
-
-/// The cells of a shape.
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CellsJson {
-    x_size: u8,
-    y_size: u8,
-    z_size: u8,
-    storage: Vec<u8>,
-}
-
-/// The armour trim patterns and materials BDS 1.26.52 sends (P6), from the tables the smithing
-/// table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIAL_TABLE`]).
+/// Builds the armour trim patterns and materials BDS 1.26.52 sends (P6), from the tables the
+/// smithing table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIAL_TABLE`]).
 fn trim_data() -> TrimData {
     TrimData {
         patterns: crafting::TRIM_PATTERNS
@@ -316,48 +471,18 @@ fn encode(encoder: &mut batch::Encoder, packets: &[Packet]) -> Result<SharedBatc
     Ok(bodies.into())
 }
 
-/// What the output phase sends a player at the end of a tick. The input and view phases set it and
-/// the output phase clears it, so it is empty between ticks.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Pending {
-    /// `StartGame` and the item registry.
-    start_game: bool,
-    /// The answer to the chunk radius requests of the tick.
-    pub(super) radius: Option<RadiusAnswer>,
-    /// `PlayStatus(PlayerSpawn)`: the spawn chunks were sent.
-    pub(super) spawn_status: bool,
-    /// The player's creative inventory again: it was switched once the client asked for its
-    /// chunk radius (the spawn window has it or is sent this tick).
-    pub(super) creative: bool,
-}
-
-/// The answer to a chunk radius request.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RadiusAnswer {
-    /// The granted radius.
-    radius: u8,
-    /// The first answer: the spawn position, the creative inventory and the recipes go first.
-    first: bool,
-}
-
-/// The output phase: the sub-chunks the answers need, encoded once each with their height maps on
-/// the CPU pool; then the packets of every player with something to send, built on the CPU pool
-/// from read-only state in session order and passed through the send hooks; then the pending
-/// marks are cleared.
+/// Runs the output phase: works out the sub-chunks the answers need, once each with their height
+/// maps on the CPU pool; then builds the packets of every player with something to send on the
+/// CPU pool from read-only state in session order and passes them through the send hooks; then
+/// clears the pending marks.
 pub(super) fn output(
     state: &mut State,
     pool: &Pool,
     changes: &Changes,
 ) -> Vec<(SessionId, Vec<Message>)> {
     let ops = operators_starting(state);
-    let wanted = view::wanted_sub_chunks(state);
+    let encoded = Encoded::new(state, pool);
     let worlds = &state.worlds;
-    let blocks = &state.rules.block_entities;
-    let encoded: Encoded = wanted
-        .iter()
-        .copied()
-        .zip(pool.map(&wanted, |&key| view::encode(worlds, blocks, key)))
-        .collect();
     let marked: Vec<(SessionId, &Player)> = state
         .players
         .iter()
@@ -401,8 +526,8 @@ pub(super) fn output(
         }
         (session, out)
     });
-    // The serial phases' packets follow the output phase's ([`Player::send_packet`]); the outbox keeps
-    // its capacity for the next tick.
+    // The serial phases' packets follow the output phase's ([`Player::send_packet`]); the outbox
+    // keeps its capacity for the next tick.
     let hooked = !sends.is_empty();
     for (session, out) in &mut packets {
         if let Some(player) = state.players.get_mut(session) {
@@ -423,86 +548,7 @@ pub(super) fn output(
     packets
 }
 
-/// What the spawn windows of a tick share: the player list and each world's clock and sleeping
-/// packets. Built only when a player needs a window this tick.
-#[derive(Debug, Default)]
-struct Window {
-    /// The list of every placed player, in session order, built once for every window: it holds
-    /// each player's skin (up to 4 MiB). A client takes at most
-    /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet and a session sends at most
-    /// `max-batch-bytes` in one batch, so a longer or larger list goes in several.
-    player_list: Vec<Arc<Packet>>,
-    /// Per world of a window: the clock state, the clock definition and the sleeping counts. Only
-    /// those worlds, as each world's sleeping counts look at every player.
-    worlds: BTreeMap<WorldIndex, [Packet; 3]>,
-}
-
-impl Window {
-    fn new(state: &State, marked: &[(SessionId, &Player)]) -> Self {
-        let mut worlds = BTreeMap::new();
-        for (_, p) in marked {
-            if (p.pending.start_game || p.pending.radius.is_some_and(|r| r.first))
-                && !worlds.contains_key(&p.world)
-            {
-                let w = p.world;
-                worlds.insert(
-                    w,
-                    [
-                        survival::clock_state(state, w),
-                        survival::clock_definition(state, w),
-                        survival::sleeping_players(state, w),
-                    ],
-                );
-            }
-        }
-        if worlds.is_empty() {
-            return Self::default();
-        }
-        let placed: Vec<&Player> = state
-            .players
-            .values()
-            .filter(|p| p.phase != Phase::Loading)
-            .collect();
-        Self {
-            player_list: list_packets(&placed, state.settings.max_batch_bytes),
-            worlds,
-        }
-    }
-
-    /// The world's packet `which` (0 clock state, 1 clock definition, 2 sleeping counts).
-    fn world(&self, world: usize, which: usize) -> Option<Message> {
-        let packet = self.worlds.get(&world)?.get(which)?;
-        Some(Message::Packet(packet.clone()))
-    }
-
-    /// The player list of the window, shared.
-    fn player_list(&self) -> impl Iterator<Item = Message> + '_ {
-        self.player_list
-            .iter()
-            .map(|p| Message::SpawnList(Arc::clone(p)))
-    }
-}
-
-/// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
-/// the eyes and at the feet (P6).
-const RESPAWN_SEARCH_Y: f64 = 32_768.0;
-
-/// What every player's packets of a tick are built from.
-struct Built<'a> {
-    settings: &'a Settings,
-    shared: &'a Shared,
-    encoded: &'a Encoded,
-    changes: &'a Changes,
-    window: &'a Window,
-    starts: &'a [StartHook],
-    /// What the `AvailableCommands` of a player whose spawn window goes out this tick is built
-    /// from: the commands' network form without their handlers, so it is `Sync`.
-    commands: command::Listing<'a>,
-    /// The operators among the players whose `StartGame` goes out this tick.
-    ops: &'a BTreeSet<SessionId>,
-}
-
-/// The operators among the players whose `StartGame` goes out this tick: their `StartGame`
+/// Finds the operators among the players whose `StartGame` goes out this tick: their `StartGame`
 /// carries operator permissions, as their abilities do.
 fn operators_starting(state: &mut State) -> BTreeSet<SessionId> {
     let starting: Vec<(SessionId, String)> = state
@@ -519,12 +565,12 @@ fn operators_starting(state: &mut State) -> BTreeSet<SessionId> {
         .collect()
 }
 
-/// One player's packets of the tick, in the order BDS sends them (P6): the start-game packets; for
-/// the first chunk radius answer the spawn window (spawn position, clocks, difficulty, settings,
-/// weather, abilities, rules, player list, biomes, entity types, fog, camera presets, attributes,
-/// creative inventory, trims, inventory, recipes, commands, respawn, entity data, structure
-/// feature); the granted radius; the chunk packets; the health and the spawn status; then the block
-/// changes it sees.
+/// Builds one player's packets of the tick, in the order BDS sends them (P6): the start-game
+/// packets; for the first chunk radius answer the spawn window (spawn position, clocks,
+/// difficulty, settings, weather, abilities, rules, player list, biomes, entity types, fog, camera
+/// presets, attributes, creative inventory, trims, inventory, recipes, commands, respawn, entity
+/// data, structure feature); the granted radius; the chunk packets; the health and the spawn
+/// status; then the block changes it sees.
 fn messages(
     built: &Built<'_>,
     world: Option<&World>,
@@ -545,15 +591,20 @@ fn messages(
     let Some(world) = world else {
         return out;
     };
-    let index = player.world;
+    let packets = window.world(player.world);
     if player.pending.start_game {
-        out.extend(window.world(index, 2));
+        out.extend(packets.map(|w| Message::Packet(w.sleeping.clone())));
         out.extend(window.player_list());
-        out.extend(window.world(index, 0));
+        out.extend(packets.map(|w| Message::Packet(w.clock_state.clone())));
         out.push(Message::Shared(Arc::clone(&shared.jigsaw_structure_data)));
         out.push(Message::Shared(Arc::clone(&shared.voxel_shapes)));
-        let op = ops.contains(&session);
-        let start = hook::start_game(starts, start_game(settings, shared, world, player, op));
+        let permissions = if ops.contains(&session) {
+            PermissionLevel::Operator
+        } else {
+            PermissionLevel::Member
+        };
+        let start = start_game(settings, shared, world, player, permissions);
+        let start = hook::start_game(starts, start);
         out.push(Message::Packet(Packet::StartGame(Box::new(start))));
         out.push(Message::Shared(Arc::clone(&shared.actor_properties)));
         out.push(Message::Shared(Arc::clone(&shared.item_registry)));
@@ -586,10 +637,10 @@ fn messages(
     out
 }
 
-/// The packets BDS sends between the chunk radius request and the chunks (P6), with the player's
-/// `AvailableCommands`, but for the spawn sound Anchor never sends (deferred.txt). BDS sends the
-/// entity data and the structure feature with its first chunks; the chunk packets leave the order
-/// of the others as it is.
+/// Puts in `out` the packets BDS sends between the chunk radius request and the chunks (P6), with
+/// the player's `AvailableCommands`, but for the spawn sound Anchor never sends (deferred.txt).
+/// BDS sends the entity data and the structure feature with its first chunks; the chunk packets
+/// leave the order of the others as it is.
 fn spawn_window(
     settings: &Settings,
     shared: &Shared,
@@ -599,7 +650,6 @@ fn spawn_window(
     commands: Packet,
     out: &mut Vec<Message>,
 ) {
-    let index = player.world;
     let packet = |p: Packet| Message::Packet(p);
     out.push(packet(Packet::SetSpawnPosition(SetSpawnPosition {
         spawn_type: i32::from(SpawnType::Player),
@@ -607,7 +657,11 @@ fn spawn_window(
         dimension: SPAWN_POSITION_DIMENSION,
         spawn_position: DEFAULT_SPAWN,
     })));
-    out.extend(window.world(index, 1));
+    out.extend(
+        window
+            .world(player.world)
+            .map(|w| packet(w.clock_definition.clone())),
+    );
     out.push(packet(Packet::SetDifficulty(SetDifficulty {
         difficulty: difficulty_id(super::world_api::difficulty_of(settings, world)).cast_unsigned(),
     })));
@@ -661,9 +715,9 @@ fn spawn_window(
     out.push(packet(attributes));
 }
 
-/// A player's entry in the player list (BDS values, P6): the skin and device the client sent at
-/// login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the server-verified
-/// one; BDS's value is not confirmed).
+/// Builds a player's entry in the player list (BDS values, P6): the skin and device the client
+/// sent at login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the
+/// server-verified one; BDS's value is not confirmed).
 fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
         action_type: PlayerListAction::Add.into(),
@@ -682,16 +736,11 @@ fn list_entry(player: &Player) -> PlayerListEntry {
         teacher: false,
         host: false,
         sub_client: false,
-        player_colour: Rgba {
-            r: 237,
-            g: 237,
-            b: 237,
-            a: 255,
-        },
+        player_colour: PLAYER_LIST_COLOUR,
     }
 }
 
-/// The `PlayerList` packets that list `players` in order: each of at most
+/// Builds the `PlayerList` packets that list `players` in order: each of at most
 /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries and of at most `max_batch_bytes` in a batch. One
 /// entry alone always fits ([`MAX_LIST_ENTRY_BYTES`]).
 fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<Packet>> {
@@ -727,14 +776,20 @@ fn announce(state: &mut State, player: &Player) {
         entries: vec![list_entry(player)],
     }));
     for p in state.players.values_mut() {
-        if p.phase != Phase::Loading && !p.pending.start_game {
+        if gets_list_changes(p) {
             p.send_shared(Arc::clone(&packet));
         }
     }
 }
 
-/// A player left (`State::remove`): it wakes up and leaves the other players' lists, if they
-/// were told of it.
+/// Whether `player` is sent the changes of the player list: it is placed, and its own window,
+/// which lists every placed player, is not still to go out.
+fn gets_list_changes(player: &Player) -> bool {
+    player.phase != Phase::Loading && !player.pending.start_game
+}
+
+/// Wakes up a player that left (`State::remove`) and takes it out of the other players' lists,
+/// if they were told of it.
 pub(super) fn left(state: &mut State, player: &mut Player) {
     survival::left(state, player);
     if player.phase == Phase::Loading {
@@ -747,10 +802,7 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
             ..PlayerListEntry::default()
         }],
     });
-    let told = state
-        .players
-        .values_mut()
-        .filter(|p| p.phase != Phase::Loading && !p.pending.start_game);
+    let told = state.players.values_mut().filter(|p| gets_list_changes(p));
     if player.pending.start_game {
         // Placed this tick: `announce` added it through the shared queue, which goes out after
         // the packets, so the removal follows it there.
@@ -837,22 +889,22 @@ fn replace(
     packet: Packet,
     output: &mut Output,
 ) {
-    super::player::quit(
-        state,
-        existing,
-        reason,
-        super::player::LEFT.to_owned(),
-        super::player::QuitCause::Disconnect,
-    );
-    if let Some(old) = state.remove(existing) {
+    if let Some(old) = state.players.get(&existing) {
         info!(
             session = existing.get(),
             by = by.get(),
             name = %old.identity.name,
             "player replaced by a new login"
         );
-        state.close(old, packet, output);
     }
+    state.send_off(
+        existing,
+        reason,
+        super::player::LEFT.to_owned(),
+        super::player::QuitCause::Disconnect,
+        packet,
+        output,
+    );
 }
 
 /// Registers the admitted player of `session` (see [`join`]); one placed dead respawns
@@ -949,26 +1001,22 @@ fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
     player.pending.start_game = true;
 }
 
-/// A saved position as the tick holds it, if it is inside the world border (the file is external
-/// input: a finite position may still be anywhere).
+/// Converts a saved position to the tick's, if it is inside the world border (the file is
+/// external input: a finite position may still be anywhere).
 fn tick_position(position: [f64; 3]) -> Option<Vec3> {
     let [x, y, z] = position;
     let position = Vec3::new(x, y, z);
     inside_border(position).then_some(position)
 }
 
-/// The eye position of a player standing on a world's spawn block.
+/// Computes the eye position of a player standing on a world's spawn block.
 fn spawn_position(world: Option<&World>) -> Vec3 {
     let spawn = world.map(World::spawn).unwrap_or_default();
-    Vec3::new(
-        f64::from(spawn.x) + 0.5,
-        f64::from(spawn.y) + EYE_HEIGHT,
-        f64::from(spawn.z) + 0.5,
-    )
+    survival::standing_eye(spawn)
 }
 
-/// The saved data of a loading player arrived: it joins where it was, at the spawn if it is
-/// new, or at its respawn point if it was dead ([`survival::respawn_joined`]). Damaged data
+/// Places a loading player whose saved data arrived: it joins where it was, at the spawn if it
+/// is new, or at its respawn point if it was dead ([`survival::respawn_joined`]). Damaged data
 /// refuses the join and leaves the saved bytes as they are.
 pub(super) fn player_loaded(
     state: &mut State,
@@ -1022,14 +1070,15 @@ fn duplicate_login(
     if !dispatch::heard::<PlayerDuplicateLogin>(state) {
         return (connecting, DuplicateOutcome::unheard(), None);
     }
-    let Some(old) = state.players.get(&existing) else {
-        // The index names only joined players (State::insert and State::remove keep it so).
-        warn!(
-            session = existing.get(),
-            "player index names a missing player"
-        );
-        return (connecting, DuplicateOutcome::unheard(), None);
-    };
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the player index names only players in the table (State::insert and \
+                  State::remove keep it so)"
+    )]
+    let old = state
+        .players
+        .get(&existing)
+        .expect("the indexed player is in the table");
     // One clone of the existing identity per duplicate login, only when someone listens; the
     // monitors get a copy of the event after the outcome is applied.
     let mut event = PlayerDuplicateLogin::new(connecting, old.identity.clone());
@@ -1039,21 +1088,8 @@ fn duplicate_login(
     (identity, outcome, Some(watched))
 }
 
-/// How a refused join ends: the reason for the log and the session's last packet.
-struct Refused {
-    reason: String,
-    packet: Packet,
-}
-
-/// The kick flags of [`PlayerLogin`] that Anchor sets, in the order of [`command::refusals`].
-const REFUSAL_FLAGS: [KickFlag; 3] = [
-    KickFlag::ServerFull,
-    KickFlag::ServerWhitelisted,
-    KickFlag::Banned,
-];
-
-/// Whether `identity` may join (PMMP `PlayerPreLoginEvent`, which Anchor raises here, in the
-/// tick, after the duplicate login check): Anchor's refusals ([`command::refusals`]) are the
+/// Decides whether `identity` may join (PMMP `PlayerPreLoginEvent`, which Anchor raises here, in
+/// the tick, after the duplicate login check): Anchor's refusals ([`command::refusals`]) are the
 /// event's kick flags, listeners may clear them or set others, and the first flag left refuses
 /// the player with its screen message. Without listeners the first refusal decides
 /// ([`command::admit`]) and no event is built. Returns the refusal, if any, and the event for
@@ -1075,21 +1111,19 @@ fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<Pla
         address: SocketAddr::new(ip, identity.client.port),
         kicks: Default::default(),
     };
-    for (flag, refusal) in REFUSAL_FLAGS.into_iter().zip(&anchor) {
-        if let Some(r) = refusal {
-            event.set_kick_flag(flag, r.message(), None);
-        }
+    for r in anchor.iter().flatten() {
+        event.set_kick_flag(kick_flag(r), r.message(), None);
     }
     dispatch::call(state, &mut event);
     if dispatch::listened::<PlayerLogin>(state) {
         // A listener may have changed the game (banned the player, whitelisted the server): a
         // refusal that was not there before sets its flag; one a listener cleared stays clear.
         let now = command::refusals(state, identity);
-        for ((flag, was), is) in REFUSAL_FLAGS.into_iter().zip(&mut anchor).zip(now) {
+        for (was, is) in anchor.iter_mut().zip(now) {
             if was.is_none()
                 && let Some(r) = is
             {
-                event.set_kick_flag(flag, r.message(), None);
+                event.set_kick_flag(kick_flag(&r), r.message(), None);
                 *was = Some(r);
             }
         }
@@ -1099,11 +1133,10 @@ fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<Pla
         let screen = event.disconnect_screen_message(flag).unwrap_or_default();
         // Anchor's own refusal, unchanged, ends as without listeners (a full server's
         // `PlayStatus` lets the client show its own text).
-        let own = REFUSAL_FLAGS
+        let own = anchor
             .iter()
-            .position(|&f| f == flag)
-            .and_then(|i| anchor.get(i))
-            .and_then(Option::as_ref)
+            .flatten()
+            .find(|r| kick_flag(r) == flag)
             .filter(|r| r.message() == reason && r.message() == screen);
         let packet = own.map_or_else(
             || {
@@ -1114,14 +1147,23 @@ fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<Pla
                     filtered_message: String::new(),
                 })
             },
-            command::Refusal::packet,
+            Refusal::packet,
         );
         Refused { reason, packet }
     });
     (refused, Some(event))
 }
 
-/// The packet that disconnects the losing side of a duplicate login.
+/// Names the kick flag of [`PlayerLogin`] that stands for one of Anchor's refusals.
+fn kick_flag(refusal: &Refusal) -> KickFlag {
+    match refusal {
+        Refusal::Full => KickFlag::ServerFull,
+        Refusal::NotWhitelisted => KickFlag::ServerWhitelisted,
+        Refusal::Banned(_) | Refusal::IpBanned(_) => KickFlag::Banned,
+    }
+}
+
+/// Builds the packet that disconnects the losing side of a duplicate login.
 fn logged_in_other_location(message: String) -> Packet {
     Packet::Disconnect(Disconnect {
         reason: i32::from(DisconnectReason::LoggedInOtherLocation),
@@ -1148,44 +1190,53 @@ pub(super) fn request_chunk_radius(
         );
         return;
     }
-    let Some(mut player) = state.players.remove(&session) else {
+    let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let view_distance = state.settings.view(player.world).view_distance;
-    let asked = u8::try_from(request.chunk_radius).unwrap_or(u8::MAX);
-    let radius = asked.min(view_distance);
-    let mut changed = None;
     if player.phase == Phase::Loading {
         debug!(
             session = session.get(),
             "chunk radius before the player data ignored"
         );
+        return;
+    }
+    let asked = u8::try_from(request.chunk_radius).unwrap_or(u8::MAX);
+    let radius = granted_radius(&state.settings, player.world, asked);
+    player.asked_radius = Some(asked);
+    // An open view follows the granted radius in the view phase ([`view::update`]), once a tick:
+    // each request resizing it would cost the whole disc, and nothing bounds how many requests a
+    // client sends. Only a view that opens needs the player out of the table.
+    let old = if player.view.is_open() {
+        answer_radius(player, radius)
     } else {
-        player.asked_radius = Some(asked);
-        // An open view follows the granted radius in the view phase ([`view::update`]), once a
-        // tick: each request resizing it would cost the whole disc, and nothing bounds how many
-        // requests a client sends.
-        let old = if player.view.is_open() {
-            answer_radius(&mut player, radius)
-        } else {
-            grant_radius(state, &mut player, radius)
-        };
-        if old != Some(radius) {
-            changed = Some(old);
-        }
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the player was found in the table above"
+        )]
+        let mut player = state
+            .players
+            .remove(&session)
+            .expect("the asking player is in the table");
+        let old = grant_radius(state, &mut player, radius);
+        state.players.insert(session, player);
+        old
+    };
+    if old == Some(radius) || !dispatch::heard::<PlayerViewDistanceChange>(state) {
+        return;
     }
-    state.players.insert(session, player);
-    if let Some(old_distance) = changed
-        && dispatch::heard::<PlayerViewDistanceChange>(state)
-    {
-        let mut event = PlayerViewDistanceChange {
-            player: player::Id::new(session),
-            old_distance,
-            new_distance: radius,
-        };
-        dispatch::call(state, &mut event);
-        dispatch::watch(state, &event);
-    }
+    let mut event = PlayerViewDistanceChange {
+        player: player::Id::new(session),
+        old_distance: old,
+        new_distance: radius,
+    };
+    dispatch::call(state, &mut event);
+    dispatch::watch(state, &event);
+}
+
+/// Computes the chunk radius a player who asks for `asked` is granted in `world`: at most the
+/// world's `view-distance`.
+pub(super) fn granted_radius(settings: &Settings, world: WorldIndex, asked: u8) -> u8 {
+    asked.min(settings.view(world).view_distance)
 }
 
 /// Grants `radius` to `player`, taken out of the player table and past loading: the view opens
@@ -1199,7 +1250,8 @@ pub(super) fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -
     old
 }
 
-/// [`grant_radius`] but for the view, which follows in the view phase. Returns the radius it had.
+/// Records `radius` as the answer the output phase sends, as [`grant_radius`] does, but leaves
+/// the view to follow in the view phase. Returns the radius it had.
 fn answer_radius(player: &mut Player, radius: u8) -> Option<u8> {
     let earlier = player.pending.radius.unwrap_or_default();
     player.pending.radius = Some(RadiusAnswer {
@@ -1209,32 +1261,6 @@ fn answer_radius(player: &mut Player, radius: u8) -> Option<u8> {
     let old = player.chunk_radius;
     player.chunk_radius = Some(radius);
     old
-}
-
-impl super::Context<'_> {
-    /// Sets the chunk radius `player` sees (PMMP `Player::setViewDistance`), kept from 1 to
-    /// the `view-distance` of its world: its view grows or shrinks at once, and its client is
-    /// told the radius at the end of the tick. A world the player goes to later grants the
-    /// radius set here up to its own `view-distance`. The client asks again when its own
-    /// setting changes, and that request wins. A direct call: it raises no
-    /// [`PlayerViewDistanceChange`].
-    ///
-    /// Returns the radius set; `None`, changing nothing, if the player is not in the game or its
-    /// client has not asked for a radius yet (the first answer opens the spawn window).
-    #[doc(alias = "Player::setViewDistance")]
-    pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> Option<u8> {
-        let session = player.session();
-        let mut p = self.state.players.remove(&session)?;
-        let view_distance = self.state.settings.view(p.world).view_distance;
-        let radius = distance.min(view_distance).max(1);
-        let ready = p.phase != Phase::Loading && p.chunk_radius.is_some();
-        if ready {
-            p.asked_radius = Some(distance.max(1));
-            grant_radius(self.state, &mut p, radius);
-        }
-        self.state.players.insert(session, p);
-        ready.then_some(radius)
-    }
 }
 
 /// Marks the player spawned when the client confirms with its own runtime ID.
@@ -1273,15 +1299,10 @@ pub(super) fn initialised(
     joined(state, session);
 }
 
-/// The join message, BDS's yellow "joined the game" line: BDS sends it as a translated `Text`
-/// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
-/// any other as it is (like [`LEFT`](super::player::LEFT)).
-const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
-
-/// The player of `session` spawned (PMMP `Player::doFirstSpawn`): [`PlayerJoin`] may change the
-/// join message, which every other player in the game then sees (BDS sends it to the others
-/// only; PMMP to everyone). An empty message shows nothing; a player a listener kicked shows
-/// none.
+/// Announces that the player of `session` spawned (PMMP `Player::doFirstSpawn`): [`PlayerJoin`]
+/// may change the join message, which every other player in the game then sees (BDS sends it to
+/// the others only; PMMP to everyone). An empty message shows nothing; a player a listener kicked
+/// shows none.
 fn joined(state: &mut State, session: SessionId) {
     let Some(name) = state
         .players
@@ -1339,17 +1360,18 @@ pub(super) fn tell_others(state: &mut State, session: SessionId, message: Text) 
     }
 }
 
-/// The protocol ID of a difficulty ([`Difficulty::id`]) as the packets carry it.
+/// Converts a difficulty to its protocol ID ([`Difficulty::id`]) as the packets carry it.
 pub(super) fn difficulty_id(difficulty: Difficulty) -> i32 {
     i32::from(difficulty.id())
 }
 
+/// Builds the `StartGame` of `player` in `world`, with its `permissions`.
 fn start_game(
     settings: &Settings,
     shared: &Shared,
     world: &World,
     player: &Player,
-    op: bool,
+    permissions: PermissionLevel,
 ) -> StartGame {
     let game_mode = survival::game_mode_id(settings.game_mode);
     let difficulty = difficulty_id(super::world_api::difficulty_of(settings, world));
@@ -1376,11 +1398,7 @@ fn start_game(
         multi_player_game: true,
         lan_broadcast_enabled: true,
         commands_enabled: true,
-        player_permissions: u8::from(if op {
-            PermissionLevel::Operator
-        } else {
-            PermissionLevel::Member
-        }),
+        player_permissions: u8::from(permissions),
         server_chunk_tick_radius: i32::from(settings.view(player.world).tick_radius),
         // BDS sends "*" (P6): any base game version.
         base_game_version: "*".to_owned(),
@@ -1412,7 +1430,7 @@ fn start_game(
 mod tests {
     use super::*;
 
-    /// The `CloudburstMC` data copy, when the external sources are there (`.cache`).
+    /// Reads the `CloudburstMC` data copy, when the external sources are there (`.cache`).
     fn cache(name: &str) -> Option<Vec<u8>> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(".cache/cloudburst-data")
@@ -1425,7 +1443,8 @@ mod tests {
         bytes
     }
 
-    fn payload(packet: &Packet) -> Vec<u8> {
+    /// Encodes the packet's payload: the bytes after its header.
+    pub(super) fn payload(packet: &Packet) -> Vec<u8> {
         let mut bytes = Vec::new();
         packet.encode(&mut bytes, 0).unwrap();
         bytes
@@ -1545,8 +1564,8 @@ mod tests {
     /// The Education items are never offered, so the client gets no Education features.
     #[test]
     fn start_game_leaves_education_features_off() {
-        use super::super::tests::{join, new_state, received, settings, tick};
         use crate::event::Listeners;
+        use crate::tick::tests::{join, new_state, received, settings, tick};
 
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
@@ -1561,8 +1580,8 @@ mod tests {
 
     #[test]
     fn a_player_list_longer_than_a_client_takes_goes_in_several_packets() {
-        use super::super::tests::{join, new_state, radius, received, settings, tick};
         use crate::event::Listeners;
+        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
 
         let count = PLAYER_LIST_ENTRIES_MAX_LEN + 1;
         let players = u32::try_from(count).unwrap();
@@ -1596,10 +1615,34 @@ mod tests {
         );
     }
 
+    /// A player list goes in packets of at most the batch bytes a session sends, an entry alone
+    /// whatever its size.
+    #[test]
+    fn a_player_list_larger_than_a_batch_goes_in_several_packets() {
+        use crate::event::Listeners;
+        use crate::tick::tests::{join, new_state, settings, tick};
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let (mut joins, _queues): (Vec<_>, Vec<_>) = (1..=5).map(|s| join(s, 0)).unzip();
+        tick(&mut state, &mut joins, &mut Output::default());
+        let placed: Vec<&Player> = state.players.values().collect();
+        let entries = |max_batch_bytes: usize| -> Vec<usize> {
+            list_packets(&placed, max_batch_bytes)
+                .iter()
+                .map(|p| match &**p {
+                    Packet::PlayerList(l) => l.entries.len(),
+                    other => panic!("{other:?}"),
+                })
+                .collect()
+        };
+        assert_eq!(entries(usize::MAX), [5]);
+        assert_eq!(entries(1), [1, 1, 1, 1, 1]);
+    }
+
     #[test]
     fn a_player_placed_and_gone_in_one_tick_leaves_the_other_lists() {
-        use super::super::tests::{join, leave, new_state, received, settings, tick};
         use crate::event::Listeners;
+        use crate::tick::tests::{join, leave, new_state, received, settings, tick};
 
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
@@ -1623,9 +1666,9 @@ mod tests {
 
     #[test]
     fn the_player_list_carries_the_identity_playfab_id() {
-        use super::super::queue::InputKind;
-        use super::super::tests::{join, new_state, radius, received, settings, tick};
         use crate::event::Listeners;
+        use crate::tick::queue::InputKind;
+        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
 
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
@@ -1656,11 +1699,6 @@ mod tests {
 
         use tokio::sync::mpsc;
 
-        use super::super::super::tests::{
-            initialised, input, join, new_state, radius, received, settings, tick,
-        };
-        use super::super::super::{Context, InputKind, Output, Phase, SessionId, State};
-        use super::super::{Identity, JOINED_KEY, Outbound};
         use crate::event::{
             Event, KickFlag, Listeners, PlayerDuplicateLogin, PlayerJoin, PlayerLogin, PlayerQuit,
             PlayerViewDistanceChange, Priority,
@@ -1669,6 +1707,12 @@ mod tests {
         use crate::player::Id;
         use crate::protocol::consts::TextType;
         use crate::protocol::packet::Packet;
+        use crate::tick::queue::{Identity, Outbound};
+        use crate::tick::spawn::JOINED_KEY;
+        use crate::tick::tests::{
+            initialised, input, join, new_state, radius, received, settings, tick,
+        };
+        use crate::tick::{Context, InputKind, Output, Phase, SessionId, State};
 
         thread_local! {
             /// What the listeners of a test saw, in order.
@@ -1685,7 +1729,7 @@ mod tests {
             LOG.take()
         }
 
-        /// Listeners with one listener of `E` at normal priority.
+        /// Builds listeners with one listener of `E` at normal priority.
         fn on<E: Event>(
             listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static,
         ) -> Listeners {
@@ -1696,7 +1740,6 @@ mod tests {
 
         fn state(edit: impl FnOnce(&mut crate::config::Config), listeners: Listeners) -> State {
             LOG.set(Vec::new());
-            let listeners = listeners;
             new_state(settings(edit), listeners)
         }
 
@@ -1733,18 +1776,6 @@ mod tests {
         ) -> (crate::tick::queue::Input, mpsc::Receiver<Outbound>) {
             let (outbound, rx) = crate::tick::queue::outbound_queue();
             (input(s, 0, InputKind::Join { identity, outbound }), rx)
-        }
-
-        /// The texts in what `rx` was sent: (type, message, parameters).
-        fn texts(rx: &mut mpsc::Receiver<Outbound>) -> Vec<(u8, String, Vec<String>)> {
-            received(rx)
-                .0
-                .into_iter()
-                .filter_map(|p| match p {
-                    Packet::Text(t) => Some((t.text_type, t.message, t.parameters)),
-                    _ => None,
-                })
-                .collect()
         }
 
         fn flags(e: &PlayerLogin) -> String {
@@ -1887,6 +1918,18 @@ mod tests {
             let (j, _rx) = join(1, 0);
             run(&mut state, vec![j]);
             assert_eq!(logged(), ["player1 true 1"]);
+        }
+
+        /// Takes the texts in what `rx` was sent: (type, message, parameters).
+        fn texts(rx: &mut mpsc::Receiver<Outbound>) -> Vec<(u8, String, Vec<String>)> {
+            received(rx)
+                .0
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::Text(t) => Some((t.text_type, t.message, t.parameters)),
+                    _ => None,
+                })
+                .collect()
         }
 
         // pmmp: PlayerJoinEvent

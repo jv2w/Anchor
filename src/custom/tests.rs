@@ -1304,11 +1304,8 @@ fn without_vanilla_recipes_only_the_servers_own_exist() {
     assert_eq!(counts, (0, 1, 0, 0, 0, 0));
     assert_eq!(data.shapeless_recipes[0].recipe_network_id, 1);
     assert!(data.clear_recipes);
-    assert_eq!(
-        r.crafting_candidates("minecraft:oak_log")
-            .collect::<Vec<_>>(),
-        [1]
-    );
+    let log = r.resolve(ItemRef::Block(block::Kind::OakLog)).unwrap();
+    assert_eq!(r.crafting_candidates(log).count(), 0, "no vanilla recipe");
     let iron = Stack::new(typed("minecraft:raw_iron", 0), 1);
     assert_eq!(r.furnace_recipe(FurnaceType::Furnace, &iron), None);
     let water = Stack::new(typed("minecraft:potion", 0), 1);

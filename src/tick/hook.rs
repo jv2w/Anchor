@@ -18,7 +18,7 @@ use crate::player;
 use crate::protocol::packet::{Packet, StartGame};
 
 /// A receive hook: `false` drops the packet.
-type ReceiveHook = Box<dyn FnMut(&mut Context<'_>, player::Id, &mut Packet) -> bool + Send>;
+type ReceiveHook = Box<dyn FnMut(&mut Context<'_>, player::Id, &mut SentPacket<'_>) -> bool + Send>;
 /// A send hook: `false` drops the packet.
 pub(super) type SendHook = Box<dyn Fn(player::Id, &mut SentPacket<'_>) -> bool + Send + Sync>;
 /// A start-game hook.
@@ -44,43 +44,6 @@ impl Hooks {
     }
 }
 
-/// A packet the tick sends a player, as a send hook sees it ([`ServerBuilder::on_send`]).
-///
-/// The tick builds some packets once for many players (a skin change, the player list). Such a
-/// packet stays shared while hooks only read it: [`get`](Self::get) never copies, and the first
-/// [`get_mut`](Self::get_mut) copies it for this player alone. A hook that changes a packet only
-/// when it must therefore checks it with `get` first.
-#[derive(Debug)]
-pub struct SentPacket<'a>(Slot<'a>);
-
-/// Where the packet a send hook sees is held.
-#[derive(Debug)]
-enum Slot<'a> {
-    /// This player's own packet.
-    Own(&'a mut Packet),
-    /// A packet shared with other players.
-    Shared(&'a mut Arc<Packet>),
-}
-
-impl SentPacket<'_> {
-    /// The packet.
-    pub fn get(&self) -> &Packet {
-        match &self.0 {
-            Slot::Own(packet) => packet,
-            Slot::Shared(packet) => packet,
-        }
-    }
-
-    /// The packet to change. A packet shared with other players is copied for this one first,
-    /// once: later calls and later hooks change the copy.
-    pub fn get_mut(&mut self) -> &mut Packet {
-        match &mut self.0 {
-            Slot::Own(packet) => packet,
-            Slot::Shared(packet) => Arc::make_mut(packet),
-        }
-    }
-}
-
 impl fmt::Debug for Hooks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Hooks")
@@ -91,15 +54,68 @@ impl fmt::Debug for Hooks {
     }
 }
 
+/// A packet as a packet hook sees it: one a player sent ([`ServerBuilder::on_receive`]) or one
+/// the tick sends a player ([`ServerBuilder::on_send`]).
+///
+/// The input log keeps a received packet as it arrived, and the tick builds some packets once for
+/// many players (a skin change, the player list). Such a packet stays as it is while hooks only
+/// read it: [`get`](Self::get) never copies, and the first [`get_mut`](Self::get_mut) copies it
+/// for this player alone. A hook that changes a packet only when it must therefore checks it with
+/// `get` first.
+#[derive(Debug)]
+pub struct SentPacket<'a>(Slot<'a>);
+
+/// Where the packet a hook sees is held.
+#[derive(Debug)]
+enum Slot<'a> {
+    /// A packet a player sent, as the input log holds it, and its copy once a hook changes it.
+    Received {
+        logged: &'a Packet,
+        copy: &'a mut Option<Packet>,
+    },
+    /// This player's own packet.
+    Own(&'a mut Packet),
+    /// A packet shared with other players.
+    Shared(&'a mut Arc<Packet>),
+}
+
+impl SentPacket<'_> {
+    /// The packet.
+    pub fn get(&self) -> &Packet {
+        match &self.0 {
+            Slot::Received { logged, copy } => match copy {
+                Some(changed) => changed,
+                None => logged,
+            },
+            Slot::Own(packet) => packet,
+            Slot::Shared(packet) => packet,
+        }
+    }
+
+    /// Returns the packet to change. A packet the input log holds or one shared with other
+    /// players is copied for this player first, once: later calls and later hooks change the
+    /// copy.
+    pub fn get_mut(&mut self) -> &mut Packet {
+        match &mut self.0 {
+            Slot::Received { logged, copy } => copy.get_or_insert_with(|| Packet::clone(logged)),
+            Slot::Own(packet) => packet,
+            Slot::Shared(packet) => Arc::make_mut(packet),
+        }
+    }
+}
+
 impl ServerBuilder {
     /// Calls `hook` on every packet a joined player sends, before Anchor handles it, in the
-    /// tick's serial input phase and in registration order. The hook may change the packet; when
-    /// it returns `false` the packet is dropped and later hooks do not see it.
+    /// tick's serial input phase and in registration order. The hook may change the packet
+    /// ([`SentPacket::get_mut`]); when it returns `false` the packet is dropped and later hooks
+    /// do not see it. The input log keeps the packet as it arrived, so a packet is copied only
+    /// when a hook changes it.
     ///
     /// Hooks see the packets from the join on: the login and resource pack sequence is the
-    /// session's and never reaches them. With `hook-player-input = false`, `PlayerAuthInput`
-    /// (sent every client tick) skips them. Like listeners, hooks run only in the tick with a
-    /// [`Context`], so a replay of the input log runs them the same way. PMMP's
+    /// session's and never reaches them. Until the player's saved data has loaded,
+    /// [`Context::player`] of the hook's ID is `None`. With `hook-player-input = false`,
+    /// `PlayerAuthInput` (sent every client tick) skips them. Like listeners, hooks run only in
+    /// the tick with a [`Context`], so a replay of the input log runs them the same way. PMMP's
     /// `DataPacketDecodeEvent` (raw bytes before decoding) has no counterpart: Anchor decodes
     /// and checks every packet first.
     #[doc(alias = "DataPacketReceiveEvent")]
@@ -107,7 +123,7 @@ impl ServerBuilder {
     #[must_use]
     pub fn on_receive(
         mut self,
-        hook: impl FnMut(&mut Context<'_>, player::Id, &mut Packet) -> bool + Send + 'static,
+        hook: impl FnMut(&mut Context<'_>, player::Id, &mut SentPacket<'_>) -> bool + Send + 'static,
     ) -> Self {
         self.setup.hooks.receive.push(Box::new(hook));
         self
@@ -125,8 +141,8 @@ impl ServerBuilder {
     /// data, entity property definitions, camera presets), which is encoded once at start and
     /// shared; the last packet of a session the server closes (a `Disconnect`, a transfer's
     /// `Transfer` or a refused join's `PlayStatus`); and the login and resource pack sequence,
-    /// which the session sends. With `hook-movement-packets = false` the movement packets skip them too: `MovePlayer`,
-    /// `MoveActorDelta`, `MoveActorAbsolute` and `SetActorMotion`.
+    /// which the session sends. With `hook-movement-packets = false` the movement packets skip
+    /// them too: `MovePlayer`, `MoveActorDelta`, `MoveActorAbsolute` and `SetActorMotion`.
     #[doc(alias = "DataPacketSendEvent")]
     #[must_use]
     pub fn on_send(
@@ -159,9 +175,9 @@ impl ServerBuilder {
 }
 
 /// Runs the receive hooks on a packet of `session`: the packet to apply, changed or not, or
-/// `None` when a hook dropped it. Without hooks, for a session that is not a player, and for
-/// `PlayerAuthInput` with `hook-player-input = false`, the packet passes as it is, without a
-/// copy.
+/// `None` when a hook dropped it. The packet is copied only when a hook changes it. Without
+/// hooks, for a session that is not a player, and for `PlayerAuthInput` with
+/// `hook-player-input = false`, the packet passes as it is.
 pub(super) fn receive<'a>(
     state: &mut State,
     session: SessionId,
@@ -175,13 +191,17 @@ pub(super) fn receive<'a>(
     }
     // Taken out while they run, so each hook's context can lend the whole state.
     let mut hooks = std::mem::take(&mut state.hooks.receive);
-    let mut packet = packet.clone();
+    let mut copy = None;
     let id = player::Id::new(session);
-    let keep = hooks
-        .iter_mut()
-        .all(|hook| hook(&mut Context { state }, id, &mut packet));
+    let keep = hooks.iter_mut().all(|hook| {
+        let mut received = SentPacket(Slot::Received {
+            logged: packet,
+            copy: &mut copy,
+        });
+        hook(&mut Context { state }, id, &mut received)
+    });
     state.hooks.receive = hooks;
-    keep.then_some(Cow::Owned(packet))
+    keep.then(|| copy.map_or(Cow::Borrowed(packet), Cow::Owned))
 }
 
 /// Runs the send hooks on the packets of `messages` for `session`, removing those a hook drops.
@@ -297,25 +317,21 @@ mod tests {
     use crate::event::Listeners;
     use crate::protocol::ExperimentData;
     use crate::protocol::packet::{
-        MoveActorAbsolute, MoveActorDelta, MovePlayer, SetActorMotion, SetTime,
+        MoveActorAbsolute, MoveActorDelta, MovePlayer, RequestChunkRadius, SetActorMotion, SetTime,
     };
     use crate::tick::Output;
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
 
-    fn state_with(builder: ServerBuilder) -> State {
-        configured(builder, |_| {})
-    }
-
-    /// [`state_with`] with the settings `edit` makes.
+    /// Makes the state of a server built with `builder`'s hooks and the settings `edit` makes.
     fn configured(builder: ServerBuilder, edit: impl FnOnce(&mut crate::Config)) -> State {
         let mut state = new_state(settings(edit), Listeners::default());
         state.hooks = builder.setup.hooks;
         state
     }
 
-    /// The movement packets session 1 gets when the serial phases queue one of each kind and a
-    /// send hook drops every movement packet it sees, on a server with `hook-movement-packets`
-    /// set to `hooked`.
+    /// Counts the movement packets session 1 gets when the serial phases queue one of each kind
+    /// and a send hook drops every movement packet it sees, on a server with
+    /// `hook-movement-packets` set to `hooked`.
     fn movement_sent(hooked: bool) -> usize {
         let builder = Server::builder().on_send(|_, packet| !is_movement(packet.get()));
         let mut state = configured(builder, |c| c.developer.hook_movement_packets = hooked);
@@ -361,7 +377,7 @@ mod tests {
             RECEIVED.set((0, 0));
             let builder = Server::builder().on_receive(|_, _, packet| {
                 let (inputs, radii) = RECEIVED.get();
-                match packet {
+                match packet.get() {
                     Packet::PlayerAuthInput(_) => RECEIVED.set((inputs + 1, radii)),
                     Packet::RequestChunkRadius(_) => RECEIVED.set((inputs, radii + 1)),
                     _ => {}
@@ -383,6 +399,10 @@ mod tests {
             );
             assert_eq!(RECEIVED.get(), (usize::from(hooked), 1), "hooked: {hooked}");
         }
+    }
+
+    fn state_with(builder: ServerBuilder) -> State {
+        configured(builder, |_| {})
     }
 
     fn id(session: u64) -> player::Id {
@@ -423,14 +443,16 @@ mod tests {
         let builder = Server::builder()
             .on_receive(|ctx, player, packet| {
                 assert_eq!(ctx.tick(), 1);
-                if let Packet::RequestChunkRadius(p) = packet {
+                if matches!(packet.get(), Packet::RequestChunkRadius(_))
+                    && let Packet::RequestChunkRadius(p) = packet.get_mut()
+                {
                     p.chunk_radius = 2;
                 }
                 player != id(2)
             })
             .on_receive(|_, player, packet| {
                 assert_eq!(player, id(1), "a dropped packet reaches no later hook");
-                if let Packet::RequestChunkRadius(p) = packet {
+                if let Packet::RequestChunkRadius(p) = packet.get() {
                     assert_eq!(p.chunk_radius, 2, "later hooks see the change");
                 }
                 true
@@ -441,6 +463,41 @@ mod tests {
         assert!(radii(&second).is_empty(), "the radius request was dropped");
         assert!(state.players[&SessionId::new(2)].chunk_radius.is_none());
         assert_eq!(state.hooks.receive.len(), 2, "the hooks are put back");
+    }
+
+    /// Receive hooks that only read a packet pass on the packet the input log holds, without a
+    /// copy; one that changes it passes on its own copy.
+    #[test]
+    fn a_receive_hook_copies_a_packet_only_to_change_it() {
+        let logged = Packet::RequestChunkRadius(RequestChunkRadius {
+            chunk_radius: 4,
+            ..RequestChunkRadius::default()
+        });
+        let reading = Server::builder()
+            .on_receive(|_, _, packet| matches!(packet.get(), Packet::RequestChunkRadius(_)));
+        let changing = Server::builder().on_receive(|_, _, packet| {
+            if let Packet::RequestChunkRadius(p) = packet.get_mut() {
+                p.chunk_radius = 2;
+            }
+            true
+        });
+        let mut passed = Vec::new();
+        for builder in [reading, changing] {
+            let mut state = state_with(builder);
+            let (j, _rx) = join(1, 0);
+            tick(&mut state, &mut vec![j], &mut Output::default());
+            passed.push(
+                receive(&mut state, SessionId::new(1), &logged).map(|p| match p {
+                    Cow::Borrowed(p) => (true, p.clone()),
+                    Cow::Owned(p) => (false, p),
+                }),
+            );
+        }
+        let changed = Packet::RequestChunkRadius(RequestChunkRadius {
+            chunk_radius: 2,
+            ..RequestChunkRadius::default()
+        });
+        assert_eq!(passed, [Some((true, logged)), Some((false, changed))]);
     }
 
     // pmmp: DataPacketSendEvent
@@ -571,7 +628,9 @@ mod tests {
     fn hooks() -> ServerBuilder {
         Server::builder()
             .on_receive(|ctx, player, packet| {
-                if let Packet::RequestChunkRadius(p) = packet {
+                if matches!(packet.get(), Packet::RequestChunkRadius(_))
+                    && let Packet::RequestChunkRadius(p) = packet.get_mut()
+                {
                     p.chunk_radius = 3 + i32::try_from(ctx.tick()).unwrap();
                 }
                 player != id(3)

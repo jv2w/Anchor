@@ -5,8 +5,10 @@
 //!
 //! The test runs its own test binary as the server process (`user_data_crash_child`) and kills
 //! only that child, through its process handle, as the item crash test does
-//! (`tick::tests::crash`): the server file, the save thread and the tick thread as `Server::run`
-//! starts them, and one player who joins through the tick's input queue.
+//! (`tick::tests::crash`). The child opens the data files and starts the save thread and the tick
+//! thread with the steps of `Server::run` the test needs (not the fingerprints, the access lists,
+//! the world catalog, the identity, the network controls or custom content), and one player
+//! joins through the tick's input queue.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -19,14 +21,17 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
-use super::super::queue::{Identity, InputKind, Outbound, SessionId, input_queue, outbound_queue};
-use super::super::{Phase, SaveLink, Settings, Shared, State, Tasks, run};
 use super::{Context, registered};
 use crate::block::{self, Kind as BlockKind};
 use crate::config::Config;
 use crate::event::{Listeners, Priority, WorldSave};
 use crate::protocol::Uuid;
-use crate::save::WorldSpec;
+use crate::save::{Loaded, Response, WorldSpec};
+use crate::tick::queue::{
+    Client, Identity, InputKind, Outbound, SessionId, Skin, input_queue, outbound_queue,
+};
+use crate::tick::tests::{join, settings, shared, tick};
+use crate::tick::{Output, Phase, SaveLink, Settings, Setup, State, Tasks, run};
 use crate::world::{BlockPos, ChunkPos, Flat};
 
 /// The child's environment variable naming its data folder.
@@ -43,7 +48,7 @@ const SESSION: SessionId = SessionId::new(1);
 const NAME: &str = "keeper";
 
 /// What the server and the player keep: the last tick that wrote it, and how many ticks have.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 struct Progress {
     tick: u64,
     count: u64,
@@ -55,7 +60,7 @@ impl Progress {
     }
 }
 
-/// Where the marker block is after tick `tick`, in the spawn chunks' dirt layer.
+/// Gives the place of the marker block after tick `tick`, in the spawn chunks' dirt layer.
 fn path(tick: u64) -> BlockPos {
     let t = i32::try_from(tick % 100_000).unwrap();
     BlockPos::new((t * 7) % 48 - 16, -62, (t * 11) % 48 - 16)
@@ -231,17 +236,12 @@ fn user_data_crash_child() {
     );
     let state = State::new(
         Settings::new(&Config::default()),
-        Shared::new(
-            crate::protocol::batch::Settings::default(),
-            &crate::custom::Registry::default(),
-            &crate::tick::entity::Customs::default(),
-        )
-        .unwrap(),
-        crate::tick::Setup {
+        shared(),
+        Setup {
             listeners,
             tasks,
             data: user,
-            ..crate::tick::Setup::default()
+            ..Setup::default()
         },
         opened.worlds,
         opened.tick,
@@ -254,10 +254,10 @@ fn user_data_crash_child() {
                 name: NAME.to_owned(),
                 xuid: None,
                 uuid: Uuid::from_bytes([4; 16]),
-                skin: crate::tick::queue::Skin::default(),
+                skin: Skin::default(),
                 device_os: -1,
                 address: None,
-                client: crate::tick::queue::Client::default(),
+                client: Client::default(),
             },
             outbound,
         })
@@ -281,6 +281,74 @@ fn user_data_crash_child() {
     drop(inputs);
     tick_thread.join().unwrap();
     save_thread.join().unwrap().unwrap();
+}
+
+/// The check of a restart reads the marker block only once the spawn chunks are in, even when the
+/// save thread answers them a tick after the player data (a busy save thread on a loaded machine).
+#[test]
+fn the_check_waits_for_spawn_chunks_answered_after_the_player() {
+    let world = crate::world::World::new(
+        "world",
+        crate::world::Kind::Persistent,
+        0,
+        crate::world::Generator::spawn(&Flat, 0),
+    );
+    let mut state = State::new(
+        settings(|c| c.general.save_player_data = true),
+        shared(),
+        Setup {
+            data: registered::<Progress, Progress>("progress", "progress"),
+            ..Setup::default()
+        },
+        vec![world],
+        0,
+    );
+    let (stop, _stop_rx) = mpsc::channel(1);
+    let mut writer = Writer {
+        writes: false,
+        stop,
+        start: None,
+        ready: false,
+        marker: None,
+    };
+    let marker = path(5);
+    let mut output = Output::default();
+    let (j, _rx) = join(SESSION.get(), 0);
+    let mut batch = vec![j];
+    let mut late = Vec::new();
+    for _ in 0..10 {
+        tick(&mut state, &mut batch, &mut output);
+        // The chunks answer a tick after the rest; the file holds the marker block.
+        let (mut chunks, rest): (Vec<_>, Vec<_>) = output
+            .answers
+            .drain(..)
+            .partition(|a| matches!(a, Response::Chunk { .. }));
+        for a in &mut chunks {
+            if let Response::Chunk {
+                pos,
+                loaded: Loaded::Generated(chunk, _),
+                ..
+            } = a
+                && *pos == marker.chunk()
+            {
+                let local = |c: i32| u8::try_from(c.rem_euclid(16)).unwrap();
+                chunk
+                    .set_block(local(marker.x), marker.y, local(marker.z), gold())
+                    .unwrap();
+            }
+        }
+        output.answers = rest;
+        output.answers.append(&mut late);
+        late = chunks;
+        if writer.check(&mut Context { state: &mut state }, 0) {
+            break;
+        }
+    }
+    assert_eq!(
+        writer.marker,
+        Some(marker),
+        "the check saw the file's marker"
+    );
 }
 
 /// A started child and its report lines.
@@ -341,95 +409,29 @@ fn progress(text: &str) -> Progress {
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the test prepares and removes its data folder"
+    reason = "off-tick: the test makes its data folder"
 )]
-fn fresh(dir: &Path, create: bool) {
+fn fresh(dir: &Path) {
+    remove(dir);
+    std::fs::create_dir_all(dir).unwrap();
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test removes its data folder"
+)]
+fn remove(dir: &Path) {
     std::fs::remove_dir_all(dir).unwrap_or(());
-    if create {
-        std::fs::create_dir_all(dir).unwrap();
-    }
 }
 
 fn data_dir() -> PathBuf {
     std::env::temp_dir().join(format!("anchor-user-crash-{}", std::process::id()))
 }
 
-/// The check of a restart reads the marker block only once the spawn chunks are in, even when the
-/// save thread answers them a tick after the player data (a busy save thread on a loaded machine).
-#[test]
-fn the_check_waits_for_spawn_chunks_answered_after_the_player() {
-    use crate::save::{Loaded, Response};
-    use crate::tick::Output;
-    use crate::tick::tests::{join, settings, shared, tick};
-
-    let world = crate::world::World::new(
-        "world",
-        crate::world::Kind::Persistent,
-        0,
-        crate::world::Generator::spawn(&Flat, 0),
-    );
-    let mut state = State::new(
-        settings(|c| c.general.save_player_data = true),
-        shared(),
-        crate::tick::Setup {
-            data: registered::<Progress, Progress>("progress", "progress"),
-            ..crate::tick::Setup::default()
-        },
-        vec![world],
-        0,
-    );
-    let (stop, _stop_rx) = mpsc::channel(1);
-    let mut writer = Writer {
-        writes: false,
-        stop,
-        start: None,
-        ready: false,
-        marker: None,
-    };
-    let marker = path(5);
-    let mut output = Output::default();
-    let (j, _rx) = join(SESSION.get(), 0);
-    let mut batch = vec![j];
-    let mut late = Vec::new();
-    for _ in 0..10 {
-        tick(&mut state, &mut batch, &mut output);
-        // The chunks answer a tick after the rest; the file holds the marker block.
-        let (mut chunks, rest): (Vec<_>, Vec<_>) = output
-            .answers
-            .drain(..)
-            .partition(|a| matches!(a, Response::Chunk { .. }));
-        for a in &mut chunks {
-            if let Response::Chunk {
-                pos,
-                loaded: Loaded::Generated(chunk, _),
-                ..
-            } = a
-                && *pos == marker.chunk()
-            {
-                let local = |c: i32| u8::try_from(c.rem_euclid(16)).unwrap();
-                chunk
-                    .set_block(local(marker.x), marker.y, local(marker.z), gold())
-                    .unwrap();
-            }
-        }
-        output.answers = rest;
-        output.answers.append(&mut late);
-        late = chunks;
-        if writer.check(&mut Context { state: &mut state }, 0) {
-            break;
-        }
-    }
-    assert_eq!(
-        writer.marker,
-        Some(marker),
-        "the check saw the file's marker"
-    );
-}
-
 #[test]
 fn forced_kills_keep_user_data_with_its_tick() {
     let data = data_dir();
-    fresh(&data, true);
+    fresh(&data);
     let mut seed = 0x05e7_da7a_u64;
     let mut next = || {
         seed ^= seed << 13;
@@ -530,5 +532,5 @@ fn forced_kills_keep_user_data_with_its_tick() {
     }
     assert!(checked > 0, "no start found a commit to check");
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
-    fresh(&data, false);
+    remove(&data);
 }

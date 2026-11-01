@@ -1087,7 +1087,8 @@ getters!(PlayerJump {
     player: player::Id,
 });
 
-/// Raised when a player is about to be kicked. Cancelling keeps the player.
+/// Raised when a player is about to be kicked. Cancelling keeps the player, and so does a text a
+/// listener sets longer than 65,536 bytes.
 #[doc(alias = "PlayerKickEvent")]
 #[derive(Debug)]
 pub struct PlayerKick {
@@ -1595,7 +1596,8 @@ impl PlayerToggleSwim {
     }
 }
 
-/// Raised when a player is about to be sent to another server. Cancelling keeps the player here.
+/// Raised when a player is about to be sent to another server. Cancelling keeps the player here,
+/// and so does an empty address or one longer than 253 bytes, or a message longer than 65,536 bytes.
 #[doc(alias = "PlayerTransferEvent")]
 #[derive(Debug)]
 pub struct PlayerTransfer {
@@ -1615,7 +1617,7 @@ getters!(PlayerTransfer {
     /// The other server's port.
     #[doc(alias = "PlayerTransferEvent::getPort")]
     port: u16,
-    /// The message for the log.
+    /// The message for the log and [`PlayerQuit::quit_reason`].
     #[doc(alias = "PlayerTransferEvent::getMessage")]
     message: &str,
 });
@@ -1627,7 +1629,7 @@ setters!(PlayerTransfer {
     /// Sends the player to another port.
     #[doc(alias = "PlayerTransferEvent::setPort")]
     set_port => port: u16,
-    /// Replaces the message for the log.
+    /// Replaces the message for the log and [`PlayerQuit::quit_reason`].
     #[doc(alias = "PlayerTransferEvent::setMessage")]
     set_message => message: String,
 });

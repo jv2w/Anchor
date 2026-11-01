@@ -90,7 +90,7 @@ impl crate::tick::checkpoint::Codec for CooldownKey {
                 if vanilla_tag(tag).is_none() {
                     w.opaque("custom item cooldown tag", 1);
                 }
-                (*tag).to_owned().encode(w);
+                w.text(tag);
             }
             Self::Item(id) => {
                 w.u8(1);

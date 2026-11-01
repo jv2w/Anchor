@@ -4,35 +4,20 @@
 //! with nothing under it falls.
 
 use super::props;
-use super::{Cx, interact, plant};
+use super::{Cx, plant};
 use crate::block::{self, Class, Face, Kind, SupportType, Trait, TypeTag};
+use crate::tick::interact;
 use crate::world::BlockPos;
 
-/// The support the block on the `face` side of `pos` gives toward `pos` (PMMP
-/// `getAdjacentSupportType`), or `None` if it is not loaded ([`Cx::loaded_block`]).
-pub(super) fn adjacent(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<SupportType> {
-    Some(side(cx, pos, face)?.support(face.opposite()))
-}
-
-/// The block on the `face` side of `pos`, or `None` if it is not loaded ([`Cx::loaded_block`]).
-pub(super) fn side(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<block::State> {
-    cx.loaded_block(pos.step(face)?)
-}
-
-/// Whether the block has the dirt or mud tag (PMMP `BlockTypeTags::DIRT`, `MUD`).
-pub(super) fn is_soil(s: block::State) -> bool {
-    s.has_type_tag(TypeTag::Dirt) || s.has_type_tag(TypeTag::Mud)
-}
-
-/// A neighbour of the block changed: destroys or drops it if it lost its support.
+/// Destroys the block with its drops, or makes it fall, if a neighbour change took its support.
 pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if block.has_trait(Trait::Fallable) {
         fall_check(cx, pos, block);
         return;
     }
     match block.class() {
-        Class::Vine => vine(cx, pos, block),
         Class::GlowLichen | Class::ResinClump => multi_face(cx, pos, block),
+        Class::Vine => vine(cx, pos, block),
         _ => {
             if supported(cx, pos, block) == Some(false) {
                 cx.destroy(pos);
@@ -41,10 +26,111 @@ pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// PMMP `canBeSupportedAt` of the classes with `StaticSupportTrait` ([`Trait::StaticSupport`]):
-/// whether `block` at `pos` stands, with
-/// `get` reading the blocks around it. `None` for another class, or when `get` has no block the
-/// rule needs. Placement and the block update rules share it, each with its own reader.
+/// Tells whether the block still has what holds it, for the classes that break without it
+/// ([`static_support`], then the attached and two-block ones); `None` for other classes or when
+/// a block the check needs is not loaded.
+pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
+    if let Some(stands) = static_support(block, pos, |p| cx.loaded_block(p)) {
+        return Some(stands);
+    }
+    let down = || side(cx, pos, Face::Down);
+    let up = || side(cx, pos, Face::Up);
+    let attached = |face: Face| attached_support(block, face, adjacent(cx, pos, face)?);
+    Some(match block.class() {
+        Class::ActivatorRail | Class::DetectorRail | Class::PoweredRail | Class::Rail => {
+            rail(cx, pos, block)?
+        }
+        Class::AmethystCluster
+        | Class::ItemFrame
+        | Class::Ladder
+        | Class::RedstoneTorch
+        | Class::StoneButton
+        | Class::Torch
+        | Class::UnderwaterTorch
+        | Class::WallCoralFan
+        | Class::WoodenButton => attached(props::facing(block)?.opposite())?,
+        Class::Bell => {
+            let facing = props::facing(block)?;
+            let faces: &[Face] = match props::string(block, "attachment")? {
+                "hanging" => &[Face::Up],
+                "standing" => &[Face::Down],
+                "side" => &[facing.opposite()],
+                _ => &[facing, facing.opposite()],
+            };
+            for &face in faces {
+                if adjacent(cx, pos, face)? == SupportType::None {
+                    return Some(false);
+                }
+            }
+            true
+        }
+        Class::BigDripleafHead | Class::BigDripleafStem => {
+            let head = block.class() == Class::BigDripleafHead;
+            if !head && !up()?.is(Class::BaseBigDripleaf) {
+                return Some(false);
+            }
+            let d = down()?;
+            (d.is(Class::BaseBigDripleaf) && d.class() == Class::BigDripleafStem)
+                || d.kind() == Kind::Clay
+                || is_soil(d)
+        }
+        Class::BrownMushroom | Class::RedMushroom => !down()?.is_transparent(),
+        Class::CeilingEdgesHangingSign => {
+            let u = up()?;
+            let facing = props::facing(block)?;
+            u.support(Face::Down) == SupportType::Full
+                || (matches!(
+                    u.class(),
+                    Class::CeilingEdgesHangingSign | Class::WallHangingSign
+                ) && props::facing(u)
+                    .is_some_and(|f| props::Axis::of(f) == props::Axis::of(facing)))
+        }
+        Class::CocoaBlock => plant::cocoa_attached(cx, pos, block)?,
+        Class::CopperDoor | Class::Door | Class::WoodenDoor => {
+            adjacent(cx, pos, Face::Down)?.has_edge_support() || down()?.is(Class::Door)
+        }
+        Class::CopperLantern | Class::Lantern => {
+            let face = if props::flag(block, "hanging")? {
+                Face::Up
+            } else {
+                Face::Down
+            };
+            attached(face)?
+        }
+        Class::DoublePitcherCrop | Class::DoublePlant | Class::DoubleTallGrass => {
+            let top = props::flag(block, "upper_block_bit")?;
+            let other = side(cx, pos, if top { Face::Down } else { Face::Up })?;
+            let valid = other.is(Class::DoublePlant)
+                && other.kind() == block.kind()
+                && props::flag(other, "upper_block_bit")? != top;
+            valid && (top || is_soil(down()?))
+        }
+        Class::FloorBanner | Class::OminousFloorBanner => down()?.is_solid(),
+        Class::FloorSign => down()?.kind() != Kind::Air,
+        Class::Lever => attached(props::lever_facing(block)?.opposite())?,
+        Class::OminousWallBanner | Class::WallBanner => {
+            let face = props::facing(block)?.opposite();
+            side(cx, pos, face)?.is_solid()
+        }
+        Class::SmallDripleaf => {
+            let top = props::flag(block, "upper_block_bit")?;
+            if !top && down()?.kind() != Kind::Clay {
+                return Some(false);
+            }
+            side(cx, pos, if top { Face::Down } else { Face::Up })?.kind() == block.kind()
+        }
+        Class::WallSign => {
+            let face = props::facing(block)?.opposite();
+            side(cx, pos, face)?.kind() != Kind::Air
+        }
+        _ => return None,
+    })
+}
+
+/// Tells whether `block` stands at `pos` by PMMP's `canBeSupportedAt` of the classes with
+/// `StaticSupportTrait` ([`Trait::StaticSupport`]), with `get` reading the blocks around it.
+/// `None` for another class, or when `get` has no block the rule needs. Placement and the block
+/// update rules share it, each with its own reader.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one table of PMMP's support rules, a short arm per class"
@@ -59,47 +145,10 @@ pub(in crate::tick) fn static_support(
     let up = || side(Face::Up);
     let adjacent = |face: Face| Some(side(face)?.support(face.opposite()));
     Some(match block.class() {
-        // Plants on soil.
-        Class::Flower | Class::TallGrass | Class::Sapling | Class::PinkPetals => is_soil(down()?),
-        Class::DeadBush => {
-            let d = down()?;
-            d.has_type_tag(TypeTag::Sand)
-                || d.has_type_tag(TypeTag::Mud)
-                || matches!(
-                    d.kind(),
-                    Kind::Podzol
-                        | Kind::Mycelium
-                        | Kind::Dirt
-                        | Kind::Grass
-                        | Kind::HardenedClay
-                        | Kind::StainedClay
-                )
-        }
-        Class::WitherRose => {
-            let d = down()?;
-            is_soil(d) || matches!(d.kind(), Kind::Netherrack | Kind::SoulSand | Kind::SoulSoil)
-        }
         Class::Azalea => {
             let d = down()?;
             d.kind() == Kind::Clay || is_soil(d)
         }
-        Class::NetherFungus | Class::NetherRoots | Class::NetherSprouts => {
-            let d = down()?;
-            is_soil(d) || d.has_type_tag(TypeTag::Nylium) || d.kind() == Kind::SoulSoil
-        }
-        Class::SweetBerryBush => {
-            let d = down()?;
-            d.kind() != Kind::Farmland && is_soil(d)
-        }
-        Class::Wheat
-        | Class::Carrot
-        | Class::Potato
-        | Class::Beetroot
-        | Class::MelonStem
-        | Class::PumpkinStem
-        | Class::PitcherCrop
-        | Class::TorchflowerCrop => down()?.kind() == Kind::Farmland,
-        Class::NetherWartPlant => down()?.kind() == Kind::SoulSand,
         Class::Bamboo => {
             let d = down()?;
             d.kind() == block.kind()
@@ -111,6 +160,14 @@ pub(in crate::tick) fn static_support(
             let d = down()?;
             d.kind() == Kind::Gravel || is_soil(d) || d.has_type_tag(TypeTag::Sand)
         }
+        Class::Beetroot
+        | Class::Carrot
+        | Class::MelonStem
+        | Class::PitcherCrop
+        | Class::Potato
+        | Class::PumpkinStem
+        | Class::TorchflowerCrop
+        | Class::Wheat => down()?.kind() == Kind::Farmland,
         Class::Cactus => {
             let d = down()?;
             if d.kind() != block.kind() && !d.has_type_tag(TypeTag::Sand) {
@@ -127,18 +184,55 @@ pub(in crate::tick) fn static_support(
             let d = down()?;
             d.support(Face::Up).has_center_support() || d.kind() == Kind::Cactus
         }
+        Class::Cake | Class::CakeWithCandle | Class::CakeWithDyedCandle | Class::Carpet => {
+            down()?.kind() != Kind::Air
+        }
         Class::CaveVines => {
             let u = up()?;
             u.support(Face::Down) == SupportType::Full || u.kind() == block.kind()
+        }
+        Class::CeilingCenterHangingSign => {
+            let u = up()?;
+            u.support(Face::Down).has_center_support() || u.has_type_tag(TypeTag::HangingSign)
+        }
+        Class::ChorusFlower => chorus_flower(&side)?,
+        Class::ChorusPlant => chorus_plant(pos, &get)?,
+        Class::Coral | Class::FloorCoralFan | Class::FlowerPot | Class::RedstoneWire => {
+            adjacent(Face::Down)?.has_center_support()
+        }
+        Class::DeadBush => {
+            let d = down()?;
+            d.has_type_tag(TypeTag::Sand)
+                || d.has_type_tag(TypeTag::Mud)
+                || matches!(
+                    d.kind(),
+                    Kind::Dirt
+                        | Kind::Grass
+                        | Kind::HardenedClay
+                        | Kind::Mycelium
+                        | Kind::Podzol
+                        | Kind::StainedClay
+                )
+        }
+        Class::Flower | Class::PinkPetals | Class::Sapling | Class::TallGrass => is_soil(down()?),
+        Class::HangingRoots => adjacent(Face::Up)?.has_center_support(),
+        Class::NetherFungus | Class::NetherRoots | Class::NetherSprouts => {
+            let d = down()?;
+            is_soil(d) || d.has_type_tag(TypeTag::Nylium) || d.kind() == Kind::SoulSoil
         }
         Class::NetherVines => {
             let growth = plant::vine_growth(block);
             let support = side(growth.opposite())?;
             support.support(growth).has_center_support() || support.kind() == block.kind()
         }
-        Class::ChorusFlower => chorus_flower(&side)?,
-        Class::ChorusPlant => chorus_plant(pos, &get)?,
-        Class::WaterLily => down()?.kind() == Kind::Water,
+        Class::NetherWartPlant => down()?.kind() == Kind::SoulSand,
+        Class::RedstoneComparator
+        | Class::RedstoneRepeater
+        | Class::StonePressurePlate
+        | Class::WeightedPressurePlateHeavy
+        | Class::WeightedPressurePlateLight
+        | Class::WoodenPressurePlate => adjacent(Face::Down)? != SupportType::None,
+        Class::SporeBlossom => adjacent(Face::Up)? == SupportType::Full,
         Class::Sugarcane => {
             let d = down()?;
             d.kind() == block.kind()
@@ -146,163 +240,50 @@ pub(in crate::tick) fn static_support(
                 || d.has_type_tag(TypeTag::Dirt)
                 || d.has_type_tag(TypeTag::Sand)
         }
-        // Blocks on a face below or above.
-        Class::Coral | Class::FloorCoralFan | Class::FlowerPot | Class::RedstoneWire => {
-            adjacent(Face::Down)?.has_center_support()
+        Class::SweetBerryBush => {
+            let d = down()?;
+            d.kind() != Kind::Farmland && is_soil(d)
         }
-        Class::HangingRoots => adjacent(Face::Up)?.has_center_support(),
-        Class::SporeBlossom => adjacent(Face::Up)? == SupportType::Full,
-        Class::Cake | Class::CakeWithCandle | Class::CakeWithDyedCandle | Class::Carpet => {
-            down()?.kind() != Kind::Air
-        }
-        Class::StonePressurePlate
-        | Class::WoodenPressurePlate
-        | Class::WeightedPressurePlateLight
-        | Class::WeightedPressurePlateHeavy
-        | Class::RedstoneComparator
-        | Class::RedstoneRepeater => adjacent(Face::Down)? != SupportType::None,
-        Class::CeilingCenterHangingSign => {
-            let u = up()?;
-            u.support(Face::Down).has_center_support() || u.has_type_tag(TypeTag::HangingSign)
+        Class::WaterLily => down()?.kind() == Kind::Water,
+        Class::WitherRose => {
+            let d = down()?;
+            is_soil(d) || matches!(d.kind(), Kind::Netherrack | Kind::SoulSand | Kind::SoulSoil)
         }
         _ => return None,
     })
 }
 
-/// PMMP `canBeSupportedAt` of the blocks attached to one face (torches, ladders, levers, buttons,
-/// item frames, amethyst clusters, wall coral fans, lanterns): whether `block` holds on the
-/// `face` side, where the block gives back `support`. `None` for another class. Placement and the
-/// block update rules share it.
+/// Tells whether `block` holds on its `face` side, where the block gives back `support`, by
+/// PMMP's `canBeSupportedAt` of the blocks attached to one face (torches, ladders, levers,
+/// buttons, item frames, amethyst clusters, wall coral fans, lanterns). `None` for another
+/// class. Placement and the block update rules share it.
 pub(in crate::tick) fn attached_support(
     block: block::State,
     face: Face,
     support: SupportType,
 ) -> Option<bool> {
     Some(match block.class() {
-        Class::Torch | Class::RedstoneTorch | Class::UnderwaterTorch => {
+        Class::AmethystCluster | Class::Ladder => support == SupportType::Full,
+        Class::CopperLantern
+        | Class::Lantern
+        | Class::Lever
+        | Class::StoneButton
+        | Class::WallCoralFan
+        | Class::WoodenButton => support.has_center_support(),
+        Class::ItemFrame => support != SupportType::None,
+        Class::RedstoneTorch | Class::Torch | Class::UnderwaterTorch => {
             if face == Face::Down {
                 support.has_center_support()
             } else {
                 support == SupportType::Full
             }
         }
-        Class::Ladder | Class::AmethystCluster => support == SupportType::Full,
-        Class::Lever
-        | Class::StoneButton
-        | Class::WoodenButton
-        | Class::WallCoralFan
-        | Class::Lantern
-        | Class::CopperLantern => support.has_center_support(),
-        Class::ItemFrame => support != SupportType::None,
         _ => return None,
     })
 }
 
-/// Whether the block still has what holds it, for the classes that break without it
-/// ([`static_support`], then the attached and two-block ones); `None` for other classes or when a
-/// block the check needs is not loaded.
-pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
-    if let Some(stands) = static_support(block, pos, |p| cx.loaded_block(p)) {
-        return Some(stands);
-    }
-    let down = || side(cx, pos, Face::Down);
-    let up = || side(cx, pos, Face::Up);
-    let attached = |face: Face| attached_support(block, face, adjacent(cx, pos, face)?);
-    Some(match block.class() {
-        Class::RedMushroom | Class::BrownMushroom => !down()?.is_transparent(),
-        Class::CocoaBlock => plant::cocoa_attached(cx, pos, block)?,
-        Class::CeilingEdgesHangingSign => {
-            let u = up()?;
-            let facing = props::facing_direction(block)?;
-            u.support(Face::Down) == SupportType::Full
-                || (matches!(
-                    u.class(),
-                    Class::WallHangingSign | Class::CeilingEdgesHangingSign
-                ) && props::facing_direction(u)
-                    .is_some_and(|f| props::Axis::of(f) == props::Axis::of(facing)))
-        }
-        Class::FloorSign => down()?.kind() != Kind::Air,
-        Class::WallSign => {
-            let face = props::facing_direction(block)?.opposite();
-            side(cx, pos, face)?.kind() != Kind::Air
-        }
-        Class::FloorBanner | Class::OminousFloorBanner => down()?.is_solid(),
-        Class::WallBanner | Class::OminousWallBanner => {
-            let face = props::facing_direction(block)?.opposite();
-            side(cx, pos, face)?.is_solid()
-        }
-        // Attached blocks: the face they hang on, then their rule.
-        Class::Torch | Class::RedstoneTorch | Class::UnderwaterTorch => {
-            attached(props::torch_facing(block)?.opposite())?
-        }
-        Class::Ladder | Class::StoneButton | Class::WoodenButton | Class::ItemFrame => {
-            attached(props::facing_direction(block)?.opposite())?
-        }
-        Class::Lever => attached(props::lever_facing(block)?.opposite())?,
-        Class::AmethystCluster => {
-            attached(props::face_of(props::string(block, "minecraft:block_face")?)?.opposite())?
-        }
-        Class::WallCoralFan => attached(props::coral_facing(block)?.opposite())?,
-        Class::Lantern | Class::CopperLantern => {
-            let face = if props::flag(block, "hanging")? {
-                Face::Up
-            } else {
-                Face::Down
-            };
-            attached(face)?
-        }
-        Class::Bell => {
-            let facing = props::direction_swne(block)?;
-            let faces: &[Face] = match props::string(block, "attachment")? {
-                "hanging" => &[Face::Up],
-                "standing" => &[Face::Down],
-                "side" => &[facing.opposite()],
-                _ => &[facing, facing.opposite()],
-            };
-            for &face in faces {
-                if adjacent(cx, pos, face)? == SupportType::None {
-                    return Some(false);
-                }
-            }
-            true
-        }
-        Class::Door | Class::WoodenDoor | Class::CopperDoor => {
-            adjacent(cx, pos, Face::Down)?.has_edge_support() || down()?.is(Class::Door)
-        }
-        Class::DoublePlant | Class::DoubleTallGrass | Class::DoublePitcherCrop => {
-            let top = props::flag(block, "upper_block_bit")?;
-            let other = side(cx, pos, if top { Face::Down } else { Face::Up })?;
-            let valid = other.is(Class::DoublePlant)
-                && other.kind() == block.kind()
-                && props::flag(other, "upper_block_bit")? != top;
-            valid && (top || is_soil(down()?))
-        }
-        Class::SmallDripleaf => {
-            let top = props::flag(block, "upper_block_bit")?;
-            if !top && down()?.kind() != Kind::Clay {
-                return Some(false);
-            }
-            side(cx, pos, if top { Face::Down } else { Face::Up })?.kind() == block.kind()
-        }
-        Class::BigDripleafHead | Class::BigDripleafStem => {
-            let head = block.class() == Class::BigDripleafHead;
-            if !head && !up()?.is(Class::BaseBigDripleaf) {
-                return Some(false);
-            }
-            let d = down()?;
-            (d.is(Class::BaseBigDripleaf) && d.class() == Class::BigDripleafStem)
-                || d.kind() == Kind::Clay
-                || is_soil(d)
-        }
-        Class::Rail | Class::PoweredRail | Class::DetectorRail | Class::ActivatorRail => {
-            rail(cx, pos, block)?
-        }
-        _ => return None,
-    })
-}
-
-/// A rail needs edge support below, and the block it climbs onto must have edge support on top
-/// (PMMP `BaseRail::onNearbyBlockChange`).
+/// Tells whether a rail holds: it needs edge support below, and the block it climbs onto must
+/// have edge support on top (PMMP `BaseRail::onNearbyBlockChange`).
 fn rail(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
     if !adjacent(cx, pos, Face::Down)?.has_edge_support() {
         return Some(false);
@@ -313,10 +294,11 @@ fn rail(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
     Some(side(cx, pos, ascend)?.support(Face::Up).has_edge_support())
 }
 
-/// PMMP `ChorusFlower::canBeSupportedAt`, with `side` reading the block toward a face.
+/// Tells whether a chorus flower stands (PMMP `ChorusFlower::canBeSupportedAt`), with `side`
+/// reading the block toward a face.
 fn chorus_flower(side: &impl Fn(Face) -> Option<block::State>) -> Option<bool> {
     let down = side(Face::Down)?;
-    if matches!(down.kind(), Kind::EndStone | Kind::ChorusPlant) {
+    if matches!(down.kind(), Kind::ChorusPlant | Kind::EndStone) {
         return Some(true);
     }
     let mut plant_adjacent = false;
@@ -334,7 +316,8 @@ fn chorus_flower(side: &impl Fn(Face) -> Option<block::State>) -> Option<bool> {
     Some(plant_adjacent)
 }
 
-/// PMMP `ChorusPlant::canBeSupportedAt` at `pos`, with `get` reading the blocks.
+/// Tells whether a chorus plant stands at `pos` (PMMP `ChorusPlant::canBeSupportedAt`), with
+/// `get` reading the blocks.
 fn chorus_plant(pos: BlockPos, get: &impl Fn(BlockPos) -> Option<block::State>) -> Option<bool> {
     let holds = |s: block::State| matches!(s.kind(), Kind::ChorusPlant | Kind::EndStone);
     let side = |face: Face| get(pos.step(face)?);
@@ -355,24 +338,14 @@ fn chorus_plant(pos: BlockPos, get: &impl Fn(BlockPos) -> Option<block::State>) 
     Some(holds(down))
 }
 
-/// PMMP `FallableTrait`: a block with a replaceable block under it falls.
-fn fall_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if block.class() == Class::ConcretePowder {
-        return;
-    }
+/// Makes a block with a replaceable block under it fall (PMMP `FallableTrait`).
+pub(super) fn fall_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if side(cx, pos, Face::Down).is_some_and(block::State::can_be_replaced) {
         cx.fall(pos, block);
     }
 }
 
-/// A concrete powder that did not harden falls.
-pub(super) fn fall_unless_hardened(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if side(cx, pos, Face::Down).is_some_and(block::State::can_be_replaced) {
-        cx.fall(pos, block);
-    }
-}
-
-/// Vines keep the faces with a solid block behind them or a vine on that face above (PMMP
+/// Keeps the faces of vines with a solid block behind them or a vine on that face above (PMMP
 /// `Vine::onNearbyBlockChange`).
 fn vine(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let Some(faces) = props::faces(block) else {
@@ -401,7 +374,7 @@ fn vine(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     finish_faces(cx, pos, block, "vine_direction_bits", bits);
 }
 
-/// Glow lichen and resin keep the faces with full support (PMMP `MultiAnySupportTrait`).
+/// Keeps the faces of glow lichen and resin with full support (PMMP `MultiAnySupportTrait`).
 fn multi_face(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let Some(faces) = props::faces(block) else {
         return;
@@ -430,7 +403,7 @@ fn finish_faces(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, name: &str,
     }
 }
 
-/// A pressed button's scheduled update releases it (PMMP `Button::onScheduledUpdate`).
+/// Releases a pressed button on its scheduled update (PMMP `Button::onScheduledUpdate`).
 pub(super) fn release_button(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if props::flag(block, "button_pressed_bit") == Some(true)
         && let Some(released) = props::with_flag(block, "button_pressed_bit", false)
@@ -439,11 +412,11 @@ pub(super) fn release_button(cx: &mut Cx<'_>, pos: BlockPos, block: block::State
     }
 }
 
-/// A bed's foot follows its head's occupied bit (PMMP `Bed::onNearbyBlockChange`).
+/// Makes a bed's foot follow its head's occupied bit (PMMP `Bed::onNearbyBlockChange`).
 pub(super) fn bed_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let (Some(head), Some(facing), Some(occupied)) = (
         props::flag(block, "head_piece_bit"),
-        props::direction_swne(block),
+        props::facing(block),
         props::flag(block, "occupied_bit"),
     ) else {
         return;
@@ -456,13 +429,30 @@ pub(super) fn bed_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State)
     };
     if other.class() == Class::Bed
         && props::flag(other, "head_piece_bit") == Some(true)
-        && props::direction_swne(other) == Some(facing)
+        && props::facing(other) == Some(facing)
         && let Some(theirs) = props::flag(other, "occupied_bit")
         && theirs != occupied
         && let Some(next) = props::with_flag(block, "occupied_bit", theirs)
     {
         cx.set(pos, next);
     }
+}
+
+/// Reads the support the block on the `face` side of `pos` gives toward `pos` (PMMP
+/// `getAdjacentSupportType`), or `None` if it is not loaded ([`Cx::loaded_block`]).
+pub(super) fn adjacent(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<SupportType> {
+    Some(side(cx, pos, face)?.support(face.opposite()))
+}
+
+/// Reads the block on the `face` side of `pos`, or `None` if it is not loaded
+/// ([`Cx::loaded_block`]).
+pub(super) fn side(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<block::State> {
+    cx.loaded_block(pos.step(face)?)
+}
+
+/// Tells whether the block has the dirt or mud tag (PMMP `BlockTypeTags::DIRT`, `MUD`).
+pub(super) fn is_soil(s: block::State) -> bool {
+    s.has_type_tag(TypeTag::Dirt) || s.has_type_tag(TypeTag::Mud)
 }
 
 #[cfg(test)]

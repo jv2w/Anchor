@@ -11,7 +11,6 @@ use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
 use super::{Survival, attributes, feet, food, sound};
-
 use crate::block::{self, Class, Face};
 use crate::effect::Type as Effect;
 use crate::event::{
@@ -57,7 +56,8 @@ pub(super) struct Motion {
     pub(super) on_ground: bool,
     /// Whether hunger runs for the player (settings and game mode), set each tick.
     pub(super) hunger: bool,
-    /// Yaw and pitch in degrees, yaw in [0, 360).
+    /// Yaw and pitch in degrees ([`turn`]): the yaw in [0, 360], the pitch above -360 and below
+    /// 360.
     pub(super) yaw: f64,
     pub(super) pitch: f64,
     /// The last raw rotation and input flags received.
@@ -89,58 +89,6 @@ pub(super) struct Motion {
     /// sneak the client has already ended turns the sneak on again.
     pub(super) answer_tick: Option<u64>,
 }
-
-impl Default for Motion {
-    fn default() -> Self {
-        Self {
-            sprinting: false,
-            sneaking: false,
-            sneak_pressed: false,
-            swimming: false,
-            gliding: false,
-            flying: false,
-            on_ground: false,
-            hunger: false,
-            yaw: 0.0,
-            pitch: 0.0,
-            last_rotation: [0; 2],
-            last_flags: FlagSet::new(),
-            last_position: None,
-            processed: None,
-            budget: MOVE_START,
-            force_sync: false,
-            intersected: false,
-            in_bed: false,
-            death_shown: false,
-            in_air: 0,
-            answer_tick: None,
-        }
-    }
-}
-
-crate::tick::checkpoint::fields!(Motion {
-    sprinting,
-    sneaking,
-    sneak_pressed,
-    swimming,
-    gliding,
-    flying,
-    on_ground,
-    hunger,
-    yaw,
-    pitch,
-    last_rotation,
-    last_flags,
-    last_position,
-    processed,
-    budget,
-    force_sync,
-    intersected,
-    in_bed,
-    death_shown,
-    in_air,
-    answer_tick,
-});
 
 impl Motion {
     #[cfg(test)]
@@ -208,6 +156,69 @@ impl Motion {
     }
 }
 
+impl Default for Motion {
+    fn default() -> Self {
+        Self {
+            sprinting: false,
+            sneaking: false,
+            sneak_pressed: false,
+            swimming: false,
+            gliding: false,
+            flying: false,
+            on_ground: false,
+            hunger: false,
+            yaw: 0.0,
+            pitch: 0.0,
+            last_rotation: [0; 2],
+            last_flags: FlagSet::new(),
+            last_position: None,
+            processed: None,
+            budget: MOVE_START,
+            force_sync: false,
+            intersected: false,
+            in_bed: false,
+            death_shown: false,
+            in_air: 0,
+            answer_tick: None,
+        }
+    }
+}
+
+crate::tick::checkpoint::fields!(Motion {
+    sprinting,
+    sneaking,
+    sneak_pressed,
+    swimming,
+    gliding,
+    flying,
+    on_ground,
+    hunger,
+    yaw,
+    pitch,
+    last_rotation,
+    last_flags,
+    last_position,
+    processed,
+    budget,
+    force_sync,
+    intersected,
+    in_bed,
+    death_shown,
+    in_air,
+    answer_tick,
+});
+
+/// A movement state a player turns on or off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Toggle {
+    /// Sneaking, and whether the sneak key is down.
+    Sneak(bool, bool),
+    Sprint(bool),
+    Swim(bool),
+    Glide(bool),
+    Fly(bool),
+}
+
 /// `PlayerAuthInput`: rotation, input flags, then the movement; only from a spawned, living
 /// player (PMMP handles it in the in-game handler only, so a client cannot place itself anywhere
 /// before it spawns). The tick keeps the client's eye position exactly; the feet the rules use are
@@ -273,7 +284,6 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>,
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let may_fly = player.survival.may_fly();
     let m = &mut player.survival.motion;
     let pressed = flags.contains(InputFlag::Sneaking);
     let sneak = on_off(flags, InputFlag::StartSneaking, InputFlag::StopSneaking)
@@ -310,7 +320,7 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>,
         mismatch |= !toggle(state, session, Toggle::Glide(v));
     }
     if let Some(v) = fly {
-        mismatch |= !((may_fly || !v) && toggle(state, session, Toggle::Fly(v)));
+        mismatch |= !toggle(state, session, Toggle::Fly(v));
         if let Some(player) = state.players.get_mut(&session) {
             player.survival.mark(ABILITIES);
         }
@@ -326,27 +336,21 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>,
     }
 }
 
-/// A movement state a player turns on or off.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Toggle {
-    /// Sneaking, and whether the sneak key is down.
-    Sneak(bool, bool),
-    Sprint(bool),
-    Swim(bool),
-    Glide(bool),
-    Fly(bool),
-}
-
-/// Turns `toggle` on or off for a spawned, living player unless its event's listener cancels it
-/// (PMMP `Player::toggleSneak` and the others); false if refused.
+/// Turns `toggle` on or off for a spawned, living player (one that [may fly](Survival::may_fly),
+/// to start flying) unless its event's listener cancels it or leaves the player unable to (PMMP
+/// `Player::toggleSneak` and the others); false if refused.
 fn toggle(state: &mut State, session: SessionId, toggle: Toggle) -> bool {
     let id = Id::new(session);
     let may = |state: &State| {
-        state
-            .players
-            .get(&session)
-            .is_some_and(|p| p.phase == Phase::Spawned && !p.survival.is_dead())
+        state.players.get(&session).is_some_and(|p| {
+            p.phase == Phase::Spawned
+                && !p.survival.is_dead()
+                && (toggle != Toggle::Fly(true) || p.survival.may_fly())
+        })
     };
+    if !may(state) {
+        return false;
+    }
     let set = |state: &mut State| {
         let Some(player) = state.players.get_mut(&session) else {
             return;
@@ -557,10 +561,7 @@ fn move_to(state: &mut State, session: SessionId, target: Vec3) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let m = &mut player.survival.motion;
-    if m.on_ground != on_ground {
-        m.on_ground = on_ground;
-    }
+    player.survival.motion.on_ground = on_ground;
     fall_state(state, session, delta.y, on_ground);
     if delta.x.abs() > MOTION_THRESHOLD || delta.z.abs() > MOTION_THRESHOLD {
         frost_walker(state, session);
@@ -576,11 +577,16 @@ fn same_liquid(block: block::State, liquid: block::State) -> bool {
             && block.value("liquid_depth") == liquid.value("liquid_depth"))
 }
 
-/// PMMP `Living::applyFrostWalker` after a move: with Frost Walker boots of level `n`, the water
-/// sources within `n + 2` blocks (a square) of the block under the feet that have air above
-/// and no entity or player in them become frosted ice, after [`EntityFrostWalker`].
+/// PMMP `Living::applyFrostWalker` after a living player's move: with Frost Walker boots of level
+/// `n`, the water sources within `n + 2` blocks (a square; at most [`MAX_FROST_WALKER_RADIUS`]) of
+/// the block under the feet that have air above and no entity or player in them become frosted
+/// ice, after [`EntityFrostWalker`].
 fn frost_walker(state: &mut State, session: SessionId) {
-    let Some(player) = state.players.get(&session) else {
+    let Some(player) = state
+        .players
+        .get(&session)
+        .filter(|p| !p.survival.is_dead())
+    else {
         return;
     };
     let level = player.frost_walker_level();
@@ -606,17 +612,26 @@ fn frost_walker(state: &mut State, session: SessionId) {
             cancelled: false,
         };
         dispatch::call(state, &mut e);
-        let moved = dispatch::listened::<EntityFrostWalker>(state)
+        // A listener that killed the player, took its boots or moved it refused the freeze.
+        let changed = dispatch::listened::<EntityFrostWalker>(state)
             && !state.players.get(&session).is_some_and(|p| {
-                p.world == world && BlockPos::containing(feet(p)).step(Face::Down) == Some(under)
+                p.world == world
+                    && !p.survival.is_dead()
+                    && p.frost_walker_level() > 0
+                    && BlockPos::containing(feet(p)).step(Face::Down) == Some(under)
             });
-        if e.cancelled || moved {
+        if e.cancelled || changed {
             return;
         }
         (radius, liquid, target) = (e.radius, e.liquid, e.target_block);
         event = Some(e);
     }
-    let reach = i32::try_from(radius).unwrap_or(0);
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the radius is cut to MAX_FROST_WALKER_RADIUS and its setter refuses \
+                  more"
+    )]
+    let reach = i32::try_from(radius).expect("the radius is at most MAX_FROST_WALKER_RADIUS");
     let (x0, x1) = (under.x.saturating_sub(reach), under.x.saturating_add(reach));
     let (z0, z1) = (under.z.saturating_sub(reach), under.z.saturating_add(reach));
     let square = Aabb::new(
@@ -627,8 +642,9 @@ fn frost_walker(state: &mut State, session: SessionId) {
             f64::from(z1) + 1.0,
         ),
     );
-    // Gathered once for the move: a cell is tested against what overlaps the square alone.
-    let taken = entity::boxes_in(state, world, square);
+    // Gathered once for the move, at the first water source with air above (on land there is
+    // none): a cell is tested against what overlaps the square alone, and freezing moves nobody.
+    let mut taken = None;
     for x in x0..=x1 {
         for z in z0..=z1 {
             let pos = BlockPos::new(x, under.y, z);
@@ -646,8 +662,11 @@ fn frost_walker(state: &mut State, session: SessionId) {
             );
             if !w.block(pos).is_some_and(|b| same_liquid(b, liquid))
                 || !above.is_some_and(|b| b.is(Class::Air))
-                || taken.iter().any(|b| b.overlaps(cell, entity::EPSILON))
             {
+                continue;
+            }
+            let taken = taken.get_or_insert_with(|| entity::boxes_in(state, world, square));
+            if taken.iter().any(|b| b.overlaps(cell, entity::EPSILON)) {
                 continue;
             }
             if let Some(w) = state.worlds.get_mut(world)
@@ -689,7 +708,7 @@ fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
 
 /// Whether any loaded block's collision box overlaps `bb` (PMMP `World::getCollisionBlocks`);
 /// inert blocks have theirs.
-pub(super) fn collides(world: &World, bb: Aabb) -> bool {
+fn collides(world: &World, bb: Aabb) -> bool {
     let lo = BlockPos::containing(bb.min - Vec3::new(1.0, 1.0, 1.0));
     let hi = BlockPos::containing(bb.max + Vec3::new(1.0, 1.0, 1.0));
     for x in lo.x..=hi.x {
@@ -714,12 +733,18 @@ fn boxes_collide(boxes: &[Aabb], pos: BlockPos, bb: Aabb) -> bool {
 
 /// The fall distance after a vertical move (PMMP `Entity::updateFallState`); landing hurts
 /// (PMMP `Living::onHitGround`) after the block landed on had its say (beds and hay soften,
-/// slime cancels, farmland may be trampled).
+/// slime cancels, farmland may be trampled). A player without block collision builds no fall:
+/// its client flies, and a fall kept from then would hurt at the first landing once blocks stop
+/// it again (PMMP keeps it).
 fn fall_state(state: &mut State, session: SessionId, dy: f64, on_ground: bool) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     let s = &mut player.survival;
+    if !s.collides() {
+        s.fall_distance = 0.0;
+        return;
+    }
     if dy < s.fall_distance {
         s.fall_distance -= dy;
     } else {
@@ -760,13 +785,7 @@ fn land(state: &mut State, session: SessionId) {
             s.fall_distance = 0.0;
         } else if block.is(Class::Farmland) {
             let distance = s.fall_distance;
-            update::trample(
-                state,
-                world,
-                pos,
-                distance,
-                crate::event::Actor::Player(crate::player::Id::new(session)),
-            );
+            update::trample(state, world, pos, distance, Actor::Player(Id::new(session)));
         }
     }
     let Some(player) = state.players.get(&session) else {
@@ -786,7 +805,8 @@ fn land(state: &mut State, session: SessionId) {
         };
         sound::of_player(state, session, sound, -1);
     } else if let Some(block) = block.filter(|b| !b.is(Class::Air)) {
-        let id = i32::try_from(block.network_id()).unwrap_or(-1);
+        // The block's network ID as the packet carries it: its hash's bits.
+        let id = block.network_id().cast_signed();
         sound::of_player(state, session, SoundEvent::Land, id);
     }
 }
@@ -1005,7 +1025,8 @@ pub(super) fn process(state: &mut State, session: SessionId) {
     }
 }
 
-/// Sets the rotation to the finite `yaw` and `pitch` in degrees, the yaw into [0, 360).
+/// Sets the rotation to the finite `yaw` and `pitch` in degrees, each wrapped as PMMP's `fmod`
+/// does (above -360, below 360), then a negative yaw turned once more: [0, 360].
 pub(super) fn turn(m: &mut Motion, yaw: f32, pitch: f32) {
     let yaw = f64::from(yaw) % 360.0;
     m.yaw = if yaw < 0.0 { yaw + 360.0 } else { yaw };
@@ -1090,20 +1111,6 @@ mod tests {
         static NOTES: std::cell::Cell<Vec<String>> = const { std::cell::Cell::new(Vec::new()) };
     }
 
-    /// Writes down `note`.
-    fn note(note: String) {
-        NOTES.with(|n| {
-            let mut list = n.take();
-            list.push(note);
-            n.set(list);
-        });
-    }
-
-    /// What was written down since the last call.
-    fn notes() -> Vec<String> {
-        NOTES.with(std::cell::Cell::take)
-    }
-
     #[test]
     fn on_off_flags_need_exactly_one() {
         let set = |f: &[InputFlag]| f.iter().copied().collect::<FlagSet<InputFlag>>();
@@ -1137,7 +1144,6 @@ mod tests {
         tokio::sync::mpsc::Receiver<crate::tick::queue::Outbound>,
     ) {
         use crate::tick::tests::{initialised, join, new_state, radius, settings, tick};
-        let listeners = listeners;
         let mut state = new_state(settings(|_| {}), listeners);
         let mut output = crate::tick::Output::default();
         let (j, rx) = join(1, 0);
@@ -1146,52 +1152,6 @@ mod tests {
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.survival.motion.force_sync = false;
         (state, output, rx)
-    }
-
-    /// Water sources over the ground from x 0 to 12 and z -6 to 6.
-    fn lake(state: &mut State) {
-        let water = block::Kind::Water.default_state();
-        for x in 0..=12 {
-            for z in -6..=6 {
-                state.worlds[0]
-                    .set_block(BlockPos::new(x, -61, z), water)
-                    .unwrap();
-            }
-        }
-    }
-
-    /// Frost Walker boots of `level` on session 1.
-    fn boots(state: &mut State, level: u16) {
-        let extra = crate::item::Extra {
-            enchantments: vec![(crate::item::Enchantment::FrostWalker, level)],
-            ..crate::item::Extra::default()
-        };
-        let boots = crate::item::Stack::new(crate::item::Kind::DiamondBoots.default_type(), 1)
-            .with_extra(Some(extra))
-            .unwrap();
-        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
-        crate::tick::inventory::set_armor(player, 3, boots);
-    }
-
-    /// Session 1 walks to the feet position `x, -60, z`.
-    fn walk(state: &mut State, output: &mut crate::tick::Output, x: f64, z: f64) {
-        let eye = Vec3::new(x, -60.0 + super::super::EYE_HEIGHT, z).to_f32();
-        let input = crate::tick::tests::moved_to(1, 10, eye);
-        crate::tick::tests::tick(state, &mut vec![input], output);
-    }
-
-    /// The frosted ice cells of the lake.
-    fn frozen(state: &State) -> Vec<(i32, i32)> {
-        let ice = block::Kind::FrostedIce.default_state();
-        let mut out = Vec::new();
-        for x in 0..=12 {
-            for z in -6..=6 {
-                if state.worlds[0].block(BlockPos::new(x, -61, z)) == Some(ice) {
-                    out.push((x, z));
-                }
-            }
-        }
-        out
     }
 
     /// Every move lets the blocks it enters act before the landing (PMMP `Entity::move`): a fall
@@ -1283,6 +1243,124 @@ mod tests {
         assert_eq!(player.survival.health, 20.0);
     }
 
+    /// A player without block collision builds no fall while its client flies, so its first
+    /// landing once blocks stop it again does not hurt.
+    #[test]
+    fn a_fall_without_block_collision_does_not_hurt_once_collision_is_back() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let session = SessionId::new(1);
+        let player = state.players.get_mut(&session).unwrap();
+        player.set_block_collision(false);
+        player.position = eye(-30.0);
+        player.survival.motion.processed = Some(Vec3::new(0.5, -30.0, 0.5));
+        let high = crate::tick::tests::moved_to(1, 10, eye(-40.0).to_f32());
+        let mid = crate::tick::tests::moved_to(1, 11, eye(-50.0).to_f32());
+        let low = crate::tick::tests::moved_to(1, 12, eye(-59.0).to_f32());
+        crate::tick::tests::tick(&mut state, &mut vec![high, mid, low], &mut output);
+        let player = state.players.get_mut(&session).unwrap();
+        player.set_block_collision(true);
+        let down = crate::tick::tests::moved_to(1, 13, eye(-60.0).to_f32());
+        crate::tick::tests::tick(&mut state, &mut vec![down], &mut output);
+        let player = &state.players[&session];
+        assert!(player.survival.motion.on_ground);
+        assert_eq!(player.survival.health, 20.0);
+    }
+
+    /// The land sound names the block landed on by its network ID's bits, as the packet carries
+    /// every block ID, a hash above `i32::MAX` included.
+    #[test]
+    fn the_land_sound_names_a_block_hashed_above_i32_max_by_its_bits() {
+        use crate::tick::tests::{moved_to, received, tick};
+        let (mut state, mut output, mut rx) = walker(crate::event::Listeners::default());
+        let plain = [
+            block::Kind::Stone,
+            block::Kind::Dirt,
+            block::Kind::Cobblestone,
+            block::Kind::OakPlanks,
+            block::Kind::Bricks,
+            block::Kind::Bedrock,
+            block::Kind::Obsidian,
+            block::Kind::Netherrack,
+            block::Kind::EndStone,
+            block::Kind::Sandstone,
+            block::Kind::Clay,
+            block::Kind::Glowstone,
+            block::Kind::MossyCobblestone,
+            block::Kind::StoneBricks,
+            block::Kind::Deepslate,
+        ];
+        let ground = plain
+            .into_iter()
+            .map(block::Kind::default_state)
+            .find(|b| b.network_id() > i32::MAX.cast_unsigned())
+            .expect("a plain block hashes above i32::MAX");
+        state.worlds[0]
+            .set_block(BlockPos::new(0, -61, 0), ground)
+            .unwrap();
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
+        player.position = eye(-58.0);
+        player.survival.motion.processed = Some(Vec3::new(0.5, -58.0, 0.5));
+        received(&mut rx);
+        tick(
+            &mut state,
+            &mut vec![moved_to(1, 10, eye(-60.0).to_f32())],
+            &mut output,
+        );
+        let lands: Vec<i32> = received(&mut rx)
+            .0
+            .iter()
+            .filter_map(|p| match p {
+                Packet::LevelSoundEvent(s) if s.sound_type == SoundEvent::Land.as_str() => {
+                    Some(s.extra_data)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lands, [ground.network_id().cast_signed()]);
+    }
+
+    /// Writes down `note`.
+    fn note(note: String) {
+        NOTES.with(|n| {
+            let mut list = n.take();
+            list.push(note);
+            n.set(list);
+        });
+    }
+
+    /// What was written down since the last call.
+    fn notes() -> Vec<String> {
+        NOTES.with(std::cell::Cell::take)
+    }
+
+    /// A flight listener that takes the right to fly away refuses the flight as a cancel does:
+    /// the second check asks whether the player may fly, as the first does.
+    #[test]
+    fn a_flight_whose_listener_takes_the_right_to_fly_does_not_start() {
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            |e: &mut PlayerToggleFlight, cx: &mut crate::tick::Context<'_>| {
+                if let Some(p) = cx.player_mut(e.player()) {
+                    p.set_allow_flight(false);
+                }
+            },
+        );
+        l.push_monitor(|_: &PlayerToggleFlight, _: &crate::tick::Context<'_>| {
+            note("flew".to_owned());
+        });
+        let (mut state, _output, _rx) = walker(l);
+        let session = SessionId::new(1);
+        let player = state.players.get_mut(&session).unwrap();
+        player.set_allow_flight(true);
+        let flags = [InputFlag::StartFlying].into_iter().collect();
+        input_flags(&mut state, session, flags, 0);
+        assert!(!state.players[&session].survival.motion.flying);
+        assert!(notes().is_empty(), "no monitor sees a refused flight");
+    }
+
     /// Whatever ends a fall restarts the ticks in the air (PMMP `Player::resetFallDistance`): a
     /// player floating in water stays at none, and a teleport starts it again.
     #[test]
@@ -1304,6 +1382,52 @@ mod tests {
         player.survival.motion.in_air = 5;
         teleport(&mut state, session, Vec3::new(0.5, -40.0, 0.5));
         assert_eq!(state.players[&session].in_air_ticks(), 0);
+    }
+
+    /// Water sources over the ground from x 0 to 12 and z -6 to 6.
+    fn lake(state: &mut State) {
+        let water = block::Kind::Water.default_state();
+        for x in 0..=12 {
+            for z in -6..=6 {
+                state.worlds[0]
+                    .set_block(BlockPos::new(x, -61, z), water)
+                    .unwrap();
+            }
+        }
+    }
+
+    /// Frost Walker boots of `level` on session 1.
+    fn boots(state: &mut State, level: u16) {
+        let extra = crate::item::Extra {
+            enchantments: vec![(crate::item::Enchantment::FrostWalker, level)],
+            ..crate::item::Extra::default()
+        };
+        let boots = crate::item::Stack::new(crate::item::Kind::DiamondBoots.default_type(), 1)
+            .with_extra(Some(extra))
+            .unwrap();
+        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
+        crate::tick::inventory::set_armor(player, 3, boots);
+    }
+
+    /// Session 1 walks to the feet position `x, -60, z`.
+    fn walk(state: &mut State, output: &mut crate::tick::Output, x: f64, z: f64) {
+        let eye = Vec3::new(x, -60.0 + super::super::EYE_HEIGHT, z).to_f32();
+        let input = crate::tick::tests::moved_to(1, 10, eye);
+        crate::tick::tests::tick(state, &mut vec![input], output);
+    }
+
+    /// The frosted ice cells of the lake.
+    fn frozen(state: &State) -> Vec<(i32, i32)> {
+        let ice = block::Kind::FrostedIce.default_state();
+        let mut out = Vec::new();
+        for x in 0..=12 {
+            for z in -6..=6 {
+                if state.worlds[0].block(BlockPos::new(x, -61, z)) == Some(ice) {
+                    out.push((x, z));
+                }
+            }
+        }
+        out
     }
 
     // pmmp: Living::getFrostWalkerLevel
@@ -1460,6 +1584,26 @@ mod tests {
         lake(&mut state);
         boots(&mut state, 2);
         walk(&mut state, &mut output, 5.5, 0.5);
+        assert!(frozen(&state).is_empty());
+    }
+
+    /// A frost walker listener that takes the boots off refuses the freeze: the second check
+    /// looks at the boots again.
+    #[test]
+    fn a_frost_walker_listener_that_takes_the_boots_refuses_the_freeze() {
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            |_: &mut EntityFrostWalker, cx: &mut crate::tick::Context<'_>| {
+                let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
+                crate::tick::inventory::set_armor(player, 3, crate::item::Stack::EMPTY);
+            },
+        );
+        let (mut state, mut output, _rx) = walker(l);
+        lake(&mut state);
+        boots(&mut state, 2);
+        walk(&mut state, &mut output, 5.5, 0.5);
+        assert_eq!(state.players[&SessionId::new(1)].frost_walker_level(), 0);
         assert!(frozen(&state).is_empty());
     }
 

@@ -80,7 +80,8 @@ impl Replay {
 pub enum End {
     /// Every logged tick applied.
     Completed,
-    /// The log stopped recording at its bound; the replay applied every tick before that.
+    /// The log stopped recording, at its bound or at a save thread answer it could not log; the
+    /// replay applied every tick before that.
     Truncated,
     /// A tick panicked again, as it may have in the run that wrote the log.
     Panicked {
@@ -533,11 +534,10 @@ impl Replayer {
     /// Checks that the replay started `segment` too, at its tick and with its state.
     fn compare(&self, segment: &Segment) -> Result<()> {
         let tick = segment.start();
-        let own = self
-            .own
-            .last_segment()
-            .filter(|s| s.start() == tick)
-            .ok_or(Error::Diverged { tick })?;
+        let own = self.own.last_segment();
+        if own.start() != tick {
+            return Err(Error::Diverged { tick });
+        }
         match (segment.checkpoint(), own.taken()) {
             (Some(logged), Some(replayed)) if logged != replayed.to_bytes().as_slice() => {
                 Err(Error::Diverged { tick })

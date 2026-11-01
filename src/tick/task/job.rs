@@ -1,6 +1,6 @@
 //! Blocking work off the tick (PMMP `AsyncPool`/`AsyncTask`): the work runs on the runtime's
 //! blocking pool, at most [`MAX_RUNNING_JOBS`] jobs at once, and its result comes back as an input
-//! of a later tick ([`InputKind::Job`](super::super::queue::InputKind::Job)), which the input log
+//! of a later tick ([`InputKind::Job`](crate::tick::queue::InputKind::Job)), which the input log
 //! records.
 //!
 //! A job's result is its JSON form ([`MAX_RESULT_BYTES`] at most), made on the blocking thread;
@@ -21,23 +21,15 @@ use serde::de::DeserializeOwned;
 use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 
-use super::super::State;
-use super::super::queue::{InputSender, JobOutcome};
 use super::Context;
 use crate::data::{JsonError, to_json};
 use crate::task::{Error, MAX_JOBS, MAX_RESULT_BYTES, MAX_RUNNING_JOBS, Result};
+use crate::tick::State;
+use crate::tick::checkpoint::{self, Codec, Reader, Writer};
+use crate::tick::queue::{InputSender, JobOutcome};
 
 /// A job's completion callback, taking the result's JSON or the job's error.
 type Done = Box<dyn FnOnce(&mut Context<'_>, std::result::Result<&[u8], Error>) + Send>;
-
-/// Where jobs run: the runtime's blocking pool, and the input queue their results go to.
-struct Runner {
-    handle: tokio::runtime::Handle,
-    inputs: InputSender,
-    /// One permit per job allowed to run at once, so jobs cannot take every blocking thread
-    /// from the engine's own blocking work (the authorization fetch, pack and key loading).
-    slots: Arc<Semaphore>,
-}
 
 /// The blocking jobs waiting for their result.
 #[derive(Default)]
@@ -51,15 +43,6 @@ pub(crate) struct Jobs {
 }
 
 impl Jobs {
-    /// Runs jobs from now on: on `handle`'s blocking pool, results into `inputs`.
-    pub(super) fn start(&mut self, handle: tokio::runtime::Handle, inputs: &InputSender) {
-        self.runner = Some(Runner {
-            handle,
-            inputs: inputs.clone(),
-            slots: Arc::new(Semaphore::new(MAX_RUNNING_JOBS)),
-        });
-    }
-
     /// How many jobs wait for their result (for leak tests).
     #[cfg(test)]
     pub(super) fn len(&self) -> usize {
@@ -73,7 +56,7 @@ impl Jobs {
     }
 
     #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
+    pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
             pending,
             next_id,
@@ -85,28 +68,32 @@ impl Jobs {
             h.u64(*id);
         }
     }
-}
 
-impl Jobs {
     /// Writes the next id. A waiting job's callback is a closure, with no checkpoint form: it
     /// makes the checkpoint opaque.
-    pub(super) fn checkpoint(&self, w: &mut crate::tick::checkpoint::Writer) {
+    pub(super) fn checkpoint(&self, w: &mut Writer) {
         let Self {
             pending,
             next_id,
             runner: _,
         } = self;
         w.opaque("blocking jobs waiting for their result", pending.len());
-        crate::tick::checkpoint::Codec::encode(next_id, w);
+        Codec::encode(next_id, w);
+    }
+
+    /// Runs jobs from now on: on `handle`'s blocking pool, results into `inputs`.
+    pub(super) fn start(&mut self, handle: tokio::runtime::Handle, inputs: &InputSender) {
+        self.runner = Some(Runner {
+            handle,
+            inputs: inputs.clone(),
+            slots: Arc::new(Semaphore::new(MAX_RUNNING_JOBS)),
+        });
     }
 
     /// Reads what [`Self::checkpoint`] wrote: no waiting job, and the next id. The runner stays.
-    pub(super) fn restore(
-        &mut self,
-        r: &mut crate::tick::checkpoint::Reader<'_>,
-    ) -> crate::tick::checkpoint::Result<()> {
+    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
         self.pending.clear();
-        self.next_id = crate::tick::checkpoint::Codec::decode(r)?;
+        self.next_id = Codec::decode(r)?;
         Ok(())
     }
 }
@@ -121,12 +108,13 @@ impl fmt::Debug for Jobs {
     }
 }
 
-/// The JSON of a job's result, made on the blocking thread.
-fn encode<T: Serialize>(value: &T) -> JobOutcome {
-    to_json(value, MAX_RESULT_BYTES).map_err(|e| match e {
-        JsonError::TooLarge => Error::TooLarge,
-        JsonError::Encode => Error::Encode,
-    })
+/// Where jobs run: the runtime's blocking pool, and the input queue their results go to.
+struct Runner {
+    handle: tokio::runtime::Handle,
+    inputs: InputSender,
+    /// One permit per job allowed to run at once, so jobs cannot take every blocking thread
+    /// from the engine's own blocking work (the authorization fetch, pack and key loading).
+    slots: Arc<Semaphore>,
 }
 
 impl Runner {
@@ -141,10 +129,14 @@ impl Runner {
         let inputs = self.inputs.clone();
         let slots = Arc::clone(&self.slots);
         self.handle.spawn(async move {
-            // The semaphore is never closed, so acquiring only waits.
-            let Ok(permit) = slots.acquire_owned().await else {
-                return;
-            };
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: no code closes the job slots' semaphore"
+            )]
+            let permit = slots
+                .acquire_owned()
+                .await
+                .expect("the job slots stay open");
             let outcome = match tokio::task::spawn_blocking(move || encode(&work())).await {
                 Ok(outcome) => outcome,
                 Err(e) if e.is_panic() => {
@@ -175,7 +167,7 @@ impl Context<'_> {
     /// their turn. A result that arrives after the server stopped is dropped, and work still
     /// running 10 seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns
     /// while its thread runs on, until the work ends or the process exits. What the work wrote
-    /// outside the server file stays after a crash. Fails, running nothing, while [`MAX_JOBS`] jobs
+    /// outside the data files stays after a crash. Fails, running nothing, while [`MAX_JOBS`] jobs
     /// wait for their result.
     #[doc(alias = "AsyncPool::submitTask")]
     #[doc(alias = "AsyncTask")]
@@ -207,8 +199,8 @@ impl Context<'_> {
     }
 }
 
-/// The result of job `id` arrived: its callback runs now. A result of no waiting job (one that
-/// was never started in this run) is ignored.
+/// Runs the callback of job `id`, whose result arrived. A result of no waiting job (one that was
+/// never started in this run) is ignored.
 pub(in crate::tick) fn finish(state: &mut State, id: u64, outcome: &JobOutcome) {
     let Some(done) = state.tasks.jobs.pending.remove(&id) else {
         debug!(job = id, "the result of an unknown job is ignored");
@@ -217,16 +209,26 @@ pub(in crate::tick) fn finish(state: &mut State, id: u64, outcome: &JobOutcome) 
     done(&mut Context { state }, outcome.as_deref().map_err(|e| *e));
 }
 
+/// Encodes a job's result as JSON, on the blocking thread.
+fn encode<T: Serialize>(value: &T) -> JobOutcome {
+    to_json(value, MAX_RESULT_BYTES).map_err(|e| match e {
+        JsonError::TooLarge => Error::TooLarge,
+        JsonError::Encode => Error::Encode,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::time::Duration;
 
-    use super::super::super::queue::{Input, InputKind, InputReceiver, SessionId, input_queue};
-    use super::super::super::tests::{new_state, settings, tick};
-    use super::super::super::{InputLog, Output, deliver, step};
-    use super::*;
     use crate::event::Listeners;
     use crate::runtime::{Runtime, ThreadCounts};
+    use crate::tick::log::EntryKind;
+    use crate::tick::queue::{Input, InputKind, InputReceiver, SessionId, input_queue};
+    use crate::tick::tests::{new_state, settings, tick};
+    use crate::tick::{InputLog, Output, deliver, step};
 
     /// What a job's callback saw, shared with the callback.
     #[expect(
@@ -239,7 +241,7 @@ mod tests {
         Runtime::new(ThreadCounts { network: 1, cpu: 1 }).unwrap()
     }
 
-    /// A state whose jobs run on `runtime`, and the input queue they answer into.
+    /// Makes a state whose jobs run on `runtime`, and the input queue they answer into.
     fn live(runtime: &Runtime) -> (State, InputReceiver) {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let (inputs, queue) = input_queue(1);
@@ -304,7 +306,7 @@ mod tests {
         let panicked: Seen<u8> = Arc::default();
         let large: Seen<Vec<u8>> = Arc::default();
         let fine: Seen<Vec<u8>> = Arc::default();
-        let map: Seen<std::collections::BTreeMap<(u8, u8), u8>> = Arc::default();
+        let map: Seen<BTreeMap<(u8, u8), u8>> = Arc::default();
         let mut cx = Context { state: &mut state };
         cx.spawn_blocking(|| -> u8 { panic!("user work failed") }, note(&panicked))
             .unwrap();
@@ -312,11 +314,8 @@ mod tests {
         cx.spawn_blocking(|| vec![0_u8; MAX_RESULT_BYTES / 2], note(&large))
             .unwrap();
         cx.spawn_blocking(|| vec![1_u8; 1000], note(&fine)).unwrap();
-        cx.spawn_blocking(
-            || std::collections::BTreeMap::from([((1, 2), 3)]),
-            note(&map),
-        )
-        .unwrap();
+        cx.spawn_blocking(|| BTreeMap::from([((1, 2), 3)]), note(&map))
+            .unwrap();
         let mut batch = results(&mut queue, 4);
         tick(&mut state, &mut batch, &mut Output::default());
         assert_eq!(*panicked.lock().unwrap(), [(0, Err(Error::Panicked))]);
@@ -434,7 +433,7 @@ mod tests {
                 .inputs
                 .iter()
                 .map(|e| match &e.kind {
-                    super::super::super::log::EntryKind::Job(outcome) => Input {
+                    EntryKind::Job(outcome) => Input {
                         session: e.session,
                         seq: e.seq,
                         kind: InputKind::Job(outcome.clone()),

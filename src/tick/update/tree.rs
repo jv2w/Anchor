@@ -7,10 +7,10 @@
 //! grows one where the API asks, without [`StructureGrow`](crate::event::StructureGrow) (a direct
 //! call raises no event).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::Cx;
 use super::props;
+use super::{Cx, pick};
 use crate::block::{self, Class, Face, Kind, TypeTag};
 use crate::random::Random;
 use crate::tick::Context;
@@ -19,24 +19,19 @@ use crate::world::{self, BlockPos, MIN_Y, TreeType};
 /// Blocks to set together, all or none (PMMP `BlockTransaction`).
 #[derive(Debug, Default)]
 pub(super) struct Tx {
+    /// The blocks to set, by position.
     blocks: BTreeMap<BlockPos, block::State>,
 }
 
 impl Tx {
-    /// Adds a block to set (replacing one added before at the same position).
-    pub(super) fn add(&mut self, pos: BlockPos, s: block::State) {
-        self.blocks.insert(pos, s);
-    }
-
     /// Whether nothing was added.
     pub(super) fn is_empty(&self) -> bool {
         self.blocks.is_empty()
     }
 
-    /// The block at `pos` once the transaction is applied (air where not loaded).
-    fn fetch(&self, cx: &Cx<'_>, pos: Option<BlockPos>) -> block::State {
-        pos.and_then(|p| self.blocks.get(&p).copied())
-            .unwrap_or_else(|| cx.block(pos))
+    /// Adds a block to set (replacing one added before at the same position).
+    pub(super) fn add(&mut self, pos: BlockPos, s: block::State) {
+        self.blocks.insert(pos, s);
     }
 
     /// Sets the blocks the block at `origin` grows if every position is loaded (PMMP validates
@@ -57,6 +52,12 @@ impl Tx {
         changed
     }
 
+    /// The block at `pos` once the transaction is applied (air where not loaded).
+    fn fetch(&self, cx: &Cx<'_>, pos: Option<BlockPos>) -> block::State {
+        pos.and_then(|p| self.blocks.get(&p).copied())
+            .unwrap_or_else(|| cx.block(pos))
+    }
+
     /// Sets the blocks if every position is loaded, without an event; whether a block changed.
     fn apply_quietly(self, cx: &mut Cx<'_>) -> bool {
         self.blocks.keys().all(|p| cx.is_loaded(*p)) && self.set(cx)
@@ -74,108 +75,15 @@ impl Tx {
     }
 }
 
-/// A sapling grows its tree; whether it did.
-pub(super) fn grow_sapling(cx: &mut Cx<'_>, pos: BlockPos, sapling: block::State) -> bool {
-    let kind = match sapling.kind() {
-        Kind::OakSapling => TreeType::Oak,
-        Kind::SpruceSapling => TreeType::Spruce,
-        Kind::BirchSapling => TreeType::Birch,
-        Kind::JungleSapling => TreeType::Jungle,
-        Kind::AcaciaSapling => TreeType::Acacia,
-        _ => return false,
-    };
-    grow(cx, pos, kind)
-}
-
-/// Grows a tree of `kind` at `pos`; whether a block changed.
-pub(super) fn grow(cx: &mut Cx<'_>, pos: BlockPos, kind: TreeType) -> bool {
-    let mut rng = cx.rng();
-    let tx = generate(cx, pos, kind, &mut rng);
-    tx.is_some_and(|tx| tx.apply(cx, pos))
-}
-
-/// The tree a generator would place at `pos` (PMMP `TreeFactory::get` then
-/// `getBlockTransaction`), or `None` where it does not fit or PMMP has no generator (dark oak).
-pub(super) fn generate(cx: &Cx<'_>, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
-    let plain = |k: Kind| k.default_state();
-    let mut tree = match kind {
-        TreeType::Oak => Tree::new(Kind::OakLog, Kind::OakLeaves, 4 + below(rng, 3)),
-        TreeType::Spruce => Tree::new(Kind::SpruceLog, Kind::SpruceLeaves, 10),
-        TreeType::Birch => {
-            let tall = rng.below(39) == 0;
-            Tree::new(Kind::BirchLog, Kind::BirchLeaves, 7).with_birch(tall)
-        }
-        TreeType::Jungle => Tree::new(Kind::JungleLog, Kind::JungleLeaves, 8),
-        TreeType::Acacia => Tree::new(Kind::AcaciaLog, Kind::AcaciaLeaves, 0),
-        TreeType::Azalea => Tree::new(Kind::OakLog, Kind::AzaleaLeaves, 0),
-        TreeType::DarkOak => return None,
-        TreeType::Crimson | TreeType::Warped => {
-            let base = below(rng, 9) + 4;
-            let height = base * if rng.below(12) == 0 { 2 } else { 1 };
-            let huge = rng.unit() < 0.06;
-            let (stem, hat) = if kind == TreeType::Crimson {
-                (Kind::CrimsonStem, Kind::NetherWartBlock)
-            } else {
-                (Kind::WarpedStem, Kind::WarpedWartBlock)
-            };
-            return Some(nether(
-                cx,
-                pos,
-                rng,
-                plain(stem),
-                plain(hat),
-                height,
-                kind == TreeType::Crimson,
-                huge,
-            ));
-        }
-    };
-    // Birch picks its height in `getBlockTransaction`, after the factory's draws.
-    match kind {
-        TreeType::Birch => tree.height = below(rng, 3) + 5 + if tree.tall { 5 } else { 0 },
-        TreeType::Spruce => tree.height = below(rng, 4) + 6,
-        TreeType::Azalea => tree.height = below(rng, 3) + 4,
-        _ => {}
-    }
-    tree.place(cx, pos, kind, rng)
-}
-
-impl Context<'_> {
-    /// Grows a tree of `kind` from `pos` in `world`, as a sapling (or an azalea, a fungus) there
-    /// would (PMMP `TreeFactory::get`, then `Tree::getBlockTransaction` and its `apply`): the
-    /// same generators, with the engine's random numbers for that position and tick. Nothing
-    /// changes, and the result is false, where the tree does not fit, `pos` is outside the world
-    /// height or a block it needs is in a chunk that is not loaded, for [`TreeType::DarkOak`] (PMMP has no generator) or a world the
-    /// server does not have. Like every direct call it raises no event (a sapling's growth raises
-    /// [`StructureGrow`](crate::event::StructureGrow)).
-    #[doc(alias = "TreeFactory")]
-    #[doc(alias = "TreeFactory::get")]
-    pub fn grow_tree(&mut self, world: world::Id, pos: BlockPos, kind: TreeType) -> bool {
-        let Some(w) = crate::tick::world_api::index(self.state, world) else {
-            return false;
-        };
-        let mut cx = Cx::new(self.state, w, pos);
-        // The generators add to the origin without checks: a loaded origin is inside the world
-        // border and height, where a tree's extent cannot overflow.
-        if !cx.is_loaded(pos) {
-            return false;
-        }
-        let mut rng = cx.rng();
-        generate(&cx, pos, kind, &mut rng).is_some_and(|tx| tx.apply_quietly(&mut cx))
-    }
-}
-
-/// `nextBoundedInt(n)` as an `i32`.
-fn below(rng: &mut Random, n: u32) -> i32 {
-    i32::try_from(rng.below(n)).unwrap_or(0)
-}
-
 /// A tree of logs and leaves (PMMP `Tree` and its overriding generators).
 struct Tree {
+    /// The trunk's log.
     trunk: block::State,
+    /// The canopy's leaves.
     leaf: block::State,
+    /// The tree's height (PMMP `treeHeight`).
     height: i32,
-    /// A birch from the one in 39 chance of a tall one.
+    /// Whether a birch is the tall one of the one in 39 chance.
     tall: bool,
 }
 
@@ -189,12 +97,13 @@ impl Tree {
         }
     }
 
-    fn with_birch(mut self, tall: bool) -> Self {
+    fn with_tall(mut self, tall: bool) -> Self {
         self.tall = tall;
         self
     }
 
-    /// PMMP `Tree::canOverride` (with azalea's additions).
+    /// Tells whether a tree may grow through `s` (PMMP `Tree::canOverride`, with azalea's
+    /// additions).
     fn can_override(s: block::State, kind: TreeType) -> bool {
         s.can_be_replaced()
             || s.is(Class::Sapling)
@@ -203,7 +112,8 @@ impl Tree {
                 && matches!(s.kind(), Kind::Azalea | Kind::FloweringAzalea))
     }
 
-    /// PMMP `Tree::getBlockTransaction`.
+    /// Works out the blocks of the tree at `pos` (PMMP `Tree::getBlockTransaction`); `None`
+    /// where it does not fit.
     fn place(&self, cx: &Cx<'_>, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
         // canPlaceObject
         let mut radius = 0;
@@ -239,7 +149,8 @@ impl Tree {
         Some(tx)
     }
 
-    /// PMMP `Tree::placeTrunk`: dirt below, logs up through replaceable blocks.
+    /// Places the trunk (PMMP `Tree::placeTrunk`): dirt below, logs up through replaceable
+    /// blocks.
     fn trunk(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, height: i32, kind: TreeType) {
         if let Some(below) = pos.offset(0, -1, 0) {
             tx.add(below, block::DIRT);
@@ -254,7 +165,7 @@ impl Tree {
         }
     }
 
-    /// PMMP `Tree::placeCanopy`.
+    /// Places the canopy (PMMP `Tree::placeCanopy`).
     fn canopy(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
         let top = pos.y + self.height;
         for yy in (top - 3)..=top {
@@ -276,7 +187,7 @@ impl Tree {
         }
     }
 
-    /// PMMP `SpruceTree::placeCanopy`.
+    /// Places a spruce's canopy (PMMP `SpruceTree::placeCanopy`).
     fn spruce_canopy(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
         let top_size = self.height - (1 + below(rng, 2));
         let l_radius = 2 + below(rng, 2);
@@ -310,27 +221,28 @@ impl Tree {
         }
     }
 
-    /// PMMP `AcaciaTree`: a trunk with a main and a second branch, a flat canopy on each.
+    /// Places an acacia (PMMP `AcaciaTree`): a trunk with a main and a second branch, a flat
+    /// canopy on each.
     fn acacia(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
-        let height = 5 + rng.range(0, 2) + rng.range(0, 2);
+        let height = 5 + below(rng, 3) + below(rng, 3);
         if let Some(below) = pos.offset(0, -1, 0) {
             tx.add(below, block::DIRT);
         }
-        let first = height - 1 - rng.range(0, 3);
+        let first = height - 1 - below(rng, 4);
         for yy in 0..=first {
             if let Some(at) = pos.offset(0, yy, 0) {
                 tx.add(at, self.trunk);
             }
         }
-        let main_facing = pick(rng);
+        let main_facing = pick(rng, &Face::HORIZONTAL);
         let start = BlockPos::new(pos.x, pos.y + first, pos.z);
-        let diagonal = rng.range(1, 3);
+        let diagonal = 1 + below(rng, 3);
         let main_tip = self.branch(tx, start, main_facing, diagonal, height - first);
-        let second_facing = pick(rng);
+        let second_facing = pick(rng, &Face::HORIZONTAL);
         let mut second_tip = None;
         if second_facing != main_facing {
-            let length = rng.range(1, 3);
-            let start = BlockPos::new(pos.x, pos.y + (first - rng.range(0, 1)), pos.z);
+            let length = 1 + below(rng, 3);
+            let start = BlockPos::new(pos.x, pos.y + (first - below(rng, 2)), pos.z);
             second_tip = Some(self.branch(tx, start, second_facing, length, length));
         }
         self.acacia_layer(cx, tx, Some(main_tip), 3, 5);
@@ -341,7 +253,8 @@ impl Tree {
         }
     }
 
-    /// PMMP `AcaciaTree::placeBranch`: up `length` blocks, sideways for the first `diagonal`.
+    /// Places an acacia branch (PMMP `AcaciaTree::placeBranch`): up `length` blocks, sideways
+    /// for the first `diagonal`. Returns the branch's tip.
     fn branch(
         &self,
         tx: &mut Tx,
@@ -364,7 +277,7 @@ impl Tree {
         at
     }
 
-    /// PMMP `AcaciaTree::placeCanopyLayer`.
+    /// Places an acacia canopy layer (PMMP `AcaciaTree::placeCanopyLayer`).
     fn acacia_layer(
         &self,
         cx: &Cx<'_>,
@@ -386,7 +299,8 @@ impl Tree {
         }
     }
 
-    /// PMMP `AzaleaTree`: a bent trunk on rooted dirt, leaves scattered around its top.
+    /// Places an azalea tree (PMMP `AzaleaTree`): a bent trunk on rooted dirt, leaves scattered
+    /// around its top.
     fn azalea(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
         let height = (4 + below(rng, 2)).min(5);
         if let (Some(below_pos), Some(rooted)) = (
@@ -395,10 +309,7 @@ impl Tree {
         ) {
             tx.add(below_pos, rooted);
         }
-        let direction = Face::HORIZONTAL
-            .get(usize::try_from(rng.range(0, 3)).unwrap_or(0))
-            .copied()
-            .unwrap_or(Face::North);
+        let direction = pick(rng, &Face::HORIZONTAL);
         let (dx, _, dz) = direction.offset();
         let side_up = (height - 2).clamp(0, 2);
         let mut lead_up = (height - side_up).min(3);
@@ -427,7 +338,7 @@ impl Tree {
             }
         }
         let flowering = Kind::FloweringAzaleaLeaves.default_state();
-        let mut visited = std::collections::BTreeSet::new();
+        let mut visited = BTreeSet::new();
         for a in attachments {
             for _ in 0..50 {
                 let ddx = below(rng, 3) - below(rng, 3);
@@ -450,15 +361,104 @@ impl Tree {
     }
 }
 
-/// A random horizontal facing (PMMP `Facing::HORIZONTAL[array_rand(...)]`).
-fn pick(rng: &mut Random) -> Face {
-    Face::HORIZONTAL
-        .get(rng.below(4) as usize)
-        .copied()
-        .unwrap_or(Face::North)
+/// Grows the tree of the sapling at `pos`; whether it did.
+pub(super) fn grow_sapling(cx: &mut Cx<'_>, pos: BlockPos, sapling: block::State) -> bool {
+    let kind = match sapling.kind() {
+        Kind::AcaciaSapling => TreeType::Acacia,
+        Kind::BirchSapling => TreeType::Birch,
+        Kind::JungleSapling => TreeType::Jungle,
+        Kind::OakSapling => TreeType::Oak,
+        Kind::SpruceSapling => TreeType::Spruce,
+        _ => return false,
+    };
+    grow(cx, pos, kind)
 }
 
-/// PMMP `NetherTree` (huge fungi).
+/// Grows a tree of `kind` at `pos`; whether a block changed.
+pub(super) fn grow(cx: &mut Cx<'_>, pos: BlockPos, kind: TreeType) -> bool {
+    let mut rng = cx.rng();
+    let tx = generate(cx, pos, kind, &mut rng);
+    tx.is_some_and(|tx| tx.apply(cx, pos))
+}
+
+/// Generates the tree a generator would place at `pos` (PMMP `TreeFactory::get` then
+/// `getBlockTransaction`), or `None` where it does not fit or PMMP has no generator (dark oak).
+fn generate(cx: &Cx<'_>, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
+    let plain = |k: Kind| k.default_state();
+    let mut tree = match kind {
+        TreeType::Oak => Tree::new(Kind::OakLog, Kind::OakLeaves, 4 + below(rng, 3)),
+        TreeType::Spruce => Tree::new(Kind::SpruceLog, Kind::SpruceLeaves, 10),
+        TreeType::Birch => {
+            let tall = rng.below(39) == 0;
+            Tree::new(Kind::BirchLog, Kind::BirchLeaves, 7).with_tall(tall)
+        }
+        TreeType::Jungle => Tree::new(Kind::JungleLog, Kind::JungleLeaves, 8),
+        TreeType::Acacia => Tree::new(Kind::AcaciaLog, Kind::AcaciaLeaves, 0),
+        TreeType::DarkOak => return None,
+        TreeType::Crimson | TreeType::Warped => {
+            let base = below(rng, 9) + 4;
+            let height = base * if rng.below(12) == 0 { 2 } else { 1 };
+            let huge = rng.unit() < 0.06;
+            let (stem, hat) = if kind == TreeType::Crimson {
+                (Kind::CrimsonStem, Kind::NetherWartBlock)
+            } else {
+                (Kind::WarpedStem, Kind::WarpedWartBlock)
+            };
+            return Some(nether(
+                cx,
+                pos,
+                rng,
+                plain(stem),
+                plain(hat),
+                height,
+                kind == TreeType::Crimson,
+                huge,
+            ));
+        }
+        TreeType::Azalea => Tree::new(Kind::OakLog, Kind::AzaleaLeaves, 0),
+    };
+    // Birch picks its height in `getBlockTransaction`, after the factory's draws.
+    match kind {
+        TreeType::Spruce => tree.height = below(rng, 4) + 6,
+        TreeType::Birch => tree.height = below(rng, 3) + 5 + if tree.tall { 5 } else { 0 },
+        TreeType::Azalea => tree.height = below(rng, 3) + 4,
+        _ => {}
+    }
+    tree.place(cx, pos, kind, rng)
+}
+
+impl Context<'_> {
+    /// Grows a tree of `kind` from `pos` in `world`, as a sapling (or an azalea, a fungus) there
+    /// would (PMMP `TreeFactory::get`, then `Tree::getBlockTransaction` and its `apply`): the
+    /// same generators, with the engine's random numbers, so the same server state and calls
+    /// grow the same tree. Nothing changes, and the result is false, where the tree does not
+    /// fit, `pos` is outside the world height or a block it needs is in a chunk that is not
+    /// loaded, for [`TreeType::DarkOak`] (PMMP has no generator) or a world the server does not
+    /// have. Like every direct call it raises no event (a sapling's growth raises
+    /// [`StructureGrow`](crate::event::StructureGrow)).
+    #[doc(alias = "TreeFactory")]
+    #[doc(alias = "TreeFactory::get")]
+    pub fn grow_tree(&mut self, world: world::Id, pos: BlockPos, kind: TreeType) -> bool {
+        let Some(w) = crate::tick::world_api::index(self.state, world) else {
+            return false;
+        };
+        let mut cx = Cx::new(self.state, w, pos);
+        // The generators add to the origin without checks: a loaded origin is inside the world
+        // border and height, where a tree's extent cannot overflow.
+        if !cx.is_loaded(pos) {
+            return false;
+        }
+        let mut rng = cx.rng();
+        generate(&cx, pos, kind, &mut rng).is_some_and(|tx| tx.apply_quietly(&mut cx))
+    }
+}
+
+/// Draws PMMP's `nextBoundedInt(n)`: a number in `0..n`.
+fn below(rng: &mut Random, n: i32) -> i32 {
+    rng.range(0, n - 1)
+}
+
+/// Generates PMMP's `NetherTree` (huge fungi).
 #[expect(
     clippy::too_many_arguments,
     reason = "consistency: PMMP's `NetherTree` constructor arguments, passed once"
@@ -491,7 +491,7 @@ fn nether(
         }
     }
     // placeCanopy
-    let hat_height = (below(rng, u32::try_from(1 + height / 3).unwrap_or(1)) + 5).min(height);
+    let hat_height = (below(rng, 1 + height / 3) + 5).min(height);
     let start = height - hat_height;
     for k in start..=height {
         let mut l = if k < height - below(rng, 3) { 2 } else { 1 };
@@ -565,7 +565,8 @@ fn nether(
     tx
 }
 
-/// PMMP `NetherTree::placeHatBlock`: (decoration, hat, vine) chances.
+/// Places a hat block by PMMP's `NetherTree::placeHatBlock`, with the (decoration, hat, vine)
+/// chances.
 #[expect(
     clippy::too_many_arguments,
     reason = "consistency: PMMP's `placeHatBlock` arguments plus the tree's blocks"
@@ -590,8 +591,8 @@ fn hat_block(
     }
 }
 
-/// PMMP `NetherTree::tryPlaceWeepingVines`. PMMP stops at y 0, the old world bottom; Anchor
-/// stops at the world bottom.
+/// Places weeping vines under `at` by PMMP's `NetherTree::tryPlaceWeepingVines`. PMMP stops at
+/// y 0, the old world bottom; Anchor stops at the world bottom.
 fn weeping_vines(
     cx: &Cx<'_>,
     tx: &mut Tx,
@@ -617,9 +618,8 @@ fn weeping_vines(
         if !can_override(tx.fetch(cx, Some(p))) {
             break;
         }
-        if let Some(s) =
-            props::with_int(vine, "weeping_vines_age", (23 + v).min(super::MAX_VINE_AGE))
-        {
+        let age = (23 + v).min(super::MAX_VINE_AGE);
+        if let Some(s) = props::with_int(vine, super::nether_vines_age(vine), age) {
             tx.add(p, s);
         }
     }
@@ -705,9 +705,9 @@ mod tests {
             TreeType::Birch,
             TreeType::Jungle,
             TreeType::Acacia,
-            TreeType::Azalea,
             TreeType::Crimson,
             TreeType::Warped,
+            TreeType::Azalea,
         ] {
             let mut state = server(heard);
             let at = BlockPos::new(-20, -60, -20);
@@ -748,9 +748,9 @@ mod tests {
                 TreeType::Birch,
                 TreeType::Jungle,
                 TreeType::Acacia,
-                TreeType::Azalea,
                 TreeType::Crimson,
                 TreeType::Warped,
+                TreeType::Azalea,
             ] {
                 assert!(
                     !cx.grow_tree(world::Id::DEFAULT, pos, kind),

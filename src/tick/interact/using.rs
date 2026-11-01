@@ -7,6 +7,12 @@
 //! cooking, cauldron dye) are [`super::decor`]'s; thrown items, bows, tridents, paintings, end
 //! crystals, firework rockets, primed TNT and entity attacks go to the entity rules.
 
+use tracing::debug;
+
+use super::{
+    Actor, Source, USE, adventure_allows, block_vec, breaking, center, drops, level_event, place,
+    props, return_items, stream,
+};
 use crate::block::{self, Class, Face, Kind, State as BlockState};
 use crate::config::GameMode;
 use crate::event::{
@@ -20,16 +26,10 @@ use crate::player;
 use crate::protocol::consts::{LevelEvent as Event, UseItemOnEntityAction};
 use crate::random::Random;
 use crate::save::WorldIndex;
+use crate::tick::block_entity::{self, BlockEntity};
+use crate::tick::update::{CAULDRON_FULL, LAVA_TICK_RATE, WATER_TICK_RATE};
+use crate::tick::{SessionId, State, dispatch, emit, entity, inventory, survival, trade, update};
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Particle, Sound};
-
-use super::super::update::{CAULDRON_FULL, LAVA_TICK_RATE, WATER_TICK_RATE};
-use super::super::{
-    SessionId, State, block_entity, dispatch, entity, inventory, survival, trade, update,
-};
-use super::{
-    Actor, Source, USE, adventure_allows, block_vec, breaking, center, drops, level_event,
-    particle, place, props, return_items, sound, stream,
-};
 
 /// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
 const STONE_BUTTON_TICKS: u32 = 20;
@@ -41,6 +41,29 @@ const ANCHOR_RADIUS: f64 = 5.0;
 const ANCHOR_SPAWN_SET: &str = "§7%tile.respawn_anchor.respawnSet";
 /// The cauldron levels a bottle holds.
 const BOTTLE_LEVELS: i32 = 2;
+/// The bites a cake has before it is gone (PMMP `Cake::MAX_BITES`).
+const CAKE_MAX_BITES: i32 = 6;
+/// The most sounds one use plays (a candle lit by a fire charge plays two).
+const MAX_USE_SOUNDS: usize = 2;
+/// The sixteen light block names by level (PMMP `Light`).
+const LIGHT_BLOCKS: [&str; 16] = [
+    "minecraft:light_block_0",
+    "minecraft:light_block_1",
+    "minecraft:light_block_2",
+    "minecraft:light_block_3",
+    "minecraft:light_block_4",
+    "minecraft:light_block_5",
+    "minecraft:light_block_6",
+    "minecraft:light_block_7",
+    "minecraft:light_block_8",
+    "minecraft:light_block_9",
+    "minecraft:light_block_10",
+    "minecraft:light_block_11",
+    "minecraft:light_block_12",
+    "minecraft:light_block_13",
+    "minecraft:light_block_14",
+    "minecraft:light_block_15",
+];
 
 /// The result of an item's own use (PMMP `ItemUseResult`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +77,8 @@ enum Outcome {
 }
 
 /// A use of the held item on a block. PMMP passes the item by reference and collects returned
-/// items; the caller applies both afterwards (PMMP `returnItemsFromAction`).
+/// items; the caller applies both afterwards (PMMP `returnItemsFromAction`), then plays the use's
+/// sounds.
 pub(super) struct Use {
     pub(super) actor: Actor,
     pub(super) pos: BlockPos,
@@ -67,11 +91,64 @@ pub(super) struct Use {
     pub(super) item: Stack,
     /// Items to give back (a filled bucket, an emptied bottle).
     pub(super) returned: Vec<Stack>,
+    /// The sounds the use plays once it is applied with the held item and returned items, so that
+    /// a [`WorldSound`](crate::event::WorldSound) listener never sees it half done.
+    sounds: [Option<(Vec3, Sound)>; MAX_USE_SOUNDS],
     pub(super) rng: Random,
     /// The event the use raised, for its monitors once the held item is applied too.
     pub(super) watched: Option<Watched>,
+    /// Whether user code (a custom block's hook, a listener) ran in the block's own use: a use
+    /// that goes on to the item and placement checks the click again.
+    ran_user_code: bool,
     /// Where the click comes from.
     pub(super) source: Source,
+}
+
+impl Use {
+    /// Whether the item is of a PMMP item class.
+    fn item_is(&self, class: item::Class) -> bool {
+        self.item.item().is_some_and(|t| t.is(class))
+    }
+
+    /// Whether the item is a vanilla item kind.
+    pub(super) fn item_kind(&self, kind: item::Kind) -> bool {
+        self.item.item().is_some_and(|t| t.kind() == Some(kind))
+    }
+
+    /// Whether the item lights things (PMMP: flint and steel or Fire Aspect).
+    fn lights(&self) -> bool {
+        self.item_is(item::Class::FlintSteel)
+            || drops::level(&self.item, Enchantment::FireAspect) > 0
+    }
+
+    /// The block next to the clicked face.
+    fn replace(&self) -> Option<BlockPos> {
+        self.pos.step(self.face)
+    }
+
+    /// Takes one item (PMMP `Item::pop`).
+    pub(super) fn pop(&mut self) {
+        self.item = self.item.with_count(self.item.count().saturating_sub(1));
+    }
+
+    /// Wears the item by `amount` (PMMP `Durable::applyDamage`).
+    pub(super) fn wear(&mut self, settings: &crate::tick::Settings, amount: u32) {
+        self.item = breaking::damage(settings, &self.item, amount, &mut self.rng);
+    }
+
+    /// Plays `sound` at `at` once the use is applied ([`finish`]).
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: no use plays more than MAX_USE_SOUNDS sounds"
+    )]
+    pub(super) fn play(&mut self, at: Vec3, sound: Sound) {
+        let free = self
+            .sounds
+            .iter_mut()
+            .find(|s| s.is_none())
+            .expect("a use plays at most MAX_USE_SOUNDS sounds");
+        *free = Some((at, sound));
+    }
 }
 
 /// An event an item use raised, kept until the use is applied with the held item and returned
@@ -97,9 +174,9 @@ impl Watched {
     }
 }
 
-/// After listeners ran: whether the player is still in the world of `actor`, not a spectator,
-/// and holds `held`, so that a use planned before them can go on (a listener that took the item
-/// or moved the player away cancels it).
+/// Returns, after listeners ran, whether the player is still in the world of `actor`, not a
+/// spectator, and holds `held`, so that a use planned before them can go on (a listener that took
+/// the item or moved the player away cancels it).
 pub(super) fn still_holds(state: &State, actor: &Actor, held: &Stack) -> bool {
     super::actor(state, actor.session).is_some_and(|a| {
         a.world == actor.world
@@ -107,41 +184,8 @@ pub(super) fn still_holds(state: &State, actor: &Actor, held: &Stack) -> bool {
             && state
                 .players
                 .get(&actor.session)
-                .is_some_and(|p| p.inventory.held() == held)
+                .is_some_and(|p| p.inventory.held().same(held))
     })
-}
-
-impl Use {
-    /// One item less (PMMP `Item::pop`).
-    pub(super) fn pop(&mut self) {
-        self.item = self.item.with_count(self.item.count().saturating_sub(1));
-    }
-
-    /// The item worn by `amount` (PMMP `Durable::applyDamage`).
-    pub(super) fn wear(&mut self, settings: &crate::tick::Settings, amount: u32) {
-        self.item = breaking::damage(settings, &self.item, amount, &mut self.rng);
-    }
-
-    /// Whether the item is of a PMMP item class.
-    fn item_is(&self, class: item::Class) -> bool {
-        self.item.item().is_some_and(|t| t.is(class))
-    }
-
-    /// Whether the item is a vanilla item kind.
-    pub(super) fn item_kind(&self, kind: item::Kind) -> bool {
-        self.item.item().is_some_and(|t| t.kind() == Some(kind))
-    }
-
-    /// Whether the item lights things (PMMP: flint and steel or Fire Aspect).
-    fn lights(&self) -> bool {
-        self.item_is(item::Class::FlintSteel)
-            || drops::level(&self.item, Enchantment::FireAspect) > 0
-    }
-
-    /// The block next to the clicked face.
-    fn replace(&self) -> Option<BlockPos> {
-        self.pos.step(self.face)
-    }
 }
 
 /// Drops `item` at the centre of the used block (PMMP `World::dropItem`); at the world's entity
@@ -157,11 +201,11 @@ pub(super) fn set(state: &mut State, world: WorldIndex, pos: BlockPos, block: Bl
     if let Some(w) = state.worlds.get_mut(world)
         && let Err(e) = w.set_block(pos, block)
     {
-        tracing::debug!(?pos, %e, "block not set");
+        debug!(?pos, error = %e, "block not set");
     }
 }
 
-/// The block at `pos` (air where nothing is loaded).
+/// Returns the block at `pos` (air where nothing is loaded).
 fn get(state: &State, world: WorldIndex, pos: Option<BlockPos>) -> BlockState {
     state
         .worlds
@@ -169,9 +213,9 @@ fn get(state: &State, world: WorldIndex, pos: Option<BlockPos>) -> BlockState {
         .map_or(block::AIR, |w| place::block_at(w, pos))
 }
 
-/// PMMP `World::useItemOn` with `Player::interactBlock`'s item return: the clicked block's
-/// interaction, the item's own use, then placement. False when nothing happened (the caller
-/// resyncs).
+/// Uses the held item on a block (PMMP `World::useItemOn` with `Player::interactBlock`'s item
+/// return): the clicked block's interaction, the item's own use, then placement. False when
+/// nothing happened (the caller resyncs).
 pub(super) fn use_item_on(
     state: &mut State,
     actor: &Actor,
@@ -222,13 +266,7 @@ pub(super) fn use_item_on(
         }
         if dispatch::listened::<PlayerInteract>(state) {
             // A listener may have moved the player, changed the block or the held item.
-            let again = super::actor(state, actor.session).filter(|a| {
-                a.world == actor.world
-                    && a.can_interact(center(pos), a.reach())
-                    && right_click(state, a, pos, face)
-                        .is_some_and(|(c, h)| c == clicked && h == held)
-            });
-            let Some(again) = again else {
+            let Some(again) = click_again(state, &actor, pos, face, clicked, &held) else {
                 return false;
             };
             actor = again;
@@ -245,21 +283,31 @@ pub(super) fn use_item_on(
         block: clicked,
         item: held.clone(),
         returned: Vec::new(),
+        sounds: [None; MAX_USE_SOUNDS],
         rng: stream(state, actor.world, USE, pos),
         watched: None,
+        ran_user_code: false,
         source,
     };
     let done = if use_block && interact(state, &mut u) {
         finish(state, u, &held);
         true
     } else {
+        if u.ran_user_code {
+            // A custom block's hook or a listener may have moved the player, changed the block
+            // or the held item: the item's use and placement go on only from the same click.
+            let Some(again) = click_again(state, &u.actor, pos, face, clicked, &held) else {
+                return false;
+            };
+            u.actor = again;
+        }
         match use_item.then(|| item_use(state, &mut u)) {
             Some(Outcome::Success) => {
                 finish(state, u, &held);
                 true
             }
             Some(Outcome::Fail) => false,
-            Some(Outcome::None) | None => place_held(state, &actor, &held, pos, face, click),
+            Some(Outcome::None) | None => place_held(state, &u.actor, &held, pos, face, click),
         }
     };
     if let Some(e) = event.filter(|_| done) {
@@ -268,9 +316,9 @@ pub(super) fn use_item_on(
     done
 }
 
-/// PMMP `World::useItemOn`'s checks: the clicked block (not air) and the one next to its face are
-/// loaded and in the world, and the player is not a spectator. The clicked block (an inert one as
-/// its stand-in, [`place::placed_on`]) and the held item if so.
+/// Checks a right click (PMMP `World::useItemOn`'s checks): the clicked block (not air) and the
+/// one next to its face are loaded and in the world, and the player is not a spectator. The
+/// clicked block (an inert one as its stand-in, [`place::placed_on`]) and the held item if so.
 fn right_click(
     state: &State,
     actor: &Actor,
@@ -290,25 +338,47 @@ fn right_click(
     Some((clicked, held))
 }
 
+/// Finds the player of `actor` again after user code ran in its click at `pos`: in the same
+/// world, within reach, with the block it clicked (`clicked`) and the item it held (`held`) as
+/// they were.
+fn click_again(
+    state: &State,
+    actor: &Actor,
+    pos: BlockPos,
+    face: Face,
+    clicked: BlockState,
+    held: &Stack,
+) -> Option<Actor> {
+    super::actor(state, actor.session).filter(|a| {
+        a.world == actor.world
+            && a.can_interact(center(pos), a.reach())
+            && right_click(state, a, pos, face).is_some_and(|(c, h)| c == clicked && h.same(held))
+    })
+}
+
 /// Applies a use that worked: the held item and returned items (PMMP `returnItemsFromAction`),
-/// then the monitors of the event it raised.
+/// then its sounds, then the monitors of the event it raised.
 fn finish(state: &mut State, u: Use, held: &Stack) {
     let Use {
         actor,
         item,
         returned,
+        sounds,
         watched,
         ..
     } = u;
-    return_items(state, &actor, held, item, returned);
+    return_items(state, actor.session, held, item, returned);
+    for (at, sound) in sounds.into_iter().flatten() {
+        emit::sound(state, actor.world, at, sound);
+    }
     if let Some(watched) = watched {
         watched.watch(state);
     }
 }
 
-/// The placement part of PMMP `World::useItemOn`: the blocks, the entity and adventure checks
-/// ([`placement`]), [`BlockPlace`], the change, block entities, the sign editor, the sound, one
-/// item used.
+/// Places the held block (the placement part of PMMP `World::useItemOn`): the blocks, the entity
+/// and adventure checks ([`placement`]), [`BlockPlace`], the change, block entities, the sign
+/// editor, one item used, then the sound and the custom blocks' `on_place`.
 fn place_held(
     state: &mut State,
     actor: &Actor,
@@ -340,6 +410,7 @@ fn place_held(
         if dispatch::listened::<BlockPlace>(state)
             && !super::actor(state, actor.session).is_some_and(|a| {
                 still_holds(state, actor, held)
+                    && a.can_interact(center(pos), a.reach())
                     && placement(state, &a, held, pos, face, click).as_ref() == Some(&blocks)
             })
         {
@@ -356,9 +427,6 @@ fn place_held(
         if s.is(Class::BaseSign) {
             super::open_sign_editor(state, actor.session, world, *p, true);
         }
-        if s.custom_block().is_some() {
-            super::custom::placed(state, Some(actor.session), world, *p, *s);
-        }
         // PMMP `BaseRail::onPostPlace`: a rail joins the rails next to it.
         if s.is(Class::BaseRail) {
             let joined = state
@@ -371,20 +439,25 @@ fn place_held(
             }
         }
     }
-    if let Some((first, s)) = blocks.first() {
-        sound(state, world, center(*first), Sound::BlockPlace(*s));
-    }
     let used = held.with_count(held.count().saturating_sub(1));
-    return_items(state, actor, held, used, Vec::new());
+    return_items(state, actor.session, held, used, Vec::new());
+    if let Some((first, s)) = blocks.first() {
+        emit::sound(state, world, center(*first), Sound::BlockPlace(*s));
+    }
+    for (p, s) in &blocks {
+        if s.custom_block().is_some() {
+            super::custom::placed(state, Some(actor.session), world, *p, *s);
+        }
+    }
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
     true
 }
 
-/// The blocks placing `held` against the face `face` of the block at `pos` sets (PMMP
-/// `Item::getPlacementTransaction`), if nothing is in the way, adventure mode allows it and at
-/// least one block changes (PMMP `BlockTransaction::apply`).
+/// Works out the blocks placing `held` against the face `face` of the block at `pos` sets (PMMP
+/// `Item::getPlacementTransaction`), if adventure mode allows it, at least one block changes
+/// (PMMP `BlockTransaction::apply`) and nothing is in the way. The cheap checks come first.
 fn placement(
     state: &State,
     actor: &Actor,
@@ -402,21 +475,19 @@ fn placement(
         Entry::Inert(s, _) => s.name(),
         Entry::Unknown(_) => return None,
     };
-    let mut rng = stream(state, world, USE, pos);
-    let blocks = place::placement(w, item, pos, face, click, Some(&actor.placer()), &mut rng)?;
-    if blocks.iter().any(|(p, s)| obstructed(state, world, *p, *s)) {
-        return None;
-    }
     if actor.mode == GameMode::Adventure && !adventure_allows(held, "CanPlaceOn", clicked) {
         return None;
     }
-    blocks
-        .iter()
-        .any(|(p, s)| w.block(*p) != Some(*s))
-        .then_some(blocks)
+    let mut rng = stream(state, world, USE, pos);
+    let blocks = place::placement(w, item, pos, face, click, Some(&actor.placer()), &mut rng)?;
+    let changes = blocks.iter().any(|(p, s)| w.block(*p) != Some(*s));
+    if !changes || blocks.iter().any(|(p, s)| obstructed(state, world, *p, *s)) {
+        return None;
+    }
+    Some(blocks)
 }
 
-/// Whether an entity or player is in the way of `block` at `pos` (PMMP
+/// Returns whether an entity or player is in the way of `block` at `pos` (PMMP
 /// `World::getCollidingEntities` for each collision box, [`entity::occupied`]).
 fn obstructed(state: &State, world: WorldIndex, pos: BlockPos, block: BlockState) -> bool {
     let at = block_vec(pos);
@@ -436,7 +507,7 @@ fn open_window(state: &mut State, u: &Use) {
     let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
 }
 
-/// PMMP `Block::onInteract` of the clicked block's class (the first class in its chain that has
+/// Uses the clicked block (PMMP `Block::onInteract` of the first class in its chain that has
 /// one): true when the block did something.
 #[expect(
     clippy::too_many_lines,
@@ -446,6 +517,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
     let block = u.block;
     // A custom block's own use; no vanilla class applies to it.
     if block.custom_block().is_some() {
+        u.ran_user_code = true;
         return super::custom::used(state, u.actor.session, u.actor.world, u.pos, block);
     }
     // Bone meal on anything that grows: the block update rules decide (PMMP `Fertilizer` in
@@ -532,7 +604,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                     if let Some(item) = drops_item(block) {
                         drop_or_return(state, u, item);
                     }
-                    sound(state, u.actor.world, center(u.pos), Sound::GlowBerriesPick);
+                    u.play(center(u.pos), Sound::GlowBerriesPick);
                     if let Some(bare) = props::renamed(block, "minecraft:cave_vines") {
                         set(state, u.actor.world, u.pos, bare);
                     }
@@ -577,7 +649,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 } else {
                     Sound::RedstonePowerOff
                 };
-                sound(state, u.actor.world, center(u.pos), switched);
+                u.play(center(u.pos), switched);
                 return true;
             }
             Class::Light => {
@@ -642,12 +714,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                     if let Some(s) = props::with_int(block, "respawn_anchor_charge", charges + 1) {
                         set(state, u.actor.world, u.pos, s);
                     }
-                    sound(
-                        state,
-                        u.actor.world,
-                        center(u.pos),
-                        Sound::RespawnAnchorCharge,
-                    );
+                    u.play(center(u.pos), Sound::RespawnAnchorCharge);
                     u.pop();
                     return true;
                 }
@@ -669,7 +736,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                         let count = u8::try_from(amount).unwrap_or(1);
                         drop_or_return(state, u, berries.with_count(count));
                     }
-                    sound(state, u.actor.world, center(u.pos), Sound::SweetBerriesPick);
+                    u.play(center(u.pos), Sound::SweetBerriesPick);
                 }
                 return true;
             }
@@ -692,8 +759,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 if let Some(s) = props::with_flag(block, "open_bit", open) {
                     set(state, u.actor.world, u.pos, s);
                 }
-                let door = Sound::Door { pitch: 0.0 };
-                sound(state, u.actor.world, block_vec(u.pos), door);
+                u.play(block_vec(u.pos), Sound::Door { pitch: 0.0 });
                 return true;
             }
             Class::Wood => {
@@ -707,8 +773,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                     if let Some(stripped) = stripped {
                         u.wear(&state.settings, 1);
                         set(state, u.actor.world, u.pos, stripped);
-                        let used = Sound::ItemUseOnBlock(stripped);
-                        sound(state, u.actor.world, center(u.pos), used);
+                        u.play(center(u.pos), Sound::ItemUseOnBlock(stripped));
                         return true;
                     }
                 }
@@ -733,8 +798,8 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
     false
 }
 
-/// PMMP `Bell::onInteract`: the bell rings when hit on a side it can swing from (the ring itself
-/// is an effect only).
+/// Returns whether the bell rings, hit on a side it can swing from (PMMP `Bell::onInteract`; the
+/// ring itself is an effect only).
 fn bell_rings(u: &Use) -> bool {
     let hit = props::horizontal_facing(u.actor.yaw).opposite();
     let facing = props::facing(u.block).unwrap_or(Face::North);
@@ -745,28 +810,8 @@ fn bell_rings(u: &Use) -> bool {
     }
 }
 
-/// The sixteen light block names by level (PMMP `Light`).
-const LIGHT_BLOCKS: [&str; 16] = [
-    "minecraft:light_block_0",
-    "minecraft:light_block_1",
-    "minecraft:light_block_2",
-    "minecraft:light_block_3",
-    "minecraft:light_block_4",
-    "minecraft:light_block_5",
-    "minecraft:light_block_6",
-    "minecraft:light_block_7",
-    "minecraft:light_block_8",
-    "minecraft:light_block_9",
-    "minecraft:light_block_10",
-    "minecraft:light_block_11",
-    "minecraft:light_block_12",
-    "minecraft:light_block_13",
-    "minecraft:light_block_14",
-    "minecraft:light_block_15",
-];
-
-/// The PMMP classes whose `onInteract` grows the block with bone meal (each class's
-/// `Fertilizer` branch; the block update rules grow it).
+/// Returns whether bone meal grows the block: the PMMP classes whose `onInteract` has a
+/// `Fertilizer` branch (the block update rules grow it).
 fn fertilizable(block: BlockState) -> bool {
     // Berries come off before bone meal counts (PMMP `CaveVines`, `SweetBerryBush`).
     if (block.is(Class::CaveVines) && block.name().ends_with("_with_berries"))
@@ -803,7 +848,7 @@ fn fertilizable(block: BlockState) -> bool {
     .any(|c| block.is(c))
 }
 
-/// The item form of a block as a single stack.
+/// Returns the item form of a block as a single stack.
 fn drops_item(block: BlockState) -> Option<Stack> {
     match block.item() {
         block::ItemForm::Item(t) => Some(Stack::new(t, 1)),
@@ -811,7 +856,7 @@ fn drops_item(block: BlockState) -> Option<Stack> {
     }
 }
 
-/// The item type of a block's item form, if it has one.
+/// Returns the item type of a block's item form, if it has one.
 fn item_type(block: BlockState) -> Option<item::Type> {
     match block.item() {
         block::ItemForm::Item(t) => Some(t),
@@ -819,18 +864,19 @@ fn item_type(block: BlockState) -> Option<item::Type> {
     }
 }
 
-/// PMMP `Bed::onInteract`: the survival rules find the clicked bed's other half (none for an
-/// incomplete bed), pick its head and check night, distance and whether it is taken.
+/// Lays the player in the bed (PMMP `Bed::onInteract`): the survival rules find the clicked bed's
+/// other half (none for an incomplete bed), pick its head and check night, distance and whether
+/// it is taken.
 fn bed(state: &mut State, u: &Use) -> bool {
     let _ = survival::sleep(state, u.actor.session, u.actor.world, u.pos);
     true
 }
 
-/// PMMP `RespawnAnchor::onInteract` for a charged anchor: [`PlayerRespawnAnchorUse`], then the
-/// anchor explodes (in any world, as in PMMP) or, if a listener chose so, becomes the player's
-/// respawn point. False if cancelled, or if a listener took the item, moved the player away or
-/// changed the anchor.
-fn respawn_anchor(state: &mut State, u: &Use) -> bool {
+/// Uses a charged respawn anchor (PMMP `RespawnAnchor::onInteract`): [`PlayerRespawnAnchorUse`],
+/// then the anchor explodes (in any world, as in PMMP) or, if a listener chose so, becomes the
+/// player's respawn point. False if cancelled, or if a listener took the item, moved the player
+/// away or changed the anchor. Its monitors see only what was applied.
+fn respawn_anchor(state: &mut State, u: &mut Use) -> bool {
     let mut action = RespawnAnchorAction::Explode;
     let mut event = None;
     if dispatch::heard::<PlayerRespawnAnchorUse>(state) {
@@ -843,8 +889,10 @@ fn respawn_anchor(state: &mut State, u: &Use) -> bool {
             cancelled: false,
         };
         dispatch::call(state, &mut e);
+        let listened = dispatch::listened::<PlayerRespawnAnchorUse>(state);
+        u.ran_user_code = listened;
         if e.cancelled
-            || (dispatch::listened::<PlayerRespawnAnchorUse>(state)
+            || (listened
                 && !(still_holds(state, &u.actor, &u.item)
                     && get(state, u.actor.world, Some(u.pos)) == u.block))
         {
@@ -853,20 +901,20 @@ fn respawn_anchor(state: &mut State, u: &Use) -> bool {
         action = e.action;
         event = Some(e);
     }
-    match action {
+    let applied = match action {
         RespawnAnchorAction::Explode => explode_anchor(state, u),
         RespawnAnchorAction::SetSpawn => anchor_spawn(state, u),
-    }
-    if let Some(e) = event {
+    };
+    if let Some(e) = event.filter(|_| applied) {
         dispatch::watch(state, &e);
     }
     true
 }
 
-/// PMMP `RespawnAnchor::explode`: [`BlockPreExplode`] (radius 5, fire), then the anchor goes and
-/// explodes from the centre of its block. A cancelled event, or a listener that changed the
-/// anchor, keeps it.
-fn explode_anchor(state: &mut State, u: &Use) {
+/// Explodes a respawn anchor (PMMP `RespawnAnchor::explode`): [`BlockPreExplode`] (radius 5,
+/// fire), then the anchor goes and explodes from the centre of its block. A cancelled event, or a
+/// listener that changed the anchor, keeps it: false then.
+fn explode_anchor(state: &mut State, u: &Use) -> bool {
     let mut blast = entity::Blast::new(ANCHOR_RADIUS, true);
     let mut event = None;
     if dispatch::heard::<BlockPreExplode>(state) {
@@ -885,7 +933,7 @@ fn explode_anchor(state: &mut State, u: &Use) {
             || (dispatch::listened::<BlockPreExplode>(state)
                 && get(state, u.actor.world, Some(u.pos)) != u.block)
         {
-            return;
+            return false;
         }
         blast = entity::Blast {
             size: e.radius,
@@ -899,41 +947,38 @@ fn explode_anchor(state: &mut State, u: &Use) {
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
+    true
 }
 
-/// The `SetSpawn` action of PMMP `RespawnAnchor::onInteract`: the anchor becomes the player's
-/// respawn point with a sound and a message, unless it already is.
-fn anchor_spawn(state: &mut State, u: &Use) {
+/// Makes the anchor the player's respawn point with a sound and a message, unless it already is
+/// (the `SetSpawn` action of PMMP `RespawnAnchor::onInteract`). False when nothing changed.
+fn anchor_spawn(state: &mut State, u: &mut Use) -> bool {
     let Some(name) = state.worlds.get(u.actor.world).map(|w| w.name().to_owned()) else {
-        return;
+        return false;
     };
     let Some(player) = state.players.get_mut(&u.actor.session) else {
-        return;
+        return false;
     };
     if player.spawn() == Some((name.as_str(), u.pos)) {
-        return;
+        return false;
     }
     if let Err(e) = player.set_spawn(Some((&name, u.pos))) {
-        tracing::debug!(%e, "respawn anchor spawn not set");
-        return;
+        debug!(error = %e, "respawn anchor spawn not set");
+        return false;
     }
     let message = player::Message::Translation {
         key: ANCHOR_SPAWN_SET.to_owned(),
         parameters: Vec::new(),
     };
     if let Err(e) = player.send(message) {
-        tracing::debug!(%e, "respawn anchor message not sent");
+        debug!(error = %e, "respawn anchor message not sent");
     }
-    sound(
-        state,
-        u.actor.world,
-        center(u.pos),
-        Sound::RespawnAnchorSetSpawn,
-    );
+    u.play(center(u.pos), Sound::RespawnAnchorSetSpawn);
+    true
 }
 
-/// PMMP `Button::onInteract`: pressed until a scheduled update releases it.
-fn button(state: &mut State, u: &Use) -> bool {
+/// Presses a button until a scheduled update releases it (PMMP `Button::onInteract`).
+fn button(state: &mut State, u: &mut Use) -> bool {
     if props::flag(u.block, "button_pressed_bit") == Some(true) {
         return true;
     }
@@ -945,12 +990,12 @@ fn button(state: &mut State, u: &Use) -> bool {
             STONE_BUTTON_TICKS
         };
         update::schedule(state, u.actor.world, u.pos, ticks);
-        sound(state, u.actor.world, center(u.pos), Sound::RedstonePowerOn);
+        u.play(center(u.pos), Sound::RedstonePowerOn);
     }
     true
 }
 
-/// The cake with the candle the held item places (PMMP `Cake::onInteract`), if it is one.
+/// Returns the cake with the candle the held item places (PMMP `Cake::onInteract`), if it is one.
 fn candle_cake(item: &Stack) -> Option<BlockState> {
     let candle = item.item()?.block()?;
     if !candle.is(Class::Candle) {
@@ -963,11 +1008,9 @@ fn candle_cake(item: &Stack) -> Option<BlockState> {
     BlockState::find(&name, &[("lit", block::PropertyValue::Byte(0))])
 }
 
-/// The bites a cake has before it is gone (PMMP `Cake::MAX_BITES`).
-const CAKE_MAX_BITES: i32 = 6;
-
-/// PMMP `BaseCake::onInteract`: the player eats a slice (`Player::consumeObject`, the survival
-/// rules); false, and the block stays, if it cannot eat now. Then `onConsume`: a cake loses a bite
+/// Eats a slice of cake (PMMP `BaseCake::onInteract`): the player eats it
+/// (`Player::consumeObject`, the survival rules); false, and the block stays, if it cannot eat
+/// now. Then `onConsume`: a cake loses a bite
 /// and is gone after the last (`Cake::getResidue`); a cake with a candle becomes a cake with one
 /// bite and drops its candle (`CakeWithCandle`).
 fn cake(state: &mut State, u: &mut Use) -> bool {
@@ -996,38 +1039,40 @@ fn cake(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// PMMP `Campfire::onInteract`: lighting with a fire charge, flint and steel or Fire Aspect, and
-/// putting out with a shovel. Cooking items is the block entity's.
+/// Lights a campfire with a fire charge, flint and steel or Fire Aspect, or puts it out with a
+/// shovel (PMMP `Campfire::onInteract`). Cooking items is the block entity's.
 fn campfire(state: &mut State, u: &mut Use) -> bool {
     let lit = props::flag(u.block, "extinguished") != Some(true);
     let world = u.actor.world;
     if !lit {
-        if u.item_kind(item::Kind::FireCharge) {
+        let (at, lights) = if u.item_kind(item::Kind::FireCharge) {
             u.pop();
-            if let Some(s) = props::with_flag(u.block, "extinguished", false) {
-                set(state, world, u.pos, s);
-            }
-            sound(state, world, block_vec(u.pos), Sound::BlazeShoot);
-            return true;
-        }
-        if u.lights() {
+            (block_vec(u.pos), Sound::BlazeShoot)
+        } else if u.lights() {
             u.wear(&state.settings, 1);
-            light_campfire(state, world, u.pos, u.block);
-            return true;
+            (center(u.pos), Sound::FlintSteel)
+        } else {
+            return false;
+        };
+        if let Some(s) = props::with_flag(u.block, "extinguished", false) {
+            set(state, world, u.pos, s);
         }
-    } else if u.item_is(item::Class::Shovel) {
+        u.play(at, lights);
+        return true;
+    }
+    if u.item_is(item::Class::Shovel) {
         u.wear(&state.settings, 1);
         if let Some(s) = props::with_flag(u.block, "extinguished", true) {
             set(state, world, u.pos, s);
         }
-        sound(state, world, center(u.pos), Sound::FireExtinguish);
+        u.play(center(u.pos), Sound::FireExtinguish);
         return true;
     }
     false
 }
 
-/// PMMP `Campfire::ignite`: lights the unlit campfire `block` at `pos` (flint and steel, or a
-/// burning entity inside it, PMMP `Campfire::onEntityInside`).
+/// Lights the unlit campfire `block` at `pos` (PMMP `Campfire::ignite`) for a burning entity
+/// inside it (PMMP `Campfire::onEntityInside`).
 pub(in crate::tick) fn light_campfire(
     state: &mut State,
     world: WorldIndex,
@@ -1037,11 +1082,11 @@ pub(in crate::tick) fn light_campfire(
     if let Some(s) = props::with_flag(block, "extinguished", false) {
         set(state, world, pos, s);
     }
-    sound(state, world, center(pos), Sound::FlintSteel);
+    emit::sound(state, world, center(pos), Sound::FlintSteel);
 }
 
-/// PMMP `WaterCauldron::onEntityInside`: the water cauldron `block` at `pos` loses a level for
-/// putting out a burning entity (level 0 is the empty cauldron).
+/// Lowers the water cauldron `block` at `pos` by a level for putting out a burning entity (PMMP
+/// `WaterCauldron::onEntityInside`; level 0 is the empty cauldron).
 pub(in crate::tick) fn lower_water_cauldron(
     state: &mut State,
     world: WorldIndex,
@@ -1055,7 +1100,30 @@ pub(in crate::tick) fn lower_water_cauldron(
     }
 }
 
-/// PMMP `CandleTrait::onInteract`: lit by fire, put out by an empty hand.
+/// Clears the dye and potion of the cauldron's block entity at `pos`, and shows it to the
+/// players who see it when it had either (PMMP `Cauldron::writeStateToWorld`, and clear water
+/// poured into a dyed one in `WaterCauldron::onInteract`).
+pub(in crate::tick) fn clear_cauldron(state: &mut State, world: WorldIndex, pos: BlockPos) {
+    // Read first: `get_mut` marks the block entities of the chunk changed.
+    let tinted = matches!(
+        state.rules.block_entities.get(world, pos),
+        Some(BlockEntity {
+            kind: block_entity::Kind::Cauldron(c),
+            ..
+        }) if c.colour.is_some() || c.potion != -1
+    );
+    if tinted
+        && let Some(BlockEntity {
+            kind: block_entity::Kind::Cauldron(c),
+            ..
+        }) = state.rules.block_entities.get_mut(world, pos)
+    {
+        std::mem::take(c);
+        block_entity::mark_spawn(state, world, pos);
+    }
+}
+
+/// Lights a candle by fire or puts it out by an empty hand (PMMP `CandleTrait::onInteract`).
 fn candle(state: &mut State, u: &mut Use) -> bool {
     let lit = props::flag(u.block, "lit") == Some(true);
     let world = u.actor.world;
@@ -1067,9 +1135,9 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
             u.wear(&state.settings, 1);
         } else if u.item_kind(item::Kind::FireCharge) {
             u.pop();
-            sound(state, world, block_vec(u.pos), Sound::BlazeShoot);
+            u.play(block_vec(u.pos), Sound::BlazeShoot);
         }
-        sound(state, world, center(u.pos), Sound::FlintSteel);
+        u.play(center(u.pos), Sound::FlintSteel);
         if let Some(s) = props::with_flag(u.block, "lit", true) {
             set(state, world, u.pos, s);
         }
@@ -1079,7 +1147,7 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
         if !lit {
             return true;
         }
-        sound(state, world, center(u.pos), Sound::FireExtinguish);
+        u.play(center(u.pos), Sound::FireExtinguish);
         if let Some(s) = props::with_flag(u.block, "lit", false) {
             set(state, world, u.pos, s);
         }
@@ -1089,8 +1157,9 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
     false
 }
 
-/// PMMP `Cauldron`, `WaterCauldron` and `LavaCauldron` `onInteract`: filling with buckets and
-/// water bottles, emptying with buckets and bottles, mixing liquids. A dye is
+/// Fills a cauldron with buckets and water bottles, empties it with buckets and bottles, or mixes
+/// liquids (PMMP `Cauldron`, `WaterCauldron` and `LavaCauldron` `onInteract`). Clear water
+/// poured in and an emptied cauldron lose their dye and potion ([`clear_cauldron`]). A dye is
 /// [`super::decor::cauldron_dye`]'s; putting a potion in or taking it out (PMMP
 /// `PotionCauldron::onInteract`) and washing items are not handled.
 fn cauldron(state: &mut State, u: &mut Use) -> bool {
@@ -1111,73 +1180,65 @@ fn cauldron(state: &mut State, u: &mut Use) -> bool {
     // PMMP `FillableCauldron::addFillLevels`, `removeFillLevels`: the liquid's fill or empty
     // sound; `mix` has none in PMMP (a fizz here).
     let mixed = Sound::Fizz { pitch: 0.0 };
-    let (result, returned, played) = if level == 0 {
+    let (level_after, result, returned, played) = if level == 0 {
         if u.item_kind(item::Kind::WaterBucket) {
-            (
-                with("water", CAULDRON_FULL),
-                bucket,
-                Sound::CauldronFillWater,
-            )
+            let result = with("water", CAULDRON_FULL);
+            (CAULDRON_FULL, result, bucket, Sound::CauldronFillWater)
         } else if u.item_kind(item::Kind::LavaBucket) {
-            (with("lava", CAULDRON_FULL), bucket, Sound::CauldronFillLava)
+            let result = with("lava", CAULDRON_FULL);
+            (CAULDRON_FULL, result, bucket, Sound::CauldronFillLava)
         } else if water_potion {
-            (
-                with("water", BOTTLE_LEVELS),
-                bottle,
-                Sound::CauldronFillWater,
-            )
+            let result = with("water", BOTTLE_LEVELS);
+            (BOTTLE_LEVELS, result, bottle, Sound::CauldronFillWater)
         } else {
             return true;
         }
     } else if lava {
         if u.item_kind(item::Kind::Bucket) && level >= CAULDRON_FULL {
             let lava_bucket = Stack::new(item::Kind::LavaBucket.default_type(), 1);
-            (with("water", 0), lava_bucket, Sound::CauldronEmptyLava)
+            (0, with("water", 0), lava_bucket, Sound::CauldronEmptyLava)
         } else if u.item_kind(item::Kind::WaterBucket) || any_potion {
             // Mixing empties the cauldron.
             let back = if any_potion { bottle } else { bucket };
-            (with("water", 0), back, mixed)
+            (0, with("water", 0), back, mixed)
         } else {
             return true;
         }
     } else if u.item_kind(item::Kind::WaterBucket) && level < CAULDRON_FULL {
-        (
-            with("water", CAULDRON_FULL),
-            bucket,
-            Sound::CauldronFillWater,
-        )
+        let result = with("water", CAULDRON_FULL);
+        (CAULDRON_FULL, result, bucket, Sound::CauldronFillWater)
     } else if u.item_kind(item::Kind::Bucket) && level >= CAULDRON_FULL {
         let water_bucket = Stack::new(item::Kind::WaterBucket.default_type(), 1);
-        (with("water", 0), water_bucket, Sound::CauldronEmptyWater)
+        (0, with("water", 0), water_bucket, Sound::CauldronEmptyWater)
     } else if u.item_kind(item::Kind::GlassBottle) && level >= BOTTLE_LEVELS {
         let potion = Stack::new(item::Kind::Potion.default_type(), 1);
-        (
-            with("water", level - BOTTLE_LEVELS),
-            potion,
-            Sound::CauldronEmptyWater,
-        )
+        let next = level - BOTTLE_LEVELS;
+        (next, with("water", next), potion, Sound::CauldronEmptyWater)
     } else if water_potion && level < CAULDRON_FULL {
         let next = (level + BOTTLE_LEVELS).min(CAULDRON_FULL);
-        (with("water", next), bottle, Sound::CauldronFillWater)
+        (next, with("water", next), bottle, Sound::CauldronFillWater)
     } else if u.item_kind(item::Kind::LavaBucket) {
-        (with("water", 0), bucket, mixed)
+        (0, with("water", 0), bucket, mixed)
     } else if any_potion && !water_potion {
         // Another potion mixes with the water (PMMP `WaterCauldron::onInteract`).
-        (with("water", 0), bottle, mixed)
+        (0, with("water", 0), bottle, mixed)
     } else {
         return true;
     };
     if let Some(result) = result {
         set(state, world, u.pos, result);
-        sound(state, world, center(u.pos), played);
+        if level_after == 0 || u.item_kind(item::Kind::WaterBucket) || water_potion {
+            clear_cauldron(state, world, u.pos);
+        }
+        u.play(center(u.pos), played);
         u.pop();
         u.returned.push(returned);
     }
     true
 }
 
-/// PMMP `CopperTrait::onInteract`: honeycomb waxes, an axe takes the wax off or scrapes one
-/// stage of oxidation.
+/// Waxes copper with honeycomb, or takes the wax off or scrapes one stage of oxidation with an
+/// axe (PMMP `CopperTrait::onInteract`).
 fn copper(state: &mut State, u: &mut Use) -> bool {
     let block = u.block;
     let Some((oxidation, waxed, base)) = block::copper_parts(block) else {
@@ -1189,7 +1250,7 @@ fn copper(state: &mut State, u: &mut Use) -> bool {
     if !waxed && u.item_kind(item::Kind::Honeycomb) {
         if let Some(s) = renamed(oxidation, true) {
             set(state, world, u.pos, s);
-            sound(state, world, block_vec(u.pos), Sound::CopperWaxApply);
+            u.play(block_vec(u.pos), Sound::CopperWaxApply);
             u.pop();
             return true;
         }
@@ -1206,7 +1267,7 @@ fn copper(state: &mut State, u: &mut Use) -> bool {
         };
         if let Some(next) = next {
             set(state, world, u.pos, next);
-            sound(state, world, block_vec(u.pos), played);
+            u.play(block_vec(u.pos), played);
             u.wear(&state.settings, 1);
             return true;
         }
@@ -1214,7 +1275,7 @@ fn copper(state: &mut State, u: &mut Use) -> bool {
     false
 }
 
-/// PMMP `CopperDoor::onInteract`: the other half takes the new copper state.
+/// Gives the other half of a copper door its new copper state (PMMP `CopperDoor::onInteract`).
 fn copy_copper_to_other_half(state: &mut State, u: &Use) {
     let world = u.actor.world;
     let Some(now) = state.worlds.get(world).and_then(|w| w.block(u.pos)) else {
@@ -1229,8 +1290,8 @@ fn copy_copper_to_other_half(state: &mut State, u: &Use) {
     }
 }
 
-/// PMMP `Dirt::onInteract`: a hoe tills (coarse dirt becomes dirt, rooted dirt drops its roots),
-/// a water bottle makes mud.
+/// Tills dirt with a hoe (coarse dirt becomes dirt, rooted dirt drops its roots) or makes mud
+/// with a water bottle (PMMP `Dirt::onInteract`).
 fn dirt(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let name = u.block.name();
@@ -1246,7 +1307,7 @@ fn dirt(state: &mut State, u: &mut Use) -> bool {
         } else {
             Kind::Dirt.default_state()
         };
-        sound(state, world, center(u.pos), Sound::ItemUseOnBlock(next));
+        u.play(center(u.pos), Sound::ItemUseOnBlock(next));
         set(state, world, u.pos, next);
         if name == "minecraft:dirt_with_roots"
             && let Some(roots) = drops_item(Kind::HangingRoots.default_state())
@@ -1262,19 +1323,14 @@ fn dirt(state: &mut State, u: &mut Use) -> bool {
     if water {
         u.pop();
         set(state, world, u.pos, Kind::Mud.default_state());
-        sound(
-            state,
-            world,
-            center(u.pos),
-            Sound::WaterSplash { volume: 0.5 },
-        );
+        u.play(center(u.pos), Sound::WaterSplash { volume: 0.5 });
         return true;
     }
     false
 }
 
-/// PMMP `Door::onInteract`: both halves open or close.
-fn door(state: &mut State, u: &Use) -> bool {
+/// Opens or closes both halves of a door (PMMP `Door::onInteract`).
+fn door(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let open = props::flag(u.block, "open_bit") != Some(true);
     let top = props::flag(u.block, "upper_block_bit") == Some(true);
@@ -1289,12 +1345,12 @@ fn door(state: &mut State, u: &Use) -> bool {
     if let Some(s) = props::with_flag(u.block, "open_bit", open) {
         set(state, world, u.pos, s);
     }
-    sound(state, world, block_vec(u.pos), Sound::Door { pitch: 0.0 });
+    u.play(block_vec(u.pos), Sound::Door { pitch: 0.0 });
     true
 }
 
-/// PMMP `FenceGate::onInteract`: opens away from the player.
-fn fence_gate(state: &mut State, u: &Use) -> bool {
+/// Opens a fence gate away from the player, or closes it (PMMP `FenceGate::onInteract`).
+fn fence_gate(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let open = props::flag(u.block, "open_bit") != Some(true);
     let mut next = props::with_flag(u.block, "open_bit", open).unwrap_or(u.block);
@@ -1305,11 +1361,12 @@ fn fence_gate(state: &mut State, u: &Use) -> bool {
         }
     }
     set(state, world, u.pos, next);
-    sound(state, world, block_vec(u.pos), Sound::Door { pitch: 0.0 });
+    u.play(block_vec(u.pos), Sound::Door { pitch: 0.0 });
     true
 }
 
-/// PMMP `Grass::onInteract`: a hoe makes farmland, a shovel a path, with air above.
+/// Makes farmland of grass with a hoe or a path with a shovel, with air above (PMMP
+/// `Grass::onInteract`).
 fn grass(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     if get(state, world, u.pos.step(Face::Up)) != block::AIR || u.face == Face::Down {
@@ -1323,13 +1380,13 @@ fn grass(state: &mut State, u: &mut Use) -> bool {
         return false;
     };
     u.wear(&state.settings, 1);
-    sound(state, world, center(u.pos), Sound::ItemUseOnBlock(next));
+    u.play(center(u.pos), Sound::ItemUseOnBlock(next));
     set(state, world, u.pos, next);
     true
 }
 
-/// Which side of a sign the player at `feet` faces (PMMP `BaseSign::interactsFront`, by the
-/// sign's facing direction instead of `atan2`).
+/// Returns which side of a sign the player at `feet` faces (PMMP `BaseSign::interactsFront`, by
+/// the sign's facing direction instead of `atan2`): true for the front.
 pub(super) fn sign_front(block: BlockState, feet: Vec3, pos: BlockPos) -> bool {
     let facing = if let Some(rotation) = props::int(block, props::ROTATION)
         .filter(|_| props::facing(block).is_none() || block.is(Class::CeilingCenterHangingSign))
@@ -1345,7 +1402,8 @@ pub(super) fn sign_front(block: BlockState, feet: Vec3, pos: BlockPos) -> bool {
     facing.x * to_player.x + facing.z * to_player.z >= 0.0
 }
 
-/// PMMP `Item::onInteractBlock` of the held item's class (when the block did nothing).
+/// Uses the held item on the block when the block did nothing (PMMP `Item::onInteractBlock` of
+/// the item's class).
 fn item_use(state: &mut State, u: &mut Use) -> Outcome {
     let world = u.actor.world;
     let Some(item) = u.item.item() else {
@@ -1377,7 +1435,7 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
         };
         set(state, world, pos, flowing);
         update::schedule(state, world, pos, rate);
-        sound(state, world, center(pos), empty_sound);
+        u.play(center(pos), empty_sound);
         u.pop();
         if !returned.is_empty() {
             u.returned.push(returned);
@@ -1399,7 +1457,7 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
             return Outcome::Fail;
         };
         set(state, world, u.pos, block::AIR);
-        sound(state, world, center(u.pos), fill_sound);
+        u.play(center(u.pos), fill_sound);
         u.pop();
         if !returned.is_empty() {
             u.returned.push(returned);
@@ -1424,10 +1482,10 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
         }
         set(state, world, pos, Kind::Fire.default_state());
         if u.item_kind(item::Kind::FireCharge) {
-            sound(state, world, center(pos), Sound::BlazeShoot);
+            u.play(center(pos), Sound::BlazeShoot);
             u.pop();
         } else {
-            sound(state, world, center(pos), Sound::FlintSteel);
+            u.play(center(pos), Sound::FlintSteel);
             u.wear(&state.settings, 1);
         }
         return Outcome::Success;
@@ -1435,9 +1493,10 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
     entity_use(state, u, item)
 }
 
-/// PMMP `PaintingItem`, `item\EndCrystal`, `item\FireworkRocket` and `SpawnEgg::onInteractBlock`:
-/// they make entities (the entity rules), and one is used up. A spawn egg's entity stands in the
-/// middle of the block next to the clicked face, turned at random.
+/// Makes the entity of an item that makes one, and uses one up (PMMP `PaintingItem`,
+/// `item\EndCrystal`, `item\FireworkRocket` and `SpawnEgg::onInteractBlock`; the entity rules).
+/// A spawn egg's entity stands in the middle of the block next to the clicked face, turned at
+/// random.
 fn entity_use(state: &mut State, u: &mut Use, item: item::Type) -> Outcome {
     let world = u.actor.world;
     let placed = if item.is(item::Class::PaintingItem) {
@@ -1473,8 +1532,8 @@ fn entity_use(state: &mut State, u: &mut Use, item: item::Type) -> Outcome {
     }
 }
 
-/// [`PlayerBucketEmpty`] for pouring the held bucket at `pos` (now `replace`): what the player
-/// gets back (an empty bucket unless a listener changed it), or `None` if cancelled or a
+/// Raises [`PlayerBucketEmpty`] for pouring the held bucket at `pos` (now `replace`): what the
+/// player gets back (an empty bucket unless a listener changed it), or `None` if cancelled or a
 /// listener changed the place, the clicked block or the held bucket.
 fn bucket_empty(
     state: &mut State,
@@ -1510,8 +1569,8 @@ fn bucket_empty(
     Some(returned)
 }
 
-/// [`PlayerBucketFill`] for filling the held bucket from the clicked source: what the player
-/// gets back (`filled` unless a listener changed it), or `None` if cancelled or a listener
+/// Raises [`PlayerBucketFill`] for filling the held bucket from the clicked source: what the
+/// player gets back (`filled` unless a listener changed it), or `None` if cancelled or a listener
 /// changed the source or the held bucket.
 fn bucket_fill(state: &mut State, u: &mut Use, filled: Stack) -> Option<Stack> {
     if !dispatch::heard::<PlayerBucketFill>(state) {
@@ -1538,7 +1597,7 @@ fn bucket_fill(state: &mut State, u: &mut Use, filled: Stack) -> Option<Stack> {
     Some(returned)
 }
 
-/// The flowing form of a liquid at full level (Bedrock `flowing_*` with depth 0).
+/// Returns the flowing form of a liquid at full level (Bedrock `flowing_*` with depth 0).
 fn flowing(liquid: Kind) -> Option<BlockState> {
     let name = if liquid == Kind::Lava {
         "minecraft:flowing_lava"
@@ -1548,9 +1607,9 @@ fn flowing(liquid: Kind) -> Option<BlockState> {
     BlockState::find(name, &[("liquid_depth", block::PropertyValue::Int(0))])
 }
 
-/// PMMP `Player::useHeldItem`: refused while the item's cooldown runs; a consumable starts being
-/// eaten or drunk (the survival rules'); any other use that works starts the cooldown again
-/// (ender pearls, goat horns).
+/// Uses the held item in the air (PMMP `Player::useHeldItem`): refused while its cooldown runs;
+/// a consumable starts being eaten or drunk (the survival rules'); any other use that works
+/// starts the cooldown again (ender pearls, goat horns).
 pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
     let Some(held) = usable(state, actor) else {
         return false;
@@ -1595,8 +1654,8 @@ pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
     true
 }
 
-/// The held item, if the player may use it in the air now (PMMP `Player::useHeldItem`: not a
-/// spectator, the item's cooldown over).
+/// Returns the held item, if the player may use it in the air now (PMMP `Player::useHeldItem`:
+/// not a spectator, the item's cooldown over).
 fn usable(state: &State, actor: &Actor) -> Option<Stack> {
     if actor.mode == GameMode::Spectator {
         return None;
@@ -1607,8 +1666,8 @@ fn usable(state: &State, actor: &Actor) -> Option<Stack> {
     (!survival::has_item_cooldown(state, player, item)).then(|| held.clone())
 }
 
-/// PMMP `Item::onClickAir`: armour goes on, a goat horn sounds, a projectile is thrown (one used
-/// up with finite resources), a bow starts drawing.
+/// Applies the held item's own use in the air (PMMP `Item::onClickAir`): armour goes on, a goat
+/// horn sounds, a projectile is thrown (one used up with finite resources), a bow starts drawing.
 fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -> bool {
     let Some(player) = state.players.get(&actor.session) else {
         return false;
@@ -1628,17 +1687,17 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
             inventory::set_armor(player, slot, one);
             inventory::set_held(player, worn);
         }
-        sound(state, actor.world, actor.eye, Sound::ArmorEquipGeneric);
         if !rest.is_empty() {
-            return_items(state, actor, held, held.clone(), vec![rest]);
+            return_items(state, actor.session, held, held.clone(), vec![rest]);
         }
+        emit::sound(state, actor.world, actor.eye, Sound::ArmorEquipGeneric);
         return true;
     }
     if item.kind() == Some(item::Kind::GoatHorn) {
         // PMMP `GoatHorn::onClickAir`: the call of the horn's type; the horn stays raised
         // (`canStartUsingItem`).
-        sound(state, actor.world, actor.eye, Sound::GoatHorn(item));
         start_using(state, actor.session);
+        emit::sound(state, actor.world, actor.eye, Sound::GoatHorn(item));
         return true;
     }
     if item.kind() == Some(item::Kind::Spyglass) {
@@ -1652,7 +1711,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
             return false;
         }
         let used = held.with_count(held.count().saturating_sub(1));
-        return_items(state, actor, held, used, Vec::new());
+        return_items(state, actor.session, held, used, Vec::new());
         return true;
     }
     // PMMP `item\Trident::canStartUsingItem`: drawing starts while one more throw does not break
@@ -1677,7 +1736,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
     false
 }
 
-/// PMMP `Player::setUsingItem(true)`: the use starts now.
+/// Starts the use of the held item now (PMMP `Player::setUsingItem(true)`).
 fn start_using(state: &mut State, session: SessionId) {
     let tick = state.tick;
     if let Some(player) = state.players.get_mut(&session) {
@@ -1685,7 +1744,8 @@ fn start_using(state: &mut State, session: SessionId) {
     }
 }
 
-/// PMMP `Player::releaseHeldItem`: a drawn bow shoots and a drawn trident is thrown (the entity
+/// Releases the held item (PMMP `Player::releaseHeldItem`): a drawn bow shoots and a drawn
+/// trident is thrown (the entity
 /// rules) with the ticks it was drawn; a thrown trident leaves the hand of a player with finite
 /// items (PMMP `returnItemsFromAction`).
 pub(super) fn release(state: &mut State, session: SessionId) {
@@ -1705,13 +1765,13 @@ pub(super) fn release(state: &mut State, session: SessionId) {
     if entity::release_trident(state, session, used)
         && super::actor(state, session).is_some_and(|a| a.finite())
         && let Some(player) = state.players.get_mut(&session)
-        && player.inventory.held() == &held
+        && player.inventory.held().same(&held)
     {
         inventory::set_held(player, held.with_count(held.count().saturating_sub(1)));
     }
 }
 
-/// `UseItemOnEntity`: attacking another player is the survival rules' melee (PMMP
+/// Applies `UseItemOnEntity`: attacking another player is the survival rules' melee (PMMP
 /// `attackEntity`); attacking or using another entity (trading with a villager) is the entity
 /// rules'.
 pub(super) fn on_entity(
@@ -1738,9 +1798,10 @@ pub(super) fn on_entity(
     }
 }
 
-/// PMMP `Player::interactEntity`: when the entity is within reach, [`PlayerEntityInteract`], then
-/// the entity rules' interaction (which check the reach again; a client tries to open trading
-/// once a tick at most, [`trade::open_from_client`]). False if nothing happened. Each part of
+/// Uses an entity (PMMP `Player::interactEntity`): when it is within reach,
+/// [`PlayerEntityInteract`], then the entity rules' interaction (which check the reach again; a
+/// client tries to open trading once a tick at most, [`trade::open_from_client`]). False if
+/// nothing happened. Each part of
 /// `click` that is not a finite number counts as 0.
 pub(super) fn interact_entity(
     state: &mut State,
@@ -1780,8 +1841,9 @@ pub(super) fn interact_entity(
     used
 }
 
-/// PMMP `DragonEgg::teleport`: up to 16 tries at a random air block within 16 blocks across and 8
-/// up or down, then [`BlockTeleport`] (cancelled, the egg stays).
+/// Teleports a dragon egg (PMMP `DragonEgg::teleport`): up to 16 tries at a random air block
+/// within 16 blocks across and 8 up or down, then [`BlockTeleport`] (cancelled, the egg stays).
+/// The trail shows once the egg moved.
 pub(super) fn teleport_dragon_egg(
     state: &mut State,
     world: WorldIndex,
@@ -1822,6 +1884,8 @@ pub(super) fn teleport_dragon_egg(
             to = e.to;
             event = Some(e);
         }
+        set(state, world, pos, block::AIR);
+        set(state, world, to, egg);
         // PMMP `DragonEggTeleportParticle` of the distance from the new place to the old.
         let axis = |from: i32, to: i32| {
             let d = from.saturating_sub(to).clamp(-255, 255);
@@ -1832,9 +1896,7 @@ pub(super) fn teleport_dragon_egg(
             y: axis(pos.y, to.y),
             z: axis(pos.z, to.z),
         };
-        particle(state, world, block_vec(pos), trail);
-        set(state, world, pos, block::AIR);
-        set(state, world, to, egg);
+        emit::particle(state, world, block_vec(pos), trail);
         if let Some(e) = event {
             dispatch::watch(state, &e);
         }
@@ -1842,8 +1904,8 @@ pub(super) fn teleport_dragon_egg(
     }
 }
 
-/// PMMP `TNT::ignite`: the block becomes a primed TNT entity (the entity rules); false at the
-/// entity limit, and the block stays.
+/// Ignites TNT (PMMP `TNT::ignite`): the block becomes a primed TNT entity (the entity rules);
+/// false at the entity limit, and the block stays.
 pub(super) fn ignite_tnt(state: &mut State, world: WorldIndex, pos: BlockPos) -> bool {
     entity::ignite(state, world, pos, u32::from(entity::TNT_FUSE))
 }

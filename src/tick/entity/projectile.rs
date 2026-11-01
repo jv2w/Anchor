@@ -15,7 +15,12 @@
 //! critical flag (PMMP clears it first, so the bonus never applies); arrows shot by players
 //! with infinite items (creative) are picked up by creative players only, so no one else gets
 //! arrows out of nothing; a lingering potion still lingers after a load; a creative player
-//! without room does not pick up a trident (PMMP gives it to a full inventory, which loses it).
+//! without room does not pick up a trident (PMMP gives it to a full inventory, which loses it);
+//! a listener of a shot that changes the shooter's game mode cancels it, so what the shot takes
+//! from the player and what the projectile gives back follow one game mode; a cloud grows no
+//! larger and lives no longer than its saved form holds.
+
+use tracing::debug;
 
 use super::SessionId;
 use super::kind::{
@@ -23,6 +28,7 @@ use super::kind::{
     Victim,
 };
 use super::physics::{BlockHit, Flight, intercept};
+use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS};
 use super::{
     Blow, Cause, EYE_HEIGHT, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust,
     create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
@@ -48,21 +54,16 @@ use crate::world::particle_id;
 
 /// An arrow's base damage (PMMP `Arrow::$damage`).
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
-
-/// The base damage of an arrow shot from a bow of Power `power` (PMMP `Bow::onReleaseUsing`).
-pub(super) const fn bow_arrow_damage(power: u16) -> f64 {
-    if power > 0 {
-        ARROW_DAMAGE + f64::midpoint(power as f64, 1.0)
-    } else {
-        ARROW_DAMAGE
-    }
-}
-/// A cloud's first radius, life and reapplication delay (PMMP `AreaEffectCloud::DEFAULT_*`).
+/// A cloud's first radius, in blocks (PMMP `AreaEffectCloud::DEFAULT_RADIUS`).
 pub(super) const CLOUD_RADIUS: f64 = 3.0;
+/// A cloud's life, in ticks (PMMP `AreaEffectCloud::DEFAULT_DURATION`).
 pub(super) const CLOUD_DURATION: i32 = 600;
+/// The ticks before a cloud affects an entity again (PMMP
+/// `AreaEffectCloud::DEFAULT_REAPPLICATION_DELAY`).
 pub(super) const CLOUD_REAPPLICATION: i32 = 40;
-/// A cloud's radius change per entity it affects and per tick.
+/// A cloud's radius change per entity it affects, in blocks.
 pub(super) const CLOUD_RADIUS_ON_USE: f64 = -0.5;
+/// A cloud's radius change per tick, in blocks: it shrinks to nothing over its life.
 pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION as f64);
 /// Ticks between a cloud's applications (PMMP `UPDATE_DELAY`).
 const CLOUD_UPDATE_DELAY: u32 = 10;
@@ -72,20 +73,24 @@ const CLOUD_MIN_RADIUS: f64 = 0.5;
 const OWNER_GRACE_TICKS: u32 = 5;
 /// How much bigger an entity's box is to a projectile (PMMP `expandedCopy(0.3, …)`).
 const HIT_REACH: f64 = 0.3;
-/// The box around a splash potion that its effects reach, and the distance from the eyes
-/// (PMMP `SplashPotion::onHit`).
+/// How far around a splash potion's box its effects reach (PMMP `SplashPotion::onHit`).
 const SPLASH_REACH: Vec3 = Vec3::new(4.125, 2.125, 4.125);
+/// The farthest a splash potion's effects reach from the eyes, in blocks (PMMP
+/// `SplashPotion::onHit`).
 const SPLASH_RANGE: f64 = 4.0;
 /// The shortest effect a splash gives, in ticks.
 const SPLASH_MIN_TICKS: f64 = 20.0;
-/// BDS's splash duration share ([`duration_share`]): `1.05 − 0.225 × distance`, at most 1
-/// (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5 and 3.5 blocks).
+/// The share of a splash's effect durations at the target's middle line ([`duration_share`]),
+/// before the cut to 1, as BDS gives it (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5
+/// and 3.5 blocks).
 const SPLASH_DURATION_FULL: f64 = 1.05;
+/// What that share loses per block of distance ([`duration_share`]).
 const SPLASH_DURATION_FALLOFF: f64 = 0.225;
 /// The shake data of an arrow that hits a block (PMMP `ArrowShakeAnimation`).
 const ARROW_SHAKE: i32 = 7;
-/// Bow draws (PMMP `Bow::onReleaseUsing`): the weakest force and the fewest ticks that shoot.
+/// The weakest bow draw that shoots (PMMP `Bow::onReleaseUsing`).
 const BOW_MIN_FORCE: f64 = 0.1;
+/// The fewest ticks a bow is drawn to shoot (PMMP `Bow::onReleaseUsing`).
 const BOW_MIN_TICKS: u32 = 5;
 /// The burn a Flame bow gives its arrow (PMMP: `setOnFire(100)`), in ticks.
 const FLAME_TICKS: i16 = 2000;
@@ -100,9 +105,10 @@ const HIT_PARTICLES: usize = 6;
 const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
 /// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
 const LINGERING_POTION: &str = "minecraft:lingering_potion";
-/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`), and the
-/// speed of a full draw.
+/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`).
 const TRIDENT_MIN_TICKS: u32 = 14;
+/// The speed of a trident thrown at a full draw, in blocks per tick (PMMP
+/// `item\Trident::onReleaseUsing`).
 const TRIDENT_FORCE: f64 = 2.4;
 /// What a trident keeps of its speed when it bounces off what it hit (PMMP
 /// `Trident::onHitEntity`).
@@ -110,11 +116,59 @@ const TRIDENT_BOUNCE: Vec3 = Vec3::new(-0.01, -0.1, -0.01);
 /// How far around the block it hits an ice bomb freezes water (PMMP `IceBomb::onHitBlock`: the
 /// 3 × 3 × 3 blocks around it).
 const ICE_BOMB_REACH: i32 = 1;
-/// Random streams.
+/// The random stream of a critical arrow's bonus damage.
 const CRITICAL_RANDOM: u64 = random::tag("projectile-critical");
+/// The random stream of a bottle's experience.
 const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
+/// The random stream of a bow's wear.
 const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
+/// The random stream of a thrown trident's wear.
 const TRIDENT_RANDOM: u64 = random::tag("projectile-trident-wear");
+
+/// A player who may shoot: spawned, alive and not a spectator ([`shooter`]).
+#[derive(Debug, Clone, Copy)]
+struct Shooter {
+    /// The world it is in.
+    world: usize,
+    /// Its eye position.
+    eye: Vec3,
+    /// Its runtime ID.
+    runtime_id: u64,
+    /// The yaw it looks along, in degrees.
+    yaw: f64,
+    /// The pitch it looks along, in degrees.
+    pitch: f64,
+    /// Its game mode.
+    mode: GameMode,
+}
+
+/// What a projectile hit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Struck {
+    /// A block.
+    Block(BlockHit),
+    /// A player.
+    Player(SessionId),
+    /// An NPC.
+    Entity(Id),
+}
+
+/// The event of a hit, raised before it does anything.
+enum Hit {
+    /// [`ProjectileHitBlock`].
+    Block(ProjectileHitBlock),
+    /// [`ProjectileHitEntity`].
+    Entity(ProjectileHitEntity),
+}
+
+/// The base damage of an arrow shot from a bow of Power `power` (PMMP `Bow::onReleaseUsing`).
+pub(super) const fn bow_arrow_damage(power: u16) -> f64 {
+    if power > 0 {
+        ARROW_DAMAGE + f64::midpoint(power as f64, 1.0)
+    } else {
+        ARROW_DAMAGE
+    }
+}
 
 /// Throws the projectile of `item` ([`super::throw`]) with the given hooks.
 pub(super) fn throw_with(
@@ -154,7 +208,7 @@ pub(super) fn throw_with(
     let Some(force) = t.throw_force() else {
         return false;
     };
-    let Some((world, eye, runtime_id, yaw, pitch)) = shooter(state, session, hooks) else {
+    let Some(s) = shooter(state, session, hooks) else {
         return false;
     };
     let kind = Kind::Projectile(Projectile {
@@ -162,14 +216,14 @@ pub(super) fn throw_with(
         damage: 0.0,
         stuck: None,
         owner: Some(session),
-        owner_runtime_id: runtime_id,
+        owner_runtime_id: s.runtime_id,
     });
-    let motion = direction(yaw, pitch) * force;
-    let Some(id) = create(state, world, eye, kind, |_| (motion, yaw, pitch)) else {
+    let motion = direction(s.yaw, s.pitch) * force;
+    let Some(id) = create(state, s.world, s.eye, kind, |_| (motion, s.yaw, s.pitch)) else {
         return false;
     };
     let still = |state: &State| {
-        shooter(state, session, hooks).is_some()
+        still_shoots(state, session, s.mode, hooks)
             && state
                 .players
                 .get(&session)
@@ -178,27 +232,34 @@ pub(super) fn throw_with(
     if !launch(state, id, still) {
         return false;
     }
-    let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-    super::play(state, world, feet, crate::world::Sound::Throw);
+    let feet = s.eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    super::play(state, s.world, feet, crate::world::Sound::Throw);
     true
 }
 
-/// The world, eye position, runtime ID and look of a player who may shoot: spawned, alive and
-/// not a spectator.
-fn shooter(
-    state: &State,
-    session: SessionId,
-    hooks: Hooks,
-) -> Option<(usize, Vec3, u64, f64, f64)> {
+/// The player of `session` if it may shoot: spawned, alive and not a spectator.
+fn shooter(state: &State, session: SessionId, hooks: Hooks) -> Option<Shooter> {
     let player = state.players.get(&session)?;
-    if player.phase != Phase::Spawned
-        || !(hooks.is_alive)(player)
-        || survival::game_mode(state, player) == GameMode::Spectator
-    {
+    let mode = survival::game_mode(state, player);
+    if player.phase != Phase::Spawned || !(hooks.is_alive)(player) || mode == GameMode::Spectator {
         return None;
     }
     let (yaw, pitch) = (hooks.look)(player);
-    Some((player.world, player.position, player.runtime_id, yaw, pitch))
+    Some(Shooter {
+        world: player.world,
+        eye: player.position,
+        runtime_id: player.runtime_id,
+        yaw,
+        pitch,
+        mode,
+    })
+}
+
+/// Whether the player of `session` may still shoot after a shot's listeners, in the game `mode`
+/// the shot was decided in: a listener that changed the mode cancels it, as what the shot takes
+/// from the player and what the projectile gives back depend on it.
+fn still_shoots(state: &State, session: SessionId, mode: GameMode, hooks: Hooks) -> bool {
+    shooter(state, session, hooks).is_some_and(|s| s.mode == mode)
 }
 
 /// The force of a bow or trident drawn for `used_ticks`, 0 to 1 (PMMP `onReleaseUsing`:
@@ -215,7 +276,7 @@ pub(super) fn release_bow_with(
     used_ticks: u32,
     hooks: Hooks,
 ) -> bool {
-    let Some((world, eye, runtime_id, yaw, pitch)) = shooter(state, session, hooks) else {
+    let Some(s) = shooter(state, session, hooks) else {
         return false;
     };
     let Some(player) = state.players.get(&session) else {
@@ -225,8 +286,7 @@ pub(super) fn release_bow_with(
     if !bow.item().is_some_and(|t| t.is(Class::Bow)) {
         return false;
     }
-    let mode = survival::game_mode(state, player);
-    let finite = survival::has_finite_resources(mode);
+    let finite = survival::has_finite_resources(s.mode);
     if finite && !(hooks.has_arrow)(player) {
         return false;
     }
@@ -252,31 +312,41 @@ pub(super) fn release_bow_with(
         damage,
         stuck: None,
         owner: Some(session),
-        owner_runtime_id: runtime_id,
+        owner_runtime_id: s.runtime_id,
     });
-    let aim = direction(yaw, pitch);
+    let aim = direction(s.yaw, s.pitch);
     let motion = aim * (force * 3.0);
-    let turned = (if yaw > 180.0 { 360.0 } else { 0.0 }) - yaw;
-    let Some(id) = create(state, world, eye, kind, |_| (motion, turned, -pitch)) else {
+    let turned = (if s.yaw > 180.0 { 360.0 } else { 0.0 }) - s.yaw;
+    let Some(id) = create(state, s.world, s.eye, kind, |_| (motion, turned, -s.pitch)) else {
         return false;
     };
     if level_of(&bow, Enchantment::Flame) > 0 {
         with(state, id, |e| e.fire_ticks = FLAME_TICKS);
     }
     let still = |state: &State| {
-        shooter(state, session, hooks).is_some()
+        still_shoots(state, session, s.mode, hooks)
             && state
                 .players
                 .get(&session)
                 .is_some_and(|p| p.inventory.held() == &bow && (!finite || (hooks.has_arrow)(p)))
     };
-    if !shoot(state, session, &bow, id, force * 3.0, aim, still) || !launch(state, id, still) {
+    let mut shot = None;
+    if dispatch::heard::<EntityShootBow>(state) {
+        let Some(e) = shoot(state, session, &bow, id, force * 3.0, aim, still) else {
+            return false;
+        };
+        shot = Some(e);
+    }
+    if !launch(state, id, still) {
         return false;
     }
-    let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-    super::play(state, world, feet, crate::world::Sound::BowShoot);
+    let feet = s.eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    super::play(state, s.world, feet, crate::world::Sound::BowShoot);
     if finite {
-        let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
+        let seed = state
+            .worlds
+            .get(s.world)
+            .map_or(0, crate::world::World::seed);
         let mut r = Random::new(seed, state.tick, random::key(BOW_RANDOM, &[session.get()]));
         if let Some(player) = state.players.get_mut(&session) {
             if !infinity {
@@ -284,6 +354,9 @@ pub(super) fn release_bow_with(
             }
             inventory::set_held(player, worn(&state.settings, &bow, 1, &mut r));
         }
+    }
+    if let Some(e) = shot {
+        dispatch::watch(state, &e);
     }
     true
 }
@@ -299,7 +372,7 @@ pub(super) fn release_trident_with(
     used_ticks: u32,
     hooks: Hooks,
 ) -> bool {
-    let Some((world, eye, runtime_id, yaw, pitch)) = shooter(state, session, hooks) else {
+    let Some(s) = shooter(state, session, hooks) else {
         return false;
     };
     let Some(player) = state.players.get(&session) else {
@@ -309,10 +382,12 @@ pub(super) fn release_trident_with(
     if !held.item().is_some_and(|t| t.is(Class::Trident)) || used_ticks < TRIDENT_MIN_TICKS {
         return false;
     }
-    let mode = survival::game_mode(state, player);
     let mut item = held.with_count(1);
-    if survival::has_finite_resources(mode) {
-        let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
+    if survival::has_finite_resources(s.mode) {
+        let seed = state
+            .worlds
+            .get(s.world)
+            .map_or(0, crate::world::World::seed);
         let key = random::key(TRIDENT_RANDOM, &[session.get()]);
         item = worn(
             &state.settings,
@@ -328,21 +403,21 @@ pub(super) fn release_trident_with(
     let kind = Kind::Projectile(Projectile {
         shot: Shot::Trident(Trident {
             item,
-            creative: mode == GameMode::Creative,
+            creative: s.mode == GameMode::Creative,
             can_collide: true,
         }),
         damage: TRIDENT_DAMAGE,
         stuck: None,
         owner: Some(session),
-        owner_runtime_id: runtime_id,
+        owner_runtime_id: s.runtime_id,
     });
-    let motion = direction(yaw, pitch) * force;
-    let turned = (if yaw > 180.0 { 360.0 } else { 0.0 }) - yaw;
-    let Some(id) = create(state, world, eye, kind, |_| (motion, turned, -pitch)) else {
+    let motion = direction(s.yaw, s.pitch) * force;
+    let turned = (if s.yaw > 180.0 { 360.0 } else { 0.0 }) - s.yaw;
+    let Some(id) = create(state, s.world, s.eye, kind, |_| (motion, turned, -s.pitch)) else {
         return false;
     };
     let still = |state: &State| {
-        shooter(state, session, hooks).is_some()
+        still_shoots(state, session, s.mode, hooks)
             && state
                 .players
                 .get(&session)
@@ -352,8 +427,8 @@ pub(super) fn release_trident_with(
         return false;
     }
     // BDS plays it at the middle of the thrower's body (P6 `itemuse`).
-    let middle = eye - Vec3::new(0.0, EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
-    super::play(state, world, middle, crate::world::Sound::TridentThrow);
+    let middle = s.eye - Vec3::new(0.0, EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
+    super::play(state, s.world, middle, crate::world::Sound::TridentThrow);
     true
 }
 
@@ -379,10 +454,11 @@ fn launch(state: &mut State, id: Id, still: impl Fn(&State) -> bool) -> bool {
     true
 }
 
-/// Raises [`EntityShootBow`] for `session` shooting the new arrow `id` from `bow` at `force`
-/// blocks per tick along `aim` (PMMP `Bow::onReleaseUsing`): false, with the arrow taken away
-/// unseen, when a listener cancels it or `still` (the shot's check) fails after the listeners.
-/// A force a listener sets becomes the arrow's speed.
+/// Raises [`EntityShootBow`], which someone hears, for `session` shooting the new arrow `id`
+/// from `bow` at `force` blocks per tick along `aim` (PMMP `Bow::onReleaseUsing`): the event for
+/// the monitors once the shot is done, or `None`, with the arrow taken away unseen, when a
+/// listener cancels it or `still` (the shot's check) fails after the listeners. A force a
+/// listener sets becomes the arrow's speed.
 fn shoot(
     state: &mut State,
     session: SessionId,
@@ -391,10 +467,7 @@ fn shoot(
     force: f64,
     aim: Vec3,
     still: impl Fn(&State) -> bool,
-) -> bool {
-    if !dispatch::heard::<EntityShootBow>(state) {
-        return true;
-    }
+) -> Option<EntityShootBow> {
     let mut e = EntityShootBow {
         entity: player_actor(session),
         bow: bow.clone(),
@@ -407,26 +480,14 @@ fn shoot(
         || (dispatch::listened::<EntityShootBow>(state) && !(is_live(state, id) && still(state)))
     {
         discard(state, id);
-        return false;
+        return None;
     }
     if e.force != force {
         with(state, id, |arrow| {
             arrow.body.motion = super::physics::bounded(aim * e.force);
         });
     }
-    dispatch::watch(state, &e);
-    true
-}
-
-/// What a projectile hit.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Struck {
-    /// A block.
-    Block(BlockHit),
-    /// A player.
-    Player(SessionId),
-    /// An NPC.
-    Entity(Id),
+    Some(e)
 }
 
 /// Resolves the hits of a projectile's flight (PMMP `Projectile::move` after the ray): the
@@ -564,14 +625,6 @@ fn on_hit(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck, hoo
         Some(Hit::Entity(e)) => dispatch::watch(state, &e),
         None => {}
     }
-}
-
-/// The event of a hit, raised before it does anything.
-enum Hit {
-    /// [`ProjectileHitBlock`].
-    Block(ProjectileHitBlock),
-    /// [`ProjectileHitEntity`].
-    Entity(ProjectileHitEntity),
 }
 
 /// Raises [`ProjectileHitBlock`] or [`ProjectileHitEntity`] for the projectile `id` hitting
@@ -734,15 +787,13 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit, burn
             .and_then(|w| w.block(b.pos))
             .is_some_and(|s| s.is(block::Class::Tnt))
     {
-        let fuse = u32::from(super::TNT_FUSE);
-        super::explosion::light(state, world, b.pos, fuse, Raise::Events);
+        super::ignite(state, world, b.pos, u32::from(super::TNT_FUSE));
     }
     match shot {
         Shot::Arrow(_) => {
             if let Some(e) = state.rules.entities.get(id) {
-                let (viewers, runtime_id) = (e.viewers.clone(), e.runtime_id);
-                let packet = super::actor_event(runtime_id, ActorEvent::Shake, ARROW_SHAKE);
-                send_to(&mut state.players, &viewers, &packet);
+                let packet = super::actor_event(e.runtime_id, ActorEvent::Shake, ARROW_SHAKE);
+                send_to(&mut state.players, &e.viewers, &packet);
             }
         }
         Shot::Trident(_) => {
@@ -806,7 +857,7 @@ fn ended(state: &mut State, id: Id, world: usize, at: Vec3, motion: Vec3) {
 }
 
 /// Sets whether a trident may hit players and entities (PMMP `canCollide`).
-fn set_collides(e: &mut super::Entity, collides: bool) {
+fn set_collides(e: &mut Entity, collides: bool) {
     if let Kind::Projectile(Projectile {
         shot: Shot::Trident(t),
         ..
@@ -833,7 +884,7 @@ fn freeze(state: &mut State, world: usize, pos: crate::world::BlockPos) {
                     && let Err(e) = w.set_block(at, ice)
                 {
                     // The water stays; nothing else depends on it.
-                    tracing::debug!(?e, "an ice bomb could not freeze water");
+                    debug!(error = %e, "an ice bomb could not freeze water");
                 }
             }
         }
@@ -942,7 +993,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
         return;
     };
     let teleported = crate::world::Particle::EndermanTeleport;
-    super::super::interact::particle(state, world, from, teleported);
+    crate::tick::emit::particle(state, world, from, teleported);
     super::play(state, world, from, crate::world::Sound::EndermanTeleport);
     (hooks.teleport)(state, owner, to_world, to + Vec3::new(0.0, EYE_HEIGHT, 0.0));
     super::play(state, to_world, to, crate::world::Sound::EndermanTeleport);
@@ -972,7 +1023,7 @@ fn hit_particles(state: &mut State, world: usize, at: Vec3, data: i32) {
 fn splash_effect(state: &mut State, world: usize, at: Vec3, colour: [u8; 4]) {
     let [r, g, b, a] = colour;
     let splash = crate::world::Particle::PotionSplash(crate::protocol::Rgba { r, g, b, a });
-    super::super::interact::particle(state, world, at, splash);
+    crate::tick::emit::particle(state, world, at, splash);
     super::play(state, world, at, crate::world::Sound::PotionSplash);
 }
 
@@ -1081,7 +1132,7 @@ fn extinguish(state: &mut State, world: usize, b: BlockHit) {
             && let Err(e) = w.set_block(pos, block::AIR)
         {
             // The fire stays; nothing else depends on it.
-            tracing::debug!(?e, "a splash could not put out a fire");
+            debug!(error = %e, "a splash could not put out a fire");
         }
     }
 }
@@ -1126,11 +1177,7 @@ fn eye_of(state: &State, target: Struck) -> Option<Vec3> {
 fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
     let b = match target {
         Struck::Player(s) => state.players.get(&s).map(survival::bounding_box),
-        Struck::Entity(id) => state
-            .rules
-            .entities
-            .get(id)
-            .map(super::Entity::bounding_box),
+        Struck::Entity(id) => state.rules.entities.get(id).map(Entity::bounding_box),
         Struck::Block(_) => None,
     };
     let Some(b) = b else {
@@ -1266,10 +1313,7 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
             return None;
         };
         let player = state.players.get(&session)?;
-        let finite = matches!(
-            survival::game_mode(state, player),
-            GameMode::Survival | GameMode::Adventure
-        );
+        let finite = survival::has_finite_resources(survival::game_mode(state, player));
         let refused = a.pickup == Pickup::None || (a.pickup == Pickup::Creative && finite);
         (!refused).then_some(finite)
     };
@@ -1317,31 +1361,14 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
                 .get(id)
                 .map_or((0, Vec3::ZERO), |e| (e.world, e.body.position));
             if !super::drop_item(state, world, at, rest) {
-                tracing::debug!(
+                debug!(
                     world,
                     "what of a listener's pickup item did not fit was lost"
                 );
             }
         }
     }
-    let taker = state.players.get(&session).map_or(0, |p| p.runtime_id);
-    let Some(e) = state.rules.entities.get_mut(id) else {
-        return false;
-    };
-    e.flagged = true;
-    let (viewers, runtime_id, key) = (e.viewers.clone(), e.runtime_id, (e.world, e.chunk));
-    let entities = &mut state.rules.entities;
-    entities.doomed.insert(id);
-    entities.changed.insert(key);
-    let packet = Packet::TakeItemActor(TakeItemActor {
-        item_entity_runtime_id: runtime_id,
-        taker_entity_runtime_id: taker,
-    });
-    send_to(&mut state.players, &viewers, &packet);
-    if let Some(e) = event {
-        dispatch::watch(state, &e);
-    }
-    true
+    finish_pickup(state, session, id, event)
 }
 
 /// A player touches a stuck trident (PMMP `Trident::onCollideWithPlayer`, `pickup`): the player
@@ -1415,27 +1442,35 @@ fn pick_up_trident(state: &mut State, session: SessionId, id: Id, hooks: Hooks) 
                 return true;
             }
             if !super::drop_item(state, world, at, rest) {
-                tracing::debug!(
+                debug!(
                     world,
                     "what of a listener's pickup item did not fit was lost"
                 );
             }
         }
     }
+    finish_pickup(state, session, id, event)
+}
+
+/// Removes the stuck arrow or trident `id` that `session` took: its viewers see it taken
+/// (`TakeItemActor`), then the pickup's `event`, if one was raised, goes to its monitors. False if
+/// it is gone.
+fn finish_pickup(
+    state: &mut State,
+    session: SessionId,
+    id: Id,
+    event: Option<EntityItemPickup>,
+) -> bool {
     let taker = state.players.get(&session).map_or(0, |p| p.runtime_id);
-    let Some(e) = state.rules.entities.get_mut(id) else {
+    let Some(e) = state.rules.entities.get(id) else {
         return false;
     };
-    e.flagged = true;
-    let (viewers, runtime_id, key) = (e.viewers.clone(), e.runtime_id, (e.world, e.chunk));
-    let entities = &mut state.rules.entities;
-    entities.doomed.insert(id);
-    entities.changed.insert(key);
     let packet = Packet::TakeItemActor(TakeItemActor {
-        item_entity_runtime_id: runtime_id,
+        item_entity_runtime_id: e.runtime_id,
         taker_entity_runtime_id: taker,
     });
-    send_to(&mut state.players, &viewers, &packet);
+    send_to(&mut state.players, &e.viewers, &packet);
+    state.rules.entities.doom(id);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
@@ -1481,7 +1516,8 @@ pub(super) fn cloud_tick(state: &mut State, id: Id, hooks: Hooks) {
         return;
     };
     c.age = c.age.saturating_add(1);
-    let radius = c.radius + c.radius_per_tick;
+    // A cloud never grows past what its saved form holds.
+    let radius = crate::math::min(c.radius + c.radius_per_tick, MAX_CLOUD_RADIUS);
     if radius < CLOUD_MIN_RADIUS {
         e.flagged = true;
         return;
@@ -1562,8 +1598,9 @@ pub(super) fn cloud_tick(state: &mut State, id: Id, hooks: Hooks) {
 }
 
 /// A cloud gave its effects at `age` to `until`: they wait out its reapplication delay, and it
-/// shrinks and shortens by the changes; it goes when it has no radius or time left.
-fn used(e: &mut super::Entity, age: u32, until: Vec<Victim>, radius_change: f64, age_change: i32) {
+/// shrinks and shortens by the changes (or grows and lengthens up to what its saved form holds);
+/// it goes when it has no radius or time left.
+fn used(e: &mut Entity, age: u32, until: Vec<Victim>, radius_change: f64, age_change: i32) {
     let Kind::Cloud(c) = &mut e.kind else {
         return;
     };
@@ -1573,8 +1610,8 @@ fn used(e: &mut super::Entity, age: u32, until: Vec<Victim>, radius_change: f64,
             c.victims.insert(victim, at);
         }
     }
-    let radius = c.radius + radius_change;
-    let max_age = c.max_age.saturating_add(age_change);
+    let radius = crate::math::min(c.radius + radius_change, MAX_CLOUD_RADIUS);
+    let max_age = c.max_age.saturating_add(age_change).min(MAX_CLOUD_AGE);
     if radius <= 0.0 || max_age <= 0 {
         e.flagged = true;
     } else {
@@ -1585,13 +1622,13 @@ fn used(e: &mut super::Entity, age: u32, until: Vec<Victim>, radius_change: f64,
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{Harness, TEST_HOOKS, at, calls, room, standing, taken};
     use super::*;
     use crate::block::Class as BlockClass;
     use crate::nbt::Compound;
     use crate::tick::entity::physics::MOTION_THRESHOLD;
     use crate::tick::entity::physics::tests::named;
     use crate::tick::entity::saved::tests::stack;
+    use crate::tick::entity::tests::{Harness, TEST_HOOKS, at, calls, room, standing, taken};
     use crate::world::BlockPos;
 
     /// A potion item of `potion`, splash or lingering.
@@ -1679,7 +1716,7 @@ mod tests {
             assert_eq!((p, m), (position, motion), "tick {tick}");
         }
         let e = h.live().into_iter().next().unwrap();
-        let (yaw, pitch) = super::super::physics::heading(motion);
+        let (yaw, pitch) = crate::tick::entity::physics::heading(motion);
         assert_eq!((e.yaw, e.pitch), (yaw, pitch), "it turns along its flight");
         assert!((yaw + 90.0).abs() < 1e-6, "flies west: {yaw}");
     }
@@ -1901,7 +1938,11 @@ mod tests {
         inventory::set_held(player, stack("minecraft:bow", 1));
         assert!(inventory::give(player, stack("minecraft:arrow", 1)).is_empty());
         SOURCES.with(std::cell::Cell::take);
-        assert!(super::super::release_bow(&mut h.state, session(1), 20));
+        assert!(crate::tick::entity::release_bow(
+            &mut h.state,
+            session(1),
+            20
+        ));
         for _ in 0..5 {
             h.step(Vec::new());
         }
@@ -1922,19 +1963,27 @@ mod tests {
         h.spawn(1, standing(0.0, 0.0));
         h.look(1, 90.0, 0.0);
         let snowball = stack("minecraft:snowball", 1);
-        assert!(super::super::throw(&mut h.state, session(1), &snowball));
+        assert!(crate::tick::entity::throw(
+            &mut h.state,
+            session(1),
+            &snowball
+        ));
         let (_, motion, _) = projectile(&h).unwrap();
         assert!(motion.x < -1.0 && motion.z.abs() < 1e-6, "west: {motion:?}");
         let player = h.state.players.get_mut(&session(1)).unwrap();
         inventory::set_held(player, stack("minecraft:bow", 1));
         assert!(
-            !super::super::release_bow(&mut h.state, session(1), 20),
+            !crate::tick::entity::release_bow(&mut h.state, session(1), 20),
             "no arrow to shoot"
         );
         let player = h.state.players.get_mut(&session(1)).unwrap();
         inventory::set_offhand(player, stack("minecraft:arrow", 2));
         assert!(inventory::give(player, stack("minecraft:arrow", 5)).is_empty());
-        assert!(super::super::release_bow(&mut h.state, session(1), 20));
+        assert!(crate::tick::entity::release_bow(
+            &mut h.state,
+            session(1),
+            20
+        ));
         let arrows = |h: &Harness| {
             let inv = &h.state.players[&session(1)].inventory;
             let main: u8 = (0..36)
@@ -1951,7 +2000,11 @@ mod tests {
         };
         let infinity = stack("minecraft:bow", 1).with_extra(Some(extra)).unwrap();
         inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), infinity);
-        assert!(super::super::release_bow(&mut h.state, session(1), 20));
+        assert!(crate::tick::entity::release_bow(
+            &mut h.state,
+            session(1),
+            20
+        ));
         assert_eq!(arrows(&h), (1, 5), "Infinity keeps the arrow");
     }
 
@@ -1979,7 +2032,7 @@ mod tests {
         assert_eq!(motion, Vec3::ZERO);
         // Breaking the wall lets it fall.
         h.state.worlds[0].set_block(wall, block::AIR).unwrap();
-        super::super::block_changed(&mut h.state, 0, wall);
+        crate::tick::entity::block_changed(&mut h.state, 0, wall);
         h.entities();
         h.entities();
         assert_eq!(projectile(&h).unwrap().2.stuck, None);
@@ -2244,7 +2297,7 @@ mod tests {
         // A dead player does not pick up items.
         calls(|c| c.dead.insert(1));
         room(64);
-        assert!(super::super::drop_item(
+        assert!(crate::tick::entity::drop_item(
             &mut h.state,
             0,
             at(0.5, -59.0, 0.5),
@@ -2254,5 +2307,88 @@ mod tests {
             h.entities();
         }
         assert_eq!(taken(), 0);
+    }
+
+    /// A launch listener that changes the thrower's game mode cancels the throw, so a trident
+    /// thrown in survival is not also kept in the hand of a creative player.
+    #[test]
+    fn a_launch_listener_that_changes_the_game_mode_cancels_the_throw() {
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            |_: &mut ProjectileLaunch, cx: &mut crate::tick::Context<'_>| {
+                let player = cx.player_mut(crate::player::Id::new(session(1))).unwrap();
+                assert!(player.set_game_mode(GameMode::Creative));
+            },
+        );
+        let mut h = Harness::with_listeners(1, l);
+        h.spawn(1, standing(0.0, 0.0));
+        calls(|c| c.look = (0.0, 0.0));
+        let player = h.state.players.get_mut(&session(1)).unwrap();
+        inventory::set_held(player, stack("minecraft:trident", 1));
+        assert!(!release_trident_with(
+            &mut h.state,
+            session(1),
+            20,
+            TEST_HOOKS
+        ));
+        assert!(projectile(&h).is_none(), "nothing flies");
+    }
+
+    thread_local! {
+        /// The bow shots the monitors of a test heard.
+        static SHOTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    /// The monitors of `EntityShootBow` hear only shots that happen: a launch listener that
+    /// cancels the arrow leaves them unheard, and the arrow and the bow as they were.
+    #[test]
+    fn bow_shot_monitors_do_not_hear_a_cancelled_launch() {
+        let mut l = crate::event::Listeners::default();
+        l.push_monitor(|_: &EntityShootBow, _: &crate::tick::Context<'_>| {
+            SHOTS.with(|s| s.set(s.get() + 1));
+        });
+        l.push(
+            crate::event::Priority::Normal,
+            |e: &mut ProjectileLaunch, _: &mut crate::tick::Context<'_>| e.cancel(),
+        );
+        let mut h = Harness::with_listeners(1, l);
+        h.spawn(1, standing(0.0, 0.0));
+        calls(|c| {
+            c.look = (0.0, 0.0);
+            c.arrows = 1;
+        });
+        let bow = stack("minecraft:bow", 1);
+        inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), bow.clone());
+        SHOTS.with(|s| s.set(0));
+        assert!(!release_bow_with(&mut h.state, session(1), 20, TEST_HOOKS));
+        assert_eq!(SHOTS.with(std::cell::Cell::get), 0);
+        assert_eq!(calls(|c| c.arrows), 1, "the arrow stays");
+        assert_eq!(h.state.players[&session(1)].inventory.held(), &bow);
+    }
+
+    /// A cloud the API makes grow stops at the radius its saved form holds.
+    #[test]
+    fn a_growing_cloud_stops_at_the_radius_its_saved_form_holds() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let mut cloud = new_cloud(&[]);
+        cloud.radius_per_tick = 1.0;
+        let id = create(
+            &mut h.state,
+            0,
+            at(0.5, -60.0, 0.5),
+            Kind::Cloud(cloud),
+            |_| (Vec3::ZERO, 0.0, 0.0),
+        )
+        .unwrap();
+        for _ in 0..100 {
+            h.entities();
+        }
+        let radius = h.state.rules.entities.get(id).and_then(|e| match &e.kind {
+            Kind::Cloud(c) => Some(c.radius),
+            _ => None,
+        });
+        assert_eq!(radius, Some(MAX_CLOUD_RADIUS));
     }
 }

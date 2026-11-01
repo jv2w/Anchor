@@ -379,6 +379,35 @@ fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     assert!(game.survival(1).is_dead());
 }
 
+/// A listener that weakens a hit leaves the totem and the absorption the hit no longer needs:
+/// the absorption and totem modifiers follow the damage the listeners left.
+#[test]
+fn a_hit_a_listener_weakens_wastes_neither_a_totem_nor_absorption() {
+    let listeners = on(|e: &mut EntityDamage, _: &mut Context<'_>| e.set_base_damage(2.0));
+    let mut game = Game::new(1, listeners);
+    inventory::set_held(game.player_mut(1), stack(ItemKind::Totem, 1));
+    game.survival(1).absorption = 4.0;
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    let s = game.survival(1);
+    assert_eq!((s.health, s.absorption), (20.0, 2.0));
+    assert!(s.effects.is_empty(), "the totem gave nothing");
+    assert_eq!(game.player(1).inventory.held(), &stack(ItemKind::Totem, 1));
+}
+
+/// A listener that takes the totem out of the victim's hand leaves nothing to save it.
+#[test]
+fn a_totem_a_listener_takes_out_of_hand_saves_no_one() {
+    let listeners = on(|e: &mut EntityDamage, cx: &mut Context<'_>| {
+        if let Actor::Player(p) = e.entity() {
+            assert!(cx.player_mut(p).unwrap().set_held_slot(1));
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    inventory::set_held(game.player_mut(1), stack(ItemKind::Totem, 1));
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    assert!(game.survival(1).is_dead());
+}
+
 // pmmp: EntityRegainHealthEvent
 #[test]
 fn regain_listeners_change_or_cancel_the_healing() {
@@ -592,6 +621,31 @@ fn deaths_with_random_listeners_neither_duplicate_nor_lose_items() {
     }
 }
 
+/// Drops a listener replaced stand only for the stacks the event showed: what else the player
+/// carries when it dies (here, what the listener gave it) still drops, so no item is lost.
+#[test]
+fn replaced_death_drops_lose_nothing_the_event_did_not_show() {
+    let listeners = on(|e: &mut PlayerDeath, cx: &mut Context<'_>| {
+        e.set_drops(Vec::new());
+        let apples = stack(ItemKind::Apple, 3);
+        let mut main = cx
+            .player_mut(e.player())
+            .unwrap()
+            .inventory_mut(crate::inventory::Kind::Main);
+        assert!(main.add(&apples).is_empty());
+    });
+    let mut game = Game::new(1, listeners);
+    inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5));
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    assert_eq!(carried(game.player(1)), 0);
+    game.idle(1);
+    assert_eq!(
+        dropped(&game.take(1)),
+        3,
+        "the apples the event did not show drop"
+    );
+}
+
 // pmmp: PlayerRespawnEvent, PlayerGameModeChangeEvent
 #[test]
 fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
@@ -684,6 +738,41 @@ fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     damage::respawn(&mut game.state, sid(1));
     assert_eq!(game.player(1).world, 0);
+    assert_eq!(game.player(1).position, spawn);
+}
+
+// pmmp: PlayerRespawnEvent
+/// The monitors see where the player respawns, not a place a listener chose that was ignored.
+#[test]
+fn respawn_monitors_see_the_place_used_not_an_ignored_one() {
+    let mut listeners = on(|e: &mut PlayerRespawn, _: &mut Context<'_>| {
+        e.set_position(world::Id::new(9).unwrap(), Vec3::ZERO);
+    });
+    let (tx, mut watched) = record();
+    listeners.push_monitor(move |e: &PlayerRespawn, _: &Context<'_>| {
+        tx.try_send((e.world(), e.position())).unwrap();
+    });
+    let mut game = Game::new(1, listeners);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1));
+    let feet = game.player(1).position();
+    assert_eq!(drain(&mut watched), [(world::Id::DEFAULT, feet)]);
+}
+
+/// A respawn point whose middle lies outside the world border counts as none: the player
+/// respawns at the default world's spawn instead of staying where it died.
+#[test]
+fn a_respawn_point_outside_the_border_respawns_at_the_world_spawn() {
+    let mut game = Game::new(1, Listeners::default());
+    let spawn = game.player(1).position;
+    let name = game.state.worlds[0].name().to_owned();
+    game.survival(1).spawn = Some(Point {
+        world: name,
+        pos: BlockPos::new(30_000_000, -60, 0),
+    });
+    game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1));
     assert_eq!(game.player(1).position, spawn);
 }
 
@@ -1276,6 +1365,40 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
             crate::tick::player::LEFT.to_owned()
         )]
     );
+}
+
+// pmmp: InventoryCloseEvent
+/// A menu an `InventoryClose` listener opens while a teleport to another world closes the
+/// player's window does not follow the player: its blocks stand in the old world, so it closes
+/// without another event before the player leaves.
+#[test]
+fn a_menu_a_close_listener_opens_does_not_follow_a_teleport_to_another_world() {
+    let listeners = on(
+        |e: &mut crate::event::InventoryClose, cx: &mut Context<'_>| {
+            let menu = crate::menu::Menu::new(crate::menu::Kind::Chest);
+            cx.open_menu(e.player(), menu, |_, _, _| crate::menu::Response::Keep)
+                .expect("the menu opens");
+        },
+    );
+    let mut game = Game::new(1, listeners);
+    game.state.add_world(world::World::new(
+        "arena",
+        world::Kind::Temporary,
+        0,
+        BlockPos::new(0, -60, 0),
+    ));
+    let barrel = BlockPos::new(2, -60, 2);
+    game.state.worlds[0]
+        .set_block(barrel, block::Kind::Barrel.default_state())
+        .unwrap();
+    assert!(inventory::open_block(&mut game.state, sid(1), 0, barrel));
+    game.idle(3);
+    let at = game.player(1).position;
+    teleport(&mut game.state, sid(1), 1, at);
+    let cx = Context {
+        state: &mut game.state,
+    };
+    assert_eq!(cx.menu(pid(1)), None);
 }
 
 #[test]

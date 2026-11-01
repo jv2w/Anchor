@@ -61,61 +61,10 @@ pub(crate) struct Catalog {
     soft_index: BTreeMap<String, u32>,
 }
 
-/// An enum of the catalog: its type name and its values' positions in [`Catalog::values`].
-#[derive(Debug)]
-struct Enum {
-    name: String,
-    values: Vec<u32>,
-}
-
-/// A command of the catalog.
-#[derive(Debug)]
-struct Entry {
-    name: String,
-    description: String,
-    /// A player needs one of them; none: everyone.
-    permissions: Vec<Permission>,
-    /// The name and the aliases, as positions in [`Catalog::values`].
-    names: Vec<u32>,
-    /// Whether the command is sent; the client's own command is only named.
-    sent: bool,
-    /// The aliases enum (the name and the aliases), if the command has aliases.
-    aliases: Option<u32>,
-    overloads: Vec<Vec<Parameter>>,
-    /// The enums the command uses, each once, in the order a packet meets them: the aliases,
-    /// then the parameters in order.
-    enums: Vec<u32>,
-    /// The soft enums the command uses, each once, in parameter order.
-    soft: Vec<u32>,
-}
-
-/// A parameter of the catalog.
-#[derive(Debug)]
-struct Parameter {
-    name: String,
-    r#type: Type,
-    optional: bool,
-    /// `ParamOption` bits: BDS marks its item and block names as checked by the server.
-    options: u8,
-}
-
-/// A parameter's network type.
-#[derive(Debug, Clone, Copy)]
-enum Type {
-    /// `VALID | type`.
-    Basic(CommandArgType),
-    /// `VALID | ENUM | index`, the index the enum's in the catalog.
-    Enum(u32),
-    /// `SUFFIXED | index`, the suffix's index (BDS sets no `VALID` bit).
-    Suffixed(u32),
-    /// `VALID | SOFT_ENUM | index`, the index the soft enum's in the catalog.
-    Soft(u32),
-}
-
 impl Catalog {
-    /// The network form of `commands`, with the client's name enums from `names`. Fails if two
-    /// enums share a type name but not their values, or a soft enum shares one with an enum: the
-    /// client would get only the first.
+    /// Builds the network form of `commands`, with the client's name enums from `names`. Fails
+    /// if two enums share a type name but not their values, or a soft enum shares one with an
+    /// enum: the client would get only the first.
     pub(crate) fn new(commands: &[Command], names: &Names) -> command::Result<Self> {
         let mut b = Builder::default();
         // A parameter may not take the name of the enum every packet builds itself.
@@ -199,10 +148,65 @@ impl Catalog {
         self.soft.len()
     }
 
-    /// The type name of soft enum `index`.
-    pub(crate) fn soft_name(&self, index: usize) -> Option<&str> {
-        self.soft.get(index).map(String::as_str)
+    /// The type name of soft enum `index`, a position among [`Self::soft_count`].
+    pub(crate) fn soft_name(&self, index: usize) -> &str {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: callers pass a position among the soft enums"
+        )]
+        &self.soft[index]
     }
+}
+
+/// An enum of the catalog: its type name and its values' positions in [`Catalog::values`].
+#[derive(Debug)]
+struct Enum {
+    name: String,
+    values: Vec<u32>,
+}
+
+/// A command of the catalog.
+#[derive(Debug)]
+struct Entry {
+    name: String,
+    description: String,
+    /// A player needs one of them; none: everyone.
+    permissions: Vec<Permission>,
+    /// The name and the aliases, as positions in [`Catalog::values`].
+    names: Vec<u32>,
+    /// Whether the command is sent; the client's own command is only named.
+    sent: bool,
+    /// The aliases enum (the name and the aliases), if the command has aliases.
+    aliases: Option<u32>,
+    overloads: Vec<Vec<Parameter>>,
+    /// The enums the command uses, each once, in the order a packet meets them: the aliases,
+    /// then the parameters in order.
+    enums: Vec<u32>,
+    /// The soft enums the command uses, each once, in parameter order.
+    soft: Vec<u32>,
+}
+
+/// A parameter of the catalog.
+#[derive(Debug)]
+struct Parameter {
+    name: String,
+    r#type: Type,
+    optional: bool,
+    /// `ParamOption` bits: BDS marks its item and block names as checked by the server.
+    options: u8,
+}
+
+/// A parameter's network type.
+#[derive(Debug, Clone, Copy)]
+enum Type {
+    /// `VALID | type`.
+    Basic(CommandArgType),
+    /// `VALID | ENUM | index`, the index the enum's in the catalog.
+    Enum(u32),
+    /// `SUFFIXED | index`, the suffix's index (BDS sets no `VALID` bit).
+    Suffixed(u32),
+    /// `VALID | SOFT_ENUM | index`, the index the soft enum's in the catalog.
+    Soft(u32),
 }
 
 /// What a player's `AvailableCommands` is made from: the catalog, the permission grants, the
@@ -216,8 +220,118 @@ pub(crate) struct Listing<'a> {
     pub(super) soft_values: &'a [Vec<String>],
 }
 
-/// The `AvailableCommands` packet for `player` (of `session`): every command whose permission it
-/// has, in registration order, with only the enums and values those commands use.
+/// The catalog as it fills.
+#[derive(Default)]
+struct Builder {
+    catalog: Catalog,
+    value_index: BTreeMap<String, u32>,
+    /// Enums by type name.
+    enum_index: BTreeMap<String, u32>,
+    /// The first enum whose type name an enum of other values has.
+    error: Option<Error>,
+}
+
+impl Builder {
+    /// Finds the index of the enum `name` with `values`, adding it on first use. An enum of the
+    /// name with other values is an error.
+    fn enumeration<'v>(&mut self, name: &str, values: impl IntoIterator<Item = &'v str>) -> u32 {
+        let values: Vec<u32> = values.into_iter().map(|v| self.value(v)).collect();
+        if let Some(&index) = self.enum_index.get(name) {
+            // A reserved name has no enum of the catalog: any values conflict.
+            if self
+                .catalog
+                .enums
+                .get(position(index))
+                .is_none_or(|e| e.values != values)
+            {
+                self.error.get_or_insert(Error::ConflictingEnum {
+                    name: name.to_owned(),
+                });
+            }
+            return index;
+        }
+        let index = index_of(self.catalog.enums.len());
+        self.catalog.enums.push(Enum {
+            name: name.to_owned(),
+            values,
+        });
+        self.enum_index.insert(name.to_owned(), index);
+        index
+    }
+
+    /// Finds the index of `value` among the catalog's values, adding it on first use.
+    fn value(&mut self, value: &str) -> u32 {
+        if let Some(&index) = self.value_index.get(value) {
+            return index;
+        }
+        let index = index_of(self.catalog.values.len());
+        self.catalog.values.push(value.to_owned());
+        self.value_index.insert(value.to_owned(), index);
+        index
+    }
+
+    /// Finds the index of `suffix`, adding it on first use.
+    fn suffix(&mut self, suffix: &str) -> u32 {
+        let suffixes = &mut self.catalog.suffixes;
+        if let Some(i) = suffixes.iter().position(|s| s == suffix) {
+            return index_of(i);
+        }
+        suffixes.push(suffix.to_owned());
+        index_of(suffixes.len() - 1)
+    }
+
+    /// Finds the index of the soft enum `name`, adding it on first use.
+    fn soft(&mut self, name: &str) -> u32 {
+        if let Some(&index) = self.catalog.soft_index.get(name) {
+            return index;
+        }
+        let index = index_of(self.catalog.soft.len());
+        self.catalog.soft.push(name.to_owned());
+        self.catalog.soft_index.insert(name.to_owned(), index);
+        index
+    }
+
+    /// Finds the network type of `param` as BDS sends it (P6): a basic type, an enum
+    /// (`VALID | type` or `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number. Item
+    /// and block names come with and without `minecraft:`.
+    fn parameter(&mut self, names: &Names, param: &Param) -> Type {
+        match &param.kind {
+            Kind::Int => Type::Basic(CommandArgType::Int),
+            Kind::Suffixed { suffix } => Type::Suffixed(self.suffix(suffix)),
+            Kind::Float => Type::Basic(CommandArgType::Float),
+            Kind::String => Type::Basic(CommandArgType::String),
+            Kind::Target | Kind::Name => Type::Basic(CommandArgType::Target),
+            Kind::Position => Type::Basic(CommandArgType::Position),
+            // BDS and PMMP (`ARG_TYPE_MESSAGE`) send 68, gophertunnel's `Message` is 67.
+            Kind::Message => Type::Basic(CommandArgType::MessageRoot),
+            Kind::RawText => Type::Basic(CommandArgType::RawText),
+            Kind::Json => Type::Basic(CommandArgType::Json),
+            Kind::Bool => Type::Enum(self.enumeration(command::BOOLEAN_ENUM, ["true", "false"])),
+            Kind::Enum { name, values } => {
+                Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
+            }
+            Kind::Item => {
+                let values = namespaced(names.item_names().iter().copied());
+                Type::Enum(self.enumeration(command::ITEM_ENUM, values.iter().map(String::as_str)))
+            }
+            Kind::Block => {
+                let values = namespaced(block::Kind::all().iter().map(|k| k.name()));
+                Type::Enum(self.enumeration(command::BLOCK_ENUM, values.iter().map(String::as_str)))
+            }
+            Kind::Effect => {
+                Type::Enum(self.enumeration(command::EFFECT_ENUM, names.effect_names()))
+            }
+            Kind::Enchantment => {
+                Type::Enum(self.enumeration(command::ENCHANT_ENUM, names.enchantment_names()))
+            }
+            Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
+            Kind::ClockTimeMarker => Type::Basic(CommandArgType::ClockTimeMarker),
+        }
+    }
+}
+
+/// Builds the `AvailableCommands` packet for `player` (of `session`): every command whose
+/// permission it has, in registration order, with only the enums and values those commands use.
 pub(crate) fn available_commands(
     listing: Listing<'_>,
     session: SessionId,
@@ -249,14 +363,14 @@ pub(crate) fn available_commands(
             continue;
         }
         for &index in &entry.enums {
-            let (Some(at), Some(e)) = (
-                slot(&mut enum_at, index),
-                catalog.enums.get(position(index)),
-            ) else {
-                continue;
-            };
-            if *at == UNSET {
-                *at = index_of(enums.len());
+            let at = position(index);
+            #[expect(
+                clippy::indexing_slicing,
+                reason = "invariant: a command's enums are positions of the catalog's enums"
+            )]
+            let (slot, e) = (&mut enum_at[at], &catalog.enums[at]);
+            if *slot == UNSET {
+                *slot = index_of(enums.len());
                 let value_indices = e
                     .values
                     .iter()
@@ -326,7 +440,7 @@ pub(crate) fn available_commands(
     }))
 }
 
-/// A parameter's packet type, its enum renumbered by `enum_at` or `soft_at`.
+/// Computes a parameter's packet type, its enum renumbered by `enum_at` or `soft_at`.
 fn wire_type(r#type: Type, enum_at: &[u32], soft_at: &[u32]) -> u32 {
     match r#type {
         Type::Basic(t) => u32::from(CommandArg::Valid) | u32::from(t),
@@ -342,9 +456,14 @@ fn wire_type(r#type: Type, enum_at: &[u32], soft_at: &[u32]) -> u32 {
     }
 }
 
-/// The packet position `at` gives catalog position `index`.
+/// Looks up the packet position `at` gives catalog position `index`, which the command's enums
+/// were renumbered with before its overloads.
 fn renumbered(at: &[u32], index: u32) -> u32 {
-    at.get(position(index)).copied().unwrap_or(UNSET)
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: a catalog position indexes its packet table"
+    )]
+    at[position(index)]
 }
 
 /// Copies catalog soft enum `index` with its values into `dynamic_enums` on first use.
@@ -355,163 +474,58 @@ fn soft_enum_of(
     dynamic_enums: &mut Vec<DynamicEnum>,
     index: u32,
 ) {
-    let (Some(at), Some(name)) = (slot(soft_at, index), catalog.soft.get(position(index))) else {
-        return;
-    };
-    if *at != UNSET {
+    let at = position(index);
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: a command's soft enums are positions of the catalog's soft enums and of their values"
+    )]
+    let (slot, name, values) = (&mut soft_at[at], &catalog.soft[at], &soft_values[at]);
+    if *slot != UNSET {
         return;
     }
-    *at = index_of(dynamic_enums.len());
+    *slot = index_of(dynamic_enums.len());
     dynamic_enums.push(DynamicEnum {
         r#type: name.clone(),
-        values: soft_values
-            .get(position(index))
-            .cloned()
-            .unwrap_or_default(),
+        values: values.clone(),
     });
 }
 
-/// The packet position of catalog value `v`, copied into `values` on first use.
+/// Finds the packet position of catalog value `v`, copying it into `values` on first use.
 fn value_of(catalog: &Catalog, value_at: &mut [u32], values: &mut Vec<String>, v: u32) -> u32 {
-    match slot(value_at, v) {
-        Some(at) if *at == UNSET => {
-            *at = index_of(values.len());
-            values.push(catalog.values.get(position(v)).cloned().unwrap_or_default());
-            *at
-        }
-        Some(at) => *at,
-        None => UNSET,
+    let at = position(v);
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: names and enum values are positions of the catalog's values"
+    )]
+    let (slot, value) = (&mut value_at[at], &catalog.values[at]);
+    if *slot == UNSET {
+        *slot = index_of(values.len());
+        values.push(value.clone());
     }
+    *slot
 }
 
-/// The entry of `table` at catalog position `index`.
-fn slot(table: &mut [u32], index: u32) -> Option<&mut u32> {
-    table.get_mut(position(index))
-}
-
-/// A catalog position as a slice index; positions come from `usize` lengths, so they fit.
+/// Turns a catalog position into a slice index.
 fn position(index: u32) -> usize {
-    usize::try_from(index).unwrap_or(usize::MAX)
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the supported targets' usize holds a u32"
+    )]
+    usize::try_from(index).expect("a u32 fits a usize")
 }
 
-/// The catalog as it fills.
-#[derive(Default)]
-struct Builder {
-    catalog: Catalog,
-    value_index: BTreeMap<String, u32>,
-    /// Enums by type name.
-    enum_index: BTreeMap<String, u32>,
-    /// The first enum whose type name an enum of other values has.
-    error: Option<Error>,
-}
-
-impl Builder {
-    /// The index of the enum `name` with `values`, added on first use. An enum of the name with
-    /// other values is an error.
-    fn enumeration<'v>(&mut self, name: &str, values: impl IntoIterator<Item = &'v str>) -> u32 {
-        let values: Vec<u32> = values.into_iter().map(|v| self.value(v)).collect();
-        if let Some(&index) = self.enum_index.get(name) {
-            // A reserved name has no enum of the catalog: any values conflict.
-            if self
-                .catalog
-                .enums
-                .get(position(index))
-                .is_none_or(|e| e.values != values)
-            {
-                self.error.get_or_insert(Error::ConflictingEnum {
-                    name: name.to_owned(),
-                });
-            }
-            return index;
-        }
-        let index = index_of(self.catalog.enums.len());
-        self.catalog.enums.push(Enum {
-            name: name.to_owned(),
-            values,
-        });
-        self.enum_index.insert(name.to_owned(), index);
-        index
-    }
-
-    fn value(&mut self, value: &str) -> u32 {
-        if let Some(&index) = self.value_index.get(value) {
-            return index;
-        }
-        let index = index_of(self.catalog.values.len());
-        self.catalog.values.push(value.to_owned());
-        self.value_index.insert(value.to_owned(), index);
-        index
-    }
-
-    /// The index of `suffix`, added on first use.
-    fn suffix(&mut self, suffix: &str) -> u32 {
-        let suffixes = &mut self.catalog.suffixes;
-        if let Some(i) = suffixes.iter().position(|s| s == suffix) {
-            return index_of(i);
-        }
-        suffixes.push(suffix.to_owned());
-        index_of(suffixes.len() - 1)
-    }
-
-    /// The index of the soft enum `name`, added on first use.
-    fn soft(&mut self, name: &str) -> u32 {
-        if let Some(&index) = self.catalog.soft_index.get(name) {
-            return index;
-        }
-        let index = index_of(self.catalog.soft.len());
-        self.catalog.soft.push(name.to_owned());
-        self.catalog.soft_index.insert(name.to_owned(), index);
-        index
-    }
-
-    /// The network type of `param` as BDS sends it (P6): a basic type, an enum (`VALID | type` or
-    /// `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number. Item and block names come
-    /// with and without `minecraft:`.
-    fn parameter(&mut self, names: &Names, param: &Param) -> Type {
-        match &param.kind {
-            Kind::Int => Type::Basic(CommandArgType::Int),
-            Kind::Suffixed { suffix } => Type::Suffixed(self.suffix(suffix)),
-            Kind::Float => Type::Basic(CommandArgType::Float),
-            Kind::String => Type::Basic(CommandArgType::String),
-            Kind::Target | Kind::Name => Type::Basic(CommandArgType::Target),
-            Kind::Position => Type::Basic(CommandArgType::Position),
-            // BDS and PMMP (`ARG_TYPE_MESSAGE`) send 68, gophertunnel's `Message` is 67.
-            Kind::Message => Type::Basic(CommandArgType::MessageRoot),
-            Kind::RawText => Type::Basic(CommandArgType::RawText),
-            Kind::Json => Type::Basic(CommandArgType::Json),
-            Kind::Bool => Type::Enum(self.enumeration(command::BOOLEAN_ENUM, ["true", "false"])),
-            Kind::Enum { name, values } => {
-                Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
-            }
-            Kind::Item => {
-                let values = namespaced(names.item_names().iter().copied());
-                Type::Enum(self.enumeration(command::ITEM_ENUM, values.iter().map(String::as_str)))
-            }
-            Kind::Block => {
-                let values = namespaced(block::Kind::all().iter().map(|k| k.name()));
-                Type::Enum(self.enumeration(command::BLOCK_ENUM, values.iter().map(String::as_str)))
-            }
-            Kind::Effect => {
-                Type::Enum(self.enumeration(command::EFFECT_ENUM, names.effect_names()))
-            }
-            Kind::Enchantment => {
-                Type::Enum(self.enumeration(command::ENCHANT_ENUM, names.enchantment_names()))
-            }
-            Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
-            Kind::ClockTimeMarker => Type::Basic(CommandArgType::ClockTimeMarker),
-        }
-    }
-}
-
-/// Each of `names` as `minecraft:<name>` and as itself, BDS's order.
+/// Lists each of `names` as `minecraft:<name>` and as itself, BDS's order.
 fn namespaced<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
     names
         .flat_map(|n| [format!("{NAMESPACE}{n}"), n.to_owned()])
         .collect()
 }
 
-/// A list index as the packet's u32. Lists here are far below 2^32 entries (bounded command,
-/// overload and enum counts).
+/// Turns a list index into the packet's u32.
 fn index_of(len: usize) -> u32 {
-    u32::try_from(len).unwrap_or(u32::MAX)
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: lists here are far below 2^32 entries (bounded command, overload and enum counts)"
+    )]
+    u32::try_from(len).expect("a list length fits a u32")
 }

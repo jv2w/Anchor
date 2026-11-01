@@ -6,10 +6,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::block;
-
 use super::sub_chunk::Entry;
 use super::{BlockPos, Chunk, ChunkPos};
+use crate::block;
 
 /// Fills the chunks of a world that were never saved.
 ///
@@ -35,7 +34,10 @@ pub trait Generator: Send + Sync + 'static {
 
     /// The name worlds pick this generator by
     /// ([`Options::with_generator`](super::Options::with_generator)); it is not saved with the
-    /// world. The default is the type's name.
+    /// world. Two values of one type with one name are one generator: a world picked by the name
+    /// gets the first registered. The default is the type's name ([`std::any::type_name`]), which
+    /// is not fixed across compiler versions: a generator that worlds pick by name, or that the
+    /// replay of a crash log must find again, returns a name of its own.
     fn name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
@@ -51,20 +53,29 @@ pub(crate) struct Generators {
     clash: Option<&'static str>,
 }
 
-/// The built-in generators.
-impl Default for Generators {
-    fn default() -> Self {
-        let mut generators = Self {
-            by_name: BTreeMap::new(),
-            clash: None,
-        };
-        generators.add_typed(Flat);
-        generators.add_typed(Void);
-        generators
-    }
-}
-
 impl Generators {
+    /// The name two generator types share, if any.
+    pub(crate) fn clash(&self) -> Option<&'static str> {
+        self.clash
+    }
+
+    /// The generator named `name`.
+    pub(crate) fn get(&self, name: &str) -> Option<&Arc<dyn Generator>> {
+        self.by_name.get(name).map(|(_, g)| g)
+    }
+
+    /// The names, in order.
+    pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.by_name.keys().copied()
+    }
+
+    /// Adds a generator of type `G`.
+    pub(crate) fn add_typed<G: Generator>(&mut self, generator: G) -> Arc<dyn Generator> {
+        let generator: Arc<dyn Generator> = Arc::new(generator);
+        self.add(TypeId::of::<G>(), Arc::clone(&generator));
+        generator
+    }
+
     /// Adds `generator` of type `type_id`. A name already taken by a generator of the same type
     /// keeps the first (two values of one type with one name must generate alike); one taken
     /// by another type is a clash.
@@ -80,27 +91,18 @@ impl Generators {
             }
         }
     }
+}
 
-    /// Adds a generator of type `G`.
-    pub(crate) fn add_typed<G: Generator>(&mut self, generator: G) -> Arc<dyn Generator> {
-        let generator: Arc<dyn Generator> = Arc::new(generator);
-        self.add(TypeId::of::<G>(), Arc::clone(&generator));
-        generator
-    }
-
-    /// The name two generator types share, if any.
-    pub(crate) fn clash(&self) -> Option<&'static str> {
-        self.clash
-    }
-
-    /// The generator named `name`.
-    pub(crate) fn get(&self, name: &str) -> Option<&Arc<dyn Generator>> {
-        self.by_name.get(name).map(|(_, g)| g)
-    }
-
-    /// The names, in order.
-    pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.by_name.keys().copied()
+/// The built-in generators.
+impl Default for Generators {
+    fn default() -> Self {
+        let mut generators = Self {
+            by_name: BTreeMap::new(),
+            clash: None,
+        };
+        generators.add_typed(Flat);
+        generators.add_typed(Void);
+        generators
     }
 }
 
