@@ -18,7 +18,7 @@ Every kind of code has exactly one form, written here. Two forms for one kind is
 - Modules are `foo.rs` and `foo/bar.rs`; `mod.rs` is forbidden. Module placement is in `.claude/rules/architecture.md`.
 - The first line of every module is a `//!` comment stating its responsibility.
 - Visibility is private by default, `pub(crate)` when split inside the crate, `pub` only for API reachable from the crate root. Every public item has `///` documentation and a `Debug` implementation.
-- Re-exports (`pub use`, `pub(crate) use`) form one block in rustfmt's path order. No `use` path starts with `self::` (`pub use stack::Stack;`, `use stack::Slot;`).
+- Re-exports of any visibility (`pub use`, `pub(crate) use`, `pub(super) use`) form one block in rustfmt's path order. No `use` path starts with `self::` (`pub use stack::Stack;`, `use stack::Slot;`).
 - Paths: `super::` names only the parent module and what it holds (`super::Item`, `super::sibling::Item`, and `use super::*;` in tests). Every other crate item is named from `crate::`; never `super::super::`.
 
 ## File layout
@@ -28,14 +28,14 @@ Every `.rs` file has exactly this order:
 3. `pub use` re-exports.
 4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::` and child modules (`use kind::Kind;`). Macros of an external crate are imported (`use tracing::warn;`, `use serde::Deserialize;`), never written with their crate path.
 5. Constants and statics.
-6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro (`checkpoint::fields!`, `variants!`) counts as a trait `impl`. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type.
+6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro counts as a trait `impl`, called through the imported module as `checkpoint::fields!(…)` and `checkpoint::variants!(…)`, its list ending with a trailing comma when it spans lines. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type.
 7. Free functions.
 8. `#[cfg(test)] mod tests` as the last item.
 
 Items are ordered top-down: the module's main item first, every caller above the items it calls.
 
 ## Inside an `impl`
-- Order: associated constants → constructors (`new`, `with_*`, `from_*`) → queries (getters, `is_*`, `has_*`, `can_*`) → mutators (`set_*`, `*_mut`, other `&mut self` methods) → conversions (`as_*`, `to_*`, `into_*`) → private helpers. Private helpers are every private method, in the same kind order.
+- Order: associated constants → constructors (`new`, `with_*`, `from_*`) → queries (getters, `is_*`, `has_*`, `can_*`) → mutators (`set_*`, `*_mut`, other `&mut self` methods) → conversions (`as_*`, `to_*`, `into_*`) → private helpers. Private helpers are every private method, in the same kind order. Within one kind, a caller comes above the methods it calls; methods without that relation are alphabetical.
 - Trait implementations of one type: `Default`, `Debug`, `Display`, `std::error::Error`, `From`, `TryFrom`, operator traits, then all other traits alphabetically.
 
 ## Derives
@@ -71,7 +71,8 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Rust API Guidelines: types and variants UpperCamelCase; functions, fields, modules, files snake_case; constants SCREAMING_SNAKE_CASE; packages and configuration keys kebab-case.
 - Acronyms are one word (`Raknet`, `Nethernet`, `Xuid`, `Uuid`, `Id`, `Nbt`, `Json`, `Http`, `Udp`, `Aabb`); prose keeps the original spelling (RakNet).
 - A module name is not repeated in its types (`event::PlayerJoin`). API-table event names drop their `Event` suffix.
-- Units are a type (`Duration`, `Tick`) or a suffix (`_ticks`, `_ms`, `_bytes`). Upper bounds are `MAX_<THING>`, lower bounds `MIN_<THING>`.
+- Units are a type (`Duration`, `Tick`) or a suffix (`_ticks`, `_ms`, `_bytes`). Upper bounds are `MAX_<THING>`, lower bounds `MIN_<THING>`, an inclusive range of allowed values `<THING>_RANGE`.
+- `ctx` names only a `Context`; other context-like values take a name of their own (`attempt`, `settings`).
 - One concept has one word across the crate, and one word means one concept.
 - API-table conversion: `getX/setX/isX` → `x/set_x/is_x`; singleton → a `&Server` or `Context` argument; `null`, exceptions, `-1` → `Option` or `Result`; constant groups → an enum; mutable `Vector3` → a `Copy` value; twin methods → one.
 
@@ -100,7 +101,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Tests
 - Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`.
 - In a test module, a helper sits directly above the first test or helper that uses it.
-- Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// pmmp:` line comes before its `///` documentation.
+- Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// pmmp:` line comes before its `///` documentation; a line past 100 columns is split into several lines, each starting with `// pmmp:`.
 
 ## Lints and formatting
 - The canonical sources are `[workspace.lints]` in Cargo.toml, `.clippy.toml`, and `.rustfmt.toml`. Formatting is rustfmt only. Exceptions follow `CLAUDE.md`.
