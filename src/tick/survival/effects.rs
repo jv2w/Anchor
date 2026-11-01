@@ -407,8 +407,7 @@ pub(super) fn packed(s: &Survival) -> i64 {
     let mut n = 0;
     for (effect, active) in &s.effects {
         if let Some(slot) = ids.get_mut(n)
-            && active.visible
-            && effect.has_bubbles()
+            && effect::shows_bubbles(&active.instance(*effect))
         {
             *slot = (effect.id(), active.ambient);
             n += 1;

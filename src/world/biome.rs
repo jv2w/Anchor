@@ -1,5 +1,7 @@
-//! The biome definitions the client gets once in the spawn window: the 89 vanilla
-//! biomes BDS sends, generated from `CloudburstMC`'s stripped definitions into [`table`].
+//! The biome definitions the client gets once in the spawn window.
+//!
+//! The 89 vanilla biomes BDS sends, generated from `CloudburstMC`'s stripped definitions into
+//! [`table`].
 
 mod table;
 
@@ -12,61 +14,69 @@ const VANILLA_ID: i16 = -1;
 /// One biome definition as BDS sends it, its strings as indices into [`table::STRINGS`].
 #[derive(Debug)]
 struct Definition {
+    /// The index of the biome's name.
     name: i16,
+    /// The biome's temperature.
     temperature: f32,
+    /// The biome's downfall.
     downfall: f32,
+    /// The biome's foliage snow value.
     foliage_snow: f32,
+    /// The terrain depth.
     depth: f32,
+    /// The terrain scale.
     scale: f32,
-    /// ARGB.
+    /// The water colour on maps, as ARGB.
     map_water_colour: u32,
+    /// Whether it rains in the biome.
     rain: bool,
+    /// The indices of the biome's tags.
     tags: &'static [u16],
 }
 
-/// The `BiomeDefinitionList` packet: every biome of the table with the vanilla ID and no chunk
-/// generation data, like BDS.
+/// The `BiomeDefinitionList` packet with every biome of the table.
+///
+/// Every biome has the vanilla ID and no chunk generation data, like BDS.
 pub(crate) fn definition_list() -> BiomeDefinitionList {
     BiomeDefinitionList {
         biome_definitions: table::DEFINITIONS
             .iter()
-            .map(|d| BiomeDefinition {
-                name_index: d.name,
+            .map(|definition| BiomeDefinition {
+                name_index: definition.name,
                 biome_id: VANILLA_ID,
-                temperature: d.temperature,
-                downfall: d.downfall,
-                foliage_snow: d.foliage_snow,
-                depth: d.depth,
-                scale: d.scale,
-                map_water_colour: d.map_water_colour.cast_signed(),
-                rain: d.rain,
-                tags: Some(d.tags.to_vec()),
+                temperature: definition.temperature,
+                downfall: definition.downfall,
+                foliage_snow: definition.foliage_snow,
+                depth: definition.depth,
+                scale: definition.scale,
+                map_water_colour: definition.map_water_colour.cast_signed(),
+                rain: definition.rain,
+                tags: Some(definition.tags.to_vec()),
                 chunk_generation: None,
             })
             .collect(),
-        string_list: table::STRINGS.iter().map(|&s| s.to_owned()).collect(),
+        string_list: table::STRINGS
+            .iter()
+            .map(|&string| string.to_owned())
+            .collect(),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::collections::{BTreeMap, BTreeSet};
 
     use serde_json::Value as Json;
 
-    use super::*;
     use crate::protocol::packet::Packet;
 
-    const DATA: &str = include_str!("../../xtask/data/reference/biomes.json");
-
-    /// The payload size of BDS 1.26.52's `BiomeDefinitionList` (P6: 7,668 bytes with the one-byte
-    /// packet header). It depends only on the content, not on the order of biomes or strings.
+    /// The payload size of BDS 1.26.52's `BiomeDefinitionList`.
+    ///
+    /// P6 measured 7,668 bytes with the one-byte packet header. It depends only on the content,
+    /// not on the order of biomes or strings.
     const BDS_PAYLOAD_SIZE: usize = 7667;
-
-    /// A data number at the packet's precision, rounded once from its decimal text.
-    fn single(json: &Json) -> f32 {
-        json.as_number().unwrap().to_string().parse().unwrap()
-    }
 
     #[test]
     fn the_list_round_trips_with_every_biome_and_no_generation_data() {
@@ -92,6 +102,13 @@ mod tests {
         let list = definition_list();
         let unique: BTreeSet<&String> = list.string_list.iter().collect();
         assert_eq!(unique.len(), list.string_list.len());
+    }
+
+    const DATA: &str = include_str!("../../xtask/data/reference/biomes.json");
+
+    /// A data number at the packet's precision, rounded once from its decimal text.
+    fn single(json: &Json) -> f32 {
+        json.as_number().unwrap().to_string().parse().unwrap()
     }
 
     #[test]

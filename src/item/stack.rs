@@ -300,8 +300,7 @@ impl Stack {
 
     /// Whether `other` is this stack: `==`, but extra data both stacks share is the same at once,
     /// without walking its NBT (`Extra` holds floats, so it is not `Eq` and `Arc`'s `==` compares
-    /// the contents). Data shared with itself is the same even if `==` finds it unequal (a NaN
-    /// float).
+    /// the contents). Floats compare by their bits in `==`, so a NaN equals itself.
     pub(crate) fn same(&self, other: &Self) -> bool {
         self.item == other.item
             && self.count == other.count
@@ -877,7 +876,7 @@ mod tests {
                 ..Extra::default()
             }))
             .unwrap();
-        assert_ne!(nan, nan.clone());
+        assert_eq!(nan, nan.clone());
         assert!(nan.same(&nan.clone()));
     }
 

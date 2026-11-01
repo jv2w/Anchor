@@ -42,13 +42,13 @@ struct Line {
 }
 
 impl World {
-    /// Works out the states around `pos` after it was set over `old`. When the old and the new
-    /// block look the same to their neighbours (stone over dirt), only the block itself is
-    /// worked out.
-    pub(super) fn connect_around(&mut self, pos: BlockPos, old: Entry) {
+    /// Works out the states around `pos` after it was set from `old` to `new`. When the old and
+    /// the new block look the same to their neighbours (stone over dirt), only the block itself
+    /// is worked out.
+    pub(super) fn connect_around(&mut self, pos: BlockPos, old: Entry, new: Entry) {
         let placed = match self.reconnect(pos) {
-            Some((_, new)) => Some(new),
-            None => self.known(Some(pos)),
+            Some((_, connected)) => Some(connected),
+            None => known_in(new),
         };
         if let (Entry::Known(old), Some(placed)) = (old, placed)
             && old.neighbour_view() == placed.neighbour_view()
@@ -76,10 +76,10 @@ impl World {
         }
     }
 
-    /// Works out which tripwire and hooks are attached after `pos` was set over `old`: the lines
-    /// through `pos` and next to it, on both axes. Does nothing unless a tripwire or a hook is
-    /// involved.
-    pub(super) fn attach_tripwire(&mut self, pos: BlockPos, old: Entry) {
+    /// Works out which tripwire and hooks are attached after `pos` was set from `old` to `new`:
+    /// the lines through `pos` and next to it, on both axes. Does nothing unless a tripwire or a
+    /// hook is involved.
+    pub(super) fn attach_tripwire(&mut self, pos: BlockPos, old: Entry, new: Entry) {
         let involved = |s: Option<State>| {
             s.is_some_and(|s| {
                 matches!(
@@ -88,11 +88,7 @@ impl World {
                 )
             })
         };
-        let old = match old {
-            Entry::Known(s) => Some(s),
-            Entry::Unknown(_) | Entry::Inert(..) => None,
-        };
-        if !involved(self.known(Some(pos))) && !involved(old) {
+        if !involved(known_in(new)) && !involved(old.state()) {
             return;
         }
         for axis in [Facing::East, Facing::South] {
@@ -177,38 +173,10 @@ impl World {
         })
     }
 
-    /// Sets `attached_bit` of the tripwire or hook at `pos`, if it has one.
-    fn set_attached(&mut self, pos: BlockPos, attached: bool) {
-        if let Some(state) = self.known(Some(pos))
-            && let Some(new) = state.with("attached_bit", PropertyValue::Byte(u8::from(attached)))
-            && new != state
-        {
-            self.write(pos, Entry::Known(new));
-        }
-    }
-
-    /// Works out the state at `pos` from its neighbours and writes it if it differs. Returns the
-    /// old and new states of a change.
-    fn reconnect(&mut self, pos: BlockPos) -> Option<(State, State)> {
-        let Entry::Known(state) = self.entry(pos)? else {
-            return None;
-        };
-        let new = self.connected(pos, state)?;
-        if new == state {
-            return None;
-        }
-        self.write(pos, Entry::Known(new))?;
-        Some((state, new))
-    }
-
     /// The known state at `pos`, an inert block's stand-in ([`crate::block::Inert::stand_in`],
-    /// read only: no rule writes it), or `None` for air, unknown states and unloaded chunks.
+    /// read only: no rule writes it), or `None` for unknown states and unloaded chunks.
     fn known(&self, pos: Option<BlockPos>) -> Option<State> {
-        match self.entry(pos?)? {
-            Entry::Known(state) => Some(state),
-            Entry::Inert(inert, _) => Some(inert.stand_in()),
-            Entry::Unknown(_) => None,
-        }
+        known_in(self.entry(pos?)?)
     }
 
     /// The state `state` takes at `pos` given its neighbours, or `None` if it has no variants.
@@ -291,5 +259,39 @@ impl World {
             }
             Connection::None | Connection::TripwireHook => None,
         }
+    }
+
+    /// Sets `attached_bit` of the tripwire or hook at `pos`, if it has one.
+    fn set_attached(&mut self, pos: BlockPos, attached: bool) {
+        if let Some(state) = self.known(Some(pos))
+            && let Some(new) = state.with("attached_bit", PropertyValue::Byte(u8::from(attached)))
+            && new != state
+        {
+            self.write(pos, Entry::Known(new));
+        }
+    }
+
+    /// Works out the state at `pos` from its neighbours and writes it if it differs. Returns the
+    /// old and new states of a change.
+    fn reconnect(&mut self, pos: BlockPos) -> Option<(State, State)> {
+        let Entry::Known(state) = self.entry(pos)? else {
+            return None;
+        };
+        let new = self.connected(pos, state)?;
+        if new == state {
+            return None;
+        }
+        self.write(pos, Entry::Known(new))?;
+        Some((state, new))
+    }
+}
+
+/// The state a neighbour rule reads in `entry`: a known state, an inert block's stand-in, or
+/// `None` for an unknown state.
+fn known_in(entry: Entry) -> Option<State> {
+    match entry {
+        Entry::Known(state) => Some(state),
+        Entry::Inert(inert, _) => Some(inert.stand_in()),
+        Entry::Unknown(_) => None,
     }
 }

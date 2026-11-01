@@ -7,7 +7,7 @@
 mod table;
 
 use crate::item::{self, Type};
-use crate::nbt::StaticCompound;
+use crate::nbt::{self, StaticCompound};
 use crate::protocol::consts::RecipeUnlockContext;
 use crate::protocol::packet::CraftingData;
 use crate::protocol::{
@@ -26,16 +26,394 @@ const PRIORITY: i32 = 50;
 /// The block name of smithing recipes, as BDS and dragonfly send it.
 const SMITHING_TABLE: &str = "smithing_table";
 
-/// An item stack of a recipe result.
+/// The most cells a crafting grid has (the crafting table's 3x3).
+pub(crate) const GRID_CELLS: usize = 9;
+
+/// The most distinct stacks [`consumed_matches`] takes: one per consume action of a request.
+pub(crate) const MAX_PROVIDED: usize = 64;
+
+/// The nodes of the flow graph of [`consumed_matches`]: the source, a node per ingredient, a node
+/// per pooled stack and the sink.
+const FLOW_NODES: usize = 1 + GRID_CELLS + MAX_PROVIDED + 1;
+
+/// The armour trim pattern IDs (an item's [`TAG_TRIM_PATTERN`](crate::item::TAG_TRIM_PATTERN)), in
+/// the order BDS 1.26.52 sends them in `TrimData` (P6): each is the template
+/// `minecraft:<pattern>_armor_trim_smithing_template`.
+pub const TRIM_PATTERNS: [&str; 18] = [
+    "ward",
+    "sentry",
+    "snout",
+    "dune",
+    "spire",
+    "tide",
+    "wild",
+    "rib",
+    "coast",
+    "shaper",
+    "eye",
+    "vex",
+    "silence",
+    "wayfinder",
+    "raiser",
+    "host",
+    "flow",
+    "bolt",
+];
+
+/// The armour trim materials: material ID, text colour code and item, in the order BDS 1.26.52
+/// sends them in `TrimData` (P6).
+pub(crate) const TRIM_MATERIAL_TABLE: [(&str, &str, &str); 11] = [
+    ("quartz", "\u{a7}h", "minecraft:quartz"),
+    ("iron", "\u{a7}i", "minecraft:iron_ingot"),
+    ("netherite", "\u{a7}j", "minecraft:netherite_ingot"),
+    ("redstone", "\u{a7}m", "minecraft:redstone"),
+    ("copper", "\u{a7}n", "minecraft:copper_ingot"),
+    ("gold", "\u{a7}p", "minecraft:gold_ingot"),
+    ("emerald", "\u{a7}q", "minecraft:emerald"),
+    ("diamond", "\u{a7}s", "minecraft:diamond"),
+    ("lapis", "\u{a7}t", "minecraft:lapis_lazuli"),
+    ("amethyst", "\u{a7}u", "minecraft:amethyst_shard"),
+    ("resin", "\u{a7}v", "minecraft:resin_brick"),
+];
+
+/// The armour trim material IDs (an item's
+/// [`TAG_TRIM_MATERIAL`](crate::item::TAG_TRIM_MATERIAL)), in the order BDS 1.26.52 sends them in
+/// `TrimData` (P6).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: evaluated when the crate builds, so an index out of range fails the build"
+)]
+pub const TRIM_MATERIALS: [&str; TRIM_MATERIAL_TABLE.len()] = {
+    let mut ids = [""; TRIM_MATERIAL_TABLE.len()];
+    let mut i = 0;
+    while i < ids.len() {
+        ids[i] = TRIM_MATERIAL_TABLE[i].0;
+        i += 1;
+    }
+    ids
+};
+
+/// A recipe of any kind the `CraftingData` packet numbers (PMMP `CraftingManager` recipes by
+/// network ID), borrowed from the static table or a server's own recipes.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Stack {
-    pub(crate) item: Type,
-    /// The stack's meta, which PMMP sends. It differs from the type's meta where PMMP reads meta
-    /// as stack state (a firework star's colour).
-    pub(crate) meta: u16,
-    pub(crate) count: u16,
-    /// The stack NBT as PMMP holds it (a banner's `Type`, a firework's explosions).
-    pub(crate) nbt: Option<StaticCompound>,
+pub(crate) enum Recipe<'a> {
+    Shaped(Shaped<'a>),
+    Shapeless(Shapeless<'a>),
+    /// A furnace recipe: furnaces cook by themselves, so no request crafts with it.
+    Furnace,
+    SmithingTransform(&'a SmithingTransform),
+    SmithingTrim(&'a SmithingTrim),
+}
+
+/// A shaped crafting recipe: PMMP's in the static table, or a view of a server's own
+/// ([`custom::Registry`](crate::custom::Registry)).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shaped<'a> {
+    pub(crate) width: u8,
+    pub(crate) height: u8,
+    /// Row-major, `width * height` cells; `None` is an empty cell.
+    pub(crate) grid: &'a [Option<Ingredient>],
+    pub(crate) results: &'a [Stack],
+}
+
+impl Shaped<'_> {
+    /// The columns and rows the recipe takes in a grid.
+    pub(crate) fn size(&self) -> (usize, usize) {
+        let (_, _, w, h) = self.shape();
+        (w, h)
+    }
+
+    /// Whether the items of a square crafting grid of `side` cells a row (row-major, `side *
+    /// side` cells) lay out this recipe: the occupied cells span exactly the recipe's shape,
+    /// wherever they are in the grid, and each cell is accepted by the recipe or by its mirror
+    /// image; empty recipe cells must be empty (PMMP `ShapedRecipe::matchesCraftingGrid`, with
+    /// the bounds of `CraftingGrid`, and the recipe's padding left out).
+    pub(crate) fn matches(&self, grid: &[item::Stack], side: usize) -> bool {
+        if grid.len() != side.saturating_mul(side) {
+            return false;
+        }
+        let (rx, ry, width, height) = self.shape();
+        let Some((gx, gy, w, h)) = bounds(side, grid.iter().map(|s| !s.is_empty())) else {
+            return false;
+        };
+        if (w, h) != (width, height) || width == 0 {
+            return false;
+        }
+        let row = usize::from(self.width);
+        let laid_out = |mirror: bool| {
+            (0..height).all(|y| {
+                (0..width).all(|x| {
+                    let mx = if mirror { width - 1 - x } else { x };
+                    let given = grid.get((gy + y) * side + gx + mx);
+                    let required = self.grid.get((ry + y) * row + rx + x).copied().flatten();
+                    match (required, given) {
+                        (None, Some(given)) => given.is_empty(),
+                        (Some(required), Some(given)) => required.accepts(given),
+                        (_, None) => false,
+                    }
+                })
+            })
+        };
+        laid_out(false) || laid_out(true)
+    }
+
+    /// The ingredients of the occupied cells, row by row.
+    pub(crate) fn ingredients(&self) -> impl Iterator<Item = &Ingredient> {
+        self.grid.iter().flatten()
+    }
+
+    /// Builds the network form, as PMMP's `CraftingDataCache` writes it.
+    pub(crate) fn network(&self, id: u32) -> ShapedRecipe {
+        ShapedRecipe {
+            recipe_id: recipe_id(id),
+            width: i32::from(self.width),
+            height: i32::from(self.height),
+            input: self.grid.iter().map(|i| descriptor(i.as_ref())).collect(),
+            output: self.results.iter().map(Stack::network).collect(),
+            uuid: Uuid::default(),
+            block: ShapelessType::Crafting.block_name().to_owned(),
+            priority: PRIORITY,
+            // PMMP writes the symmetry flag as true.
+            assume_symmetry: true,
+            unlock_requirement: Some(always_unlocked()),
+            recipe_network_id: id,
+        }
+    }
+
+    /// The recipe's shape without empty border rows and columns (PMMP's data pads some shapes,
+    /// such as hoes, to 3x3): (first column, first row, columns, rows).
+    fn shape(&self) -> (usize, usize, usize, usize) {
+        let width = usize::from(self.width);
+        bounds(width, self.grid.iter().map(Option::is_some)).unwrap_or((0, 0, 0, 0))
+    }
+}
+
+/// A shapeless recipe: PMMP's in the static table, or a view of a server's own.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shapeless<'a> {
+    pub(crate) kind: ShapelessType,
+    pub(crate) ingredients: &'a [Ingredient],
+    pub(crate) results: &'a [Stack],
+}
+
+impl Shapeless<'_> {
+    /// Whether the occupied cells of a crafting grid hold exactly the ingredients, one item per
+    /// ingredient in any cell. Unlike PMMP's greedy pass, the cells are matched to the ingredients
+    /// as a whole (bipartite matching), so overlapping wildcard ingredients cannot steal a cell
+    /// another ingredient needs.
+    pub(crate) fn matches(&self, grid: &[item::Stack]) -> bool {
+        let given: Vec<&item::Stack> = grid.iter().filter(|s| !s.is_empty()).collect();
+        if given.len() != self.ingredients.len() || given.len() > GRID_CELLS {
+            return false;
+        }
+        // owner[g] is the ingredient the given item g is matched to.
+        let mut owner = [usize::MAX; GRID_CELLS];
+        for i in 0..self.ingredients.len() {
+            let mut seen = [false; GRID_CELLS];
+            if !self.augment(i, &given, &mut owner, &mut seen) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Builds the network form, as PMMP's `CraftingDataCache` writes it.
+    pub(crate) fn network(&self, id: u32) -> ShapelessRecipe {
+        shapeless(
+            id,
+            self.ingredients
+                .iter()
+                .map(|i| descriptor(Some(i)))
+                .collect(),
+            self.results.iter().map(Stack::network).collect(),
+            self.kind.block_name(),
+        )
+    }
+
+    /// Finds Kuhn's augmenting path from ingredient `i`; depth at most [`GRID_CELLS`].
+    fn augment(
+        &self,
+        i: usize,
+        given: &[&item::Stack],
+        owner: &mut [usize; GRID_CELLS],
+        seen: &mut [bool; GRID_CELLS],
+    ) -> bool {
+        let Some(ingredient) = self.ingredients.get(i) else {
+            return false;
+        };
+        for (g, stack) in given.iter().enumerate() {
+            let (Some(s), true) = (seen.get_mut(g), ingredient.accepts(stack)) else {
+                continue;
+            };
+            if *s {
+                continue;
+            }
+            *s = true;
+            let current = owner.get(g).copied().unwrap_or(usize::MAX);
+            if current == usize::MAX || self.augment(current, given, owner, seen) {
+                if let Some(o) = owner.get_mut(g) {
+                    *o = i;
+                }
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// A furnace recipe.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Furnace {
+    pub(crate) kind: FurnaceType,
+    pub(crate) input: Ingredient,
+    pub(crate) result: Stack,
+}
+
+impl Furnace {
+    /// Builds the network form: PMMP sends furnace recipes as shapeless recipes of the furnace
+    /// block.
+    pub(crate) fn network(&self, id: u32) -> ShapelessRecipe {
+        shapeless(
+            id,
+            vec![descriptor(Some(&self.input))],
+            vec![self.result.network()],
+            self.kind.block_name(),
+        )
+    }
+}
+
+/// A brewing recipe that changes the potion type.
+#[derive(Debug)]
+pub(crate) struct PotionType {
+    pub(crate) input: Exact,
+    pub(crate) reagent: Exact,
+    pub(crate) output: Stack,
+}
+
+impl PotionType {
+    /// Builds the network form ([`potion_recipe`]).
+    fn network(&self) -> PotionRecipe {
+        potion_recipe(
+            &Ingredient::Exact(self.input),
+            &Ingredient::Exact(self.reagent),
+            &self.output,
+        )
+    }
+}
+
+/// A brewing recipe that changes the potion container (potion to splash potion and so on).
+#[derive(Debug)]
+pub(crate) struct PotionContainerChange {
+    pub(crate) input: Name,
+    pub(crate) reagent: Exact,
+    pub(crate) output: Name,
+}
+
+impl PotionContainerChange {
+    /// Builds the network form ([`potion_container_change_recipe`]).
+    fn network(&self) -> PotionContainerChangeRecipe {
+        potion_container_change_recipe(
+            self.input.runtime_id,
+            &Ingredient::Exact(self.reagent),
+            self.output.runtime_id,
+        )
+    }
+}
+
+/// A smithing recipe that turns the input into the result.
+#[derive(Debug)]
+pub(crate) struct SmithingTransform {
+    pub(crate) template: Ingredient,
+    pub(crate) input: Ingredient,
+    pub(crate) addition: Ingredient,
+    pub(crate) result: Stack,
+}
+
+impl SmithingTransform {
+    /// Builds the network form, as dragonfly writes it.
+    pub(crate) fn network(&self, id: u32) -> SmithingTransformRecipe {
+        SmithingTransformRecipe {
+            recipe_network_id: id,
+            recipe_id: recipe_id(id),
+            template: descriptor(Some(&self.template)),
+            base: descriptor(Some(&self.input)),
+            addition: descriptor(Some(&self.addition)),
+            result: self.result.network(),
+            block: SMITHING_TABLE.to_owned(),
+        }
+    }
+}
+
+/// A smithing recipe that puts an armor trim on the input.
+#[derive(Debug)]
+pub(crate) struct SmithingTrim {
+    pub(crate) template: Ingredient,
+    pub(crate) input: Ingredient,
+    pub(crate) addition: Ingredient,
+}
+
+impl SmithingTrim {
+    /// Builds the network form, as dragonfly writes it.
+    fn network(&self, id: u32) -> SmithingTrimRecipe {
+        SmithingTrimRecipe {
+            recipe_network_id: id,
+            recipe_id: recipe_id(id),
+            template: descriptor(Some(&self.template)),
+            base: descriptor(Some(&self.input)),
+            addition: descriptor(Some(&self.addition)),
+            block: SMITHING_TABLE.to_owned(),
+        }
+    }
+}
+
+/// A recipe ingredient (PMMP `RecipeIngredient`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Ingredient {
+    Exact(Exact),
+    /// Any item of the name, whatever its meta (PMMP `MetaWildcardRecipeIngredient`).
+    AnyMeta(Name),
+    /// Any item with the item tag (PMMP `TagWildcardRecipeIngredient`).
+    Tag(item::Tag),
+}
+
+impl Ingredient {
+    /// The runtime ID and meta PMMP's `TypeConverter::coreRecipeIngredientToNet` gives the
+    /// ingredient (the wildcard meta for any meta); `None` for a tag.
+    pub(crate) fn id_meta(&self) -> Option<(i32, i32)> {
+        match self {
+            Self::Exact(e) => Some((i32::from(e.item.runtime_id()), e.network_meta)),
+            Self::AnyMeta(n) => Some((i32::from(n.runtime_id), WILDCARD_META)),
+            Self::Tag(_) => None,
+        }
+    }
+
+    /// The item name of an ingredient that names one (not a tag).
+    pub(crate) fn name(&self) -> Option<&'static str> {
+        match self {
+            Self::Exact(e) => Some(e.item.name()),
+            Self::AnyMeta(n) => Some(n.name),
+            Self::Tag(_) => None,
+        }
+    }
+
+    /// Whether `stack` is an item this ingredient takes, whatever its count (PMMP
+    /// `RecipeIngredient::accepts`).
+    pub(crate) fn accepts(&self, stack: &item::Stack) -> bool {
+        let Some(item) = stack.item() else {
+            return false;
+        };
+        match self {
+            Self::Exact(e) => {
+                item == e.item
+                    && stack.meta() == e.meta
+                    && (item.max_durability().is_none() || stack.damage() == 0)
+                    && e.nbt
+                        .is_none_or(|need| stack.tag().is_some_and(|tag| nbt::equals(&tag, need)))
+            }
+            Self::AnyMeta(name) => item.name() == name.name,
+            Self::Tag(tag) => tag.contains(item),
+        }
+    }
 }
 
 /// An ingredient that matches one item type (PMMP `ExactRecipeIngredient`): PMMP accepts an item
@@ -52,6 +430,18 @@ pub(crate) struct Exact {
     pub(crate) nbt: Option<StaticCompound>,
 }
 
+impl Exact {
+    /// An ingredient of the item type with this table index. Only the generated table calls it.
+    const fn new(item: u16, network_meta: i32, meta: u16, nbt: Option<StaticCompound>) -> Self {
+        Self {
+            item: Type::from_index(item),
+            network_meta,
+            meta,
+            nbt,
+        }
+    }
+}
+
 /// An item name with its runtime ID.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Name {
@@ -59,14 +449,48 @@ pub(crate) struct Name {
     pub(crate) runtime_id: i16,
 }
 
-/// A recipe ingredient (PMMP `RecipeIngredient`).
+impl Name {
+    const fn new(name: &'static str, runtime_id: i16) -> Self {
+        Self { name, runtime_id }
+    }
+}
+
+/// An item stack of a recipe result.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Ingredient {
-    Exact(Exact),
-    /// Any item of the name, whatever its meta (PMMP `MetaWildcardRecipeIngredient`).
-    AnyMeta(Name),
-    /// Any item with the item tag (PMMP `TagWildcardRecipeIngredient`).
-    Tag(item::Tag),
+pub(crate) struct Stack {
+    pub(crate) item: Type,
+    /// The stack's meta, which PMMP sends. It differs from the type's meta where PMMP reads meta
+    /// as stack state (a firework star's colour).
+    pub(crate) meta: u16,
+    pub(crate) count: u16,
+    /// The stack NBT as PMMP holds it (a banner's `Type`, a firework's explosions).
+    pub(crate) nbt: Option<StaticCompound>,
+}
+
+impl Stack {
+    /// A stack of the item type with this table index. Only the generated table calls it.
+    const fn new(item: u16, meta: u16, count: u16, nbt: Option<StaticCompound>) -> Self {
+        Self {
+            item: Type::from_index(item),
+            meta,
+            count,
+            nbt,
+        }
+    }
+
+    /// Builds the item stack of this result, `None` if the count is not a valid stack count.
+    pub(crate) fn to_item(self) -> Option<item::Stack> {
+        let count = u8::try_from(self.count)
+            .ok()
+            .filter(|c| *c > 0 && *c <= self.item.max_stack_size())?;
+        let tag = self.nbt.map(nbt::compound);
+        item::Stack::from_parts(self.item, count, self.meta, tag).ok()
+    }
+
+    /// Builds the network form (PMMP `TypeConverter::coreItemStackToNet`), with the stack's meta.
+    pub(crate) fn network(&self) -> ItemStack {
+        item::network_stack(self.item, self.meta, self.count, self.nbt)
+    }
 }
 
 /// The block a shapeless recipe is made in (PMMP `ShapelessRecipeType`). PMMP's `SMITHING` and
@@ -82,9 +506,21 @@ pub enum ShapelessType {
     Stonecutter,
 }
 
-// pmmp-class: FurnaceType
-/// The block a furnace recipe is made in (PMMP `FurnaceType`).
+impl ShapelessType {
+    /// The recipe block name (PMMP `CraftingRecipeBlockName`).
+    pub(crate) const fn block_name(self) -> &'static str {
+        match self {
+            Self::Crafting => "crafting_table",
+            Self::Stonecutter => "stonecutter",
+        }
+    }
+}
+
+/// The block a furnace recipe is made in (PMMP `FurnaceType`). Each block cooks only the recipes
+/// of its own type, so a recipe that should cook in several blocks is added once for each (the
+/// vanilla food recipes exist for the furnace, the smoker, the campfire and the soul campfire).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pmmp-class: FurnaceType
 pub enum FurnaceType {
     /// A furnace.
     Furnace,
@@ -98,84 +534,34 @@ pub enum FurnaceType {
     SoulCampfire,
 }
 
-/// A shaped crafting recipe: PMMP's in the static table, or a view of a server's own
-/// ([`custom::Registry`](crate::custom::Registry)).
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Shaped<'a> {
-    pub(crate) width: u8,
-    pub(crate) height: u8,
-    /// Row-major, `width * height` cells; `None` is an empty cell.
-    pub(crate) grid: &'a [Option<Ingredient>],
-    pub(crate) results: &'a [Stack],
-}
+impl FurnaceType {
+    /// The ticks one item takes to cook in this block.
+    #[doc(alias = "FurnaceType::getCookDurationTicks")]
+    pub fn cook_ticks(self) -> u16 {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated table has a cook time per furnace type, in enum \
+                      order"
+        )]
+        table::COOK_TICKS[self as usize]
+    }
 
-/// A shapeless recipe: PMMP's in the static table, or a view of a server's own.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Shapeless<'a> {
-    pub(crate) kind: ShapelessType,
-    pub(crate) ingredients: &'a [Ingredient],
-    pub(crate) results: &'a [Stack],
-}
-
-/// A furnace recipe.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Furnace {
-    pub(crate) kind: FurnaceType,
-    pub(crate) input: Ingredient,
-    pub(crate) result: Stack,
-}
-
-/// A brewing recipe that changes the potion type.
-#[derive(Debug)]
-pub(crate) struct PotionType {
-    pub(crate) input: Exact,
-    pub(crate) reagent: Exact,
-    pub(crate) output: Stack,
-}
-
-/// A brewing recipe that changes the potion container (potion to splash potion and so on).
-#[derive(Debug)]
-pub(crate) struct PotionContainerChange {
-    pub(crate) input: Name,
-    pub(crate) reagent: Exact,
-    pub(crate) output: Name,
-}
-
-/// A smithing recipe that turns the input into the result.
-#[derive(Debug)]
-pub(crate) struct SmithingTransform {
-    pub(crate) template: Ingredient,
-    pub(crate) input: Ingredient,
-    pub(crate) addition: Ingredient,
-    pub(crate) result: Stack,
-}
-
-/// A smithing recipe that puts an armor trim on the input.
-#[derive(Debug)]
-pub(crate) struct SmithingTrim {
-    pub(crate) template: Ingredient,
-    pub(crate) input: Ingredient,
-    pub(crate) addition: Ingredient,
-}
-
-/// A recipe of any kind the `CraftingData` packet numbers (PMMP `CraftingManager` recipes by
-/// network ID), borrowed from the static table or a server's own recipes.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Recipe<'a> {
-    Shaped(Shaped<'a>),
-    Shapeless(Shapeless<'a>),
-    /// A furnace recipe: furnaces cook by themselves, so no request crafts with it.
-    Furnace,
-    SmithingTransform(&'a SmithingTransform),
-    SmithingTrim(&'a SmithingTrim),
+    /// The recipe block name (PMMP `FurnaceRecipeBlockName`).
+    pub(crate) const fn block_name(self) -> &'static str {
+        match self {
+            Self::Furnace => "furnace",
+            Self::BlastFurnace => "blast_furnace",
+            Self::Smoker => "smoker",
+            Self::Campfire => "campfire",
+            Self::SoulCampfire => "soul_campfire",
+        }
+    }
 }
 
 /// The recipe with this network ID, as [`crafting_data`] numbers them: from 1, shaped, then
 /// shapeless, furnace, smithing transform and smithing trim recipes. `None` for 0 and IDs past
 /// the last recipe. O(1). The table order fixes the IDs, so PMMP's map from recipe to ID is this
 /// function read backwards.
-#[doc(alias = "CraftingManager::getCraftingRecipeIndex")]
-#[doc(alias = "CraftingManager::getCraftingRecipeFromIndex")]
 pub(crate) fn recipe(network_id: u32) -> Option<Recipe<'static>> {
     let mut i = usize::try_from(network_id).ok()?.checked_sub(1)?;
     if let Some(r) = table::SHAPED.get(i) {
@@ -195,75 +581,6 @@ pub(crate) fn recipe(network_id: u32) -> Option<Recipe<'static>> {
     }
     i -= table::SMITHING_TRANSFORM.len();
     table::SMITHING_TRIM.get(i).map(Recipe::SmithingTrim)
-}
-
-impl Stack {
-    /// A stack of the item type with this table index. Only the generated table calls it.
-    const fn new(item: u16, meta: u16, count: u16, nbt: Option<StaticCompound>) -> Self {
-        Self {
-            item: Type::from_index(item),
-            meta,
-            count,
-            nbt,
-        }
-    }
-
-    /// The network form (PMMP `TypeConverter::coreItemStackToNet`), with the stack's meta.
-    pub(crate) fn network(&self) -> ItemStack {
-        item::network_stack(self.item, self.meta, self.count, self.nbt)
-    }
-}
-
-impl Exact {
-    /// An ingredient of the item type with this table index. Only the generated table calls it.
-    const fn new(item: u16, network_meta: i32, meta: u16, nbt: Option<StaticCompound>) -> Self {
-        Self {
-            item: Type::from_index(item),
-            network_meta,
-            meta,
-            nbt,
-        }
-    }
-}
-
-impl Name {
-    const fn new(name: &'static str, runtime_id: i16) -> Self {
-        Self { name, runtime_id }
-    }
-}
-
-impl ShapelessType {
-    /// PMMP `CraftingRecipeBlockName`.
-    pub(crate) const fn block_name(self) -> &'static str {
-        match self {
-            Self::Crafting => "crafting_table",
-            Self::Stonecutter => "stonecutter",
-        }
-    }
-}
-
-impl FurnaceType {
-    /// The ticks one item takes to cook in this block.
-    #[doc(alias = "FurnaceType::getCookDurationTicks")]
-    pub fn cook_ticks(self) -> u16 {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated table has a cook time per furnace type, in enum \
-                      order"
-        )]
-        table::COOK_TICKS[self as usize]
-    }
-
-    /// PMMP `FurnaceRecipeBlockName`.
-    pub(crate) const fn block_name(self) -> &'static str {
-        match self {
-            Self::Furnace => "furnace",
-            Self::BlastFurnace => "blast_furnace",
-            Self::Smoker => "smoker",
-            Self::Campfire => "campfire",
-            Self::SoulCampfire => "soul_campfire",
-        }
-    }
 }
 
 /// The `CraftingData` packet of every recipe. The server builds it once at start; it is the same
@@ -314,101 +631,213 @@ pub(crate) fn crafting_data() -> CraftingData {
     }
 }
 
-impl Shaped<'_> {
-    /// The network form, as PMMP's `CraftingDataCache` writes it.
-    pub(crate) fn network(&self, id: u32) -> ShapedRecipe {
-        ShapedRecipe {
-            recipe_id: recipe_id(id),
-            width: i32::from(self.width),
-            height: i32::from(self.height),
-            input: self.grid.iter().map(|i| descriptor(i.as_ref())).collect(),
-            output: self.results.iter().map(Stack::network).collect(),
-            uuid: Uuid::default(),
-            block: ShapelessType::Crafting.block_name().to_owned(),
-            priority: PRIORITY,
-            // PMMP writes the symmetry flag as true.
-            assume_symmetry: true,
-            unlock_requirement: Some(always_unlocked()),
-            recipe_network_id: id,
+/// The first recipe network ID after the last recipe [`crafting_data`] numbers: enchanting
+/// options and trade offers count from here, so they never collide with a recipe (BDS, P6).
+pub(crate) fn first_special_id() -> u32 {
+    let count = table::SHAPED.len()
+        + table::SHAPELESS.len()
+        + table::FURNACE.len()
+        + table::SMITHING_TRANSFORM.len()
+        + table::SMITHING_TRIM.len();
+    u32::try_from(count).map_or(u32::MAX, |c| c.saturating_add(1))
+}
+
+/// The network IDs of PMMP's crafting-table recipes (shaped and shapeless, ascending) that can
+/// take an item named `name` as the first item of a grid, row by row: no other recipe can match
+/// the grid. Two binary searches in a generated index.
+pub(crate) fn crafting_candidates(name: &str) -> impl Iterator<Item = u32> {
+    by_name(&table::CRAFTING_BY_ITEM, name)
+        .iter()
+        .map(|(_, id)| u32::from(*id))
+}
+
+/// The index of the furnace recipe of `kind` that takes `input` (PMMP
+/// `FurnaceRecipeManager::match`: the first recipe whose input accepts it). Only the recipes
+/// whose input takes the item's name are looked at (a generated index), in table order.
+pub(crate) fn furnace_recipe(kind: FurnaceType, input: &item::Stack) -> Option<u16> {
+    let item = input.item()?;
+    by_name(&table::FURNACE_BY_ITEM, item.name())
+        .iter()
+        .map(|(_, i)| *i)
+        .find(|i| furnace_at(*i).is_some_and(|r| r.kind == kind && r.input.accepts(input)))
+}
+
+/// The number of furnace recipes PMMP has (a server's own count on from it).
+pub(crate) fn furnace_count() -> usize {
+    table::FURNACE.len()
+}
+
+/// The furnace recipe at `index` ([`furnace_recipe`]).
+pub(crate) fn furnace_at(index: u16) -> Option<&'static Furnace> {
+    table::FURNACE.get(usize::from(index))
+}
+
+/// What PMMP's potion container change recipes make of `reagent` brewed into `input` (the
+/// first part of PMMP `CraftingManager::matchBrewingRecipe`); `None` if none takes them.
+pub(crate) fn brew_container_change(
+    input: &item::Stack,
+    reagent: &item::Stack,
+) -> Option<item::Stack> {
+    let name = input.item()?.name();
+    table::POTION_CONTAINER_CHANGE
+        .iter()
+        .filter(|r| r.input.name == name && Ingredient::Exact(r.reagent).accepts(reagent))
+        .find_map(|r| {
+            change_container(input, |meta, tag| {
+                Type::from_name(r.output.name, meta, None, tag)
+            })
+        })
+}
+
+/// What PMMP's potion type recipes make of `reagent` brewed into `input` (the second part of
+/// PMMP `CraftingManager::matchBrewingRecipe`, then `PotionTypeRecipe::getResultFor`); `None`
+/// if none takes them. Looked up by the reagent's name (a generated index), in table order.
+pub(crate) fn brew_potion_type(input: &item::Stack, reagent: &item::Stack) -> Option<item::Stack> {
+    by_name(&table::POTION_TYPE_BY_REAGENT, reagent.item()?.name())
+        .iter()
+        .filter_map(|(_, i)| table::POTION_TYPE.get(usize::from(*i)))
+        .find(|r| {
+            Ingredient::Exact(r.reagent).accepts(reagent)
+                && Ingredient::Exact(r.input).accepts(input)
+        })
+        .and_then(|r| r.output.to_item())
+}
+
+/// The potion `input` in another container (PMMP `PotionContainerChangeRecipe::getResultFor`
+/// swaps the item name and keeps the meta and tag): the item type `output` finds for that meta
+/// and tag; `None` if it finds none.
+pub(crate) fn change_container(
+    input: &item::Stack,
+    output: impl FnOnce(u16, &nbt::Compound) -> Option<Type>,
+) -> Option<item::Stack> {
+    let tag = input.tag();
+    let empty = nbt::Compound::new();
+    let output = output(input.meta(), tag.as_ref().unwrap_or(&empty))?;
+    item::Stack::from_parts(output, 1, input.meta(), tag).ok()
+}
+
+/// Whether `provided` (stacks taken from anywhere, with how many items of each) is exactly
+/// `times` of every ingredient: no ingredient short, no item left over (PMMP
+/// `CraftingTransaction::matchIngredients`). Stacks that stack together are pooled first. PMMP
+/// gives each ingredient its items greedily, most particular ingredient first, which can fail
+/// where overlapping wildcards could be satisfied; this solves it as a maximum flow. At most
+/// [`GRID_CELLS`] ingredients and [`MAX_PROVIDED`] stacks; more is refused.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: every index is a node below `sink + 1`, the matrix size"
+)]
+pub(crate) fn consumed_matches<'a>(
+    ingredients: impl Iterator<Item = &'a Ingredient>,
+    provided: &[(item::Stack, u32)],
+    times: u32,
+) -> bool {
+    let ingredients: Vec<&Ingredient> = ingredients.collect();
+    if ingredients.is_empty()
+        || ingredients.len() > GRID_CELLS
+        || provided.is_empty()
+        || provided.len() > MAX_PROVIDED
+    {
+        return false;
+    }
+    let mut pooled: Vec<(&item::Stack, u32)> = Vec::with_capacity(provided.len());
+    for (stack, count) in provided {
+        if let Some(p) = pooled.iter_mut().find(|p| p.0.can_stack_with(stack)) {
+            p.1 = p.1.saturating_add(*count);
+        } else {
+            pooled.push((stack, *count));
         }
     }
-}
-
-impl Shapeless<'_> {
-    /// The network form, as PMMP's `CraftingDataCache` writes it.
-    pub(crate) fn network(&self, id: u32) -> ShapelessRecipe {
-        shapeless(
-            id,
-            self.ingredients
-                .iter()
-                .map(|i| descriptor(Some(i)))
-                .collect(),
-            self.results.iter().map(Stack::network).collect(),
-            self.kind.block_name(),
-        )
+    let need =
+        u64::from(times).saturating_mul(u64::try_from(ingredients.len()).unwrap_or(u64::MAX));
+    let have: u64 = pooled.iter().map(|p| u64::from(p.1)).sum();
+    if need != have {
+        return false;
     }
-}
-
-impl Furnace {
-    /// The network form: PMMP sends furnace recipes as shapeless recipes of the furnace block.
-    pub(crate) fn network(&self, id: u32) -> ShapelessRecipe {
-        shapeless(
-            id,
-            vec![descriptor(Some(&self.input))],
-            vec![self.result.network()],
-            self.kind.block_name(),
-        )
-    }
-}
-
-impl SmithingTransform {
-    /// The network form, as dragonfly writes it.
-    pub(crate) fn network(&self, id: u32) -> SmithingTransformRecipe {
-        SmithingTransformRecipe {
-            recipe_network_id: id,
-            recipe_id: recipe_id(id),
-            template: descriptor(Some(&self.template)),
-            base: descriptor(Some(&self.input)),
-            addition: descriptor(Some(&self.addition)),
-            result: self.result.network(),
-            block: SMITHING_TABLE.to_owned(),
+    // Nodes: 0 source, 1..=I ingredients, then the pooled stacks, then the sink.
+    let (n_i, n_p) = (ingredients.len(), pooled.len());
+    let sink = 1 + n_i + n_p;
+    #[expect(
+        clippy::large_stack_arrays,
+        reason = "performance: 22.5 KB on a 4 MiB thread stack saves an allocation per match"
+    )]
+    let mut capacity = [[0u32; FLOW_NODES]; FLOW_NODES];
+    for (i, ingredient) in ingredients.iter().enumerate() {
+        capacity[0][1 + i] = times;
+        for (p, (stack, _)) in pooled.iter().enumerate() {
+            if ingredient.accepts(stack) {
+                capacity[1 + i][1 + n_i + p] = u32::MAX;
+            }
         }
     }
+    for (p, (_, count)) in pooled.iter().enumerate() {
+        capacity[1 + n_i + p][sink] = *count;
+    }
+    u64::from(max_flow(&mut capacity, sink)) == need
 }
 
-impl SmithingTrim {
-    /// The network form, as dragonfly writes it.
-    fn network(&self, id: u32) -> SmithingTrimRecipe {
-        SmithingTrimRecipe {
-            recipe_network_id: id,
-            recipe_id: recipe_id(id),
-            template: descriptor(Some(&self.template)),
-            base: descriptor(Some(&self.input)),
-            addition: descriptor(Some(&self.addition)),
-            block: SMITHING_TABLE.to_owned(),
-        }
+/// The experience one smelted item of `result` gives (dragonfly `SmeltInfo.Experience`; PMMP has
+/// none, BDS and dragonfly drop it as orbs when the output is taken). Results dragonfly does not
+/// name give none.
+pub(crate) fn smelt_experience(result: Type) -> f64 {
+    let name = result.name().strip_prefix("minecraft:").unwrap_or_default();
+    match name {
+        "netherite_scrap" => 2.0,
+        "diamond" | "emerald" | "gold_ingot" => 1.0,
+        "iron_ingot" | "copper_ingot" | "redstone" => 0.7,
+        "hardened_clay" | "baked_potato" | "cooked_beef" | "cooked_chicken" | "cooked_cod"
+        | "cooked_mutton" | "cooked_porkchop" | "cooked_rabbit" | "cooked_salmon" => 0.35,
+        "brick" => 0.3,
+        "lapis_lazuli" | "quartz" => 0.2,
+        "charcoal" | "sponge" => 0.15,
+        "coal"
+        | "stone"
+        | "deepslate"
+        | "cracked_deepslate_bricks"
+        | "cracked_deepslate_tiles"
+        | "dried_kelp"
+        | "netherbrick"
+        | "cracked_nether_bricks"
+        | "cracked_polished_blackstone_bricks"
+        | "smooth_quartz"
+        | "glass"
+        | "smooth_sandstone"
+        | "smooth_red_sandstone"
+        | "lime_dye"
+        | "smooth_stone"
+        | "cracked_stone_bricks"
+        | "iron_nugget"
+        | "gold_nugget"
+        | "copper_nugget" => 0.1,
+        n if n.ends_with("_glazed_terracotta") => 0.1,
+        _ => 0.0,
     }
 }
 
-impl PotionType {
-    /// The network form ([`potion_recipe`]).
-    fn network(&self) -> PotionRecipe {
-        potion_recipe(
-            &Ingredient::Exact(self.input),
-            &Ingredient::Exact(self.reagent),
-            &self.output,
-        )
-    }
+/// The trim pattern of a smithing template (`ward` of
+/// `minecraft:ward_armor_trim_smithing_template`), if it is one.
+pub(crate) fn trim_pattern(template: Type) -> Option<&'static str> {
+    template
+        .name()
+        .strip_prefix("minecraft:")?
+        .strip_suffix("_armor_trim_smithing_template")
 }
 
-impl PotionContainerChange {
-    /// The network form ([`potion_container_change_recipe`]).
-    fn network(&self) -> PotionContainerChangeRecipe {
-        potion_container_change_recipe(
-            self.input.runtime_id,
-            &Ingredient::Exact(self.reagent),
-            self.output.runtime_id,
-        )
+/// The trim material of an item, if it is one.
+pub(crate) fn trim_material(item: Type) -> Option<&'static str> {
+    TRIM_MATERIAL_TABLE
+        .iter()
+        .find(|(_, _, name)| *name == item.name())
+        .map(|(id, _, _)| *id)
+}
+
+/// The requirement of a recipe the recipe book never shows (`recipe-book = false`): the context
+/// without unlocking ingredients (unlocked by the listed ingredients or by the server), which BDS
+/// gives the recipes only the server unlocks (P6, `xtask/data/p6/facts.md`); Anchor never sends
+/// `UnlockedRecipes`.
+pub(crate) fn locked() -> RecipeUnlockRequirement {
+    RecipeUnlockRequirement {
+        context: i32::from(RecipeUnlockContext::None),
+        ingredients: Vec::new(),
     }
 }
 
@@ -470,22 +899,11 @@ fn recipe_id(id: u32) -> String {
     id.to_string()
 }
 
-/// PMMP sends `RecipeUnlockingRequirement(null)`, which its 1.26.30 protocol writes as the
-/// "always unlocked" context; 1.26.40 wrapped the requirement in an optional.
+/// The requirement PMMP sends: `RecipeUnlockingRequirement(null)`, which its 1.26.30 protocol
+/// writes as the "always unlocked" context; 1.26.40 wrapped the requirement in an optional.
 fn always_unlocked() -> RecipeUnlockRequirement {
     RecipeUnlockRequirement {
         context: i32::from(RecipeUnlockContext::AlwaysUnlocked),
-        ingredients: Vec::new(),
-    }
-}
-
-/// The requirement of a recipe the recipe book never shows (`recipe-book = false`): the context
-/// without unlocking ingredients (unlocked by the listed ingredients or by the server), which BDS
-/// gives the recipes only the server unlocks (P6, `xtask/data/p6/facts.md`); Anchor never sends
-/// `UnlockedRecipes`.
-pub(crate) fn locked() -> RecipeUnlockRequirement {
-    RecipeUnlockRequirement {
-        context: i32::from(RecipeUnlockContext::None),
         ingredients: Vec::new(),
     }
 }
@@ -519,61 +937,11 @@ fn descriptor(ingredient: Option<&Ingredient>) -> ItemDescriptorCount {
     }
 }
 
-/// The most cells a crafting grid has (the crafting table's 3x3).
-pub(crate) const GRID_CELLS: usize = 9;
-
-/// The most distinct stacks [`consumed_matches`] takes: one per consume action of a request.
-pub(crate) const MAX_PROVIDED: usize = 64;
-
-impl Ingredient {
-    /// The runtime ID and meta PMMP's `TypeConverter::coreRecipeIngredientToNet` gives the
-    /// ingredient (the wildcard meta for any meta); `None` for a tag.
-    pub(crate) fn id_meta(&self) -> Option<(i32, i32)> {
-        match self {
-            Self::Exact(e) => Some((i32::from(e.item.runtime_id()), e.network_meta)),
-            Self::AnyMeta(n) => Some((i32::from(n.runtime_id), WILDCARD_META)),
-            Self::Tag(_) => None,
-        }
-    }
-
-    /// The item name of an ingredient that names one (not a tag).
-    pub(crate) fn name(&self) -> Option<&'static str> {
-        match self {
-            Self::Exact(e) => Some(e.item.name()),
-            Self::AnyMeta(n) => Some(n.name),
-            Self::Tag(_) => None,
-        }
-    }
-
-    /// Whether `stack` is an item this ingredient takes, whatever its count (PMMP
-    /// `RecipeIngredient::accepts`).
-    pub(crate) fn accepts(&self, stack: &item::Stack) -> bool {
-        let Some(item) = stack.item() else {
-            return false;
-        };
-        match self {
-            Self::Exact(e) => {
-                item == e.item
-                    && stack.meta() == e.meta
-                    && (item.max_durability().is_none() || stack.damage() == 0)
-                    && e.nbt
-                        .is_none_or(|need| stack.tag() == Some(crate::nbt::compound(need)))
-            }
-            Self::AnyMeta(name) => item.name() == name.name,
-            Self::Tag(tag) => tag.contains(item),
-        }
-    }
-}
-
-impl Stack {
-    /// The item stack of this result, `None` if the count is not a valid stack count.
-    pub(crate) fn to_item(self) -> Option<item::Stack> {
-        let count = u8::try_from(self.count)
-            .ok()
-            .filter(|c| *c > 0 && *c <= self.item.max_stack_size())?;
-        let tag = self.nbt.map(crate::nbt::compound);
-        item::Stack::from_parts(self.item, count, self.meta, tag).ok()
-    }
+/// The rows of a generated index (sorted by item name) for the item name `name`.
+fn by_name<'a>(index: &'a [(&'static str, u16)], name: &str) -> &'a [(&'static str, u16)] {
+    let start = index.partition_point(|(n, _)| *n < name);
+    let end = index.partition_point(|(n, _)| *n <= name);
+    index.get(start..end).unwrap_or_default()
 }
 
 /// The bounds of the occupied cells of a row-major grid `width` cells wide: (first column,
@@ -595,393 +963,31 @@ fn bounds(
     b.map(|(x0, x1, y0, y1)| (x0, y0, x1 - x0 + 1, y1 - y0 + 1))
 }
 
-impl Shaped<'_> {
-    /// The recipe's shape without empty border rows and columns (PMMP's data pads some shapes,
-    /// such as hoes, to 3x3): (first column, first row, columns, rows).
-    fn shape(&self) -> (usize, usize, usize, usize) {
-        let width = usize::from(self.width);
-        bounds(width, self.grid.iter().map(Option::is_some)).unwrap_or((0, 0, 0, 0))
-    }
-
-    /// The columns and rows the recipe takes in a grid.
-    pub(crate) fn size(&self) -> (usize, usize) {
-        let (_, _, w, h) = self.shape();
-        (w, h)
-    }
-
-    /// Whether the items of a square crafting grid of `side` cells a row (row-major, `side *
-    /// side` cells) lay out this recipe: the occupied cells span exactly the recipe's shape,
-    /// wherever they are in the grid, and each cell is accepted by the recipe or by its mirror
-    /// image; empty recipe cells must be empty (PMMP `ShapedRecipe::matchesCraftingGrid`, with
-    /// the bounds of `CraftingGrid`, and the recipe's padding left out).
-    pub(crate) fn matches(&self, grid: &[item::Stack], side: usize) -> bool {
-        if grid.len() != side.saturating_mul(side) {
-            return false;
-        }
-        let (rx, ry, width, height) = self.shape();
-        let Some((gx, gy, w, h)) = bounds(side, grid.iter().map(|s| !s.is_empty())) else {
-            return false;
-        };
-        if (w, h) != (width, height) || width == 0 {
-            return false;
-        }
-        let row = usize::from(self.width);
-        let laid_out = |mirror: bool| {
-            (0..height).all(|y| {
-                (0..width).all(|x| {
-                    let mx = if mirror { width - 1 - x } else { x };
-                    let given = grid.get((gy + y) * side + gx + mx);
-                    let required = self.grid.get((ry + y) * row + rx + x).copied().flatten();
-                    match (required, given) {
-                        (None, Some(given)) => given.is_empty(),
-                        (Some(required), Some(given)) => required.accepts(given),
-                        (_, None) => false,
-                    }
-                })
-            })
-        };
-        laid_out(false) || laid_out(true)
-    }
-
-    /// The ingredients of the occupied cells, row by row.
-    pub(crate) fn ingredients(&self) -> impl Iterator<Item = &Ingredient> {
-        self.grid.iter().flatten()
-    }
-}
-
-impl Shapeless<'_> {
-    /// Whether the occupied cells of a crafting grid hold exactly the ingredients, one item per
-    /// ingredient in any cell. Unlike PMMP's greedy pass, the cells are matched to the ingredients
-    /// as a whole (bipartite matching), so overlapping wildcard ingredients cannot steal a cell
-    /// another ingredient needs.
-    pub(crate) fn matches(&self, grid: &[item::Stack]) -> bool {
-        let given: Vec<&item::Stack> = grid.iter().filter(|s| !s.is_empty()).collect();
-        if given.len() != self.ingredients.len() || given.len() > GRID_CELLS {
-            return false;
-        }
-        // owner[g] is the ingredient the given item g is matched to.
-        let mut owner = [usize::MAX; GRID_CELLS];
-        for i in 0..self.ingredients.len() {
-            let mut seen = [false; GRID_CELLS];
-            if !self.augment(i, &given, &mut owner, &mut seen) {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// Kuhn's augmenting path from ingredient `i`; depth at most [`GRID_CELLS`].
-    fn augment(
-        &self,
-        i: usize,
-        given: &[&item::Stack],
-        owner: &mut [usize; GRID_CELLS],
-        seen: &mut [bool; GRID_CELLS],
-    ) -> bool {
-        let Some(ingredient) = self.ingredients.get(i) else {
-            return false;
-        };
-        for (g, stack) in given.iter().enumerate() {
-            let (Some(s), true) = (seen.get_mut(g), ingredient.accepts(stack)) else {
-                continue;
-            };
-            if *s {
-                continue;
-            }
-            *s = true;
-            let current = owner.get(g).copied().unwrap_or(usize::MAX);
-            if current == usize::MAX || self.augment(current, given, owner, seen) {
-                if let Some(o) = owner.get_mut(g) {
-                    *o = i;
-                }
-                return true;
-            }
-        }
-        false
-    }
-}
-
-/// Whether `provided` (stacks taken from anywhere, with how many items of each) is exactly
-/// `times` of every ingredient: no ingredient short, no item left over (PMMP
-/// `CraftingTransaction::matchIngredients`). Stacks that stack together are pooled first. PMMP
-/// gives each ingredient its items greedily, most particular ingredient first, which can fail
-/// where overlapping wildcards could be satisfied; this solves it as a maximum flow. At most
-/// [`GRID_CELLS`] ingredients and [`MAX_PROVIDED`] stacks; more is refused.
+/// Finds the Edmonds–Karp maximum flow from node 0 to `sink` on a dense capacity matrix of
+/// [`FLOW_NODES`] nodes, `sink + 1` of them in use. Each augmenting path pushes at least one
+/// unit, so there are at most as many paths as the flow is large.
 #[expect(
     clippy::indexing_slicing,
-    reason = "invariant: every index is a node below `sink + 1`, the matrix size"
+    reason = "invariant: every index is a node below `sink + 1`, at most `FLOW_NODES`"
 )]
-pub(crate) fn consumed_matches<'a>(
-    ingredients: impl Iterator<Item = &'a Ingredient>,
-    provided: &[(item::Stack, u32)],
-    times: u32,
-) -> bool {
-    let ingredients: Vec<&Ingredient> = ingredients.collect();
-    if ingredients.is_empty()
-        || ingredients.len() > GRID_CELLS
-        || provided.is_empty()
-        || provided.len() > MAX_PROVIDED
-    {
-        return false;
-    }
-    let mut pooled: Vec<(&item::Stack, u32)> = Vec::with_capacity(provided.len());
-    for (stack, count) in provided {
-        if let Some(p) = pooled.iter_mut().find(|p| p.0.can_stack_with(stack)) {
-            p.1 = p.1.saturating_add(*count);
-        } else {
-            pooled.push((stack, *count));
-        }
-    }
-    let need =
-        u64::from(times).saturating_mul(u64::try_from(ingredients.len()).unwrap_or(u64::MAX));
-    let have: u64 = pooled.iter().map(|p| u64::from(p.1)).sum();
-    if need != have {
-        return false;
-    }
-    // Nodes: 0 source, 1..=I ingredients, then the pooled stacks, then the sink.
-    let (n_i, n_p) = (ingredients.len(), pooled.len());
-    let sink = 1 + n_i + n_p;
-    let mut capacity = vec![vec![0u32; sink + 1]; sink + 1];
-    for (i, ingredient) in ingredients.iter().enumerate() {
-        capacity[0][1 + i] = times;
-        for (p, (stack, _)) in pooled.iter().enumerate() {
-            if ingredient.accepts(stack) {
-                capacity[1 + i][1 + n_i + p] = u32::MAX;
-            }
-        }
-    }
-    for (p, (_, count)) in pooled.iter().enumerate() {
-        capacity[1 + n_i + p][sink] = *count;
-    }
-    u64::from(max_flow(&mut capacity, sink)) == need
-}
-
-/// The first recipe network ID after the last recipe [`crafting_data`] numbers: enchanting
-/// options and trade offers count from here, so they never collide with a recipe (BDS, P6).
-pub(crate) fn first_special_id() -> u32 {
-    let count = table::SHAPED.len()
-        + table::SHAPELESS.len()
-        + table::FURNACE.len()
-        + table::SMITHING_TRANSFORM.len()
-        + table::SMITHING_TRIM.len();
-    u32::try_from(count).map_or(u32::MAX, |c| c.saturating_add(1))
-}
-
-/// The rows of a generated index (sorted by item name) for the item name `name`.
-fn by_name<'a>(index: &'a [(&'static str, u16)], name: &str) -> &'a [(&'static str, u16)] {
-    let start = index.partition_point(|(n, _)| *n < name);
-    let end = index.partition_point(|(n, _)| *n <= name);
-    index.get(start..end).unwrap_or_default()
-}
-
-/// The network IDs of PMMP's crafting-table recipes (shaped and shapeless, ascending) that can
-/// take an item named `name` as the first item of a grid, row by row: no other recipe can match
-/// the grid. Two binary searches in a generated index.
-pub(crate) fn crafting_candidates(name: &str) -> impl Iterator<Item = u32> {
-    by_name(&table::CRAFTING_BY_ITEM, name)
-        .iter()
-        .map(|(_, id)| u32::from(*id))
-}
-
-/// The index of the furnace recipe of `kind` that takes `input` (PMMP
-/// `FurnaceRecipeManager::match`: the first recipe whose input accepts it). Only the recipes
-/// whose input takes the item's name are looked at (a generated index), in table order.
-pub(crate) fn furnace_recipe(kind: FurnaceType, input: &item::Stack) -> Option<u16> {
-    let item = input.item()?;
-    by_name(&table::FURNACE_BY_ITEM, item.name())
-        .iter()
-        .map(|(_, i)| *i)
-        .find(|i| furnace_at(*i).is_some_and(|r| r.kind == kind && r.input.accepts(input)))
-}
-
-/// How many furnace recipes PMMP has (a server's own count on from it).
-pub(crate) fn furnace_count() -> usize {
-    table::FURNACE.len()
-}
-
-/// The furnace recipe at `index` ([`furnace_recipe`]).
-pub(crate) fn furnace_at(index: u16) -> Option<&'static Furnace> {
-    table::FURNACE.get(usize::from(index))
-}
-
-/// What PMMP's potion container change recipes make of `reagent` brewed into `input` (the
-/// first part of PMMP `CraftingManager::matchBrewingRecipe`); `None` if none takes them.
-pub(crate) fn brew_container_change(
-    input: &item::Stack,
-    reagent: &item::Stack,
-) -> Option<item::Stack> {
-    let name = input.item()?.name();
-    table::POTION_CONTAINER_CHANGE
-        .iter()
-        .filter(|r| r.input.name == name && Ingredient::Exact(r.reagent).accepts(reagent))
-        .find_map(|r| {
-            change_container(input, |meta, tag| {
-                Type::from_name(r.output.name, meta, None, tag)
-            })
-        })
-}
-
-/// What PMMP's potion type recipes make of `reagent` brewed into `input` (the second part of
-/// PMMP `CraftingManager::matchBrewingRecipe`, then `PotionTypeRecipe::getResultFor`); `None`
-/// if none takes them. Looked up by the reagent's name (a generated index), in table order.
-pub(crate) fn brew_potion_type(input: &item::Stack, reagent: &item::Stack) -> Option<item::Stack> {
-    by_name(&table::POTION_TYPE_BY_REAGENT, reagent.item()?.name())
-        .iter()
-        .filter_map(|(_, i)| table::POTION_TYPE.get(usize::from(*i)))
-        .find(|r| {
-            Ingredient::Exact(r.reagent).accepts(reagent)
-                && Ingredient::Exact(r.input).accepts(input)
-        })
-        .and_then(|r| r.output.to_item())
-}
-
-/// The potion `input` in another container (PMMP `PotionContainerChangeRecipe::getResultFor`
-/// swaps the item name and keeps the meta and tag): the item type `output` finds for that meta
-/// and tag; `None` if it finds none.
-pub(crate) fn change_container(
-    input: &item::Stack,
-    output: impl FnOnce(u16, &crate::nbt::Compound) -> Option<Type>,
-) -> Option<item::Stack> {
-    let tag = input.tag();
-    let empty = crate::nbt::Compound::new();
-    let output = output(input.meta(), tag.as_ref().unwrap_or(&empty))?;
-    item::Stack::from_parts(output, 1, input.meta(), tag).ok()
-}
-
-/// The experience one smelted item of `result` gives (dragonfly `SmeltInfo.Experience`; PMMP has
-/// none, BDS and dragonfly drop it as orbs when the output is taken). Results dragonfly does not
-/// name give none.
-pub(crate) fn smelt_experience(result: Type) -> f64 {
-    let name = result.name().strip_prefix("minecraft:").unwrap_or_default();
-    match name {
-        "netherite_scrap" => 2.0,
-        "diamond" | "emerald" | "gold_ingot" => 1.0,
-        "iron_ingot" | "copper_ingot" | "redstone" => 0.7,
-        "hardened_clay" | "baked_potato" | "cooked_beef" | "cooked_chicken" | "cooked_cod"
-        | "cooked_mutton" | "cooked_porkchop" | "cooked_rabbit" | "cooked_salmon" => 0.35,
-        "brick" => 0.3,
-        "lapis_lazuli" | "quartz" => 0.2,
-        "charcoal" | "sponge" => 0.15,
-        "coal"
-        | "stone"
-        | "deepslate"
-        | "cracked_deepslate_bricks"
-        | "cracked_deepslate_tiles"
-        | "dried_kelp"
-        | "netherbrick"
-        | "cracked_nether_bricks"
-        | "cracked_polished_blackstone_bricks"
-        | "smooth_quartz"
-        | "glass"
-        | "smooth_sandstone"
-        | "smooth_red_sandstone"
-        | "lime_dye"
-        | "smooth_stone"
-        | "cracked_stone_bricks"
-        | "iron_nugget"
-        | "gold_nugget"
-        | "copper_nugget" => 0.1,
-        n if n.ends_with("_glazed_terracotta") => 0.1,
-        _ => 0.0,
-    }
-}
-
-/// The armour trim pattern IDs (an item's [`TAG_TRIM_PATTERN`](crate::item::TAG_TRIM_PATTERN)), in
-/// the order BDS 1.26.52 sends them in `TrimData` (P6): each is the template
-/// `minecraft:<pattern>_armor_trim_smithing_template`.
-pub const TRIM_PATTERNS: [&str; 18] = [
-    "ward",
-    "sentry",
-    "snout",
-    "dune",
-    "spire",
-    "tide",
-    "wild",
-    "rib",
-    "coast",
-    "shaper",
-    "eye",
-    "vex",
-    "silence",
-    "wayfinder",
-    "raiser",
-    "host",
-    "flow",
-    "bolt",
-];
-
-/// The armour trim materials: material ID, text colour code and item, in the order BDS 1.26.52
-/// sends them in `TrimData` (P6).
-pub(crate) const TRIM_MATERIAL_TABLE: [(&str, &str, &str); 11] = [
-    ("quartz", "\u{a7}h", "minecraft:quartz"),
-    ("iron", "\u{a7}i", "minecraft:iron_ingot"),
-    ("netherite", "\u{a7}j", "minecraft:netherite_ingot"),
-    ("redstone", "\u{a7}m", "minecraft:redstone"),
-    ("copper", "\u{a7}n", "minecraft:copper_ingot"),
-    ("gold", "\u{a7}p", "minecraft:gold_ingot"),
-    ("emerald", "\u{a7}q", "minecraft:emerald"),
-    ("diamond", "\u{a7}s", "minecraft:diamond"),
-    ("lapis", "\u{a7}t", "minecraft:lapis_lazuli"),
-    ("amethyst", "\u{a7}u", "minecraft:amethyst_shard"),
-    ("resin", "\u{a7}v", "minecraft:resin_brick"),
-];
-
-/// The armour trim material IDs (an item's
-/// [`TAG_TRIM_MATERIAL`](crate::item::TAG_TRIM_MATERIAL)), in the order BDS 1.26.52 sends them in
-/// `TrimData` (P6).
-#[expect(
-    clippy::indexing_slicing,
-    reason = "invariant: evaluated when the crate builds, so an index out of range fails the build"
-)]
-pub const TRIM_MATERIALS: [&str; TRIM_MATERIAL_TABLE.len()] = {
-    let mut ids = [""; TRIM_MATERIAL_TABLE.len()];
-    let mut i = 0;
-    while i < ids.len() {
-        ids[i] = TRIM_MATERIAL_TABLE[i].0;
-        i += 1;
-    }
-    ids
-};
-
-/// The trim pattern of a smithing template (`ward` of
-/// `minecraft:ward_armor_trim_smithing_template`), if it is one.
-pub(crate) fn trim_pattern(template: Type) -> Option<&'static str> {
-    template
-        .name()
-        .strip_prefix("minecraft:")?
-        .strip_suffix("_armor_trim_smithing_template")
-}
-
-/// The trim material of an item, if it is one.
-pub(crate) fn trim_material(item: Type) -> Option<&'static str> {
-    TRIM_MATERIAL_TABLE
-        .iter()
-        .find(|(_, _, name)| *name == item.name())
-        .map(|(id, _, _)| *id)
-}
-
-/// Edmonds–Karp maximum flow from node 0 to `sink` on a dense capacity matrix (at most 75
-/// nodes). Each augmenting path fills at least one source or sink edge, or moves flow off a
-/// stack edge for good, so it ends after a few hundred paths at most.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "invariant: every index is a node below `sink + 1`, the matrix size"
-)]
-fn max_flow(capacity: &mut [Vec<u32>], sink: usize) -> u32 {
-    let nodes = capacity.len();
+fn max_flow(capacity: &mut [[u32; FLOW_NODES]; FLOW_NODES], sink: usize) -> u32 {
+    let nodes = sink + 1;
     let mut total: u32 = 0;
-    let mut parent = vec![usize::MAX; nodes];
-    let mut queue = std::collections::VecDeque::with_capacity(nodes);
+    let mut parent = [usize::MAX; FLOW_NODES];
+    // Each node enters the queue at most once.
+    let mut queue = [0; FLOW_NODES];
     loop {
         parent.fill(usize::MAX);
         parent[0] = 0;
-        queue.clear();
-        queue.push_back(0);
-        while let Some(u) = queue.pop_front() {
+        let (mut head, mut tail) = (0, 1);
+        while head < tail {
+            let u = queue[head];
+            head += 1;
             for v in 0..nodes {
                 if parent[v] == usize::MAX && capacity[u][v] > 0 {
                     parent[v] = u;
-                    queue.push_back(v);
+                    queue[tail] = v;
+                    tail += 1;
                 }
             }
         }
@@ -1008,11 +1014,12 @@ fn max_flow(capacity: &mut [Vec<u32>], sink: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use super::*;
+
+    use std::collections::{BTreeMap, BTreeSet};
 
     use serde_json::Value as Json;
 
-    use super::*;
     use crate::protocol::packet::Packet;
 
     /// The PMMP recipe dump the tables come from.
@@ -1021,8 +1028,52 @@ mod tests {
         serde_json::from_str(text).unwrap()
     }
 
+    fn len(dump: &Json, kind: &str) -> usize {
+        dump[kind].as_array().unwrap().len()
+    }
+
+    #[test]
+    fn tables_hold_every_dumped_recipe() {
+        let dump = dump();
+        assert_eq!(table::SHAPED.len(), len(&dump, "shaped"));
+        assert_eq!(table::SHAPELESS.len(), len(&dump, "shapeless"));
+        assert_eq!(table::FURNACE.len(), len(&dump, "furnace"));
+        assert_eq!(table::POTION_TYPE.len(), len(&dump, "potion_type"));
+        assert_eq!(
+            table::POTION_CONTAINER_CHANGE.len(),
+            len(&dump, "potion_container_change")
+        );
+        assert_eq!(
+            table::SMITHING_TRANSFORM.len(),
+            len(&dump, "smithing_transform")
+        );
+        assert_eq!(table::SMITHING_TRIM.len(), len(&dump, "smithing_trim"));
+
+        let packet = crafting_data();
+        assert_eq!(packet.shaped_recipes.len(), table::SHAPED.len());
+        assert_eq!(
+            packet.shapeless_recipes.len(),
+            table::SHAPELESS.len() + table::FURNACE.len()
+        );
+        assert_eq!(packet.potion_recipes.len(), table::POTION_TYPE.len());
+        assert_eq!(
+            packet.potion_container_change_recipes.len(),
+            table::POTION_CONTAINER_CHANGE.len()
+        );
+        assert_eq!(
+            packet.smithing_transform_recipes.len(),
+            table::SMITHING_TRANSFORM.len()
+        );
+        assert_eq!(
+            packet.smithing_trim_recipes.len(),
+            table::SMITHING_TRIM.len()
+        );
+        assert!(packet.multi_recipes.is_empty());
+        assert!(packet.clear_recipes);
+    }
+
     /// The reference item list: runtime ID by name.
-    fn reference_ids() -> std::collections::BTreeMap<String, i16> {
+    fn reference_ids() -> BTreeMap<String, i16> {
         let text = include_str!("../xtask/data/reference/items.json");
         let list: Vec<Json> = serde_json::from_str(text).unwrap();
         list.iter()
@@ -1033,10 +1084,6 @@ mod tests {
                 )
             })
             .collect()
-    }
-
-    fn len(dump: &Json, kind: &str) -> usize {
-        dump[kind].as_array().unwrap().len()
     }
 
     /// Every item type and name a recipe uses.
@@ -1081,46 +1128,6 @@ mod tests {
         out.extend(table::POTION_TYPE.iter().map(|r| r.output));
         out.extend(table::SMITHING_TRANSFORM.iter().map(|r| r.result));
         out
-    }
-
-    #[test]
-    fn tables_hold_every_dumped_recipe() {
-        let dump = dump();
-        assert_eq!(table::SHAPED.len(), len(&dump, "shaped"));
-        assert_eq!(table::SHAPELESS.len(), len(&dump, "shapeless"));
-        assert_eq!(table::FURNACE.len(), len(&dump, "furnace"));
-        assert_eq!(table::POTION_TYPE.len(), len(&dump, "potion_type"));
-        assert_eq!(
-            table::POTION_CONTAINER_CHANGE.len(),
-            len(&dump, "potion_container_change")
-        );
-        assert_eq!(
-            table::SMITHING_TRANSFORM.len(),
-            len(&dump, "smithing_transform")
-        );
-        assert_eq!(table::SMITHING_TRIM.len(), len(&dump, "smithing_trim"));
-
-        let packet = crafting_data();
-        assert_eq!(packet.shaped_recipes.len(), table::SHAPED.len());
-        assert_eq!(
-            packet.shapeless_recipes.len(),
-            table::SHAPELESS.len() + table::FURNACE.len()
-        );
-        assert_eq!(packet.potion_recipes.len(), table::POTION_TYPE.len());
-        assert_eq!(
-            packet.potion_container_change_recipes.len(),
-            table::POTION_CONTAINER_CHANGE.len()
-        );
-        assert_eq!(
-            packet.smithing_transform_recipes.len(),
-            table::SMITHING_TRANSFORM.len()
-        );
-        assert_eq!(
-            packet.smithing_trim_recipes.len(),
-            table::SMITHING_TRIM.len()
-        );
-        assert!(packet.multi_recipes.is_empty());
-        assert!(packet.clear_recipes);
     }
 
     #[test]
@@ -1315,7 +1322,6 @@ mod tests {
 
     /// Every network ID of the packet finds the recipe the packet sends with it, and no other ID
     /// finds one.
-    // pmmp: CraftingManager::getCraftingRecipeIndex, CraftingManager::getCraftingRecipeFromIndex
     #[test]
     fn network_ids_find_their_recipes() {
         let packet = crafting_data();
@@ -1424,14 +1430,11 @@ mod tests {
     /// A stack an ingredient takes, for the ingredients that name one item (not tags).
     fn stack_for(ingredient: &Ingredient) -> Option<item::Stack> {
         match ingredient {
-            Ingredient::Exact(e) => Some(
-                item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound))
-                    .unwrap(),
-            ),
-            Ingredient::AnyMeta(n) => {
-                Type::from_name(n.name, 0, None, &crate::nbt::Compound::new())
-                    .map(|t| item::Stack::new(t, 1))
+            Ingredient::Exact(e) => {
+                Some(item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(nbt::compound)).unwrap())
             }
+            Ingredient::AnyMeta(n) => Type::from_name(n.name, 0, None, &nbt::Compound::new())
+                .map(|t| item::Stack::new(t, 1)),
             Ingredient::Tag(_) => None,
         }
     }
@@ -1519,13 +1522,13 @@ mod tests {
         let custom = crate::custom::Registry::default();
         let brew = |input: &item::Stack, reagent: &item::Stack| custom.brew(input, reagent);
         let exact = |e: &Exact| {
-            item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound)).unwrap()
+            item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(nbt::compound)).unwrap()
         };
         for r in &table::POTION_TYPE {
             let got = brew(&exact(&r.input), &exact(&r.reagent));
             assert_eq!(got, r.output.to_item(), "{r:?}");
         }
-        let empty = crate::nbt::Compound::new();
+        let empty = nbt::Compound::new();
         let mut changed = 0;
         for r in &table::POTION_CONTAINER_CHANGE {
             for meta in [0u16, 5, 17] {
@@ -1549,7 +1552,7 @@ mod tests {
     fn special_ids_follow_the_last_recipe_and_trims_name_their_parts() {
         let first = first_special_id();
         assert!(recipe(first).is_none() && recipe(first - 1).is_some());
-        let empty = crate::nbt::Compound::new();
+        let empty = nbt::Compound::new();
         let named = |n: &str| Type::from_name(n, 0, None, &empty).unwrap();
         assert_eq!(
             trim_pattern(named("minecraft:ward_armor_trim_smithing_template")),

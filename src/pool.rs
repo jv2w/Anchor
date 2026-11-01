@@ -1,4 +1,5 @@
-//! The CPU pool: the threads of the parallel, read-only tick phases.
+//! The CPU pool: the threads of the tick's parallel, read-only phases and of the bulk work of the
+//! save thread, the import, the export and the replay.
 //!
 //! It is one rayon pool that `runtime` builds; this module is the only user of rayon's parallel
 //! APIs (`.clippy.toml` forbids them elsewhere, since used outside the pool they would start
@@ -30,7 +31,7 @@ pub(crate) struct Pool {
 }
 
 impl Pool {
-    /// Wraps a pool of `threads` threads whose exit handler sends to `exits`. Only
+    /// A pool of `threads` threads (at least 1) whose exit handler sends to `exits`. Only
     /// `runtime::cpu_pool` builds pools.
     pub(crate) fn new(pool: rayon::ThreadPool, threads: usize, exits: Receiver<()>) -> Self {
         Self {
@@ -42,12 +43,13 @@ impl Pool {
 
     /// The number of threads: the items of one turn of [`Self::map_in_turns`].
     pub(crate) fn threads(&self) -> usize {
-        self.threads.max(1)
+        self.threads
     }
 
     /// `f` of every item, in item order, computed on the pool's threads. `f` sees shared
-    /// references only, as the parallel tick phases are read-only. Fewer than two items are
-    /// mapped on the calling thread, which saves the hand-off.
+    /// references only, as the parallel tick phases are read-only. Fewer than two items, or a
+    /// pool of one thread, are mapped on the calling thread, which saves the hand-off (waking a
+    /// pool thread and waiting on a lock) that could gain nothing.
     #[expect(
         clippy::disallowed_methods,
         reason = "consistency: the pool module is the one user of rayon's parallel iterators"
@@ -57,7 +59,7 @@ impl Pool {
         T: Sync,
         R: Send,
     {
-        if items.len() < 2 {
+        if self.maps_inline(items.len()) {
             return items.iter().map(f).collect();
         }
         self.inner.install(|| items.par_iter().map(f).collect())
@@ -75,7 +77,7 @@ impl Pool {
         T: Send,
         R: Send,
     {
-        if items.len() < 2 {
+        if self.maps_inline(items.len()) {
             return items.into_iter().map(f).collect();
         }
         self.inner
@@ -85,11 +87,12 @@ impl Pool {
     /// [`map`](Self::map) for the save thread: in turns of one item per thread, each mapped after
     /// the last ended, with each turn's first item run on the calling thread. rayon's threads
     /// take work from outside the pool only when none is left to steal, so a tick's map would
-    /// wait behind a whole turn if the turn held every thread; this way one is left for it. A
-    /// tick thread waiting in a join can still pick up a turn's item it finds unclaimed, so the
-    /// tick may wait up to one item when a turn starts during a tick's parallel phase. The turns
-    /// cost the save thread throughput when items differ in cost. A panic in any item reaches the
-    /// caller after the turn's other items end, as with `map`.
+    /// wait behind a whole turn if the turn held every thread; this way one is left for it. The
+    /// pool thread that runs a tick's map can still pick up, while it waits in a join, a turn's
+    /// item it finds unclaimed, so the tick may wait up to one item when a turn starts during a
+    /// tick's parallel phase. The turns cost the save thread throughput when items differ in
+    /// cost. A panic in any item reaches the caller after the turn's other items end, as with
+    /// `map`.
     #[expect(
         clippy::expect_used,
         reason = "invariant: chunks are never empty and the scope ends only after every spawned item ran"
@@ -108,9 +111,7 @@ impl Pool {
         let mut out = Vec::with_capacity(items.len());
         let mut spawned: Vec<Option<R>> = Vec::with_capacity(turn_len - 1);
         for turn in items.chunks(turn_len) {
-            let (first, rest) = turn
-                .split_first()
-                .expect("invariant: chunks are never empty");
+            let (first, rest) = turn.split_first().expect("a turn has a first item");
             spawned.resize_with(rest.len(), || None);
             // The rest are spawned first, so they run while this thread maps the first.
             let inline = self.inner.in_place_scope(|scope| {
@@ -123,14 +124,18 @@ impl Pool {
             out.extend(
                 spawned
                     .drain(..)
-                    .map(|r| r.expect("invariant: the scope ran every spawned item")),
+                    .map(|r| r.expect("the scope ran every spawned item")),
             );
         }
         out
     }
 
     /// Stops the pool and waits until its threads have ended (rayon's drop does not wait).
-    /// Returns whether all of them did.
+    /// Warns and returns `false` if one did not end in time; only tests read the result.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: nothing locks the exits mutex, so it is never poisoned"
+    )]
     pub(crate) fn shutdown(self) -> bool {
         let Self {
             inner,
@@ -138,10 +143,7 @@ impl Pool {
             exits,
         } = self;
         drop(inner);
-        let exits = match exits.into_inner() {
-            Ok(exits) => exits,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let exits = exits.into_inner().expect("the exits mutex is never locked");
         for _ in 0..threads {
             if exits.recv_timeout(EXIT_WAIT).is_err() {
                 warn!("a CPU pool thread did not end in time");
@@ -150,13 +152,30 @@ impl Pool {
         }
         true
     }
+
+    /// Whether `len` items are mapped on the calling thread: fewer than two have nothing to
+    /// share, and with one pool thread the hand-off costs more than it gains.
+    fn maps_inline(&self, len: usize) -> bool {
+        len < 2 || self.threads == 1
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use super::*;
 
     use crate::runtime;
+
+    #[test]
+    fn a_pool_of_one_thread_maps_on_the_calling_thread() {
+        let pool = runtime::cpu_pool(1).unwrap();
+        let here = std::thread::current().id();
+        let mapped = pool.map(&[(), ()], |()| std::thread::current().id());
+        assert_eq!(mapped, [here, here]);
+        let owned = pool.map_owned(vec![(), ()], |()| std::thread::current().id());
+        assert_eq!(owned, [here, here]);
+        assert!(pool.shutdown());
+    }
 
     #[test]
     fn results_keep_input_order_for_any_thread_count() {

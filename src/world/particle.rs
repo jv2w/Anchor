@@ -11,6 +11,40 @@
 //! Left out: `FloatingTextParticle` (an invisible entity per viewer, not an event; a human NPC
 //! with a name tag does the same) and the base class `Particle` (this enum).
 
+/// PMMP's particle numbers (`ParticleIds`) that the particles use.
+pub(crate) mod id {
+    pub(crate) const BUBBLE: i32 = 1;
+    pub(crate) const CRITICAL: i32 = 3;
+    pub(crate) const BLOCK_FORCE_FIELD: i32 = 4;
+    pub(crate) const SMOKE: i32 = 5;
+    pub(crate) const EXPLODE: i32 = 6;
+    pub(crate) const FLAME: i32 = 8;
+    pub(crate) const LAVA: i32 = 10;
+    pub(crate) const REDSTONE: i32 = 12;
+    pub(crate) const ITEM_BREAK: i32 = 14;
+    pub(crate) const SNOWBALL_POOF: i32 = 15;
+    pub(crate) const HUGE_EXPLODE: i32 = 16;
+    pub(crate) const HUGE_EXPLODE_SEED: i32 = 17;
+    pub(crate) const MOB_FLAME: i32 = 19;
+    pub(crate) const HEART: i32 = 20;
+    pub(crate) const TERRAIN: i32 = 21;
+    pub(crate) const TOWN_AURA: i32 = 22;
+    pub(crate) const PORTAL: i32 = 23;
+    pub(crate) const SPLASH: i32 = 25;
+    pub(crate) const WATER_WAKE: i32 = 27;
+    pub(crate) const DRIP_WATER: i32 = 28;
+    pub(crate) const DRIP_LAVA: i32 = 29;
+    pub(crate) const DUST: i32 = 33;
+    pub(crate) const MOB_SPELL: i32 = 34;
+    pub(crate) const MOB_SPELL_INSTANTANEOUS: i32 = 36;
+    pub(crate) const INK: i32 = 37;
+    pub(crate) const RAIN_SPLASH: i32 = 39;
+    pub(crate) const VILLAGER_ANGRY: i32 = 40;
+    pub(crate) const VILLAGER_HAPPY: i32 = 41;
+    pub(crate) const ENCHANTMENT_TABLE: i32 = 42;
+    pub(crate) const SONIC_EXPLOSION: i32 = 85;
+}
+
 use crate::block::{self, Face};
 use crate::item;
 use crate::math::Vec3;
@@ -149,58 +183,6 @@ pub enum Particle {
     Water,
 }
 
-/// PMMP's particle numbers (`ParticleIds`) that the particles use.
-pub(crate) mod id {
-    pub(crate) const BUBBLE: i32 = 1;
-    pub(crate) const CRITICAL: i32 = 3;
-    pub(crate) const BLOCK_FORCE_FIELD: i32 = 4;
-    pub(crate) const SMOKE: i32 = 5;
-    pub(crate) const EXPLODE: i32 = 6;
-    pub(crate) const FLAME: i32 = 8;
-    pub(crate) const LAVA: i32 = 10;
-    pub(crate) const REDSTONE: i32 = 12;
-    pub(crate) const ITEM_BREAK: i32 = 14;
-    pub(crate) const SNOWBALL_POOF: i32 = 15;
-    pub(crate) const HUGE_EXPLODE: i32 = 16;
-    pub(crate) const HUGE_EXPLODE_SEED: i32 = 17;
-    pub(crate) const MOB_FLAME: i32 = 19;
-    pub(crate) const HEART: i32 = 20;
-    pub(crate) const TERRAIN: i32 = 21;
-    pub(crate) const TOWN_AURA: i32 = 22;
-    pub(crate) const PORTAL: i32 = 23;
-    pub(crate) const SPLASH: i32 = 25;
-    pub(crate) const WATER_WAKE: i32 = 27;
-    pub(crate) const DRIP_WATER: i32 = 28;
-    pub(crate) const DRIP_LAVA: i32 = 29;
-    pub(crate) const DUST: i32 = 33;
-    pub(crate) const MOB_SPELL: i32 = 34;
-    pub(crate) const MOB_SPELL_INSTANTANEOUS: i32 = 36;
-    pub(crate) const INK: i32 = 37;
-    pub(crate) const RAIN_SPLASH: i32 = 39;
-    pub(crate) const VILLAGER_ANGRY: i32 = 40;
-    pub(crate) const VILLAGER_HAPPY: i32 = 41;
-    pub(crate) const ENCHANTMENT_TABLE: i32 = 42;
-    pub(crate) const SONIC_EXPLOSION: i32 = 85;
-}
-
-/// The network ID of a block state as particles carry it.
-fn block_id(b: block::State) -> i32 {
-    b.network_id().cast_signed()
-}
-
-/// The data of a block punch level event (`ParticlesCrackBlock`): the block's network ID with
-/// the face hit in the top byte.
-pub(crate) fn punch_data(network_id: u32, face: Face) -> i32 {
-    network_id.cast_signed() | (i32::from(face.index()) << 24)
-}
-
-/// The dragon egg trail data of one axis (PMMP `DragonEggTeleportParticle::encode`): the size in
-/// a byte at `shift` and the sign in bit `sign`.
-fn axis(v: i16, shift: u32, sign: u32) -> i32 {
-    let size = i32::from(v.unsigned_abs().min(255));
-    (size << shift) | if v < 0 { 1 << sign } else { 0 }
-}
-
 impl Particle {
     /// The packet that shows the particle at `at` (PMMP `Particle::encode`).
     pub(crate) fn packet(self, at: Vec3) -> Packet {
@@ -270,6 +252,24 @@ impl Particle {
             Self::Water => standard(id::WATER_WAKE, 0),
         }
     }
+}
+
+/// The network ID of a block state as particles carry it.
+fn block_id(b: block::State) -> i32 {
+    b.network_id().cast_signed()
+}
+
+/// The data of a block punch level event (`ParticlesCrackBlock`): the block's network ID with
+/// the face hit in the top byte.
+pub(crate) fn punch_data(network_id: u32, face: Face) -> i32 {
+    network_id.cast_signed() | (i32::from(face.index()) << 24)
+}
+
+/// The dragon egg trail data of one axis (PMMP `DragonEggTeleportParticle::encode`): the size in
+/// a byte at `shift` and the sign in bit `sign`.
+fn axis(v: i16, shift: u32, sign: u32) -> i32 {
+    let size = i32::from(v.unsigned_abs().min(255));
+    (size << shift) | if v < 0 { 1 << sign } else { 0 }
 }
 
 #[cfg(test)]

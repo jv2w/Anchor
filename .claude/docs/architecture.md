@@ -38,7 +38,7 @@ vendor/                     patched dependency copies (dependencies.md)
 ```
 
 - The workspace has two members, `anchor` and `xtask`. `vendor/` is excluded from it.
-- Every server program answers three commands from its process arguments without code of its own (`args`): `update-config` (`config.md`), `import <world folder> [<world name>]`, and `export <world folder> [<world name>]` (`storage.md`). `Config::load` does `update-config` and `Server::run` does the other two; neither then starts the server. Any other argument is the program's own and starts the server as usual.
+- Every server program answers three commands from its process arguments without code of its own (`args`): `update-config` (`config.md`), `import <world folder> [<world name>]`, and `export <new folder> [<world name>]` (`storage.md`). `Config::load` does `update-config` and `Server::run` does the other two; neither then starts the server. Any other argument is the program's own and starts the server as usual.
 - `rust-toolchain.toml` and `Cargo.lock` cannot take a dot name.
 - `.cache/` is ignored by git.
 
@@ -87,7 +87,7 @@ vendor/                     patched dependency copies (dependencies.md)
 | Controls to the networking (server name, IP blocks) | 256 a tick | The call changes nothing |
 
 - rayon's drop does not wait for its threads, so a clean shutdown counts the CPU pool threads ending through the exit handler (`Pool::shutdown`).
-- The save thread hands the CPU pool its work in turns of as many items as there are threads, and runs each turn's first item itself (`Pool::map_in_turns`). So at most threads − 1 pool threads hold save work, and one is left for the tick's parallel phases. rayon's workers take work from outside the pool only when there is nothing to steal, so if every worker held save work, a tick's parallel phase would wait behind the whole turn. When a turn starts during a tick's parallel phase, a tick thread waiting in a join can still pick up an unclaimed save item, so the tick may wait for one item. Turns cost save throughput when items differ in cost. This shortens only the tick's wait, not its work, and changes nothing when `cpu-threads` is 1.
+- The save thread hands the CPU pool its work in turns of as many items as there are threads, and runs each turn's first item itself (`Pool::map_in_turns`). So at most threads − 1 pool threads hold save work, and one is left for the tick's parallel phases. rayon's workers take work from outside the pool only when there is nothing to steal, so if every worker held save work, a tick's parallel phase would wait behind the whole turn. When a turn starts during a tick's parallel phase, the pool thread that runs a tick's map, waiting in a join, can still pick up an unclaimed save item, so the tick may wait for one item. Turns cost save throughput when items differ in cost. This shortens only the tick's wait, not its work, and changes nothing when `cpu-threads` is 1.
 
 ## Tick
 

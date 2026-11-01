@@ -25,8 +25,8 @@ impl Fnv {
         }
     }
 
-    /// An NBT string: its length as a little-endian `u16`, then its bytes. Names and values are
-    /// short (block identifiers and property values are checked when they are registered); a
+    /// Feeds an NBT string: its length as a little-endian `u16`, then its bytes. Names and values
+    /// are short (block identifiers and property values are checked when they are registered); a
     /// longer one is cut at the length the prefix can hold, as no client could send it.
     fn string(&mut self, s: &str) {
         let len = u16::try_from(s.len()).unwrap_or(u16::MAX);

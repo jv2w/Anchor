@@ -267,40 +267,31 @@ const TEXTS: [(&str, &str); 146] = [
     ("potion.wither", "Wither"),
 ];
 
-/// Anchor's sentence for `key`, if it has one.
-fn sentence(key: &str) -> Option<&'static str> {
-    TEXTS
-        .binary_search_by(|(k, _)| k.cmp(&key))
-        .ok()
-        .and_then(|i| TEXTS.get(i))
-        .map(|&(_, text)| text)
-}
-
-/// `template` with `{%0}`, `{%1}`... replaced by `params`, in one pass so that a parameter's own
-/// text is kept as it is; a placeholder without a parameter stays.
-pub(crate) fn fill<S: AsRef<str>>(template: &str, params: &[S]) -> String {
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some((before, after)) = rest.split_once("{%") {
-        out.push_str(before);
-        let param = after
-            .split_once('}')
-            .and_then(|(digits, tail)| Some((params.get(digits.parse::<usize>().ok()?)?, tail)));
-        if let Some((param, tail)) = param {
-            out.push_str(param.as_ref());
-            rest = tail;
-        } else {
-            out.push_str("{%");
-            rest = after;
+/// What the console shows for `message` sent to it.
+pub(crate) fn message(message: &Message) -> String {
+    match message {
+        Message::Raw(text)
+        | Message::Popup(text)
+        | Message::Tip(text)
+        | Message::System(text)
+        | Message::Subtitle(text)
+        | Message::ActionBar(text) => text.clone(),
+        Message::Translation { key, parameters } | Message::JukeboxPopup { key, parameters } => {
+            render(key, parameters)
         }
+        Message::Chat { source, text } => render("chat.type.text", &[source, text]),
+        Message::Whisper { source, text } => {
+            render("commands.message.display.incoming", &[source, text])
+        }
+        Message::Announcement { source, text } => render("chat.type.announcement", &[source, text]),
+        Message::Title {
+            title, subtitle, ..
+        } if subtitle.is_empty() => title.clone(),
+        Message::Title {
+            title, subtitle, ..
+        } => format!("{title} / {subtitle}"),
+        other => format!("{other:?}"),
     }
-    out.push_str(rest);
-    out
-}
-
-/// A parameter as the console reads it: a `%key` with a sentence becomes the sentence.
-fn param(text: &str) -> &str {
-    text.strip_prefix('%').and_then(sentence).unwrap_or(text)
 }
 
 /// What the console shows for `text` (a translation key or a text) and its `params`, as the
@@ -341,31 +332,40 @@ pub(crate) fn render<S: AsRef<str>>(text: &str, params: &[S]) -> String {
     out
 }
 
-/// What the console shows for `message` sent to it.
-pub(crate) fn message(message: &Message) -> String {
-    match message {
-        Message::Raw(text)
-        | Message::Popup(text)
-        | Message::Tip(text)
-        | Message::System(text)
-        | Message::Subtitle(text)
-        | Message::ActionBar(text) => text.clone(),
-        Message::Translation { key, parameters } | Message::JukeboxPopup { key, parameters } => {
-            render(key, parameters)
+/// A parameter as the console reads it: a `%key` with a sentence becomes the sentence.
+fn param(text: &str) -> &str {
+    text.strip_prefix('%').and_then(sentence).unwrap_or(text)
+}
+
+/// `template` with `{%0}`, `{%1}`... replaced by `params`, in one pass so that a parameter's own
+/// text is kept as it is; a placeholder without a parameter stays.
+pub(crate) fn fill<S: AsRef<str>>(template: &str, params: &[S]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some((before, after)) = rest.split_once("{%") {
+        out.push_str(before);
+        let param = after
+            .split_once('}')
+            .and_then(|(digits, tail)| Some((params.get(digits.parse::<usize>().ok()?)?, tail)));
+        if let Some((param, tail)) = param {
+            out.push_str(param.as_ref());
+            rest = tail;
+        } else {
+            out.push_str("{%");
+            rest = after;
         }
-        Message::Chat { source, text } => render("chat.type.text", &[source, text]),
-        Message::Whisper { source, text } => {
-            render("commands.message.display.incoming", &[source, text])
-        }
-        Message::Announcement { source, text } => render("chat.type.announcement", &[source, text]),
-        Message::Title {
-            title, subtitle, ..
-        } if subtitle.is_empty() => title.clone(),
-        Message::Title {
-            title, subtitle, ..
-        } => format!("{title} / {subtitle}"),
-        other => format!("{other:?}"),
     }
+    out.push_str(rest);
+    out
+}
+
+/// Anchor's sentence for `key`, if it has one.
+fn sentence(key: &str) -> Option<&'static str> {
+    TEXTS
+        .binary_search_by(|(k, _)| k.cmp(&key))
+        .ok()
+        .and_then(|i| TEXTS.get(i))
+        .map(|&(_, text)| text)
 }
 
 #[cfg(test)]

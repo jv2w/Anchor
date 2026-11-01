@@ -9,7 +9,7 @@ use std::time::Duration;
 pub(crate) struct Rate {
     /// Tokens a full bucket holds.
     pub(crate) capacity: usize,
-    /// Tokens added per second.
+    /// Tokens added per second; not zero.
     pub(crate) per_second: usize,
 }
 
@@ -29,12 +29,18 @@ impl Bucket {
         }
     }
 
+    /// The time the refills have paid for: at most one token's time before the last
+    /// [`take`](Self::take), so a table can drop buckets left alone for long.
+    pub(crate) fn refilled(&self) -> Duration {
+        self.refilled
+    }
+
     /// Takes `amount` tokens at `now`; `false`, taking none, when the bucket holds fewer. The
     /// time a refill pays for is moved forward exactly, so frequent calls lose no fraction of
     /// the rate.
     pub(crate) fn take(&mut self, amount: usize, rate: Rate, now: Duration) -> bool {
         const NANOS: u128 = 1_000_000_000;
-        let per_second = u128::try_from(rate.per_second).unwrap_or(u128::MAX).max(1);
+        let per_second = u128::try_from(rate.per_second).unwrap_or(u128::MAX);
         let elapsed = now.saturating_sub(self.refilled).as_nanos();
         let earned = per_second.saturating_mul(elapsed) / NANOS;
         if self.tokens >= rate.capacity
@@ -65,12 +71,6 @@ impl Bucket {
     /// Gives `amount` tokens back, up to the capacity.
     pub(crate) fn give(&mut self, amount: usize, rate: Rate) {
         self.tokens = self.tokens.saturating_add(amount).min(rate.capacity);
-    }
-
-    /// The time the refills have paid for: at most one token's time before the last
-    /// [`take`](Self::take), so a table can drop buckets left alone for long.
-    pub(crate) fn refilled(&self) -> Duration {
-        self.refilled
     }
 }
 

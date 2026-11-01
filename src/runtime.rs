@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tracing::warn;
 
-use crate::config::Threads;
+use crate::config::{self, Threads};
 use crate::console::log;
 use crate::error::{Error, Result};
 use crate::pool::Pool;
@@ -46,33 +46,55 @@ pub(crate) struct ThreadCounts {
 
 impl ThreadCounts {
     /// Resolves `"auto"` from `logical` CPUs: network = max(1, L/4), cpu = max(1, budget − 2 −
-    /// network), budget = max(L, 4). Fails if network + cpu + 2 exceeds the budget.
-    pub(crate) fn resolve(network: Threads, cpu: Threads, logical: usize) -> Result<Self> {
+    /// network), budget = max(L, 4). Fails with the key that is too large if network + cpu + 2
+    /// exceeds the budget: the network count when it leaves no room for one CPU thread, else
+    /// the CPU count.
+    pub(crate) fn resolve(
+        network: Threads,
+        cpu: Threads,
+        logical: usize,
+    ) -> Result<Self, config::Error> {
         let budget = logical.max(MIN_BUDGET);
         let network = match network {
             Threads::Auto => (logical / 4).max(1),
             Threads::Count(n) => usize::from(n.get()),
         };
+        let usable = budget.saturating_sub(FIXED_THREADS);
+        // The CPU pool needs at least one thread.
+        let max_network = usable.saturating_sub(1);
+        if network > max_network {
+            return Err(Self::over_budget(
+                "developer.network-threads",
+                max_network,
+                budget,
+            ));
+        }
+        let max_cpu = usable.saturating_sub(network);
         let cpu = match cpu {
-            Threads::Auto => budget
-                .saturating_sub(FIXED_THREADS)
-                .saturating_sub(network)
-                .max(1),
+            Threads::Auto => max_cpu,
             Threads::Count(n) => usize::from(n.get()),
         };
-        if network.saturating_add(cpu).saturating_add(FIXED_THREADS) > budget {
-            return Err(Error::Threads {
-                network,
-                cpu,
-                budget,
-            });
+        if cpu > max_cpu {
+            return Err(Self::over_budget("developer.cpu-threads", max_cpu, budget));
         }
         Ok(Self { network, cpu })
+    }
+
+    /// The error for `key` over its largest count `max` under the thread `budget`.
+    fn over_budget(key: &str, max: usize, budget: usize) -> config::Error {
+        config::Error::Invalid {
+            key: key.to_owned(),
+            expected: format!(
+                "at most {max}: network-threads + cpu-threads + {FIXED_THREADS} (the tick and \
+                 save threads) must fit the thread budget of {budget}, the larger of the \
+                 logical CPU count and {MIN_BUDGET}"
+            ),
+        }
     }
 }
 
 /// The threads a running server has, as `/status` shows them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ThreadTotals {
     /// Tokio worker threads.
     pub(crate) network: usize,
@@ -103,23 +125,12 @@ impl ThreadTotals {
     }
 }
 
-/// The logical CPU count, or 1 (a budget of 4 threads) if the OS does not tell.
-pub(crate) fn logical_cpus() -> usize {
-    std::thread::available_parallelism().map_or_else(
-        |e| {
-            warn!(error = %e, "logical CPU count unknown; using a budget of 4 threads");
-            1
-        },
-        NonZeroUsize::get,
-    )
-}
-
 /// The tokio runtime that runs networking, sessions and blocking work.
 #[derive(Debug)]
 pub(crate) struct Runtime(tokio::runtime::Runtime);
 
 impl Runtime {
-    /// Starts `threads.network` worker threads.
+    /// A runtime of `threads.network` worker threads.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the runtime module creates the runtime"
@@ -142,6 +153,11 @@ impl Runtime {
             .map_err(Error::Start)
     }
 
+    /// A handle that starts work on the runtime from any thread (the tick's blocking jobs).
+    pub(crate) fn handle(&self) -> tokio::runtime::Handle {
+        self.0.handle().clone()
+    }
+
     /// Runs `future` to completion on the calling thread, inside the runtime.
     #[expect(
         clippy::disallowed_methods,
@@ -151,18 +167,24 @@ impl Runtime {
         self.0.block_on(future)
     }
 
-    /// A handle that starts work on the runtime from any thread (the tick's blocking jobs).
-    pub(crate) fn handle(&self) -> tokio::runtime::Handle {
-        self.0.handle().clone()
-    }
-
     /// Stops the runtime, waiting up to [`SHUTDOWN_GRACE`] for blocking work.
     pub(crate) fn shutdown(self) {
         self.0.shutdown_timeout(SHUTDOWN_GRACE);
     }
 }
 
-/// Starts the CPU pool of `threads` threads. Each thread reports its end, so
+/// The logical CPU count, or 1 (a budget of 4 threads) if the OS does not tell.
+pub(crate) fn logical_cpus() -> usize {
+    std::thread::available_parallelism().map_or_else(
+        |e| {
+            warn!(error = %e, "logical CPU count unknown; using a budget of 4 threads");
+            1
+        },
+        NonZeroUsize::get,
+    )
+}
+
+/// Starts the CPU pool of `threads` threads (at least 1). Each thread reports its end, so
 /// [`Pool::shutdown`] can wait for all of them.
 #[expect(
     clippy::disallowed_methods,
@@ -192,6 +214,21 @@ pub(crate) fn cpu_pool(threads: usize) -> Result<Pool> {
     Ok(Pool::new(pool, threads, exits))
 }
 
+/// Starts the tick thread running `run`.
+pub(crate) fn spawn_tick<T: Send + 'static>(
+    run: impl FnOnce() -> T + Send + 'static,
+) -> Result<JoinHandle<T>> {
+    spawn_thread("anchor-tick", log::logged(run)).map_err(Error::Start)
+}
+
+/// Starts the save thread running `run`: the one thread that reads and commits the data
+/// files.
+pub(crate) fn spawn_save<T: Send + 'static>(
+    run: impl FnOnce() -> T + Send + 'static,
+) -> Result<JoinHandle<T>> {
+    spawn_thread("anchor-save", log::logged(run)).map_err(Error::Start)
+}
+
 /// Starts a thread named `name` with [`STACK_BYTES`] of stack running `run` as it is: wrap `run`
 /// in [`log::logged`] for the thread to take on the console log.
 #[expect(
@@ -208,26 +245,11 @@ pub(crate) fn spawn_thread<T: Send + 'static>(
         .spawn(run)
 }
 
-/// Starts the tick thread running `run`.
-pub(crate) fn spawn_tick<T: Send + 'static>(
-    run: impl FnOnce() -> T + Send + 'static,
-) -> Result<JoinHandle<T>> {
-    spawn_thread("anchor-tick", log::logged(run)).map_err(Error::Start)
-}
-
-/// Starts the save thread running `run`: the one thread that reads and commits
-/// the server file.
-pub(crate) fn spawn_save<T: Send + 'static>(
-    run: impl FnOnce() -> T + Send + 'static,
-) -> Result<JoinHandle<T>> {
-    spawn_thread("anchor-save", log::logged(run)).map_err(Error::Start)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU16;
-
     use super::*;
+
+    use std::num::NonZeroU16;
 
     fn count(n: u16) -> Threads {
         Threads::Count(NonZeroU16::new(n).unwrap())
@@ -260,7 +282,10 @@ mod tests {
     fn auto_always_fits_the_budget() {
         for logical in 1..=512 {
             let t = auto(logical);
-            assert!(t.network + t.cpu + 2 <= logical.max(4), "L = {logical}");
+            assert!(
+                t.network + t.cpu + FIXED_THREADS <= logical.max(MIN_BUDGET),
+                "L = {logical}"
+            );
         }
     }
 
@@ -314,19 +339,38 @@ mod tests {
         }
     }
 
+    /// The key of the setting that is too large, in the error of counts over the budget.
+    fn key_over_budget(network: Threads, cpu: Threads, logical: usize) -> String {
+        match ThreadCounts::resolve(network, cpu, logical).unwrap_err() {
+            config::Error::Invalid { key, .. } => key,
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
-    fn explicit_counts_over_the_budget_are_rejected() {
-        let e = ThreadCounts::resolve(count(4), count(3), 8).unwrap_err();
-        assert!(matches!(
-            e,
-            Error::Threads {
-                network: 4,
-                cpu: 3,
-                budget: 8
-            }
-        ));
+    fn explicit_counts_over_the_budget_are_rejected_naming_the_key() {
+        assert_eq!(
+            key_over_budget(count(4), count(3), 8),
+            "developer.cpu-threads"
+        );
+        // Seven network threads leave no room for a CPU thread under a budget of 8.
+        assert_eq!(
+            key_over_budget(count(7), Threads::Auto, 8),
+            "developer.network-threads"
+        );
+        assert_eq!(
+            key_over_budget(count(u16::MAX), count(u16::MAX), 8),
+            "developer.network-threads"
+        );
         // An auto value cannot rescue an explicit one that is too large.
-        assert!(ThreadCounts::resolve(count(7), Threads::Auto, 8).is_err());
-        assert!(ThreadCounts::resolve(Threads::Auto, count(3), 1).is_err());
+        assert_eq!(
+            key_over_budget(Threads::Auto, count(3), 1),
+            "developer.cpu-threads"
+        );
+        let message = ThreadCounts::resolve(count(4), count(3), 8)
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("at most 2"), "{message}");
+        assert!(message.contains("thread budget of 8"), "{message}");
     }
 }

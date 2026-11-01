@@ -37,7 +37,9 @@ use crate::protocol::packet::{
 };
 use crate::protocol::{BlockChangeEntry, HeightMap, SubChunkEntry};
 use crate::save::{Loaded, Request, WorldIndex};
-use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Kind, NO_HEIGHT, SUB_CHUNKS, World};
+use crate::world::{
+    BlockPos, Chunk, ChunkPos, Entry, Kind, NO_HEIGHT, SPAWN_CHUNK_RADIUS, SUB_CHUNKS, World,
+};
 
 /// Chunk loads the save thread may have in flight at once.
 const MAX_LOADS_IN_FLIGHT: usize = 1024;
@@ -1164,12 +1166,12 @@ pub(super) fn hold_spawns(state: &mut State) {
     }
 }
 
-/// Lists the 3 × 3 chunks around `center` inside the world border: a spawn past it (any value
-/// [`World::set_spawn`] takes, or a stored one) holds nothing there.
+/// Lists the chunks within `SPAWN_CHUNK_RADIUS` of `center` inside the world border: a spawn past
+/// it (any value [`World::set_spawn`] takes, or a stored one) holds nothing there.
 fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
-    (-1..=1)
+    (-SPAWN_CHUNK_RADIUS..=SPAWN_CHUNK_RADIUS)
         .flat_map(move |x| {
-            (-1..=1)
+            (-SPAWN_CHUNK_RADIUS..=SPAWN_CHUNK_RADIUS)
                 .map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
         })
         .filter(|&pos| crate::world::is_inside_border(pos))

@@ -20,101 +20,6 @@ const _: () = assert!(SLOTS as usize == BLOCKS);
 /// The most bytes a 32-bit varint takes.
 const MAX_VARINT32_BYTES: usize = 5;
 
-/// The slot of (x, y, z) in a cube, each taken modulo 16, in Bedrock's x, z, y order.
-pub(crate) fn offset(x: u8, y: u8, z: u8) -> u16 {
-    (u16::from(x & 15) << 8) | (u16::from(z & 15) << 4) | u16::from(y & 15)
-}
-
-/// Indices per 32-bit word at a width; an index never spans two words.
-fn per_word(bits: u8) -> usize {
-    if bits == 0 {
-        usize::from(SLOTS)
-    } else {
-        32 / usize::from(bits)
-    }
-}
-
-/// Entries a palette may hold at a width: what the width indexes, at most one per slot.
-fn capacity(bits: u8) -> usize {
-    (1usize << bits).min(usize::from(SLOTS))
-}
-
-/// The narrowest width whose capacity holds `entries`.
-fn width_for(entries: usize) -> u8 {
-    WIDTHS
-        .into_iter()
-        .find(|&bits| capacity(bits) >= entries)
-        .unwrap_or(16)
-}
-
-/// The word and bit shift of a slot's index at a width. Matching on the width makes each
-/// division one by a constant.
-#[inline]
-fn locate(bits: u8, offset: u16) -> (usize, u32) {
-    #[inline]
-    fn at<const PER: u32, const BITS: u32>(offset: u16) -> (usize, u32) {
-        let o = u32::from(offset);
-        (
-            usize::try_from(o / PER).unwrap_or(usize::MAX),
-            o % PER * BITS,
-        )
-    }
-    match bits {
-        1 => at::<32, 1>(offset),
-        2 => at::<16, 2>(offset),
-        3 => at::<10, 3>(offset),
-        4 => at::<8, 4>(offset),
-        5 => at::<6, 5>(offset),
-        6 => at::<5, 6>(offset),
-        8 => at::<4, 8>(offset),
-        16 => at::<2, 16>(offset),
-        _ => (usize::MAX, 0),
-    }
-}
-
-/// The palette index of a slot (`offset` below [`SLOTS`]) in `words` packed at width `bits`.
-#[inline]
-fn index_in(bits: u8, words: &[u32], offset: u16) -> u16 {
-    if bits == 0 {
-        return 0;
-    }
-    let (word, shift) = locate(bits, offset);
-    let w = words.get(word).copied().unwrap_or(0);
-    let mask = (1u32 << bits) - 1;
-    u16::try_from((w >> shift) & mask).unwrap_or(0)
-}
-
-/// Converts a palette position, at most 4096, to an index.
-fn to_index(i: usize) -> u16 {
-    u16::try_from(i).unwrap_or(u16::MAX)
-}
-
-/// A value of a palette, with what the palette keeps worked out beside each entry
-/// ([`Paletted::derived`]): a reader that needs only that reads it by the slot's index, never
-/// the entry. The light work reads a block's light values (3 bytes) this way instead of its
-/// 24-byte entry and the state table behind it, 2 to 5 times faster per block.
-pub(crate) trait Derive: Copy + Ord {
-    /// What is kept beside each entry; `()` keeps nothing and takes no memory.
-    type Derived: Copy + Eq + fmt::Debug;
-
-    /// What is kept beside `self`.
-    fn derive(self) -> Self::Derived;
-}
-
-/// Biome IDs keep nothing.
-impl Derive for u32 {
-    type Derived = ();
-
-    fn derive(self) {}
-}
-
-/// Imported block IDs keep nothing.
-impl Derive for u16 {
-    type Derived = ();
-
-    fn derive(self) {}
-}
-
 /// A cube of values of type `T`: block entries or biome IDs.
 ///
 /// Invariants: `bits` is a Bedrock width; `words` has [`word_count`] words; every slot's index
@@ -131,11 +36,6 @@ pub(crate) struct Paletted<T: Derive> {
     counts: Vec<u16>,
     lookup: Vec<(T, u16)>,
     dead: usize,
-}
-
-/// What each entry of `palette` keeps.
-fn derive_all<T: Derive>(palette: &[T]) -> Vec<T::Derived> {
-    palette.iter().map(|&v| v.derive()).collect()
 }
 
 impl<T: Derive> Paletted<T> {
@@ -186,16 +86,7 @@ impl<T: Derive> Paletted<T> {
         if palette.is_empty() || palette.len() > capacity(bits) {
             return Err(Error::Malformed("a kept palette size"));
         }
-        let mut out = Self {
-            bits,
-            words: words.to_vec(),
-            palette: palette.to_vec(),
-            derived: derive_all(palette),
-            counts: vec![0; palette.len()],
-            lookup: (0..).zip(palette).map(|(i, &v)| (v, i)).collect(),
-            dead: 0,
-        };
-        out.lookup.sort_unstable();
+        let mut out = Self::with_palette(bits, words.to_vec(), palette.to_vec());
         if out
             .lookup
             .iter()
@@ -232,14 +123,108 @@ impl<T: Derive> Paletted<T> {
             };
             *c += 1;
         }
-        out.dead = out.counts.iter().filter(|&&c| c == 0).count();
+        out.count_dead();
         Ok(out)
+    }
+
+    /// Bits per index: 0, 1, 2, 3, 4, 5, 6, 8 or 16.
+    pub(crate) fn bits(&self) -> u8 {
+        self.bits
+    }
+
+    /// The packed slot indices, as the network and disk forms hold them.
+    pub(crate) fn words(&self) -> &[u32] {
+        &self.words
+    }
+
+    /// The palette. An entry no slot uses stays until a new value takes its place.
+    pub(crate) fn palette(&self) -> &[T] {
+        &self.palette
+    }
+
+    /// The value of a slot (`offset` below [`SLOTS`]).
+    #[inline]
+    pub(crate) fn get(&self, offset: u16) -> T {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every slot's index points into the palette"
+        )]
+        self.palette[usize::from(self.index(offset))]
+    }
+
+    /// What the palette keeps for the value of a slot (`offset` below [`SLOTS`]).
+    #[inline]
+    pub(crate) fn derived(&self, offset: u16) -> T::Derived {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every slot's index points into the palette, which `derived` matches"
+        )]
+        self.derived[usize::from(self.index(offset))]
+    }
+
+    /// Whether every slot holds `value`.
+    pub(crate) fn is_uniform(&self, value: T) -> bool {
+        self.find(value)
+            .is_some_and(|i| self.counts.get(usize::from(i)) == Some(&SLOTS))
+    }
+
+    /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
+    /// entries as varints of at most [`MAX_VARINT32_BYTES`].
+    pub(crate) fn max_encoded_bytes(&self) -> usize {
+        1 + 4 * self.words.len() + MAX_VARINT32_BYTES * (1 + self.palette.len())
+    }
+
+    /// Writes the network form (runtime palette): the header, the words, and the palette as
+    /// varints of `id(entry)`.
+    pub(crate) fn encode(&self, w: &mut Writer, id: impl Fn(T) -> u32) {
+        w.uint8((self.bits << 1) | 1);
+        for &word in &self.words {
+            w.uint32(word);
+        }
+        if self.bits != 0 {
+            w.varint32(i32::try_from(self.palette.len()).unwrap_or(i32::MAX));
+        }
+        for &entry in &self.palette {
+            w.varint32(id(entry).cast_signed());
+        }
     }
 
     /// Compacts the cube as [`Self::from_parts`] does. Generated chunks are compacted, which
     /// gives BDS's palette order (P6).
     pub(crate) fn compact(&mut self) {
         *self = Self::compacted(self.bits, &self.words, &self.palette);
+    }
+
+    /// Sets a slot (`offset` below [`SLOTS`]) and returns its old value.
+    pub(crate) fn set(&mut self, offset: u16, value: T) -> T {
+        let old_index = self.index(offset);
+        let old = self.get(offset);
+        if old == value {
+            return old;
+        }
+        // Release the old entry first: if every slot held a different value, its entry is the
+        // one the new value takes.
+        if let Some(c) = self.counts.get_mut(usize::from(old_index)) {
+            *c -= 1;
+            if *c == 0 {
+                self.dead += 1;
+            }
+        }
+        let index = match self.find(value) {
+            Some(i) => {
+                if self.counts.get(usize::from(i)) == Some(&0) {
+                    self.dead -= 1;
+                }
+                i
+            }
+            None => self.insert(value),
+        };
+        self.write_index(offset, index);
+        if let Some(c) = self.counts.get_mut(usize::from(index)) {
+            *c += 1;
+        }
+        self.shrink();
+        old
     }
 
     /// The cube of `palette` whose slot indices `words` packs at width `bits`, every one pointing
@@ -279,39 +264,33 @@ impl<T: Derive> Paletted<T> {
 
     /// A cube of `palette` (distinct entries) in width `bits` with the slot indices `indices`.
     fn build(palette: Vec<T>, bits: u8, indices: &[u16]) -> Self {
-        let mut out = Self {
-            bits,
-            words: vec![0; word_count(bits)],
-            derived: derive_all(&palette),
-            counts: vec![0; palette.len()],
-            lookup: (0..).zip(&palette).map(|(i, &v)| (v, i)).collect(),
-            palette,
-            dead: 0,
-        };
-        out.lookup.sort_unstable();
+        let mut out = Self::with_palette(bits, vec![0; word_count(bits)], palette);
         for (offset, &index) in (0..SLOTS).zip(indices) {
             out.write_index(offset, index);
             if let Some(c) = out.counts.get_mut(usize::from(index)) {
                 *c += 1;
             }
         }
-        out.dead = out.counts.iter().filter(|&&c| c == 0).count();
+        out.count_dead();
         out
     }
 
-    /// Bits per index: 0, 1, 2, 3, 4, 5, 6, 8 or 16.
-    pub(crate) fn bits(&self) -> u8 {
-        self.bits
-    }
-
-    /// The packed slot indices, as the network and disk forms hold them.
-    pub(crate) fn words(&self) -> &[u32] {
-        &self.words
-    }
-
-    /// The palette. An entry no slot uses stays until a new value takes its place.
-    pub(crate) fn palette(&self) -> &[T] {
-        &self.palette
+    /// A cube of `palette` (distinct entries) whose slots are not counted yet: `words` as given,
+    /// the kept values and the lookup worked out, every count 0.
+    fn with_palette(bits: u8, words: Vec<u32>, palette: Vec<T>) -> Self {
+        let derived = derive_all(&palette);
+        let counts = vec![0; palette.len()];
+        let mut lookup: Vec<(T, u16)> = (0..).zip(&palette).map(|(i, &v)| (v, i)).collect();
+        lookup.sort_unstable();
+        Self {
+            bits,
+            words,
+            palette,
+            derived,
+            counts,
+            lookup,
+            dead: 0,
+        }
     }
 
     /// The palette index of a slot (`offset` below [`SLOTS`]).
@@ -320,6 +299,18 @@ impl<T: Derive> Paletted<T> {
         index_in(self.bits, &self.words, offset)
     }
 
+    /// The palette index of `value`, if the palette has it.
+    fn find(&self, value: T) -> Option<u16> {
+        let at = self.lookup.binary_search_by(|(v, _)| v.cmp(&value)).ok()?;
+        self.lookup.get(at).map(|&(_, i)| i)
+    }
+
+    /// Counts the entries no slot uses.
+    fn count_dead(&mut self) {
+        self.dead = self.counts.iter().filter(|&&c| c == 0).count();
+    }
+
+    /// Writes the palette index of a slot (`offset` below [`SLOTS`]); width 0 holds none.
     #[inline]
     fn write_index(&mut self, offset: u16, index: u16) {
         if self.bits == 0 {
@@ -330,70 +321,6 @@ impl<T: Derive> Paletted<T> {
         if let Some(w) = self.words.get_mut(word) {
             *w = (*w & !(mask << shift)) | (u32::from(index) << shift);
         }
-    }
-
-    /// The value of a slot (`offset` below [`SLOTS`]).
-    #[inline]
-    pub(crate) fn get(&self, offset: u16) -> T {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: every slot's index points into the palette"
-        )]
-        self.palette[usize::from(self.index(offset))]
-    }
-
-    /// What the palette keeps for the value of a slot (`offset` below [`SLOTS`]).
-    #[inline]
-    pub(crate) fn derived(&self, offset: u16) -> T::Derived {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: every slot's index points into the palette, which `derived` matches"
-        )]
-        self.derived[usize::from(self.index(offset))]
-    }
-
-    /// Whether every slot holds `value`.
-    pub(crate) fn is_uniform(&self, value: T) -> bool {
-        self.find(value)
-            .is_some_and(|i| self.counts.get(usize::from(i)) == Some(&SLOTS))
-    }
-
-    /// The palette index of `value`, if the palette has it.
-    fn find(&self, value: T) -> Option<u16> {
-        let at = self.lookup.binary_search_by(|(v, _)| v.cmp(&value)).ok()?;
-        self.lookup.get(at).map(|&(_, i)| i)
-    }
-
-    /// Sets a slot (`offset` below [`SLOTS`]) and returns its old value.
-    pub(crate) fn set(&mut self, offset: u16, value: T) -> T {
-        let old_index = self.index(offset);
-        let old = self.get(offset);
-        if old == value {
-            return old;
-        }
-        // Release the old entry first: if every slot held a different value, its entry is the
-        // one the new value takes.
-        if let Some(c) = self.counts.get_mut(usize::from(old_index)) {
-            *c -= 1;
-            if *c == 0 {
-                self.dead += 1;
-            }
-        }
-        let index = match self.find(value) {
-            Some(i) => {
-                if self.counts.get(usize::from(i)) == Some(&0) {
-                    self.dead -= 1;
-                }
-                i
-            }
-            None => self.insert(value),
-        };
-        self.write_index(offset, index);
-        if let Some(c) = self.counts.get_mut(usize::from(index)) {
-            *c += 1;
-        }
-        self.shrink();
-        old
     }
 
     /// Adds `value` to the palette with count 0 and returns its index.
@@ -416,9 +343,15 @@ impl<T: Derive> Paletted<T> {
     /// Puts `value` in the place of an entry no slot uses. Only a full palette does this, so the
     /// scan runs once per new value of a full palette.
     fn reuse(&mut self, value: T) -> u16 {
-        let Some(slot) = self.counts.iter().position(|&c| c == 0) else {
-            return 0;
-        };
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: insert calls it only while an entry is unused"
+        )]
+        let slot = self
+            .counts
+            .iter()
+            .position(|&c| c == 0)
+            .expect("a palette with dead entries has an unused one");
         self.dead -= 1;
         let index = to_index(slot);
         if let Some(kept) = self.derived.get_mut(slot) {
@@ -492,27 +425,6 @@ impl<T: Derive> Paletted<T> {
             .collect();
         *self = Self::build(palette, bits, &indices);
     }
-
-    /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
-    /// entries as varints of at most [`MAX_VARINT32_BYTES`].
-    pub(crate) fn max_encoded_bytes(&self) -> usize {
-        1 + 4 * self.words.len() + MAX_VARINT32_BYTES * (1 + self.palette.len())
-    }
-
-    /// Writes the network form (runtime palette): the header, the words, and the palette as
-    /// varints of `id(entry)`.
-    pub(crate) fn encode(&self, w: &mut Writer, id: impl Fn(T) -> u32) {
-        w.uint8((self.bits << 1) | 1);
-        for &word in &self.words {
-            w.uint32(word);
-        }
-        if self.bits != 0 {
-            w.varint32(i32::try_from(self.palette.len()).unwrap_or(i32::MAX));
-        }
-        for &entry in &self.palette {
-            w.varint32(id(entry).cast_signed());
-        }
-    }
 }
 
 /// A cube's checkpoint form: its exact parts ([`Paletted::from_raw`]); the kept values, the
@@ -542,6 +454,110 @@ impl<T: Derive + crate::tick::checkpoint::Codec> crate::tick::checkpoint::Codec 
         let palette: Vec<T> = Codec::decode(r)?;
         Self::from_raw(bits, &words, &palette).map_err(|_| Error::Format("palette"))
     }
+}
+
+/// A value of a palette, with what the palette keeps worked out beside each entry
+/// ([`Paletted::derived`]): a reader that needs only that reads it by the slot's index, never
+/// the entry. The light work reads a block's light values (3 bytes) this way instead of its
+/// 24-byte entry and the state table behind it, 2 to 5 times faster per block.
+pub(crate) trait Derive: Copy + Ord {
+    /// What is kept beside each entry; `()` keeps nothing and takes no memory.
+    type Derived: Copy + Eq + fmt::Debug;
+
+    /// What is kept beside `self`.
+    fn derive(self) -> Self::Derived;
+}
+
+/// Biome IDs keep nothing.
+impl Derive for u32 {
+    type Derived = ();
+
+    fn derive(self) {}
+}
+
+/// Imported block IDs keep nothing.
+impl Derive for u16 {
+    type Derived = ();
+
+    fn derive(self) {}
+}
+
+/// The slot of (x, y, z) in a cube, each taken modulo 16, in Bedrock's x, z, y order.
+pub(crate) fn offset(x: u8, y: u8, z: u8) -> u16 {
+    (u16::from(x & 15) << 8) | (u16::from(z & 15) << 4) | u16::from(y & 15)
+}
+
+/// The palette index of a slot (`offset` below [`SLOTS`]) in `words` packed at width `bits`.
+#[inline]
+fn index_in(bits: u8, words: &[u32], offset: u16) -> u16 {
+    if bits == 0 {
+        return 0;
+    }
+    let (word, shift) = locate(bits, offset);
+    let w = words.get(word).copied().unwrap_or(0);
+    let mask = (1u32 << bits) - 1;
+    u16::try_from((w >> shift) & mask).unwrap_or(0)
+}
+
+/// The word and bit shift of a slot's index at a width. Matching on the width makes each
+/// division one by a constant.
+#[inline]
+fn locate(bits: u8, offset: u16) -> (usize, u32) {
+    #[inline]
+    fn at<const PER: u32, const BITS: u32>(offset: u16) -> (usize, u32) {
+        let o = u32::from(offset);
+        (
+            usize::try_from(o / PER).unwrap_or(usize::MAX),
+            o % PER * BITS,
+        )
+    }
+    match bits {
+        1 => at::<32, 1>(offset),
+        2 => at::<16, 2>(offset),
+        3 => at::<10, 3>(offset),
+        4 => at::<8, 4>(offset),
+        5 => at::<6, 5>(offset),
+        6 => at::<5, 6>(offset),
+        8 => at::<4, 8>(offset),
+        16 => at::<2, 16>(offset),
+        _ => (usize::MAX, 0),
+    }
+}
+
+/// Indices per 32-bit word at a width; an index never spans two words.
+fn per_word(bits: u8) -> usize {
+    if bits == 0 {
+        usize::from(SLOTS)
+    } else {
+        32 / usize::from(bits)
+    }
+}
+
+/// The narrowest width whose capacity holds `entries`.
+fn width_for(entries: usize) -> u8 {
+    WIDTHS
+        .into_iter()
+        .find(|&bits| capacity(bits) >= entries)
+        .unwrap_or(16)
+}
+
+/// Entries a palette may hold at a width: what the width indexes, at most one per slot.
+fn capacity(bits: u8) -> usize {
+    (1usize << bits).min(usize::from(SLOTS))
+}
+
+/// Converts a palette position, at most 4096, to an index.
+fn to_index(i: usize) -> u16 {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a palette holds at most 4096 entries"
+    )]
+    u16::try_from(i).expect("a palette position fits an index")
+}
+
+/// What each entry of `palette` keeps.
+fn derive_all<T: Derive>(palette: &[T]) -> Vec<T::Derived> {
+    palette.iter().map(|&v| v.derive()).collect()
 }
 
 #[cfg(test)]
@@ -600,7 +616,7 @@ pub(crate) mod tests {
         let mut widths = std::collections::BTreeSet::new();
         for round in 0..40_000usize {
             // Phases of many distinct values (widening) and of few (narrowing).
-            let spread = if (round / 5_000) % 2 == 0 { 3000 } else { 3 };
+            let spread = if (round / 5000) % 2 == 0 { 3000 } else { 3 };
             let o = rng.below(model.len());
             let v = u32::try_from(rng.below(spread)).unwrap();
             let offset = u16::try_from(o).unwrap();
@@ -637,10 +653,10 @@ pub(crate) mod tests {
         for round in 0..30_000usize {
             // Many distinct values fill the palette (widening, then reusing dead entries at
             // 4096); few values narrow it again.
-            let spread = if (round / 6_000) % 2 == 0 { 6000 } else { 3 };
+            let spread = if (round / 6000) % 2 == 0 { 6000 } else { 3 };
             let o = u16::try_from(rng.below(usize::from(SLOTS))).unwrap();
             p.set(o, Kept(u32::try_from(rng.below(spread)).unwrap()));
-            if round % 1_499 == 0 {
+            if round % 1499 == 0 {
                 check(&p);
             }
         }

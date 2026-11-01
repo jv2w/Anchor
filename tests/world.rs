@@ -32,6 +32,15 @@ fn errors_are_lowercase_and_shareable() {
         Error::NotLoaded,
         Error::Quarantined,
         Error::Malformed("a word count does not match its width"),
+        Error::WorldNotLoaded,
+        Error::WorldExists,
+        Error::NotGenerated,
+        Error::DefaultWorld,
+        Error::WorldLoaded,
+        Error::UnknownGenerator,
+        Error::InvalidName,
+        Error::InvalidSettings,
+        Error::Full,
     ] {
         shareable(&e);
         let text = e.to_string();

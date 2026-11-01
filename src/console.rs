@@ -2,10 +2,10 @@
 //! written to standard error ([`log`]).
 //!
 //! Reading standard input blocks and cannot be interrupted, so it runs on a thread of its own,
-//! outside the tick and the runtime's pools. Each line, at most
-//! [`MAX_LINE_BYTES`] bytes, goes to the tick without its
-//! terminal escape sequences and control characters as a console input, which the input log records and the tick runs as the console sender. The
-//! thread ends when standard input ends or fails, or at the first line after the tick stopped.
+//! outside the tick and the runtime's pools. Each line, at most [`MAX_LINE_BYTES`] bytes, goes to
+//! the tick without its terminal escape sequences and control characters as a console input,
+//! which the input log records and the tick runs as the console sender. The thread ends when
+//! standard input ends or fails, or at the first line after the tick stopped.
 //!
 //! A read of standard input cannot be stopped, so the thread is detached: when
 //! [`Server::run`](crate::Server::run) returns, a thread still waiting for a line lives on until
@@ -14,15 +14,15 @@
 //! second thread on the same input, and the first line typed after it may go to the old thread,
 //! which drops it and ends; the lines after reach the new server.
 
+pub(crate) mod log;
+pub(crate) mod text;
+
 use std::io::{self, BufRead};
 
 use tracing::{debug, info, warn};
 
 use crate::command::parse::MAX_LINE_BYTES;
 use crate::tick::queue::{self, InputKind, InputSender, SessionId, SessionInputs};
-
-pub(crate) mod log;
-pub(crate) mod text;
 
 /// Starts the console thread reading standard input into the tick's input queue.
 #[expect(
@@ -40,7 +40,7 @@ pub(crate) fn start(inputs: &InputSender) -> io::Result<()> {
 /// Queues every line of `input` as a console input until the input ends or the tick stops. A
 /// line longer than the bound, or not UTF-8, is skipped with a warning; a full queue drops the
 /// line (the tick is far behind) rather than waiting.
-pub(crate) fn read(mut input: impl BufRead, mut session: SessionInputs) {
+fn read(mut input: impl BufRead, mut session: SessionInputs) {
     let mut line = Vec::with_capacity(MAX_LINE_BYTES + 2);
     loop {
         line.clear();
@@ -140,6 +140,7 @@ fn trim_line_end(line: &[u8]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::tick::queue::input_queue;
 
     fn lines(input: &[u8]) -> Vec<String> {

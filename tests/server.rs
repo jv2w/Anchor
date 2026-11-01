@@ -256,16 +256,11 @@ fn thread_counts_over_the_budget_are_rejected_naming_the_keys() {
     config.developer.network_threads = Threads::Count(NonZeroU16::MAX);
     config.developer.cpu_threads = Threads::Count(NonZeroU16::MAX);
     let err = Server::builder().config(config).build().unwrap_err();
-    assert!(matches!(
-        err,
-        Error::Threads {
-            network: 65_535,
-            cpu: 65_535,
-            ..
-        }
-    ));
-    let message = err.to_string();
-    assert!(message.contains("network-threads") && message.contains("cpu-threads"));
+    let Error::Config(anchor::config::Error::Invalid { key, expected }) = &err else {
+        panic!("{err:?}");
+    };
+    assert_eq!(key, "developer.network-threads");
+    assert!(expected.contains("cpu-threads"), "{expected}");
 }
 
 #[test]

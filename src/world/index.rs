@@ -21,6 +21,7 @@ pub(crate) struct ChunkIndex {
 }
 
 impl ChunkIndex {
+    /// An index with no chunks.
     pub(crate) fn new() -> Self {
         Self {
             slots: empty(MIN_SLOTS),
@@ -28,47 +29,23 @@ impl ChunkIndex {
         }
     }
 
-    /// The home slot of a key: Fibonacci hashing of the coordinates (fixed, deterministic).
-    #[inline]
-    fn home(&self, pos: ChunkPos) -> usize {
-        let key = (u64::from(pos.x.cast_unsigned()) << 32) | u64::from(pos.z.cast_unsigned());
-        let bits = self.slots.len().trailing_zeros();
-        let hash = key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> (64 - bits);
-        usize::try_from(hash).unwrap_or(0)
-    }
-
-    #[inline]
-    fn mask(&self) -> usize {
-        self.slots.len() - 1
-    }
-
-    /// The slot holding `pos`.
-    #[inline]
-    fn find(&self, pos: ChunkPos) -> Option<usize> {
-        let mut i = self.home(pos);
-        loop {
-            match self.slots.get(i)? {
-                None => return None,
-                Some((k, _)) if *k == pos => return Some(i),
-                Some(_) => i = (i + 1) & self.mask(),
-            }
-        }
-    }
-
+    /// The chunk at `pos`.
     #[inline]
     pub(crate) fn get(&self, pos: ChunkPos) -> Option<&Chunk> {
         let i = self.find(pos)?;
         self.slots.get(i)?.as_ref().map(|(_, c)| c.as_ref())
     }
 
-    pub(crate) fn get_mut(&mut self, pos: ChunkPos) -> Option<&mut Chunk> {
-        let i = self.find(pos)?;
-        self.slots.get_mut(i)?.as_mut().map(|(_, c)| c.as_mut())
-    }
-
+    /// Whether a chunk is at `pos`.
     #[inline]
     pub(crate) fn contains(&self, pos: ChunkPos) -> bool {
         self.find(pos).is_some()
+    }
+
+    /// The chunk at `pos`, to change it.
+    pub(crate) fn get_mut(&mut self, pos: ChunkPos) -> Option<&mut Chunk> {
+        let i = self.find(pos)?;
+        self.slots.get_mut(i)?.as_mut().map(|(_, c)| c.as_mut())
     }
 
     /// Inserts or replaces the chunk at `pos`; returns the replaced one.
@@ -84,18 +61,6 @@ impl ChunkIndex {
         self.place(pos, Box::new(chunk));
         self.len += 1;
         None
-    }
-
-    /// Puts a key that is not in the table into the first empty slot from its home.
-    fn place(&mut self, pos: ChunkPos, chunk: Box<Chunk>) {
-        let mut i = self.home(pos);
-        let mask = self.mask();
-        while let Some(Some(_)) = self.slots.get(i) {
-            i = (i + 1) & mask;
-        }
-        if let Some(slot) = self.slots.get_mut(i) {
-            *slot = Some((pos, chunk));
-        }
     }
 
     /// Removes the chunk at `pos`. Later keys of its run move back so no probe skips them, and
@@ -124,6 +89,54 @@ impl ChunkIndex {
         Some(*chunk)
     }
 
+    /// The home slot of a key: Fibonacci hashing of the coordinates (fixed, deterministic).
+    #[inline]
+    fn home(&self, pos: ChunkPos) -> usize {
+        let key = (u64::from(pos.x.cast_unsigned()) << 32) | u64::from(pos.z.cast_unsigned());
+        let bits = self.slots.len().trailing_zeros();
+        let hash = key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> (64 - bits);
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the hash is shifted down to the slot count's bits, which fit usize"
+        )]
+        usize::try_from(hash).expect("a slot's home fits usize")
+    }
+
+    /// The bit mask that wraps a probe around the slots.
+    #[inline]
+    fn mask(&self) -> usize {
+        self.slots.len() - 1
+    }
+
+    /// The slot holding `pos`.
+    #[inline]
+    fn find(&self, pos: ChunkPos) -> Option<usize> {
+        let mut i = self.home(pos);
+        loop {
+            match self.slots.get(i)? {
+                None => return None,
+                Some((k, _)) if *k == pos => return Some(i),
+                Some(_) => i = (i + 1) & self.mask(),
+            }
+        }
+    }
+
+    /// Puts a key that is not in the table into the first empty slot from its home.
+    fn place(&mut self, pos: ChunkPos, chunk: Box<Chunk>) {
+        let mut i = self.home(pos);
+        let mask = self.mask();
+        while let Some(Some(_)) = self.slots.get(i) {
+            i = (i + 1) & mask;
+        }
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the probe ends at an empty slot inside the table"
+        )]
+        let slot = &mut self.slots[i];
+        *slot = Some((pos, chunk));
+    }
+
+    /// Rebuilds the table with `slots` slots, placing every chunk again.
     fn resize(&mut self, slots: usize) {
         let old = std::mem::replace(&mut self.slots, empty(slots));
         for (pos, chunk) in old.into_iter().flatten() {
@@ -132,15 +145,17 @@ impl ChunkIndex {
     }
 }
 
+/// A table of `slots` empty slots.
 fn empty(slots: usize) -> Vec<Option<(ChunkPos, Box<Chunk>)>> {
     std::iter::repeat_with(|| None).take(slots).collect()
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::collections::BTreeMap;
 
-    use super::*;
     use crate::block::State;
     use crate::protocol::Rng;
 

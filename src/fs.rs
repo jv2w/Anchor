@@ -44,8 +44,8 @@ pub(crate) fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
 
 /// Writes `bytes` to a new `<path>.tmp` in the same folder, flushes it to disk, renames it over
 /// `path`, and flushes the folder ([`sync_parent`]). The folder must exist: a settings path in a
-/// missing folder is the caller's error, and the data folder is made when the server file opens,
-/// before anything else is written there.
+/// missing folder is the caller's error, and the data folder is made when the first data file
+/// opens, before anything else is written there.
 #[expect(
     clippy::disallowed_types,
     clippy::disallowed_methods,

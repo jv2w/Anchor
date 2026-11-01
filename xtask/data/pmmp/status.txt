@@ -1304,6 +1304,8 @@ pocketmine\crafting\CraftingManager::getFurnaceRecipeManager merged FurnaceRecip
 pocketmine\crafting\FurnaceRecipeManager merged FurnaceRecipeManager::match
 pocketmine\crafting\*Manager::__construct skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe`
 pocketmine\crafting\CraftingManager::sort skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe`
+pocketmine\crafting\CraftingManager::getCraftingRecipeIndex skipped recipe network IDs are internal numbers; the public lookup is Context::crafting_result
+pocketmine\crafting\CraftingManager::getCraftingRecipeFromIndex skipped recipe network IDs are internal numbers; the public lookup is Context::crafting_result
 pocketmine\crafting\CraftingRecipe merged CraftingManager::matchRecipe
 pocketmine\crafting\*Recipe::getResultsFor merged CraftingManager::matchRecipe
 pocketmine\crafting\*Recipe::matchesCraftingGrid merged CraftingManager::matchRecipe

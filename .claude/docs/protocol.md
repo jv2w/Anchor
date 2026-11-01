@@ -56,7 +56,7 @@ Mojang schemas ──(cargo xtask dump)──> xtask/data/reference/protocol_lim
 - Mapping: `Optional` → `Option`, slice → `Vec`, union interface → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT compound → `BTreeMap<String, nbt::Value>` (keys written in byte order, a repeated key keeps its last value, as gophertunnel's Go map does), EntityMetadata → `BTreeMap<u32, _>` (gophertunnel also writes its keys sorted). The types written by hand and the external types are `HAND_TYPES` and `EXTERNAL_TYPES` in `xtask/src/gen/model.rs`.
 - Strings are `String`; gophertunnel does not check UTF-8.
 - Fields of which the server sends one value to many players (`PlayerListEntry.skin`, `PlayerSkin.skin`: `SHARED_FIELDS` in `model.rs`) are `Arc<T>`, so the tick shares a skin of up to 4 MiB instead of copying it into every packet. Decoding takes that allocation from the budget too.
-- Because an NBT list keeps its element type even when empty, every list writes back to the same bytes; gophertunnel keeps the type only for empty `TAG_Int` and `TAG_Long` lists and writes other empty lists as `TAG_End`. Because NBT nesting lives on a heap stack, the thread stack stays flat at any depth.
+- Because an NBT list keeps its element type even when empty, every list writes back to the same bytes; gophertunnel keeps the type only for empty `TAG_Int` and `TAG_Long` lists and writes other empty lists as `TAG_End`. Reading and writing keep NBT nesting on a heap stack, so the thread stack stays flat at any depth; dropping, cloning and comparing a value recurse, and the decoder bounds the depth at 512.
 - Why `anchor::protocol` is public: packet hooks handle packet values, and the xtask tests call this layer. Storage uses NBT too.
 
 ### Hand-written codecs

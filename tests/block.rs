@@ -59,58 +59,6 @@ impl Owned {
 /// A block name and its properties sorted by name.
 type Key = (String, Vec<(String, Owned)>);
 
-fn key_of(state: State) -> Key {
-    let properties = state
-        .properties()
-        .map(|p| (p.name().to_owned(), Owned::from_value(p.value())))
-        .collect();
-    (state.name().to_owned(), properties)
-}
-
-/// Reads the properties of a JSON `states` object, sorted by name.
-fn properties_of(states: &Json) -> Vec<(String, Owned)> {
-    let mut properties: Vec<_> = states
-        .as_object()
-        .expect("states is an object")
-        .iter()
-        .map(|(k, v)| (k.clone(), Owned::from_json(v)))
-        .collect();
-    properties.sort();
-    properties
-}
-
-fn borrowed(properties: &[(String, Owned)]) -> Vec<(&str, PropertyValue<'_>)> {
-    properties
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_value()))
-        .collect()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn read_json(relative: &str) -> Json {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
-    let bytes = std::fs::read(&path).expect("read a committed data file");
-    serde_json::from_slice(&bytes).expect("data file is JSON")
-}
-
-/// The reference block list: (name, properties, network ID).
-fn reference() -> Vec<(Key, u32)> {
-    read_json("xtask/data/reference/blocks.json")
-        .as_array()
-        .expect("reference list is an array")
-        .iter()
-        .map(|b| {
-            let name = b["name"].as_str().expect("name").to_owned();
-            let id = u32::try_from(b["network_id"].as_u64().expect("network_id"))
-                .expect("network_id in range");
-            ((name, properties_of(&b["states"])), id)
-        })
-        .collect()
-}
-
 /// splitmix64: a small fixed-seed generator for reproducible inputs.
 struct Rng(u64);
 
@@ -138,6 +86,51 @@ impl Rng {
     }
 }
 
+fn key_of(state: State) -> Key {
+    let properties = state
+        .properties()
+        .map(|p| (p.name().to_owned(), Owned::from_value(p.value())))
+        .collect();
+    (state.name().to_owned(), properties)
+}
+
+/// Reads the properties of a JSON `states` object, sorted by name.
+fn properties_of(states: &Json) -> Vec<(String, Owned)> {
+    let mut properties: Vec<_> = states
+        .as_object()
+        .expect("states is an object")
+        .iter()
+        .map(|(k, v)| (k.clone(), Owned::from_json(v)))
+        .collect();
+    properties.sort();
+    properties
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn read_json(relative: &str) -> Json {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+    let bytes = std::fs::read(&path).expect("read a committed data file");
+    serde_json::from_slice(&bytes).expect("data file is JSON")
+}
+
+/// The reference block list: (name, properties, network ID).
+fn reference() -> Vec<(Key, u32)> {
+    read_json("xtask/data/reference/blocks.json")
+        .as_array()
+        .expect("reference list is an array")
+        .iter()
+        .map(|b| {
+            let name = b["name"].as_str().expect("name").to_owned();
+            let id = u32::try_from(b["network_id"].as_u64().expect("network_id"))
+                .expect("network_id in range");
+            ((name, properties_of(&b["states"])), id)
+        })
+        .collect()
+}
+
 // pmmp: BlockStateDictionary::getStates
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
@@ -151,6 +144,13 @@ fn every_state_is_a_reference_state_with_its_network_id() {
             "{state:?} is not in the reference list with its network ID"
         );
     }
+}
+
+fn borrowed(properties: &[(String, Owned)]) -> Vec<(&str, PropertyValue<'_>)> {
+    properties
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_value()))
+        .collect()
 }
 
 // pmmp: BlockStateDictionary::generateDataFromStateId, BlockStateDictionary::lookupStateIdFromData
@@ -168,66 +168,6 @@ fn every_state_is_found_by_its_network_id_and_properties() {
             Some(state),
             "shuffled {input:?}"
         );
-    }
-}
-
-/// Every state of the PMMP dump has PMMP's values: light, random ticks, the default state of its
-/// type, break info, fire, flags, friction, support and its number of collision boxes.
-// pmmp: Block, VanillaBlocks, Block::getTypeId, Block::getLightLevel, Block::getLightFilter,
-// pmmp: Block::blocksDirectSkyLight, Block::ticksRandomly, Block::getBreakInfo,
-// pmmp: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,
-// pmmp: BlockBreakInfo::getToolType, BlockBreakInfo::getToolHarvestLevel,
-// pmmp: BlockBreakInfo::isExplosionHarvestable, Block::getFlammability,
-// pmmp: Block::getFlameEncouragement, Block::burnsForever, Block::isSolid, Block::isTransparent,
-// pmmp: Block::canBeReplaced, Block::canBeFlowedInto, Block::canClimb, Block::hasEntityCollision,
-// pmmp: Block::isAffectedBySilkTouch, Block::getModelPositionOffset, Block::getFrictionFactor,
-// pmmp: Block::getSupportType, Block::getCollisionBoxes
-#[test]
-fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
-    // The block schemas that add properties after the dump's data version.
-    let schemas = [
-        read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json"),
-        read_json("xtask/data/upgrade/blocks/0361_1.26.50_to_1.26.60.json"),
-    ];
-    let dump = read_json("xtask/data/pmmp/blocks.json");
-    let dump = dump.as_array().expect("dump is an array");
-    assert_eq!(dump.len(), 11_420);
-    for block in dump {
-        let name = block["bedrock"]["name"].as_str().expect("name");
-        let mut properties = properties_of(&block["bedrock"]["states"]);
-        for schema in &schemas {
-            if let Some(defaults) = schema["addedProperties"].get(name) {
-                properties.extend(properties_of(defaults));
-            }
-        }
-        properties.sort();
-        let state = State::find(name, &borrowed(&properties))
-            .unwrap_or_else(|| panic!("{name} {properties:?} has no state"));
-        let byte = |field: &str| {
-            u8::try_from(block[field].as_u64().expect("number")).expect("byte in range")
-        };
-        assert_eq!(state.light_emission(), byte("light_emission"), "{state:?}");
-        assert_eq!(state.light_filter(), byte("light_filter"), "{state:?}");
-        assert_eq!(
-            Some(state.blocks_direct_sky_light()),
-            block["blocks_direct_sky_light"].as_bool(),
-            "{state:?}"
-        );
-        assert_eq!(
-            Some(state.ticks_randomly()),
-            block["ticks_randomly"].as_bool(),
-            "{state:?}"
-        );
-        // Where PMMP states share a Bedrock state, the state takes one PMMP type's values (the
-        // block module documentation); the rest are checked on the state's own type.
-        if state.kind().name() != block["type"] {
-            continue;
-        }
-        if block["default"].as_bool() == Some(true) {
-            assert_eq!(state.kind().default_state(), state, "{state:?}");
-        }
-        check_break_and_fire(state, block);
-        check_physics(state, block);
     }
 }
 
@@ -314,6 +254,66 @@ fn check_physics(state: State, block: &Json) {
     // stays (BDS, P6).
     let boxes = block["boxes"].as_array().expect("boxes").len();
     assert_eq!(state.collision_boxes().len(), boxes, "{state:?}");
+}
+
+// pmmp: Block, VanillaBlocks, Block::getTypeId, Block::getLightLevel, Block::getLightFilter,
+// pmmp: Block::blocksDirectSkyLight, Block::ticksRandomly, Block::getBreakInfo,
+// pmmp: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,
+// pmmp: BlockBreakInfo::getToolType, BlockBreakInfo::getToolHarvestLevel,
+// pmmp: BlockBreakInfo::isExplosionHarvestable, Block::getFlammability,
+// pmmp: Block::getFlameEncouragement, Block::burnsForever, Block::isSolid, Block::isTransparent,
+// pmmp: Block::canBeReplaced, Block::canBeFlowedInto, Block::canClimb, Block::hasEntityCollision,
+// pmmp: Block::isAffectedBySilkTouch, Block::getModelPositionOffset, Block::getFrictionFactor,
+// pmmp: Block::getSupportType, Block::getCollisionBoxes
+/// Every state of the PMMP dump has PMMP's values: light, random ticks, the default state of its
+/// type, break info, fire, flags, friction, support and its number of collision boxes.
+#[test]
+fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
+    // The block schemas that add properties after the dump's data version.
+    let schemas = [
+        read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json"),
+        read_json("xtask/data/upgrade/blocks/0361_1.26.50_to_1.26.60.json"),
+    ];
+    let dump = read_json("xtask/data/pmmp/blocks.json");
+    let dump = dump.as_array().expect("dump is an array");
+    assert_eq!(dump.len(), 11_420);
+    for block in dump {
+        let name = block["bedrock"]["name"].as_str().expect("name");
+        let mut properties = properties_of(&block["bedrock"]["states"]);
+        for schema in &schemas {
+            if let Some(defaults) = schema["addedProperties"].get(name) {
+                properties.extend(properties_of(defaults));
+            }
+        }
+        properties.sort();
+        let state = State::find(name, &borrowed(&properties))
+            .unwrap_or_else(|| panic!("{name} {properties:?} has no state"));
+        let byte = |field: &str| {
+            u8::try_from(block[field].as_u64().expect("number")).expect("byte in range")
+        };
+        assert_eq!(state.light_emission(), byte("light_emission"), "{state:?}");
+        assert_eq!(state.light_filter(), byte("light_filter"), "{state:?}");
+        assert_eq!(
+            Some(state.blocks_direct_sky_light()),
+            block["blocks_direct_sky_light"].as_bool(),
+            "{state:?}"
+        );
+        assert_eq!(
+            Some(state.ticks_randomly()),
+            block["ticks_randomly"].as_bool(),
+            "{state:?}"
+        );
+        // Where PMMP states share a Bedrock state, the state takes one PMMP type's values (the
+        // block module documentation); the rest are checked on the state's own type.
+        if state.kind().name() != block["type"] {
+            continue;
+        }
+        if block["default"].as_bool() == Some(true) {
+            assert_eq!(state.kind().default_state(), state, "{state:?}");
+        }
+        check_break_and_fire(state, block);
+        check_physics(state, block);
+    }
 }
 
 #[test]

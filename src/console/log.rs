@@ -7,7 +7,8 @@
 //! reads `2026-10-05 14:03:12.345Z INFO  player joined (session=3 name=Steve)`: the wall-clock
 //! time in UTC, the level, the message and the event's fields. Control characters are escaped and
 //! Minecraft format codes (`§` and the character after it) are left out, so a name or a chat line
-//! cannot forge lines or steer the terminal. The text past 4 KiB is cut, with a marker.
+//! cannot forge lines or steer the terminal. The text past 4 KiB is cut, with a marker. A field
+//! recorded as an error value (`error = &e as &dyn Error`) shows the error and each of its causes.
 //!
 //! The thread that raises an event only formats its line and queues it: one log thread of its
 //! own writes the lines, so a console that stops taking writes (a selection in a Windows console,
@@ -35,6 +36,7 @@ use tracing::{Dispatch, Event, Level, Metadata, Subscriber};
 
 use crate::clock;
 use crate::config::LogLevel;
+use crate::error::write_chain;
 
 /// The lines that may wait for the log thread: with [`LINE_BYTES`], about 16 MiB at most.
 const QUEUE_LINES: usize = 4096;
@@ -47,23 +49,67 @@ const CUT: &str = "…(cut)";
 /// console that takes no writes for this long loses them if the program then exits.
 const END_WAIT: Duration = Duration::from_secs(5);
 
-/// The console log's subscriber: events (and `enabled!` hints) up to `max`, spans never.
-#[derive(Debug)]
-struct Logger {
-    max: Level,
-    /// The log thread's queue. Weak, so the subscriber's clones that outlive the run (a console
-    /// thread still waiting for input) do not keep the log thread waiting for lines.
-    lines: mpsc::WeakSender<Item>,
-    dropped: Arc<Dropped>,
+thread_local! {
+    /// The console log of a pool thread: set by the pool's thread-start hook, dropped with the
+    /// thread's locals when it ends.
+    static ATTACHED: Cell<Option<DefaultGuard>> = const { Cell::new(None) };
 }
 
-/// What the log thread's queue carries.
+/// Anchor's console log: its subscriber and the thread that writes its lines. Dropping it lets
+/// the thread write the lines already queued, then joins it, or leaves it after [`END_WAIT`].
 #[derive(Debug)]
-enum Item {
-    /// A line to write, with its line end.
-    Line(String),
-    /// Answered once every item before it has been written ([`Drained::wait`]).
-    Drained(oneshot::Sender<()>),
+pub(crate) struct Log {
+    dispatch: Dispatch,
+    /// The one strong sender of the queue; dropping it ends the log thread once the queue is
+    /// empty.
+    lines: Option<mpsc::Sender<Item>>,
+    drained: Drained,
+    thread: Option<JoinHandle<()>>,
+    /// Gets one message when the log thread has written its last line.
+    ended: Receiver<()>,
+}
+
+impl Log {
+    /// Makes the log the calling thread's default until the returned guard drops.
+    pub(crate) fn install(self) -> Installed {
+        Installed {
+            _default: dispatcher::set_default(&self.dispatch),
+            log: self,
+        }
+    }
+}
+
+impl Drop for Log {
+    fn drop(&mut self) {
+        drop(self.lines.take());
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        // A thread still writing after `END_WAIT` holds the queue's last lines, at most
+        // `QUEUE_LINES`: it ends once the console takes them, or with the process. Dropping the
+        // handle leaves it to that. A thread that panicked dropped its sender: nothing to wait for.
+        if self.ended.recv_timeout(END_WAIT).is_ok() {
+            // The thread only writes; a panic there leaves nothing to clean up or report.
+            match thread.join() {
+                Ok(()) | Err(_) => {}
+            }
+        }
+    }
+}
+
+/// The console log as the calling thread's default ([`Log::install`]). Dropping it removes the
+/// default, then ends the log.
+#[derive(Debug)]
+pub(crate) struct Installed {
+    _default: DefaultGuard,
+    log: Log,
+}
+
+impl Installed {
+    /// Waits for the log's queue to be written ([`Drained::wait`]).
+    pub(crate) fn drained(&self) -> Drained {
+        self.log.drained.clone()
+    }
 }
 
 /// Waits for the console log to write what was queued, without keeping it alive.
@@ -90,6 +136,68 @@ impl Drained {
     }
 }
 
+/// The console log's subscriber: events (and `enabled!` hints) up to `max`, spans never.
+#[derive(Debug)]
+struct Logger {
+    max: Level,
+    /// The log thread's queue. Weak, so the subscriber's clones that outlive the run (a console
+    /// thread still waiting for input) do not keep the log thread waiting for lines.
+    lines: mpsc::WeakSender<Item>,
+    dropped: Arc<Dropped>,
+}
+
+impl Subscriber for Logger {
+    fn register_callsite(&self, metadata: &'static Metadata<'static>) -> Interest {
+        if self.enabled(metadata) {
+            Interest::always()
+        } else {
+            Interest::never()
+        }
+    }
+
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        !metadata.is_span() && *metadata.level() <= self.max
+    }
+
+    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
+        Some(self.max.into())
+    }
+
+    /// Never called: no span is enabled. Every span would share one ID, which nothing reads.
+    fn new_span(&self, _: &Attributes<'_>) -> Id {
+        Id::from_u64(1)
+    }
+
+    fn record(&self, _: &Id, _: &Record<'_>) {}
+
+    fn record_follows_from(&self, _: &Id, _: &Id) {}
+
+    fn event(&self, event: &Event<'_>) {
+        let line = format_line(clock::unix_millis(), event);
+        // Never waits for the log thread: a full queue, or a log that has ended, drops the line.
+        let sent = self
+            .lines
+            .upgrade()
+            .is_some_and(|lines| lines.try_send(Item::Line(line)).is_ok());
+        if !sent {
+            self.dropped.add();
+        }
+    }
+
+    fn enter(&self, _: &Id) {}
+
+    fn exit(&self, _: &Id) {}
+}
+
+/// What the log thread's queue carries.
+#[derive(Debug)]
+enum Item {
+    /// A line to write, with its line end.
+    Line(String),
+    /// Answered once every item before it has been written ([`Drained::wait`]).
+    Drained(oneshot::Sender<()>),
+}
+
 /// The lines the queue had no room for since the log thread last wrote their count.
 #[derive(Debug, Default)]
 struct Dropped(
@@ -112,32 +220,113 @@ impl Dropped {
     }
 }
 
-/// Anchor's console log: its subscriber and the thread that writes its lines. Dropping it lets
-/// the thread write the lines already queued, then joins it, or leaves it after [`END_WAIT`].
-#[derive(Debug)]
-pub(crate) struct Log {
-    dispatch: Dispatch,
-    /// The one strong sender of the queue; dropping it ends the log thread once the queue is
-    /// empty.
-    lines: Option<mpsc::Sender<Item>>,
-    drained: Drained,
-    thread: Option<JoinHandle<()>>,
-    /// Gets one message when the log thread has written its last line.
-    ended: Receiver<()>,
+/// An event's message and its other fields as `name=value`, cleaned, [`LINE_BYTES`] together at
+/// most.
+struct Parts {
+    message: String,
+    fields: String,
+    /// The bytes that still fit before the [`CUT`] marker; `None` once the text is cut.
+    room: Option<usize>,
 }
 
-/// The console log as the calling thread's default ([`Log::install`]). Dropping it removes the
-/// default, then ends the log.
-#[derive(Debug)]
-pub(crate) struct Installed {
-    _default: DefaultGuard,
-    log: Log,
+impl Parts {
+    /// Writes `field`: the first `message` is the event's message (tracing records the format
+    /// string first), a field the event names `message` as well is a field.
+    fn put(&mut self, field: &Field, write: impl FnOnce(&mut Clean<'_>) -> fmt::Result) {
+        if self.room.is_none() {
+            return;
+        }
+        let message = field.name() == "message" && self.message.is_empty();
+        let mut out = Clean {
+            out: if message {
+                &mut self.message
+            } else {
+                &mut self.fields
+            },
+            room: &mut self.room,
+            code: false,
+        };
+        if !message {
+            let gap = if out.out.is_empty() { "" } else { " " };
+            if write!(out, "{gap}{}=", field.name()).is_err() {
+                return;
+            }
+        }
+        if write(&mut out).is_err() && out.room.is_some() {
+            // A value's own `Debug` failed; the line keeps what it wrote. A cut ends the text.
+            match out.write_str("<unprintable>") {
+                Ok(()) | Err(fmt::Error) => {}
+            }
+        }
+    }
 }
 
-impl Installed {
-    /// Waits for the log's queue to be written ([`Drained::wait`]).
-    pub(crate) fn drained(&self) -> Drained {
-        self.log.drained.clone()
+impl Default for Parts {
+    fn default() -> Self {
+        Self {
+            message: String::new(),
+            fields: String::new(),
+            room: Some(LINE_BYTES - CUT.len()),
+        }
+    }
+}
+
+impl Visit for Parts {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.put(field, |out| out.write_str(value));
+    }
+
+    fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+        self.put(field, |out| write_chain(out, value));
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        self.put(field, |out| write!(out, "{value:?}"));
+    }
+}
+
+/// Writes text without Minecraft format codes and with control characters escaped, while it
+/// fits in `room`. The character that does not fit is left out with the rest, [`CUT`] is written
+/// instead, and every write fails from then on, so a long value is never formatted whole.
+struct Clean<'a> {
+    out: &'a mut String,
+    /// [`Parts::room`].
+    room: &'a mut Option<usize>,
+    /// The last character was `§`: the next one is its code.
+    code: bool,
+}
+
+impl fmt::Write for Clean<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for c in s.chars() {
+            if self.code {
+                self.code = false;
+                continue;
+            }
+            if c == '§' {
+                self.code = true;
+                continue;
+            }
+            let escaped = c.is_control();
+            let len = if escaped {
+                c.escape_default().len()
+            } else {
+                c.len_utf8()
+            };
+            let room = (*self.room).ok_or(fmt::Error)?;
+            let Some(left) = room.checked_sub(len) else {
+                *self.room = None;
+                self.out.push_str(CUT);
+                return Err(fmt::Error);
+            };
+            *self.room = Some(left);
+            if escaped {
+                self.out.extend(c.escape_default());
+            } else {
+                self.out.push(c);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -188,34 +377,6 @@ fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Resul
         thread: Some(thread),
         ended,
     }))
-}
-
-impl Log {
-    /// Makes the log the calling thread's default until the returned guard drops.
-    pub(crate) fn install(self) -> Installed {
-        Installed {
-            _default: dispatcher::set_default(&self.dispatch),
-            log: self,
-        }
-    }
-}
-
-impl Drop for Log {
-    fn drop(&mut self) {
-        drop(self.lines.take());
-        let Some(thread) = self.thread.take() else {
-            return;
-        };
-        // A thread still writing after `END_WAIT` holds the queue's last lines, at most
-        // `QUEUE_LINES`: it ends once the console takes them, or with the process. Dropping the
-        // handle leaves it to that. A thread that panicked dropped its sender: nothing to wait for.
-        if self.ended.recv_timeout(END_WAIT).is_ok() {
-            // The thread only writes; a panic there leaves nothing to clean up or report.
-            match thread.join() {
-                Ok(()) | Err(_) => {}
-            }
-        }
-    }
 }
 
 /// The log thread: writes each queued line on `out` until the queue is closed and empty, and
@@ -283,59 +444,10 @@ pub(crate) fn logged<T>(run: impl FnOnce() -> T) -> impl FnOnce() -> T {
     }
 }
 
-thread_local! {
-    /// The console log of a pool thread: set by the pool's thread-start hook, dropped with the
-    /// thread's locals when it ends.
-    static ATTACHED: Cell<Option<DefaultGuard>> = const { Cell::new(None) };
-}
-
 /// Makes `log` the calling thread's default until the thread ends: for the threads of pools,
 /// whose start hooks cannot wrap the thread's work.
 pub(crate) fn attach(log: &Dispatch) {
     ATTACHED.with(|attached| attached.set(Some(dispatcher::set_default(log))));
-}
-
-impl Subscriber for Logger {
-    fn register_callsite(&self, metadata: &'static Metadata<'static>) -> Interest {
-        if self.enabled(metadata) {
-            Interest::always()
-        } else {
-            Interest::never()
-        }
-    }
-
-    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        !metadata.is_span() && *metadata.level() <= self.max
-    }
-
-    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
-        Some(self.max.into())
-    }
-
-    /// Never called: no span is enabled. Every span would share one ID, which nothing reads.
-    fn new_span(&self, _: &Attributes<'_>) -> Id {
-        Id::from_u64(1)
-    }
-
-    fn record(&self, _: &Id, _: &Record<'_>) {}
-
-    fn record_follows_from(&self, _: &Id, _: &Id) {}
-
-    fn event(&self, event: &Event<'_>) {
-        let line = format_line(clock::unix_millis(), event);
-        // Never waits for the log thread: a full queue, or a log that has ended, drops the line.
-        let sent = self
-            .lines
-            .upgrade()
-            .is_some_and(|lines| lines.try_send(Item::Line(line)).is_ok());
-        if !sent {
-            self.dropped.add();
-        }
-    }
-
-    fn enter(&self, _: &Id) {}
-
-    fn exit(&self, _: &Id) {}
 }
 
 /// The line of `event` at `millis` since the Unix epoch, with its line end.
@@ -393,119 +505,11 @@ fn timestamp(millis: i64) -> String {
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{ms:03}Z")
 }
 
-/// An event's message and its other fields as `name=value`, cleaned, [`LINE_BYTES`] together at
-/// most.
-struct Parts {
-    message: String,
-    fields: String,
-    /// The bytes that still fit before the [`CUT`] marker; `None` once the text is cut.
-    room: Option<usize>,
-}
-
-impl Default for Parts {
-    fn default() -> Self {
-        Self {
-            message: String::new(),
-            fields: String::new(),
-            room: Some(LINE_BYTES - CUT.len()),
-        }
-    }
-}
-
-impl Parts {
-    /// Writes `field`: the first `message` is the event's message (tracing records the format
-    /// string first), a field the event names `message` as well is a field.
-    fn put(&mut self, field: &Field, write: impl FnOnce(&mut Clean<'_>) -> fmt::Result) {
-        if self.room.is_none() {
-            return;
-        }
-        let message = field.name() == "message" && self.message.is_empty();
-        let mut out = Clean {
-            out: if message {
-                &mut self.message
-            } else {
-                &mut self.fields
-            },
-            room: &mut self.room,
-            code: false,
-        };
-        if !message {
-            let gap = if out.out.is_empty() { "" } else { " " };
-            if write!(out, "{gap}{}=", field.name()).is_err() {
-                return;
-            }
-        }
-        if write(&mut out).is_err() && out.room.is_some() {
-            // A value's own `Debug` failed; the line keeps what it wrote. A cut ends the text.
-            match out.write_str("<unprintable>") {
-                Ok(()) | Err(fmt::Error) => {}
-            }
-        }
-    }
-}
-
-impl Visit for Parts {
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.put(field, |out| out.write_str(value));
-    }
-
-    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        self.put(field, |out| write!(out, "{value:?}"));
-    }
-}
-
-/// Writes text without Minecraft format codes and with control characters escaped, while it
-/// fits in `room`. The character that does not fit is left out with the rest, [`CUT`] is written
-/// instead, and every write fails from then on, so a long value is never formatted whole.
-struct Clean<'a> {
-    out: &'a mut String,
-    /// [`Parts::room`].
-    room: &'a mut Option<usize>,
-    /// The last character was `§`: the next one is its code.
-    code: bool,
-}
-
-impl fmt::Write for Clean<'_> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        for c in s.chars() {
-            if self.code {
-                self.code = false;
-                continue;
-            }
-            if c == '§' {
-                self.code = true;
-                continue;
-            }
-            let escaped = c.is_control();
-            let len = if escaped {
-                c.escape_default().len()
-            } else {
-                c.len_utf8()
-            };
-            let room = (*self.room).ok_or(fmt::Error)?;
-            let Some(left) = room.checked_sub(len) else {
-                *self.room = None;
-                self.out.push_str(CUT);
-                return Err(fmt::Error);
-            };
-            *self.room = Some(left);
-            if escaped {
-                self.out.extend(c.escape_default());
-            } else {
-                self.out.push(c);
-            }
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::Arc;
+    use super::*;
 
     use tracing::{debug, error, info, warn};
-
-    use super::*;
 
     /// The last line `event` formats under a subscriber that records instead of writing.
     #[derive(Debug, Default)]
@@ -578,6 +582,38 @@ pub(crate) mod tests {
         assert_eq!(
             lines,
             ["2025-10-05 14:03:20.123Z ERROR tick panicked (message=boom)\n"]
+        );
+    }
+
+    /// An error with a cause, for the test of an error value in a field.
+    #[derive(Debug)]
+    struct Outer(io::Error);
+
+    impl fmt::Display for Outer {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("outer")
+        }
+    }
+
+    impl std::error::Error for Outer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    /// A field recorded as an error value shows the error and each of its causes.
+    #[test]
+    fn an_error_value_is_written_with_its_causes() {
+        let cause = Outer(io::Error::other("inner"));
+        let lines = captured(|| {
+            error!(
+                error = &cause as &(dyn std::error::Error + 'static),
+                "start failed"
+            );
+        });
+        assert_eq!(
+            lines,
+            ["2025-10-05 14:03:20.123Z ERROR start failed (error=outer: inner)\n"]
         );
     }
 
@@ -659,13 +695,13 @@ pub(crate) mod tests {
             gate
         }
 
+        fn text(&self) -> String {
+            self.0.0.lock().unwrap().1.clone()
+        }
+
         fn open(&self) {
             self.0.0.lock().unwrap().0 = true;
             self.0.1.notify_all();
-        }
-
-        fn text(&self) -> String {
-            self.0.0.lock().unwrap().1.clone()
         }
     }
 
@@ -837,8 +873,9 @@ pub(crate) mod tests {
         let under = dispatcher::with_default(log, || logged(|| inherited().is_some()));
         assert!(under(), "the wrapped work runs under the log");
         assert!(!logged(|| inherited().is_some())());
-        // A pool thread keeps the log it attached until it ends.
-        let attached = crate::runtime::cpu_pool(1).unwrap();
+        // A pool thread keeps the log it attached until it ends. Two threads, so that the map
+        // runs on the pool's threads and not on the calling one.
+        let attached = crate::runtime::cpu_pool(2).unwrap();
         let pool_log = attached.map(&[(), ()], |()| inherited().is_some());
         assert_eq!(pool_log, [false, false], "a pool made without the log");
         assert!(attached.shutdown());

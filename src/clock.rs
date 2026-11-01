@@ -4,23 +4,57 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tracing::warn;
 
-/// The current monotonic time.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "consistency: the engine clock is the one reader of the monotonic clock"
-)]
-pub(crate) fn now() -> Instant {
-    Instant::now()
+/// Keeps ticks on a fixed schedule of one tick per `period`.
+///
+/// A tick that ends late starts the next one at once, which catches the schedule up. When the
+/// schedule falls a whole period or more behind, the missed ticks are dropped and the schedule
+/// restarts at the current time, so at most one tick is ever caught up.
+#[derive(Debug)]
+pub(crate) struct Pacer {
+    period: Duration,
+    next: Instant,
 }
 
-/// Whole seconds since the Unix epoch by the wall clock, for checks of signed times off the tick
-/// (JWT `exp`, `nbf`, `iat`). `None` if the system clock is set before 1970.
+impl Pacer {
+    /// A schedule whose first tick starts at `start`, with a `period` that is not zero.
+    pub(crate) fn new(period: Duration, start: Instant) -> Self {
+        Self {
+            period,
+            next: start,
+        }
+    }
+
+    /// Schedules the tick after the one that ended at `now` and returns when it starts.
+    pub(crate) fn schedule(&mut self, now: Instant) -> Instant {
+        let next = self.next.checked_add(self.period).unwrap_or(now);
+        let behind = now.saturating_duration_since(next);
+        self.next = if behind >= self.period {
+            let dropped = behind.as_nanos() / self.period.as_nanos();
+            warn!(?behind, dropped_ticks = %dropped, "ticks overran; dropping missed ticks");
+            now
+        } else {
+            next
+        };
+        self.next
+    }
+}
+
+/// Wall-clock Unix seconds for signed-token checks (JWT and offer identity times); before 1970
+/// reads as 0, which fails every check.
+pub(crate) fn token_now() -> i64 {
+    unix_now().and_then(|s| i64::try_from(s).ok()).unwrap_or(0)
+}
+
+/// Whole seconds since the Unix epoch by the wall clock, for the names of files made off the
+/// tick (backups, crash logs) and for [`token_now`]. `None` if the system clock is set before
+/// 1970.
 pub(crate) fn unix_now() -> Option<u64> {
     since_epoch().map(|since| since.as_secs())
 }
 
 /// Milliseconds since the Unix epoch by the wall clock, for times a session hands to the tick as
-/// logged inputs (a player's join); 0 if the system clock is set before 1970.
+/// logged inputs (a player's join) and for the console log's time; 0 if the system clock is set
+/// before 1970.
 pub(crate) fn unix_millis() -> i64 {
     since_epoch().map_or(0, |since| {
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
@@ -36,12 +70,6 @@ fn since_epoch() -> Option<Duration> {
     SystemTime::now().duration_since(UNIX_EPOCH).ok()
 }
 
-/// Wall-clock Unix seconds for signed-token checks (JWT and offer identity times); before 1970
-/// reads as 0, which fails every check.
-pub(crate) fn token_now() -> i64 {
-    unix_now().and_then(|s| i64::try_from(s).ok()).unwrap_or(0)
-}
-
 /// Blocks the calling thread until `deadline`; returns at once if it has passed. Only the tick
 /// thread calls this, between ticks.
 #[expect(
@@ -55,39 +83,13 @@ pub(crate) fn sleep_until(deadline: Instant) {
     }
 }
 
-/// Keeps ticks on a fixed schedule of one tick per `period`.
-///
-/// A tick that ends late starts the next one at once, which catches the schedule up. When the
-/// schedule falls a whole period or more behind, the missed ticks are dropped and the schedule
-/// restarts at the current time, so at most one tick is ever caught up.
-#[derive(Debug)]
-pub(crate) struct Pacer {
-    period: Duration,
-    next: Instant,
-}
-
-impl Pacer {
-    /// A schedule whose first tick starts at `start`.
-    pub(crate) fn new(period: Duration, start: Instant) -> Self {
-        Self {
-            period,
-            next: start,
-        }
-    }
-
-    /// Schedules the tick after the one that ended at `now` and returns when it starts.
-    pub(crate) fn schedule(&mut self, now: Instant) -> Instant {
-        let next = self.next.checked_add(self.period).unwrap_or(now);
-        let behind = now.saturating_duration_since(next);
-        self.next = if behind >= self.period {
-            let dropped = behind.as_nanos() / self.period.as_nanos().max(1);
-            warn!(?behind, dropped_ticks = %dropped, "ticks overran; dropping missed ticks");
-            now
-        } else {
-            next
-        };
-        self.next
-    }
+/// The current monotonic time.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "consistency: the engine clock is the one reader of the monotonic clock"
+)]
+pub(crate) fn now() -> Instant {
+    Instant::now()
 }
 
 #[cfg(test)]
@@ -133,7 +135,7 @@ mod tests {
         let base = now();
         let mut pacer = Pacer::new(PERIOD, base);
         let mut start = base;
-        for _ in 0..1_000 {
+        for _ in 0..1000 {
             let end = start + ms(70);
             start = pacer.schedule(end);
             assert!(start <= end, "a late tick starts at once");

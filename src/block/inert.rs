@@ -5,11 +5,11 @@
 //! its light and its hardness. A player breaks it like a block of its hardness for whichever tool
 //! is held, with no drops.
 
+mod table;
+
 use super::{BreakInfo, PropertyValue, State, ToolType, network_hash};
 use crate::math::Aabb;
 use crate::nbt::{Compound, Value};
-
-mod table;
 
 /// The physics of an inert block state.
 #[derive(Debug)]
@@ -47,10 +47,6 @@ impl Profile {
         }
     }
 }
-
-/// Every tool type: an inert block counts the held tool as the right one, so the break time the
-/// server allows is never longer than the client's.
-const ANY_TOOL: ToolType = ToolType::from_bits(0b11_1111);
 
 /// An inert block state: one of the reference list's states that is not an Anchor state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,25 +86,6 @@ impl Inert {
     pub(crate) fn from_network_id(id: u32) -> Option<Self> {
         let index = table::STATES.binary_search_by_key(&id, |s| s.0).ok()?;
         Some(Self(u16::try_from(index).ok()?))
-    }
-
-    /// The row of the state: its network ID, name index and profile index.
-    #[inline]
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: an Inert is only made from an index of the state rows"
-    )]
-    fn row(self) -> (u32, u16, u16) {
-        table::STATES[usize::from(self.0)]
-    }
-
-    #[inline]
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the generated rows index the generated profiles"
-    )]
-    fn profile(self) -> &'static Profile {
-        &table::PROFILES[usize::from(self.row().2)]
     }
 
     /// The network ID clients know the state by.
@@ -155,16 +132,17 @@ impl Inert {
     }
 
     /// How it breaks: its hardness, with every tool counted as the right one at harvest level 0
-    /// (the server does not know its tool, so it allows the shortest time a tool could take).
+    /// (the server does not know its tool, so it allows the shortest time a tool could take, and
+    /// never a longer one than the client's).
     pub(crate) fn break_info(self) -> BreakInfo {
         let hardness = self.profile().hardness;
-        BreakInfo::new(hardness, hardness * 5.0, ANY_TOOL, 0, false)
+        BreakInfo::new(hardness, hardness * 5.0, ToolType::ALL, 0, false)
     }
 
-    /// The Anchor state the placement and connection rules read in its place: bedrock (full support on every
-    /// face) when it is solid, else a cobweb (no support, no collision). Neither can be replaced:
-    /// BDS's data does not say which inert blocks vanilla replaces (seagrass, kelp), so a block
-    /// placed on one goes into the cell beside it and the inert block stays.
+    /// The Anchor state the placement and connection rules read in its place: bedrock (full
+    /// support on every face) when it is solid, else a cobweb (no support, no collision). Neither
+    /// can be replaced: BDS's data does not say which inert blocks vanilla replaces (seagrass,
+    /// kelp), so a block placed on one goes into the cell beside it and the inert block stays.
     pub(crate) fn stand_in(self) -> State {
         if self.is_solid() {
             super::BEDROCK
@@ -172,12 +150,32 @@ impl Inert {
             super::Kind::Cobweb.default_state()
         }
     }
+
+    /// The row of the state: its network ID, name index and profile index.
+    #[inline]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: an Inert is only made from an index of the state rows"
+    )]
+    fn row(self) -> (u32, u16, u16) {
+        table::STATES[usize::from(self.0)]
+    }
+
+    #[inline]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated rows index the generated profiles"
+    )]
+    fn profile(self) -> &'static Profile {
+        &table::PROFILES[usize::from(self.row().2)]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::State;
+    use crate::block::{Face, State, SupportType};
+    use crate::import::BLOCK_STATE_VERSION;
 
     const REFERENCE: &str = include_str!("../../xtask/data/reference/blocks.json");
 
@@ -203,7 +201,7 @@ mod tests {
                 Value::String(b["name"].as_str().unwrap().to_owned()),
             ),
             ("states".to_owned(), Value::Compound(states)),
-            ("version".to_owned(), Value::Int(18_168_865)),
+            ("version".to_owned(), Value::Int(BLOCK_STATE_VERSION)),
         ])
     }
 
@@ -247,8 +245,8 @@ mod tests {
         }
     }
 
-    /// The blocks of the user's imported world that Anchor does not implement are all inert,
-    /// with BDS's values.
+    /// Common vanilla blocks of imported worlds that Anchor does not implement are inert, with
+    /// BDS's values.
     #[test]
     fn imported_vanilla_blocks_are_inert_with_bds_physics() {
         let names = [
@@ -302,11 +300,11 @@ mod tests {
         assert_eq!(carpet.collision_boxes()[0].max.y, 0.0625);
         // Placements read moss as full support and carpet as none; neither is replaced.
         for (s, support) in [
-            (moss.stand_in(), super::super::SupportType::Full),
-            (carpet.stand_in(), super::super::SupportType::None),
+            (moss.stand_in(), SupportType::Full),
+            (carpet.stand_in(), SupportType::None),
         ] {
             assert!(!s.can_be_replaced(), "{s:?}");
-            for face in super::super::Face::ALL {
+            for face in Face::ALL {
                 assert_eq!(s.support(face), support, "{s:?} {face:?}");
             }
         }

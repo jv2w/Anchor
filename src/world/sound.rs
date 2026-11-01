@@ -15,140 +15,145 @@ use crate::protocol::packet::{
     LevelEvent as LevelEventPacket, LevelSoundEvent as LevelSoundEventPacket, Packet,
 };
 
+/// The entity type of a sound with no entity (PMMP `LevelSoundEventPacket::nonActorSound`).
+const NO_ENTITY: &str = ":";
+/// The entity type PMMP gives hit and throw sounds.
+const PLAYER: &str = "minecraft:player";
+
 /// A sound.
 #[derive(Debug, Clone, Copy, PartialEq)]
 // pmmp-class: Sound
 pub enum Sound {
-    /// An amethyst block chimes.
+    /// An amethyst block chiming.
     #[doc(alias = "AmethystBlockChimeSound")]
     AmethystBlockChime,
-    /// An anvil breaks.
+    /// An anvil breaking.
     #[doc(alias = "AnvilBreakSound")]
     AnvilBreak,
-    /// An anvil lands.
+    /// An anvil landing.
     #[doc(alias = "AnvilFallSound")]
     AnvilFall,
-    /// An anvil is used.
+    /// An anvil being used.
     #[doc(alias = "AnvilUseSound")]
     AnvilUse,
-    /// Chainmail armour is put on.
+    /// Chainmail armour being put on.
     #[doc(alias = "ArmorEquipChainSound")]
     ArmorEquipChain,
-    /// Copper armour is put on.
+    /// Copper armour being put on.
     #[doc(alias = "ArmorEquipCopperSound")]
     ArmorEquipCopper,
-    /// Diamond armour is put on.
+    /// Diamond armour being put on.
     #[doc(alias = "ArmorEquipDiamondSound")]
     ArmorEquipDiamond,
-    /// Other armour is put on.
+    /// Other armour being put on.
     #[doc(alias = "ArmorEquipGenericSound")]
     ArmorEquipGeneric,
-    /// Golden armour is put on.
+    /// Golden armour being put on.
     #[doc(alias = "ArmorEquipGoldSound")]
     ArmorEquipGold,
-    /// Iron armour is put on.
+    /// Iron armour being put on.
     #[doc(alias = "ArmorEquipIronSound")]
     ArmorEquipIron,
-    /// Leather armour is put on.
+    /// Leather armour being put on.
     #[doc(alias = "ArmorEquipLeatherSound")]
     ArmorEquipLeather,
-    /// Netherite armour is put on.
+    /// Netherite armour being put on.
     #[doc(alias = "ArmorEquipNetheriteSound")]
     ArmorEquipNetherite,
-    /// An arrow hits.
+    /// An arrow hitting.
     #[doc(alias = "ArrowHitSound")]
     ArrowHit,
-    /// A barrel closes.
+    /// A barrel closing.
     #[doc(alias = "BarrelCloseSound")]
     BarrelClose,
-    /// A barrel opens.
+    /// A barrel opening.
     #[doc(alias = "BarrelOpenSound")]
     BarrelOpen,
-    /// A bell rings.
+    /// A bell ringing.
     #[doc(alias = "BellRingSound")]
     BellRing,
-    /// A blast furnace crackles.
+    /// A blast furnace crackling.
     #[doc(alias = "BlastFurnaceSound")]
     BlastFurnace,
-    /// A blaze shoots.
+    /// A blaze shooting.
     #[doc(alias = "BlazeShootSound")]
     BlazeShoot,
-    /// A block of this state breaks.
+    /// A block of this state breaking.
     #[doc(alias = "BlockBreakSound")]
     BlockBreak(block::State),
-    /// A block of this state is placed.
+    /// A block of this state being placed.
     #[doc(alias = "BlockPlaceSound")]
     BlockPlace(block::State),
-    /// A block of this state is hit while being broken.
+    /// A block of this state being hit while it is broken.
     #[doc(alias = "BlockPunchSound")]
     BlockPunch(block::State),
-    /// A bottle is emptied.
+    /// A bottle being emptied.
     #[doc(alias = "BottleEmptySound")]
     BottleEmpty,
-    /// A bow shoots.
+    /// A bow shooting.
     #[doc(alias = "BowShootSound")]
     BowShoot,
-    /// Lava is poured from a bucket.
+    /// Lava being poured from a bucket.
     #[doc(alias = "BucketEmptyLavaSound")]
     BucketEmptyLava,
-    /// Water is poured from a bucket.
+    /// Water being poured from a bucket.
     #[doc(alias = "BucketEmptyWaterSound")]
     BucketEmptyWater,
-    /// A bucket is filled with lava.
+    /// A bucket being filled with lava.
     #[doc(alias = "BucketFillLavaSound")]
     BucketFillLava,
-    /// A bucket is filled with water.
+    /// A bucket being filled with water.
     #[doc(alias = "BucketFillWaterSound")]
     BucketFillWater,
     /// A burp after eating.
     #[doc(alias = "BurpSound")]
     Burp,
-    /// A campfire crackles.
+    /// A campfire crackling.
     #[doc(alias = "CampfireSound")]
     Campfire,
-    /// Dye goes into a cauldron.
+    /// Dye going into a cauldron.
     #[doc(alias = "CauldronAddDyeSound")]
     CauldronAddDye,
-    /// A cauldron washes an item.
+    /// A cauldron washing an item.
     #[doc(alias = "CauldronCleanItemSound")]
     CauldronCleanItem,
-    /// A cauldron dyes an item.
+    /// A cauldron dyeing an item.
     #[doc(alias = "CauldronDyeItemSound")]
     CauldronDyeItem,
-    /// Lava is taken from a cauldron.
+    /// Lava being taken from a cauldron.
     #[doc(alias = "CauldronEmptyLavaSound")]
     CauldronEmptyLava,
-    /// A potion is taken from a cauldron.
+    /// A potion being taken from a cauldron.
     #[doc(alias = "CauldronEmptyPotionSound")]
     CauldronEmptyPotion,
-    /// Powder snow is taken from a cauldron.
+    /// Powder snow being taken from a cauldron.
     #[doc(alias = "CauldronEmptyPowderSnowSound")]
     CauldronEmptyPowderSnow,
-    /// Water is taken from a cauldron.
+    /// Water being taken from a cauldron.
     #[doc(alias = "CauldronEmptyWaterSound")]
     CauldronEmptyWater,
-    /// Lava goes into a cauldron.
+    /// Lava going into a cauldron.
     #[doc(alias = "CauldronFillLavaSound")]
     CauldronFillLava,
-    /// A potion goes into a cauldron.
+    /// A potion going into a cauldron.
     #[doc(alias = "CauldronFillPotionSound")]
     CauldronFillPotion,
-    /// Powder snow goes into a cauldron.
+    /// Powder snow going into a cauldron.
     #[doc(alias = "CauldronFillPowderSnowSound")]
     CauldronFillPowderSnow,
-    /// Water goes into a cauldron.
+    /// Water going into a cauldron.
     #[doc(alias = "CauldronFillWaterSound")]
     CauldronFillWater,
-    /// A chest closes.
+    /// A chest closing.
     #[doc(alias = "ChestCloseSound")]
     ChestClose,
-    /// A chest opens.
+    /// A chest opening.
     #[doc(alias = "ChestOpenSound")]
     ChestOpen,
-    /// A chorus flower dies.
+    /// A chorus flower dying.
     #[doc(alias = "ChorusFlowerDieSound")]
     ChorusFlowerDie,
-    /// A chorus flower grows.
+    /// A chorus flower growing.
     #[doc(alias = "ChorusFlowerGrowSound")]
     ChorusFlowerGrow,
     /// A click at `pitch` (PMMP's default 0).
@@ -157,64 +162,64 @@ pub enum Sound {
         /// The pitch.
         pitch: f32,
     },
-    /// Copper is waxed.
+    /// Copper being waxed.
     #[doc(alias = "CopperWaxApplySound")]
     CopperWaxApply,
-    /// Wax comes off copper.
+    /// Wax coming off copper.
     #[doc(alias = "CopperWaxRemoveSound")]
     CopperWaxRemove,
-    /// A door is bumped.
+    /// A door being bumped.
     #[doc(alias = "DoorBumpSound")]
     DoorBump,
-    /// A door is broken in.
+    /// A door being broken in.
     #[doc(alias = "DoorCrashSound")]
     DoorCrash,
-    /// A door opens or closes, at `pitch` (PMMP's default 0).
+    /// A door opening or closing, at `pitch` (PMMP's default 0).
     #[doc(alias = "DoorSound")]
     Door {
         /// The pitch.
         pitch: f32,
     },
-    /// A big dripleaf tilts down.
+    /// A big dripleaf tilting down.
     #[doc(alias = "DripleafTiltDownSound")]
     DripleafTiltDown,
-    /// A big dripleaf tilts up.
+    /// A big dripleaf tilting up.
     #[doc(alias = "DripleafTiltUpSound")]
     DripleafTiltUp,
-    /// Dye is used on a sign.
+    /// Dye being used on a sign.
     #[doc(alias = "DyeUseSound")]
     DyeUse,
-    /// An ender chest closes.
+    /// An ender chest closing.
     #[doc(alias = "EnderChestCloseSound")]
     EnderChestClose,
-    /// An ender chest opens.
+    /// An ender chest opening.
     #[doc(alias = "EnderChestOpenSound")]
     EnderChestOpen,
-    /// Something teleports as an enderman does.
+    /// Something teleporting as an enderman does.
     #[doc(alias = "EndermanTeleportSound")]
     EndermanTeleport,
-    /// A hit lands.
+    /// A hit landing.
     #[doc(alias = "EntityAttackSound")]
     EntityAttack,
-    /// A hit does nothing.
+    /// A hit doing nothing.
     #[doc(alias = "EntityAttackNoDamageSound")]
     EntityAttackNoDamage,
     /// An explosion.
     #[doc(alias = "ExplodeSound")]
     Explode,
-    /// A fire is put out.
+    /// A fire being put out.
     #[doc(alias = "FireExtinguishSound")]
     FireExtinguish,
-    /// A firework crackles.
+    /// A firework crackling.
     #[doc(alias = "FireworkCrackleSound")]
     FireworkCrackle,
-    /// A firework explodes.
+    /// A firework exploding.
     #[doc(alias = "FireworkExplosionSound")]
     FireworkExplosion,
-    /// A large firework explodes.
+    /// A large firework exploding.
     #[doc(alias = "FireworkLargeExplosionSound")]
     FireworkLargeExplosion,
-    /// A firework launches.
+    /// A firework launching.
     #[doc(alias = "FireworkLaunchSound")]
     FireworkLaunch,
     /// A fizz at `pitch` (PMMP's default 0).
@@ -223,47 +228,47 @@ pub enum Sound {
         /// The pitch.
         pitch: f32,
     },
-    /// Flint and steel strikes.
+    /// Flint and steel striking.
     #[doc(alias = "FlintSteelSound")]
     FlintSteel,
-    /// A furnace burns.
+    /// A furnace burning.
     #[doc(alias = "FurnaceSound")]
     Furnace,
-    /// A ghast shoots.
+    /// A ghast shooting.
     #[doc(alias = "GhastShootSound")]
     GhastShoot,
-    /// A ghast warns.
+    /// A ghast warning.
     #[doc(alias = "GhastSound")]
     Ghast,
-    /// Glow berries are picked.
+    /// Glow berries being picked.
     #[doc(alias = "GlowBerriesPickSound")]
     GlowBerriesPick,
-    /// A goat horn of this item type sounds: the call of its meta, 0 to 7 (PMMP `GoatHornType`
+    /// A goat horn of this item type sounding: the call of its meta, 0 to 7 (PMMP `GoatHornType`
     /// in its order); any other item plays the first call, as Anchor's horn rule does.
     #[doc(alias = "GoatHornSound")]
     GoatHorn(item::Type),
-    /// An ice bomb hits.
+    /// An ice bomb hitting.
     #[doc(alias = "IceBombHitSound")]
     IceBombHit,
-    /// TNT is lit.
+    /// TNT being lit.
     #[doc(alias = "IgniteSound")]
     Ignite,
-    /// An ink sac is used on a sign.
+    /// An ink sac being used on a sign.
     #[doc(alias = "InkSacUseSound")]
     InkSacUse,
-    /// A tool breaks.
+    /// A tool breaking.
     #[doc(alias = "ItemBreakSound")]
     ItemBreak,
-    /// An item goes into an item frame.
+    /// An item going into an item frame.
     #[doc(alias = "ItemFrameAddItemSound")]
     ItemFrameAddItem,
-    /// An item comes out of an item frame.
+    /// An item coming out of an item frame.
     #[doc(alias = "ItemFrameRemoveItemSound")]
     ItemFrameRemoveItem,
-    /// An item frame's item turns.
+    /// An item frame's item turning.
     #[doc(alias = "ItemFrameRotateItemSound")]
     ItemFrameRotateItem,
-    /// An item is used on a block of this state.
+    /// An item being used on a block of this state.
     #[doc(alias = "ItemUseOnBlockSound")]
     ItemUseOnBlock(block::State),
     /// A launch at `pitch` (PMMP's default 0).
@@ -272,10 +277,10 @@ pub enum Sound {
         /// The pitch.
         pitch: f32,
     },
-    /// A book is put on a lectern.
+    /// A book being put on a lectern.
     #[doc(alias = "LecternPlaceBookSound")]
     LecternPlaceBook,
-    /// A note block plays `note` on `instrument`.
+    /// A note block playing `note` on `instrument`.
     #[doc(alias = "NoteSound")]
     Note {
         /// The instrument.
@@ -283,7 +288,7 @@ pub enum Sound {
         /// The note: 0 to 24 are the note block's pitches (PMMP takes 0 to 255).
         note: u8,
     },
-    /// A painting is placed.
+    /// A painting being placed.
     #[doc(alias = "PaintingPlaceSound")]
     PaintingPlace,
     /// A pop at `pitch` (PMMP's default 0).
@@ -292,62 +297,62 @@ pub enum Sound {
         /// The pitch.
         pitch: f32,
     },
-    /// A brewing stand finishes.
+    /// A brewing stand finishing.
     #[doc(alias = "PotionFinishBrewingSound")]
     PotionFinishBrewing,
-    /// A potion bottle shatters.
+    /// A potion bottle shattering.
     #[doc(alias = "PotionSplashSound")]
     PotionSplash,
-    /// A jukebox plays the music disc of this item type (PMMP `RecordType`); any other item
+    /// A jukebox playing the music disc of this item type (PMMP `RecordType`); any other item
     /// stops the music, as [`Sound::RecordStop`].
     #[doc(alias = "RecordSound")]
     Record(item::Type),
-    /// A jukebox stops.
+    /// A jukebox stopping.
     #[doc(alias = "RecordStopSound")]
     RecordStop,
-    /// A lever or button switches on.
+    /// A lever or button switching on.
     #[doc(alias = "RedstonePowerOnSound")]
     RedstonePowerOn,
-    /// A lever or button switches off.
+    /// A lever or button switching off.
     #[doc(alias = "RedstonePowerOffSound")]
     RedstonePowerOff,
-    /// A respawn anchor is charged.
+    /// A respawn anchor being charged.
     #[doc(alias = "RespawnAnchorChargeSound")]
     RespawnAnchorCharge,
-    /// A respawn anchor runs out.
+    /// A respawn anchor running out.
     #[doc(alias = "RespawnAnchorDepleteSound")]
     RespawnAnchorDeplete,
-    /// A respawn anchor sets the spawn.
+    /// A respawn anchor setting the spawn.
     #[doc(alias = "RespawnAnchorSetSpawnSound")]
     RespawnAnchorSetSpawn,
-    /// An axe scrapes copper.
+    /// An axe scraping copper.
     #[doc(alias = "ScrapeSound")]
     Scrape,
-    /// A shulker box closes.
+    /// A shulker box closing.
     #[doc(alias = "ShulkerBoxCloseSound")]
     ShulkerBoxClose,
-    /// A shulker box opens.
+    /// A shulker box opening.
     #[doc(alias = "ShulkerBoxOpenSound")]
     ShulkerBoxOpen,
-    /// A smoker smokes.
+    /// A smoker smoking.
     #[doc(alias = "SmokerSound")]
     Smoker,
-    /// Sweet berries are picked.
+    /// Sweet berries being picked.
     #[doc(alias = "SweetBerriesPickSound")]
     SweetBerriesPick,
-    /// Something is thrown.
+    /// Something being thrown.
     #[doc(alias = "ThrowSound")]
     Throw,
-    /// A totem saves its holder.
+    /// A totem saving its holder.
     #[doc(alias = "TotemUseSound")]
     TotemUse,
-    /// A trident hits a block.
+    /// A trident hitting a block.
     #[doc(alias = "TridentHitBlockSound")]
     TridentHitBlock,
-    /// A trident hits an entity.
+    /// A trident hitting an entity.
     #[doc(alias = "TridentHitEntitySound")]
     TridentHitEntity,
-    /// A trident is thrown.
+    /// A trident being thrown.
     #[doc(alias = "TridentThrowSound")]
     TridentThrow,
     /// A splash in water at `volume` (0 to 1).
@@ -356,91 +361,16 @@ pub enum Sound {
         /// The volume, 0 to 1.
         volume: f32,
     },
-    /// An experience orb is collected.
+    /// An experience orb being collected.
     #[doc(alias = "XpCollectSound")]
     XpCollect,
-    /// A player reaches experience level `level`.
+    /// A player reaching experience level `level`.
     #[doc(alias = "XpLevelUpSound")]
     XpLevelUp {
         /// The level reached.
         level: u32,
     },
 }
-
-/// The instrument of a [`Sound::Note`], by the block under a note block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: NoteInstrument
-pub enum NoteInstrument {
-    /// The default: harp and piano.
-    Piano,
-    /// Stone: bass drum.
-    BassDrum,
-    /// Sand and gravel: snare drum.
-    Snare,
-    /// Glass: clicks and sticks.
-    ClicksAndSticks,
-    /// Wood: double bass.
-    DoubleBass,
-    /// Gold: bell.
-    Bell,
-    /// Clay: flute.
-    Flute,
-    /// Packed ice: chime.
-    Chime,
-    /// Wool: guitar.
-    Guitar,
-    /// Bone block: xylophone.
-    Xylophone,
-    /// Iron: iron xylophone.
-    IronXylophone,
-    /// Soul sand: cow bell.
-    CowBell,
-    /// Pumpkin: didgeridoo.
-    Didgeridoo,
-    /// Emerald: bit.
-    Bit,
-    /// Hay: banjo.
-    Banjo,
-    /// Glowstone: pling.
-    Pling,
-}
-
-impl NoteInstrument {
-    /// The instrument's number in the `note` sound (PMMP `NoteInstrumentIdMap`).
-    const fn id(self) -> i32 {
-        match self {
-            Self::Piano => 0,
-            Self::BassDrum => 1,
-            Self::Snare => 2,
-            Self::ClicksAndSticks => 3,
-            Self::DoubleBass => 4,
-            Self::Flute => 5,
-            Self::Bell => 6,
-            Self::Guitar => 7,
-            Self::Chime => 8,
-            Self::Xylophone => 9,
-            Self::IronXylophone => 10,
-            Self::CowBell => 11,
-            Self::Didgeridoo => 12,
-            Self::Bit => 13,
-            Self::Banjo => 14,
-            Self::Pling => 15,
-        }
-    }
-}
-
-/// What a sound sends.
-enum Sent {
-    /// A `LevelSoundEvent` with its extra data and entity type.
-    Sound(SoundEvent, i32, &'static str),
-    /// A `LevelEvent` with its data.
-    Level(LevelEvent, i32),
-}
-
-/// The entity type of a sound with no entity (PMMP `LevelSoundEventPacket::nonActorSound`).
-const NO_ENTITY: &str = ":";
-/// The entity type PMMP gives hit and throw sounds.
-const PLAYER: &str = "minecraft:player";
 
 impl Sound {
     /// The packet that plays the sound at `at` (PMMP `Sound::encode`).
@@ -608,11 +538,81 @@ impl Sound {
             Self::XpLevelUp { level } => {
                 // The volume field carries the level: 0x1000_0000 for every five levels up to 30,
                 // the values PMMP sends.
-                let step = i32::try_from(level.min(30) / 5).unwrap_or(0);
-                Sent::Sound(S::LevelUp, 0x1000_0000_i32.saturating_mul(step), NO_ENTITY)
+                let volume = 0x1000_0000_u32 * (level.min(30) / 5);
+                Sent::Sound(S::LevelUp, volume.cast_signed(), NO_ENTITY)
             }
         }
     }
+}
+
+/// The instrument of a [`Sound::Note`], by the block under a note block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pmmp-class: NoteInstrument
+pub enum NoteInstrument {
+    /// The default: harp and piano.
+    Piano,
+    /// Stone: bass drum.
+    BassDrum,
+    /// Sand and gravel: snare drum.
+    Snare,
+    /// Glass: clicks and sticks.
+    ClicksAndSticks,
+    /// Wood: double bass.
+    DoubleBass,
+    /// Gold: bell.
+    Bell,
+    /// Clay: flute.
+    Flute,
+    /// Packed ice: chime.
+    Chime,
+    /// Wool: guitar.
+    Guitar,
+    /// Bone block: xylophone.
+    Xylophone,
+    /// Iron: iron xylophone.
+    IronXylophone,
+    /// Soul sand: cow bell.
+    CowBell,
+    /// Pumpkin: didgeridoo.
+    Didgeridoo,
+    /// Emerald: bit.
+    Bit,
+    /// Hay: banjo.
+    Banjo,
+    /// Glowstone: pling.
+    Pling,
+}
+
+impl NoteInstrument {
+    /// The instrument's number in the `note` sound (PMMP `NoteInstrumentIdMap`).
+    const fn id(self) -> i32 {
+        match self {
+            Self::Piano => 0,
+            Self::BassDrum => 1,
+            Self::Snare => 2,
+            Self::ClicksAndSticks => 3,
+            Self::DoubleBass => 4,
+            Self::Bell => 6,
+            Self::Flute => 5,
+            Self::Chime => 8,
+            Self::Guitar => 7,
+            Self::Xylophone => 9,
+            Self::IronXylophone => 10,
+            Self::CowBell => 11,
+            Self::Didgeridoo => 12,
+            Self::Bit => 13,
+            Self::Banjo => 14,
+            Self::Pling => 15,
+        }
+    }
+}
+
+/// What a sound sends.
+enum Sent {
+    /// A `LevelSoundEvent` with its extra data and entity type.
+    Sound(SoundEvent, i32, &'static str),
+    /// A `LevelEvent` with its data.
+    Level(LevelEvent, i32),
 }
 
 /// The call of a goat horn type (PMMP `GoatHornSound`): its meta in `GoatHornType` order; the

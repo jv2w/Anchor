@@ -1,6 +1,9 @@
 //! Public item type lookups: known names resolve, unknown input is `None` without panicking, and
 //! a vanilla stack reads back from its disk form.
 
+// Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
+#![cfg(test)]
+
 use anchor::block::ItemForm;
 use anchor::item::{Kind, Stack, Type};
 use anchor::nbt::{Compound, Value};
@@ -16,6 +19,24 @@ const NAMES: &[(&str, u16)] = &[
     ("minecraft:bed", 14),
     ("minecraft:firework_star", 0),
 ];
+
+/// splitmix64: a fixed-seed generator.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    /// A number below `n`.
+    fn below(&mut self, n: usize) -> usize {
+        usize::try_from(self.next() % u64::try_from(n).expect("n fits u64")).expect("below n")
+    }
+}
 
 #[test]
 fn known_names_resolve() {
@@ -34,26 +55,6 @@ fn known_names_resolve() {
         Some(banner),
         Type::from_name("minecraft:banner", 15, None, &empty)
     );
-}
-
-/// splitmix64: a fixed-seed generator.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-
-    /// A number below `n`.
-    fn below(&mut self, n: usize) -> usize {
-        // The remainder is below `n`, so both conversions succeed.
-        let n = u64::try_from(n).unwrap_or(u64::MAX);
-        usize::try_from(self.next() % n).unwrap_or_default()
-    }
 }
 
 #[test]

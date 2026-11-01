@@ -173,7 +173,7 @@ impl Recipe {
     }
 
     /// A furnace-family recipe (PMMP `FurnaceRecipe`): one `input` cooked into `result` in a
-    /// block of `kind` (furnace, blast furnace, smoker or campfire).
+    /// block of `kind` (furnace, blast furnace, smoker, campfire or soul campfire).
     #[doc(alias = "FurnaceRecipe::__construct")]
     pub fn furnace(kind: FurnaceType, input: Ingredient, result: (ItemRef, u8)) -> Self {
         Self(Kind::Furnace {

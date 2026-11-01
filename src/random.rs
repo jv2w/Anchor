@@ -5,6 +5,9 @@
 //! pool thread. A key is a [`tag`] (one per purpose) mixed with the position, entity or session
 //! it is for; one tick never opens the same key twice.
 
+/// The `SplitMix64` increment, also the offset of its finaliser [`mix`].
+const GOLDEN: u64 = 0x9e37_79b9_7f4a_7c15;
+
 /// A random stream.
 #[derive(Debug, Clone)]
 pub(crate) struct Random(u64);
@@ -15,13 +18,13 @@ impl Random {
         Self(mix(mix(mix(seed.cast_unsigned()) ^ tick) ^ key))
     }
 
-    /// The next 64 random bits (`SplitMix64`).
+    /// Draws the next 64 random bits (`SplitMix64`).
     pub(crate) fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(GOLDEN);
         mix(self.0)
     }
 
-    /// A number in `0..n` (`0` when `n` is 0), by multiply-high: the bias is below n / 2^64.
+    /// Draws a number in `0..n` (`0` when `n` is 0), by multiply-high: the bias is below n / 2^64.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "invariant: the high half of a u64 × u32 product is below 2^32"
@@ -30,7 +33,7 @@ impl Random {
         ((u128::from(self.next_u64()) * u128::from(n)) >> 64) as u32
     }
 
-    /// A number in `lo..=hi` (`lo` when `hi < lo`).
+    /// Draws a number in `lo..=hi` (`lo` when `hi < lo`).
     pub(crate) fn range(&mut self, lo: i32, hi: i32) -> i32 {
         let span = hi.wrapping_sub(lo).cast_unsigned();
         if hi < lo {
@@ -43,18 +46,62 @@ impl Random {
         lo.wrapping_add(self.below(span + 1).cast_signed())
     }
 
-    /// True with probability `numerator / denominator` (false when `denominator` is 0).
+    /// Draws true with probability `numerator / denominator` (false when `denominator` is 0).
     pub(crate) fn chance(&mut self, numerator: u32, denominator: u32) -> bool {
         denominator != 0 && self.below(denominator) < numerator
     }
 
-    /// A float in `[0, 1)` with 53 random bits.
+    /// Draws a float in `[0, 1)` with 53 random bits.
     #[expect(
         clippy::cast_precision_loss,
         reason = "invariant: a 53-bit integer is exact in f64"
     )]
     pub(crate) fn unit(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / (1_u64 << 53) as f64)
+    }
+}
+
+/// FNV-1a 64: a hash whose output is fixed by its definition, unlike `DefaultHasher` (the
+/// purpose keys of [`tag`], the state hash of the tests and the input log's commit identity).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Fnv(pub(crate) u64);
+
+impl Fnv {
+    /// The state of a hash of nothing.
+    pub(crate) const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    /// The multiplier of every byte.
+    const PRIME: u64 = 0x0100_0000_01b3;
+
+    /// A hash of nothing.
+    #[cfg(test)]
+    pub(crate) fn new() -> Self {
+        Self(Self::OFFSET)
+    }
+
+    /// Mixes `bytes` into the hash.
+    pub(crate) const fn raw(&mut self, mut bytes: &[u8]) {
+        while let [b, rest @ ..] = bytes {
+            self.0 = (self.0 ^ *b as u64).wrapping_mul(Self::PRIME);
+            bytes = rest;
+        }
+    }
+
+    /// Mixes the little-endian bytes of `v` into the hash.
+    pub(crate) const fn u64(&mut self, v: u64) {
+        self.raw(&v.to_le_bytes());
+    }
+
+    /// Mixes `v` as a `u64` into the hash.
+    #[cfg(test)]
+    pub(crate) fn usize(&mut self, v: usize) {
+        self.u64(u64::try_from(v).unwrap_or(u64::MAX));
+    }
+
+    /// Mixes `bytes` with their length in front, so adjacent fields cannot run together.
+    #[cfg(test)]
+    pub(crate) fn bytes(&mut self, bytes: &[u8]) {
+        self.usize(bytes.len());
+        self.raw(bytes);
     }
 }
 
@@ -66,51 +113,10 @@ pub(crate) const fn tag(name: &str) -> u64 {
     h.0
 }
 
-/// FNV-1a 64: a hash whose output is fixed by its definition, unlike `DefaultHasher` (the
-/// purpose keys of [`tag`], the state hash of the tests and the input log's commit identity).
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Fnv(pub(crate) u64);
-
-impl Fnv {
-    /// The state of a hash of nothing.
-    pub(crate) const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0100_0000_01b3;
-
-    #[cfg(test)]
-    pub(crate) fn new() -> Self {
-        Self(Self::OFFSET)
-    }
-
-    pub(crate) const fn raw(&mut self, mut bytes: &[u8]) {
-        while let [b, rest @ ..] = bytes {
-            self.0 = (self.0 ^ *b as u64).wrapping_mul(Self::PRIME);
-            bytes = rest;
-        }
-    }
-
-    pub(crate) const fn u64(&mut self, v: u64) {
-        self.raw(&v.to_le_bytes());
-    }
-
-    #[cfg(test)]
-    pub(crate) fn usize(&mut self, v: usize) {
-        self.u64(u64::try_from(v).unwrap_or(u64::MAX));
-    }
-
-    /// Length-prefixed, so adjacent fields cannot run together.
-    #[cfg(test)]
-    pub(crate) fn bytes(&mut self, bytes: &[u8]) {
-        self.usize(bytes.len());
-        self.raw(bytes);
-    }
-}
-
 /// A key made of a purpose `tag` and the values it is for (positions, IDs, sessions).
 pub(crate) fn key(tag: u64, parts: &[u64]) -> u64 {
     parts.iter().fold(mix(tag), |k, &p| mix(k ^ p))
 }
-
-const GOLDEN: u64 = 0x9e37_79b9_7f4a_7c15;
 
 /// The `SplitMix64` finaliser.
 fn mix(mut z: u64) -> u64 {

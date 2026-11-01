@@ -17,9 +17,26 @@
 
 #[cfg(test)]
 mod drops;
+/// The block flags of [`Info::flags`], as bits (the generator's `BLOCK_FLAGS` order).
+pub(crate) mod flag {
+    pub(crate) const SOLID: u16 = 1;
+    pub(crate) const TRANSPARENT: u16 = 1 << 1;
+    pub(super) const REPLACEABLE: u16 = 1 << 2;
+    pub(super) const FLOWABLE: u16 = 1 << 3;
+    pub(super) const CLIMBABLE: u16 = 1 << 4;
+    pub(super) const ENTITY_COLLISION: u16 = 1 << 5;
+    pub(crate) const SILK_TOUCH: u16 = 1 << 6;
+    pub(super) const POSITION_OFFSET: u16 = 1 << 7;
+    pub(super) const BURNS_FOREVER: u16 = 1 << 8;
+}
 mod hash;
 mod inert;
 mod table;
+
+pub(crate) use hash::network_hash;
+pub(crate) use inert::Inert;
+pub(crate) use table::{AIR, BEDROCK, DIRT, GRASS_BLOCK, INFO_UPDATE, MAX_PROPERTIES};
+pub use table::{BannerPattern, Class, Kind, Trait, TypeTag};
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -30,10 +47,27 @@ use crate::custom;
 use crate::item;
 use crate::math::Aabb;
 
-pub(crate) use hash::network_hash;
-pub(crate) use inert::Inert;
-pub(crate) use table::{AIR, BEDROCK, DIRT, GRASS_BLOCK, INFO_UPDATE, MAX_PROPERTIES};
-pub use table::{BannerPattern, Class, Kind, Trait, TypeTag};
+/// Full support on every face, in the [`Info::support`] coding.
+pub(crate) const SUPPORT_FULL: u16 = 0;
+/// No support on any face, in the [`Info::support`] coding.
+pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
+
+/// The state item sentinel of [`table::STATE_ITEMS`] for a state without an item.
+const NO_ITEM: u16 = 0xffff;
+/// The state item sentinel of [`table::STATE_ITEMS`] for a state whose item the block entity
+/// decides.
+const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
+
+/// The classes of a custom block that is transparent: no PMMP class of its own.
+const CUSTOM_TRANSPARENT: [Class; 2] = [Class::Transparent, Class::Block];
+/// The classes of a custom block that is opaque: no PMMP class of its own.
+const CUSTOM_OPAQUE: [Class; 2] = [Class::Opaque, Class::Block];
+
+/// The offset in a connection word that means the state has no variants.
+const NO_VARIANTS: u32 = 0xffff;
+
+/// The room reserved for a copper block name.
+const COPPER_NAME_CAPACITY: usize = 48;
 
 /// A block state: a block name with a value for each of its properties.
 ///
@@ -50,140 +84,6 @@ pub use table::{BannerPattern, Class, Kind, Trait, TypeTag};
 #[doc(alias = "Block")]
 #[derive(Clone, Copy)]
 pub struct State(Repr);
-
-/// What a [`State`] is.
-#[derive(Clone, Copy)]
-enum Repr {
-    /// An index of the static state table.
-    Vanilla(u16),
-    /// A state of a custom block.
-    Custom(Custom),
-}
-
-/// A state of a custom block: the definition, the state's index among the block's states (the
-/// property values in [`custom::Block`] order), and what the server assigned when it was built
-/// (the block item's runtime ID and the state's network hash), carried so every lookup needs
-/// no registry.
-#[derive(Clone, Copy)]
-struct Custom {
-    block: &'static custom::Block,
-    index: u16,
-    item_runtime_id: i16,
-    network_id: u32,
-}
-
-/// A block state property: its name and value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Property {
-    name: &'static str,
-    value: PropertyValue<'static>,
-}
-
-/// The value of a block state property, typed as the client's block state NBT types it.
-///
-/// The table's values borrow `'static` strings; a lookup such as [`State::find`] takes values
-/// borrowed from its input. Values order by type (byte, int, string), then by value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PropertyValue<'a> {
-    /// A `TAG_Byte`; boolean properties are 0 or 1.
-    Byte(u8),
-    /// A `TAG_Int`.
-    Int(i32),
-    /// A `TAG_String`.
-    String(&'a str),
-}
-
-/// One row of the state table.
-#[derive(Debug)]
-struct Data {
-    /// Index into [`table::NAMES`].
-    name: u16,
-    /// The first of this state's entries in [`table::STATE_PROPERTIES`].
-    first_property: u32,
-    property_count: u8,
-    network_id: u32,
-    light_emission: u8,
-    light_filter: u8,
-    blocks_direct_sky_light: bool,
-    ticks_randomly: bool,
-}
-
-impl Data {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "consistency: one positional constructor keeps the generated table short"
-    )]
-    const fn new(
-        name: u16,
-        first_property: u32,
-        property_count: u8,
-        network_id: u32,
-        light_emission: u8,
-        light_filter: u8,
-        blocks_direct_sky_light: bool,
-        ticks_randomly: bool,
-    ) -> Self {
-        Self {
-            name,
-            first_property,
-            property_count,
-            network_id,
-            light_emission,
-            light_filter,
-            blocks_direct_sky_light,
-            ticks_randomly,
-        }
-    }
-}
-
-/// Whether `id` is the network ID of a vanilla state the client knows: of a state of the table,
-/// an alias or an inert state (together the reference list's states).
-pub(crate) fn is_vanilla_network_id(id: u32) -> bool {
-    State::from_network_id(id).is_some()
-        || table::ALIAS_NETWORK_IDS.binary_search(&id).is_ok()
-        || Inert::from_network_id(id).is_some()
-}
-
-/// One row of the alias table: a reference state that is not a state of the table, and the
-/// state PMMP reads it as.
-#[derive(Debug)]
-struct Alias {
-    /// Index into [`table::NAMES`].
-    name: u16,
-    /// The first of this alias's entries in [`table::STATE_PROPERTIES`].
-    first_property: u32,
-    property_count: u8,
-    /// The state index PMMP reads it as.
-    state: u16,
-}
-
-impl Alias {
-    const fn new(name: u16, first_property: u32, property_count: u8, state: u16) -> Self {
-        Self {
-            name,
-            first_property,
-            property_count,
-            state,
-        }
-    }
-}
-
-impl Property {
-    const fn new(name: &'static str, value: PropertyValue<'static>) -> Self {
-        Self { name, value }
-    }
-
-    /// The property name, such as `facing_direction`.
-    pub fn name(&self) -> &'static str {
-        self.name
-    }
-
-    /// The property value.
-    #[inline]
-    pub fn value(&self) -> PropertyValue<'static> {
-        self.value
-    }
-}
 
 impl State {
     /// The state with this table index. Only generated tables call it, with indices of the
@@ -216,65 +116,30 @@ impl State {
         })))
     }
 
-    /// The custom state this is, `None` for a state of the table.
-    #[inline]
-    fn as_custom(self) -> Option<Custom> {
-        match self.0 {
-            Repr::Vanilla(_) => None,
-            Repr::Custom(c) => Some(c),
-        }
-    }
-
-    /// The custom block of a custom state, `None` for a state of the table.
-    #[inline]
-    pub fn custom_block(self) -> Option<&'static custom::Block> {
-        self.as_custom().map(|c| c.block)
-    }
-
-    /// The index into the static tables, `None` for a custom state.
-    #[inline]
-    fn vanilla(self) -> Option<usize> {
-        match self.0 {
-            Repr::Vanilla(i) => Some(usize::from(i)),
-            Repr::Custom(_) => None,
-        }
-    }
-
-    /// The table row of a state of the table.
-    #[inline]
-    fn data(index: u16) -> &'static Data {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: a State is only made from an index of the state table"
-        )]
-        &table::STATES[usize::from(index)]
-    }
-
-    /// The block name, such as `minecraft:oak_stairs`, or a custom block's identifier.
-    pub fn name(self) -> &'static str {
-        match self.0 {
-            Repr::Vanilla(i) => {
-                let index = usize::from(Self::data(i).name);
-                table::NAMES.get(index).copied().unwrap_or_default()
-            }
-            Repr::Custom(c) => c.block.identifier(),
-        }
-    }
-
     /// Every state of the table, in table order (by name, then properties). Custom states are
     /// not in it.
     ///
     /// It lets a caller see the whole table without knowing its names, such as to list every
     /// block or to check the table against a reference list.
     #[doc(alias = "BlockStateDictionary::getStates")]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "invariant: the generator rejects more than `u16::MAX` states"
+    )]
     pub fn all() -> impl ExactSizeIterator<Item = Self> + Clone {
-        // The generator rejects more than `u16::MAX` states, so the count always fits.
-        let count = u16::try_from(table::STATES.len()).unwrap_or(u16::MAX);
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the generator rejects more than `u16::MAX` states"
+        )]
+        let count = u16::try_from(table::STATES.len())
+            .expect("the state table has at most `u16::MAX` states");
         (0..count).map(Self::from_index)
     }
 
-    /// The state of the table with this network ID, or `None` if no state of the table has it
-    /// (the server finds custom states: [`Context::custom_block`](crate::Context::custom_block)).
+    /// The state of the table with this network ID, or `None` if no state of the table has it.
+    /// A custom state has no lookup by network ID: it comes from its definition
+    /// ([`Context::custom_block`](crate::Context::custom_block) gives the default state and
+    /// [`State::with`] the others).
     #[doc(alias = "BlockStateDictionary::generateDataFromStateId")]
     pub fn from_network_id(id: u32) -> Option<Self> {
         let i = table::NETWORK_IDS.binary_search(&id).ok()?;
@@ -288,7 +153,8 @@ impl State {
     ///
     /// It is meant for input from disk or the network: it never allocates, and an unknown name,
     /// a missing, extra or repeated property, a value of the wrong type or an unknown value gives
-    /// `None`. Custom states are not in the table.
+    /// `None`. Custom states are not in the table; they come from their definition
+    /// ([`State::from_network_id`]).
     #[doc(alias = "BlockStateDictionary::lookupStateIdFromData")]
     pub fn find(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
         let at = search(
@@ -318,6 +184,50 @@ impl State {
         })
     }
 
+    /// The state with the same name and properties except `name`, which has `value`; `None` if
+    /// the state has no property `name` or no state has that value (a crop's `growth` past its
+    /// last stage). It never allocates.
+    pub fn with(self, name: &str, value: PropertyValue<'_>) -> Option<Self> {
+        let data = match self.0 {
+            Repr::Vanilla(i) => Self::data(i),
+            Repr::Custom(c) => {
+                let index = c.block.with_value(c.index, name, value)?;
+                return Self::custom(c.block, index, c.item_runtime_id);
+            }
+        };
+        let mut buffer = [("", PropertyValue::Byte(0)); table::MAX_PROPERTIES];
+        let mut found = false;
+        let mut count = 0;
+        for (slot, p) in buffer
+            .iter_mut()
+            .zip(properties_of(data.first_property, data.property_count))
+        {
+            *slot = if p.name == name {
+                found = true;
+                (p.name, value)
+            } else {
+                (p.name, p.value)
+            };
+            count += 1;
+        }
+        if !found {
+            return None;
+        }
+        Self::find(self.name(), buffer.get(..count)?)
+    }
+
+    /// The block name, such as `minecraft:oak_stairs`, or a custom block's identifier.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated state rows index the name table"
+    )]
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            Repr::Vanilla(i) => table::NAMES[usize::from(Self::data(i).name)],
+            Repr::Custom(c) => c.block.identifier(),
+        }
+    }
+
     /// The properties, sorted by name.
     #[inline]
     pub fn properties(self) -> impl ExactSizeIterator<Item = Property> + 'static {
@@ -334,6 +244,20 @@ impl State {
         }
     }
 
+    /// The value of a property, or `None` if the state has no property of that name.
+    #[inline]
+    pub fn value(self, name: &str) -> Option<PropertyValue<'static>> {
+        let found = match self.0 {
+            // The table's rows directly, without the custom branch in every step.
+            Repr::Vanilla(i) => {
+                let d = Self::data(i);
+                properties_of(d.first_property, d.property_count).find(|p| p.name == name)
+            }
+            Repr::Custom(_) => self.properties().find(|p| p.name == name),
+        };
+        found.map(|p| p.value)
+    }
+
     /// The network ID: the block state hash the client uses with `UseBlockNetworkIDHashes`.
     #[inline]
     pub fn network_id(self) -> u32 {
@@ -341,6 +265,56 @@ impl State {
             Repr::Vanilla(i) => Self::data(i).network_id,
             Repr::Custom(c) => c.network_id,
         }
+    }
+
+    /// The PMMP block type, such as [`Kind::OakPlanks`]. A custom block has none of its own and
+    /// reads as [`Kind::InfoUpdate`], which no vanilla rule acts on.
+    #[doc(alias = "Block::getTypeId")]
+    #[inline]
+    pub fn kind(self) -> Kind {
+        match self.0 {
+            Repr::Vanilla(i) =>
+            {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: the generated tables have a kind index per state, and \
+                              each indexes the kind table"
+                )]
+                table::KINDS[usize::from(table::STATE_KIND[usize::from(i)])]
+            }
+            Repr::Custom(_) => Kind::InfoUpdate,
+        }
+    }
+
+    /// The PMMP class of the block, such as [`Class::Wheat`]; [`Class::Transparent`] or
+    /// [`Class::Opaque`] for a custom block.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: a class chain holds at least the block's own class"
+    )]
+    #[inline]
+    pub fn class(self) -> Class {
+        self.classes()[0]
+    }
+
+    /// Whether the block is of the PMMP class or a subclass of it (`instanceof`), such as
+    /// [`Class::Crops`] for wheat.
+    #[inline]
+    pub fn is(self, class: Class) -> bool {
+        self.classes().contains(&class)
+    }
+
+    /// Whether the block's PMMP class has the trait or interface, such as [`Trait::Fallable`].
+    /// A custom block has none.
+    #[inline]
+    pub fn has_trait(self, t: Trait) -> bool {
+        self.vanilla().is_some() && self.kind().has_trait(t)
+    }
+
+    /// The custom block of a custom state, `None` for a state of the table.
+    #[inline]
+    pub fn custom_block(self) -> Option<&'static custom::Block> {
+        self.as_custom().map(|c| c.block)
     }
 
     /// The light level the block gives off, 0 to 15.
@@ -385,27 +359,369 @@ impl State {
             Repr::Custom(c) => c.block.ticks_randomly(),
         }
     }
+
+    /// How hard the block is to break and what it needs to drop.
+    #[doc(alias = "Block::getBreakInfo")]
+    #[inline]
+    pub fn break_info(self) -> BreakInfo {
+        self.info().breaking()
+    }
+
+    /// The seconds the block takes to break with `tool` (the empty stack is a hand):
+    /// [`BreakInfo::break_time_secs`], except for the blocks whose break info PMMP overrides
+    /// (`VanillaBlocksInputs`): shears break leaves and swords break bamboo at once, and shears
+    /// take three times as long on wool. `None` for a block that cannot be broken and if the
+    /// tool's efficiency is not positive. It is the time before the breaker's conditions (on the
+    /// ground, in water, Haste, Mining Fatigue).
+    pub fn break_time_secs(self, tool: &item::Stack) -> Option<f64> {
+        let tool_type = tool
+            .item()
+            .map_or(ToolType::NONE, item::Type::block_tool_type);
+        if (self.is(Class::Leaves) && tool_type == ToolType::SHEARS)
+            || (self.kind() == Kind::Bamboo && tool_type == ToolType::SWORD)
+        {
+            return Some(0.0);
+        }
+        let time = self.break_info().break_time_secs(tool)?;
+        if self.kind() == Kind::Wool && tool_type == ToolType::SHEARS {
+            Some(time * 3.0)
+        } else {
+            Some(time)
+        }
+    }
+
+    /// The chance the block catches fire from fire next to it; 0 if it does not burn.
+    #[doc(alias = "Block::getFlammability")]
+    #[inline]
+    pub fn flammability(self) -> u8 {
+        self.info().fire().0
+    }
+
+    /// How much the block helps fire spread to it.
+    #[doc(alias = "Block::getFlameEncouragement")]
+    pub fn flame_encouragement(self) -> u8 {
+        self.info().fire().1
+    }
+
+    /// Whether the block catches fire at all.
+    #[doc(alias = "Block::isFlammable")]
+    pub fn is_flammable(self) -> bool {
+        self.flammability() > 0
+    }
+
+    /// Whether fire on top of the block never goes out (netherrack).
+    #[doc(alias = "Block::burnsForever")]
+    #[inline]
+    pub fn burns_forever(self) -> bool {
+        self.has_flag(flag::BURNS_FOREVER)
+    }
+
+    /// Whether the block is solid (PMMP's meaning: entities cannot stand inside it).
+    #[doc(alias = "Block::isSolid")]
+    #[inline]
+    pub fn is_solid(self) -> bool {
+        self.has_flag(flag::SOLID)
+    }
+
+    /// Whether the block lets light through and does not hide the faces next to it.
+    #[doc(alias = "Block::isTransparent")]
+    #[inline]
+    pub fn is_transparent(self) -> bool {
+        self.has_flag(flag::TRANSPARENT)
+    }
+
+    /// Whether placing a block on it replaces it (air, tall grass, liquids).
+    #[doc(alias = "Block::canBeReplaced")]
+    #[inline]
+    pub fn can_be_replaced(self) -> bool {
+        self.has_flag(flag::REPLACEABLE)
+    }
+
+    /// Whether flowing liquid destroys the block.
+    #[doc(alias = "Block::canBeFlowedInto")]
+    #[inline]
+    pub fn can_be_flowed_into(self) -> bool {
+        self.has_flag(flag::FLOWABLE)
+    }
+
+    /// Whether entities can climb the block (ladders, vines).
+    #[doc(alias = "Block::canClimb")]
+    #[inline]
+    pub fn can_climb(self) -> bool {
+        self.has_flag(flag::CLIMBABLE)
+    }
+
+    /// Whether the block acts on entities inside its cell (PMMP `onEntityInside`).
+    #[doc(alias = "Block::hasEntityCollision")]
+    #[inline]
+    pub fn has_entity_collision(self) -> bool {
+        self.has_flag(flag::ENTITY_COLLISION)
+    }
+
+    /// Whether a Silk Touch tool makes the block drop itself.
+    #[doc(alias = "Block::isAffectedBySilkTouch")]
+    pub fn is_affected_by_silk_touch(self) -> bool {
+        self.has_flag(flag::SILK_TOUCH)
+    }
+
+    /// Whether the collision boxes move with a hash of the position (bamboo; PMMP
+    /// `Block::getModelPositionOffset`): [`State::collision_boxes`] are then before that move.
+    #[doc(alias = "Block::getModelPositionOffset")]
+    pub fn has_position_offset(self) -> bool {
+        self.has_flag(flag::POSITION_OFFSET)
+    }
+
+    /// How slippery the block is to stand on (0.6 for most, more for ice).
+    #[doc(alias = "Block::getFrictionFactor")]
+    #[inline]
+    pub fn friction_factor(self) -> f64 {
+        self.info().friction_value()
+    }
+
+    /// Whether the block's type has the tag.
+    #[doc(alias = "Block::hasTypeTag")]
+    #[inline]
+    pub fn has_type_tag(self, tag: TypeTag) -> bool {
+        self.info().tags & (1 << tag as u16) != 0
+    }
+
+    /// The support the face gives to blocks that need it.
+    #[doc(alias = "Block::getSupportType")]
+    #[inline]
+    pub fn support(self, face: Face) -> SupportType {
+        match (self.info().support >> (2 * face as u16)) & 0b11 {
+            0 => SupportType::Full,
+            1 => SupportType::Center,
+            2 => SupportType::Edge,
+            _ => SupportType::None,
+        }
+    }
+
+    /// The collision boxes relative to the block's lowest corner (PMMP `getCollisionBoxes` before
+    /// the move to the block's position). A fence's, pane's or stair's are those of the
+    /// connections or shape its state names; a chorus plant's do not show its connections, which
+    /// PMMP works out from the neighbours.
+    #[doc(alias = "Block::getCollisionBoxes")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated physics rows index the box table"
+    )]
+    #[inline]
+    pub fn collision_boxes(self) -> &'static [Aabb] {
+        if let Repr::Custom(c) = self.0 {
+            return c.block.collision_boxes();
+        }
+        let info = self.info();
+        let start = usize::from(info.box_start);
+        &table::BOXES[start..start + usize::from(info.box_count)]
+    }
+
+    /// The item the block turns into (PMMP `asItem`): for a custom block, its block item.
+    #[doc(alias = "Block::asItem")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated item table has a row per state"
+    )]
+    pub fn item(self) -> ItemForm {
+        let index = match self.0 {
+            Repr::Vanilla(i) => usize::from(i),
+            Repr::Custom(c) => {
+                return ItemForm::Item(item::Type::from_custom_block(c.block, c.item_runtime_id));
+            }
+        };
+        match table::STATE_ITEMS[index] {
+            BLOCK_ENTITY_ITEM => ItemForm::BlockEntity,
+            NO_ITEM => ItemForm::None,
+            i => ItemForm::Item(item::Type::from_index(i)),
+        }
+    }
+
+    /// The state's part in neighbour connections.
+    pub(crate) fn connection(self) -> Connection {
+        let word = self.connect();
+        match word & 0xf {
+            1 => Connection::Fence {
+                group: u8::try_from((word >> 12) & 0xf).unwrap_or_default(),
+            },
+            2 => Connection::Thin,
+            3 => Connection::Wall,
+            4 => Connection::FenceGate,
+            5 => Connection::Stair,
+            6 => Connection::Tripwire,
+            7 => Connection::TripwireHook,
+            _ => Connection::None,
+        }
+    }
+
+    /// Whether the face toward `face` gives full support (PMMP `getSupportType` is `FULL`):
+    /// fences, panes and walls connect to such a face.
+    pub(crate) fn has_full_face(self, face: Facing) -> bool {
+        self.connect() & (u32::from(face.bit()) << 4) != 0
+    }
+
+    /// The horizontal facing of stairs, fence gates and tripwire hooks.
+    pub(crate) fn facing(self) -> Option<Facing> {
+        let at = usize::try_from((self.connect() >> 8) & 0x7).ok()?;
+        Facing::ALL.get(at.checked_sub(1)?).copied()
+    }
+
+    /// Whether a stair is upside down.
+    pub(crate) fn is_upside_down(self) -> bool {
+        self.connect() & (1 << 11) != 0
+    }
+
+    /// Everything the neighbour rules read of a state as a neighbour: its kind and fence group,
+    /// full faces, facing, upside down and whether it is air. Two states with the same view
+    /// leave their neighbours' states the same.
+    pub(crate) fn neighbour_view(self) -> u32 {
+        (self.connect() & 0xffff) | (u32::from(self == AIR) << 16)
+    }
+
+    /// The variant `index` of this state (see [`State::connect`] for the order): the state with
+    /// the same properties except those the neighbours decide. `None` if the state has no
+    /// variants or `index` is past them.
+    pub(crate) fn variant(self, index: usize) -> Option<Self> {
+        let word = self.connect();
+        let offset = word >> 16;
+        let count = match self.connection() {
+            Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => 16,
+            Connection::Stair => 5,
+            Connection::Wall => 162,
+            Connection::FenceGate => 2,
+            Connection::None | Connection::TripwireHook => 0,
+        };
+        if offset == NO_VARIANTS || index >= count {
+            return None;
+        }
+        let at = usize::try_from(offset).ok()?.checked_add(index)?;
+        table::VARIANTS.get(at).copied().map(Self::from_index)
+    }
+
+    /// The state's golden drops.
+    #[cfg(test)]
+    pub(crate) fn golden_drops(self) -> &'static Golden {
+        let index = self.vanilla().expect("golden drops are of table states");
+        &drops::GOLDEN[usize::from(drops::STATE_GOLDEN[index])]
+    }
+
+    /// The custom state this is, `None` for a state of the table.
+    #[inline]
+    fn as_custom(self) -> Option<Custom> {
+        match self.0 {
+            Repr::Vanilla(_) => None,
+            Repr::Custom(c) => Some(c),
+        }
+    }
+
+    /// The index into the static tables, `None` for a custom state.
+    #[inline]
+    fn vanilla(self) -> Option<usize> {
+        match self.0 {
+            Repr::Vanilla(i) => Some(usize::from(i)),
+            Repr::Custom(_) => None,
+        }
+    }
+
+    /// The table row of a state of the table.
+    #[inline]
+    fn data(index: u16) -> &'static Data {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: a State is only made from an index of the state table"
+        )]
+        &table::STATES[usize::from(index)]
+    }
+
+    #[inline]
+    fn info(self) -> &'static Info {
+        match self.0 {
+            Repr::Vanilla(i) =>
+            {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: the generated tables have a row index per state, and \
+                              each indexes the physics table"
+                )]
+                &table::INFO[usize::from(table::STATE_INFO[usize::from(i)])]
+            }
+            Repr::Custom(c) => c.block.info(),
+        }
+    }
+
+    /// The PMMP class and its parents, leaf first, ending with [`Class::Block`].
+    #[inline]
+    fn classes(self) -> &'static [Class] {
+        match self.0 {
+            Repr::Vanilla(_) => self.kind().classes(),
+            Repr::Custom(c) if c.block.info().has(flag::TRANSPARENT) => &CUSTOM_TRANSPARENT,
+            Repr::Custom(_) => &CUSTOM_OPAQUE,
+        }
+    }
+
+    #[inline]
+    fn has_flag(self, bit: u16) -> bool {
+        self.info().has(bit)
+    }
+
+    /// The state's connection word in [`table::CONNECT`]: bits 0-3 the [`Connection`] kind (0
+    /// none, then fence, thin, wall, fence gate, stair, tripwire, tripwire hook), bits 4-7 the
+    /// horizontal faces with full support ([`Facing::bit`]), bits 8-10 the facing (0 none, then
+    /// 1 + the index in [`Facing::ALL`]), bit 11 upside down (stairs), bits 12-15 the fence group
+    /// and bits 16-31 the offset of the state's variants in [`table::VARIANTS`] (`0xffff`: none).
+    ///
+    /// Variants are the states that differ only in what the neighbours decide, indexed so:
+    /// fences, panes, bars and tripwire by their connection set (bit [`Facing::bit`] set when
+    /// connected, 16 variants); stairs by `minecraft:corner` (none, inner left, inner right,
+    /// outer left, outer right); walls by `((((north × 3 + east) × 3 + south) × 3 + west) × 2 +
+    /// post` with each side none 0, short 1 or tall 2 (162 variants); fence gates by
+    /// `in_wall_bit` (2 variants).
+    fn connect(self) -> u32 {
+        match self.0 {
+            Repr::Vanilla(i) =>
+            {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: a State is only made from an index of the state table, \
+                              and the connection table has a word per state"
+                )]
+                table::CONNECT[usize::from(i)]
+            }
+            // No connection kind or facing, no variants; the full horizontal faces.
+            Repr::Custom(_) => {
+                let full = Facing::ALL
+                    .iter()
+                    .filter(|f| self.support(f.face()) == SupportType::Full)
+                    .fold(0u32, |bits, f| bits | u32::from(f.bit()));
+                (full << 4) | (NO_VARIANTS << 16)
+            }
+        }
+    }
 }
 
-impl PartialEq for State {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        match (self.0, other.0) {
-            (Repr::Vanilla(a), Repr::Vanilla(b)) => a == b,
-            (Repr::Custom(a), Repr::Custom(b)) => {
-                a.index == b.index && a.block.identifier() == b.block.identifier()
-            }
-            _ => false,
+impl fmt::Debug for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct("State");
+        s.field("name", &self.name());
+        for p in self.properties() {
+            s.field(p.name, &p.value);
         }
+        s.finish()
     }
 }
 
 impl Eq for State {}
 
-impl PartialOrd for State {
+impl Hash for State {
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        match self.0 {
+            Repr::Vanilla(i) => i.hash(h),
+            // Equal custom states have equal network IDs.
+            Repr::Custom(c) => {
+                c.network_id.hash(h);
+                c.index.hash(h);
+            }
+        }
     }
 }
 
@@ -427,18 +743,83 @@ impl Ord for State {
     }
 }
 
-impl Hash for State {
+impl PartialEq for State {
     #[inline]
-    fn hash<H: Hasher>(&self, h: &mut H) {
-        match self.0 {
-            Repr::Vanilla(i) => i.hash(h),
-            // Equal custom states have equal network IDs.
-            Repr::Custom(c) => {
-                c.network_id.hash(h);
-                c.index.hash(h);
+    fn eq(&self, other: &Self) -> bool {
+        match (self.0, other.0) {
+            (Repr::Vanilla(a), Repr::Vanilla(b)) => a == b,
+            (Repr::Custom(a), Repr::Custom(b)) => {
+                a.index == b.index && a.block.identifier() == b.block.identifier()
             }
+            _ => false,
         }
     }
+}
+
+impl PartialOrd for State {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// What a [`State`] is.
+#[derive(Clone, Copy)]
+enum Repr {
+    /// An index of the static state table.
+    Vanilla(u16),
+    /// A state of a custom block.
+    Custom(Custom),
+}
+
+/// A state of a custom block: the definition, the state's index among the block's states (the
+/// property values in [`custom::Block`] order), and what the server assigned when it was built
+/// (the block item's runtime ID and the state's network hash), carried so every lookup needs
+/// no registry.
+#[derive(Clone, Copy)]
+struct Custom {
+    block: &'static custom::Block,
+    index: u16,
+    item_runtime_id: i16,
+    network_id: u32,
+}
+
+/// A block state property: its name and value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Property {
+    name: &'static str,
+    value: PropertyValue<'static>,
+}
+
+impl Property {
+    const fn new(name: &'static str, value: PropertyValue<'static>) -> Self {
+        Self { name, value }
+    }
+
+    /// The property name, such as `facing_direction`.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// The property value.
+    #[inline]
+    pub fn value(&self) -> PropertyValue<'static> {
+        self.value
+    }
+}
+
+/// The value of a block state property, typed as the client's block state NBT types it.
+///
+/// The table's values borrow `'static` strings; a lookup such as [`State::find`] takes values
+/// borrowed from its input. Values order by type (byte, int, string), then by value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PropertyValue<'a> {
+    /// A `TAG_Byte`; boolean properties are 0 or 1.
+    Byte(u8),
+    /// A `TAG_Int`.
+    Int(i32),
+    /// A `TAG_String`.
+    String(&'a str),
 }
 
 /// The properties of a state, sorted by name ([`State::properties`]).
@@ -453,6 +834,8 @@ enum PropertyIter {
         at: usize,
     },
 }
+
+impl ExactSizeIterator for PropertyIter {}
 
 impl Iterator for PropertyIter {
     type Item = Property;
@@ -485,8 +868,6 @@ impl Iterator for PropertyIter {
     }
 }
 
-impl ExactSizeIterator for PropertyIter {}
-
 /// The tools a block is broken faster with and may need to drop anything (PMMP `BlockToolType`),
 /// as a set of bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -507,6 +888,16 @@ impl ToolType {
     pub const SHEARS: Self = Self(1 << 4);
     /// A hoe.
     pub const HOE: Self = Self(1 << 5);
+    /// Every tool type: an inert block counts the held tool as the right one, so the break time
+    /// the server allows is never longer than the client's.
+    pub(crate) const ALL: Self = Self(
+        Self::SWORD.0
+            | Self::SHOVEL.0
+            | Self::PICKAXE.0
+            | Self::AXE.0
+            | Self::SHEARS.0
+            | Self::HOE.0,
+    );
 
     /// The set with these bits, as PMMP numbers them. Only generated tables call it.
     pub(crate) const fn from_bits(bits: u8) -> Self {
@@ -624,11 +1015,15 @@ impl BreakInfo {
     /// hardness, times 1.5 with a compatible tool or 5 without, divided by the tool's mining
     /// efficiency. The efficiency is a tool's base efficiency plus level² + 1 for an Efficiency
     /// enchantment when its tool type fits the block, else 1; a sword's is half again either way
-    /// (PMMP `Tool::getMiningEfficiency`, `Sword::getMiningEfficiency`). `None` if the efficiency
-    /// is not positive. PMMP overrides it for leaves, bamboo and wool: [`State::break_time_secs`] has
-    /// the time of a given block.
+    /// (PMMP `Tool::getMiningEfficiency`, `Sword::getMiningEfficiency`). `None` for a block that
+    /// cannot be broken and if the efficiency is not positive. It is the time before the
+    /// breaker's conditions (on the ground, in water, Haste, Mining Fatigue). PMMP overrides it
+    /// for leaves, bamboo and wool: [`State::break_time_secs`] has the time of a given block.
     #[doc(alias = "BlockBreakInfo::getBreakTime")]
     pub fn break_time_secs(self, tool: &item::Stack) -> Option<f64> {
+        if !self.is_breakable() {
+            return None;
+        }
         let item = tool.item();
         let tool_type = item.map_or(ToolType::NONE, item::Type::block_tool_type);
         let harvest_level = item.map_or(0, item::Type::block_tool_harvest_level);
@@ -730,6 +1125,13 @@ impl Face {
     #[doc(alias = "Block::getHorizontalSides")]
     pub const HORIZONTAL: [Self; 4] = [Self::North, Self::South, Self::West, Self::East];
 
+    /// The face numbered `index` ([`Self::index`]); `None` for any other number.
+    pub(crate) fn from_index(index: i32) -> Option<Self> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| Self::ALL.get(i).copied())
+    }
+
     /// The face on the other side.
     #[must_use]
     pub const fn opposite(self) -> Self {
@@ -743,6 +1145,18 @@ impl Face {
         }
     }
 
+    /// The step one block this way: (x, y, z).
+    pub const fn offset(self) -> (i32, i32, i32) {
+        match self {
+            Self::Down => (0, -1, 0),
+            Self::Up => (0, 1, 0),
+            Self::North => (0, 0, -1),
+            Self::South => (0, 0, 1),
+            Self::West => (-1, 0, 0),
+            Self::East => (1, 0, 0),
+        }
+    }
+
     /// The face's number in PMMP `Facing` order (down 0, up 1, north 2, south 3, west 4,
     /// east 5): what packets, particles and block entities carry.
     pub(crate) const fn index(self) -> u8 {
@@ -753,25 +1167,6 @@ impl Face {
             Self::South => 3,
             Self::West => 4,
             Self::East => 5,
-        }
-    }
-
-    /// The face numbered `index` ([`Self::index`]); `None` for any other number.
-    pub(crate) fn from_index(index: i32) -> Option<Self> {
-        usize::try_from(index)
-            .ok()
-            .and_then(|i| Self::ALL.get(i).copied())
-    }
-
-    /// The step one block this way: (x, y, z).
-    pub const fn offset(self) -> (i32, i32, i32) {
-        match self {
-            Self::Down => (0, -1, 0),
-            Self::Up => (0, 1, 0),
-            Self::North => (0, 0, -1),
-            Self::South => (0, 0, 1),
-            Self::West => (-1, 0, 0),
-            Self::East => (1, 0, 0),
         }
     }
 }
@@ -788,39 +1183,86 @@ pub enum ItemForm {
     BlockEntity,
 }
 
-/// A row of the kind table.
-#[derive(Debug)]
-struct KindData {
-    default: State,
-    /// The first of the kind's classes in [`table::CLASS_CHAINS`].
-    class_start: u16,
-    class_count: u8,
-    /// [`Trait`] bits.
-    traits: u64,
+/// A horizontal direction (PMMP `Facing`): north is -z, east +x, south +z and west -x.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Facing {
+    North,
+    East,
+    South,
+    West,
 }
 
-impl KindData {
-    const fn new(default: State, class_start: u16, class_count: u8, traits: u64) -> Self {
-        Self {
-            default,
-            class_start,
-            class_count,
-            traits,
+impl Facing {
+    /// Every horizontal direction, in the order of their bits in the connection table.
+    pub(crate) const ALL: [Self; 4] = [Self::North, Self::East, Self::South, Self::West];
+
+    /// The bit of this direction in the connection table's face and connection sets.
+    pub(crate) const fn bit(self) -> u8 {
+        match self {
+            Self::North => 1,
+            Self::East => 2,
+            Self::South => 4,
+            Self::West => 8,
+        }
+    }
+
+    /// The direction on the other side.
+    pub(crate) const fn opposite(self) -> Self {
+        match self {
+            Self::North => Self::South,
+            Self::East => Self::West,
+            Self::South => Self::North,
+            Self::West => Self::East,
+        }
+    }
+
+    /// The direction a quarter turn clockwise seen from above (PMMP `Facing::rotateY(f, true)`).
+    pub(crate) const fn clockwise(self) -> Self {
+        match self {
+            Self::North => Self::East,
+            Self::East => Self::South,
+            Self::South => Self::West,
+            Self::West => Self::North,
+        }
+    }
+
+    /// The block face toward this direction.
+    pub(crate) const fn face(self) -> Face {
+        match self {
+            Self::North => Face::North,
+            Self::East => Face::East,
+            Self::South => Face::South,
+            Self::West => Face::West,
+        }
+    }
+
+    /// The step one block this way: (x, z).
+    pub(crate) const fn offset(self) -> (i32, i32) {
+        match self {
+            Self::North => (0, -1),
+            Self::East => (1, 0),
+            Self::South => (0, 1),
+            Self::West => (-1, 0),
         }
     }
 }
 
-/// The block flags of [`Info::flags`], as bits (the generator's `BLOCK_FLAGS` order).
-pub(crate) mod flag {
-    pub(crate) const SOLID: u16 = 1;
-    pub(crate) const TRANSPARENT: u16 = 1 << 1;
-    pub(super) const REPLACEABLE: u16 = 1 << 2;
-    pub(super) const FLOWABLE: u16 = 1 << 3;
-    pub(super) const CLIMBABLE: u16 = 1 << 4;
-    pub(super) const ENTITY_COLLISION: u16 = 1 << 5;
-    pub(crate) const SILK_TOUCH: u16 = 1 << 6;
-    pub(super) const POSITION_OFFSET: u16 = 1 << 7;
-    pub(super) const BURNS_FOREVER: u16 = 1 << 8;
+/// How a state takes part in neighbour connections: the PMMP block class whose
+/// rules work its state out from the neighbours, or which those rules look for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Connection {
+    None,
+    /// A fence; fences connect to fences of the same group (PMMP class).
+    Fence {
+        group: u8,
+    },
+    /// Glass panes and bars (PMMP `Thin`).
+    Thin,
+    Wall,
+    FenceGate,
+    Stair,
+    Tripwire,
+    TripwireHook,
 }
 
 /// A row of the physics table: the values of a state other than its kind and light. A custom
@@ -951,412 +1393,236 @@ impl Info {
     }
 }
 
-/// Full support on every face, in the [`Info::support`] coding.
-pub(crate) const SUPPORT_FULL: u16 = 0;
-/// No support on any face, in the [`Info::support`] coding.
-pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
+/// A row of the kind table.
+#[derive(Debug)]
+struct KindData {
+    default: State,
+    /// The first of the kind's classes in [`table::CLASS_CHAINS`].
+    class_start: u16,
+    class_count: u8,
+    /// [`Trait`] bits.
+    traits: u64,
+}
 
-/// The state item sentinels of [`table::STATE_ITEMS`].
-const NO_ITEM: u16 = 0xffff;
-const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
+impl KindData {
+    const fn new(default: State, class_start: u16, class_count: u8, traits: u64) -> Self {
+        Self {
+            default,
+            class_start,
+            class_count,
+            traits,
+        }
+    }
+}
 
-/// The classes of a custom block: no PMMP class of its own, a transparent or an
-/// opaque block.
-const CUSTOM_TRANSPARENT: [Class; 2] = [Class::Transparent, Class::Block];
-const CUSTOM_OPAQUE: [Class; 2] = [Class::Opaque, Class::Block];
+/// One row of the state table.
+#[derive(Debug)]
+struct Data {
+    /// Index into [`table::NAMES`].
+    name: u16,
+    /// The first of this state's entries in [`table::STATE_PROPERTIES`].
+    first_property: u32,
+    property_count: u8,
+    network_id: u32,
+    light_emission: u8,
+    light_filter: u8,
+    blocks_direct_sky_light: bool,
+    ticks_randomly: bool,
+}
 
-impl State {
-    #[inline]
-    fn info(self) -> &'static Info {
-        match self.0 {
-            Repr::Vanilla(i) =>
-            {
-                #[expect(
-                    clippy::indexing_slicing,
-                    reason = "invariant: the generated tables have a row index per state, and \
-                              each indexes the physics table"
-                )]
-                &table::INFO[usize::from(table::STATE_INFO[usize::from(i)])]
-            }
-            Repr::Custom(c) => c.block.info(),
+impl Data {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "consistency: one positional constructor keeps the generated table short"
+    )]
+    const fn new(
+        name: u16,
+        first_property: u32,
+        property_count: u8,
+        network_id: u32,
+        light_emission: u8,
+        light_filter: u8,
+        blocks_direct_sky_light: bool,
+        ticks_randomly: bool,
+    ) -> Self {
+        Self {
+            name,
+            first_property,
+            property_count,
+            network_id,
+            light_emission,
+            light_filter,
+            blocks_direct_sky_light,
+            ticks_randomly,
+        }
+    }
+}
+
+/// One row of the alias table: a reference state that is not a state of the table, and the
+/// state PMMP reads it as.
+#[derive(Debug)]
+struct Alias {
+    /// Index into [`table::NAMES`].
+    name: u16,
+    /// The first of this alias's entries in [`table::STATE_PROPERTIES`].
+    first_property: u32,
+    property_count: u8,
+    /// The state index PMMP reads it as.
+    state: u16,
+}
+
+impl Alias {
+    const fn new(name: u16, first_property: u32, property_count: u8, state: u16) -> Self {
+        Self {
+            name,
+            first_property,
+            property_count,
+            state,
+        }
+    }
+}
+
+/// A copper block's oxidation stage, from new to oxidized (PMMP `CopperOxidation`). A block's
+/// stage is the prefix of its name (`minecraft:weathered_cut_copper`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pmmp-class: CopperOxidation
+pub enum CopperOxidation {
+    /// New copper.
+    None,
+    /// Exposed.
+    Exposed,
+    /// Weathered.
+    Weathered,
+    /// Oxidized.
+    Oxidized,
+}
+
+impl CopperOxidation {
+    /// Every stage, from new to oxidized.
+    pub const ALL: [Self; 4] = [Self::None, Self::Exposed, Self::Weathered, Self::Oxidized];
+
+    /// The next stage; `None` for oxidized copper.
+    #[doc(alias = "CopperOxidation::getNext")]
+    pub fn next(self) -> Option<Self> {
+        Self::ALL.get(self.index() + 1).copied()
+    }
+
+    /// The stage before; `None` for new copper.
+    #[doc(alias = "CopperOxidation::getPrevious")]
+    pub fn previous(self) -> Option<Self> {
+        Self::ALL.get(self.index().checked_sub(1)?).copied()
+    }
+
+    /// The stage's place in [`Self::ALL`] (PMMP's case value).
+    const fn index(self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::Exposed => 1,
+            Self::Weathered => 2,
+            Self::Oxidized => 3,
         }
     }
 
-    /// The PMMP block type, such as [`Kind::OakPlanks`]. A custom block has none of its own and
-    /// reads as [`Kind::InfoUpdate`], which no vanilla rule acts on.
-    #[doc(alias = "Block::getTypeId")]
-    #[inline]
-    pub fn kind(self) -> Kind {
-        match self.0 {
-            Repr::Vanilla(i) =>
-            {
-                #[expect(
-                    clippy::indexing_slicing,
-                    reason = "invariant: the generated tables have a kind index per state, and \
-                              each indexes the kind table"
-                )]
-                table::KINDS[usize::from(table::STATE_KIND[usize::from(i)])]
-            }
-            Repr::Custom(_) => Kind::InfoUpdate,
+    /// The stage's prefix of a block name (`weathered_`); empty for new copper.
+    const fn prefix(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Exposed => "exposed_",
+            Self::Weathered => "weathered_",
+            Self::Oxidized => "oxidized_",
         }
     }
+}
 
-    /// The PMMP class and its parents, leaf first, ending with [`Class::Block`].
-    #[inline]
-    fn classes(self) -> &'static [Class] {
-        match self.0 {
-            Repr::Vanilla(_) => self.kind().classes(),
-            Repr::Custom(c) if c.block.info().has(flag::TRANSPARENT) => &CUSTOM_TRANSPARENT,
-            Repr::Custom(_) => &CUSTOM_OPAQUE,
+/// A bottle slot of a brewing stand, named by where the block shows its bottle (PMMP
+/// `BrewingStandSlot`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pmmp-class: BrewingStandSlot
+pub enum BrewingStandSlot {
+    /// The east bottle: the left slot.
+    East,
+    /// The north-west bottle: the middle slot.
+    Northwest,
+    /// The south-west bottle: the right slot.
+    Southwest,
+}
+
+impl BrewingStandSlot {
+    /// Every bottle slot, left to right.
+    pub const ALL: [Self; 3] = [Self::East, Self::Northwest, Self::Southwest];
+
+    /// The slot of the brewing stand's inventory that holds this bottle (PMMP
+    /// `BrewingStandInventory::SLOT_BOTTLE_*`: 1 to 3; 0 is the ingredient, 4 the fuel).
+    #[doc(alias = "BrewingStandSlot::getSlotNumber")]
+    pub const fn slot(self) -> usize {
+        match self {
+            Self::East => 1,
+            Self::Northwest => 2,
+            Self::Southwest => 3,
         }
     }
+}
 
-    /// The PMMP class of the block, such as [`Class::Wheat`]; [`Class::Transparent`] or
-    /// [`Class::Opaque`] for a custom block.
-    #[inline]
-    pub fn class(self) -> Class {
-        self.classes().first().copied().unwrap_or(Class::Block)
-    }
+/// A book slot of a chiseled bookshelf, seen from its front (PMMP `ChiseledBookshelfSlot`):
+/// three on the top shelf, then three on the bottom one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pmmp-class: ChiseledBookshelfSlot
+pub enum ChiseledBookshelfSlot {
+    /// Slot 0.
+    TopLeft,
+    /// Slot 1.
+    TopMiddle,
+    /// Slot 2.
+    TopRight,
+    /// Slot 3.
+    BottomLeft,
+    /// Slot 4.
+    BottomMiddle,
+    /// Slot 5.
+    BottomRight,
+}
 
-    /// Whether the block is of the PMMP class or a subclass of it (`instanceof`), such as
-    /// [`Class::Crops`] for wheat.
-    #[inline]
-    pub fn is(self, class: Class) -> bool {
-        self.classes().contains(&class)
-    }
+impl ChiseledBookshelfSlot {
+    /// Every slot, in slot order.
+    pub const ALL: [Self; 6] = [
+        Self::TopLeft,
+        Self::TopMiddle,
+        Self::TopRight,
+        Self::BottomLeft,
+        Self::BottomMiddle,
+        Self::BottomRight,
+    ];
 
-    /// Whether the block's PMMP class has the trait or interface, such as [`Trait::Fallable`].
-    /// A custom block has none.
-    #[inline]
-    pub fn has_trait(self, t: Trait) -> bool {
-        self.vanilla().is_some() && self.kind().has_trait(t)
-    }
-
-    /// How hard the block is to break and what it needs to drop.
-    #[doc(alias = "Block::getBreakInfo")]
-    #[inline]
-    pub fn break_info(self) -> BreakInfo {
-        self.info().breaking
-    }
-
-    /// The seconds the block takes to break with `tool` (the empty stack is a hand):
-    /// [`BreakInfo::break_time_secs`], except for the blocks whose break info PMMP overrides
-    /// (`VanillaBlocksInputs`): shears break leaves and swords break bamboo at once, and shears
-    /// take three times as long on wool. `None` if the tool's efficiency is not positive.
-    pub fn break_time_secs(self, tool: &item::Stack) -> Option<f64> {
-        let tool_type = tool
-            .item()
-            .map_or(ToolType::NONE, item::Type::block_tool_type);
-        if (self.is(Class::Leaves) && tool_type == ToolType::SHEARS)
-            || (self.kind() == Kind::Bamboo && tool_type == ToolType::SWORD)
-        {
-            return Some(0.0);
-        }
-        let time = self.break_info().break_time_secs(tool)?;
-        if self.kind() == Kind::Wool && tool_type == ToolType::SHEARS {
-            Some(time * 3.0)
-        } else {
-            Some(time)
-        }
-    }
-
-    /// The chance the block catches fire from fire next to it; 0 if it does not burn.
-    #[doc(alias = "Block::getFlammability")]
-    #[inline]
-    pub fn flammability(self) -> u8 {
-        self.info().flammability
-    }
-
-    /// How much the block helps fire spread to it.
-    #[doc(alias = "Block::getFlameEncouragement")]
-    pub fn flame_encouragement(self) -> u8 {
-        self.info().flame_encouragement
-    }
-
-    /// Whether the block catches fire at all.
-    #[doc(alias = "Block::isFlammable")]
-    pub fn is_flammable(self) -> bool {
-        self.flammability() > 0
-    }
-
-    /// Whether fire on top of the block never goes out (netherrack).
-    #[doc(alias = "Block::burnsForever")]
-    #[inline]
-    pub fn burns_forever(self) -> bool {
-        self.has_flag(flag::BURNS_FOREVER)
-    }
-
-    #[inline]
-    fn has_flag(self, bit: u16) -> bool {
-        self.info().flags & bit != 0
-    }
-
-    /// Whether the block is solid (PMMP's meaning: entities cannot stand inside it).
-    #[doc(alias = "Block::isSolid")]
-    #[inline]
-    pub fn is_solid(self) -> bool {
-        self.has_flag(flag::SOLID)
-    }
-
-    /// Whether the block lets light through and does not hide the faces next to it.
-    #[doc(alias = "Block::isTransparent")]
-    #[inline]
-    pub fn is_transparent(self) -> bool {
-        self.has_flag(flag::TRANSPARENT)
-    }
-
-    /// Whether placing a block on it replaces it (air, tall grass, liquids).
-    #[doc(alias = "Block::canBeReplaced")]
-    #[inline]
-    pub fn can_be_replaced(self) -> bool {
-        self.has_flag(flag::REPLACEABLE)
-    }
-
-    /// Whether flowing liquid destroys the block.
-    #[doc(alias = "Block::canBeFlowedInto")]
-    #[inline]
-    pub fn can_be_flowed_into(self) -> bool {
-        self.has_flag(flag::FLOWABLE)
-    }
-
-    /// Whether entities can climb the block (ladders, vines).
-    #[doc(alias = "Block::canClimb")]
-    #[inline]
-    pub fn can_climb(self) -> bool {
-        self.has_flag(flag::CLIMBABLE)
-    }
-
-    /// Whether the block acts on entities inside its cell (PMMP `onEntityInside`).
-    #[doc(alias = "Block::hasEntityCollision")]
-    #[inline]
-    pub fn has_entity_collision(self) -> bool {
-        self.has_flag(flag::ENTITY_COLLISION)
-    }
-
-    /// Whether a Silk Touch tool makes the block drop itself.
-    #[doc(alias = "Block::isAffectedBySilkTouch")]
-    pub fn is_affected_by_silk_touch(self) -> bool {
-        self.has_flag(flag::SILK_TOUCH)
-    }
-
-    /// Whether the collision boxes move with a hash of the position (bamboo; PMMP
-    /// `Block::getModelPositionOffset`): [`State::collision_boxes`] are then before that move.
-    #[doc(alias = "Block::getModelPositionOffset")]
-    pub fn has_position_offset(self) -> bool {
-        self.has_flag(flag::POSITION_OFFSET)
-    }
-
-    /// How slippery the block is to stand on (0.6 for most, more for ice).
-    #[doc(alias = "Block::getFrictionFactor")]
-    #[inline]
-    pub fn friction_factor(self) -> f64 {
-        self.info().friction
-    }
-
-    /// Whether the block's type has the tag.
-    #[doc(alias = "Block::hasTypeTag")]
-    #[inline]
-    pub fn has_type_tag(self, tag: TypeTag) -> bool {
-        self.info().tags & (1 << tag as u16) != 0
-    }
-
-    /// The support the face gives to blocks that need it.
-    #[doc(alias = "Block::getSupportType")]
-    #[inline]
-    pub fn support(self, face: Face) -> SupportType {
-        match (self.info().support >> (2 * face as u16)) & 0b11 {
-            0 => SupportType::Full,
-            1 => SupportType::Center,
-            2 => SupportType::Edge,
-            _ => SupportType::None,
-        }
-    }
-
-    /// The collision boxes relative to the block's lowest corner (PMMP `getCollisionBoxes` before
-    /// the move to the block's position). A fence's, pane's or stair's are those of the
-    /// connections or shape its state names; a chorus plant's do not show its connections, which
-    /// PMMP works out from the neighbours.
-    #[doc(alias = "Block::getCollisionBoxes")]
-    #[inline]
-    pub fn collision_boxes(self) -> &'static [Aabb] {
-        if let Repr::Custom(c) = self.0 {
-            return c.block.collision_boxes();
-        }
-        let info = self.info();
-        let start = usize::from(info.box_start);
-        table::BOXES
-            .get(start..start.saturating_add(usize::from(info.box_count)))
-            .unwrap_or_default()
-    }
-
-    /// The item the block turns into (PMMP `asItem`): for a custom block, its block item.
-    #[doc(alias = "Block::asItem")]
-    pub fn item(self) -> ItemForm {
-        let index = match self.0 {
-            Repr::Vanilla(i) => usize::from(i),
-            Repr::Custom(c) => {
-                return ItemForm::Item(item::Type::from_custom_block(c.block, c.item_runtime_id));
-            }
-        };
-        match table::STATE_ITEMS.get(index).copied() {
-            Some(BLOCK_ENTITY_ITEM) => ItemForm::BlockEntity,
-            None | Some(NO_ITEM) => ItemForm::None,
-            Some(i) => ItemForm::Item(item::Type::from_index(i)),
-        }
-    }
-
-    /// The value of a property, or `None` if the state has no property of that name.
-    #[inline]
-    pub fn value(self, name: &str) -> Option<PropertyValue<'static>> {
-        let found = match self.0 {
-            // The table's rows directly, without the custom branch in every step.
-            Repr::Vanilla(i) => {
-                let d = Self::data(i);
-                properties_of(d.first_property, d.property_count).find(|p| p.name == name)
-            }
-            Repr::Custom(_) => self.properties().find(|p| p.name == name),
-        };
-        found.map(|p| p.value)
-    }
-
-    /// The state with the same name and properties except `name`, which has `value`; `None` if
-    /// the state has no property `name` or no state has that value (a crop's `growth` past its
-    /// last stage). It never allocates.
-    pub fn with(self, name: &str, value: PropertyValue<'_>) -> Option<Self> {
-        let data = match self.0 {
-            Repr::Vanilla(i) => Self::data(i),
-            Repr::Custom(c) => {
-                let index = c.block.with_value(c.index, name, value)?;
-                return Self::custom(c.block, index, c.item_runtime_id);
-            }
-        };
-        let mut buffer = [("", PropertyValue::Byte(0)); table::MAX_PROPERTIES];
-        let mut found = false;
-        let mut count = 0;
-        for (slot, p) in buffer
-            .iter_mut()
-            .zip(properties_of(data.first_property, data.property_count))
-        {
-            *slot = if p.name == name {
-                found = true;
-                (p.name, value)
-            } else {
-                (p.name, p.value)
-            };
-            count += 1;
-        }
-        if !found {
+    /// The slot a click at (`x`, `y`) on the front face hits, both from 0 to 1 with `x` from the
+    /// left seen from the front and `y` from the bottom: the bottom shelf below half height, the
+    /// columns split on the 16-pixel grid at 6 and 11 pixels (PMMP). `None` outside 0 to 1 (PMMP
+    /// throws).
+    #[doc(alias = "ChiseledBookshelfSlot::fromBlockFaceCoordinates")]
+    pub fn from_face_coordinates(x: f64, y: f64) -> Option<Self> {
+        if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
             return None;
         }
-        Self::find(self.name(), buffer.get(..count)?)
-    }
-}
-
-impl Kind {
-    #[inline]
-    fn data(self) -> &'static KindData {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated kind table has a row per kind"
-        )]
-        &table::KIND_DATA[self as usize]
+        let column = if x < 6.0 / 16.0 {
+            0
+        } else if x < 11.0 / 16.0 {
+            1
+        } else {
+            2
+        };
+        let shelf = if y < 0.5 { 3 } else { 0 };
+        Self::ALL.get(shelf + column).copied()
     }
 
-    /// Every kind, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::KINDS
-    }
-
-    /// The `VanillaBlocks` name, lowercase, such as `oak_planks`.
-    pub fn name(self) -> &'static str {
-        table::KIND_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// The state `VanillaBlocks` gives for the kind. A kind whose states share Bedrock states with
-    /// another kind's (an ominous banner, a potion cauldron) gives a state of that other kind.
-    #[doc(alias = "VanillaBlocks")]
-    pub fn default_state(self) -> State {
-        self.data().default
-    }
-
-    /// The PMMP class and its parents, leaf first, ending with [`Class::Block`].
-    #[inline]
-    pub fn classes(self) -> &'static [Class] {
-        let data = self.data();
-        let start = usize::from(data.class_start);
-        table::CLASS_CHAINS
-            .get(start..start.saturating_add(usize::from(data.class_count)))
-            .unwrap_or_default()
-    }
-
-    /// The PMMP class.
-    #[inline]
-    pub fn class(self) -> Class {
-        self.classes().first().copied().unwrap_or(Class::Block)
-    }
-
-    /// Whether the kind's PMMP class has the trait or interface.
-    #[inline]
-    pub fn has_trait(self, t: Trait) -> bool {
-        self.data().traits & (1 << t as u64) != 0
-    }
-}
-
-impl Class {
-    /// The PMMP class name, such as `Crops`.
-    pub fn name(self) -> &'static str {
-        table::CLASS_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-impl Trait {
-    /// The PMMP name without `Trait`, such as `Fallable`.
-    pub fn name(self) -> &'static str {
-        table::TRAIT_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-impl TypeTag {
-    /// The PMMP tag, such as `pocketmine:dirt`.
-    pub fn name(self) -> &'static str {
-        table::TYPE_TAG_NAMES
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-impl BannerPattern {
-    /// Every pattern, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::BANNER_PATTERNS
-    }
-
-    /// The ID saves and the network use, such as `bo` for the border.
-    #[doc(alias = "BannerPatternTypeIdMap::toId")]
-    pub fn id(self) -> &'static str {
-        table::BANNER_PATTERN_IDS
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// The pattern with this ID, or `None`.
-    #[doc(alias = "BannerPatternTypeIdMap::fromId")]
-    pub fn from_id(id: &str) -> Option<Self> {
-        let at = table::BANNER_PATTERNS_BY_ID
-            .binary_search_by(|(p, _)| (*p).cmp(id))
-            .ok()?;
-        table::BANNER_PATTERNS_BY_ID.get(at).map(|(_, p)| *p)
+    /// The slot of the bookshelf's inventory (0 to 5).
+    pub const fn slot(self) -> usize {
+        match self {
+            Self::TopLeft => 0,
+            Self::TopMiddle => 1,
+            Self::TopRight => 2,
+            Self::BottomLeft => 3,
+            Self::BottomMiddle => 4,
+            Self::BottomRight => 5,
+        }
     }
 }
 
@@ -1427,192 +1693,170 @@ pub(crate) struct GoldenStack {
     pub(crate) nbt: Option<crate::nbt::StaticCompound>,
 }
 
-#[cfg(test)]
-impl State {
-    /// The state's golden drops.
-    pub(crate) fn golden_drops(self) -> &'static Golden {
-        let index = self.vanilla().expect("golden drops are of table states");
-        &drops::GOLDEN[usize::from(drops::STATE_GOLDEN[index])]
+impl Kind {
+    /// Every kind, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::KINDS
+    }
+
+    /// The `VanillaBlocks` name, lowercase, such as `oak_planks`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated name table has a row per kind"
+    )]
+    pub fn name(self) -> &'static str {
+        table::KIND_NAMES[self as usize]
+    }
+
+    /// The state `VanillaBlocks` gives for the kind. A kind whose states share Bedrock states with
+    /// another kind's (an ominous banner, a potion cauldron) gives a state of that other kind.
+    #[doc(alias = "VanillaBlocks")]
+    pub fn default_state(self) -> State {
+        self.data().default
+    }
+
+    /// The PMMP class and its parents, leaf first, ending with [`Class::Block`].
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated kind rows index the class chain table"
+    )]
+    #[inline]
+    pub fn classes(self) -> &'static [Class] {
+        let data = self.data();
+        let start = usize::from(data.class_start);
+        &table::CLASS_CHAINS[start..start + usize::from(data.class_count)]
+    }
+
+    /// The PMMP class.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: a class chain holds at least the kind's own class"
+    )]
+    #[inline]
+    pub fn class(self) -> Class {
+        self.classes()[0]
+    }
+
+    /// Whether the kind's PMMP class has the trait or interface.
+    #[inline]
+    pub fn has_trait(self, t: Trait) -> bool {
+        self.data().traits & (1 << t as u64) != 0
+    }
+
+    #[inline]
+    fn data(self) -> &'static KindData {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated kind table has a row per kind"
+        )]
+        &table::KIND_DATA[self as usize]
     }
 }
 
-/// A horizontal direction (PMMP `Facing`): north is -z, east +x, south +z and west -x.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Facing {
-    North,
-    East,
-    South,
-    West,
-}
-
-impl Facing {
-    /// Every horizontal direction, in the order of their bits in the connection table.
-    pub(crate) const ALL: [Self; 4] = [Self::North, Self::East, Self::South, Self::West];
-
-    /// The bit of this direction in the connection table's face and connection sets.
-    pub(crate) const fn bit(self) -> u8 {
-        match self {
-            Self::North => 1,
-            Self::East => 2,
-            Self::South => 4,
-            Self::West => 8,
-        }
-    }
-
-    pub(crate) const fn opposite(self) -> Self {
-        match self {
-            Self::North => Self::South,
-            Self::East => Self::West,
-            Self::South => Self::North,
-            Self::West => Self::East,
-        }
-    }
-
-    /// The direction a quarter turn clockwise seen from above (PMMP `Facing::rotateY(f, true)`).
-    pub(crate) const fn clockwise(self) -> Self {
-        match self {
-            Self::North => Self::East,
-            Self::East => Self::South,
-            Self::South => Self::West,
-            Self::West => Self::North,
-        }
-    }
-
-    /// The block face toward this direction.
-    pub(crate) const fn face(self) -> Face {
-        match self {
-            Self::North => Face::North,
-            Self::East => Face::East,
-            Self::South => Face::South,
-            Self::West => Face::West,
-        }
-    }
-
-    /// The step one block this way: (x, z).
-    pub(crate) const fn offset(self) -> (i32, i32) {
-        match self {
-            Self::North => (0, -1),
-            Self::East => (1, 0),
-            Self::South => (0, 1),
-            Self::West => (-1, 0),
-        }
+impl Class {
+    /// The PMMP class name, such as `Crops`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated name table has a row per class"
+    )]
+    pub fn name(self) -> &'static str {
+        table::CLASS_NAMES[self as usize]
     }
 }
 
-/// How a state takes part in neighbour connections: the PMMP block class whose
-/// rules work its state out from the neighbours, or which those rules look for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Connection {
-    None,
-    /// A fence; fences connect to fences of the same group (PMMP class).
-    Fence {
-        group: u8,
-    },
-    /// Glass panes and bars (PMMP `Thin`).
-    Thin,
-    Wall,
-    FenceGate,
-    Stair,
-    Tripwire,
-    TripwireHook,
+impl Trait {
+    /// The PMMP name without `Trait`, such as `Fallable`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated name table has a row per trait"
+    )]
+    pub fn name(self) -> &'static str {
+        table::TRAIT_NAMES[self as usize]
+    }
 }
 
-/// A state's connection word in [`table::CONNECT`]: bits 0-3 the [`Connection`] kind (0 none,
-/// then fence, thin, wall, fence gate, stair, tripwire, tripwire hook), bits 4-7 the horizontal
-/// faces with full support ([`Facing::bit`]), bits 8-10 the facing (0 none, then 1 + the index
-/// in [`Facing::ALL`]), bit 11 upside down (stairs), bits 12-15 the fence group and bits 16-31
-/// the offset of the state's variants in [`table::VARIANTS`] (`0xffff`: none).
-///
-/// Variants are the states that differ only in what the neighbours decide, indexed so: fences,
-/// panes, bars and tripwire by their connection set (bit [`Facing::bit`] set when connected,
-/// 16 variants); stairs by `minecraft:corner` (none, inner left, inner right, outer left, outer
-/// right); walls by `((((north × 3 + east) × 3 + south) × 3 + west) × 2 + post` with each side
-/// none 0, short 1 or tall 2 (162 variants); fence gates by `in_wall_bit` (2 variants).
-const NO_VARIANTS: u32 = 0xffff;
+impl TypeTag {
+    /// The PMMP tag, such as `pocketmine:dirt`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated name table has a row per type tag"
+    )]
+    pub fn name(self) -> &'static str {
+        table::TYPE_TAG_NAMES[self as usize]
+    }
+}
 
-impl State {
-    fn connect(self) -> u32 {
-        match self.0 {
-            Repr::Vanilla(i) =>
-            {
-                #[expect(
-                    clippy::indexing_slicing,
-                    reason = "invariant: a State is only made from an index of the state table, \
-                              and the connection table has a word per state"
-                )]
-                table::CONNECT[usize::from(i)]
-            }
-            // No connection kind or facing, no variants; the full horizontal faces.
-            Repr::Custom(_) => {
-                let full = Facing::ALL
-                    .iter()
-                    .filter(|f| self.support(f.face()) == SupportType::Full)
-                    .fold(0u32, |bits, f| bits | u32::from(f.bit()));
-                (full << 4) | (NO_VARIANTS << 16)
-            }
-        }
+impl BannerPattern {
+    /// Every pattern, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::BANNER_PATTERNS
     }
 
-    /// The state's part in neighbour connections.
-    pub(crate) fn connection(self) -> Connection {
-        let word = self.connect();
-        match word & 0xf {
-            1 => Connection::Fence {
-                group: u8::try_from((word >> 12) & 0xf).unwrap_or_default(),
-            },
-            2 => Connection::Thin,
-            3 => Connection::Wall,
-            4 => Connection::FenceGate,
-            5 => Connection::Stair,
-            6 => Connection::Tripwire,
-            7 => Connection::TripwireHook,
-            _ => Connection::None,
-        }
+    /// The pattern with this ID, or `None`.
+    #[doc(alias = "BannerPatternTypeIdMap::fromId")]
+    pub fn from_id(id: &str) -> Option<Self> {
+        let at = table::BANNER_PATTERNS_BY_ID
+            .binary_search_by(|(p, _)| (*p).cmp(id))
+            .ok()?;
+        table::BANNER_PATTERNS_BY_ID.get(at).map(|(_, p)| *p)
     }
 
-    /// Whether the face toward `face` gives full support (PMMP `getSupportType` is `FULL`):
-    /// fences, panes and walls connect to such a face.
-    pub(crate) fn has_full_face(self, face: Facing) -> bool {
-        self.connect() & (u32::from(face.bit()) << 4) != 0
+    /// The ID saves and the network use, such as `bo` for the border.
+    #[doc(alias = "BannerPatternTypeIdMap::toId")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated ID table has a row per pattern"
+    )]
+    pub fn id(self) -> &'static str {
+        table::BANNER_PATTERN_IDS[self as usize]
     }
+}
 
-    /// The horizontal facing of stairs, fence gates and tripwire hooks.
-    pub(crate) fn facing(self) -> Option<Facing> {
-        let at = usize::try_from((self.connect() >> 8) & 0x7).ok()?;
-        Facing::ALL.get(at.checked_sub(1)?).copied()
-    }
+/// Whether `id` is the network ID of a vanilla state the client knows: of a state of the table,
+/// an alias or an inert state (together the reference list's states).
+pub(crate) fn is_vanilla_network_id(id: u32) -> bool {
+    State::from_network_id(id).is_some()
+        || table::ALIAS_NETWORK_IDS.binary_search(&id).is_ok()
+        || Inert::from_network_id(id).is_some()
+}
 
-    /// Whether a stair is upside down.
-    pub(crate) fn is_upside_down(self) -> bool {
-        self.connect() & (1 << 11) != 0
-    }
+/// A copper state's name as PMMP `CopperTrait` splits it: the oxidation, whether it is waxed, and
+/// the rest (`cut_copper`; `copper` for the full block, whose new unwaxed name is
+/// `copper_block`). `None` for a name outside `minecraft:`.
+pub(crate) fn copper_parts(state: State) -> Option<(CopperOxidation, bool, &'static str)> {
+    let rest = state.name().strip_prefix("minecraft:")?;
+    let (waxed, rest) = match rest.strip_prefix("waxed_") {
+        Some(r) => (true, r),
+        None => (false, rest),
+    };
+    // New copper's prefix is empty, so it comes last.
+    let (oxidation, base) = CopperOxidation::ALL
+        .into_iter()
+        .rev()
+        .find_map(|oxidation| Some((oxidation, rest.strip_prefix(oxidation.prefix())?)))?;
+    let base = if base == "copper_block" {
+        "copper"
+    } else {
+        base
+    };
+    Some((oxidation, waxed, base))
+}
 
-    /// Everything the neighbour rules read of a state as a neighbour: its kind and fence group,
-    /// full faces, facing, upside down and whether it is air. Two states with the same view
-    /// leave their neighbours' states the same.
-    pub(crate) fn neighbour_view(self) -> u32 {
-        (self.connect() & 0xffff) | (u32::from(self == AIR) << 16)
+/// The copper name (with `minecraft:`) of `base`, the rest [`copper_parts`] gives, at
+/// `oxidation`, waxed or not.
+pub(crate) fn copper_name(oxidation: CopperOxidation, waxed: bool, base: &str) -> String {
+    let mut name = String::with_capacity(COPPER_NAME_CAPACITY);
+    name.push_str("minecraft:");
+    if waxed {
+        name.push_str("waxed_");
     }
-
-    /// The variant `index` of this state (see [`NO_VARIANTS`] for the order): the state with the
-    /// same properties except those the neighbours decide. `None` if the state has no variants
-    /// or `index` is past them.
-    pub(crate) fn variant(self, index: usize) -> Option<Self> {
-        let word = self.connect();
-        let offset = word >> 16;
-        let count = match self.connection() {
-            Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => 16,
-            Connection::Stair => 5,
-            Connection::Wall => 162,
-            Connection::FenceGate => 2,
-            Connection::None | Connection::TripwireHook => 0,
-        };
-        if offset == NO_VARIANTS || index >= count {
-            return None;
-        }
-        let at = usize::try_from(offset).ok()?.checked_add(index)?;
-        table::VARIANTS.get(at).copied().map(Self::from_index)
+    name.push_str(oxidation.prefix());
+    if !waxed && oxidation == CopperOxidation::None && base == "copper" {
+        name.push_str("copper_block");
+    } else {
+        name.push_str(base);
     }
+    name
 }
 
 /// The index of the row of `rows` with this name and exactly these properties, given in any
@@ -1668,203 +1912,23 @@ fn properties_of(first: u32, count: u8) -> impl ExactSizeIterator<Item = Propert
     })
 }
 
-/// A copper block's oxidation stage, from new to oxidized (PMMP `CopperOxidation`). A block's
-/// stage is the prefix of its name (`minecraft:weathered_cut_copper`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pmmp-class: CopperOxidation
-pub enum CopperOxidation {
-    /// New copper.
-    None,
-    /// Exposed.
-    Exposed,
-    /// Weathered.
-    Weathered,
-    /// Oxidized.
-    Oxidized,
-}
-
-impl CopperOxidation {
-    /// Every stage, from new to oxidized.
-    pub const ALL: [Self; 4] = [Self::None, Self::Exposed, Self::Weathered, Self::Oxidized];
-
-    /// The stage's place in [`Self::ALL`] (PMMP's case value).
-    const fn index(self) -> usize {
-        match self {
-            Self::None => 0,
-            Self::Exposed => 1,
-            Self::Weathered => 2,
-            Self::Oxidized => 3,
-        }
-    }
-
-    /// The next stage; `None` for oxidized copper.
-    #[doc(alias = "CopperOxidation::getNext")]
-    pub fn next(self) -> Option<Self> {
-        Self::ALL.get(self.index() + 1).copied()
-    }
-
-    /// The stage before; `None` for new copper.
-    #[doc(alias = "CopperOxidation::getPrevious")]
-    pub fn previous(self) -> Option<Self> {
-        Self::ALL.get(self.index().checked_sub(1)?).copied()
-    }
-
-    /// The stage's prefix of a block name (`weathered_`); empty for new copper.
-    const fn prefix(self) -> &'static str {
-        match self {
-            Self::None => "",
-            Self::Exposed => "exposed_",
-            Self::Weathered => "weathered_",
-            Self::Oxidized => "oxidized_",
-        }
-    }
-}
-
-/// A copper state's name as PMMP `CopperTrait` splits it: the oxidation, whether it is waxed, and
-/// the rest (`cut_copper`; `copper` for the full block, whose new unwaxed name is
-/// `copper_block`). `None` for a name outside `minecraft:`.
-pub(crate) fn copper_parts(state: State) -> Option<(CopperOxidation, bool, &'static str)> {
-    let rest = state.name().strip_prefix("minecraft:")?;
-    let (waxed, rest) = match rest.strip_prefix("waxed_") {
-        Some(r) => (true, r),
-        None => (false, rest),
-    };
-    // New copper's prefix is empty, so it comes last.
-    let (oxidation, base) = CopperOxidation::ALL
-        .into_iter()
-        .rev()
-        .find_map(|oxidation| Some((oxidation, rest.strip_prefix(oxidation.prefix())?)))?;
-    let base = if base == "copper_block" {
-        "copper"
-    } else {
-        base
-    };
-    Some((oxidation, waxed, base))
-}
-
-/// The copper name (with `minecraft:`) of `base`, the rest [`copper_parts`] gives, at
-/// `oxidation`, waxed or not.
-pub(crate) fn copper_name(oxidation: CopperOxidation, waxed: bool, base: &str) -> String {
-    let mut name = String::with_capacity(48);
-    name.push_str("minecraft:");
-    if waxed {
-        name.push_str("waxed_");
-    }
-    name.push_str(oxidation.prefix());
-    if !waxed && oxidation == CopperOxidation::None && base == "copper" {
-        name.push_str("copper_block");
-    } else {
-        name.push_str(base);
-    }
-    name
-}
-
-/// A bottle slot of a brewing stand, named by where the block shows its bottle (PMMP
-/// `BrewingStandSlot`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: BrewingStandSlot
-pub enum BrewingStandSlot {
-    /// The east bottle: the left slot.
-    East,
-    /// The north-west bottle: the middle slot.
-    Northwest,
-    /// The south-west bottle: the right slot.
-    Southwest,
-}
-
-impl BrewingStandSlot {
-    /// Every bottle slot, left to right.
-    pub const ALL: [Self; 3] = [Self::East, Self::Northwest, Self::Southwest];
-
-    /// The slot of the brewing stand's inventory that holds this bottle (PMMP
-    /// `BrewingStandInventory::SLOT_BOTTLE_*`: 1 to 3; 0 is the ingredient, 4 the fuel).
-    #[doc(alias = "BrewingStandSlot::getSlotNumber")]
-    pub const fn slot(self) -> usize {
-        match self {
-            Self::East => 1,
-            Self::Northwest => 2,
-            Self::Southwest => 3,
-        }
-    }
-}
-
-/// A book slot of a chiseled bookshelf, seen from its front (PMMP `ChiseledBookshelfSlot`):
-/// three on the top shelf, then three on the bottom one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: ChiseledBookshelfSlot
-pub enum ChiseledBookshelfSlot {
-    /// Slot 0.
-    TopLeft,
-    /// Slot 1.
-    TopMiddle,
-    /// Slot 2.
-    TopRight,
-    /// Slot 3.
-    BottomLeft,
-    /// Slot 4.
-    BottomMiddle,
-    /// Slot 5.
-    BottomRight,
-}
-
-impl ChiseledBookshelfSlot {
-    /// Every slot, in slot order.
-    pub const ALL: [Self; 6] = [
-        Self::TopLeft,
-        Self::TopMiddle,
-        Self::TopRight,
-        Self::BottomLeft,
-        Self::BottomMiddle,
-        Self::BottomRight,
-    ];
-
-    /// The slot of the bookshelf's inventory (0 to 5).
-    pub const fn slot(self) -> usize {
-        match self {
-            Self::TopLeft => 0,
-            Self::TopMiddle => 1,
-            Self::TopRight => 2,
-            Self::BottomLeft => 3,
-            Self::BottomMiddle => 4,
-            Self::BottomRight => 5,
-        }
-    }
-
-    /// The slot a click at (`x`, `y`) on the front face hits, both from 0 to 1 with `x` from the
-    /// left seen from the front and `y` from the bottom: the bottom shelf below half height, the
-    /// columns split on the 16-pixel grid at 6 and 11 pixels (PMMP). `None` outside 0 to 1 (PMMP
-    /// throws).
-    #[doc(alias = "ChiseledBookshelfSlot::fromBlockFaceCoordinates")]
-    pub fn from_face_coordinates(x: f64, y: f64) -> Option<Self> {
-        if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
-            return None;
-        }
-        let column = if x < 6.0 / 16.0 {
-            0
-        } else if x < 11.0 / 16.0 {
-            1
-        } else {
-            2
-        };
-        let shelf = if y < 0.5 { 3 } else { 0 };
-        Self::ALL.get(shelf + column).copied()
-    }
-}
-
-impl fmt::Debug for State {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut s = f.debug_struct("State");
-        s.field("name", &self.name());
-        for p in self.properties() {
-            s.field(p.name, &p.value);
-        }
-        s.finish()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CONNECTIONS: [&str; 4] = [
+        "minecraft:connection_north",
+        "minecraft:connection_east",
+        "minecraft:connection_south",
+        "minecraft:connection_west",
+    ];
+    const WALL: [&str; 5] = [
+        "wall_connection_type_north",
+        "wall_connection_type_east",
+        "wall_connection_type_south",
+        "wall_connection_type_west",
+        "wall_post_bit",
+    ];
 
     /// The value of a property of a state.
     fn prop(state: State, name: &str) -> Option<PropertyValue<'static>> {
@@ -1881,20 +1945,6 @@ mod tests {
             .filter(|p| !except.contains(&p.name()))
             .collect()
     }
-
-    const CONNECTIONS: [&str; 4] = [
-        "minecraft:connection_north",
-        "minecraft:connection_east",
-        "minecraft:connection_south",
-        "minecraft:connection_west",
-    ];
-    const WALL: [&str; 5] = [
-        "wall_connection_type_north",
-        "wall_connection_type_east",
-        "wall_connection_type_south",
-        "wall_connection_type_west",
-        "wall_post_bit",
-    ];
 
     /// Every variant list holds the states that differ from the state only in the properties
     /// the neighbours decide, at the index the variant order gives.
@@ -1963,9 +2013,6 @@ mod tests {
         assert_eq!(counts[6], 16 * 16);
     }
 
-    /// The table's facings and full faces agree with the client states BDS shows (P6
-    /// `blocks.txt`): `weirdo_direction` 0 is east, a tripwire hook's `direction` 3 is east, a
-    /// stair's back is full when it is straight or an inner corner.
     #[test]
     fn face_numbers_follow_pmmp_facing_and_read_back() {
         for (i, face) in Face::ALL.into_iter().enumerate() {
@@ -1977,6 +2024,9 @@ mod tests {
         assert_eq!(Face::from_index(-1), None);
     }
 
+    /// The table's facings and full faces agree with the client states BDS shows (P6
+    /// `blocks.txt`): `weirdo_direction` 0 is east, a tripwire hook's `direction` 3 is east, a
+    /// stair's back is full when it is straight or an inner corner.
     #[test]
     fn facings_and_faces_match_the_client_states() {
         let stairs = |dir: i32, corner: &'static str| {
@@ -2026,19 +2076,15 @@ mod tests {
         }
     }
 
-    fn state(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> State {
-        State::find(name, properties).unwrap()
-    }
-
     /// The first state of a kind in table order.
     fn of(kind: Kind) -> State {
         State::all().find(|s| s.kind() == kind).unwrap()
     }
 
+    // pmmp: BlockBreakInfo::getBreakTime
     /// Break times equal PMMP's `BlockBreakInfo::getBreakTime` run on the pinned checkout
     /// (6a7cc02): swords break every block half again as fast, Efficiency counts only with the
     /// right tool type, and leaves, bamboo and wool have their own rules.
-    // pmmp: BlockBreakInfo::getBreakTime
     #[test]
     fn break_times_with_swords_and_efficiency_equal_pmmp() {
         use item::Kind as I;
@@ -2089,7 +2135,37 @@ mod tests {
         }
     }
 
-    /// PMMP values of well-known blocks (PMMP `VanillaBlocks`, `BlockBreakInfo`, `ToolTier`).
+    // pmmp: BlockBreakInfo::getBreakTime, BlockBreakInfo::isBreakable
+    /// A block that cannot be broken has no break time, with a hand or a tool.
+    #[test]
+    fn an_unbreakable_block_has_no_break_time() {
+        let pickaxe = item::Stack::new(item::Kind::DiamondPickaxe.default_type(), 1);
+        for tool in [item::Stack::EMPTY, pickaxe] {
+            assert_eq!(BEDROCK.break_time_secs(&tool), None);
+            assert_eq!(BEDROCK.break_info().break_time_secs(&tool), None);
+        }
+    }
+
+    /// The set of every tool type holds each tool type and no other bit.
+    #[test]
+    fn the_set_of_every_tool_type_is_the_union_of_them() {
+        let every = [
+            ToolType::SWORD,
+            ToolType::SHOVEL,
+            ToolType::PICKAXE,
+            ToolType::AXE,
+            ToolType::SHEARS,
+            ToolType::HOE,
+        ];
+        assert!(every.iter().all(|t| ToolType::ALL.intersects(*t)));
+        let union = every.into_iter().fold(ToolType::NONE, |all, t| all | t);
+        assert_eq!(ToolType::ALL, union);
+    }
+
+    fn state(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> State {
+        State::find(name, properties).unwrap()
+    }
+
     // pmmp: Block, Block::getTypeId, Block::getBreakInfo, BlockBreakInfo, BlockBreakInfo::getHardness,
     // pmmp: BlockBreakInfo::getBlastResistance, BlockBreakInfo::getToolType,
     // pmmp: BlockBreakInfo::getToolHarvestLevel, BlockBreakInfo::isExplosionHarvestable,
@@ -2100,6 +2176,7 @@ mod tests {
     // pmmp: Block::getFlameEncouragement, Block::isFlammable, Block::burnsForever, Block::canClimb,
     // pmmp: Block::canBeFlowedInto, Block::hasEntityCollision, Block::getModelPositionOffset,
     // pmmp: Block::hasTypeTag
+    /// PMMP values of well-known blocks (PMMP `VanillaBlocks`, `BlockBreakInfo`, `ToolTier`).
     #[test]
     fn gameplay_data_are_pmmp_values() {
         let stone = state("minecraft:stone", &[]);

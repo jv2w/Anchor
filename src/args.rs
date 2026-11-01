@@ -1,7 +1,7 @@
 //! The commands every server program answers from its process arguments instead of running the
 //! server, with no code of its own: `<program> update-config`,
 //! `<program> import <world folder> [<world name>]` and
-//! `<program> export <world folder> [<world name>]`. Other arguments are the program's own and
+//! `<program> export <new folder> [<world name>]`. Other arguments are the program's own and
 //! start the server as usual.
 //!
 //! `update-config` is done by [`Config::load`](crate::Config::load), before it reads the file,
@@ -18,6 +18,11 @@ use crate::config::Update;
 use crate::error::{Error, Result};
 use crate::{export, import};
 
+/// What [`Error::Usage`] says: the syntax of the three commands.
+pub(crate) const USAGE: &str = "usage: <program> update-config, \
+    <program> import <world folder> [<world name>], \
+    or <program> export <new folder> [<world name>]";
+
 /// What the process arguments ask.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Task {
@@ -28,8 +33,9 @@ pub(crate) enum Task {
     /// `import <world folder> [<world name>]`: import a Bedrock world; without a name, as the
     /// default world (`level-name`).
     Import { dir: PathBuf, world: Option<String> },
-    /// `export <world folder> [<world name>]`: export a world as a Bedrock world; without a
-    /// name, the default world (`level-name`).
+    /// `export <new folder> [<world name>]`: export a world, chosen by name, as a Bedrock world
+    /// into a folder that does not exist yet; without a name, the default world
+    /// (`level-name`).
     Export { dir: PathBuf, world: Option<String> },
 }
 
@@ -133,12 +139,26 @@ pub(crate) fn say(text: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Task, imported, parse};
-    use crate::Error;
+    use super::*;
+
     use crate::import::Report;
 
-    fn task(args: &[&str]) -> crate::Result<Task> {
+    fn task(args: &[&str]) -> Result<Task> {
         parse(args.iter().map(Into::into).collect())
+    }
+
+    #[test]
+    fn the_usage_names_the_export_folder_as_new() {
+        let usage = Error::Usage.to_string();
+        assert_eq!(usage, USAGE);
+        assert!(
+            usage.contains("export <new folder> [<world name>]"),
+            "{usage}"
+        );
+        assert!(
+            usage.contains("import <world folder> [<world name>]"),
+            "{usage}"
+        );
     }
 
     #[test]

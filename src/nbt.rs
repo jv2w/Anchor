@@ -6,11 +6,14 @@
 //! list reads and writes back to the same bytes. gophertunnel keeps the type only for empty
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
 //! Limits: containers nest at most 512 deep counting the root, one root takes at
-//! most 4 MiB on the wire (or a store's own limit), and lengths and allocations go through the
-//! reader's limit check; a compound's keys take its tree nodes (`map_charges`). Writing a root
-//! also counts what reading it back takes from a reader's allocation budget (`Cost`), so a store
-//! can keep what it writes readable.
-//! Reading and writing keep nested containers on a heap stack, not the thread stack.
+//! most 4 MiB on the wire (or a store's own limit), a string takes at most 32,767 bytes, and
+//! lengths and allocations go through the reader's limit check; a compound's keys take its tree
+//! nodes (`map_charges`). Writing a root also counts what reading it back takes from a reader's
+//! allocation budget (`Cost`), so a store can keep what it writes readable.
+//!
+//! Reading and writing keep nested containers on a heap stack, not the thread stack. Dropping,
+//! cloning and comparing a [`Value`] recurse, which the 512-deep limit bounds. Floats compare by
+//! their bits, the way they are written: `NaN` equals itself and `0.0` differs from `-0.0`.
 
 use std::collections::{BTreeMap, btree_map};
 use std::mem::size_of;
@@ -27,6 +30,8 @@ const MAX_STRING_LEN: u16 = 0x7fff;
 /// What a compound's first key and each other key take from a reader's budget: its tree's nodes
 /// ([`map_charges`]).
 const ENTRY_CHARGES: (usize, usize) = map_charges(size_of::<(String, Value)>());
+/// The room reserved for the container stack of a root.
+const FRAME_CAPACITY: usize = 16;
 
 /// The tag types, by number (the network block hash writes NBT tags too).
 pub(crate) const TAG_END: u8 = 0;
@@ -43,35 +48,42 @@ pub(crate) const TAG_COMPOUND: u8 = 10;
 const TAG_INT_ARRAY: u8 = 11;
 const TAG_LONG_ARRAY: u8 = 12;
 
+/// Returned where a child does not fit its frame or the stack would not end in its root, which
+/// the stack discipline rules out.
+const STACK_ORDER: Error = Error::InvalidValue {
+    field: "nbt",
+    reason: "container stack out of order",
+};
+
 /// A compound tag: named values in key byte order.
 pub type Compound = BTreeMap<String, Value>;
 
 /// One NBT tag value.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
-    /// `TAG_Byte`, unsigned like gophertunnel.
+    /// A `TAG_Byte`, unsigned like gophertunnel.
     Byte(u8),
-    /// `TAG_Short`
+    /// A `TAG_Short`.
     Short(i16),
-    /// `TAG_Int`
+    /// A `TAG_Int`.
     Int(i32),
-    /// `TAG_Long`
+    /// A `TAG_Long`.
     Long(i64),
-    /// `TAG_Float`
+    /// A `TAG_Float`.
     Float(f32),
-    /// `TAG_Double`
+    /// A `TAG_Double`.
     Double(f64),
-    /// `TAG_Byte_Array`
+    /// A `TAG_Byte_Array`.
     ByteArray(Vec<u8>),
-    /// `TAG_String`
+    /// A `TAG_String`.
     String(String),
-    /// `TAG_List`
+    /// A `TAG_List`.
     List(List),
-    /// `TAG_Compound`
+    /// A `TAG_Compound`.
     Compound(Compound),
-    /// `TAG_Int_Array`
+    /// A `TAG_Int_Array`.
     IntArray(Vec<i32>),
-    /// `TAG_Long_Array`
+    /// A `TAG_Long_Array`.
     LongArray(Vec<i64>),
 }
 
@@ -94,9 +106,29 @@ impl Value {
     }
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Byte(a), Self::Byte(b)) => a == b,
+            (Self::Short(a), Self::Short(b)) => a == b,
+            (Self::Int(a), Self::Int(b)) => a == b,
+            (Self::Long(a), Self::Long(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => a.to_bits() == b.to_bits(),
+            (Self::Double(a), Self::Double(b)) => a.to_bits() == b.to_bits(),
+            (Self::ByteArray(a), Self::ByteArray(b)) => a == b,
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::List(a), Self::List(b)) => a == b,
+            (Self::Compound(a), Self::Compound(b)) => a == b,
+            (Self::IntArray(a), Self::IntArray(b)) => a == b,
+            (Self::LongArray(a), Self::LongArray(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// A `TAG_List`. The variant is the element type, so all elements have one type and an empty
 /// list keeps its type.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum List {
     /// A list with element type `TAG_End`, which is always empty.
     #[default]
@@ -132,7 +164,7 @@ pub enum List {
 }
 
 impl List {
-    /// Returns the number of elements.
+    /// The number of elements.
     pub fn len(&self) -> usize {
         match self {
             Self::End => 0,
@@ -151,7 +183,7 @@ impl List {
         }
     }
 
-    /// Returns whether the list has no elements.
+    /// Whether the list has no elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -176,6 +208,30 @@ impl List {
     }
 }
 
+impl PartialEq for List {
+    fn eq(&self, other: &Self) -> bool {
+        fn same_bits<A: Copy>(a: &[A], b: &[A], bits: impl Fn(A) -> u64) -> bool {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| bits(*x) == bits(*y))
+        }
+        match (self, other) {
+            (Self::End, Self::End) => true,
+            (Self::Byte(a), Self::Byte(b)) => a == b,
+            (Self::Short(a), Self::Short(b)) => a == b,
+            (Self::Int(a), Self::Int(b)) => a == b,
+            (Self::Long(a), Self::Long(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => same_bits(a, b, |x| u64::from(x.to_bits())),
+            (Self::Double(a), Self::Double(b)) => same_bits(a, b, f64::to_bits),
+            (Self::ByteArray(a), Self::ByteArray(b)) => a == b,
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::List(a), Self::List(b)) => a == b,
+            (Self::Compound(a), Self::Compound(b)) => a == b,
+            (Self::IntArray(a), Self::IntArray(b)) => a == b,
+            (Self::LongArray(a), Self::LongArray(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// An NBT wire format (gophertunnel `nbt.Encoding`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Encoding {
@@ -185,63 +241,14 @@ pub(crate) enum Encoding {
     LittleEndian,
 }
 
-/// A container being read. Nesting uses this explicit stack instead of recursion, so the
-/// thread stack stays flat at any depth; the stack holds at most [`MAX_DEPTH`] frames. A list of
-/// anything but lists or compounds is read whole when it opens and needs no frame.
-enum ReadFrame {
-    Compound { map: Compound, name: String },
-    Lists { left: usize, items: Vec<List> },
-    Compounds { left: usize, items: Vec<Compound> },
-}
-
-impl ReadFrame {
-    fn compound() -> Self {
-        Self::Compound {
-            map: Compound::new(),
-            name: String::new(),
-        }
-    }
-
-    /// Adds a finished child: any value to a compound, a list or compound to a list of them.
-    fn add(&mut self, value: Value) -> Result<()> {
-        match (self, value) {
-            (Self::Compound { map, name }, value) => {
-                map.insert(std::mem::take(name), value);
-            }
-            (Self::Lists { items, .. }, Value::List(list)) => items.push(list),
-            (Self::Compounds { items, .. }, Value::Compound(map)) => items.push(map),
-            _ => return Err(STACK_ORDER),
-        }
-        Ok(())
-    }
-
-    fn finish(self) -> Value {
-        match self {
-            Self::Compound { map, .. } => Value::Compound(map),
-            Self::Lists { items, .. } => Value::List(List::List(items)),
-            Self::Compounds { items, .. } => Value::List(List::Compound(items)),
-        }
-    }
-}
-
-/// What opening a list gives: the whole list, or a frame to read its container elements into.
-enum Opened {
-    Done(List),
-    Frame(ReadFrame),
-}
-
-/// Returned where a child does not fit its frame or the stack would not end in its root, which
-/// the stack discipline rules out.
-const STACK_ORDER: Error = Error::InvalidValue {
-    field: "nbt",
-    reason: "container stack out of order",
-};
-
-/// Takes one from a frame's count of elements left; `false` once none are left.
-fn take_one(left: &mut usize) -> bool {
-    let more = *left > 0;
-    *left = left.saturating_sub(1);
-    more
+/// What an encoded root takes: its bytes, and what decoding them takes from a reader's
+/// allocation budget ([`Reader::limit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Cost {
+    /// The bytes written.
+    pub(crate) bytes: usize,
+    /// The budget [`Reader::nbt`] takes to read them back.
+    pub(crate) alloc: usize,
 }
 
 struct Decoder<'r, 'a> {
@@ -275,7 +282,7 @@ impl Decoder<'_, '_> {
         }
     }
 
-    /// An array or list length: an int32 that may not be negative.
+    /// Reads an array or list length: an int32 that may not be negative.
     fn length(&mut self) -> Result<u64> {
         u64::try_from(self.int32()?).map_err(|_| Error::Size)
     }
@@ -395,7 +402,7 @@ impl Decoder<'_, '_> {
 
     /// Reads the payload of the root compound and everything in it.
     fn compound(&mut self) -> Result<Compound> {
-        let mut stack = Vec::with_capacity(16);
+        let mut stack = Vec::with_capacity(FRAME_CAPACITY);
         stack.push(ReadFrame::compound());
         while let Some(top) = stack.last_mut() {
             self.check_root_size()?;
@@ -446,29 +453,49 @@ impl Decoder<'_, '_> {
     }
 }
 
-/// What an encoded root takes: its bytes, and what decoding them takes from a reader's
-/// allocation budget ([`Reader::limit`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Cost {
-    /// The bytes written.
-    pub(crate) bytes: usize,
-    /// The budget [`Reader::nbt`] takes to read them back.
-    pub(crate) alloc: usize,
+/// A container being read. Nesting uses this explicit stack instead of recursion, so the
+/// thread stack stays flat at any depth; the stack holds at most [`MAX_DEPTH`] frames. A list of
+/// anything but lists or compounds is read whole when it opens and needs no frame.
+enum ReadFrame {
+    Compound { map: Compound, name: String },
+    Lists { left: usize, items: Vec<List> },
+    Compounds { left: usize, items: Vec<Compound> },
 }
 
-/// A container being written; the iterative counterpart of [`ReadFrame`].
-enum WriteFrame<'v> {
-    Compound(btree_map::Iter<'v, String, Value>),
-    Lists(slice::Iter<'v, List>),
-    Compounds(slice::Iter<'v, Compound>),
+impl ReadFrame {
+    fn compound() -> Self {
+        Self::Compound {
+            map: Compound::new(),
+            name: String::new(),
+        }
+    }
+
+    /// Adds a finished child: any value to a compound, a list or compound to a list of them.
+    fn add(&mut self, value: Value) -> Result<()> {
+        match (self, value) {
+            (Self::Compound { map, name }, value) => {
+                map.insert(std::mem::take(name), value);
+            }
+            (Self::Lists { items, .. }, Value::List(list)) => items.push(list),
+            (Self::Compounds { items, .. }, Value::Compound(map)) => items.push(map),
+            _ => return Err(STACK_ORDER),
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Value {
+        match self {
+            Self::Compound { map, .. } => Value::Compound(map),
+            Self::Lists { items, .. } => Value::List(List::List(items)),
+            Self::Compounds { items, .. } => Value::List(List::Compound(items)),
+        }
+    }
 }
 
-/// The next thing a write frame gives.
-enum Next<'v> {
-    Scalar(&'v Value),
-    List(&'v List),
-    Compound(&'v Compound),
-    End,
+/// What opening a list gives: the whole list, or a frame to read its container elements into.
+enum Opened {
+    Done(List),
+    Frame(ReadFrame),
 }
 
 struct Encoder<'w> {
@@ -555,19 +582,21 @@ impl Encoder<'_> {
     fn int_array(&mut self, x: &[i32]) -> Result<()> {
         self.length(x.len())?;
         self.charge(x.len(), size_of::<i32>());
-        x.iter().try_for_each(|v| {
+        for v in x {
             self.int32(*v);
-            self.check()
-        })
+            self.check()?;
+        }
+        Ok(())
     }
 
     fn long_array(&mut self, x: &[i64]) -> Result<()> {
         self.length(x.len())?;
         self.charge(x.len(), size_of::<i64>());
-        x.iter().try_for_each(|v| {
+        for v in x {
             self.int64(*v);
-            self.check()
-        })
+            self.check()?;
+        }
+        Ok(())
     }
 
     /// Writes the payload of a value that is not a container.
@@ -615,39 +644,65 @@ impl Encoder<'_> {
                 self.room(x.len())?;
                 self.w.bytes(x);
             }
-            List::Short(x) => x.iter().try_for_each(|v| {
-                self.w.int16(*v);
-                self.check()
-            })?,
-            List::Int(x) => x.iter().try_for_each(|v| {
-                self.int32(*v);
-                self.check()
-            })?,
-            List::Long(x) => x.iter().try_for_each(|v| {
-                self.int64(*v);
-                self.check()
-            })?,
-            List::Float(x) => x.iter().try_for_each(|v| {
-                self.w.float32(*v);
-                self.check()
-            })?,
-            List::Double(x) => x.iter().try_for_each(|v| {
-                self.w.float64(*v);
-                self.check()
-            })?,
-            List::ByteArray(x) => x.iter().try_for_each(|v| self.byte_array(v))?,
-            List::String(x) => x.iter().try_for_each(|v| self.string(v))?,
-            List::IntArray(x) => x.iter().try_for_each(|v| self.int_array(v))?,
-            List::LongArray(x) => x.iter().try_for_each(|v| self.long_array(v))?,
+            List::Short(x) => {
+                for v in x {
+                    self.w.int16(*v);
+                    self.check()?;
+                }
+            }
+            List::Int(x) => {
+                for v in x {
+                    self.int32(*v);
+                    self.check()?;
+                }
+            }
+            List::Long(x) => {
+                for v in x {
+                    self.int64(*v);
+                    self.check()?;
+                }
+            }
+            List::Float(x) => {
+                for v in x {
+                    self.w.float32(*v);
+                    self.check()?;
+                }
+            }
+            List::Double(x) => {
+                for v in x {
+                    self.w.float64(*v);
+                    self.check()?;
+                }
+            }
+            List::ByteArray(x) => {
+                for v in x {
+                    self.byte_array(v)?;
+                }
+            }
+            List::String(x) => {
+                for v in x {
+                    self.string(v)?;
+                }
+            }
             List::List(x) => return Ok(Some(WriteFrame::Lists(x.iter()))),
             List::Compound(x) => return Ok(Some(WriteFrame::Compounds(x.iter()))),
+            List::IntArray(x) => {
+                for v in x {
+                    self.int_array(v)?;
+                }
+            }
+            List::LongArray(x) => {
+                for v in x {
+                    self.long_array(v)?;
+                }
+            }
         }
         Ok(None)
     }
 
     /// Writes the payload of the root compound `root` and everything in it.
     fn compound(&mut self, root: &Compound) -> Result<()> {
-        let mut stack = Vec::with_capacity(16);
+        let mut stack = Vec::with_capacity(FRAME_CAPACITY);
         self.charge_entries(root);
         stack.push(WriteFrame::Compound(root.iter()));
         while let Some(top) = stack.last_mut() {
@@ -693,81 +748,29 @@ impl Encoder<'_> {
     }
 }
 
-impl Reader<'_> {
-    /// `NBT`: a root compound. A lone `TAG_End` reads as an empty compound (gophertunnel
-    /// `AllowZero`).
-    pub(crate) fn nbt(&mut self, encoding: Encoding) -> Result<Compound> {
-        self.nbt_within(encoding, MAX_ROOT_BYTES)
-    }
-
-    /// [`Self::nbt`] for a root of at most `limit` bytes, a store's own limit.
-    pub(crate) fn nbt_within(&mut self, encoding: Encoding, limit: usize) -> Result<Compound> {
-        let start = self.remaining().len();
-        let mut d = Decoder {
-            r: self,
-            encoding,
-            start,
-            limit,
-        };
-        let map = match d.root()? {
-            TAG_END => Compound::new(),
-            TAG_COMPOUND => d.compound()?,
-            _ => {
-                return Err(Error::InvalidValue {
-                    field: "nbt root",
-                    reason: "not a compound",
-                });
-            }
-        };
-        d.check_root_size()?;
-        Ok(map)
-    }
+/// A container being written; the iterative counterpart of [`ReadFrame`].
+enum WriteFrame<'v> {
+    Compound(btree_map::Iter<'v, String, Value>),
+    Lists(slice::Iter<'v, List>),
+    Compounds(slice::Iter<'v, Compound>),
 }
 
-impl Writer {
-    /// `NBT`: a root compound with an empty name, at most [`MAX_ROOT_BYTES`].
-    pub(crate) fn nbt(&mut self, x: &Compound, encoding: Encoding) -> Result<()> {
-        self.nbt_within(x, encoding, MAX_ROOT_BYTES).map(drop)
-    }
-
-    /// [`Self::nbt`] for a root of at most `limit` bytes, a store's own limit (one over
-    /// [`MAX_ROOT_BYTES`] reads back only through [`Reader::nbt_within`]): a larger one is a size
-    /// error, found as writing passes the limit, so the buffer never holds much more than `limit`
-    /// bytes of it whatever `x` holds. On an error the buffer holds part of the root. Returns what
-    /// the root takes.
-    pub(crate) fn nbt_within(
-        &mut self,
-        x: &Compound,
-        encoding: Encoding,
-        limit: usize,
-    ) -> Result<Cost> {
-        let start = self.as_bytes().len();
-        self.uint8(TAG_COMPOUND);
-        let end = start.saturating_add(limit);
-        let mut e = Encoder {
-            w: self,
-            encoding,
-            end,
-            alloc: 0,
-        };
-        e.string("")?;
-        e.compound(x)?;
-        let alloc = e.alloc;
-        let bytes = self.as_bytes().len().saturating_sub(start);
-        if bytes > limit {
-            return Err(Error::Size);
-        }
-        Ok(Cost { bytes, alloc })
-    }
+/// The next thing a write frame gives.
+enum Next<'v> {
+    Scalar(&'v Value),
+    List(&'v List),
+    Compound(&'v Compound),
+    End,
 }
 
 /// A compound in a generated static table: entries in key byte order.
 pub(crate) type StaticCompound = &'static [(&'static str, Static)];
 
 /// An NBT value in a generated static table. Tables cannot hold [`Value`] (it owns heap data),
-/// so they hold this, and the engine turns it into a [`Value`] once at start. It has the types
-/// the generated data uses; the generator fails on any other. The nesting is that of the
-/// generated data, so the recursive functions stay shallow.
+/// so they hold this. It has the types the generated data uses; the generator fails on any
+/// other. The engine builds a [`Value`] from it only where a value is stored or sent
+/// ([`Static::to_value`]) and compares it with a [`Value`] without building one ([`equals`]).
+/// The nesting is that of the generated data, so the recursive functions stay shallow.
 #[derive(Debug)]
 pub(crate) enum Static {
     Byte(u8),
@@ -788,20 +791,6 @@ pub(crate) enum StaticList {
     Float(&'static [f32]),
     String(&'static [&'static str]),
     Compound(&'static [StaticCompound]),
-}
-
-/// Builds the [`Compound`] of a static compound.
-pub(crate) fn compound(entries: StaticCompound) -> Compound {
-    entries
-        .iter()
-        .map(|(key, value)| ((*key).to_owned(), value.to_value()))
-        .collect()
-}
-
-/// Whether every entry of `part` is in `whole` with an equal value (floats compare by bits).
-pub(crate) fn contains(whole: &Compound, part: StaticCompound) -> bool {
-    part.iter()
-        .all(|(k, v)| whole.get(*k).is_some_and(|w| v.equals(w)))
 }
 
 impl Static {
@@ -829,7 +818,7 @@ impl Static {
             (Self::ByteArray(a), Value::ByteArray(b)) => *a == b.as_slice(),
             (Self::String(a), Value::String(b)) => a == b,
             (Self::List(a), Value::List(b)) => a.equals(b),
-            (Self::Compound(a), Value::Compound(b)) => a.len() == b.len() && contains(b, a),
+            (Self::Compound(a), Value::Compound(b)) => equals(b, a),
             _ => false,
         }
     }
@@ -855,12 +844,105 @@ impl StaticList {
             (Self::Int(a), List::Int(b)) => *a == b.as_slice(),
             (Self::Float(a), List::Float(b)) => all(a, b, |x, y| x.to_bits() == y.to_bits()),
             (Self::String(a), List::String(b)) => all(a, b, |x, y| x == y),
-            (Self::Compound(a), List::Compound(b)) => {
-                all(a, b, |x, y| x.len() == y.len() && contains(y, x))
-            }
+            (Self::Compound(a), List::Compound(b)) => all(a, b, |x, y| equals(y, x)),
             _ => false,
         }
     }
+}
+
+impl Reader<'_> {
+    /// Reads a root compound (`NBT`). A lone `TAG_End` reads as an empty compound (gophertunnel
+    /// `AllowZero`).
+    pub(crate) fn nbt(&mut self, encoding: Encoding) -> Result<Compound> {
+        self.nbt_within(encoding, MAX_ROOT_BYTES)
+    }
+
+    /// Reads a root compound of at most `limit` bytes, a store's own limit ([`Self::nbt`]).
+    pub(crate) fn nbt_within(&mut self, encoding: Encoding, limit: usize) -> Result<Compound> {
+        let start = self.remaining().len();
+        let mut d = Decoder {
+            r: self,
+            encoding,
+            start,
+            limit,
+        };
+        let map = match d.root()? {
+            TAG_END => Compound::new(),
+            TAG_COMPOUND => d.compound()?,
+            _ => {
+                return Err(Error::InvalidValue {
+                    field: "nbt root",
+                    reason: "not a compound",
+                });
+            }
+        };
+        d.check_root_size()?;
+        Ok(map)
+    }
+}
+
+impl Writer {
+    /// Writes a root compound (`NBT`) with an empty name, at most [`MAX_ROOT_BYTES`].
+    pub(crate) fn nbt(&mut self, x: &Compound, encoding: Encoding) -> Result<()> {
+        self.nbt_within(x, encoding, MAX_ROOT_BYTES).map(drop)
+    }
+
+    /// Writes a root compound of at most `limit` bytes, a store's own limit ([`Self::nbt`]; one
+    /// over [`MAX_ROOT_BYTES`] reads back only through [`Reader::nbt_within`]), and returns what
+    /// the root takes. A larger root is a size error, found as writing passes the limit, so the
+    /// buffer never holds much more than `limit` bytes of it whatever `x` holds. On an error the
+    /// buffer holds part of the root.
+    pub(crate) fn nbt_within(
+        &mut self,
+        x: &Compound,
+        encoding: Encoding,
+        limit: usize,
+    ) -> Result<Cost> {
+        let start = self.as_bytes().len();
+        self.uint8(TAG_COMPOUND);
+        let end = start.saturating_add(limit);
+        let mut e = Encoder {
+            w: self,
+            encoding,
+            end,
+            alloc: 0,
+        };
+        e.string("")?;
+        e.compound(x)?;
+        let alloc = e.alloc;
+        let bytes = self.as_bytes().len().saturating_sub(start);
+        if bytes > limit {
+            return Err(Error::Size);
+        }
+        Ok(Cost { bytes, alloc })
+    }
+}
+
+/// Builds the [`Compound`] of a static compound.
+pub(crate) fn compound(entries: StaticCompound) -> Compound {
+    entries
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), value.to_value()))
+        .collect()
+}
+
+/// Whether every entry of `part` is in `whole` with an equal value (floats compare by bits).
+pub(crate) fn contains(whole: &Compound, part: StaticCompound) -> bool {
+    part.iter()
+        .all(|(k, v)| whole.get(*k).is_some_and(|w| v.equals(w)))
+}
+
+/// Whether `whole` has exactly the entries of `part`, with equal values (floats compare by bits):
+/// `whole == compound(part)` without building the compound.
+pub(crate) fn equals(whole: &Compound, part: StaticCompound) -> bool {
+    whole.len() == part.len() && contains(whole, part)
+}
+
+/// Takes one from a frame's count of elements left; `false` once none are left.
+fn take_one(left: &mut usize) -> bool {
+    let more = *left > 0;
+    *left = left.saturating_sub(1);
+    more
 }
 
 #[cfg(test)]
@@ -894,6 +976,35 @@ mod tests {
             ("b".to_owned(), Value::List(List::Int(vec![1, -1]))),
             ("c".to_owned(), Value::String("hi".to_owned())),
         ])
+    }
+
+    #[test]
+    fn network_little_endian_matches_gophertunnel_bytes() {
+        let bytes = write(&sample(), Encoding::NetworkLittleEndian).unwrap();
+        let expected = [
+            0x0a, 0x00, // root compound, empty name
+            0x01, 0x01, b'a', 0x01, // byte
+            0x09, 0x01, b'b', 0x03, 0x04, 0x02, 0x01, // list of 2 varint ints
+            0x08, 0x01, b'c', 0x02, b'h', b'i', // string
+            0x00,
+        ];
+        assert_eq!(bytes, expected);
+        assert_eq!(read(&expected, Encoding::NetworkLittleEndian), Ok(sample()));
+    }
+
+    #[test]
+    fn little_endian_matches_gophertunnel_bytes() {
+        let bytes = write(&sample(), Encoding::LittleEndian).unwrap();
+        let expected = [
+            0x0a, 0x00, 0x00, // root compound, empty name
+            0x01, 0x01, 0x00, b'a', 0x01, // byte
+            0x09, 0x01, 0x00, b'b', 0x03, 0x02, 0x00, 0x00, 0x00, // list header
+            0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // ints
+            0x08, 0x01, 0x00, b'c', 0x02, 0x00, b'h', b'i', // string
+            0x00,
+        ];
+        assert_eq!(bytes, expected);
+        assert_eq!(read(&expected, Encoding::LittleEndian), Ok(sample()));
     }
 
     fn every_tag() -> Compound {
@@ -930,35 +1041,6 @@ mod tests {
             map.insert(format!("list{i}"), Value::List(list));
         }
         map
-    }
-
-    #[test]
-    fn network_little_endian_matches_gophertunnel_bytes() {
-        let bytes = write(&sample(), Encoding::NetworkLittleEndian).unwrap();
-        let expected = [
-            0x0a, 0x00, // root compound, empty name
-            0x01, 0x01, b'a', 0x01, // byte
-            0x09, 0x01, b'b', 0x03, 0x04, 0x02, 0x01, // list of 2 varint ints
-            0x08, 0x01, b'c', 0x02, b'h', b'i', // string
-            0x00,
-        ];
-        assert_eq!(bytes, expected);
-        assert_eq!(read(&expected, Encoding::NetworkLittleEndian), Ok(sample()));
-    }
-
-    #[test]
-    fn little_endian_matches_gophertunnel_bytes() {
-        let bytes = write(&sample(), Encoding::LittleEndian).unwrap();
-        let expected = [
-            0x0a, 0x00, 0x00, // root compound, empty name
-            0x01, 0x01, 0x00, b'a', 0x01, // byte
-            0x09, 0x01, 0x00, b'b', 0x03, 0x02, 0x00, 0x00, 0x00, // list header
-            0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // ints
-            0x08, 0x01, 0x00, b'c', 0x02, 0x00, b'h', b'i', // string
-            0x00,
-        ];
-        assert_eq!(bytes, expected);
-        assert_eq!(read(&expected, Encoding::LittleEndian), Ok(sample()));
     }
 
     #[test]
@@ -1038,6 +1120,48 @@ mod tests {
         }
         let end_elements = [0x0a, 0x00, 0x09, 0x01, b'l', 0x00, 0x02, 0x00];
         assert!(read(&end_elements, Encoding::NetworkLittleEndian).is_err());
+    }
+
+    /// Floats compare by their bits, as they are written: a `NaN` equals itself in values and
+    /// lists, and `0.0` differs from `-0.0`.
+    #[test]
+    fn floats_compare_by_their_bits() {
+        let nan = Compound::from([
+            ("f".to_owned(), Value::Float(f32::NAN)),
+            ("d".to_owned(), Value::Double(f64::NAN)),
+            ("lf".to_owned(), Value::List(List::Float(vec![f32::NAN]))),
+            ("ld".to_owned(), Value::List(List::Double(vec![f64::NAN]))),
+        ]);
+        assert_eq!(nan, nan.clone());
+        assert_ne!(Value::Float(0.0), Value::Float(-0.0));
+        assert_ne!(Value::Double(0.0), Value::Double(-0.0));
+        assert_ne!(List::Float(vec![0.0]), List::Float(vec![-0.0]));
+        assert_ne!(List::Double(vec![0.0]), List::Double(vec![-0.0]));
+        assert_ne!(Value::Int(1), Value::Long(1));
+    }
+
+    /// A static compound equals a compound with the same entries and no others, without a
+    /// compound being built from it.
+    #[test]
+    fn a_static_compound_equals_the_compound_it_builds() {
+        const STATIC: StaticCompound = &[
+            ("a", Static::Byte(1)),
+            ("f", Static::Float(f32::NAN)),
+            (
+                "l",
+                Static::List(StaticList::Compound(&[&[("k", Static::Short(2))]])),
+            ),
+        ];
+        let owned = compound(STATIC);
+        assert!(equals(&owned, STATIC));
+        assert!(contains(&owned, &STATIC[..1]));
+        assert!(!equals(&owned, &STATIC[..1]));
+        let mut more = owned.clone();
+        more.insert("z".to_owned(), Value::Byte(0));
+        assert!(!equals(&more, STATIC));
+        let mut changed = owned;
+        changed.insert("a".to_owned(), Value::Byte(2));
+        assert!(!equals(&changed, STATIC));
     }
 
     #[test]

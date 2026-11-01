@@ -167,7 +167,7 @@ impl Server {
     /// world's name, spawn and time and no setting (game mode, difficulty, game rules): a world
     /// runs with the settings of the server that opens it.
     ///
-    /// A program started as `<program> export <world folder> [<world name>]` runs this from
+    /// A program started as `<program> export <new folder> [<world name>]` runs this from
     /// [`run`](Self::run), the default world without a name.
     ///
     /// It blocks the calling thread and uses a CPU pool of `cpu-threads` that it joins before
@@ -219,7 +219,7 @@ impl Server {
     /// with no code of its own, writing the result to standard output: `<program> update-config`
     /// reports what [`Config::load`] added to the settings file and removed from it,
     /// `<program> import <world folder> [<world name>]` runs [`import_world`](Self::import_world)
-    /// and `<program> export <world folder> [<world name>]` runs
+    /// and `<program> export <new folder> [<world name>]` runs
     /// [`export_world`](Self::export_world) (the default world, `level-name`, without a name).
     /// Each then returns without starting the server, so it can run beside a running server.
     /// Those commands given other arguments fail with [`Error::Usage`]; any other arguments are

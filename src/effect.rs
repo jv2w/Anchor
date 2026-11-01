@@ -8,56 +8,6 @@ pub use table::{Potion, Type};
 
 use crate::nbt::{Compound, Value};
 
-/// A row of the effect table.
-#[derive(Debug)]
-struct Data {
-    id: u8,
-    text: &'static str,
-    /// Red, green, blue, alpha.
-    colour: [u8; 4],
-    bad: bool,
-    instant: bool,
-    default_duration: u32,
-    bubbles: bool,
-}
-
-impl Data {
-    const fn new(
-        id: u8,
-        text: &'static str,
-        colour: [u8; 4],
-        bad: bool,
-        instant: bool,
-        default_duration: u32,
-        bubbles: bool,
-    ) -> Self {
-        Self {
-            id,
-            text,
-            colour,
-            bad,
-            instant,
-            default_duration,
-            bubbles,
-        }
-    }
-}
-
-/// A row of the potion table.
-#[derive(Debug)]
-struct PotionData {
-    id: u8,
-    /// The first of the potion's effects in [`table::POTION_EFFECTS`] and their count.
-    first: u16,
-    count: u8,
-}
-
-impl PotionData {
-    const fn new(id: u8, first: u16, count: u8) -> Self {
-        Self { id, first, count }
-    }
-}
-
 /// The longest duration an instance holds, in ticks (PMMP `Limits::INT32_MAX`: the saved and sent
 /// int).
 pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
@@ -66,10 +16,15 @@ pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
 pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
 /// The saved duration of an infinite instance (PMMP `Living::saveNBT`).
 const INFINITE_DURATION: i32 = -1;
+/// The key of an instance's effect ID in its saved form.
 const ID: &str = "Id";
+/// The key of an instance's amplifier in its saved form.
 const AMPLIFIER: &str = "Amplifier";
+/// The key of an instance's duration in its saved form.
 const DURATION: &str = "Duration";
+/// The key of an instance's ambient flag in its saved form.
 const AMBIENT: &str = "Ambient";
+/// The key of an instance's particle flag in its saved form.
 const PARTICLES: &str = "ShowParticles";
 
 /// An effect with its duration and strength, as a potion or food gives it (PMMP
@@ -87,7 +42,8 @@ pub struct Instance {
 }
 
 impl Instance {
-    /// An effect instance; the static tables make them.
+    /// An effect instance lasting `duration` ticks, at most [`MAX_DURATION`]; the static tables
+    /// make them.
     pub(crate) const fn new(
         effect: Type,
         duration: u32,
@@ -97,12 +53,13 @@ impl Instance {
     ) -> Self {
         Self {
             effect,
-            duration,
+            duration: 0,
             amplifier,
             visible,
             ambient,
             infinite: false,
         }
+        .with_duration_ticks(duration)
     }
 
     /// The instance a saved compound holds ([`Self::to_nbt`]; PMMP `Living::initEntity`,
@@ -231,21 +188,23 @@ impl Instance {
 
     /// Whether this instance may replace `old`, an active instance of the same type (PMMP
     /// `EffectCollection::canAdd`): not a weaker one, nor an equally strong one that ends
-    /// sooner.
+    /// sooner. An infinite instance never ends, so it outlasts any finite one whatever its
+    /// duration counter holds.
     #[doc(alias = "EffectCollection::canAdd")]
     pub fn can_replace(self, old: Self) -> bool {
-        !(self.amplifier < old.amplifier
-            || (self.amplifier == old.amplifier && self.duration < old.duration))
+        let ends_sooner = !self.infinite && (old.infinite || self.duration < old.duration);
+        !(self.amplifier < old.amplifier || (self.amplifier == old.amplifier && ends_sooner))
     }
 
-    /// The saved form of the instance, one for players and clouds (PMMP `Living::saveNBT`,
-    /// `AreaEffectCloud::saveNBT`): `Id` and `Amplifier` (bytes), `Duration` (int; -1 for an
-    /// infinite instance), `Ambient` and `ShowParticles` (bytes).
+    /// Builds the saved form of the instance, one for players and clouds (PMMP
+    /// `Living::saveNBT`, `AreaEffectCloud::saveNBT`): `Id` and `Amplifier` (bytes), `Duration`
+    /// (int; -1 for an infinite instance), `Ambient` and `ShowParticles` (bytes).
     pub(crate) fn to_nbt(self) -> Compound {
+        // `duration` is at most `MAX_DURATION`, which is `i32::MAX`.
         let duration = if self.infinite {
             INFINITE_DURATION
         } else {
-            i32::try_from(self.duration).unwrap_or(i32::MAX)
+            self.duration.cast_signed()
         };
         Compound::from([
             (ID.to_owned(), Value::Byte(self.effect.id())),
@@ -257,52 +216,57 @@ impl Instance {
     }
 }
 
-/// The colour of the bubbles `effects` show (PMMP `EffectCollection::getBubbleColor`): the mean of
-/// the colour of each visible effect with bubbles, counted once per level; `None` (PMMP's
-/// transparent black) without one.
-#[doc(alias = "EffectCollection::getBubbleColor")]
-pub fn bubble_colour(effects: &[Instance]) -> Option<[u8; 4]> {
-    mix(effects.iter().filter(|e| shows_bubbles(e)))
+/// A row of the effect table.
+#[derive(Debug)]
+struct Data {
+    id: u8,
+    text: &'static str,
+    /// Red, green, blue, alpha.
+    colour: [u8; 4],
+    bad: bool,
+    instant: bool,
+    default_duration: u32,
+    bubbles: bool,
 }
 
-/// Whether every effect with bubbles in `effects` is ambient (PMMP
-/// `EffectCollection::hasOnlyAmbientEffects`); false without one.
-#[doc(alias = "EffectCollection::hasOnlyAmbientEffects")]
-pub fn only_ambient(effects: &[Instance]) -> bool {
-    let mut bubbles = effects.iter().filter(|e| shows_bubbles(e)).peekable();
-    bubbles.peek().is_some() && bubbles.all(|e| e.is_ambient())
-}
-
-/// PMMP's default bubble filter: visible, of a type with bubbles.
-fn shows_bubbles(e: &Instance) -> bool {
-    e.is_visible() && e.effect.has_bubbles()
-}
-
-/// The mean colour of `effects`, each counted once per level (PMMP `Color::mix` of the repeated
-/// colours: integer means per channel); `None` without an effect.
-pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<[u8; 4]> {
-    let mut sum = [0u32; 4];
-    let mut n = 0u32;
-    for e in effects {
-        let level = u32::from(e.level());
-        for (s, c) in sum.iter_mut().zip(e.colour()) {
-            *s = s.saturating_add(u32::from(c).saturating_mul(level));
+impl Data {
+    const fn new(
+        id: u8,
+        text: &'static str,
+        colour: [u8; 4],
+        bad: bool,
+        instant: bool,
+        default_duration: u32,
+        bubbles: bool,
+    ) -> Self {
+        Self {
+            id,
+            text,
+            colour,
+            bad,
+            instant,
+            default_duration,
+            bubbles,
         }
-        n = n.saturating_add(level);
     }
-    let n = std::num::NonZeroU32::new(n)?;
-    Some(sum.map(|s| u8::try_from(s / n).unwrap_or(u8::MAX)))
+}
+
+/// A row of the potion table.
+#[derive(Debug)]
+struct PotionData {
+    id: u8,
+    /// The first of the potion's effects in [`table::POTION_EFFECTS`] and their count.
+    first: u16,
+    count: u8,
+}
+
+impl PotionData {
+    const fn new(id: u8, first: u16, count: u8) -> Self {
+        Self { id, first, count }
+    }
 }
 
 impl Type {
-    fn data(self) -> &'static Data {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated effect table has a row per effect type"
-        )]
-        &table::DATA[self as usize]
-    }
-
     /// Every effect type, in name order.
     pub fn all() -> &'static [Self] {
         &table::TYPES
@@ -363,17 +327,17 @@ impl Type {
     pub fn instance(self) -> Instance {
         Instance::new(self, self.default_duration_ticks(), 0, true, false)
     }
+
+    fn data(self) -> &'static Data {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated effect table has a row per effect type"
+        )]
+        &table::DATA[self as usize]
+    }
 }
 
 impl Potion {
-    fn data(self) -> &'static PotionData {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated potion table has a row per potion type"
-        )]
-        &table::POTION_DATA[self as usize]
-    }
-
     /// Every potion type, in name order.
     pub fn all() -> &'static [Self] {
         &table::POTIONS
@@ -395,10 +359,11 @@ impl Potion {
     /// PMMP's display name, such as `Night Vision`.
     #[doc(alias = "PotionType::getDisplayName")]
     pub fn text(self) -> &'static str {
-        table::POTION_TEXT
-            .get(self as usize)
-            .copied()
-            .unwrap_or_default()
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated potion text table has a row per potion type"
+        )]
+        table::POTION_TEXT[self as usize]
     }
 
     /// The effects a drink of the potion gives.
@@ -406,10 +371,58 @@ impl Potion {
     pub fn effects(self) -> &'static [Instance] {
         let data = self.data();
         let start = usize::from(data.first);
-        table::POTION_EFFECTS
-            .get(start..start.saturating_add(usize::from(data.count)))
-            .unwrap_or_default()
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated potion rows index the effect table"
+        )]
+        &table::POTION_EFFECTS[start..start + usize::from(data.count)]
     }
+
+    fn data(self) -> &'static PotionData {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated potion table has a row per potion type"
+        )]
+        &table::POTION_DATA[self as usize]
+    }
+}
+
+/// The colour of the bubbles `effects` show (PMMP `EffectCollection::getBubbleColor`): the mean of
+/// the colour of each visible effect with bubbles, counted once per level; `None` (PMMP's
+/// transparent black) without one.
+#[doc(alias = "EffectCollection::getBubbleColor")]
+pub fn bubble_colour(effects: &[Instance]) -> Option<[u8; 4]> {
+    mix(effects.iter().filter(|e| shows_bubbles(e)))
+}
+
+/// Whether every effect with bubbles in `effects` is ambient (PMMP
+/// `EffectCollection::hasOnlyAmbientEffects`); false without one.
+#[doc(alias = "EffectCollection::hasOnlyAmbientEffects")]
+pub fn only_ambient(effects: &[Instance]) -> bool {
+    let mut bubbles = effects.iter().filter(|e| shows_bubbles(e)).peekable();
+    bubbles.peek().is_some() && bubbles.all(|e| e.is_ambient())
+}
+
+/// Whether the effect shows bubbles, PMMP's default bubble filter: visible, of a type with
+/// bubbles.
+pub(crate) fn shows_bubbles(e: &Instance) -> bool {
+    e.is_visible() && e.effect.has_bubbles()
+}
+
+/// The mean colour of `effects`, each counted once per level (PMMP `Color::mix` of the repeated
+/// colours: integer means per channel); `None` without an effect.
+pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<[u8; 4]> {
+    let mut sum = [0u32; 4];
+    let mut n = 0u32;
+    for e in effects {
+        let level = u32::from(e.level());
+        for (s, c) in sum.iter_mut().zip(e.colour()) {
+            *s = s.saturating_add(u32::from(c).saturating_mul(level));
+        }
+        n = n.saturating_add(level);
+    }
+    let n = std::num::NonZeroU32::new(n)?;
+    Some(sum.map(|s| u8::try_from(s / n).unwrap_or(u8::MAX)))
 }
 
 #[cfg(test)]
@@ -481,11 +494,11 @@ mod tests {
         assert_eq!(Potion::from_id(1000), None);
     }
 
-    /// PMMP `VanillaEffects`, `PotionType` and `EffectIdMap` values.
     // pmmp: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
     // pmmp: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance, EffectInstance::getType,
     // pmmp: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
     // pmmp: EffectInstance::isAmbient, PotionType::getEffects, PotionType::getDisplayName
+    /// PMMP `VanillaEffects`, `PotionType` and `EffectIdMap` values.
     #[test]
     fn effect_and_potion_data_are_pmmp_values() {
         assert_eq!(Type::all().len(), 27);
@@ -575,12 +588,30 @@ mod tests {
         assert!(!only_ambient(&[weak.with_ambient(true), poison]));
     }
 
-    /// Every effect and potion type has the values of the PMMP dump (`tables.json`).
+    /// An infinite instance outlasts any finite one of the same level whatever its counter holds,
+    /// no finite instance replaces it, and a duration is cut at the longest the saved int holds.
+    #[test]
+    fn an_infinite_instance_outlasts_a_finite_one() {
+        let finite = Type::Speed.instance().with_duration_ticks(9600);
+        let infinite = Type::Speed
+            .instance()
+            .with_duration_ticks(100)
+            .with_infinite(true);
+        assert!(infinite.can_replace(finite));
+        assert!(!finite.can_replace(infinite));
+        assert!(infinite.can_replace(infinite));
+        assert!(!infinite.can_replace(finite.with_amplifier(1)));
+        let long = Instance::new(Type::Speed, u32::MAX, 0, true, false);
+        assert_eq!(long.duration_ticks(), MAX_DURATION);
+        assert_eq!(Instance::from_nbt(&long.to_nbt()), Some(long));
+    }
+
     // pmmp: Effect, VanillaEffects, EffectIdMap::toId, Effect::getName, Effect::getColor,
     // pmmp: Effect::isBad, Effect::getDefaultDuration, Effect::hasBubbles, PotionTypeIdMap::toId,
     // pmmp: PotionType::getDisplayName, PotionType::getEffects, EffectInstance::getType,
     // pmmp: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
     // pmmp: EffectInstance::isAmbient
+    /// Every effect and potion type has the values of the PMMP dump (`tables.json`).
     #[test]
     fn every_effect_and_potion_has_the_pmmp_dump_values() {
         let dump: serde_json::Value =

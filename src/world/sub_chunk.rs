@@ -41,6 +41,14 @@ impl Entry {
         }
     }
 
+    /// The block state of an entry Anchor knows.
+    pub(crate) fn state(self) -> Option<State> {
+        match self {
+            Self::Known(state) => Some(state),
+            Self::Unknown(_) | Self::Inert(..) => None,
+        }
+    }
+
     /// The network ID the client is sent for this entry.
     pub(crate) fn network_id(self) -> u32 {
         match self {
@@ -108,17 +116,6 @@ impl SubChunk {
         blocks.derived(offset)
     }
 
-    /// Sets the layer 0 entry of a slot and returns the old one.
-    pub(crate) fn set(&mut self, offset: u16, entry: Entry) -> Entry {
-        let [blocks, _] = &mut self.layers;
-        blocks.set(offset, entry)
-    }
-
-    /// Compacts both layers ([`Paletted::compact`]).
-    pub(crate) fn compact(&mut self) {
-        self.layers.iter_mut().for_each(Paletted::compact);
-    }
-
     /// Whether both layers are all air: such a sub-chunk is not kept.
     pub(crate) fn is_empty(&self) -> bool {
         self.layers.iter().all(|l| l.is_uniform(Entry::AIR))
@@ -145,6 +142,19 @@ impl SubChunk {
         blocks.encode(w, Entry::network_id);
         if with_water {
             water.encode(w, Entry::network_id);
+        }
+    }
+
+    /// Sets the layer 0 entry of a slot and returns the old one.
+    pub(crate) fn set(&mut self, offset: u16, entry: Entry) -> Entry {
+        let [blocks, _] = &mut self.layers;
+        blocks.set(offset, entry)
+    }
+
+    /// Compacts both layers ([`Paletted::compact`]).
+    pub(crate) fn compact(&mut self) {
+        for layer in &mut self.layers {
+            layer.compact();
         }
     }
 }

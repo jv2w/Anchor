@@ -3,27 +3,20 @@
 use std::fmt;
 use std::io;
 
+use crate::args::USAGE;
 use crate::{command, config, data, entity, export, import, pack, storage};
 
 /// A failure to build or run a [`Server`](crate::Server).
-#[derive(Debug)]
+///
+/// Its `Debug` form is the message followed by each cause, as `fn main() -> anchor::Result<()>`
+/// prints it.
 #[non_exhaustive]
 pub enum Error {
     /// The settings are invalid; [`source`](std::error::Error::source) names the setting.
     Config(config::Error),
-    /// `network-threads` + `cpu-threads` + 2 (the tick and save threads) exceeds the thread
-    /// budget, max(logical CPUs, 4).
-    Threads {
-        /// The `network-threads` value, resolved if it was `"auto"`.
-        network: usize,
-        /// The `cpu-threads` value, resolved if it was `"auto"`.
-        cpu: usize,
-        /// The thread budget.
-        budget: usize,
-    },
     /// The runtime, a thread (tick, save, CPU pool, console, console log) or the startup state
-    /// (server key, random numbers, shared spawn batches, resource pack loading) could not be
-    /// started.
+    /// (server key, random numbers, shared spawn batches, resource pack loading, the NetherNet
+    /// DTLS certificate) could not be started.
     Start(io::Error),
     /// The network ports could not be opened.
     Network(io::Error),
@@ -41,13 +34,12 @@ pub enum Error {
         /// The panic message, or a placeholder if the payload was not text.
         message: String,
     },
-    /// A data file (`data/*.redb`, `data/worlds/*.redb`) failed its integrity check at start, or a
-    /// value it holds is damaged. The server did not start, and the file is left exactly as it
-    /// was (unless the start made no copy: `backups = false` and no check); a backup from its
-    /// folder in `data/backups/` can replace it.
+    /// A data file (`data/*.redb`, `data/worlds/*.redb`) failed its integrity check, or a value it
+    /// holds is damaged. A start refuses such a file, an export that reads one fails with this,
+    /// and a running server whose save keeps failing on a corrupted file stops with it. The file
+    /// is left exactly as it was; a backup from its folder in `data/backups/` can replace it.
     WorldDamaged(Box<dyn std::error::Error + Send + Sync>),
-    /// A data file was last saved by a newer Anchor; the file is left as it was (unless the start
-    /// made no copy: `backups = false` and no check).
+    /// A data file was last saved by a newer Anchor; the file is left as it was.
     WorldNewerFormat {
         /// The file's format version.
         version: u16,
@@ -55,9 +47,11 @@ pub enum Error {
         supported: u16,
     },
     /// A data file could not be opened, read or saved: another process has it open, I/O failed,
-    /// or a save still failed after its retries.
+    /// a save still failed after its retries, or the save thread panicked.
     Storage(Box<dyn std::error::Error + Send + Sync>),
-    /// Two worlds have the same name, or names that differ only in letter case.
+    /// Two worlds have the same name, or names that differ only in letter case. The default world
+    /// (`level-name`) is one of the worlds, so [`ServerBuilder::world`](crate::ServerBuilder::world)
+    /// cannot declare its name again.
     DuplicateWorld {
         /// The name.
         name: String,
@@ -94,7 +88,7 @@ pub enum Error {
     Export(export::Error),
     /// The program was started with `update-config`, `import` or `export` but not the arguments
     /// the command takes: `update-config` alone, `import <world folder> [<world name>]` or
-    /// `export <world folder> [<world name>]`.
+    /// `export <new folder> [<world name>]`.
     Usage,
     /// The answer to a command of the process arguments could not be written to standard
     /// output.
@@ -104,19 +98,16 @@ pub enum Error {
 /// A result with the crate [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_chain(f, self)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Config(_) => f.write_str("invalid settings"),
-            Self::Threads {
-                network,
-                cpu,
-                budget,
-            } => write!(
-                f,
-                "network-threads ({network}) + cpu-threads ({cpu}) + 2 exceeds the thread budget \
-                 of {budget}, the larger of the logical CPU count and 4"
-            ),
             Self::Start(_) => {
                 f.write_str("could not start the runtime, a thread or the startup state")
             }
@@ -125,7 +116,7 @@ impl fmt::Display for Error {
                 f.write_str("the nethernet identity key could not be read or created")
             }
             Self::TlsCertificate(_) => f.write_str("the nethernet tls certificate is unusable"),
-            Self::Auth(_) => f.write_str("authorization keys are unavailable"),
+            Self::Auth(_) => f.write_str("could not load the authorization keys"),
             Self::TickPanicked { message } => write!(f, "the tick thread panicked: {message}"),
             Self::WorldDamaged(_) => f.write_str("a data file is damaged"),
             Self::WorldNewerFormat { version, supported } => write!(
@@ -140,7 +131,7 @@ impl fmt::Display for Error {
             Self::DuplicateGenerator { name } => {
                 write!(f, "two generator types are named {name:?}")
             }
-            Self::Command(_) => f.write_str("a registered command is invalid"),
+            Self::Command(_) => f.write_str("a registered command or permission is invalid"),
             Self::CustomEntity(_) => f.write_str("a registered custom entity type is invalid"),
             Self::Custom(_) => f.write_str("a registered custom item, block or recipe is invalid"),
             Self::Data(_) => f.write_str("a registered data type is invalid"),
@@ -148,10 +139,7 @@ impl fmt::Display for Error {
             Self::Import(_) => f.write_str("the world could not be imported"),
             Self::Export(_) => f.write_str("the world could not be exported"),
             Self::Output(_) => f.write_str("could not write to standard output"),
-            Self::Usage => f.write_str(
-                "usage: <program> update-config, <program> import <world folder> [<world name>], \
-                 or <program> export <world folder> [<world name>]",
-            ),
+            Self::Usage => f.write_str(USAGE),
         }
     }
 }
@@ -173,8 +161,7 @@ impl std::error::Error for Error {
             | Self::TlsCertificate(e)
             | Self::WorldDamaged(e)
             | Self::Storage(e) => Some(e.as_ref()),
-            Self::Threads { .. }
-            | Self::TickPanicked { .. }
+            Self::TickPanicked { .. }
             | Self::WorldNewerFormat { .. }
             | Self::DuplicateWorld { .. }
             | Self::InvalidWorldName { .. }
@@ -221,9 +208,33 @@ impl From<storage::Error> for Error {
     }
 }
 
+/// Writes `error` and then each of its causes, separated by `: `: the one form in which an
+/// error and its causes appear on one line.
+pub(crate) fn write_chain(
+    out: &mut impl fmt::Write,
+    error: &(dyn std::error::Error + 'static),
+) -> fmt::Result {
+    write!(out, "{error}")?;
+    let mut cause = error.source();
+    while let Some(e) = cause {
+        write!(out, ": {e}")?;
+        cause = e.source();
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_writes_the_message_and_its_causes_instead_of_the_variant() {
+        let e = Error::Start(io::Error::other("no thread"));
+        assert_eq!(
+            format!("{e:?}"),
+            "could not start the runtime, a thread or the startup state: no thread"
+        );
+    }
 
     #[test]
     fn the_start_message_covers_every_thread_and_startup_step() {

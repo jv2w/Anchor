@@ -6,6 +6,7 @@
 //! their results, while std's `min`, `max`, `clamp` (signed zeros) and transcendental functions
 //! (platform libraries) may differ, so they are disallowed in `.clippy.toml`.
 
+use std::f64::consts::{FRAC_2_PI, FRAC_PI_2, PI};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 /// A position, offset or direction in blocks.
@@ -31,11 +32,6 @@ impl Vec3 {
     /// The vector of a packet's `f32` components.
     pub fn from_f32(v: [f32; 3]) -> Self {
         Self::new(f64::from(v[0]), f64::from(v[1]), f64::from(v[2]))
-    }
-
-    /// The `f32` components a packet carries (rounded to nearest).
-    pub fn to_f32(self) -> [f32; 3] {
-        [to_f32(self.x), to_f32(self.y), to_f32(self.z)]
     }
 
     /// Whether every component is finite (tick state never holds NaN or infinity).
@@ -78,6 +74,11 @@ impl Vec3 {
         } else {
             Self::ZERO
         }
+    }
+
+    /// The `f32` components a packet carries (rounded to nearest).
+    pub fn to_f32(self) -> [f32; 3] {
+        [to_f32(self.x), to_f32(self.y), to_f32(self.z)]
     }
 }
 
@@ -135,32 +136,39 @@ pub struct Aabb {
 }
 
 impl Aabb {
-    /// The box between two corners.
-    pub const fn new(min: Vec3, max: Vec3) -> Self {
-        Self { min, max }
+    /// The box between two corners given in any order: on each axis it runs from the smaller
+    /// coordinate to the larger. A NaN stays where it is.
+    pub const fn new(corner: Vec3, opposite: Vec3) -> Self {
+        let (min_x, max_x) = ordered(corner.x, opposite.x);
+        let (min_y, max_y) = ordered(corner.y, opposite.y);
+        let (min_z, max_z) = ordered(corner.z, opposite.z);
+        Self {
+            min: Vec3::new(min_x, min_y, min_z),
+            max: Vec3::new(max_x, max_y, max_z),
+        }
     }
 
     /// The box moved by `by`.
     #[must_use]
     pub fn offset(self, by: Vec3) -> Self {
-        Self::new(self.min + by, self.max + by)
+        Self {
+            min: self.min + by,
+            max: self.max + by,
+        }
     }
 
     /// The box grown by `by` on each side (shrunk for negative components).
     #[must_use]
     pub fn grow(self, by: Vec3) -> Self {
-        Self::new(self.min - by, self.max + by)
+        Self {
+            min: self.min - by,
+            max: self.max + by,
+        }
     }
 
-    /// Whether the two boxes overlap with a positive volume (touching faces do not count, as in
-    /// PMMP `AxisAlignedBB::intersectsWith`).
+    /// Whether the two boxes overlap with a positive volume (touching faces do not count).
     pub fn intersects(self, o: Self) -> bool {
-        self.min.x < o.max.x
-            && self.max.x > o.min.x
-            && self.min.y < o.max.y
-            && self.max.y > o.min.y
-            && self.min.z < o.max.z
-            && self.max.z > o.min.z
+        self.overlaps(o, 0.0)
     }
 
     /// Whether the boxes overlap by more than `epsilon` on every axis (PMMP
@@ -191,7 +199,7 @@ impl Aabb {
                 *hi += d;
             }
         }
-        Self::new(min, max)
+        Self { min, max }
     }
 
     /// How far `moving` may go along x, up to `dx`, before it hits this box (PMMP
@@ -233,6 +241,11 @@ impl Aabb {
     }
 }
 
+/// The two coordinates of one axis as (smaller, larger); a NaN keeps its place.
+const fn ordered(a: f64, b: f64) -> (f64, f64) {
+    if a > b { (b, a) } else { (a, b) }
+}
+
 /// The clipped move `d` of a range `lo..hi` toward an obstacle range `min..max` on one axis.
 fn clip(min: f64, max: f64, lo: f64, hi: f64, d: f64) -> f64 {
     if d > 0.0 && hi <= min {
@@ -268,7 +281,9 @@ pub fn max(a: f64, b: f64) -> f64 {
     if a > b { a } else { b }
 }
 
-/// `v` limited to `lo..=hi` (`lo <= hi`); `v` itself when inside.
+/// `v` limited to `lo..=hi`; `v` itself when inside, and a NaN `v` stays NaN. Callers keep
+/// `lo <= hi`: with `lo > hi` the result is `lo` for a `v` below `lo` and `hi` for any other
+/// (std's `clamp` panics there).
 pub fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     if v < lo {
         lo
@@ -279,7 +294,8 @@ pub fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     }
 }
 
-/// The sine of `x` radians, within 2 ulp of the true value for |x| < 2^20.
+/// The sine of `x` radians, within 4 × `f64::EPSILON` of the true value for |x| < 2^20. For a
+/// larger |x| or a non-finite `x` no accuracy is promised, and the result may leave [-1, 1].
 pub fn sin(x: f64) -> f64 {
     let (quadrant, r) = reduce(x);
     match quadrant & 3 {
@@ -290,7 +306,8 @@ pub fn sin(x: f64) -> f64 {
     }
 }
 
-/// The cosine of `x` radians, within 2 ulp of the true value for |x| < 2^20.
+/// The cosine of `x` radians, within 4 × `f64::EPSILON` of the true value for |x| < 2^20. For a
+/// larger |x| or a non-finite `x` no accuracy is promised, and the result may leave [-1, 1].
 pub fn cos(x: f64) -> f64 {
     let (quadrant, r) = reduce(x);
     match quadrant & 3 {
@@ -303,19 +320,18 @@ pub fn cos(x: f64) -> f64 {
 
 /// `degrees` in radians.
 pub fn radians(degrees: f64) -> f64 {
-    degrees * (std::f64::consts::PI / 180.0)
+    degrees * (PI / 180.0)
 }
 
 /// `radians` in degrees.
 pub fn degrees(radians: f64) -> f64 {
-    radians * (180.0 / std::f64::consts::PI)
+    radians * (180.0 / PI)
 }
 
 /// The angle of the point (`x`, `y`) from the positive x axis, in radians from -π to π (fdlibm
 /// `__ieee754_atan2` on finite input, with only arithmetic, so every platform gives the same
 /// bits); 0 for a non-finite input.
 pub fn atan2(y: f64, x: f64) -> f64 {
-    use std::f64::consts::{FRAC_PI_2, PI};
     const PI_LO: f64 = f64::from_bits(0x3CA1_A626_3314_5C07);
     if !y.is_finite() || !x.is_finite() {
         return 0.0;
@@ -419,7 +435,7 @@ fn atan(x: f64) -> f64 {
 fn reduce(x: f64) -> (i64, f64) {
     const PIO2_1: f64 = f64::from_bits(0x3FF9_21FB_5440_0000);
     const PIO2_1T: f64 = f64::from_bits(0x3DD0_B461_1A62_6331);
-    let k = (x * std::f64::consts::FRAC_2_PI).round();
+    let k = (x * FRAC_2_PI).round();
     (k as i64, (x - k * PIO2_1) - k * PIO2_1T)
 }
 
@@ -465,13 +481,23 @@ mod tests {
     }
 
     #[test]
-    fn sine_and_cosine_follow_the_platform_within_two_ulp() {
+    fn sine_and_cosine_follow_the_platform_within_four_epsilon() {
         let mut x = -1000.0_f64;
         while x < 1000.0 {
             let (s, c) = reference(x);
             assert!((sin(x) - s).abs() <= 4.0 * f64::EPSILON, "sin {x}");
             assert!((cos(x) - c).abs() <= 4.0 * f64::EPSILON, "cos {x}");
             x += 0.013_7;
+        }
+        // Up to the end of the documented range, in steps that grow with |x|.
+        let mut x = 1000.0_f64;
+        while x < 1_048_576.0 {
+            for angle in [x, -x] {
+                let (s, c) = reference(angle);
+                assert!((sin(angle) - s).abs() <= 4.0 * f64::EPSILON, "sin {angle}");
+                assert!((cos(angle) - c).abs() <= 4.0 * f64::EPSILON, "cos {angle}");
+            }
+            x *= 1.013_7;
         }
         assert_eq!(sin(0.0).to_bits(), 0.0_f64.to_bits());
         assert_eq!(cos(0.0), 1.0);
@@ -486,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn atan2_follows_the_platform_within_two_ulp_in_every_quadrant() {
+    fn atan2_follows_the_platform_within_four_epsilon_in_every_quadrant() {
         let mut a = -10.0_f64;
         while a < 10.0 {
             let mut b = -10.0_f64;
@@ -498,10 +524,10 @@ mod tests {
             a += 0.211;
         }
         assert_eq!(atan2(0.0, 1.0), 0.0);
-        assert_eq!(atan2(1.0, 0.0), std::f64::consts::FRAC_PI_2);
-        assert_eq!(atan2(0.0, -1.0), std::f64::consts::PI);
+        assert_eq!(atan2(1.0, 0.0), FRAC_PI_2);
+        assert_eq!(atan2(0.0, -1.0), PI);
         assert_eq!(atan2(f64::NAN, 1.0), 0.0);
-        assert_eq!(degrees(std::f64::consts::PI), 180.0);
+        assert_eq!(degrees(PI), 180.0);
     }
 
     #[test]
@@ -512,6 +538,22 @@ mod tests {
         assert_eq!(clamp(5.0, 0.0, 1.0), 1.0);
         assert_eq!(clamp(-5.0, 0.0, 1.0), 0.0);
         assert_eq!(clamp(0.5, 0.0, 1.0), 0.5);
+    }
+
+    #[test]
+    fn a_box_between_two_corners_is_the_same_whichever_corner_comes_first() {
+        let low = Vec3::new(-1.0, 2.0, 3.0);
+        let high = Vec3::new(4.0, 5.0, 6.0);
+        let wanted = Aabb {
+            min: low,
+            max: high,
+        };
+        assert_eq!(Aabb::new(low, high), wanted);
+        assert_eq!(Aabb::new(high, low), wanted);
+        let mixed = Aabb::new(Vec3::new(-1.0, 5.0, 3.0), Vec3::new(4.0, 2.0, 6.0));
+        assert_eq!(mixed, wanted);
+        let nan = Aabb::new(Vec3::new(f64::NAN, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0));
+        assert!(!nan.min.is_finite());
     }
 
     #[test]

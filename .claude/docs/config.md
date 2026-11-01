@@ -185,7 +185,7 @@ console-input = true
 - `nethernet-tls-cert` and `nethernet-tls-key` are both empty or both set (`Invalid`).
 - `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 
-`build` also fails, with other `anchor::Error` variants, when the thread counts exceed the budget (`Threads`, see `cpu-threads`) and when a world name cannot be a file name (`InvalidWorldName`, see `level-name`).
+`build` also fails, with `Invalid` naming the thread key, when the thread counts exceed the budget (see `cpu-threads`), and with `anchor::Error::InvalidWorldName` when a world name cannot be a file name (see `level-name`).
 
 ## `[general]`
 
@@ -253,7 +253,7 @@ A relative `resource-packs` path that starts with `packs` is rejected, and the u
 | `nethernet-tls-cert` | string | `""` | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
 | `nethernet-tls-key` | string | `""` | empty or a path | PEM private key for HTTPS signaling |
 | `network-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for network work. `auto` is max(1, ⌊L/4⌋), L being the logical CPU count |
-| `cpu-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, max(L, 4) − 2 − network threads). When network threads + CPU threads + 2 (the tick and save threads) exceed max(L, 4), `build` fails with `anchor::Error::Threads` |
+| `cpu-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, max(L, 4) − 2 − network threads). When network threads + CPU threads + 2 (the tick and save threads) exceed max(L, 4), `build` fails with `anchor::Error::Config` (`config::Error::Invalid`) naming `developer.network-threads` when the total leaves no room for one CPU thread, or else `developer.cpu-threads` |
 | `chunks-per-tick` | integer | `4` | 1 to 256 | Chunks sent to each player per tick. 0 would never send a chunk; 256 sends the largest view in about 3 seconds |
 | `spawn-radius` | integer | `4` | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) |
 | `tick-radius` | integer | `4` | 1 to 64 | Chunk radius around players where blocks and entities are ticked; the effective value is min(value, `view-distance`) |
