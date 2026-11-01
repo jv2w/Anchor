@@ -116,8 +116,8 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
     // level.dat's spawn (no height: above the highest block), which the world keeps.
     assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
 
-    // A second import is refused (opening the file still backs it up, as every start does; the
-    // values stay, which the crate's own test checks).
+    // A second import is refused before it opens a file; another test checks that it leaves
+    // the data folder as it was.
     let err = server(&data.0, 2)
         .import_world(FIXTURE, NAME)
         .expect_err("a second import");
@@ -215,7 +215,8 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
         ["worlds"],
         "an import writes no other data file and no backup"
     );
-    // A second import of a name is refused and changes nothing.
+    // A second import of a name, in any letter case, is refused and changes nothing.
+    let before = snapshot(&data.0);
     let err = server()
         .import_world(FIXTURE, "SECOND")
         .expect_err("the world exists");
@@ -223,14 +224,15 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
         matches!(&err, Error::Import(import::Error::WorldExists { .. })),
         "{err:?}"
     );
+    assert!(snapshot(&data.0) == before, "the data folder changed");
 }
 
 #[test]
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: reads the server files on disk"
+    reason = "off-tick: reads the world files on disk"
 )]
-fn one_and_many_threads_write_the_same_server_file() {
+fn one_and_many_threads_write_the_same_world_file() {
     let mut files = Vec::new();
     for cpu in [1, 4] {
         let data = TempPath::new(&format!("threads-{cpu}"));
@@ -240,7 +242,7 @@ fn one_and_many_threads_write_the_same_server_file() {
         let file = data.0.join("worlds").join(format!("{NAME}.redb"));
         files.push(std::fs::read(file).expect("the world file"));
     }
-    assert!(files[0] == files[1], "the server files differ");
+    assert!(files[0] == files[1], "the world files differ");
 }
 
 #[test]
@@ -261,7 +263,7 @@ fn a_temporary_world_cannot_be_imported_into_in_any_letter_case() {
             .import_world(FIXTURE, world)
             .expect_err("a temporary world");
         assert!(
-            matches!(&err, Error::Import(import::Error::UnknownWorld { name }) if name == world),
+            matches!(&err, Error::Import(import::Error::TemporaryWorld { name }) if name == world),
             "{err:?}"
         );
         assert!(!data.0.exists(), "nothing was written");

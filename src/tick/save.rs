@@ -111,7 +111,7 @@ pub(super) struct Saving {
     pub(super) requested: bool,
     /// A task or command asked for an online backup after the next save.
     pub(super) backup: bool,
-    /// `/check` asked for a check of the server file after the next save.
+    /// `/check` asked for a check of the data files after the next save.
     check: bool,
     /// Who asked for the check asked for or being made, until its result comes: one at a time.
     checker: Option<Sender>,
@@ -254,13 +254,17 @@ pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
 
 /// The data kept of a player: its world, position and extra ([`extra::player_saved`]), the
 /// user's data values included (`task::save_player`).
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a world keeps its index for the whole run, unloaded too"
+)]
 pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
     PlayerData {
         world: state
             .worlds
             .get(player.world)
             .map(|w| w.name().to_owned())
-            .unwrap_or_default(),
+            .expect("a player's world is one of the worlds"),
         position: [player.position.x, player.position.y, player.position.z],
         extra: {
             let mut extra = extra::player_saved(&player.extra);
@@ -410,6 +414,10 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
 
 /// Moves the changed player data into the snapshot taken at `start`: online players whose data
 /// changed, and departed players no snapshot holds yet; `held` keeps their keys until the commit.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: the sessions are taken from the players just before, and none leaves"
+)]
 fn take_players(state: &mut State, start: u64, snapshot: &mut Snapshot, held: &mut InFlight) {
     let sessions: Vec<_> = state
         .players
@@ -418,15 +426,18 @@ fn take_players(state: &mut State, start: u64, snapshot: &mut Snapshot, held: &m
         .map(|(&s, _)| s)
         .collect();
     for session in sessions {
-        let Some(player) = state.players.get(&session) else {
-            continue;
-        };
+        let player = state
+            .players
+            .get(&session)
+            .expect("the session is a player");
         let key = storage_key(&player.key);
         let data = data_of(state, player);
-        if let Some(player) = state.players.get_mut(&session) {
-            player.data_dirty = false;
-            super::task::player_saved(&mut player.extra, &data.extra);
-        }
+        let player = state
+            .players
+            .get_mut(&session)
+            .expect("the session is a player");
+        player.data_dirty = false;
+        super::task::player_saved(&mut player.extra, &data.extra);
         snapshot.players.push((key.clone(), data));
         held.players.insert(key);
     }
@@ -476,7 +487,7 @@ fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
 }
 
 /// The snapshot taken before tick `start` is committed: the memory that held it for the commit
-/// is let go, and the log now starts there.
+/// is let go, and the input log learns of the commit (`InputLog::committed`).
 pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     if state.saving.in_flight.as_ref().map(|f| f.start) == Some(start) {
         state.saving.in_flight = None;
@@ -507,7 +518,7 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     }
 }
 
-/// Asks for a check of the server file after the next save (`/check`), for `sender`; false, asking
+/// Asks for a check of the data files after the next save (`/check`), for `sender`; false, asking
 /// for nothing, while another is asked for or being made.
 pub(super) fn ask_check(state: &mut State, sender: Sender) -> bool {
     if state.saving.checker.is_some() {

@@ -55,6 +55,7 @@ pub(crate) use self::log::{
     Answer, EntryKind, Fingerprints, InputLog, MAX_FILE_BYTES as MAX_LOG_FILE_BYTES, Origin,
     Segment, Tick as LoggedTick, write_crash_log,
 };
+pub(crate) use block_entity::SPILL_ID;
 #[cfg(test)]
 pub(crate) use entity::Customs;
 pub(crate) use entity::EntityTypes;

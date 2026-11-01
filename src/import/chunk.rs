@@ -27,19 +27,21 @@
 //!   id | meta << 8) pairs; the position packs x, z, y as 4, 4, 8 bits (7 bits of y before
 //!   chunk version 3). PMMP applies it as a second layer to sub-chunks of versions 0 to 7.
 //!
-//! Every other tag is not read: biomes (`Data3D` 43, `Data2D` 45), old entities (50), pending
-//! ticks (51), finalization (54), the 1.18+ metadata hash (63, 64, 65), ...; [`Raw::ignored`]
-//! lists those present, and the tags a newer one replaced. Anything malformed in a value that is
-//! read is an error naming the chunk and the key, where PMMP would sometimes log and go on: a
-//! skipped value loses blocks.
+//! Every other chunk tag is not read: biomes (`Data3D` 43, `Data2D` 45), old entities (50),
+//! pending ticks (51), finalization (54), the 1.18+ metadata hash (63, 64, 65), ...;
+//! [`Raw::ignored`] lists those present, and the tags a newer one replaced. Anything malformed in
+//! a value that is read is an error naming the chunk and the key, where PMMP would sometimes log
+//! and go on: a skipped value loses blocks.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 
-use crate::import::{DECODE_BUDGET, Error, Result};
+use super::{Error, Result};
 use crate::nbt::{Compound, Encoding};
 use crate::protocol::{BLOCKS, Reader, WIDTHS, word_count};
 use crate::storage::codec::{BlockLayer, MAX_EXTRA_ENTRIES, check_indices};
+// Decoding one chunk allocates within the data files' own budget.
+use crate::storage::seal::DECODE_BUDGET;
 
 /// Chunk tags.
 pub(crate) const VERSION: u8 = 0x2c;
@@ -60,12 +62,12 @@ const READ_TAGS: [(u8, &str); 5] = [
 /// The name of [`SUB_CHUNK`] keys, as [`READ_TAGS`] names the others.
 const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
 /// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
-pub(crate) const MAX_CHUNK_VERSION: u8 = 42;
+const MAX_CHUNK_VERSION: u8 = 42;
 /// The newest sub-chunk version read.
-pub(crate) const MAX_SUB_CHUNK_VERSION: u8 = 9;
-/// The sub-chunks imported: Anchor's world height.
-const MIN_Y: i32 = crate::world::MIN_Y >> 4;
-const MAX_Y: i32 = crate::world::MAX_Y >> 4;
+const MAX_SUB_CHUNK_VERSION: u8 = 9;
+/// The lowest and highest sub-chunk y imported: Anchor's world height.
+pub(crate) const MIN_SUB_CHUNK_Y: i32 = crate::world::MIN_Y >> 4;
+const MAX_SUB_CHUNK_Y: i32 = crate::world::MAX_Y >> 4;
 /// How far chunk versions 24 to 26 shift the sub-chunk y in keys.
 const CAVES_CLIFFS_OFFSET: i8 = 4;
 /// The most value bytes kept for one chunk.
@@ -94,71 +96,6 @@ pub(crate) enum Key {
     EntityList,
     /// Any other key.
     Other,
-}
-
-/// Whether `tag` is a chunk tag (43 to 65 and 118, 119).
-fn is_chunk_tag(tag: u8) -> bool {
-    matches!(tag, 0x2b..=0x41 | 0x76 | 0x77)
-}
-
-fn le_i32(bytes: &[u8], at: usize) -> Option<i32> {
-    let chunk = bytes.get(at..)?.first_chunk::<4>()?;
-    Some(i32::from_le_bytes(*chunk))
-}
-
-/// Classifies a database key.
-pub(crate) fn classify(key: &[u8]) -> Key {
-    if key.starts_with(b"digp") && matches!(key.len(), 12 | 16) {
-        return Key::EntityList;
-    }
-    if key.starts_with(b"actorprefix") && key.len() == 19 {
-        return Key::Entity;
-    }
-    if key == b"~local_player" || key.starts_with(b"player_") {
-        return Key::Player;
-    }
-    let tag = |at: usize| key.get(at).copied().unwrap_or(0);
-    let is_version = |t: u8| t == VERSION || t == OLD_VERSION;
-    match (key.len(), le_i32(key, 0), le_i32(key, 4), le_i32(key, 8)) {
-        (9, Some(x), Some(z), _) if is_chunk_tag(tag(8)) => Key::Overworld {
-            x,
-            z,
-            version: is_version(tag(8)),
-        },
-        (10, Some(x), Some(z), _) if tag(8) == SUB_CHUNK => Key::Overworld {
-            x,
-            z,
-            version: false,
-        },
-        (13, _, _, Some(dimension)) if is_chunk_tag(tag(12)) => Key::Dimension {
-            dimension,
-            version: is_version(tag(12)),
-        },
-        (14, _, _, Some(dimension)) if tag(12) == SUB_CHUNK => Key::Dimension {
-            dimension,
-            version: false,
-        },
-        _ => Key::Other,
-    }
-}
-
-/// The first 8 bytes of every key of the overworld chunk (`x`, `z`).
-pub(crate) fn prefix(x: i32, z: i32) -> [u8; 8] {
-    let [x0, x1, x2, x3] = x.to_le_bytes();
-    let [z0, z1, z2, z3] = z.to_le_bytes();
-    [x0, x1, x2, x3, z0, z1, z2, z3]
-}
-
-/// The smallest key after every key that starts with `prefix`; `None` if there is none.
-pub(crate) fn after(prefix: &[u8]) -> Option<Vec<u8>> {
-    let mut end = prefix.to_vec();
-    while let Some(last) = end.pop() {
-        if let Some(next) = last.checked_add(1) {
-            end.push(next);
-            return Some(end);
-        }
-    }
-    None
 }
 
 /// The values of one overworld chunk, as read from the database.
@@ -192,40 +129,42 @@ impl Entries {
         self.bytes
     }
 
-    /// Counts `len` more bytes kept for the chunk.
-    fn count(&mut self, len: usize) -> Result<()> {
-        self.bytes = self.bytes.saturating_add(len);
-        if self.bytes > MAX_CHUNK_BYTES {
-            return Err(Error::TooLarge {
-                what: "chunk data",
-                limit: MAX_CHUNK_BYTES as u64,
-            });
-        }
-        Ok(())
-    }
-
-    /// Adds the value of `key`, a key starting with this chunk's 8-byte prefix.
+    /// Adds the value of `key`, a key starting with this chunk's 8-byte prefix. Only the chunk's
+    /// own keys count, as [`classify`] tells them: a tag byte, or [`SUB_CHUNK`] and a y.
     pub(crate) fn add(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
-        match key.get(8..).unwrap_or_default() {
-            &[tag] if READ_TAGS.iter().any(|&(t, _)| t == tag) => {
+        match *key.get(8..).unwrap_or_default() {
+            [tag] if READ_TAGS.iter().any(|&(t, _)| t == tag) => {
                 self.count(value.len())?;
                 self.tags.insert(tag, value.to_vec());
             }
-            &[SUB_CHUNK, y] => {
+            [SUB_CHUNK, y] => {
                 let y = i8::from_le_bytes([y]);
-                if (MIN_Y..=MAX_Y + i32::from(CAVES_CLIFFS_OFFSET)).contains(&i32::from(y)) {
+                let range = MIN_SUB_CHUNK_Y..=MAX_SUB_CHUNK_Y + i32::from(CAVES_CLIFFS_OFFSET);
+                if range.contains(&i32::from(y)) {
                     self.count(value.len())?;
                     self.sub_chunks.insert(y, value.to_vec());
                 } else {
                     self.ignored.insert(SUB_CHUNK);
                 }
             }
-            // Nether and End keys of the same position: counted by the catalog.
-            [_, _, _, _, tag, ..] if is_chunk_tag(*tag) => {}
-            [tag, ..] => {
-                self.ignored.insert(*tag);
+            [tag] if is_chunk_tag(tag) => {
+                self.ignored.insert(tag);
             }
-            [] => {}
+            // A key of another dimension at the same position, which the catalog counts, or one
+            // that only shares the prefix.
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Counts `len` more bytes kept for the chunk.
+    fn count(&mut self, len: usize) -> Result<()> {
+        self.bytes = self.bytes.saturating_add(len);
+        if self.bytes > MAX_CHUNK_BYTES {
+            return Err(Error::TooLarge {
+                what: "bytes of data in a chunk",
+                limit: MAX_CHUNK_BYTES as u64,
+            });
         }
         Ok(())
     }
@@ -291,22 +230,25 @@ pub(crate) enum Layer {
     Legacy(LegacyLayer),
 }
 
-/// A layer of legacy numeric blocks; block (x, y, z) is at index `x << 8 | z << 4 | y`.
+/// A layer of legacy numeric blocks; block (x, y, z) is at offset `x << 8 | z << 4 | y`, the
+/// slot order of a paletted cube.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LegacyLayer {
     /// The block ids.
     pub(crate) ids: Box<[u8; 4096]>,
-    /// The meta values, two per byte: index `i` in byte `i >> 1`, the low nibble for even `i`.
+    /// The meta values, two per byte: offset `i` in byte `i >> 1`, the low nibble for even `i`.
     pub(crate) meta: Box<[u8; 2048]>,
 }
 
 impl LegacyLayer {
-    /// The id and meta of block (`x`, `y`, `z`), each in 0..16.
-    pub(crate) fn get(&self, x: usize, y: usize, z: usize) -> (u8, u8) {
-        let i = (x << 8 | z << 4 | y) & 0xfff;
-        let id = self.ids.get(i).copied().unwrap_or(0);
-        let meta = self.meta.get(i >> 1).copied().unwrap_or(0) >> ((i & 1) * 4) & 0xf;
-        (id, meta)
+    /// The id and meta (0 to 15) of the block at `offset`, taken modulo 4,096.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the offset is masked below the arrays' lengths"
+    )]
+    pub(crate) fn get(&self, offset: u16) -> (u8, u8) {
+        let i = usize::from(offset & 0xfff);
+        (self.ids[i], self.meta[i >> 1] >> ((i & 1) * 4) & 0xf)
     }
 }
 
@@ -323,6 +265,71 @@ pub(crate) struct LegacyBlock {
     pub(crate) id: u8,
     /// The legacy meta, 0 to 15.
     pub(crate) meta: u8,
+}
+
+/// Classifies a database key.
+pub(crate) fn classify(key: &[u8]) -> Key {
+    if key.starts_with(b"digp") && matches!(key.len(), 12 | 16) {
+        return Key::EntityList;
+    }
+    if key.starts_with(b"actorprefix") && key.len() == 19 {
+        return Key::Entity;
+    }
+    if key == b"~local_player" || key.starts_with(b"player_") {
+        return Key::Player;
+    }
+    let tag = |at: usize| key.get(at).copied().unwrap_or(0);
+    let is_version = |t: u8| t == VERSION || t == OLD_VERSION;
+    match (key.len(), le_i32(key, 0), le_i32(key, 4), le_i32(key, 8)) {
+        (9, Some(x), Some(z), _) if is_chunk_tag(tag(8)) => Key::Overworld {
+            x,
+            z,
+            version: is_version(tag(8)),
+        },
+        (10, Some(x), Some(z), _) if tag(8) == SUB_CHUNK => Key::Overworld {
+            x,
+            z,
+            version: false,
+        },
+        (13, _, _, Some(dimension)) if is_chunk_tag(tag(12)) => Key::Dimension {
+            dimension,
+            version: is_version(tag(12)),
+        },
+        (14, _, _, Some(dimension)) if tag(12) == SUB_CHUNK => Key::Dimension {
+            dimension,
+            version: false,
+        },
+        _ => Key::Other,
+    }
+}
+
+/// Whether `tag` is a chunk tag (43 to 65 and 118, 119).
+fn is_chunk_tag(tag: u8) -> bool {
+    matches!(tag, 0x2b..=0x41 | 0x76 | 0x77)
+}
+
+fn le_i32(bytes: &[u8], at: usize) -> Option<i32> {
+    let chunk = bytes.get(at..)?.first_chunk::<4>()?;
+    Some(i32::from_le_bytes(*chunk))
+}
+
+/// The first 8 bytes of every key of the overworld chunk (`x`, `z`).
+pub(crate) fn prefix(x: i32, z: i32) -> [u8; 8] {
+    let [x0, x1, x2, x3] = x.to_le_bytes();
+    let [z0, z1, z2, z3] = z.to_le_bytes();
+    [x0, x1, x2, x3, z0, z1, z2, z3]
+}
+
+/// The smallest key after every key that starts with `prefix`; `None` if there is none.
+pub(crate) fn after(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut end = prefix.to_vec();
+    while let Some(last) = end.pop() {
+        if let Some(next) = last.checked_add(1) {
+            end.push(next);
+            return Some(end);
+        }
+    }
+    None
 }
 
 /// Decodes a chunk's values into raw data. An error names the chunk, and the key when one value
@@ -413,7 +420,7 @@ fn terrain(
     let mut sections = Vec::with_capacity(entries.sub_chunks.len());
     for (&key_y, value) in &entries.sub_chunks {
         let y = key_y - offset;
-        if (MIN_Y..=MAX_Y).contains(&i32::from(y)) {
+        if (MIN_SUB_CHUNK_Y..=MAX_SUB_CHUNK_Y).contains(&i32::from(y)) {
             let section = section(value, key_y, y, budget)
                 .map_err(|e| entries.at_key(&[SUB_CHUNK, key_y.to_le_bytes()[0]], e))?;
             sections.push(section);
@@ -424,26 +431,41 @@ fn terrain(
     Ok(sections)
 }
 
-/// Maps a non-NBT read failure to the chunk error.
-fn short(_: crate::protocol::Error) -> Error {
-    Error::Malformed("value ends early or a count exceeds it")
-}
-
-/// Little-endian NBT compounds back to back.
-fn nbt_list(value: &[u8], budget: &mut usize) -> Result<Vec<Compound>> {
-    let mut r = Reader::new(value, *budget, 0);
-    let mut list = Vec::new();
-    while !r.remaining().is_empty() {
-        if list.len() == MAX_EXTRA_ENTRIES {
-            return Err(Error::TooLarge {
-                what: "compounds in a chunk value",
-                limit: MAX_EXTRA_ENTRIES as u64,
-            });
-        }
-        list.push(r.nbt(Encoding::LittleEndian).map_err(Error::Nbt)?);
+/// Legacy terrain: eight legacy sub-chunks from y 0.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: the length is checked first and every index is below its array's length"
+)]
+fn legacy_terrain(value: &[u8]) -> Result<Vec<Section>> {
+    if value.len() != LEGACY_TERRAIN_LEN {
+        return Err(Error::Malformed("legacy terrain length"));
     }
-    *budget = r.budget();
-    Ok(list)
+    let ids = &value[..LEGACY_IDS];
+    let meta = &value[LEGACY_IDS..LEGACY_IDS + LEGACY_META];
+    let mut sections = Vec::with_capacity(8);
+    for (sy, section_y) in (0..8_usize).zip(0_i8..) {
+        let mut layer = LegacyLayer {
+            ids: Box::new([0; 4096]),
+            meta: Box::new([0; 2048]),
+        };
+        for x in 0..16_usize {
+            for z in 0..16_usize {
+                for y in 0..16_usize {
+                    let column = x << 11 | z << 7 | (sy << 4 | y);
+                    let at = x << 8 | z << 4 | y;
+                    layer.ids[at] = ids[column];
+                    let nibble = meta[column >> 1] >> ((column & 1) * 4) & 0xf;
+                    layer.meta[at >> 1] |= nibble << ((at & 1) * 4);
+                }
+            }
+        }
+        sections.push(Section {
+            y: section_y,
+            version: 0,
+            layers: vec![Layer::Legacy(layer)],
+        });
+    }
+    Ok(sections)
 }
 
 /// A sub-chunk value stored under `key_y`, holding sub-chunk `y`.
@@ -508,22 +530,6 @@ fn legacy_layer(body: &[u8]) -> Result<LegacyLayer> {
     })
 }
 
-/// Bits per index (checked) and the packed words of a block layer.
-fn packed(r: &mut Reader<'_>, bits: u8) -> Result<Vec<u32>> {
-    if !WIDTHS.contains(&bits) {
-        return Err(Error::Malformed("bits per index"));
-    }
-    let count = word_count(bits);
-    let count = r
-        .limit(count as u64, count, size_of::<u32>())
-        .map_err(short)?;
-    let mut words = Vec::with_capacity(count);
-    for _ in 0..count {
-        words.push(r.uint32().map_err(short)?);
-    }
-    Ok(words)
-}
-
 fn block_layer(r: &mut Reader<'_>) -> Result<BlockLayer> {
     let header = r.uint8().map_err(short)?;
     if header & 1 != 0 {
@@ -556,41 +562,37 @@ fn block_layer(r: &mut Reader<'_>) -> Result<BlockLayer> {
     })
 }
 
-/// Legacy terrain: eight legacy sub-chunks from y 0.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "invariant: the length is checked first and every index is below its array's length"
-)]
-fn legacy_terrain(value: &[u8]) -> Result<Vec<Section>> {
-    if value.len() != LEGACY_TERRAIN_LEN {
-        return Err(Error::Malformed("legacy terrain length"));
+/// Bits per index (checked) and the packed words of a block layer.
+fn packed(r: &mut Reader<'_>, bits: u8) -> Result<Vec<u32>> {
+    if !WIDTHS.contains(&bits) {
+        return Err(Error::Malformed("bits per index"));
     }
-    let ids = &value[..LEGACY_IDS];
-    let meta = &value[LEGACY_IDS..LEGACY_IDS + LEGACY_META];
-    let mut sections = Vec::with_capacity(8);
-    for sy in 0..8_usize {
-        let mut layer = LegacyLayer {
-            ids: Box::new([0; 4096]),
-            meta: Box::new([0; 2048]),
-        };
-        for x in 0..16_usize {
-            for z in 0..16_usize {
-                for y in 0..16_usize {
-                    let column = x << 11 | z << 7 | (sy << 4 | y);
-                    let at = x << 8 | z << 4 | y;
-                    layer.ids[at] = ids[column];
-                    let nibble = meta[column >> 1] >> ((column & 1) * 4) & 0xf;
-                    layer.meta[at >> 1] |= nibble << ((at & 1) * 4);
-                }
-            }
+    let count = word_count(bits);
+    let count = r
+        .limit(count as u64, count, size_of::<u32>())
+        .map_err(short)?;
+    let mut words = Vec::with_capacity(count);
+    for _ in 0..count {
+        words.push(r.uint32().map_err(short)?);
+    }
+    Ok(words)
+}
+
+/// Little-endian NBT compounds back to back.
+fn nbt_list(value: &[u8], budget: &mut usize) -> Result<Vec<Compound>> {
+    let mut r = Reader::new(value, *budget, 0);
+    let mut list = Vec::new();
+    while !r.remaining().is_empty() {
+        if list.len() == MAX_EXTRA_ENTRIES {
+            return Err(Error::TooLarge {
+                what: "compounds in a chunk value",
+                limit: MAX_EXTRA_ENTRIES as u64,
+            });
         }
-        sections.push(Section {
-            y: i8::try_from(sy).unwrap_or(0),
-            version: 0,
-            layers: vec![Layer::Legacy(layer)],
-        });
+        list.push(r.nbt(Encoding::LittleEndian).map_err(Error::Nbt)?);
     }
-    Ok(sections)
+    *budget = r.budget();
+    Ok(list)
 }
 
 /// Legacy block extra data.
@@ -618,16 +620,23 @@ fn legacy_extra(value: &[u8], version: u8) -> Result<Vec<LegacyBlock>> {
             } else {
                 (key >> 11 & 0xf, key >> 7 & 0xf, key & 0x7f)
             };
-            let byte = |n: u32| u8::try_from(n).unwrap_or(0);
+            let [x, ..] = x.to_le_bytes();
+            let [y, ..] = y.to_le_bytes();
+            let [z, ..] = z.to_le_bytes();
             LegacyBlock {
-                x: byte(x),
-                y: byte(y),
-                z: byte(z),
+                x,
+                y,
+                z,
                 id: v0,
                 meta: v1 & 0xf,
             }
         })
         .collect())
+}
+
+/// Maps a non-NBT read failure to the chunk error.
+fn short(_: crate::protocol::Error) -> Error {
+    Error::Malformed("value ends early or a count exceeds it")
 }
 
 #[cfg(test)]

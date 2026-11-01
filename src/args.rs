@@ -110,13 +110,14 @@ a running server sees the world after its next start",
 pub(crate) fn exported(world: &str, dir: &Path, report: &export::Report) -> String {
     format!(
         "exported the world {world:?} to {}: {} chunks, {} block entities
-left out: {} entities, {} scheduled block updates
+left out: {} entities, {} scheduled block updates, {} spills
 chunks the world never saved are made by the Bedrock world's flat generator",
         dir.display(),
         report.chunks(),
         report.block_entities(),
         report.entities(),
         report.scheduled_updates(),
+        report.spills(),
     )
 }
 

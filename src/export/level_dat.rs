@@ -29,7 +29,7 @@ const AIR_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     \"encoding_version\":6,\"structure_options\":null,\
     \"world_version\":\"version.post_1_18\"}\n";
 
-/// The `level.dat` of the world `name` with the state `record`, made with `generator`.
+/// Returns the `level.dat` of the world `name` with the state `record`, made with `generator`.
 #[expect(
     clippy::expect_used,
     reason = "invariant: a world name is at most 250 bytes, so the compound is far within the NBT \
@@ -70,9 +70,9 @@ pub(super) fn encode(name: &str, record: &WorldRecord, generator: &dyn Generator
 mod tests {
     use super::*;
     use crate::protocol::Reader;
-    use crate::world::{BlockPos, Void};
+    use crate::world::{BlockPos, Chunk, ChunkPos, MIN_Y, Void};
 
-    /// The root compound of the `level.dat` bytes `bytes`.
+    /// Reads the root compound of the `level.dat` bytes `bytes`.
     fn root(bytes: &[u8]) -> Compound {
         let (_, body) = bytes.split_first_chunk::<8>().unwrap();
         Reader::new(body, 1 << 20, 0)
@@ -105,5 +105,27 @@ mod tests {
             void.get("FlatWorldLayers"),
             Some(&Value::String(AIR_LAYERS.to_owned()))
         );
+    }
+
+    /// Checks that [`FLAT_LAYERS`], from which the game makes the chunks an exported `Flat` world
+    /// never saved, gives the terrain `Flat` generates.
+    #[test]
+    fn the_flat_layers_are_the_terrain_flat_generates() {
+        let layers: serde_json::Value = serde_json::from_str(FLAT_LAYERS).unwrap();
+        let chunk = Chunk::generate(&Flat, 0, ChunkPos::new(0, 0));
+        let biome = u32::try_from(layers["biome_id"].as_u64().unwrap()).unwrap();
+        let mut y = MIN_Y;
+        for layer in layers["block_layers"].as_array().unwrap() {
+            for _ in 0..layer["count"].as_u64().unwrap() {
+                for (x, z) in [(0, 0), (15, 15)] {
+                    let block = chunk.block(x, y, z).unwrap();
+                    assert_eq!(block.name(), layer["block_name"].as_str().unwrap(), "y {y}");
+                    assert_eq!(chunk.biome(x, y, z), Some(biome), "y {y}");
+                }
+                y += 1;
+            }
+        }
+        assert_eq!(chunk.highest_block(0, 0), Some(y - 1));
+        assert_eq!(chunk.highest_block(15, 15), Some(y - 1));
     }
 }

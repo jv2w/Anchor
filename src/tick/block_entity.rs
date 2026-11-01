@@ -63,7 +63,7 @@ const SPILL_DROPS_PER_TICK: usize = 64;
 /// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
 const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
 /// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
-const SPILL_ID: &str = "AnchorSpill";
+pub(crate) const SPILL_ID: &str = "AnchorSpill";
 /// Slots of a chiseled bookshelf (PMMP `ChiseledBookshelfSlot`).
 pub(super) const BOOKSHELF_SLOTS: usize = 6;
 /// The random stream purpose of block entity ticks (smelting experience).

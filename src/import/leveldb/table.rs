@@ -14,7 +14,7 @@
 //!
 //! Every key in a table is an internal key: the user key and a little-endian `u64` holding
 //! `sequence << 8 | kind`. Keys must strictly increase in internal key order within a block;
-//! a decoded block that breaks this is malformed.
+//! a decoded block that breaks this is malformed. An error inside a table names its file.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -31,7 +31,7 @@ pub(crate) const FOOTER: usize = 48;
 pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
 /// The compression byte and checksum after each block.
 pub(crate) const TRAILER: usize = 5;
-/// The largest block, stored or decompressed. Anchor's own record cap.
+/// The largest block, stored or decompressed, which bounds the memory one block read takes.
 pub(super) const MAX_BLOCK: usize = 16 << 20;
 /// Decompressed blocks kept for later reads, in bytes.
 const CACHE_BYTES: usize = 64 << 20;
@@ -59,165 +59,202 @@ pub(super) struct TableFile {
     pub(super) largest: Vec<u8>,
 }
 
-/// Where a block is in its file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Handle {
-    offset: u64,
-    size: u64,
-}
-
-impl Handle {
-    fn read(bytes: &mut Bytes<'_>) -> Result<Self> {
-        Ok(Self {
-            offset: bytes.varint64()?,
-            size: bytes.varint64()?,
-        })
-    }
-
-    /// A handle that is a whole index entry value.
-    fn decode(value: &[u8]) -> Result<Self> {
-        let mut bytes = Bytes(value);
-        let handle = Self::read(&mut bytes)?;
-        if !bytes.0.is_empty() {
-            return Err(Error::Malformed("block handle has trailing bytes"));
-        }
-        Ok(handle)
-    }
-}
-
-/// The index block handle in a table's footer.
-pub(super) fn footer(tail: &[u8]) -> Result<Handle> {
-    let (handles, magic) = tail
-        .split_last_chunk::<8>()
-        .ok_or(Error::Malformed("table shorter than its footer"))?;
-    if u64::from_le_bytes(*magic) != MAGIC {
-        return Err(Error::Malformed("table footer magic"));
-    }
-    let mut bytes = Bytes(handles);
-    Handle::read(&mut bytes)?;
-    Handle::read(&mut bytes)
-}
-
-/// Checks a stored block's trailer and decompresses it. `raw` is the block and its trailer.
-pub(super) fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
-    let (sealed, crc) = raw
-        .split_last_chunk::<4>()
-        .ok_or(Error::Malformed("block shorter than its trailer"))?;
-    if masked_crc(&[sealed]) != u32::from_le_bytes(*crc) {
-        return Err(Error::Checksum);
-    }
-    let (&kind, body) = sealed
-        .split_last()
-        .ok_or(Error::Malformed("block shorter than its trailer"))?;
-    let mut out = Vec::new();
-    let decoded = match kind {
-        NONE => {
-            out.extend_from_slice(body);
-            Ok(())
-        }
-        SNAPPY => Decompressor::new(Compression::Snappy).decompress(body, &mut out, MAX_BLOCK),
-        ZLIB => inflate.decompress_whole(body, &mut out, MAX_BLOCK, Framing::Zlib),
-        RAW_DEFLATE => inflate.decompress_whole(body, &mut out, MAX_BLOCK, Framing::Raw),
-        _ => return Err(Error::UnknownCompression(kind)),
-    };
-    decoded.map_err(Error::Compression)?;
-    Block::parse(out)
-}
-
-/// A decompressed block: entries, then restart offsets and their count.
+/// A position in a table: the index block and the data block it points into.
 #[derive(Debug)]
-pub(super) struct Block {
-    data: Vec<u8>,
-    /// Where the restart offsets start, which is where the entries end.
-    restarts: usize,
-    /// How many restart offsets there are.
-    count: usize,
+pub(super) struct Cursor {
+    index: BlockCursor,
+    data: Option<BlockCursor>,
 }
 
-impl Block {
-    pub(super) fn parse(data: Vec<u8>) -> Result<Self> {
-        let count = data
-            .last_chunk::<4>()
-            .map(|c| u32::from_le_bytes(*c))
-            .ok_or(Error::Malformed("block shorter than its restart count"))?;
-        let count = usize::try_from(count).map_err(|_| Error::Malformed("block restart count"))?;
-        let restarts = count
-            .checked_mul(4)
-            .and_then(|n| data.len().checked_sub(n)?.checked_sub(4))
-            .ok_or(Error::Malformed("block shorter than its restart offsets"))?;
-        if count == 0 && restarts != 0 {
-            return Err(Error::Malformed("block entries without a restart"));
-        }
-        Ok(Self {
-            data,
-            restarts,
-            count,
-        })
+impl Cursor {
+    /// A cursor on the first entry of `file` at or after `target`, or on the first entry.
+    pub(super) fn open(
+        tables: &mut Tables,
+        file: &TableFile,
+        target: Option<&[u8]>,
+    ) -> Result<Self> {
+        let mut index = BlockCursor::new(tables.index(file)?);
+        let sought = match target {
+            Some(target) => index.seek(target),
+            None => index.seek_first(),
+        };
+        sought.map_err(|e| tables.fault(file, e))?;
+        let mut cursor = Self { index, data: None };
+        cursor.load(tables, file, target)?;
+        Ok(cursor)
     }
 
-    /// The decompressed size, which the scan counts against its memory bound.
-    pub(super) fn len(&self) -> usize {
-        self.data.len()
+    /// The current internal key and value.
+    pub(super) fn entry(&self) -> Option<(&[u8], &[u8])> {
+        self.data.as_ref()?.entry()
     }
 
-    fn restart(&self, i: usize) -> Result<usize> {
-        let at = self.restarts.saturating_add(i.saturating_mul(4));
-        let offset = self
-            .data
-            .get(at..)
-            .and_then(<[u8]>::first_chunk::<4>)
-            .map(|c| u32::from_le_bytes(*c))
-            .ok_or(Error::Malformed("block restart index"))?;
-        let offset = usize::try_from(offset).map_err(|_| Error::Malformed("block restart"))?;
-        if offset >= self.restarts {
-            return Err(Error::Malformed("block restart outside the entries"));
-        }
-        Ok(offset)
+    /// The decompressed bytes this cursor keeps alive.
+    pub(super) fn held(&self) -> usize {
+        self.index.block().held() + self.data.as_ref().map_or(0, |d| d.block().held())
     }
 
-    /// Decodes the entry at `offset` whose key shares a prefix with `previous`: writes its key
-    /// into `key` and returns the value range and the next entry's offset.
-    fn entry(
-        &self,
-        offset: usize,
-        previous: &[u8],
-        key: &mut Vec<u8>,
-    ) -> Result<(Range<usize>, usize)> {
-        let entries = self.data.get(..self.restarts).unwrap_or_default();
-        let mut bytes = Bytes(entries.get(offset..).unwrap_or_default());
-        let shared =
-            usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("key length"))?;
-        let unshared =
-            usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("key length"))?;
-        let value_len =
-            usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("value length"))?;
-        let prefix = previous.get(..shared).ok_or(Error::Malformed(
-            "block key shares more than the previous key",
-        ))?;
-        if shared.saturating_add(unshared) > MAX_INTERNAL_KEY {
-            return Err(Error::TooLarge {
-                what: "key",
-                limit: MAX_KEY as u64,
-            });
+    /// Moves to the next entry.
+    pub(super) fn advance(&mut self, tables: &mut Tables, file: &TableFile) -> Result<()> {
+        let Some(data) = self.data.as_mut() else {
+            return Ok(());
+        };
+        data.advance().map_err(|e| tables.fault(file, e))?;
+        if data.entry().is_none() {
+            self.index.advance().map_err(|e| tables.fault(file, e))?;
+            self.load(tables, file, None)?;
         }
-        let delta = bytes.take(unshared)?;
-        key.clear();
-        key.extend_from_slice(prefix);
-        key.extend_from_slice(delta);
-        check_internal(key)?;
-        let start = self.restarts - bytes.0.len();
-        let value = start..start.saturating_add(value_len);
-        bytes.take(value_len)?;
-        Ok((value, self.restarts - bytes.0.len()))
+        Ok(())
+    }
+
+    /// Loads the data block under the index cursor, moving on past empty blocks and blocks
+    /// whose entries are all before `target`.
+    fn load(&mut self, tables: &mut Tables, file: &TableFile, target: Option<&[u8]>) -> Result<()> {
+        self.data = None;
+        while let Some((_, value)) = self.index.entry() {
+            let handle = Handle::decode(value).map_err(|e| tables.fault(file, e))?;
+            let mut data = BlockCursor::new(tables.block(file, handle)?);
+            let sought = match target {
+                Some(target) => data.seek(target),
+                None => data.seek_first(),
+            };
+            sought.map_err(|e| tables.fault(file, e))?;
+            if data.entry().is_some() {
+                self.data = Some(data);
+                return Ok(());
+            }
+            self.index.advance().map_err(|e| tables.fault(file, e))?;
+        }
+        Ok(())
     }
 }
 
-/// Checks that `key` is an internal key: at least a tag long, with kind 0 or 1.
-pub(super) fn check_internal(key: &[u8]) -> Result<()> {
-    match key.len().checked_sub(TAG).and_then(|at| key.get(at)) {
-        Some(&kind) if kind <= 1 => Ok(()),
-        Some(_) => Err(Error::Malformed("internal key kind")),
-        None => Err(Error::Malformed("internal key shorter than its tag")),
+/// Reads table blocks through a small cache of decompressed blocks.
+pub(super) struct Tables {
+    pub(super) files: Files,
+    /// File names by number.
+    names: BTreeMap<u64, String>,
+    /// The index handle of each table whose footer was read.
+    indexes: BTreeMap<u64, Handle>,
+    cache: Cache,
+    inflate: Decoder,
+    raw: Vec<u8>,
+}
+
+impl Tables {
+    pub(super) fn new(files: Files, names: BTreeMap<u64, String>) -> Self {
+        Self {
+            files,
+            names,
+            indexes: BTreeMap::new(),
+            cache: Cache::default(),
+            inflate: Decoder::new(),
+            raw: Vec::new(),
+        }
+    }
+
+    fn name(&self, file: &TableFile) -> Result<&str> {
+        self.names
+            .get(&file.number)
+            .map(String::as_str)
+            .ok_or(Error::Malformed("table file missing"))
+    }
+
+    /// The index block of `file`.
+    fn index(&mut self, file: &TableFile) -> Result<Arc<Block>> {
+        if let Some(&handle) = self.indexes.get(&file.number) {
+            return self.block(file, handle);
+        }
+        let at = file
+            .size
+            .checked_sub(FOOTER as u64)
+            .ok_or_else(|| self.fault(file, Error::Malformed("table shorter than its footer")))?;
+        let mut tail = [0; FOOTER];
+        let name = self.name(file)?.to_owned();
+        self.files.read_at(&name, at, &mut tail)?;
+        let handle = footer(&tail).map_err(|e| self.fault(file, e))?;
+        self.indexes.insert(file.number, handle);
+        self.block(file, handle)
+    }
+
+    /// The block of `file` at `handle`.
+    fn block(&mut self, file: &TableFile, handle: Handle) -> Result<Arc<Block>> {
+        let key = (file.number, handle.offset);
+        if let Some(block) = self.cache.get(key) {
+            return Ok(block);
+        }
+        let size = usize::try_from(handle.size)
+            .ok()
+            .filter(|&size| size <= MAX_BLOCK)
+            .ok_or_else(|| {
+                self.fault(
+                    file,
+                    Error::TooLarge {
+                        what: "bytes in a block",
+                        limit: MAX_BLOCK as u64,
+                    },
+                )
+            })?;
+        let len = size + TRAILER;
+        let end = handle.offset.checked_add(len as u64);
+        if end.is_none_or(|end| end > file.size) {
+            return Err(self.fault(file, Error::Malformed("block outside the table")));
+        }
+        let name = self.name(file)?.to_owned();
+        let mut raw = std::mem::take(&mut self.raw);
+        raw.clear();
+        raw.resize(len, 0);
+        let read = self.files.read_at(&name, handle.offset, &mut raw);
+        let unsealed = read.map(|()| unseal(&raw, &mut self.inflate));
+        self.raw = raw;
+        let block = Arc::new(unsealed?.map_err(|e| self.fault(file, e))?);
+        self.cache.insert(key, Arc::clone(&block));
+        Ok(block)
+    }
+
+    /// `error` located in the table `file`.
+    fn fault(&self, file: &TableFile, error: Error) -> Error {
+        let name = self.names.get(&file.number).map_or("", String::as_str);
+        self.files.fault(name, error)
+    }
+}
+
+/// Decompressed blocks by (file number, offset), least recently used evicted first once they
+/// hold more than [`CACHE_BYTES`].
+#[derive(Default)]
+struct Cache {
+    blocks: BTreeMap<(u64, u64), (Arc<Block>, u64)>,
+    ages: BTreeMap<u64, (u64, u64)>,
+    bytes: usize,
+    clock: u64,
+}
+
+impl Cache {
+    fn get(&mut self, key: (u64, u64)) -> Option<Arc<Block>> {
+        let (block, age) = self.blocks.get_mut(&key)?;
+        self.ages.remove(age);
+        self.clock += 1;
+        *age = self.clock;
+        self.ages.insert(self.clock, key);
+        Some(Arc::clone(block))
+    }
+
+    fn insert(&mut self, key: (u64, u64), block: Arc<Block>) {
+        self.clock += 1;
+        self.bytes = self.bytes.saturating_add(block.held());
+        self.ages.insert(self.clock, key);
+        if let Some((old, age)) = self.blocks.insert(key, (block, self.clock)) {
+            self.ages.remove(&age);
+            self.bytes = self.bytes.saturating_sub(old.held());
+        }
+        while self.bytes > CACHE_BYTES && self.ages.len() > 1 {
+            let Some((_, oldest)) = self.ages.pop_first() else {
+                break;
+            };
+            if let Some((old, _)) = self.blocks.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(old.held());
+            }
+        }
     }
 }
 
@@ -294,13 +331,6 @@ impl BlockCursor {
         Ok(())
     }
 
-    fn start_at(&mut self, offset: usize) -> Result<()> {
-        self.next = offset;
-        self.key.clear();
-        self.valid = false;
-        self.advance()
-    }
-
     /// Moves to the next entry; past the last one the cursor is on none.
     pub(super) fn advance(&mut self) -> Result<()> {
         if self.next >= self.block.restarts {
@@ -317,202 +347,175 @@ impl BlockCursor {
         self.valid = true;
         Ok(())
     }
+
+    fn start_at(&mut self, offset: usize) -> Result<()> {
+        self.next = offset;
+        self.key.clear();
+        self.valid = false;
+        self.advance()
+    }
 }
 
-/// A position in a table: the index block and the data block it points into.
+/// A decompressed block: entries, then restart offsets and their count.
 #[derive(Debug)]
-pub(super) struct Cursor {
-    index: BlockCursor,
-    data: Option<BlockCursor>,
+pub(super) struct Block {
+    data: Vec<u8>,
+    /// Where the restart offsets start, which is where the entries end.
+    restarts: usize,
+    /// How many restart offsets there are.
+    count: usize,
 }
 
-impl Cursor {
-    /// A cursor on the first entry of `file` at or after `target`, or on the first entry.
-    pub(super) fn open(
-        tables: &mut Tables,
-        file: &TableFile,
-        target: Option<&[u8]>,
-    ) -> Result<Self> {
-        let mut index = BlockCursor::new(tables.index(file)?);
-        match target {
-            Some(target) => index.seek(target)?,
-            None => index.seek_first()?,
+impl Block {
+    pub(super) fn parse(data: Vec<u8>) -> Result<Self> {
+        let count = data
+            .last_chunk::<4>()
+            .map(|c| u32::from_le_bytes(*c))
+            .ok_or(Error::Malformed("block shorter than its restart count"))?;
+        let count = usize::try_from(count).map_err(|_| Error::Malformed("block restart count"))?;
+        let restarts = count
+            .checked_mul(4)
+            .and_then(|n| data.len().checked_sub(n)?.checked_sub(4))
+            .ok_or(Error::Malformed("block shorter than its restart offsets"))?;
+        if count == 0 && restarts != 0 {
+            return Err(Error::Malformed("block entries without a restart"));
         }
-        let mut cursor = Self { index, data: None };
-        cursor.load(tables, file, target)?;
-        Ok(cursor)
+        Ok(Self {
+            data,
+            restarts,
+            count,
+        })
     }
 
-    /// Loads the data block under the index cursor, moving on past empty blocks and blocks
-    /// whose entries are all before `target`.
-    fn load(&mut self, tables: &mut Tables, file: &TableFile, target: Option<&[u8]>) -> Result<()> {
-        self.data = None;
-        while let Some((_, value)) = self.index.entry() {
-            let handle = Handle::decode(value)?;
-            let mut data = BlockCursor::new(tables.block(file, handle)?);
-            match target {
-                Some(target) => data.seek(target)?,
-                None => data.seek_first()?,
-            }
-            if data.entry().is_some() {
-                self.data = Some(data);
-                return Ok(());
-            }
-            self.index.advance()?;
-        }
-        Ok(())
-    }
-
-    /// The current internal key and value.
-    pub(super) fn entry(&self) -> Option<(&[u8], &[u8])> {
-        self.data.as_ref()?.entry()
-    }
-
-    /// Moves to the next entry.
-    pub(super) fn advance(&mut self, tables: &mut Tables, file: &TableFile) -> Result<()> {
-        let Some(data) = self.data.as_mut() else {
-            return Ok(());
-        };
-        data.advance()?;
-        if data.entry().is_none() {
-            self.index.advance()?;
-            self.load(tables, file, None)?;
-        }
-        Ok(())
-    }
-
-    /// The decompressed bytes this cursor keeps alive.
+    /// The memory the block holds, which the cache and the scan count against their bounds: its
+    /// buffer's capacity, which a decompressor sizes from the input and may leave above the data.
     pub(super) fn held(&self) -> usize {
-        self.index.block().len() + self.data.as_ref().map_or(0, |d| d.block().len())
+        self.data.capacity()
+    }
+
+    fn restart(&self, i: usize) -> Result<usize> {
+        let at = self.restarts.saturating_add(i.saturating_mul(4));
+        let offset = self
+            .data
+            .get(at..)
+            .and_then(<[u8]>::first_chunk::<4>)
+            .map(|c| u32::from_le_bytes(*c))
+            .ok_or(Error::Malformed("block restart index"))?;
+        let offset = usize::try_from(offset).map_err(|_| Error::Malformed("block restart"))?;
+        if offset >= self.restarts {
+            return Err(Error::Malformed("block restart outside the entries"));
+        }
+        Ok(offset)
+    }
+
+    /// Decodes the entry at `offset` whose key shares a prefix with `previous`: writes its key
+    /// into `key` and returns the value range and the next entry's offset.
+    fn entry(
+        &self,
+        offset: usize,
+        previous: &[u8],
+        key: &mut Vec<u8>,
+    ) -> Result<(Range<usize>, usize)> {
+        let entries = self.data.get(..self.restarts).unwrap_or_default();
+        let mut bytes = Bytes(entries.get(offset..).unwrap_or_default());
+        let shared =
+            usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("key length"))?;
+        let unshared =
+            usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("key length"))?;
+        let value_len =
+            usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("value length"))?;
+        let prefix = previous.get(..shared).ok_or(Error::Malformed(
+            "block key shares more than the previous key",
+        ))?;
+        if shared.saturating_add(unshared) > MAX_INTERNAL_KEY {
+            return Err(Error::TooLarge {
+                what: "bytes in a user key",
+                limit: MAX_KEY as u64,
+            });
+        }
+        let delta = bytes.take(unshared)?;
+        key.clear();
+        key.extend_from_slice(prefix);
+        key.extend_from_slice(delta);
+        check_internal(key)?;
+        let start = self.restarts - bytes.0.len();
+        let value = start..start.saturating_add(value_len);
+        bytes.take(value_len)?;
+        Ok((value, self.restarts - bytes.0.len()))
     }
 }
 
-/// Reads table blocks through a small cache of decompressed blocks.
-pub(super) struct Tables {
-    pub(super) files: Files,
-    /// File names by number.
-    names: BTreeMap<u64, String>,
-    /// The index handle of each table whose footer was read.
-    indexes: BTreeMap<u64, Handle>,
-    cache: Cache,
-    inflate: Decoder,
-    raw: Vec<u8>,
+/// Where a block is in its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Handle {
+    offset: u64,
+    size: u64,
 }
 
-impl Tables {
-    pub(super) fn new(files: Files, names: BTreeMap<u64, String>) -> Self {
-        Self {
-            files,
-            names,
-            indexes: BTreeMap::new(),
-            cache: Cache::default(),
-            inflate: Decoder::new(),
-            raw: Vec::new(),
-        }
+impl Handle {
+    fn read(bytes: &mut Bytes<'_>) -> Result<Self> {
+        Ok(Self {
+            offset: bytes.varint64()?,
+            size: bytes.varint64()?,
+        })
     }
 
-    fn name(&self, file: &TableFile) -> Result<&str> {
-        self.names
-            .get(&file.number)
-            .map(String::as_str)
-            .ok_or(Error::Malformed("table file missing"))
-    }
-
-    /// The index block of `file`.
-    fn index(&mut self, file: &TableFile) -> Result<Arc<Block>> {
-        if let Some(&handle) = self.indexes.get(&file.number) {
-            return self.block(file, handle);
+    /// A handle that is a whole index entry value.
+    fn decode(value: &[u8]) -> Result<Self> {
+        let mut bytes = Bytes(value);
+        let handle = Self::read(&mut bytes)?;
+        if !bytes.0.is_empty() {
+            return Err(Error::Malformed("block handle has trailing bytes"));
         }
-        let at = file
-            .size
-            .checked_sub(FOOTER as u64)
-            .ok_or_else(|| self.fault(file, Error::Malformed("table shorter than its footer")))?;
-        let mut tail = [0; FOOTER];
-        let name = self.name(file)?.to_owned();
-        self.files.read_at(&name, at, &mut tail)?;
-        let handle = footer(&tail).map_err(|e| self.fault(file, e))?;
-        self.indexes.insert(file.number, handle);
-        self.block(file, handle)
-    }
-
-    /// The block of `file` at `handle`.
-    fn block(&mut self, file: &TableFile, handle: Handle) -> Result<Arc<Block>> {
-        let key = (file.number, handle.offset);
-        if let Some(block) = self.cache.get(key) {
-            return Ok(block);
-        }
-        let size = usize::try_from(handle.size)
-            .ok()
-            .filter(|&size| size <= MAX_BLOCK)
-            .ok_or_else(|| {
-                self.fault(
-                    file,
-                    Error::TooLarge {
-                        what: "block",
-                        limit: MAX_BLOCK as u64,
-                    },
-                )
-            })?;
-        let len = size + TRAILER;
-        let end = handle.offset.checked_add(len as u64);
-        if end.is_none_or(|end| end > file.size) {
-            return Err(self.fault(file, Error::Malformed("block outside the table")));
-        }
-        let name = self.name(file)?.to_owned();
-        let mut raw = std::mem::take(&mut self.raw);
-        raw.clear();
-        raw.resize(len, 0);
-        let read = self.files.read_at(&name, handle.offset, &mut raw);
-        let unsealed = read.map(|()| unseal(&raw, &mut self.inflate));
-        self.raw = raw;
-        let block = Arc::new(unsealed?.map_err(|e| self.fault(file, e))?);
-        self.cache.insert(key, Arc::clone(&block));
-        Ok(block)
-    }
-
-    /// `error` located in the table `file`.
-    fn fault(&self, file: &TableFile, error: Error) -> Error {
-        let name = self.names.get(&file.number).map_or("", String::as_str);
-        self.files.fault(name, error)
+        Ok(handle)
     }
 }
 
-/// Decompressed blocks by (file number, offset), least recently used evicted first once they
-/// hold more than [`CACHE_BYTES`].
-#[derive(Default)]
-struct Cache {
-    blocks: BTreeMap<(u64, u64), (Arc<Block>, u64)>,
-    ages: BTreeMap<u64, (u64, u64)>,
-    bytes: usize,
-    clock: u64,
+/// The index block handle in a table's footer.
+pub(super) fn footer(tail: &[u8]) -> Result<Handle> {
+    let (handles, magic) = tail
+        .split_last_chunk::<8>()
+        .ok_or(Error::Malformed("table shorter than its footer"))?;
+    if u64::from_le_bytes(*magic) != MAGIC {
+        return Err(Error::Malformed("table footer magic"));
+    }
+    let mut bytes = Bytes(handles);
+    Handle::read(&mut bytes)?;
+    Handle::read(&mut bytes)
 }
 
-impl Cache {
-    fn get(&mut self, key: (u64, u64)) -> Option<Arc<Block>> {
-        let (block, age) = self.blocks.get_mut(&key)?;
-        self.ages.remove(age);
-        self.clock += 1;
-        *age = self.clock;
-        self.ages.insert(self.clock, key);
-        Some(Arc::clone(block))
+/// Checks a stored block's trailer and decompresses it. `raw` is the block and its trailer.
+pub(super) fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
+    let (sealed, crc) = raw
+        .split_last_chunk::<4>()
+        .ok_or(Error::Malformed("block shorter than its trailer"))?;
+    if masked_crc(&[sealed]) != u32::from_le_bytes(*crc) {
+        return Err(Error::Checksum);
     }
+    let (&kind, body) = sealed
+        .split_last()
+        .ok_or(Error::Malformed("block shorter than its trailer"))?;
+    let mut out = Vec::new();
+    let decoded = match kind {
+        NONE => {
+            out.extend_from_slice(body);
+            Ok(())
+        }
+        SNAPPY => Decompressor::new(Compression::Snappy).decompress(body, &mut out, MAX_BLOCK),
+        ZLIB => inflate.decompress_whole(body, &mut out, MAX_BLOCK, Framing::Zlib),
+        RAW_DEFLATE => inflate.decompress_whole(body, &mut out, MAX_BLOCK, Framing::Raw),
+        _ => return Err(Error::UnknownCompression(kind)),
+    };
+    decoded.map_err(Error::Compression)?;
+    Block::parse(out)
+}
 
-    fn insert(&mut self, key: (u64, u64), block: Arc<Block>) {
-        self.clock += 1;
-        self.bytes = self.bytes.saturating_add(block.len());
-        self.ages.insert(self.clock, key);
-        if let Some((old, age)) = self.blocks.insert(key, (block, self.clock)) {
-            self.ages.remove(&age);
-            self.bytes = self.bytes.saturating_sub(old.len());
-        }
-        while self.bytes > CACHE_BYTES && self.ages.len() > 1 {
-            let Some((_, oldest)) = self.ages.pop_first() else {
-                break;
-            };
-            if let Some((old, _)) = self.blocks.remove(&oldest) {
-                self.bytes = self.bytes.saturating_sub(old.len());
-            }
-        }
+/// Checks that `key` is an internal key: at least a tag long, with kind 0 or 1.
+pub(super) fn check_internal(key: &[u8]) -> Result<()> {
+    match key.len().checked_sub(TAG).and_then(|at| key.get(at)) {
+        Some(&kind) if kind <= 1 => Ok(()),
+        Some(_) => Err(Error::Malformed("internal key kind")),
+        None => Err(Error::Malformed("internal key shorter than its tag")),
     }
 }
 
@@ -741,6 +744,18 @@ pub(super) mod tests {
             unseal(&zstd, &mut inflate),
             Err(Error::UnknownCompression(3))
         ));
+    }
+
+    #[test]
+    fn a_block_counts_the_memory_its_buffer_holds() {
+        // An empty block: the decompressor's buffer, sized from the input, outgrows its 8 bytes.
+        let block = encode_block(&[], 1);
+        let mut out = Vec::new();
+        seal_block(&mut out, &block, RAW_DEFLATE);
+        let unsealed = unseal(&out, &mut Decoder::new()).unwrap();
+        assert_eq!(unsealed.data, block);
+        assert_eq!(unsealed.held(), unsealed.data.capacity());
+        assert!(unsealed.held() > block.len());
     }
 
     #[test]

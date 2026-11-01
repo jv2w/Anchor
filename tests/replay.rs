@@ -14,7 +14,7 @@ use std::process::{Command, Stdio};
 
 use anchor::replay::End;
 use anchor::world::BlockPos;
-use anchor::{Config, Context, Server};
+use anchor::{Config, Context, Server, ServerBuilder};
 
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_REPLAY_DATA";
@@ -59,7 +59,7 @@ fn local_config(backups: bool) -> Config {
 }
 
 /// What the task does at every tick, from the game state alone: a block a tick, a save and a
-/// panic as `plan` says.
+/// panic as `plan` says; a run without a panic stops at [`STOP_AT`].
 fn step(ctx: &mut Context<'_>, plan: Plan) {
     let tick = ctx.tick();
     let t = i32::try_from(tick % 32).unwrap();
@@ -75,16 +75,25 @@ fn step(ctx: &mut Context<'_>, plan: Plan) {
     if tick == plan.save_at {
         ctx.save();
     }
-    assert!(plan.panic_at != Some(tick), "child panic at {tick}");
+    match plan.panic_at {
+        Some(at) => assert!(at != tick, "child panic at {tick}"),
+        None if tick >= STOP_AT => ctx.shutdown(),
+        None => {}
+    }
+}
+
+/// The server of a run of `plan` on `data`, with start backups or without: the logged run and its
+/// replays register the same.
+fn builder(data: &Path, plan: Plan, backups: bool) -> ServerBuilder {
+    Server::builder()
+        .config(local_config(backups))
+        .data_dir(data)
+        .every(NonZeroU32::MIN, move |ctx| step(ctx, plan))
 }
 
 /// The server process the parent tests start. Without the parent's environment it does nothing.
 #[test]
 #[ignore = "the child process of the replay tests"]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the task gets the server's shutdown handle once, after the build"
-)]
 fn replay_child() {
     let (Ok(data), Ok(mode)) = (std::env::var(DATA_ENV), std::env::var(MODE_ENV)) else {
         return;
@@ -99,22 +108,10 @@ fn replay_child() {
         "base" => (stops, false),
         _ => (stops, true),
     };
-    let (handle_tx, handle_rx) = std::sync::mpsc::sync_channel(1);
-    let mut stop: Option<anchor::ShutdownHandle> = None;
-    let server = Server::builder()
-        .config(local_config(backups))
-        .data_dir(&data)
-        .every(NonZeroU32::MIN, move |ctx| {
-            let stop = stop.get_or_insert_with(|| handle_rx.recv().unwrap());
-            if plan.panic_at.is_none() && ctx.tick() >= STOP_AT {
-                stop.shutdown();
-            }
-            step(ctx, plan);
-        })
+    let result = builder(Path::new(&data), plan, backups)
         .build()
-        .unwrap();
-    handle_tx.send(server.shutdown_handle()).unwrap();
-    let result = server.run();
+        .unwrap()
+        .run();
     assert_eq!(result.is_err(), plan.panic_at.is_some(), "{result:?}");
 }
 
@@ -145,12 +142,7 @@ fn child(data: &Path, mode: &str) {
 
 /// The server the logged run of `plan` was built as.
 fn build(data: &Path, plan: Plan, backups: bool) -> Server {
-    Server::builder()
-        .config(local_config(backups))
-        .data_dir(data)
-        .every(NonZeroU32::MIN, move |ctx| step(ctx, plan))
-        .build()
-        .unwrap()
+    builder(data, plan, backups).build().unwrap()
 }
 
 #[expect(
@@ -223,6 +215,7 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     child(&data, "crash");
     let log = crash_log(&data);
     let before = read_all(&data);
+
     let panicked = End::Panicked {
         tick: PANIC_AT,
         message: format!("child panic at {PANIC_AT}"),

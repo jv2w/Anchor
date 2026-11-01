@@ -15,26 +15,27 @@ use std::mem::size_of;
 use super::ChunkKind;
 use super::seal::{DECODE_BUDGET, MAX_RECORD};
 use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
-use crate::protocol::{BLOCKS, Error, Reader, Result, WIDTHS, Writer, length, word_count};
+use crate::protocol::{
+    BLOCKS, Error, Reader, Result, WIDTHS, Writer, length, length_max, word_count,
+};
 use crate::world::BlockPos;
 
 /// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
 pub(crate) const SUB_CHUNKS: usize = 24;
-/// The index of the lowest sub-chunk.
-#[cfg(test)]
-pub(crate) const MIN_SUB_CHUNK: i8 = -4;
 /// Block layers in a sub-chunk: layer 0 and the waterlogging layer 1.
 pub(crate) const MAX_LAYERS: usize = 2;
-/// Longest name a record holds (a player's world, a ban's reason and source), in bytes.
-pub(crate) const MAX_NAME: usize = 256;
+/// Longest name a record holds (a player's world, a ban's reason and source).
+pub(crate) const MAX_NAME_BYTES: usize = 256;
 // A ban the list takes can be stored.
-const _: () =
-    assert!(crate::permission::MAX_REASON <= MAX_NAME && crate::permission::MAX_SOURCE <= MAX_NAME);
+const _: () = assert!(
+    crate::permission::MAX_REASON <= MAX_NAME_BYTES
+        && crate::permission::MAX_SOURCE <= MAX_NAME_BYTES
+);
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
 /// name and the position. It holds up to 146 stacks and the user's data, more
 /// than the 4 MiB of one NBT root elsewhere; the record's reader budget covers it
 /// (`item::MAX_NBT_BYTES`).
-pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME + 3 * 8);
+pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
 
 /// Most compounds in a chunk's list of entities or scheduled updates, and in a list an import
 /// writes: one per block of a chunk column. Scheduled updates have at most one per block;
@@ -55,105 +56,12 @@ pub(crate) const MAX_BLOCK_ENTITY_ENTRIES: usize =
 /// Most pages a list takes: the page number of a key is a u16.
 const MAX_PAGES: usize = 1 << 16;
 
-/// Most compounds in a chunk's list of `kind`.
-pub(crate) fn max_entries(kind: ChunkKind) -> usize {
-    match kind {
-        ChunkKind::BlockEntities => MAX_BLOCK_ENTITY_ENTRIES,
-        ChunkKind::Entities | ChunkKind::ScheduledUpdates => MAX_EXTRA_ENTRIES,
-    }
-}
-
 /// A value that has a sealed form in one storage table.
 pub(crate) trait Record: Sized {
     /// Writes the record in the current format.
     fn encode(&self, w: &mut Writer) -> Result<()>;
     /// Reads a record that must take the whole input.
     fn decode(r: &mut Reader<'_>) -> Result<Self>;
-}
-
-/// Whether each of the [`BLOCKS`] indices packed in `words` is below `palette_len`.
-fn indices_below(bits: u8, words: &[u32], palette_len: usize) -> bool {
-    if bits == 0 {
-        return palette_len > 0;
-    }
-    // Every index the width can hold is in the palette. Callers pass widths up to 16.
-    if palette_len >= 1 << bits {
-        return true;
-    }
-    let per_word = 32 / usize::from(bits);
-    let mask = (1u32 << bits) - 1;
-    let mut left = BLOCKS;
-    words.iter().all(|&word| {
-        let here = left.min(per_word);
-        left -= here;
-        (0..here).all(|i| {
-            let shift = u32::try_from(i * usize::from(bits)).unwrap_or(0);
-            usize::try_from((word >> shift) & mask).is_ok_and(|index| index < palette_len)
-        })
-    })
-}
-
-/// Reads a width, its words and the palette length that follows (1 without a length for
-/// width 0), checking each against its limit.
-fn read_packed(r: &mut Reader<'_>) -> Result<(u8, Vec<u32>, usize)> {
-    let bits = r.uint8()?;
-    if !WIDTHS.contains(&bits) {
-        return Err(Error::UnknownEnum {
-            name: "storage index bits",
-            value: bits.into(),
-        });
-    }
-    let count = r.limit(length(word_count(bits))?, usize::MAX, size_of::<u32>())?;
-    let mut words = Vec::with_capacity(count);
-    for _ in 0..count {
-        words.push(r.uint32()?);
-    }
-    let palette_len = if bits == 0 {
-        1
-    } else {
-        usize::from(r.uint16()?)
-    };
-    if palette_len == 0 || palette_len > BLOCKS.min(1 << bits) {
-        return Err(Error::InvalidValue {
-            field: "storage palette",
-            reason: "length is zero or more than the width indexes",
-        });
-    }
-    Ok((bits, words, palette_len))
-}
-
-/// Writes a width, its words and the palette length (none for width 0).
-fn write_packed(w: &mut Writer, bits: u8, words: &[u32], palette_len: usize) -> Result<()> {
-    let valid = WIDTHS.contains(&bits)
-        && words.len() == word_count(bits)
-        && palette_len != 0
-        && palette_len <= BLOCKS.min(1 << bits)
-        && indices_below(bits, words, palette_len);
-    if !valid {
-        return Err(Error::InvalidValue {
-            field: "storage",
-            reason: "width, word count or palette does not match the indices",
-        });
-    }
-    w.uint8(bits);
-    for &word in words {
-        w.uint32(word);
-    }
-    if bits != 0 {
-        w.uint16(length(palette_len)?);
-    }
-    Ok(())
-}
-
-pub(crate) fn check_indices(bits: u8, words: &[u32], palette_len: usize) -> Result<()> {
-    if indices_below(bits, words, palette_len) {
-        Ok(())
-    } else {
-        Err(Error::InvalidValue {
-            field: "storage",
-            reason: "index outside the palette",
-        })
-    }
 }
 
 /// One block layer of a sub-chunk: indices packed as Bedrock packs them, into a palette of
@@ -189,6 +97,7 @@ pub(crate) struct SubChunkRecord {
 }
 
 impl SubChunkRecord {
+    /// Writes the layers and the biomes, refusing parts that do not match their indices.
     fn write(&self, w: &mut Writer) -> Result<()> {
         if self.layers.len() > MAX_LAYERS {
             return Err(Error::InvalidValue {
@@ -211,6 +120,7 @@ impl SubChunkRecord {
         Ok(())
     }
 
+    /// Reads one sub-chunk, leaving the input after it.
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let layer_count = r.uint8()?;
         let layer_count = r.limit(layer_count.into(), MAX_LAYERS, size_of::<BlockLayer>())?;
@@ -342,7 +252,7 @@ impl Record for PlayerRecord {
 pub(crate) struct ExtraRecord<'a>(pub(crate) Cow<'a, [Compound]>);
 
 impl ExtraRecord<'_> {
-    /// The encoded pages that hold `list`, a chunk's list of `kind`, in order, each at most
+    /// Returns the encoded pages that hold `list`, a chunk's list of `kind`, in order, each at most
     /// `max` bytes and read back within the [`DECODE_BUDGET`] of a record's reader: entries are
     /// added to a page until the next would not fit either. An entry is at most an NBT root
     /// (4 MiB) and a quarter of the budget (an error otherwise), so with `max` at least four
@@ -393,20 +303,9 @@ impl ExtraRecord<'_> {
     }
 }
 
-/// Writes the entry count at the start of `page` and moves it to `pages`.
-fn close_page(page: &mut Vec<u8>, count: u32, pages: &mut Vec<Vec<u8>>) {
-    if let Some(head) = page.first_chunk_mut::<4>() {
-        *head = count.to_le_bytes();
-    }
-    pages.push(std::mem::take(page));
-}
-
 impl Record for ExtraRecord<'_> {
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        if self.0.len() > MAX_BLOCK_ENTITY_ENTRIES {
-            return Err(Error::Size);
-        }
-        w.uint32(u32::try_from(self.0.len()).map_err(|_| Error::Size)?);
+        w.uint32(length_max(self.0.len(), MAX_BLOCK_ENTITY_ENTRIES)?);
         for entry in self.0.iter() {
             w.nbt(entry, Encoding::LittleEndian)?;
         }
@@ -497,7 +396,7 @@ pub(crate) struct Meta {
 
 #[cfg(test)]
 impl Meta {
-    /// The meta value of `tick` without a commit identity.
+    /// Returns the meta value of `tick` without a commit identity.
     pub(crate) fn at(tick: u64) -> Self {
         Self {
             tick,
@@ -541,7 +440,7 @@ impl Record for Mark {
 }
 
 /// The value of a name or IP ban in `access` (PMMP `BanEntry` without the name, which is the
-/// key): the reason and the source as names (at most [`MAX_NAME`] bytes), the engine tick it was
+/// key): the reason and the source as names (at most [`MAX_NAME_BYTES`]), the engine tick it was
 /// added at, then a flag byte and the engine tick it ends at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BanRecord {
@@ -577,6 +476,118 @@ impl Record for BanRecord {
     }
 }
 
+/// Returns the most compounds in a chunk's list of `kind`.
+pub(crate) fn max_entries(kind: ChunkKind) -> usize {
+    match kind {
+        ChunkKind::BlockEntities => MAX_BLOCK_ENTITY_ENTRIES,
+        ChunkKind::Entities | ChunkKind::ScheduledUpdates => MAX_EXTRA_ENTRIES,
+    }
+}
+
+/// Reads a width, its words and the palette length that follows (1 without a length for
+/// width 0), checking each against its limit.
+fn read_packed(r: &mut Reader<'_>) -> Result<(u8, Vec<u32>, usize)> {
+    let bits = r.uint8()?;
+    if !WIDTHS.contains(&bits) {
+        return Err(Error::UnknownEnum {
+            name: "storage index bits",
+            value: bits.into(),
+        });
+    }
+    let count = r.limit(length(word_count(bits))?, usize::MAX, size_of::<u32>())?;
+    let mut words = Vec::with_capacity(count);
+    for _ in 0..count {
+        words.push(r.uint32()?);
+    }
+    let palette_len = if bits == 0 {
+        1
+    } else {
+        usize::from(r.uint16()?)
+    };
+    if palette_len == 0 || palette_len > BLOCKS.min(1 << bits) {
+        return Err(Error::InvalidValue {
+            field: "storage palette",
+            reason: "length is zero or more than the width indexes",
+        });
+    }
+    Ok((bits, words, palette_len))
+}
+
+/// Writes a width, its words and the palette length (none for width 0).
+fn write_packed(w: &mut Writer, bits: u8, words: &[u32], palette_len: usize) -> Result<()> {
+    let valid = WIDTHS.contains(&bits)
+        && words.len() == word_count(bits)
+        && palette_len != 0
+        && palette_len <= BLOCKS.min(1 << bits)
+        && indices_below(bits, words, palette_len);
+    if !valid {
+        return Err(Error::InvalidValue {
+            field: "storage",
+            reason: "width, word count or palette does not match the indices",
+        });
+    }
+    w.uint8(bits);
+    for &word in words {
+        w.uint32(word);
+    }
+    if bits != 0 {
+        w.uint16(length(palette_len)?);
+    }
+    Ok(())
+}
+
+/// Fails unless each of the [`BLOCKS`] indices packed in `words` at `bits` per index is below
+/// `palette_len`.
+pub(crate) fn check_indices(bits: u8, words: &[u32], palette_len: usize) -> Result<()> {
+    if indices_below(bits, words, palette_len) {
+        Ok(())
+    } else {
+        Err(Error::InvalidValue {
+            field: "storage",
+            reason: "index outside the palette",
+        })
+    }
+}
+
+/// Returns whether each of the [`BLOCKS`] indices packed in `words` is below `palette_len`.
+fn indices_below(bits: u8, words: &[u32], palette_len: usize) -> bool {
+    if bits == 0 {
+        return palette_len > 0;
+    }
+    // Every index the width can hold is in the palette. Callers pass widths up to 16.
+    if palette_len >= 1 << bits {
+        return true;
+    }
+    let per_word = 32 / usize::from(bits);
+    let mask = (1u32 << bits) - 1;
+    let mut left = BLOCKS;
+    words.iter().all(|&word| {
+        let here = left.min(per_word);
+        left -= here;
+        // The indices of the word from its low bits up; the last word's high bits hold none.
+        let mut rest = word;
+        (0..here).all(|_| {
+            let index = rest & mask;
+            rest >>= bits;
+            usize::try_from(index).is_ok_and(|index| index < palette_len)
+        })
+    })
+}
+
+/// Writes the entry count at the start of `page` and moves it to `pages`.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a page is opened with its count before its first entry"
+)]
+fn close_page(page: &mut Vec<u8>, count: u32, pages: &mut Vec<Vec<u8>>) {
+    let head = page
+        .first_chunk_mut::<4>()
+        .expect("a page starts with its entry count");
+    *head = count.to_le_bytes();
+    pages.push(std::mem::take(page));
+}
+
+/// Returns the error of a position component that is not finite.
 fn not_finite() -> Error {
     Error::InvalidValue {
         field: "player position",
@@ -596,18 +607,16 @@ fn end(r: &Reader<'_>) -> Result<()> {
     }
 }
 
-/// A name: a u16 byte length and at most [`MAX_NAME`] bytes of UTF-8.
+/// Reads a name: a u16 byte length and at most [`MAX_NAME_BYTES`] of UTF-8.
 fn read_name(r: &mut Reader<'_>) -> Result<String> {
     let len = r.uint16()?;
-    let len = r.limit(len.into(), MAX_NAME, 1)?;
+    let len = r.limit(len.into(), MAX_NAME_BYTES, 1)?;
     r.utf8(length(len)?)
 }
 
+/// Writes a name as [`read_name`] reads it; one over [`MAX_NAME_BYTES`] is [`Error::Size`].
 fn write_name(w: &mut Writer, name: &str) -> Result<()> {
-    if name.len() > MAX_NAME {
-        return Err(Error::Size);
-    }
-    w.uint16(length(name.len())?);
+    w.uint16(length_max(name.len(), MAX_NAME_BYTES)?);
     w.bytes(name.as_bytes());
     Ok(())
 }
@@ -618,8 +627,10 @@ pub(crate) mod tests {
     use crate::nbt::{List, Value};
     use crate::protocol::Rng;
 
-    const BUDGET: usize = 64 << 20;
+    /// The index of the lowest sub-chunk.
+    const MIN_SUB_CHUNK: i8 = -4;
 
+    /// Encodes `record` in the current format.
     pub(crate) fn encode(record: &impl Record) -> Vec<u8> {
         let mut w = Writer::new(Vec::new(), 0);
         record.encode(&mut w).unwrap();
@@ -628,10 +639,10 @@ pub(crate) mod tests {
 
     /// Decodes a record that must take all of `bytes`.
     pub(crate) fn decode<R: Record>(bytes: &[u8]) -> Result<R> {
-        R::decode(&mut Reader::new(bytes, BUDGET, 0))
+        R::decode(&mut Reader::new(bytes, DECODE_BUDGET, 0))
     }
 
-    /// A random compound of a few kinds of tags, nested up to `depth`.
+    /// Returns a random compound of a few kinds of tags, nested up to `depth`.
     pub(crate) fn random_compound(rng: &mut Rng, depth: usize) -> Compound {
         let mut c = Compound::new();
         for i in 0..rng.below(6) {
@@ -659,7 +670,7 @@ pub(crate) mod tests {
         c
     }
 
-    /// A Bedrock disk palette entry.
+    /// Returns the Bedrock disk palette entry of the block `name` with `states`.
     pub(crate) fn block(name: &str, states: &[(&str, Value)]) -> Compound {
         let states = states
             .iter()
@@ -689,11 +700,12 @@ pub(crate) mod tests {
         words
     }
 
-    /// The narrowest width that indexes `len` palette entries.
+    /// Returns the narrowest width that indexes `len` palette entries.
     pub(crate) fn width(len: usize) -> u8 {
         WIDTHS.into_iter().find(|&b| len <= 1 << b).unwrap()
     }
 
+    /// Returns the biomes of a sub-chunk that is the biome `id` everywhere.
     fn uniform_biomes(id: u32) -> Biomes {
         Biomes {
             bits: 0,
@@ -702,7 +714,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// A random chunk: random sub-chunks are air, others have one or two layers of random width
+    /// Returns a random chunk: random sub-chunks are air, others have one or two layers of random width
     /// and palette, and the biomes vary.
     pub(crate) fn random_chunk(rng: &mut Rng) -> ChunkRecord {
         let sub_chunks: Vec<SubChunkRecord> = (0..SUB_CHUNKS)
@@ -751,7 +763,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// A chunk shaped like generated terrain: bedrock, deepslate and stone with ore and rock
+    /// Returns a chunk shaped like generated terrain: bedrock, deepslate and stone with ore and rock
     /// pockets, dirt and grass on a sloped surface near y 64, water up to y 62, plants, then air.
     /// Biomes change across the surface sub-chunks.
     pub(crate) fn terrain_chunk(rng: &mut Rng) -> ChunkRecord {
@@ -845,7 +857,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// The block at height `y` of a terrain column whose surface is at `h`.
+    /// Returns the block at height `y` of a terrain column whose surface is at `h`.
     fn terrain_block(y: i32, h: i32, pocket: Option<&'static str>, plant: u16) -> &'static str {
         if y == -64 {
             "minecraft:bedrock"
@@ -872,6 +884,7 @@ pub(crate) mod tests {
         }
     }
 
+    /// Returns the disk palette entry of the terrain block `name`.
     fn terrain_state(name: &str) -> Compound {
         match name {
             "minecraft:deepslate" => block(name, &[("pillar_axis", Value::String("y".to_owned()))]),
@@ -880,6 +893,7 @@ pub(crate) mod tests {
         }
     }
 
+    /// Returns a chunk without blocks, all plains.
     pub(crate) fn empty_chunk() -> ChunkRecord {
         let sub_chunks: Vec<SubChunkRecord> = (0..SUB_CHUNKS)
             .map(|_| SubChunkRecord {
@@ -938,8 +952,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// A list splits into pages of at most the limit, entries in order and never split; each
-    /// page is an [`ExtraRecord`] of its entries, and an empty list has no page.
+    /// Checks that a list splits into pages of at most the limit, entries in order and never
+    /// split; each page is an [`ExtraRecord`] of its entries, and an empty list has no page.
     #[test]
     fn extras_lists_split_into_pages_under_the_limit() {
         let mut rng = Rng(0x0c0d_ec01);
@@ -1048,8 +1062,11 @@ pub(crate) mod tests {
             Err(Error::InvalidValue { .. })
         ));
         // A name declared longer than the limit fails on the length, before the bytes.
-        let mut bytes = u16::try_from(MAX_NAME + 1).unwrap().to_le_bytes().to_vec();
-        bytes.extend(std::iter::repeat_n(b'a', MAX_NAME + 1));
+        let mut bytes = u16::try_from(MAX_NAME_BYTES + 1)
+            .unwrap()
+            .to_le_bytes()
+            .to_vec();
+        bytes.extend(std::iter::repeat_n(b'a', MAX_NAME_BYTES + 1));
         assert_eq!(decode::<PlayerRecord>(&bytes), Err(Error::Size));
         // A layer count over two.
         assert_eq!(decode::<ChunkRecord>(&[3]), Err(Error::Size));

@@ -6,19 +6,23 @@
 //! and `NetworkVersion` must be at most the protocol Anchor speaks (BDS 1.26.52 writes 2193, the
 //! protocol of the same release): a newer game may have stored blocks Anchor cannot read.
 
-use crate::import::{DECODE_BUDGET, Error, Result};
+use super::{Error, Result};
 use crate::nbt::{Compound, Encoding, Value};
 use crate::protocol::Reader;
 use crate::protocol::packet::PROTOCOL_VERSION;
+// Decoding `level.dat` allocates within the data files' own budget.
+use crate::storage::seal::DECODE_BUDGET;
 
 /// The newest `StorageVersion` read (PMMP `WorldDataVersions::STORAGE`).
 pub(crate) const STORAGE_VERSION: i32 = 10;
+/// The `SpawnY` Bedrock writes before the spawn has a height: the game puts it on the ground.
+pub(crate) const SPAWN_Y_UNSET: i32 = 32_767;
 
 /// What Anchor reads of `level.dat`: the spawn and the time, which are state. No setting (seed,
 /// game mode, difficulty, game rules) is read: the imported world runs with the server's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldData {
-    /// `SpawnX`, `SpawnY`, `SpawnZ`. Y 32767 means "on the highest block".
+    /// `SpawnX`, `SpawnY`, `SpawnZ`; a `SpawnY` of [`SPAWN_Y_UNSET`] has no height yet.
     pub(crate) spawn: [i32; 3],
     /// `Time`: the time of day in ticks.
     pub(crate) time: i64,
@@ -108,7 +112,7 @@ pub(crate) mod tests {
             ("StorageVersion".to_owned(), Value::Int(10)),
             ("NetworkVersion".to_owned(), Value::Int(PROTOCOL_VERSION)),
             ("SpawnX".to_owned(), Value::Int(4)),
-            ("SpawnY".to_owned(), Value::Int(32767)),
+            ("SpawnY".to_owned(), Value::Int(SPAWN_Y_UNSET)),
             ("SpawnZ".to_owned(), Value::Int(-8)),
             ("RandomSeed".to_owned(), Value::Long(-77)),
             ("Time".to_owned(), Value::Long(6000)),
@@ -119,7 +123,7 @@ pub(crate) mod tests {
     #[test]
     fn reads_the_fields_anchor_imports() {
         let world = parse(&encode(&root())).unwrap();
-        assert_eq!(world.spawn, [4, 32767, -8]);
+        assert_eq!(world.spawn, [4, SPAWN_Y_UNSET, -8]);
         assert_eq!(world.time, 6000);
         // The seed is a setting: not read, so not needed.
         let mut no_seed = root();
@@ -130,13 +134,11 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn bds_fixture_level_dat_reads() {
-        let bytes = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/xtask/data/import/flat/level.dat"
-        ))
-        .unwrap();
+        let bytes =
+            std::fs::read(std::path::Path::new(crate::import::tests::FIXTURE).join("level.dat"))
+                .unwrap();
         let world = parse(&bytes).unwrap();
-        assert_eq!(world.spawn, [0, 32767, 0]);
+        assert_eq!(world.spawn, [0, SPAWN_Y_UNSET, 0]);
     }
 
     #[test]

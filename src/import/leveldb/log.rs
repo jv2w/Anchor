@@ -116,7 +116,7 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
         let key = body.prefixed()?;
         if key.len() > MAX_KEY {
             return Err(Error::TooLarge {
-                what: "key",
+                what: "bytes in a user key",
                 limit: MAX_KEY as u64,
             });
         }
@@ -143,6 +143,7 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::import::leveldb::tests::put_prefixed;
 
     /// Writes `records` as a log, splitting them into fragments at block ends like LevelDB's
     /// `log::Writer`.
@@ -191,9 +192,9 @@ pub(super) mod tests {
         out.extend_from_slice(&u32::try_from(writes.len()).unwrap().to_le_bytes());
         for (key, value) in writes {
             out.push(if value.is_some() { VALUE } else { DELETION });
-            super::super::tests::put_prefixed(&mut out, key);
+            put_prefixed(&mut out, key);
             if let Some(value) = value {
-                super::super::tests::put_prefixed(&mut out, value);
+                put_prefixed(&mut out, value);
             }
         }
         out

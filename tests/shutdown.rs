@@ -61,29 +61,23 @@ fn local_config() -> Config {
 #[test]
 #[ignore = "the child process of the tests that stop a server"]
 #[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the task gets the server's shutdown handle once, after the build"
-)]
-#[expect(
     clippy::print_stdout,
+    clippy::disallowed_methods,
     reason = "consistency: the child reports to the parent on standard output"
 )]
 fn shutdown_child() {
     let (Ok(data), Ok(mode)) = (std::env::var(DATA_ENV), std::env::var(MODE_ENV)) else {
         return;
     };
-    let (handle_tx, handle_rx) = std::sync::mpsc::sync_channel(1);
-    let mut stop: Option<anchor::ShutdownHandle> = None;
     let mut start = None;
     let mut reported = false;
-    let server = Server::builder()
+    Server::builder()
         .config(local_config())
         .data_dir(&data)
         .every(NonZeroU32::MIN, move |ctx| {
-            let stop = stop.get_or_insert_with(|| handle_rx.recv().unwrap());
             let start = *start.get_or_insert(ctx.tick());
             if ctx.tick() > start + CHILD_TICKS {
-                stop.shutdown();
+                ctx.shutdown();
                 return;
             }
             let world = ctx.default_world_mut();
@@ -96,14 +90,14 @@ fn shutdown_child() {
                 println!("{REPORT} placed");
             } else {
                 println!("{REPORT} gold={}", world.block(MARKER) == Some(gold()));
-                stop.shutdown();
+                ctx.shutdown();
             }
             std::io::stdout().flush().unwrap();
         })
         .build()
+        .unwrap()
+        .run()
         .unwrap();
-    handle_tx.send(server.shutdown_handle()).unwrap();
-    server.run().unwrap();
 }
 
 /// A started child, its report lines and the lines of its console log.

@@ -20,8 +20,12 @@ use super::{Error, Result};
 /// the terrain is one value per sub-chunk, none for an empty sub-chunk of plains
 /// (`save::seal_terrain`), and extras lists are in pages. The main file holds the operators,
 /// bans, whitelist and the user's server data; the players have a file of their own. A world
-/// record holds the world's spawn after its number and time.
-pub(crate) const FORMAT_VERSION: u16 = 11;
+/// record holds the world's spawn after its number and time. The players file and every world
+/// file keep one redb persistent savepoint, of the file as it was before its last commit, until a
+/// normal stop deletes it; the main file keeps none. The main file's `meta` table also holds a
+/// deletion mark (`deleted:` and the world's name, a `Mark`) for each world its save deleted
+/// whose file may still be there.
+pub(crate) const FORMAT_VERSION: u16 = 12;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
@@ -45,17 +49,12 @@ const DEFLATE_LEVEL: u8 = 6;
 pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
     let mut w = Writer::new(Vec::new(), 0);
     record.encode(&mut w).map_err(Error::Encode)?;
-    seal_bytes(key, w.as_bytes())
+    seal_encoded(key, w.as_bytes())
 }
 
-/// Seals record bytes already encoded in the current format (an extras page) under `key`.
+/// Seals record bytes already encoded in the current format (an extras page) under `key`,
+/// compressed with raw DEFLATE when that makes them smaller.
 pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
-    seal_bytes(key, record)
-}
-
-/// Seals encoded record bytes under `key`, compressed with raw DEFLATE when that makes them
-/// smaller.
-fn seal_bytes(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
     if record.len() > MAX_RECORD {
         return Err(Error::Encode(crate::protocol::Error::Size));
     }
@@ -396,7 +395,7 @@ mod tests {
         ));
         // Encoding refuses a record over the limit.
         let big = vec![0u8; MAX_RECORD + 1];
-        assert!(matches!(seal_bytes(KEY, &big), Err(Error::Encode(_))));
+        assert!(matches!(seal_encoded(KEY, &big), Err(Error::Encode(_))));
         // A player extra or an extras list whose NBT declares more than is there.
         let mut record = encode(&PlayerRecord {
             world: "w".to_owned(),
@@ -405,14 +404,14 @@ mod tests {
         });
         let at = record.len() - 5;
         record[at - 4..at].copy_from_slice(&u32::MAX.to_le_bytes());
-        let sealed = seal_bytes(KEY, &record).unwrap();
+        let sealed = seal_encoded(KEY, &record).unwrap();
         assert!(matches!(
             unseal::<PlayerRecord>(KEY, &sealed),
             Err(Error::Record(_))
         ));
         let mut record = encode(&ExtraRecord(vec![Compound::new(); 3].into()));
         record[..4].copy_from_slice(&u32::MAX.to_le_bytes());
-        let sealed = seal_bytes(KEY, &record).unwrap();
+        let sealed = seal_encoded(KEY, &record).unwrap();
         assert!(matches!(
             unseal::<ExtraRecord<'_>>(KEY, &sealed),
             Err(Error::Record(crate::protocol::Error::Size))

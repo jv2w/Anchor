@@ -14,6 +14,10 @@
 //! memory on top of the files, so a later load sees them as the live one did. Every later
 //! segment's checkpoint is compared with the replayed state.
 //!
+//! A data folder whose players file or a world file holds a later save than its main file (a
+//! save stopped before the main file) is refused as [`Error::Storage`]: one start of the server
+//! rolls such files back to the main file's save.
+//!
 //! A replay runs no network and no runtime, commits nothing and writes no file. Blocking jobs
 //! do not run: their logged results are handed to their callbacks. The listeners, tasks and
 //! behaviours are the replaying server's: state they keep in their closures starts over, and
@@ -195,6 +199,7 @@ pub(crate) fn run(
     if logged.registrations != fingerprints.registrations {
         return Err(Error::RegistrationsDiffer);
     }
+    check_settled(data_dir)?;
     let (from, file, checkpoint) = choose(&log, data_dir, &setup)?;
     info!(
         file = %file.main.display(),
@@ -208,26 +213,7 @@ pub(crate) fn run(
     )
     .map_err(format)?;
     let seeds: Vec<i64> = checkpoint.seeds().collect();
-    // The worlds the run had at the checkpoint, the ones it made or loaded included, each with
-    // the generator registered under the name it was made with.
-    let specs = checkpoint
-        .worlds()
-        .iter()
-        .map(|w| {
-            Ok(WorldSpec {
-                name: w.name.clone(),
-                kind: w.kind,
-                generator: Arc::clone(
-                    setup
-                        .generators
-                        .get(&w.generator)
-                        .ok_or(Error::RegistrationsDiffer)?,
-                ),
-                seed: None,
-                spawn: None,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let specs = checkpoint_worlds(&checkpoint, &setup)?;
     let mut opened = save::open_replica(&file, specs, &seeds).map_err(storage)?;
     let identity = opened.identity;
     setup.data.load(&mut opened.thread).map_err(storage)?;
@@ -289,6 +275,29 @@ pub(crate) fn run(
     })
 }
 
+/// The worlds the run had at `checkpoint`, the ones it made or loaded included, each with the
+/// generator `setup` registered under the name it was made with.
+fn checkpoint_worlds(checkpoint: &Checkpoint, setup: &Setup) -> Result<Vec<WorldSpec>> {
+    checkpoint
+        .worlds()
+        .iter()
+        .map(|w| {
+            Ok(WorldSpec {
+                name: w.name.clone(),
+                kind: w.kind,
+                generator: Arc::clone(
+                    setup
+                        .generators
+                        .get(&w.generator)
+                        .ok_or(Error::RegistrationsDiffer)?,
+                ),
+                seed: None,
+                spawn: None,
+            })
+        })
+        .collect()
+}
+
 /// Reads the crash log at `path`.
 fn read(path: &Path) -> Result<InputLog> {
     let bytes = crate::fs::read_bounded(path, tick::MAX_LOG_FILE_BYTES as u64).map_err(|e| {
@@ -299,6 +308,24 @@ fn read(path: &Path) -> Result<InputLog> {
         }
     })?;
     InputLog::decode(&bytes).map_err(format)
+}
+
+/// Refuses a data folder whose players file or a world file holds a later save than its main
+/// file ([`crate::storage::check_settled`]): a save stopped before the main file, which only a
+/// start of the server rolls back. A file that does not open read-only is left to the choice of
+/// copies, which skips it.
+fn check_settled(data_dir: &Path) -> Result<()> {
+    use crate::storage::{MAIN_FILE, PLAYERS_FILE, Place};
+    let main = Place::data(data_dir, MAIN_FILE).file;
+    let worlds = save::world_files(data_dir).map_err(storage)?;
+    let files = std::iter::once(Place::data(data_dir, PLAYERS_FILE).file)
+        .chain(worlds.iter().map(|name| Place::world(data_dir, name).file));
+    for file in files {
+        if let Err(e @ crate::storage::Error::Ahead) = crate::storage::check_settled(&file, &main) {
+            return Err(storage(e));
+        }
+    }
+    Ok(())
 }
 
 /// The copies of the data file at `place` with the meta value of each one's last commit, as
@@ -320,15 +347,10 @@ fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
 /// newest copy committed at that save or before (see the module's documentation).
 fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayFiles> {
     use crate::storage::{PLAYERS_FILE, Place};
-    let at_or_before = |meta: &Meta| {
-        meta.tick < main.tick
-            || (meta.tick == main.tick
-                && meta.identity.zip(main.identity).is_none_or(|(a, b)| a == b))
-    };
     let pick = |place: &Place| -> Result<Option<PathBuf>> {
         Ok(copies(place)?
             .into_iter()
-            .filter(|(meta, _)| at_or_before(meta))
+            .filter(|(meta, _)| !crate::storage::is_later(meta, main))
             .max_by_key(|(meta, _)| meta.tick)
             .map(|(_, path)| path))
     };
@@ -460,9 +482,8 @@ impl Replayer {
     fn run(mut self, log: &InputLog, from: usize) -> Result<(Option<u64>, u64, End)> {
         let result = self.ticks(log, from);
         let Self { pool, progress, .. } = self;
-        if !pool.shutdown() {
-            error!("the replay's CPU pool threads did not all end");
-        }
+        // `Pool::shutdown` warns about threads that did not end.
+        pool.shutdown();
         let end = result?;
         Ok((progress.tick, progress.ticks, end))
     }

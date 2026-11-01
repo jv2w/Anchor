@@ -14,8 +14,9 @@
 //!
 //! Limits, each checked before the bytes it covers are read or allocated: `CURRENT` 256 bytes,
 //! `MANIFEST` 64 MiB, the live logs 64 MiB together and 1,048,576 distinct keys, 65,536 files in
-//! the folder, a block 16 MiB stored or decompressed, a user key 1 KiB, 256 MiB of blocks held by
-//! one scan (and 64 MiB of cached blocks).
+//! the folder, a block 16 MiB stored or decompressed, a user key 1 KiB. A scan holds at most
+//! 256 MiB of blocks, checked as each table it reads takes its blocks, so it passes the bound by
+//! at most one table's index and data block; 64 MiB of blocks are cached.
 
 pub(crate) mod log;
 pub(crate) mod table;
@@ -29,9 +30,9 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use self::table::{Cursor, TableFile, Tables};
 use super::{Error, Result, read_file};
 use crate::storage::seal::Crc32c;
+use table::{Cursor, TableFile, Tables};
 
 /// The longest user key.
 pub(crate) const MAX_KEY: usize = 1024;
@@ -56,123 +57,333 @@ pub(crate) const COMPARATOR: &[u8] = b"leveldb.BytewiseComparator";
 /// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
 const MASK_DELTA: u32 = 0xa282_ead8;
 
-/// The masked CRC-32C of `parts` put together, as LevelDB stores checksums.
-pub(crate) fn masked_crc(parts: &[&[u8]]) -> u32 {
-    let mut crc = Crc32c::new();
-    for part in parts {
-        crc.update(part);
-    }
-    crc.finish().rotate_right(15).wrapping_add(MASK_DELTA)
+/// The LevelDB of a Bedrock world (its `db` folder), opened read-only: the world import's own
+/// reader, for the keys the import leaves out (players, entities, the scoreboard, ...). Mojang
+/// documents the keys and the little-endian NBT most values hold.
+///
+/// It reads the folder as it was when opened, and writes nothing to it: open a world no
+/// program is writing, or a copy. The import's limits hold ([`Error::TooLarge`] names each), the
+/// live logs included, which opening reads into memory (64 MiB at most). Opening and every read
+/// block the calling thread: run them before [`Server::run`](crate::Server::run) or in
+/// [`Context::spawn_blocking`](crate::Context::spawn_blocking).
+pub struct Db {
+    /// Level 0 tables may overlap; the tables of each other level are sorted and disjoint.
+    levels: [Vec<TableFile>; LEVELS],
+    /// The live log writes, by key.
+    memory: Vec<Logged>,
+    tables: Tables,
+    /// The folder's files when it was opened.
+    listing: BTreeMap<OsString, Stamp>,
 }
 
-/// Internal key order: user key ascending, then sequence and kind descending (newest first).
-fn compare(a: &[u8], b: &[u8]) -> Ordering {
-    let (a_user, a_tag) = split(a);
-    let (b_user, b_tag) = split(b);
-    a_user.cmp(b_user).then_with(|| b_tag.cmp(&a_tag))
-}
-
-/// The user key and tag of an internal key (decoders reject keys shorter than a tag).
-fn split(key: &[u8]) -> (&[u8], u64) {
-    match key.split_last_chunk::<TAG>() {
-        Some((user, tag)) => (user, u64::from_le_bytes(*tag)),
-        None => (key, 0),
-    }
-}
-
-/// The internal key that sorts before every version of `user`.
-fn seek_key(user: &[u8]) -> Vec<u8> {
-    let mut key = Vec::with_capacity(user.len() + TAG);
-    key.extend_from_slice(user);
-    key.extend_from_slice(&(MAX_SEQUENCE << 8 | u64::from(VALUE)).to_le_bytes());
-    key
-}
-
-/// Reads LevelDB's fixed-width and variable-length integers.
-struct Bytes<'a>(&'a [u8]);
-
-impl<'a> Bytes<'a> {
-    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        let (head, rest) = self
-            .0
-            .split_at_checked(n)
-            .ok_or(Error::Malformed("value ends early"))?;
-        self.0 = rest;
-        Ok(head)
+impl Db {
+    /// Opens the database of the Bedrock world in folder `dir` (`dir/db`), reading `CURRENT`,
+    /// the `MANIFEST` and the live logs.
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
+        Self::from_files(Files::disk(dir.as_ref().join("db")))
     }
 
-    fn u8(&mut self) -> Result<u8> {
-        let (&b, rest) = self
-            .0
-            .split_first()
-            .ok_or(Error::Malformed("value ends early"))?;
-        self.0 = rest;
-        Ok(b)
-    }
+    /// Opens the database in `files`.
+    pub(crate) fn from_files(files: Files) -> Result<Self> {
+        let listing = files.list()?;
+        let current = files.read("CURRENT", MAX_CURRENT)?;
+        let manifest = parse_current(&current).map_err(|e| files.fault("CURRENT", e))?;
+        let edits = files.read(manifest, MAX_MANIFEST)?;
+        let version = replay(&edits).map_err(|e| files.fault(manifest, e))?;
+        let manifest = manifest.to_owned();
+        let in_manifest = |e| files.fault(&manifest, e);
 
-    fn u32(&mut self) -> Result<u32> {
-        let (head, rest) = self
-            .0
-            .split_first_chunk::<4>()
-            .ok_or(Error::Malformed("value ends early"))?;
-        self.0 = rest;
-        Ok(u32::from_le_bytes(*head))
-    }
-
-    fn u64(&mut self) -> Result<u64> {
-        let (head, rest) = self
-            .0
-            .split_first_chunk::<8>()
-            .ok_or(Error::Malformed("value ends early"))?;
-        self.0 = rest;
-        Ok(u64::from_le_bytes(*head))
-    }
-
-    /// A varint of at most `bits` bits.
-    fn varint(&mut self, bits: u32) -> Result<u64> {
-        let mut value = 0_u64;
-        for shift in (0..bits).step_by(7) {
-            let b = self.u8()?;
-            let part = u64::from(b & 0x7f);
-            if bits - shift < 7 && part >> (bits - shift) != 0 {
-                return Err(Error::Malformed("varint too long"));
-            }
-            value |= part << shift;
-            if b & 0x80 == 0 {
-                return Ok(value);
+        let mut tables = BTreeMap::new();
+        let mut logs = Vec::new();
+        for (name, stamp) in &listing {
+            let Some(name) = name.to_str() else { continue };
+            match Name::parse(name) {
+                // LevelDB opens `.ldb` first, then `.sst`.
+                Name::Ldb(n) => {
+                    tables.insert(n, (name.to_owned(), stamp.len));
+                }
+                Name::Sst(n) => {
+                    tables
+                        .entry(n)
+                        .or_insert_with(|| (name.to_owned(), stamp.len));
+                }
+                Name::Log(n) => logs.push((n, name.to_owned(), stamp.len)),
+                Name::Other => {}
             }
         }
-        Err(Error::Malformed("varint too long"))
-    }
 
-    fn varint32(&mut self) -> Result<u32> {
-        u32::try_from(self.varint(32)?).map_err(|_| Error::Malformed("varint too long"))
-    }
-
-    fn varint64(&mut self) -> Result<u64> {
-        self.varint(64)
-    }
-
-    /// A varint32 length and that many bytes.
-    fn prefixed(&mut self) -> Result<&'a [u8]> {
-        let len = usize::try_from(self.varint32()?).map_err(|_| Error::Malformed("length"))?;
-        self.take(len)
-    }
-}
-
-/// A file's length and modification time: a source that changes during an import fails it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Stamp {
-    len: u64,
-    modified: Option<SystemTime>,
-}
-
-impl Stamp {
-    pub(crate) fn new(len: u64, modified: SystemTime) -> Self {
-        Self {
-            len,
-            modified: Some(modified),
+        let mut levels: [Vec<TableFile>; LEVELS] = Default::default();
+        let mut seen = BTreeSet::new();
+        for (level, files_at) in version.files.into_iter().enumerate() {
+            for (number, file) in files_at {
+                if !seen.insert(number) {
+                    return Err(in_manifest(Error::Malformed("table in two levels")));
+                }
+                match tables.get(&number) {
+                    // Named as LevelDB looks for it first.
+                    None => {
+                        return Err(files.fault(
+                            &format!("{number:06}.ldb"),
+                            Error::Malformed("a listed table is missing"),
+                        ));
+                    }
+                    Some((name, len)) if *len != file.size => {
+                        return Err(files.fault(
+                            name,
+                            Error::Malformed("table size differs from the MANIFEST"),
+                        ));
+                    }
+                    Some(_) => {}
+                }
+                if let Some(at) = levels.get_mut(level) {
+                    at.push(file);
+                }
+            }
         }
+        for level in levels.iter_mut().skip(1) {
+            level.sort_by(|a, b| compare(&a.smallest, &b.smallest));
+            let disjoint = level
+                .windows(2)
+                .all(|w| matches!(w, [a, b] if compare(&a.largest, &b.smallest) == Ordering::Less));
+            if !disjoint {
+                return Err(in_manifest(Error::Malformed("tables of a level overlap")));
+            }
+        }
+
+        let log_number = version.log_number.unwrap_or(0);
+        let prev = version.prev_log_number;
+        logs.retain(|&(n, _, _)| n >= log_number || (prev != 0 && n == prev));
+        logs.sort_unstable();
+        let total = logs
+            .iter()
+            .fold(0_u64, |sum, &(_, _, len)| sum.saturating_add(len));
+        if total > MAX_LOG_BYTES {
+            return Err(Error::TooLarge {
+                what: "bytes in the live logs",
+                limit: MAX_LOG_BYTES,
+            });
+        }
+        let memory = read_logs(&files, &logs)?;
+        let names = tables.into_iter().map(|(n, (name, _))| (n, name)).collect();
+        Ok(Self {
+            levels,
+            memory,
+            tables: Tables::new(files, names),
+            listing,
+        })
+    }
+
+    /// Fails with [`Error::SourceChanged`] unless the folder holds the same files, with the same
+    /// lengths and modification times, as when it was opened.
+    pub(crate) fn unchanged(&self) -> Result<()> {
+        let now = self.tables.files.list()?;
+        let changed = self
+            .listing
+            .iter()
+            .find(|&(name, stamp)| now.get(name) != Some(stamp))
+            .map(|(name, _)| name)
+            .or_else(|| now.keys().find(|name| !self.listing.contains_key(*name)));
+        match changed {
+            None => Ok(()),
+            Some(name) => Err(Error::SourceChanged {
+                path: self.tables.files.path(name),
+            }),
+        }
+    }
+
+    /// Calls `f` with each live key starting with `prefix` and its value, in key order.
+    pub fn scan_prefix(&mut self, prefix: &[u8], mut f: impl FnMut(&[u8], &[u8])) -> Result<()> {
+        let end = super::chunk::after(prefix);
+        self.scan(prefix, end.as_deref(), |key, value| {
+            f(key, value);
+            Ok(ControlFlow::Continue(()))
+        })
+    }
+
+    /// The live value of `key`, if any.
+    pub fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let mut end = Vec::with_capacity(key.len() + 1);
+        end.extend_from_slice(key);
+        end.push(0);
+        let mut found = None;
+        self.scan(key, Some(&end), |_, value| {
+            found = Some(value.to_vec());
+            Ok(ControlFlow::Break(()))
+        })?;
+        Ok(found)
+    }
+
+    /// Calls `f` with each live key in `[start, end)` (to the last key without `end`) and its
+    /// value, in key order, until `f` breaks.
+    pub(crate) fn scan(
+        &mut self,
+        start: &[u8],
+        end: Option<&[u8]>,
+        mut f: impl FnMut(&[u8], &[u8]) -> Result<ControlFlow<()>>,
+    ) -> Result<()> {
+        let Self {
+            levels,
+            memory,
+            tables,
+            ..
+        } = self;
+        let (levels, memory) = (&*levels, memory.as_slice());
+        let target = seek_key(start);
+        let before_end = |file: &TableFile| end.is_none_or(|end| split(&file.smallest).0 < end);
+        let mut sources = Vec::new();
+        sources.push(Source::Memory {
+            entries: memory,
+            at: memory.partition_point(|e| e.key.as_slice() < start),
+        });
+        // Checked as each source opens, so the next one is not read once the bound is passed.
+        let mut held = 0_usize;
+        let [first_level, deeper_levels @ ..] = levels;
+        for file in first_level {
+            if split(&file.largest).0 >= start && before_end(file) {
+                let cursor = Cursor::open(tables, file, Some(&target))?;
+                held = held.saturating_add(cursor.held());
+                check_held(held)?;
+                sources.push(Source::Table { file, cursor });
+            }
+        }
+        for files in deeper_levels {
+            let at = files.partition_point(|file| split(&file.largest).0 < start);
+            let mut source = Source::Level {
+                files,
+                at,
+                cursor: None,
+            };
+            source.settle(tables, Some(&target), end)?;
+            held = held.saturating_add(source.held());
+            check_held(held)?;
+            sources.push(source);
+        }
+
+        let mut heap = BinaryHeap::with_capacity(sources.len());
+        for (i, source) in sources.iter().enumerate() {
+            if let Some((user, tag, _)) = source.entry() {
+                heap.push(Reverse((user.to_vec(), Reverse(tag), i)));
+            }
+        }
+        let mut last: Option<Vec<u8>> = None;
+        while let Some(Reverse((user, Reverse(tag), i))) = heap.pop() {
+            if end.is_some_and(|end| user.as_slice() >= end) {
+                break;
+            }
+            let Some(source) = sources.get_mut(i) else {
+                break;
+            };
+            if last.as_deref() != Some(user.as_slice()) {
+                if tag & 0xff == u64::from(VALUE) {
+                    let value = source.entry().map_or(&[][..], |(_, _, value)| value);
+                    if f(&user, value)?.is_break() {
+                        return Ok(());
+                    }
+                }
+                last = Some(user);
+            }
+            let before = source.held();
+            source.advance(tables, end)?;
+            held = held.saturating_sub(before).saturating_add(source.held());
+            check_held(held)?;
+            if let Some((user, tag, _)) = source.entry() {
+                heap.push(Reverse((user.to_vec(), Reverse(tag), i)));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Db {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Db")
+            .field("files", &self.listing.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// One sorted input of a scan.
+enum Source<'a> {
+    /// The live log writes.
+    Memory { entries: &'a [Logged], at: usize },
+    /// A level 0 table.
+    Table { file: &'a TableFile, cursor: Cursor },
+    /// A deeper level: its tables one after another. `at` is the next table to open; the cursor
+    /// is in the one before.
+    Level {
+        files: &'a [TableFile],
+        at: usize,
+        cursor: Option<Cursor>,
+    },
+}
+
+impl Source<'_> {
+    /// The current user key, tag and value.
+    fn entry(&self) -> Option<(&[u8], u64, &[u8])> {
+        let (key, value) = match self {
+            Self::Memory { entries, at } => {
+                let e = entries.get(*at)?;
+                let kind = if e.value.is_some() { VALUE } else { DELETION };
+                let tag = e.sequence << 8 | u64::from(kind);
+                return Some((&e.key, tag, e.value.as_deref().unwrap_or_default()));
+            }
+            Self::Table { cursor, .. } => cursor.entry()?,
+            Self::Level { cursor, .. } => cursor.as_ref()?.entry()?,
+        };
+        let (user, tag) = split(key);
+        Some((user, tag, value))
+    }
+
+    /// The decompressed bytes this source keeps alive.
+    fn held(&self) -> usize {
+        match self {
+            Self::Memory { .. } => 0,
+            Self::Table { cursor, .. } => cursor.held(),
+            Self::Level { cursor, .. } => cursor.as_ref().map_or(0, Cursor::held),
+        }
+    }
+
+    fn advance(&mut self, tables: &mut Tables, end: Option<&[u8]>) -> Result<()> {
+        match self {
+            Self::Memory { at, .. } => *at += 1,
+            Self::Table { file, cursor } => cursor.advance(tables, file)?,
+            Self::Level { files, at, cursor } => {
+                if let (Some(c), Some(file)) = (
+                    cursor.as_mut(),
+                    at.checked_sub(1).and_then(|i| files.get(i)),
+                ) {
+                    c.advance(tables, file)?;
+                }
+                self.settle(tables, None, end)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// For a level: opens the next tables until the cursor is on an entry or none is left before
+    /// `end`. Only the first table opened seeks `target`.
+    fn settle(
+        &mut self,
+        tables: &mut Tables,
+        mut target: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<()> {
+        let Self::Level { files, at, cursor } = self else {
+            return Ok(());
+        };
+        while cursor.as_ref().is_none_or(|c| c.entry().is_none()) {
+            *cursor = None;
+            let Some(file) = files.get(*at) else {
+                return Ok(());
+            };
+            if end.is_some_and(|end| split(&file.smallest).0 >= end) {
+                return Ok(());
+            }
+            *cursor = Some(Cursor::open(tables, file, target)?);
+            target = None;
+            *at += 1;
+        }
+        Ok(())
     }
 }
 
@@ -267,7 +478,7 @@ impl Files {
             #[cfg(test)]
             Self::Memory(files) => match files.get(name) {
                 Some(bytes) if bytes.len() as u64 > limit => Err(Error::TooLarge {
-                    what: "file",
+                    what: "bytes in a file",
                     limit,
                 }),
                 Some(bytes) => Ok(bytes.clone()),
@@ -297,7 +508,15 @@ impl Files {
                 };
                 let read = read().map_err(Error::Read);
                 if open.len() > table::MAX_OPEN {
-                    open.pop_first();
+                    // Never the file just read, whose next block would open it again.
+                    if open
+                        .first_key_value()
+                        .is_some_and(|(first, _)| first == name)
+                    {
+                        open.pop_last();
+                    } else {
+                        open.pop_first();
+                    }
                 }
                 read
             }
@@ -349,6 +568,110 @@ impl Name {
     }
 }
 
+/// The tables and logs a `MANIFEST` describes.
+#[derive(Debug, Default)]
+struct Version {
+    files: [BTreeMap<u64, TableFile>; LEVELS],
+    log_number: Option<u64>,
+    prev_log_number: u64,
+}
+
+/// A live log write: the newest version of its key.
+#[derive(Debug)]
+struct Logged {
+    key: Vec<u8>,
+    sequence: u64,
+    value: Option<Vec<u8>>,
+}
+
+/// A file's length and modification time: a source that changes during an import fails it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+impl Stamp {
+    pub(crate) fn new(len: u64, modified: SystemTime) -> Self {
+        Self {
+            len,
+            modified: Some(modified),
+        }
+    }
+}
+
+/// Reads LevelDB's fixed-width and variable-length integers.
+struct Bytes<'a>(&'a [u8]);
+
+impl<'a> Bytes<'a> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+        let (head, rest) = self
+            .0
+            .split_at_checked(n)
+            .ok_or(Error::Malformed("value ends early"))?;
+        self.0 = rest;
+        Ok(head)
+    }
+
+    fn u8(&mut self) -> Result<u8> {
+        let (&b, rest) = self
+            .0
+            .split_first()
+            .ok_or(Error::Malformed("value ends early"))?;
+        self.0 = rest;
+        Ok(b)
+    }
+
+    fn u32(&mut self) -> Result<u32> {
+        let (head, rest) = self
+            .0
+            .split_first_chunk::<4>()
+            .ok_or(Error::Malformed("value ends early"))?;
+        self.0 = rest;
+        Ok(u32::from_le_bytes(*head))
+    }
+
+    fn u64(&mut self) -> Result<u64> {
+        let (head, rest) = self
+            .0
+            .split_first_chunk::<8>()
+            .ok_or(Error::Malformed("value ends early"))?;
+        self.0 = rest;
+        Ok(u64::from_le_bytes(*head))
+    }
+
+    /// A varint of at most `bits` bits.
+    fn varint(&mut self, bits: u32) -> Result<u64> {
+        let mut value = 0_u64;
+        for shift in (0..bits).step_by(7) {
+            let b = self.u8()?;
+            let part = u64::from(b & 0x7f);
+            if bits - shift < 7 && part >> (bits - shift) != 0 {
+                return Err(Error::Malformed("varint too long"));
+            }
+            value |= part << shift;
+            if b & 0x80 == 0 {
+                return Ok(value);
+            }
+        }
+        Err(Error::Malformed("varint too long"))
+    }
+
+    fn varint32(&mut self) -> Result<u32> {
+        u32::try_from(self.varint(32)?).map_err(|_| Error::Malformed("varint too long"))
+    }
+
+    fn varint64(&mut self) -> Result<u64> {
+        self.varint(64)
+    }
+
+    /// A varint32 length and that many bytes.
+    fn prefixed(&mut self) -> Result<&'a [u8]> {
+        let len = usize::try_from(self.varint32()?).map_err(|_| Error::Malformed("length"))?;
+        self.take(len)
+    }
+}
+
 /// The `MANIFEST` file `CURRENT` names: `MANIFEST-<number>` and a line feed.
 fn parse_current(bytes: &[u8]) -> Result<&str> {
     let name = bytes
@@ -364,14 +687,6 @@ fn parse_current(bytes: &[u8]) -> Result<&str> {
         return Err(Error::Malformed("CURRENT does not name a MANIFEST"));
     }
     Ok(name)
-}
-
-/// The tables and logs a `MANIFEST` describes.
-#[derive(Debug, Default)]
-struct Version {
-    files: [BTreeMap<u64, TableFile>; LEVELS],
-    log_number: Option<u64>,
-    prev_log_number: u64,
 }
 
 /// Replays the version edits of a `MANIFEST`.
@@ -399,7 +714,7 @@ fn apply(version: &mut Version, record: &[u8]) -> Result<()> {
         let key = bytes.prefixed()?;
         if key.len() > MAX_KEY + TAG {
             return Err(Error::TooLarge {
-                what: "key",
+                what: "bytes in a user key",
                 limit: MAX_KEY as u64,
             });
         }
@@ -454,14 +769,6 @@ fn apply(version: &mut Version, record: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// A live log write: the newest version of its key.
-#[derive(Debug)]
-struct Logged {
-    key: Vec<u8>,
-    sequence: u64,
-    value: Option<Vec<u8>>,
-}
-
 /// Reads the live logs `(number, name, length)` in number order: the newest write of each key.
 fn read_logs(files: &Files, logs: &[(u64, String, u64)]) -> Result<Vec<Logged>> {
     let mut writes: BTreeMap<Vec<u8>, (u64, Option<Vec<u8>>)> = BTreeMap::new();
@@ -501,338 +808,47 @@ fn read_logs(files: &Files, logs: &[(u64, String, u64)]) -> Result<Vec<Logged>> 
         .collect())
 }
 
-/// The LevelDB of a Bedrock world (its `db` folder), opened read-only: the world import's own
-/// reader, for the keys the import leaves out (players, entities, the scoreboard, ...). Mojang
-/// documents the keys and the little-endian NBT most values hold.
-///
-/// It reads the folder as it was when opened, and writes nothing to it: open a world no
-/// program is writing, or a copy. The import's limits hold ([`Error::TooLarge`] names each), the
-/// live logs included, which opening reads into memory (64 MiB at most). Opening and every read
-/// block the calling thread: run them before [`Server::run`](crate::Server::run) or in
-/// [`Context::spawn_blocking`](crate::Context::spawn_blocking).
-pub struct Db {
-    /// Level 0 tables may overlap; the tables of each other level are sorted and disjoint.
-    levels: [Vec<TableFile>; LEVELS],
-    /// The live log writes, by key.
-    memory: Vec<Logged>,
-    tables: Tables,
-    /// The folder's files when it was opened.
-    listing: BTreeMap<OsString, Stamp>,
-}
-
-impl fmt::Debug for Db {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Db")
-            .field("files", &self.listing.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Db {
-    /// Opens the database of the Bedrock world in folder `dir` (`dir/db`), reading `CURRENT`,
-    /// the `MANIFEST` and the live logs.
-    pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
-        Self::from_files(Files::disk(dir.as_ref().join("db")))
-    }
-
-    /// Opens the database in `files`.
-    pub(crate) fn from_files(files: Files) -> Result<Self> {
-        let listing = files.list()?;
-        let current = files.read("CURRENT", MAX_CURRENT)?;
-        let manifest = parse_current(&current).map_err(|e| files.fault("CURRENT", e))?;
-        let edits = files.read(manifest, MAX_MANIFEST)?;
-        let version = replay(&edits).map_err(|e| files.fault(manifest, e))?;
-        let manifest = manifest.to_owned();
-        let in_manifest = |e| files.fault(&manifest, e);
-
-        let mut tables = BTreeMap::new();
-        let mut logs = Vec::new();
-        for (name, stamp) in &listing {
-            let Some(name) = name.to_str() else { continue };
-            match Name::parse(name) {
-                // LevelDB opens `.ldb` first, then `.sst`.
-                Name::Ldb(n) => {
-                    tables.insert(n, (name.to_owned(), stamp.len));
-                }
-                Name::Sst(n) => {
-                    tables
-                        .entry(n)
-                        .or_insert_with(|| (name.to_owned(), stamp.len));
-                }
-                Name::Log(n) => logs.push((n, name.to_owned(), stamp.len)),
-                Name::Other => {}
-            }
-        }
-
-        let mut levels: [Vec<TableFile>; LEVELS] = Default::default();
-        let mut seen = BTreeSet::new();
-        for (level, files_at) in version.files.into_iter().enumerate() {
-            for (number, file) in files_at {
-                if !seen.insert(number) {
-                    return Err(in_manifest(Error::Malformed("table in two levels")));
-                }
-                match tables.get(&number) {
-                    None => return Err(in_manifest(Error::Malformed("a listed table is missing"))),
-                    Some((name, len)) if *len != file.size => {
-                        return Err(files.fault(
-                            name,
-                            Error::Malformed("table size differs from the MANIFEST"),
-                        ));
-                    }
-                    Some(_) => {}
-                }
-                if let Some(at) = levels.get_mut(level) {
-                    at.push(file);
-                }
-            }
-        }
-        for level in levels.iter_mut().skip(1) {
-            level.sort_by(|a, b| compare(&a.smallest, &b.smallest));
-            let disjoint = level
-                .windows(2)
-                .all(|w| matches!(w, [a, b] if compare(&a.largest, &b.smallest) == Ordering::Less));
-            if !disjoint {
-                return Err(in_manifest(Error::Malformed("tables of a level overlap")));
-            }
-        }
-
-        let log_number = version.log_number.unwrap_or(0);
-        let prev = version.prev_log_number;
-        logs.retain(|&(n, _, _)| n >= log_number || (prev != 0 && n == prev));
-        logs.sort_unstable();
-        let total = logs
-            .iter()
-            .fold(0_u64, |sum, &(_, _, len)| sum.saturating_add(len));
-        if total > MAX_LOG_BYTES {
-            return Err(Error::TooLarge {
-                what: "live logs",
-                limit: MAX_LOG_BYTES,
-            });
-        }
-        let memory = read_logs(&files, &logs)?;
-        let names = tables.into_iter().map(|(n, (name, _))| (n, name)).collect();
-        Ok(Self {
-            levels,
-            memory,
-            tables: Tables::new(files, names),
-            listing,
-        })
-    }
-
-    /// Calls `f` with each live key in `[start, end)` (to the last key without `end`) and its
-    /// value, in key order, until `f` breaks.
-    pub(crate) fn scan(
-        &mut self,
-        start: &[u8],
-        end: Option<&[u8]>,
-        mut f: impl FnMut(&[u8], &[u8]) -> Result<ControlFlow<()>>,
-    ) -> Result<()> {
-        let Self {
-            levels,
-            memory,
-            tables,
-            ..
-        } = self;
-        let (levels, memory) = (&*levels, memory.as_slice());
-        let target = seek_key(start);
-        let before_end = |file: &TableFile| end.is_none_or(|end| split(&file.smallest).0 < end);
-        let mut sources = Vec::new();
-        sources.push(Source::Memory {
-            entries: memory,
-            at: memory.partition_point(|e| e.key.as_slice() < start),
-        });
-        // Checked as each source opens, so the next one is not read once the bound is passed.
-        let mut held = 0_usize;
-        let [first_level, deeper_levels @ ..] = levels;
-        for file in first_level {
-            if split(&file.largest).0 >= start && before_end(file) {
-                let cursor = Cursor::open(tables, file, Some(&target))?;
-                held = held.saturating_add(cursor.held());
-                check_held(held)?;
-                sources.push(Source::Table { file, cursor });
-            }
-        }
-        for files in deeper_levels {
-            let at = files.partition_point(|file| split(&file.largest).0 < start);
-            let mut source = Source::Level {
-                files,
-                at,
-                cursor: None,
-            };
-            source.settle(tables, Some(&target), end)?;
-            held = held.saturating_add(source.held());
-            check_held(held)?;
-            sources.push(source);
-        }
-
-        let mut heap = BinaryHeap::with_capacity(sources.len());
-        for (i, source) in sources.iter().enumerate() {
-            if let Some((user, tag, _)) = source.entry() {
-                heap.push(Reverse((user.to_vec(), Reverse(tag), i)));
-            }
-        }
-        let mut last: Option<Vec<u8>> = None;
-        while let Some(Reverse((user, Reverse(tag), i))) = heap.pop() {
-            if end.is_some_and(|end| user.as_slice() >= end) {
-                break;
-            }
-            let Some(source) = sources.get_mut(i) else {
-                break;
-            };
-            if last.as_deref() != Some(user.as_slice()) {
-                if tag & 0xff == u64::from(VALUE) {
-                    let value = source.entry().map_or(&[][..], |(_, _, value)| value);
-                    if f(&user, value)?.is_break() {
-                        return Ok(());
-                    }
-                }
-                last = Some(user);
-            }
-            let before = source.held();
-            source.advance(tables, end)?;
-            held = held.saturating_sub(before).saturating_add(source.held());
-            check_held(held)?;
-            if let Some((user, tag, _)) = source.entry() {
-                heap.push(Reverse((user.to_vec(), Reverse(tag), i)));
-            }
-        }
-        Ok(())
-    }
-
-    /// Calls `f` with each live key starting with `prefix` and its value, in key order.
-    pub fn scan_prefix(&mut self, prefix: &[u8], mut f: impl FnMut(&[u8], &[u8])) -> Result<()> {
-        let end = super::chunk::after(prefix);
-        self.scan(prefix, end.as_deref(), |key, value| {
-            f(key, value);
-            Ok(ControlFlow::Continue(()))
-        })
-    }
-
-    /// The live value of `key`, if any.
-    pub fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let mut end = Vec::with_capacity(key.len() + 1);
-        end.extend_from_slice(key);
-        end.push(0);
-        let mut found = None;
-        self.scan(key, Some(&end), |_, value| {
-            found = Some(value.to_vec());
-            Ok(ControlFlow::Break(()))
-        })?;
-        Ok(found)
-    }
-
-    /// Fails with [`Error::SourceChanged`] unless the folder holds the same files, with the same
-    /// lengths and modification times, as when it was opened.
-    pub(crate) fn unchanged(&self) -> Result<()> {
-        let now = self.tables.files.list()?;
-        let changed = self
-            .listing
-            .iter()
-            .find(|&(name, stamp)| now.get(name) != Some(stamp))
-            .map(|(name, _)| name)
-            .or_else(|| now.keys().find(|name| !self.listing.contains_key(*name)));
-        match changed {
-            None => Ok(()),
-            Some(name) => Err(Error::SourceChanged {
-                path: self.tables.files.path(name),
-            }),
-        }
-    }
-}
-
 /// Fails once a scan holds more than [`MAX_HELD`] bytes of blocks.
 fn check_held(held: usize) -> Result<()> {
     if held > MAX_HELD {
         return Err(Error::TooLarge {
-            what: "blocks held by one scan",
+            what: "bytes of blocks held by one scan",
             limit: MAX_HELD as u64,
         });
     }
     Ok(())
 }
 
-/// One sorted input of a scan.
-enum Source<'a> {
-    /// The live log writes.
-    Memory { entries: &'a [Logged], at: usize },
-    /// A level 0 table.
-    Table { file: &'a TableFile, cursor: Cursor },
-    /// A deeper level: its tables one after another. `at` is the next table to open; the cursor
-    /// is in the one before.
-    Level {
-        files: &'a [TableFile],
-        at: usize,
-        cursor: Option<Cursor>,
-    },
+/// The internal key that sorts before every version of `user`.
+fn seek_key(user: &[u8]) -> Vec<u8> {
+    let mut key = Vec::with_capacity(user.len() + TAG);
+    key.extend_from_slice(user);
+    key.extend_from_slice(&(MAX_SEQUENCE << 8 | u64::from(VALUE)).to_le_bytes());
+    key
 }
 
-impl Source<'_> {
-    /// The current user key, tag and value.
-    fn entry(&self) -> Option<(&[u8], u64, &[u8])> {
-        let (key, value) = match self {
-            Self::Memory { entries, at } => {
-                let e = entries.get(*at)?;
-                let kind = if e.value.is_some() { VALUE } else { DELETION };
-                let tag = e.sequence << 8 | u64::from(kind);
-                return Some((&e.key, tag, e.value.as_deref().unwrap_or_default()));
-            }
-            Self::Table { cursor, .. } => cursor.entry()?,
-            Self::Level { cursor, .. } => cursor.as_ref()?.entry()?,
-        };
-        let (user, tag) = split(key);
-        Some((user, tag, value))
-    }
+/// Internal key order: user key ascending, then sequence and kind descending (newest first).
+fn compare(a: &[u8], b: &[u8]) -> Ordering {
+    let (a_user, a_tag) = split(a);
+    let (b_user, b_tag) = split(b);
+    a_user.cmp(b_user).then_with(|| b_tag.cmp(&a_tag))
+}
 
-    fn advance(&mut self, tables: &mut Tables, end: Option<&[u8]>) -> Result<()> {
-        match self {
-            Self::Memory { at, .. } => *at += 1,
-            Self::Table { file, cursor } => cursor.advance(tables, file)?,
-            Self::Level { files, at, cursor } => {
-                if let (Some(c), Some(file)) = (
-                    cursor.as_mut(),
-                    at.checked_sub(1).and_then(|i| files.get(i)),
-                ) {
-                    c.advance(tables, file)?;
-                }
-                self.settle(tables, None, end)?;
-            }
-        }
-        Ok(())
+/// The user key and tag of an internal key (decoders reject keys shorter than a tag).
+fn split(key: &[u8]) -> (&[u8], u64) {
+    match key.split_last_chunk::<TAG>() {
+        Some((user, tag)) => (user, u64::from_le_bytes(*tag)),
+        None => (key, 0),
     }
+}
 
-    /// For a level: opens the next tables until the cursor is on an entry or none is left before
-    /// `end`. Only the first table opened seeks `target`.
-    fn settle(
-        &mut self,
-        tables: &mut Tables,
-        mut target: Option<&[u8]>,
-        end: Option<&[u8]>,
-    ) -> Result<()> {
-        let Self::Level { files, at, cursor } = self else {
-            return Ok(());
-        };
-        while cursor.as_ref().is_none_or(|c| c.entry().is_none()) {
-            *cursor = None;
-            let Some(file) = files.get(*at) else {
-                return Ok(());
-            };
-            if end.is_some_and(|end| split(&file.smallest).0 >= end) {
-                return Ok(());
-            }
-            *cursor = Some(Cursor::open(tables, file, target)?);
-            target = None;
-            *at += 1;
-        }
-        Ok(())
+/// The masked CRC-32C of `parts` put together, as LevelDB stores checksums.
+pub(crate) fn masked_crc(parts: &[&[u8]]) -> u32 {
+    let mut crc = Crc32c::new();
+    for part in parts {
+        crc.update(part);
     }
-
-    fn held(&self) -> usize {
-        match self {
-            Self::Memory { .. } => 0,
-            Self::Table { cursor, .. } => cursor.held(),
-            Self::Level { cursor, .. } => cursor.as_ref().map_or(0, Cursor::held),
-        }
-    }
+    crc.finish().rotate_right(15).wrapping_add(MASK_DELTA)
 }
 
 #[cfg(test)]

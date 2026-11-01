@@ -21,7 +21,7 @@ paths:
 # Storage rules
 
 ## Data folder
-- Store with redb. Keep `data/` to these entries: `worlds/<world>.redb` (one per persistent world), `players.redb`, `main.redb` (save turn, operators, bans, whitelist, user server data), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
+- Store with redb. Keep `data/` to these entries: `worlds/<world>.redb` (one per persistent world), `players.redb`, `main.redb` (save turn, operators, bans, whitelist, user server data, deletion marks of deleted worlds), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
 - Never store a setting in a data file: settings always follow `anchor.toml` and the code. Never store the weather: the server starts clear, and a cycle or persistence is built with the API.
 - Keep the data of one block or one player in exactly one file.
 - Check every world name with `storage::is_world_file_name`: `build()`, `create_world`, the import, the export, and the start's listing of `data/worlds/`.
@@ -44,9 +44,12 @@ paths:
 - Enable redb quick repair on every write transaction of a data file.
 - Keep a snapshot's chunks and player data in the tick's memory until the commit's answer arrives.
 - Commit no snapshot after a failed commit.
-- Never journal across files and never roll back to the last save every file agrees on (redb persistent savepoints). Report a mismatch loudly instead and keep the files as they are.
-- Make a clean shutdown (Ctrl+C, `stop`, and the like) commit the last tick boundary's snapshot to every file, finish any backup in progress, then commit the normal-stop mark to each open file: zero duplication, zero loss.
-- Leave a crash no path that certainly duplicates. Detect and log a save-turn mismatch between files at the next start (`save::check_save`).
+- Make the main file's commit the one point a save is made at. In every players and world file a save writes, keep one redb persistent savepoint in the same write transaction as its data and meta, made before any data table opens, and delete the one before (`Storage::commit_with_savepoint`); the main file keeps none.
+- Do what cannot be undone (removing a world file, renaming or pruning a backup) only after the main file's commit of the save that holds it.
+- Put the deletion of a world into the main file's commit (a deletion mark, `Key::Deleted`), remove its file only after that commit, and make the next start finish a marked deletion before anything else (`save::finish_deletions`).
+- When a world is made again under the name of a world whose deletion no commit holds yet, delete every value of the old world in the new world's first commit of that file (`Batch::clear`).
+- Make a clean shutdown (Ctrl+C, `stop`, and the like) commit the last tick boundary's snapshot to every file, finish any backup in progress, then delete each open file's savepoint and commit the normal-stop mark to it: zero duplication, zero loss.
+- Make the next start roll every file later than the main file back to the main file's last save (`storage::settle`): remove a file whose savepoint holds no save and no world record, and refuse the start, keeping the file as it is, when the file has no savepoint or its savepoint is later too. Keep the roll back idempotent.
 
 ## Damage
 - Quarantine a chunk when any of its values fails its checksum or its decode.
@@ -67,6 +70,7 @@ paths:
 
 ## Replay
 - Open the data files read-only. Commit nothing and write no file.
+- Refuse a data folder whose players or world file is later than its main file (`storage::check_settled`).
 
 ## Import
 - Write no file but the new world file.
@@ -79,7 +83,8 @@ paths:
 - Open the world file read-only and read it in one read transaction. Write nothing in the data folder.
 - Write only a new folder. Never touch an existing one: write everything into `<folder>.tmp`, flush it, then rename it. On failure, remove the temporary folder.
 - Write block palettes and block entities as their stored NBT. Never upgrade or normalize them.
-- Leave out stored values that are not in Bedrock form (entities, scheduled block updates) and count them in the report.
+- Leave out stored values that are not in Bedrock form (entities, scheduled block updates, spills) and count them in the report.
+- Refuse a data folder whose players or world file is later than its main file (`storage::check_settled`).
 - Make the same world file give the same bytes whatever the thread count.
 
 Background and details: `.claude/docs/storage.md`.

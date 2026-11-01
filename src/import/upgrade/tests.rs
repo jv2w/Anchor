@@ -160,7 +160,30 @@ fn entries_that_are_not_states_are_not_upgraded() {
         ),
         ("val".to_owned(), Value::Int(0)),
     ]);
-    for entry in [extra, bad_version, bad_property, no_states, bad_val] {
+    // A legacy state is `{name, val}` alone, as a modern one has no key of its own.
+    let legacy = || {
+        Compound::from([
+            (
+                "name".to_owned(),
+                Value::String("minecraft:stone".to_owned()),
+            ),
+            ("val".to_owned(), Value::Short(0)),
+        ])
+    };
+    assert!(state(&legacy()).is_some());
+    let mut legacy_extra = legacy();
+    legacy_extra.insert("extra".to_owned(), Value::Byte(1));
+    let mut legacy_states = legacy();
+    legacy_states.insert("states".to_owned(), Value::Compound(Compound::new()));
+    for entry in [
+        extra,
+        bad_version,
+        bad_property,
+        no_states,
+        bad_val,
+        legacy_extra,
+        legacy_states,
+    ] {
         assert_eq!(state(&entry), None, "{entry:?}");
     }
 }
@@ -281,6 +304,28 @@ fn unknown_and_air_items_and_non_items_stay_as_they_were() {
         assert!(!item(&mut changed));
         assert_eq!(changed, entry);
     }
+}
+
+#[test]
+fn an_item_counts_as_changed_only_when_one_of_its_keys_changes() {
+    // Current, with a meta written again as it was: nothing changes.
+    let mut current = item_stack(&[
+        ("Name", s("minecraft:diamond")),
+        ("Count", Value::Byte(1)),
+        ("Damage", Value::Short(0)),
+    ]);
+    assert!(!item(&mut current));
+    // A legacy ID beside a current name goes.
+    let mut both = item_stack(&[
+        ("Name", s("minecraft:diamond")),
+        ("id", Value::Short(264)),
+        ("Count", Value::Byte(1)),
+    ]);
+    assert!(item(&mut both));
+    assert_eq!(
+        both,
+        item_stack(&[("Name", s("minecraft:diamond")), ("Count", Value::Byte(1))])
+    );
 }
 
 #[test]

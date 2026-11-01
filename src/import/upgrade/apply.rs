@@ -13,15 +13,16 @@ pub(crate) enum Tag<'a> {
     String(&'a str),
 }
 
-/// A property value of a state being upgraded. Bedrock states hold only these three tag types.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Value {
-    Byte(u8),
-    Int(i32),
-    String(String),
-}
-
 impl Tag<'_> {
+    /// Returns the tag as a value a state holds.
+    pub(crate) fn to_value(self) -> Value {
+        match self {
+            Self::Byte(b) => Value::Byte(b),
+            Self::Int(i) => Value::Int(i),
+            Self::String(s) => Value::String(s.to_owned()),
+        }
+    }
+
     /// Whether `value` is this tag: same type and value (PMMP `Tag::equals`).
     fn matches(self, value: &Value) -> bool {
         match (self, value) {
@@ -31,14 +32,14 @@ impl Tag<'_> {
             _ => false,
         }
     }
+}
 
-    pub(crate) fn to_value(self) -> Value {
-        match self {
-            Self::Byte(b) => Value::Byte(b),
-            Self::Int(i) => Value::Int(i),
-            Self::String(s) => Value::String(s.to_owned()),
-        }
-    }
+/// A property value of a state being upgraded. Bedrock states hold only these three tag types.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Value {
+    Byte(u8),
+    Int(i32),
+    String(String),
 }
 
 /// The properties of a state, by name.

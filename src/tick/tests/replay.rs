@@ -87,6 +87,29 @@ fn read(path: &Path) -> Vec<u8> {
     std::fs::read(path).unwrap()
 }
 
+/// The bytes of every data file of the data folder `dir`, by path: the main file, the players
+/// file and the world files.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test lists the world files of its data folder"
+)]
+fn data_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir.join(crate::storage::WORLD_DIR))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    paths.push(dir.join("main.redb"));
+    paths.push(dir.join("players.redb"));
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let bytes = read(&path);
+            (path, bytes)
+        })
+        .collect()
+}
+
 /// The build of a run: one task that sends the state hash, sets a block every other tick and
 /// does what `plan` says, and `extra` tasks.
 fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
@@ -287,7 +310,7 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         command_at: None,
     };
     let (log, live) = crash(&dir, plan);
-    let before = read(&dir.join("main.redb"));
+    let before = data_files(&dir);
     let (result, replayed) = replay(&dir, &log, plan, 0, &Config::default());
     let replay = result.unwrap();
     // The server file's last commit: the snapshot asked for at tick 25, before tick 26, unless the
@@ -310,11 +333,7 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         from(&live, base),
         "the replayed states are the live ones"
     );
-    assert_eq!(
-        read(&dir.join("main.redb")),
-        before,
-        "the replay writes nothing"
-    );
+    assert_eq!(data_files(&dir), before, "the replay writes nothing");
     // The live loop measured its ticks off the game logic and logged each time for the next
     // tick: the replay read the same times, so its states are the live ones.
     let written = InputLog::decode(&read(&log)).unwrap();

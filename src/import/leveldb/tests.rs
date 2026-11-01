@@ -524,16 +524,20 @@ fn malformed_manifests_are_errors() {
         open_err(overlap),
         Error::Malformed("tables of a level overlap")
     ));
-    let missing = {
-        let mut w = small(&small_entries(), &[]);
-        let name = table_name(&w.files);
-        w.files.remove(&name);
-        w.finish()
-    };
-    assert!(matches!(
-        open_err(missing),
-        Error::Malformed("a listed table is missing")
-    ));
+    // The error names the missing table, not the MANIFEST.
+    let mut w = small(&small_entries(), &[]);
+    let name = table_name(&w.files);
+    w.files.remove(&name);
+    let missing = Db::from_files(w.finish()).unwrap_err();
+    assert!(
+        matches!(
+            &missing,
+            Error::File { path, source }
+                if path == std::path::Path::new(&name)
+                    && matches!(**source, Error::Malformed("a listed table is missing"))
+        ),
+        "{missing:?}"
+    );
     let resized = {
         let mut w = small(&small_entries(), &[]);
         let name = table_name(&w.files);
@@ -613,7 +617,7 @@ fn live_logs_over_64_mib_are_refused_before_reading() {
     assert!(matches!(
         open_err(w.finish()),
         Error::TooLarge {
-            what: "live logs",
+            what: "bytes in the live logs",
             ..
         }
     ));
@@ -678,7 +682,49 @@ fn a_block_over_16_mib_is_refused_before_reading() {
     let Error::File { source, .. } = error else {
         panic!("{error:?}")
     };
-    assert!(matches!(*source, Error::TooLarge { what: "block", .. }));
+    assert!(matches!(
+        *source,
+        Error::TooLarge {
+            what: "bytes in a block",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_malformed_entry_in_a_table_names_the_table() {
+    // One data block whose second key is before its first.
+    let entries = [
+        (internal(b"b", 1, VALUE), b"b".to_vec()),
+        (internal(b"a", 1, VALUE), b"a".to_vec()),
+    ];
+    let mut kinds = || table::NONE;
+    let bytes = encode_table(&entries, 4096, 16, &mut kinds);
+    let mut w = Writer::new();
+    let number = w.number();
+    let name = format!("{number:06}.ldb");
+    let file = TableFile {
+        number,
+        size: bytes.len() as u64,
+        smallest: internal(b"a", 1, VALUE),
+        largest: internal(b"b", 1, VALUE),
+    };
+    w.files.insert(name.clone(), bytes);
+    w.edits.push(Writer::add(1, &file));
+    w.edits.push(log_number(w.next + 1));
+    let mut db = Db::from_files(w.finish()).unwrap();
+    let error = db
+        .scan(&[], None, |_, _| Ok(ControlFlow::Continue(())))
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            Error::File { path, source }
+                if path == std::path::Path::new(&name)
+                    && matches!(**source, Error::Malformed("block keys out of order"))
+        ),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -725,7 +771,7 @@ fn held_blocks_are_bounded_while_level_0_tables_open() {
         matches!(
             error,
             Error::TooLarge {
-                what: "blocks held by one scan",
+                what: "bytes of blocks held by one scan",
                 ..
             }
         ),
@@ -936,4 +982,26 @@ fn tables_on_disk_are_read_through_at_most_64_open_files() {
     };
     assert_eq!(open.len(), table::MAX_OPEN);
     db.unchanged().unwrap();
+}
+
+#[test]
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn the_file_just_read_stays_open_when_the_open_files_are_full() {
+    let dir = crate::save::tests::TempDir::new("leveldb-open-file-kept");
+    let name = |i: usize| format!("{i:06}.ldb");
+    for i in 0..=table::MAX_OPEN {
+        std::fs::write(dir.0.join(name(i)), b"data").unwrap();
+    }
+    let mut files = Files::disk(dir.0.clone());
+    let mut buf = [0; 4];
+    for i in 1..=table::MAX_OPEN {
+        files.read_at(&name(i), 0, &mut buf).unwrap();
+    }
+    // The smallest name, read once every slot is taken.
+    files.read_at(&name(0), 0, &mut buf).unwrap();
+    let Files::Disk { open, .. } = &files else {
+        panic!("not on disk")
+    };
+    assert_eq!(open.len(), table::MAX_OPEN);
+    assert!(open.contains_key(&name(0)));
 }

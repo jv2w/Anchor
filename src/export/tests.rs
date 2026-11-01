@@ -1,7 +1,7 @@
 //! Exports of world files written here, read back with the import's reader.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::*;
@@ -24,6 +24,7 @@ const SEED: i64 = 5;
 /// scheduled updates.
 type StoredChunk = (ChunkPos, Option<ChunkRecord>, [Vec<Compound>; 3]);
 
+/// Returns the world record the tests store.
 fn record() -> WorldRecord {
     WorldRecord {
         number: 0,
@@ -32,6 +33,7 @@ fn record() -> WorldRecord {
     }
 }
 
+/// Returns the declared worlds: [`NAME`], flat, of the seed [`SEED`].
 fn worlds() -> Vec<WorldSpec> {
     vec![WorldSpec {
         name: NAME.to_owned(),
@@ -42,6 +44,7 @@ fn worlds() -> Vec<WorldSpec> {
     }]
 }
 
+/// Returns the compound of `entries`.
 fn compound(entries: &[(&str, Value)]) -> Compound {
     entries
         .iter()
@@ -49,7 +52,7 @@ fn compound(entries: &[(&str, Value)]) -> Compound {
         .collect()
 }
 
-/// A block entity in Bedrock form at (`x`, `y`, `z`).
+/// Returns a block entity in Bedrock form at (`x`, `y`, `z`).
 fn chest(x: i32, y: i32, z: i32) -> Compound {
     compound(&[
         ("id", Value::String("Chest".to_owned())),
@@ -60,7 +63,7 @@ fn chest(x: i32, y: i32, z: i32) -> Compound {
     ])
 }
 
-/// Three chunks: one with terrain and a chest, one with a chest but no terrain (generated), one
+/// Returns three chunks: one with terrain and a chest, one with a chest but no terrain (generated), one
 /// with empty terrain, an entity and two scheduled updates.
 fn chunks() -> Vec<StoredChunk> {
     let entity = compound(&[("identifier", Value::String("minecraft:item".to_owned()))]);
@@ -106,7 +109,7 @@ fn write_world(data: &Path, record: WorldRecord, chunks: &[StoredChunk]) {
     storage.close().unwrap();
 }
 
-/// Every file under `dir` with its bytes, by path relative to `dir`.
+/// Reads every file under `dir` with its bytes, by path relative to `dir`.
 #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
 fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut out = BTreeMap::new();
@@ -140,6 +143,7 @@ fn exported_chunks_read_back_as_stored() {
             block_entities: 2,
             entities: 1,
             scheduled_updates: 2,
+            spills: 0,
         }
     );
 
@@ -182,6 +186,56 @@ fn exported_chunks_read_back_as_stored() {
         assert_eq!(raw.ignored, [0x2b, 0x36], "{pos:?}");
     }
     assert!(!data.0.join("bedrock").join("w.tmp").exists());
+}
+
+#[test]
+fn spills_are_left_out_and_counted() {
+    let data = TempDir::new("export-spills");
+    let spill = compound(&[
+        ("id", Value::String(SPILL_ID.to_owned())),
+        ("x", Value::Int(2)),
+        ("y", Value::Int(-60)),
+        ("z", Value::Int(3)),
+        ("Items", Value::List(List::Compound(Vec::new()))),
+    ]);
+    let pos = ChunkPos::new(0, 0);
+    let stored = (
+        pos,
+        Some(empty_chunk()),
+        [vec![chest(1, -60, 1), spill], Vec::new(), Vec::new()],
+    );
+    write_world(&data.0, record(), &[stored]);
+    let out = data.0.join("out");
+    let report = run(&data.0, &worlds(), 2, NAME, &out).unwrap();
+    assert_eq!(
+        report,
+        Report {
+            chunks: 1,
+            block_entities: 1,
+            entities: 0,
+            scheduled_updates: 0,
+            spills: 1,
+        }
+    );
+    let mut source = Source::open(&out).unwrap();
+    assert_eq!(source.catalog().unwrap().chunks, [(0, 0)]);
+    let raw = decode(&source.read(pos.x, pos.z).unwrap()).unwrap();
+    assert_eq!(raw.block_entities, [chest(1, -60, 1)]);
+}
+
+#[test]
+fn messages_say_what_the_export_needs() {
+    let exists = Error::FolderExists {
+        path: PathBuf::from("out"),
+    };
+    assert_eq!(
+        exists.to_string(),
+        "out is already there; the export writes a new folder and takes the world by its name"
+    );
+    let missing = Error::NoWorld {
+        name: NAME.to_owned(),
+    };
+    assert_eq!(missing.to_string(), "the world \"w\" has no saved state");
 }
 
 #[test]

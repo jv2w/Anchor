@@ -4,8 +4,9 @@
 //!
 //! redb's integrity check needs the file closed, and it writes to it: the open writes the header,
 //! a repair commits, and the close commits the allocator state. So [`verify`] opens the file on a
-//! backend ([`Overlay`]) that reads the file and keeps every write in memory, and then drops it:
-//! the file keeps its bytes whatever the check finds.
+//! backend ([`Overlay`], [`open_overlay`]) that reads the file and keeps every write in memory,
+//! and then drops it: the file keeps its bytes whatever the check finds. A start's roll back of a
+//! file (`settle`) is tried the same way before it is made on the file.
 //!
 //! `/check` reads every value of one read transaction of the open file, in steps of at most
 //! [`STEP_BYTES`] between the save thread's other work, and checks it against its seal (header
@@ -31,17 +32,30 @@ use crate::config::IntegrityCheck;
 /// ([`check_format`]). A missing or empty file passes: it holds nothing to check. redb's lock
 /// keeps other processes out ([`Error::InUse`]) until the check ends; the caller opens the file
 /// for the run afterwards.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: the start checks a closed data file before it opens it"
-)]
 pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
     // Before the open below: reading the mark opens the file read-only, which its lock refuses.
     let checked = super::checks(world, check);
     if !checked && check == IntegrityCheck::AfterUncleanShutdown {
         debug!(file = %world.display(), "data file closed normally; its integrity is not checked");
     }
+    let Some(mut db) = open_overlay(world)? else {
+        return Ok(());
+    };
+    if checked {
+        check_integrity(&mut db)?;
+    }
+    check_format(&db)
+}
+
+/// redb opened on an [`Overlay`] over the closed data file `world`, so nothing done through it
+/// reaches the file; `None` for a missing or empty file, which holds nothing. redb's lock keeps
+/// other processes out until it is dropped.
+#[expect(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "off-tick: the start reads a closed data file before it opens it"
+)]
+pub(super) fn open_overlay(world: &Path) -> Result<Option<Database>> {
     // Opened for writing too: on Unix redb's lock is a write lock, which a read-only handle
     // cannot take. Nothing is written through it.
     let opened = std::fs::OpenOptions::new()
@@ -50,11 +64,11 @@ pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
         .open(world);
     let handle = match opened {
         Ok(handle) => handle,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(Error::Io(e)),
     };
     if handle.metadata().map_err(Error::Io)?.len() == 0 {
-        return Ok(());
+        return Ok(None);
     }
     let overlay = Overlay::new(FileBackend::new(handle).map_err(Error::from_open)?)?;
     let mut builder = Builder::new();
@@ -62,13 +76,10 @@ pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
     // holds the pages around it. On a 368 MiB world the check took 333 to 517 ms without one
     // and 545 to 630 ms with the run's 64 MiB, whose evictions cost more than they spare.
     builder.set_cache_size(0);
-    let mut db = builder
+    builder
         .create_with_backend(overlay)
-        .map_err(Error::from_open)?;
-    if checked {
-        check_integrity(&mut db)?;
-    }
-    check_format(&db)
+        .map(Some)
+        .map_err(Error::from_open)
 }
 
 /// Most bytes of writes [`Overlay`] keeps for one check. A check writes redb's header and, as

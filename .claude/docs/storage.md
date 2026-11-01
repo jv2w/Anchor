@@ -15,7 +15,7 @@ The data folder is `data/` in the run folder; `ServerBuilder::data_dir` moves it
 - A temporary world (`Kind::Temporary`) has no file and is never saved.
 - A world's name is its file name. `storage::is_world_file_name` accepts the names that are file names on both Windows and Linux: 1 to 250 bytes; no control character and none of `< > : " / \ | ? *`; no trailing dot or space and no leading space; not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a superscript digit), in any letter case and with any extension. Names that differ only in letter case are one world, because Windows sees one file: a name resolves, ignoring case, to the file on disk (`save::world_place`), and the file and its backup folder keep that file's name. Only when there is no file is one made under the name as given. The tick's name lookups (`load_world`, `delete_world`, `is_world_generated`, and the others) ignore case too.
 - The start lists `data/worlds/*.redb` in name order, so the tick can `load_world` a world no one declared. A file whose name breaks the rule, or the second of two names that differ only in case, is left out with a warning. A file added while the server runs is seen from the next start. `data/worlds/` holds at most 1,024 world files (`storage::MAX_WORLDS`). The files a start leaves out (damaged, without a world record, or named as a temporary world) count too: the tick's `create_world` fails with `Full` by the file count at start plus the persistent worlds made this run.
-- `Context::delete_world` deletes the one file of an unloaded persistent world. The save thread deletes it after every commit asked for before, and keeps its backup folder.
+- `Context::delete_world` deletes the one file of an unloaded persistent world, and keeps its backup folder. The save thread forgets it at once, puts its deletion mark into the next commit's main file, and deletes the file after that commit; a start finishes a marked deletion whose file a stop left. A world made again under the name before that commit takes the file, and its first commit deletes every value of the deleted world.
 - Why one file per world: a world file is as large as that world's data, a save does not write the files that did not change, and a world is deleted or moved as one file.
 - Why the players have a file of their own: data that grows with the player count stays apart from the small operational data, and deleting that one file resets the player data alone. The rest shares `main.redb` so that it commits in one transaction: fewer fsyncs per save, and fewer files that can disagree.
 
@@ -27,6 +27,7 @@ Every data file is a redb database. Every file has the same tables (`meta`, `wor
 |---|---|---|
 | `meta` | `meta` | The save turn the file last committed: engine tick u64, then the commit identity (a flag byte and a u64) |
 | `meta` | `closed` | The normal-stop mark (empty value) |
+| `meta` | `deleted:` and a world name | A deletion mark: the save the main file holds deleted that world (main file only) |
 | `worlds` | `world` | The world record: number u32, world time i64, spawn i32 x, y, z |
 | `chunks` | Chunk key (below) | The terrain of a sub-chunk, or a page of an extras list |
 | `players` | Player key | World name (u16 length, at most 256 bytes of UTF-8), position f64 x, y, z, then `extra`: a little-endian NBT compound of the inventories and the rule modules' other state |
@@ -61,7 +62,7 @@ Every value is a 12-byte header and a body, little-endian.
 
 ### Format version
 
-The current format is 11 (`storage::seal::FORMAT_VERSION`). A value of another format is damage: its chunk is quarantined, its player refused, and a `meta` value of one refuses the start. Before release no data of an older format exists that would need moving.
+The current format is 12 (`storage::seal::FORMAT_VERSION`). A value of another format is damage: its chunk is quarantined, its player refused, and a `meta` value of one refuses the start. Before release no data of an older format exists that would need moving.
 
 A start refuses a file whose `meta` value is of a newer format (`NewerFormat`), so an older Anchor never misreads a newer file and overwrites it.
 
@@ -97,17 +98,16 @@ A crash (a killed process, a power cut, a panic of the tick or the save thread):
 
 - A commit to one file is a redb transaction: it lands whole or not at all. The next open has redb recover the file.
 - The changes since the last commit are lost.
-- A crash between the files of one save leaves the files written before it at the new save turn and the rest at the earlier one. The main file is last, so such a crash always leaves some file later than the main file. The start compares every file's `meta` value with the main file's and logs each later one (a larger tick, or the same tick with another commit identity) as an error: the file, its save tick, the main file's save tick, and that items may be doubled or lost between them. A world file first opened while the server runs is compared the same way. An earlier file is normal: one that did not change, so a save did not write it.
+- A crash between the files of one save leaves the files written before the main file at the new save. The next start, before it opens them, rolls each such file back to the savepoint its last commit kept (`storage::settle`), or removes it when that save made it, and logs it as a warning: every file then holds the main file's last save. A file without a savepoint, or whose savepoint is later too, refuses the start with its bytes as they were. Without a main file nothing is rolled back. An earlier file is normal: one that did not change, so a save did not write it.
 - The data of one block or one player is in one file, so it is never two within that file.
 - A new data file, a world file's deletion, a backup's rename, and an atomic write (`fs::write_atomic`: the settings file, `auth.json`, `identity.key`) flush their folder afterwards (`fs::sync_parent`): on Unix, flushing a file does not make its name durable. Windows cannot flush a folder (opening one to flush it is refused), so nothing is flushed there; NTFS journals entry changes, so a crash leaves the old entry or the new one.
 - An atomic write removes a `<name>.tmp` a crash left and writes a new file: the old one keeps the mode it was made with, and whoever opened it then could read the new bytes. So `identity.key` is always 0600 on Unix.
 - When the tick thread panics, its request queue closes without `Finish` and the save thread commits none of the requests left. When the save thread panics, nothing more is committed. Either way the files get no normal-stop mark.
 
-Why no journal across files and no redb persistent savepoints: the pages a savepoint holds are never reused, so the file grows by every change, and rolling back would also lose the sound data of the files committed before the crash.
+Why one savepoint per file: the pages it holds are freed when the next save deletes it, so a file grows by at most one save's changes; a normal stop deletes it.
 
 Remaining risks:
 
-- After a crash between files, items may be doubled or lost. The start's error tells of that case.
 - What user callbacks did to outside systems (files, network) is not undone by a crash.
 - Defects redb has not fixed (`dependencies.md`): a crafted file with matching checksums can cause a large allocation, and page damage made by hardware while the server runs makes a read panic, which stops the server without saving (the next start's check refuses the file).
 - With `integrity-check = "never"`, a start runs no redb integrity check; damage shows only when a value is read.
@@ -126,6 +126,8 @@ A start does this for each file (`Storage::open`):
 4. Its first commit creates the missing tables and removes the normal-stop mark.
 5. With `backups = true`, for a file that existed before, begins the start backup of that first commit (see "Backups").
 
+Between opening the main file and the others, every players and world file later than the main file is rolled back (see "Clean shutdown and crash").
+
 Why the check must not write: redb's open writes the header, a repair commits, and the close commits the allocator state. The backend keeps those writes in memory, so the original bytes stay without a copy. The writes are small, the header and the allocator state: 24 KiB for a 96 KiB file and 52 KiB for a 368 MiB world, the same for a file a crash left. The backend keeps at most 16 MiB of writes, past which that file's start fails with an error; the allocator state grows with the file, so files hundreds of times larger than that world fit.
 
 What keeps the check cheap (the same check over the same pages): the backend reads the file 256 KiB at a time and keeps the 16 most recent blocks (4 MiB), and redb's page cache is off. redb's check reads page by page, mostly in file order: on a 368 MiB world this made 3,241 read calls instead of 185,770 and took 350 to 481 ms instead of 631 to 878 ms. Blocks of 64 KiB to 1 MiB, or fewer blocks, read more and were slower. A 64 MiB redb page cache was slower than none (545 to 630 ms against 333 to 517 ms): its evictions cost more than it spared. So checking a file takes 4 MiB and its writes, whatever the file's size.
@@ -134,7 +136,7 @@ A server start (`Server::run`) runs step 1 for the main file, the players file a
 
 Why a start needs no compaction: later commits reuse the pages copy-on-write freed, and only data that shrinks leaves free pages at the end of the file; deleting a world deletes its file.
 
-The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a world file does not open, every chunk of that world is quarantined and nothing of it is saved.
+The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps, without redb's integrity check (never made while the server runs), when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a world file does not open, every chunk of that world is quarantined and nothing of it is saved.
 
 ### Start cost
 
@@ -171,7 +173,7 @@ A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integ
 
 ## Replay and data files
 
-`Server::replay(log)` runs a `data/crash/` input log again (its structure is in `architecture.md`). It starts from the oldest segment whose save the main file or one of its backups (newest first) still holds, matched by the tick and commit identity of the copy's last commit, preferring a segment after the log's last truncation. Each other file is its newest copy (the file, then its backups) whose last commit is that save or an earlier one, since a save writes only the files that changed. Chunks load from those copies and are checked against the logged checksums, which catches a copy that does not match.
+`Server::replay(log)` runs a `data/crash/` input log again (its structure is in `architecture.md`). It starts from the oldest segment whose save the main file or one of its backups (newest first) still holds, matched by the tick and commit identity of the copy's last commit, preferring a segment after the log's last truncation. Each other file is its newest copy (the file, then its backups) whose last commit is that save or an earlier one, since a save writes only the files that changed. Chunks load from those copies and are checked against the logged checksums, which catches a copy that does not match. A data file later than the main file is refused; one start of the server rolls it back.
 
 ## World import
 
@@ -185,16 +187,16 @@ A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integ
 - Only the overworld's blocks and block entities (their whole NBT: container items, sign text, and the like) and `level.dat`'s time and spawn are imported. Old block states and items are upgraded with the upgrade schemas (`data.md`); an unknown block stays as an unknown block with its NBT. A chunk's biomes are those its world's generator gives. Biomes, entities, pending block updates, the Nether, the End, and players are not imported but counted in `import::Report`.
 - No setting of `level.dat` is imported (seed, game mode, difficulty, game rules). The spawn goes into the world record and is also reported (`Report::spawn`).
 - An all-air chunk the import did not write would be filled by the generator.
-- A failed import's error names the chunk and key at fault. A file of the same name (in any letter case) refuses it with `WorldExists`, changing nothing. A name declared temporary is refused. An undeclared name takes the default world's generator, and the tick loads it with `load_world`.
+- A failed import's error names the source file, and the chunk and key when a chunk's value is at fault. A file of the same name (in any letter case) refuses it with `WorldExists`, changing nothing, as does a file another process opened after the import made it (a server that made a world of the name meanwhile): it is that process's and stays. A name declared temporary, in any letter case, is refused (`TemporaryWorld`). A declared world's file takes the declared name's letter case; an undeclared name takes the default world's generator, and the tick loads it with `load_world`.
 
 ## World export
 
 `Server::export_world(name, folder)` writes a persistent world's file `data/worlds/<name>.redb` (the name in any letter case) as a new Bedrock (LevelDB) world folder: the import's reverse.
 
 - A server program run as `<program> export <world folder> [name]` does this export from `Server::run` without starting the server (the default world, `level-name`, without a name).
-- The world file is opened read-only and read in one read transaction (`storage::Snapshot`), so the folder holds the last save, and nothing is written in the data folder. A file a running server has open is refused by redb's lock (`Error::Storage`); a world the server has not loaded can be exported while it runs. A file a crash left needs redb's repair, so it does not open read-only; one server start repairs it.
+- The world file is opened read-only and read in one read transaction (`storage::Snapshot`), so the folder holds the last save, and nothing is written in the data folder. The main file is opened read-only too, to refuse a world file later than it; one server start rolls such a file back. So a running server, which holds the main file, refuses every export by redb's lock (`Error::Storage`). A file a crash left needs redb's repair, so it does not open read-only; one server start repairs it.
 - The folder must be new: an existing folder or `<folder>.tmp` refuses the export with `FolderExists`, changing nothing. Everything goes into `<folder>.tmp`, each file flushed, then the rename. A failure removes the temporary folder, and a crash leaves only `<folder>.tmp`, so a half-written world never appears under the name.
-- Every chunk the file holds is written: blocks (the stored palette NBT as it is, unknown blocks as they came), biomes, and block entities (stored in Bedrock form). A chunk with saved extras but no saved terrain gets its world generator's terrain, as a load does: a declared world's generator and seed, else the default world's generator and the seed of the name. Entities and scheduled block updates are stored in Anchor's own form, so they are not written but counted in `export::Report`. Players are not in the world file.
+- Every chunk the file holds is written: blocks (the stored palette NBT as it is, unknown blocks as they came), biomes, and block entities (stored in Bedrock form). A chunk with saved extras but no saved terrain gets its world generator's terrain, as a load does: a declared world's generator and seed, else the default world's generator and the seed of the name. Entities, scheduled block updates and spills (the items of broken containers waiting to drop) are stored in Anchor's own form, so they are not written but counted in `export::Report`. A failed export removes its own folder; a parent folder it made stays. Players are not in the world file.
 - Chunk values take the layout the official server 1.26.52 writes: chunk version 42, sub-chunk version 9 (only for sub-chunks with blocks), `Data3D` (the height map left at zero, then each sub-chunk's biomes, 0xff for a storage the same as the one below), the block entities, and finalization state 2.
 - The LevelDB is written in one compacted form: sequence number 0 for every key (so any value the game writes later is newer), 128 KiB data blocks (raw DEFLATE, id 4, as the official server writes them), 2 MiB tables, and every table in the last level, so opening it compacts nothing. Blocks are made and compressed on the CPU pool.
 - `level.dat` holds the name, spawn, time, storage and network versions, and a flat generator. Chunks the file does not hold (generated and never changed) are not written; that flat generator makes them: for a `Flat` world the official server's default flat layers (the same terrain), for any other generator one layer of air (nothing). Game mode, difficulty, game rules and seed are not written: a world runs with the settings of the server that opens it.

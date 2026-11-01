@@ -2,16 +2,21 @@
 //! killed a random number of ticks after its first commit (counted from its reports, never in
 //! wall-clock time), during a later commit or between two, again and again; every restart must
 //! find undamaged data files whose main file's last save is newer than the last restart's, and the
-//! block exactly once (it lives in one world file, whose commits are whole) where the tick of the
-//! world file's last save put it: that save's or a later one's, since a kill between the world
-//! file's commit and the main file's leaves the world file one save ahead. A restart on a world
-//! file a save ahead logs the error naming it, and no other restart logs one.
+//! block exactly once where the tick of the main file's last save put it: a kill between the world
+//! file's commit and the main file's leaves the world file a save ahead, which the restart rolls
+//! back to the main file's save and logs, naming the world file. The server also makes, unloads
+//! and deletes a second world over and over, moving its spawn every tick it is loaded, so kills
+//! land while a new world is saved and while a deleted one goes: every restart finds that world
+//! exactly as the main file's last save had it, or not at all if that save had none. Every other
+//! kill is followed by a start killed after a random number of its first log lines, during the
+//! roll back of the files the kill left, before the restart that checks.
 //!
 //! The test runs its own test binary as the server process (`crash_child`) and kills only that
 //! child, through its process handle (SIGKILL on Unix).
 
 #![cfg(test)]
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -21,13 +26,18 @@ use std::time::Duration;
 
 use anchor::block::State;
 use anchor::event::WorldSave;
-use anchor::world::{BlockPos, ChunkPos, World};
+use anchor::world::{self, BlockPos, ChunkPos, Options, World};
 use anchor::{Config, Context, Server};
 
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_CRASH_DATA";
-/// The child's environment variable: `run` keeps moving the block, `check` only reports.
+/// The child's environment variable: `run` keeps moving the block and cycling the second world,
+/// `check` only reports, `idle` only starts and waits to be killed.
 const MODE_ENV: &str = "ANCHOR_CRASH_MODE";
+/// The second world, which the server makes, unloads and deletes over and over.
+const EXTRA: &str = "extra";
+/// Ticks of one cycle of the second world: made at 0, unloaded at 8, deleted at 10.
+const CYCLE: u64 = 12;
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-CRASH";
 /// Kills, each followed by a restart that checks the file.
@@ -36,8 +46,8 @@ const KILLS: u32 = 50;
 const SPAN: i32 = 48;
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
-/// The start of the error a start logs for a data file holding a later save than the main file.
-const LATER_SAVE: &str = "data files disagree";
+/// The start of the warning a start logs for a data file it rolled back to the main file's save.
+const ROLLED_BACK: &str = "data file rolled back";
 /// The console log line that follows the start's file checks.
 const STARTED: &str = "server started";
 
@@ -87,6 +97,17 @@ struct Mover {
     /// Where the block is.
     at: Option<BlockPos>,
     moves: bool,
+    /// Whether the child only starts, to be killed during its start.
+    idle: bool,
+    /// The second world while it exists, loaded or not.
+    extra: Option<world::Id>,
+    /// The x of the second world's spawn while it exists: the last tick that moved it, modulo 16.
+    extra_x: Option<i32>,
+}
+
+/// A report's text for the second world: its spawn's x, or `-` while it does not exist.
+fn extra_text(x: Option<i32>) -> String {
+    x.map_or("-".to_owned(), |x| x.to_string())
 }
 
 impl Mover {
@@ -100,10 +121,14 @@ impl Mover {
         std::io::stdout().flush().unwrap();
     }
 
-    fn tick(&mut self, ctx: &mut Context<'_>, stop: &anchor::ShutdownHandle) {
+    fn tick(&mut self, ctx: &mut Context<'_>) {
         let start = *self.start.get_or_insert(ctx.tick());
         if ctx.tick() > start + CHILD_TICKS {
-            stop.shutdown();
+            ctx.shutdown();
+            return;
+        }
+        if self.idle {
+            // Only the start counts; the parent kills the child during it or soon after.
             return;
         }
         if !self.checked {
@@ -118,17 +143,27 @@ impl Mover {
                 return;
             };
             let list: Vec<String> = found.iter().map(|p| format!("{},{}", p.x, p.z)).collect();
-            Self::report(&format!("start={start} golds={}", list.join(";")));
+            if ctx.is_world_generated(EXTRA) {
+                let id = ctx.load_world(EXTRA, &Options::new()).unwrap();
+                self.extra = Some(id);
+                self.extra_x = ctx.world(id).map(|w| w.spawn().x);
+            }
+            Self::report(&format!(
+                "start={start} golds={} extra={}",
+                list.join(";"),
+                extra_text(self.extra_x)
+            ));
             self.at = found.first().copied();
             self.checked = true;
             if !self.moves {
-                stop.shutdown();
+                ctx.shutdown();
             }
             return;
         }
         if !self.moves {
             return;
         }
+        self.cycle(ctx);
         // One tick moves the block: both writes land in the same commit or neither does.
         let next = path(ctx.tick());
         let world = ctx.default_world_mut();
@@ -139,9 +174,36 @@ impl Mover {
         }
         world.set_block(next, gold()).unwrap();
         self.at = Some(next);
-        Self::report(&format!("tick={}", ctx.tick()));
+        Self::report(&format!(
+            "tick={} extra={}",
+            ctx.tick(),
+            extra_text(self.extra_x)
+        ));
         if ctx.tick().is_multiple_of(3) {
             ctx.save();
+        }
+    }
+
+    /// Makes the second world at the start of a cycle, unloads it and deletes it later in the
+    /// cycle, and moves its spawn every tick it is loaded (inside one chunk, so no load follows).
+    fn cycle(&mut self, ctx: &mut Context<'_>) {
+        let tick = ctx.tick();
+        match (tick % CYCLE, self.extra) {
+            (0, None) => self.extra = Some(ctx.create_world(EXTRA, &Options::new()).unwrap()),
+            (8, Some(id)) if ctx.is_world_loaded(EXTRA) => ctx.unload_world(id).unwrap(),
+            (10, Some(_)) if !ctx.is_world_loaded(EXTRA) => {
+                ctx.delete_world(EXTRA).unwrap();
+                self.extra = None;
+                self.extra_x = None;
+            }
+            _ => {}
+        }
+        if let Some(id) = self.extra
+            && let Some(world) = ctx.world_mut(id)
+        {
+            let x = i32::try_from(tick % 16).unwrap();
+            world.set_spawn(BlockPos::new(x, -60, 0));
+            self.extra_x = Some(x);
         }
     }
 }
@@ -150,34 +212,29 @@ impl Mover {
 /// does nothing.
 #[test]
 #[ignore = "the child process of forced_kills_never_damage_duplicate_or_lose_the_block"]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the task gets the server's shutdown handle once, after the build"
-)]
 fn crash_child() {
     let (Ok(data), Ok(mode)) = (std::env::var(DATA_ENV), std::env::var(MODE_ENV)) else {
         return;
     };
-    let server = Server::builder().config(local_config()).data_dir(&data);
-    let (handle_tx, handle_rx) = std::sync::mpsc::sync_channel(1);
     let mut mover = Mover {
         start: None,
         checked: false,
         at: None,
         moves: mode == "run",
+        idle: mode == "idle",
+        extra: None,
+        extra_x: None,
     };
-    let mut stop: Option<anchor::ShutdownHandle> = None;
-    let server = server
-        .every(NonZeroU32::MIN, move |ctx| {
-            let stop = stop.get_or_insert_with(|| handle_rx.recv().unwrap());
-            mover.tick(ctx, stop);
-        })
+    Server::builder()
+        .config(local_config())
+        .data_dir(&data)
+        .every(NonZeroU32::MIN, move |ctx| mover.tick(ctx))
         // The parent times its kill from the commits.
         .monitor(|_: &WorldSave, _| Mover::report("committed"))
         .build()
+        .unwrap()
+        .run()
         .unwrap();
-    handle_tx.send(server.shutdown_handle()).unwrap();
-    server.run().unwrap();
 }
 
 /// A started child, its report lines (the text after the prefix) and its console log lines.
@@ -232,10 +289,9 @@ fn start(data: &Path, mode: &str) -> Running {
     Running { child, lines, log }
 }
 
-/// The errors the child's start logged about data files holding a later save than the main
-/// file. The log thread writes lines in order, so they are all out once the line that follows the
-/// start's checks is.
-fn later_saves(server: &mut Running) -> Vec<String> {
+/// The warnings the child's start logged about data files it rolled back. The log thread writes
+/// lines in order, so they are all out once the line that follows the start's checks is.
+fn roll_backs(server: &mut Running) -> Vec<String> {
     let mut found = Vec::new();
     loop {
         let line = server
@@ -248,14 +304,40 @@ fn later_saves(server: &mut Running) -> Vec<String> {
         if line.contains(STARTED) {
             return found;
         }
-        if line.contains(LATER_SAVE) {
+        if line.contains(ROLLED_BACK) {
             found.push(line);
         }
     }
 }
 
-/// The child's first report: the tick of the commit it started from and the gold blocks found.
-fn report(server: &mut Running) -> (u64, Vec<(i32, i32)>) {
+/// Kills a child started `idle` after `lines` lines of its console log, or once it logs that it
+/// started: during its start's roll back of the files a kill left, or soon after.
+fn kill_during_start(server: &mut Running, lines: u64) {
+    for _ in 0..lines {
+        let line = server
+            .log
+            .recv_timeout(Duration::from_secs(120))
+            .unwrap_or_else(|_| {
+                let status = server.child.try_wait().unwrap();
+                panic!("the idle child did not log its start (exit {status:?})")
+            });
+        if line.contains(STARTED) {
+            break;
+        }
+    }
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+}
+
+/// The value of the field `name` of a report line.
+fn field<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    line.split_whitespace()
+        .find_map(|f| f.strip_prefix(name)?.strip_prefix('='))
+}
+
+/// The child's first report: the tick of the commit it started from, the gold blocks found and
+/// the second world's text ([`extra_text`]).
+fn report(server: &mut Running) -> (u64, Vec<(i32, i32)>, String) {
     let line = server
         .lines
         .recv_timeout(Duration::from_secs(120))
@@ -263,19 +345,18 @@ fn report(server: &mut Running) -> (u64, Vec<(i32, i32)>) {
             let status = server.child.try_wait().unwrap();
             panic!("no report from the child (exit {status:?}): a damaged file is refused at start")
         });
-    let mut start = None;
-    let mut golds = Vec::new();
-    for field in line.split_whitespace() {
-        if let Some(t) = field.strip_prefix("start=") {
-            start = Some(t.parse().unwrap());
-        } else if let Some(list) = field.strip_prefix("golds=") {
-            for p in list.split(';').filter(|p| !p.is_empty()) {
-                let (x, z) = p.split_once(',').unwrap();
-                golds.push((x.parse().unwrap(), z.parse().unwrap()));
-            }
-        }
-    }
-    (start.unwrap(), golds)
+    let start = field(&line, "start").unwrap().parse().unwrap();
+    let golds = field(&line, "golds")
+        .unwrap()
+        .split(';')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (x, z) = p.split_once(',').unwrap();
+            (x.parse().unwrap(), z.parse().unwrap())
+        })
+        .collect();
+    let extra = field(&line, "extra").unwrap().to_owned();
+    (start, golds, extra)
 }
 
 #[expect(
@@ -295,6 +376,13 @@ fn remove(dir: &Path) {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Records the second world's text of a tick line in `extras`.
+fn record(line: &str, extras: &mut BTreeMap<u64, String>) {
+    if let (Some(tick), Some(extra)) = (field(line, "tick"), field(line, "extra")) {
+        extras.insert(tick.parse().unwrap(), extra.to_owned());
+    }
+}
+
 fn data_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("crash-{}", std::process::id()))
 }
@@ -302,7 +390,7 @@ fn data_dir() -> PathBuf {
 #[test]
 #[expect(
     clippy::print_stdout,
-    reason = "consistency: the test tells how often a kill split a save"
+    reason = "consistency: the test tells how often a restart rolled a file back"
 )]
 fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     let data = data_dir();
@@ -319,56 +407,59 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     let mut checked = 0;
     // Runs whose kill came after at least one commit: the start tick moved on.
     let (mut last_start, mut advanced) = (0, 0);
-    // Restarts whose world file held a later save than the main file.
-    let mut ahead = 0;
+    // Restarts that rolled a world file back to the main file's save.
+    let mut rolled_back = 0;
+    // The second world's text after each tick a run reported; a later run's line for a tick
+    // replaces an earlier one's, as a restart goes on from the commit.
+    let mut extras: BTreeMap<u64, String> = BTreeMap::new();
     for kill in 0..=KILLS {
         let mode = if kill == KILLS { "check" } else { "run" };
         let mut server = start(&data, mode);
-        let (start, golds) = report(&mut server);
-        let later_saves = later_saves(&mut server);
+        let (start_tick, golds, extra) = report(&mut server);
+        let roll_backs = roll_backs(&mut server);
+        // The second world as the main file's last save had it: as the task of its tick left it.
+        let expected = start_tick
+            .checked_sub(1)
+            .and_then(|tick| extras.get(&tick).cloned())
+            .unwrap_or_else(|| extra_text(None));
+        assert_eq!(
+            extra, expected,
+            "kill {kill}: the second world is not as the main file's save had it (start {start_tick}, \
+             roll backs {roll_backs:?})"
+        );
         // Exactly one block once one was committed (no duplicate, no loss), at the place the
-        // tick of the world file's last save put it: the main file's save, or one after it.
-        let world_ahead = match golds[..] {
-            [] => {
-                assert!(!placed, "kill {kill}: the block was lost (start {start})");
-                false
-            }
+        // tick of the main file's last save put it.
+        match golds[..] {
+            [] => assert!(
+                !placed,
+                "kill {kill}: the block was lost (start {start_tick})"
+            ),
             [(x, z)] => {
-                let at = |tick: u64| {
-                    let p = path(tick - 1);
-                    (p.x, p.z)
-                };
-                let world_ahead = at(start) != (x, z);
-                if world_ahead {
-                    assert!(
-                        (start..start + CHILD_TICKS).any(|t| at(t) == (x, z)),
-                        "kill {kill}: start {start}, block at {x} {z}"
-                    );
-                }
+                let at = path(start_tick - 1);
+                assert_eq!(
+                    (x, z),
+                    (at.x, at.z),
+                    "kill {kill}: the block is not where the main file's save put it \
+                     (start {start_tick}, roll backs {roll_backs:?})"
+                );
                 placed = true;
-                world_ahead
             }
-            _ => panic!("kill {kill}: the block was duplicated: {golds:?} (start {start})"),
-        };
-        // Only the world file changes, so only it can hold a later save, and the start says so.
-        if world_ahead {
-            ahead += 1;
-            let main_tick = format!("main_save_tick={start}");
-            assert!(
-                matches!(&later_saves[..], [line] if line.contains("world.redb") && line.contains(&main_tick)),
-                "kill {kill}: the world file a save ahead was not reported (start {start}): \
-                 {later_saves:?}"
-            );
-        } else {
-            assert!(
-                later_saves.is_empty(),
-                "kill {kill}: files of one save reported as later: {later_saves:?}"
-            );
+            _ => panic!("kill {kill}: the block was duplicated: {golds:?} (start {start_tick})"),
         }
+        // Only the world files change besides the main file, so only they can be rolled back.
+        let main_tick = format!("main_save_tick={start_tick}");
+        assert!(
+            roll_backs.iter().all(|line| {
+                (line.contains("world.redb") || line.contains("extra.redb"))
+                    && line.contains(&main_tick)
+            }),
+            "kill {kill}: another file was rolled back (start {start_tick}): {roll_backs:?}"
+        );
+        rolled_back += roll_backs.len();
         checked += 1;
-        if start > last_start {
+        if start_tick > last_start {
             advanced += 1;
-            last_start = start;
+            last_start = start_tick;
         }
         if mode == "run" {
             // The kill lands a random number of ticks after the run's first commit, counted by
@@ -380,6 +471,7 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
                     .lines
                     .recv_timeout(Duration::from_secs(120))
                     .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
+                record(&line, &mut extras);
                 if line == "committed" {
                     since_commit.get_or_insert(0);
                 } else if let Some(ticks) = &mut since_commit
@@ -391,9 +483,16 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
             server.child.kill().unwrap();
         }
         server.child.wait().unwrap();
+        for line in &server.lines {
+            record(&line, &mut extras);
+        }
+        if mode == "run" && kill % 2 == 1 {
+            let mut interrupted = start(&data, "idle");
+            kill_during_start(&mut interrupted, next() % 8);
+        }
     }
     assert_eq!(checked, KILLS + 1);
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
-    println!("restarts with the world file a save ahead: {ahead} of {KILLS}");
+    println!("restarts that rolled the world file back: {rolled_back} of {KILLS}");
     remove(&data);
 }

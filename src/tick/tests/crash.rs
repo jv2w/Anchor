@@ -5,9 +5,10 @@
 //! between two; the runs between commit once, at a phase of the item cycle taken by turns (items on
 //! the ground, on the player's cursor and in its crafting grid, or in the slots and the chest
 //! only), and are killed after that commit, so the commits caught hold items in every place however
-//! slow the machine is. Every restart must find an undamaged server file whose last commit is newer
-//! than the last restart's and holds every item exactly once (no duplicate, no loss) and holds the
-//! player, the chest, the ground and the terrain of one and the same tick.
+//! slow the machine is. Every restart must find undamaged data files whose last commit is newer
+//! than the last restart's and that hold every item exactly once (no duplicate, no loss) and hold
+//! the player, the chest, the ground and the terrain of the main file's last save, also after a
+//! kill between the world file's commit and the players file's or the main file's.
 //!
 //! The test runs its own test binary as the server process (`item_crash_child`) and kills only that
 //! child, through its process handle. The child is the real server without the network: the server
@@ -366,8 +367,6 @@ struct Mover {
     ready: bool,
     /// Where the marker is.
     marker: Option<BlockPos>,
-    /// Whether the start found the data files at different saves (a kill split a save).
-    split: bool,
 }
 
 impl Mover {
@@ -514,8 +513,8 @@ impl Mover {
         let in_chest = chest_counts(state);
         let on_ground = ground_counts(state);
         Self::report(&format!(
-            "start={start} split={} golds={} name={chest} quarantined={quarantined} carried={} player={}              chest={} ground={}",
-            u8::from(self.split),
+            "start={start} golds={} name={chest} quarantined={quarantined} carried={} player={} \
+             chest={} ground={}",
             golds.join(";"),
             text(carried),
             text(player),
@@ -567,7 +566,6 @@ fn item_crash_child() {
         start: None,
         ready: false,
         marker: None,
-        split: !opened.later.is_empty(),
     };
     let mut tasks = Tasks::default();
     tasks.push(NonZeroU32::MIN, move |ctx| mover.tick(ctx));
@@ -778,8 +776,6 @@ struct Found {
     carried: u32,
     /// Restarts that found a newer commit than the restart before.
     advanced: u32,
-    /// Restarts that found the data files at different saves.
-    splits: u32,
 }
 
 #[test]
@@ -803,8 +799,6 @@ fn forced_kills_never_duplicate_lose_or_split_items() {
     });
     let advanced: u32 = chains.iter().map(|c| c.advanced).sum();
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
-    let splits: u32 = chains.iter().map(|c| c.splits).sum();
-    assert!(splits < KILLS / 4, "{splits} kills split a save");
     // The commits caught items in every place (player, chest, ground) many times: the aimed
     // ones alone catch the ground ten times and the cursor and the grid ten times.
     let held: [u32; 3] = std::array::from_fn(|i| chains.iter().map(|c| c.held[i]).sum());
@@ -830,8 +824,6 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
     let mut last_start = 0;
     // The phase the last run committed, if it was aimed.
     let mut aimed = None;
-    // Whether the files were made new after a split save, so the next start has no commit.
-    let mut wiped = false;
     for kill in first..=end {
         let mode = if kill == end { "check" } else { "run" };
         let aim = (mode == "run" && kill.is_multiple_of(2))
@@ -846,12 +838,9 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
         );
         let in_places = places(&f);
         let total: Counts = std::array::from_fn(|i| in_places.iter().map(|p| p[i]).sum());
-        // A kill between the files of one save leaves them at different saves: the start finds
-        // it, and nothing is promised of where the items are then.
-        if f["split"] == "1" {
-            found.splits += 1;
-            committed = true;
-        } else if f["name"] == "-" {
+        // A kill between the files of one save is rolled back by the start: every file holds the
+        // main file's last save, exactly.
+        if f["name"] == "-" {
             // Nothing was committed: no chest, no items anywhere, no marker.
             assert!(
                 !committed,
@@ -896,8 +885,7 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
                 "kill {kill}: the commit of tick {tick} holds another tick's items: {line}"
             );
         }
-        let split = f["split"] == "1";
-        if start > last_start || split || std::mem::take(&mut wiped) {
+        if start > last_start {
             found.advanced += 1;
             last_start = start;
         }
@@ -910,16 +898,6 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
             record(&line, &mut ticks);
         }
         aimed = aim;
-        if split {
-            // What the split save holds lives on in the later saves of the chain: it goes on
-            // from new files.
-            fresh(&data);
-            ticks.clear();
-            committed = false;
-            last_start = 0;
-            aimed = None;
-            wiped = true;
-        }
     }
     remove(&data);
     found

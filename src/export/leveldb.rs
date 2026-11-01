@@ -12,11 +12,12 @@
 //! for a size compaction, so opening the database compacts nothing. The `MANIFEST` holds one
 //! version edit (comparator, log number 0 for no log, next file number, last sequence 0, the
 //! tables) and `CURRENT` names it. Files are numbered from 1: the tables in key order, then the
-//! `MANIFEST`. Every file is created new, written whole and flushed to disk.
+//! `MANIFEST`. Every file is created new, written whole and flushed to disk ([`write_new`]).
 
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 
+use super::{Error, write_new, written};
 use crate::import::leveldb::log::{BLOCK, FIRST, FULL, HEADER, LAST, MIDDLE};
 use crate::import::leveldb::table::{FOOTER, MAGIC, NONE, RAW_DEFLATE, TRAILER};
 use crate::import::leveldb::{COMPARATOR, LEVELS, TAG, VALUE, masked_crc};
@@ -53,14 +54,16 @@ pub(super) struct Block {
     stored: Vec<u8>,
 }
 
-/// The data blocks of the keys and values `entries` (in strictly increasing key order).
+/// Returns the data blocks of the keys and values `entries` (in strictly increasing key order).
 pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
     let mut blocks = Vec::new();
     let mut builder = BlockBuilder::default();
     let mut first = Vec::new();
+    // One buffer for every internal key: each is copied into the block as it is added.
+    let mut internal = Vec::new();
     let mut deflate = None;
     for (i, (key, value)) in entries.iter().enumerate() {
-        let mut internal = Vec::with_capacity(key.len() + TAG);
+        internal.clear();
         internal.extend_from_slice(key);
         internal.extend_from_slice(&KEY_TAG);
         if builder.entries == 0 {
@@ -68,7 +71,8 @@ pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
         }
         builder.add(&internal, value, RESTART_INTERVAL)?;
         if builder.data.len() >= BLOCK_BYTES || i + 1 == entries.len() {
-            let last = builder.last.clone();
+            // Taken, not copied: finishing the block empties the builder.
+            let last = std::mem::take(&mut builder.last);
             let raw = builder.finish()?;
             let encoder = deflate.get_or_insert_with(|| Encoder::new(DEFLATE_LEVEL));
             blocks.push(Block {
@@ -81,16 +85,18 @@ pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
     Ok(blocks)
 }
 
-/// `raw` as a table stores it: compressed with raw DEFLATE by `deflate`, or as it is without,
-/// then the compression byte and the masked CRC-32C of the stored block and that byte.
+/// Returns `raw` as a table stores it: compressed with raw DEFLATE by `deflate`, or as it is
+/// without, then the compression byte and the masked CRC-32C of the stored block and that byte.
 fn seal(raw: &[u8], deflate: Option<&mut Encoder>) -> Vec<u8> {
-    let mut stored = Vec::with_capacity(raw.len() / 2 + TRAILER);
-    let kind = if let Some(encoder) = deflate {
+    // Sized once: compressing first grows the output to the compressor's worst-case bound.
+    let (mut stored, kind) = if let Some(encoder) = deflate {
+        let mut stored = Vec::with_capacity(encoder.max_compressed_len(raw.len()) + TRAILER);
         encoder.compress(raw, &mut stored);
-        RAW_DEFLATE
+        (stored, RAW_DEFLATE)
     } else {
+        let mut stored = Vec::with_capacity(raw.len() + TRAILER);
         stored.extend_from_slice(raw);
-        NONE
+        (stored, NONE)
     };
     let crc = masked_crc(&[&stored, &[kind]]);
     stored.push(kind);
@@ -133,8 +139,8 @@ impl BlockBuilder {
         Ok(())
     }
 
-    /// The finished block, its restart offsets and their count after the entries; the builder
-    /// is empty again.
+    /// Returns the finished block, its restart offsets and their count after the entries; the
+    /// builder is empty again.
     fn finish(&mut self) -> io::Result<Vec<u8>> {
         if self.restarts.is_empty() {
             self.restarts.push(0);
@@ -149,7 +155,7 @@ impl BlockBuilder {
     }
 }
 
-/// A block offset or count as the `u32` blocks store.
+/// Converts a block offset or count to the `u32` blocks store.
 fn offset(n: usize) -> io::Result<u32> {
     u32::try_from(n).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a block over 4 GiB"))
 }
@@ -196,7 +202,7 @@ pub(super) struct Writer {
 }
 
 impl Writer {
-    /// A writer of the database in the folder `dir`, which must exist and be empty.
+    /// Creates a writer of the database in the folder `dir`, which must exist and be empty.
     pub(super) fn new(dir: PathBuf) -> Self {
         Self {
             dir,
@@ -208,7 +214,7 @@ impl Writer {
     }
 
     /// Adds `block`, whose keys come after those of every block added before.
-    pub(super) fn add(&mut self, block: Block) -> io::Result<()> {
+    pub(super) fn add(&mut self, block: Block) -> Result<(), Error> {
         let mut handle = Vec::new();
         put_varint(&mut handle, self.table.len() as u64);
         // The handle's size leaves out the trailer.
@@ -227,19 +233,28 @@ impl Writer {
 
     /// Ends the table being written, if it has blocks: an empty metaindex block, the index block
     /// and the footer, written to its file.
-    fn finish_table(&mut self) -> io::Result<()> {
+    fn finish_table(&mut self) -> Result<(), Error> {
         let Some(smallest) = self.smallest.take() else {
             return Ok(());
         };
+        let number = self.tables.len() as u64 + 1;
+        let path = self.dir.join(format!("{number:06}.ldb"));
         let mut index = BlockBuilder::default();
         for (key, handle) in &self.index {
-            index.add(key, handle, 1)?;
+            index.add(key, handle, 1).map_err(written(&path))?;
         }
-        let largest = index.last.clone();
+        // Taken, not copied: finishing the index block empties the builder.
+        let largest = std::mem::take(&mut index.last);
         let mut footer = Vec::with_capacity(FOOTER);
         let blocks = [
-            seal(&BlockBuilder::default().finish()?, None),
-            seal(&index.finish()?, Some(&mut Encoder::new(DEFLATE_LEVEL))),
+            seal(
+                &BlockBuilder::default().finish().map_err(written(&path))?,
+                None,
+            ),
+            seal(
+                &index.finish().map_err(written(&path))?,
+                Some(&mut Encoder::new(DEFLATE_LEVEL)),
+            ),
         ];
         for block in blocks {
             put_varint(&mut footer, self.table.len() as u64);
@@ -250,21 +265,21 @@ impl Writer {
         footer.extend_from_slice(&MAGIC.to_le_bytes());
         self.table.extend_from_slice(&footer);
 
-        let number = self.tables.len() as u64 + 1;
-        let table = std::mem::take(&mut self.table);
-        write_new(&self.dir.join(format!("{number:06}.ldb")), &table)?;
-        self.index.clear();
+        write_new(&path, &self.table)?;
         self.tables.push(Table {
             number,
-            size: table.len() as u64,
+            size: self.table.len() as u64,
             smallest,
             largest,
         });
+        // Cleared, not dropped: the next table reuses the buffer.
+        self.table.clear();
+        self.index.clear();
         Ok(())
     }
 
     /// Ends the database: the last table, the `MANIFEST` and `CURRENT`.
-    pub(super) fn finish(mut self) -> io::Result<()> {
+    pub(super) fn finish(mut self) -> Result<(), Error> {
         self.finish_table()?;
         let manifest = self.tables.len() as u64 + 1;
         let mut edit = vec![EDIT_COMPARATOR];
@@ -289,7 +304,7 @@ impl Writer {
     }
 }
 
-/// `record` as a log file: physical records of at most what is left of each 32 KiB block, a
+/// Returns `record` as a log file: physical records of at most what is left of each 32 KiB block, a
 /// block's last 6 bytes or fewer zero padding, as LevelDB's `log::Writer` cuts them.
 fn log_record(record: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(record.len() + record.len() / BLOCK * HEADER + HEADER);
@@ -322,20 +337,6 @@ fn log_record(record: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Creates the file `path`, which must not exist, writes `bytes` to it and flushes it to disk.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the export writes a world folder instead of running the server"
-)]
-pub(super) fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -347,7 +348,7 @@ mod tests {
     use crate::protocol::Rng;
     use crate::save::tests::TempDir;
 
-    /// `len` bytes of which runs repeat, so blocks compress some.
+    /// Returns `len` bytes of which runs repeat, so blocks compress some.
     fn value(rng: &mut Rng, len: usize) -> Vec<u8> {
         let mut out = Vec::with_capacity(len);
         while out.len() < len {

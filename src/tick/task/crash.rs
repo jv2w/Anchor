@@ -68,8 +68,6 @@ fn gold() -> block::State {
 /// The child's task state.
 struct Writer {
     writes: bool,
-    /// Whether the start found the data files at different saves (a kill split a save).
-    split: bool,
     stop: mpsc::Sender<()>,
     start: Option<u64>,
     ready: bool,
@@ -170,8 +168,7 @@ impl Writer {
         let server = cx.data::<Progress>().copied().expect("registered");
         let mine = player.data::<Progress>().copied().expect("registered");
         Self::report(&format!(
-            "start={start} split={} golds={} server={} player={}",
-            u8::from(self.split),
+            "start={start} golds={} server={} player={}",
             golds.join(";"),
             server.text(),
             mine.text()
@@ -217,7 +214,6 @@ fn user_data_crash_child() {
     .unwrap();
     let mut writer = Writer {
         writes: mode == "run",
-        split: !opened.later.is_empty(),
         stop: stop_tx,
         start: None,
         ready: false,
@@ -385,7 +381,6 @@ fn the_check_waits_for_spawn_chunks_answered_after_the_player() {
     let (stop, _stop_rx) = mpsc::channel(1);
     let mut writer = Writer {
         writes: false,
-        split: false,
         stop,
         start: None,
         ready: false,
@@ -432,10 +427,6 @@ fn the_check_waits_for_spawn_chunks_answered_after_the_player() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: one chain of kills is checked from each start to its kill"
-)]
 fn forced_kills_keep_user_data_with_its_tick() {
     let data = data_dir();
     fresh(&data, true);
@@ -454,9 +445,6 @@ fn forced_kills_keep_user_data_with_its_tick() {
     let mut checked = 0;
     let mut advanced = 0;
     let mut last_start = 0;
-    let mut splits = 0;
-    // Whether the files were made new after a split save, so the next start has no commit.
-    let mut wiped = false;
     for kill in 0..=KILLS {
         let mode = if kill == KILLS { "check" } else { "run" };
         let mut server = start(&data, mode);
@@ -470,12 +458,8 @@ fn forced_kills_keep_user_data_with_its_tick() {
         let f = fields(&line);
         let start: u64 = f["start"].parse().unwrap();
         let (on_server, on_player) = (progress(&f["server"]), progress(&f["player"]));
-        // A kill between the files of one save leaves them at different saves: the start finds
-        // it, and nothing is promised of what they hold then.
-        let split = f["split"] == "1";
-        if split {
-            splits += 1;
-        } else if on_server.count == 0 {
+        // A kill between the files of one save is rolled back by the start.
+        if on_server.count == 0 {
             assert!(!committed, "kill {kill}: the commit was lost: {line}");
             assert_eq!(on_player, Progress::default(), "kill {kill}: {line}");
             assert_eq!(f["golds"], "", "kill {kill}: {line}");
@@ -498,7 +482,7 @@ fn forced_kills_keep_user_data_with_its_tick() {
                 "kill {kill}: the commit of tick {tick} holds another tick's values: {line}"
             );
         }
-        if start > last_start || split || std::mem::take(&mut wiped) {
+        if start > last_start {
             advanced += 1;
             last_start = start;
         }
@@ -512,9 +496,7 @@ fn forced_kills_keep_user_data_with_its_tick() {
                 let tick: u64 = t.parse().unwrap();
                 assert_eq!(values.0.count - last.1, 1, "kill {kill}: tick {tick}");
                 assert!(last.0.is_none_or(|l| tick > l), "kill {kill}: tick {tick}");
-                if !split {
-                    assert_eq!(values.0, values.1, "kill {kill}: tick {tick}");
-                }
+                assert_eq!(values.0, values.1, "kill {kill}: tick {tick}");
                 last = (Some(tick), values.0.count);
                 written.insert(tick, values);
             }
@@ -545,19 +527,8 @@ fn forced_kills_keep_user_data_with_its_tick() {
         for line in &server.lines {
             record(&line);
         }
-        if split {
-            // What the split save holds lives on in the later saves: it goes on from new files.
-            fresh(&data, true);
-            written.clear();
-            committed = false;
-            last_start = 0;
-            wiped = true;
-        }
     }
-    // A split at one of the last starts leaves new files with no commit, so this counts the
-    // checks made before them too.
     assert!(checked > 0, "no start found a commit to check");
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
-    assert!(splits < KILLS, "{splits} kills split a save");
     fresh(&data, false);
 }

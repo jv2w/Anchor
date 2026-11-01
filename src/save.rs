@@ -8,9 +8,10 @@
 //! one tick boundary, to every data file it changes, one write transaction each, the main file
 //! last ([`commit`]); requests are handled in order, so commits land in the order they were
 //! taken. Nothing else writes a file: no event (a player leaving, a chunk unloading) saves a part
-//! of the state apart. A normal stop commits the last snapshot to every file; a
-//! crash between two files of one save leaves them at different saves, which the next start
-//! reports ([`check_save`]).
+//! of the state apart. A normal stop commits the last snapshot to every file. The main file's
+//! commit is the one point a save is made at: a start rolls every file a stopped save reached back
+//! to the main file's last save ([`storage::settle`]), and a deleted world's file goes only once a
+//! main file's commit holds the deletion ([`remove_world_files`]).
 //!
 //! A chunk is its terrain and its extras: block entities, entities and scheduled
 //! block updates. Every value is under [`MAX_RECORD`] however
@@ -74,8 +75,9 @@ pub(crate) enum Request {
     /// Worlds made or loaded while the server runs, in order: the save thread loads, generates
     /// and commits their chunks from now on. It comes before any request that names them.
     Worlds(Vec<NewWorld>),
-    /// Worlds deleted while the server runs, in order: the save thread forgets them and deletes
-    /// their files. It comes after every commit that writes them.
+    /// Worlds deleted while the server runs, in order: the save thread forgets them, and deletes
+    /// their files once the next commit holds the deletion. It comes after every commit that
+    /// writes them.
     DeleteWorlds(Vec<DeletedWorld>),
     /// The saved data of a player.
     Player(PlayerKey),
@@ -112,7 +114,7 @@ pub(crate) enum Response {
 /// Where a loaded chunk came from. The extras come from the file either way.
 #[derive(Debug)]
 pub(crate) enum Loaded {
-    /// The terrain was read from the server file.
+    /// The terrain was read from the world's file.
     Disk(Box<Chunk>, Stored),
     /// The terrain was never saved, so it was generated.
     Generated(Box<Chunk>, Stored),
@@ -148,7 +150,7 @@ impl ChunkExtras {
     }
 }
 
-/// What a load read from the server file for a chunk besides its terrain.
+/// What a load read from the world's file for a chunk besides its terrain.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Stored {
     /// The chunk's extras; empty when the file has none.
@@ -281,7 +283,7 @@ pub(crate) enum AccessWrite {
     Ban(BanEntry),
 }
 
-/// The operator list, the bans and the whitelist as the server file holds them.
+/// The operator list, the bans and the whitelist as the main file holds them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AccessData {
     /// Operator names, ASCII lowercase.
@@ -381,6 +383,10 @@ struct Plan {
     file: Option<Open>,
     /// What the world's record in its file holds, once read or written.
     values: Option<WorldValues>,
+    /// Whether the next commit of its file first deletes every value the file holds: the file of
+    /// a world deleted before, whose deletion no commit holds yet, taken by a world made again
+    /// under its name.
+    clear: bool,
 }
 
 /// An open data file and where it is.
@@ -391,7 +397,8 @@ struct Open {
 
 /// How the save thread opens the file of a world it learns of.
 enum Opener {
-    /// The world's file of the data folder ([`world_place`]), opened as the start says.
+    /// The world's file of the data folder ([`world_place`]), opened with `start`: the start's
+    /// backups and no redb integrity check, which a running server never makes.
     Live { data_dir: PathBuf, start: Start },
     /// A replay's read-only copies, by [`storage::world_name_key`] of the world name.
     Replay(BTreeMap<String, PathBuf>),
@@ -423,12 +430,9 @@ impl Opener {
 }
 
 /// The plan of a world named `name`: a persistent one (with `number`, the tick's) opens its
-/// file, whose record gives its number, time and spawn, and whose last save is checked against
-/// the main file's (`saved`; a file holding a later one is added to `later`).
+/// file, whose record gives its number, time and spawn.
 fn plan(
     opener: &Opener,
-    saved: &Meta,
-    later: &mut Vec<PathBuf>,
     name: &str,
     number: Option<u32>,
     seed: i64,
@@ -441,25 +445,23 @@ fn plan(
         generator,
         file: None,
         values: None,
+        clear: false,
     };
     if number.is_none() {
         return plan;
     }
     let read = opener.open(name).and_then(|mut file| {
-        let (record, meta) = world_file(&mut file.storage)?;
-        Ok((file, record, meta))
+        let record = world_file(&mut file.storage)?;
+        Ok((file, record))
     });
     match read {
-        Ok((open, record, meta)) => {
+        Ok((open, record)) => {
             if let Some(record) = record {
                 plan.number = Some(record.number);
                 plan.values = Some(WorldValues {
                     time: record.time,
                     spawn: record.spawn,
                 });
-            }
-            if check_save(saved, &open.place.file, meta.as_ref()) {
-                later.push(open.place.file.clone());
             }
             plan.file = Some(open);
         }
@@ -472,68 +474,33 @@ fn plan(
     plan
 }
 
-/// The record and the meta value of the world file `storage`, if it holds them.
-fn world_file(
-    storage: &mut Storage,
-) -> Result<(Option<WorldRecord>, Option<Meta>), storage::Error> {
-    let mut values = storage.read(&[Key::World, Key::Meta])?.into_iter();
-    let mut next = |key: Key| -> Result<_, storage::Error> {
-        let Some(value) = values.next() else {
-            return Ok(None);
-        };
-        value?
-            .map(|sealed| Ok::<_, storage::Error>((key, sealed)))
-            .transpose()
+/// The record of the world file `storage`, if it holds one.
+fn world_file(storage: &mut Storage) -> Result<Option<WorldRecord>, storage::Error> {
+    let Some(value) = storage.read(&[Key::World])?.pop() else {
+        return Ok(None);
     };
-    let record = next(Key::World)?
-        .map(|(key, sealed)| unseal::<WorldRecord>(&key.to_bytes(), &sealed))
-        .transpose()?;
-    let meta = next(Key::Meta)?
-        .map(|(key, sealed)| unseal::<Meta>(&key.to_bytes(), &sealed))
-        .transpose()?;
-    Ok((record, meta))
-}
-
-/// Warns, loudly, when the data file `file` holds a later save (`meta`) than the main file's last
-/// one (`saved`): a save stopped between its files (a crash or a kill), so the files may hold
-/// different moments. The main file is committed last, so every file a
-/// save reached before it stopped is later than the main file. Returns whether it warned.
-fn check_save(saved: &Meta, file: &std::path::Path, meta: Option<&Meta>) -> bool {
-    let Some(meta) = meta else {
-        return false;
-    };
-    let later = meta.tick > saved.tick
-        || (meta.tick == saved.tick && meta.identity.is_some() && meta.identity != saved.identity);
-    if later {
-        error!(
-            file = %file.display(),
-            file_save_tick = meta.tick,
-            main_save_tick = saved.tick,
-            "data files disagree: this file holds a later save than the main file. The server \
-             stopped in the middle of a save (a crash or a kill), so this file is from save tick \
-             {file_tick} while the others are from save tick {main_tick} or earlier: items may \
-             be doubled or lost between them. Restore the files from one backup if that matters.",
-            file_tick = meta.tick,
-            main_tick = saved.tick,
-        );
-    }
-    later
+    value?
+        .map(|sealed| unseal::<WorldRecord>(&Key::World.to_bytes(), &sealed))
+        .transpose()
 }
 
 /// Learns the worlds the tick made or loaded: a new one is the next index (the tick numbers its
 /// worlds in order and names each before any request about it), one made again replaces its plan.
-fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, saved: &Meta, worlds: &[NewWorld]) {
+/// The tick's number is the world's: a file kept for a world deleted this run, whose deletion no
+/// commit holds yet, still holds the record of the deleted one.
+fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
     for world in worlds {
-        let plan = plan(
+        let mut plan = plan(
             opener,
-            saved,
-            // Files the server did not open at start were checked then.
-            &mut Vec::new(),
             &world.name,
             world.number,
             world.seed,
             Arc::clone(&world.generator),
         );
+        if plan.number != world.number {
+            plan.number = world.number;
+            plan.values = None;
+        }
         match plans.get_mut(world.index) {
             Some(slot) => *slot = plan,
             None => plans.push(plan),
@@ -541,41 +508,77 @@ fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, saved: &Meta, worlds: &[Ne
     }
 }
 
-/// Deletes the files of the worlds the tick deleted: by name, and the plan at the index the tick
-/// had it at, if any. A replay deletes no file.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the save thread deletes a world's file"
-)]
-fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
+/// Forgets the worlds the tick deleted: closes the file of the plan at the index the tick had
+/// each at, if any (Windows cannot remove an open file), and saves nothing more of it.
+fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
     for world in worlds {
         if let Some(plan) = world.index.and_then(|i| plans.get_mut(i)) {
-            // Closed before the file goes: Windows cannot remove an open file.
             plan.file = None;
             plan.number = None;
         }
-        let Opener::Live { data_dir, .. } = opener else {
-            continue;
-        };
-        let file = match world_file_name(data_dir, &world.name) {
-            Ok(Some(name)) => Place::world(data_dir, &name).file,
-            Ok(None) => continue,
+    }
+}
+
+/// Removes the files of the worlds `names` of the data folder `data_dir`, deleted before the save
+/// just committed: the main file's commit holds their deletion marks. Returns the names whose
+/// files are gone, and those whose files could not be removed, logged, which stay marked.
+fn remove_world_files(
+    data_dir: &std::path::Path,
+    names: Vec<String>,
+) -> (Vec<String>, Vec<String>) {
+    let mut removed = Vec::with_capacity(names.len());
+    let mut failed = Vec::new();
+    for name in names {
+        match remove_world_file(data_dir, &name) {
+            Ok(()) => removed.push(name),
             Err(e) => {
-                error!(world = world.name, error = %e, "could not delete the world file");
-                continue;
+                error!(world = name, error = %e, "could not delete the world file");
+                failed.push(name);
             }
-        };
-        match std::fs::remove_file(&file).and_then(|()| crate::fs::sync_parent(&file)) {
-            Ok(()) => info!(world = world.name, file = %file.display(), "world file deleted"),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => error!(
-                world = world.name,
-                file = %file.display(),
-                error = %e,
-                "could not delete the world file"
-            ),
         }
     }
+    (removed, failed)
+}
+
+/// Removes the file of the world `name` of the data folder `data_dir`, if there is one, and
+/// flushes the folder.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread and the start delete a world's file"
+)]
+fn remove_world_file(data_dir: &std::path::Path, name: &str) -> Result<(), storage::Error> {
+    let Some(file) = world_file_name(data_dir, name)? else {
+        return Ok(());
+    };
+    let file = Place::world(data_dir, &file).file;
+    match std::fs::remove_file(&file).and_then(|()| crate::fs::sync_parent(&file)) {
+        Ok(()) => {
+            info!(world = name, file = %file.display(), "world file deleted");
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(storage::Error::Io(e)),
+    }
+}
+
+/// Removes the files of the worlds the main file's last save deleted (its deletion marks,
+/// [`Key::Deleted`]), which a stop right after that save's commit left, then the marks, in one
+/// commit of the main file: a start stopped in between finds the marks again and ends the same.
+/// A file that cannot be removed refuses the start, as the world would come back.
+fn finish_deletions(data_dir: &std::path::Path, main: &mut Storage) -> Result<(), storage::Error> {
+    let names = main.deleted_worlds()?;
+    if names.is_empty() {
+        return Ok(());
+    }
+    let mut marks = Batch::with_capacity(names.len());
+    for name in names {
+        if let Err(e) = remove_world_file(data_dir, &name) {
+            error!(world = name, error = %e, "could not delete the world file");
+            return Err(e);
+        }
+        marks.delete(Key::Deleted(name));
+    }
+    main.commit(&marks)
 }
 
 /// What the tick needs to make and load worlds while it runs.
@@ -604,8 +607,6 @@ pub(crate) struct Opened {
     pub(crate) identity: Option<u64>,
     /// The operator list, the bans and the whitelist.
     pub(crate) access: AccessData,
-    /// The data files holding a later save than the main file ([`check_save`]).
-    pub(crate) later: Vec<PathBuf>,
     /// The save thread's side.
     pub(crate) thread: Thread,
 }
@@ -642,9 +643,14 @@ pub(crate) struct Thread {
     files: Files,
     plans: Vec<Plan>,
     opener: Opener,
-    /// The meta value of the main file's last commit.
-    saved: Meta,
-    /// Whether loaded and generated chunks are lit on the CPU pool (`lighting`).
+    /// The names of the worlds deleted since the last commit, or whose file the last commit could
+    /// not remove: the next commit puts their deletion marks ([`Key::Deleted`]) into the main
+    /// file, and their files go after it ([`remove_world_files`]); a replay removes none.
+    deleted: Vec<String>,
+    /// The names of the worlds whose files the last commit removed: the next commit deletes their
+    /// deletion marks.
+    removed: Vec<String>,
+    /// Whether loaded and generated chunks are lit on the CPU pool: unless `lighting = "fixed"`.
     lighting: bool,
     /// The server's custom blocks, which saved unknown states are resolved against on the CPU
     /// pool as chunks load, before they are lit.
@@ -663,8 +669,9 @@ impl Thread {
         self.entity_types = entity_types;
     }
 
-    /// Sets whether chunks are lit as they load (`lighting`, on by default). With it off the
-    /// tick ignores light, so lighting here would only waste CPU time.
+    /// Sets whether chunks are lit as they load: unless `lighting = "fixed"`
+    /// ([`Lighting::is_calculated`](crate::config::Lighting::is_calculated)). With it off the tick
+    /// ignores light, so lighting here would only waste CPU time.
     pub(crate) fn set_lighting(&mut self, enabled: bool) {
         self.lighting = enabled;
     }
@@ -720,14 +727,29 @@ impl Thread {
     }
 
     /// Learns the worlds of a [`Request::Worlds`] as the save thread does (a replay's requests).
+    /// A persistent world made under the name of one deleted since the last commit takes its
+    /// file, which then stays, and the next commit of that file first deletes every value of the
+    /// deleted world.
     pub(crate) fn add_worlds(&mut self, worlds: &[NewWorld]) {
-        add_worlds(&mut self.plans, &self.opener, &self.saved, worlds);
+        add_worlds(&mut self.plans, &self.opener, worlds);
+        for world in worlds.iter().filter(|w| w.number.is_some()) {
+            let key = storage::world_name_key(&world.name);
+            let before = self.deleted.len();
+            self.deleted
+                .retain(|name| storage::world_name_key(name) != key);
+            if self.deleted.len() < before
+                && let Some(plan) = self.plans.get_mut(world.index)
+            {
+                plan.clear = true;
+            }
+        }
     }
 
-    /// Forgets the worlds of a [`Request::DeleteWorlds`] as the save thread does; a replay
-    /// deletes no file.
+    /// Forgets the worlds of a [`Request::DeleteWorlds`] as the save thread does; the next commit
+    /// holds their deletion, and their files go after it ([`remove_world_files`]).
     pub(crate) fn delete_worlds(&mut self, worlds: &[DeletedWorld]) {
-        delete_worlds(&mut self.plans, &self.opener, worlds);
+        forget_worlds(&mut self.plans, worlds);
+        self.deleted.extend(worlds.iter().map(|w| w.name.clone()));
     }
 
     /// Reads the user's server data values `names`, before the threads start: the
@@ -783,11 +805,12 @@ impl Thread {
 /// number. The files of the start (main, players and each persistent world's) are checked
 /// together on `pool` first ([`check_all`]), so a damaged one refuses the start before any file
 /// is written; so is a start whose new world files would make `data/worlds/` hold more than
-/// [`MAX_WORLDS`]. The other world files of `data/worlds/` are listed for the
+/// [`MAX_WORLDS`]. Then, once the main file is open, every other file of the data folder that a
+/// stopped save left later than the main file is rolled back to the main file's last save
+/// ([`settle_all`]). The other world files of `data/worlds/` are listed for the
 /// tick to load ([`Catalog::stored`]); their record is read without writing them, unless a crash
 /// left one to repair, which opens it as a start does, without a start backup (it gets one when
-/// it is loaded). Every file holding a later save than the main file is reported
-/// ([`check_save`]). Runs before the threads start.
+/// it is loaded). Runs before the threads start.
 pub(crate) fn open_with(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
@@ -799,17 +822,15 @@ pub(crate) fn open_with(
         Place::data(data_dir, storage::PLAYERS_FILE),
     ];
     let names = world_names(data_dir)?;
-    let files_at_start = names.len();
     let mut new_files = 0;
-    let mut declared_files = 0;
     for spec in specs.iter().filter(|s| s.kind == Kind::Persistent) {
         let file = file_of(&names, &spec.name);
         new_files += usize::from(file.is_none());
-        declared_files += usize::from(file.is_some());
         places.push(Place::world(data_dir, file.unwrap_or(&spec.name)));
     }
     // Counted together before any is made: each world's open checks only the files made before
-    // it, so a later one would fail after the earlier ones are made.
+    // it, so a later one would fail after the earlier ones are made. Rolling files back below only
+    // removes some.
     if names.len() + new_files > MAX_WORLDS {
         return Err(storage::Error::TooManyWorlds.into());
     }
@@ -826,17 +847,21 @@ pub(crate) fn open_with(
             place,
         })
     };
+    // A missing main file holds no save to roll back to: the other files stay as they are.
+    let main_existed = storage::has_data(&Place::data(data_dir, storage::MAIN_FILE).file)?;
     let mut main = open(storage::MAIN_FILE)?;
     let saved = stored_meta(&mut main.storage)?;
-    let mut files = Files {
+    if main_existed {
+        finish_deletions(data_dir, &mut main.storage)?;
+        settle_all(data_dir, &names, &saved)?;
+    }
+    let files = Files {
         main,
         players: open(storage::PLAYERS_FILE)?,
     };
-    let mut later = Vec::new();
-    let meta = stored_meta(&mut files.players.storage)?;
-    if check_save(&saved, &files.players.place.file, Some(&meta)) {
-        later.push(files.players.place.file.clone());
-    }
+    let names = world_names(data_dir)?;
+    let files_at_start = names.len();
+    let mut declared_files = 0;
     let mut stored = Vec::new();
     for name in names {
         let key = storage::world_name_key(&name);
@@ -844,6 +869,7 @@ pub(crate) fn open_with(
             .iter()
             .any(|s| s.kind == Kind::Persistent && storage::world_name_key(&s.name) == key)
         {
+            declared_files += 1;
             continue;
         }
         let place = Place::world(data_dir, &name);
@@ -864,13 +890,8 @@ pub(crate) fn open_with(
             Err(e) => Err(e),
         };
         match read {
-            Ok((Some(record), meta)) => {
-                if check_save(&saved, &place.file, meta.as_ref()) {
-                    later.push(place.file.clone());
-                }
-                stored.push((name, record));
-            }
-            Ok((None, _)) => {
+            Ok(Some(record)) => stored.push((name, record)),
+            Ok(None) => {
                 warn!(file = %place.file.display(), "world file without a world record; it is left out");
             }
             Err(e) => error!(
@@ -880,23 +901,58 @@ pub(crate) fn open_with(
             ),
         }
     }
-    let at_start = Opener::Live {
+    // A world file opened while the server runs checks its format alone: redb's integrity check
+    // needs the whole file read and is never made while the server runs.
+    let opener = Opener::Live {
         data_dir: data_dir.to_path_buf(),
         start: checked,
     };
-    let mut resolved = resolve(files, at_start, saved, later, stored, specs, None)?;
+    let mut resolved = resolve(files, opener, saved, stored, specs, None)?;
     // The stored worlds are files of other names than the declared worlds', so this is the rest.
     resolved.catalog.left_out = files_at_start - declared_files - resolved.catalog.stored.len();
-    // Worlds opened while the server runs are checked as the start says.
-    resolved.thread.opener = Opener::Live {
-        data_dir: data_dir.to_path_buf(),
-        start,
-    };
     Ok(resolved)
 }
 
-/// Checks the closed files at `places` together on `pool` ([`storage::verify`]), each in a turn
-/// of its own. Every refused file is logged; the first one refuses the start. None is written.
+/// Rolls the players file and the world files `names` of the data folder `data_dir` back to the
+/// main file's last save `saved` ([`storage::settle`]), before any of them opens. A file that
+/// cannot be rolled back refuses the start. A world file the roll back cannot read otherwise is
+/// logged and left as it is: the start meets it again when it reads the file, as it does a file
+/// no save left later.
+fn settle_all(
+    data_dir: &std::path::Path,
+    names: &[String],
+    saved: &Meta,
+) -> Result<(), storage::Error> {
+    let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
+    if let Err(e) = storage::settle(&players, saved) {
+        error!(file = %players.display(), error = %e, "data file refused; it is left as it was");
+        return Err(e);
+    }
+    for name in names {
+        let file = Place::world(data_dir, name).file;
+        match storage::settle(&file, saved) {
+            Ok(_) => {}
+            Err(e @ storage::Error::NoRollback) => {
+                error!(
+                    file = %file.display(),
+                    error = %e,
+                    "data file refused; it is left as it was"
+                );
+                return Err(e);
+            }
+            Err(e) => error!(
+                file = %file.display(),
+                error = %e,
+                "world file was not rolled back; it is left as it is"
+            ),
+        }
+    }
+    Ok(())
+}
+
+/// Checks the closed files at `places` together on `pool` ([`storage::verify`]), in turns of one
+/// file per pool thread ([`Pool::map_in_turns`]). Every refused file is logged; the first one
+/// refuses the start. None is written.
 fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(), storage::Error> {
     let checked = pool.map_in_turns(places, |place| storage::verify(&place.file, check));
     let mut refused = None;
@@ -1055,7 +1111,7 @@ pub(crate) fn open_replica(
     };
     let mut stored = Vec::new();
     for (name, file) in &files.worlds {
-        if let (Some(record), _) = world_file(&mut Storage::open_replica(file)?)? {
+        if let Some(record) = world_file(&mut Storage::open_replica(file)?)? {
             stored.push((name.clone(), record));
         }
     }
@@ -1066,15 +1122,7 @@ pub(crate) fn open_replica(
             .map(|(name, file)| (storage::world_name_key(name), file.clone()))
             .collect(),
     );
-    resolve(
-        files_open,
-        opener,
-        saved,
-        Vec::new(),
-        stored,
-        specs,
-        Some(seeds),
-    )
+    resolve(files_open, opener, saved, stored, specs, Some(seeds))
 }
 
 /// The engine tick and commit identity of the last commit of the data file `path`, opened
@@ -1095,7 +1143,6 @@ fn resolve(
     mut files: Files,
     opener: Opener,
     saved: Meta,
-    mut later: Vec<PathBuf>,
     mut stored: Vec<(String, WorldRecord)>,
     specs: Vec<WorldSpec>,
     seeds: Option<&[i64]>,
@@ -1110,8 +1157,6 @@ fn resolve(
         let number = (spec.kind == Kind::Persistent).then_some(0);
         plans.push(plan(
             &opener,
-            &saved,
-            &mut later,
             &spec.name,
             number,
             seed,
@@ -1137,14 +1182,25 @@ fn resolve(
         );
         let new = plan.values.is_none();
         match (plan.number, plan.values) {
-            (Some(number), Some(WorldValues { time, spawn })) => resume(
-                &mut world,
-                WorldRecord {
-                    number,
-                    time,
-                    spawn,
-                },
-            ),
+            (Some(number), Some(WorldValues { time, spawn })) => {
+                if let Some(set) = spec.spawn.filter(|&set| set != spawn) {
+                    warn!(
+                        world = spec.name,
+                        setting = ?set,
+                        saved = ?spawn,
+                        "the spawn setting places only a new world's spawn; the world keeps its \
+                         saved spawn"
+                    );
+                }
+                resume(
+                    &mut world,
+                    WorldRecord {
+                        number,
+                        time,
+                        spawn,
+                    },
+                );
+            }
             (Some(_), None) => {
                 // A new file: its keys carry the next free number.
                 plan.number = Some(next_number);
@@ -1174,12 +1230,12 @@ fn resolve(
         tick: saved.tick,
         identity: saved.identity,
         access,
-        later,
         thread: Thread {
             files,
             plans,
             opener,
-            saved,
+            deleted: Vec::new(),
+            removed: Vec::new(),
             lighting: true,
             custom: Arc::default(),
             entity_types: Arc::default(),
@@ -1836,8 +1892,14 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
 /// Commits a snapshot: to each world file that changed its changed chunks and extras
 /// (sealed on the CPU pool) and its record, then the changed players to their file, then the
 /// changed operators, bans, whitelist and server data with the meta value to the main file, last.
-/// Each file gets its write transaction, and each written file the meta value too, so a start can
-/// tell a save that stopped between files ([`check_save`]). Files with nothing changed are not
+/// Each file gets its write transaction, and each written file the meta value too. The main
+/// file's commit is the one point the save is made at: the files before it each keep a savepoint
+/// of themselves as they were ([`Storage::commit_with_savepoint`]), which a start rolls them back
+/// to if the save stops before the main file ([`storage::settle`]). The main file's commit holds
+/// the deletion marks of the worlds deleted before it, whose files go only after it
+/// ([`remove_world_files`]), or at the next start if a stop comes first ([`finish_deletions`]).
+/// A world file a world made again takes over loses every value of the deleted world in its first
+/// commit ([`Batch::clear`]). Files with nothing changed are not
 /// written. Every value is written in the current format. The worlds the snapshot deletes are
 /// forgotten and the worlds it brings learnt first, so their records are written too.
 #[expect(
@@ -1852,15 +1914,18 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         identity: Some(snapshot.identity),
     };
     let plans: &[Plan] = &thread.plans;
-    let mut worlds: BTreeMap<WorldIndex, Batch> = BTreeMap::new();
+    // Each changed world's batch, and the values its record takes when the batch writes it.
+    let mut worlds: BTreeMap<WorldIndex, (Batch, Option<WorldValues>)> = BTreeMap::new();
+    for (world, _) in plans.iter().enumerate().filter(|(_, p)| p.clear) {
+        worlds.entry(world).or_default().0.clear();
+    }
     for &(world, values) in &snapshot.worlds {
         if let Some(plan) = plans.get(world)
             && let Some(record) = world_record(plan, values)
         {
-            worlds
-                .entry(world)
-                .or_default()
-                .put(Key::World, seal(&Key::World.to_bytes(), &record)?);
+            let (batch, written) = worlds.entry(world).or_default();
+            batch.put(Key::World, seal(&Key::World.to_bytes(), &record)?);
+            *written = Some(values);
         }
     }
     let sealed = pool.map_in_turns(&snapshot.chunks, |(world, pos, chunk)| {
@@ -1869,7 +1934,7 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         Some((*world, seal_terrain(id, chunk)))
     });
     for (world, values) in sealed.into_iter().flatten() {
-        let batch = worlds.entry(world).or_default();
+        let (batch, _) = worlds.entry(world).or_default();
         for (key, value) in values? {
             match value {
                 Some(value) => batch.put(key, value),
@@ -1886,7 +1951,7 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         let pages = pages?;
         let count = u16::try_from(pages.len())
             .map_err(|_| storage::Error::Encode(crate::protocol::Error::Size))?;
-        let batch = worlds.entry(world).or_default();
+        let (batch, _) = worlds.entry(world).or_default();
         for (key, value) in pages {
             batch.put(key, value);
         }
@@ -1924,8 +1989,16 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         let record = UserRecord(Cow::Borrowed(json));
         main.put(key.clone(), seal(&key.to_bytes(), &record)?);
     }
+    // A name deleted again since its file went is marked again: the marks put come last.
+    for name in &thread.removed {
+        main.delete(Key::Deleted(name.clone()));
+    }
+    for name in &thread.deleted {
+        let key = Key::Deleted(name.clone());
+        main.put(key.clone(), seal(&key.to_bytes(), &Mark)?);
+    }
     let sealed_meta = seal(&Key::Meta.to_bytes(), &meta)?;
-    for (world, mut batch) in worlds {
+    for (world, (mut batch, written)) in worlds {
         let Some(plan) = thread.plans.get_mut(world) else {
             continue;
         };
@@ -1934,9 +2007,10 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
             continue;
         };
         batch.put(Key::Meta, sealed_meta.clone());
-        file.storage.commit(&batch)?;
-        if let Some(&(_, values)) = snapshot.worlds.iter().find(|(w, _)| *w == world) {
-            plan.values = Some(values);
+        file.storage.commit_with_savepoint(&batch)?;
+        plan.clear = false;
+        if written.is_some() {
+            plan.values = written;
         }
     }
     let Files {
@@ -1945,11 +2019,20 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
     } = &mut thread.files;
     if !players.is_empty() {
         players.put(Key::Meta, sealed_meta.clone());
-        players_file.storage.commit(&players)?;
+        players_file.storage.commit_with_savepoint(&players)?;
     }
     main.put(Key::Meta, sealed_meta);
     main_file.storage.commit(&main)?;
-    thread.saved = meta;
+    let deleted = std::mem::take(&mut thread.deleted);
+    thread.removed = match &thread.opener {
+        Opener::Live { data_dir, .. } => {
+            let (removed, failed) = remove_world_files(data_dir, deleted);
+            thread.deleted = failed;
+            removed
+        }
+        // A replay writes no file; its main file's marks follow the live one's.
+        Opener::Replay(_) => deleted,
+    };
     Ok(())
 }
 
@@ -2063,11 +2146,7 @@ fn sub_chunk_record(chunk: &Chunk, i: usize) -> SubChunkRecord {
 /// The stored form of the biomes of sub-chunk `i` of a chunk.
 pub(crate) fn biome_record(chunk: &Chunk, i: usize) -> Biomes {
     chunk.biome_storage(i).map_or_else(
-        || Biomes {
-            bits: 0,
-            words: Vec::new(),
-            palette: vec![PLAINS],
-        },
+        || empty_sub_chunk().biomes,
         |b| Biomes {
             bits: b.bits(),
             words: b.words().to_vec(),
@@ -2076,6 +2155,12 @@ pub(crate) fn biome_record(chunk: &Chunk, i: usize) -> Biomes {
     )
 }
 
+/// The stored form of a block layer of a chunk: its palette as disk-palette NBT, unknown states
+/// as they were read.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a chunk's unknown entries index its list of unknown states"
+)]
 fn block_layer(chunk: &Chunk, layer: &Paletted<Entry>) -> BlockLayer {
     BlockLayer {
         bits: layer.bits(),
@@ -2089,7 +2174,7 @@ fn block_layer(chunk: &Chunk, layer: &Paletted<Entry>) -> BlockLayer {
                     .ok()
                     .and_then(|i| chunk.unknown().get(i))
                     .cloned()
-                    .unwrap_or_else(|| state_nbt(crate::block::AIR)),
+                    .expect("an unknown entry indexes the chunk's unknown states"),
             })
             .collect(),
     }
@@ -2656,6 +2741,7 @@ pub(crate) mod tests {
             generator: Arc::new(Flat),
             file: None,
             values: Some(values),
+            clear: false,
         };
         assert_eq!(world_record(&plan, values), None, "the file holds them");
         // The time stands still: the spawn alone moved.
@@ -3153,6 +3239,7 @@ pub(crate) mod tests {
             generator: Arc::new(Flat),
             file: Some(open_at(storage)),
             values: None,
+            clear: false,
         }]
     }
 
@@ -3168,10 +3255,8 @@ pub(crate) mod tests {
             },
             plans: plans(storage),
             opener: Opener::Replay(BTreeMap::new()),
-            saved: Meta {
-                tick: 0,
-                identity: None,
-            },
+            deleted: Vec::new(),
+            removed: Vec::new(),
             lighting: true,
             custom: Arc::default(),
             entity_types: Arc::default(),
@@ -3752,7 +3837,6 @@ pub(crate) mod tests {
         assert_eq!(data_files(&dir.0), ["main.redb", "players.redb"]);
         assert_eq!(data_files(&dir.0.join("worlds")), ["world.redb"]);
         let mut opened = open(&dir.0, specs()).unwrap();
-        assert!(opened.later.is_empty());
         assert_eq!(opened.access.ops, ["steve"]);
         assert_eq!(opened.worlds[0].time_ticks(), 600);
         assert_eq!(opened.worlds[0].spawn(), BlockPos::new(3, -60, 3));
@@ -3777,55 +3861,88 @@ pub(crate) mod tests {
         );
     }
 
-    /// A save that stopped between its files (a kill after the world file's commit, before the
-    /// main file's) is found at the next start: the file is named with its save.
+    /// A save that stopped between its files (a kill after the world files' and the players
+    /// file's commits, before the main file's) is rolled back at the next start: every file holds
+    /// the main file's save, a world file that save made is gone, and a second start finds the
+    /// same.
     #[test]
-    fn a_save_stopped_between_files_is_found_at_the_next_start() {
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_save_stopped_between_files_is_rolled_back_at_the_next_start() {
         let dir = TempDir::new("save-split");
         let pos = ChunkPos::new(1, 1);
-        let snapshot = |start| Snapshot {
+        let player = PlayerKey::xuid(9);
+        let data = |start: u64| PlayerData {
+            world: "world".to_owned(),
+            position: [0.5, f64::from(u32::try_from(start).unwrap()), 0.5],
+            extra: Compound::new(),
+        };
+        let snapshot = |start: u64| Snapshot {
             start,
             identity: start,
             chunks: vec![(0, pos, changed_chunk(pos))],
-            players: vec![(
-                PlayerKey::xuid(9),
-                PlayerData {
-                    world: "world".to_owned(),
-                    position: [0.5, -59.0, 0.5],
-                    extra: Compound::new(),
+            players: vec![(player.clone(), data(start))],
+            worlds: vec![(
+                0,
+                WorldValues {
+                    time: i64::try_from(start).unwrap(),
+                    spawn: BlockPos::new(0, -60, 0),
                 },
             )],
             ..Snapshot::default()
         };
         let (_, _, result) = serve(&dir, vec![Request::Commit(Box::new(snapshot(10)))]);
         result.unwrap();
-        assert!(open(&dir.0, specs()).unwrap().later.is_empty());
-        // The next save's world file and players file commit; the kill comes before the main
-        // file's: as the save thread writes them, through its own commit of save 20.
+        // The next save, which also makes the world `lobby`, commits its world files and the
+        // players file; the kill comes before the main file's: as the save thread writes them,
+        // through its own commit of save 20.
         {
             let mut thread = open(&dir.0, specs()).unwrap().thread;
             let pool = crate::runtime::cpu_pool(1).unwrap();
             let main = Place::data(&dir.0, storage::MAIN_FILE);
             // The main file's commit stays in memory: a stand-in for the kill between the files.
+            // The file closes first, so its read-only open is not refused.
             let disk = crate::storage::tests::Disk::default();
             drop(std::mem::replace(
                 &mut thread.files.main.storage,
                 crate::storage::tests::memory(&disk),
             ));
             thread.files.main.storage = Storage::open_replica(&main.file).unwrap();
-            commit(&mut thread, &pool, &snapshot(20)).unwrap();
+            let mut save = snapshot(20);
+            save.new_worlds = vec![NewWorld {
+                index: 2,
+                name: "lobby".to_owned(),
+                number: Some(1),
+                seed: 0,
+                generator: Arc::new(Flat),
+            }];
+            save.chunks.push((2, pos, changed_chunk(pos)));
+            commit(&mut thread, &pool, &save).unwrap();
             assert!(pool.shutdown());
         }
-        let opened = open(&dir.0, specs()).unwrap();
-        assert_eq!(opened.tick, 10);
-        let mut later = opened.later.clone();
-        later.sort();
-        let mut expected = vec![
-            Place::data(&dir.0, storage::PLAYERS_FILE).file,
-            Place::world(&dir.0, "world").file,
-        ];
-        expected.sort();
-        assert_eq!(later, expected);
+        let lobby = Place::world(&dir.0, "lobby").file;
+        assert!(lobby.exists(), "the stopped save made the file");
+        for _ in 0..2 {
+            let opened = open(&dir.0, specs()).unwrap();
+            assert_eq!(opened.tick, 10);
+            assert_eq!(opened.worlds[0].time_ticks(), 10);
+            drop(opened);
+            for place in [
+                Place::data(&dir.0, storage::PLAYERS_FILE),
+                Place::world(&dir.0, "world"),
+            ] {
+                let meta = committed_meta(&place.file).unwrap();
+                assert_eq!((meta.tick, meta.identity), (10, Some(10)), "{place:?}");
+            }
+            assert!(!lobby.exists(), "the file the stopped save made is gone");
+            let (answers, _, _) = serve(&dir, vec![Request::Player(player.clone())]);
+            assert!(
+                matches!(
+                    &answers[..],
+                    [Response::Player { data: PlayerLoad::Found(found), .. }] if *found == data(10)
+                ),
+                "{answers:?}"
+            );
+        }
     }
 
     /// The world files of `data/worlds/` are the stored worlds, declared or not; a name that is
@@ -4041,42 +4158,223 @@ pub(crate) mod tests {
         assert_eq!((lobby.number(), lobby.time_ticks()), (Some(4), 9));
     }
 
-    /// Deleting a world removes its file alone, after the commits before it.
+    /// Deleting a world removes its file alone, and only once a commit after the deletion holds
+    /// it: until then a stop leaves the file, as the main file's last save has the world.
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn a_deleted_world_loses_its_file_alone() {
+    fn a_deleted_world_loses_its_file_alone_once_a_commit_holds_the_deletion() {
         let dir = TempDir::new("delete");
         let pos = ChunkPos::new(1, 1);
-        let snapshot = Snapshot {
-            start: 5,
+        let snapshot = |start| Snapshot {
+            start,
             chunks: vec![(0, pos, changed_chunk(pos)), (2, pos, changed_chunk(pos))],
             ..Snapshot::default()
         };
-        let requests = vec![
-            Request::Commit(Box::new(snapshot)),
+        let delete = || {
             Request::DeleteWorlds(vec![DeletedWorld {
                 name: "lobby".to_owned(),
                 index: Some(2),
-            }]),
-        ];
-        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
-        let (answer, _answers) = mpsc::channel(RESPONSE_CAPACITY);
-        for request in requests {
-            tx.try_send(request).unwrap();
-        }
-        tx.try_send(Request::Finish).unwrap();
-        drop(tx);
-        let thread = open(&dir.0, specs_with_lobby()).unwrap().thread;
-        let handle = crate::runtime::spawn_save(move || {
-            let pool = crate::runtime::cpu_pool(1).unwrap();
-            let result = run(thread, &pool, rx, &answer);
-            assert!(pool.shutdown());
-            result
-        })
-        .unwrap();
-        handle.join().unwrap().unwrap();
+            }])
+        };
+        let serve_lobby = |requests: Vec<Request>| {
+            let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
+            let (answer, _answers) = mpsc::channel(RESPONSE_CAPACITY);
+            for request in requests {
+                tx.try_send(request).unwrap();
+            }
+            tx.try_send(Request::Finish).unwrap();
+            drop(tx);
+            let thread = open(&dir.0, specs_with_lobby()).unwrap().thread;
+            let handle = crate::runtime::spawn_save(move || {
+                let pool = crate::runtime::cpu_pool(1).unwrap();
+                let result = run(thread, &pool, rx, &answer);
+                assert!(pool.shutdown());
+                result
+            })
+            .unwrap();
+            handle.join().unwrap().unwrap();
+        };
+        let mark = Key::Deleted("lobby".to_owned());
+        let marked = || {
+            let main = Place::data(&dir.0, storage::MAIN_FILE).file;
+            let mut storage = Storage::open_replica(&main).unwrap();
+            storage.read(std::slice::from_ref(&mark)).unwrap()[0]
+                .as_ref()
+                .unwrap()
+                .is_some()
+        };
+        serve_lobby(vec![Request::Commit(Box::new(snapshot(5))), delete()]);
+        assert_eq!(world_files(&dir.0).unwrap(), ["lobby", "world"]);
+        assert!(!marked(), "no commit holds the deletion");
+        serve_lobby(vec![
+            Request::Commit(Box::new(snapshot(6))),
+            delete(),
+            Request::Commit(Box::new(Snapshot {
+                start: 7,
+                ..Snapshot::default()
+            })),
+        ]);
         assert!(!Place::world(&dir.0, "lobby").file.exists());
         assert!(Place::world(&dir.0, "world").file.exists());
         assert_eq!(world_files(&dir.0).unwrap(), ["world"]);
+        // The main file's commit holds the deletion until a later commit or start drops the mark
+        // the removed file no longer needs.
+        assert!(marked(), "the commit holds the deletion");
+        drop(open(&dir.0, specs()).unwrap());
+        assert!(!marked());
+    }
+
+    /// A deletion the main file's last commit holds whose file a stop left (killed right after
+    /// that commit) is finished by the next start: the file goes, and so does the mark, and a
+    /// second start finds the same.
+    #[test]
+    fn a_start_removes_the_file_of_a_world_the_last_save_deleted() {
+        let dir = TempDir::new("delete-finished");
+        let pos = ChunkPos::new(1, 1);
+        let (_, _, result) = serve(
+            &dir,
+            vec![
+                Request::Worlds(vec![NewWorld {
+                    index: 2,
+                    name: "lobby".to_owned(),
+                    number: Some(1),
+                    seed: 0,
+                    generator: Arc::new(Flat),
+                }]),
+                Request::Commit(Box::new(Snapshot {
+                    start: 5,
+                    chunks: vec![(2, pos, changed_chunk(pos))],
+                    worlds: vec![(
+                        2,
+                        WorldValues {
+                            time: 0,
+                            spawn: BlockPos::new(0, -60, 0),
+                        },
+                    )],
+                    ..Snapshot::default()
+                })),
+            ],
+        );
+        result.unwrap();
+        // The save that deleted the world: its main file's commit, and no removal after it.
+        let main = Place::data(&dir.0, storage::MAIN_FILE);
+        let mut storage = Storage::open(&main, Start::checked(StartBackup::Skip)).unwrap();
+        let mark = Key::Deleted("lobby".to_owned());
+        let mut batch = Batch::default();
+        batch.put(mark.clone(), seal(&mark.to_bytes(), &Mark).unwrap());
+        storage.commit(&batch).unwrap();
+        drop(storage);
+        assert_eq!(world_files(&dir.0).unwrap(), ["lobby", "world"]);
+        for _ in 0..2 {
+            let opened = open(&dir.0, specs()).unwrap();
+            assert_eq!(opened.catalog.stored, []);
+            drop(opened);
+            assert_eq!(world_files(&dir.0).unwrap(), ["world"]);
+            let mut storage = Storage::open_replica(&main.file).unwrap();
+            assert!(
+                storage.read(std::slice::from_ref(&mark)).unwrap()[0]
+                    .as_ref()
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    /// A world file first opened while the server runs gets no redb integrity check, which reads
+    /// the whole file on the save thread: it checks its format alone.
+    #[test]
+    fn a_world_file_opened_while_the_server_runs_gets_no_integrity_check() {
+        let dir = TempDir::new("run-open-check");
+        let lobby = Place::world(&dir.0, "lobby");
+        Storage::open(&lobby, Start::checked(StartBackup::Skip))
+            .unwrap()
+            .close()
+            .unwrap();
+        let mut thread = open(&dir.0, specs()).unwrap().thread;
+        crate::storage::tests::CHECKS.set(0);
+        thread.add_worlds(&[NewWorld {
+            index: 2,
+            name: "lobby".to_owned(),
+            number: Some(0),
+            seed: 0,
+            generator: Arc::new(Flat),
+        }]);
+        assert!(thread.plans[2].file.is_some(), "the world file opened");
+        assert_eq!(crate::storage::tests::CHECKS.get(), 0);
+    }
+
+    /// A world made again under the name of one deleted since the last commit takes the deleted
+    /// one's file, which then stays, with the number the tick gave it: none of the deleted world's
+    /// terrain loads into it, and its next commit deletes every value the deleted world left.
+    #[test]
+    fn a_world_made_again_before_the_deletion_is_committed_takes_the_file_without_its_values() {
+        let dir = TempDir::new("delete-made-again");
+        let pos = ChunkPos::new(1, 1);
+        let (answers, _, result) = serve(
+            &dir,
+            vec![
+                Request::Worlds(vec![NewWorld {
+                    index: 2,
+                    name: "lobby".to_owned(),
+                    number: Some(1),
+                    seed: 0,
+                    generator: Arc::new(Flat),
+                }]),
+                Request::Commit(Box::new(Snapshot {
+                    start: 5,
+                    chunks: vec![(2, pos, changed_chunk(pos))],
+                    worlds: vec![(
+                        2,
+                        WorldValues {
+                            time: 0,
+                            spawn: BlockPos::new(0, -60, 0),
+                        },
+                    )],
+                    ..Snapshot::default()
+                })),
+                Request::DeleteWorlds(vec![DeletedWorld {
+                    name: "lobby".to_owned(),
+                    index: Some(2),
+                }]),
+                Request::Worlds(vec![NewWorld {
+                    index: 2,
+                    name: "Lobby".to_owned(),
+                    number: Some(2),
+                    seed: 0,
+                    generator: Arc::new(Flat),
+                }]),
+                Request::Chunks(vec![(2, pos)]),
+                Request::Commit(Box::new(Snapshot {
+                    start: 6,
+                    ..Snapshot::default()
+                })),
+            ],
+        );
+        result.unwrap();
+        assert!(
+            answers.iter().any(|a| matches!(
+                a,
+                Response::Chunk {
+                    world: 2,
+                    loaded: Loaded::Generated(..),
+                    ..
+                }
+            )),
+            "{answers:?}"
+        );
+        assert_eq!(world_files(&dir.0).unwrap(), ["lobby", "world"]);
+        let mut lobby = Storage::open_replica(&Place::world(&dir.0, "lobby").file).unwrap();
+        let old = lobby.read_chunks(&[chunk_id(1, pos)]).unwrap();
+        assert!(
+            matches!(&old[..], [Ok(values)] if values.is_empty()),
+            "the deleted world's chunk is left: {old:?}"
+        );
+        assert!(
+            lobby.read(&[Key::World]).unwrap()[0]
+                .as_ref()
+                .unwrap()
+                .is_none(),
+            "the deleted world's record is left"
+        );
     }
 }

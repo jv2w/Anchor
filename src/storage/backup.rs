@@ -163,7 +163,7 @@ fn prune(dir: &Path, newest: &Path) -> Result<()> {
 /// The backups in `dir` with the order of their names; none if `dir` does not exist.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread lists backups at start"
+    reason = "off-tick: the save thread and a replay list a backup folder"
 )]
 pub(super) fn backups(dir: &Path) -> Result<Vec<((u64, u32), PathBuf)>> {
     let entries = match std::fs::read_dir(dir) {
@@ -218,8 +218,8 @@ fn target(file: std::fs::File) -> Result<tests::Counted, redb::DatabaseError> {
     FileBackend::new(file).map(tests::Counted)
 }
 
-/// A table of the server file as an online backup copies it (or a check reads it): its name and
-/// the entries left.
+/// A table of a data file as an online backup copies it (or a check reads it): its name and the
+/// entries left.
 pub(super) type Source = (
     String,
     Peekable<redb::Range<'static, &'static [u8], &'static [u8]>>,
@@ -229,7 +229,7 @@ pub(super) type Source = (
 /// last commit, which commits made meanwhile do not change.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread reads the server file for a backup or a check"
+    reason = "off-tick: the save thread reads a data file for a backup or a check"
 )]
 pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
     let read = source.begin_read()?;
@@ -245,13 +245,15 @@ pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
     Ok(tables)
 }
 
-/// An online backup being made: every table of one read transaction of the
-/// open server file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
-/// database under `<backup>.tmp`, which is then committed durably once, closed, flushed to disk
-/// and renamed, and its folder flushed. The step commits are not flushed: only the whole copy has to reach the disk, and
-/// a copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view
-/// of one commit, so commits made between steps are not in the copy. Dropped before it is whole,
-/// it removes its temporary file.
+/// An online backup being made: every table of one read transaction of an open data file, copied
+/// in steps of at most [`STEP_BYTES`], one commit each, into a new database under `<backup>.tmp`,
+/// which is then committed durably once, closed, flushed to disk and renamed, and its folder
+/// flushed. The step commits are not flushed: only the whole copy has to reach the disk, and a
+/// copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view of
+/// one commit, so commits made between steps are not in the copy. A backup begins only after the
+/// main file's commit of the save it copies (or at start, after the roll back to that save), so
+/// its rename and the pruning after it come after that commit too. Dropped before it is whole, it
+/// removes its temporary file.
 pub(crate) struct Online {
     // Dropped in this order: the source's read transaction, the copy, then its file, which
     // Windows cannot remove while it is open.
@@ -371,7 +373,7 @@ impl Online {
             .map_err(Error::Io)?;
         temp.rename(&path)?;
         if let Err(e) = prune(&dir, &path) {
-            warn!(error = %e, "could not remove old backups");
+            warn!(path = %dir.display(), error = %e, "could not remove old backups");
         }
         Ok(path)
     }

@@ -3,40 +3,44 @@
 //! folder that BDS and the game open, and returns a [`Report`].
 //!
 //! The world file is opened read-only and read in one read transaction (`storage::Snapshot`), so
-//! the folder holds one commit; a file a server has open is refused. Its chunks are read in
+//! the folder holds one commit; a file a server has open is refused, and so is one later than
+//! the main file, which a start of the server rolls back. Its chunks are read in
 //! Bedrock key order (x, then z, little-endian) a step at a time, then decoded and converted on
 //! the CPU pool, and the step's values are made into compressed data blocks on the pool by runs
 //! of `RUN_BYTES`. The pool keeps input order, and the LevelDB writer (`leveldb`) puts the
 //! blocks in tables in that order: the same file gives the same bytes whatever the thread count.
-//! A chunk's terrain is its
-//! sub-chunk values (`chunk`), or what the world's generator makes when it has none (a chunk whose
-//! extras alone were saved); its block entities go as they are saved, in Bedrock form. Entities
-//! and scheduled block updates are left out and counted: their saved form is Anchor's. Chunks
-//! the file does not hold (generated and never changed) are not written: the `level.dat`
-//! (`level_dat`) gives the Bedrock world a flat generator that makes them.
+//! A chunk's terrain is its sub-chunk values (`chunk`), or what the world's generator makes when
+//! it has none (a chunk whose extras alone were saved); its block entities go as they are saved,
+//! in Bedrock form. Entities, scheduled block updates and spills (the items of broken containers
+//! waiting to drop) are left out and counted: their saved form is Anchor's. Chunks the file does
+//! not hold (generated and never changed) are not written: the `level.dat` (`level_dat`) gives
+//! the Bedrock world a flat generator that makes them.
 //!
 //! Everything is written into `<folder>.tmp`, flushed to disk and renamed to the folder at the
-//! end, so the folder appears whole or not at all; a failure removes the temporary folder.
+//! end, so the folder appears whole or not at all; a failure removes the export's own folder.
 
 mod chunk;
 mod level_dat;
 mod leveldb;
 
 use std::fmt;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use tracing::{info, warn};
 
 use crate::import::MAX_CHUNKS;
+use crate::nbt::{Compound, Value};
 use crate::pool::Pool;
 use crate::save::{self, WorldSpec};
 use crate::storage::codec::WorldRecord;
 use crate::storage::seal::unseal;
-use crate::storage::{ChunkId, ChunkKind, ChunkPart, Key, Place, Snapshot};
+use crate::storage::{ChunkId, ChunkKind, ChunkPart, Key, MAIN_FILE, Place, Snapshot};
+use crate::tick::SPILL_ID;
 use crate::world::{Chunk, ChunkPos, Generator};
 
-/// Most chunks read, then converted, per step: bounds the chunk data held at once.
+/// Most chunks read, then converted, per step: with [`STEP_BYTES`], bounds the chunk data
+/// held at once.
 const STEP: usize = 256;
 /// Read value bytes after which a step ends, if it has not reached [`STEP`] chunks.
 const STEP_BYTES: usize = 256 << 20;
@@ -51,27 +55,35 @@ pub struct Report {
     block_entities: u64,
     entities: u64,
     scheduled_updates: u64,
+    spills: u64,
 }
 
 impl Report {
-    /// The chunks written: every chunk the world file holds.
+    /// Returns the number of chunks written: every chunk the world file holds.
     pub fn chunks(&self) -> u64 {
         self.chunks
     }
 
-    /// The block entities written.
+    /// Returns the number of block entities written.
     pub fn block_entities(&self) -> u64 {
         self.block_entities
     }
 
-    /// The entities left out: Anchor saves them in its own form.
+    /// Returns the number of entities left out: Anchor saves them in its own form.
     pub fn entities(&self) -> u64 {
         self.entities
     }
 
-    /// The scheduled block updates left out: Anchor saves them in its own form.
+    /// Returns the number of scheduled block updates left out: Anchor saves them in its own
+    /// form.
     pub fn scheduled_updates(&self) -> u64 {
         self.scheduled_updates
+    }
+
+    /// Returns the number of spills left out: the items of broken containers waiting to drop,
+    /// which Anchor saves in its own form beside the block entities.
+    pub fn spills(&self) -> u64 {
+        self.spills
     }
 }
 
@@ -86,7 +98,8 @@ pub enum Error {
         name: String,
     },
     /// The folder to write, or the temporary folder `<folder>.tmp` next to it, is already
-    /// there. Nothing was written.
+    /// there. Nothing was written. The export writes a new folder; the world is chosen by its
+    /// name.
     FolderExists {
         /// The folder.
         path: PathBuf,
@@ -112,8 +125,13 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoWorld { name } => write!(f, "the world {name:?} has no saved file"),
-            Self::FolderExists { path } => write!(f, "{} is already there", path.display()),
+            Self::NoWorld { name } => write!(f, "the world {name:?} has no saved state"),
+            Self::FolderExists { path } => write!(
+                f,
+                "{} is already there; the export writes a new folder and takes the world by its \
+                 name",
+                path.display()
+            ),
             Self::Write { path, .. } => write!(f, "cannot write {}", path.display()),
             Self::Chunk { x, z, .. } => write!(f, "chunk {x} {z}"),
         }
@@ -130,14 +148,6 @@ impl std::error::Error for Error {
     }
 }
 
-/// The error of writing `path`.
-fn written(path: &Path) -> impl Fn(io::Error) -> Error + '_ {
-    move |source| Error::Write {
-        path: path.to_path_buf(),
-        source,
-    }
-}
-
 /// A converted chunk: its values in key order and what it adds to the report.
 #[derive(Debug)]
 struct Converted {
@@ -145,6 +155,7 @@ struct Converted {
     block_entities: u64,
     entities: u64,
     scheduled_updates: u64,
+    spills: u64,
 }
 
 /// Exports the persistent world `name` of `worlds` from the data folder `data_dir` into the new
@@ -181,7 +192,10 @@ pub(crate) fn run(
             return Err(Error::FolderExists { path: path.clone() }.into());
         }
     }
-    let snapshot = Snapshot::open(&Place::world(data_dir, &file).file)?;
+    let snapshot = Snapshot::open(
+        &Place::world(data_dir, &file).file,
+        &Place::data(data_dir, MAIN_FILE).file,
+    )?;
     let key = Key::World;
     let record: WorldRecord = match snapshot.world()? {
         Some(sealed) => unseal(&key.to_bytes(), &sealed)?,
@@ -192,37 +206,25 @@ pub(crate) fn run(
 
     // Started before the temporary folder is made, so a pool that fails to start leaves no folder.
     let pool = crate::runtime::cpu_pool(cpu)?;
-    let made = (|| {
-        if let Some(parent) = temp.parent() {
-            std::fs::create_dir_all(parent).map_err(written(parent))?;
-        }
-        std::fs::create_dir(&temp).map_err(|e| match e.kind() {
-            io::ErrorKind::AlreadyExists => Error::FolderExists { path: temp.clone() },
-            _ => written(&temp)(e),
-        })
-    })();
-    if let Err(e) = made {
-        // Not removed: the folder is not the export's own when it could not be made.
-        if !pool.shutdown() {
-            warn!("the export's CPU pool threads did not all end");
-        }
-        return Err(e.into());
-    }
-    let exported = write(&temp, &snapshot, &pool, &spec, &record, &ids);
-    if !pool.shutdown() {
-        warn!("the export's CPU pool threads did not all end");
-    }
-    let finished = exported.and_then(|report| {
+    // A temporary folder that could not be made is not the export's own: it is not removed.
+    let exported =
+        create_temp(&temp).map(|()| write(&temp, &snapshot, &pool, &spec, &record, &ids));
+    // The pool logs threads that do not end; the export's outcome does not depend on them.
+    pool.shutdown();
+    // The export's own folder: the temporary one until the rename, then `dir`.
+    let mut own = temp.as_path();
+    let finished = exported?.and_then(|report| {
         std::fs::rename(&temp, &dir).map_err(written(&dir))?;
+        own = dir.as_path();
         crate::fs::sync_parent(&dir).map_err(written(&dir))?;
         Ok(report)
     });
     let report = match finished {
         Ok(report) => report,
         Err(e) => {
-            // The temporary folder is the export's own: it goes whole.
-            if let Err(e) = std::fs::remove_dir_all(&temp) {
-                warn!(folder = %temp.display(), error = %e, "could not remove the failed export's folder");
+            // The export's own folder goes whole, so a failure leaves no folder.
+            if let Err(e) = std::fs::remove_dir_all(own) {
+                warn!(folder = %own.display(), error = %e, "could not remove the failed export's folder");
             }
             return Err(e);
         }
@@ -234,9 +236,28 @@ pub(crate) fn run(
         block_entities = report.block_entities,
         left_out_entities = report.entities,
         left_out_scheduled_updates = report.scheduled_updates,
+        left_out_spills = report.spills,
         "world exported"
     );
     Ok(report)
+}
+
+/// Creates the temporary folder `temp` and the folders above it that are missing; one already
+/// there is [`Error::FolderExists`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the export writes a world folder instead of running the server"
+)]
+fn create_temp(temp: &Path) -> Result<(), Error> {
+    if let Some(parent) = temp.parent() {
+        std::fs::create_dir_all(parent).map_err(written(parent))?;
+    }
+    std::fs::create_dir(temp).map_err(|e| match e.kind() {
+        io::ErrorKind::AlreadyExists => Error::FolderExists {
+            path: temp.to_path_buf(),
+        },
+        _ => written(temp)(e),
+    })
 }
 
 /// Writes the world `spec` names, with the state `record` and the chunks `ids` (in Bedrock key
@@ -277,38 +298,44 @@ fn write(
         let converted = pool.map(&step, |(id, values)| {
             convert(*id, values, spec.generator.as_ref(), seed)
         });
+        // The read values are done with: only their converted form is held from here on.
+        drop(step);
         let mut runs: Vec<Vec<(Vec<u8>, Vec<u8>)>> = Vec::new();
-        let mut run_bytes = RUN_BYTES;
+        let mut run_bytes = 0usize;
         for c in converted {
             let c = c?;
             report.chunks += 1;
             report.block_entities += c.block_entities;
             report.entities += c.entities;
             report.scheduled_updates += c.scheduled_updates;
+            report.spills += c.spills;
             for entry in c.values {
-                if run_bytes >= RUN_BYTES {
-                    runs.push(Vec::new());
-                    run_bytes = 0;
+                let entry_bytes = entry.0.len().saturating_add(entry.1.len());
+                match runs.last_mut() {
+                    Some(run) if run_bytes < RUN_BYTES => run.push(entry),
+                    _ => {
+                        runs.push(vec![entry]);
+                        run_bytes = 0;
+                    }
                 }
-                run_bytes = run_bytes.saturating_add(entry.0.len() + entry.1.len());
-                if let Some(run) = runs.last_mut() {
-                    run.push(entry);
-                }
+                run_bytes = run_bytes.saturating_add(entry_bytes);
             }
         }
-        for blocks in pool.map(&runs, |run| leveldb::blocks(run)) {
+        let blocks = pool.map(&runs, |run| leveldb::blocks(run));
+        // The values are done with: only their blocks are held from here on.
+        drop(runs);
+        for blocks in blocks {
             for block in blocks.map_err(written(&db))? {
-                writer.add(block).map_err(written(&db))?;
+                writer.add(block)?;
             }
         }
     }
-    writer.finish().map_err(written(&db))?;
+    writer.finish()?;
     let level_dat = temp.join("level.dat");
-    leveldb::write_new(
+    write_new(
         &level_dat,
         &level_dat::encode(&spec.name, record, spec.generator.as_ref()),
-    )
-    .map_err(written(&level_dat))?;
+    )?;
     crate::fs::sync_parent(&db.join("CURRENT")).map_err(written(&db))?;
     crate::fs::sync_parent(&level_dat).map_err(written(temp))?;
     Ok(report)
@@ -323,9 +350,34 @@ fn create_dir(dir: &Path) -> Result<(), Error> {
     std::fs::create_dir(dir).map_err(written(dir))
 }
 
+/// Creates the file `path`, which must not exist, writes `bytes` to it and flushes it to disk.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the export writes a world folder instead of running the server"
+)]
+fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(bytes)?;
+        file.sync_all()
+    })()
+    .map_err(written(path))
+}
+
+/// Returns what turns an I/O error of writing `path` into [`Error::Write`].
+fn written(path: &Path) -> impl Fn(io::Error) -> Error + '_ {
+    move |source| Error::Write {
+        path: path.to_path_buf(),
+        source,
+    }
+}
+
 /// Converts the chunk `id` from its stored `values` into its Bedrock values: a pure function of
 /// its inputs, for the CPU pool. A chunk without terrain values gets what `generator` makes with
-/// `seed`.
+/// `seed`; its spills are left out.
 fn convert(
     id: ChunkId,
     values: &[(ChunkPart, Vec<u8>)],
@@ -342,14 +394,21 @@ fn convert(
     let record = save::stored_terrain(terrain)
         .unwrap_or_else(|| save::to_record(&Chunk::generate(generator, seed, pos)));
     let extras = &stored.extras;
-    let block_entities = extras.get(ChunkKind::BlockEntities);
-    let values = chunk::values(pos, &record, block_entities).map_err(|e| at(Box::new(e)))?;
+    let saved = extras.get(ChunkKind::BlockEntities);
+    let block_entities: Vec<&Compound> = saved.iter().filter(|nbt| !is_spill(nbt)).collect();
+    let values = chunk::values(pos, &record, &block_entities).map_err(|e| at(Box::new(e)))?;
     Ok(Converted {
         values,
         block_entities: block_entities.len() as u64,
         entities: extras.get(ChunkKind::Entities).len() as u64,
         scheduled_updates: extras.get(ChunkKind::ScheduledUpdates).len() as u64,
+        spills: (saved.len() - block_entities.len()) as u64,
     })
+}
+
+/// Returns whether the saved block entity entry `nbt` is a spill, which only Anchor reads.
+fn is_spill(nbt: &Compound) -> bool {
+    matches!(nbt.get("id"), Some(Value::String(id)) if id == SPILL_ID)
 }
 
 #[cfg(test)]

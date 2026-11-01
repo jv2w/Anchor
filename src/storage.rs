@@ -7,7 +7,8 @@
 //! Only the save thread, the world import before the server runs, a replay
 //! ([`Storage::open_replica`]) and the world export ([`Snapshot`]) use this module; every call
 //! blocks on file I/O. Tables map raw keys
-//! to sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]: the save it last committed),
+//! to sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]: the save it last committed; in
+//! the main file also the deletion marks of the worlds that save deleted, [`Key::Deleted`]),
 //! `worlds` (in a world file, [`WORLD_KEY`] → [`WorldRecord`](codec::WorldRecord)), `chunks`
 //! ([`ChunkKey`] → the record its [`ChunkPart`] names), `players` ([`PlayerKey`] →
 //! [`PlayerRecord`](codec::PlayerRecord)), `access` ([`AccessKey`] → [`Mark`](codec::Mark) for
@@ -31,6 +32,13 @@
 //! absolute, so a retry of a commit that did land writes the same state again. Batched reads
 //! ([`Storage::read`]) retry the same way. The world import ([`Storage::begin_import`]) writes a
 //! whole imported world in one such transaction, committed once.
+//!
+//! The main file's commit is the one point a save is made at: the players and world files commit
+//! before it, each keeping a redb persistent savepoint of itself as it was
+//! ([`Storage::commit_with_savepoint`]), one per file. A start rolls every file later than the
+//! main file back to its savepoint before it opens it ([`settle`]), so after a stop anywhere the
+//! files hold the main file's last save together. Paths that only read refuse such a file
+//! ([`Error::Ahead`]).
 //!
 //! An online backup ([`Storage::begin_backup`]) copies the last commit from one read transaction
 //! in steps, between which reads and commits go on; a reopen of the file stops it. A check
@@ -100,6 +108,9 @@ const WORLD_KEY: &[u8] = b"world";
 /// [`Storage::close`] writes it and the first commit of a start removes it, so it is there only
 /// while the file is closed after a normal stop (`integrity-check = "after-unclean-shutdown"`).
 const CLOSED_KEY: &[u8] = b"closed";
+/// What the keys of the deletion marks ([`Key::Deleted`]) in the `meta` table start with, before
+/// the world's name.
+const DELETED_PREFIX: &[u8] = b"deleted:";
 
 /// A data file and the folder of its backups: `data/<name>.redb` and `data/backups/<name>/` for
 /// the server's files, `data/worlds/<world>.redb` and `data/backups/worlds/<world>/` for a world.
@@ -180,20 +191,21 @@ pub(crate) fn world_name_key(name: &str) -> String {
 
 /// A failure of a data file or of one stored value.
 #[derive(Debug)]
-#[non_exhaustive]
 pub(crate) enum Error {
     /// A file or folder under the data folder could not be read or written.
     Io(io::Error),
     /// Another process has the data file open.
     InUse,
-    /// redb failed for a reason other than damage, such as I/O.
+    /// redb failed: I/O, or a page it found corrupted, which [`is_damage`](Self::is_damage) tells
+    /// apart.
     Database(redb::Error),
     /// The data file failed redb's integrity check (or redb repaired it, which means it was
     /// damaged); the source is redb's report, if it gave one.
     DamagedFile(Option<redb::Error>),
     /// A value does not match its checksum.
     Checksum,
-    /// A value's header is invalid, or its length disagrees with its body.
+    /// A stored value or key is invalid: a value's header, a length that disagrees with its body,
+    /// or a key no Anchor writes.
     Malformed(&'static str),
     /// A value's body does not decompress.
     Compression(crate::protocol::compression::Error),
@@ -218,6 +230,12 @@ pub(crate) enum Error {
     },
     /// The world's data file is not open: it failed to open, or a replay has no copy of it.
     Closed,
+    /// A data file holds a later save than the main file (a save stopped before the main file),
+    /// so a path that only reads refuses it: one start of the server rolls it back ([`settle`]).
+    Ahead,
+    /// A data file holds a later save than the main file, and no savepoint of it rolls it back to
+    /// that save or an earlier one: damage.
+    NoRollback,
 }
 
 /// The result of a storage operation.
@@ -235,6 +253,7 @@ impl Error {
                 | Self::Compression(_)
                 | Self::Record(_)
                 | Self::Database(redb::Error::Corrupted(_))
+                | Self::NoRollback
         )
     }
 
@@ -284,6 +303,14 @@ impl fmt::Display for Error {
             Self::TooManyChunks { limit } => {
                 write!(f, "a world file holds more than {limit} chunks")
             }
+            Self::Ahead => f.write_str(
+                "a data file holds a later save than the main file; start the server once to roll \
+                 it back to the main file's save",
+            ),
+            Self::NoRollback => f.write_str(
+                "a data file holds a later save than the main file and cannot be rolled back to \
+                 it",
+            ),
         }
     }
 }
@@ -303,7 +330,9 @@ impl std::error::Error for Error {
             | Self::TooManyWorlds
             | Self::TooManyAccessEntries
             | Self::TooManyChunks { .. }
-            | Self::Closed => None,
+            | Self::Closed
+            | Self::Ahead
+            | Self::NoRollback => None,
         }
     }
 }
@@ -325,6 +354,7 @@ from_redb!(
     TableError,
     redb::StorageError,
     redb::CommitError,
+    redb::SavepointError,
     DatabaseError
 );
 
@@ -549,6 +579,10 @@ pub(crate) enum Key {
     Access(AccessKey),
     /// A `user` value, by the server data's name.
     User(String),
+    /// A deletion mark in the main file's `meta` table, by the world's name
+    /// ([`Mark`](codec::Mark)): the save
+    /// the main file holds deleted the world, so its file goes, at the latest at the next start.
+    Deleted(String),
 }
 
 impl Key {
@@ -557,10 +591,11 @@ impl Key {
         match self {
             Self::Meta => Cow::Borrowed(META_KEY),
             Self::World => Cow::Borrowed(WORLD_KEY),
-            Self::User(name) => Cow::Borrowed(name.as_bytes()),
             Self::Chunk(key) => Cow::Owned(key.to_bytes()),
             Self::Player(PlayerKey(key)) => Cow::Borrowed(key.as_bytes()),
             Self::Access(key) => Cow::Owned(key.to_bytes()),
+            Self::User(name) => Cow::Borrowed(name.as_bytes()),
+            Self::Deleted(name) => Cow::Owned([DELETED_PREFIX, name.as_bytes()].concat()),
         }
     }
 
@@ -569,7 +604,7 @@ impl Key {
     fn pick<'a, T>(&self, tables: &'a [T; 6]) -> &'a T {
         let [meta, worlds, chunks, players, access, user] = tables;
         match self {
-            Self::Meta => meta,
+            Self::Meta | Self::Deleted(_) => meta,
             Self::World => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
@@ -582,7 +617,7 @@ impl Key {
     fn pick_mut<'a, T>(&self, tables: &'a mut [T; 6]) -> &'a mut T {
         let [meta, worlds, chunks, players, access, user] = tables;
         match self {
-            Self::Meta => meta,
+            Self::Meta | Self::Deleted(_) => meta,
             Self::World => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
@@ -607,6 +642,8 @@ enum Write {
     Delete(Key),
     /// Every page of the chunk's list of the kind, from the page on.
     DeletePages(ChunkId, ChunkKind, u16),
+    /// Every value of the `worlds` and `chunks` tables.
+    Clear,
 }
 
 impl Batch {
@@ -633,6 +670,12 @@ impl Batch {
         self.writes.push(Write::DeletePages(chunk, kind, first));
     }
 
+    /// Deletes the world record and every chunk value the file holds: a world file another world
+    /// takes over.
+    pub(crate) fn clear(&mut self) {
+        self.writes.push(Write::Clear);
+    }
+
     /// The number of writes.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
@@ -645,7 +688,7 @@ impl Batch {
     }
 }
 
-/// Where the database lives: the server file, or a test's simulated disk.
+/// Where the database lives: the data file, or a test's simulated disk.
 #[derive(Debug)]
 enum Source {
     File(PathBuf),
@@ -659,7 +702,7 @@ impl Source {
     #[expect(
         clippy::disallowed_types,
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread opens the server file"
+        reason = "off-tick: the save thread opens the data file"
     )]
     fn open(&self) -> Result<Database> {
         let mut builder = Builder::new();
@@ -693,7 +736,7 @@ pub(crate) enum StartBackup {
     Skip,
 }
 
-/// How [`Storage::open`] starts on the server file: the `backups` and `integrity-check` settings.
+/// How [`Storage::open`] starts on the data file: the `backups` and `integrity-check` settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Start {
     pub(crate) backup: StartBackup,
@@ -701,7 +744,7 @@ pub(crate) struct Start {
 }
 
 impl Start {
-    /// The start the settings ask for: every open of the server file (the server's and the world
+    /// The start the settings ask for: every open of the data file (the server's and the world
     /// import's) uses it.
     pub(crate) fn of(config: &crate::config::Config) -> Self {
         Self {
@@ -714,7 +757,7 @@ impl Start {
         }
     }
 
-    /// `backup` with a check, as the tests open server files.
+    /// `backup` with a check, as the tests open data files.
     #[cfg(test)]
     pub(crate) const fn checked(backup: StartBackup) -> Self {
         Self {
@@ -724,7 +767,7 @@ impl Start {
     }
 }
 
-/// The open server file. Dropping it closes the file without compacting it.
+/// The open data file. Dropping it closes the file without compacting it.
 #[derive(Debug)]
 pub(crate) struct Storage {
     /// The online backup being made ([`Storage::begin_backup`]). Declared first: it holds a read
@@ -740,7 +783,7 @@ pub(crate) struct Storage {
     replica: Option<Box<Replica>>,
 }
 
-/// A server file opened read-only for a replay: commits go to memory on
+/// A data file opened read-only for a replay: commits go to memory on
 /// top of the file, which is never written, and reads see them as they would see a commit.
 struct Replica {
     db: redb::ReadOnlyDatabase,
@@ -771,7 +814,7 @@ impl Replica {
     /// Reads `keys` as [`Storage::read`] does, committed values first.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: a replay reads the server file on its own thread"
+        reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn read(&self, keys: &[Key]) -> Result<Vec<Result<Option<Vec<u8>>>>> {
         let txn = self.db.begin_read()?;
@@ -810,7 +853,7 @@ impl Replica {
     /// in their place.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: a replay reads the server file on its own thread"
+        reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn read_chunks(&self, chunks: &[ChunkId]) -> Result<Vec<ChunkValues>> {
         let txn = self.db.begin_read()?;
@@ -858,7 +901,7 @@ impl Replica {
     /// Every `access` value (at most `max`), committed values in their place, in key order.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: a replay reads the server file on its own thread"
+        reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn access(&self, max: usize) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let txn = self.db.begin_read()?;
@@ -882,7 +925,7 @@ impl Replica {
     /// Applies `batch` to the values in memory, as [`write()`] does to the file.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: a replay reads the server file on its own thread"
+        reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn commit(&mut self, batch: &Batch) -> Result<()> {
         for write in &batch.writes {
@@ -907,6 +950,21 @@ impl Replica {
                     }
                     for value in written.range_mut(first..=last) {
                         *value.1 = None;
+                    }
+                }
+                Write::Clear => {
+                    let txn = self.db.begin_read()?;
+                    let [_, worlds, chunks, _, _, _] = &mut self.overlay;
+                    for (table, written) in [(WORLDS, worlds), (CHUNKS, chunks)] {
+                        for value in written.values_mut() {
+                            *value = None;
+                        }
+                        if let Some(table) = open_read(&txn, table)? {
+                            for entry in table.iter()? {
+                                let (key, _) = entry?;
+                                written.insert(key.value().to_vec(), None);
+                            }
+                        }
                     }
                 }
             }
@@ -957,14 +1015,8 @@ pub(crate) fn copies(place: &Place) -> Result<Vec<PathBuf>> {
 impl Storage {
     /// Opens `path` read-only for a replay: nothing is checked, compacted or backed up, and
     /// commits stay in memory ([`Replica`]). Fails if the file is missing, in use or damaged.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a replay opens a server file read-only before it starts"
-    )]
     pub(crate) fn open_replica(path: &Path) -> Result<Self> {
-        let mut builder = Builder::new();
-        builder.set_cache_size(CACHE_BYTES);
-        let db = builder.open_read_only(path).map_err(Error::from_open)?;
+        let db = open_read_only(path)?;
         Ok(Self {
             backup: None,
             check: None,
@@ -993,12 +1045,8 @@ impl Storage {
             std::fs::create_dir_all(dir).map_err(Error::Io)?;
         }
         verify(world, start.check)?;
-        // A missing or empty file is a new one, with nothing to back up.
-        let existed = match std::fs::metadata(world) {
-            Ok(metadata) => metadata.len() > 0,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => false,
-            Err(e) => return Err(Error::Io(e)),
-        };
+        // A new file has nothing to back up.
+        let existed = has_data(world)?;
         let source = Source::File(world.clone());
         let db = source.open()?;
         let mut storage = Self::prepare(source, db)?;
@@ -1064,7 +1112,7 @@ impl Storage {
     /// last error.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread reads the server file"
+        reason = "off-tick: the save thread reads the data file"
     )]
     pub(crate) fn read(&mut self, keys: &[Key]) -> Result<Vec<Result<Option<Vec<u8>>>>> {
         if let Some(replica) = &self.replica {
@@ -1106,7 +1154,7 @@ impl Storage {
     /// error.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread reads the server file"
+        reason = "off-tick: the save thread reads the data file"
     )]
     pub(crate) fn read_chunks(&mut self, chunks: &[ChunkId]) -> Result<Vec<ChunkValues>> {
         if let Some(replica) = &self.replica {
@@ -1134,7 +1182,7 @@ impl Storage {
     /// Every stored operator, ban and whitelist entry: its key and sealed value, in key order.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread reads the server file"
+        reason = "off-tick: the save thread reads the data file"
     )]
     pub(crate) fn access(&mut self) -> Result<Vec<(AccessKey, Vec<u8>)>> {
         if let Some(replica) = &self.replica {
@@ -1163,6 +1211,37 @@ impl Storage {
         Ok(entries)
     }
 
+    /// The names of the worlds whose deletion marks ([`Key::Deleted`]) the main file's last commit
+    /// holds, in key order. Values are external input: a name that is no world file name, a mark
+    /// that does not unseal, or more marks than `data/worlds/` holds files is damage.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the start reads the main file before the threads start"
+    )]
+    pub(crate) fn deleted_worlds(&mut self) -> Result<Vec<String>> {
+        let txn = self.database()?.begin_read()?;
+        let Some(table) = open_read(&txn, META)? else {
+            return Ok(Vec::new());
+        };
+        let mut names = Vec::new();
+        for entry in table.range::<&[u8]>(DELETED_PREFIX..)? {
+            let (key, sealed) = entry?;
+            let Some(name) = key.value().strip_prefix(DELETED_PREFIX) else {
+                break;
+            };
+            let name = std::str::from_utf8(name)
+                .ok()
+                .filter(|name| is_world_file_name(name))
+                .ok_or(Error::Malformed("a deletion mark names no world"))?;
+            unseal::<codec::Mark>(key.value(), sealed.value())?;
+            if names.len() == MAX_WORLDS {
+                return Err(Error::TooManyWorlds);
+            }
+            names.push(name.to_owned());
+        }
+        Ok(names)
+    }
+
     /// Writes `batch` in one durable write transaction with quick repair. On failure it drops
     /// the handle, reopens the file and tries again, up to [`RETRIES`] times, then returns the
     /// last error. Either the whole batch is committed or none of it.
@@ -1173,13 +1252,27 @@ impl Storage {
         self.retrying(|db| write(db, batch))
     }
 
+    /// [`commit`](Self::commit) for a file committed before the main file in a save (players,
+    /// worlds): the same write transaction first keeps a savepoint of the file as it was and
+    /// deletes the one the previous save kept, so a start rolls the file back if the main file
+    /// never got this save ([`settle`]). `batch` writes the meta value of its save. A retry that
+    /// finds another meta value than the file held before the first try writes nothing: that try
+    /// landed, and a new savepoint would hold this save and leave none of the one before.
+    pub(crate) fn commit_with_savepoint(&mut self, batch: &Batch) -> Result<()> {
+        if let Some(replica) = &mut self.replica {
+            return replica.commit(batch);
+        }
+        let before = self.retrying(meta_value)?;
+        self.retrying(|db| write_with_savepoint(db, batch, before.as_deref()))
+    }
+
     /// Starts the world import's write: one quick-repair write transaction that
     /// takes the import's batches as they come and commits once ([`Import::commit`]). Dropping
     /// the [`Import`] uncommitted, or any failure, leaves the file as it was. No retry: the
     /// import's writes are not kept to write again, and a failed import is run again whole.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the import writes the server file before the server runs"
+        reason = "off-tick: the import writes the data file before the server runs"
     )]
     pub(crate) fn begin_import(&mut self) -> Result<Import> {
         let mut txn = self.database()?.begin_write()?;
@@ -1275,9 +1368,10 @@ impl Storage {
         }
     }
 
-    /// Marks the file closed after a normal stop ([`CLOSED_KEY`]) and closes it, without
-    /// compacting it (a stop writes what changed and nothing more). Only a normal stop calls
-    /// it: a failed one drops the [`Storage`] instead, so its file has no mark.
+    /// Deletes the file's savepoint, marks the file closed after a normal stop ([`CLOSED_KEY`])
+    /// and closes it, without compacting it (a stop writes what changed and nothing more). Only a
+    /// normal stop calls it, once every file holds the last save: a failed one drops the
+    /// [`Storage`] instead, so its file has no mark and keeps its savepoint.
     pub(crate) fn close(mut self) -> Result<()> {
         // Nobody waits for its result.
         self.check = None;
@@ -1307,7 +1401,7 @@ impl Import {
     /// Commits every write taken, durably and at once.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the import writes the server file before the server runs"
+        reason = "off-tick: the import writes the data file before the server runs"
     )]
     pub(crate) fn commit(self) -> Result<()> {
         self.0.commit()?;
@@ -1331,16 +1425,16 @@ impl fmt::Debug for Snapshot {
 }
 
 impl Snapshot {
-    /// Opens the world file `path`. Fails if it is missing, in use, damaged, or left by a crash
-    /// for redb to repair (a start of the server repairs it).
+    /// Opens the world file `path` of the data folder whose main file is `main`. Fails if it is
+    /// missing, in use, damaged, left by a crash for redb to repair, or later than the main file
+    /// ([`check_settled`]): a start of the server repairs and rolls it back.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the export reads a world file instead of running the server"
     )]
-    pub(crate) fn open(path: &Path) -> Result<Self> {
-        let mut builder = Builder::new();
-        builder.set_cache_size(CACHE_BYTES);
-        let db = builder.open_read_only(path).map_err(Error::from_open)?;
+    pub(crate) fn open(path: &Path, main: &Path) -> Result<Self> {
+        check_settled(path, main)?;
+        let db = open_read_only(path)?;
         let txn = db.begin_read()?;
         Ok(Self { txn, _db: db })
     }
@@ -1396,6 +1490,18 @@ impl Snapshot {
     }
 }
 
+/// What [`settle`] did to a data file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Settled {
+    /// The file holds the main file's save or an earlier one, and is left as it was.
+    Kept,
+    /// The file held a later save and is rolled back to its savepoint, which holds an earlier one.
+    RolledBack,
+    /// The file held a later save, and its savepoint holds no save and no world record: the
+    /// later save made the file. It is removed.
+    Removed,
+}
+
 /// Opens `table` for reading; `None` before the first commit of a new file created it.
 fn open_read(
     txn: &ReadTransaction,
@@ -1423,12 +1529,11 @@ fn read_chunk(table: &ReadOnlyTable<&'static [u8], &'static [u8]>, chunk: ChunkI
     Ok(values)
 }
 
-/// One write transaction holding all of `batch`.
 /// redb's integrity check of the file just opened: refuses a damaged file, and one redb repaired
 /// (which was damaged).
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread checks the server file at start"
+    reason = "off-tick: the save thread checks the data file at start"
 )]
 fn check_integrity(db: &mut Database) -> Result<()> {
     #[cfg(test)]
@@ -1452,17 +1557,59 @@ fn check_integrity(db: &mut Database) -> Result<()> {
 )]
 fn check_format(db: &Database) -> Result<()> {
     let txn = db.begin_read()?;
-    let Some(meta) = open_read(&txn, META)? else {
-        return Ok(());
+    committed(&txn)?;
+    Ok(())
+}
+
+/// The meta value of the commit `txn` reads, if the file holds one. A newer format fails as
+/// [`Error::NewerFormat`] before the checksum ([`unseal`]).
+fn committed(txn: &ReadTransaction) -> Result<Option<Meta>> {
+    let Some(table) = open_read(txn, META)? else {
+        return Ok(None);
     };
-    if let Some(sealed) = meta.get(META_KEY)? {
-        // A newer format fails as `NewerFormat` before the checksum (`seal`).
-        unseal::<Meta>(META_KEY, sealed.value())?;
+    let Some(sealed) = table.get(META_KEY)? else {
+        return Ok(None);
+    };
+    unseal::<Meta>(META_KEY, sealed.value()).map(Some)
+}
+
+/// redb opened read-only on `path`, writing nothing: a file another process has open is refused
+/// ([`Error::InUse`]), as is one a crash left for redb to repair.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: a replay, the export and the start read a data file without writing it"
+)]
+fn open_read_only(path: &Path) -> Result<redb::ReadOnlyDatabase> {
+    let mut builder = Builder::new();
+    builder.set_cache_size(CACHE_BYTES);
+    builder.open_read_only(path).map_err(Error::from_open)
+}
+
+/// Refuses, as [`Error::Ahead`], the data file `file` when it holds a later save than the main
+/// file `main` ([`is_later`]), both read without writing: a path that only reads (a replay, the
+/// export) cannot roll it back as a start does ([`settle`]). A missing or empty file holds no
+/// save, and a missing or empty main file none to compare with, as for a start.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: a replay and the export read data files without writing them"
+)]
+pub(crate) fn check_settled(file: &Path, main: &Path) -> Result<()> {
+    if !has_data(file)? || !has_data(main)? {
+        return Ok(());
+    }
+    let saved = committed(&open_read_only(main)?.begin_read()?)?;
+    let meta = committed(&open_read_only(file)?.begin_read()?)?;
+    let saved = saved.unwrap_or(Meta {
+        tick: 0,
+        identity: None,
+    });
+    if meta.is_some_and(|meta| is_later(&meta, &saved)) {
+        return Err(Error::Ahead);
     }
     Ok(())
 }
 
-/// Whether a start checks the closed server file `world` when `integrity-check` is `check`.
+/// Whether a start checks the closed data file `world` when `integrity-check` is `check`.
 fn checks(world: &Path, check: IntegrityCheck) -> bool {
     match check {
         IntegrityCheck::Always => true,
@@ -1471,17 +1618,15 @@ fn checks(world: &Path, check: IntegrityCheck) -> bool {
     }
 }
 
-/// Whether the closed server file `world` has the mark of a normal stop ([`CLOSED_KEY`]), read
+/// Whether the closed data file `world` has the mark of a normal stop ([`CLOSED_KEY`]), read
 /// without writing to it. A file that cannot be opened read-only (missing, damaged, in use, or
 /// left for redb to repair) has none: the start then checks it, and the check meets the fault.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread reads the server file's mark once, before opening it"
+    reason = "off-tick: the save thread reads the data file's mark once, before opening it"
 )]
 pub(crate) fn closed_normally(world: &Path) -> bool {
-    let mut builder = Builder::new();
-    builder.set_cache_size(CACHE_BYTES);
-    let Ok(db) = builder.open_read_only(world) else {
+    let Ok(db) = open_read_only(world) else {
         return false;
     };
     let Ok(txn) = db.begin_read() else {
@@ -1493,11 +1638,108 @@ pub(crate) fn closed_normally(world: &Path) -> bool {
     matches!(meta.get(CLOSED_KEY), Ok(Some(_)))
 }
 
+/// Whether `file` exists and holds bytes: a missing or empty file is a new one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the start looks at a data file before it opens it"
+)]
+pub(crate) fn has_data(file: &Path) -> Result<bool> {
+    match std::fs::metadata(file) {
+        Ok(metadata) => Ok(metadata.len() > 0),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(Error::Io(e)),
+    }
+}
+
+/// Whether `meta`, a data file's last save, is later than `saved`, the main file's: a larger
+/// tick, or the same tick with another commit identity. A file no save wrote (no identity) is not
+/// later at the same tick.
+pub(crate) fn is_later(meta: &Meta, saved: &Meta) -> bool {
+    meta.tick > saved.tick
+        || (meta.tick == saved.tick && meta.identity.is_some() && meta.identity != saved.identity)
+}
+
+/// Brings the closed players or world file `file` back to the main file's last save `saved`, at
+/// start, before the file opens: a save commits every other file before the main file, so a save
+/// that stopped between them leaves files later than the main file. Such a file is rolled back to
+/// the savepoint its last commit kept ([`Storage::commit_with_savepoint`]), or removed when that
+/// commit made it. The roll back is tried first on a backend that writes nothing
+/// ([`check::open_overlay`]): a file without a savepoint, or whose savepoint is later than `saved`
+/// too, is refused as [`Error::NoRollback`] with every byte as it was. Each step lands whole, so
+/// a start stopped in the middle leaves the file as it was or as the step left it, and the next
+/// start ends the same.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the start rolls a data file back before it opens it"
+)]
+pub(crate) fn settle(file: &Path, saved: &Meta) -> Result<Settled> {
+    let Some(overlay) = check::open_overlay(file)? else {
+        return Ok(Settled::Kept);
+    };
+    let Some((_, made)) = roll_back(&overlay, saved)? else {
+        return Ok(Settled::Kept);
+    };
+    drop(overlay);
+    let shown = file.display();
+    if made {
+        std::fs::remove_file(file).map_err(Error::Io)?;
+        crate::fs::sync_parent(file).map_err(Error::Io)?;
+        warn!(file = %shown, "data file removed: a save that stopped before the main file made it");
+        return Ok(Settled::Removed);
+    }
+    let db = Source::File(file.to_path_buf()).open()?;
+    // The file is the one just tried: redb's lock kept other processes out until the overlay
+    // dropped, and the start takes the lock again here.
+    let Some((txn, _)) = roll_back(&db, saved)? else {
+        return Ok(Settled::Kept);
+    };
+    txn.commit()?;
+    warn!(
+        file = %shown,
+        main_save_tick = saved.tick,
+        "data file rolled back to the main file's save: a save stopped before the main file"
+    );
+    Ok(Settled::RolledBack)
+}
+
+/// The write transaction that rolls `db` back to its savepoint, if its last save is later than
+/// `saved`, and whether the savepoint holds neither a save nor a world record (a save made the
+/// file); dropping it leaves the file as it was. [`Error::NoRollback`] when there is no savepoint
+/// or it holds a save later than `saved` too.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the start reads a data file before it opens it"
+)]
+fn roll_back(db: &Database, saved: &Meta) -> Result<Option<(WriteTransaction, bool)>> {
+    let meta = committed(&db.begin_read()?)?;
+    if !meta.is_some_and(|meta| is_later(&meta, saved)) {
+        return Ok(None);
+    }
+    let mut txn = db.begin_write()?;
+    txn.set_quick_repair(true);
+    let id = txn
+        .list_persistent_savepoints()?
+        .max()
+        .ok_or(Error::NoRollback)?;
+    let savepoint = txn.get_persistent_savepoint(id)?;
+    txn.restore_savepoint(&savepoint)?;
+    drop(savepoint);
+    let restored = match txn.open_table(META)?.get(META_KEY)? {
+        Some(sealed) => Some(unseal::<Meta>(META_KEY, sealed.value())?),
+        None => None,
+    };
+    if restored.is_some_and(|meta| is_later(&meta, saved)) {
+        return Err(Error::NoRollback);
+    }
+    let made = restored.is_none() && txn.open_table(WORLDS)?.get(WORLD_KEY)?.is_none();
+    Ok(Some((txn, made)))
+}
+
 /// The first commit of a start: creates the tables a new file lacks and removes the mark of a
 /// normal stop ([`CLOSED_KEY`]).
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread writes the server file at start"
+    reason = "off-tick: the save thread writes the data file at start"
 )]
 fn begin_run(db: &Database) -> Result<()> {
     let mut txn = db.begin_write()?;
@@ -1508,26 +1750,69 @@ fn begin_run(db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// The last commit of a normal stop: writes the mark of a normal stop ([`CLOSED_KEY`]).
+/// The last commit of a normal stop: deletes the savepoint, which no start needs once every file
+/// holds the last save, then writes the mark of a normal stop ([`CLOSED_KEY`]).
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread writes the server file at a normal stop"
+    reason = "off-tick: the save thread writes the data file at a normal stop"
 )]
 fn mark_closed(db: &Database) -> Result<()> {
     let mut txn = db.begin_write()?;
     txn.set_quick_repair(true);
+    for id in txn.list_persistent_savepoints()? {
+        txn.delete_persistent_savepoint(id)?;
+    }
     drop(txn.open_table(META)?.insert(CLOSED_KEY, &[][..])?);
     txn.commit()?;
     Ok(())
 }
 
+/// One write transaction holding all of `batch`.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread writes the server file"
+    reason = "off-tick: the save thread writes the data file"
 )]
 fn write(db: &Database, batch: &Batch) -> Result<()> {
     let mut txn = db.begin_write()?;
     txn.set_quick_repair(true);
+    apply(&txn, batch)?;
+    txn.commit()?;
+    Ok(())
+}
+
+/// The sealed meta value of the last commit of `db`, if it holds one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread reads the data file"
+)]
+fn meta_value(db: &Database) -> Result<Option<Vec<u8>>> {
+    let txn = db.begin_read()?;
+    let Some(table) = open_read(&txn, META)? else {
+        return Ok(None);
+    };
+    Ok(table.get(META_KEY)?.map(|v| v.value().to_vec()))
+}
+
+/// [`write`] keeping a savepoint of the file as it was, unless the file's meta value is no longer
+/// `before`, the one it held before the commit's first try: that try landed before its call
+/// failed.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread writes the data file"
+)]
+fn write_with_savepoint(db: &Database, batch: &Batch, before: Option<&[u8]>) -> Result<()> {
+    if meta_value(db)?.as_deref() != before {
+        return Ok(());
+    }
+    let mut txn = db.begin_write()?;
+    txn.set_quick_repair(true);
+    // Before any table opens: redb keeps a savepoint only of a transaction that changed nothing.
+    let kept = txn.persistent_savepoint()?;
+    for id in txn.list_persistent_savepoints()? {
+        if id != kept {
+            txn.delete_persistent_savepoint(id)?;
+        }
+    }
     apply(&txn, batch)?;
     txn.commit()?;
     Ok(())
@@ -1558,6 +1843,11 @@ fn apply(txn: &WriteTransaction, batch: &Batch) -> Result<()> {
                 let (first, last) = pages_range(chunk, kind, first);
                 key.pick_mut(&mut tables)
                     .retain_in::<&[u8], _>(&*first..=&*last, |_, _| false)?;
+            }
+            Write::Clear => {
+                let [_, worlds, chunks, _, _, _] = &mut tables;
+                worlds.retain(|_, _| false)?;
+                chunks.retain(|_, _| false)?;
             }
         }
     }
@@ -1825,8 +2115,8 @@ pub(crate) mod tests {
                 kind: AccessKind::Ban | AccessKind::IpBan,
                 ..
             }) => drop(unseal::<BanRecord>(&bytes, sealed).unwrap()),
-            Key::Access(_) => drop(unseal::<Mark>(&bytes, sealed).unwrap()),
             Key::User(_) => drop(unseal::<UserRecord<'_>>(&bytes, sealed).unwrap()),
+            Key::Access(_) | Key::Deleted(_) => drop(unseal::<Mark>(&bytes, sealed).unwrap()),
         }
     }
 
@@ -2590,7 +2880,7 @@ pub(crate) mod tests {
         hits
     }
 
-    /// Writes a player to a new server file in `dir`, closes it after a normal stop and damages
+    /// Writes a player to a new data file in `dir`, closes it after a normal stop and damages
     /// the player's bytes, which only redb's integrity check reads at start; returns the bytes.
     fn damage_a_closed_file(dir: &TempDir) -> Vec<u8> {
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
@@ -2800,6 +3090,137 @@ pub(crate) mod tests {
         assert!(dir.backups().is_empty(), "{start:?}");
     }
 
+    /// The persistent savepoints of the open `storage`'s file.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test reads a database"
+    )]
+    fn savepoints(storage: &mut Storage) -> usize {
+        let txn = storage.database().unwrap().begin_write().unwrap();
+        txn.list_persistent_savepoints().unwrap().count()
+    }
+
+    /// Commits a random batch with meta tick `tick` to `model` and `storage`, keeping a savepoint.
+    fn commit_saved(
+        storage: &mut Storage,
+        rng: &mut Rng,
+        model: &mut BTreeMap<Key, Vec<u8>>,
+        tick: u64,
+    ) {
+        let batch = random_batch(rng, model, tick);
+        storage.commit_with_savepoint(&batch).unwrap();
+    }
+
+    /// A file committed with savepoints keeps one, the one of its last commit; a start rolls it
+    /// back to its commit before when the main file's save is that one, whatever the commits
+    /// before, and a second start changes nothing.
+    #[test]
+    fn a_file_later_than_the_main_file_rolls_back_to_the_commit_before_its_last() {
+        let dir = TempDir::new("settle");
+        let mut rng = Rng(0x5e77_0001);
+        let mut storage = start_whole(&dir, StartBackup::Skip);
+        let mut model = BTreeMap::new();
+        for tick in 1..=3 {
+            commit_saved(&mut storage, &mut rng, &mut model, tick);
+            assert_eq!(savepoints(&mut storage), 1);
+        }
+        let saved = model.clone();
+        let last = random_batch(&mut rng, &mut model, 4);
+        storage.commit_with_savepoint(&last).unwrap();
+        assert_eq!(savepoints(&mut storage), 1);
+        // Killed: dropped without the close of a normal stop.
+        drop(storage);
+        assert_eq!(
+            settle(&dir.place().file, &Meta::at(3)).unwrap(),
+            Settled::RolledBack
+        );
+        let bytes = dir.world();
+        assert_eq!(
+            settle(&dir.place().file, &Meta::at(3)).unwrap(),
+            Settled::Kept
+        );
+        assert!(dir.world() == bytes, "a second start changes nothing");
+        let mut storage = start_whole(&dir, StartBackup::Skip);
+        assert_eq!(contents(&mut storage, &all_keys()), saved);
+        // A normal stop deletes the savepoint.
+        storage.close().unwrap();
+        let mut storage = start_whole(&dir, StartBackup::Skip);
+        assert_eq!(savepoints(&mut storage), 0);
+        storage.close().unwrap();
+    }
+
+    /// A file a save made, later than the main file, is removed; one that is not later is kept as
+    /// it was; one later without a savepoint to roll back to is refused, with every byte as it
+    /// was, by every start.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_file_the_main_file_never_saved_is_removed_and_one_without_a_savepoint_is_refused() {
+        let dir = TempDir::new("settle-made");
+        let mut rng = Rng(0x5e77_0002);
+        let mut model = BTreeMap::new();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Skip)).unwrap();
+        commit_saved(&mut storage, &mut rng, &mut model, 1);
+        drop(storage);
+        let bytes = dir.world();
+        assert_eq!(
+            settle(&dir.place().file, &Meta::at(1)).unwrap(),
+            Settled::Kept
+        );
+        assert!(dir.world() == bytes, "a file not later is left as it was");
+        assert_eq!(
+            settle(&dir.place().file, &Meta::at(0)).unwrap(),
+            Settled::Removed
+        );
+        assert!(!dir.place().file.exists());
+        assert_eq!(
+            settle(&dir.place().file, &Meta::at(0)).unwrap(),
+            Settled::Kept
+        );
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Skip)).unwrap();
+        storage
+            .commit(&random_batch(&mut rng, &mut model, 2))
+            .unwrap();
+        drop(storage);
+        let bytes = dir.world();
+        for _ in 0..2 {
+            assert!(matches!(
+                settle(&dir.place().file, &Meta::at(1)),
+                Err(Error::NoRollback)
+            ));
+            assert!(dir.world() == bytes, "a refused file is left as it was");
+        }
+    }
+
+    /// A path that only reads refuses a file later than the main file, which only a start rolls
+    /// back; without a main file there is no save to compare with.
+    #[test]
+    fn a_reading_path_refuses_a_file_later_than_the_main_file() {
+        let dir = TempDir::new("settled");
+        // The players file stands in for the main file, and the test's file for a world's.
+        let players = Place::data(&dir.0, PLAYERS_FILE);
+        let main = players.file.clone();
+        let mut rng = Rng(0x5e77_0003);
+        let mut model = BTreeMap::new();
+        let mut storage = start_whole(&dir, StartBackup::Skip);
+        commit_saved(&mut storage, &mut rng, &mut model, 2);
+        storage.close().unwrap();
+        check_settled(&dir.place().file, &main).unwrap();
+        for (tick, ahead) in [(2, false), (1, true)] {
+            let mut storage = Storage::open(&players, Start::checked(StartBackup::Skip)).unwrap();
+            let mut batch = Batch::default();
+            batch.put(Key::Meta, seal(META_KEY, &Meta::at(tick)).unwrap());
+            storage.commit(&batch).unwrap();
+            storage.close().unwrap();
+            let checked = check_settled(&dir.place().file, &main);
+            assert_eq!(
+                matches!(checked, Err(Error::Ahead)),
+                ahead,
+                "{tick}: {checked:?}"
+            );
+            assert_eq!(checked.is_ok(), !ahead, "{tick}: {checked:?}");
+        }
+    }
+
     #[test]
     fn a_world_name_is_a_file_name_on_windows_and_linux() {
         let longest = "w".repeat(MAX_FILE_NAME);
@@ -2859,6 +3280,8 @@ pub(crate) mod tests {
     fn errors_are_damage_only_for_damage() {
         assert!(Error::Checksum.is_damage());
         assert!(Error::Database(redb::Error::Corrupted(String::new())).is_damage());
+        assert!(Error::NoRollback.is_damage());
+        assert!(!Error::Ahead.is_damage());
         assert!(!Error::InUse.is_damage());
         assert!(!Error::NewerFormat { version: 2 }.is_damage());
         assert!(!Error::Io(io::Error::other("x")).is_damage());
@@ -3200,7 +3623,7 @@ pub(crate) mod tests {
         clock::now().duration_since(start).as_secs_f64() * 1e3
     }
 
-    /// Measures the server file: `cargo test --release --lib storage::tests::measure_server_file
+    /// Measures the data file: `cargo test --release --lib storage::tests::measure_server_file
     /// -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]
@@ -3271,7 +3694,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// Commits chunks of `records` terrain by sub-chunk, 2,000 a commit, until the server file in
+    /// Commits chunks of `records` terrain by sub-chunk, 2,000 a commit, until the data file in
     /// `dir` reaches `target` bytes; returns how many.
     fn fill_world(
         storage: &mut Storage,

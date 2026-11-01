@@ -20,20 +20,25 @@ pub(crate) mod level_dat;
 pub(crate) mod leveldb;
 mod upgrade;
 
+pub use api::Report;
+pub(crate) use api::run;
+pub use leveldb::Db;
+pub(crate) use upgrade::BLOCK_STATE_VERSION;
+
 use std::fmt;
 use std::io;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-pub use self::api::Report;
-pub(crate) use self::api::run;
-use self::chunk::Entries;
-use self::level_dat::WorldData;
-pub use self::leveldb::Db;
-use self::leveldb::Stamp;
-// Decoding one chunk or `level.dat` allocates within the data files' own budget.
-pub(crate) use self::upgrade::BLOCK_STATE_VERSION;
-use crate::storage::seal::DECODE_BUDGET;
+use chunk::Entries;
+use level_dat::WorldData;
+use leveldb::Stamp;
+
+/// The largest `level.dat`: its header and the 4 MiB NBT limit.
+const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
+/// The most overworld chunks a world may have: a square of 2,048 by 2,048 chunks (32,768 blocks
+/// across). A list of positions this long takes 32 MiB. The export lists at most as many.
+pub(crate) const MAX_CHUNKS: usize = 1 << 22;
 
 /// A failure to read the world being imported.
 #[derive(Debug)]
@@ -41,10 +46,10 @@ use crate::storage::seal::DECODE_BUDGET;
 pub enum Error {
     /// A file cannot be read.
     Read(io::Error),
-    /// A file, block, key, value or list is larger than Anchor reads: at most `limit` bytes or
-    /// entries.
+    /// A file, block, key, value or list holds more than Anchor reads: more than `limit` of
+    /// `what`.
     TooLarge {
-        /// What is too large.
+        /// What was counted, with its unit, such as `bytes in a block` or `overworld chunks`.
         what: &'static str,
         /// The most accepted.
         limit: u64,
@@ -75,7 +80,7 @@ pub enum Error {
         /// The file.
         path: PathBuf,
     },
-    /// The file at `path` cannot be read; the source says why.
+    /// The file at `path` of the world folder cannot be read; the source says why.
     File {
         /// The file.
         path: PathBuf,
@@ -102,10 +107,10 @@ pub enum Error {
         /// Why.
         source: Box<Error>,
     },
-    /// A temporary world of this name is declared on the builder
+    /// A temporary world of this name, in any letter case, is declared on the builder
     /// ([`Kind::Temporary`](crate::world::Kind::Temporary)): it is never saved, so nothing can be
     /// imported into it.
-    UnknownWorld {
+    TemporaryWorld {
         /// The name.
         name: String,
     },
@@ -121,7 +126,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Read(_) => f.write_str("cannot read the file"),
-            Self::TooLarge { what, limit } => write!(f, "{what} larger than {limit}"),
+            Self::TooLarge { what, limit } => write!(f, "more than {limit} {what}"),
             Self::Malformed(what) => write!(f, "malformed data: {what}"),
             Self::Checksum => f.write_str("checksum mismatch"),
             Self::UnknownCompression(id) => write!(f, "unknown block compression {id}"),
@@ -140,10 +145,10 @@ impl fmt::Display for Error {
                 "{} changed while the world was read; close every program using it",
                 path.display()
             ),
-            Self::File { path, .. } => write!(f, "world file {}", path.display()),
+            Self::File { path, .. } => write!(f, "source file {}", path.display()),
             Self::Chunk { x, z, .. } => write!(f, "overworld chunk {x} {z}"),
             Self::Key { kind, key, .. } => write!(f, "{kind} key {key}"),
-            Self::UnknownWorld { name } => {
+            Self::TemporaryWorld { name } => {
                 write!(f, "the world {name:?} is declared temporary")
             }
             Self::WorldExists { name } => {
@@ -168,7 +173,7 @@ impl std::error::Error for Error {
             | Self::UnknownCompression(_)
             | Self::NewerFormat { .. }
             | Self::SourceChanged { .. }
-            | Self::UnknownWorld { .. }
+            | Self::TemporaryWorld { .. }
             | Self::WorldExists { .. } => None,
         }
     }
@@ -177,39 +182,93 @@ impl std::error::Error for Error {
 /// The result of reading the world being imported.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The largest `level.dat`: its header and the 4 MiB NBT limit.
-const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
-/// The most overworld chunks a world may have: a square of 2,048 by 2,048 chunks (32,768 blocks
-/// across). A list of positions this long takes 32 MiB. The export lists at most as many.
-pub(crate) const MAX_CHUNKS: usize = 1 << 22;
-
-/// Reads at most `limit` bytes of the file at `path`; a longer file is [`Error::TooLarge`],
-/// found before anything is allocated.
-fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    crate::fs::read_bounded(path, limit).map_err(|e| match e.kind() {
-        io::ErrorKind::FileTooLarge => Error::TooLarge {
-            what: "file",
-            limit,
-        },
-        _ => Error::Read(e),
-    })
+/// A Bedrock world folder opened for reading.
+pub(crate) struct Source {
+    level_dat_path: PathBuf,
+    level_dat_stamp: Stamp,
+    world: WorldData,
+    db: Db,
 }
 
-/// The length and modification time of the file at `path`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the import runs before the server starts"
-)]
-fn stamp(path: &Path) -> Result<Stamp> {
-    let meta = std::fs::metadata(path).map_err(Error::Read)?;
-    Ok(Stamp::new(
-        meta.len(),
-        meta.modified().map_err(Error::Read)?,
-    ))
+impl Source {
+    /// Opens the world in folder `dir`: reads `level.dat`, `db/CURRENT`, the `MANIFEST` and the
+    /// live logs.
+    pub(crate) fn open(dir: &Path) -> Result<Self> {
+        let level_dat_path = dir.join("level.dat");
+        let located = |e| Error::File {
+            path: level_dat_path.clone(),
+            source: Box::new(e),
+        };
+        let level_dat_stamp = stamp(&level_dat_path).map_err(located)?;
+        let bytes = read_file(&level_dat_path, MAX_LEVEL_DAT).map_err(located)?;
+        let world = level_dat::parse(&bytes).map_err(located)?;
+        let db = Db::open(dir)?;
+        Ok(Self {
+            level_dat_path,
+            level_dat_stamp,
+            world,
+            db,
+        })
+    }
+
+    /// The world's `level.dat`.
+    pub(crate) fn world(&self) -> &WorldData {
+        &self.world
+    }
+
+    /// Fails with [`Error::SourceChanged`] unless every file of the world is as it was when it
+    /// was opened.
+    pub(crate) fn unchanged(&self) -> Result<()> {
+        // A `level.dat` that can no longer be read is not the one read.
+        if stamp(&self.level_dat_path).ok().as_ref() != Some(&self.level_dat_stamp) {
+            return Err(Error::SourceChanged {
+                path: self.level_dat_path.clone(),
+            });
+        }
+        self.db.unchanged()
+    }
+
+    /// Lists the overworld chunks and counts what will not be imported.
+    pub(crate) fn catalog(&mut self) -> Result<Catalog> {
+        let mut catalog = Catalog::default();
+        self.db.scan(&[], None, |key, _| {
+            catalog.add(key)?;
+            Ok(ControlFlow::Continue(()))
+        })?;
+        // Keys come in byte order, in which little-endian x and z are not numeric order.
+        catalog.chunks.sort_unstable();
+        Ok(catalog)
+    }
+
+    /// Reads the values of the overworld chunk at (`x`, `z`).
+    pub(crate) fn read(&mut self, x: i32, z: i32) -> Result<Entries> {
+        let mut entries = Entries::new(x, z);
+        let prefix = chunk::prefix(x, z);
+        let end = chunk::after(&prefix);
+        self.db
+            .scan(&prefix, end.as_deref(), |key, value| {
+                entries.add(key, value)?;
+                Ok(ControlFlow::Continue(()))
+            })
+            .map_err(|e| Error::Chunk {
+                x,
+                z,
+                source: Box::new(e),
+            })?;
+        Ok(entries)
+    }
+}
+
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Source")
+            .field("level_dat", &self.level_dat_path)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a world holds besides its overworld chunks, which Anchor does not import.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Catalog {
     /// The overworld chunks, in numeric (x, z) order.
     pub(crate) chunks: Vec<(i32, i32)>,
@@ -229,7 +288,7 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    /// Counts the database key `key`.
+    /// Counts the database key `key`; keys come in key order.
     fn add(&mut self, key: &[u8]) -> Result<()> {
         match chunk::classify(key) {
             chunk::Key::Overworld {
@@ -237,6 +296,11 @@ impl Catalog {
                 z,
                 version: true,
             } => {
+                // The keys of one chunk share its 8-byte prefix, so they come together: no other
+                // chunk is listed between a chunk's two version keys.
+                if self.chunks.last() == Some(&(x, z)) {
+                    return Ok(());
+                }
                 if self.chunks.len() == MAX_CHUNKS {
                     return Err(Error::TooLarge {
                         what: "overworld chunks",
@@ -267,89 +331,29 @@ impl Catalog {
     }
 }
 
-/// A Bedrock world folder opened for reading.
-pub(crate) struct Source {
-    level_dat_path: PathBuf,
-    level_dat_stamp: Stamp,
-    world: WorldData,
-    db: Db,
+/// Reads at most `limit` bytes of the file at `path`; a longer file is [`Error::TooLarge`],
+/// found before anything is allocated.
+fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    crate::fs::read_bounded(path, limit).map_err(|e| match e.kind() {
+        io::ErrorKind::FileTooLarge => Error::TooLarge {
+            what: "bytes in a file",
+            limit,
+        },
+        _ => Error::Read(e),
+    })
 }
 
-impl fmt::Debug for Source {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Source")
-            .field("level_dat", &self.level_dat_path)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Source {
-    /// Opens the world in folder `dir`: reads `level.dat`, `db/CURRENT`, the `MANIFEST` and the
-    /// live logs.
-    pub(crate) fn open(dir: &Path) -> Result<Self> {
-        let level_dat_path = dir.join("level.dat");
-        let located = |e| Error::File {
-            path: level_dat_path.clone(),
-            source: Box::new(e),
-        };
-        let level_dat_stamp = stamp(&level_dat_path).map_err(located)?;
-        let bytes = read_file(&level_dat_path, MAX_LEVEL_DAT).map_err(located)?;
-        let world = level_dat::parse(&bytes).map_err(located)?;
-        let db = Db::open(dir)?;
-        Ok(Self {
-            level_dat_path,
-            level_dat_stamp,
-            world,
-            db,
-        })
-    }
-
-    /// The world's `level.dat`.
-    pub(crate) fn world(&self) -> &WorldData {
-        &self.world
-    }
-
-    /// Lists the overworld chunks and counts what will not be imported.
-    pub(crate) fn catalog(&mut self) -> Result<Catalog> {
-        let mut catalog = Catalog::default();
-        self.db.scan(&[], None, |key, _| {
-            catalog.add(key)?;
-            Ok(ControlFlow::Continue(()))
-        })?;
-        // A chunk may have both version keys.
-        catalog.chunks.sort_unstable();
-        catalog.chunks.dedup();
-        Ok(catalog)
-    }
-
-    /// Reads the values of the overworld chunk at (`x`, `z`).
-    pub(crate) fn read(&mut self, x: i32, z: i32) -> Result<Entries> {
-        let mut entries = Entries::new(x, z);
-        let prefix = chunk::prefix(x, z);
-        let end = chunk::after(&prefix);
-        self.db
-            .scan(&prefix, end.as_deref(), |key, value| {
-                entries.add(key, value)?;
-                Ok(ControlFlow::Continue(()))
-            })
-            .map_err(|e| Error::Chunk {
-                x,
-                z,
-                source: Box::new(e),
-            })?;
-        Ok(entries)
-    }
-
-    /// Fails with [`Error::SourceChanged`] unless every file of the world is as it was when it
-    /// was opened.
-    pub(crate) fn unchanged(&self) -> Result<()> {
-        if stamp(&self.level_dat_path).ok().as_ref() != Some(&self.level_dat_stamp) {
-            return Err(Error::SourceChanged {
-                path: self.level_dat_path.clone(),
-            });
-        }
-        self.db.unchanged()
-    }
+/// The length and modification time of the file at `path`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the import runs before the server starts"
+)]
+fn stamp(path: &Path) -> Result<Stamp> {
+    let meta = std::fs::metadata(path).map_err(Error::Read)?;
+    Ok(Stamp::new(
+        meta.len(),
+        meta.modified().map_err(Error::Read)?,
+    ))
 }
 
 #[cfg(test)]

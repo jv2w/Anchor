@@ -1003,18 +1003,22 @@ fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
         c.delete_world("lobby").unwrap();
         assert!(!c.is_world_generated("lobby"));
         assert_eq!(c.delete_world("lobby"), Err(world::Error::NotGenerated));
-        // The name is free at once, in any letter case.
+        // The name is free at once, in any letter case. No commit holds the deletion yet, so the
+        // world made again takes the deleted world's file, under that file's name.
         c.create_world("Lobby", &Options::new()).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         finish(link, handle);
     }
-    assert_eq!(files(), ["Lobby", "arena", "world"]);
+    assert_eq!(files(), ["arena", "lobby", "world"]);
     // A world stored and not loaded this run is deleted as well.
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-    cx(&mut state).delete_world("arena").unwrap();
+    let mut c = cx(&mut state);
+    c.delete_world("arena").unwrap();
+    // The file goes once a commit holds the deletion.
+    c.save();
     run_saved(&mut state, &mut link, &pool, 1);
     finish(link, handle);
-    assert_eq!(files(), ["Lobby", "world"]);
+    assert_eq!(files(), ["lobby", "world"]);
     assert!(pool.shutdown());
 }
 
@@ -1052,7 +1056,10 @@ fn a_world_is_found_by_its_name_in_any_letter_case() {
     }
     assert_eq!(files(), ["lobby", "world"]);
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-    cx(&mut state).delete_world("LOBBY").unwrap();
+    let mut c = cx(&mut state);
+    c.delete_world("LOBBY").unwrap();
+    // The file goes once a commit holds the deletion.
+    c.save();
     run_saved(&mut state, &mut link, &pool, 1);
     finish(link, handle);
     assert_eq!(files(), ["world"]);

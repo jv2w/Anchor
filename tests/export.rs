@@ -42,7 +42,7 @@ impl Drop for TempPath {
     }
 }
 
-/// A server of the data folder `data` with two CPU threads and the world [`NAME`].
+/// Returns a server of the data folder `data` with two CPU threads and the world [`NAME`].
 fn server(data: &Path) -> Server {
     let mut config = Config::default();
     config.developer.cpu_threads = Threads::Count(NonZeroU16::new(2).expect("not zero"));
@@ -72,8 +72,15 @@ fn an_exported_world_imports_back_into_the_same_world_file() {
         .expect("the export");
     assert_eq!(report.chunks(), imported.chunks());
     assert_eq!(report.block_entities(), imported.block_entities());
-    // The import left the entities out.
-    assert_eq!((report.entities(), report.scheduled_updates()), (0, 0));
+    // The import left the entities out, and an import makes no spills.
+    assert_eq!(
+        (
+            report.entities(),
+            report.scheduled_updates(),
+            report.spills()
+        ),
+        (0, 0, 0)
+    );
     assert!(folder.join("level.dat").exists());
     assert!(!data.0.join("bedrock").join(format!("{NAME}.tmp")).exists());
 

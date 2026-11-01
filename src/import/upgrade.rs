@@ -13,11 +13,10 @@
 mod apply;
 mod table;
 
-use crate::nbt::{Compound, List, Value};
-
-use apply::States;
-
 pub(crate) use table::BLOCK_STATE_VERSION;
+
+use crate::nbt::{Compound, List, Value};
+use apply::States;
 
 /// The key PMMP adds to every block state it saves (`VersionInfo::TAG_WORLD_DATA_VERSION`); it
 /// drops the key, of any type, when it reads a state (`BlockStateData::fromNbt`).
@@ -31,18 +30,6 @@ struct ItemSchema {
     remapped: &'static [(&'static str, &'static [(u16, &'static str)])],
 }
 
-/// Finds `key` in a slice sorted by its first field.
-fn find<'a, K: Ord + ?Sized, T>(list: &'a [(&K, T)], key: &K) -> Option<&'a T> {
-    let i = list.binary_search_by(|(k, _)| (*k).cmp(key)).ok()?;
-    list.get(i).map(|(_, v)| v)
-}
-
-/// Like [`find`] for a slice keyed by value.
-fn find_copied<K: Ord + Copy, T>(list: &[(K, T)], key: K) -> Option<&T> {
-    let i = list.binary_search_by(|(k, _)| k.cmp(&key)).ok()?;
-    list.get(i).map(|(_, v)| v)
-}
-
 /// A disk palette entry upgraded to the protocol version (PMMP `upgradeBlockStateNbt`):
 /// `{name, states, version}`. A modern entry is `{name, states}` with an optional `version` (0
 /// without one), an optional `PMMPDataVersion` (dropped, as PMMP drops it) and nothing else, its
@@ -50,31 +37,20 @@ fn find_copied<K: Ord + Copy, T>(list: &[(K, T)], key: K) -> Option<&T> {
 /// looked up in the 1.12.0 table. `None` for anything else and for a legacy name and meta the
 /// table does not have.
 pub(crate) fn state(entry: &Compound) -> Option<Compound> {
-    if let (Some(name), Some(val)) = (entry.get("name"), entry.get("val")) {
-        let (Value::String(name), Value::Short(meta)) = (name, val) else {
-            return None;
-        };
-        let (name, mut states) = legacy_name(name, u8::try_from(*meta).ok()?)?;
+    if let Some((name, meta)) = legacy_parts(entry) {
+        let (name, mut states) = legacy_name(name, u8::try_from(meta).ok()?)?;
         let mut name = name.to_owned();
         // PMMP upgrades the table's state once more; it is at the newest version, so only the
         // schemas that share that version apply.
         apply::upgrade(&table::SCHEMAS, BLOCK_STATE_VERSION, &mut name, &mut states);
         return Some(to_nbt(name, states));
     }
-    let Some(Value::String(name)) = entry.get("name") else {
-        return None;
-    };
-    let Some(Value::Compound(nbt_states)) = entry.get("states") else {
-        return None;
-    };
+    let (name, nbt_states) = modern_parts(entry)?;
     let version = match entry.get("version") {
         Some(Value::Int(v)) => *v,
         None => 0,
         Some(_) => return None,
     };
-    if !entry.keys().all(|k| is_state_key(k)) {
-        return None;
-    }
     let mut states = States::new();
     for (k, v) in nbt_states {
         let value = match v {
@@ -176,13 +152,28 @@ pub(crate) fn nbt(compound: &mut Compound) -> u64 {
 
 /// Whether a compound has the shape of a block state [`state`] reads.
 fn is_state_shape(c: &Compound) -> bool {
-    let modern = matches!(c.get("name"), Some(Value::String(_)))
-        && matches!(c.get("states"), Some(Value::Compound(_)))
-        && c.keys().all(|k| is_state_key(k));
-    let legacy = c.len() == 2
-        && matches!(c.get("name"), Some(Value::String(_)))
-        && matches!(c.get("val"), Some(Value::Short(_)));
-    modern || legacy
+    modern_parts(c).is_some() || legacy_parts(c).is_some()
+}
+
+/// The name and properties of a modern block state: a string `name`, a compound `states`, and no
+/// other key but `version` and `PMMPDataVersion`.
+fn modern_parts(c: &Compound) -> Option<(&String, &Compound)> {
+    match (c.get("name"), c.get("states")) {
+        (Some(Value::String(name)), Some(Value::Compound(states)))
+            if c.keys().all(|k| is_state_key(k)) =>
+        {
+            Some((name, states))
+        }
+        _ => None,
+    }
+}
+
+/// The name and meta of a legacy block state: a string `name`, a short `val`, and nothing else.
+fn legacy_parts(c: &Compound) -> Option<(&str, i16)> {
+    match (c.len(), c.get("name"), c.get("val")) {
+        (2, Some(Value::String(name)), Some(&Value::Short(meta))) => Some((name.as_str(), meta)),
+        _ => None,
+    }
 }
 
 /// Whether `key` belongs in a modern block state.
@@ -223,19 +214,22 @@ fn item(c: &mut Compound) -> bool {
             .and_then(|block| legacy_name(block, u8::try_from(meta).ok()?))
     };
     let (new_name, new_meta) = item_id_meta(&name, meta);
-    let before = c.clone();
-    c.remove("id");
-    c.insert("Name".to_owned(), Value::String(new_name));
+    // Only these keys change; each insert hands back the value it replaced.
+    let mut changed = c.remove("id").is_some();
+    let new_name = Value::String(new_name);
+    changed |= c.insert("Name".to_owned(), new_name).as_ref() != c.get("Name");
     if new_meta != 0 || c.contains_key("Damage") {
-        c.insert("Damage".to_owned(), Value::Short(new_meta));
+        let new_meta = Value::Short(new_meta);
+        changed |= c.insert("Damage".to_owned(), new_meta).as_ref() != c.get("Damage");
     }
     if let Some((block, states)) = block {
         c.insert(
             "Block".to_owned(),
             Value::Compound(to_nbt(block.to_owned(), states)),
         );
+        changed = true;
     }
-    *c != before
+    changed
 }
 
 /// An item ID and meta through every item schema in order (PMMP `ItemIdMetaUpgrader::upgrade`):
@@ -243,20 +237,38 @@ fn item(c: &mut Compound) -> bool {
 /// the new ID. IDs are looked up lowercased, as PMMP does.
 fn item_id_meta(id: &str, meta: i16) -> (String, i16) {
     let mut id = id.to_owned();
+    let mut lower = id.to_ascii_lowercase();
     let mut meta = meta;
     for schema in &table::ITEM_SCHEMAS {
-        let lower = id.to_ascii_lowercase();
         let remapped = u16::try_from(meta)
             .ok()
             .and_then(|m| find_copied(find(schema.remapped, lower.as_str())?, m));
-        if let Some(new) = remapped {
-            (*new).clone_into(&mut id);
-            meta = 0;
-        } else if let Some(new) = find(schema.renamed, lower.as_str()) {
-            (*new).clone_into(&mut id);
-        }
+        let new = match remapped {
+            Some(new) => {
+                meta = 0;
+                new
+            }
+            None => match find(schema.renamed, lower.as_str()) {
+                Some(new) => new,
+                None => continue,
+            },
+        };
+        (*new).clone_into(&mut id);
+        lower = id.to_ascii_lowercase();
     }
     (id, meta)
+}
+
+/// Finds `key` in a slice sorted by its first field.
+fn find<'a, K: Ord + ?Sized, T>(list: &'a [(&K, T)], key: &K) -> Option<&'a T> {
+    let i = list.binary_search_by(|(k, _)| (*k).cmp(key)).ok()?;
+    list.get(i).map(|(_, v)| v)
+}
+
+/// Like [`find`] for a slice keyed by value.
+fn find_copied<K: Ord + Copy, T>(list: &[(K, T)], key: K) -> Option<&T> {
+    let i = list.binary_search_by(|(k, _)| k.cmp(&key)).ok()?;
+    list.get(i).map(|(_, v)| v)
 }
 
 #[cfg(test)]

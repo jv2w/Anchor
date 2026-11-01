@@ -8,9 +8,9 @@ use super::*;
 use crate::import::leveldb::tests::database_files;
 use crate::save::tests::TempDir;
 
-/// The world BDS 1.26.52 made: a flat world, seed 7, with blocks filled, entities
-/// summoned and water placed over five runs, so it has a table and a live log.
-const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
+/// The world BDS 1.26.52 made: a flat world, seed 7, with blocks filled, water placed, a chest, a
+/// sign, a pig, an armor stand and pending ticks over five runs, so it has a table and a live log.
+pub(crate) const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 
 /// Every file under `dir` with its bytes.
 #[expect(
@@ -337,7 +337,12 @@ fn error_messages_name_the_place() {
         path: PathBuf::from("db/000005.ldb"),
         source: Box::new(Error::Checksum),
     };
-    assert_eq!(file.to_string(), "world file db/000005.ldb");
+    assert_eq!(file.to_string(), "source file db/000005.ldb");
+    let too_large = Error::TooLarge {
+        what: "bytes in a block",
+        limit: 16,
+    };
+    assert_eq!(too_large.to_string(), "more than 16 bytes in a block");
     let newer = Error::NewerFormat {
         what: "chunk version",
         version: 43,
@@ -350,12 +355,16 @@ fn error_messages_name_the_place() {
 }
 
 #[test]
-fn more_than_4_million_overworld_chunks_are_refused() {
+fn more_than_4_million_overworld_chunks_are_refused_counting_each_chunk_once() {
     let mut catalog = Catalog {
         chunks: vec![(0, 0); MAX_CHUNKS - 1],
         ..Catalog::default()
     };
     catalog.add(&key(1, 1, &[0x2c])).unwrap();
+    // The chunk's second version key, after one of its sub-chunks: the same chunk again.
+    catalog.add(&key(1, 1, &[0x2f, 0])).unwrap();
+    catalog.add(&key(1, 1, &[0x76])).unwrap();
+    assert_eq!(catalog.chunks.len(), MAX_CHUNKS);
     let error = catalog.add(&key(1, 2, &[0x2c])).unwrap_err();
     assert!(matches!(
         error,

@@ -42,6 +42,11 @@ fn byte(n: usize) -> u8 {
     u8::try_from(n & 0xff).unwrap()
 }
 
+/// The slot offset of block (`x`, `y`, `z`) in a legacy layer.
+fn offset(x: usize, y: usize, z: usize) -> u16 {
+    u16::try_from(x << 8 | z << 4 | y).unwrap()
+}
+
 fn stone_layer() -> Vec<u8> {
     let indices: Vec<u16> = (0..4096).map(|i| u16::from(i % 7 == 0)).collect();
     layer(
@@ -185,11 +190,27 @@ fn entries_keep_what_is_decoded_and_note_other_tags() {
     e.add(&key(3, -2, &[SUB_CHUNK, 24]), &[9]).unwrap();
     e.add(&key(3, -2, &[SUB_CHUNK, 0xfb]), &[9]).unwrap();
     e.add(&key(3, -2, &[1, 0, 0, 0, VERSION]), &[42]).unwrap();
-    e.add(&key(3, -2, &[0x3f, 1]), &[]).unwrap();
+    e.add(&key(3, -2, &[0x3f]), &[]).unwrap();
     e.add(&key(3, -2, &[VERSION]), &[42]).unwrap();
     let raw = decode(&e).unwrap();
     assert_eq!(raw.ignored, vec![SUB_CHUNK, 0x36, 0x3f]);
     assert!(raw.sections.is_empty());
+}
+
+#[test]
+fn entries_note_only_keys_the_catalog_counts_as_the_chunks() {
+    // A tag byte that is no chunk tag, and a chunk tag with a byte after it that is not a
+    // sub-chunk: the catalog counts both as other keys, not as this chunk's.
+    let suffixes: [&[u8]; 3] = [&[0x10], &[0x3f, 1], &[0x2b, 0, 0]];
+    for suffix in suffixes {
+        assert_eq!(classify(&key(3, -2, suffix)), Key::Other, "{suffix:?}");
+    }
+    let mut e = Entries::new(3, -2);
+    e.add(&key(3, -2, &[VERSION]), &[42]).unwrap();
+    for suffix in suffixes {
+        e.add(&key(3, -2, suffix), &[]).unwrap();
+    }
+    assert_eq!(decode(&e).unwrap().ignored, Vec::<u8>::new());
 }
 
 #[test]
@@ -206,7 +227,7 @@ fn chunk_data_over_64_mib_is_refused() {
     assert!(matches!(
         error,
         Error::TooLarge {
-            what: "chunk data",
+            what: "bytes of data in a chunk",
             ..
         }
     ));
@@ -307,8 +328,8 @@ fn legacy_sub_chunks_keep_ids_and_meta() {
         };
         assert_eq!(layer.ids[300], 44);
         // Index 3 is the high nibble of byte 1.
-        assert_eq!(layer.get(0, 3, 0), (3, 0));
-        assert_eq!(layer.get(0, 2, 0), (2, 1));
+        assert_eq!(layer.get(offset(0, 3, 0)), (3, 0));
+        assert_eq!(layer.get(offset(0, 2, 0)), (2, 1));
     }
     let mut short = body;
     short.pop();
@@ -451,7 +472,7 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
         panic!("not legacy")
     };
     for ((x, y, z), golden) in LEGACY_COLUMN_GOLDEN {
-        let (id, meta) = layer.get(x, y, z);
+        let (id, meta) = layer.get(offset(x, y, z));
         assert_eq!(u16::from(id) << 4 | u16::from(meta), golden, "{x} {y} {z}");
     }
     terrain.pop();
@@ -485,7 +506,7 @@ fn legacy_sub_chunks_index_blocks_like_pmmp() {
         panic!("not legacy")
     };
     for ((x, y, z), golden) in LEGACY_XZY_GOLDEN {
-        let (id, meta) = layer.get(x, y, z);
+        let (id, meta) = layer.get(offset(x, y, z));
         assert_eq!(u16::from(id) << 4 | u16::from(meta), golden, "{x} {y} {z}");
     }
 }

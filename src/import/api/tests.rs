@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::*;
 use crate::block::Inert;
 use crate::import::chunk::Section;
-use crate::import::level_dat::WorldData;
+use crate::import::tests::FIXTURE;
 use crate::nbt::List;
 use crate::storage::codec::ExtraRecord;
 use crate::storage::seal::unseal;
@@ -258,7 +258,7 @@ fn known(nbt: &Compound) -> crate::block::State {
 }
 
 /// Kelp and seagrass in water (layer 1) and a block no client knows: the import keeps both
-/// layers and their NBT; read back from the server file, kelp and seagrass are inert (sent as
+/// layers and their NBT; read back from the world file, kelp and seagrass are inert (sent as
 /// the reference list's IDs, which BDS sends) over their water, and the report counts them apart
 /// from the update! block.
 #[test]
@@ -641,7 +641,7 @@ fn a_chunk_that_fails_ends_the_import_with_its_position_and_writes_nothing() {
 }
 
 #[test]
-fn a_failed_commit_leaves_the_server_file_as_it_was() {
+fn a_failed_commit_leaves_no_imported_world() {
     let mut rng = crate::protocol::Rng(0x1a9_0e77);
     let raws: BTreeMap<(i32, i32), Raw> = (0..3).map(|i| ((i, i), full_raw())).collect();
     for at in 1.. {
@@ -800,7 +800,7 @@ fn a_temporary_world_or_a_name_that_is_no_file_name_is_refused_before_anything_i
         )
         .unwrap_err();
         assert!(
-            matches!(&err, crate::Error::Import(Error::UnknownWorld { name: n }) if n == name)
+            matches!(&err, crate::Error::Import(Error::TemporaryWorld { name: n }) if n == name)
                 || matches!(&err, crate::Error::InvalidWorldName { name: n } if n == name),
             "{err:?}"
         );
@@ -850,6 +850,47 @@ fn a_world_file_made_before_the_import_writes_is_refused_and_kept() {
         std::fs::read(&place.file).ok() == Some(before),
         "the file is as it was"
     );
+}
+
+/// A world file another process opened after the import made it (a server that made a world of the
+/// name meanwhile) is that process's: refused and kept, not removed under it.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: a test checks the folder"
+)]
+fn a_world_file_another_process_opened_is_refused_and_kept() {
+    let dir = crate::save::tests::TempDir::new("import-opened-meanwhile");
+    let place = crate::storage::Place::world(&dir.0.join("data"), NAME);
+    let start = Start::checked(StartBackup::Make);
+    let held = Storage::open(&place, start).unwrap();
+    let err = open_created(&place, start, NAME).unwrap_err();
+    assert!(
+        matches!(&err, crate::Error::Import(Error::WorldExists { name }) if name == NAME),
+        "{err:?}"
+    );
+    assert!(place.file.exists(), "the file is kept");
+    drop(held);
+}
+
+/// A declared world imported under its name in another letter case gets its file in the declared
+/// name's case, as the server names a new world's file.
+#[test]
+fn a_declared_world_imported_in_another_letter_case_takes_the_declared_name() {
+    let dir = crate::save::tests::TempDir::new("import-letter-case");
+    let data = dir.0.join("data");
+    let report = run(
+        &data,
+        Start::checked(StartBackup::Make),
+        &[spec()],
+        1,
+        &Registry::default(),
+        Path::new(FIXTURE),
+        &NAME.to_uppercase(),
+    )
+    .unwrap();
+    assert_eq!(report.chunks(), 36);
+    assert_eq!(save::world_files(&data).unwrap(), [NAME]);
 }
 
 /// An import whose world file would be one past the most `data/worlds/` may hold is refused
@@ -1014,11 +1055,6 @@ fn measure_100k_chunk_import() {
         file_mib(&file)
     );
 }
-
-/// The world BDS 1.26.52 made (IMPORT-R's fixture): flat, seed 7, filled blocks, water, a chest,
-/// a sign, a pig, an armor stand and pending ticks; the pig, the armor stand and the ticks are not
-/// imported.
-const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 
 #[test]
 fn the_bds_fixture_imports_with_every_block_known_and_in_place() {

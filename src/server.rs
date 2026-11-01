@@ -119,9 +119,9 @@ impl Server {
     ///
     /// It blocks the calling thread, uses a CPU pool of `cpu-threads` that it joins before
     /// returning, and writes the whole world in one transaction: on any failure, a chunk that
-    /// cannot be read included, no world file is left; the error names the chunk and the key at
-    /// fault
-    /// ([`import::Error::Key`](crate::import::Error::Key)). The source folder is only read, and the
+    /// cannot be read included, no world file is left; the error names the source file at fault,
+    /// and the chunk and the key ([`import::Error::Key`](crate::import::Error::Key)) when a
+    /// chunk's value is. The source folder is only read, and the
     /// import fails if it changes meanwhile.
     #[doc(alias = "FormatConverter::execute")]
     pub fn import_world(
@@ -146,19 +146,20 @@ impl Server {
     /// [`import_world`](Self::import_world).
     ///
     /// It reads the world's file `data/worlds/<world>.redb` (the name in any letter case)
-    /// read-only, at its last save, and writes nothing in the data folder. A file a running
-    /// server has open is refused ([`Error::Storage`]); a world the server has not loaded can be
-    /// exported while it runs. `dir` must not be there yet
+    /// and the main file read-only, at the last save, and writes nothing in the data folder. A
+    /// world file later than the main file is refused; one start of the server rolls it back. A
+    /// running server holds the main file, so it refuses the export ([`Error::Storage`]). `dir`
+    /// must not be there yet
     /// ([`export::Error::FolderExists`](crate::export::Error::FolderExists)): the world is
-    /// written into `<dir>.tmp` and renamed to `dir` once whole, so on any failure no folder is
-    /// left, and the error names the chunk at fault
+    /// written into `<dir>.tmp` and renamed to `dir` once whole, so on any failure no folder of
+    /// its own is left, and the error names the chunk at fault
     /// ([`export::Error::Chunk`](crate::export::Error::Chunk)).
     ///
     /// Every chunk the file holds is written with its blocks, biomes and block entities. A
     /// chunk whose terrain was never saved (only its entities or block entities were) gets what
     /// the world's generator makes, as when it loads: a declared world's generator and seed, or
-    /// for another name the default world's generator with the seed of the name. Entities and
-    /// scheduled block updates are left out and counted in the
+    /// for another name the default world's generator with the seed of the name. Entities,
+    /// scheduled block updates and spills are left out and counted in the
     /// [`export::Report`](crate::export::Report): they are saved in Anchor's own form, and so
     /// are players, who are not in the world's file. Chunks the file does not hold (generated and never changed) are not written: the
     /// Bedrock world's flat generator makes them, as BDS's default flat world for a world of
@@ -206,9 +207,8 @@ impl Server {
     /// checked together as `integrity-check` says, without being written, before any is opened:
     /// a damaged one, or one of a newer format, refuses the start, and every file is left as it
     /// was. With `backups`, each file is then backed up into its own folder of `data/backups/`
-    /// while the server runs. A file holding
-    /// a later save than the main file (a crash in the middle of a save) is logged as an error
-    /// naming it. Then the packs load from `data/packs`. On shutdown every player sees
+    /// while the server runs. A players or world file holding a later save than the main file (a
+    /// crash in the middle of a save) is first rolled back to the main file's save. Then the packs load from `data/packs`. On shutdown every player sees
     /// `shutdown-message`, the last state is saved to every data file it changed (one tick's
     /// state, the main file last), networking stops, and the threads are joined. Fails if a data
     /// file is damaged or cannot be opened, if a pack cannot be offered, if the runtime, the
@@ -288,12 +288,6 @@ impl Server {
         let ready = (|| {
             let mut opened =
                 save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
-            if !opened.later.is_empty() {
-                warn!(
-                    files = opened.later.len(),
-                    "the server starts on data files of different saves; see the errors above"
-                );
-            }
             setup.data.load(&mut opened.thread)?;
             setup.commands.start(
                 std::mem::take(&mut opened.access),

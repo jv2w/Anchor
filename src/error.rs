@@ -86,7 +86,7 @@ pub enum Error {
     /// use `?` on [`Pack::from_bytes`](crate::pack::Pack::from_bytes) and the other pack calls.
     Pack(pack::Error),
     /// [`Server::import_world`](crate::Server::import_world) could not import the world; the
-    /// source says why. The server file is left as it was.
+    /// source says why. No world file is left.
     Import(import::Error),
     /// [`Server::export_world`](crate::Server::export_world) could not export the world; the
     /// source says why. No world folder is left.
