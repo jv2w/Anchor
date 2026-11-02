@@ -169,7 +169,7 @@ impl Item {
     }
 
     /// Whether a player in creative mode breaks blocks with it.
-    pub(crate) fn breaks_in_creative(&self) -> bool {
+    pub(crate) fn can_break_in_creative(&self) -> bool {
         self.breaks_in_creative
     }
 
@@ -213,7 +213,7 @@ impl Item {
     /// The `ItemRegistry` data of the item (dragonfly `iteminternal.Components`): the item
     /// properties (icon, creative place, stack size and the flags), the display name, and the
     /// durability and food components.
-    pub(crate) fn components(&self) -> Compound {
+    pub(crate) fn to_components(&self) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category, c.group.unwrap_or_default()),
             None => (Category::Items, ""),

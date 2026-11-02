@@ -17,7 +17,7 @@ use crate::tick::{Output, SessionId, State};
 
 const TEST_HOOKS: Hooks = Hooks {
     villager: villager_of,
-    offers_mut: offers_of,
+    offers_mut,
     can_open_window: |_, _| true,
     open_window,
     close_window,
@@ -198,7 +198,7 @@ fn villager_of(state: &State, id: Id) -> Option<Villager<'_>> {
     })
 }
 
-fn offers_of(state: &mut State, id: Id) -> Option<&mut Offers> {
+fn offers_mut(state: &mut State, id: Id) -> Option<&mut Offers> {
     state
         .trades
         .fixtures

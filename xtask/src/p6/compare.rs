@@ -225,6 +225,15 @@ pub(crate) struct Chunks {
     pub(crate) radius: Option<u64>,
 }
 
+/// Which `NetworkChunkPublisherUpdate`s of a capture a comparison looks at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PublisherUpdates {
+    /// Those before the first `ChunkRadiusUpdated`.
+    BeforeRadius,
+    /// Those after it.
+    AfterRadius,
+}
+
 /// The entries of one `SubChunk` packet, waiting for the bot's check line of it.
 #[derive(Debug)]
 struct SubChunkPacket {
@@ -1225,17 +1234,20 @@ pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String
             positions.len()
         ));
     }
-    let runs = |c: &Chunks, after: bool| {
+    let runs = |c: &Chunks, which: PublisherUpdates| {
         let mut out: Vec<String> = Vec::new();
         for (at, radius, saved, later) in &c.publisher {
             let text = format!("({},{}) radius {radius} saved {saved}", at[0], at[1]);
-            if *later == after && out.last() != Some(&text) {
+            if *later == (which == PublisherUpdates::AfterRadius) && out.last() != Some(&text) {
                 out.push(text);
             }
         }
         out
     };
-    let (after_a, after_b) = (runs(a, true), runs(b, true));
+    let (after_a, after_b) = (
+        runs(a, PublisherUpdates::AfterRadius),
+        runs(b, PublisherUpdates::AfterRadius),
+    );
     if after_a != after_b {
         differences.push(format!(
             "NetworkChunkPublisherUpdate after ChunkRadiusUpdated differs:\n  A: {}\n  B: {}",
@@ -1244,7 +1256,10 @@ pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String
         ));
     }
     for (name, c) in [("A", a), ("B", b)] {
-        let count = |after: bool| c.publisher.iter().filter(|p| p.3 == after).count();
+        let count = |which: PublisherUpdates| {
+            let wanted = which == PublisherUpdates::AfterRadius;
+            c.publisher.iter().filter(|p| p.3 == wanted).count()
+        };
         notes.push(format!(
             "{name}: {} LevelChunks ({} before spawning), {} SubChunk answers, chunk radius {:?}, \
              publisher updates {} before the radius ({}) and {} after",
@@ -1252,9 +1267,9 @@ pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String
             c.before_spawn,
             c.sub.values().map(Vec::len).sum::<usize>(),
             c.radius,
-            count(false),
-            runs(c, false).join(", "),
-            count(true)
+            count(PublisherUpdates::BeforeRadius),
+            runs(c, PublisherUpdates::BeforeRadius).join(", "),
+            count(PublisherUpdates::AfterRadius)
         ));
     }
     (differences, notes)
@@ -1426,6 +1441,13 @@ mod tests {
 {"type":"packet","index":2,"name":"StartGame","fields":{"GameVersion":"1.26.52","Seed":1,"Movement":{"Rewind":40}}}
 {"type":"sent","name":"SetLocalPlayerAsInitialised","after":2}
 {"type":"packet","index":3,"name":"Text","fields":{}}
+"#;
+
+    /// A small item packet file: two registry entries, two creative items in two groups, one
+    /// shaped recipe (stick and tag ingredients, planks output) and one potion recipe.
+    const ITEMS: &str = r#"{"index":1,"name":"ItemRegistry","fields":{"Items":[{"Name":"minecraft:planks","RuntimeID":5,"Data":{}},{"Name":"minecraft:stick","RuntimeID":7,"Data":{}}]}}
+{"index":2,"name":"CreativeContent","fields":{"Groups":[{"Category":1,"Name":"a","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}},{"Category":2,"Name":"","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}}],"Items":[{"CreativeItemNetworkID":1,"GroupIndex":0,"Item":{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}},{"CreativeItemNetworkID":2,"GroupIndex":1,"Item":{"ItemType":{"NetworkID":7,"MetadataValue":0},"BlockRuntimeID":0,"NBTData":{"compound":{}}}}]}}
+{"index":3,"name":"CraftingData","fields":{"ShapedRecipes":[{"RecipeID":"r","RecipeNetworkID":1,"UUID":"u1","Input":[{"Count":1,"Descriptor":{"Name":"minecraft:stick","MetadataValue":32767}},{"Count":1,"Descriptor":{"Tag":"minecraft:logs"}},{"Count":0,"Descriptor":{}}],"Output":[{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}]}],"MultiRecipes":[{"UUID":"m","RecipeNetworkID":2}],"PotionRecipes":[{"InputPotionID":7,"InputPotionMetadata":0,"ReagentItemID":5,"ReagentItemMetadata":0,"OutputPotionID":7,"OutputPotionMetadata":0}],"ClearRecipes":true}}
 "#;
 
     fn tables(deferred: &str, fields: &str) -> (Deferred, Fields) {
@@ -1622,13 +1644,6 @@ mod tests {
         let w = window(&CAPTURE.replace("StartGame", "NetworkSettings")).expect("window");
         assert_eq!(sequence(&w, &deferred), ["NetworkSettings x2"]);
     }
-
-    /// A small item packet file: two registry entries, two creative items in two groups, one
-    /// shaped recipe (stick and tag ingredients, planks output) and one potion recipe.
-    const ITEMS: &str = r#"{"index":1,"name":"ItemRegistry","fields":{"Items":[{"Name":"minecraft:planks","RuntimeID":5,"Data":{}},{"Name":"minecraft:stick","RuntimeID":7,"Data":{}}]}}
-{"index":2,"name":"CreativeContent","fields":{"Groups":[{"Category":1,"Name":"a","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}},{"Category":2,"Name":"","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}}],"Items":[{"CreativeItemNetworkID":1,"GroupIndex":0,"Item":{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}},{"CreativeItemNetworkID":2,"GroupIndex":1,"Item":{"ItemType":{"NetworkID":7,"MetadataValue":0},"BlockRuntimeID":0,"NBTData":{"compound":{}}}}]}}
-{"index":3,"name":"CraftingData","fields":{"ShapedRecipes":[{"RecipeID":"r","RecipeNetworkID":1,"UUID":"u1","Input":[{"Count":1,"Descriptor":{"Name":"minecraft:stick","MetadataValue":32767}},{"Count":1,"Descriptor":{"Tag":"minecraft:logs"}},{"Count":0,"Descriptor":{}}],"Output":[{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}]}],"MultiRecipes":[{"UUID":"m","RecipeNetworkID":2}],"PotionRecipes":[{"InputPotionID":7,"InputPotionMetadata":0,"ReagentItemID":5,"ReagentItemMetadata":0,"OutputPotionID":7,"OutputPotionMetadata":0}],"ClearRecipes":true}}
-"#;
 
     fn items(text: &str) -> Items {
         parse_items(text).expect("item packets")

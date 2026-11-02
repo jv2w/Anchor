@@ -104,7 +104,9 @@ mod tests {
         assert_eq!(unique.len(), list.string_list.len());
     }
 
+    /// The reference list's biome definitions.
     const DATA: &str = include_str!("../../xtask/data/reference/biomes.json");
+    /// The biome definition keys that hold a float.
     const FLOATS: [&str; 5] = ["temperature", "downfall", "foliage_snow", "depth", "scale"];
 
     /// A data number at the packet's precision, rounded once from its decimal text.

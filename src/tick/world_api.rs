@@ -36,6 +36,13 @@ pub(super) const EFFECT_RESERVE: usize = 1024;
 /// y, z).
 const MAX_COLLISION_SPAN: f64 = 32.0;
 
+/// Whether an explosion sets the blocks it breaks on fire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fire {
+    Set,
+    Spare,
+}
+
 impl Context<'_> {
     /// The world `id`, if it is loaded (the default world always is).
     #[doc(alias = "WorldManager::getWorld")]
@@ -90,7 +97,7 @@ impl Context<'_> {
         self.state
             .players
             .iter()
-            .filter(move |(_, p)| Some(p.world) == w && p.view.sees(chunk))
+            .filter(move |(_, p)| Some(p.world) == w && p.view.can_see(chunk))
             .map(|(&s, _)| player::Id::new(s))
     }
 
@@ -182,25 +189,32 @@ impl Context<'_> {
     #[doc(alias = "Explosion::explodeA")]
     #[doc(alias = "Explosion::explodeB")]
     pub fn explode(&mut self, world: world::Id, center: Vec3, size: f64) -> bool {
-        self.explosion(world, center, size, false)
+        self.explosion(world, center, size, Fire::Spare)
     }
 
     /// Explodes as [`Self::explode`] does, and sets a third of the broken blocks on fire (PMMP's
     /// default fire chance) where the block under them can hold fire.
     #[doc(alias = "Explosion::setFireChance")]
     pub fn explode_with_fire(&mut self, world: world::Id, center: Vec3, size: f64) -> bool {
-        self.explosion(world, center, size, true)
+        self.explosion(world, center, size, Fire::Set)
     }
 
-    /// Explodes as [`Self::explode`] does, setting fire when `fire`.
-    fn explosion(&mut self, world: world::Id, center: Vec3, size: f64, fire: bool) -> bool {
+    /// Explodes as [`Self::explode`] does, setting fire as `fire` says.
+    fn explosion(&mut self, world: world::Id, center: Vec3, size: f64, fire: Fire) -> bool {
         let Some(w) = index(self.state, world) else {
             return false;
         };
         if !entity::is_valid_explosion(center, size) {
             return false;
         }
-        entity::explode(self.state, w, center, size, fire, entity::Raise::Quiet);
+        entity::explode(
+            self.state,
+            w,
+            center,
+            size,
+            fire == Fire::Set,
+            entity::Raise::Quiet,
+        );
         true
     }
 }

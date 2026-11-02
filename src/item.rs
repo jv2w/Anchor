@@ -1522,7 +1522,9 @@ mod tests {
     use crate::protocol::consts::CreativeCategory;
     use crate::protocol::packet::Packet;
 
+    /// The dump's creative inventory.
     const CREATIVE: &str = include_str!("../xtask/data/pmmp/creative.json");
+    /// The reference list's items.
     const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
 
     fn all() -> impl Iterator<Item = Type> {
@@ -1687,7 +1689,6 @@ mod tests {
         .unwrap();
         assert_eq!(item.name(), name);
         match want.get("block") {
-            None => assert_eq!(stack.block_runtime_id, 0, "{name}"),
             Some(block) => {
                 // The item places the dumped (PMMP) block and is sent with the vanilla item state
                 // where the reference list has one.
@@ -1699,6 +1700,7 @@ mod tests {
                 );
                 assert_ne!(item.block_network_id(), 0);
             }
+            None => assert_eq!(stack.block_runtime_id, 0, "{name}"),
         }
     }
 
@@ -1903,14 +1905,16 @@ mod tests {
         Type::from_name(name, 0, None, &empty).unwrap_or_else(|| panic!("no item {name}"))
     }
 
-    /// PMMP values of well-known items (PMMP `VanillaItems`, `ToolTier`, `Steak`, `Coal`).
-    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability, Item::getAttackPoints,
-    // pmmp: TieredTool::getTier, Item::getBlockToolType, Item::getEnchantability, ToolTier,
+    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability,
+    // pmmp: Item::getAttackPoints, TieredTool::getTier, Item::getBlockToolType,
+    // pmmp: Item::getEnchantability, ToolTier,
     // pmmp: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
-    // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem, Item::getBlockToolHarvestLevel,
-    // pmmp: Item::getMiningEfficiency, Item::getFuelTime, ToolTier::getHarvestLevel,
-    // pmmp: ToolTier::getMaxDurability, ToolTier::getBaseAttackPoints, ToolTier::getBaseEfficiency,
+    // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem,
+    // pmmp: Item::getBlockToolHarvestLevel, Item::getMiningEfficiency, Item::getFuelTime,
+    // pmmp: ToolTier::getHarvestLevel, ToolTier::getMaxDurability,
+    // pmmp: ToolTier::getBaseAttackPoints, ToolTier::getBaseEfficiency,
     // pmmp: ToolTier::getEnchantability
+    /// PMMP values of well-known items (PMMP `VanillaItems`, `ToolTier`, `Steak`, `Coal`).
     #[test]
     fn item_data_are_pmmp_values() {
         let ingot = by_name("minecraft:iron_ingot");
@@ -1948,12 +1952,13 @@ mod tests {
         assert_eq!(ToolTier::Gold.enchantability(), 22);
     }
 
-    /// PMMP values of food, fuel, armour and other item data.
-    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore, FoodSource::requiresHunger,
-    // pmmp: Consumable, ConsumableItem::getResidue, Consumable::getAdditionalEffects,
-    // pmmp: Item::getFuelTime, Item::getFuelResidue, Armor::getArmorSlot, ArmorTypeInfo::getToughness,
-    // pmmp: Item::getDefensePoints, Item::isFireProof, Item::getCooldownTicks, Item::getCooldownTag,
+    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore,
+    // pmmp: FoodSource::requiresHunger, Consumable, ConsumableItem::getResidue,
+    // pmmp: Consumable::getAdditionalEffects, Item::getFuelTime, Item::getFuelResidue,
+    // pmmp: Armor::getArmorSlot, ArmorTypeInfo::getToughness, Item::getDefensePoints,
+    // pmmp: Item::isFireProof, Item::getCooldownTicks, Item::getCooldownTag,
     // pmmp: ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
+    /// PMMP values of food, fuel, armour and other item data.
     #[test]
     fn food_fuel_and_armour_are_pmmp_values() {
         // Cooked beef: 8 food, 12.8 saturation.
@@ -2169,11 +2174,11 @@ mod tests {
         json.as_u64().unwrap()
     }
 
+    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability,
+    // pmmp: Item::isFireProof, Item::getAttackPoints, Item::getDefensePoints,
+    // pmmp: Item::getBlockToolType, Item::getBlockToolHarvestLevel, Item::getMiningEfficiency,
+    // pmmp: TieredTool::getTier, Armor::getArmorSlot, ArmorTypeInfo::getToughness
     /// Every item type has the identity, stack, tool and armour data of its PMMP dump entry.
-    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability, Item::isFireProof,
-    // pmmp: Item::getAttackPoints, Item::getDefensePoints, Item::getBlockToolType,
-    // pmmp: Item::getBlockToolHarvestLevel, Item::getMiningEfficiency, TieredTool::getTier,
-    // pmmp: Armor::getArmorSlot, ArmorTypeInfo::getToughness
     #[test]
     fn every_type_has_its_pmmp_tool_and_armour_data() {
         let dump = item_dump();
@@ -2218,10 +2223,10 @@ mod tests {
         }
     }
 
+    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore,
+    // pmmp: FoodSource::requiresHunger, ConsumableItem::getResidue,
+    // pmmp: Consumable::getAdditionalEffects, Item::getFuelTime, Item::getFuelResidue
     /// Every item type has the food, consumable and fuel data of its PMMP dump entry.
-    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore, FoodSource::requiresHunger,
-    // pmmp: ConsumableItem::getResidue, Consumable::getAdditionalEffects, Item::getFuelTime,
-    // pmmp: Item::getFuelResidue
     #[test]
     fn every_type_has_its_pmmp_food_and_fuel_data() {
         let tables = dump_tables();
@@ -2262,11 +2267,12 @@ mod tests {
         }
     }
 
-    /// Every item type has the enchanting, cooldown, throwing, potion and placing data of its
-    /// PMMP dump entry.
-    // pmmp: Item::getEnchantability, AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
+    // pmmp: Item::getEnchantability,
+    // pmmp: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
     // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem, Item::getCooldownTicks,
     // pmmp: Item::getCooldownTag, ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
+    /// Every item type has the enchanting, cooldown, throwing, potion and placing data of its
+    /// PMMP dump entry.
     #[test]
     fn every_type_has_its_pmmp_use_data() {
         let tables = dump_tables();
@@ -2308,8 +2314,8 @@ mod tests {
         }
     }
 
-    /// Dye items have PMMP `DyeColorIdMap` IDs (white 0 … black 15) and PMMP's RGB values.
     // pmmp: Dye::getColor
+    /// Dye items have PMMP `DyeColorIdMap` IDs (white 0 … black 15) and PMMP's RGB values.
     #[test]
     fn dyes_have_pmmp_colour_ids() {
         assert_eq!(dye_colour(by_name("minecraft:white_dye")), Some(0));

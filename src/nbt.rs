@@ -39,19 +39,31 @@ const STACK_ORDER: Error = Error::InvalidValue {
     reason: "container stack out of order",
 };
 
-/// The tag types, by number.
+/// The tag number of the end of a compound.
 const TAG_END: u8 = 0;
+/// The tag number of a byte.
 const TAG_BYTE: u8 = 1;
+/// The tag number of a short.
 const TAG_SHORT: u8 = 2;
+/// The tag number of an int.
 const TAG_INT: u8 = 3;
+/// The tag number of a long.
 const TAG_LONG: u8 = 4;
+/// The tag number of a float.
 const TAG_FLOAT: u8 = 5;
+/// The tag number of a double.
 const TAG_DOUBLE: u8 = 6;
+/// The tag number of a byte array.
 const TAG_BYTE_ARRAY: u8 = 7;
+/// The tag number of a string.
 const TAG_STRING: u8 = 8;
+/// The tag number of a list.
 const TAG_LIST: u8 = 9;
+/// The tag number of a compound.
 const TAG_COMPOUND: u8 = 10;
+/// The tag number of an int array.
 const TAG_INT_ARRAY: u8 = 11;
+/// The tag number of a long array.
 const TAG_LONG_ARRAY: u8 = 12;
 
 /// A compound tag: named values in key byte order.
@@ -947,10 +959,14 @@ fn take_one(left: &mut usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz;
 
-    const BUDGET: usize = 1 << 26;
-    const LIMIT: usize = 4096;
+    /// The allocation budget of a reader in the tests.
+    const BUDGET_BYTES: usize = 1 << 26;
+    /// The size limit of a writer in the tests.
+    const MAX_BYTES: usize = 4096;
+    /// A static compound of a byte, a float and a list of compounds.
     const STATIC: StaticCompound = &[
         ("a", Static::Byte(1)),
         ("f", Static::Float(f32::NAN)),
@@ -961,7 +977,7 @@ mod tests {
     ];
 
     fn read(data: &[u8], encoding: Encoding) -> Result<Compound> {
-        let mut r = Reader::new(data, BUDGET, 0);
+        let mut r = Reader::new(data, BUDGET_BYTES, 0);
         let map = r.nbt(encoding)?;
         if !r.remaining().is_empty() {
             return Err(Error::InvalidValue {
@@ -1073,9 +1089,9 @@ mod tests {
                 let mut w = Writer::new(Vec::new(), 0);
                 let cost = w.nbt_within(root, encoding, MAX_ROOT_BYTES).unwrap();
                 assert_eq!(cost.bytes, w.as_bytes().len());
-                let mut r = Reader::new(w.as_bytes(), BUDGET, 0);
+                let mut r = Reader::new(w.as_bytes(), BUDGET_BYTES, 0);
                 assert_eq!(r.nbt(encoding).as_ref(), Ok(root));
-                assert_eq!(BUDGET - r.budget(), cost.alloc, "{root:?}");
+                assert_eq!(BUDGET_BYTES - r.budget(), cost.alloc, "{root:?}");
             }
         }
         let big = Compound::from([("a".to_owned(), Value::ByteArray(vec![0; MAX_ROOT_BYTES]))]);
@@ -1221,25 +1237,29 @@ mod tests {
             for value in &huge {
                 let map = Compound::from([("v".to_owned(), value.clone())]);
                 let mut w = Writer::new(Vec::new(), 0);
-                assert_eq!(w.nbt_within(&map, encoding, LIMIT), Err(Error::Size));
+                assert_eq!(w.nbt_within(&map, encoding, MAX_BYTES), Err(Error::Size));
                 // At most one scalar past the limit.
-                assert!(w.as_bytes().len() <= LIMIT + 10, "{}", w.as_bytes().len());
+                assert!(
+                    w.as_bytes().len() <= MAX_BYTES + 10,
+                    "{}",
+                    w.as_bytes().len()
+                );
             }
             // A root of exactly the limit fits; one more byte does not.
             let fit =
                 |len: usize| Compound::from([("v".to_owned(), Value::ByteArray(vec![0; len]))]);
             // The array length's varint takes two bytes from 128 to 16,383.
-            let overhead = write(&fit(LIMIT / 2), encoding).unwrap().len() - LIMIT / 2;
+            let overhead = write(&fit(MAX_BYTES / 2), encoding).unwrap().len() - MAX_BYTES / 2;
             let mut w = Writer::new(Vec::new(), 0);
             assert_eq!(
-                w.nbt_within(&fit(LIMIT - overhead), encoding, LIMIT)
+                w.nbt_within(&fit(MAX_BYTES - overhead), encoding, MAX_BYTES)
                     .map(|c| c.bytes),
-                Ok(LIMIT)
+                Ok(MAX_BYTES)
             );
-            assert_eq!(w.as_bytes().len(), LIMIT);
+            assert_eq!(w.as_bytes().len(), MAX_BYTES);
             let mut w = Writer::new(Vec::new(), 0);
             assert_eq!(
-                w.nbt_within(&fit(LIMIT - overhead + 1), encoding, LIMIT),
+                w.nbt_within(&fit(MAX_BYTES - overhead + 1), encoding, MAX_BYTES),
                 Err(Error::Size)
             );
         }
@@ -1377,7 +1397,7 @@ mod tests {
         for encoding in [Encoding::NetworkLittleEndian, Encoding::LittleEndian] {
             let seed = write(&every_tag(), encoding).unwrap();
             let decoded = fuzz(&seed, 4000, |data| {
-                let mut r = Reader::new(data, BUDGET, 0);
+                let mut r = Reader::new(data, BUDGET_BYTES, 0);
                 let again = write(&r.nbt(encoding)?, encoding)?;
                 assert_eq!(write(&read(&again, encoding)?, encoding), Ok(again));
                 Ok(())

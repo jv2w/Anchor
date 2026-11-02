@@ -304,7 +304,7 @@ impl Session {
         if let Some(identity) = &self.identity
             && self.inputs.is_some()
         {
-            debug!(session = self.id.get(), name = %identity.name, "session of a player ended");
+            debug!(session = self.id.get(), player = %identity.name, "session of a player ended");
         }
         if let Some(inputs) = self.inputs.take() {
             inputs.leave().await;
@@ -1004,6 +1004,7 @@ impl std::error::Error for Error {
     }
 }
 
+/// A result with the module's [`enum@Error`].
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Runs one connection until it closes, then tells the tick and the accept task.
@@ -1065,8 +1066,8 @@ mod tests {
     use super::*;
 
     use crate::crypto::ServerKey;
-    use crate::pack::Offer;
     use crate::pack::tests::UUID;
+    use crate::pack::{Acceptance, Offer};
     use crate::protocol::batch::MAX_PACKETS;
     use crate::tick::TICK;
     use crate::tick::queue::{
@@ -1089,7 +1090,11 @@ mod tests {
 
     /// Makes what the sessions share: offline, unencrypted, no packs, inputs on `inputs`.
     fn shared(inputs: InputSender) -> Arc<Shared> {
-        sharing(inputs, Offer::new(Vec::new(), false).unwrap()).0
+        sharing(
+            inputs,
+            Offer::new(Vec::new(), Acceptance::Optional).unwrap(),
+        )
+        .0
     }
 
     /// Makes what the sessions share: offline, unencrypted, `packs` on offer, inputs on
@@ -1499,7 +1504,8 @@ mod tests {
         crate::raknet::tests::run_paused(async {
             let (inputs, _queue) = input_queue(1);
             let big = crate::pack::tests::pack(UUID, "1.0.0", 7 * 128 * 1024);
-            let (shared, _stop) = sharing(inputs, Offer::new(vec![big], true).unwrap());
+            let (shared, _stop) =
+                sharing(inputs, Offer::new(vec![big], Acceptance::Required).unwrap());
             let (conn, mut far) = crate::raknet::tests::linked_connection();
             let mut session = Session::new(
                 SessionId::new(0),

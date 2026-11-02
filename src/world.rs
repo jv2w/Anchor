@@ -41,11 +41,11 @@ use crate::block::{Facing, State};
 pub(crate) const BORDER: i32 = 30_000_000;
 /// Ticks in a day (PMMP `World::TIME_FULL`).
 pub(crate) const DAY: i64 = 24_000;
-/// The lowest sub-chunk y of a world.
-pub(crate) const LOWEST_SUB_CHUNK: i32 = MIN_Y >> 4;
 /// The highest block y of the world (PMMP's `getMaxY` is one above: the first y outside).
 #[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;
+/// The lowest sub-chunk y of a world.
+pub(crate) const MIN_SUB_CHUNK_Y: i32 = MIN_Y >> 4;
 /// The lowest block y of the world.
 #[doc(alias = "World::getMinY")]
 pub const MIN_Y: i32 = -64;
@@ -257,7 +257,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The result of a world operation.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The settings [`Context::create_world`](crate::Context::create_world) makes a world with and
@@ -541,7 +541,7 @@ pub struct World {
     /// The time stands still (PMMP `World::$stopTime`), until the server stops.
     time_stopped: bool,
     /// Ticks the world has run since it was made or loaded ([`Self::age_ticks`]).
-    age: u64,
+    age_ticks: u64,
     /// The world's own difficulty; `None` follows the server's.
     difficulty: Option<crate::config::Difficulty>,
     /// The weather, clear at start.
@@ -552,7 +552,7 @@ pub struct World {
     /// worlds without one).
     generator: &'static str,
     /// The loaded chunks; `loaded` holds their positions in order.
-    chunks: index::ChunkIndex,
+    chunks: index::Chunks,
     loaded: BTreeSet<ChunkPos>,
     /// Positions whose saved chunk is damaged: shown empty, never changed or saved.
     quarantined: BTreeSet<ChunkPos>,
@@ -581,12 +581,12 @@ impl World {
             spawn,
             time: 0,
             time_stopped: false,
-            age: 0,
+            age_ticks: 0,
             difficulty: None,
             weather: Weather::Clear,
             number: None,
             generator: "",
-            chunks: index::ChunkIndex::new(),
+            chunks: index::Chunks::new(),
             loaded: BTreeSet::new(),
             quarantined: BTreeSet::new(),
             changes: BTreeMap::new(),
@@ -657,7 +657,7 @@ impl World {
     /// time (`/time query gametime`), which moving the clock does not change. Not saved, so it
     /// starts at 0 at every load.
     pub(crate) fn age_ticks(&self) -> u64 {
-        self.age
+        self.age_ticks
     }
 
     /// The time of the day cycle, 0 to 23,999: 1,000 is day, 6,000 noon, 13,000 night, 18,000
@@ -842,7 +842,7 @@ impl World {
             spawn,
             time,
             time_stopped,
-            age,
+            age_ticks,
             difficulty,
             weather,
             number: _,
@@ -871,7 +871,7 @@ impl World {
             spawn: *spawn,
             time: *time,
             time_stopped: *time_stopped,
-            age: *age,
+            age_ticks: *age_ticks,
             difficulty: *difficulty,
             weather: *weather,
             loaded: loaded.clone(),
@@ -899,7 +899,7 @@ impl World {
     /// is not uniform, a few per one that is.
     #[cfg(test)]
     pub(crate) fn light_hash(&self) -> u64 {
-        let mut h = light::LightHash::new();
+        let mut h = light::Digest::new();
         self.light.hash_into(&mut h);
         for &pos in &self.loaded {
             match self.chunks.get(pos).and_then(Chunk::light) {
@@ -948,7 +948,7 @@ impl World {
 
     /// One more tick of [`Self::age_ticks`]: the clock's tick.
     pub(crate) fn add_age_tick(&mut self) {
-        self.age = self.age.saturating_add(1);
+        self.age_ticks = self.age_ticks.saturating_add(1);
     }
 
     /// Sets the time: the saved time at start, the clock's tick and night skips. Clients learn it
@@ -1177,7 +1177,7 @@ impl World {
             spawn,
             time,
             time_stopped,
-            age,
+            age_ticks,
             difficulty,
             weather,
             loaded,
@@ -1194,7 +1194,7 @@ impl World {
                 "a checkpoint keeps other chunks than the loaded ones",
             ));
         }
-        let mut chunks = index::ChunkIndex::new();
+        let mut chunks = index::Chunks::new();
         for (pos, mut chunk, light) in kept {
             if let Some(l) = light {
                 chunk.set_light(l);
@@ -1206,7 +1206,7 @@ impl World {
         self.spawn = spawn;
         self.time = time;
         self.time_stopped = time_stopped;
-        self.age = age;
+        self.age_ticks = age_ticks;
         self.difficulty = difficulty;
         self.weather = weather;
         self.chunks = chunks;
@@ -1280,7 +1280,7 @@ impl fmt::Debug for World {
             .field("spawn", &self.spawn)
             .field("time", &self.time)
             .field("time_stopped", &self.time_stopped)
-            .field("age", &self.age)
+            .field("age_ticks", &self.age_ticks)
             .field("difficulty", &self.difficulty)
             .field("weather", &self.weather)
             .field("generator", &self.generator)
@@ -1311,7 +1311,7 @@ enum Notify {
 pub(crate) struct Kept {
     light: light::Engine,
     /// Each loaded chunk without its light, and its light, in position order.
-    chunks: Vec<(ChunkPos, Chunk, Option<light::ChunkLight>)>,
+    chunks: Vec<(ChunkPos, Chunk, Option<light::Levels>)>,
 }
 
 impl Kept {
@@ -1322,7 +1322,7 @@ impl Kept {
             .iter()
             .map(|(_, c, l)| {
                 crate::tick::checkpoint::terrain_size(c)
-                    .saturating_add(l.as_ref().map_or(0, light::ChunkLight::heap_bytes))
+                    .saturating_add(l.as_ref().map_or(0, light::Levels::heap_bytes))
             })
             .fold(self.light.heap_bytes(), usize::saturating_add)
     }
@@ -1338,7 +1338,7 @@ pub(crate) struct Saved {
     spawn: BlockPos,
     time: i64,
     time_stopped: bool,
-    age: u64,
+    age_ticks: u64,
     difficulty: Option<crate::config::Difficulty>,
     weather: Weather,
     /// The loaded chunks, in order.
@@ -1353,7 +1353,7 @@ crate::tick::checkpoint::fields!(Saved {
     spawn,
     time,
     time_stopped,
-    age,
+    age_ticks,
     difficulty,
     weather,
     loaded,
@@ -1538,7 +1538,9 @@ mod tests {
         assert_eq!(w.time_of_day(), 23_999);
     }
 
-    // pmmp: World::isInWorld, World::getMinY, World::getMaxY, World::getLoadedChunks, World::getBiomeId, World::getBiome, World::setBiomeId, World::getHighestBlockAt, World::isChunkLoaded
+    // pmmp: World::isInWorld, World::getMinY, World::getMaxY, World::getLoadedChunks,
+    // pmmp: World::getBiomeId, World::getBiome, World::setBiomeId, World::getHighestBlockAt,
+    // pmmp: World::isChunkLoaded
     #[test]
     fn heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only() {
         assert!(World::is_in_world(BlockPos::new(i32::MAX, MIN_Y, i32::MIN)));
@@ -2209,7 +2211,10 @@ mod tests {
         assert_eq!(back.block(3, 40, 5), Some(stone));
         assert_eq!(back.entry(3, 41, 5), Some(Entry::AIR));
         assert_eq!(back.sub_chunk_limit(), 7);
-        assert_eq!(back.level_chunk_payload(), chunk.level_chunk_payload());
+        assert_eq!(
+            back.to_level_chunk_payload(),
+            chunk.to_level_chunk_payload()
+        );
         assert_eq!(
             w.insert_chunk(ChunkPos::new(0, 0), back)
                 .map(|c| c.is_dirty()),

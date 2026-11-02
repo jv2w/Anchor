@@ -32,6 +32,7 @@ const DEFLATE_LEVEL: u8 = 6;
 /// deletion mark (`deleted:` and the world's name, a `Mark`) for each world its save deleted
 /// whose file may still be there.
 pub(crate) const FORMAT_VERSION: u16 = 12;
+/// The bytes of a sealed value's header.
 const HEADER: usize = 12;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
@@ -268,6 +269,7 @@ mod tests {
     };
     use crate::storage::codec::{BlockLayer, ChunkRecord, ExtraRecord, Meta, PlayerRecord};
 
+    /// A chunk key whose bytes the tests seal under.
     const KEY: &[u8] = b"\x00\x00\x00\x00\x80\x00\x00\x01\x7f\xff\xff\xff\x00";
 
     fn crc(bytes: &[u8]) -> u32 {

@@ -445,6 +445,7 @@ fn hex_digit(digit: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz;
 
     fn encoded(f: impl FnOnce(&mut Writer)) -> Vec<u8> {

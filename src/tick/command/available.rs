@@ -140,7 +140,7 @@ impl Catalog {
 
     /// The position of the soft enum of type `name` among [`Self::soft_count`].
     pub(crate) fn soft_enum(&self, name: &str) -> Option<usize> {
-        self.soft_index.get(name).map(|&index| position(index))
+        self.soft_index.get(name).map(|&index| slice_index(index))
     }
 
     /// How many soft enum types the commands use.
@@ -241,7 +241,7 @@ impl Builder {
             if self
                 .catalog
                 .enums
-                .get(position(index))
+                .get(slice_index(index))
                 .is_none_or(|e| e.values != values)
             {
                 self.error.get_or_insert(Error::ConflictingEnum {
@@ -363,7 +363,7 @@ pub(crate) fn available_commands(
             continue;
         }
         for &index in &entry.enums {
-            let at = position(index);
+            let at = slice_index(index);
             #[expect(
                 clippy::indexing_slicing,
                 reason = "invariant: a command's enums are positions of the catalog's enums"
@@ -463,7 +463,7 @@ fn renumbered(at: &[u32], index: u32) -> u32 {
         clippy::indexing_slicing,
         reason = "invariant: a catalog position indexes its packet table"
     )]
-    at[position(index)]
+    at[slice_index(index)]
 }
 
 /// Copies catalog soft enum `index` with its values into `dynamic_enums` on first use.
@@ -474,7 +474,7 @@ fn soft_enum_of(
     dynamic_enums: &mut Vec<DynamicEnum>,
     index: u32,
 ) {
-    let at = position(index);
+    let at = slice_index(index);
     #[expect(
         clippy::indexing_slicing,
         reason = "invariant: a command's soft enums are positions of the catalog's soft enums and of their values"
@@ -492,7 +492,7 @@ fn soft_enum_of(
 
 /// Finds the packet position of catalog value `v`, copying it into `values` on first use.
 fn value_of(catalog: &Catalog, value_at: &mut [u32], values: &mut Vec<String>, v: u32) -> u32 {
-    let at = position(v);
+    let at = slice_index(v);
     #[expect(
         clippy::indexing_slicing,
         reason = "invariant: names and enum values are positions of the catalog's values"
@@ -506,7 +506,7 @@ fn value_of(catalog: &Catalog, value_at: &mut [u32], values: &mut Vec<String>, v
 }
 
 /// Turns a catalog position into a slice index.
-fn position(index: u32) -> usize {
+fn slice_index(index: u32) -> usize {
     #[expect(
         clippy::expect_used,
         reason = "invariant: the supported targets' usize holds a u32"

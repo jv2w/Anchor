@@ -32,7 +32,7 @@ use crate::protocol::packet::{self, DeathInfo, Packet, Respawn};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::entity::{
-    ATTACK_COOLDOWN, FIRE_DAMAGE_TICKS, KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT, SAFE_FALL,
+    ATTACK_COOLDOWN_TICKS, FIRE_DAMAGE_TICKS, KNOCKBACK, MAX_KNOCKBACK_VERTICAL, SAFE_FALL,
     SUFFOCATION_DAMAGE, VOID_DAMAGE, VOID_Y,
 };
 use crate::tick::interact::drops;
@@ -41,6 +41,7 @@ use crate::tick::{
 };
 use crate::world::{self, BlockPos, Sound};
 
+/// The random stream (`crate::random`) of armor wear.
 const ARMOR_WEAR: u64 = random::tag("armor-wear");
 /// The modifiers [`finish`] works out from the player as it is when the hit applies.
 const FINISHED: [DamageModifier; 3] = [
@@ -56,11 +57,15 @@ const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
 const MAX_EPF: u32 = 25;
 /// No modifier applies.
 const NO_MODIFIERS: Modifiers = [None; DamageModifier::ALL.len()];
+/// The random stream (`crate::random`) of protection rolls.
 const PROTECTION: u64 = random::tag("protection");
 /// Ticks a respawned player ignores damage (PMMP `Player::actuallyRespawn`).
 const RESPAWN_INVULNERABLE_TICKS: u32 = 60;
+/// The random stream (`crate::random`) of respiration rolls.
 const RESPIRATION: u64 = random::tag("respiration");
+/// The random stream (`crate::random`) of thorns rolls.
 const THORNS: u64 = random::tag("thorns");
+/// The random stream (`crate::random`) of tool wear.
 const TOOL_WEAR: u64 = random::tag("tool-wear");
 
 /// Why a player takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
@@ -485,7 +490,7 @@ fn lands(player: &Player, hit: &Hit) -> bool {
         && !s.is_dead()
         && (suicide || (mode != GameMode::Creative && s.no_damage_ticks == 0))
         && (mode != GameMode::Spectator || matches!(hit.cause, Damage::Void | Damage::Suicide))
-        && !(hit.cause == Damage::Fall && s.may_fly())
+        && !(hit.cause == Damage::Fall && s.can_fly())
         && !(hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
         && (suicide || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
 }
@@ -567,8 +572,8 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         totem,
         modifiers: finished,
         knockback: KNOCKBACK,
-        vertical_limit: KNOCKBACK_VERTICAL_LIMIT,
-        cooldown: u32::from(ATTACK_COOLDOWN),
+        vertical_limit: MAX_KNOCKBACK_VERTICAL,
+        cooldown: u32::from(ATTACK_COOLDOWN_TICKS),
     })
 }
 
@@ -1193,7 +1198,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     }
     after_melee(state, attacker, &held, |state, knockback, fire| {
         if let Some(force) = knockback {
-            let knock = (force, KNOCKBACK_VERTICAL_LIMIT);
+            let knock = (force, MAX_KNOCKBACK_VERTICAL);
             knock_back_from(state, target, attacker, knock, entity::Raise::Events);
         }
         if let Some(seconds) = fire {
@@ -1431,7 +1436,11 @@ pub(super) fn die(
         PlayerDeath {
             player: player::Id::new(session),
             drops,
-            xp_drop_amount: food::death_xp(&player.survival, finite, orbs),
+            xp_drop_amount: if finite && orbs {
+                food::death_xp(&player.survival)
+            } else {
+                0
+            },
             death_message: default_chat.to_owned(),
             death_screen_message: String::new(),
             keep_inventory: false,
@@ -1471,7 +1480,7 @@ pub(super) fn die(
         player.survival.shown.size = attributes::DYING_SIZE;
     }
     if state.settings.locator_bar {
-        for packet in crate::tick::entity::locator_life(runtime_id, false) {
+        for packet in crate::tick::entity::locator_hidden(runtime_id) {
             broadcast_to_viewers(state, session, &packet);
         }
     }
@@ -1555,7 +1564,8 @@ fn drop_death(
     let xp = if keep_xp {
         0
     } else {
-        let xp = food::take_death_xp(&mut player.survival, finite, orbs);
+        let xp = food::take_death_xp(&mut player.survival);
+        let xp = if finite && orbs { xp } else { 0 };
         event.as_ref().map_or(xp, |(e, _)| e.xp_drop_amount)
     };
     let refused = drop_all(to_drop, |stack| {
@@ -1819,9 +1829,8 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     player.survival.shown = now;
     let runtime_id = state.players.get(&session).map(|p| p.runtime_id);
     if let Some(runtime_id) = runtime_id.filter(|_| state.settings.locator_bar) {
-        for packet in crate::tick::entity::locator_life(runtime_id, true) {
-            broadcast_to_viewers(state, session, &packet);
-        }
+        let packet = crate::tick::entity::locator_visible(runtime_id);
+        broadcast_to_viewers(state, session, &packet);
     }
     if burning {
         extinguished(state, session, ExtinguishCause::Respawn);
@@ -2056,7 +2065,7 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
         s.breathing = false;
         if loses {
             s.air -= 1;
-            if s.air <= super::MIN_AIR {
+            if s.air <= super::MIN_AIR_TICKS {
                 s.air = 0;
                 drown = true;
             }

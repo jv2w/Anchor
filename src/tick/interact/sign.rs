@@ -12,9 +12,11 @@ use crate::tick::Context;
 use crate::tile::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::world::BlockPos;
 
-/// PMMP `Sign::TAG_FRONT_TEXT`, `TAG_BACK_TEXT`, `TAG_TEXT_BLOB`.
+/// The NBT key of a sign's back side (PMMP `Sign::TAG_BACK_TEXT`).
 pub(in crate::tick) const BACK: &str = "BackText";
+/// The NBT key of a sign's front side (PMMP `Sign::TAG_FRONT_TEXT`).
 pub(in crate::tick) const FRONT: &str = "FrontText";
+/// The NBT key of a side's text (PMMP `Sign::TAG_TEXT_BLOB`).
 pub(in crate::tick) const TEXT: &str = "Text";
 
 impl Context<'_> {

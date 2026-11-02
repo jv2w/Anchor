@@ -57,6 +57,14 @@ const SEED: &str = "20261004";
 /// The world's name, in BDS and in Anchor.
 const WORLD: &str = "p6-import";
 
+/// How many blocks of a pair of states differ, and where the first [`EXAMPLES`] are: x, y, z and
+/// layer.
+type Differing = (usize, Vec<[i64; 4]>);
+
+/// The layers of one sent sub-chunk, each its 4,096 block network IDs in storage order (x, z,
+/// y).
+type Layers = Vec<Vec<u32>>;
+
 /// Runs the scenario; returns whether it passed.
 pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
     let exe = bds_exe(root)?;
@@ -222,14 +230,6 @@ fn export(anchor_dir: &Path, folder: &Path, out: &mut impl Write) -> Result<(), 
         .map_err(|e| format!("export: {e} ({:?})", std::error::Error::source(&e)))?;
     say(out, &format!("export: {report:?}"))
 }
-
-/// How many blocks of a pair of states differ, and where the first [`EXAMPLES`] are: x, y, z and
-/// layer.
-type Differing = (usize, Vec<[i64; 4]>);
-
-/// The layers of one sent sub-chunk, each its 4,096 block network IDs in storage order (x, z,
-/// y).
-type Layers = Vec<Vec<u32>>;
 
 /// The sub-chunks of a capture's `<capture>.world.jsonl`, by absolute sub-chunk position, decoded
 /// from their payloads (the last answer wins).
@@ -530,15 +530,15 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// A version 8 payload with one layer of a single block, network ID 2.
+    const STONE_PAYLOAD: &str = r#""CAEBBA==""#;
+
     /// A `SubChunk` packet line holding one entry at the centre.
     fn world_line(result: u8, payload: &str) -> String {
         format!(
             r#"{{"name":"SubChunk","fields":{{"Position":[0,0,0],"SubChunkEntries":[{{"Offset":[0,0,0],"Result":{result},"RawPayload":{payload}}}]}}}}"#
         )
     }
-
-    /// A version 8 payload with one layer of a single block, network ID 2.
-    const STONE_PAYLOAD: &str = r#""CAEBBA==""#;
 
     fn states() -> BTreeMap<u32, String> {
         BTreeMap::from([

@@ -12,8 +12,10 @@ use crate::protocol::consts::CreativeCategory;
 use crate::protocol::packet::Packet;
 use crate::world::{Chunk, Entry};
 
+/// A block that drops air.
 static AIR_DROP: Block = Block::new("test:air_drop", "x")
     .with_drops(Drops::Items(&[(ItemRef::Block(block::Kind::Air), 1)]));
+/// An item that is always edible, with a glint and a creative group.
 pub(crate) static APPLE: Item = Item::new("test:apple", "Golden Thing", "test_apple")
     .with_food_always(4, 9.6)
     .glint()
@@ -24,8 +26,11 @@ static AS_ALIAS: Block = Block::new("test:c26250", "x");
 /// A block whose one state hashes, as found by a search, to the network ID of a reference state
 /// that is not a state of the table: an inert state's.
 static AS_INERT: Block = Block::new("test:c257583", "x");
+/// An item whose stack size is past the most a stack can hold.
 static BIG_STACK: Item = Item::new("test:big", "Big", "big").with_max_stack_size(65);
+/// A block whose light emission is past the most a block can emit.
 static BRIGHT: Block = Block::new("test:bright", "x").with_light_emission(16);
+/// A transparent block with three properties, a geometry, a collision box and materials.
 pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
     .with_properties(&[
         Property::enumeration("color", &["red", "blue"]),
@@ -43,36 +48,49 @@ pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
         Material::new("test_lamp").with_render_method(RenderMethod::AlphaTest),
         Material::face(block::Face::Up, "test_lamp_top"),
     ]);
+/// An item in the `minecraft` namespace.
 static MINECRAFT: Item = Item::new("minecraft:ruby", "Ruby", "ruby");
+/// An item whose identifier has no namespace.
 static NO_NAMESPACE: Item = Item::new("ruby", "Ruby", "ruby");
+/// A block that drops two rubies and some experience.
 pub(crate) static ORE: Block = Block::new("test:ruby_ore", "test_ruby_ore")
     .with_hardness(3.0)
     .with_tool(ToolType::PICKAXE, 2)
     .with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 2)]))
     .with_experience(1, 3)
     .with_creative(Creative::new(Category::Nature));
+/// A block that drops an item nothing registers.
 static ORPHAN_DROP: Block =
     Block::new("test:orphan", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 1)]));
+/// A block whose collision box leaves the block's cell.
 static OUTSIDE: Block = Block::new("test:outside", "x").with_collision_box(Some(Aabb::new(
     Vec3::new(0.0, 0.0, 0.0),
     Vec3::new(1.0, 1.5, 1.0),
 )));
+/// An item with a creative group.
 pub(crate) static RUBY: Item = Item::new("test:ruby", "Ruby", "test_ruby")
     .with_creative(Creative::new(Category::Items).with_group("itemGroup.name.test"));
+/// A tool item with durability and attack damage, held like a tool.
 pub(crate) static SWORD: Item = Item::new("test:sword", "Ruby Sword", "test_sword")
     .with_durability(100)
     .with_attack_damage(7)
     .hand_equipped()
     .off_hand_allowed()
     .without_creative_breaking();
+/// A block that drops one sword.
 static SWORD_DROP: Block =
     Block::new("test:one_sword", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 1)]));
+/// A block that drops two swords.
 static SWORDS_DROP: Block =
     Block::new("test:swords", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 2)]));
+/// A block whose properties are not in name order.
 static UNSORTED: Block = Block::new("test:unsorted", "x")
     .with_properties(&[Property::bool("lit"), Property::int("level", 0, 1)]);
+/// An item whose identifier has an uppercase letter.
 static UPPER: Item = Item::new("test:Ruby", "Ruby", "ruby");
+/// A block with a property past the most values a property can have.
 static WIDE: Block = Block::new("test:wide", "x").with_properties(&[Property::int("level", 0, 16)]);
+/// An item with durability and a stack size, which a worn stack cannot keep.
 static WORN_STACK: Item = Item::new("test:worn", "Worn", "worn")
     .with_durability(5)
     .with_max_stack_size(16);
@@ -148,7 +166,7 @@ fn compound<'a>(c: &'a Compound, key: &str) -> &'a Compound {
 
 #[test]
 fn item_components_have_dragonflys_shape() {
-    let sword = SWORD.components();
+    let sword = SWORD.to_components();
     let components = compound(&sword, "components");
     let properties = compound(components, "item_properties");
     assert_eq!(properties.get("max_stack_size"), Some(&Value::Int(1)));
@@ -176,7 +194,7 @@ fn item_components_have_dragonflys_shape() {
         compound(components, "minecraft:display_name").get("value"),
         Some(&Value::String("Ruby Sword".to_owned()))
     );
-    let apple = APPLE.components();
+    let apple = APPLE.to_components();
     let components = compound(&apple, "components");
     let properties = compound(components, "item_properties");
     assert_eq!(properties.get("foil"), Some(&Value::Byte(1)));
@@ -377,7 +395,7 @@ fn custom_network_ids_are_dragonflys_hashes() {
 #[test]
 fn start_game_blocks_carry_dragonflys_components() {
     let r = registry();
-    let blocks = r.block_entries();
+    let blocks = r.to_block_entries();
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].name, "test:ruby_ore");
     let ore = &blocks[0].properties;
@@ -1287,7 +1305,7 @@ fn custom_furnace_lookups_by_name_and_tag_take_the_first_registered() {
             let input = Stack::new(t, 1);
             let scan = (0..5).find(|&i| {
                 let recipe = r.furnace_at(u16::try_from(count + i).unwrap()).unwrap();
-                recipe.kind == kind && recipe.input.accepts(&input)
+                recipe.kind == kind && recipe.input.can_accept(&input)
             });
             if crate::crafting::furnace_recipe(kind, &input).is_none() {
                 assert_eq!(index(kind, t), scan, "{kind:?} {t:?}");
@@ -1468,7 +1486,7 @@ fn nothing_registered_sends_exactly_the_vanilla_content() {
     assert_eq!(r.item_registry(), item::registry());
     assert_eq!(r.creative_content(), vanilla_content());
     assert_eq!(r.crafting_data(), crate::crafting::crafting_data());
-    assert!(r.block_entries().is_empty());
+    assert!(r.to_block_entries().is_empty());
     assert_eq!(r.first_special_id(), crate::crafting::first_special_id());
     let settings = crate::protocol::batch::Settings::default();
     let none = crate::tick::Customs::default();

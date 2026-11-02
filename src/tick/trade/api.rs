@@ -93,12 +93,12 @@ fn to_offer(recipe: &Recipe) -> Offer {
 /// [`custom::MAX_TRADE_TIER`] and price multipliers passing [`custom::is_price_multiplier`],
 /// whose saved form takes at most 2 MiB. [`Context::set_trade_offers`] checks the same, but counts
 /// towards the 2 MiB the offer data a villager loaded from a saved world keeps unread.
-pub fn check_offers(offers: &[Offer]) -> std::result::Result<(), custom::Error> {
+pub fn check_offers(offers: &[Offer]) -> Result<(), custom::Error> {
     new_offers(offers).map(drop)
 }
 
 /// Builds the stored offers of a new villager trading `offers` ([`check_offers`]).
-pub(in crate::tick) fn new_offers(offers: &[Offer]) -> std::result::Result<Offers, custom::Error> {
+pub(in crate::tick) fn new_offers(offers: &[Offer]) -> Result<Offers, custom::Error> {
     let mut stored = Offers::default();
     stored
         .set(offers.iter().map(to_recipe).collect())
@@ -111,7 +111,7 @@ fn change<T>(
     state: &mut State,
     villager: Id,
     f: impl FnOnce(&mut Offers) -> Result<T>,
-) -> std::result::Result<T, custom::Error> {
+) -> Result<T, custom::Error> {
     change_offers(state, villager, f).map_err(to_public)
 }
 
@@ -157,18 +157,14 @@ impl Context<'_> {
         &mut self,
         villager: Id,
         offers: &[Offer],
-    ) -> std::result::Result<(), custom::Error> {
+    ) -> Result<(), custom::Error> {
         let recipes = offers.iter().map(to_recipe).collect();
         change(self.state, villager, |o| o.set(recipes))
     }
 
     /// Adds `offer` at the end of the villager's offers. Fails, changing nothing, as
     /// [`Self::set_trade_offers`] does for the list with `offer` added.
-    pub fn add_trade_offer(
-        &mut self,
-        villager: Id,
-        offer: &Offer,
-    ) -> std::result::Result<(), custom::Error> {
+    pub fn add_trade_offer(&mut self, villager: Id, offer: &Offer) -> Result<(), custom::Error> {
         let recipe = to_recipe(offer);
         change(self.state, villager, |o| o.add(recipe))
     }
@@ -181,7 +177,7 @@ impl Context<'_> {
         villager: Id,
         index: usize,
         offer: &Offer,
-    ) -> std::result::Result<(), custom::Error> {
+    ) -> Result<(), custom::Error> {
         let recipe = to_recipe(offer);
         change(self.state, villager, |o| o.replace(index, recipe))
     }
@@ -193,7 +189,7 @@ impl Context<'_> {
         &mut self,
         villager: Id,
         index: usize,
-    ) -> std::result::Result<Offer, custom::Error> {
+    ) -> Result<Offer, custom::Error> {
         change(self.state, villager, |o| o.remove(index)).map(|r| to_offer(&r))
     }
 
@@ -202,11 +198,7 @@ impl Context<'_> {
     /// raises the tier again (a later tier that needs no more than this one is reached by the
     /// next trade). Fails, changing nothing, with [`custom::Error::Offer`] for a higher tier, or
     /// with [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] does.
-    pub fn set_trade_tier(
-        &mut self,
-        villager: Id,
-        tier: u8,
-    ) -> std::result::Result<(), custom::Error> {
+    pub fn set_trade_tier(&mut self, villager: Id, tier: u8) -> Result<(), custom::Error> {
         change(self.state, villager, |o| o.set_tier(tier))
     }
 
@@ -219,7 +211,7 @@ impl Context<'_> {
         &mut self,
         villager: Id,
         experience: u32,
-    ) -> std::result::Result<(), custom::Error> {
+    ) -> Result<(), custom::Error> {
         change(self.state, villager, |o| o.set_experience(experience))
     }
 
@@ -232,13 +224,13 @@ impl Context<'_> {
         &mut self,
         villager: Id,
         tiers: [u32; custom::TRADE_TIERS],
-    ) -> std::result::Result<(), custom::Error> {
+    ) -> Result<(), custom::Error> {
         change(self.state, villager, |o| o.set_tier_experience(tiers))
     }
 
     /// Sets the uses of every offer of the villager back to 0 (a restock). Fails, changing
     /// nothing, with [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] does.
-    pub fn reset_trade_uses(&mut self, villager: Id) -> std::result::Result<(), custom::Error> {
+    pub fn reset_trade_uses(&mut self, villager: Id) -> Result<(), custom::Error> {
         change(self.state, villager, |o| {
             o.reset_uses();
             Ok(())

@@ -15,12 +15,12 @@ const MIN_SLOTS: usize = 64;
 /// is a power of two at least [`MIN_SLOTS`]; at most half the slots are full, so every probe
 /// ends at an empty slot; a key sits at or after its home slot with no empty slot between.
 #[derive(Debug)]
-pub(crate) struct ChunkIndex {
+pub(crate) struct Chunks {
     slots: Vec<Option<(ChunkPos, Box<Chunk>)>>,
     len: usize,
 }
 
-impl ChunkIndex {
+impl Chunks {
     /// An index with no chunks.
     pub(crate) fn new() -> Self {
         Self {
@@ -114,9 +114,9 @@ impl ChunkIndex {
         let mut i = self.home(pos);
         loop {
             match self.slots.get(i)? {
-                None => return None,
                 Some((k, _)) if *k == pos => return Some(i),
                 Some(_) => i = (i + 1) & self.mask(),
+                None => return None,
             }
         }
     }
@@ -170,7 +170,7 @@ mod tests {
     fn random_operations_match_a_tree() {
         let tags: Vec<State> = State::all().take(50).collect();
         let mut rng = Rng(0x01de_0001);
-        let mut index = ChunkIndex::new();
+        let mut index = Chunks::new();
         let mut model: BTreeMap<ChunkPos, State> = BTreeMap::new();
         for round in 0..200_000_usize {
             // Phases of growth and of mass removal, over a small and a wide area.

@@ -83,19 +83,19 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::NoSlot => "no such slot",
-            Self::TooMany => "more items than the slot takes",
-            Self::Full => "too many stacks held outside the slots",
-            Self::TooLong => "more stacks than slots",
-            Self::NotAccepted => "the slot does not take the stack",
-        })
+        match self {
+            Self::NoSlot => f.write_str("no such slot"),
+            Self::TooMany => f.write_str("more items than the slot takes"),
+            Self::Full => f.write_str("too many stacks held outside the slots"),
+            Self::TooLong => f.write_str("more stacks than slots"),
+            Self::NotAccepted => f.write_str("the slot does not take the stack"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the inventory [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An inventory to read: its slots in order (a double chest's left half first).
@@ -106,7 +106,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub struct Inventory<'a> {
     halves: [&'a [Stack]; 2],
     max: u8,
-    /// A shulker box's slots: they take only what [`Stack::fits_shulker_box`].
+    /// A shulker box's slots: they take only what [`Stack::can_enter_shulker_box`].
     shulker_box: bool,
 }
 
@@ -122,7 +122,7 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// The same slots as a shulker box's, which take only what [`Stack::fits_shulker_box`]
+    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`]
     /// (PMMP `ShulkerBoxInventory::canAddItem`).
     pub(crate) fn of_shulker_box(self) -> Self {
         Self {
@@ -224,8 +224,8 @@ impl<'a> Inventory<'a> {
     pub fn item(&self, slot: usize) -> Option<&'a Stack> {
         let [first, second] = self.halves;
         match slot.checked_sub(first.len()) {
-            None => first.get(slot),
             Some(i) => second.get(i),
+            None => first.get(slot),
         }
     }
 
@@ -300,7 +300,7 @@ impl<'a> Inventory<'a> {
     /// Whether the slots refuse `stack` whatever room they have: a shulker box or a large stack
     /// in a shulker box.
     pub(crate) fn refuses(&self, stack: &Stack) -> bool {
-        self.shulker_box && !stack.fits_shulker_box()
+        self.shulker_box && !stack.can_enter_shulker_box()
     }
 
     /// How many slots the inventory has.
@@ -377,6 +377,7 @@ pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::item::{Extra, Kind as ItemKind};
 
     fn stack(kind: ItemKind, count: u8) -> Stack {

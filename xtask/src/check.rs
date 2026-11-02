@@ -19,13 +19,13 @@
 //! after the check as before it.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
 use crate::dump::{create_dir, is_file, read_if_exists, write};
 use crate::table::sources;
-use crate::{CLIPPY, FMT, SOURCE_DIRS, cargo_step};
+use crate::{CLIPPY, FMT, SOURCE_DIRS, cargo_step, say};
 
 /// Files other than Rust sources whose change can break the build or the lints.
 const BUILD_FILES: &[&str] = &[
@@ -55,10 +55,10 @@ type Includes = BTreeMap<String, BTreeSet<String>>;
 pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
     let before = Snapshot::take(root)?;
     if read_stamp(root)?.as_deref() == Some(before.stamp.as_str()) {
-        writeln!(out, "unchanged since the last pass\nPASS").map_err(|e| e.to_string())?;
+        say(out, "unchanged since the last pass\nPASS")?;
         return Ok(true);
     }
-    let passed = check(root, &before.files, &before.includes, out).map_err(|e| e.to_string())?;
+    let passed = check(root, &before.files, &before.includes, out)?;
     // A file that changed while the steps ran was seen in two states; the next check runs again.
     if passed && Snapshot::take(root)?.stamp == before.stamp {
         write_stamp(root, &before.stamp)?;
@@ -97,10 +97,10 @@ fn check(
     files: &[String],
     includes: &Includes,
     out: &mut impl Write,
-) -> io::Result<bool> {
+) -> Result<bool, String> {
     let plan = Plan::new(root, files, includes);
     if !plan.code {
-        writeln!(out, "no code changed\nPASS")?;
+        say(out, "no code changed\nPASS")?;
         return Ok(true);
     }
     let mut steps: Vec<Vec<String>> = vec![args(FMT), args(CLIPPY)];
@@ -108,11 +108,11 @@ fn check(
     for step in &steps {
         let step: Vec<&str> = step.iter().map(String::as_str).collect();
         if !cargo_step(out, &step, TARGET)? {
-            writeln!(out, "FAIL")?;
+            say(out, "FAIL")?;
             return Ok(false);
         }
     }
-    writeln!(out, "PASS")?;
+    say(out, "PASS")?;
     Ok(true)
 }
 
@@ -416,6 +416,7 @@ fn write_stamp(root: &Path, stamp: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::root;
 
     fn plan(files: &[&str]) -> Plan {

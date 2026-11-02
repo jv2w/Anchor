@@ -67,6 +67,7 @@ pub(crate) use check::{Checked, verify};
 use codec::Meta;
 use seal::{FORMAT_VERSION, unseal};
 
+/// The table of the operators, bans and whitelist.
 const ACCESS: Table = TableDefinition::new("access");
 /// The backup folder in the data folder.
 pub(crate) const BACKUP_DIR: &str = "backups";
@@ -75,6 +76,7 @@ pub(crate) const BACKUP_DIR: &str = "backups";
 const CACHE_BYTES: usize = 64 << 20;
 /// The bytes a chunk's keys start with ([`ChunkId`]); the rest tell its [`ChunkPart`].
 pub(crate) const CHUNK_PREFIX: usize = 12;
+/// The table of a world's chunk values.
 const CHUNKS: Table = TableDefinition::new("chunks");
 /// The mark of a normal stop, in the `meta` table with an empty value: the last commit of
 /// [`Storage::close`] writes it and the first commit of a start removes it, so it is there only
@@ -98,9 +100,11 @@ pub(crate) const MAX_FILE_NAME: usize = 250;
 /// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
 /// `save::new_place` gives no place for a new one past them).
 pub(crate) const MAX_WORLDS: usize = 1024;
+/// The table of the file's meta value and marks.
 const META: Table = TableDefinition::new("meta");
 /// The key of the `meta` value.
 const META_KEY: &[u8] = b"meta";
+/// The table of the players' records.
 const PLAYERS: Table = TableDefinition::new("players");
 /// The file of the players' data.
 pub(crate) const PLAYERS_FILE: &str = "players";
@@ -110,12 +114,13 @@ pub(crate) const RETRIES: usize = 3;
 const SUB_CHUNK_KIND: u8 = 0x20;
 /// The tables in [`Key::pick`] order.
 const TABLES: [Table; 6] = [META, WORLDS, CHUNKS, PLAYERS, ACCESS, USER];
-/// The user's server data: one value per registered name.
+/// The table of the user's server data: one value per registered name.
 const USER: Table = TableDefinition::new("user");
 /// The folder of the world files in the data folder.
 pub(crate) const WORLD_DIR: &str = "worlds";
 /// The key of a world file's record in its `worlds` table: the file's name is the world's.
 const WORLD_KEY: &[u8] = b"world";
+/// The table of a world file's record.
 const WORLDS: Table = TableDefinition::new("worlds");
 
 type Table = TableDefinition<'static, &'static [u8], &'static [u8]>;
@@ -198,6 +203,12 @@ pub(crate) enum Error {
 }
 
 impl Error {
+    /// A redb failure of any kind, as [`Error::Database`]; [`Error::is_damage`] tells corruption
+    /// apart.
+    pub(crate) fn database(e: impl Into<redb::Error>) -> Self {
+        Self::Database(e.into())
+    }
+
     /// Whether this is damage: of the file at start, of a value, or a page redb found corrupted.
     /// A damaged chunk is quarantined and a damaged player refused; the bytes stay as they are.
     pub(crate) fn is_damage(&self) -> bool {
@@ -293,28 +304,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// redb's errors are [`Error::Database`]; [`Error::is_damage`] tells corruption apart.
-macro_rules! from_redb {
-    ($($error:ty),*) => {$(
-        impl From<$error> for Error {
-            fn from(e: $error) -> Self {
-                Self::Database(e.into())
-            }
-        }
-    )*};
-}
-
-from_redb!(
-    redb::Error,
-    redb::TransactionError,
-    TableError,
-    redb::StorageError,
-    redb::CommitError,
-    redb::SavepointError,
-    DatabaseError
-);
-
-/// The result of a storage operation.
+/// A result with the module's [`enum@Error`].
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A kind of chunk extras: the kind byte of its `chunks` keys.
@@ -774,13 +764,13 @@ impl Storage {
         let source = Source::File(world.clone());
         let db = source.open()?;
         let mut storage = Self::prepare(source, db)?;
-        let file = world.display();
+        let path = world.display();
         // redb's lock keeps other processes out, so none is writing a backup of the file. A
         // backup folder that fails costs only backups, as at run time: a stale name left is
         // skipped by the next backup.
         if let Err(e) = backup::remove_stale(backups) {
             error!(
-                %file,
+                %path,
                 error = &e as &(dyn std::error::Error + 'static),
                 "incomplete backups were not removed"
             );
@@ -788,20 +778,20 @@ impl Storage {
         if !existed {
             // Its first commit flushed the file, not its name in the folder.
             crate::fs::sync_parent(world).map_err(Error::Io)?;
-            info!(%file, "data file created");
+            info!(%path, "data file created");
         } else if start.backup == StartBackup::Make {
             match storage.begin_backup(backups) {
-                Ok(_) => debug!(%file, "data file opened; its start backup began"),
+                Ok(_) => debug!(%path, "data file opened; its start backup began"),
                 Err(e) => {
                     error!(
-                        %file,
+                        %path,
                         error = &e as &(dyn std::error::Error + 'static),
                         "start backup failed; no backup file is left"
                     );
                 }
             }
         } else {
-            debug!(%file, "data file opened");
+            debug!(%path, "data file opened");
         }
         Ok(storage)
     }
@@ -819,7 +809,7 @@ impl Storage {
             return replica.read(keys);
         }
         self.retrying(|db| {
-            let txn = db.begin_read()?;
+            let txn = db.begin_read().map_err(Error::database)?;
             let tables = [
                 open_read(&txn, META)?,
                 open_read(&txn, WORLDS)?,
@@ -831,10 +821,10 @@ impl Storage {
             let mut values = Vec::with_capacity(keys.len());
             for key in keys {
                 let value = match key.pick(&tables) {
-                    Some(table) => match table.get(&*key.to_bytes()) {
-                        Ok(value) => Ok(value.map(|v| v.value().to_vec())),
-                        Err(e) => Err(Error::from(e)),
-                    },
+                    Some(table) => table
+                        .get(&*key.to_bytes())
+                        .map(|value| value.map(|v| v.value().to_vec()))
+                        .map_err(Error::database),
                     None => Ok(None),
                 };
                 // Damage stays with its key; any other failure (I/O) is the read's, retried.
@@ -861,7 +851,7 @@ impl Storage {
             return replica.read_chunks(chunks);
         }
         self.retrying(|db| {
-            let txn = db.begin_read()?;
+            let txn = db.begin_read().map_err(Error::database)?;
             let table = open_read(&txn, CHUNKS)?;
             let mut out = Vec::with_capacity(chunks.len());
             for &chunk in chunks {
@@ -895,17 +885,17 @@ impl Storage {
                 .map(|(key, sealed)| Ok((AccessKey::from_bytes(&key)?, sealed)))
                 .collect();
         }
-        let txn = self.database()?.begin_read()?;
+        let txn = self.database()?.begin_read().map_err(Error::database)?;
         let Some(table) = open_read(&txn, ACCESS)? else {
             return Ok(Vec::new());
         };
-        let count = usize::try_from(table.len()?).unwrap_or(usize::MAX);
+        let count = usize::try_from(table.len().map_err(Error::database)?).unwrap_or(usize::MAX);
         if count > MAX_ACCESS {
             return Err(Error::TooManyAccessEntries);
         }
         let mut entries = Vec::with_capacity(count);
-        for entry in table.iter()?.take(MAX_ACCESS) {
-            let (key, sealed) = entry?;
+        for entry in table.iter().map_err(Error::database)?.take(MAX_ACCESS) {
+            let (key, sealed) = entry.map_err(Error::database)?;
             entries.push((AccessKey::from_bytes(key.value())?, sealed.value().to_vec()));
         }
         Ok(entries)
@@ -919,13 +909,16 @@ impl Storage {
         reason = "off-tick: the start reads the main file before the threads start"
     )]
     pub(crate) fn deleted_worlds(&mut self) -> Result<Vec<String>> {
-        let txn = self.database()?.begin_read()?;
+        let txn = self.database()?.begin_read().map_err(Error::database)?;
         let Some(table) = open_read(&txn, META)? else {
             return Ok(Vec::new());
         };
         let mut names = Vec::new();
-        for entry in table.range::<&[u8]>(DELETED_PREFIX..)? {
-            let (key, sealed) = entry?;
+        for entry in table
+            .range::<&[u8]>(DELETED_PREFIX..)
+            .map_err(Error::database)?
+        {
+            let (key, sealed) = entry.map_err(Error::database)?;
             let Some(name) = key.value().strip_prefix(DELETED_PREFIX) else {
                 break;
             };
@@ -975,7 +968,7 @@ impl Storage {
         reason = "off-tick: the import writes the data file before the server runs"
     )]
     pub(crate) fn begin_import(&mut self) -> Result<Import> {
-        let mut txn = self.database()?.begin_write()?;
+        let mut txn = self.database()?.begin_write().map_err(Error::database)?;
         txn.set_quick_repair(true);
         Ok(Import(txn))
     }
@@ -1134,7 +1127,7 @@ impl Replica {
         reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn read(&self, keys: &[Key]) -> Result<Vec<Result<Option<Vec<u8>>>>> {
-        let txn = self.db.begin_read()?;
+        let txn = self.db.begin_read().map_err(Error::database)?;
         let [meta, worlds, chunks, players, access, user] = TABLES;
         let tables = [
             open_read(&txn, meta)?,
@@ -1152,10 +1145,10 @@ impl Replica {
                 continue;
             }
             let value = match key.pick(&tables) {
-                Some(table) => match table.get(&*bytes) {
-                    Ok(value) => Ok(value.map(|v| v.value().to_vec())),
-                    Err(e) => Err(Error::from(e)),
-                },
+                Some(table) => table
+                    .get(&*bytes)
+                    .map(|value| value.map(|v| v.value().to_vec()))
+                    .map_err(Error::database),
                 None => Ok(None),
             };
             match value {
@@ -1173,7 +1166,7 @@ impl Replica {
         reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn read_chunks(&self, chunks: &[ChunkId]) -> Result<Vec<ChunkValues>> {
-        let txn = self.db.begin_read()?;
+        let txn = self.db.begin_read().map_err(Error::database)?;
         let table = open_read(&txn, CHUNKS)?;
         let [_, _, written, _, _, _] = &self.overlay;
         let mut out = Vec::with_capacity(chunks.len());
@@ -1221,11 +1214,15 @@ impl Replica {
         reason = "off-tick: a replay reads the data file on its own thread"
     )]
     fn access(&self, max: usize) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let txn = self.db.begin_read()?;
+        let txn = self.db.begin_read().map_err(Error::database)?;
         let mut values = std::collections::BTreeMap::new();
         if let Some(table) = open_read(&txn, ACCESS)? {
-            for entry in table.iter()?.take(max.saturating_add(1)) {
-                let (key, value) = entry?;
+            for entry in table
+                .iter()
+                .map_err(Error::database)?
+                .take(max.saturating_add(1))
+            {
+                let (key, value) = entry.map_err(Error::database)?;
                 values.insert(key.value().to_vec(), value.value().to_vec());
             }
         }
@@ -1257,11 +1254,14 @@ impl Replica {
                 }
                 &Write::DeletePages(chunk, kind, first) => {
                     let (first, last) = pages_range(chunk, kind, first);
-                    let txn = self.db.begin_read()?;
+                    let txn = self.db.begin_read().map_err(Error::database)?;
                     let [_, _, written, _, _, _] = &mut self.overlay;
                     if let Some(table) = open_read(&txn, CHUNKS)? {
-                        for entry in table.range::<&[u8]>(&*first..=&*last)? {
-                            let (key, _) = entry?;
+                        for entry in table
+                            .range::<&[u8]>(&*first..=&*last)
+                            .map_err(Error::database)?
+                        {
+                            let (key, _) = entry.map_err(Error::database)?;
                             written.insert(key.value().to_vec(), None);
                         }
                     }
@@ -1270,15 +1270,15 @@ impl Replica {
                     }
                 }
                 Write::Clear => {
-                    let txn = self.db.begin_read()?;
+                    let txn = self.db.begin_read().map_err(Error::database)?;
                     let [_, worlds, chunks, _, _, _] = &mut self.overlay;
                     for (table, written) in [(WORLDS, worlds), (CHUNKS, chunks)] {
                         for value in written.values_mut() {
                             *value = None;
                         }
                         if let Some(table) = open_read(&txn, table)? {
-                            for entry in table.iter()? {
-                                let (key, _) = entry?;
+                            for entry in table.iter().map_err(Error::database)? {
+                                let (key, _) = entry.map_err(Error::database)?;
                                 written.insert(key.value().to_vec(), None);
                             }
                         }
@@ -1321,7 +1321,7 @@ impl Import {
         reason = "off-tick: the import writes the data file before the server runs"
     )]
     pub(crate) fn commit(self) -> Result<()> {
-        self.0.commit()?;
+        self.0.commit().map_err(Error::database)?;
         Ok(())
     }
 }
@@ -1352,7 +1352,7 @@ impl Snapshot {
     pub(crate) fn open(path: &Path, main: &Path) -> Result<Self> {
         check_settled(path, main)?;
         let db = open_read_only(path)?;
-        let txn = db.begin_read()?;
+        let txn = db.begin_read().map_err(Error::database)?;
         Ok(Self { txn, _db: db })
     }
 
@@ -1361,7 +1361,10 @@ impl Snapshot {
         let Some(table) = open_read(&self.txn, WORLDS)? else {
             return Ok(None);
         };
-        Ok(table.get(WORLD_KEY)?.map(|v| v.value().to_vec()))
+        Ok(table
+            .get(WORLD_KEY)
+            .map_err(Error::database)?
+            .map(|v| v.value().to_vec()))
     }
 
     /// The chunks that hold values of the world numbered `world`, in key order;
@@ -1383,8 +1386,11 @@ impl Snapshot {
         let (first, _) = chunk_range(first);
         let (_, last) = chunk_range(last);
         let mut ids: Vec<ChunkId> = Vec::new();
-        for entry in table.range::<&[u8]>(&*first..=&*last)? {
-            let (key, _) = entry?;
+        for entry in table
+            .range::<&[u8]>(&*first..=&*last)
+            .map_err(Error::database)?
+        {
+            let (key, _) = entry.map_err(Error::database)?;
             let id = ChunkId::from_key(key.value())
                 .ok_or(Error::Malformed("a chunk key no anchor writes"))?;
             if ids.last() == Some(&id) {
@@ -1432,8 +1438,11 @@ pub(crate) type ChunkValues = Result<Vec<(ChunkPart, Vec<u8>)>>;
 fn read_chunk(table: &ReadOnlyTable<&'static [u8], &'static [u8]>, chunk: ChunkId) -> ChunkValues {
     let (first, last) = chunk_range(chunk);
     let mut values = Vec::new();
-    for entry in table.range::<&[u8]>(&*first..=&*last)? {
-        let (key, value) = entry?;
+    for entry in table
+        .range::<&[u8]>(&*first..=&*last)
+        .map_err(Error::database)?
+    {
+        let (key, value) = entry.map_err(Error::database)?;
         let part = ChunkPart::from_suffix(key.value().get(CHUNK_PREFIX..).unwrap_or_default())?;
         values.push((part, value.value().to_vec()));
     }
@@ -1466,7 +1475,7 @@ fn check_integrity(db: &mut Database) -> Result<()> {
         Err(e @ DatabaseError::Storage(StorageError::Corrupted(_))) => {
             Err(Error::DamagedFile(Some(e.into())))
         }
-        Err(e) => Err(e.into()),
+        Err(e) => Err(Error::database(e)),
     }
 }
 
@@ -1477,7 +1486,7 @@ fn check_integrity(db: &mut Database) -> Result<()> {
     reason = "off-tick: the save thread reads the meta value of a data file at start"
 )]
 fn check_format(db: &Database) -> Result<()> {
-    let txn = db.begin_read()?;
+    let txn = db.begin_read().map_err(Error::database)?;
     committed(&txn)?;
     Ok(())
 }
@@ -1494,8 +1503,16 @@ pub(crate) fn check_settled(file: &Path, main: &Path) -> Result<()> {
     if !has_data(file)? || !has_data(main)? {
         return Ok(());
     }
-    let saved = committed(&open_read_only(main)?.begin_read()?)?;
-    let meta = committed(&open_read_only(file)?.begin_read()?)?;
+    let saved = committed(
+        &open_read_only(main)?
+            .begin_read()
+            .map_err(Error::database)?,
+    )?;
+    let meta = committed(
+        &open_read_only(file)?
+            .begin_read()
+            .map_err(Error::database)?,
+    )?;
     let saved = saved.unwrap_or(Meta {
         tick: 0,
         identity: None,
@@ -1585,7 +1602,7 @@ pub(crate) fn settle(file: &Path, saved: &Meta) -> Result<Settled> {
     if made {
         std::fs::remove_file(file).map_err(Error::Io)?;
         crate::fs::sync_parent(file).map_err(Error::Io)?;
-        warn!(file = %shown, "data file removed: a save that stopped before the main file made it");
+        warn!(path = %shown, "data file removed: a save that stopped before the main file made it");
         return Ok(Settled::Removed);
     }
     let db = Source::File(file.to_path_buf()).open()?;
@@ -1594,9 +1611,9 @@ pub(crate) fn settle(file: &Path, saved: &Meta) -> Result<Settled> {
     let Some((txn, _)) = roll_back(&db, saved)? else {
         return Ok(Settled::Kept);
     };
-    txn.commit()?;
+    txn.commit().map_err(Error::database)?;
     warn!(
-        file = %shown,
+        path = %shown,
         main_save_tick = saved.tick,
         "data file rolled back to the main file's save: a save stopped before the main file"
     );
@@ -1612,27 +1629,39 @@ pub(crate) fn settle(file: &Path, saved: &Meta) -> Result<Settled> {
     reason = "off-tick: the start reads a data file before it opens it"
 )]
 fn roll_back(db: &Database, saved: &Meta) -> Result<Option<(WriteTransaction, bool)>> {
-    let meta = committed(&db.begin_read()?)?;
+    let meta = committed(&db.begin_read().map_err(Error::database)?)?;
     if !meta.is_some_and(|meta| is_later(&meta, saved)) {
         return Ok(None);
     }
-    let mut txn = db.begin_write()?;
+    let mut txn = db.begin_write().map_err(Error::database)?;
     txn.set_quick_repair(true);
     let id = txn
-        .list_persistent_savepoints()?
+        .list_persistent_savepoints()
+        .map_err(Error::database)?
         .max()
         .ok_or(Error::NoRollback)?;
-    let savepoint = txn.get_persistent_savepoint(id)?;
-    txn.restore_savepoint(&savepoint)?;
+    let savepoint = txn.get_persistent_savepoint(id).map_err(Error::database)?;
+    txn.restore_savepoint(&savepoint).map_err(Error::database)?;
     drop(savepoint);
-    let restored = match txn.open_table(META)?.get(META_KEY)? {
+    let restored = match txn
+        .open_table(META)
+        .map_err(Error::database)?
+        .get(META_KEY)
+        .map_err(Error::database)?
+    {
         Some(sealed) => Some(unseal::<Meta>(META_KEY, sealed.value())?),
         None => None,
     };
     if restored.is_some_and(|meta| is_later(&meta, saved)) {
         return Err(Error::NoRollback);
     }
-    let made = restored.is_none() && txn.open_table(WORLDS)?.get(WORLD_KEY)?.is_none();
+    let made = restored.is_none()
+        && txn
+            .open_table(WORLDS)
+            .map_err(Error::database)?
+            .get(WORLD_KEY)
+            .map_err(Error::database)?
+            .is_none();
     Ok(Some((txn, made)))
 }
 
@@ -1642,7 +1671,7 @@ fn committed(txn: &ReadTransaction) -> Result<Option<Meta>> {
     let Some(table) = open_read(txn, META)? else {
         return Ok(None);
     };
-    let Some(sealed) = table.get(META_KEY)? else {
+    let Some(sealed) = table.get(META_KEY).map_err(Error::database)? else {
         return Ok(None);
     };
     unseal::<Meta>(META_KEY, sealed.value()).map(Some)
@@ -1663,11 +1692,16 @@ pub(crate) fn is_later(meta: &Meta, saved: &Meta) -> bool {
     reason = "off-tick: the save thread writes the data file at start"
 )]
 fn begin_run(db: &Database) -> Result<()> {
-    let mut txn = db.begin_write()?;
+    let mut txn = db.begin_write().map_err(Error::database)?;
     txn.set_quick_repair(true);
     apply(&txn, &Batch::default())?;
-    drop(txn.open_table(META)?.remove(CLOSED_KEY)?);
-    txn.commit()?;
+    drop(
+        txn.open_table(META)
+            .map_err(Error::database)?
+            .remove(CLOSED_KEY)
+            .map_err(Error::database)?,
+    );
+    txn.commit().map_err(Error::database)?;
     Ok(())
 }
 
@@ -1678,13 +1712,19 @@ fn begin_run(db: &Database) -> Result<()> {
     reason = "off-tick: the save thread writes the data file at a normal stop"
 )]
 fn mark_closed(db: &Database) -> Result<()> {
-    let mut txn = db.begin_write()?;
+    let mut txn = db.begin_write().map_err(Error::database)?;
     txn.set_quick_repair(true);
-    for id in txn.list_persistent_savepoints()? {
-        txn.delete_persistent_savepoint(id)?;
+    for id in txn.list_persistent_savepoints().map_err(Error::database)? {
+        txn.delete_persistent_savepoint(id)
+            .map_err(Error::database)?;
     }
-    drop(txn.open_table(META)?.insert(CLOSED_KEY, &[][..])?);
-    txn.commit()?;
+    drop(
+        txn.open_table(META)
+            .map_err(Error::database)?
+            .insert(CLOSED_KEY, &[][..])
+            .map_err(Error::database)?,
+    );
+    txn.commit().map_err(Error::database)?;
     Ok(())
 }
 
@@ -1694,10 +1734,10 @@ fn mark_closed(db: &Database) -> Result<()> {
     reason = "off-tick: the save thread writes the data file"
 )]
 fn write(db: &Database, batch: &Batch) -> Result<()> {
-    let mut txn = db.begin_write()?;
+    let mut txn = db.begin_write().map_err(Error::database)?;
     txn.set_quick_repair(true);
     apply(&txn, batch)?;
-    txn.commit()?;
+    txn.commit().map_err(Error::database)?;
     Ok(())
 }
 
@@ -1712,17 +1752,18 @@ fn write_with_savepoint(db: &Database, batch: &Batch, before: Option<&[u8]>) -> 
     if meta_value(db)?.as_deref() != before {
         return Ok(());
     }
-    let mut txn = db.begin_write()?;
+    let mut txn = db.begin_write().map_err(Error::database)?;
     txn.set_quick_repair(true);
     // Before any table opens: redb keeps a savepoint only of a transaction that changed nothing.
-    let kept = txn.persistent_savepoint()?;
-    for id in txn.list_persistent_savepoints()? {
+    let kept = txn.persistent_savepoint().map_err(Error::database)?;
+    for id in txn.list_persistent_savepoints().map_err(Error::database)? {
         if id != kept {
-            txn.delete_persistent_savepoint(id)?;
+            txn.delete_persistent_savepoint(id)
+                .map_err(Error::database)?;
         }
     }
     apply(&txn, batch)?;
-    txn.commit()?;
+    txn.commit().map_err(Error::database)?;
     Ok(())
 }
 
@@ -1732,43 +1773,52 @@ fn write_with_savepoint(db: &Database, batch: &Batch, before: Option<&[u8]>) -> 
     reason = "off-tick: the save thread reads the data file"
 )]
 fn meta_value(db: &Database) -> Result<Option<Vec<u8>>> {
-    let txn = db.begin_read()?;
+    let txn = db.begin_read().map_err(Error::database)?;
     let Some(table) = open_read(&txn, META)? else {
         return Ok(None);
     };
-    Ok(table.get(META_KEY)?.map(|v| v.value().to_vec()))
+    Ok(table
+        .get(META_KEY)
+        .map_err(Error::database)?
+        .map(|v| v.value().to_vec()))
 }
 
 /// Applies `batch`'s writes, in order, to an open write transaction.
 fn apply(txn: &WriteTransaction, batch: &Batch) -> Result<()> {
+    let open = |table| txn.open_table(table).map_err(Error::database);
     let mut tables = [
-        txn.open_table(META)?,
-        txn.open_table(WORLDS)?,
-        txn.open_table(CHUNKS)?,
-        txn.open_table(PLAYERS)?,
-        txn.open_table(ACCESS)?,
-        txn.open_table(USER)?,
+        open(META)?,
+        open(WORLDS)?,
+        open(CHUNKS)?,
+        open(PLAYERS)?,
+        open(ACCESS)?,
+        open(USER)?,
     ];
     for write in &batch.writes {
         match write {
             Write::Put(key, value) => {
                 let table = key.pick_mut(&mut tables);
-                drop(table.insert(&*key.to_bytes(), value.as_slice())?);
+                drop(
+                    table
+                        .insert(&*key.to_bytes(), value.as_slice())
+                        .map_err(Error::database)?,
+                );
             }
             Write::Delete(key) => {
                 let table = key.pick_mut(&mut tables);
-                drop(table.remove(&*key.to_bytes())?);
+                drop(table.remove(&*key.to_bytes()).map_err(Error::database)?);
             }
             &Write::DeletePages(chunk, kind, first) => {
                 let key = chunk.key(ChunkPart::Extras(kind, first));
                 let (first, last) = pages_range(chunk, kind, first);
                 key.pick_mut(&mut tables)
-                    .retain_in::<&[u8], _>(&*first..=&*last, |_, _| false)?;
+                    .retain_in::<&[u8], _>(&*first..=&*last, |_, _| false)
+                    .map_err(Error::database)?;
             }
             Write::Clear => {
                 let [_, worlds, chunks, _, _, _] = &mut tables;
-                worlds.retain(|_, _| false)?;
-                chunks.retain(|_, _| false)?;
+                worlds.retain(|_, _| false).map_err(Error::database)?;
+                chunks.retain(|_, _| false).map_err(Error::database)?;
             }
         }
     }
@@ -1795,7 +1845,7 @@ fn open_read(
     match txn.open_table(table) {
         Ok(table) => Ok(Some(table)),
         Err(TableError::TableDoesNotExist(_)) => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(e) => Err(Error::database(e)),
     }
 }
 
@@ -3796,7 +3846,7 @@ pub(crate) mod tests {
             let start = clock::now();
             assert!(storage.is_backing_up());
             let mut steps = 0;
-            let mut longest = 0.0f64;
+            let mut longest = 0.0_f64;
             let (path, last) = loop {
                 let step = clock::now();
                 let done = storage.backup_step().unwrap();
@@ -3915,7 +3965,7 @@ pub(crate) mod tests {
         for (name, storage) in &mut opened {
             let start = clock::now();
             let mut steps = 0;
-            let mut longest = 0.0f64;
+            let mut longest = 0.0_f64;
             while storage.is_backing_up() {
                 let step = clock::now();
                 storage.backup_step().unwrap();

@@ -264,18 +264,20 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::InvalidName => "the name is empty, too long or holds control characters",
-            Self::TooLong => "the ban reason or source is too long",
-            Self::Expired => "the ban has ended already",
-            Self::Full => "the list is full",
-        })
+        match self {
+            Self::InvalidName => {
+                f.write_str("the name is empty, too long or holds control characters")
+            }
+            Self::TooLong => f.write_str("the ban reason or source is too long"),
+            Self::Expired => f.write_str("the ban has ended already"),
+            Self::Full => f.write_str("the list is full"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the permission [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Declares Anchor's own permissions and the list of them.

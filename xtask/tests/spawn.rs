@@ -40,6 +40,7 @@ use tracing::{Event, Level, Metadata, Subscriber, span};
 const CYCLES: usize = 5;
 /// The issuer the test issuer signs with; the bot puts it in its tokens.
 const ISSUER: &str = "https://issuer.invalid/";
+/// The key ID of the test issuer's signing key.
 const KID: &str = "p5-key";
 /// The addresses the starting server logs, one line per opened address (`listening …
 /// addr=…`). The servers of this process run without Anchor's console log, so their events reach
@@ -266,44 +267,6 @@ impl Running {
         panic!("the server did not open its addresses; after a shutdown its thread {state}");
     }
 
-    /// Pings until the server answers (pings 300 ms apart stay under the rate limit of 5 per
-    /// second) and returns the pong text.
-    #[expect(
-        clippy::disallowed_types,
-        reason = "off-tick: test tooling outside the server"
-    )]
-    fn pong(&mut self) -> String {
-        let socket =
-            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind the ping socket");
-        socket
-            .set_read_timeout(Some(Duration::from_millis(300)))
-            .expect("set a read timeout");
-        let mut ping = vec![0x01];
-        ping.extend_from_slice(&0_i64.to_be_bytes());
-        ping.extend_from_slice(&MAGIC);
-        ping.extend_from_slice(&1_i64.to_be_bytes());
-        let mut buf = [0; 1500];
-        for _ in 0..100 {
-            socket
-                .send_to(&ping, (Ipv4Addr::LOCALHOST, self.raknet_port))
-                .expect("send a ping");
-            // 0x1c, time, server GUID, magic, then the length-prefixed pong text.
-            if let Ok((n, _)) = socket.recv_from(&mut buf)
-                && n > 35
-                && buf[0] == 0x1c
-            {
-                return String::from_utf8_lossy(&buf[35..n]).into_owned();
-            }
-            if self.thread.as_ref().is_some_and(JoinHandle::is_finished) {
-                let run = self.thread.take().expect("checked").join();
-                panic!("the server stopped before answering pings: {run:?}");
-            }
-            // An ICMP "port unreachable" makes `recv_from` fail at once on Windows.
-            pause();
-        }
-        panic!("the server did not answer pings");
-    }
-
     fn addr(&self) -> String {
         format!("127.0.0.1:{}", self.raknet_port)
     }
@@ -358,6 +321,44 @@ impl Running {
             self.logged(&["nethernet peer closed", &ufrag, "closed by the remote"]),
             "the bot's close did not end its peer ({ufrag})"
         );
+    }
+
+    /// Pings until the server answers (pings 300 ms apart stay under the rate limit of 5 per
+    /// second) and returns the pong text.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: test tooling outside the server"
+    )]
+    fn pong(&mut self) -> String {
+        let socket =
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind the ping socket");
+        socket
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .expect("set a read timeout");
+        let mut ping = vec![0x01];
+        ping.extend_from_slice(&0_i64.to_be_bytes());
+        ping.extend_from_slice(&MAGIC);
+        ping.extend_from_slice(&1_i64.to_be_bytes());
+        let mut buf = [0; 1500];
+        for _ in 0..100 {
+            socket
+                .send_to(&ping, (Ipv4Addr::LOCALHOST, self.raknet_port))
+                .expect("send a ping");
+            // 0x1c, time, server GUID, magic, then the length-prefixed pong text.
+            if let Ok((n, _)) = socket.recv_from(&mut buf)
+                && n > 35
+                && buf[0] == 0x1c
+            {
+                return String::from_utf8_lossy(&buf[35..n]).into_owned();
+            }
+            if self.thread.as_ref().is_some_and(JoinHandle::is_finished) {
+                let run = self.thread.take().expect("checked").join();
+                panic!("the server stopped before answering pings: {run:?}");
+            }
+            // An ICMP "port unreachable" makes `recv_from` fail at once on Windows.
+            pause();
+        }
+        panic!("the server did not answer pings");
     }
 
     fn stop(mut self) {

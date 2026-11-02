@@ -36,15 +36,15 @@ pub(in crate::tick) fn update(
         return;
     }
     let range = f64::from(10 + 10 * i32::from(level));
-    let (cx, cz) = (f64::from(pos.x), f64::from(pos.z));
+    let (beacon_x, beacon_z) = (f64::from(pos.x), f64::from(pos.z));
     let targets: Vec<_> = state
         .players
         .iter()
         .filter(|(_, p)| {
             p.world == world
                 && survival::is_alive(p)
-                && (p.position.x - cx).abs() <= range
-                && (p.position.z - cz).abs() <= range
+                && (p.position.x - beacon_x).abs() <= range
+                && (p.position.z - beacon_z).abs() <= range
         })
         .map(|(s, _)| *s)
         .collect();

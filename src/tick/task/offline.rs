@@ -22,7 +22,7 @@ use crate::player::{Error, Result, Ticket};
 use crate::save::{PlayerData, PlayerLoad, Request};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::tick::checkpoint::{self, Codec, Reader, Writer};
-use crate::tick::extra::{self, PlayerExtra};
+use crate::tick::extra;
 use crate::tick::inventory::{self, Inventory};
 use crate::tick::{PlayerKey, State, save};
 
@@ -39,7 +39,7 @@ type Done = Box<dyn FnOnce(&mut Context<'_>, Result<Ticket>) + Send>;
 pub struct Offline {
     pub(in crate::tick) world: String,
     pub(in crate::tick) position: [f64; 3],
-    pub(in crate::tick) extra: PlayerExtra,
+    pub(in crate::tick) extra: extra::Player,
     pub(in crate::tick) inventory: Inventory,
     /// The inventories changed since the load: a save writes their keys.
     pub(in crate::tick) inventory_changed: bool,

@@ -46,7 +46,7 @@ use std::ops::Bound;
 use tracing::{error, info, warn};
 
 use super::view::Key;
-use super::{SessionId, State, dispatch, entity, interact, inventory, survival};
+use super::{SessionId, State, checkpoint, dispatch, entity, interact, inventory, survival};
 use crate::block::{self, ChiseledBookshelfSlot, Class, Face, Facing, PropertyValue};
 use crate::crafting::FurnaceType;
 use crate::custom::Registry;
@@ -514,7 +514,7 @@ impl Chunk {
     fn read(key: Key, list: &[Compound], custom: &Registry) -> Option<Self> {
         let mut chunk = Self::default();
         for nbt in list {
-            let Some(pos) = position(nbt, key) else {
+            let Some(pos) = saved_pos(nbt, key) else {
                 #[cfg(test)]
                 crate::tick::rules::reads::add(|r| r.clones += 1);
                 chunk.raw.push(nbt.clone());
@@ -610,7 +610,7 @@ struct Spill {
     items: Vec<Stack>,
 }
 
-super::checkpoint::fields!(Spill { pos, items });
+checkpoint::fields!(Spill { pos, items });
 
 /// A chunk's saved block entities read off the tick ([`Parsed::read`]), for
 /// [`BlockEntities::load`].
@@ -869,7 +869,7 @@ impl BlockEntity {
         }
     }
 
-    /// Takes the stacks a shulker box's slots do not take ([`Stack::fits_shulker_box`]) out of
+    /// Takes the stacks a shulker box's slots do not take ([`Stack::can_enter_shulker_box`]) out of
     /// it: what a box item made by a plugin held, or an Anchor before the limit saved. None for
     /// other kinds.
     fn take_unfit(&mut self) -> Vec<Stack> {
@@ -878,7 +878,7 @@ impl BlockEntity {
         }
         self.items
             .iter_mut()
-            .filter(|s| !s.fits_shulker_box())
+            .filter(|s| !s.can_enter_shulker_box())
             .map(std::mem::take)
             .collect()
     }
@@ -1186,10 +1186,6 @@ impl Kind {
         match self {
             Self::Chest { .. } | Self::Barrel | Self::ShulkerBox { .. } => CHEST_SLOTS,
             Self::Hopper => HOPPER_SLOTS,
-            Self::Furnace(_) => furnace::SLOTS,
-            Self::BrewingStand(_) => brewing::SLOTS,
-            Self::Campfire(_) => campfire::SLOTS,
-            Self::ChiseledBookshelf { .. } => BOOKSHELF_SLOTS,
             Self::EnderChest
             | Self::EnchantTable
             | Self::Beacon { .. }
@@ -1203,6 +1199,10 @@ impl Kind {
             | Self::Skull { .. }
             | Self::Cauldron(_)
             | Self::Other(_) => 0,
+            Self::Furnace(_) => furnace::SLOTS,
+            Self::BrewingStand(_) => brewing::SLOTS,
+            Self::Campfire(_) => campfire::SLOTS,
+            Self::ChiseledBookshelf { .. } => BOOKSHELF_SLOTS,
         }
     }
 
@@ -1774,7 +1774,7 @@ pub(super) fn set_slot(
     let entity = entities
         .get(world, pos)
         .ok_or(crate::inventory::Error::NoSlot)?;
-    if matches!(entity.kind, Kind::ShulkerBox { .. }) && !stack.fits_shulker_box() {
+    if matches!(entity.kind, Kind::ShulkerBox { .. }) && !stack.can_enter_shulker_box() {
         return Err(crate::inventory::Error::NotAccepted);
     }
     let slot = entity
@@ -1927,7 +1927,7 @@ fn tick_furnace(
         ),
     );
     let key = (world, pos.chunk());
-    let Some((f, _, _)) = furnace_at(state, world, pos) else {
+    let Some((f, _, _)) = furnace_mut(state, world, pos) else {
         return;
     };
     let before = (f.burn, f.cook, f.max_burn, f.xp);
@@ -1942,7 +1942,7 @@ fn tick_furnace(
     let (mut burnt, mut smelted) = (None, None);
     let stepped = furnace_fuel(state, world, pos, block, &mut t, &mut burnt).is_some()
         && furnace_smelt(state, world, pos, block, &mut rng, &mut t, &mut smelted).is_some();
-    if stepped && let Some((f, _, _)) = furnace_at(state, world, pos) {
+    if stepped && let Some((f, _, _)) = furnace_mut(state, world, pos) {
         let step = f.finish(t);
         let after = (f.burn, f.cook, f.max_burn, f.xp);
         let entities = &mut state.rules.block_entities;
@@ -2004,7 +2004,7 @@ fn furnace_fuel(
     t: &mut furnace::Tick,
     burnt: &mut Option<FurnaceBurn>,
 ) -> Option<()> {
-    let (f, items, custom) = furnace_at(state, world, pos)?;
+    let (f, items, custom) = furnace_mut(state, world, pos)?;
     let Some((fuel, time)) = f.fuel_due(items, custom) else {
         return Some(());
     };
@@ -2023,7 +2023,7 @@ fn furnace_fuel(
         dispatch::call(state, &mut e);
         let changed = dispatch::listened::<FurnaceBurn>(state)
             && (block_at(state, world, pos) != Some(block)
-                || furnace_at(state, world, pos)
+                || furnace_mut(state, world, pos)
                     .and_then(|(f, items, custom)| f.fuel_due(items, custom))
                     .is_none_or(|due| due != (fuel, time)));
         burn = (!e.cancelled && !changed && e.burn_time_ticks > 0).then(|| {
@@ -2032,7 +2032,7 @@ fn furnace_fuel(
         });
         event = Some(e);
     }
-    let (f, items, _) = furnace_at(state, world, pos)?;
+    let (f, items, _) = furnace_mut(state, world, pos)?;
     if let Some((time, consume)) = burn {
         f.burn(items, time, t);
         if consume {
@@ -2056,7 +2056,7 @@ fn furnace_smelt(
     t: &mut furnace::Tick,
     smelted: &mut Option<FurnaceSmelt>,
 ) -> Option<()> {
-    let (f, items, custom) = furnace_at(state, world, pos)?;
+    let (f, items, custom) = furnace_mut(state, world, pos)?;
     let Some((source, result)) = f.cook(items, custom, t) else {
         return Some(());
     };
@@ -2074,14 +2074,14 @@ fn furnace_smelt(
         dispatch::call(state, &mut e);
         let changed = dispatch::listened::<FurnaceSmelt>(state)
             && (block_at(state, world, pos) != Some(block)
-                || furnace_at(state, world, pos)
+                || furnace_mut(state, world, pos)
                     .and_then(|(f, items, custom)| f.ready(items, custom))
                     .is_none_or(|ready| ready != (source, result)));
         made = (!e.cancelled && !changed).then(|| e.result.clone());
         event = Some(e);
     }
     let experience = state.settings.has_orbs().then_some(rng);
-    let (f, items, _) = furnace_at(state, world, pos)?;
+    let (f, items, _) = furnace_mut(state, world, pos)?;
     if let Some(made) = made
         && furnace::Furnace::fits(items, &made)
     {
@@ -2092,7 +2092,7 @@ fn furnace_smelt(
 }
 
 /// The furnace at `pos`, its slots and the server's custom content (for its recipes).
-fn furnace_at(
+fn furnace_mut(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
@@ -2118,7 +2118,7 @@ fn furnace_at(
 /// before still reach their monitors.
 fn tick_brewing(state: &mut State, world: WorldIndex, pos: BlockPos, block: block::State) {
     let key = (world, pos.chunk());
-    let Some((b, _, _)) = brewing_at(state, world, pos) else {
+    let Some((b, _, _)) = brewing_mut(state, world, pos) else {
         return;
     };
     let before = (b.brew, b.fuel, b.fuel_total);
@@ -2133,7 +2133,7 @@ fn tick_brewing(state: &mut State, world: WorldIndex, pos: BlockPos, block: bloc
     let mut watched = Vec::new();
     let stepped = brewing_fuel(state, world, pos, block, &mut t, &mut watched).is_some()
         && brewing_brew(state, world, pos, block, &mut t, &mut watched).is_some();
-    if stepped && let Some((b, _, _)) = brewing_at(state, world, pos) {
+    if stepped && let Some((b, _, _)) = brewing_mut(state, world, pos) {
         let step = b.finish(t);
         let after = (b.brew, b.fuel, b.fuel_total);
         let entities = &mut state.rules.block_entities;
@@ -2184,7 +2184,7 @@ fn brewing_fuel(
     t: &mut brewing::Tick,
     watched: &mut Vec<Watched>,
 ) -> Option<()> {
-    let (b, items, custom) = brewing_at(state, world, pos)?;
+    let (b, items, custom) = brewing_mut(state, world, pos)?;
     if !b.fuel_due(items, custom) {
         return Some(());
     }
@@ -2200,12 +2200,12 @@ fn brewing_fuel(
         };
         dispatch::call(state, &mut e);
         let changed = dispatch::listened::<BrewingFuelUse>(state)
-            && brewing_at(state, world, pos)
+            && brewing_mut(state, world, pos)
                 .is_none_or(|(b, items, custom)| !b.fuel_due(items, custom));
         brews = (!e.cancelled && !changed).then(|| u16::try_from(e.fuel_time).unwrap_or(u16::MAX));
         event = Some(e);
     }
-    let (b, items, _) = brewing_at(state, world, pos)?;
+    let (b, items, _) = brewing_mut(state, world, pos)?;
     if let Some(brews) = brews {
         b.refuel(items, brews, t);
         if let Some(e) = event {
@@ -2227,7 +2227,7 @@ fn brewing_brew(
     t: &mut brewing::Tick,
     watched: &mut Vec<Watched>,
 ) -> Option<()> {
-    let (b, items, custom) = brewing_at(state, world, pos)?;
+    let (b, items, custom) = brewing_mut(state, world, pos)?;
     let Some(results) = b.brew_tick(items, custom, t) else {
         return Some(());
     };
@@ -2235,7 +2235,7 @@ fn brewing_brew(
         let Some(result) = result else {
             continue;
         };
-        let (_, items, _) = brewing_at(state, world, pos)?;
+        let (_, items, _) = brewing_mut(state, world, pos)?;
         let input = items.get(slot).cloned().unwrap_or_default();
         let mut made = Some(result.clone());
         let mut event = None;
@@ -2251,7 +2251,7 @@ fn brewing_brew(
             };
             dispatch::call(state, &mut e);
             let changed = dispatch::listened::<BrewItem>(state)
-                && brewing_at(state, world, pos).is_none_or(|(b, items, custom)| {
+                && brewing_mut(state, world, pos).is_none_or(|(b, items, custom)| {
                     items.get(slot) != Some(&input)
                         || b.bottle_results(items, custom).get(k).cloned().flatten()
                             != Some(result.clone())
@@ -2261,7 +2261,7 @@ fn brewing_brew(
                 .filter(|r| !r.is_empty());
             event = Some(e);
         }
-        let (_, items, _) = brewing_at(state, world, pos)?;
+        let (_, items, _) = brewing_mut(state, world, pos)?;
         if let Some(made) = made {
             brewing::bottle(items, slot, made, t);
             if let Some(e) = event {
@@ -2269,13 +2269,13 @@ fn brewing_brew(
             }
         }
     }
-    let (_, items, _) = brewing_at(state, world, pos)?;
+    let (_, items, _) = brewing_mut(state, world, pos)?;
     brewing::use_ingredient(items, t);
     Some(())
 }
 
 /// The brewing stand at `pos`, its slots and the recipes it brews with.
-fn brewing_at(
+fn brewing_mut(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
@@ -2584,7 +2584,7 @@ fn write_items(slots: &[Stack]) -> Value {
 }
 
 /// The position a saved entry names, if it is in the chunk of `key`.
-fn position(nbt: &Compound, key: Key) -> Option<BlockPos> {
+fn saved_pos(nbt: &Compound, key: Key) -> Option<BlockPos> {
     let coordinate = |k: &str| match nbt.get(k) {
         Some(Value::Int(v)) => Some(*v),
         _ => None,
@@ -2971,7 +2971,7 @@ pub(in crate::tick) mod tests {
         let blocks = &mut state.rules.block_entities;
         blocks.load_list(key, &list, &state.worlds[0], &Registry::default());
         let entity = state.rules.block_entities.get(0, pos).unwrap();
-        assert!(entity.items.iter().all(Stack::fits_shulker_box));
+        assert!(entity.items.iter().all(Stack::can_enter_shulker_box));
         assert_eq!(
             state.rules.block_entities.chunks[&key].spills.len(),
             MAX_SPILLS
@@ -3043,7 +3043,7 @@ pub(in crate::tick) mod tests {
                 .unwrap()
                 .items
                 .iter()
-                .all(Stack::fits_shulker_box)
+                .all(Stack::can_enter_shulker_box)
         );
         assert_eq!(blocks.chunks[&key].spills.len(), MAX_SPILLS);
         let count: usize = blocks.all_items().map(|s| usize::from(s.count())).sum();
@@ -3541,7 +3541,7 @@ pub(in crate::tick) mod tests {
                 ..item::Extra::default()
             }))
             .unwrap();
-        let list: Vec<Compound> = (0..3_000)
+        let list: Vec<Compound> = (0..3000)
             .map(|i| {
                 let pos = BlockPos::new(i & 15, -64 + (i >> 8), (i >> 4) & 15);
                 chest_entity(
@@ -3606,7 +3606,7 @@ pub(in crate::tick) mod tests {
         let (mut state, key) = server(true, Listeners::default());
         load_chunk(&mut state, key);
         let base = BlockPos::new(key.1.x * 16, 0, key.1.z * 16);
-        for i in 0..1_000 {
+        for i in 0..1000 {
             let at = BlockPos::new(base.x + (i & 15), i >> 8, base.z + ((i >> 4) & 15));
             furnace(&mut state, 0, at);
         }

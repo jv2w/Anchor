@@ -69,6 +69,7 @@ pub(super) fn encode(name: &str, record: &WorldRecord, generator: &dyn Generator
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::Reader;
     use crate::world::{BlockPos, Chunk, ChunkPos, MIN_Y, Void};
 

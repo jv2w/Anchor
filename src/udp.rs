@@ -43,9 +43,6 @@ pub(crate) enum Error {
     Bind { addr: SocketAddr, source: io::Error },
 }
 
-/// A UDP port result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -63,6 +60,9 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The port's sockets, shared by the task that reads them and the drivers that send on them.
 #[derive(Debug)]
@@ -195,7 +195,7 @@ impl Driver {
                             self.raknet.receive(from, data);
                         }
                     }
-                    _ => trace!(%from, len, "udp oversized datagram dropped"),
+                    _ => trace!(addr = %from, len, "udp oversized datagram dropped"),
                 },
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
                 // Windows reports ICMP port unreachable as WSAECONNRESET on the next receive

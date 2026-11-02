@@ -44,14 +44,19 @@ pub(crate) const KIND_VALUE: u8 = 1;
 pub(crate) const LEVELS: usize = 7;
 /// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
 const MASK_DELTA: u32 = 0xa282_ead8;
+/// The longest `CURRENT` file, in bytes.
 const MAX_CURRENT: u64 = 256;
+/// The most files a database folder may hold.
 const MAX_FILES: usize = 65_536;
 /// Decompressed blocks one scan may hold at once.
 const MAX_HELD: usize = 256 << 20;
 /// The longest user key.
 pub(crate) const MAX_KEY: usize = 1024;
+/// The most bytes of one log file.
 const MAX_LOG_BYTES: u64 = 64 << 20;
+/// The most keys one log file may hold.
 const MAX_LOG_KEYS: usize = 1 << 20;
+/// The most bytes of the `MANIFEST` file.
 const MAX_MANIFEST: u64 = 64 << 20;
 /// The largest sequence number: 56 bits.
 const MAX_SEQUENCE: u64 = (1 << 56) - 1;
@@ -121,13 +126,6 @@ impl Db {
                     return Err(in_manifest(Error::Malformed("table in two levels")));
                 }
                 match tables.get(&number) {
-                    // Named as LevelDB looks for it first.
-                    None => {
-                        return Err(files.fault(
-                            &format!("{number:06}.ldb"),
-                            Error::Malformed("a listed table is missing"),
-                        ));
-                    }
                     Some((name, len)) if *len != file.size => {
                         return Err(files.fault(
                             name,
@@ -135,6 +133,13 @@ impl Db {
                         ));
                     }
                     Some(_) => {}
+                    // Named as LevelDB looks for it first.
+                    None => {
+                        return Err(files.fault(
+                            &format!("{number:06}.ldb"),
+                            Error::Malformed("a listed table is missing"),
+                        ));
+                    }
                 }
                 if let Some(at) = levels.get_mut(level) {
                     at.push(file);
@@ -185,10 +190,10 @@ impl Db {
             .map(|(name, _)| name)
             .or_else(|| now.keys().find(|name| !self.listing.contains_key(*name)));
         match changed {
-            None => Ok(()),
             Some(name) => Err(Error::SourceChanged {
                 path: self.tables.files.path(name),
             }),
+            None => Ok(()),
         }
     }
 

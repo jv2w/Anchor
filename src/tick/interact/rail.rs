@@ -180,9 +180,9 @@ fn shape(state: State) -> Option<[Link; 2]> {
     }
     let direction = usize::try_from(props::int(state, "rail_direction")?).ok()?;
     match direction.checked_sub(STRAIGHT.len()) {
-        None => STRAIGHT.get(direction).copied(),
         Some(curve) if curves(state) => CURVES.get(curve).copied(),
         Some(_) => None,
+        None => STRAIGHT.get(direction).copied(),
     }
 }
 

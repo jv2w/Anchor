@@ -97,10 +97,10 @@ fn tick_each(w: &mut World, inputs: Vec<Input>) -> Vec<Vec<Packet>> {
 
 /// A block near the player, in a chunk its client was sent.
 fn near(w: &mut World, s: SessionId) -> BlockPos {
-    let eye = w.player(s).position;
+    let eye = w.player_mut(s).position;
     let at = BlockPos::containing(eye);
     let pos = BlockPos::new(at.x + 2, -61, at.z + 2);
-    assert!(w.player(s).view.sees(pos.chunk()));
+    assert!(w.player_mut(s).view.can_see(pos.chunk()));
     pos
 }
 
@@ -224,7 +224,7 @@ fn fake_blocks_are_bounded_and_go_with_their_player() {
     );
     w.tick(Vec::new());
     assert_eq!(cx(&mut w).send_fake_block(id(a), extra, glass()), Ok(()));
-    assert_eq!(w.player(a).view.fake_count(), 1);
+    assert_eq!(w.player_mut(a).view.fake_count(), 1);
     w.tick(vec![leave(1, 90)]);
     assert!(!w.state.players.contains_key(&a));
     assert_eq!(
@@ -252,11 +252,11 @@ fn a_menu_opens_on_fake_blocks_with_its_title_then_its_window() {
     let menu_id = opened.unwrap();
     assert_eq!(cx(&mut w).menu(id(s)), Some(menu_id));
     assert_eq!(
-        w.player(s).window(),
+        w.player_mut(s).window(),
         None,
         "events and windows do not name menus"
     );
-    let [Some((pos, chest)), None] = w.player(s).view.menu_blocks() else {
+    let [Some((pos, chest)), None] = w.player_mut(s).view.menu_blocks() else {
         panic!("one chest");
     };
     assert_eq!(chest, blk::Kind::Chest.default_state());
@@ -347,7 +347,7 @@ fn double_chest_and_hopper_menus_have_their_blocks_slots_and_type() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let (_, got) = open(&mut w, s, Menu::new(MenuKind::DoubleChest), keep);
-    let [Some((left, _)), Some((right, _))] = w.player(s).view.menu_blocks() else {
+    let [Some((left, _)), Some((right, _))] = w.player_mut(s).view.menu_blocks() else {
         panic!("two chests");
     };
     assert_eq!(left.y, right.y);
@@ -383,7 +383,7 @@ fn double_chest_and_hopper_menus_have_their_blocks_slots_and_type() {
         p,
         Packet::ContainerOpen(o) if o.container_type == ContainerType::Hopper as u8
     )));
-    let [Some((_, hopper)), None] = w.player(s).view.menu_blocks() else {
+    let [Some((_, hopper)), None] = w.player_mut(s).view.menu_blocks() else {
         panic!("one hopper");
     };
     assert_eq!(hopper, blk::Kind::Hopper.default_state());
@@ -429,7 +429,7 @@ fn menu_ids_are_refused_once_used_up_and_never_wrap() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     tick_each(&mut w, Vec::new());
-    w.player(s).inventory.next_menu = u64::from(u32::MAX);
+    w.player_mut(s).inventory.next_menu = u64::from(u32::MAX);
     let last = cx(&mut w)
         .open_menu(id(s), Menu::new(MenuKind::Chest), |_, _, _| Response::Keep)
         .expect("the last ID");
@@ -563,7 +563,7 @@ fn a_handler_changes_menu_items_and_closes_the_menu() {
         Stack::new(item(it::Kind::Stick), 5)
     );
     // Slot 0 closes it: the blocks show again.
-    let [Some((pos, _)), None] = w.player(s).view.menu_blocks() else {
+    let [Some((pos, _)), None] = w.player_mut(s).view.menu_blocks() else {
         panic!("one chest");
     };
     let (_, net0) = shown(&w, s, 0);
@@ -584,14 +584,14 @@ fn a_client_close_far_player_leave_or_other_window_closes_the_menu() {
     w.place_block(chest, blk::Kind::Chest.default_state());
     for way in 0..4 {
         let (menu, _) = open(&mut w, s, Menu::new(MenuKind::Chest), keep);
-        let [Some((pos, _)), None] = w.player(s).view.menu_blocks() else {
+        let [Some((pos, _)), None] = w.player_mut(s).view.menu_blocks() else {
             panic!("one chest");
         };
         match way {
             0 => w.close(s),
             1 => {
-                let eye = w.player(s).position;
-                w.player(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
+                let eye = w.player_mut(s).position;
+                w.player_mut(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
             }
             2 => {
                 w.open_block(s, chest);
@@ -612,8 +612,8 @@ fn a_client_close_far_player_leave_or_other_window_closes_the_menu() {
             "way {way}"
         );
         if way == 1 {
-            let eye = w.player(s).position;
-            w.player(s).position = Vec3::new(eye.x - 20.0, eye.y, eye.z);
+            let eye = w.player_mut(s).position;
+            w.player_mut(s).position = Vec3::new(eye.x - 20.0, eye.y, eye.z);
         }
         w.close(s);
         w.ack(s);
@@ -644,10 +644,10 @@ fn opening_and_closing_many_menus_leaves_every_table_at_its_start() {
     }
     assert_eq!(heard().len(), 1, "the last menu's click");
     assert!(w.inv(s).menu.is_none() && w.inv(s).window.is_none());
-    assert_eq!(w.player(s).view.menu_blocks(), [None, None]);
-    assert_eq!(w.player(s).view.fake_count(), 0);
+    assert_eq!(w.player_mut(s).view.menu_blocks(), [None, None]);
+    assert_eq!(w.player_mut(s).view.fake_count(), 0);
     assert_eq!(w.state.menus.len(), 0);
-    assert!(w.player(s).view.out.is_empty());
+    assert!(w.player_mut(s).view.out.is_empty());
     assert!(w.inv(s).next_id > next_id, "stack IDs only grow");
 }
 
@@ -1264,19 +1264,19 @@ fn close_by(w: &mut World, s: SessionId, way: Way, chest: BlockPos) {
     match way {
         Way::Client => w.close(s),
         Way::Far => {
-            let eye = w.player(s).position;
-            w.player(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
+            let eye = w.player_mut(s).position;
+            w.player_mut(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
             tick_each(w, Vec::new());
         }
         Way::OtherWindow => w.open_block(s, chest),
         Way::Death => {
             // Only a spawned player dies; the test client never says it spawned.
-            w.player(s).phase = Phase::Spawned;
-            assert!(w.player(s).kill());
+            w.player_mut(s).phase = Phase::Spawned;
+            assert!(w.player_mut(s).kill());
             w.tick(Vec::new());
         }
         Way::Teleport => {
-            let eye = w.player(s).position;
+            let eye = w.player_mut(s).position;
             let feet = Vec3::new(eye.x, eye.y - survival::EYE_HEIGHT, eye.z);
             let id = crate::player::Id::new(s);
             Context {
@@ -1393,7 +1393,7 @@ fn a_close_s_handler_cannot_hold_more_than_the_waiting_bound_allows() {
     assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));
     // The sword on the cursor and the waiting stacks fill the bound.
     let waiting = MAX_SAVED_PENDING - 1;
-    w.player(s).inventory.pending = vec![sticks(1); waiting];
+    w.player_mut(s).inventory.pending = vec![sticks(1); waiting];
     w.close(s);
     assert_eq!(
         WROTE.take(),
@@ -1428,8 +1428,8 @@ fn a_menu_a_far_close_s_handler_opens_for_another_far_player_stays_open() {
         tick_each(&mut w, Vec::new());
     }
     for s in [a, b] {
-        let eye = w.player(s).position;
-        w.player(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
+        let eye = w.player_mut(s).position;
+        w.player_mut(s).position = Vec3::new(eye.x + 20.0, eye.y, eye.z);
     }
     tick_each(&mut w, Vec::new());
     assert_eq!(cx(&mut w).menu(id(a)), None, "far away, A's menu closed");
@@ -1556,10 +1556,10 @@ fn editable_menus_opened_changed_and_closed_leave_every_table_at_its_start() {
     }
     assert_eq!(changes().len(), 1, "the last menu's change");
     assert!(w.inv(s).menu.is_none() && w.inv(s).window.is_none());
-    assert_eq!(w.player(s).view.menu_blocks(), [None, None]);
-    assert_eq!(w.player(s).view.fake_count(), 0);
+    assert_eq!(w.player_mut(s).view.menu_blocks(), [None, None]);
+    assert_eq!(w.player_mut(s).view.fake_count(), 0);
     assert_eq!(w.state.menus.len(), 0);
-    assert!(w.player(s).view.out.is_empty());
+    assert!(w.player_mut(s).view.out.is_empty());
     assert!(w.inv(s).pending.is_empty());
     assert_eq!(
         w.inv(s).main.stack(0),
@@ -2202,7 +2202,7 @@ fn a_direct_close_after_taking_the_cursor_s_own_items_doubles_none() {
     assert_eq!(lent, 3);
     let stack = w.inv(s).cursor.stack(0).clone();
     let kept = stack.count() - lent;
-    w.player(s)
+    w.player_mut(s)
         .inventory_mut(crate::inventory::Kind::Cursor)
         .set(0, stack.with_count(lent))
         .unwrap();
@@ -2246,7 +2246,7 @@ fn a_cursor_write_keeps_lent_only_what_it_still_holds_of_their_item() {
         vec![take(5, at(C::LevelEntity, 0, net), at(C::Cursor, 0, 0))],
     )));
     let write = |w: &mut World, stack: Stack| {
-        w.player(s)
+        w.player_mut(s)
             .inventory_mut(crate::inventory::Kind::Cursor)
             .set(0, stack)
             .unwrap();
@@ -2287,10 +2287,10 @@ fn lending_menus_opened_taken_and_closed_leave_every_table_at_its_start() {
     }
     assert!(w.inv(s).menu.is_none() && w.inv(s).window.is_none());
     assert_eq!(w.inv(s).lent, 0);
-    assert_eq!(w.player(s).view.menu_blocks(), [None, None]);
-    assert_eq!(w.player(s).view.fake_count(), 0);
+    assert_eq!(w.player_mut(s).view.menu_blocks(), [None, None]);
+    assert_eq!(w.player_mut(s).view.fake_count(), 0);
     assert_eq!(w.state.menus.len(), 0);
-    assert!(w.player(s).view.out.is_empty());
+    assert!(w.player_mut(s).view.out.is_empty());
     assert!(w.inv(s).pending.is_empty());
     assert_eq!(
         totals(&w.state).get(&plain(it::Kind::Stick)),

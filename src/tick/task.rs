@@ -645,7 +645,10 @@ mod tests {
         assert_eq!(cx.player_by_prefix(""), first);
     }
 
-    // pmmp: Server::getTick, Server::getName, Server::getVersion, Server::getPocketMineVersion, Server::getMotd, Server::getMaxPlayers, Server::getDifficulty, Server::getGamemode, Server::getForceGamemode, Server::isHardcore, Server::getViewDistance, Server::shouldSavePlayerData
+    // pmmp: Server::getTick, Server::getName, Server::getVersion, Server::getPocketMineVersion
+    // pmmp: Server::getMotd, Server::getMaxPlayers, Server::getDifficulty, Server::getGamemode
+    // pmmp: Server::getForceGamemode, Server::isHardcore, Server::getViewDistance
+    // pmmp: Server::shouldSavePlayerData
     #[test]
     fn the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins() {
         let (mut state, _rx) = state();
@@ -670,7 +673,8 @@ mod tests {
         assert_eq!(state.players.len(), 2);
     }
 
-    // pmmp: Server::broadcastMessage, Server::broadcastTip, Server::broadcastPopup, Server::broadcastTitle
+    // pmmp: Server::broadcastMessage, Server::broadcastTip, Server::broadcastPopup
+    // pmmp: Server::broadcastTitle
     #[test]
     fn broadcasts_reach_every_player_in_the_game_once() {
         let (mut state, mut rx) = state();

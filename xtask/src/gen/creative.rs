@@ -11,8 +11,6 @@ use super::body::str_lit;
 use super::data::{Data, Tag, read_json, static_compound};
 use super::emit::HEADER;
 
-/// The group key of a category's anonymous group (entries without a group).
-const ANONYMOUS: usize = usize::MAX;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/creative.rs";
 
@@ -29,7 +27,8 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     // Entries without a group share one anonymous group per category until an entry with a group
     // in that category starts a new anonymous group.
     let mut groups: Vec<(&str, Option<&Json>)> = Vec::new();
-    let mut group_index: BTreeMap<(&str, usize), usize> = BTreeMap::new();
+    // The key of a category's anonymous group (entries without a group) is `None`.
+    let mut group_index: BTreeMap<(&str, Option<usize>), usize> = BTreeMap::new();
     let mut items = Vec::with_capacity(entries.len());
     let mut run = 0;
     let mut previous: Option<(&str, &Json)> = None;
@@ -40,19 +39,16 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
         }
         let category = category(entry.get("category"))?;
         let group = entry.get("group").filter(|g| !g.is_null());
-        let key = match group {
-            None => {
-                previous = None;
-                ANONYMOUS
+        let key = if let Some(g) = group {
+            if previous != Some((category, g)) {
+                run += 1;
             }
-            Some(g) => {
-                if previous != Some((category, g)) {
-                    run += 1;
-                }
-                previous = Some((category, g));
-                group_index.remove(&(category, ANONYMOUS));
-                run
-            }
+            previous = Some((category, g));
+            group_index.remove(&(category, None));
+            Some(run)
+        } else {
+            previous = None;
+            None
         };
         let next = groups.len();
         let gi = *group_index.entry((category, key)).or_insert(next);

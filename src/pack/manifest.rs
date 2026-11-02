@@ -259,6 +259,7 @@ fn closes_next(bytes: &[u8], mut at: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::pack::tests::UUID;
     use crate::pack::zip::tests::{File, archive};
 

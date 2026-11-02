@@ -66,18 +66,33 @@ pub(crate) fn str0m(root: &Path) -> Result<bool, String> {
         files.push((root.join(DATA).join(name), bytes));
     }
     let mut copied = Vec::with_capacity(files.len());
-    let passed = files
-        .iter()
-        .try_for_each(|(path, bytes)| {
-            // Listed first, so a write that fails halfway is removed too.
-            copied.push(path);
-            write(path, bytes)
-        })
-        .and_then(|()| test(root));
-    let removed = copied.into_iter().try_for_each(|path| remove_file(path));
+    let passed = copy_and_test(root, &files, &mut copied);
+    let removed = remove_files(&copied);
     let passed = passed?;
     removed?;
     Ok(passed)
+}
+
+/// Copies the captures `files` into the copy and runs its tests, listing each path in `copied`
+/// before its write, so a write that fails halfway is removed too.
+fn copy_and_test<'a>(
+    root: &Path,
+    files: &'a [(PathBuf, Vec<u8>)],
+    copied: &mut Vec<&'a Path>,
+) -> Result<bool, String> {
+    for (path, bytes) in files {
+        copied.push(path);
+        write(path, bytes)?;
+    }
+    test(root)
+}
+
+/// Removes the files `paths`, stopping at the first failure.
+fn remove_files(paths: &[&Path]) -> Result<(), String> {
+    for path in paths {
+        remove_file(path)?;
+    }
+    Ok(())
 }
 
 /// Runs the library and integration tests of the copy. The test-export feature opens the

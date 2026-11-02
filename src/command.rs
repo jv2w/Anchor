@@ -907,7 +907,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A result with the command [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]

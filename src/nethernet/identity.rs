@@ -63,9 +63,6 @@ pub(crate) enum Error {
     Fingerprint,
 }
 
-/// An identity result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -113,6 +110,9 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The server's NetherNet identity: a P-384 key kept across restarts, so players confirm a
 /// new key only once.

@@ -296,6 +296,7 @@ fn out_of_range(field: &'static str) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz;
     use crate::protocol::io::tests::{reader, writer};
     use crate::protocol::types::SoundDataUpdate;

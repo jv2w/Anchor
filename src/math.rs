@@ -9,6 +9,65 @@
 use std::f64::consts::{FRAC_2_PI, FRAC_PI_2, PI};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
+/// The high parts of the arc tangents of 0.5, 1, 1.5 and ∞ (fdlibm `atanhi`).
+const ATAN_HI: [f64; 4] = [
+    f64::from_bits(0x3FDD_AC67_0561_BB4F),
+    f64::from_bits(0x3FE9_21FB_5444_2D18),
+    f64::from_bits(0x3FEF_730B_D281_F69B),
+    f64::from_bits(0x3FF9_21FB_5444_2D18),
+];
+/// The low parts of the arc tangents of 0.5, 1, 1.5 and ∞ (fdlibm `atanlo`).
+const ATAN_LO: [f64; 4] = [
+    f64::from_bits(0x3C7A_2B7F_222F_65E2),
+    f64::from_bits(0x3C81_A626_3314_5C07),
+    f64::from_bits(0x3C70_0788_7AF0_CBBD),
+    f64::from_bits(0x3C91_A626_3314_5C07),
+];
+/// The coefficients of the arc tangent polynomial (fdlibm `aT`).
+const ATAN_T: [f64; 11] = [
+    f64::from_bits(0x3FD5_5555_5555_550D),
+    f64::from_bits(0xBFC9_9999_9998_EBC4),
+    f64::from_bits(0x3FC2_4924_9200_83FF),
+    f64::from_bits(0xBFBC_71C6_FE23_1671),
+    f64::from_bits(0x3FB7_45CD_C54C_206E),
+    f64::from_bits(0xBFB3_B0F2_AF74_9A6D),
+    f64::from_bits(0x3FB1_0D66_A0D0_3D51),
+    f64::from_bits(0xBFAD_DE2D_52DE_FD9A),
+    f64::from_bits(0x3FA9_7B4B_2476_0DEB),
+    f64::from_bits(0xBFA2_B444_2C6A_6C2F),
+    f64::from_bits(0x3F90_AD3A_E322_DA11),
+];
+/// The first coefficient of the cosine polynomial (fdlibm `C1`).
+const COS_1: f64 = f64::from_bits(0x3FA5_5555_5555_554C);
+/// The second coefficient of the cosine polynomial (fdlibm `C2`).
+const COS_2: f64 = f64::from_bits(0xBF56_C16C_16C1_5177);
+/// The third coefficient of the cosine polynomial (fdlibm `C3`).
+const COS_3: f64 = f64::from_bits(0x3EFA_01A0_19CB_1590);
+/// The fourth coefficient of the cosine polynomial (fdlibm `C4`).
+const COS_4: f64 = f64::from_bits(0xBE92_7E4F_809C_52AD);
+/// The fifth coefficient of the cosine polynomial (fdlibm `C5`).
+const COS_5: f64 = f64::from_bits(0x3E21_EE9E_BDB4_B1C4);
+/// The sixth coefficient of the cosine polynomial (fdlibm `C6`).
+const COS_6: f64 = f64::from_bits(0xBDA8_FAE9_BE88_38D4);
+/// The low part of π (fdlibm `pi_lo`).
+const PI_LO: f64 = f64::from_bits(0x3CA1_A626_3314_5C07);
+/// The leading part of π/2 (fdlibm `pio2_1`).
+const PIO2_1: f64 = f64::from_bits(0x3FF9_21FB_5440_0000);
+/// The trailing part of π/2 after the leading part (fdlibm `pio2_1t`).
+const PIO2_1T: f64 = f64::from_bits(0x3DD0_B461_1A62_6331);
+/// The first coefficient of the sine polynomial (fdlibm `S1`).
+const SIN_1: f64 = f64::from_bits(0xBFC5_5555_5555_5549);
+/// The second coefficient of the sine polynomial (fdlibm `S2`).
+const SIN_2: f64 = f64::from_bits(0x3F81_1111_1110_F8A6);
+/// The third coefficient of the sine polynomial (fdlibm `S3`).
+const SIN_3: f64 = f64::from_bits(0xBF2A_01A0_19C1_61D5);
+/// The fourth coefficient of the sine polynomial (fdlibm `S4`).
+const SIN_4: f64 = f64::from_bits(0x3EC7_1DE3_57B1_FE7D);
+/// The fifth coefficient of the sine polynomial (fdlibm `S5`).
+const SIN_5: f64 = f64::from_bits(0xBE5A_E5E6_8A2B_9CEB);
+/// The sixth coefficient of the sine polynomial (fdlibm `S6`).
+const SIN_6: f64 = f64::from_bits(0x3DE5_D93A_5ACF_D57C);
+
 /// A position, offset or direction in blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Vec3 {
@@ -332,7 +391,6 @@ pub fn degrees(radians: f64) -> f64 {
 /// `__ieee754_atan2` on finite input, with only arithmetic, so every platform gives the same
 /// bits); 0 for a non-finite input.
 pub fn atan2(y: f64, x: f64) -> f64 {
-    const PI_LO: f64 = f64::from_bits(0x3CA1_A626_3314_5C07);
     if !y.is_finite() || !x.is_finite() {
         return 0.0;
     }
@@ -357,36 +415,11 @@ pub fn atan2(y: f64, x: f64) -> f64 {
 
 /// The arc tangent of `x` (fdlibm `atan` coefficients and reduction).
 fn atan(x: f64) -> f64 {
-    const HI: [f64; 4] = [
-        f64::from_bits(0x3FDD_AC67_0561_BB4F),
-        f64::from_bits(0x3FE9_21FB_5444_2D18),
-        f64::from_bits(0x3FEF_730B_D281_F69B),
-        f64::from_bits(0x3FF9_21FB_5444_2D18),
-    ];
-    const LO: [f64; 4] = [
-        f64::from_bits(0x3C7A_2B7F_222F_65E2),
-        f64::from_bits(0x3C81_A626_3314_5C07),
-        f64::from_bits(0x3C70_0788_7AF0_CBBD),
-        f64::from_bits(0x3C91_A626_3314_5C07),
-    ];
-    const T: [f64; 11] = [
-        f64::from_bits(0x3FD5_5555_5555_550D),
-        f64::from_bits(0xBFC9_9999_9998_EBC4),
-        f64::from_bits(0x3FC2_4924_9200_83FF),
-        f64::from_bits(0xBFBC_71C6_FE23_1671),
-        f64::from_bits(0x3FB7_45CD_C54C_206E),
-        f64::from_bits(0xBFB3_B0F2_AF74_9A6D),
-        f64::from_bits(0x3FB1_0D66_A0D0_3D51),
-        f64::from_bits(0xBFAD_DE2D_52DE_FD9A),
-        f64::from_bits(0x3FA9_7B4B_2476_0DEB),
-        f64::from_bits(0xBFA2_B444_2C6A_6C2F),
-        f64::from_bits(0x3F90_AD3A_E322_DA11),
-    ];
     let magnitude = x.abs();
     let negative = x.is_sign_negative();
     if magnitude >= 7.378_697_629_483_821e19 {
         // 2^66: the result is ±π/2 to the precision of a double.
-        let half_pi = HI[3] + LO[3];
+        let half_pi = ATAN_HI[3] + ATAN_LO[3];
         return if negative { -half_pi } else { half_pi };
     }
     let (id, reduced) = if magnitude < 0.4375 {
@@ -409,18 +442,24 @@ fn atan(x: f64) -> f64 {
     let square = reduced * reduced;
     let fourth = square * square;
     let s1 = square
-        * (T[0]
+        * (ATAN_T[0]
             + fourth
-                * (T[2] + fourth * (T[4] + fourth * (T[6] + fourth * (T[8] + fourth * T[10])))));
-    let s2 = fourth * (T[1] + fourth * (T[3] + fourth * (T[5] + fourth * (T[7] + fourth * T[9]))));
+                * (ATAN_T[2]
+                    + fourth
+                        * (ATAN_T[4]
+                            + fourth * (ATAN_T[6] + fourth * (ATAN_T[8] + fourth * ATAN_T[10])))));
+    let s2 = fourth
+        * (ATAN_T[1]
+            + fourth
+                * (ATAN_T[3] + fourth * (ATAN_T[5] + fourth * (ATAN_T[7] + fourth * ATAN_T[9]))));
     let Some(id) = id else {
         return reduced - reduced * (s1 + s2);
     };
     let (hi, lo) = match id {
-        0 => (HI[0], LO[0]),
-        1 => (HI[1], LO[1]),
-        2 => (HI[2], LO[2]),
-        _ => (HI[3], LO[3]),
+        0 => (ATAN_HI[0], ATAN_LO[0]),
+        1 => (ATAN_HI[1], ATAN_LO[1]),
+        2 => (ATAN_HI[2], ATAN_LO[2]),
+        _ => (ATAN_HI[3], ATAN_LO[3]),
     };
     let angle = hi - ((reduced * (s1 + s2) - lo) - reduced);
     if negative { -angle } else { angle }
@@ -433,36 +472,25 @@ fn atan(x: f64) -> f64 {
     reason = "invariant: k is magnitude rounded float; out-of-range values saturate, and only k mod 4 is used"
 )]
 fn reduce(x: f64) -> (i64, f64) {
-    const PIO2_1: f64 = f64::from_bits(0x3FF9_21FB_5440_0000);
-    const PIO2_1T: f64 = f64::from_bits(0x3DD0_B461_1A62_6331);
     let k = (x * FRAC_2_PI).round();
     (k as i64, (x - k * PIO2_1) - k * PIO2_1T)
 }
 
 /// sin on [-π/4, π/4] (fdlibm `__kernel_sin` coefficients).
 fn sin_kernel(x: f64) -> f64 {
-    const S1: f64 = f64::from_bits(0xBFC5_5555_5555_5549);
-    const S2: f64 = f64::from_bits(0x3F81_1111_1110_F8A6);
-    const S3: f64 = f64::from_bits(0xBF2A_01A0_19C1_61D5);
-    const S4: f64 = f64::from_bits(0x3EC7_1DE3_57B1_FE7D);
-    const S5: f64 = f64::from_bits(0xBE5A_E5E6_8A2B_9CEB);
-    const S6: f64 = f64::from_bits(0x3DE5_D93A_5ACF_D57C);
     let square = x * x;
-    let reduced = S2 + square * (S3 + square * (S4 + square * (S5 + square * S6)));
-    x + square * x * (S1 + square * reduced)
+    let reduced = SIN_2 + square * (SIN_3 + square * (SIN_4 + square * (SIN_5 + square * SIN_6)));
+    x + square * x * (SIN_1 + square * reduced)
 }
 
 /// cos on [-π/4, π/4] (fdlibm `__kernel_cos` coefficients).
 fn cos_kernel(x: f64) -> f64 {
-    const C1: f64 = f64::from_bits(0x3FA5_5555_5555_554C);
-    const C2: f64 = f64::from_bits(0xBF56_C16C_16C1_5177);
-    const C3: f64 = f64::from_bits(0x3EFA_01A0_19CB_1590);
-    const C4: f64 = f64::from_bits(0xBE92_7E4F_809C_52AD);
-    const C5: f64 = f64::from_bits(0x3E21_EE9E_BDB4_B1C4);
-    const C6: f64 = f64::from_bits(0xBDA8_FAE9_BE88_38D4);
     let square = x * x;
-    let reduced =
-        square * (C1 + square * (C2 + square * (C3 + square * (C4 + square * (C5 + square * C6)))));
+    let reduced = square
+        * (COS_1
+            + square
+                * (COS_2
+                    + square * (COS_3 + square * (COS_4 + square * (COS_5 + square * COS_6)))));
     let hz = 0.5 * square;
     let fourth = 1.0 - hz;
     fourth + (((1.0 - fourth) - hz) + square * reduced)

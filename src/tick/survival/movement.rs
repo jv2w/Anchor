@@ -355,7 +355,7 @@ fn toggle(state: &mut State, session: SessionId, toggle: Toggle) -> bool {
         state.players.get(&session).is_some_and(|p| {
             p.phase == Phase::Spawned
                 && !p.survival.is_dead()
-                && (toggle != Toggle::Fly(true) || p.survival.may_fly())
+                && (toggle != Toggle::Fly(true) || p.survival.can_fly())
         })
     };
     if !may(state) {
@@ -702,7 +702,7 @@ fn frost_walker(state: &mut State, session: SessionId) {
 /// a move of millions of blocks, the box would make one input test millions of blocks.
 /// A player without block collision never stands.
 fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
-    if !player.survival.collides() {
+    if !player.survival.has_block_collision() {
         return false;
     }
     let Some(world) = state.worlds.get(player.world) else {
@@ -715,14 +715,14 @@ fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
         Vec3::new(f.x + half, f.y + 0.2, f.z + half),
     );
     if delta.length_squared() > MAX_MOVE_SQUARED {
-        return collides(world, bb);
+        return has_collision(world, bb);
     }
-    collides(world, bb.stretch(-delta))
+    has_collision(world, bb.stretch(-delta))
 }
 
 /// Whether any loaded block's collision box overlaps `bb` (PMMP `World::getCollisionBlocks`);
 /// inert blocks have theirs.
-fn collides(world: &World, bb: Aabb) -> bool {
+fn has_collision(world: &World, bb: Aabb) -> bool {
     let lo = BlockPos::containing(bb.min - Vec3::new(1.0, 1.0, 1.0));
     let hi = BlockPos::containing(bb.max + Vec3::new(1.0, 1.0, 1.0));
     for x in lo.x..=hi.x {
@@ -755,7 +755,7 @@ fn fall_state(state: &mut State, session: SessionId, dy: f64, on_ground: bool) {
         return;
     };
     let s = &mut player.survival;
-    if !s.collides() {
+    if !s.has_block_collision() {
         s.fall_distance = 0.0;
         return;
     }

@@ -25,11 +25,11 @@ const CLUSTER_FULL: i32 = 3;
 const FULL_LIGHT: u8 = 15;
 /// The most blocks one placement sets: two for doors, beds and tall plants.
 const MAX_BLOCKS: usize = 2;
-/// The `growth` of four pink petals.
-const PETALS_FULL: i32 = 3;
 /// The brightest light a red mushroom may be placed in on ground that is not mycelium, podzol or
 /// nylium (PMMP `RedMushroom::canBeSupportedAt`).
-const RED_MUSHROOM_MAX_LIGHT: u8 = 12;
+const MAX_RED_MUSHROOM_LIGHT: u8 = 12;
+/// The `growth` of four pink petals.
+const PETALS_FULL: i32 = 3;
 /// The `height` of a full block of eight snow layers.
 const SNOW_FULL: i32 = 7;
 
@@ -573,7 +573,7 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     .world
                     .full_light(attempt.replace)
                     .unwrap_or(FULL_LIGHT);
-                if !((light <= RED_MUSHROOM_MAX_LIGHT && !below.is_transparent())
+                if !((light <= MAX_RED_MUSHROOM_LIGHT && !below.is_transparent())
                     || matches!(below.kind(), Kind::Mycelium | Kind::Podzol)
                     || below.has_type_tag(TypeTag::Nylium))
                 {
@@ -868,10 +868,10 @@ fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
 /// the neighbour updates read it), neither of which a placement replaces.
 pub(crate) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
     match pos.and_then(|p| world.entry(p)) {
-        None => block::AIR,
         Some(Entry::Known(s)) => s,
         Some(Entry::Inert(s, _)) => s.stand_in(),
         Some(Entry::Unknown(_)) => block::BEDROCK,
+        None => block::AIR,
     }
 }
 

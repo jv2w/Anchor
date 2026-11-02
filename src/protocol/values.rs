@@ -223,6 +223,7 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz_round_trip;
 
     fn encode<T: Codec>(x: &T) -> Vec<u8> {

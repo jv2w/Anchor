@@ -20,8 +20,6 @@ use super::body::{int_lit, str_lit};
 use super::info::{Break, Identity, ItemData, Physics, Tables, exact, support_codes};
 use super::upgrade::{ADDING, block_schema};
 
-type R<T> = Result<T, String>;
-
 /// The drops of a state whose drops depend on its block entity (see [`SHARED`]).
 pub(crate) const BLOCK_ENTITY_DROPS: &str = "block_entity";
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
@@ -64,6 +62,8 @@ pub(crate) const SHARED: [(&str, &str, &str); 4] = [
         "the colour and ominous type (banner block entity `Base` and `Type`)",
     ),
 ];
+
+type R<T> = Result<T, String>;
 
 /// Where a state's item form comes from, before item types are known.
 #[derive(Debug, Clone, PartialEq)]
@@ -381,6 +381,13 @@ impl Values {
         )
     }
 }
+
+/// The PMMP states by their 1.26.30 Bedrock form, merged, and the default state and identity of
+/// each PMMP block type by name.
+type PmmpStates = (
+    BTreeMap<StateKey, (Values, i32)>,
+    BTreeMap<String, (StateKey, Identity)>,
+);
 
 /// The reference block list: network ID by state, and the states of each name.
 type Reference = (BTreeMap<StateKey, u32>, BTreeMap<String, Vec<StateKey>>);
@@ -860,13 +867,6 @@ fn aliases(
     }
     Ok(aliases)
 }
-
-/// The PMMP states by their 1.26.30 Bedrock form, merged, and the default state and identity of
-/// each PMMP block type by name.
-type PmmpStates = (
-    BTreeMap<StateKey, (Values, i32)>,
-    BTreeMap<String, (StateKey, Identity)>,
-);
 
 /// Reads the PMMP states by their 1.26.30 Bedrock form and merges overlapping ones (see
 /// [`merge`]); also the default state and identity of each PMMP block type, which all its

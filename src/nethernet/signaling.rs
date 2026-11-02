@@ -101,9 +101,6 @@ pub(crate) enum Error {
     Tls(rustls::Error),
 }
 
-/// A signaling result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -133,6 +130,9 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Socket settings for `spawn`.
 #[derive(Debug, Clone)]
@@ -238,7 +238,7 @@ impl Handle {
 
 /// What every connection task reads.
 #[derive(Debug)]
-struct Context {
+struct Shared {
     tls: Option<Arc<rustls::ServerConfig>>,
     status: watch::Receiver<Arc<[u8]>>,
     offers: mpsc::Sender<Offer>,
@@ -680,7 +680,7 @@ pub(crate) fn spawn(
     if local_addrs.is_empty() {
         return Err(Error::NoAddress);
     }
-    let context = Context {
+    let shared = Shared {
         tls: settings.tls,
         status,
         offers,
@@ -688,7 +688,7 @@ pub(crate) fn spawn(
     };
     let listeners = [v4, v6].map(|bound| bound.map(|(listener, _)| listener));
     let (stop, stopped) = oneshot::channel();
-    let task = runtime.spawn(serve(listeners, Arc::new(context), stopped));
+    let task = runtime.spawn(serve(listeners, Arc::new(shared), stopped));
     Ok(Handle {
         local_addrs,
         stop,
@@ -725,7 +725,7 @@ fn open(addr: SocketAddr) -> io::Result<TcpListener> {
 /// The accept task: owns the listeners, the limits and every connection task.
 async fn serve(
     listeners: [Option<TcpListener>; 2],
-    context: Arc<Context>,
+    shared: Arc<Shared>,
     mut stopped: oneshot::Receiver<()>,
 ) {
     let [v4, v6] = listeners;
@@ -761,14 +761,14 @@ async fn serve(
             Ok((stream, peer)) => {
                 let group = ip_key(peer.ip());
                 if !limits.try_add(group) {
-                    debug!(%peer, "signaling connection over the limit");
+                    debug!(addr = %peer, "signaling connection over the limit");
                     // A TLS client cannot read a plain response, so it only sees the close.
-                    if context.tls.is_none() {
-                        refuse(&stream, &context.unavailable, peer);
+                    if shared.tls.is_none() {
+                        refuse(&stream, &shared.unavailable, peer);
                     }
                     continue;
                 }
-                let task = tasks.spawn(connection(stream, peer, Arc::clone(&context)));
+                let task = tasks.spawn(connection(stream, peer, Arc::clone(&shared)));
                 groups.insert(task.id(), group);
             }
             Err(error) => match error.kind() {
@@ -813,7 +813,7 @@ fn refuse(stream: &TcpStream, response: &[u8], peer: SocketAddr) {
     // has not polled yet. The empty send buffer takes the whole response.
     if let Err(error) = socket2::SockRef::from(stream).send(response) {
         trace!(
-            %peer,
+            addr = %peer,
             error = &error as &(dyn std::error::Error + 'static),
             "signaling 503 not sent"
         );
@@ -821,29 +821,29 @@ fn refuse(stream: &TcpStream, response: &[u8], peer: SocketAddr) {
 }
 
 /// One connection: one request, one response, then close.
-async fn connection(stream: TcpStream, peer: SocketAddr, context: Arc<Context>) {
+async fn connection(stream: TcpStream, peer: SocketAddr, shared: Arc<Shared>) {
     let peer = canonical(peer);
-    debug!(%peer, "signaling connection opened");
-    match tokio::time::timeout(REQUEST_DEADLINE, exchange(stream, peer, &context)).await {
-        Ok(Ok(())) => debug!(%peer, "signaling connection closed"),
+    debug!(addr = %peer, "signaling connection opened");
+    match tokio::time::timeout(REQUEST_DEADLINE, exchange(stream, peer, &shared)).await {
+        Ok(Ok(())) => debug!(addr = %peer, "signaling connection closed"),
         Ok(Err(error)) => debug!(
-            %peer,
+            addr = %peer,
             error = &error as &(dyn std::error::Error + 'static),
             "signaling connection failed"
         ),
-        Err(_) => debug!(%peer, "signaling request timed out"),
+        Err(_) => debug!(addr = %peer, "signaling request timed out"),
     }
 }
 
 /// Serves the request on `stream`, through TLS when configured.
-async fn exchange(stream: TcpStream, peer: SocketAddr, context: &Context) -> io::Result<()> {
+async fn exchange(stream: TcpStream, peer: SocketAddr, shared: &Shared) -> io::Result<()> {
     let local = canonical(stream.local_addr()?);
-    match &context.tls {
+    match &shared.tls {
         Some(config) => {
             let stream = TlsAcceptor::from(Arc::clone(config)).accept(stream).await?;
-            respond(stream, peer, local, context).await
+            respond(stream, peer, local, shared).await
         }
-        None => respond(stream, peer, local, context).await,
+        None => respond(stream, peer, local, shared).await,
     }
 }
 
@@ -852,19 +852,19 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
     mut stream: S,
     peer: SocketAddr,
     local: SocketAddr,
-    context: &Context,
+    shared: &Shared,
 ) -> io::Result<()> {
     let mut parser = Parser::default();
     let mut buf = [0; READ_CHUNK_BYTES];
-    let mut first = context.tls.is_none();
+    let mut first = shared.tls.is_none();
     let parsed = loop {
         let read = stream.read(&mut buf).await?;
         let Some(data) = buf.get(..read).filter(|data| !data.is_empty()) else {
-            trace!(%peer, "signaling client closed before a whole request");
+            trace!(addr = %peer, "signaling client closed before a whole request");
             return Ok(());
         };
         if first && data.first() == Some(&TLS_HANDSHAKE) {
-            trace!(%peer, "signaling refused a tls handshake on plain http");
+            trace!(addr = %peer, "signaling refused a tls handshake on plain http");
             stream.write_all(&HANDSHAKE_FAILURE).await?;
             return stream.shutdown().await;
         }
@@ -876,9 +876,9 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
         }
     };
     let response = match parsed {
-        Ok(request) => answer(request, peer, local, context).await,
+        Ok(request) => answer(request, peer, local, shared).await,
         Err(status) => {
-            trace!(%peer, code = status.code(), "signaling request refused");
+            trace!(addr = %peer, code = status.code(), "signaling request refused");
             encode_status(status)
         }
     };
@@ -887,20 +887,15 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 /// Answers a parsed request: the status, or the offer's reply.
-async fn answer(
-    request: Request,
-    peer: SocketAddr,
-    local: SocketAddr,
-    context: &Context,
-) -> Vec<u8> {
+async fn answer(request: Request, peer: SocketAddr, local: SocketAddr, shared: &Shared) -> Vec<u8> {
     match route(request.method, &request.path) {
         Route::Status => {
-            trace!(%peer, "signaling status request");
-            let status = Arc::clone(&context.status.borrow());
+            trace!(addr = %peer, "signaling status request");
+            let status = Arc::clone(&shared.status.borrow());
             encode(Status::Ok, Kind::Json, &status)
         }
         Route::Offer(network_id) => {
-            trace!(%peer, network_id, "signaling offer");
+            trace!(addr = %peer, network_id, "signaling offer");
             let Ok(sdp) = String::from_utf8(request.body) else {
                 return encode_code(Code::BadOffer);
             };
@@ -915,7 +910,7 @@ async fn answer(
                 local,
                 reply,
             };
-            match context.offers.try_send(offer) {
+            match shared.offers.try_send(offer) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) => return encode_status(Status::Unavailable),
                 Err(TrySendError::Closed(_)) => return encode_code(Code::Internal),
@@ -928,7 +923,7 @@ async fn answer(
             }
         }
         Route::Reject(status) => {
-            trace!(%peer, code = status.code(), "signaling request refused");
+            trace!(addr = %peer, code = status.code(), "signaling request refused");
             encode_status(status)
         }
     }

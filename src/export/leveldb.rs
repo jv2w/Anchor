@@ -17,7 +17,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use super::{Error, write_new, written};
+use super::{Result, write_new, written};
 use crate::import::leveldb::log::{
     BLOCK, HEADER, RECORD_FIRST, RECORD_FULL, RECORD_LAST, RECORD_MIDDLE,
 };
@@ -148,7 +148,7 @@ impl Writer {
     }
 
     /// Adds `block`, whose keys come after those of every block added before.
-    pub(super) fn add(&mut self, block: Block) -> Result<(), Error> {
+    pub(super) fn add(&mut self, block: Block) -> Result<()> {
         let mut handle = Vec::new();
         put_varint(&mut handle, self.table.len() as u64);
         // The handle's size leaves out the trailer.
@@ -166,7 +166,7 @@ impl Writer {
     }
 
     /// Ends the database: the last table, the `MANIFEST` and `CURRENT`.
-    pub(super) fn finish(mut self) -> Result<(), Error> {
+    pub(super) fn finish(mut self) -> Result<()> {
         self.finish_table()?;
         let manifest = self.tables.len() as u64 + 1;
         let mut edit = vec![EDIT_COMPARATOR];
@@ -192,7 +192,7 @@ impl Writer {
 
     /// Ends the table being written, if it has blocks: an empty metaindex block, the index block
     /// and the footer, written to its file.
-    fn finish_table(&mut self) -> Result<(), Error> {
+    fn finish_table(&mut self) -> Result<()> {
         let Some(smallest) = self.smallest.take() else {
             return Ok(());
         };
@@ -347,10 +347,11 @@ fn log_record(record: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::collections::BTreeMap;
     use std::ops::ControlFlow;
 
-    use super::*;
     use crate::import::leveldb::log::records;
     use crate::import::leveldb::{Db, Files};
     use crate::protocol::Rng;

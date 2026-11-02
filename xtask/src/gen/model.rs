@@ -62,39 +62,39 @@ const HAND_TYPES: &[(&str, &str, bool)] = &[
 /// `src/protocol/` and `src/nbt.rs` name them; the writer signatures decide `pass` and
 /// `write_fails`).
 const IO_METHODS: &[(&str, IoSpec)] = &[
-    ("AbilityValue", io("ability_value", Pass::Value, false)),
-    ("ActorRuntimeID", io("actor_runtime_id", Pass::Value, false)),
+    ("AbilityValue", io("ability_value", Pass::Value)),
+    ("ActorRuntimeID", io("actor_runtime_id", Pass::Value)),
     (
         "ActorRuntimeIDVarint64",
-        io("actor_runtime_id_varint64", Pass::Value, false),
+        io("actor_runtime_id_varint64", Pass::Value),
     ),
     (
         "ActorRuntimeIDVaruint32",
-        io("actor_runtime_id_varuint32", Pass::Value, false),
+        io("actor_runtime_id_varuint32", Pass::Value),
     ),
-    ("ActorUniqueID", io("actor_unique_id", Pass::Value, false)),
+    ("ActorUniqueID", io("actor_unique_id", Pass::Value)),
     (
         "ActorUniqueIDInt64",
-        io("actor_unique_id_int64", Pass::Value, false),
+        io("actor_unique_id_int64", Pass::Value),
     ),
     (
         "ActorUniqueIDUint64",
-        io("actor_unique_id_uint64", Pass::Value, false),
+        io("actor_unique_id_uint64", Pass::Value),
     ),
     (
         "ActorUniqueIDVaruint64",
-        io("actor_unique_id_varuint64", Pass::Value, false),
+        io("actor_unique_id_varuint64", Pass::Value),
     ),
-    ("BEARGB", io("be_argb", Pass::Value, false)),
-    ("BEInt32", io("be_int32", Pass::Value, false)),
-    ("Bitset", io("bitset", Pass::Ref, true)),
-    ("BlockPos", io("block_pos", Pass::Value, false)),
-    ("Bool", io("bool", Pass::Value, false)),
-    ("ByteFloat", io("byte_float", Pass::Value, false)),
-    ("ByteSlice", io("byte_slice", Pass::Ref, true)),
-    ("Bytes", io("bytes", Pass::Ref, false)),
-    ("ChunkPos", io("chunk_pos", Pass::Value, false)),
-    ("EntityMetadata", io("entity_metadata", Pass::Ref, true)),
+    ("BEARGB", io("be_argb", Pass::Value)),
+    ("BEInt32", io("be_int32", Pass::Value)),
+    ("Bitset", io_fallible("bitset", Pass::Ref)),
+    ("BlockPos", io("block_pos", Pass::Value)),
+    ("Bool", io("bool", Pass::Value)),
+    ("ByteFloat", io("byte_float", Pass::Value)),
+    ("ByteSlice", io_fallible("byte_slice", Pass::Ref)),
+    ("Bytes", io("bytes", Pass::Ref)),
+    ("ChunkPos", io("chunk_pos", Pass::Value)),
+    ("EntityMetadata", io_fallible("entity_metadata", Pass::Ref)),
     (
         "EventOrdinal",
         IoSpec {
@@ -104,57 +104,60 @@ const IO_METHODS: &[(&str, IoSpec)] = &[
             read: Read::Checks,
         },
     ),
-    ("EventType", io("event_type", Pass::Ref, false)),
-    ("Float32", io("float32", Pass::Value, false)),
-    ("Float64", io("float64", Pass::Value, false)),
-    ("GameRule", io("game_rule", Pass::Ref, true)),
-    ("Int16", io("int16", Pass::Value, false)),
-    ("Int32", io("int32", Pass::Value, false)),
-    ("Int64", io("int64", Pass::Value, false)),
-    ("Int8", io("int8", Pass::Value, false)),
-    ("Item", io("item", Pass::Ref, true)),
+    ("EventType", io("event_type", Pass::Ref)),
+    ("Float32", io("float32", Pass::Value)),
+    ("Float64", io("float64", Pass::Value)),
+    ("GameRule", io_fallible("game_rule", Pass::Ref)),
+    ("Int16", io("int16", Pass::Value)),
+    ("Int32", io("int32", Pass::Value)),
+    ("Int64", io("int64", Pass::Value)),
+    ("Int8", io("int8", Pass::Value)),
+    ("Item", io_fallible("item", Pass::Ref)),
     (
         "ItemDescriptorCount",
-        io("item_descriptor_count", Pass::Ref, true),
+        io_fallible("item_descriptor_count", Pass::Ref),
     ),
-    ("ItemInstance", io("item_instance", Pass::Ref, true)),
-    ("MaterialReducer", io("material_reducer", Pass::Ref, true)),
-    ("NBT", io("nbt", Pass::Ref, true)),
-    ("PackSetting", io("pack_setting", Pass::Ref, true)),
+    ("ItemInstance", io_fallible("item_instance", Pass::Ref)),
+    (
+        "MaterialReducer",
+        io_fallible("material_reducer", Pass::Ref),
+    ),
+    ("NBT", io_fallible("nbt", Pass::Ref)),
+    ("PackSetting", io_fallible("pack_setting", Pass::Ref)),
     (
         "PlayerInventoryAction",
-        io("player_inventory_action", Pass::Ref, true),
+        io_fallible("player_inventory_action", Pass::Ref),
     ),
-    ("RGB", io("rgb", Pass::Value, false)),
-    ("RGBA", io("rgba", Pass::Value, false)),
-    ("ShapeData", io("shape_data", Pass::Ref, true)),
-    ("SoundPos", io("sound_pos", Pass::Value, false)),
+    ("RGB", io("rgb", Pass::Value)),
+    ("RGBA", io("rgba", Pass::Value)),
+    ("ShapeData", io_fallible("shape_data", Pass::Ref)),
+    ("SoundPos", io("sound_pos", Pass::Value)),
     (
         "StackRequestAction",
-        io("stack_request_action", Pass::Ref, true),
+        io_fallible("stack_request_action", Pass::Ref),
     ),
     (
         "StackRequestItem",
-        io("stack_request_item", Pass::Ref, true),
+        io_fallible("stack_request_item", Pass::Ref),
     ),
-    ("String", io("string", Pass::Ref, true)),
-    ("StringUTF", io("string_utf", Pass::Ref, true)),
-    ("SubChunkPos", io("sub_chunk_pos", Pass::Value, false)),
+    ("String", io_fallible("string", Pass::Ref)),
+    ("StringUTF", io_fallible("string_utf", Pass::Ref)),
+    ("SubChunkPos", io("sub_chunk_pos", Pass::Value)),
     (
         "TransactionDataType",
-        io("transaction_data_type", Pass::Ref, false),
+        io("transaction_data_type", Pass::Ref),
     ),
-    ("UUID", io("uuid", Pass::Value, false)),
-    ("Uint16", io("uint16", Pass::Value, false)),
-    ("Uint32", io("uint32", Pass::Value, false)),
-    ("Uint64", io("uint64", Pass::Value, false)),
-    ("Uint8", io("uint8", Pass::Value, false)),
-    ("Varint32", io("varint32", Pass::Value, false)),
-    ("Varint64", io("varint64", Pass::Value, false)),
-    ("Varuint32", io("varuint32", Pass::Value, false)),
-    ("Varuint64", io("varuint64", Pass::Value, false)),
-    ("Vec2", io("vec2", Pass::Value, false)),
-    ("Vec3", io("vec3", Pass::Value, false)),
+    ("UUID", io("uuid", Pass::Value)),
+    ("Uint16", io("uint16", Pass::Value)),
+    ("Uint32", io("uint32", Pass::Value)),
+    ("Uint64", io("uint64", Pass::Value)),
+    ("Uint8", io("uint8", Pass::Value)),
+    ("Varint32", io("varint32", Pass::Value)),
+    ("Varint64", io("varint64", Pass::Value)),
+    ("Varuint32", io("varuint32", Pass::Value)),
+    ("Varuint64", io("varuint64", Pass::Value)),
+    ("Vec2", io("vec2", Pass::Value)),
+    ("Vec3", io("vec3", Pass::Value)),
 ];
 
 /// IO methods that are not statements: they appear as expressions and `error` statements.
@@ -202,9 +205,9 @@ pub(crate) struct IoSpec {
 /// The Rust module a generated item lives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Module {
-    /// `src/protocol/types.rs`
+    /// `src/protocol/types.rs`.
     Types,
-    /// `src/protocol/packet.rs`
+    /// `src/protocol/packet.rs`.
     Packet,
 }
 
@@ -655,13 +658,23 @@ pub(crate) fn hand_type(go: &str) -> Option<(&'static str, bool)> {
         .map(|(_, r, c)| (*r, *c))
 }
 
-/// The IO method with the writer taking its value by `pass` and failing when `write_fails`;
-/// its reader returns the value.
-const fn io(rust: &'static str, pass: Pass, write_fails: bool) -> IoSpec {
+/// The IO method with the writer taking its value by `pass` and not failing; its reader returns
+/// the value.
+const fn io(rust: &'static str, pass: Pass) -> IoSpec {
     IoSpec {
         rust,
         pass,
-        write_fails,
+        write_fails: false,
+        read: Read::Returns,
+    }
+}
+
+/// [`io`] with a writer that fails.
+const fn io_fallible(rust: &'static str, pass: Pass) -> IoSpec {
+    IoSpec {
+        rust,
+        pass,
+        write_fails: true,
         read: Read::Returns,
     }
 }

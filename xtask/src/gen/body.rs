@@ -39,9 +39,9 @@ struct E {
 }
 
 impl E {
-    fn new(code: impl Into<String>) -> Self {
+    fn new(code: String) -> Self {
         Self {
-            code: code.into(),
+            code,
             ..Self::default()
         }
     }
@@ -87,6 +87,15 @@ struct Val {
     /// The Rust primitive of a number or bool, `usize` for Go `int` values from lengths and
     /// indices, `None` for untyped constants and other types.
     prim: Option<&'static str>,
+}
+
+/// Whether a local holds its values or references to them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Holding {
+    /// The local owns its values.
+    Owned,
+    /// The local holds references (an encoder's `Option<&T>`).
+    Borrowed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,6 +187,24 @@ enum PrintMode {
     Block,
     /// A loop body: every `Return` returns from the function.
     Loop,
+}
+
+/// What an expression is to its parent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// The index of an index expression.
+    Index,
+    /// Anything else.
+    Other,
+}
+
+/// Whether printed statements end the body they are in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    /// The last of them is the last statement of the body.
+    EndsBody,
+    /// More statements follow them.
+    Inside,
 }
 
 /// What a function looks like to its callers in one direction.
@@ -334,19 +361,44 @@ impl<'m, 'a> Lower<'m, 'a> {
             .ok_or_else(|| format!("unknown variable {go}"))
     }
 
-    /// Declares a tracked local bound to a Go name; `borrowed` locals hold references.
-    fn declare(
+    /// How a local holds its values in this direction: encoders borrow, decoders own.
+    fn direction_holding(&self) -> Holding {
+        match self.dir {
+            Dir::Decode => Holding::Owned,
+            Dir::Encode => Holding::Borrowed,
+        }
+    }
+
+    /// Declares a tracked local bound to a Go name, with its type written out unless it is a
+    /// tuple; `Borrowed` locals hold references.
+    fn declare(&mut self, go: &str, t: &Type, holding: Holding) -> Result<usize, String> {
+        let ty = match (t.kind.as_str(), holding) {
+            ("tuple", _) => None,
+            (_, Holding::Borrowed) => Some(self.borrowed_type(t)?),
+            (_, Holding::Owned) => Some(self.rust_type(t)?),
+        };
+        self.declare_typed(go, t, ty, holding)
+    }
+
+    /// [`Self::declare`] with the type left to inference.
+    fn declare_unannotated(
         &mut self,
         go: &str,
         t: &Type,
-        annotate: bool,
-        borrowed: bool,
+        holding: Holding,
     ) -> Result<usize, String> {
-        let ty = match (annotate, t.kind.as_str()) {
-            (false, _) | (_, "tuple") => None,
-            _ if borrowed => Some(self.borrowed_type(t)?),
-            _ => Some(self.rust_type(t)?),
-        };
+        self.declare_typed(go, t, None, holding)
+    }
+
+    /// Declares a tracked local whose written type is `ty`.
+    fn declare_typed(
+        &mut self,
+        go: &str,
+        t: &Type,
+        ty: Option<String>,
+        holding: Holding,
+    ) -> Result<usize, String> {
+        let borrowed = holding == Holding::Borrowed;
         let reference = borrowed && self.borrowed_type(t)?.starts_with('&');
         let id = self.new_var(go, ty)?;
         let kind = if reference { BKind::Ref } else { BKind::Owned };
@@ -605,15 +657,15 @@ impl<'m, 'a> Lower<'m, 'a> {
             "call" => self.call_stmt(s, out),
             "var" => {
                 let t = s.var_type.as_ref().ok_or("var without type")?;
-                let borrowed = self.dir == Dir::Encode;
+                let holding = self.direction_holding();
                 let init = match &s.value {
                     Some(v) => {
                         let v = self.expr(v)?;
-                        self.local_value(v, borrowed)?
+                        self.local_value(v, holding)?
                     }
                     None => self.zero(t)?,
                 };
-                let id = self.declare(&s.name, t, true, borrowed)?;
+                let id = self.declare(&s.name, t, holding)?;
                 out.push(S::Let {
                     vars: vec![Some(id)],
                     init: Some(init),
@@ -1119,7 +1171,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                             .with_code(format!("{recv}.len() != {}{over}", len.code));
                         out.push(S::If {
                             cond: Cond::Plain { e: cond, neg: None },
-                            then: vec![S::Fail(E::new("Error::Size"))],
+                            then: vec![S::Fail(E::new("Error::Size".to_owned()))],
                             els: Vec::new(),
                         });
                     }
@@ -1472,18 +1524,23 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let val = self.expr(rhs_expr)?;
                 let ty = rhs_expr.ty.clone().ok_or("untyped assignment")?;
                 // Encoders borrow; decoders own, except arrays of string constants.
-                let borrowed = match self.dir {
+                let borrows = match self.dir {
                     Dir::Encode => !(val.form == Form::Owned && is_string(&ty)),
                     Dir::Decode => rhs_expr.kind == "composite" && ty.kind == "array",
                 };
-                let mut init = self.local_value(val, borrowed)?;
-                if borrowed && is_string(&ty) {
+                let holding = if borrows {
+                    Holding::Borrowed
+                } else {
+                    Holding::Owned
+                };
+                let mut init = self.local_value(val, holding)?;
+                if borrows && is_string(&ty) {
                     // `let x: &str = *y` derefs automatically (clippy::explicit_auto_deref).
-                    if let Some(inner) = init.code.strip_prefix('*') {
-                        init.code = String::from(inner);
+                    if init.code.starts_with('*') {
+                        init.code.remove(0);
                     }
                 }
-                let id = self.declare(&lhs_expr.name, &ty, true, borrowed)?;
+                let id = self.declare(&lhs_expr.name, &ty, holding)?;
                 out.push(S::Let {
                     vars: vec![Some(id)],
                     init: Some(init),
@@ -1499,10 +1556,15 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let local = lhs_expr.kind == "var"
                     && self.lookup(&lhs_expr.name).is_ok_and(|b| b.var.is_some());
                 let rhs = if local {
-                    let borrowed = self
+                    let holding = if self
                         .lookup(&lhs_expr.name)
-                        .is_ok_and(|b| b.kind == BKind::Ref);
-                    self.local_value(val, borrowed)?
+                        .is_ok_and(|b| b.kind == BKind::Ref)
+                    {
+                        Holding::Borrowed
+                    } else {
+                        Holding::Owned
+                    };
+                    self.local_value(val, holding)?
                 } else {
                     match self.dir {
                         Dir::Decode => Self::owned_value(val),
@@ -1541,8 +1603,12 @@ impl<'m, 'a> Lower<'m, 'a> {
                     if lhs_expr.kind == "blank" {
                         ids.push(None);
                     } else {
-                        let borrowed = self.dir == Dir::Encode;
-                        ids.push(Some(self.declare(&lhs_expr.name, ty, false, borrowed)?));
+                        let holding = self.direction_holding();
+                        ids.push(Some(self.declare_unannotated(
+                            &lhs_expr.name,
+                            ty,
+                            holding,
+                        )?));
                     }
                 }
                 out.push(S::Let {
@@ -2096,7 +2162,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             "const" | "lit" => Self::constant(e, ty),
             // An untyped nil only appears in comparisons (handled there) and returns of errors.
             "nil" => Ok(Val {
-                e: E::new("None"),
+                e: E::new("None".to_owned()),
                 ty,
                 form: Form::Copy,
                 prim: None,
@@ -2409,7 +2475,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let name = self.fn_path(func, "")?;
                 let mut x = x.with_code(format!("{name}({}){q}", codes.join(", ")));
                 x.effects |= fails;
-                Ok(self.call_val(x, ty, false))
+                Ok(self.call_val(x, ty, Form::Ref))
             }
             ("function", func) => {
                 let f = *self
@@ -2446,20 +2512,24 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let name = self.fn_path(func, "")?;
                 let mut x = x.with_code(format!("{name}({}){q}", codes.join(", ")));
                 x.effects |= sum.fallible;
-                Ok(self.call_val(x, ty, sum.result == "String"))
+                let string_form = if sum.result == "String" {
+                    Form::Owned
+                } else {
+                    Form::Ref
+                };
+                Ok(self.call_val(x, ty, string_form))
             }
             (target, func) => Err(format!("unsupported call {target} {func}")),
         }
     }
 
     /// The value of a call result.
-    fn call_val(&self, x: E, ty: Type, owned_string: bool) -> Val {
+    fn call_val(&self, x: E, ty: Type, string_form: Form) -> Val {
         if is_string(&ty) {
-            let form = if owned_string { Form::Owned } else { Form::Ref };
             Val {
                 e: x,
                 ty,
-                form,
+                form: string_form,
                 prim: None,
             }
         } else if ty.kind == "error" || ty.kind == "tuple" {
@@ -2477,7 +2547,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     fn composite(&mut self, e: &Expr, ty: Type) -> Result<Val, String> {
         match ty.kind.as_str() {
             "optional" if e.fields.is_empty() && e.elems.is_empty() => Ok(Val {
-                e: E::new("None"),
+                e: E::new("None".to_owned()),
                 ty,
                 form: Form::Owned,
                 prim: None,
@@ -2604,8 +2674,8 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// The initial or assigned value of a local.
-    fn local_value(&mut self, v: Val, borrowed: bool) -> Result<E, String> {
-        if !borrowed {
+    fn local_value(&mut self, v: Val, holding: Holding) -> Result<E, String> {
+        if holding == Holding::Owned {
             return Ok(Self::owned_value(v));
         }
         if v.form == Form::Owned && !self.m.is_copy(&v.ty) {
@@ -2725,22 +2795,27 @@ impl<'m, 'a> Lower<'m, 'a> {
         assigned(stmts, &mut state, &mut muts);
         collect_muts(stmts, &mut muts);
         let mut out = String::new();
-        self.print(stmts, &muts, &mut out, mode, true);
+        self.print(stmts, &muts, &mut out, mode, Ending::EndsBody);
         (out, muts)
     }
 
-    /// Prints statements; `last` tells whether they end the body.
+    /// Prints statements; `ending` tells whether they end the body.
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: one match arm per statement kind"
     )]
-    fn print(&self, stmts: &[S], muts: &Vars, out: &mut String, mode: PrintMode, last: bool) {
+    fn print(&self, stmts: &[S], muts: &Vars, out: &mut String, mode: PrintMode, ending: Ending) {
         // Late-initialized locals merged into their first assignment
         // (clippy::needless_late_init): statement index to the `let` replacing it.
         let mut merged: BTreeMap<usize, String> = BTreeMap::new();
         let mut i = 0;
         while let Some(s) = stmts.get(i) {
-            let is_last = last && i + 1 == stmts.len();
+            let is_last = ending == Ending::EndsBody && i + 1 == stmts.len();
+            let statement_ending = if is_last {
+                Ending::EndsBody
+            } else {
+                Ending::Inside
+            };
             if let Some(text) = merged.remove(&i) {
                 out.push_str(&text);
                 i += 1;
@@ -2762,7 +2837,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                         // A literal returned right away is the tail.
                         let rest = stmts.get(i + 1..).unwrap_or_default();
                         if default_of.is_some()
-                            && last
+                            && ending == Ending::EndsBody
                             && matches!(rest, [S::Return(Some(e))] if e.code == self.name(*id))
                         {
                             put!(out, "{}", self.tail(&init.code, mode));
@@ -2824,11 +2899,11 @@ impl<'m, 'a> Lower<'m, 'a> {
                     }
                 }
                 S::If { cond, then, els } => {
-                    self.print_if(cond, then, els, muts, out, mode, is_last);
+                    self.print_if(cond, then, els, muts, out, mode, statement_ending);
                     out.push('\n');
                 }
                 S::Match { scrut, arms } => {
-                    self.print_match(scrut, arms, muts, out, mode, is_last);
+                    self.print_match(scrut, arms, muts, out, mode, statement_ending);
                     out.push('\n');
                 }
                 S::Return(e) => {
@@ -2911,7 +2986,13 @@ impl<'m, 'a> Lower<'m, 'a> {
             return Some(rhs.code.clone());
         }
         let mut out = String::new();
-        self.print(init, &Vars::new(), &mut out, PrintMode::Loop, false);
+        self.print(
+            init,
+            &Vars::new(),
+            &mut out,
+            PrintMode::Loop,
+            Ending::Inside,
+        );
         Some(format!("{{ {out} {} }}", rhs.code))
     }
 
@@ -2927,7 +3008,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         muts: &Vars,
         out: &mut String,
         mode: PrintMode,
-        last: bool,
+        ending: Ending,
     ) {
         let (cond_code, then, els) = match cond {
             Cond::Plain { e, neg } => {
@@ -2978,23 +3059,23 @@ impl<'m, 'a> Lower<'m, 'a> {
                 paren_or(&cond_code),
                 paren_or(&e.code)
             );
-            self.print(inner, muts, out, mode, last);
+            self.print(inner, muts, out, mode, ending);
             out.push('}');
             return;
         }
         put!(out, "if {cond_code} {{ ");
-        self.print(then, muts, out, mode, last);
+        self.print(then, muts, out, mode, ending);
         out.push('}');
         if els.is_empty() {
             return;
         }
         out.push_str(" else ");
         if let [S::If { cond, then, els }] = els {
-            self.print_if(cond, then, els, muts, out, mode, last);
+            self.print_if(cond, then, els, muts, out, mode, ending);
             return;
         }
         out.push_str("{ ");
-        self.print(els, muts, out, mode, last);
+        self.print(els, muts, out, mode, ending);
         out.push('}');
     }
 
@@ -3005,7 +3086,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         muts: &Vars,
         out: &mut String,
         mode: PrintMode,
-        last: bool,
+        ending: Ending,
     ) {
         // Arms with the same body merge (clippy::match_same_arms); without a default, empty
         // arms are the implicit `_ => {}`.
@@ -3013,7 +3094,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let mut default: Option<String> = None;
         for (pats, body) in arms {
             let mut b = String::new();
-            self.print(body, muts, &mut b, mode, last);
+            self.print(body, muts, &mut b, mode, ending);
             if pats.is_empty() {
                 default = Some(b);
                 continue;
@@ -3217,7 +3298,7 @@ pub(crate) fn marshal(
             );
             out.push(S::Let {
                 vars: vec![Some(id)],
-                init: Some(E::new("Self::default()")),
+                init: Some(E::new("Self::default()".to_owned())),
                 default_of: Some(("Self".to_owned(), fields)),
             });
             l.ret = Ret::Receiver(id);
@@ -3581,15 +3662,16 @@ fn effect_only(mut e: E) -> E {
     loop {
         let before = code.clone();
         for suffix in [".to_owned()", ".clone()", ".as_str()"] {
-            if let Some(c) = code.strip_suffix(suffix) {
-                code = String::from(c);
+            if code.ends_with(suffix) {
+                code.truncate(code.len() - suffix.len());
             }
         }
-        if let Some(c) = code.strip_prefix("(*").and_then(|c| c.strip_suffix(')')) {
-            code = String::from(c);
+        if code.starts_with("(*") && code.ends_with(')') {
+            code.truncate(code.len() - 1);
+            code.drain(..2);
         }
-        if let Some(c) = code.strip_prefix('*') {
-            code = String::from(c);
+        if code.starts_with('*') {
+            code.remove(0);
         }
         if code == before {
             break;
@@ -3831,21 +3913,21 @@ fn contains_return(stmts: &[Stmt]) -> bool {
     })
 }
 
-/// Calls `f` on every expression with whether it is the index of its parent.
-fn visit_exprs(stmts: &[Stmt], f: &mut dyn FnMut(&Expr, bool)) {
-    fn walk(e: &Expr, is_index: bool, f: &mut dyn FnMut(&Expr, bool)) {
-        f(e, is_index);
+/// Calls `f` on every expression with its role in its parent.
+fn visit_exprs(stmts: &[Stmt], f: &mut dyn FnMut(&Expr, Role)) {
+    fn walk(e: &Expr, role: Role, f: &mut dyn FnMut(&Expr, Role)) {
+        f(e, role);
         for x in [&e.x, &e.y, &e.low, &e.high, &e.recv].into_iter().flatten() {
-            walk(x, false, f);
+            walk(x, Role::Other, f);
         }
         if let Some(i) = &e.index {
-            walk(i, true, f);
+            walk(i, Role::Index, f);
         }
         for a in e.args.iter().chain(&e.elems) {
-            walk(a, false, f);
+            walk(a, Role::Other, f);
         }
         for fv in &e.fields {
-            walk(&fv.value, false, f);
+            walk(&fv.value, Role::Other, f);
         }
     }
     for s in stmts {
@@ -3864,17 +3946,17 @@ fn visit_exprs(stmts: &[Stmt], f: &mut dyn FnMut(&Expr, bool)) {
             &s.enum_name,
         ];
         for e in singles.into_iter().flatten() {
-            walk(e, false, f);
+            walk(e, Role::Other, f);
         }
         for e in s.args.iter().chain(&s.lhs).chain(&s.rhs).chain(&s.values) {
-            walk(e, false, f);
+            walk(e, Role::Other, f);
         }
         for list in [&s.body, &s.then, &s.els, &s.init, &s.post] {
             visit_exprs(list, f);
         }
         for c in &s.cases {
             for v in &c.values {
-                walk(v, false, f);
+                walk(v, Role::Other, f);
             }
             visit_exprs(&c.body, f);
         }
@@ -3904,7 +3986,7 @@ pub(crate) fn uses_var(stmts: &[Stmt], name: &str) -> bool {
 fn index_base(stmts: &[Stmt], var: &str) -> Option<Expr> {
     let mut base: Option<Expr> = None;
     let mut ok = true;
-    visit_exprs(stmts, &mut |e, is_index| {
+    visit_exprs(stmts, &mut |e, role| {
         if e.kind == "index"
             && e.index
                 .as_deref()
@@ -3915,7 +3997,7 @@ fn index_base(stmts: &[Stmt], var: &str) -> Option<Expr> {
                 (Some(x), Some(b)) if same_expr(x, b) => {}
                 _ => ok = false,
             }
-        } else if e.kind == "var" && e.name == var && !is_index {
+        } else if e.kind == "var" && e.name == var && role != Role::Index {
             ok = false;
         }
     });

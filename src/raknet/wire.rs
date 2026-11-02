@@ -15,26 +15,44 @@ pub(super) const DATAGRAM_HEADER_BYTES: usize = 4;
 
 /// Set on data datagrams by go-raknet and RakNet; receivers ignore it.
 pub(super) const FLAG_NEEDS_B_AND_AS: u8 = 0x04;
+/// Set on a negative acknowledgement datagram.
 pub(super) const FLAG_NAK: u8 = 0x20;
+/// Set on an acknowledgement datagram.
 pub(super) const FLAG_ACK: u8 = 0x40;
 /// Set on every connected datagram, ACK and NAK.
 pub(super) const FLAG_DATAGRAM: u8 = 0x80;
 
+/// The ID of a connected ping.
 pub(super) const ID_CONNECTED_PING: u8 = 0x00;
+/// The ID of an unconnected ping.
 pub(super) const ID_UNCONNECTED_PING: u8 = 0x01;
+/// The ID of an unconnected ping that only open connections answer.
 pub(super) const ID_UNCONNECTED_PING_OPEN_CONNECTIONS: u8 = 0x02;
+/// The ID of a connected pong.
 pub(super) const ID_CONNECTED_PONG: u8 = 0x03;
+/// The ID of the notice that a connection is lost.
 pub(super) const ID_DETECT_LOST_CONNECTIONS: u8 = 0x04;
+/// The ID of the first open connection request.
 pub(super) const ID_OPEN_CONNECTION_REQUEST_1: u8 = 0x05;
+/// The ID of the reply to the first open connection request.
 pub(super) const ID_OPEN_CONNECTION_REPLY_1: u8 = 0x06;
+/// The ID of the second open connection request.
 pub(super) const ID_OPEN_CONNECTION_REQUEST_2: u8 = 0x07;
+/// The ID of the reply to the second open connection request.
 pub(super) const ID_OPEN_CONNECTION_REPLY_2: u8 = 0x08;
+/// The ID of a connection request.
 pub(super) const ID_CONNECTION_REQUEST: u8 = 0x09;
+/// The ID of the acceptance of a connection request.
 pub(super) const ID_CONNECTION_REQUEST_ACCEPTED: u8 = 0x10;
+/// The ID of the notice that a new connection came in.
 pub(super) const ID_NEW_INCOMING_CONNECTION: u8 = 0x13;
+/// The ID of the refusal of a connection because no slot is free.
 pub(super) const ID_NO_FREE_INCOMING_CONNECTIONS: u8 = 0x14;
+/// The ID of the notice that a peer disconnects.
 pub(super) const ID_DISCONNECT_NOTIFICATION: u8 = 0x15;
+/// The ID of the refusal of a connection over its protocol version.
 pub(super) const ID_INCOMPATIBLE_PROTOCOL_VERSION: u8 = 0x19;
+/// The ID of an unconnected pong.
 pub(super) const ID_UNCONNECTED_PONG: u8 = 0x1c;
 /// The first byte of every Minecraft game message.
 pub(super) const ID_GAME: u8 = 0xfe;

@@ -693,7 +693,7 @@ fn npcs_trample_farmland_and_take_fall_damage_when_they_land() {
     );
 }
 
-fn offers_of(h: &mut Harness, v: Id) -> &mut Offers {
+fn offers_mut(h: &mut Harness, v: Id) -> &mut Offers {
     crate::tick::entity::offers_mut(&mut h.state, v).unwrap()
 }
 
@@ -721,16 +721,16 @@ fn a_trade_sends_the_villagers_viewers_the_keys_it_changed() {
         16,
     );
     recipe.trader_exp = 5;
-    offers_of(&mut h, v).set(vec![recipe]).unwrap();
+    offers_mut(&mut h, v).set(vec![recipe]).unwrap();
     crate::tick::entity::villager_traded(&mut h.state, v, (0, 0));
     assert!(data(&mut h).is_empty(), "nothing changed, nothing sent");
-    offers_of(&mut h, v).apply(0, 1).unwrap();
+    offers_mut(&mut h, v).apply(0, 1).unwrap();
     crate::tick::entity::villager_traded(&mut h.state, v, (0, 0));
     assert_eq!(
         data(&mut h),
         vec![vec![(K::TradeExperience as u32, Int32(5))]]
     );
-    offers_of(&mut h, v).apply(0, 1).unwrap();
+    offers_mut(&mut h, v).apply(0, 1).unwrap();
     crate::tick::entity::villager_traded(&mut h.state, v, (0, 5));
     assert_eq!(
         data(&mut h),

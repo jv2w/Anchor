@@ -97,7 +97,7 @@ fn send(
     for session in sessions {
         if let Some(p) = state.players.get_mut(&session)
             && p.world == world
-            && p.view.sees(chunk)
+            && p.view.can_see(chunk)
         {
             p.send_to_viewer(packet.clone());
         }

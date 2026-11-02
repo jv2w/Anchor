@@ -8,10 +8,10 @@ use serde_json::Value as Json;
 use super::data::{BLOCK_ENTITY_DROPS, Data, State, StateItem, static_compound};
 use super::emit::HEADER;
 
-type R<T> = Result<T, String>;
-
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/drops.rs";
+
+type R<T> = Result<T, String>;
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(data: &Data) -> R<String> {
@@ -96,12 +96,12 @@ fn case(
         None => None,
     };
     let (min, max) = match json.get("xp").and_then(Json::as_array).map(Vec::as_slice) {
-        None => (0, 0),
         Some([a, b]) => (
             a.as_u64().and_then(|v| u16::try_from(v).ok()).ok_or("xp")?,
             b.as_u64().and_then(|v| u16::try_from(v).ok()).ok_or("xp")?,
         ),
         Some(_) => return Err("xp is not [min, max]".to_owned()),
+        None => (0, 0),
     };
     let items = match json.get("items").ok_or("drop case without items")? {
         Json::String(s) if s == "random" => {

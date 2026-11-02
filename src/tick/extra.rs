@@ -8,7 +8,7 @@
 //!   calls [`Extras::chunk_loaded`] right after it puts the terrain into its world; the rule
 //!   modules take them over as [`super::rules`] says. A player's extra arrives with its saved
 //!   data and the tick calls [`player_loaded`] when it places the player. A module that owns a
-//!   key of it reads its typed state from [`PlayerExtra::raw`] there and from then on owns that
+//!   key of it reads its typed state from [`Player::raw`] there and from then on owns that
 //!   state.
 //! - **Snapshot.** At a save snapshot the tick asks for every chunk kind marked dirty
 //!   ([`Extras::take_dirty`]); the modules wrote their changed typed state back as NBT before
@@ -134,7 +134,7 @@ impl Extras {
             let held = self
                 .chunks
                 .get_mut(&key)
-                .expect("invariant: a chunk in the dirty set is held");
+                .expect("a chunk in the dirty set is held");
             out.extend(
                 held.take_dirty()
                     .into_iter()
@@ -257,7 +257,7 @@ impl Held {
 /// [`player_saved`], and the user's values on it (`task::PlayerUser`: its data, saved under one
 /// key of the compound, and its extensions, never saved).
 #[derive(Debug, Default)]
-pub(super) struct PlayerExtra {
+pub(super) struct Player {
     /// The compound as saved: modules read their keys from it when the player loads, and a save
     /// copies it ([`player_saved`]) before they write their keys over the copy.
     /// [`Self::keep_saved`] keeps the newest saved form of one key.
@@ -266,7 +266,7 @@ pub(super) struct PlayerExtra {
     pub(super) user: super::task::PlayerUser,
 }
 
-impl PlayerExtra {
+impl Player {
     /// Reads what [`Self::checkpoint`] wrote.
     pub(super) fn restore(
         r: &mut super::checkpoint::Reader<'_>,
@@ -317,15 +317,15 @@ impl PlayerExtra {
 
 /// What the player keeps while online, made from the saved extra that arrived with it (empty for
 /// a new player).
-pub(super) fn player_loaded(extra: Compound) -> PlayerExtra {
-    PlayerExtra {
+pub(super) fn player_loaded(extra: Compound) -> Player {
+    Player {
         raw: extra,
         user: super::task::PlayerUser::default(),
     }
 }
 
 /// A copy of the extra as saved, for a save to write the keys of the modules over.
-pub(super) fn player_saved(extra: &PlayerExtra) -> Compound {
+pub(super) fn player_saved(extra: &Player) -> Compound {
     extra.raw.clone()
 }
 

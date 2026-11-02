@@ -5,7 +5,9 @@ use crate::command::{Args, Command, Output, Result, Sender};
 use crate::permission;
 use crate::tick::{Context, save};
 
+/// The failure line of `/check` while a check runs.
 const CHECK_BUSY: Msg = Msg::own("A data file check is already running");
+/// The success line of `/check`.
 const CHECK_START: Msg =
     Msg::own("Saving and checking the data files; you are told the result when it ends");
 

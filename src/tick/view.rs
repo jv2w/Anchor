@@ -38,7 +38,7 @@ use crate::protocol::packet::{
 use crate::protocol::{BlockChangeEntry, HeightMap, SubChunkEntry};
 use crate::save::{Loaded, Request, WorldIndex};
 use crate::world::{
-    BlockPos, Chunk, ChunkPos, Entry, Kind, LOWEST_SUB_CHUNK, NO_HEIGHT, SPAWN_CHUNK_RADIUS,
+    BlockPos, Chunk, ChunkPos, Entry, Kind, MIN_SUB_CHUNK_Y, NO_HEIGHT, SPAWN_CHUNK_RADIUS,
     SUB_CHUNKS, World,
 };
 
@@ -126,7 +126,7 @@ pub(super) struct View {
 
 impl View {
     /// Whether the client was sent chunk `pos` and still sees it.
-    pub(super) fn sees(&self, pos: ChunkPos) -> bool {
+    pub(super) fn can_see(&self, pos: ChunkPos) -> bool {
         self.sent.contains(&pos)
     }
 
@@ -756,7 +756,7 @@ impl Chunks {
 
     /// Whether `key` is held, wanted or in flight, for tests.
     #[cfg(test)]
-    pub(super) fn holds(&self, key: Key) -> bool {
+    pub(super) fn has_chunk(&self, key: Key) -> bool {
         self.interest.contains_key(&key)
     }
 
@@ -1304,7 +1304,7 @@ pub(super) fn restore_block_data(state: &mut State, session: SessionId, pos: Blo
     let Some(player) = players.get_mut(&session) else {
         return;
     };
-    if player.view.shown(pos).is_some() || !player.view.sees(pos.chunk()) {
+    if player.view.shown(pos).is_some() || !player.view.can_see(pos.chunk()) {
         return;
     }
     let Some(entity) = rules
@@ -1330,7 +1330,7 @@ pub(super) fn queue_request(player: &mut Player, request: &SubChunkRequest) {
         || offsets > MAX_QUEUED_SUB_CHUNK_OFFSETS
     {
         debug!(
-            runtime_id = player.runtime_id,
+            player = player.name(),
             "too many sub-chunk requests waiting; one dropped"
         );
         return;
@@ -1523,7 +1523,7 @@ fn announce(state: &mut State) {
             if !state
                 .players
                 .get(&session)
-                .is_some_and(|p| p.view.sees(chunk))
+                .is_some_and(|p| p.view.can_see(chunk))
             {
                 continue;
             }
@@ -1590,7 +1590,7 @@ fn unload_released(state: &mut State) {
         } else {
             if e.cancelled {
                 warn!(
-                    world = key.0,
+                    world = state.worlds.get(key.0).map(World::name),
                     kept = MAX_KEPT_CHUNKS,
                     x = key.1.x,
                     z = key.1.z,
@@ -1861,7 +1861,7 @@ fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize
     );
     let index = y
         .saturating_add(i32::from(offset[1]))
-        .saturating_sub(LOWEST_SUB_CHUNK);
+        .saturating_sub(MIN_SUB_CHUNK_Y);
     let index = usize::try_from(index).ok().filter(|&i| i < SUB_CHUNKS)?;
     Some((pos, index))
 }
@@ -1898,7 +1898,7 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
         out.push(Message::Packet(Packet::LevelChunk(LevelChunk {
             position: [pos.x, pos.z],
             sub_chunk_limit: Some(i32::from(chunk.sub_chunk_limit())),
-            raw_payload: chunk.level_chunk_payload(),
+            raw_payload: chunk.to_level_chunk_payload(),
             ..LevelChunk::default()
         })));
     }
@@ -1916,7 +1916,7 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
             if let Some((pos, index)) = target(request, offset)
                 && view.sent.contains(&pos)
             {
-                let sub_y = i32::try_from(index).unwrap_or(0) + LOWEST_SUB_CHUNK;
+                let sub_y = i32::try_from(index).unwrap_or(0) + MIN_SUB_CHUNK_Y;
                 if view.shows_in(pos, sub_y) {
                     out.extend(
                         update_packet(pos, sub_y, &view.shown_in(pos, sub_y)).map(Message::Packet),
@@ -2055,7 +2055,7 @@ fn entry(
 fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>) {
     #[cfg(test)]
     tests::count_height_map();
-    let bottom = (i32::try_from(index).unwrap_or(0) + LOWEST_SUB_CHUNK) * 16;
+    let bottom = (i32::try_from(index).unwrap_or(0) + MIN_SUB_CHUNK_Y) * 16;
     let mut map: HeightMap = [[0; 16]; 16];
     let (mut all_higher, mut all_lower) = (true, true);
     for (i, &height) in chunk.heights().iter().enumerate() {
@@ -2284,15 +2284,19 @@ mod tests {
 
     /// A chunk far from the spawn and its preloaded chunks.
     const FAR: Key = (0, ChunkPos::new(40, 40));
+    /// The chunk loads the simulated save thread answers per tick.
     const LOADS_ANSWERED_PER_TICK: usize = 16;
+    /// The players that join together in the spawn test.
     const PLAYERS: u64 = 100;
     /// The session's spawn deadline (60 seconds) in ticks.
     const SPAWN_DEADLINE_TICKS: u64 = 1200;
+    /// The blocks a sprinting player moves per tick.
     const SPRINT: f32 = 0.28;
     /// The most ticks a walking player waits for a chunk that came into its view, at the
     /// default chunks per tick, as measured: a chunk crossing brings 17 chunks, sent 4 a tick
     /// once their loads are answered.
     const WALK_LATENCY_TICKS: u64 = 6;
+    /// The ticks a player walks in the walking test.
     const WALK_TICKS: u16 = 240;
 
     thread_local! {
@@ -2459,7 +2463,7 @@ mod tests {
         assert!(is_loaded(&state, FAR), "the listeners are asked first");
         announce(&mut state);
         assert_eq!(logged(), ["unload 40 40", "monitor true"]);
-        assert!(is_loaded(&state, FAR) && state.chunks.holds(FAR));
+        assert!(is_loaded(&state, FAR) && state.chunks.has_chunk(FAR));
         // Asked again only when its time comes.
         state.tick += KEEP_TICKS - 1;
         announce(&mut state);
@@ -2468,7 +2472,7 @@ mod tests {
         KEEP.set(false);
         announce(&mut state);
         assert_eq!(logged(), ["unload 40 40", "monitor false"]);
-        assert!(!is_loaded(&state, FAR) && !state.chunks.holds(FAR));
+        assert!(!is_loaded(&state, FAR) && !state.chunks.has_chunk(FAR));
         assert!(state.chunks.kept.is_empty() && state.chunks.unloading.is_empty());
     }
 
@@ -2589,7 +2593,9 @@ mod tests {
                 .unwrap();
         });
         listeners.push_monitor(|e: &PlayerPostChunkSend, cx: &Context<'_>| {
-            let sees = cx.state.players[&e.player().session()].view.sees(e.chunk());
+            let sees = cx.state.players[&e.player().session()]
+                .view
+                .can_see(e.chunk());
             assert!(sees);
         });
         let mut state = state(listeners);
@@ -2638,7 +2644,7 @@ mod tests {
         }
         let past = ChunkPos::new(134_217_727, 0);
         assert!(!state.worlds[0].is_chunk_loaded(past));
-        assert!(!state.chunks.holds((0, past)));
+        assert!(!state.chunks.has_chunk((0, past)));
         assert!(!state.worlds[0].is_spawn_chunk(past));
         let tip = BlockPos::new(2_147_483_646, -60, 0);
         assert!(!Context { state: &mut state }.grow_tree(
@@ -2651,7 +2657,7 @@ mod tests {
             tick(&mut state, &mut Vec::new(), &mut output);
         }
         assert_eq!(state.chunks.held(), start);
-        assert!(state.chunks.holds((0, spawn.chunk())));
+        assert!(state.chunks.has_chunk((0, spawn.chunk())));
     }
 
     /// A world whose spawn moves to another chunk in the tick it unloads holds and loads no chunk

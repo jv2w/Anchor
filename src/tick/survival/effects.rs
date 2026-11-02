@@ -240,7 +240,7 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
         else {
             continue;
         };
-        let every = interval(effect, active.amplifier);
+        let every = interval_ticks(effect, active.amplifier);
         if every > 0 && active.duration % every == 0 {
             apply(state, session, effect, active);
         }
@@ -301,7 +301,7 @@ pub(super) fn of_instances(instances: &[effect::Instance]) -> impl Iterator<Item
 
 /// The ticks between applications of an effect (PMMP `Effect::getApplyInterval`); 0 never
 /// applies.
-pub(super) fn interval(effect: Type, amplifier: u8) -> u32 {
+pub(super) fn interval_ticks(effect: Type, amplifier: u8) -> u32 {
     let shifted = |base: u32| base.checked_shr(u32::from(amplifier)).unwrap_or(0).max(1);
     match effect {
         Type::Poison | Type::FatalPoison => shifted(POISON_INTERVAL_TICKS),
@@ -449,17 +449,17 @@ mod tests {
 
     #[test]
     fn intervals_follow_pmmp() {
-        assert_eq!(interval(Type::Poison, 0), 25);
-        assert_eq!(interval(Type::Poison, 1), 12);
-        assert_eq!(interval(Type::Poison, 5), 1);
-        assert_eq!(interval(Type::Poison, 255), 1);
-        assert_eq!(interval(Type::Wither, 0), 40);
-        assert_eq!(interval(Type::Wither, 1), 20);
-        assert_eq!(interval(Type::Regeneration, 0), 50);
-        assert_eq!(interval(Type::Regeneration, 1), 25);
-        assert_eq!(interval(Type::Regeneration, 2), 12);
-        assert_eq!(interval(Type::Hunger, 3), 1);
-        assert_eq!(interval(Type::Speed, 0), 0);
+        assert_eq!(interval_ticks(Type::Poison, 0), 25);
+        assert_eq!(interval_ticks(Type::Poison, 1), 12);
+        assert_eq!(interval_ticks(Type::Poison, 5), 1);
+        assert_eq!(interval_ticks(Type::Poison, 255), 1);
+        assert_eq!(interval_ticks(Type::Wither, 0), 40);
+        assert_eq!(interval_ticks(Type::Wither, 1), 20);
+        assert_eq!(interval_ticks(Type::Regeneration, 0), 50);
+        assert_eq!(interval_ticks(Type::Regeneration, 1), 25);
+        assert_eq!(interval_ticks(Type::Regeneration, 2), 12);
+        assert_eq!(interval_ticks(Type::Hunger, 3), 1);
+        assert_eq!(interval_ticks(Type::Speed, 0), 0);
         assert_eq!(doubled(0), 1.0);
         assert_eq!(doubled(3), 8.0);
         assert!(doubled(255).is_finite());

@@ -268,14 +268,14 @@ impl Accept {
                 // Sessions may still report while ending; keep their queue moving.
                 Some(_) = self.events.recv() => {}
                 ended = self.sessions.join_next() => match ended {
-                    None => return,
+                    Some(Ok(())) => {}
                     Some(Err(e)) => {
                         warn!(
                             error = &e as &(dyn std::error::Error + 'static),
                             "session task failed"
                         );
                     }
-                    Some(Ok(())) => {}
+                    None => return,
                 },
             }
         }
@@ -682,7 +682,8 @@ mod tests {
         crate::raknet::tests::run(async {
             let (inputs, mut queue) = input_queue(1);
             let (controls, control_queue) = control_queue();
-            let packs = Offer::load(&[], Vec::new(), config.general.force_resources).unwrap();
+            let packs =
+                Offer::load(&[], Vec::new(), config.general.force_resources.into()).unwrap();
             let network = start(Arc::new(config), packs, &dir, inputs, control_queue)
                 .await
                 .unwrap();

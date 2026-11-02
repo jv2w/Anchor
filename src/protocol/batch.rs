@@ -406,7 +406,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// The result of a batch operation.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Replaces the contents of `out` with the packets of a batch payload, decoded in order.
@@ -582,6 +582,7 @@ fn append_packet(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::Skin;
     use crate::protocol::compression::tests::{Content, ROUND_TRIP_SIZES, sample};
     use crate::protocol::io::MAX_LIST_DEPTH;

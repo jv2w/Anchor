@@ -473,7 +473,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A result with the form [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// What an answer to a sent form must look like; the form's texts are not kept.
@@ -545,8 +545,6 @@ fn menu(m: &Menu) -> Result<(Json, Shape)> {
             MenuElement::Button(b) => {
                 buttons += 1;
                 match &b.image {
-                    // BDS writes the key for a button without an image too.
-                    None => json!({ "type": "button", "text": b.text, "image": null }),
                     Some(image) => {
                         let (kind, data) = match image {
                             Image::Path(p) => ("path", p),
@@ -558,6 +556,8 @@ fn menu(m: &Menu) -> Result<(Json, Shape)> {
                             "image": { "type": kind, "data": data },
                         })
                     }
+                    // BDS writes the key for a button without an image too.
+                    None => json!({ "type": "button", "text": b.text, "image": null }),
                 }
             }
             MenuElement::Header(t) => json!({ "type": "header", "text": t }),

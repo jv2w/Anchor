@@ -77,6 +77,7 @@ impl Context<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::config::Config;
     use crate::custom::tests::{ORE, RUBY, SWORD};
     use crate::custom::{Ingredient, ItemRef, Recipe as Own};

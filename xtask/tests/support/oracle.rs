@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+/// The oracle executable, built on first use.
+static BINARY: OnceLock<PathBuf> = OnceLock::new();
+
 /// One record: a packet ID or status (0 ok, 1 error) and its bytes.
 pub(crate) type Record = (u32, Vec<u8>);
 
@@ -17,7 +20,6 @@ fn work_dir() -> PathBuf {
 /// Builds the oracle on first use and returns its path. Fails the test if Go is missing
 /// (the protocol tests need Go).
 fn binary() -> &'static Path {
-    static BINARY: OnceLock<PathBuf> = OnceLock::new();
     BINARY.get_or_init(|| {
         let dir = work_dir();
         create_dir(&dir);

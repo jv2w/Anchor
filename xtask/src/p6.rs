@@ -57,6 +57,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::dump::{CLOUDBURST, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, is_file, write};
+use crate::say;
 use compare::field;
 
 /// The BDS copy, relative to the repository root. The original download is never run.
@@ -191,6 +192,7 @@ static LOG: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new()
 const MARKER: (i32, i32) = (-4, 0);
 /// Captures and logs, relative to the repository root.
 const OUT_DIR: &str = "target/p6";
+/// The pause between two looks at a log or a process.
 const POLL: Duration = Duration::from_millis(200);
 /// Where the text of a RakNet pong starts: ID, time (8), server GUID (8), magic (16), text length
 /// (2).
@@ -205,11 +207,13 @@ const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 /// limited to 64 KiB SCTP messages uses. `p6 bds` sends big-skin in it to record whether BDS
 /// accepts it; Anchor accepts both.
 const SMALL_SEGMENT: &str = "65535";
+/// How long BDS may take to start.
 const START_TIMEOUT: Duration = Duration::from_mins(2);
 /// The marker blocks of the steps, alternating: step `n` ends with `STEP_MARKERS[n % 2]`.
 const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
 /// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
 const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
+/// How long BDS may take to exit after `stop`.
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The player name of both bots of the duplicate-login run.
 const TWIN: &str = "P6Twin";
@@ -501,10 +505,6 @@ pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Resul
         ["api", "compare", a, b] => api::compare(root, Path::new(a), Path::new(b), out),
         _ => Err(format!("usage: {USAGE}")),
     }
-}
-
-fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
-    writeln!(out, "{text}").map_err(|e| e.to_string())
 }
 
 /// The scenarios named in `args` out of `all` (all when `args` is empty); `session` names the
@@ -2052,8 +2052,9 @@ fn read_text(path: &Path) -> Result<String, String> {
 )]
 fn read_growing_text(path: &Path) -> Result<String, String> {
     match std::fs::read_to_string(path) {
+        Ok(text) => Ok(text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        text => text.map_err(|e| format!("{}: {e}", path.display())),
+        Err(e) => Err(format!("{}: {e}", path.display())),
     }
 }
 
@@ -2063,12 +2064,12 @@ fn read_growing_text(path: &Path) -> Result<String, String> {
     reason = "off-tick: xtask is a development tool"
 )]
 fn remove_dir(path: &Path) -> Result<(), String> {
-    match std::fs::remove_dir_all(path) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            Err(format!("{}: {e}", path.display()))
-        }
-        _ => Ok(()),
+    if let Err(e) = std::fs::remove_dir_all(path)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(format!("{}: {e}", path.display()));
     }
+    Ok(())
 }
 
 /// Removes a file; a missing file is fine.
@@ -2077,12 +2078,12 @@ fn remove_dir(path: &Path) -> Result<(), String> {
     reason = "off-tick: xtask is a development tool"
 )]
 fn remove_file(path: &Path) -> Result<(), String> {
-    match std::fs::remove_file(path) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            Err(format!("{}: {e}", path.display()))
-        }
-        _ => Ok(()),
+    if let Err(e) = std::fs::remove_file(path)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(format!("{}: {e}", path.display()));
     }
+    Ok(())
 }
 
 #[expect(

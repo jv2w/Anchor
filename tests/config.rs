@@ -299,6 +299,7 @@ fn every_key_reaches_its_field() {
 /// The number of keys in the default file; the one place that pins it.
 const DEFAULT_KEY_COUNT: usize = 68;
 
+/// The bytes of one mebibyte.
 const MIB: usize = 1024 * 1024;
 
 /// The `(table, key, value)` of every key line of a settings file.

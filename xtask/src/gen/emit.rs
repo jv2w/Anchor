@@ -30,9 +30,9 @@ const SEND_LIMITS: &[&str] = &[
 /// Generated file contents.
 #[derive(Debug)]
 pub(crate) struct Output {
-    /// `src/protocol/types.rs`
+    /// The contents of `src/protocol/types.rs`.
     pub(crate) types: String,
-    /// `src/protocol/packet.rs`
+    /// The contents of `src/protocol/packet.rs`.
     pub(crate) packet: String,
 }
 

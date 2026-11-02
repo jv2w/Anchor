@@ -20,21 +20,27 @@ use crate::protocol::consts::BookAction as Action;
 use crate::protocol::packet::BookEdit;
 use crate::tick::{SessionId, State, dispatch, inventory};
 
-/// The NBT keys of a book (PMMP `WritableBookBase::TAG_*`, `WrittenBook::TAG_*`).
+/// The NBT key of a written book's author (PMMP `WrittenBook::TAG_AUTHOR`).
 const AUTHOR: &str = "author";
+/// The NBT key of a written book's generation (PMMP `WrittenBook::TAG_GENERATION`).
 const GENERATION: &str = "generation";
-/// The most characters in a title, and in an author (PMMP `handleBookEdit`; vanilla has no
-/// author limit, PMMP's is 256).
+/// The most characters in an author (PMMP `handleBookEdit`; vanilla has no author limit, PMMP's
+/// is 256).
 const MAX_AUTHOR_CHARS: usize = 256;
 /// The most characters on a page (PMMP `PAGE_LENGTH_SOFT_LIMIT_CHARS`).
 const MAX_PAGE_CHARS: usize = 512;
 /// The most pages a player may give a book (PMMP `handleBookEdit`; a book that has more, made by
 /// code, may still be edited without growing).
 const MAX_PAGES: usize = 50;
+/// The most characters in a title (PMMP `handleBookEdit`).
 const MAX_TITLE_CHARS: usize = 16;
+/// The NBT key of a book's pages (PMMP `WritableBookBase::TAG_PAGES`).
 pub(in crate::tick) const PAGES: &str = "pages";
+/// The NBT key of a page's photo name (PMMP `WritableBookPage::TAG_PHOTONAME`).
 const PHOTO: &str = "photoname";
+/// The NBT key of a page's text (PMMP `WritableBookPage::TAG_TEXT`).
 const TEXT: &str = "text";
+/// The NBT key of a written book's title (PMMP `WrittenBook::TAG_TITLE`).
 const TITLE: &str = "title";
 
 /// A page (PMMP `WritableBookPage`).

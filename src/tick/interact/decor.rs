@@ -16,7 +16,7 @@ use crate::protocol::packet::LecternUpdate;
 use crate::save::WorldIndex;
 use crate::tick::block_entity::{self, BlockEntity, Kind, Plant};
 use crate::tick::{SessionId, State, dispatch, emit, entity};
-use crate::tile::{DyeColour, SIGN_LINES, check_lines};
+use crate::tile::{DyeColour, SIGN_LINES, Side, check_lines};
 use crate::world::BlockPos;
 use crate::world::Sound;
 
@@ -83,9 +83,9 @@ fn sign_colour(stack: &Stack) -> Option<i32> {
     item::dye_argb(colour).map(u32::cast_signed)
 }
 
-/// Works out what the held item does to the side (`front` or back) of the sign at `u.pos`:
+/// Works out what the held item does to `side` of the sign at `u.pos`:
 /// `None` when it changes nothing (the editor opens instead) or there is no sign block entity.
-fn sign_use(state: &State, u: &Use, front: bool) -> Option<SignUse> {
+fn sign_use(state: &State, u: &Use, side: Side) -> Option<SignUse> {
     let BlockEntity {
         kind: Kind::Sign(sign),
         ..
@@ -93,12 +93,15 @@ fn sign_use(state: &State, u: &Use, front: bool) -> Option<SignUse> {
     else {
         return None;
     };
-    let side = if front { &sign.front } else { &sign.back };
+    let text = match side {
+        Side::Front => &sign.front,
+        Side::Back => &sign.back,
+    };
     if let Some(colour) = sign_colour(&u.item) {
-        (side.colour != colour).then_some(SignUse::Colour(colour))
+        (text.colour != colour).then_some(SignUse::Colour(colour))
     } else if u.item_kind(item::Kind::InkSac) || u.item_kind(item::Kind::GlowInkSac) {
         let glow = u.item_kind(item::Kind::GlowInkSac);
-        (side.glowing != glow).then_some(SignUse::Glow(glow))
+        (text.glowing != glow).then_some(SignUse::Glow(glow))
     } else if u.item_kind(item::Kind::Honeycomb) {
         Some(SignUse::Wax)
     } else {
@@ -120,7 +123,8 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
     if sign.waxed {
         return true;
     }
-    let Some(change) = sign_use(state, u, front) else {
+    let side = if front { Side::Front } else { Side::Back };
+    let Some(change) = sign_use(state, u, side) else {
         open_sign_editor(state, u.actor.session, world, u.pos, front);
         return true;
     };
@@ -141,11 +145,7 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
             block: u.block,
             old_text: old_text.clone(),
             new_text: old_text,
-            side: if front {
-                crate::tile::Side::Front
-            } else {
-                crate::tile::Side::Back
-            },
+            side,
             cancelled: false,
         };
         dispatch::call(state, &mut e);
@@ -158,7 +158,7 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
             && !(using::still_holds(state, &u.actor, &u.item)
                 && state.worlds.get(world).and_then(|w| w.block(u.pos)) == Some(u.block)
                 && sign_text(state, world, u.pos).as_ref() == Some(&old)
-                && sign_use(state, u, front) == Some(change))
+                && sign_use(state, u, side) == Some(change))
         {
             return true;
         }
@@ -178,13 +178,18 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
         return true;
     };
     // PMMP `DyeUseSound`, `InkSacUseSound`; waxing has no PMMP sound, Anchor shows BDS's.
+    let text = if front {
+        &mut sign.front
+    } else {
+        &mut sign.back
+    };
     let played = match change {
         SignUse::Colour(colour) => {
-            sign.side_mut(front).colour = colour;
+            text.colour = colour;
             Some(Sound::DyeUse)
         }
         SignUse::Glow(glow) => {
-            sign.side_mut(front).glowing = glow;
+            text.glowing = glow;
             Some(Sound::InkSacUse)
         }
         SignUse::Wax => {
@@ -193,7 +198,7 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
         }
     };
     if let Some(lines) = lines {
-        sign.side_mut(front).lines = lines;
+        text.lines = lines;
     }
     u.pop();
     let at = block_vec(u.pos);
@@ -237,7 +242,12 @@ pub(super) fn write_sign(
     else {
         return;
     };
-    sign.side_mut(front).lines = lines;
+    let side = if front {
+        &mut sign.front
+    } else {
+        &mut sign.back
+    };
+    side.lines = lines;
     block_entity::mark_spawn(state, world, pos);
 }
 
@@ -599,8 +609,8 @@ pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
         return false;
     }
     let mixed = match cauldron.colour {
-        None => new,
         Some(old) => mix(old.cast_unsigned(), new),
+        None => new,
     };
     cauldron.colour = Some(mixed.cast_signed());
     u.pop();

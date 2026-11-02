@@ -742,12 +742,12 @@ super::checkpoint::variants!(Leave {
     0 => Kick {
         reason,
         screen_message,
-        quit_message
+        quit_message,
     },
     1 => Transfer {
         address,
         port,
-        message
+        message,
     },
 });
 
@@ -843,7 +843,7 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
             .range_mut((after, Bound::Unbounded))
             .find(|(_, p)| {
                 p.marks.leave.is_some()
-                    || inventory::held_unanswered(p)
+                    || inventory::has_unanswered_hold(p)
                     || p.marks.teleport.is_some()
                     || survival::marked(p)
             });
@@ -855,10 +855,10 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
             let reason = leave.reason().to_owned();
             match &leave {
                 Leave::Kick { .. } => {
-                    info!(session = session.get(), name = %player.identity.name, %reason, "player kicked");
+                    info!(session = session.get(), player = %player.identity.name, %reason, "player kicked");
                 }
                 Leave::Transfer { address, port, .. } => {
-                    info!(session = session.get(), name = %player.identity.name, %address, port, %reason, "player transferred");
+                    info!(session = session.get(), player = %player.identity.name, %address, port, %reason, "player transferred");
                 }
             }
             let (packet, quit_message) = leave.into_parts();
@@ -1018,6 +1018,7 @@ pub(super) mod tests {
     use crate::tick::queue::{Client, Identity, Input, InputKind, Measure, Outbound, SessionId};
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
 
+    /// The number of players in the skin broadcast test.
     const PLAYERS: u64 = 48;
 
     /// Players 1 to `n` spawned, their queues emptied.

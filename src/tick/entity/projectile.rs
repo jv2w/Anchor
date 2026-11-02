@@ -25,7 +25,7 @@ use tracing::debug;
 use super::SessionId;
 use super::kind::{Arrow, Cloud, Kind, Pickup, Projectile, Shot, Trident, Victim};
 use super::physics::{BlockHit, Flight, intercept};
-use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS};
+use super::saved::{MAX_CLOUD_AGE_TICKS, MAX_CLOUD_RADIUS};
 use super::{
     Blow, Cause, EYE_HEIGHT, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust,
     create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
@@ -57,27 +57,21 @@ const ARROW_SHAKE: i32 = 7;
 const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
 /// The random stream of a bottle's experience.
 const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
-/// The weakest bow draw that shoots (PMMP `Bow::onReleaseUsing`).
-const BOW_MIN_FORCE: f64 = 0.1;
-/// The fewest ticks a bow is drawn to shoot (PMMP `Bow::onReleaseUsing`).
-const BOW_MIN_TICKS: u32 = 5;
 /// The random stream of a bow's wear.
 const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
 /// A cloud's life, in ticks (PMMP `AreaEffectCloud::DEFAULT_DURATION`).
-pub(super) const CLOUD_DURATION: i32 = 600;
-/// The smallest radius a cloud has (PMMP `entityBaseTick`).
-const CLOUD_MIN_RADIUS: f64 = 0.5;
+pub(super) const CLOUD_DURATION_TICKS: i32 = 600;
 /// A cloud's first radius, in blocks (PMMP `AreaEffectCloud::DEFAULT_RADIUS`).
 pub(super) const CLOUD_RADIUS: f64 = 3.0;
 /// A cloud's radius change per entity it affects, in blocks.
 pub(super) const CLOUD_RADIUS_ON_USE: f64 = -0.5;
 /// A cloud's radius change per tick, in blocks: it shrinks to nothing over its life.
-pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION as f64);
+pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION_TICKS as f64);
 /// The ticks before a cloud affects an entity again (PMMP
 /// `AreaEffectCloud::DEFAULT_REAPPLICATION_DELAY`).
 pub(super) const CLOUD_REAPPLICATION: i32 = 40;
 /// Ticks between a cloud's applications (PMMP `UPDATE_DELAY`).
-const CLOUD_UPDATE_DELAY: u32 = 10;
+const CLOUD_UPDATE_DELAY_TICKS: u32 = 10;
 /// The random stream of a critical arrow's bonus damage.
 const CRITICAL_RANDOM: u64 = random::tag("projectile-critical");
 /// The burn a Flame bow gives its arrow (PMMP: `setOnFire(100)`), in ticks.
@@ -94,6 +88,16 @@ const HIT_REACH: f64 = 0.3;
 const ICE_BOMB_REACH: i32 = 1;
 /// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
 const LINGERING_POTION: &str = "minecraft:lingering_potion";
+/// The weakest bow draw that shoots (PMMP `Bow::onReleaseUsing`).
+const MIN_BOW_FORCE: f64 = 0.1;
+/// The fewest ticks a bow is drawn to shoot (PMMP `Bow::onReleaseUsing`).
+const MIN_BOW_TICKS: u32 = 5;
+/// The smallest radius a cloud has (PMMP `entityBaseTick`).
+const MIN_CLOUD_RADIUS: f64 = 0.5;
+/// The shortest effect a splash gives, in ticks.
+const MIN_SPLASH_TICKS: f64 = 20.0;
+/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`).
+const MIN_TRIDENT_TICKS: u32 = 14;
 /// Ticks a projectile flies through its shooter (PMMP `Projectile::move`).
 const OWNER_GRACE_TICKS: u32 = 5;
 /// The fall damage an ender pearl's thrower takes (PMMP `EnderPearl::onHit`).
@@ -104,8 +108,6 @@ const SPLASH_DURATION_FALLOFF: f64 = 0.225;
 /// before the cut to 1, as BDS gives it (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5
 /// and 3.5 blocks).
 const SPLASH_DURATION_FULL: f64 = 1.05;
-/// The shortest effect a splash gives, in ticks.
-const SPLASH_MIN_TICKS: f64 = 20.0;
 /// The farthest a splash potion's effects reach from the eyes, in blocks (PMMP
 /// `SplashPotion::onHit`).
 const SPLASH_RANGE: f64 = 4.0;
@@ -117,8 +119,6 @@ const TRIDENT_BOUNCE: Vec3 = Vec3::new(-0.01, -0.1, -0.01);
 /// The speed of a trident thrown at a full draw, in blocks per tick (PMMP
 /// `item\Trident::onReleaseUsing`).
 const TRIDENT_FORCE: f64 = 2.4;
-/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`).
-const TRIDENT_MIN_TICKS: u32 = 14;
 /// The random stream of a thrown trident's wear.
 const TRIDENT_RANDOM: u64 = random::tag("projectile-trident-wear");
 
@@ -288,7 +288,7 @@ pub(super) fn release_bow_with(
         return false;
     }
     let force = draw_force(used_ticks);
-    if force < BOW_MIN_FORCE || used_ticks < BOW_MIN_TICKS {
+    if force < MIN_BOW_FORCE || used_ticks < MIN_BOW_TICKS {
         return false;
     }
     let infinity = level_of(&bow, Enchantment::Infinity) > 0;
@@ -376,7 +376,7 @@ pub(super) fn release_trident_with(
         return false;
     };
     let held = player.inventory.held().clone();
-    if !held.item().is_some_and(|t| t.is(Class::Trident)) || used_ticks < TRIDENT_MIN_TICKS {
+    if !held.item().is_some_and(|t| t.is(Class::Trident)) || used_ticks < MIN_TRIDENT_TICKS {
         return false;
     }
     let mut item = held.with_count(1);
@@ -731,7 +731,7 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
         }
     }
     match struck {
-        Struck::Block(b) => hit_block(state, id, &p.shot, at, b, burning),
+        Struck::Block(b) => hit_block(state, id, &p.shot, at, b),
         Struck::Player(session) => {
             if let Some(d) = damage {
                 let blow = Blow::of(Cause::Projectile, d).by(child_source(state, id));
@@ -765,12 +765,12 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
 /// A projectile of `shot` hits the block `b` at `at` (PMMP `onHitBlock`): it is stuck there, a
 /// burning one lights TNT; an arrow shakes and stays, a trident stays and may hit entities
 /// again, an ice bomb freezes the water around and ends, any other thrown item ends.
-fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit, burning: bool) {
-    let Some(world) = with(state, id, |e| {
+fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit) {
+    let Some((world, burning)) = with(state, id, |e| {
         if let Kind::Projectile(p) = &mut e.kind {
             p.stuck = Some(b.pos);
         }
-        e.world
+        (e.world, e.fire_ticks > 0)
     }) else {
         return;
     };
@@ -781,7 +781,7 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit, burn
             .and_then(|w| w.block(b.pos))
             .is_some_and(|s| s.is(block::Class::Tnt))
     {
-        super::ignite(state, world, b.pos, u32::from(super::TNT_FUSE));
+        super::ignite(state, world, b.pos, u32::from(super::TNT_FUSE_TICKS));
     }
     match shot {
         Shot::Arrow(_) => {
@@ -1037,7 +1037,7 @@ pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
     Cloud {
         effects: effects.iter().copied().take(Cloud::MAX_EFFECTS).collect(),
         age: 0,
-        max_age: CLOUD_DURATION,
+        max_age: CLOUD_DURATION_TICKS,
         max_age_on_use: 0,
         reapplication_delay: CLOUD_REAPPLICATION,
         pickup_count: 0,
@@ -1106,7 +1106,7 @@ fn potion_hit(
                     instant(state, target, effect, potency, by, hooks);
                 } else {
                     let ticks = (f64::from(effect.duration_ticks()) * share).round();
-                    if ticks < SPLASH_MIN_TICKS {
+                    if ticks < MIN_SPLASH_TICKS {
                         continue;
                     }
                     give(state, target, with_duration(effect, ticks), hooks);
@@ -1515,12 +1515,12 @@ pub(super) fn cloud_tick(state: &mut State, id: Id, hooks: Hooks) {
     c.age = c.age.saturating_add(1);
     // A cloud never grows past what its saved form holds.
     let radius = crate::math::min(c.radius + c.radius_per_tick, MAX_CLOUD_RADIUS);
-    if radius < CLOUD_MIN_RADIUS {
+    if radius < MIN_CLOUD_RADIUS {
         e.flagged = true;
         return;
     }
     c.radius = radius;
-    if c.age < CLOUD_UPDATE_DELAY || c.age % CLOUD_UPDATE_DELAY != 0 {
+    if c.age < CLOUD_UPDATE_DELAY_TICKS || c.age % CLOUD_UPDATE_DELAY_TICKS != 0 {
         return;
     }
     if i64::from(c.age) > i64::from(c.max_age) {
@@ -1608,7 +1608,10 @@ fn used(e: &mut Entity, age: u32, until: Vec<Victim>, radius_change: f64, age_ch
         }
     }
     let radius = crate::math::min(c.radius + radius_change, MAX_CLOUD_RADIUS);
-    let max_age = c.max_age.saturating_add(age_change).min(MAX_CLOUD_AGE);
+    let max_age = c
+        .max_age
+        .saturating_add(age_change)
+        .min(MAX_CLOUD_AGE_TICKS);
     if radius <= 0.0 || max_age <= 0 {
         e.flagged = true;
     } else {
@@ -2088,11 +2091,11 @@ mod tests {
                 Some((_, _, p)) if p.stuck.is_some() && stuck_at.is_none() => {
                     stuck_at = Some(tick);
                 }
+                Some(_) => {}
                 None => {
                     assert_eq!(tick - stuck_at.unwrap(), 1200, "a minute stuck");
                     return;
                 }
-                Some(_) => {}
             }
         }
         panic!("the arrow stays");

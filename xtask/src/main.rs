@@ -105,15 +105,24 @@ const PRIVATE_DOCS: &str = "--document-private-items";
 const PRIVATE_DOCS_TARGET: &str = "verify-private-docs";
 /// The folders of the repository's Rust sources (the vendor copies aside).
 const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
-/// The str0m copy, and the patches that point its registry dev-dependencies' dimpl and
-/// str0m-proto at the copies, as in Anchor.
+/// The str0m copy's manifest.
 const STR0M: &str = "vendor/str0m/Cargo.toml";
+/// The patch that points the str0m copy's registry dev-dependency dimpl at the copy, as in Anchor.
 const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
+/// The patch that points the str0m copy's registry dev-dependency str0m-proto at the copy, as in
+/// Anchor.
 const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
 /// The build directory of `verify` under `target/`; `vendor-test` builds there too.
 const VERIFY_TARGET: &str = "verify";
 
-fn main() -> io::Result<ExitCode> {
+/// Whether a command writes its files or only compares them with the committed ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    Write,
+    Check,
+}
+
+fn main() -> Result<ExitCode, String> {
     run()
 }
 
@@ -121,7 +130,7 @@ fn main() -> io::Result<ExitCode> {
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn run() -> io::Result<ExitCode> {
+fn run() -> Result<ExitCode, String> {
     let mut out = io::stdout().lock();
     let args: Vec<String> = env::args().skip(1).collect();
     let passed = match args
@@ -134,25 +143,27 @@ fn run() -> io::Result<ExitCode> {
             let result = check::command(&root(), &mut out);
             report_passed(&mut out, result)
         }
-        ["gen"] => gen_command(&mut out, false),
-        ["gen", "--check"] => gen_command(&mut out, true),
+        ["gen"] => gen_command(&mut out, Mode::Write),
+        ["gen", "--check"] => gen_command(&mut out, Mode::Check),
         ["verify"] => verify(&mut out),
-        ["dump"] => dump_command(&mut out, false),
-        ["dump", "--check"] => dump_command(&mut out, true),
-        ["table"] => table_command(&mut out, false),
-        ["table", "--check"] => table_command(&mut out, true),
+        ["dump"] => dump_command(&mut out, Mode::Write),
+        ["dump", "--check"] => dump_command(&mut out, Mode::Check),
+        ["table"] => table_command(&mut out, Mode::Write),
+        ["table", "--check"] => table_command(&mut out, Mode::Check),
         ["vendor-test", "str0m"] => report_passed(&mut out, vendor::str0m(&root())),
         ["p6", rest @ ..] => {
             let result = p6::command(&root(), rest, &mut out);
             report_passed(&mut out, result)
         }
         _ => {
-            writeln!(
-                out,
-                "usage: cargo xtask gen [--check] | cargo xtask check | cargo xtask \
-                 verify | cargo xtask dump [--check] | cargo xtask table [--check] | cargo xtask \
-                 vendor-test str0m | {}",
-                p6::USAGE
+            say(
+                &mut out,
+                &format!(
+                    "usage: cargo xtask gen [--check] | cargo xtask check | cargo xtask \
+                     verify | cargo xtask dump [--check] | cargo xtask table [--check] | cargo \
+                     xtask vendor-test str0m | {}",
+                    p6::USAGE
+                ),
             )?;
             Ok(false)
         }
@@ -160,13 +171,20 @@ fn run() -> io::Result<ExitCode> {
     Ok(exit(passed))
 }
 
+/// Writes `text` and a newline to `out`.
+pub(crate) fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
+    writeln!(out, "{text}").map_err(|e| e.to_string())
+}
+
 /// Runs every check in order, each one even after a failure, and writes `ok` or `FAIL` for each
 /// and `PASS` or `FAIL` for all.
-fn verify(out: &mut impl Write) -> io::Result<bool> {
+fn verify(out: &mut impl Write) -> Result<bool, String> {
     let mut passed = true;
-    passed &= step(out, "cargo xtask gen --check", |out| gen_command(out, true))?;
+    passed &= step(out, "cargo xtask gen --check", |out| {
+        gen_command(out, Mode::Check)
+    })?;
     passed &= step(out, "cargo xtask table --check", |out| {
-        table_command(out, true)
+        table_command(out, Mode::Check)
     })?;
     passed &= step(out, "lint reason tags", reasons_command)?;
     for args in CHECKS {
@@ -177,7 +195,7 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
         };
         passed &= cargo_step(out, args, target)?;
     }
-    writeln!(out, "{}", if passed { "PASS" } else { "FAIL" })?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
@@ -185,17 +203,17 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
 fn step<W: Write>(
     out: &mut W,
     name: &str,
-    check: impl FnOnce(&mut W) -> io::Result<bool>,
-) -> io::Result<bool> {
+    check: impl FnOnce(&mut W) -> Result<bool, String>,
+) -> Result<bool, String> {
     let ok = check(out)?;
-    writeln!(out, "{} {name}", status(ok))?;
+    say(out, &format!("{} {name}", status(ok)))?;
     Ok(ok)
 }
 
 /// Runs `cargo <args>` at the repository root with its builds in `target/<target>` and writes
 /// `ok` or `FAIL` with the command, after the output of a failure. It passes on a successful exit
 /// that printed no warning.
-fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> io::Result<bool> {
+fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool, String> {
     let mut command = Command::new(cargo());
     if cfg!(windows) && args.contains(&DIMPL) {
         command.env("OPENSSL_SRC_PERL", root().join(PERL));
@@ -209,7 +227,8 @@ fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> io::Result<b
         .env("CARGO_TARGET_DIR", target_dir(target))
         .env("RUSTDOCFLAGS", "-D warnings")
         .env("CARGO_TERM_COLOR", "never")
-        .output()?;
+        .output()
+        .map_err(|e| e.to_string())?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     // Clippy reports an unresolved .clippy.toml path, and rustfmt an unstable option, only as a
     // warning with a successful exit code.
@@ -219,54 +238,55 @@ fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> io::Result<b
     });
     let ok = output.status.success() && !warned;
     if !ok {
-        out.write_all(&output.stdout)?;
-        out.write_all(&output.stderr)?;
+        out.write_all(&output.stdout).map_err(|e| e.to_string())?;
+        out.write_all(&output.stderr).map_err(|e| e.to_string())?;
     }
-    writeln!(out, "{} cargo {}", status(ok), args.join(" "))?;
+    say(out, &format!("{} cargo {}", status(ok), args.join(" ")))?;
     Ok(ok)
 }
 
-fn gen_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
-    report_files(out, r#gen::run(&root(), check), "out of date", "gen")
+fn gen_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
+    report_files(out, r#gen::run(&root(), mode), "out of date", "gen")
 }
 
-fn dump_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
-    report_files(out, dump::run(&root(), check), "differs", "dump")
+fn dump_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
+    report_files(out, dump::run(&root(), mode), "differs", "dump")
 }
 
-/// Writes (or with `check` compares) the API table and prints its counts. Passes without errors;
+/// Writes (or in check mode compares) the API table and prints its counts. Passes without errors;
 /// a check also needs the committed table current and no blank row.
-fn table_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
-    let report = match table::run(&root(), check) {
+fn table_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
+    let report = match table::run(&root(), mode) {
         Ok(report) => report,
         Err(e) => {
-            writeln!(out, "error: {e}")?;
+            say(out, &format!("error: {e}"))?;
             return Ok(false);
         }
     };
     for error in &report.errors {
-        writeln!(out, "error: {error}")?;
+        say(out, &format!("error: {error}"))?;
     }
     if report.stale {
-        writeln!(
+        say(
             out,
-            "out of date: xtask/data/pmmp/table.md (run `cargo xtask table`)"
+            "out of date: xtask/data/pmmp/table.md (run `cargo xtask table`)",
         )?;
     }
-    writeln!(out, "pmmp table: {}", report.counts)?;
-    Ok(report.errors.is_empty() && !(check && (report.stale || report.counts.blank > 0)))
+    say(out, &format!("pmmp table: {}", report.counts))?;
+    let failed_check = mode == Mode::Check && (report.stale || report.counts.blank > 0);
+    Ok(report.errors.is_empty() && !failed_check)
 }
 
-fn reasons_command(out: &mut impl Write) -> io::Result<bool> {
+fn reasons_command(out: &mut impl Write) -> Result<bool, String> {
     match reasons::check(&root()) {
         Ok(errors) => {
             for error in &errors {
-                writeln!(out, "error: {error}")?;
+                say(out, &format!("error: {error}"))?;
             }
             Ok(errors.is_empty())
         }
         Err(e) => {
-            writeln!(out, "error: {e}")?;
+            say(out, &format!("error: {e}"))?;
             Ok(false)
         }
     }
@@ -279,27 +299,30 @@ fn report_files(
     result: Result<Vec<String>, String>,
     verb: &str,
     command: &str,
-) -> io::Result<bool> {
+) -> Result<bool, String> {
     match result {
         Ok(differ) => {
             for path in &differ {
-                writeln!(out, "{verb}: {path} (run `cargo xtask {command}`)")?;
+                say(
+                    out,
+                    &format!("{verb}: {path} (run `cargo xtask {command}`)"),
+                )?;
             }
             Ok(differ.is_empty())
         }
         Err(e) => {
-            writeln!(out, "error: {e}")?;
+            say(out, &format!("error: {e}"))?;
             Ok(false)
         }
     }
 }
 
 /// `passed` of a command that reports through `out` itself, or its error written to `out`.
-fn report_passed(out: &mut impl Write, result: Result<bool, String>) -> io::Result<bool> {
+fn report_passed(out: &mut impl Write, result: Result<bool, String>) -> Result<bool, String> {
     match result {
         Ok(passed) => Ok(passed),
         Err(e) => {
-            writeln!(out, "error: {e}")?;
+            say(out, &format!("error: {e}"))?;
             Ok(false)
         }
     }

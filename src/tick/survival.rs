@@ -67,7 +67,7 @@ pub(super) const ENTITY_REACH: f64 = 8.0;
 /// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
 pub(super) const EYE_HEIGHT: f64 = 1.62;
 /// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
-const MAX_AIR: i16 = 300;
+const MAX_AIR_TICKS: i16 = 300;
 /// The largest exhaustion: BDS's `minecraft:player.exhaustion` maximum (P6; PMMP's is 5).
 const MAX_EXHAUSTION: f64 = 20.0;
 /// The longest burn in ticks (PMMP `Entity::setFireTicks` refuses more than `0x7fff`).
@@ -87,7 +87,7 @@ const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
 const MAX_SATURATION: f64 = 20.0;
 /// The lowest air supply in ticks: a player under water reaching it takes drowning damage and
 /// has 0 again (PMMP `Living::doAirSupplyTick`).
-const MIN_AIR: i16 = -20;
+const MIN_AIR_TICKS: i16 = -20;
 /// How far behind the plane its eyes look through a player reaches (PMMP `Player::canInteract`
 /// default `maxDiff`: `M_SQRT3 / 2`).
 const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
@@ -131,7 +131,7 @@ pub(super) struct Survival {
     effects: BTreeMap<effect::Type, effects::Active>,
     /// Ticks the player keeps burning, 0 to 32,767.
     fire_ticks: u16,
-    /// Air supply in ticks, [`MIN_AIR`] to the largest the API set ([`MAX_AIR`] unless changed).
+    /// Air supply in ticks, [`MIN_AIR_TICKS`] to the largest the API set ([`MAX_AIR_TICKS`] unless changed).
     air: i16,
     /// Whether the player could breathe at its last tick (the Breathing entity flag): false until
     /// its first tick, as BDS shows a new player (P6).
@@ -238,7 +238,7 @@ impl Survival {
             xp_seed: None,
             effects: BTreeMap::new(),
             fire_ticks: 0,
-            air: MAX_AIR,
+            air: MAX_AIR_TICKS,
             breathing: false,
             fall_distance: 0.0,
             spawn: None,
@@ -505,7 +505,7 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
     movement::on_auth_input(state, session, packet);
 }
 
-/// `PlayerAction`: respawn, jumping, sprinting, sneaking, sleeping, gliding…
+/// Applies a `PlayerAction`: respawn, jumping, sprinting, sneaking, sleeping, or gliding.
 pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
     movement::on_player_action(state, session, packet);
 }
@@ -1353,6 +1353,11 @@ mod tests {
     };
     use crate::tick::{Output, inventory};
 
+    /// BDS's player flags (P6 bds-game craft): the spawn window's, and with Breathing (bit 35).
+    const FLAGS: i64 = 844_424_930_656_256;
+    /// [`FLAGS`] with Breathing.
+    const FLAGS_BREATHING: i64 = FLAGS | 1 << 35;
+
     /// A server with players 1..=n spawned; session k has runtime ID k.
     struct Server {
         state: State,
@@ -1394,9 +1399,9 @@ mod tests {
         }
 
         /// An input of session `s` carrying `packet`.
-        fn send(&mut self, s: u64, packet_: Packet) -> Input {
+        fn send(&mut self, s: u64, sent: Packet) -> Input {
             self.seq += 1;
-            input(s, self.seq, packet(packet_))
+            input(s, self.seq, packet(sent))
         }
 
         /// Everything session `s` received since the last call.
@@ -1413,7 +1418,7 @@ mod tests {
             self.state.players.get_mut(&SessionId::new(s)).unwrap()
         }
 
-        fn survival(&mut self, s: u64) -> &mut Survival {
+        fn survival_mut(&mut self, s: u64) -> &mut Survival {
             &mut self.player_mut(s).survival
         }
 
@@ -1683,10 +1688,6 @@ mod tests {
             .collect()
     }
 
-    /// BDS's player flags (P6 bds-game craft): the spawn window's, and with Breathing (bit 35).
-    const FLAGS: i64 = 844_424_930_656_256;
-    const FLAGS_BREATHING: i64 = FLAGS | 1 << 35;
-
     #[test]
     fn the_breathing_flag_comes_with_the_first_tick_after_the_spawn_window_as_bds() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
@@ -1712,17 +1713,17 @@ mod tests {
         server.state.worlds[0]
             .set_block(eye, block::Kind::Water.default_state())
             .unwrap();
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         s.air = -19;
         s.attack_time = 1;
         s.last_damage = Some(7.0);
         server.idle(1);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!((s.health, s.attack_time), (20.0, 0));
         s.air = -19;
         server.idle(1);
-        let s = server.survival(1);
-        let cooldown = u32::from(crate::tick::entity::ATTACK_COOLDOWN);
+        let s = server.survival_mut(1);
+        let cooldown = u32::from(crate::tick::entity::ATTACK_COOLDOWN_TICKS);
         assert_eq!((s.health, s.attack_time), (18.0, cooldown - 1));
     }
 
@@ -1746,10 +1747,10 @@ mod tests {
             "out of breath with the first air lost"
         );
         server.idle(318);
-        assert_eq!(server.survival(1).air, -19);
-        assert_eq!(server.survival(1).health, 20.0);
+        assert_eq!(server.survival_mut(1).air, -19);
+        assert_eq!(server.survival_mut(1).health, 20.0);
         server.idle(1);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!((s.air, s.health), (0, 18.0), "drowning at -20 deals 2");
         server.state.worlds[0]
             .set_block(eye, block::Kind::Air.default_state())
@@ -1767,7 +1768,7 @@ mod tests {
             "breathing at once, 4 air back a tick"
         );
         server.idle(80);
-        assert_eq!(server.survival(1).air, 300);
+        assert_eq!(server.survival_mut(1).air, 300);
     }
 
     #[test]
@@ -1821,15 +1822,15 @@ mod tests {
         inventory::set_armor(server.player_mut(1), 1, chest);
         assert!(server.hurt(1, 10.0, Damage::Contact));
         let want = 20.0 - 10.0 * (1.0 - points * 0.04);
-        assert!((server.survival(1).health - want).abs() < 1e-9);
+        assert!((server.survival_mut(1).health - want).abs() < 1e-9);
         // Not reducible by armour: the whole hit lands.
         server.idle(10);
-        server.survival(1).health = 20.0;
+        server.survival_mut(1).health = 20.0;
         assert!(server.hurt(1, 4.0, Damage::Fall));
-        assert_eq!(server.survival(1).health, 16.0);
+        assert_eq!(server.survival_mut(1).health, 16.0);
         // Resistance II takes 40 % of what armour left.
         server.idle(10);
-        server.survival(1).health = 20.0;
+        server.survival_mut(1).health = 20.0;
         effects::add(
             &mut server.state,
             sid(1),
@@ -1838,15 +1839,15 @@ mod tests {
         );
         assert!(server.hurt(1, 10.0, Damage::Contact));
         let want = 20.0 - 10.0 * (1.0 - points * 0.04) * 0.6;
-        assert!((server.survival(1).health - want).abs() < 1e-9);
+        assert!((server.survival_mut(1).health - want).abs() < 1e-9);
         // Protection IV on the chestplate: factor 5, scaled by 50 to 100 % and rounded up.
         effects::remove(&mut server.state, sid(1), effect::Type::Resistance);
         let protected = enchanted(ItemKind::DiamondChestplate, &[(Enchantment::Protection, 4)]);
         inventory::set_armor(server.player_mut(1), 1, protected);
         server.idle(10);
-        server.survival(1).health = 20.0;
+        server.survival_mut(1).health = 20.0;
         assert!(server.hurt(1, 10.0, Damage::Magic));
-        let taken = 20.0 - server.survival(1).health;
+        let taken = 20.0 - server.survival_mut(1).health;
         assert!((10.0 * 0.8..=10.0 * 0.88).contains(&taken), "{taken}");
     }
 
@@ -1860,7 +1861,7 @@ mod tests {
             );
             inventory::set_armor(server.player_mut(1), 3, boots);
             assert!(server.hurt(1, 10.0, cause));
-            20.0 - server.survival(1).health
+            20.0 - server.survival_mut(1).health
         };
         let entity = taken(Damage::Explosion, 4);
         assert!(entity < taken(Damage::Explosion, 1), "{entity}");
@@ -1901,10 +1902,10 @@ mod tests {
         assert!(!server.hurt(1, 4.0, Damage::Contact));
         assert!(!server.hurt(1, 3.0, Damage::Contact));
         assert!(server.hurt(1, 6.0, Damage::Contact));
-        assert_eq!(server.survival(1).health, 14.0);
+        assert_eq!(server.survival_mut(1).health, 14.0);
         server.idle(10);
         assert!(server.hurt(1, 1.0, Damage::Contact));
-        assert_eq!(server.survival(1).health, 13.0);
+        assert_eq!(server.survival_mut(1).health, 13.0);
     }
 
     #[test]
@@ -1912,9 +1913,9 @@ mod tests {
         let mut server = Server::new(1, |c| c.general.gamemode = GameMode::Creative);
         assert!(!server.hurt(1, 5.0, Damage::Magic));
         let mut server = Server::new(1, |_| {});
-        server.survival(1).no_damage_ticks = 5;
+        server.survival_mut(1).no_damage_ticks = 5;
         assert!(!server.hurt(1, 5.0, Damage::Magic));
-        server.survival(1).no_damage_ticks = 0;
+        server.survival_mut(1).no_damage_ticks = 0;
         effects::add(
             &mut server.state,
             sid(1),
@@ -1934,12 +1935,12 @@ mod tests {
         let mut server = Server::new(1, |_| {});
         let speed = Active::new(100, 0);
         effects::add(&mut server.state, sid(1), effect::Type::Speed, speed);
-        server.survival(1).health = 1.0;
-        server.survival(1).fire_ticks = 21;
+        server.survival_mut(1).health = 1.0;
+        server.survival_mut(1).fire_ticks = 21;
         server.idle(1);
         assert!(!is_alive(server.player(1)));
         let left = server
-            .survival(1)
+            .survival_mut(1)
             .effects
             .get(&effect::Type::Speed)
             .copied();
@@ -2024,11 +2025,11 @@ mod tests {
     #[test]
     fn the_last_invulnerable_tick_keeps_the_fire_off() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).no_damage_ticks = 1;
-        server.survival(1).fire_ticks = 21;
+        server.survival_mut(1).no_damage_ticks = 1;
+        server.survival_mut(1).fire_ticks = 21;
         damage::base_tick(&mut server.state, sid(1));
-        assert_eq!(server.survival(1).health, 20.0);
-        assert_eq!(server.survival(1).no_damage_ticks, 0);
+        assert_eq!(server.survival_mut(1).health, 20.0);
+        assert_eq!(server.survival_mut(1).no_damage_ticks, 0);
     }
 
     /// Puts player 2 one block south of player 1, facing it, and returns the server.
@@ -2036,7 +2037,7 @@ mod tests {
         let mut server = Server::new(2, edit);
         let base = server.player(1).position;
         server.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
-        server.survival(1).motion.yaw = 0.0;
+        server.survival_mut(1).motion.yaw = 0.0;
         server.idle(1);
         server.take(1);
         server.take(2);
@@ -2078,7 +2079,7 @@ mod tests {
             (Damage::Custom, 0),
         ] {
             server.idle(20);
-            server.survival(2).health = 20.0;
+            server.survival_mut(2).health = 20.0;
             server.take(2);
             assert!(damage(&mut server.state, sid(2), 1.0, cause), "{cause:?}");
             server.idle(1);
@@ -2093,7 +2094,7 @@ mod tests {
         let points = f64::from(sword.item().unwrap().attack_points());
         inventory::set_held(server.player_mut(1), sword);
         attack_player(&mut server.state, sid(1), sid(2));
-        assert_eq!(server.survival(2).health, 20.0 - points);
+        assert_eq!(server.survival_mut(2).health, 20.0 - points);
         server.idle(1);
         let target = server.take(2);
         assert!(
@@ -2107,18 +2108,18 @@ mod tests {
         )));
         // A falling attacker lands a critical hit: half again.
         server.idle(10);
-        server.survival(2).health = 20.0;
-        server.survival(1).fall_distance = 1.0;
+        server.survival_mut(2).health = 20.0;
+        server.survival_mut(1).fall_distance = 1.0;
         attack_player(&mut server.state, sid(1), sid(2));
-        assert_eq!(server.survival(2).health, 20.0 - points * 1.5);
+        assert_eq!(server.survival_mut(2).health, 20.0 - points * 1.5);
         // Sharpness I adds 1.
         server.idle(10);
-        server.survival(2).health = 20.0;
-        server.survival(1).fall_distance = 0.0;
+        server.survival_mut(2).health = 20.0;
+        server.survival_mut(1).fall_distance = 0.0;
         let sharp = enchanted(ItemKind::DiamondSword, &[(Enchantment::Sharpness, 1)]);
         inventory::set_held(server.player_mut(1), sharp);
         attack_player(&mut server.state, sid(1), sid(2));
-        assert_eq!(server.survival(2).health, 20.0 - points - 1.0);
+        assert_eq!(server.survival_mut(2).health, 20.0 - points - 1.0);
     }
 
     /// An attack on a dead player does nothing: no swing, no sound (PMMP `Player::attackEntity`
@@ -2153,7 +2154,7 @@ mod tests {
             effect::Type::Weakness,
             Active::new(100, 4),
         );
-        server.survival(1).fall_distance = 1.0;
+        server.survival_mut(1).fall_distance = 1.0;
         server.idle(1);
         server.take(1);
         attack_player(&mut server.state, sid(1), sid(2));
@@ -2177,7 +2178,7 @@ mod tests {
             );
             attack_player(&mut server.state, sid(1), sid(2));
             assert!(
-                server.survival(2).health > 20.0 - 8.0,
+                server.survival_mut(2).health > 20.0 - 8.0,
                 "the armour protects"
             );
             let worn = (
@@ -2195,7 +2196,7 @@ mod tests {
         let mut server = duel(|_| {});
         inventory::set_held(server.player_mut(1), stack(ItemKind::Trident, 1));
         attack_player(&mut server.state, sid(1), sid(2));
-        assert!(server.survival(2).health < 20.0, "the hit landed");
+        assert!(server.survival_mut(2).health < 20.0, "the hit landed");
         assert_eq!(server.player(1).inventory.held().damage(), 1);
     }
 
@@ -2203,27 +2204,27 @@ mod tests {
     fn attacks_need_pvp_reach_and_a_living_target() {
         let mut server = duel(|c| c.general.pvp = false);
         attack_player(&mut server.state, sid(1), sid(2));
-        assert_eq!(server.survival(2).health, 20.0);
+        assert_eq!(server.survival_mut(2).health, 20.0);
         let mut server = duel(|_| {});
         let far = server.player(1).position + Vec3::new(0.0, 0.0, 9.0);
         server.player_mut(2).position = far;
         attack_player(&mut server.state, sid(1), sid(2));
-        assert_eq!(server.survival(2).health, 20.0);
+        assert_eq!(server.survival_mut(2).health, 20.0);
         let behind = server.player(1).position + Vec3::new(0.0, 0.0, -2.0);
         server.player_mut(2).position = behind;
         attack_player(&mut server.state, sid(1), sid(2));
-        assert_eq!(server.survival(2).health, 20.0);
+        assert_eq!(server.survival_mut(2).health, 20.0);
         attack_player(&mut server.state, sid(1), sid(1));
-        assert_eq!(server.survival(1).health, 20.0);
+        assert_eq!(server.survival_mut(1).health, 20.0);
     }
 
     #[test]
     fn a_full_bar_heals_every_80_ticks_for_6_exhaustion() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).health = 10.0;
-        let timer = server.survival(1).food_timer;
+        server.survival_mut(1).health = 10.0;
+        let timer = server.survival_mut(1).food_timer;
         server.idle(80 - timer % 80);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!(s.health, 11.0);
         assert_eq!((s.saturation, s.exhaustion), (4.0, 2.0));
     }
@@ -2231,31 +2232,31 @@ mod tests {
     #[test]
     fn an_empty_bar_starves_down_to_the_difficulty_floor() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).food = 0.0;
-        server.survival(1).saturation = 0.0;
-        server.survival(1).food_timer = 0;
+        server.survival_mut(1).food = 0.0;
+        server.survival_mut(1).saturation = 0.0;
+        server.survival_mut(1).food_timer = 0;
         server.idle(80);
-        assert_eq!(server.survival(1).health, 19.0);
-        server.survival(1).health = 1.0;
+        assert_eq!(server.survival_mut(1).health, 19.0);
+        server.survival_mut(1).health = 1.0;
         server.idle(80);
-        assert_eq!(server.survival(1).health, 1.0, "normal stops at 1");
+        assert_eq!(server.survival_mut(1).health, 1.0, "normal stops at 1");
         let mut easy = Server::new(1, |c| c.general.difficulty = Difficulty::Easy);
-        easy.survival(1).food = 0.0;
-        easy.survival(1).saturation = 0.0;
-        easy.survival(1).health = 10.0;
-        easy.survival(1).food_timer = 0;
+        easy.survival_mut(1).food = 0.0;
+        easy.survival_mut(1).saturation = 0.0;
+        easy.survival_mut(1).health = 10.0;
+        easy.survival_mut(1).food_timer = 0;
         easy.idle(160);
-        assert_eq!(easy.survival(1).health, 10.0, "easy stops at 10");
+        assert_eq!(easy.survival_mut(1).health, 10.0, "easy stops at 10");
     }
 
     #[test]
     fn peaceful_refills_food_and_health() {
         let mut server = Server::new(1, |c| c.general.difficulty = Difficulty::Peaceful);
-        server.survival(1).food = 10.0;
-        server.survival(1).health = 10.0;
-        server.survival(1).food_timer = 0;
+        server.survival_mut(1).food = 10.0;
+        server.survival_mut(1).health = 10.0;
+        server.survival_mut(1).food_timer = 0;
         server.idle(20);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!(s.food, 12.0);
         assert_eq!(s.health, 11.0);
     }
@@ -2265,18 +2266,18 @@ mod tests {
     fn peaceful_fills_food_no_higher_than_twenty() {
         let mut server = Server::new(1, |c| c.general.difficulty = Difficulty::Peaceful);
         server.player_mut(1).set_food(19.5).unwrap();
-        server.survival(1).food_timer = 9;
+        server.survival_mut(1).food_timer = 9;
         server.idle(1);
-        assert_eq!(server.survival(1).food, MAX_FOOD);
+        assert_eq!(server.survival_mut(1).food, MAX_FOOD);
     }
 
     #[test]
     fn hunger_off_freezes_food_and_exhaustion() {
         let mut server = Server::new(1, |c| c.general.hunger = false);
-        server.survival(1).food = 10.0;
+        server.survival_mut(1).food = 10.0;
         server.idle(200);
         exhaust(server.player_mut(1), 40.0);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!((s.food, s.exhaustion, s.saturation), (10.0, 0.0, 5.0));
     }
 
@@ -2294,7 +2295,7 @@ mod tests {
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(auth)));
         server.run(vec![input]);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert!(s.motion.sprinting);
         // 0.2 for the sprint jump, 0.01 per block sprinted (2 blocks).
         assert!((s.exhaustion - 0.22).abs() < 1e-6, "{}", s.exhaustion);
@@ -2324,7 +2325,7 @@ mod tests {
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(near)));
         server.run(vec![input]);
         assert_eq!(server.player(1).position, start);
-        server.survival(1).motion.force_sync = false;
+        server.survival_mut(1).motion.force_sync = false;
         let up = p::PlayerAuthInput {
             position: (start + Vec3::new(0.0, 5.0, 0.0)).to_f32(),
             tick: 1,
@@ -2339,8 +2340,8 @@ mod tests {
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(down)));
         server.run(vec![input]);
-        assert_eq!(server.survival(1).health, 18.0);
-        assert_eq!(server.survival(1).fall_distance, 0.0);
+        assert_eq!(server.survival_mut(1).health, 18.0);
+        assert_eq!(server.survival_mut(1).fall_distance, 0.0);
     }
 
     /// Clearing the effects removes them in effect ID order, each removal carrying the effect's
@@ -2407,7 +2408,7 @@ mod tests {
     #[test]
     fn effects_tick_at_pmmp_intervals_and_end() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).food = 17.0;
+        server.survival_mut(1).food = 17.0;
         effects::add(
             &mut server.state,
             sid(1),
@@ -2415,8 +2416,8 @@ mod tests {
             Active::new(100, 0),
         );
         server.idle(100);
-        assert_eq!(server.survival(1).health, 16.0, "poison every 25 ticks");
-        assert!(server.survival(1).effects.is_empty());
+        assert_eq!(server.survival_mut(1).health, 16.0, "poison every 25 ticks");
+        assert!(server.survival_mut(1).effects.is_empty());
         let sent = server.take(1);
         assert!(sent.iter().any(|p| matches!(
             p,
@@ -2426,7 +2427,7 @@ mod tests {
             p,
             Packet::MobEffect(m) if m.operation == u8::from(MobEffectOperation::Remove)
         )));
-        server.survival(1).health = 10.0;
+        server.survival_mut(1).health = 10.0;
         effects::add(
             &mut server.state,
             sid(1),
@@ -2435,7 +2436,7 @@ mod tests {
         );
         server.idle(100);
         assert_eq!(
-            server.survival(1).health,
+            server.survival_mut(1).health,
             12.0,
             "regeneration every 50 ticks"
         );
@@ -2446,34 +2447,38 @@ mod tests {
             Active::new(1, 1),
         );
         server.idle(1);
-        assert_eq!(server.survival(1).health, 20.0, "instant health II heals 8");
+        assert_eq!(
+            server.survival_mut(1).health,
+            20.0,
+            "instant health II heals 8"
+        );
         effects::add(
             &mut server.state,
             sid(1),
             effect::Type::HealthBoost,
             Active::new(20, 0),
         );
-        assert_eq!(server.survival(1).max_health(), 24.0);
+        assert_eq!(server.survival_mut(1).max_health(), 24.0);
         effects::add(
             &mut server.state,
             sid(1),
             effect::Type::Absorption,
             Active::new(20, 1),
         );
-        assert_eq!(server.survival(1).absorption, 8.0);
+        assert_eq!(server.survival_mut(1).absorption, 8.0);
         server.idle(20);
-        assert_eq!(server.survival(1).max_health(), 20.0);
-        assert_eq!(server.survival(1).absorption, 0.0);
+        assert_eq!(server.survival_mut(1).max_health(), 20.0);
+        assert_eq!(server.survival_mut(1).absorption, 0.0);
     }
 
     #[test]
     fn experience_levels_follow_the_pmmp_formula() {
         let mut server = Server::new(1, |_| {});
         add_experience(server.player_mut(1), 7);
-        assert_eq!(server.survival(1).xp_level, 1);
+        assert_eq!(server.survival_mut(1).xp_level, 1);
         add_experience(server.player_mut(1), 345);
-        assert_eq!(server.survival(1).xp_level, 16);
-        assert_eq!(server.survival(1).xp_lifetime, 352);
+        assert_eq!(server.survival_mut(1).xp_level, 16);
+        assert_eq!(server.survival_mut(1).xp_lifetime, 352);
         server.idle(1);
         assert!(
             server
@@ -2488,23 +2493,30 @@ mod tests {
     #[test]
     fn eating_takes_the_eating_time_and_restores_food() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).food = 10.0;
-        server.survival(1).saturation = 0.0;
+        server.survival_mut(1).food = 10.0;
+        server.survival_mut(1).saturation = 0.0;
         inventory::set_held(server.player_mut(1), stack(ItemKind::Bread, 3));
         assert!(start_eating(&mut server.state, sid(1)));
-        assert!(server.survival(1).using.is_some());
+        assert!(server.survival_mut(1).using.is_some());
         server.idle(5);
         assert!(finish_eating(&mut server.state, sid(1)));
-        assert_eq!(server.survival(1).food, 10.0, "too early: nothing eaten");
+        assert_eq!(
+            server.survival_mut(1).food,
+            10.0,
+            "too early: nothing eaten"
+        );
         assert!(start_eating(&mut server.state, sid(1)));
         server.idle(32);
         assert!(finish_eating(&mut server.state, sid(1)));
         let bread = ItemKind::Bread.default_type().food().unwrap();
         assert_eq!(
-            server.survival(1).food,
+            server.survival_mut(1).food,
             10.0 + f64::from(bread.food_restore())
         );
-        assert_eq!(server.survival(1).saturation, bread.saturation_restore());
+        assert_eq!(
+            server.survival_mut(1).saturation,
+            bread.saturation_restore()
+        );
         assert_eq!(server.player(1).inventory.held().count(), 2);
         inventory::set_held(server.player_mut(1), stack(ItemKind::DiamondSword, 1));
         assert!(!start_eating(&mut server.state, sid(1)));
@@ -2515,17 +2527,21 @@ mod tests {
     #[test]
     fn a_honey_bottle_needs_the_clients_drinking_time() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).food = 10.0;
+        server.survival_mut(1).food = 10.0;
         inventory::set_held(server.player_mut(1), stack(ItemKind::HoneyBottle, 1));
         assert!(start_eating(&mut server.state, sid(1)));
         server.idle(25);
         assert!(finish_eating(&mut server.state, sid(1)));
-        assert_eq!(server.survival(1).food, 10.0, "too early: nothing drunk");
+        assert_eq!(
+            server.survival_mut(1).food,
+            10.0,
+            "too early: nothing drunk"
+        );
         assert_eq!(server.player(1).inventory.held().count(), 1);
         assert!(start_eating(&mut server.state, sid(1)));
         server.idle(30);
         assert!(finish_eating(&mut server.state, sid(1)));
-        assert!(server.survival(1).food > 10.0);
+        assert!(server.survival_mut(1).food > 10.0);
         let glass_bottle = ItemKind::GlassBottle.default_type();
         assert_eq!(server.player(1).inventory.held().item(), Some(glass_bottle));
     }
@@ -2601,8 +2617,8 @@ mod tests {
         server.idle(1);
         server.take(1);
         assert!(server.hurt(1, 100.0, Damage::Magic));
-        assert!(server.survival(1).is_dead());
-        assert_eq!(server.survival(1).xp_level, 0);
+        assert!(server.survival_mut(1).is_dead());
+        assert_eq!(server.survival_mut(1).xp_level, 0);
         server.idle(1);
         let death = server.take(1);
         let searching = death.iter().any(|p| {
@@ -2638,7 +2654,7 @@ mod tests {
         };
         let input = server.send(1, Packet::PlayerAction(action));
         server.run(vec![input]);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!(
             (s.health, s.food, s.saturation, s.no_damage_ticks > 0),
             (20.0, 20.0, 5.0, true)
@@ -2808,8 +2824,8 @@ mod tests {
         assert_eq!(healths(&server.take(1)), health(19.0));
         server.idle(100);
         server.take(1);
-        server.survival(2).no_damage_ticks = 0;
-        server.survival(2).attack_time = 0;
+        server.survival_mut(2).no_damage_ticks = 0;
+        server.survival_mut(2).attack_time = 0;
         assert!(server.hurt(2, 100.0, Damage::Magic));
         server.idle(1);
         assert_eq!(healths(&server.take(1)), health(0.0));
@@ -2839,7 +2855,7 @@ mod tests {
         let spawn = BlockPos::new(0, -60, 0);
         let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
         server.state.add_world(other);
-        server.survival(1).spawn = Some(Point {
+        server.survival_mut(1).spawn = Some(Point {
             world: "other".to_owned(),
             pos: BlockPos::new(2, -60, 2),
         });
@@ -2983,13 +2999,13 @@ mod tests {
         server.state.worlds[0].set_time(13_000);
         assert!(sleep(&mut server.state, sid(1), 0, foot));
         assert!(!sleep(&mut server.state, sid(1), 0, foot), "already asleep");
-        assert_eq!(server.survival(1).sleeping, Some(head));
+        assert_eq!(server.survival_mut(1).sleeping, Some(head));
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, true)));
         assert_eq!(server.state.worlds[0].block(foot), Some(bed(false, true)));
         server.idle(60);
         let time = server.state.worlds[0].time_ticks();
         assert_eq!(time % 24_000, 0, "{time}");
-        assert_eq!(server.survival(1).sleeping, None);
+        assert_eq!(server.survival_mut(1).sleeping, None);
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
         assert!(
             server
@@ -2997,7 +3013,7 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Packet::Animate(_)))
         );
-        let spawn_point = server.survival(1).spawn.clone().map(|p| p.pos);
+        let spawn_point = server.survival_mut(1).spawn.clone().map(|p| p.pos);
         assert_eq!(spawn_point, Some(head));
     }
 
@@ -3047,9 +3063,12 @@ mod tests {
         assert!(!cx.sleep_on(one, foot), "already asleep");
         assert!(!cx.sleep_on(two, head), "occupied");
         assert!(!cx.sleep_on(Id::new(sid(9)), head), "gone");
-        assert_eq!(server.survival(1).sleeping, Some(head));
+        assert_eq!(server.survival_mut(1).sleeping, Some(head));
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, true)));
-        assert_eq!(server.survival(1).spawn.clone().map(|p| p.pos), Some(head));
+        assert_eq!(
+            server.survival_mut(1).spawn.clone().map(|p| p.pos),
+            Some(head)
+        );
     }
 
     #[test]
@@ -3074,7 +3093,7 @@ mod tests {
             "player 2 is awake"
         );
         assert!(server.hurt(1, 1.0, Damage::Magic));
-        assert_eq!(server.survival(1).sleeping, None);
+        assert_eq!(server.survival_mut(1).sleeping, None);
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
     }
 
@@ -3091,9 +3110,9 @@ mod tests {
             .set_block(head, bed(true, true))
             .unwrap();
         // As loaded from a snapshot taken while the player slept.
-        server.survival(1).sleeping = Some(head);
+        server.survival_mut(1).sleeping = Some(head);
         server.idle(1);
-        assert_eq!(server.survival(1).sleeping, None);
+        assert_eq!(server.survival_mut(1).sleeping, None);
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
         assert_eq!(server.state.worlds[0].block(foot), Some(bed(false, false)));
     }
@@ -3237,7 +3256,7 @@ mod tests {
         a.idle(5);
         assert_eq!(enchantment_seed(a.player(1)), seed);
         let mut extra = Compound::new();
-        save(b.survival(1), &mut extra);
+        save(b.survival_mut(1), &mut extra);
         assert_eq!(extra.get("XpSeed"), Some(&crate::nbt::Value::Int(seed)));
     }
 
@@ -3256,7 +3275,7 @@ mod tests {
         assert_eq!(server.state.clock.worlds_len(), 1);
         assert!(server.state.worlds[0].time_ticks() > clocks);
         assert!(server.player(1).outbox.is_empty());
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert!(s.held_back.is_empty() && s.cooldowns.is_empty() && s.effects.is_empty());
         assert!(server.state.index_matches_players());
     }
@@ -3392,14 +3411,14 @@ mod tests {
             magic: false,
         };
         assert_eq!(melee(&server.state, sid(1)), Some(plain));
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         s.effects
             .insert(effect::Type::Strength, Active::new(100, 1));
         s.fall_distance = 1.0;
         let m = melee(&server.state, sid(1)).unwrap();
         assert!(m.critical && !m.magic);
         assert!((m.damage - 1.6 * 1.5).abs() < 1e-9, "{}", m.damage);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         s.effects
             .insert(effect::Type::Weakness, Active::new(100, 0));
         let m = melee(&server.state, sid(1)).unwrap();
@@ -3413,7 +3432,7 @@ mod tests {
     #[test]
     fn a_critical_hit_of_nothing_is_not_critical() {
         let mut server = Server::new(1, |_| {});
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         s.effects
             .insert(effect::Type::Weakness, Active::new(100, 4));
         s.fall_distance = 1.0;
@@ -3426,16 +3445,20 @@ mod tests {
     #[test]
     fn heal_burn_and_the_hit_cooldown_follow_pmmp() {
         let mut server = Server::new(1, |_| {});
-        server.survival(1).health = 10.0;
+        server.survival_mut(1).health = 10.0;
         heal(&mut server.state, sid(1), 4.0);
-        assert_eq!(server.survival(1).health, 14.0);
+        assert_eq!(server.survival_mut(1).health, 14.0);
         heal(&mut server.state, sid(1), 100.0);
-        assert_eq!(server.survival(1).health, 20.0, "up to the maximum");
+        assert_eq!(server.survival_mut(1).health, 20.0, "up to the maximum");
         let fire = CombustSource::Block(BlockPos::new(0, -60, 0));
         set_on_fire_by(&mut server.state, sid(1), 5, fire);
-        assert_eq!(server.survival(1).fire_ticks, 100);
+        assert_eq!(server.survival_mut(1).fire_ticks, 100);
         set_on_fire_by(&mut server.state, sid(1), 2, fire);
-        assert_eq!(server.survival(1).fire_ticks, 100, "a longer burn stays");
+        assert_eq!(
+            server.survival_mut(1).fire_ticks,
+            100,
+            "a longer burn stays"
+        );
         assert!(!has_attack_cooldown(server.player(1)));
         assert!(server.hurt(1, 1.0, Damage::Entity));
         assert!(has_attack_cooldown(server.player(1)));
@@ -3446,7 +3469,7 @@ mod tests {
     #[test]
     fn the_contract_reads_follow_the_player_and_the_world() {
         let mut server = Server::new(1, |_| {});
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         s.motion.flying = true;
         s.motion.sneaking = true;
         s.motion.sneak_pressed = true;
@@ -3487,10 +3510,10 @@ mod tests {
         let mut server = Server::new(1, |_| {});
         server.take(1);
         assert!(!eat_cake(&mut server.state, sid(1)), "full");
-        server.survival(1).food = 10.0;
-        server.survival(1).saturation = 0.0;
+        server.survival_mut(1).food = 10.0;
+        server.survival_mut(1).saturation = 0.0;
         assert!(eat_cake(&mut server.state, sid(1)));
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert_eq!(s.food, 12.0);
         assert!((s.saturation - 0.4).abs() < 1e-12);
         server.idle(1);
@@ -3526,7 +3549,7 @@ mod tests {
             "stronger"
         );
         assert_eq!(
-            server.survival(1).effects[&effect::Type::Speed],
+            server.survival_mut(1).effects[&effect::Type::Speed],
             Active::new(10, 2)
         );
         server.idle(1);
@@ -3544,10 +3567,10 @@ mod tests {
             effect::Instance::new(effect::Type::HealthBoost, 600, amplifier, true, false)
         };
         assert!(add_effect(&mut server.state, sid(1), boost(1)));
-        server.survival(1).health = 28.0;
+        server.survival_mut(1).health = 28.0;
         assert!(add_effect(&mut server.state, sid(1), boost(2)));
-        assert_eq!(server.survival(1).health, 20.0);
-        assert_eq!(server.survival(1).max_health(), 32.0);
+        assert_eq!(server.survival_mut(1).health, 20.0);
+        assert_eq!(server.survival_mut(1).max_health(), 32.0);
     }
 
     #[test]
@@ -3562,7 +3585,7 @@ mod tests {
             server.idle(1);
             server.take(1);
             assert!(server.hurt(1, 100.0, Damage::Magic));
-            let s = server.survival(1);
+            let s = server.survival_mut(1);
             assert_eq!(s.health, 1.0, "the totem leaves one health");
             assert_eq!(s.absorption, 8.0);
             for (effect, amplifier, duration) in [
@@ -3591,7 +3614,7 @@ mod tests {
         let mut server = Server::new(1, |_| {});
         inventory::set_offhand(server.player_mut(1), stack(ItemKind::Totem, 1));
         assert!(server.hurt(1, 100.0, Damage::Void));
-        assert!(server.survival(1).is_dead());
+        assert!(server.survival_mut(1).is_dead());
     }
 
     #[test]
@@ -3606,7 +3629,7 @@ mod tests {
         // 3 points repair 6 durability and are used up.
         assert!(pickup_experience(&mut server.state, sid(1), 3));
         assert_eq!(server.player(1).inventory.held().damage(), 4);
-        assert_eq!(food::current_xp(server.survival(1)), 0);
+        assert_eq!(food::current_xp(server.survival_mut(1)), 0);
         assert!(
             !pickup_experience(&mut server.state, sid(1), 3),
             "the pickup cooldown"
@@ -3615,7 +3638,7 @@ mod tests {
         // 5 points: 4 durability left to repair takes 2 points; 3 are experience.
         assert!(pickup_experience(&mut server.state, sid(1), 5));
         assert_eq!(server.player(1).inventory.held().damage(), 0);
-        assert_eq!(food::current_xp(server.survival(1)), 3);
+        assert_eq!(food::current_xp(server.survival_mut(1)), 3);
         server.idle(1);
         let sent = server.take(1);
         assert!(level_events(&sent).contains(&i32::from(LevelEvent::SoundExperienceOrbPickup)));
@@ -3626,12 +3649,12 @@ mod tests {
         inventory::set_held(server.player_mut(1), Stack::EMPTY);
         inventory::set_armor(server.player_mut(1), 0, helmet);
         add_experience(server.player_mut(1), 38);
-        assert_eq!(server.survival(1).xp_level, 4);
+        assert_eq!(server.survival_mut(1).xp_level, 4);
         server.idle(3);
         server.take(1);
         assert!(pickup_experience(&mut server.state, sid(1), 20));
         assert_eq!(server.player(1).inventory.armor()[0].damage(), 0);
-        assert_eq!(server.survival(1).xp_level, 5);
+        assert_eq!(server.survival_mut(1).xp_level, 5);
         server.idle(1);
         assert_eq!(sounds(&server.take(1)), ["levelup"]);
         // Dead players pick nothing up.
@@ -3648,7 +3671,7 @@ mod tests {
         inventory::set_held(server.player_mut(1), Stack::new(antidote, 1));
         assert!(start_eating(&mut server.state, sid(1)));
         assert!(
-            server.survival(1).using.is_none(),
+            server.survival_mut(1).using.is_none(),
             "not poisoned: nothing to drink"
         );
         effects::add(
@@ -3666,7 +3689,7 @@ mod tests {
         assert!(start_eating(&mut server.state, sid(1)));
         server.idle(32);
         assert!(finish_eating(&mut server.state, sid(1)));
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert!(!s.effects.contains_key(&effect::Type::Poison));
         assert!(s.effects.contains_key(&effect::Type::Blindness));
         let held = server.player(1).inventory.held().item().unwrap();
@@ -3688,7 +3711,7 @@ mod tests {
             let below = BlockPos::new(below.x, below.y - 1, below.z);
             let farmland = block::Kind::Farmland.default_state();
             server.state.worlds[0].set_block(below, farmland).unwrap();
-            server.survival(1).motion.force_sync = false;
+            server.survival_mut(1).motion.force_sync = false;
             for (i, y) in [fall, 0.0].into_iter().enumerate() {
                 let auth = p::PlayerAuthInput {
                     position: (start + Vec3::new(0.0, y, 0.0)).to_f32(),
@@ -3700,7 +3723,7 @@ mod tests {
             }
             let now = server.state.worlds[0].block(below).unwrap();
             assert_eq!(now == block::DIRT, trampled, "fall {fall}");
-            assert_eq!(server.survival(1).fall_distance, 0.0);
+            assert_eq!(server.survival_mut(1).fall_distance, 0.0);
             assert!(
                 sounds(&server.take(1)).contains(&sound.to_owned()),
                 "{fall}"
@@ -3716,13 +3739,13 @@ mod tests {
             .set_block(at, block::Kind::Cactus.default_state())
             .unwrap();
         server.idle(1);
-        assert_eq!(server.survival(1).health, 19.0, "cactus pricks for 1");
+        assert_eq!(server.survival_mut(1).health, 19.0, "cactus pricks for 1");
         server.idle(10);
         server.state.worlds[0]
             .set_block(at, block::Kind::Lava.default_state())
             .unwrap();
         server.idle(1);
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert!(s.health <= 15.0, "lava burns for 4: {}", s.health);
         assert!(s.fire_ticks > 0);
     }
@@ -3741,10 +3764,10 @@ mod tests {
         ] {
             let mut server = Server::new(1, |_| {});
             let at = BlockPos::containing(feet(server.player(1)));
-            server.survival(1).health = 1.0;
+            server.survival_mut(1).health = 1.0;
             server.state.worlds[0].set_block(at, block).unwrap();
             server.idle(1);
-            assert!(server.survival(1).is_dead(), "{want}");
+            assert!(server.survival_mut(1).is_dead(), "{want}");
             let died = server
                 .take(1)
                 .into_iter()
@@ -3911,11 +3934,11 @@ mod tests {
     fn teleports_move_the_view_reset_the_fall_and_cross_worlds() {
         let mut server = Server::new(2, |_| {});
         let held = server.state.chunks.held();
-        server.survival(1).fall_distance = 7.0;
+        server.survival_mut(1).fall_distance = 7.0;
         let near = server.player(1).position + Vec3::new(20.0, 0.0, 0.0);
         teleport(&mut server.state, sid(1), 0, near);
         assert_eq!(server.player(1).position, near);
-        assert_eq!(server.survival(1).fall_distance, 0.0);
+        assert_eq!(server.survival_mut(1).fall_distance, 0.0);
         let teleported = |packets: &[Packet]| {
             packets.iter().any(|p| {
                 matches!(p, Packet::MovePlayer(m)
@@ -3932,7 +3955,7 @@ mod tests {
         teleport(&mut server.state, sid(1), 0, far);
         server.idle(4);
         let chunk = crate::tick::view::chunk_of(far);
-        assert!(server.player(1).view.sees(chunk));
+        assert!(server.player(1).view.can_see(chunk));
         // Out of the world or into no world: nothing happens.
         teleport(&mut server.state, sid(1), 0, Vec3::new(f64::NAN, 0.0, 0.0));
         teleport(&mut server.state, sid(1), 0, Vec3::new(4.0e7, 0.0, 0.0));
@@ -3948,13 +3971,13 @@ mod tests {
         teleport(&mut server.state, sid(1), 1, there);
         assert_eq!(server.player(1).world, 1);
         assert_eq!(server.player(1).position, there);
-        assert!(!server.player(1).view.sees(chunk));
+        assert!(!server.player(1).view.can_see(chunk));
         server.idle(4);
         assert!(
             server
                 .player(1)
                 .view
-                .sees(crate::tick::view::chunk_of(there))
+                .can_see(crate::tick::view::chunk_of(there))
         );
         let sent = server.take(1);
         assert!(sent.iter().any(|p| matches!(
@@ -4069,7 +4092,7 @@ mod tests {
         let spawn = BlockPos::new(0, -60, 0);
         let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
         server.state.add_world(other);
-        server.survival(1).spawn = Some(Point {
+        server.survival_mut(1).spawn = Some(Point {
             world: "other".to_owned(),
             pos: BlockPos::new(2, -60, 2),
         });
@@ -4080,7 +4103,7 @@ mod tests {
         assert_eq!(p.position, Vec3::new(2.5, -60.0 + EYE_HEIGHT, 2.5));
         assert!(!p.survival.is_dead());
         // A spawn point in a world the server does not run: the default world's spawn.
-        server.survival(1).spawn = Some(Point {
+        server.survival_mut(1).spawn = Some(Point {
             world: "gone".to_owned(),
             pos: BlockPos::new(2, -60, 2),
         });
@@ -4134,9 +4157,9 @@ mod tests {
         assert_eq!(again, read.extra, "saved again byte for byte");
         // Once the world takes them, every item drops.
         let mut server = Server::new(1, |_| {});
-        server.survival(1).held_back = loaded.held_back;
+        server.survival_mut(1).held_back = loaded.held_back;
         server.idle(3);
-        assert!(server.survival(1).held_back.is_empty());
+        assert!(server.survival_mut(1).held_back.is_empty());
         let dropped: u32 = all(&server.take(1), |p| match p {
             Packet::AddItemActor(a) => Some(u32::from(a.item.stack.count)),
             _ => None,
@@ -4180,7 +4203,7 @@ mod tests {
         assert_eq!(server.state.clock.worlds_len(), 1);
         assert_eq!(server.state.chunks.held(), held);
         assert!(server.player(1).outbox.is_empty());
-        let s = server.survival(1);
+        let s = server.survival_mut(1);
         assert!(s.held_back.is_empty() && s.cooldowns.is_empty() && s.effects.is_empty());
     }
 }

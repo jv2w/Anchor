@@ -6,15 +6,14 @@
 //! from. A liquid that needs a block of a chunk that is not loaded waits a tick rate and tries
 //! again (PMMP reads air there).
 
-use super::Cx;
+use super::Rule;
 use crate::block::{self, Class, Face, Kind, PropertyValue};
 use crate::event::BlockSpread;
 use crate::world::{BlockPos, MAX_Y, MIN_Y};
 
 /// The side of the [`Visited`] grid.
 const GRID: usize = 2 * REACH as usize + 1;
-/// Water's and lava's scheduled update delays (PMMP `Water::tickRate`, `Lava::tickRate` outside
-/// the nether).
+/// Lava's scheduled update delay (PMMP `Lava::tickRate` outside the nether).
 pub(in crate::tick) const LAVA_TICK_RATE: u32 = 30;
 /// The highest decay (PMMP `Liquid::MAX_DECAY`).
 const MAX_DECAY: i32 = 7;
@@ -23,6 +22,7 @@ const NO_WAY_DOWN: i32 = 1000;
 /// How far from a liquid the rules read: the flow cost search goes four blocks out, one more to
 /// look down.
 const REACH: i32 = 5;
+/// Water's scheduled update delay (PMMP `Water::tickRate`).
 pub(in crate::tick) const WATER_TICK_RATE: u32 = 5;
 
 /// A liquid block as PMMP models it.
@@ -157,30 +157,30 @@ impl Visited {
 
 /// Runs PMMP's `Liquid::onNearbyBlockChange`: lava may harden; otherwise the liquid schedules a
 /// flow.
-pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn on_nearby(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(liquid) = Liquid::of(block) else {
         return;
     };
-    if !cx.is_area_loaded(pos, REACH) || !harden(cx, pos, liquid) {
-        cx.schedule(pos, liquid.tick_rate());
+    if !rule.is_area_loaded(pos, REACH) || !harden(rule, pos, liquid) {
+        rule.schedule(pos, liquid.tick_rate());
     }
 }
 
 /// Runs PMMP's `Liquid::onScheduledUpdate`: a liquid that is no source settles ([`settle`]),
 /// then the liquid flows down and, when it is a source or cannot go down, to the sides with the
 /// cheapest way down.
-pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn on_scheduled(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(mut this) = Liquid::of(block) else {
         return;
     };
-    if !cx.is_area_loaded(pos, REACH) {
-        cx.schedule(pos, this.tick_rate());
+    if !rule.is_area_loaded(pos, REACH) {
+        rule.schedule(pos, this.tick_rate());
         return;
     }
     let per_block = this.decay_per_block();
     if !this.is_source() {
-        let Some((decay, falling)) = settle(cx, pos, this, per_block) else {
-            cx.set(pos, block::AIR);
+        let Some((decay, falling)) = settle(rule, pos, this, per_block) else {
+            rule.set(pos, block::AIR);
             return;
         };
         let changed = falling != this.falling || (!falling && decay != this.decay);
@@ -193,12 +193,12 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
                 decay,
                 falling,
             };
-            cx.set(pos, state);
+            rule.set(pos, state);
         }
     }
-    let (below, bottom) = at(cx, pos, 0, -1, 0);
+    let (below, bottom) = at(rule, pos, 0, -1, 0);
     if let Some(b) = below {
-        flow_into(cx, (pos, this), b, bottom, 0, true);
+        flow_into(rule, (pos, this), b, bottom, 0, true);
     }
     if this.is_source() || !bottom.can_be_flowed_into() {
         // Falling liquid spreads to the sides like a source does.
@@ -208,15 +208,15 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
             this.decay + per_block
         };
         if side_decay <= MAX_DECAY {
-            for face in optimal_directions(cx, pos, per_block) {
+            for face in optimal_directions(rule, pos, per_block) {
                 let (dx, dy, dz) = face.offset();
-                if let (Some(p), s) = at(cx, pos, dx, dy, dz) {
-                    flow_into(cx, (pos, this), p, s, side_decay, false);
+                if let (Some(p), s) = at(rule, pos, dx, dy, dz) {
+                    flow_into(rule, (pos, this), p, s, side_decay, false);
                 }
             }
         }
     }
-    harden(cx, pos, this);
+    harden(rule, pos, this);
 }
 
 /// Works out what a liquid that is no source becomes from the blocks around it: its decay (0
@@ -225,18 +225,18 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
 /// it falls under the same liquid, or else takes one flow step past the lowest decay of the same
 /// liquid beside it (falling liquid counts as 0) and dries up past [`MAX_DECAY`] or with none
 /// beside it.
-fn settle(cx: &Cx<'_>, pos: BlockPos, this: Liquid, per_block: i32) -> Option<(i32, bool)> {
-    let beside = [(0, -1), (0, 1), (-1, 0), (1, 0)].map(|(dx, dz)| at(cx, pos, dx, 0, dz).1);
+fn settle(rule: &Rule<'_>, pos: BlockPos, this: Liquid, per_block: i32) -> Option<(i32, bool)> {
+    let beside = [(0, -1), (0, 1), (-1, 0), (1, 0)].map(|(dx, dz)| at(rule, pos, dx, 0, dz).1);
     let same_source = |s: block::State| {
         Liquid::of(s).is_some_and(|o| o.state.kind() == this.state.kind() && o.is_source())
     };
     if this.is_water() && beside.into_iter().filter(|&s| same_source(s)).count() >= 2 {
-        let (_, bottom) = at(cx, pos, 0, -1, 0);
+        let (_, bottom) = at(rule, pos, 0, -1, 0);
         if bottom.is_solid() || same_source(bottom) {
             return Some((0, false));
         }
     }
-    if this.effective(at(cx, pos, 0, 1, 0).1) >= 0 {
+    if this.effective(at(rule, pos, 0, 1, 0).1) >= 0 {
         return Some((0, true));
     }
     let lowest = beside
@@ -252,7 +252,7 @@ fn settle(cx: &Cx<'_>, pos: BlockPos, this: Liquid, per_block: i32) -> Option<(i
 /// breaking what was there; with lava's override, lava flowing into water forms stone of the
 /// water.
 fn flow_into(
-    cx: &mut Cx<'_>,
+    rule: &mut Rule<'_>,
     (from, this): (BlockPos, Liquid),
     pos: BlockPos,
     s: block::State,
@@ -260,7 +260,7 @@ fn flow_into(
     falling: bool,
 ) {
     if !this.is_water() && s.class() == Class::Water {
-        cx.form(pos, Kind::Stone.default_state(), from);
+        rule.form(pos, Kind::Stone.default_state(), from);
         return;
     }
     if !Liquid::can_flow_into(pos, s) || Liquid::of(s).is_some() {
@@ -269,10 +269,10 @@ fn flow_into(
     let Some(new) = this.with(if falling { 0 } else { decay }, falling) else {
         return;
     };
-    let Ok(event) = cx.ask(
+    let Ok(event) = rule.ask(
         [pos, from],
-        |cx| BlockSpread {
-            world: cx.world_id(),
+        |rule| BlockSpread {
+            world: rule.world_id(),
             pos,
             block: s,
             new_state: new,
@@ -284,10 +284,10 @@ fn flow_into(
         return;
     };
     if s.kind() != Kind::Air {
-        cx.destroy(pos);
+        rule.destroy(pos);
     }
-    if cx.set(pos, new) {
-        cx.tell(event);
+    if rule.set(pos, new) {
+        rule.tell(event);
     }
 }
 
@@ -297,33 +297,33 @@ fn flow_into(
 /// (PMMP `liquidCollide`).
 ///
 /// [`BlockForm`]: crate::event::BlockForm
-fn harden(cx: &mut Cx<'_>, pos: BlockPos, this: Liquid) -> bool {
+fn harden(rule: &mut Rule<'_>, pos: BlockPos, this: Liquid) -> bool {
     if this.is_water() || this.falling {
         return false;
     }
     let around = [Face::Up, Face::North, Face::South, Face::West, Face::East];
     for face in around {
         let (dx, dy, dz) = face.offset();
-        let (cause, s) = at(cx, pos, dx, dy, dz);
+        let (cause, s) = at(rule, pos, dx, dy, dz);
         if s.class() == Class::Water
             && let Some(cause) = cause
         {
             if this.decay == 0 {
-                cx.form(pos, Kind::Obsidian.default_state(), cause);
+                rule.form(pos, Kind::Obsidian.default_state(), cause);
                 return true;
             } else if this.decay <= 4 {
-                cx.form(pos, Kind::Cobblestone.default_state(), cause);
+                rule.form(pos, Kind::Cobblestone.default_state(), cause);
                 return true;
             }
         }
     }
-    if at(cx, pos, 0, -1, 0).1.kind() == Kind::SoulSoil {
+    if at(rule, pos, 0, -1, 0).1.kind() == Kind::SoulSoil {
         for face in around {
             let (dx, dy, dz) = face.offset();
-            if let (Some(cause), s) = at(cx, pos, dx, dy, dz)
+            if let (Some(cause), s) = at(rule, pos, dx, dy, dz)
                 && s.kind() == Kind::BlueIce
             {
-                cx.form(pos, Kind::Basalt.default_state(), cause);
+                rule.form(pos, Kind::Basalt.default_state(), cause);
                 return true;
             }
         }
@@ -332,15 +332,21 @@ fn harden(cx: &mut Cx<'_>, pos: BlockPos, this: Liquid) -> bool {
 }
 
 /// Reads the block at `pos + (dx, dy, dz)`, air outside the world height.
-fn at(cx: &Cx<'_>, pos: BlockPos, dx: i32, dy: i32, dz: i32) -> (Option<BlockPos>, block::State) {
+fn at(
+    rule: &Rule<'_>,
+    pos: BlockPos,
+    dx: i32,
+    dy: i32,
+    dz: i32,
+) -> (Option<BlockPos>, block::State) {
     let p = pos.offset(dx, dy, dz);
-    (p, cx.block(p))
+    (p, rule.block(p))
 }
 
 /// Finds the horizontal sides with the shortest way to a drop, within `4 / per_block` blocks
 /// (PMMP `MinimumCostFlowCalculator::getOptimalFlowDirections`).
 fn optimal_directions(
-    cx: &Cx<'_>,
+    rule: &Rule<'_>,
     pos: BlockPos,
     per_block: i32,
 ) -> impl Iterator<Item = Face> + use<> {
@@ -350,14 +356,14 @@ fn optimal_directions(
     for (face, cost) in Face::HORIZONTAL.into_iter().zip(&mut costs) {
         let (dx, _, dz) = face.offset();
         let side = BlockPos::new(pos.x + dx, pos.y, pos.z + dz);
-        let status = status_of(cx, side);
+        let status = status_of(rule, side);
         visited.insert(side, status);
         match status {
             Status::Blocked => {}
             Status::Flow => {
                 if max_cost > 0 {
                     let opposite = face.opposite();
-                    *cost = flow_cost(cx, &mut visited, side, 1, max_cost, opposite, opposite);
+                    *cost = flow_cost(rule, &mut visited, side, 1, max_cost, opposite, opposite);
                     max_cost = max_cost.min(*cost);
                 }
             }
@@ -378,7 +384,7 @@ fn optimal_directions(
 /// Works out the fewest blocks from `pos` to a drop, not going back (PMMP
 /// `calculateFlowCost`).
 fn flow_cost(
-    cx: &Cx<'_>,
+    rule: &Rule<'_>,
     visited: &mut Visited,
     pos: BlockPos,
     cost: i32,
@@ -394,7 +400,7 @@ fn flow_cost(
         let (dx, _, dz) = face.offset();
         let next = BlockPos::new(pos.x + dx, pos.y, pos.z + dz);
         let status = visited.get(next).unwrap_or_else(|| {
-            let s = status_of(cx, next);
+            let s = status_of(rule, next);
             visited.insert(next, s);
             s
         });
@@ -407,7 +413,7 @@ fn flow_cost(
             continue;
         }
         let real = flow_cost(
-            cx,
+            rule,
             visited,
             next,
             cost + 1,
@@ -421,10 +427,10 @@ fn flow_cost(
 }
 
 /// Works out whether liquid can go to `pos`, and down from there.
-fn status_of(cx: &Cx<'_>, pos: BlockPos) -> Status {
-    if !Liquid::can_flow_into(pos, cx.block(Some(pos))) {
+fn status_of(rule: &Rule<'_>, pos: BlockPos) -> Status {
+    if !Liquid::can_flow_into(pos, rule.block(Some(pos))) {
         Status::Blocked
-    } else if cx.block(pos.offset(0, -1, 0)).can_be_flowed_into() {
+    } else if rule.block(pos.offset(0, -1, 0)).can_be_flowed_into() {
         Status::FlowDown
     } else {
         Status::Flow

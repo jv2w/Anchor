@@ -5,7 +5,7 @@
 //!
 //! The extra comes from the server file, so every value is checked on load: a wrong type or a
 //! value out of range keeps the default, except that the health is cut to the maximum health, the
-//! air to [`MIN_AIR`]..=[`MAX_AIR`], the experience level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
+//! air to [`MIN_AIR_TICKS`]..=[`MAX_AIR_TICKS`], the experience level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
 //! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
 
 use tracing::warn;
@@ -13,7 +13,8 @@ use tracing::warn;
 use super::effects::Active;
 use super::food::FOOD_CYCLE;
 use super::{
-    MAX_AIR, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, MIN_AIR, Point, Survival,
+    MAX_AIR_TICKS, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, MIN_AIR_TICKS, Point,
+    Survival,
 };
 use crate::config::GameMode;
 use crate::effect::Instance;
@@ -22,20 +23,35 @@ use crate::math::to_f32;
 use crate::nbt::{Compound, List, Value};
 use crate::world::BlockPos;
 
+/// The key of the absorption amount.
 const ABSORPTION: &str = "AbsorptionAmount";
+/// The key of the air supply.
 const AIR: &str = "Air";
+/// The keys of the death position's coordinates.
 const DEATH: [&str; 3] = ["DeathPositionX", "DeathPositionY", "DeathPositionZ"];
+/// The key of the death position's world.
 const DEATH_WORLD: &str = "DeathLevel";
+/// The key of the active effects.
 const EFFECTS: &str = "ActiveEffects";
+/// The key of the food exhaustion.
 const EXHAUSTION: &str = "foodExhaustionLevel";
+/// The key of the fall distance.
 const FALL: &str = "FallDistance";
+/// The key of the burning time.
 const FIRE: &str = "Fire";
+/// The key of the time of the first join.
 const FIRST_PLAYED: &str = "firstPlayed";
+/// The key of the food level.
 const FOOD: &str = "foodLevel";
+/// The key of the food timer.
 const FOOD_TIMER: &str = "foodTickTimer";
+/// The key of the game mode.
 const GAME_MODE: &str = "playerGameType";
+/// The key of the health.
 const HEALTH: &str = "Health";
+/// The key of the held-back death drops.
 const HELD_BACK: &str = "PendingDeathDrops";
+/// The key of the time of the last join.
 const LAST_PLAYED: &str = "lastPlayed";
 /// The most effects read: one per effect type.
 const MAX_EFFECTS: usize = crate::effect::TYPE_COUNT;
@@ -49,13 +65,21 @@ const SAVED_MODES: [(GameMode, i32); 4] = [
     (GameMode::Adventure, 2),
     (GameMode::Spectator, 3),
 ];
+/// The key of the food saturation.
 const SATURATION: &str = "foodSaturationLevel";
+/// The key of the sleeping position.
 const SLEEPING: &str = "SleepingPos";
+/// The keys of the spawn position's coordinates.
 const SPAWN: [&str; 3] = ["SpawnX", "SpawnY", "SpawnZ"];
+/// The key of the spawn position's world.
 const SPAWN_WORLD: &str = "SpawnLevel";
+/// The key of the experience level.
 const XP_LEVEL: &str = "XpLevel";
+/// The key of the progress to the next experience level.
 const XP_PROGRESS: &str = "XpP";
+/// The key of the experience seed.
 const XP_SEED: &str = "XpSeed";
+/// The key of the total experience.
 const XP_TOTAL: &str = "XpTotal";
 
 /// The protocol's game type of a game mode as the packets carry it (`UpdatePlayerGameType`,
@@ -175,7 +199,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     if s.switches.drowning
         && let Some(air) = short(extra, AIR)
     {
-        s.air = air.clamp(MIN_AIR, MAX_AIR);
+        s.air = air.clamp(MIN_AIR_TICKS, MAX_AIR_TICKS);
     }
     if let Some(fall) = float(extra, FALL, 0.0, MAX_FALL) {
         s.fall_distance = fall;
@@ -460,7 +484,7 @@ mod tests {
         let mut s = Survival::default();
         s.switches.drowning = false;
         load(&mut s, &extra, &crate::custom::Registry::default());
-        assert_eq!(s.air, MAX_AIR);
+        assert_eq!(s.air, MAX_AIR_TICKS);
     }
 
     #[test]

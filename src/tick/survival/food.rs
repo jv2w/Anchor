@@ -709,7 +709,6 @@ fn gain(state: &mut State, session: SessionId, amount: u32) {
         .map(|e| (e.new_level, e.new_progress))
         .filter(|&(l, p)| l != Some(level) || p.map(f64::to_bits) != Some(progress.to_bits()));
     match chosen {
-        None => add_experience(player, amount),
         Some((l, p)) => {
             let s = &mut player.survival;
             if let Some(l) = l {
@@ -722,6 +721,7 @@ fn gain(state: &mut State, session: SessionId, amount: u32) {
             s.mark(LEVEL | EXPERIENCE);
             player.data_dirty = true;
         }
+        None => add_experience(player, amount),
     }
     super::watch(state, event.as_ref());
 }
@@ -766,22 +766,22 @@ pub(super) fn xp_tick(s: &mut Survival) {
 
 /// Empties the player's experience after death (PMMP `Player::onDeath`); returns the points to
 /// drop ([`death_xp`]). With `experience = false` the level a save kept stays.
-pub(super) fn take_death_xp(s: &mut Survival, finite: bool, orbs: bool) -> u32 {
+pub(super) fn take_death_xp(s: &mut Survival) -> u32 {
     if !s.switches.experience {
         return 0;
     }
-    let drop = death_xp(s, finite, orbs);
+    let drop = death_xp(s);
     s.xp_level = 0;
     s.xp_progress = 0.0;
     s.mark(LEVEL | EXPERIENCE);
     drop
 }
 
-/// The experience points a dead player drops: 7 per level, at most 100 (PMMP
-/// `Human::getXpDropAmount`), none in creative, with `experience = false` or without `orbs`
-/// (`experience-orbs = false`).
-pub(super) fn death_xp(s: &Survival, finite: bool, orbs: bool) -> u32 {
-    if finite && orbs && s.switches.experience {
+/// The experience points a dead player drops if the game lets it drop any: 7 per level, at most
+/// 100 (PMMP `Human::getXpDropAmount`), none with `experience = false`. The caller drops none in
+/// creative or without orbs (`experience-orbs = false`).
+pub(super) fn death_xp(s: &Survival) -> u32 {
+    if s.switches.experience {
         s.xp_level.saturating_mul(7).min(100)
     } else {
         0
@@ -849,7 +849,7 @@ fn mend(player: &mut Player, slot: Worn, amount: u32) -> u32 {
     let repair = damage.min(amount.saturating_mul(MENDING_PER_POINT));
     let repaired = stack
         .with_damage(u16::try_from(damage - repair).unwrap_or(0))
-        .expect("invariant: an item that wears keeps less damage than it has");
+        .expect("an item that wears keeps less damage than it has");
     match slot {
         Worn::Held => inventory::set_held(player, repaired),
         Worn::OffHand => inventory::set_offhand(player, repaired),
@@ -924,6 +924,7 @@ fn lifetime_room(s: &Survival) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::player::MAX_LEVEL;
 
     #[test]

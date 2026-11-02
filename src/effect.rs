@@ -501,9 +501,10 @@ mod tests {
     }
 
     // pmmp: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
-    // pmmp: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance, EffectInstance::getType,
-    // pmmp: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
-    // pmmp: EffectInstance::isAmbient, PotionType::getEffects, PotionType::getDisplayName
+    // pmmp: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance,
+    // pmmp: EffectInstance::getType, EffectInstance::getDuration, EffectInstance::getAmplifier,
+    // pmmp: EffectInstance::isVisible, EffectInstance::isAmbient, PotionType::getEffects,
+    // pmmp: PotionType::getDisplayName
     /// PMMP `VanillaEffects`, `PotionType` and `EffectIdMap` values.
     #[test]
     fn effect_and_potion_data_are_pmmp_values() {

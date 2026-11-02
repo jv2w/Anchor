@@ -354,7 +354,7 @@ impl Mut<'_> {
         if !fits(&data) {
             return false;
         }
-        let Kind::Npc(c) = &mut self.entity().kind else {
+        let Kind::Npc(c) = &mut self.entity_mut().kind else {
             return false;
         };
         c.data = data;
@@ -365,11 +365,11 @@ impl Mut<'_> {
     /// Its viewers see it, and it is saved with the NPC. False, changing nothing, for another
     /// kind.
     pub fn set_held_item(&mut self, stack: Stack) -> bool {
-        let Kind::Npc(c) = &mut self.entity().kind else {
+        let Kind::Npc(c) = &mut self.entity_mut().kind else {
             return false;
         };
         c.held = stack;
-        self.shown();
+        self.shown_mut();
         true
     }
 }

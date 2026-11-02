@@ -408,7 +408,8 @@ fn op_and_deop_change_the_list_tell_the_player_and_copy_operators() {
     );
 }
 
-// pmmp: CommandSender::getName, ConsoleCommandSender::getName, CommandSender::sendMessage, ConsoleCommandSender::sendMessage, Command::broadcastCommandMessage
+// pmmp: CommandSender::getName, ConsoleCommandSender::getName, CommandSender::sendMessage
+// pmmp: ConsoleCommandSender::sendMessage, Command::broadcastCommandMessage
 #[test]
 fn senders_have_names_get_messages_and_operators_get_copies() {
     let (mut state, mut rx) = with_op();
@@ -477,8 +478,8 @@ fn ban_and_pardon_keep_the_list_and_kick_the_online_player() {
 /// Runs `line` as `sender` and reads the text or key of its failure.
 fn fails(state: &mut State, sender: Sender, line: &str) -> String {
     match run(state, sender, line) {
-        Err(e) => e.line().text,
         Ok(out) => panic!("{line:?} succeeded: {out:?}"),
+        Err(e) => e.line().text,
     }
 }
 

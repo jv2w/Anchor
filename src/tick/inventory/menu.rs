@@ -3,7 +3,7 @@
 //!
 //! Opening shows the container blocks to the player alone (`view`'s menu blocks, over its other
 //! fake blocks) with their client data (the title as `CustomName`, a double chest's pair), and
-//! the window opens [`OPEN_DELAY`] ticks later, once the client has the blocks. Any item stack
+//! the window opens [`OPEN_DELAY_TICKS`] ticks later, once the client has the blocks. Any item stack
 //! request that names a menu slot that is not editable is refused whole and the player's screen
 //! is sent again; the request's first take, place, swap or drop of such a slot becomes one
 //! [`Click`] for the handler. A request that names only editable slots and only takes, places,
@@ -50,13 +50,14 @@ use crate::world::{self, BlockPos};
 /// -(1 + width) horizontally and -(1 + height) vertically, from the feet (PMMP player size
 /// 0.6 × 1.8).
 const BEHIND_HORIZONTAL: f64 = 1.6;
+/// The vertical offset factor of the same place (see [`BEHIND_HORIZONTAL`]).
 const BEHIND_VERTICAL: f64 = 2.8;
 /// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
 const MAX_DISTANCE_SQUARED: f64 = 64.0;
 /// Ticks between showing a menu's blocks and opening its window, so the client has the container
 /// blocks and their data when the window opens (`InvMenu` waits for the client the same way).
 /// The delay the official client needs is not verified.
-const OPEN_DELAY: u64 = 2;
+const OPEN_DELAY_TICKS: u64 = 2;
 
 /// What runs when the player clicks a menu slot or changes its editable slots, and when the menu
 /// closes.
@@ -110,7 +111,7 @@ impl Open {
     }
 
     /// Whether it lends the items taken onto the cursor ([`Menu::lend`]).
-    pub(super) fn lends(&self) -> bool {
+    pub(super) fn is_lending(&self) -> bool {
         self.lends
     }
 
@@ -214,7 +215,7 @@ impl Context<'_> {
         let (kind, title, stacks, editable, lends) = menu.prepare()?;
         let session = player.session();
         let tick = self.state.tick;
-        let p = with_view(self.state, player).ok_or(Error::Offline)?;
+        let p = viewing_player_mut(self.state, player).ok_or(Error::Offline)?;
         // The old menu's two positions and the new menu's two.
         if !p.inventory.has_room_to_open() || !p.view.has_room_to_show(4) {
             return Err(Error::Busy);
@@ -227,7 +228,7 @@ impl Context<'_> {
         if p.inventory.window.is_some() {
             close_now(self.state, session, Notice::Send, Raise::Quiet);
         }
-        let p = with_view(self.state, player).ok_or(Error::Offline)?;
+        let p = viewing_player_mut(self.state, player).ok_or(Error::Offline)?;
         p.inventory.next_menu = p.inventory.next_menu.saturating_add(1);
         let id = Id::new(n);
         // The old menu, if any, closed above: no menu blocks were shown.
@@ -242,7 +243,7 @@ impl Context<'_> {
             stacks,
             editable,
             lends,
-            ready: tick.saturating_add(OPEN_DELAY),
+            ready: tick.saturating_add(OPEN_DELAY_TICKS),
         });
         self.state.menus.0.insert(session, (id, Box::new(handler)));
         Ok(id)
@@ -290,7 +291,7 @@ impl Context<'_> {
 }
 
 /// The player of `id` if it is in the game (its saved data has loaded) and its client has a view.
-fn with_view(state: &mut State, id: player::Id) -> Option<&mut Player> {
+fn viewing_player_mut(state: &mut State, id: player::Id) -> Option<&mut Player> {
     state
         .players
         .get_mut(&id.session())
@@ -431,14 +432,15 @@ fn is_far(eye: Vec3, pos: BlockPos) -> bool {
 /// A closed menu window: the blocks the menu stood on show again, with their block entity's data,
 /// and its handler goes (one that is running, whose own call closed it, goes when it returns).
 /// Unless a direct call closed it (`raise`), the handler hears the close first with `cursor`, the
-/// stack taken off the player's cursor, of which `lent` items are lent, and `by_player`. Gives
+/// stack taken off the player's cursor, of which `lent` items are lent, and whether the player
+/// closed it (`notice`). Gives
 /// what goes back to the player: `cursor` but its lent items, or nothing if the handler took it.
 pub(super) fn closed(
     state: &mut State,
     session: SessionId,
     cursor: Stack,
     lent: u8,
-    by_player: bool,
+    notice: Notice,
     raise: Raise,
 ) -> Stack {
     let own = own_part(&cursor, lent);
@@ -463,7 +465,8 @@ pub(super) fn closed(
         menu,
         cursor,
         lent,
-        by_player,
+        // Only the client closes a menu without a notice.
+        by_player: notice == Notice::Skip,
     });
     match handler(&mut Context { state }, player::Id::new(session), close) {
         Response::Refuse => Stack::EMPTY,

@@ -67,6 +67,7 @@ impl Codec for ConnectionRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz;
 
     fn sample() -> ConnectionRequest {

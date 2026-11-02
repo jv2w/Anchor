@@ -7,20 +7,6 @@ use serde_json::Value as Json;
 
 use super::body::int_lit;
 
-type R<T> = Result<T, String>;
-
-/// PMMP `BlockBreakInfo`.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Break {
-    pub(crate) hardness: f64,
-    pub(crate) blast_resistance: f64,
-    /// `BlockToolType` bits.
-    pub(crate) tool_type: u8,
-    pub(crate) harvest_level: u8,
-    pub(crate) explosion_harvestable: bool,
-}
-
 /// The block flags of the dump, in the order of their bits in the generated tables (bit 0 first).
 pub(crate) const BLOCK_FLAGS: [&str; 8] = [
     "solid",
@@ -35,6 +21,20 @@ pub(crate) const BLOCK_FLAGS: [&str; 8] = [
 
 /// PMMP `SupportType` cases, in the order of their 2-bit codes in the generated tables.
 pub(crate) const SUPPORT_TYPES: [&str; 4] = ["full", "center", "edge", "none"];
+
+type R<T> = Result<T, String>;
+
+/// PMMP `BlockBreakInfo`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Break {
+    pub(crate) hardness: f64,
+    pub(crate) blast_resistance: f64,
+    /// `BlockToolType` bits.
+    pub(crate) tool_type: u8,
+    pub(crate) harvest_level: u8,
+    pub(crate) explosion_harvestable: bool,
+}
 
 /// The physical values of a block state: overlapping PMMP states must agree on them.
 #[derive(Debug, Clone, PartialEq)]

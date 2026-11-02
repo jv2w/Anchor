@@ -233,9 +233,13 @@ pub(crate) struct Offer {
 }
 
 impl Offer {
-    /// The offer of the files at `paths`, then `extra`. Players must accept the packs when
-    /// `force` is set. Blocking file I/O: run it before the server starts.
-    pub(crate) fn load(paths: &[PathBuf], extra: Vec<Pack>, force: bool) -> Result<Self> {
+    /// The offer of the files at `paths`, then `extra`, with `acceptance` of the packs. Blocking
+    /// file I/O: run it before the server starts.
+    pub(crate) fn load(
+        paths: &[PathBuf],
+        extra: Vec<Pack>,
+        acceptance: Acceptance,
+    ) -> Result<Self> {
         check_count(paths.len().saturating_add(extra.len()))?;
         let mut packs = Vec::with_capacity(paths.len() + extra.len());
         let mut total = 0_u64;
@@ -246,11 +250,11 @@ impl Offer {
             packs.push(pack);
         }
         packs.extend(extra);
-        Self::new(packs, force)
+        Self::new(packs, acceptance)
     }
 
-    /// The offer of `packs`, in stack order.
-    pub(crate) fn new(packs: Vec<Pack>, force: bool) -> Result<Self> {
+    /// The offer of `packs`, in stack order, with `acceptance` of them.
+    pub(crate) fn new(packs: Vec<Pack>, acceptance: Acceptance) -> Result<Self> {
         check_count(packs.len())?;
         check_total(packs.iter().fold(0_u64, |t, p| t.saturating_add(p.size())))?;
         let mut index = BTreeMap::new();
@@ -265,7 +269,7 @@ impl Offer {
             .collect();
         // BDS's values for an empty offer (P6); the packs as gophertunnel lists them.
         let info = ResourcePacksInfo {
-            texture_pack_required: force,
+            texture_pack_required: acceptance == Acceptance::Required,
             world_template_version: "0.0.0".to_owned(),
             texture_packs: packs
                 .iter()
@@ -347,6 +351,25 @@ impl fmt::Debug for Offer {
             .field("packs", &self.packs)
             .field("required", &self.info.texture_pack_required)
             .finish_non_exhaustive()
+    }
+}
+
+/// Whether players must accept the offered packs to join.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Acceptance {
+    /// Players may join without the packs.
+    Optional,
+    /// Players must accept the packs to join.
+    Required,
+}
+
+impl From<bool> for Acceptance {
+    fn from(required: bool) -> Self {
+        if required {
+            Self::Required
+        } else {
+            Self::Optional
+        }
     }
 }
 
@@ -443,7 +466,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// The result of reading a pack.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl ServerBuilder {
@@ -601,7 +624,7 @@ pub(crate) mod tests {
         let pack = Pack::load(&path).unwrap();
         assert_eq!(pack.content_key(), Some(key));
         assert!(!format!("{pack:?}").contains(key), "the key is secret");
-        let offer = Offer::new(vec![pack], false).unwrap();
+        let offer = Offer::new(vec![pack], Acceptance::Optional).unwrap();
         assert!(!format!("{offer:?}").contains(key), "the key is secret");
         let pack = Pack::load(&path).unwrap();
 
@@ -641,7 +664,7 @@ pub(crate) mod tests {
         let keyed = pack(other, "2.0.0", 10)
             .with_content_key("k".repeat(32))
             .unwrap();
-        let offer = Offer::new(vec![pack(UUID, "1.0.0", 10), keyed], true).unwrap();
+        let offer = Offer::new(vec![pack(UUID, "1.0.0", 10), keyed], Acceptance::Required).unwrap();
         let info = offer.info();
         assert!(info.texture_pack_required);
         assert_eq!(info.world_template_version, "0.0.0");
@@ -671,25 +694,33 @@ pub(crate) mod tests {
         let dir = TempDir::new("order");
         let file = dir.join("b.zip");
         write(&file, &pack_bytes(other, "2.0.0", 1));
-        let offer = Offer::load(std::slice::from_ref(&file), builder.packs, false).unwrap();
+        let offer = Offer::load(
+            std::slice::from_ref(&file),
+            builder.packs,
+            Acceptance::Optional,
+        )
+        .unwrap();
         let order: Vec<String> = offer.packs().iter().map(|p| p.uuid().to_string()).collect();
         assert_eq!(order, [other, UUID]);
 
         let missing = dir.join("missing.mcpack");
-        let error = Offer::load(&[file, missing], Vec::new(), false).unwrap_err();
+        let error = Offer::load(&[file, missing], Vec::new(), Acceptance::Optional).unwrap_err();
         assert!(error.to_string().contains("missing.mcpack"), "{error}");
     }
 
     #[test]
     fn offers_refuse_duplicates_and_too_many_packs() {
-        let error = Offer::new(vec![pack(UUID, "1.0.0", 1), pack(UUID, "2.0.0", 1)], false);
+        let error = Offer::new(
+            vec![pack(UUID, "1.0.0", 1), pack(UUID, "2.0.0", 1)],
+            Acceptance::Optional,
+        );
         assert!(matches!(error, Err(Error::Duplicate(_))));
         let paths = vec![PathBuf::from("a.zip"); MAX_PACKS + 1];
         assert!(matches!(
-            Offer::load(&paths, Vec::new(), false),
+            Offer::load(&paths, Vec::new(), Acceptance::Optional),
             Err(Error::TooMany { .. })
         ));
-        let empty = Offer::new(Vec::new(), false).unwrap();
+        let empty = Offer::new(Vec::new(), Acceptance::Optional).unwrap();
         assert!(empty.info().texture_packs.is_empty());
         assert_eq!(empty.stack().base_game_version, "*");
     }

@@ -20,6 +20,7 @@
 
 #[path = "../../src/block/hash.rs"]
 pub mod hash;
+pub(crate) mod limits;
 pub(crate) mod upgrade;
 
 use std::collections::BTreeMap;
@@ -29,10 +30,9 @@ use std::process::Command;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+use crate::Mode;
 use crate::r#gen::biomes::{self, Biome, Colour};
 use crate::r#gen::upgrade::SCHEMA_1_26_60;
-
-pub(crate) mod limits;
 
 /// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends.
 /// `biome_definitions.json` holds generation data BDS does not send.
@@ -46,12 +46,14 @@ const BORROWED_1_26_60: [(&str, &str); 3] = [
     ("minecraft:ice_crystal", "minecraft:amethyst_cluster"),
     ("minecraft:disc_press", "minecraft:stone"),
 ];
+/// The pinned `CloudburstMC` checkout, relative to the repository root, and its commit.
 pub(crate) const CLOUDBURST: (&str, &str) = (
     ".cache/cloudburst-data",
     "293c848098cc636a2758937fb6610b8bed1f12c5",
 );
 /// `CloudburstMC`'s per-state block data, which BDS dumps.
 const CLOUDBURST_BLOCKS: &str = "blocks.json";
+/// The pinned dragonfly checkout, relative to the repository root, and its commit.
 const DRAGONFLY: (&str, &str) = (
     ".cache/dragonfly",
     "d86aefd9ff9b6a357d6dfadab2093af811545256",
@@ -62,13 +64,17 @@ const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
 /// The PMMP PHP binary (pmmp/PHP-Binaries php-build-524, PHP 8.4 PM5 for Windows): plain PHP
 /// lacks the extensions PMMP's registries load.
 const PHP: &str = ".cache/php-pm5/bin/php/php.exe";
-/// The pinned checkouts, relative to the repository root, and their commits.
+/// The pinned dump source checkout, relative to the repository root, and its commit.
 const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
+/// The dumped blocks.
 pub(crate) const PMMP_BLOCKS: &str = "blocks.json";
+/// The dumped creative inventory.
 pub(crate) const PMMP_CREATIVE: &str = "creative.json";
+/// The dump source's reading of every reference block state.
 pub(crate) const PMMP_DESERIALIZED: &str = "deserialized.json";
-/// Output directories and their files, relative to the repository root.
+/// The dump output directory, relative to the repository root.
 pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
+/// The files of [`PMMP_DIR`] this command writes.
 const PMMP_FILES: &[&str] = &[
     PMMP_BLOCKS,
     PMMP_DESERIALIZED,
@@ -77,16 +83,22 @@ const PMMP_FILES: &[&str] = &[
     PMMP_RECIPES,
     PMMP_TABLES,
 ];
+/// The dumped items.
 pub(crate) const PMMP_ITEMS: &str = "items.json";
+/// The dumped recipes.
 pub(crate) const PMMP_RECIPES: &str = "recipes.json";
+/// The dumped tables of the other registries.
 pub(crate) const PMMP_TABLES: &str = "tables.json";
 /// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
 const PROTOCOL_DOCS: (&str, &str) = (
     ".cache/bedrock-protocol-docs",
     "0879ab5c4c70be1bd520e32a8c49ea4a155616d6",
 );
+/// The reference list's block states.
 pub(crate) const REFERENCE_BLOCKS: &str = "blocks.json";
+/// The reference list output directory, relative to the repository root.
 pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
+/// The files of [`REFERENCE_DIR`] this command writes.
 const REFERENCE_FILES: &[&str] = &[
     REFERENCE_BLOCKS,
     REFERENCE_ITEMS,
@@ -99,13 +111,16 @@ const REFERENCE_FILES: &[&str] = &[
     BLOCK_PHYSICS,
     limits::FILE,
 ];
+/// The reference list's item to block map.
 pub(crate) const REFERENCE_ITEM_BLOCKS: &str = "item_blocks.json";
+/// The reference list's items.
 pub(crate) const REFERENCE_ITEMS: &str = "items.json";
+/// The block shapes copied from `CloudburstMC`.
 const VOXEL_SHAPES: &str = "voxel_shapes.json";
 
-/// Runs `dump`; with `check`, compares instead of writing. Returns the differing files on a
+/// Runs `dump`; in check mode, compares instead of writing. Returns the differing files on a
 /// failed check.
-pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
+pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     for (dir, commit) in [
         PMMP,
         DRAGONFLY,
@@ -122,7 +137,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
             PMMP.0
         ));
     }
-    let (pmmp_out, reference_out, upgrade_out) = if check {
+    let (pmmp_out, reference_out, upgrade_out) = if mode == Mode::Check {
         let dir = root.join("target").join("xtask-dump");
         (dir.join("pmmp"), dir.join("reference"), dir.join("upgrade"))
     } else {
@@ -173,7 +188,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     copy_block_physics(root, &reference_out, &upgrade_out)?;
 
     let mut differ = Vec::new();
-    if check {
+    if mode == Mode::Check {
         for file in &upgrade_files {
             let committed = root.join(upgrade::OUT).join(file);
             if read_if_exists(&committed)? != Some(read(&upgrade_out.join(file))?) {
@@ -397,7 +412,6 @@ fn reference_physics<'a>(
                             .collect::<Vec<_>>()
                     });
                 match lenders.as_deref() {
-                    None => None,
                     Some([lender]) => {
                         let b = bds_by_id.get(&lender.network_id).copied();
                         physics.borrowed += usize::from(b.is_some());
@@ -411,6 +425,7 @@ fn reference_physics<'a>(
                             lenders.len()
                         ));
                     }
+                    None => None,
                 }
             }
         };

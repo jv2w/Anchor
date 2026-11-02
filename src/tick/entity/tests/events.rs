@@ -235,7 +235,7 @@ fn a_cancelled_item_despawn_gives_the_whole_time_again() {
     h.entities();
     assert_eq!(
         left(&h),
-        Some(DEFAULT_DESPAWN_DELAY),
+        Some(DEFAULT_DESPAWN_DELAY_TICKS),
         "cancelled: the time again"
     );
     set(switch, 1);
@@ -291,7 +291,7 @@ fn an_item_set_to_despawn_now_goes_with_or_without_a_listener() {
         Priority::Normal,
         |e: &mut ItemDespawn, _: &mut Context<'_>| e.cancel(),
     );
-    assert_eq!(run(cancelling).0, Some(DEFAULT_DESPAWN_DELAY));
+    assert_eq!(run(cancelling).0, Some(DEFAULT_DESPAWN_DELAY_TICKS));
 }
 
 // pmmp: ItemMergeEvent

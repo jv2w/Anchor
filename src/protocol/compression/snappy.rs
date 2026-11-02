@@ -13,6 +13,7 @@ const INPUT_MARGIN: usize = 16 - 1;
 const MAX_BLOCK: usize = 1 << 16;
 /// A valid stream grows at most 64 bytes per 3-byte copy, under 22 times its size.
 const MAX_RATIO: usize = 22;
+/// The most entries of the encoder's match table.
 const MAX_TABLE: usize = 1 << 14;
 /// Smaller blocks are emitted as one literal.
 const MIN_NON_LITERAL_BLOCK: usize = 1 + 1 + INPUT_MARGIN;
@@ -303,11 +304,11 @@ fn copy(offset: usize, len: usize, declared: usize, out: &mut Vec<u8>) -> Result
 mod tests {
     use super::*;
 
-    const LIMIT: usize = 16 * 1024 * 1024;
+    const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
     fn decode(input: &[u8]) -> Result<Vec<u8>> {
         let mut out = Vec::new();
-        decompress(input, LIMIT, &mut out)?;
+        decompress(input, MAX_OUTPUT_BYTES, &mut out)?;
         Ok(out)
     }
 
@@ -414,7 +415,7 @@ mod tests {
     fn declared_length_over_the_limit_is_a_size_error_before_allocating() {
         let mut out = Vec::new();
         // u32::MAX declared in a 5-byte prefix.
-        let result = decompress(&[0xff, 0xff, 0xff, 0xff, 0x0f], LIMIT, &mut out);
+        let result = decompress(&[0xff, 0xff, 0xff, 0xff, 0x0f], MAX_OUTPUT_BYTES, &mut out);
         assert!(matches!(result, Err(Error::Size { .. })));
         assert_eq!(out.capacity(), 0);
 
@@ -431,7 +432,7 @@ mod tests {
         let input = [0x80, 0x80, 0x01, 0, b'a'];
         let mut out = Vec::new();
         assert_eq!(
-            decompress(&input, LIMIT, &mut out),
+            decompress(&input, MAX_OUTPUT_BYTES, &mut out),
             Err(Error::Size {
                 limit: input.len() * MAX_RATIO
             })

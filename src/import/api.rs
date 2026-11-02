@@ -34,7 +34,7 @@ use crate::storage::codec::{BlockLayer, ChunkRecord, SubChunkRecord, WorldRecord
 use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
 use crate::world::{
-    self, BlockPos, Chunk, ChunkPos, Entry, LOWEST_SUB_CHUNK, Paletted, SLOTS, SUB_CHUNKS,
+    self, BlockPos, Chunk, ChunkPos, Entry, MIN_SUB_CHUNK_Y, Paletted, SLOTS, SUB_CHUNKS,
 };
 
 /// The newest sub-chunk version that takes legacy block extra data as its second layer.
@@ -346,7 +346,7 @@ fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storag
 fn remove_file(file: &Path) {
     if let Err(e) = std::fs::remove_file(file) {
         error!(
-            file = %file.display(),
+            path = %file.display(),
             error = &e as &(dyn std::error::Error + 'static),
             "could not remove the failed import's world file"
         );
@@ -521,7 +521,7 @@ fn convert(pos: ChunkPos, raw: Raw, target: &Target<'_>) -> super::Result<Conver
         }));
     let mut extra = extra_cubes(&legacy_blocks);
     for section in sections {
-        let slot = usize::try_from(i32::from(section.y) - LOWEST_SUB_CHUNK)
+        let slot = usize::try_from(i32::from(section.y) - MIN_SUB_CHUNK_Y)
             .ok()
             .and_then(|i| sub_chunks.get_mut(i))
             .ok_or(Error::Malformed("a sub-chunk is outside the world height"))?;

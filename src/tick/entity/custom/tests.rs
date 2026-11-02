@@ -21,6 +21,7 @@ const KEY: (usize, ChunkPos) = (0, ChunkPos::new(0, 0));
 /// The vanilla `AvailableActorIdentifiers` list.
 const VANILLA_IDENTIFIER_LIST: &[u8] =
     include_bytes!("../../../../xtask/data/reference/entity_identifiers.dat");
+/// The world the tests' entities live in.
 const WORLD: world::Id = world::Id::DEFAULT;
 
 /// A compound whose saved form is over [`MAX_DATA_BYTES`].

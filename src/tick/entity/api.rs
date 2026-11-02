@@ -19,14 +19,15 @@ use std::fmt;
 use std::ops::Deref;
 
 use super::kind::{
-    Arrow, Character, Cloud, Falling, Form, Item, Kind, MAX_DESPAWN_DELAY, MAX_NAME_TAG_BYTES,
-    NEVER, Orb, Projectile, Shot, Tnt, Trident,
+    Arrow, Character, Cloud, Falling, Form, Item, Kind, MAX_DESPAWN_DELAY_TICKS,
+    MAX_NAME_TAG_BYTES, NEVER, Orb, Projectile, Shot, Tnt, Trident,
 };
-use super::saved::{MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
+use super::saved::{MAX_CLOUD_AGE_TICKS, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
 use super::{
     Cause, EYE_HEIGHT, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD,
     MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, chunk_of, create, drop_stack, hurt_in,
-    is_valid_position, is_valid_scale, item_despawn_delay, object, physics, projectile, send_to,
+    is_valid_position, is_valid_scale, item_despawn_delay_ticks, object, physics, projectile,
+    send_to,
 };
 use crate::action;
 use crate::block::{self, Face};
@@ -54,7 +55,7 @@ pub struct Mut<'a> {
     worlds: &'a [World],
     players: &'a mut BTreeMap<SessionId, Player>,
     /// The despawn delay a new dropped item gets now, which a dropped item may be set past.
-    item_despawn_delay: i32,
+    item_despawn_delay_ticks: i32,
 }
 
 impl Mut<'_> {
@@ -67,13 +68,13 @@ impl Mut<'_> {
     /// Its chunk is marked for the next save. While the entity tick applies its steps (a
     /// listener's change), it moves again from its new state rather than by the step computed
     /// before the change.
-    pub(super) fn entity(&mut self) -> &mut Entity {
+    pub(super) fn entity_mut(&mut self) -> &mut Entity {
         self.parts().0
     }
 
     /// The entity, to change what its viewers see too.
-    pub(super) fn shown(&mut self) -> &mut Entity {
-        let e = self.entity();
+    pub(super) fn shown_mut(&mut self) -> &mut Entity {
+        let e = self.entity_mut();
         e.resend = true;
         e
     }
@@ -87,7 +88,7 @@ impl Mut<'_> {
         if !motion.is_finite() {
             return false;
         }
-        let e = self.entity();
+        let e = self.entity_mut();
         e.body.motion = physics::bounded(motion);
         e.forced = true;
         true
@@ -100,7 +101,7 @@ impl Mut<'_> {
         if !survival::is_float_angle(yaw) || !survival::is_float_angle(pitch) {
             return false;
         }
-        let e = self.entity();
+        let e = self.entity_mut();
         e.yaw = f64::from(to_f32(yaw));
         e.pitch = f64::from(to_f32(pitch));
         true
@@ -143,7 +144,7 @@ impl Mut<'_> {
         if !loaded || (to != from && self.entities.count(to) >= MAX_ENTITIES_PER_WORLD) {
             return false;
         }
-        let e = self.entity();
+        let e = self.entity_mut();
         e.body.position = pos;
         e.body.motion = Vec3::ZERO;
         e.body.fall_distance = 0.0;
@@ -164,20 +165,20 @@ impl Mut<'_> {
         if name.len() > MAX_NAME_TAG_BYTES {
             return false;
         }
-        name.clone_into(&mut self.shown().name_tag);
+        name.clone_into(&mut self.shown_mut().name_tag);
         true
     }
 
     /// Sets whether the name tag shows when a player looks at it.
     #[doc(alias = "Entity::setNameTagVisible")]
     pub fn set_name_tag_visible(&mut self, visible: bool) {
-        self.shown().name_tag_visible = visible;
+        self.shown_mut().name_tag_visible = visible;
     }
 
     /// Sets whether the name tag always shows.
     #[doc(alias = "Entity::setNameTagAlwaysVisible")]
     pub fn set_name_tag_always_visible(&mut self, visible: bool) {
-        self.shown().name_tag_always_visible = visible;
+        self.shown_mut().name_tag_always_visible = visible;
     }
 
     /// Sets the size multiplier of its box and model, kept to float precision as saved.
@@ -189,7 +190,7 @@ impl Mut<'_> {
         if matches!(self.kind, Kind::Painting(_)) || !is_valid_scale(scale, &self.kind) {
             return false;
         }
-        let e = self.shown();
+        let e = self.shown_mut();
         e.scale = scale;
         e.forced = true;
         true
@@ -198,13 +199,13 @@ impl Mut<'_> {
     /// Sets whether clients draw it.
     #[doc(alias = "Entity::setInvisible")]
     pub fn set_invisible(&mut self, invisible: bool) {
-        self.entity().invisible = invisible;
+        self.entity_mut().invisible = invisible;
     }
 
     /// Sets whether gravity pulls it.
     #[doc(alias = "Entity::setHasGravity")]
     pub fn set_has_gravity(&mut self, gravity: bool) {
-        let e = self.entity();
+        let e = self.entity_mut();
         e.gravity = gravity;
         e.forced = true;
     }
@@ -217,7 +218,7 @@ impl Mut<'_> {
         if saved && !self.kind.is_saved() {
             return false;
         }
-        self.entity().saved = saved;
+        self.entity_mut().saved = saved;
         true
     }
 
@@ -227,7 +228,7 @@ impl Mut<'_> {
     #[doc(alias = "Living::setOnFire")]
     pub fn set_on_fire(&mut self, seconds: u16) {
         let seconds = i16::try_from(seconds).unwrap_or(i16::MAX);
-        self.entity().set_on_fire(seconds);
+        self.entity_mut().set_on_fire(seconds);
     }
 
     /// Sets the ticks it burns, at most 32,767; 0 puts its fire out.
@@ -236,7 +237,7 @@ impl Mut<'_> {
     #[doc(alias = "Entity::setFireTicks")]
     #[doc(alias = "Entity::extinguish")]
     pub fn set_fire_ticks(&mut self, ticks: u16) {
-        let e = self.entity();
+        let e = self.entity_mut();
         if !e.kind.is_fire_proof() {
             e.fire_ticks = i16::try_from(ticks).unwrap_or(i16::MAX);
         }
@@ -254,7 +255,7 @@ impl Mut<'_> {
             self.kill();
             return true;
         }
-        let e = self.entity();
+        let e = self.entity_mut();
         e.health = math::min(health, e.kind.max_health());
         true
     }
@@ -332,7 +333,7 @@ impl Mut<'_> {
 
     /// Sets whether only the void hurts an NPC or a custom entity. False for another kind.
     pub fn set_invulnerable(&mut self, invulnerable: bool) -> bool {
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Npc(c) => {
                 c.invulnerable = invulnerable;
                 true
@@ -344,7 +345,7 @@ impl Mut<'_> {
     /// Sets a dropped item's ticks until a player may pick it up; -1 never.
     #[doc(alias = "ItemEntity::setPickupDelay")]
     pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> bool {
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Item(item) => {
                 item.pickup_delay = ticks.max(NEVER);
                 true
@@ -360,13 +361,13 @@ impl Mut<'_> {
     #[doc(alias = "ExperienceOrb::setDespawnDelay")]
     pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> bool {
         let longest = match &self.kind {
-            Kind::Item(_) => MAX_DESPAWN_DELAY.max(self.item_despawn_delay),
-            _ => MAX_DESPAWN_DELAY,
+            Kind::Item(_) => MAX_DESPAWN_DELAY_TICKS.max(self.item_despawn_delay_ticks),
+            _ => MAX_DESPAWN_DELAY_TICKS,
         };
         if ticks != i32::from(NEVER) && !(0..=longest).contains(&ticks) {
             return false;
         }
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Item(Item { despawn_delay, .. })
             | Kind::ExperienceOrb(Orb { despawn_delay, .. }) => {
                 *despawn_delay = ticks;
@@ -382,7 +383,7 @@ impl Mut<'_> {
         if owner.len() > MAX_NAME_TAG_BYTES {
             return false;
         }
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Item(item) => {
                 owner.clone_into(&mut item.owner);
                 true
@@ -397,7 +398,7 @@ impl Mut<'_> {
         if thrower.len() > MAX_NAME_TAG_BYTES {
             return false;
         }
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Item(item) => {
                 thrower.clone_into(&mut item.thrower);
                 true
@@ -412,7 +413,7 @@ impl Mut<'_> {
         if value == 0 || value > Orb::MAX_VALUE {
             return false;
         }
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::ExperienceOrb(orb) => {
                 orb.value = value;
                 true
@@ -427,7 +428,7 @@ impl Mut<'_> {
         if ticks > Tnt::MAX_FUSE {
             return false;
         }
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Tnt(t) => {
                 t.fuse = ticks;
                 true
@@ -439,7 +440,7 @@ impl Mut<'_> {
     /// Sets whether primed TNT is shown as underwater TNT.
     #[doc(alias = "PrimedTNT::setWorksUnderwater")]
     pub fn set_works_underwater(&mut self, underwater: bool) -> bool {
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Tnt(t) => {
                 t.underwater = underwater;
                 true
@@ -458,7 +459,7 @@ impl Mut<'_> {
         if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {
             return false;
         }
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Projectile(p) => {
                 p.damage = damage;
                 true
@@ -470,25 +471,25 @@ impl Mut<'_> {
     /// Sets whether an arrow is critical.
     #[doc(alias = "entity\\projectile\\Arrow::setCritical")]
     pub fn set_critical(&mut self, critical: bool) -> bool {
-        self.with_arrow(|a| a.critical = critical)
+        self.arrow_mut(|a| a.critical = critical)
     }
 
     /// Sets who may pick up an arrow once stuck.
     #[doc(alias = "entity\\projectile\\Arrow::setPickupMode")]
     pub fn set_pickup_mode(&mut self, pickup: ArrowPickup) -> bool {
-        self.with_arrow(|a| a.pickup = pickup)
+        self.arrow_mut(|a| a.pickup = pickup)
     }
 
     /// Sets an arrow's Punch level.
     #[doc(alias = "entity\\projectile\\Arrow::setPunchKnockback")]
     pub fn set_punch_knockback(&mut self, level: u8) -> bool {
-        self.with_arrow(|a| a.punch = level)
+        self.arrow_mut(|a| a.punch = level)
     }
 
     /// Sets whether a thrown potion leaves a cloud.
     #[doc(alias = "entity\\projectile\\SplashPotion::setLinger")]
     pub fn set_linger(&mut self, linger: bool) -> bool {
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::Projectile(Projectile {
                 shot: Shot::Potion { linger: l, .. },
                 ..
@@ -504,7 +505,7 @@ impl Mut<'_> {
     /// Viewers see the change (the `Baby` flag). False for another kind (PMMP has no setter: its
     /// villagers are never babies).
     pub fn set_baby(&mut self, baby: bool) -> bool {
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Npc(Character {
                 form: Form::Villager { baby: b, .. } | Form::Zombie { baby: b },
                 ..
@@ -519,7 +520,7 @@ impl Mut<'_> {
     /// Sets a villager NPC's profession (the actor variant).
     #[doc(alias = "Villager::setProfession")]
     pub fn set_profession(&mut self, profession: u8) -> bool {
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Npc(Character {
                 form: Form::Villager { profession: p, .. },
                 ..
@@ -543,7 +544,7 @@ impl Mut<'_> {
             },
             None => 0,
         };
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Projectile(p) => {
                 p.owner = owner.map(player::Id::session);
                 p.owner_runtime_id = runtime_id;
@@ -569,7 +570,7 @@ impl Mut<'_> {
         }) {
             return false;
         }
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::ExperienceOrb(orb) => {
                 orb.target = target.map(player::Id::session);
                 true
@@ -605,7 +606,7 @@ impl Mut<'_> {
     /// Sets a thrown potion's type.
     #[doc(alias = "entity\\projectile\\SplashPotion::setPotionType")]
     pub fn set_potion(&mut self, potion: Potion) -> bool {
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Projectile(Projectile {
                 shot: Shot::Potion { potion: p, .. },
                 ..
@@ -620,7 +621,7 @@ impl Mut<'_> {
     /// Sets whether an end crystal shows its bedrock base. False for another kind.
     #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
     pub fn set_show_base(&mut self, show: bool) -> bool {
-        match &mut self.entity().kind {
+        match &mut self.entity_mut().kind {
             Kind::EndCrystal(c) => {
                 c.show_base = show;
                 true
@@ -632,7 +633,7 @@ impl Mut<'_> {
     /// Sets the block an end crystal's beam points at, or none. False for another kind.
     #[doc(alias = "entity\\object\\EndCrystal::setBeamTarget")]
     pub fn set_beam_target(&mut self, target: Option<BlockPos>) -> bool {
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::EndCrystal(c) => {
                 c.beam_target = target;
                 true
@@ -654,7 +655,7 @@ impl Mut<'_> {
         if !matches!(self.kind, Kind::Firework(_)) {
             return false;
         }
-        if let Kind::Firework(f) = &mut self.shown().kind {
+        if let Kind::Firework(f) = &mut self.shown_mut().kind {
             f.explosions = explosions;
         }
         true
@@ -665,7 +666,7 @@ impl Mut<'_> {
     /// the new time. False for another kind.
     #[doc(alias = "entity\\object\\FireworkRocket::setMaxFlightTimeTicks")]
     pub fn set_max_flight_time_ticks(&mut self, ticks: u32) -> bool {
-        match &mut self.shown().kind {
+        match &mut self.shown_mut().kind {
             Kind::Firework(f) => {
                 f.max_flight = ticks;
                 f.flight = object::flight_multiplier(ticks);
@@ -692,7 +693,7 @@ impl Mut<'_> {
         if let Kind::Projectile(Projectile {
             shot: Shot::Trident(t),
             ..
-        }) = &mut self.entity().kind
+        }) = &mut self.entity_mut().kind
         {
             t.item = item;
         }
@@ -702,41 +703,42 @@ impl Mut<'_> {
     /// Sets the age at which a cloud goes, 0 to 24,000 ticks (as the saved form reads it).
     #[doc(alias = "AreaEffectCloud::setMaxAge")]
     pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> bool {
-        (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_shown_cloud(|c| c.max_age = ticks)
+        (0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) && self.shown_cloud_mut(|c| c.max_age = ticks)
     }
 
     /// Sets the change of a cloud's maximum age for each entity it affects, -24,000 to 24,000.
     #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
     pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> bool {
-        (-MAX_CLOUD_AGE..=MAX_CLOUD_AGE).contains(&ticks)
-            && self.with_cloud(|c| c.max_age_on_use = ticks)
+        (-MAX_CLOUD_AGE_TICKS..=MAX_CLOUD_AGE_TICKS).contains(&ticks)
+            && self.cloud_mut(|c| c.max_age_on_use = ticks)
     }
 
     /// Sets the ticks before a cloud affects the same entity again, 0 to 24,000.
     #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
     pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> bool {
-        (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_cloud(|c| c.reapplication_delay = ticks)
+        (0..=MAX_CLOUD_AGE_TICKS).contains(&ticks)
+            && self.cloud_mut(|c| c.reapplication_delay = ticks)
     }
 
     /// Sets the change of a cloud's radius when a bottle takes from it, -64 to 64 blocks.
     #[doc(alias = "AreaEffectCloud::setRadiusChangeOnPickup")]
     pub fn set_cloud_radius_change_on_pickup(&mut self, blocks: f64) -> bool {
         let blocks = f64::from(to_f32(blocks));
-        is_radius_change(blocks) && self.with_shown_cloud(|c| c.radius_on_pickup = blocks)
+        is_radius_change(blocks) && self.shown_cloud_mut(|c| c.radius_on_pickup = blocks)
     }
 
     /// Sets the change of a cloud's radius for each entity it affects, -64 to 64 blocks.
     #[doc(alias = "AreaEffectCloud::setRadiusChangeOnUse")]
     pub fn set_cloud_radius_change_on_use(&mut self, blocks: f64) -> bool {
         let blocks = f64::from(to_f32(blocks));
-        is_radius_change(blocks) && self.with_cloud(|c| c.radius_on_use = blocks)
+        is_radius_change(blocks) && self.cloud_mut(|c| c.radius_on_use = blocks)
     }
 
     /// Sets the change of a cloud's radius per tick, -64 to 64 blocks.
     #[doc(alias = "AreaEffectCloud::setRadiusChangePerTick")]
     pub fn set_cloud_radius_change_per_tick(&mut self, blocks: f64) -> bool {
         let blocks = f64::from(to_f32(blocks));
-        is_radius_change(blocks) && self.with_cloud(|c| c.radius_per_tick = blocks)
+        is_radius_change(blocks) && self.cloud_mut(|c| c.radius_per_tick = blocks)
     }
 
     /// The entity and the players, to change both.
@@ -762,9 +764,9 @@ impl Mut<'_> {
         (entity, &mut *self.players)
     }
 
-    /// Runs `f` on an arrow's own data; false for another kind.
-    fn with_arrow(&mut self, f: impl FnOnce(&mut Arrow)) -> bool {
-        match &mut self.entity().kind {
+    /// An arrow's own data, lent to `f`; false for another kind.
+    fn arrow_mut(&mut self, f: impl FnOnce(&mut Arrow)) -> bool {
+        match &mut self.entity_mut().kind {
             Kind::Projectile(Projectile {
                 shot: Shot::Arrow(a),
                 ..
@@ -776,9 +778,9 @@ impl Mut<'_> {
         }
     }
 
-    /// Runs `f` on a cloud's own data; false for another kind.
-    fn with_cloud(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
-        match &mut self.entity().kind {
+    /// A cloud's own data, lent to `f`; false for another kind.
+    fn cloud_mut(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
+        match &mut self.entity_mut().kind {
             Kind::Cloud(c) => {
                 f(c);
                 true
@@ -787,9 +789,9 @@ impl Mut<'_> {
         }
     }
 
-    /// Runs `f` on a cloud's own data, which viewers see; false for another kind.
-    fn with_shown_cloud(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
-        match &mut self.shown().kind {
+    /// A cloud's own data, which viewers see, lent to `f`; false for another kind.
+    fn shown_cloud_mut(&mut self, f: impl FnOnce(&mut Cloud)) -> bool {
+        match &mut self.shown_mut().kind {
             Kind::Cloud(c) => {
                 f(c);
                 true
@@ -1003,7 +1005,7 @@ impl Entity {
     /// Falling blocks, primed TNT, living NPCs and end crystals do.
     #[doc(alias = "Entity::canBeCollidedWith")]
     pub fn can_be_collided_with(&self) -> bool {
-        self.blocks_placing()
+        self.is_obstacle()
     }
 
     /// Whether an NPC takes no damage but the void's.
@@ -1511,7 +1513,7 @@ impl Context<'_> {
 
     /// The entity `id`, to change it.
     pub fn entity_mut(&mut self, id: Id) -> Option<Mut<'_>> {
-        let delay = item_despawn_delay(self.state);
+        let delay = item_despawn_delay_ticks(self.state);
         let State {
             rules,
             worlds,
@@ -1524,7 +1526,7 @@ impl Context<'_> {
             entities: &mut rules.entities,
             worlds,
             players,
-            item_despawn_delay: delay,
+            item_despawn_delay_ticks: delay,
         })
     }
 
@@ -1547,7 +1549,7 @@ impl Context<'_> {
             return Err(stack);
         }
         let back = stack.clone();
-        let delay = super::DROP_PICKUP_DELAY;
+        let delay = super::DROP_PICKUP_DELAY_TICKS;
         drop_stack(self.state, w, pos, stack, motion, delay, String::new()).ok_or(back)
     }
 
@@ -1574,7 +1576,7 @@ impl Context<'_> {
         }
         let orb = Orb {
             value,
-            despawn_delay: super::DEFAULT_DESPAWN_DELAY,
+            despawn_delay: super::DEFAULT_DESPAWN_DELAY_TICKS,
             look_for_target: 0,
             target: None,
         };

@@ -16,9 +16,9 @@ const FINGERPRINT_BYTES: usize = 32;
 /// The priority of the answer's host candidate, as BDS writes it.
 const HOST_PRIORITY: u32 = 2_122_260_223;
 /// The length of `ice-pwd` in characters (RFC 8839 5.4).
-const ICE_PWD_LEN: RangeInclusive<usize> = 22..=256;
+const ICE_PWD_LEN_RANGE: RangeInclusive<usize> = 22..=256;
 /// The length of `ice-ufrag` in characters (RFC 8839 5.4).
-const ICE_UFRAG_LEN: RangeInclusive<usize> = 4..=256;
+const ICE_UFRAG_LEN_RANGE: RangeInclusive<usize> = 4..=256;
 /// The most usable candidates. A client offers one per interface and address family.
 const MAX_CANDIDATES: usize = 32;
 /// The longest identity provider domain, in bytes.
@@ -93,7 +93,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// An SDP result.
+/// A result with the module's [`enum@Error`].
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A client offer: what the server needs to answer and connect.
@@ -283,12 +283,12 @@ fn attribute<'a>(
     match name {
         "ice-ufrag" => once(
             &mut found.ice_ufrag,
-            ice_text(value, ICE_UFRAG_LEN, "ice-ufrag")?,
+            ice_text(value, ICE_UFRAG_LEN_RANGE, "ice-ufrag")?,
             "ice-ufrag",
         ),
         "ice-pwd" => once(
             &mut found.ice_pwd,
-            ice_text(value, ICE_PWD_LEN, "ice-pwd")?,
+            ice_text(value, ICE_PWD_LEN_RANGE, "ice-pwd")?,
             "ice-pwd",
         ),
         "fingerprint" => once(&mut found.fingerprint, fingerprint(value)?, "fingerprint"),

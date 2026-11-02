@@ -11,12 +11,12 @@ use super::emit::HEADER;
 use super::info::{EffectJson, bit_set, f64_lit};
 use super::names::upper_camel;
 
-type R<T> = Result<T, String>;
-
 /// The state index of no block in the places tables.
 const NO_STATE: u16 = 0xffff;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/table.rs";
+
+type R<T> = Result<T, String>;
 
 /// Generates the file text (unformatted). Fails if a lookup could not tell two types apart.
 pub(crate) fn generate(data: &Data) -> Result<String, String> {
@@ -296,7 +296,6 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
         });
         let opt = |v: Option<String>| v.map_or_else(|| "None".to_owned(), |v| format!("Some({v})"));
         let consumable = match &d.consumable {
-            None => "None".to_owned(),
             Some(c) => {
                 let effects_src = match &c.effects {
                     Json::String(s) if s == "random" => "None".to_owned(),
@@ -318,6 +317,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
                         .map(|r| format!("Type::from_index({r})")))
                 )
             }
+            None => "None".to_owned(),
         };
         let tier = match &d.tool.tier {
             Some(t) => format!("Some(ToolTier::{})", upper_camel(t)),

@@ -148,7 +148,7 @@ impl Shaped<'_> {
                     let required = self.grid.get((ry + y) * row + rx + x).copied().flatten();
                     match (required, given) {
                         (None, Some(given)) => given.is_empty(),
-                        (Some(required), Some(given)) => required.accepts(given),
+                        (Some(required), Some(given)) => required.can_accept(given),
                         (_, None) => false,
                     }
                 })
@@ -207,7 +207,7 @@ impl Shapeless<'_> {
             return false;
         }
         // owner[g] is the ingredient the given item g is matched to.
-        let mut owner = [usize::MAX; GRID_CELLS];
+        let mut owner = [None; GRID_CELLS];
         for i in 0..self.ingredients.len() {
             let mut seen = [false; GRID_CELLS];
             if !self.augment(i, &given, &mut owner, &mut seen) {
@@ -235,24 +235,24 @@ impl Shapeless<'_> {
         &self,
         i: usize,
         given: &[&item::Stack],
-        owner: &mut [usize; GRID_CELLS],
+        owner: &mut [Option<usize>; GRID_CELLS],
         seen: &mut [bool; GRID_CELLS],
     ) -> bool {
         let Some(ingredient) = self.ingredients.get(i) else {
             return false;
         };
         for (g, stack) in given.iter().enumerate() {
-            let (Some(s), true) = (seen.get_mut(g), ingredient.accepts(stack)) else {
+            let (Some(s), true) = (seen.get_mut(g), ingredient.can_accept(stack)) else {
                 continue;
             };
             if *s {
                 continue;
             }
             *s = true;
-            let current = owner.get(g).copied().unwrap_or(usize::MAX);
-            if current == usize::MAX || self.augment(current, given, owner, seen) {
+            let current = owner.get(g).copied().flatten();
+            if current.is_none_or(|c| self.augment(c, given, owner, seen)) {
                 if let Some(o) = owner.get_mut(g) {
-                    *o = i;
+                    *o = Some(i);
                 }
                 return true;
             }
@@ -398,7 +398,7 @@ impl Ingredient {
 
     /// Whether `stack` is an item this ingredient takes, whatever its count (PMMP
     /// `RecipeIngredient::accepts`).
-    pub(crate) fn accepts(&self, stack: &item::Stack) -> bool {
+    pub(crate) fn can_accept(&self, stack: &item::Stack) -> bool {
         let Some(item) = stack.item() else {
             return false;
         };
@@ -659,7 +659,7 @@ pub(crate) fn furnace_recipe(kind: FurnaceType, input: &item::Stack) -> Option<u
     by_name(&table::FURNACE_BY_ITEM, item.name())
         .iter()
         .map(|(_, i)| *i)
-        .find(|i| furnace_at(*i).is_some_and(|r| r.kind == kind && r.input.accepts(input)))
+        .find(|i| furnace_at(*i).is_some_and(|r| r.kind == kind && r.input.can_accept(input)))
 }
 
 /// The number of furnace recipes PMMP has (a server's own count on from it).
@@ -681,7 +681,7 @@ pub(crate) fn brew_container_change(
     let name = input.item()?.name();
     table::POTION_CONTAINER_CHANGE
         .iter()
-        .filter(|r| r.input.name == name && Ingredient::Exact(r.reagent).accepts(reagent))
+        .filter(|r| r.input.name == name && Ingredient::Exact(r.reagent).can_accept(reagent))
         .find_map(|r| {
             change_container(input, |meta, tag| {
                 Type::from_name(r.output.name, meta, None, tag)
@@ -697,8 +697,8 @@ pub(crate) fn brew_potion_type(input: &item::Stack, reagent: &item::Stack) -> Op
         .iter()
         .filter_map(|(_, i)| table::POTION_TYPE.get(usize::from(*i)))
         .find(|r| {
-            Ingredient::Exact(r.reagent).accepts(reagent)
-                && Ingredient::Exact(r.input).accepts(input)
+            Ingredient::Exact(r.reagent).can_accept(reagent)
+                && Ingredient::Exact(r.input).can_accept(input)
         })
         .and_then(|r| r.output.to_item())
 }
@@ -764,7 +764,7 @@ pub(crate) fn consumed_matches<'a>(
     for (i, ingredient) in ingredients.iter().enumerate() {
         capacity[0][1 + i] = times;
         for (p, (stack, _)) in pooled.iter().enumerate() {
-            if ingredient.accepts(stack) {
+            if ingredient.can_accept(stack) {
                 capacity[1 + i][1 + n_i + p] = u32::MAX;
             }
         }
@@ -919,17 +919,17 @@ fn descriptor(ingredient: Option<&Ingredient>) -> ItemDescriptorCount {
         })
     };
     let descriptor = match ingredient {
+        Some(Ingredient::Exact(e)) => default(e.item.name(), e.network_meta),
+        Some(Ingredient::AnyMeta(n)) => default(n.name, WILDCARD_META),
+        Some(Ingredient::Tag(tag)) => ItemDescriptor::ItemTag(ItemTagItemDescriptor {
+            tag: tag.name().to_owned(),
+        }),
         None => {
             return ItemDescriptorCount {
                 descriptor: ItemDescriptor::Invalid(InvalidItemDescriptor {}),
                 count: 0,
             };
         }
-        Some(Ingredient::Exact(e)) => default(e.item.name(), e.network_meta),
-        Some(Ingredient::AnyMeta(n)) => default(n.name, WILDCARD_META),
-        Some(Ingredient::Tag(tag)) => ItemDescriptor::ItemTag(ItemTagItemDescriptor {
-            tag: tag.name().to_owned(),
-        }),
     };
     ItemDescriptorCount {
         descriptor,
@@ -973,25 +973,27 @@ fn bounds(
 fn max_flow(capacity: &mut [[u32; FLOW_NODES]; FLOW_NODES], sink: usize) -> u32 {
     let nodes = sink + 1;
     let mut total: u32 = 0;
-    let mut parent = [usize::MAX; FLOW_NODES];
+    let mut parent = [0; FLOW_NODES];
+    let mut reached = [false; FLOW_NODES];
     // Each node enters the queue at most once.
     let mut queue = [0; FLOW_NODES];
     loop {
-        parent.fill(usize::MAX);
-        parent[0] = 0;
+        reached.fill(false);
+        reached[0] = true;
         let (mut head, mut tail) = (0, 1);
         while head < tail {
             let u = queue[head];
             head += 1;
             for v in 0..nodes {
-                if parent[v] == usize::MAX && capacity[u][v] > 0 {
+                if !reached[v] && capacity[u][v] > 0 {
+                    reached[v] = true;
                     parent[v] = u;
                     queue[tail] = v;
                     tail += 1;
                 }
             }
         }
-        if parent[sink] == usize::MAX {
+        if !reached[sink] {
             return total;
         }
         let mut push = u32::MAX;
@@ -1490,7 +1492,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert!(checked > 1_700, "{checked}");
+        assert!(checked > 1700, "{checked}");
     }
 
     /// The furnace index finds what a scan of every furnace recipe finds.
@@ -1508,7 +1510,7 @@ mod tests {
             ] {
                 let scan = table::FURNACE
                     .iter()
-                    .position(|f| f.kind == kind && f.input.accepts(&input))
+                    .position(|f| f.kind == kind && f.input.can_accept(&input))
                     .map(|i| u16::try_from(i).unwrap());
                 assert_eq!(furnace_recipe(kind, &input), scan, "{r:?}");
             }

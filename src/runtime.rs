@@ -113,15 +113,24 @@ impl ThreadTotals {
     /// The most blocking threads tokio starts.
     pub(crate) const BLOCKING: usize = MAX_BLOCKING_THREADS;
 
-    /// The threads of `counts`, with the console thread if `console` and the log thread if
-    /// `log`.
-    pub(crate) fn new(counts: ThreadCounts, console: bool, log: bool) -> Self {
+    /// The threads of `counts`, without a console thread or a log thread.
+    pub(crate) fn new(counts: ThreadCounts) -> Self {
         Self {
             network: counts.network,
             cpu: counts.cpu,
-            console,
-            log,
+            console: false,
+            log: false,
         }
+    }
+
+    /// The same threads, with the console thread if `console`.
+    pub(crate) fn with_console(self, console: bool) -> Self {
+        Self { console, ..self }
+    }
+
+    /// The same threads, with the log thread if `log`.
+    pub(crate) fn with_log(self, log: bool) -> Self {
+        Self { log, ..self }
     }
 }
 

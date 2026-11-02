@@ -24,6 +24,8 @@
 //! never shown, and written back as it was at the end of `Recipes` (saved data is not
 //! destroyed).
 
+use std::fmt;
+
 use tracing::warn;
 
 use crate::custom::{
@@ -133,7 +135,6 @@ impl Offers {
             ..Self::default()
         };
         match saved.get(RECIPES) {
-            None | Some(Value::List(List::End)) => {}
             Some(Value::List(List::Compound(list))) => {
                 for c in list {
                     match Recipe::from_nbt(c, custom) {
@@ -149,30 +150,31 @@ impl Offers {
                     }
                 }
             }
+            Some(Value::List(List::End)) | None => {}
             Some(_) => warn!("saved villager offers are not a compound list; none read"),
         }
         match saved.get(TIER_EXPERIENCE).map(tier_experience) {
-            None => {}
             Some(Some(t)) => offers.tier_experience = t,
             Some(None) => warn!("saved villager tier requirements are invalid; defaults used"),
+            None => {}
         }
         let tier = saved.get(TRADE_TIER).map(|v| match v {
             Value::Int(t) => u8::try_from(*t).ok().filter(|t| *t <= MAX_TRADE_TIER),
             _ => None,
         });
         match tier {
-            None => {}
             Some(Some(t)) => offers.tier = t,
             Some(None) => warn!("saved villager tier is invalid; tier 0 used"),
+            None => {}
         }
         let experience = saved.get(TRADE_EXPERIENCE).map(|v| match v {
             Value::Int(x) => u32::try_from(*x).ok(),
             _ => None,
         });
         match experience {
-            None => {}
             Some(Some(x)) => offers.experience = x,
             Some(None) => warn!("saved villager experience is invalid; 0 used"),
+            None => {}
         }
         offers
     }
@@ -221,7 +223,9 @@ impl Offers {
         if recipes.len() > MAX_OFFERS {
             return Err(Error::Full);
         }
-        recipes.iter().try_for_each(Recipe::check)?;
+        for recipe in &recipes {
+            recipe.check()?;
+        }
         let old = std::mem::replace(&mut self.recipes, recipes);
         self.kept_if_saved(|r| *r = old)
     }
@@ -553,7 +557,7 @@ impl Recipe {
     /// Reads the offer a recipe compound holds, or why it cannot be used. The price is
     /// `buyCountA` (BDS's actual count) when present, otherwise the item's `Count`. Custom items
     /// are read through `custom`.
-    fn from_nbt(c: &Compound, custom: &Registry) -> std::result::Result<Self, &'static str> {
+    fn from_nbt(c: &Compound, custom: &Registry) -> Result<Self, &'static str> {
         let (buy_a, damage_a) =
             payment(c, BUY_A, BUY_COUNT_A, custom)?.ok_or("no first payment")?;
         let (buy_b, damage_b) = payment(c, BUY_B, BUY_COUNT_B, custom)?.unwrap_or_default();
@@ -572,16 +576,16 @@ impl Recipe {
                 .map_err(|_| "tier out of range")?,
             trader_exp: counter(c, TRADER_EXP)?.unwrap_or(0),
             reward_exp: match c.get(REWARD_EXP) {
-                None | Some(Value::Byte(1)) => true,
+                Some(Value::Byte(1)) | None => true,
                 Some(Value::Byte(0)) => false,
                 Some(_) => return Err("rewardExp is not a byte flag"),
             },
             price_multiplier_a: float(c, PRICE_MULTIPLIER_A)?,
             price_multiplier_b: float(c, PRICE_MULTIPLIER_B)?,
             demand: match c.get(DEMAND) {
-                None => 0,
                 Some(Value::Int(d)) => *d,
                 Some(_) => return Err("demand is not an int"),
+                None => 0,
             },
             unknown: unknown_keys(c, &RECIPE_KEYS),
         };
@@ -776,8 +780,8 @@ pub(in crate::tick) enum Error {
 }
 
 impl Error {
-    /// The reason for the refusal, as the public error and the skipped saved offer's warning
-    /// give it.
+    /// The reason for the refusal, as the public error, the skipped saved offer's warning and the
+    /// display give it.
     pub(in crate::tick) fn reason(self) -> &'static str {
         match self {
             Self::NoPayment => "the offer has no payment",
@@ -795,7 +799,15 @@ impl Error {
     }
 }
 
-/// The result of an offer list change.
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.reason())
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
 pub(in crate::tick) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Converts a counter into a `TAG_Int`.
@@ -825,7 +837,7 @@ fn payment(
     key: &str,
     count_key: &str,
     custom: &Registry,
-) -> std::result::Result<Option<(Stack, Damage)>, &'static str> {
+) -> Result<Option<(Stack, Damage)>, &'static str> {
     // `Damage` 32767 is any damage; the item is the one of damage 0.
     let (stack, damage) = match c.get(key) {
         Some(Value::Compound(i)) if i.get(DAMAGE) == Some(&Value::Short(ANY_DAMAGE)) => {
@@ -849,36 +861,32 @@ fn payment(
 }
 
 /// Reads the item under `key`: `None` if absent or empty air.
-fn item(
-    c: &Compound,
-    key: &str,
-    custom: &Registry,
-) -> std::result::Result<Option<Stack>, &'static str> {
+fn item(c: &Compound, key: &str, custom: &Registry) -> Result<Option<Stack>, &'static str> {
     match c.get(key) {
-        None => Ok(None),
         Some(Value::Compound(item)) => {
             let stack = Stack::from_nbt_with(item, custom).ok_or("unknown item")?;
             Ok((!stack.is_empty()).then_some(stack))
         }
         Some(_) => Err("item is not a compound"),
+        None => Ok(None),
     }
 }
 
 /// Reads a non-negative `TAG_Int` under `key`, if present.
-fn counter(c: &Compound, key: &str) -> std::result::Result<Option<u32>, &'static str> {
+fn counter(c: &Compound, key: &str) -> Result<Option<u32>, &'static str> {
     match c.get(key) {
-        None => Ok(None),
         Some(Value::Int(v)) => u32::try_from(*v).map(Some).map_err(|_| "negative counter"),
         Some(_) => Err("counter is not an int"),
+        None => Ok(None),
     }
 }
 
 /// Reads a price multiplier under `key` (the default if absent).
-fn float(c: &Compound, key: &str) -> std::result::Result<f32, &'static str> {
+fn float(c: &Compound, key: &str) -> Result<f32, &'static str> {
     match c.get(key) {
-        None => Ok(crate::custom::DEFAULT_PRICE_MULTIPLIER),
         Some(Value::Float(v)) => Ok(*v),
         Some(_) => Err("price multiplier is not a float"),
+        None => Ok(crate::custom::DEFAULT_PRICE_MULTIPLIER),
     }
 }
 

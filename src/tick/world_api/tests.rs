@@ -12,13 +12,15 @@ use crate::tick::tests::{initialised, join, new_state, radius, received, setting
 use crate::tick::{MAX_OUTBOX, Output, SessionId, Setup, Shared};
 use crate::world::{BlockPos, ChunkPos, Flat, Generator, Kind};
 
+/// The world every test of this file builds.
 const WORLD: world::Id = world::Id::DEFAULT;
 
 fn context(state: &mut State) -> Context<'_> {
     Context { state }
 }
 
-// pmmp: WorldManager::getWorld, WorldManager::isWorldLoaded, Position::isValid, WorldManager::getWorlds, World::getId, World::getFolderName, World::getDisplayName
+// pmmp: WorldManager::getWorld, WorldManager::isWorldLoaded, Position::isValid
+// pmmp: WorldManager::getWorlds, World::getId, World::getFolderName, World::getDisplayName
 #[test]
 fn worlds_are_found_by_their_id_in_list_order() {
     let config = Config::default();
@@ -62,7 +64,7 @@ fn moving_the_spawn_moves_the_held_spawn_chunks() {
     let held = |state: &State, center: ChunkPos| {
         (-1..=1)
             .flat_map(|x| (-1..=1).map(move |z| ChunkPos::new(center.x + x, center.z + z)))
-            .filter(|&p| state.chunks.holds((0, p)))
+            .filter(|&p| state.chunks.has_chunk((0, p)))
             .count()
     };
     assert_eq!(held(&state, old), 9);

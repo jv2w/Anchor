@@ -8,7 +8,9 @@ use super::*;
 
 /// PMMP's own upgrader over the 5.3.0 schemas (`xtask/php/upgrade.php`, `cargo xtask dump`).
 const GOLDEN_LEGACY: &str = include_str!("../../../xtask/data/upgrade/golden/legacy.jsonl");
+/// The upgrader's result for each reference state.
 const GOLDEN_REFERENCE: &str = include_str!("../../../xtask/data/upgrade/golden/reference.jsonl");
+/// The upgrader's result for each state of the dump.
 const GOLDEN_STATES: &str = include_str!("../../../xtask/data/upgrade/golden/states.jsonl");
 /// Rules that change nothing, for the schemas under test to start from.
 const NONE: Rules<'static> = Rules {

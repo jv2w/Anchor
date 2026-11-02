@@ -87,8 +87,7 @@ impl Work {
     /// ([`Work::join_enchantments`]). Anything else, or enchantments of which none joins, does
     /// nothing.
     fn join(&mut self, input: &Stack, item: item::Type, material: &Stack) -> Result<(), Refused> {
-        let book =
-            is_book(material) && material.extra().is_some_and(|e| !e.enchantments.is_empty());
+        let book = is_enchanted_book(material);
         if !book {
             let Some(max) = item
                 .max_durability()
@@ -107,7 +106,7 @@ impl Work {
                 self.levels += JOIN_REPAIR_LEVELS;
             }
         }
-        let (joined, refused) = self.join_enchantments(input, item, material, book);
+        let (joined, refused) = self.join_enchantments(input, item, material);
         // dragonfly refuses this only for items that do not wear, and so charges a level for
         // nothing on others; vanilla (Java `AnvilMenu`) refuses it for every item.
         if refused && !joined {
@@ -131,11 +130,11 @@ impl Work {
         input: &Stack,
         item: item::Type,
         material: &Stack,
-        book: bool,
     ) -> (bool, bool) {
         let Some(offered) = material.extra() else {
             return (false, false);
         };
+        let book = is_enchanted_book(material);
         let takes_any = is_book(input);
         let mut tallies = Tallies::new(&self.extra.enchantments);
         let (mut joined, mut refused) = (false, false);
@@ -156,13 +155,13 @@ impl Work {
                 level != u16::from(e.max_level()) && level != item::MAX_ENCHANTMENT_LEVEL;
             let tally = tallies.get(e);
             let (level, gained) = match tally.first_level {
-                None => (level, level),
                 Some(had) if had < level => (level, level - had),
                 Some(had) if had == level && can_rise => (level + 1, 1),
                 Some(_) => {
                     refused = true;
                     continue;
                 }
+                None => (level, level),
             };
             joined = true;
             if let Some(at) = tally.at {
@@ -206,7 +205,7 @@ impl Tallies {
     fn new(enchantments: &[(Enchantment, u16)]) -> Self {
         let mut tallies = Self(vec![Tally::default(); Enchantment::all().len()]);
         for (at, &(e, level)) in enchantments.iter().enumerate() {
-            let tally = tallies.slot(e);
+            let tally = tallies.slot_mut(e);
             tally.entries += 1;
             if tally.at.is_none() {
                 tally.first_level = Some(level);
@@ -227,11 +226,11 @@ impl Tallies {
 
     /// Records that the result's enchantments hold `e` at `at`.
     fn place(&mut self, e: Enchantment, at: usize) {
-        self.slot(e).at = Some(at);
+        self.slot_mut(e).at = Some(at);
     }
 
     /// The tally of `e`, to change.
-    fn slot(&mut self, e: Enchantment) -> &mut Tally {
+    fn slot_mut(&mut self, e: Enchantment) -> &mut Tally {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: there is a tally per enchantment"
@@ -264,7 +263,7 @@ pub(in crate::tick) fn craft(
     };
     let mut work = Work::new(input);
     let material_used = match material.item() {
-        Some(repairer) if repairs(item, repairer) => work.repair(item, material.count())?,
+        Some(repairer) if can_repair(item, repairer) => work.repair(item, material.count())?,
         Some(_) => {
             work.join(input, item, material)?;
             material.count()
@@ -318,7 +317,7 @@ fn prior_work(stack: &Stack) -> u32 {
 
 /// Whether `material` repairs `input` (vanilla repair materials: a tool's tier material, an
 /// armour piece's material, leather, phantom membrane for elytra, planks for shields).
-fn repairs(input: item::Type, material: item::Type) -> bool {
+fn can_repair(input: item::Type, material: item::Type) -> bool {
     let kind = material.kind();
     let tag = |name: &str| item::Tag::find(name).is_some_and(|t| t.contains(material));
     let tier = |t: ToolTier| match t {
@@ -378,6 +377,11 @@ fn is_book(stack: &Stack) -> bool {
     stack
         .item()
         .is_some_and(|t| t.is(item::Class::EnchantedBook))
+}
+
+/// Whether the item is an enchanted book that holds enchantments.
+fn is_enchanted_book(stack: &Stack) -> bool {
+    is_book(stack) && stack.extra().is_some_and(|e| !e.enchantments.is_empty())
 }
 
 #[cfg(test)]

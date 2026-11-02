@@ -182,7 +182,7 @@ impl Shared {
             jigsaw_structure_data: encode(&mut encoder, &[vanilla::jigsaw_structure_data()])?,
             actor_properties: encode(&mut encoder, &vanilla::actor_properties())?,
             camera: encode(&mut encoder, &vanilla::camera())?,
-            blocks: custom.block_entries().into(),
+            blocks: custom.to_block_entries().into(),
         })
     }
 
@@ -893,7 +893,7 @@ pub(super) fn join(
             info!(
                 session = session.get(),
                 existing = existing.get(),
-                name = %identity.name,
+                player = %identity.name,
                 "join rejected: the player is already online"
             );
             output.close(outbound, packet);
@@ -908,7 +908,7 @@ pub(super) fn join(
     let (admitted, event) = login(state, &identity);
     let request = match admitted {
         Err(Refused { reason, packet }) => {
-            info!(session = session.get(), name = %identity.name, %reason, "join rejected");
+            info!(session = session.get(), player = %identity.name, %reason, "join rejected");
             output.close(outbound, packet);
             None
         }
@@ -945,7 +945,7 @@ fn replace(
         info!(
             session = existing.get(),
             by = by.get(),
-            name = %old.identity.name,
+            player = %old.identity.name,
             "player replaced by a new login"
         );
     }
@@ -978,7 +978,7 @@ fn enter(
     };
     let runtime_id = state.next_runtime_id;
     state.next_runtime_id = next;
-    info!(session = session.get(), name = %identity.name, runtime_id, "player joined");
+    info!(session = session.get(), player = %identity.name, runtime_id, "player joined");
     let stored = storage_key(&key);
     let mut player = Player {
         session,
@@ -994,7 +994,7 @@ fn enter(
         view: view::View::default(),
         outbound,
         pending: Pending::default(),
-        extra: extra::PlayerExtra::default(),
+        extra: extra::Player::default(),
         inventory: inventory::Inventory::default(),
         survival: survival::Survival::new(&state.settings),
         breaking: interact::Breaking::default(),
@@ -1119,7 +1119,7 @@ pub(super) fn player_loaded(
         }
     };
     if let Some(refusal) = since_login {
-        let reason = refusal.message();
+        let reason = refusal.to_message();
         info!(session = session.get(), player = key.as_str(), %reason, "join rejected after loading");
         refuse_loaded(state, session, refusal.packet(), output);
         return;
@@ -1191,7 +1191,7 @@ fn login(
         let admitted = command::admit(state, identity)
             .map(|()| [false; 3])
             .map_err(|r| Refused {
-                reason: r.message(),
+                reason: r.to_message(),
                 packet: r.packet(),
             });
         return (admitted, None);
@@ -1206,7 +1206,7 @@ fn login(
         kicks: Default::default(),
     };
     for r in anchor.iter().flatten() {
-        event.set_kick_flag(kick_flag(r), r.message(), None);
+        event.set_kick_flag(kick_flag(r), r.to_message(), None);
     }
     dispatch::call(state, &mut event);
     if dispatch::listened::<PlayerLogin>(state) {
@@ -1217,7 +1217,7 @@ fn login(
             if was.is_none()
                 && let Some(r) = is
             {
-                event.set_kick_flag(kick_flag(&r), r.message(), None);
+                event.set_kick_flag(kick_flag(&r), r.to_message(), None);
                 *was = Some(r);
             }
         }
@@ -1236,7 +1236,7 @@ fn login(
             .iter()
             .flatten()
             .find(|r| kick_flag(r) == flag)
-            .filter(|r| r.message() == reason && r.message() == screen);
+            .filter(|r| r.to_message() == reason && r.to_message() == screen);
         let packet = own.map_or_else(
             || {
                 Packet::Disconnect(Disconnect {

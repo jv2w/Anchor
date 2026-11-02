@@ -31,12 +31,12 @@ const EXIT_LOG_WAIT: Duration = Duration::from_millis(500);
 /// The exit status after a second stop signal: 128 + SIGINT, what shells report for Ctrl+C.
 const INTERRUPTED_EXIT: i32 = 130;
 
-/// How often [`measure_process`] measures.
-const PROCESS_PERIOD: Duration = Duration::from_secs(1);
-
 /// The most bytes `/proc/self/status` is read up to: it holds a few dozen short lines.
 #[cfg(unix)]
-const PROCESS_STATUS_LIMIT_BYTES: u64 = 64 * 1024;
+const MAX_PROCESS_STATUS_BYTES: u64 = 64 * 1024;
+
+/// How often [`measure_process`] measures.
+const PROCESS_PERIOD: Duration = Duration::from_secs(1);
 
 /// A Minecraft: Bedrock Edition server. Make one with [`Server::builder`], then call
 /// [`Server::run`].
@@ -305,7 +305,7 @@ impl Server {
             let offer = Offer::load(
                 &config.resource_pack_paths(&data_dir.join(pack::FOLDER)),
                 packs,
-                config.general.force_resources,
+                config.general.force_resources.into(),
             )?;
             let mut opened =
                 save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
@@ -351,11 +351,11 @@ impl Server {
         state.set_identity(opened.identity);
         let (controls, control_queue) = tick::queue::control_queue();
         state.connect_network(controls);
-        state.set_threads(ThreadTotals::new(
-            threads,
-            config.developer.console_input,
-            log.is_some(),
-        ));
+        state.set_threads(
+            ThreadTotals::new(threads)
+                .with_console(config.developer.console_input)
+                .with_log(log.is_some()),
+        );
         opened
             .thread
             .set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
@@ -832,8 +832,7 @@ fn listen(received: &mpsc::Sender<&'static str>) {
 #[cfg(unix)]
 fn hangup_ignored() -> std::io::Result<bool> {
     use std::io::{Error, ErrorKind};
-    let status =
-        crate::fs::read_bounded(Path::new("/proc/self/status"), PROCESS_STATUS_LIMIT_BYTES)?;
+    let status = crate::fs::read_bounded(Path::new("/proc/self/status"), MAX_PROCESS_STATUS_BYTES)?;
     let mask = status
         .split(|&byte| byte == b'\n')
         .find_map(|line| line.strip_prefix(b"SigIgn:"))
@@ -1154,7 +1153,7 @@ mod tests {
                 };
                 // A test process holds more than a megabyte.
                 assert!(memory > 1 << 20, "{memory}");
-                assert!((5_000..60_000).contains(&uptime_ms), "{uptime_ms}");
+                assert!((5000..60_000).contains(&uptime_ms), "{uptime_ms}");
             }
             drop(queue);
             task.await.unwrap();

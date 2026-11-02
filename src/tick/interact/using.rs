@@ -38,8 +38,6 @@ const ANCHOR_RADIUS: f64 = 5.0;
 const ANCHOR_SPAWN_SET: &str = "§7%tile.respawn_anchor.respawnSet";
 /// The cauldron levels a bottle holds.
 const BOTTLE_LEVELS: i32 = 2;
-/// The bites a cake has before it is gone (PMMP `Cake::MAX_BITES`).
-const CAKE_MAX_BITES: i32 = 6;
 /// The sixteen light block names by level (PMMP `Light`).
 const LIGHT_BLOCKS: [&str; 16] = [
     "minecraft:light_block_0",
@@ -59,10 +57,13 @@ const LIGHT_BLOCKS: [&str; 16] = [
     "minecraft:light_block_14",
     "minecraft:light_block_15",
 ];
+/// The bites a cake has before it is gone (PMMP `Cake::MAX_BITES`).
+const MAX_CAKE_BITES: i32 = 6;
 /// The most sounds one use plays (a candle lit by a fire charge plays two).
 const MAX_USE_SOUNDS: usize = 2;
-/// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
+/// Ticks a pressed stone button stays pressed (PMMP `StoneButton`).
 const STONE_BUTTON_TICKS: u32 = 20;
+/// Ticks a pressed wooden button stays pressed (PMMP `WoodenButton`).
 const WOODEN_BUTTON_TICKS: u32 = 30;
 
 /// The result of an item's own use (PMMP `ItemUseResult`).
@@ -105,6 +106,12 @@ pub(super) struct Use {
 }
 
 impl Use {
+    /// Whether the item lights things (PMMP: flint and steel or Fire Aspect).
+    fn can_light(&self) -> bool {
+        self.item_is(item::Class::FlintSteel)
+            || drops::level(&self.item, Enchantment::FireAspect) > 0
+    }
+
     /// Whether the item is of a PMMP item class.
     fn item_is(&self, class: item::Class) -> bool {
         self.item.item().is_some_and(|t| t.is(class))
@@ -113,12 +120,6 @@ impl Use {
     /// Whether the item is a vanilla item kind.
     pub(super) fn item_kind(&self, kind: item::Kind) -> bool {
         self.item.item().is_some_and(|t| t.kind() == Some(kind))
-    }
-
-    /// Whether the item lights things (PMMP: flint and steel or Fire Aspect).
-    fn lights(&self) -> bool {
-        self.item_is(item::Class::FlintSteel)
-            || drops::level(&self.item, Enchantment::FireAspect) > 0
     }
 
     /// The block next to the clicked face.
@@ -738,7 +739,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 return true;
             }
             Class::Tnt => {
-                if u.item_kind(item::Kind::FireCharge) || u.lights() {
+                if u.item_kind(item::Kind::FireCharge) || u.can_light() {
                     if !ignite_tnt(state, u.actor.world, u.pos) {
                         return false;
                     }
@@ -1033,7 +1034,7 @@ fn cake(state: &mut State, u: &mut Use) -> bool {
         return true;
     }
     let bites = props::int(u.block, "bite_counter").unwrap_or(0) + 1;
-    let residue = if bites > CAKE_MAX_BITES {
+    let residue = if bites > MAX_CAKE_BITES {
         Some(block::AIR)
     } else {
         props::with_int(u.block, "bite_counter", bites)
@@ -1053,7 +1054,7 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
         let (at, lights) = if u.item_kind(item::Kind::FireCharge) {
             u.pop();
             (block_vec(u.pos), Sound::BlazeShoot)
-        } else if u.lights() {
+        } else if u.can_light() {
             u.wear(&state.settings, 1);
             (center(u.pos), Sound::FlintSteel)
         } else {
@@ -1132,7 +1133,7 @@ pub(in crate::tick) fn clear_cauldron(state: &mut State, world: WorldIndex, pos:
 fn candle(state: &mut State, u: &mut Use) -> bool {
     let lit = props::flag(u.block, "lit") == Some(true);
     let world = u.actor.world;
-    if u.item_kind(item::Kind::FireCharge) || u.lights() {
+    if u.item_kind(item::Kind::FireCharge) || u.can_light() {
         if lit {
             return true;
         }
@@ -1733,7 +1734,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
     // PMMP `Bow::canStartUsingItem`: drawing starts with an arrow to shoot (or infinite
     // resources); the release shoots.
     if item.is(item::Class::Bow) {
-        if !actor.finite() || inventory::has_arrow(player) {
+        if !actor.has_finite_resources() || inventory::has_arrow(player) {
             start_using(state, actor.session);
         }
         return true;
@@ -1768,7 +1769,7 @@ pub(super) fn release(state: &mut State, session: SessionId) {
         return;
     }
     if entity::release_trident(state, session, used)
-        && super::actor(state, session).is_some_and(|a| a.finite())
+        && super::actor(state, session).is_some_and(|a| a.has_finite_resources())
         && let Some(player) = state.players.get_mut(&session)
         && player.inventory.held().same(&held)
     {
@@ -1912,7 +1913,7 @@ pub(super) fn teleport_dragon_egg(
 /// Ignites TNT (PMMP `TNT::ignite`): the block becomes a primed TNT entity (the entity rules);
 /// false at the entity limit, and the block stays.
 pub(super) fn ignite_tnt(state: &mut State, world: WorldIndex, pos: BlockPos) -> bool {
-    entity::ignite(state, world, pos, u32::from(entity::TNT_FUSE))
+    entity::ignite(state, world, pos, u32::from(entity::TNT_FUSE_TICKS))
 }
 
 #[cfg(test)]

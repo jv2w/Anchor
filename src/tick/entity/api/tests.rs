@@ -15,6 +15,7 @@ use crate::tick::entity::saved::tests::{kinds, stack};
 use crate::tick::entity::tests::{Harness, adds, at, removes, standing};
 use crate::tick::entity::{EntityTypes, saved};
 
+/// The world the tests' entities live in.
 const WORLD: world::Id = world::Id::DEFAULT;
 
 /// A harness with player 1 standing at block (0, 0), spawned.
@@ -114,7 +115,7 @@ fn every_kind_reads_as_what_it_is() {
         assert!(e.is_alive());
         assert!(e.fall_distance() >= 0.0);
         assert_eq!(e.is_fire_proof(), kind.is_fire_proof());
-        assert_eq!(e.can_be_collided_with(), kind.blocks_placing());
+        assert_eq!(e.can_be_collided_with(), kind.is_obstacle());
         match kind {
             Kind::Item(item) => {
                 assert_eq!(e.item(), Some(&item.stack));

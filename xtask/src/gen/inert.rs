@@ -15,6 +15,8 @@ use super::info::f64_lit;
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/inert/table.rs";
+/// The block-local unit cube: a shape of only this box is solid.
+const UNIT_CUBE: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 
 /// A reference list state: the fields this table reads.
 #[derive(Deserialize)]
@@ -31,9 +33,6 @@ struct Physics {
     /// Network ID, hardness, light emission, light dampening, shape.
     states: Vec<(u32, f64, u8, u8, usize)>,
 }
-
-/// The block-local unit cube: a shape of only this box is solid.
-const UNIT_CUBE: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 
 /// Generates the file text (unformatted). Fails if a state has no physics or two states share a
 /// network ID.

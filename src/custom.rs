@@ -205,7 +205,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The result of registering custom content.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl ServerBuilder {

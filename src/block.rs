@@ -19,14 +19,23 @@
 mod drops;
 /// The block flags of [`Info::flags`], as bits (the generator's `BLOCK_FLAGS` order).
 pub(crate) mod flag {
+    /// The block is solid.
     pub(crate) const SOLID: u16 = 1;
+    /// The block is transparent.
     pub(crate) const TRANSPARENT: u16 = 1 << 1;
+    /// The block can be replaced when placing another.
     pub(super) const REPLACEABLE: u16 = 1 << 2;
+    /// A liquid can flow into the block.
     pub(super) const FLOWABLE: u16 = 1 << 3;
+    /// The block can be climbed.
     pub(super) const CLIMBABLE: u16 = 1 << 4;
+    /// The block has entity collision.
     pub(super) const ENTITY_COLLISION: u16 = 1 << 5;
+    /// The block is affected by silk touch.
     pub(crate) const SILK_TOUCH: u16 = 1 << 6;
+    /// The block has a model position offset.
     pub(super) const POSITION_OFFSET: u16 = 1 << 7;
+    /// The block burns forever.
     pub(super) const BURNS_FOREVER: u16 = 1 << 8;
 }
 mod hash;
@@ -318,7 +327,7 @@ impl State {
     /// The custom block of a custom state, `None` for a state of the table.
     #[inline]
     pub fn custom_block(self) -> Option<&'static custom::Block> {
-        self.as_custom().map(|c| c.block)
+        self.to_custom().map(|c| c.block)
     }
 
     /// The light level the block gives off, 0 to 15.
@@ -360,7 +369,7 @@ impl State {
     pub fn ticks_randomly(self) -> bool {
         match self.0 {
             Repr::Vanilla(i) => Self::data(i).ticks_randomly,
-            Repr::Custom(c) => c.block.ticks_randomly(),
+            Repr::Custom(c) => c.block.has_random_ticks(),
         }
     }
 
@@ -610,7 +619,7 @@ impl State {
 
     /// The custom state this is, `None` for a state of the table.
     #[inline]
-    fn as_custom(self) -> Option<Custom> {
+    fn to_custom(self) -> Option<Custom> {
         match self.0 {
             Repr::Vanilla(_) => None,
             Repr::Custom(c) => Some(c),
@@ -1640,6 +1649,7 @@ pub(crate) struct GoldenDrop {
 
 #[cfg(test)]
 impl GoldenDrop {
+    /// The golden drop of a block whose item comes from its block entity.
     const BLOCK_ENTITY: Self = Self {
         items: GoldenItems::BlockEntity,
         xp: (0, 0),
@@ -1906,12 +1916,14 @@ fn properties_of(first: u32, count: u8) -> impl ExactSizeIterator<Item = Propert
 mod tests {
     use super::*;
 
+    /// The connection properties of fire and chorus plants.
     const CONNECTIONS: [&str; 4] = [
         "minecraft:connection_north",
         "minecraft:connection_east",
         "minecraft:connection_south",
         "minecraft:connection_west",
     ];
+    /// The connection properties of a wall, and its post.
     const WALL: [&str; 5] = [
         "wall_connection_type_north",
         "wall_connection_type_east",
@@ -2156,8 +2168,8 @@ mod tests {
         State::find(name, properties).unwrap()
     }
 
-    // pmmp: Block, Block::getTypeId, Block::getBreakInfo, BlockBreakInfo, BlockBreakInfo::getHardness,
-    // pmmp: BlockBreakInfo::getBlastResistance, BlockBreakInfo::getToolType,
+    // pmmp: Block, Block::getTypeId, Block::getBreakInfo, BlockBreakInfo,
+    // pmmp: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,BlockBreakInfo::getToolType,
     // pmmp: BlockBreakInfo::getToolHarvestLevel, BlockBreakInfo::isExplosionHarvestable,
     // pmmp: BlockBreakInfo::isToolCompatible, BlockBreakInfo::getBreakTime,
     // pmmp: BlockBreakInfo::isBreakable, BlockBreakInfo::breaksInstantly, Block::isSolid,
@@ -2539,10 +2551,6 @@ mod tests {
         for r in &reference {
             let (name, properties) = json_state(r);
             let expected = match listed.get(&key(r)) {
-                None => {
-                    same += 1;
-                    Some(State::find(name, &properties).expect("read as itself"))
-                }
                 Some(serde_json::Value::Null) => {
                     rejected += 1;
                     State::find(name, &properties)
@@ -2551,6 +2559,10 @@ mod tests {
                     other += 1;
                     let (name, properties) = json_state(pmmp);
                     Some(State::find(name, &properties).expect("a PMMP state"))
+                }
+                None => {
+                    same += 1;
+                    Some(State::find(name, &properties).expect("read as itself"))
                 }
             };
             assert_eq!(State::read(name, &properties), expected, "{}", key(r));

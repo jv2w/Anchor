@@ -44,20 +44,10 @@ use crate::protocol::packet::{Packet, UpdateTrade};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 
-/// The most trades one request may repeat.
-pub(super) const MAX_REPEAT: u32 = 256;
 /// `UpdateTrade.EntityUniqueID` as BDS sends it.
 const ANY_ENTITY: i64 = -1;
-/// Experience per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; BDS drops a
-/// random amount).
-const REWARD_BASE: u32 = 3;
-/// The random part of [`REWARD_BASE`]: `0..REWARD_SPREAD`.
-const REWARD_SPREAD: u32 = 4;
-/// The height above the villager's feet where reward orbs appear (Java
-/// `Villager.rewardTradeXp`).
-const REWARD_HEIGHT: f64 = 0.5;
-/// The random stream of reward orbs.
-const REWARD_RANDOM: u64 = random::tag("trade-reward");
+/// The title of other professions (the nitwit, 14, has none of its own).
+const DEFAULT_DISPLAY_NAME: &str = "entity.villager.name";
 /// The trade screen titles by profession (`EntityVariant`), from BDS 1.26.52's `villager_v2`
 /// economy trade tables: unskilled, farmer, fisherman, shepherd, fletcher, librarian,
 /// cartographer, cleric, armorer, weaponsmith, toolsmith, butcher, leatherworker, mason.
@@ -77,8 +67,6 @@ const DISPLAY_NAMES: [&str; 14] = [
     "entity.villager.leather",
     "entity.villager.mason",
 ];
-/// The title of other professions (the nitwit, 14, has none of its own).
-const DEFAULT_DISPLAY_NAME: &str = "entity.villager.name";
 /// The hooks of the running server.
 const HOOKS: Hooks = Hooks {
     villager: entity_villager,
@@ -90,6 +78,18 @@ const HOOKS: Hooks = Hooks {
     drop_experience: entity::drop_experience,
     villager_traded: entity::villager_traded,
 };
+/// The most trades one request may repeat.
+pub(super) const MAX_REPEAT: u32 = 256;
+/// Experience per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; BDS drops a
+/// random amount).
+const REWARD_BASE: u32 = 3;
+/// The height above the villager's feet where reward orbs appear (Java
+/// `Villager.rewardTradeXp`).
+const REWARD_HEIGHT: f64 = 0.5;
+/// The random stream of reward orbs.
+const REWARD_RANDOM: u64 = random::tag("trade-reward");
+/// The random part of [`REWARD_BASE`]: `0..REWARD_SPREAD`.
+const REWARD_SPREAD: u32 = 4;
 
 /// Who trades with which villager NPC.
 #[derive(Debug, Default)]
@@ -307,12 +307,12 @@ pub(super) fn open(state: &mut State, session: SessionId, villager: Id) -> bool 
 }
 
 fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
-    let may_open = |state: &State| {
+    let can_open = |state: &State| {
         let world = state.players.get(&session).map(|p| p.world);
         (hooks.villager)(state, villager)
             .is_some_and(|v| Some(v.world) == world && !v.offers.is_empty())
     };
-    if !may_open(state) {
+    if !can_open(state) {
         return false;
     }
     let mut event = dispatch::heard::<TradeOpen>(state).then(|| TradeOpen {
@@ -322,7 +322,7 @@ fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) 
     });
     if let Some(e) = &mut event {
         dispatch::call(state, e);
-        if e.cancelled || (dispatch::listened::<TradeOpen>(state) && !may_open(state)) {
+        if e.cancelled || (dispatch::listened::<TradeOpen>(state) && !can_open(state)) {
             return false;
         }
     }

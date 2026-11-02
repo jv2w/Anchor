@@ -90,7 +90,7 @@ pub(super) use physics::{
     is_solid, liquid_depth,
 };
 pub(super) use pick::on_actor_pick_request;
-pub(super) use track::locator_life;
+pub(super) use track::{locator_hidden, locator_visible};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -121,14 +121,13 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
 
-use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind, NEVER, Orb};
+use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY_TICKS, Falling, Form, Item, Kind, NEVER, Orb};
 #[cfg(test)]
 use kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
 use physics::{Body, Inside, Step};
 
-/// The fall damage of an anvil per block fallen and at most (PMMP `Anvil`).
+/// The fall damage of an anvil per block fallen (PMMP `Anvil`).
 const ANVIL_DAMAGE_PER_BLOCK: f64 = 2.0;
-const ANVIL_MAX_DAMAGE: f64 = 40.0;
 /// The random stream (`crate::random`) of an anvil's landing.
 const ANVIL_RANDOM: u64 = random::tag("entity-anvil-land");
 /// The anvil blocks from whole to most damaged; one more hit on the last breaks it.
@@ -139,11 +138,11 @@ const ANVILS: [&str; 3] = [
 ];
 /// Ticks within which a weaker hit on an entity or a player does nothing (PMMP
 /// `EntityDamageEvent::$attackCooldown`).
-pub(super) const ATTACK_COOLDOWN: u8 = 10;
+pub(super) const ATTACK_COOLDOWN_TICKS: u8 = 10;
 /// The random stream (`crate::random`) of a death's drops.
 const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
 /// The pickup delay of a dropped item, in ticks (PMMP `World::dropItem`).
-const DROP_PICKUP_DELAY: i16 = 10;
+const DROP_PICKUP_DELAY_TICKS: i16 = 10;
 /// The random stream (`crate::random`) of a drop.
 const DROP_RANDOM: u64 = random::tag("entity-drop");
 /// The overlap two boxes need to touch (PMMP `intersectsWith`).
@@ -168,8 +167,8 @@ const HOOKS: Hooks = Hooks {
 };
 /// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
 pub(super) const KNOCKBACK: f64 = 0.4;
-/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
-pub(super) const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
+/// The most fall damage of an anvil (PMMP `Anvil`).
+const MAX_ANVIL_DAMAGE: f64 = 40.0;
 /// The most chunks a "what is near" query looks up one by one; a larger area walks the chunk
 /// index instead ([`Entities::nearby`]).
 const MAX_CHUNK_LOOKUPS: u64 = 64;
@@ -180,6 +179,8 @@ const MAX_CHUNK_LOOKUPS: u64 = 64;
 pub const MAX_ENTITIES_PER_WORLD: usize = 16_384;
 /// The most players one player hides (`Context::hide_player`).
 pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
+/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
+pub(super) const MAX_KNOCKBACK_VERTICAL: f64 = 0.4;
 /// Item merges per tick; later candidates check again two ticks on.
 const MAX_MERGES_PER_TICK: usize = 256;
 /// Entities whose movement is sent per tick (each up to four packets per viewer); the others
@@ -199,11 +200,11 @@ const MAX_REMOVALS_PER_TICK: usize = 512;
 /// fills in over ticks instead of overflowing the outbox).
 const MAX_SPAWNS_PER_PLAYER: u32 = 512;
 /// Ticks between an item's merge checks (PMMP `MERGE_CHECK_PERIOD`).
-const MERGE_CHECK_PERIOD: i32 = 2;
+const MERGE_CHECK_PERIOD_TICKS: i32 = 2;
 /// How far around an item's box it looks for stacks to merge with.
 const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 /// Ticks between an orb's searches for a player (PMMP `lookForTargetTime`).
-const ORB_LOOK_PERIOD: u8 = 20;
+const ORB_LOOK_PERIOD_TICKS: u8 = 20;
 /// The orb sizes a drop of experience splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
 const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
 /// How far an orb looks for a player to follow (PMMP `MAX_TARGET_DISTANCE`).
@@ -219,7 +220,7 @@ pub(super) const SAFE_FALL: f64 = 3.0;
 pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
 /// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
 /// without one (PMMP `PrimedTNT::initEntity`).
-pub(super) const TNT_FUSE: u16 = 80;
+pub(super) const TNT_FUSE_TICKS: u16 = 80;
 /// The random stream (`crate::random`) of unsticking.
 const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 /// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
@@ -283,7 +284,7 @@ impl Knock {
             x,
             z,
             force: KNOCKBACK,
-            vertical: KNOCKBACK_VERTICAL_LIMIT,
+            vertical: MAX_KNOCKBACK_VERTICAL,
         }
     }
 
@@ -332,7 +333,7 @@ impl Taken {
         Self {
             base,
             damage: plan.previous.map_or(base, |p| base - p),
-            cooldown: u32::from(ATTACK_COOLDOWN),
+            cooldown: u32::from(ATTACK_COOLDOWN_TICKS),
         }
     }
 }
@@ -452,7 +453,7 @@ impl Entity {
             health,
             fire_ticks: 0,
             age: 0,
-            name_tag_always_visible: kind.shows_name_always(),
+            name_tag_always_visible: kind.is_name_always_shown(),
             name_tag: kind.default_name_tag().to_owned(),
             saved: kind.is_saved(),
             kind,
@@ -586,19 +587,18 @@ impl Entity {
 
     /// Whether placing a block in its box is refused (PMMP `canBeCollidedWith`: its kind's
     /// answer, and an end crystal only while its health is above 0).
-    fn blocks_placing(&self) -> bool {
-        self.kind.blocks_placing()
-            && !(matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0)
+    fn is_obstacle(&self) -> bool {
+        self.kind.is_obstacle() && !(matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0)
     }
 
     /// Whether setting it on fire for `seconds` would change its burning (PMMP `setOnFire`).
-    fn would_burn(&self, seconds: i16) -> bool {
+    fn can_burn(&self, seconds: i16) -> bool {
         seconds.saturating_mul(20) > self.fire_ticks && !self.kind.is_fire_proof()
     }
 
     /// Sets it on fire for `seconds` unless it burns longer already (PMMP `setOnFire`).
     fn set_on_fire(&mut self, seconds: i16) {
-        if self.would_burn(seconds) {
+        if self.can_burn(seconds) {
             self.fire_ticks = seconds.saturating_mul(20);
         }
     }
@@ -884,7 +884,7 @@ struct Watched {
 
 impl Watched {
     /// Whether the armour is what `before` holds, piece by piece ([`Stack::same`]).
-    fn same_armour(&self, before: &Self) -> bool {
+    fn has_same_armour(&self, before: &Self) -> bool {
         self.armour
             .iter()
             .zip(&before.armour)
@@ -1008,7 +1008,7 @@ impl Entities {
         world: WorldIndex,
         chunk: ChunkPos,
     ) -> bool {
-        viewer_world == world && view.sees(chunk) && !self.hidden.contains(&(viewer, target))
+        viewer_world == world && view.can_see(chunk) && !self.hidden.contains(&(viewer, target))
     }
 
     /// The live entity `id` names, if it still exists.
@@ -1862,7 +1862,7 @@ fn create(
     };
     let mut entity = Entity::new(world, body, yaw, pitch, kind);
     given(&mut entity, runtime_id);
-    let heard = spawn_heard(state);
+    let heard = is_spawn_heard(state);
     let entities = &mut state.rules.entities;
     let id = entities.insert(entity);
     entities.runtime_ids.insert(runtime_id, id);
@@ -1873,7 +1873,7 @@ fn create(
 }
 
 /// Whether someone listens to the spawn of entities ([`EntitySpawn`], [`ItemSpawn`]).
-fn spawn_heard(state: &State) -> bool {
+fn is_spawn_heard(state: &State) -> bool {
     dispatch::heard::<EntitySpawn>(state) || dispatch::heard::<ItemSpawn>(state)
 }
 
@@ -1930,7 +1930,7 @@ pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: 
         pos,
         stack,
         None,
-        DROP_PICKUP_DELAY,
+        DROP_PICKUP_DELAY_TICKS,
         String::new(),
     )
 }
@@ -1964,7 +1964,7 @@ fn drop_stack(
     let item = Item {
         stack,
         pickup_delay: max_delay(pickup_delay),
-        despawn_delay: item_despawn_delay(state),
+        despawn_delay: item_despawn_delay_ticks(state),
         owner: String::new(),
         thrower,
     };
@@ -1980,7 +1980,7 @@ fn drop_stack(
 }
 
 /// The ticks a dropped item lives (`item-despawn-ticks`, at most 72,000).
-fn item_despawn_delay(state: &State) -> i32 {
+fn item_despawn_delay_ticks(state: &State) -> i32 {
     i32::try_from(state.settings.item_despawn_ticks).unwrap_or(i32::MAX)
 }
 
@@ -2013,7 +2013,7 @@ fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u3
             .unwrap_or(1);
         let orb = Orb {
             value: size,
-            despawn_delay: DEFAULT_DESPAWN_DELAY,
+            despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
             look_for_target: 0,
             target: None,
         };
@@ -2207,7 +2207,7 @@ fn restep(state: &State, id: Id) -> Option<Step> {
 
 /// Gives the loaded entities their runtime IDs, in load order.
 fn assign_runtime_ids(state: &mut State) {
-    let heard = spawn_heard(state);
+    let heard = is_spawn_heard(state);
     let entities = &mut state.rules.entities;
     let waiting = std::mem::take(&mut entities.unassigned);
     for (i, &id) in waiting.iter().enumerate() {
@@ -2607,7 +2607,7 @@ fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) ->
     {
         *slot = Some(-previous);
     }
-    let (force, vertical) = knock.map_or((KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT), |k| {
+    let (force, vertical) = knock.map_or((KNOCKBACK, MAX_KNOCKBACK_VERTICAL), |k| {
         (k.force, k.vertical)
     });
     EntityDamage {
@@ -2618,7 +2618,7 @@ fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) ->
         original_base_damage: blow.amount,
         modifiers,
         original_modifiers: modifiers,
-        attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
+        attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN_TICKS),
         knockback: force,
         vertical_knockback_limit: vertical,
         cancelled: false,
@@ -2757,7 +2757,7 @@ fn combust(state: &mut State, id: Id, seconds: i16, source: CombustSource) {
             .rules
             .entities
             .get(id)
-            .is_some_and(|e| !e.flagged && e.would_burn(seconds))
+            .is_some_and(|e| !e.flagged && e.can_burn(seconds))
     };
     if !would(state, seconds) {
         return;
@@ -3017,14 +3017,14 @@ fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     let Some(e) = entities.get_mut(id) else {
         return;
     };
-    let moving = e.body.has_movement_update(false);
+    let moving = e.body.has_movement_update();
     let Kind::Item(item) = &mut e.kind else {
         return;
     };
     if item.pickup_delay > 0 {
         item.pickup_delay -= 1;
     }
-    let check = moving && item.despawn_delay % MERGE_CHECK_PERIOD == 0;
+    let check = moving && item.despawn_delay % MERGE_CHECK_PERIOD_TICKS == 0;
     if check && is_merge_candidate(item) && *merges < MAX_MERGES_PER_TICK {
         merge(state, id, merges);
     }
@@ -3068,7 +3068,7 @@ fn despawn_item(state: &mut State, id: Id) {
     };
     dispatch::call(state, &mut e);
     if e.cancelled {
-        let delay = item_despawn_delay(state);
+        let delay = item_despawn_delay_ticks(state);
         if due(state)
             && let Some(Kind::Item(item)) = state.rules.entities.get_mut(id).map(|e| &mut e.kind)
         {
@@ -3232,7 +3232,7 @@ fn send_to(
 
 /// Whether a player picks up items and attracts orbs: spawned, alive and not a spectator (PMMP
 /// `Player::onUpdate` checks nearby entities only while the player is alive).
-fn collects(state: &State, player: &Player, hooks: Hooks) -> bool {
+fn can_collect(state: &State, player: &Player, hooks: Hooks) -> bool {
     player.phase == Phase::Spawned
         && (hooks.is_alive)(player)
         && survival::game_mode(state, player) != GameMode::Spectator
@@ -3273,7 +3273,7 @@ fn each_player_in(
     mut f: impl FnMut(SessionId, &Player),
 ) {
     let wanted = |p: &Player| {
-        targetable(state, p, world, hooks) && survival::bounding_box(p).overlaps(area, EPSILON)
+        is_targetable(state, p, world, hooks) && survival::bounding_box(p).overlaps(area, EPSILON)
     };
     let entities = &state.rules.entities;
     let margin = Vec3::new(1.0, 0.0, 1.0);
@@ -3340,8 +3340,8 @@ fn each_player_in(
 
 /// Whether projectiles, potions, clouds and falling anvils reach a player (PMMP
 /// `canBeCollidedWith`: alive and not a spectator), in `world`.
-fn targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -> bool {
-    player.world == world && collects(state, player, hooks)
+fn is_targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -> bool {
+    player.world == world && can_collect(state, player, hooks)
 }
 
 /// An orb's tick (PMMP `ExperienceOrb::entityBaseTick`): despawning, following the nearest
@@ -3372,18 +3372,18 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let valid = |s: &SessionId| {
         state.players.get(s).filter(|p| {
             p.world == world
-                && collects(state, p, hooks)
+                && can_collect(state, p, hooks)
                 && p.can_attract_xp_orbs()
                 && survival::feet(p).distance_squared(position) <= reach
         })
     };
     let mut target = orb.target.filter(|s| valid(s).is_some());
     let mut look = orb.look_for_target;
-    if look >= ORB_LOOK_PERIOD {
+    if look >= ORB_LOOK_PERIOD_TICKS {
         if target.is_none() {
             let mut best = reach;
             for (&s, p) in &state.players {
-                if p.world != world || !collects(state, p, hooks) || !p.can_attract_xp_orbs() {
+                if p.world != world || !can_collect(state, p, hooks) || !p.can_attract_xp_orbs() {
                     continue;
                 }
                 let d = survival::feet(p).distance_squared(position);
@@ -3570,7 +3570,7 @@ fn landed(
     let (world, bounds, runtime_id) = (e.world, e.bounding_box(), e.runtime_id);
     let fallen = fall.round() - 1.0;
     if fallen > 0.0 {
-        let damage = crate::math::min(fallen * ANVIL_DAMAGE_PER_BLOCK, ANVIL_MAX_DAMAGE);
+        let damage = crate::math::min(fallen * ANVIL_DAMAGE_PER_BLOCK, MAX_ANVIL_DAMAGE);
         each_player_in(state, world, bounds, hooks, |s, _| {
             hits.push((s, damage, id));
         });
@@ -3628,7 +3628,7 @@ fn pick_up(state: &mut State, hooks: Hooks) {
         .players
         .iter()
         .filter(|(s, p)| {
-            tick.wrapping_add(s.get()).is_multiple_of(interval) && collects(state, p, hooks)
+            tick.wrapping_add(s.get()).is_multiple_of(interval) && can_collect(state, p, hooks)
         })
         .map(|(&s, _)| s)
         .collect();
@@ -3708,7 +3708,7 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
         let player = state.players.get(&session)?;
         let reach = survival::bounding_box(player).grow(PICKUP_REACH);
         if item.pickup_delay != 0
-            || !collects(state, player, hooks)
+            || !can_collect(state, player, hooks)
             || player.world != e.world
             || !e.bounding_box().overlaps(reach, EPSILON)
         {
@@ -4223,7 +4223,7 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
             if !before.off_hand.same(&now.off_hand) {
                 changes.push(track::off_hand(now.runtime_id, &now.off_hand));
             }
-            if !now.same_armour(before) {
+            if !now.has_same_armour(before) {
                 changes.push(track::armour(now.runtime_id, &now.armour));
             }
             if !changes.is_empty() {
@@ -4422,12 +4422,12 @@ pub(super) fn occupied(state: &State, world: WorldIndex, area: Aabb) -> bool {
         entity = entity
             || entities
                 .get(id)
-                .is_some_and(|e| e.blocks_placing() && e.bounding_box().intersects(area));
+                .is_some_and(|e| e.is_obstacle() && e.bounding_box().intersects(area));
     });
     entity
         || state.players.values().any(|p| {
             p.world == world
-                && collects(state, p, HOOKS)
+                && can_collect(state, p, HOOKS)
                 && survival::bounding_box(p).intersects(area)
         })
 }
@@ -4774,6 +4774,7 @@ mod tests {
         static CALLS: Cell<Calls> = Cell::new(Calls::default());
     }
 
+    /// The hooks of the test server: stand-ins that count what they are asked.
     pub(super) const TEST_HOOKS: Hooks = Hooks {
         give,
         room: test_room,
@@ -5075,7 +5076,7 @@ mod tests {
             if alive {
                 c.damage.push((session.get(), amount, cause));
             }
-            alive.then(|| c.knockback.unwrap_or((KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT)))
+            alive.then(|| c.knockback.unwrap_or((KNOCKBACK, MAX_KNOCKBACK_VERTICAL)))
         })
     }
 
@@ -5792,7 +5793,7 @@ mod tests {
             for _ in 0..40 {
                 h.step(Vec::new());
             }
-            assert!(h.state.players[&SessionId::new(1)].view.sees(key.1));
+            assert!(h.state.players[&SessionId::new(1)].view.can_see(key.1));
             h.take(1);
             let entities = &mut h.state.rules.entities;
             entities.unload(key);
@@ -5934,7 +5935,7 @@ mod tests {
             e.gravity = false;
             e.body.motion = Vec3::ZERO;
         });
-        for _ in 0..=ORB_LOOK_PERIOD {
+        for _ in 0..=ORB_LOOK_PERIOD_TICKS {
             h.entities();
         }
         let target = h.state.rules.entities.get(id).and_then(|e| match &e.kind {
@@ -6037,7 +6038,7 @@ mod tests {
         }
         h.state.rules.entities.take_changed();
         let mut ids = Vec::new();
-        for i in 0..10_000i32 {
+        for i in 0..10_000_i32 {
             let (xi, zi) = (i % 50 - 25, i / 50 % 50 - 25);
             let (x, z) = (f64::from(xi), f64::from(zi));
             let kind = i % 3;
@@ -6566,7 +6567,7 @@ mod tests {
             .map(|k| match k {
                 Kind::Tnt(t) => Kind::Tnt(Tnt { fuse: 100, ..t }),
                 Kind::ExperienceOrb(o) => Kind::ExperienceOrb(Orb {
-                    despawn_delay: DEFAULT_DESPAWN_DELAY,
+                    despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
                     ..o
                 }),
                 other => other,
@@ -6650,7 +6651,7 @@ mod tests {
             .hidden
             .insert((SessionId::new(2), SessionId::new(1)));
         h.entities();
-        let force = (KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT);
+        let force = (KNOCKBACK, MAX_KNOCKBACK_VERTICAL);
         knock_player(
             &mut h.state,
             SessionId::new(1),

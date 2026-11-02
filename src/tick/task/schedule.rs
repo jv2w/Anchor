@@ -81,13 +81,13 @@ impl Queue {
 
     /// How many tasks are scheduled, the running one included if it runs again.
     fn live(&self) -> usize {
-        let running = self.running.is_some_and(Running::again);
+        let running = self.running.is_some_and(Running::can_repeat);
         self.tasks.len().saturating_add(usize::from(running))
     }
 
     /// Whether task `id` will run again.
     fn is_scheduled(&self, id: u64) -> bool {
-        self.tasks.contains_key(&id) || self.running.is_some_and(|r| r.id == id && r.again())
+        self.tasks.contains_key(&id) || self.running.is_some_and(|r| r.id == id && r.can_repeat())
     }
 
     /// The tick task `id` runs next and its period if it repeats; `None` if it is not
@@ -96,7 +96,7 @@ impl Queue {
         if let Some(entry) = self.tasks.get(&id) {
             return Some((entry.due, entry.body.period()));
         }
-        let running = self.running.filter(|r| r.id == id && r.again())?;
+        let running = self.running.filter(|r| r.id == id && r.can_repeat())?;
         let period = running.period?;
         Some((now.saturating_add(u64::from(period.get())), Some(period)))
     }
@@ -121,7 +121,7 @@ impl Queue {
             return true;
         }
         match &mut self.running {
-            Some(r) if r.id == id && r.again() => {
+            Some(r) if r.id == id && r.can_repeat() => {
                 r.cancelled = true;
                 true
             }
@@ -178,7 +178,7 @@ struct Running {
 
 impl Running {
     /// Whether the running task runs again: it repeats and was not cancelled.
-    fn again(self) -> bool {
+    fn can_repeat(self) -> bool {
         self.period.is_some() && !self.cancelled
     }
 }
@@ -380,7 +380,8 @@ mod tests {
         move |cx| seen.note(cx, &name)
     }
 
-    // pmmp: TaskScheduler::scheduleTask, TaskScheduler::scheduleDelayedTask, ClosureTask, TaskHandler
+    // pmmp: TaskScheduler::scheduleTask, TaskScheduler::scheduleDelayedTask, ClosureTask
+    // pmmp: TaskHandler
     #[test]
     fn delayed_tasks_run_once_by_due_tick_then_in_scheduling_order() {
         let mut state = state();
@@ -445,7 +446,8 @@ mod tests {
         );
     }
 
-    // pmmp: TaskScheduler::scheduleRepeatingTask, TaskScheduler::scheduleDelayedRepeatingTask, TaskHandler::cancel, Task::getHandler, TaskScheduler::isQueued
+    // pmmp: TaskScheduler::scheduleRepeatingTask, TaskScheduler::scheduleDelayedRepeatingTask
+    // pmmp: TaskHandler::cancel, Task::getHandler, TaskScheduler::isQueued
     #[test]
     fn repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves() {
         let mut state = state();
@@ -614,11 +616,11 @@ mod tests {
             let mut state = state();
             let mut cx = Context { state: &mut state };
             match period {
-                None => drop(cx.schedule(delay, |_| {}).unwrap()),
                 Some(p) => drop(
                     cx.schedule_delayed_repeating(delay, NonZeroU32::new(p).unwrap(), |_| {})
                         .unwrap(),
                 ),
+                None => drop(cx.schedule(delay, |_| {}).unwrap()),
             }
             state.hash()
         };

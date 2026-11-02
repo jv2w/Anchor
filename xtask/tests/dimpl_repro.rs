@@ -14,9 +14,11 @@ use std::time::{Duration, Instant};
 use dimpl::certificate::generate_self_signed_certificate;
 use dimpl::{Config, Dtls, DtlsCertificate, Error, Output};
 
-/// DTLS record content types.
+/// The DTLS record content type of `ChangeCipherSpec`.
 const CONTENT_CHANGE_CIPHER_SPEC: u8 = 20;
+/// The DTLS record content type of a handshake message.
 const CONTENT_HANDSHAKE: u8 = 22;
+/// The DTLS record content type of application data.
 const CONTENT_APPLICATION_DATA: u8 = 23;
 /// Steps before a handshake counts as stuck: 5 simulated seconds, past several retransmissions.
 const MAX_STEPS: usize = 500;
@@ -39,10 +41,17 @@ fn certificate() -> DtlsCertificate {
     generate_self_signed_certificate().expect("generate a certificate")
 }
 
-/// A DTLS 1.2 endpoint with the default configuration; `active` makes it the client.
-fn endpoint(certificate: DtlsCertificate, active: bool, now: Instant) -> Dtls {
+/// A DTLS 1.2 client with the default configuration.
+fn new_client(certificate: DtlsCertificate, now: Instant) -> Dtls {
     let mut dtls = Dtls::new_12(Arc::new(Config::default()), certificate, now);
-    dtls.set_active(active);
+    dtls.set_active(true);
+    dtls
+}
+
+/// A DTLS 1.2 server with the default configuration.
+fn new_server(certificate: DtlsCertificate, now: Instant) -> Dtls {
+    let mut dtls = Dtls::new_12(Arc::new(Config::default()), certificate, now);
+    dtls.set_active(false);
     dtls
 }
 
@@ -176,7 +185,7 @@ fn handshake(
 #[test]
 fn duplicate_epoch_one_record_before_change_cipher_spec_is_dropped() {
     let mut now = start();
-    let mut client = endpoint(certificate(), true, now);
+    let mut client = new_client(certificate(), now);
     let mut buffer = vec![0; STR0M_BUFFER];
     client.handle_timeout(now).expect("start the handshake");
     drain(&mut client, &mut buffer);
@@ -198,8 +207,8 @@ fn duplicate_epoch_one_record_before_change_cipher_spec_is_dropped() {
 #[test]
 fn duplicated_server_finished_before_change_cipher_spec_still_connects() {
     let mut now = start();
-    let mut client = endpoint(certificate(), true, now);
-    let mut server = endpoint(certificate(), false, now);
+    let mut client = new_client(certificate(), now);
+    let mut server = new_server(certificate(), now);
     let mut reordered = false;
     let session = no_panic("a duplicated server Finished", || {
         handshake(&mut client, &mut server, &mut now, |datagrams| {
@@ -281,8 +290,8 @@ fn peer_certificate_larger_than_the_poll_buffer_asks_for_a_larger_buffer() {
     let mut big = certificate();
     big.certificate = inflate(&big.certificate, 2 * STR0M_BUFFER);
     let expected = big.certificate.clone();
-    let mut client = endpoint(certificate(), true, now);
-    let mut server = endpoint(big, false, now);
+    let mut client = new_client(certificate(), now);
+    let mut server = new_server(big, now);
     let session = no_panic("a large peer certificate", || {
         handshake(&mut client, &mut server, &mut now, |datagrams| datagrams)
     });

@@ -15,9 +15,11 @@ pub(in crate::tick) const BOTTLES: [usize; 3] = [
 ];
 /// Ticks one brew takes (PMMP `BREW_TIME_TICKS`).
 pub(in crate::tick) const BREW_TICKS: u16 = 400;
-/// `ContainerSetData` keys (PMMP `PROPERTY_BREWING_STAND_*`).
+/// The `ContainerSetData` key of the brew time left (PMMP `PROPERTY_BREWING_STAND_*`).
 pub(in crate::tick) const DATA_BREW_TIME: i32 = 0;
+/// The `ContainerSetData` key of the brews of fuel left.
 pub(in crate::tick) const DATA_FUEL_AMOUNT: i32 = 1;
+/// The `ContainerSetData` key of the brews the last blaze powder gave.
 pub(in crate::tick) const DATA_FUEL_TOTAL: i32 = 2;
 /// The fuel slot.
 pub(in crate::tick) const FUEL: usize = 4;
@@ -275,6 +277,7 @@ fn set(items: &mut [Stack], i: usize, stack: Stack, out: &mut Step) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::item::Kind;
 
     fn named(name: &str) -> crate::item::Type {

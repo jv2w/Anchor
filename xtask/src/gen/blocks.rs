@@ -22,11 +22,18 @@ const NAMED: &[Named] = &[
     ("GRASS_BLOCK", "minecraft:grass_block", &[]),
     ("INFO_UPDATE", "minecraft:info_update", &[]),
 ];
+/// The state item sentinel of a state with no item.
 const NO_ITEM: u16 = 0xffff;
 /// The connection word's value for no variant list.
 const NO_VARIANT: u32 = 0xffff;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/table.rs";
+
+/// Names and (name, value) property pairs, each with its index in sorted order.
+type Interned<'a> = (
+    BTreeMap<&'a str, usize>,
+    BTreeMap<(&'a str, &'a Prop), usize>,
+);
 
 /// A named state: constant name, block name and properties.
 type Named = (&'static str, &'static str, &'static [(&'static str, Prop)]);
@@ -111,12 +118,6 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     banner_patterns(&mut out, data);
     Ok(out)
 }
-
-/// Names and (name, value) property pairs, each with its index in sorted order.
-type Interned<'a> = (
-    BTreeMap<&'a str, usize>,
-    BTreeMap<(&'a str, &'a Prop), usize>,
-);
 
 /// Interns the names and property pairs of every state and alias, which point into them, and
 /// emits them as `NAMES` and `PROPERTIES`.
@@ -625,7 +626,6 @@ fn header(connect: &Connect, groups: &BTreeMap<String, u8>) -> Result<u32, Strin
         other => return Err(format!("unknown connect kind {other}")),
     };
     let facing: u32 = match connect.facing.as_deref() {
-        None => 0,
         Some(f) => {
             let at = FACES
                 .iter()
@@ -633,13 +633,14 @@ fn header(connect: &Connect, groups: &BTreeMap<String, u8>) -> Result<u32, Strin
                 .ok_or_else(|| format!("unknown facing {f}"))?;
             u32::try_from(at).map_err(|_| "facing")? + 1
         }
+        None => 0,
     };
     let upside_down = u32::from(connect.upside_down.unwrap_or(false));
     let group = match &connect.group {
-        None => 0,
         Some(g) => *groups
             .get(g)
             .ok_or_else(|| format!("unknown fence group {g}"))?,
+        None => 0,
     };
     Ok(kind | facing << 8 | upside_down << 11 | u32::from(group) << 12)
 }

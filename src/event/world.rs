@@ -231,6 +231,7 @@ cancellable! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::event::fixtures::player;
 
     const WORLD: world::Id = world::Id::DEFAULT;

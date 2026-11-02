@@ -38,6 +38,7 @@ const COMPRESSION_ZLIB: u8 = 2;
 pub(crate) const COMPRESSION_RAW_DEFLATE: u8 = 4;
 /// The footer at the end of every table.
 pub(crate) const FOOTER: usize = 48;
+/// The number that ends every table's footer.
 pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
 /// The largest block, stored or decompressed, which bounds the memory one block read takes.
 pub(super) const MAX_BLOCK: usize = 16 << 20;

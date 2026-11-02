@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::tick::checkpoint::{self, Codec, Error, Reader, Writer};
 
 /// The bytes of a full array: 4096 values of 4 bits.
-const BYTES: usize = 2048;
+const FULL_BYTES: usize = 2048;
 
 /// The light values of a 16×16×16 cube, indexed like the block layers (x, then z, then y).
 #[derive(Clone, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub(crate) enum Nibbles {
     /// One value per block, the low nibble being the even offset.
     ///
     /// Copies share the bytes until one of them changes.
-    Full(Arc<[u8; BYTES]>),
+    Full(Arc<[u8; FULL_BYTES]>),
 }
 
 impl Nibbles {
@@ -30,7 +30,7 @@ impl Nibbles {
         if values.iter().all(|&value| value == first) {
             return Self::Uniform(first & 15);
         }
-        let mut bytes = Arc::new([0; BYTES]);
+        let mut bytes = Arc::new([0; FULL_BYTES]);
         let packed = Arc::make_mut(&mut bytes);
         for (byte, [low, high]) in packed.iter_mut().zip(values.as_chunks::<2>().0) {
             *byte = (low & 15) | (high << 4);
@@ -43,7 +43,7 @@ impl Nibbles {
         match self {
             Self::Uniform(value) => *value,
             Self::Full(bytes) => {
-                let bytes: &[u8; BYTES] = bytes;
+                let bytes: &[u8; FULL_BYTES] = bytes;
                 #[expect(
                     clippy::indexing_slicing,
                     reason = "invariant: an offset is below 4096"
@@ -70,7 +70,7 @@ impl Nibbles {
     pub(crate) fn heap_bytes(&self) -> usize {
         match self {
             Self::Uniform(_) => 0,
-            Self::Full(_) => BYTES,
+            Self::Full(_) => FULL_BYTES,
         }
     }
 
@@ -83,7 +83,7 @@ impl Nibbles {
             if uniform == value {
                 return;
             }
-            *self = Self::Full(Arc::new([uniform | (uniform << 4); BYTES]));
+            *self = Self::Full(Arc::new([uniform | (uniform << 4); FULL_BYTES]));
         }
         if let Self::Full(bytes) = self {
             #[expect(
@@ -128,8 +128,8 @@ impl Codec for Nibbles {
         match r.u8()? {
             0 => Ok(Self::Uniform(r.u8()? & 15)),
             1 => {
-                let bytes: [u8; BYTES] = r
-                    .take(BYTES)?
+                let bytes: [u8; FULL_BYTES] = r
+                    .take(FULL_BYTES)?
                     .try_into()
                     .map_err(|_| Error::Format("light array"))?;
                 Ok(Self::Full(Arc::new(bytes)))

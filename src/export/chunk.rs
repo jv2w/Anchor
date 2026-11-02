@@ -17,8 +17,9 @@ use crate::world::{ChunkPos, MIN_Y};
 
 /// The chunk version of the layout written.
 const CHUNK_VERSION: u8 = 42;
-/// Chunk tags the import does not read.
+/// The key tag of a chunk's height map and biomes, which the import does not read.
 const DATA_3D: u8 = 0x2b;
+/// The key tag of a chunk's finalization state, which the import does not read.
 const FINALIZED_STATE: u8 = 0x36;
 /// The finalization state of a chunk whose generation is finished: the game does not populate
 /// it again.
@@ -118,6 +119,7 @@ fn write_indices(w: &mut Writer, bits: u8, words: &[u32], palette_len: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::import::Db;
     use crate::protocol::{Rng, word_count};
     use crate::storage::codec::tests::{empty_chunk, random_chunk};

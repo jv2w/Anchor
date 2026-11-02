@@ -44,13 +44,24 @@ fn slots(packets: &[Packet]) -> Vec<(u32, u32, u16, i32)> {
         .collect()
 }
 
-// pmmp: Human::getInventory, Living::getArmorInventory, Human::getOffHandInventory, Player::getCursorInventory, Player::getCraftingGrid, Human::getEnderInventory, PlayerInventory, ArmorInventory, PlayerOffHandInventory, PlayerCursorInventory, PlayerCraftingInventory, PlayerEnderInventory, Inventory::setItem, BaseInventory::setItem, CraftingGrid::setItem, Inventory::clear, BaseInventory::clear, ArmorInventory::setHelmet, ArmorInventory::setChestplate, ArmorInventory::setLeggings, ArmorInventory::setBoots, ArmorInventory::getHelmet, ArmorInventory::getChestplate, ArmorInventory::getLeggings, ArmorInventory::getBoots, PlayerInventory::getHotbarSlotItem, Inventory::addItem, BaseInventory::addItem, Inventory::removeItem, BaseInventory::removeItem, Inventory::remove, BaseInventory::remove, Inventory::swap, BaseInventory::swap, Inventory::clearAll, BaseInventory::clearAll, Inventory::setContents, BaseInventory::setContents
+// pmmp: Human::getInventory, Living::getArmorInventory, Human::getOffHandInventory
+// pmmp: Player::getCursorInventory, Player::getCraftingGrid, Human::getEnderInventory
+// pmmp: PlayerInventory, ArmorInventory, PlayerOffHandInventory, PlayerCursorInventory
+// pmmp: PlayerCraftingInventory, PlayerEnderInventory, Inventory::setItem
+// pmmp: BaseInventory::setItem, CraftingGrid::setItem, Inventory::clear, BaseInventory::clear
+// pmmp: ArmorInventory::setHelmet, ArmorInventory::setChestplate, ArmorInventory::setLeggings
+// pmmp: ArmorInventory::setBoots, ArmorInventory::getHelmet, ArmorInventory::getChestplate
+// pmmp: ArmorInventory::getLeggings, ArmorInventory::getBoots, PlayerInventory::getHotbarSlotItem
+// pmmp: Inventory::addItem, BaseInventory::addItem, Inventory::removeItem
+// pmmp: BaseInventory::removeItem, Inventory::remove, BaseInventory::remove, Inventory::swap
+// pmmp: BaseInventory::swap, Inventory::clearAll, BaseInventory::clearAll
+// pmmp: Inventory::setContents, BaseInventory::setContents
 #[test]
 fn player_writes_reach_the_client_with_new_stack_ids() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     w.sent(s);
-    let p = w.player(s);
+    let p = w.player_mut(s);
     for (kind, size) in [
         (Kind::Main, 36),
         (Kind::Armor, 4),
@@ -95,7 +106,7 @@ fn player_writes_reach_the_client_with_new_stack_ids() {
     );
     assert_eq!(w.id(s, C::HotBar, 2), *ids.last().unwrap());
 
-    let p = w.player(s);
+    let p = w.player_mut(s);
     let helmet = Stack::new(item(it::Kind::IronHelmet), 1);
     let mut armor = p.inventory_mut(Kind::Armor);
     armor.set(0, helmet.clone()).unwrap();
@@ -124,8 +135,8 @@ fn player_writes_reach_the_client_with_new_stack_ids() {
 fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    w.player(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING];
-    let p = w.player(s);
+    w.player_mut(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING];
+    let p = w.player_mut(s);
     assert_eq!(
         p.inventory_mut(Kind::Cursor).set(0, sticks(1)),
         Err(Error::Full)
@@ -134,8 +145,8 @@ fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
     assert!(p.inventory_mut(Kind::Main).add(&coal(3)).is_empty());
     check_slots(&w.state);
     // At the bound a swap still moves a held stack: it holds no stack more.
-    w.player(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
-    let mut grid = w.player(s).inventory_mut(Kind::Crafting);
+    w.player_mut(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
+    let mut grid = w.player_mut(s).inventory_mut(Kind::Crafting);
     grid.set(1, coal(2)).unwrap();
     assert_eq!(grid.swap(0, 1), Ok(()));
     assert_eq!(grid.view().item(0), Some(&coal(2)));
@@ -148,8 +159,8 @@ fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
 fn set_contents_on_the_grid_checks_the_held_stacks_it_ends_with() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    w.player(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
-    let mut grid = w.player(s).inventory_mut(Kind::Crafting);
+    w.player_mut(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
+    let mut grid = w.player_mut(s).inventory_mut(Kind::Crafting);
     assert_eq!(grid.set_contents(&[coal(1), coal(1)]), Err(Error::Full));
     assert!(
         grid.view().is_slot_empty(0),
@@ -162,12 +173,13 @@ fn set_contents_on_the_grid_checks_the_held_stacks_it_ends_with() {
     assert!(grid.view().is_slot_empty(1));
 }
 
-// pmmp: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex, PlayerInventory::getItemInHand, Player::getCurrentWindow, Player::removeCurrentWindow
+// pmmp: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex
+// pmmp: PlayerInventory::getItemInHand, Player::getCurrentWindow, Player::removeCurrentWindow
 #[test]
 fn the_hotbar_selection_and_the_window_are_the_players() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let p = w.player(s);
+    let p = w.player_mut(s);
     p.inventory_mut(Kind::Main).set(4, sticks(9)).unwrap();
     assert_eq!(p.held_slot(), 0);
     assert!(p.set_held_slot(4));
@@ -178,10 +190,10 @@ fn the_hotbar_selection_and_the_window_are_the_players() {
             .iter()
             .any(|pk| matches!(pk, Packet::PlayerHotBar(h) if h.selected_hot_bar_slot == 4))
     );
-    assert_eq!(w.player(s).window(), None);
+    assert_eq!(w.player_mut(s).window(), None);
     w.open_inventory(s);
-    assert_eq!(w.player(s).window(), Some(Shown::Own));
-    w.player(s)
+    assert_eq!(w.player_mut(s).window(), Some(Shown::Own));
+    w.player_mut(s)
         .inventory_mut(Kind::Cursor)
         .set(0, coal(2))
         .unwrap();
@@ -191,7 +203,7 @@ fn the_hotbar_selection_and_the_window_are_the_players() {
     let id = crate::player::Id::new(s);
     assert!(cx.close_window(id));
     assert!(!cx.close_window(id), "nothing is open any more");
-    assert_eq!(w.player(s).window(), None);
+    assert_eq!(w.player_mut(s).window(), None);
     assert_eq!(w.inv(s).main.stack(0), &coal(2), "the cursor went back");
 }
 
@@ -339,7 +351,7 @@ fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
             (name, crate::nbt::Value::ByteArray(json))
         })
         .collect();
-    let p = w.player(s);
+    let p = w.player_mut(s);
     p.extra = extra::player_loaded(crate::nbt::Compound::from([(
         "anchor:data".to_owned(),
         crate::nbt::Value::Compound(values),
@@ -635,15 +647,15 @@ fn the_totem_animation_shows_its_player_alone_a_totem_in_the_off_hand() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let other = w.join(2);
-    w.player(s)
+    w.player_mut(s)
         .inventory_mut(Kind::Offhand)
         .set(0, sticks(3))
         .unwrap();
     w.sent(s);
     w.sent(other);
     let held = w.id(s, C::Offhand, 0);
-    let runtime_id = w.player(s).runtime_id;
-    w.player(s).show_totem_animation();
+    let runtime_id = w.player_mut(s).runtime_id;
+    w.player_mut(s).show_totem_animation();
     let offhand = |p: &Packet| match p {
         Packet::InventoryContent(c) if c.window_id == WINDOW_ID_OFF_HAND => c
             .content

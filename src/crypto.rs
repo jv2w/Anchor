@@ -309,7 +309,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// A crypto result.
+/// A result with the module's [`enum@Error`].
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Fills `out` with cryptographically secure random bytes.

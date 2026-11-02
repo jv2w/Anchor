@@ -13,8 +13,9 @@ use super::attributes::{
 };
 use super::effects::{self, Active};
 use super::{
-    MAX_AIR, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Survival, appearance,
-    broadcast_from, broadcast_to_viewers, damage, food, has_finite_resources, is_survival,
+    MAX_AIR_TICKS, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Survival,
+    appearance, broadcast_from, broadcast_to_viewers, damage, food, has_finite_resources,
+    is_survival,
 };
 use crate::block::{AIR, Face};
 use crate::config::GameMode;
@@ -193,7 +194,7 @@ impl Default for Custom {
             hunger: true,
             attracts_orbs: true,
             movement_speed: attributes::BASE_SPEED,
-            max_air: MAX_AIR,
+            max_air: MAX_AIR_TICKS,
             auto_jump: true,
             motion: None,
             emote: None,
@@ -233,16 +234,16 @@ crate::tick::checkpoint::fields!(Custom {
 });
 
 impl Survival {
-    /// May the player start flying: its own setting, or creative and spectator.
-    pub(super) fn may_fly(&self) -> bool {
+    /// Whether the player may start flying: its own setting, or creative and spectator.
+    pub(super) fn can_fly(&self) -> bool {
         self.custom.allow_flight.unwrap_or(matches!(
             self.mode(),
             GameMode::Creative | GameMode::Spectator
         ))
     }
 
-    /// Do blocks stop the player: its own setting, or all game modes but spectator.
-    pub(super) fn collides(&self) -> bool {
+    /// Whether blocks stop the player: its own setting, or all game modes but spectator.
+    pub(super) fn has_block_collision(&self) -> bool {
         self.custom
             .block_collision
             .unwrap_or(self.mode() != GameMode::Spectator)
@@ -619,7 +620,7 @@ impl Player {
     /// Stopping needs no right.
     #[doc(alias = "Player::getAllowFlight")]
     pub fn allow_flight(&self) -> bool {
-        self.survival.may_fly()
+        self.survival.can_fly()
     }
 
     /// The flight speed: 0.05 by default; 10 times it is the speed in blocks a tick.
@@ -631,7 +632,7 @@ impl Player {
     /// Whether blocks stop the player: its own setting, else every mode but spectator.
     #[doc(alias = "Player::hasBlockCollision")]
     pub fn has_block_collision(&self) -> bool {
-        self.survival.collides()
+        self.survival.has_block_collision()
     }
 
     /// Whether the player sleeps in a bed.
@@ -1097,7 +1098,7 @@ impl Player {
         let s = &mut self.survival;
         let ticks = i16::try_from(ticks)
             .ok()
-            .filter(|t| (super::MIN_AIR..=s.custom.max_air).contains(t))
+            .filter(|t| (super::MIN_AIR_TICKS..=s.custom.max_air).contains(t))
             .ok_or(Error::OutOfRange)?;
         s.air = ticks;
         s.touch(DATA);

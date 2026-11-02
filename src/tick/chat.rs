@@ -244,7 +244,6 @@ fn say(state: &mut State, session: SessionId, line: String) {
     event.recipients.sort_unstable();
     event.recipients.dedup();
     let packets = match &event.format {
-        None => standard(&name, &event.message),
         Some(format) => {
             let Some(text) = formatted(format, &name, &event.message) else {
                 debug!(
@@ -255,6 +254,7 @@ fn say(state: &mut State, session: SessionId, line: String) {
             };
             Message::Raw(text).into_packets()
         }
+        None => standard(&name, &event.message),
     };
     let packets = match packets {
         Ok(packets) => packets,

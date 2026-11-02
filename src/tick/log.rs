@@ -54,22 +54,37 @@ use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::storage::seal::Crc32c;
 use crate::world::ChunkPos;
 
+/// The tag of a missing address.
 const ADDRESS_NONE: u8 = 0;
+/// The tag of an IPv4 address.
 const ADDRESS_V4: u8 = 4;
+/// The tag of an IPv6 address.
 const ADDRESS_V6: u8 = 6;
+/// The tag of a chunk answer.
 const ANSWER_CHUNK: u8 = 0;
+/// The tag of a player answer.
 const ANSWER_PLAYER: u8 = 1;
+/// The tag of a commit answer.
 const ANSWER_COMMITTED: u8 = 2;
+/// The tag of a failed commit answer.
 const ANSWER_COMMIT_FAILED: u8 = 3;
+/// The tag of a failed load answer.
 const ANSWER_LOAD_FAILED: u8 = 4;
+/// The tag of a data file check answer.
 const ANSWER_CHECKED: u8 = 5;
-/// What the commit identity chains before each tick, input, forgotten session and answer.
+/// What the commit identity chains before an answer.
 const CHAIN_ANSWER: u8 = b'A';
+/// What the commit identity chains before a forgotten session.
 const CHAIN_DROPPED: u8 = b'D';
+/// What the commit identity chains before an input.
 const CHAIN_INPUT: u8 = b'I';
+/// What the commit identity chains before a tick.
 const CHAIN_TICK: u8 = b'T';
+/// The tag of a data file check that passed.
 const CHECK_PASSED: u8 = 0;
+/// The tag of a data file check that found damage.
 const CHECK_DAMAGED: u8 = 1;
+/// The tag of a data file check that could not finish.
 const CHECK_FAILED: u8 = 2;
 /// The input bytes recorded since the last commit at which the log asks for a snapshot.
 const COMMIT_BYTES: usize = MAX_BYTES / 4;
@@ -83,11 +98,17 @@ const FORMAT: u32 = 26;
 /// The outcome byte of a job result that has its JSON; other values are
 /// [`Error::code`](crate::task::Error::code)s.
 const JOB_DONE: u8 = 0;
+/// The tag of a join input.
 const KIND_JOIN: u8 = 0;
+/// The tag of a packet input.
 const KIND_PACKET: u8 = 1;
+/// The tag of a leave input.
 const KIND_LEAVE: u8 = 2;
+/// The tag of a console input.
 const KIND_CONSOLE: u8 = 3;
+/// The tag of a job input.
 const KIND_JOB: u8 = 4;
+/// The tag of a measure input.
 const KIND_MEASURE: u8 = 5;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
@@ -99,15 +120,25 @@ pub(crate) const MAX_BYTES: usize = 64 << 20;
 /// their own, so a log can be larger; it is then written from its newest committed segment, or
 /// not at all.
 pub(crate) const MAX_FILE_BYTES: usize = 1 << 30;
+/// The tag of a tick time measure.
 const MEASURE_TICK_TIME: u8 = 0;
+/// The tag of a ping measure.
 const MEASURE_PING: u8 = 1;
+/// The tag of a connection count measure.
 const MEASURE_CONNECTIONS: u8 = 2;
+/// The tag of a process measure.
 const MEASURE_PROCESS: u8 = 3;
+/// The tag of a chunk read from the data files.
 const ORIGIN_DISK: u8 = 0;
+/// The tag of a chunk made by the generator.
 const ORIGIN_GENERATED: u8 = 1;
+/// The tag of a damaged chunk.
 const ORIGIN_DAMAGED: u8 = 2;
+/// The tag of a player load that found data.
 const PLAYER_FOUND: u8 = 0;
+/// The tag of a player load that found none.
 const PLAYER_ABSENT: u8 = 1;
+/// The tag of a player load that found damaged data.
 const PLAYER_DAMAGED: u8 = 2;
 
 /// The input log.
@@ -628,14 +659,13 @@ impl InputLog {
             out.push(u8::from(segment.committed));
             out.push(u8::from(segment.truncated));
             match segment.identity {
-                None => out.push(0),
                 Some(identity) => {
                     out.push(1);
                     out.extend_from_slice(&identity.to_le_bytes());
                 }
+                None => out.push(0),
             }
             match &segment.checkpoint {
-                None => out.push(0),
                 Some(Point::Taken(c)) => {
                     out.push(1);
                     put_bytes(&mut out, &c.to_bytes())?;
@@ -644,6 +674,7 @@ impl InputLog {
                     out.push(1);
                     put_bytes(&mut out, bytes)?;
                 }
+                None => out.push(0),
             }
             put_len(&mut out, segment.ticks.len())?;
             for tick in &segment.ticks {
@@ -988,8 +1019,6 @@ pub(crate) enum Error {
     TooLarge,
 }
 
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1015,6 +1044,9 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A reader over a written log.
 struct Read<'a>(&'a [u8]);
@@ -1320,7 +1352,6 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
                 out.extend_from_slice(&identity.device_os.to_le_bytes());
                 put_bytes(out, &skin_bytes(&identity.skin).map_err(Error::Packet)?)?;
                 match identity.address {
-                    None => out.push(ADDRESS_NONE),
                     Some(IpAddr::V4(a)) => {
                         out.push(ADDRESS_V4);
                         out.extend_from_slice(&a.octets());
@@ -1329,6 +1360,7 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
                         out.push(ADDRESS_V6);
                         out.extend_from_slice(&a.octets());
                     }
+                    None => out.push(ADDRESS_NONE),
                 }
                 put_client(out, &identity.client)?;
             }

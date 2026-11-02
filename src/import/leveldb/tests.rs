@@ -208,7 +208,7 @@ fn history(rng: &mut Rng, keys: &[Vec<u8>]) -> (Vec<Batch>, u64, Model) {
 }
 
 /// The layouts a random database has, to check that the generator reaches each.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Layouts {
     level0_tables: usize,
     deeper_levels: bool,

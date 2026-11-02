@@ -123,7 +123,7 @@ impl Online {
         let (path, temp, file) = new_file(dir)?;
         let mut builder = Builder::new();
         builder.set_cache_size(CACHE_BYTES);
-        let backend = target(file).map_err(|e| Error::Database(e.into()))?;
+        let backend = target(file).map_err(Error::database)?;
         let db = builder
             .create_with_backend(backend)
             .map_err(Error::from_open)?;
@@ -149,13 +149,15 @@ impl Online {
         reason = "off-tick: the save thread copies a step of an online backup"
     )]
     pub(crate) fn step(&mut self) -> Result<()> {
-        let mut txn = self.db.begin_write()?;
+        let mut txn = self.db.begin_write().map_err(Error::database)?;
         txn.set_durability(Durability::None)
-            .map_err(redb::Error::from)?;
+            .map_err(Error::database)?;
         let mut bytes = 0_usize;
         while let Some((name, entries)) = self.tables.last_mut() {
             // Opening it creates it, so an empty table is in the copy too.
-            let mut target = txn.open_table(TableDefinition::<&[u8], &[u8]>::new(name))?;
+            let mut target = txn
+                .open_table(TableDefinition::<&[u8], &[u8]>::new(name))
+                .map_err(Error::database)?;
             while let Some(entry) = entries.peek() {
                 let size = match entry {
                     Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
@@ -163,19 +165,23 @@ impl Online {
                 };
                 if bytes > 0 && bytes.saturating_add(size) > STEP_BYTES {
                     drop(target);
-                    txn.commit()?;
+                    txn.commit().map_err(Error::database)?;
                     return Ok(());
                 }
                 if let Some(entry) = entries.next() {
-                    let (key, value) = entry?;
-                    drop(target.insert(key.value(), value.value())?);
+                    let (key, value) = entry.map_err(Error::database)?;
+                    drop(
+                        target
+                            .insert(key.value(), value.value())
+                            .map_err(Error::database)?,
+                    );
                 }
                 bytes = bytes.saturating_add(size);
             }
             drop(target);
             self.tables.pop();
         }
-        txn.commit()?;
+        txn.commit().map_err(Error::database)?;
         Ok(())
     }
 
@@ -199,7 +205,10 @@ impl Online {
             path,
             dir,
         } = self;
-        db.begin_write()?.commit()?;
+        db.begin_write()
+            .map_err(Error::database)?
+            .commit()
+            .map_err(Error::database)?;
         // Closed first: Windows cannot rename an open file.
         drop(db);
         std::fs::OpenOptions::new()
@@ -375,13 +384,15 @@ fn target(file: std::fs::File) -> Result<tests::Counted, redb::DatabaseError> {
     reason = "off-tick: the save thread reads a data file for a backup or a check"
 )]
 pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
-    let read = source.begin_read()?;
+    let read = source.begin_read().map_err(Error::database)?;
     let mut tables = Vec::new();
-    for table in read.list_tables()? {
+    for table in read.list_tables().map_err(Error::database)? {
         let name = table.name().to_owned();
         let entries = read
-            .open_table(TableDefinition::<&[u8], &[u8]>::new(&name))?
-            .range::<&[u8]>(..)?;
+            .open_table(TableDefinition::<&[u8], &[u8]>::new(&name))
+            .map_err(Error::database)?
+            .range::<&[u8]>(..)
+            .map_err(Error::database)?;
         tables.push((name, entries.peekable()));
     }
     tables.reverse();

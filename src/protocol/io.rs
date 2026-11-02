@@ -86,7 +86,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The result of a codec operation.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A value with a single wire form, read from a [`Reader`] and written to a [`Writer`].

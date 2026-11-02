@@ -42,9 +42,9 @@ pub(in crate::tick) const MARKERS: [(u64, &str, i32); 6] = [
         "minecraft:night",
         NIGHT.cast_signed(),
     ),
-    (6_827_470_627_776_846_754, "minecraft:noon", 6_000),
+    (6_827_470_627_776_846_754, "minecraft:noon", 6000),
     (11_262_090_321_339_182_944, "minecraft:midnight", 18_000),
-    (13_638_948_813_458_750_018, "minecraft:day", 1_000),
+    (13_638_948_813_458_750_018, "minecraft:day", 1000),
     (16_664_792_990_819_124_822, "minecraft:sunset", 12_000),
 ];
 /// The time of day night starts at, and beds work from (PMMP `World::TIME_NIGHT`).

@@ -469,8 +469,8 @@ fn put_block(b: &mut BlockSlots<'_>, slot: usize, stack: Stack) -> Result<()> {
     let blocks = &b.state.rules.block_entities;
     let first = blocks.get(b.world, b.pos).map_or(0, |e| e.items.len());
     let (pos, index) = match slot.checked_sub(first) {
-        None => (b.pos, slot),
         Some(i) => (b.pair.ok_or(Error::NoSlot)?, i),
+        None => (b.pos, slot),
     };
     if !block_entity::set_slot(b.state, b.world, pos, index, stack)? {
         return Ok(());

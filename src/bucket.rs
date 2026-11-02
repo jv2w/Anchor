@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+/// Nanoseconds in a second.
 const NANOS: u128 = 1_000_000_000;
 
 /// A bucket's capacity and refill rate. The caller keeps them, so a table of buckets holds only

@@ -107,12 +107,12 @@ impl Generators {
     pub(crate) fn add(&mut self, type_id: TypeId, generator: Arc<dyn Generator>) {
         let name = generator.name();
         match self.by_name.get(name) {
-            None => {
-                self.by_name.insert(name, (type_id, generator));
-            }
             Some((known, _)) if *known == type_id => {}
             Some(_) => {
                 self.clash.get_or_insert(name);
+            }
+            None => {
+                self.by_name.insert(name, (type_id, generator));
             }
         }
     }

@@ -38,6 +38,10 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// The largest datagram passed to str0m, in bytes: an Ethernet MTU. Honest peers stay below it
 /// (pion sends SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
 pub(crate) const MAX_DATAGRAM: usize = 1500;
+/// The largest data channel message sent, in bytes: BDS's `a=max-message-size`. BDS sends
+/// segments of this minus the header byte, 262,143 bytes (P6); a remote that announces less gets
+/// smaller ones.
+const MAX_SEND_MESSAGE_BYTES: usize = 256 * 1024;
 /// The time from the peer's creation until both channels are open.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The memory one queued message costs besides its bytes, in bytes, charged against
@@ -53,11 +57,7 @@ const RTT_INTERVAL: Duration = Duration::from_secs(2);
 /// The bytes str0m holds for one peer until acknowledged: four of the largest messages, so a
 /// segment always fits, and about 1 MiB per round trip, the receive window go-nethernet's pion
 /// offers. str0m's 128 KiB default can never take a 262,144-byte message.
-const SCTP_SEND_BUFFER_BYTES: usize = 4 * SEND_MESSAGE_LIMIT_BYTES;
-/// The largest data channel message sent, in bytes: BDS's `a=max-message-size`. BDS sends
-/// segments of this minus the header byte, 262,143 bytes (P6); a remote that announces less gets
-/// smaller ones.
-const SEND_MESSAGE_LIMIT_BYTES: usize = 256 * 1024;
+const SCTP_SEND_BUFFER_BYTES: usize = 4 * MAX_SEND_MESSAGE_BYTES;
 /// The type of a STUN binding request.
 const STUN_BINDING_REQUEST: [u8; 2] = [0x00, 0x01];
 /// The type of the STUN USERNAME attribute.
@@ -94,9 +94,6 @@ pub(crate) enum Error {
     Crypto(crate::crypto::Error),
 }
 
-/// A peer result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -126,6 +123,9 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The DTLS certificate and crypto provider all peers share: made once per server start, so no
 /// peer pays for key generation and str0m never reads its process-global provider.
@@ -284,7 +284,7 @@ impl Peer {
     ) -> Result<Self> {
         let send_limit = usize::try_from(remote.max_message_size)
             .unwrap_or(usize::MAX)
-            .min(SEND_MESSAGE_LIMIT_BYTES);
+            .min(MAX_SEND_MESSAGE_BYTES);
         let max_payload = send_limit.saturating_sub(1);
         if max_payload == 0 {
             return Err(Error::Limit("remote max message size"));
@@ -405,7 +405,7 @@ impl Peer {
             return;
         }
         if datagram.len() > MAX_DATAGRAM || !matches!(datagram.first(), Some(0..=1 | 20..=63)) {
-            trace!(%from, len = datagram.len(), "dropped nethernet datagram");
+            trace!(addr = %from, len = datagram.len(), "dropped nethernet datagram");
             return;
         }
         // ICE drops requests not addressed to a local candidate; the socket is bound to every
@@ -430,7 +430,7 @@ impl Peer {
                     self.remote_addr = Some(from);
                 }
             }
-            Ok(Ok(false)) => trace!(%from, "nethernet datagram not accepted"),
+            Ok(Ok(false)) => trace!(addr = %from, "nethernet datagram not accepted"),
             Ok(Err(e)) => self.fail(Error::Webrtc(e)),
             Err(e) => self.fail(e),
         }
@@ -1651,7 +1651,7 @@ pub(crate) mod tests {
         let (server, client) = certificates();
         let mut h = Harness::honest(&server, &client);
         h.open();
-        let down = pattern(SEND_MESSAGE_LIMIT_BYTES - 1, 9);
+        let down = pattern(MAX_SEND_MESSAGE_BYTES - 1, 9);
         h.peer.send(down.clone()).unwrap();
         assert!(
             h.run(Duration::from_secs(10), |h| !h.client.received.is_empty()),

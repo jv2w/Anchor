@@ -12,11 +12,15 @@
 const OFFSET: u32 = 0x811c_9dc5;
 /// FNV-1a 32 prime.
 const PRIME: u32 = 0x0100_0193;
-/// The NBT tag numbers the hash writes.
+/// The NBT tag number of the end of a compound.
 const TAG_END: u8 = 0;
+/// The NBT tag number of a byte.
 const TAG_BYTE: u8 = 1;
+/// The NBT tag number of an int.
 const TAG_INT: u8 = 3;
+/// The NBT tag number of a string.
 const TAG_STRING: u8 = 8;
+/// The NBT tag number of a compound.
 const TAG_COMPOUND: u8 = 10;
 /// The hash dragonfly gives `minecraft:unknown`.
 const UNKNOWN: u32 = 0xffff_fffe;

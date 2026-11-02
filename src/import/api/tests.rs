@@ -14,6 +14,7 @@ use crate::storage::tests::{Disk, Fault, memory};
 use crate::storage::{ChunkId, ChunkKey, ChunkPart, StartBackup};
 use crate::world::{Flat, Generator, Kind, Void};
 
+/// The name of the world the tests import.
 const NAME: &str = "imported";
 
 /// An empty world whose generator marks one biome: biome 21 at (2, 50, 3) of every chunk.

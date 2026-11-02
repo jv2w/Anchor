@@ -130,6 +130,7 @@ pub(in crate::tick) fn cooks(kind: FurnaceType, item: &Stack, custom: &Registry)
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::item::Kind;
 
     fn named(name: &str) -> crate::item::Type {

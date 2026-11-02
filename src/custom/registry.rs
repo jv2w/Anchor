@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use super::creative::{self, CreativeInventory, Resolved};
 use super::recipe::{Kind as RecipeKind, MAX_INGREDIENTS, MAX_RESULTS, MAX_SIDE};
-use super::{Block, Category, Creative, Drops, Error, Ingredient, Item, ItemRef, Recipe};
+use super::{Block, Category, Creative, Drops, Error, Ingredient, Item, ItemRef, Recipe, Result};
 use crate::block;
 use crate::crafting::{self, FurnaceType, ShapelessType};
 use crate::item::{self, Stack, Type};
@@ -132,8 +132,8 @@ impl Registry {
         let empty = Compound::new();
         let states = match entry.get("states") {
             Some(Value::Compound(states)) => states,
-            None => &empty,
             Some(_) => return None,
+            None => &empty,
         };
         block::State::custom(b, b.index_of(states)?, t.runtime_id())
     }
@@ -158,7 +158,7 @@ impl Registry {
     }
 
     /// The `StartGame` block definitions of the custom blocks, in registration order.
-    pub(crate) fn block_entries(&self) -> Vec<BlockEntry> {
+    pub(crate) fn to_block_entries(&self) -> Vec<BlockEntry> {
         let mut out = Vec::new();
         let mut block_id = FIRST_BLOCK_ID;
         for entry in &self.entries {
@@ -201,8 +201,8 @@ impl Registry {
     /// default one for `None`; `None` for a name that is not registered.
     pub(crate) fn creative_index(&self, name: Option<&str>) -> Option<u16> {
         match name {
-            None => Some(0),
             Some(name) => self.creative_names.get(name).copied(),
+            None => Some(0),
         }
     }
 
@@ -293,7 +293,7 @@ impl Registry {
                 listed(&self.containers_by_reagent)
                     .iter()
                     .map(|&i| &self.containers[i])
-                    .filter(|r| r.input.name() == input_name && r.reagent.accepts(reagent))
+                    .filter(|r| r.input.name() == input_name && r.reagent.can_accept(reagent))
                     .find_map(|r| {
                         crafting::change_container(input, |meta, tag| {
                             self.item_by_name(r.output.name(), meta, None, tag)
@@ -309,7 +309,7 @@ impl Registry {
                 listed(&self.brewing_by_reagent)
                     .iter()
                     .map(|&i| &self.brewing[i])
-                    .find(|r| r.reagent.accepts(reagent) && r.input.accepts(input))
+                    .find(|r| r.reagent.can_accept(reagent) && r.input.can_accept(input))
                     .and_then(|r| r.output.to_item())
             })
     }
@@ -329,7 +329,7 @@ impl Registry {
             let item = input.item()?;
             let takes = |&at: &usize| {
                 let r = &self.furnace[at];
-                r.kind == kind && r.input.accepts(input)
+                r.kind == kind && r.input.can_accept(input)
             };
             let named = self
                 .furnace_by_name
@@ -459,7 +459,7 @@ impl Registry {
 
     /// Checks every registration and numbers the content (when the server is built). On failure
     /// the registry is left as it was and the error names the first registration at fault.
-    pub(crate) fn finish(&mut self) -> Result<(), Error> {
+    pub(crate) fn finish(&mut self) -> Result<()> {
         if self.entries.len() > MAX_ENTRIES {
             return Err(Error::TooMany {
                 what: "custom items and blocks",
@@ -559,7 +559,7 @@ impl Registry {
         default: &CreativeInventory,
         alternatives: &[(&'static str, CreativeInventory)],
         places: &[(Type, Creative)],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         if alternatives.len() > creative::MAX_ALTERNATIVES {
             return Err(Error::TooMany {
                 what: "alternative creative inventories",
@@ -587,7 +587,7 @@ impl Registry {
         reason = "invariant: a checked block has from 1 to `MAX_STATES` states, each of which \
                   can be made"
     )]
-    fn check_states(&self, types: &[Type]) -> Result<(), Error> {
+    fn check_states(&self, types: &[Type]) -> Result<()> {
         let mut states = Vec::new();
         for (entry, t) in self.entries.iter().zip(types) {
             let Entry::Block(b) = *entry else {
@@ -638,7 +638,7 @@ impl Registry {
                     runtime_id: t.runtime_id(),
                     component_based: true,
                     version: i32::from(ItemEntryVersion::DataDriven),
-                    data: i.components(),
+                    data: i.to_components(),
                 },
                 Entry::Block(b) => ItemEntry {
                     name: b.identifier().to_owned(),
@@ -670,7 +670,7 @@ impl Registry {
     }
 
     /// Checks and resolves the recipe at `index` of the registrations into the tables.
-    fn add_resolved(&mut self, index: usize, recipe: &Recipe) -> Result<(), Error> {
+    fn add_resolved(&mut self, index: usize, recipe: &Recipe) -> Result<()> {
         let fail = |reason| Error::Recipe { index, reason };
         let id = self.first_special_id();
         let numbered = match &recipe.0 {
@@ -779,7 +779,7 @@ impl Registry {
         keys: &[(char, Ingredient)],
         results: &[(ItemRef, u8)],
         fail: impl Fn(&'static str) -> Error,
-    ) -> Result<Shaped, Error> {
+    ) -> Result<Shaped> {
         let height = rows.len();
         let width = rows.first().map_or(0, |r| r.chars().count());
         if height == 0 || height > MAX_SIDE || width == 0 || width > MAX_SIDE {
@@ -833,7 +833,7 @@ impl Registry {
         reagent: Ingredient,
         output: ItemRef,
         fail: impl Fn(&'static str) -> Error,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let input = self.brewing_ingredient(input, &fail)?;
         let reagent = self.brewing_ingredient(reagent, &fail)?;
         let output = self
@@ -855,7 +855,7 @@ impl Registry {
         reagent: Ingredient,
         output: ItemRef,
         fail: impl Fn(&'static str) -> Error,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let unknown = || fail("an item is unknown or unregistered");
         let (input, output) = (
             self.resolve(input).ok_or_else(unknown)?,
@@ -924,7 +924,7 @@ impl Registry {
         &self,
         ingredient: Ingredient,
         fail: impl Fn(&'static str) -> Error,
-    ) -> Result<crafting::Ingredient, Error> {
+    ) -> Result<crafting::Ingredient> {
         let i = self
             .ingredient(ingredient)
             .ok_or_else(|| fail(UNKNOWN_INGREDIENT))?;
@@ -1229,9 +1229,11 @@ mod tests {
         );
     }
 
-    static PLAIN: Block = Block::new("test:changed", "test_changed");
+    /// A block with a `lit` property.
     static LIT: Block =
         Block::new("test:changed", "test_changed").with_properties(&[Property::bool("lit")]);
+    /// The same block with no properties.
+    static PLAIN: Block = Block::new("test:changed", "test_changed");
 
     /// A custom block's item saved under one definition of its block reads back under another
     /// with other properties: the item is known by its name.

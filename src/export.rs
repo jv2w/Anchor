@@ -49,7 +49,7 @@ const STEP: usize = 256;
 const STEP_BYTES: usize = 256 << 20;
 
 /// What [`Server::export_world`](crate::Server::export_world) wrote and what it left out.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Report {
     chunks: u64,
     block_entities: u64,
@@ -147,6 +147,9 @@ impl std::error::Error for Error {
     }
 }
 
+/// A result with the module's [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 /// A converted chunk: its values in key order and what it adds to the report.
 #[derive(Debug)]
 struct Converted {
@@ -224,7 +227,7 @@ pub(crate) fn run(
             // The export's own folder goes whole, so a failure leaves no folder.
             if let Err(e) = std::fs::remove_dir_all(own) {
                 warn!(
-                    folder = %own.display(),
+                    path = %own.display(),
                     error = &e as &(dyn std::error::Error + 'static),
                     "could not remove the failed export's folder"
                 );
@@ -234,7 +237,7 @@ pub(crate) fn run(
     };
     info!(
         world = name,
-        folder = %dir.display(),
+        path = %dir.display(),
         chunks = report.chunks,
         block_entities = report.block_entities,
         left_out_entities = report.entities,
@@ -251,7 +254,7 @@ pub(crate) fn run(
     clippy::disallowed_methods,
     reason = "off-tick: the export writes a world folder instead of running the server"
 )]
-fn create_temp(temp: &Path) -> Result<(), Error> {
+fn create_temp(temp: &Path) -> Result<()> {
     if let Some(parent) = temp.parent() {
         std::fs::create_dir_all(parent).map_err(written(parent))?;
     }
@@ -349,7 +352,7 @@ fn write(
     clippy::disallowed_methods,
     reason = "off-tick: the export writes a world folder instead of running the server"
 )]
-fn create_dir(dir: &Path) -> Result<(), Error> {
+fn create_dir(dir: &Path) -> Result<()> {
     std::fs::create_dir(dir).map_err(written(dir))
 }
 
@@ -358,7 +361,7 @@ fn create_dir(dir: &Path) -> Result<(), Error> {
     clippy::disallowed_types,
     reason = "off-tick: the export writes a world folder instead of running the server"
 )]
-fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -386,7 +389,7 @@ fn convert(
     values: &[(ChunkPart, Vec<u8>)],
     generator: &dyn Generator,
     seed: i64,
-) -> Result<Converted, Error> {
+) -> Result<Converted> {
     let pos = ChunkPos::new(id.x, id.z);
     let at = |source: Box<dyn std::error::Error + Send + Sync>| Error::Chunk {
         x: id.x,

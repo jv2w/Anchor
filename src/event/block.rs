@@ -826,6 +826,7 @@ cancellable! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::{AIR, DIRT, GRASS_BLOCK};
     use crate::event::fixtures::{POS, player, sticks};
     use crate::event::{DEFAULT_FIRE_CHANCE, MAX_EXPLOSION_RADIUS};

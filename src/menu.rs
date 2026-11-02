@@ -444,22 +444,22 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Offline => "player not in the game",
-            Self::Busy => "player busy",
-            Self::Full => "too many fake blocks",
-            Self::OutsideWorld => "position outside the world",
-            Self::NoSlot => "no such menu slot",
-            Self::TitleTooLong => "menu title too long",
-            Self::NotOpen => "no menu open",
-            Self::Exhausted => "menu IDs used up",
-        })
+        match self {
+            Self::Offline => f.write_str("player not in the game"),
+            Self::Busy => f.write_str("player busy"),
+            Self::Full => f.write_str("too many fake blocks"),
+            Self::OutsideWorld => f.write_str("position outside the world"),
+            Self::NoSlot => f.write_str("no such menu slot"),
+            Self::TitleTooLong => f.write_str("menu title too long"),
+            Self::NotOpen => f.write_str("no menu open"),
+            Self::Exhausted => f.write_str("menu IDs used up"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the menu [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The bit of slot `slot` in a set of slots (bit `i` for slot `i`); `None` past bit 63.

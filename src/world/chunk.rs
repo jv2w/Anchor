@@ -11,11 +11,11 @@ use crate::block::State;
 use crate::nbt;
 use crate::protocol::Writer;
 
-use super::light::{self, ChunkLight};
+use super::light::{self, Levels};
 use super::paletted::{Derive, Paletted, offset};
 use super::sub_chunk::{Entry, SubChunk};
 use super::{
-    ChunkPos, Error, Generator, LOWEST_SUB_CHUNK, MAX_Y, MIN_Y, Result, StoredBlock, UnknownBlock,
+    ChunkPos, Error, Generator, MAX_Y, MIN_SUB_CHUNK_Y, MIN_Y, Result, StoredBlock, UnknownBlock,
 };
 
 /// Columns in a chunk.
@@ -51,7 +51,7 @@ pub struct Chunk {
     split: bool,
     /// The chunk's light once it is worked out, kept apart from the shared sub-chunks so a light
     /// change never copies one.
-    light: Option<Box<ChunkLight>>,
+    light: Option<Box<Levels>>,
 }
 
 impl Chunk {
@@ -201,7 +201,7 @@ impl Chunk {
     }
 
     /// The chunk's light, if it is worked out.
-    pub(super) fn light(&self) -> Option<&ChunkLight> {
+    pub(super) fn light(&self) -> Option<&Levels> {
         self.light.as_deref()
     }
 
@@ -237,7 +237,7 @@ impl Chunk {
     /// The `LevelChunk` payload of the sub-chunk request system: the biomes of the 24
     /// sub-chunks (one equal to the one below it is written as 0xff), then 0 border blocks
     /// (dragonfly network encoding).
-    pub(crate) fn level_chunk_payload(&self) -> Vec<u8> {
+    pub(crate) fn to_level_chunk_payload(&self) -> Vec<u8> {
         // Each section once: `None` for one equal to the one below it.
         let sections = || {
             let mut below: Option<&Arc<Paletted<u32>>> = None;
@@ -266,7 +266,7 @@ impl Chunk {
     pub(crate) fn sub_chunk_payload(&self, index: usize) -> Option<Vec<u8>> {
         let sub = self.sub_chunk(index)?;
         let y_index =
-            i8::try_from(i32::try_from(index).ok()?.checked_add(LOWEST_SUB_CHUNK)?).ok()?;
+            i8::try_from(i32::try_from(index).ok()?.checked_add(MIN_SUB_CHUNK_Y)?).ok()?;
         let mut w = Writer::new(Vec::with_capacity(sub.max_encoded_bytes()), 0);
         sub.encode(y_index, &mut w);
         Some(w.into_inner())
@@ -332,9 +332,9 @@ impl Chunk {
         let (index, ly) = split_y(y).filter(|_| x < 16 && z < 16)?;
         let slot = self.sub_chunks.get_mut(index)?;
         let shared = match slot {
+            Some(sub) => sub,
             None if entry == Entry::AIR => return Some(Entry::AIR),
             None => slot.insert(Arc::new(SubChunk::new())),
-            Some(sub) => sub,
         };
         let at = offset(x, ly, z);
         // Checked before `make_mut`, so writing the same entry never copies a sub-chunk a save
@@ -408,17 +408,17 @@ impl Chunk {
     }
 
     /// The chunk's light, to change it.
-    pub(super) fn light_mut(&mut self) -> Option<&mut ChunkLight> {
+    pub(super) fn light_mut(&mut self) -> Option<&mut Levels> {
         self.light.as_deref_mut()
     }
 
     /// Gives the chunk its worked out light.
-    pub(super) fn set_light(&mut self, light: ChunkLight) {
+    pub(super) fn set_light(&mut self, light: Levels) {
         self.light = Some(Box::new(light));
     }
 
     /// Takes the chunk's light away.
-    pub(super) fn take_light(&mut self) -> Option<Box<ChunkLight>> {
+    pub(super) fn take_light(&mut self) -> Option<Box<Levels>> {
         self.light.take()
     }
 
@@ -431,7 +431,7 @@ impl Chunk {
         unknown: Vec<nbt::Compound>,
         dirty: u32,
         split: bool,
-        light: Option<Box<ChunkLight>>,
+        light: Option<Box<Levels>>,
     ) -> crate::tick::checkpoint::Result<Self> {
         use crate::tick::checkpoint::Error;
         if !unknown_indexes_fit(sub_chunks.iter().flatten().map(Arc::as_ref), unknown.len()) {
@@ -452,7 +452,7 @@ impl Chunk {
         unknown: Vec<nbt::Compound>,
         dirty: u32,
         split: bool,
-        light: Option<Box<ChunkLight>>,
+        light: Option<Box<Levels>>,
     ) -> Self {
         let mut chunk = Self {
             sub_chunks,
@@ -487,7 +487,7 @@ impl Chunk {
                         )]
                         let height = i16::try_from(
                             (i32::try_from(index).expect("a sub-chunk index fits i32")
-                                + LOWEST_SUB_CHUNK)
+                                + MIN_SUB_CHUNK_Y)
                                 * 16
                                 + i32::from(y),
                         )
@@ -587,7 +587,7 @@ pub(super) fn split_y(y: i32) -> Option<(usize, u8)> {
     if !(MIN_Y..=MAX_Y).contains(&y) {
         return None;
     }
-    let index = usize::try_from((y >> 4) - LOWEST_SUB_CHUNK).ok()?;
+    let index = usize::try_from((y >> 4) - MIN_SUB_CHUNK_Y).ok()?;
     Some((index, u8::try_from(y & 15).ok()?))
 }
 
@@ -732,7 +732,8 @@ pub(crate) mod tests {
         }
     }
 
-    // pmmp: Chunk::getBlockStateId, Chunk::setBlockStateId, Chunk::getBiomeId, Chunk::setBiomeId, Chunk::getHighestBlockAt, Chunk
+    // pmmp: Chunk::getBlockStateId, Chunk::setBlockStateId, Chunk::getBiomeId,
+    // pmmp: Chunk::setBiomeId, Chunk::getHighestBlockAt, Chunk
     #[test]
     fn a_clone_keeps_its_contents_while_the_original_changes() {
         let mut chunk = Chunk::generate(&Flat, 1, ChunkPos::new(0, 0));
@@ -777,12 +778,12 @@ pub(crate) mod tests {
     #[test]
     fn a_level_chunk_payload_is_encoded_without_growing_its_buffer() {
         let mut chunk = Chunk::new();
-        let payload = chunk.level_chunk_payload();
+        let payload = chunk.to_level_chunk_payload();
         // The first section, 23 repeats of one byte, and the border byte.
         let bound = chunk.biome_storage(0).unwrap().max_encoded_bytes() + (SUB_CHUNKS - 1) + 1;
         assert_eq!(payload.capacity(), bound);
         chunk.set_biome(1, 70, 2, 4).unwrap();
-        let payload = chunk.level_chunk_payload();
+        let payload = chunk.to_level_chunk_payload();
         assert!(
             payload.len() > bound,
             "mixed biomes need more than the flat bound"
@@ -856,8 +857,8 @@ pub(crate) mod tests {
         let mut empty = vec![0x01, 0x02];
         empty.extend([0xff; 23]);
         empty.push(0);
-        assert_eq!(chunk.level_chunk_payload(), empty);
-        assert_eq!(Chunk::new().level_chunk_payload(), empty);
+        assert_eq!(chunk.to_level_chunk_payload(), empty);
+        assert_eq!(Chunk::new().to_level_chunk_payload(), empty);
         assert_eq!(chunk.sub_chunk_limit(), 1);
         let sub = chunk.sub_chunk_payload(0).unwrap();
         assert_eq!(sub.len(), 1049);
@@ -871,7 +872,7 @@ pub(crate) mod tests {
         assert!(chunk.heights.iter().all(|&h| h == -61));
         let void = Chunk::generate(&Void, 0, ChunkPos::new(0, 0));
         assert_eq!(void.sub_chunk_limit(), 0);
-        assert_eq!(void.level_chunk_payload(), empty);
+        assert_eq!(void.to_level_chunk_payload(), empty);
     }
 
     // pmmp: Generator::generateChunk, Generator, Flat
@@ -880,7 +881,7 @@ pub(crate) mod tests {
         for pos in [ChunkPos::new(0, 0), ChunkPos::new(-7, 12)] {
             let a = Chunk::generate(&Flat, 42, pos);
             let b = Chunk::generate(&Flat, 42, pos);
-            assert_eq!(a.level_chunk_payload(), b.level_chunk_payload());
+            assert_eq!(a.to_level_chunk_payload(), b.to_level_chunk_payload());
             for i in 0..SUB_CHUNKS {
                 assert_eq!(a.sub_chunk_payload(i), b.sub_chunk_payload(i));
             }
@@ -1000,7 +1001,7 @@ pub(crate) mod tests {
         }
         assert!(seen >= 6);
         // Biome sections decode as paletted storages; a repeat is 0xff.
-        let payload = chunk.level_chunk_payload();
+        let payload = chunk.to_level_chunk_payload();
         let mut r = Reader::new(&payload, 1 << 20, 0);
         let mut sections = Vec::new();
         for _ in 0..SUB_CHUNKS {
@@ -1043,7 +1044,10 @@ pub(crate) mod tests {
         for i in 0..SUB_CHUNKS {
             assert_eq!(again.sub_chunk(i), back.sub_chunk(i));
         }
-        assert_eq!(back.level_chunk_payload(), chunk.level_chunk_payload());
+        assert_eq!(
+            back.to_level_chunk_payload(),
+            chunk.to_level_chunk_payload()
+        );
         assert_eq!(back.heights, chunk.heights);
         assert_eq!(back.unknown().len(), 3);
         assert!(!back.is_dirty());

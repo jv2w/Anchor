@@ -109,28 +109,28 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::TooLong => "the text is too long",
-            Self::TooManyParameters => "a translation takes at most 4 parameters",
-            Self::OutOfRange => "the value is out of range",
-            Self::OutsideWorld => "the position is outside the world",
-            Self::WorldNotLoaded => "the world is not loaded",
-            Self::Offline => "the player is not in the game",
-            Self::Leaving => "the player is leaving",
-            Self::InvalidAddress => "the transfer address is invalid",
-            Self::Disabled => "a server setting turns this off",
-            Self::NoFullVolume => "the sound has no full-volume form",
-            Self::Online => "the player is online",
-            Self::NotSaved => "no data is saved for the player",
-            Self::Damaged => "the player's saved data is damaged",
-            Self::Full => "too many offline players are held",
-        })
+        match self {
+            Self::TooLong => f.write_str("the text is too long"),
+            Self::TooManyParameters => f.write_str("a translation takes at most 4 parameters"),
+            Self::OutOfRange => f.write_str("the value is out of range"),
+            Self::OutsideWorld => f.write_str("the position is outside the world"),
+            Self::WorldNotLoaded => f.write_str("the world is not loaded"),
+            Self::Offline => f.write_str("the player is not in the game"),
+            Self::Leaving => f.write_str("the player is leaving"),
+            Self::InvalidAddress => f.write_str("the transfer address is invalid"),
+            Self::Disabled => f.write_str("a server setting turns this off"),
+            Self::NoFullVolume => f.write_str("the sound has no full-volume form"),
+            Self::Online => f.write_str("the player is online"),
+            Self::NotSaved => f.write_str("no data is saved for the player"),
+            Self::Damaged => f.write_str("the player's saved data is damaged"),
+            Self::Full => f.write_str("too many offline players are held"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the player [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The packets of one message: at most three (a title with its timing and subtitle).

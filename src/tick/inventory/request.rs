@@ -28,10 +28,10 @@ use std::fmt;
 use tracing::{debug, warn};
 
 use super::{
-    Container, GRID, HOTBAR, Inventory, MAX_SAVED_PENDING, Notice, RECENT_REQUESTS, Slot, SlotRef,
-    StackId, Station, UI_CREATED_OUTPUT, Window, WindowKind, block_slot, can_throw, close_now,
-    give_pending, held_count, menu, resend_all, slot_packet, station, take_stack_id, throw_stack,
-    window_slot_of,
+    Container, GRID, HOTBAR, Inventory, MAX_RECENT_REQUESTS, MAX_SAVED_PENDING, Notice, Slot,
+    SlotRef, StackId, Station, UI_CREATED_OUTPUT, Window, WindowKind, block_slot, can_throw,
+    close_now, give_pending, held_count, menu, resend_all, slot_packet, station, take_stack_id,
+    throw_stack, window_slot_of,
 };
 use crate::block::{self, Class};
 use crate::crafting::{self, Recipe, ShapelessType};
@@ -85,7 +85,7 @@ pub(super) struct Exec<'a> {
     request: i32,
     pub(super) creative: bool,
     /// What the stations read from outside the inventory.
-    pub(super) outside: &'a station::Context,
+    pub(super) outside: &'a station::Outside,
     /// The slots changed so far, in their new state.
     overlay: BTreeMap<SlotRef, Slot>,
     /// The request containers and slots named, in first-seen order (the response's order).
@@ -117,7 +117,7 @@ impl<'a> Exec<'a> {
         blocks: &'a block_entity::BlockEntities,
         request: i32,
         creative: bool,
-        outside: &'a station::Context,
+        outside: &'a station::Outside,
     ) -> Self {
         let window = inv.window.as_ref().filter(|w| w.id != 0);
         let mut halves: [&[Stack]; 2] = [&[], &[]];
@@ -243,7 +243,7 @@ impl<'a> Exec<'a> {
     }
 
     /// Whether slot `r` takes `stack` (PMMP slot validators): armour only in its slot (a carved
-    /// pumpkin or a mob head on the head), only what [`Stack::fits_shulker_box`] in a shulker box.
+    /// pumpkin or a mob head on the head), only what [`Stack::can_enter_shulker_box`] in a shulker box.
     fn accepts(&self, r: SlotRef, stack: &Stack) -> Result<()> {
         let Some(item) = stack.item() else {
             return Ok(());
@@ -265,7 +265,7 @@ impl<'a> Exec<'a> {
                         kind: Container::ShulkerBox,
                         ..
                     })
-                ) || stack.fits_shulker_box()
+                ) || stack.can_enter_shulker_box()
             }
             _ => true,
         };
@@ -273,8 +273,8 @@ impl<'a> Exec<'a> {
     }
 
     /// Whether items moving from `r` onto the cursor are lent: `r` is a slot of a menu that lends.
-    fn lends_from(&self, r: SlotRef) -> bool {
-        matches!(r, SlotRef::Menu(_)) && self.inv.menu.as_ref().is_some_and(menu::Open::lends)
+    fn is_lent_from(&self, r: SlotRef) -> bool {
+        matches!(r, SlotRef::Menu(_)) && self.inv.menu.as_ref().is_some_and(menu::Open::is_lending)
     }
 
     /// Whether the stacks held outside the slots afterwards ([`held_count`]) and the waiting
@@ -367,7 +367,7 @@ impl<'a> Exec<'a> {
                 self.drop = Some(dropped);
                 Ok(())
             }
-            StackRequestAction::Destroy(a) if station::takes_destroy(self) => {
+            StackRequestAction::Destroy(a) if station::can_take_destroy(self) => {
                 let consumed = self.remove(&a.source, a.count)?;
                 self.consumed.push(consumed);
                 Ok(())
@@ -380,7 +380,7 @@ impl<'a> Exec<'a> {
             }
             StackRequestAction::Consume(a) => {
                 let a = &a.destroy_stack_request_action;
-                if self.craft.is_none() && !station::crafting(self) {
+                if self.craft.is_none() && !station::is_crafting(self) {
                     return Err(Error::Crafting);
                 }
                 let consumed = self.remove(&a.source, a.count)?;
@@ -416,10 +416,10 @@ impl<'a> Exec<'a> {
                     creative: true,
                 }))
             }
-            StackRequestAction::CraftRecipe(a) if !station::takes_craft_recipe(self) => {
+            StackRequestAction::CraftRecipe(a) if !station::can_take_craft_recipe(self) => {
                 self.begin_craft(a.recipe_network_id, a.number_of_crafts, Ingredients::Grid)
             }
-            StackRequestAction::AutoCraftRecipe(_) if station::takes_auto_craft(self) => {
+            StackRequestAction::AutoCraftRecipe(_) if station::can_take_auto_craft(self) => {
                 station::action(self, action)
             }
             StackRequestAction::AutoCraftRecipe(_) if !self.outside.custom.has_recipe_book() => {
@@ -534,7 +534,7 @@ impl<'a> Exec<'a> {
         };
         if let Some((other, given, count)) = onto_cursor {
             let bought = self.lent == 0 && !given.is_empty();
-            self.lent = if self.lends_from(other) && !bought {
+            self.lent = if self.is_lent_from(other) && !bought {
                 count
             } else {
                 0
@@ -561,7 +561,7 @@ impl<'a> Exec<'a> {
             };
             self.lent = self.lent.saturating_sub(leaving);
         }
-        if to == Some(SlotRef::Cursor) && self.lends_from(from) {
+        if to == Some(SlotRef::Cursor) && self.is_lent_from(from) {
             self.lent = self.lent.saturating_add(count);
         }
     }
@@ -778,7 +778,7 @@ pub(super) struct Plan {
 impl Plan {
     /// Whether `other` does the same: the same slots to the same stacks, the same drop, the same
     /// station effects and the same lent items (stack network IDs aside).
-    fn same(&self, other: &Self) -> bool {
+    fn is_same_as(&self, other: &Self) -> bool {
         self.writes.len() == other.writes.len()
             && self
                 .writes
@@ -846,34 +846,36 @@ pub(super) enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Busy => "too many requests this tick",
-            Self::TooLarge => "request too large",
-            Self::Repeat => "request id already used",
-            Self::NoSlot => "no such open slot",
-            Self::StackId => "stack network id mismatch",
-            Self::Count => "bad count",
-            Self::NoRoom => "items do not fit the slot",
-            Self::NotAccepted => "item not accepted in the slot",
-            Self::NotCreative => "not in creative mode",
-            Self::NothingCreated => "no created item to take",
-            Self::CreatedLeft => "created items were not all taken",
-            Self::Crafting => "craft action out of place",
-            Self::Recipe => "no such recipe for this grid",
-            Self::Layout => "the grid does not lay out the recipe",
-            Self::Consumed => "consumed items do not match the recipe",
-            Self::Drops => "more than one drop",
-            Self::Undroppable => "no room in the world for the drop",
-            Self::Unreturnable => "held items could not go back",
-            Self::Unsupported => "station action not available",
-            Self::Cancelled => "cancelled by a listener",
-            Self::MenuChanged => "changed by the menu handler",
-            Self::Menu => "menu slot not editable or change refused by its handler",
-        })
+        match self {
+            Self::Busy => f.write_str("too many requests this tick"),
+            Self::TooLarge => f.write_str("request too large"),
+            Self::Repeat => f.write_str("request id already used"),
+            Self::NoSlot => f.write_str("no such open slot"),
+            Self::StackId => f.write_str("stack network id mismatch"),
+            Self::Count => f.write_str("bad count"),
+            Self::NoRoom => f.write_str("items do not fit the slot"),
+            Self::NotAccepted => f.write_str("item not accepted in the slot"),
+            Self::NotCreative => f.write_str("not in creative mode"),
+            Self::NothingCreated => f.write_str("no created item to take"),
+            Self::CreatedLeft => f.write_str("created items were not all taken"),
+            Self::Crafting => f.write_str("craft action out of place"),
+            Self::Recipe => f.write_str("no such recipe for this grid"),
+            Self::Layout => f.write_str("the grid does not lay out the recipe"),
+            Self::Consumed => f.write_str("consumed items do not match the recipe"),
+            Self::Drops => f.write_str("more than one drop"),
+            Self::Undroppable => f.write_str("no room in the world for the drop"),
+            Self::Unreturnable => f.write_str("held items could not go back"),
+            Self::Unsupported => f.write_str("station action not available"),
+            Self::Cancelled => f.write_str("cancelled by a listener"),
+            Self::MenuChanged => f.write_str("changed by the menu handler"),
+            Self::Menu => f.write_str("menu slot not editable or change refused by its handler"),
+        }
     }
 }
 
-/// Request results.
+impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
 pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The stack network ID a viewer's slot gets when a container changes outside its requests.
@@ -907,9 +909,9 @@ enum Ingredients {
 }
 
 impl Inventory {
-    /// Remembers a request ID, forgetting the oldest beyond [`RECENT_REQUESTS`].
+    /// Remembers a request ID, forgetting the oldest beyond [`MAX_RECENT_REQUESTS`].
     fn remember(&mut self, request: i32) {
-        if self.recent.len() >= RECENT_REQUESTS
+        if self.recent.len() >= MAX_RECENT_REQUESTS
             && let Some(old) = self.recent.pop_front()
         {
             self.recent_set.remove(&old);
@@ -965,7 +967,7 @@ pub(in crate::tick) fn on_item_stack_request(
         debug!(
             session = session.get(),
             request = request.request_id,
-            error = %e,
+            error = &e as &(dyn std::error::Error + 'static),
             "item stack request refused"
         );
         refuse(state, session, request.request_id);
@@ -996,7 +998,7 @@ fn run(
     }
     let mut raised = events::Raised::of(state, session, &plan);
     raised.call(state)?;
-    let plan = if raised.listened(state) {
+    let plan = if raised.has_listened(state) {
         let again = if edit.is_some() {
             Describe::Slots
         } else {
@@ -1023,7 +1025,7 @@ fn run(
             warn!(
                 session = session.get(),
                 request = request.request_id,
-                error = %e,
+                error = e as &(dyn std::error::Error + 'static),
                 "menu handler changed what the change it kept reads; change refused"
             );
         })?,
@@ -1050,7 +1052,7 @@ fn check_again(
     changed: Error,
 ) -> Result<Plan> {
     let again = check(state, session, request, describe)?;
-    if again.same(plan) {
+    if again.is_same_as(plan) {
         Ok(again)
     } else {
         Err(changed)
@@ -1064,8 +1066,8 @@ fn check(
     request: &ItemStackRequest,
     describe: Describe,
 ) -> Result<Plan> {
-    let creative = player_creative(state, session);
-    let outside = station::context(state, session, request);
+    let creative = is_creative(state, session);
+    let outside = station::outside(state, session, request);
     let player = state.players.get(&session).ok_or(Error::NoSlot)?;
     let mut exec = Exec::new(
         &player.inventory,
@@ -1086,7 +1088,7 @@ fn check(
 
 /// Whether the player's items are not used up, as in creative mode (destroying and creating
 /// items).
-fn player_creative(state: &State, session: SessionId) -> bool {
+fn is_creative(state: &State, session: SessionId) -> bool {
     state
         .players
         .get(&session)
@@ -1215,15 +1217,29 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
         }
     }
     if let Some((world, pos)) = furnace_taken {
-        let xp = block_entity::take_experience(state, world, pos);
-        if let Some(player) = state.players.get(&session)
-            && xp > 0
-        {
-            let (world, at) = (player.world, player.position);
-            entity::drop_experience(state, world, at, xp);
-        }
+        drop_furnace_experience(state, session, world, pos);
     }
-    station::apply(state, session, request, plan.effects, enchant_input);
+    station::apply(state, session, request, plan.effects);
+    if enchant_input {
+        station::refresh_enchant_options(state, session);
+    }
+}
+
+/// Drops the experience stored in the furnace at `pos` at the feet of the player who took its
+/// output.
+fn drop_furnace_experience(
+    state: &mut State,
+    session: SessionId,
+    world: crate::save::WorldIndex,
+    pos: crate::world::BlockPos,
+) {
+    let xp = block_entity::take_experience(state, world, pos);
+    if let Some(player) = state.players.get(&session)
+        && xp > 0
+    {
+        let (world, at) = (player.world, player.position);
+        entity::drop_experience(state, world, at, xp);
+    }
 }
 
 /// Hands the handler of the open menu `menu` the changes the described `plan` would make, before

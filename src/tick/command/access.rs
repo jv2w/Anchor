@@ -95,7 +95,7 @@ impl Access {
     }
 
     /// Whether the whitelist is on.
-    pub(super) fn whitelist_enabled(&self) -> bool {
+    pub(super) fn is_whitelist_enabled(&self) -> bool {
         self.whitelist_enabled
     }
 

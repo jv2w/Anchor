@@ -446,8 +446,6 @@ impl Mover {
             text(on_ground)
         ));
         let save = match self.aim {
-            // Every third tick, and when items go onto the cursor and into the grid.
-            None => tick.is_multiple_of(3) || tick % 12 == 6,
             Some(phase) => {
                 let target = *self.target.get_or_insert_with(|| {
                     let settled = tick + SETTLE;
@@ -455,6 +453,8 @@ impl Mover {
                 });
                 tick == target
             }
+            // Every third tick, and when items go onto the cursor and into the grid.
+            None => tick.is_multiple_of(3) || tick % 12 == 6,
         };
         if save {
             cx.save();

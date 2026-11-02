@@ -9,10 +9,13 @@ use crate::item::Stack;
 use crate::nbt::Compound;
 use crate::random::Random;
 
-/// `ContainerSetData` keys (PMMP `ContainerSetDataPacket::PROPERTY_FURNACE_*`).
+/// The `ContainerSetData` key of the cook time (PMMP `ContainerSetDataPacket::PROPERTY_FURNACE_*`).
 pub(in crate::tick) const DATA_COOK: i32 = 0;
+/// The `ContainerSetData` key of the burn time left.
 pub(in crate::tick) const DATA_BURN: i32 = 1;
+/// The `ContainerSetData` key of the burn time of the fuel burning.
 pub(in crate::tick) const DATA_MAX_BURN: i32 = 2;
+/// The `ContainerSetData` key of the stored experience.
 pub(in crate::tick) const DATA_XP: i32 = 3;
 /// The fuel slot.
 pub(in crate::tick) const FUEL: usize = 1;
@@ -351,6 +354,7 @@ fn set(items: &mut [Stack], i: usize, stack: Stack, out: &mut Step) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::item::Kind;
 
     fn stack(kind: Kind, count: u8) -> Stack {

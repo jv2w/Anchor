@@ -28,13 +28,15 @@ use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, inventory, 
 /// Window opening clicks squeezed into one tick by a client that changes each click a little
 /// (so none is a repeat) and acknowledges every close at once.
 const CLICKS: usize = 1000;
-/// The network IDs of the 1.26.60 reference list (the values BDS sends) of two blocks only
+/// The network ID of dripstone in the 1.26.60 reference list (the value BDS sends), a block only
 /// clients know.
 const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
 /// Looking east, level.
 const EAST: f32 = 270.0;
 /// The player's feet: on the flat world's grass at the spawn.
 const FEET: [f64; 3] = [0.5, -60.0, 0.5];
+/// The network ID of moss in the 1.26.60 reference list (the value BDS sends), a block only
+/// clients know.
 const MOSS_BLOCK: u32 = 3_743_819_255;
 /// The notes of listeners and hooks.
 const SEEN: usize = 0;

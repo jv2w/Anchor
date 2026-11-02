@@ -163,19 +163,21 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Offline => "the player is not in the game",
-            Self::TooManyLines => "the scoreboard has more lines than its slot shows",
-            Self::TooLong => "a title or line is longer than a client takes",
-            Self::UnknownPlayer => "a scoreboard line names a player who is not in the game",
-            Self::DuplicatePlayer => "two scoreboard lines name the same player",
-        })
+        match self {
+            Self::Offline => f.write_str("the player is not in the game"),
+            Self::TooManyLines => f.write_str("the scoreboard has more lines than its slot shows"),
+            Self::TooLong => f.write_str("a title or line is longer than a client takes"),
+            Self::UnknownPlayer => {
+                f.write_str("a scoreboard line names a player who is not in the game")
+            }
+            Self::DuplicatePlayer => f.write_str("two scoreboard lines name the same player"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the display [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ pub(crate) const ISSUER: &str = "https://issuer.test/";
 /// The `kid` of the test key.
 pub(crate) const KID: &str = "test-kid";
 
+/// The test issuer every test shares.
 static SHARED_ISSUER: OnceLock<Issuer> = OnceLock::new();
 
 /// A test issuer: one RSA-2048 key, generated once per test process.

@@ -344,7 +344,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// An authorization result.
+/// A result with the module's [`enum@Error`].
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Whether a cache fetched at `fetched_at` is still fresh at `now`.

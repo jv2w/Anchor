@@ -102,9 +102,6 @@ pub enum Error {
     Output(io::Error),
 }
 
-/// A result with the crate [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_chain(f, self)
@@ -178,6 +175,9 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl From<config::Error> for Error {
     fn from(e: config::Error) -> Self {

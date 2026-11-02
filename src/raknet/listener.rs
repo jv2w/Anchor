@@ -96,7 +96,7 @@ impl Listener {
         if flags & FLAG_DATAGRAM == 0 {
             if let Err(error) = self.offline(now, from, data, sink) {
                 trace!(
-                    %from,
+                    addr = %from,
                     error = &error as &(dyn std::error::Error + 'static),
                     "raknet offline message dropped"
                 );
@@ -104,7 +104,7 @@ impl Listener {
             return;
         }
         let Some(conn) = self.conns.get_mut(&from) else {
-            trace!(%from, "raknet datagram from an unknown address dropped");
+            trace!(addr = %from, "raknet datagram from an unknown address dropped");
             return;
         };
         if let Err(reason) = conn.receive(now, from, data, &mut self.messages, sink) {
@@ -327,7 +327,7 @@ impl Listener {
             self.buf.clear();
             wire::no_free_incoming_connections(&mut self.buf, self.config.guid);
             sink.transmit(from, &self.buf);
-            debug!(%from, "raknet connection refused: too many before login");
+            debug!(addr = %from, "raknet connection refused: too many before login");
             return Ok(());
         }
         let peer = Peer::new(now, mtu, self.config.limits)?;

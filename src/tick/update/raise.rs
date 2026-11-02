@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use super::Cx;
+use super::Rule;
 use crate::block::State;
 use crate::event::{
     BlockDeath, BlockForm, BlockGrow, BlockMelt, BlockSpread, Event, StructureGrow,
@@ -19,7 +19,7 @@ use crate::world::{self, BlockPos};
 #[derive(Debug)]
 pub(super) struct Refused;
 
-impl Cx<'_> {
+impl Rule<'_> {
     /// The id of the rule's world, for events.
     pub(super) fn world_id(&self) -> world::Id {
         world::Id::of(self.world)
@@ -38,7 +38,7 @@ impl Cx<'_> {
             return Ok(None);
         }
         let event = build(self);
-        self.call(event, cancelled, |cx| at.map(|p| cx.get(p)))
+        self.call(event, cancelled, |rule| at.map(|p| rule.get(p)))
             .map(Some)
     }
 
@@ -165,10 +165,10 @@ impl Cx<'_> {
             player: self.player,
             cancelled: false,
         };
-        self.call(event, StructureGrow::is_cancelled, |cx| {
+        self.call(event, StructureGrow::is_cancelled, |rule| {
             std::iter::once(origin)
                 .chain(blocks.keys().copied())
-                .map(|p| cx.get(p))
+                .map(|p| rule.get(p))
                 .collect::<Vec<_>>()
         })
         .map(Some)
@@ -190,7 +190,8 @@ impl Cx<'_> {
         let Some(old) = self.get(pos) else {
             return false;
         };
-        let Ok(event) = self.ask([pos, other], |cx| build(cx.world_id(), old), cancelled) else {
+        let Ok(event) = self.ask([pos, other], |rule| build(rule.world_id(), old), cancelled)
+        else {
             return false;
         };
         let done = self.set(pos, new);
@@ -221,6 +222,7 @@ impl Cx<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::{self, Face, Kind, PropertyValue};
     use crate::event::{
         Actor, BlockBurn, BlockUpdate, EntityTrampleFarmland, FarmlandHydrationChange, LeavesDecay,
@@ -354,9 +356,9 @@ mod tests {
         assert!(seen.is_empty());
     }
 
+    // pmmp: BlockGrowEvent
     /// A stem whose `BlockGrow` listener replaces it while its fruit grows keeps the listener's
     /// block, and no fruit grows.
-    // pmmp: BlockGrowEvent
     #[test]
     fn a_stem_a_growth_listener_replaced_stays_replaced() {
         let at = BlockPos::new(5, -60, 5);
@@ -376,7 +378,7 @@ mod tests {
         set(&mut state, at, stem);
         let mut calls = Vec::new();
         for _ in 0..2000 {
-            on_random(&mut Cx::new(&mut state, 0, at), at, stem);
+            on_random(&mut Rule::new(&mut state, 0, at), at, stem);
             calls = drain(&mut rx);
             if !calls.is_empty() {
                 break;
@@ -389,9 +391,9 @@ mod tests {
         }
     }
 
+    // pmmp: BlockGrowEvent
     /// Sugar cane whose `BlockGrow` listener replaces its bottom block keeps the listener's
     /// block, and no cane grows.
-    // pmmp: BlockGrowEvent
     #[test]
     fn sugar_cane_keeps_the_bottom_a_growth_listener_replaced() {
         let bottom = BlockPos::new(5, -60, 5);
@@ -413,8 +415,8 @@ mod tests {
         assert_eq!(get(&state, above), block::AIR);
     }
 
-    /// Ready bamboo whose `StructureGrow` listener replaces it keeps the listener's block.
     // pmmp: StructureGrowEvent
+    /// Ready bamboo whose `StructureGrow` listener replaces it keeps the listener's block.
     #[test]
     fn bamboo_a_structure_listener_replaced_stays_replaced() {
         let at = BlockPos::new(5, -60, 5);
@@ -430,7 +432,7 @@ mod tests {
         });
         let ready = props::with_flag(Kind::Bamboo.default_state(), "age_bit", true).unwrap();
         set(&mut state, at, ready);
-        on_random(&mut Cx::new(&mut state, 0, at), at, ready);
+        on_random(&mut Rule::new(&mut state, 0, at), at, ready);
         assert_eq!(drain(&mut rx), [at]);
         assert_eq!(get(&state, at), stone(), "the listener's block stays");
     }
@@ -595,8 +597,8 @@ mod tests {
         assert!(left < 25 && !calls.is_empty());
     }
 
-    /// A fire that a `BlockBurn` listener puts out sets nothing else alight in that update.
     // pmmp: BlockBurnEvent
+    /// A fire that a `BlockBurn` listener puts out sets nothing else alight in that update.
     #[test]
     fn a_fire_a_burn_listener_put_out_spreads_no_further() {
         let at = BlockPos::new(8, -60, 8);
@@ -632,7 +634,7 @@ mod tests {
                 set(&mut state, p, block::AIR);
             }
             set(&mut state, at, fire);
-            fire::on_random(&mut Cx::new(&mut state, 0, at), at, fire);
+            fire::on_random(&mut Rule::new(&mut state, 0, at), at, fire);
             if !drain(&mut rx).is_empty() {
                 put_out += 1;
                 lit_after += others(&state).len();
@@ -713,8 +715,8 @@ mod tests {
             });
             set(&mut state, i, ice);
             set(&mut state, c, coral);
-            on_scheduled(&mut Cx::new(&mut state, 0, i), i, ice);
-            on_scheduled(&mut Cx::new(&mut state, 0, c), c, coral);
+            on_scheduled(&mut Rule::new(&mut state, 0, i), i, ice);
+            on_scheduled(&mut Rule::new(&mut state, 0, c), c, coral);
             (
                 (get(&state, i), get(&state, c)),
                 drain(&mut melted),
@@ -760,7 +762,7 @@ mod tests {
                 );
             });
             set(&mut state, at, leaves);
-            on_random(&mut Cx::new(&mut state, 0, at), at, leaves);
+            on_random(&mut Rule::new(&mut state, 0, at), at, leaves);
             let effects = std::mem::take(&mut state.rules.updates.effects);
             (get(&state, at), effects, drain(&mut rx))
         };
@@ -797,7 +799,7 @@ mod tests {
                 );
             });
             set(&mut state, at, farmland(wetness));
-            on_random(&mut Cx::new(&mut state, 0, at), at, farmland(wetness));
+            on_random(&mut Rule::new(&mut state, 0, at), at, farmland(wetness));
             (get(&state, at), drain(&mut rx))
         };
         assert_eq!(run(7, None, false), (farmland(6), vec![(7, 6)]));

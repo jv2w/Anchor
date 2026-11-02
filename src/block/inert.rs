@@ -61,8 +61,8 @@ impl Inert {
         };
         let states = match entry.get("states") {
             Some(Value::Compound(states)) => Some(states),
-            None => None,
             Some(_) => return None,
+            None => None,
         };
         let typed = |v: &Value| matches!(v, Value::Byte(_) | Value::Int(_) | Value::String(_));
         if !states.is_none_or(|s| s.values().all(typed)) {
@@ -174,9 +174,11 @@ impl Inert {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::{Face, State, SupportType};
     use crate::import::BLOCK_STATE_VERSION;
 
+    /// The reference list's block states.
     const REFERENCE: &str = include_str!("../../xtask/data/reference/blocks.json");
 
     /// The `{name, states}` palette entry of a reference list entry.

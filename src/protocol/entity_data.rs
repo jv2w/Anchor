@@ -122,6 +122,7 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::nbt::Value;
     use crate::protocol::fuzz_round_trip;
 

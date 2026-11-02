@@ -112,7 +112,7 @@ impl Rules {
             &vanilla
         };
         ChunkRules::read(key, extras, blocks, custom, self.entities.types())
-            .expect("invariant: a list in memory is not damaged")
+            .expect("a list in memory is not damaged")
     }
 
     /// Takes in the typed state of a chunk loaded from the file or from memory, `read` from

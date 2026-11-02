@@ -906,17 +906,6 @@ pub(crate) fn report(steps: &[Step]) -> String {
 mod tests {
     use super::*;
 
-    fn items() -> BTreeMap<i64, String> {
-        BTreeMap::from([(17, "minecraft:oak_log".to_owned())])
-    }
-
-    fn blocks() -> BTreeMap<u32, String> {
-        BTreeMap::from([
-            (1, "minecraft:stone[]".to_owned()),
-            (2, "minecraft:air[]".to_owned()),
-        ])
-    }
-
     const CAPTURE: &str = concat!(
         r#"{"type":"packet","name":"StartGame","fields":{"EntityRuntimeID":6}}"#,
         "\n",
@@ -947,6 +936,17 @@ mod tests {
         r#"{"type":"packet","name":"TakeItemActor","fields":{"ItemEntityRuntimeID":3,"TakerEntityRuntimeID":6}}"#,
         "\n",
     );
+
+    fn items() -> BTreeMap<i64, String> {
+        BTreeMap::from([(17, "minecraft:oak_log".to_owned())])
+    }
+
+    fn blocks() -> BTreeMap<u32, String> {
+        BTreeMap::from([
+            (1, "minecraft:stone[]".to_owned()),
+            (2, "minecraft:air[]".to_owned()),
+        ])
+    }
 
     #[test]
     fn traces_keep_the_item_state_and_the_last_block_states_of_each_step() {

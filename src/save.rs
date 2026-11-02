@@ -125,7 +125,7 @@ pub(crate) enum Loaded {
 
 /// The extras of one chunk: one raw NBT list per kind of [`ChunkKind::EXTRAS`].
 /// An empty list is no value in the file.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct ChunkExtras([Vec<Compound>; 3]);
 
 impl ChunkExtras {
@@ -151,7 +151,7 @@ impl ChunkExtras {
 }
 
 /// What a load read from the world's file for a chunk besides its terrain.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Stored {
     /// The chunk's extras; empty when the file has none.
     pub(crate) extras: ChunkExtras,
@@ -284,7 +284,7 @@ pub(crate) enum AccessWrite {
 }
 
 /// The operator list, the bans and the whitelist as the main file holds them.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct AccessData {
     /// Operator names, ASCII lowercase.
     pub(crate) ops: Vec<String>,
@@ -379,7 +379,7 @@ impl Opener {
 }
 
 /// What the tick needs to make and load worlds while it runs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Catalog {
     /// The persistent worlds of `data/worlds/` that no spec names in any letter case, by their
     /// file's name.
@@ -572,7 +572,7 @@ impl Thread {
 
     /// The open file `name`: a server file's name ([`storage::MAIN_FILE`], ...) or a world's.
     #[cfg(test)]
-    pub(crate) fn file(&mut self, name: &str) -> &mut Storage {
+    pub(crate) fn file_mut(&mut self, name: &str) -> &mut Storage {
         let Files { main, players } = &mut self.files;
         let file = match name {
             storage::MAIN_FILE => main,
@@ -725,10 +725,10 @@ pub(crate) fn open_with(
         match read {
             Ok(Some(record)) => stored.push((name, record)),
             Ok(None) => {
-                warn!(file = %place.file.display(), "world file without a world record; it is left out");
+                warn!(path = %place.file.display(), "world file without a world record; it is left out");
             }
             Err(e) => error!(
-                file = %place.file.display(),
+                path = %place.file.display(),
                 error = &e as &(dyn std::error::Error + 'static),
                 "world file did not open; it is left out and as it is"
             ),
@@ -759,7 +759,7 @@ fn settle_all(
     let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
     if let Err(e) = storage::settle(&players, saved) {
         error!(
-            file = %players.display(),
+            path = %players.display(),
             error = &e as &(dyn std::error::Error + 'static),
             "data file refused; it is left as it was"
         );
@@ -771,14 +771,14 @@ fn settle_all(
             Ok(_) => {}
             Err(e @ storage::Error::NoRollback) => {
                 error!(
-                    file = %file.display(),
+                    path = %file.display(),
                     error = &e as &(dyn std::error::Error + 'static),
                     "data file refused; it is left as it was"
                 );
                 return Err(e);
             }
             Err(e) => error!(
-                file = %file.display(),
+                path = %file.display(),
                 error = &e as &(dyn std::error::Error + 'static),
                 "world file was not rolled back; it is left as it is"
             ),
@@ -796,7 +796,7 @@ fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(),
     for (place, result) in places.iter().zip(checked) {
         if let Err(e) = result {
             error!(
-                file = %place.file.display(),
+                path = %place.file.display(),
                 error = &e as &(dyn std::error::Error + 'static),
                 "data file refused; it is left as it was"
             );
@@ -1207,7 +1207,7 @@ fn close_files(mut thread: Thread) -> Result<(), storage::Error> {
     {
         if let Err(e) = file.storage.close() {
             error!(
-                file = %file.place.file.display(),
+                path = %file.place.file.display(),
                 error = &e as &(dyn std::error::Error + 'static),
                 "data file did not close"
             );
@@ -1277,7 +1277,7 @@ fn begin_backup(thread: &mut Thread, start: u64) {
     for file in thread.files() {
         if let Err(e) = file.storage.begin_backup(&file.place.backups) {
             error!(
-                file = %file.place.file.display(),
+                path = %file.place.file.display(),
                 error = &e as &(dyn std::error::Error + 'static),
                 start,
                 "backup failed; no backup file is left"
@@ -1371,7 +1371,7 @@ fn backup_step(thread: &mut Thread) {
         Ok(Some(path)) => info!(path = %path.display(), "backup made"),
         Err(e) => {
             error!(
-                file = %file.place.file.display(),
+                path = %file.place.file.display(),
                 error = &e as &(dyn std::error::Error + 'static),
                 "backup failed; no backup file is left"
             );
@@ -2047,8 +2047,8 @@ pub(crate) fn find_state(entry: &nbt::Compound) -> Option<State> {
     };
     let states = match entry.get("states") {
         Some(Value::Compound(states)) => states,
-        None => &nbt::Compound::new(),
         Some(_) => return None,
+        None => &nbt::Compound::new(),
     };
     let mut properties = Vec::with_capacity(states.len());
     for (key, value) in states {
@@ -2272,7 +2272,7 @@ fn remove_world_file(data_dir: &std::path::Path, name: &str) -> Result<(), stora
     let file = Place::world(data_dir, &file).file;
     match std::fs::remove_file(&file).and_then(|()| crate::fs::sync_parent(&file)) {
         Ok(()) => {
-            info!(world = name, file = %file.display(), "world file deleted");
+            info!(world = name, path = %file.display(), "world file deleted");
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -2313,7 +2313,7 @@ fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error
         match path.file_stem().and_then(|s| s.to_str()) {
             Some(name) if storage::is_world_file_name(name) => names.push(name.to_owned()),
             _ => {
-                warn!(file = %path.display(), "a file of the world folder is not named as a world; it is left out");
+                warn!(path = %path.display(), "a file of the world folder is not named as a world; it is left out");
             }
         }
     }
@@ -2344,9 +2344,10 @@ fn file_of<'a>(names: &'a [String], name: &str) -> Option<&'a String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::*;
+
     use std::path::PathBuf;
 
-    use super::*;
     use crate::block;
     use crate::config::Difficulty;
     use crate::protocol::{Rng, Writer};
@@ -2783,7 +2784,7 @@ pub(crate) mod tests {
         }
         // Empty lists left no values behind.
         let mut opened = open(&dir.0, specs()).unwrap();
-        let storage = opened.thread.file("world");
+        let storage = opened.thread.file_mut("world");
         for (pos, held) in positions.iter().zip(&model) {
             let read = storage.read_chunks(&[chunk_id(0, *pos)]).unwrap();
             let parts: Vec<ChunkPart> = read[0].as_ref().unwrap().iter().map(|v| v.0).collect();
@@ -2955,12 +2956,12 @@ pub(crate) mod tests {
         ));
         let before = opened
             .thread
-            .file(storage::MAIN_FILE)
+            .file_mut(storage::MAIN_FILE)
             .read(std::slice::from_ref(&key))
             .unwrap();
         drop(opened);
         let mut opened = open(&dir.0, specs()).unwrap();
-        let storage = opened.thread.file(storage::MAIN_FILE);
+        let storage = opened.thread.file_mut(storage::MAIN_FILE);
         assert_eq!(
             storage.read(&[key]).unwrap()[0].as_ref().unwrap(),
             before[0].as_ref().unwrap()
@@ -2984,7 +2985,6 @@ pub(crate) mod tests {
             .unwrap();
             let key = Key::Access(key);
             let sealed = match record {
-                None => seal(&key.to_bytes(), &Mark).unwrap(),
                 Some(reason) => {
                     let record = BanRecord {
                         reason: reason.to_owned(),
@@ -2994,6 +2994,7 @@ pub(crate) mod tests {
                     };
                     seal(&key.to_bytes(), &record).unwrap()
                 }
+                None => seal(&key.to_bytes(), &Mark).unwrap(),
             };
             let mut batch = Batch::default();
             batch.put(key, sealed);
@@ -3046,7 +3047,7 @@ pub(crate) mod tests {
             let mut opened = open(&dir.0, specs()).unwrap();
             let mut batch = Batch::default();
             batch.put(key.clone(), b"not a sealed value".to_vec());
-            opened.thread.file("world").commit(&batch).unwrap();
+            opened.thread.file_mut("world").commit(&batch).unwrap();
         }
         let (answers, _, result) = serve(&dir, vec![Request::Chunks(vec![(0, pos)])]);
         result.unwrap();
@@ -3058,7 +3059,7 @@ pub(crate) mod tests {
             }]
         ));
         let mut opened = open(&dir.0, specs()).unwrap();
-        let read = opened.thread.file("world").read(&[key]).unwrap();
+        let read = opened.thread.file_mut("world").read(&[key]).unwrap();
         assert_eq!(
             read[0].as_ref().unwrap().as_deref(),
             Some(&b"not a sealed value"[..])
@@ -3086,7 +3087,7 @@ pub(crate) mod tests {
             result.unwrap();
             let id = chunk_id(0, pos);
             let mut opened = open(&dir.0, specs()).unwrap();
-            let storage = opened.thread.file("world");
+            let storage = opened.thread.file_mut("world");
             // One flipped bit in the middle of this kind's value.
             let mut before = storage.read_chunks(&[id]).unwrap().remove(0).unwrap();
             // The one sub-chunk with blocks (the empty ones have no value) and three extras.
@@ -3117,7 +3118,7 @@ pub(crate) mod tests {
             let mut opened = open(&dir.0, specs()).unwrap();
             let after = opened
                 .thread
-                .file("world")
+                .file_mut("world")
                 .read_chunks(&[id])
                 .unwrap()
                 .remove(0)
@@ -3286,7 +3287,7 @@ pub(crate) mod tests {
         assert_eq!(opened.tick, 0);
         let read = opened
             .thread
-            .file("world")
+            .file_mut("world")
             .read_chunks(&[chunk_id(0, pos)])
             .unwrap();
         assert!(matches!(&read[..], [Ok(values)] if values.is_empty()));

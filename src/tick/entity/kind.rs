@@ -54,7 +54,7 @@ const CLOUD: Physics = Physics {
 };
 /// The ticks a new orb lives, which the saved `Age` counts from.
 /// It is 5 minutes (PMMP `DEFAULT_DESPAWN_DELAY`); a dropped item lives `item-despawn-ticks`.
-pub(super) const DEFAULT_DESPAWN_DELAY: i32 = 6000;
+pub(super) const DEFAULT_DESPAWN_DELAY_TICKS: i32 = 6000;
 /// PMMP `EndCrystal`: 2 × 2, no gravity, a drag of 1 that stops every motion before it moves.
 const END_CRYSTAL: Physics = Physics {
     width: 2.0,
@@ -105,7 +105,7 @@ pub(super) const ITEM: Physics = Physics {
     water: false,
 };
 /// The longest despawn delay the saved `Age` short can express (PMMP `MAX_DESPAWN_DELAY`).
-pub(super) const MAX_DESPAWN_DELAY: i32 = i16::MAX as i32 + DEFAULT_DESPAWN_DELAY;
+pub(super) const MAX_DESPAWN_DELAY_TICKS: i32 = i16::MAX as i32 + DEFAULT_DESPAWN_DELAY_TICKS;
 /// The longest name tag, in bytes.
 /// It bounds an entity's ([`Mut::set_name_tag`](super::Mut::set_name_tag)), a human NPC's name and
 /// a dropped item's owner or thrower (a player name is at most 16 characters).
@@ -227,7 +227,7 @@ impl Kind {
 
     /// Whether a new entity of this kind shows its name tag always.
     /// Human NPCs do, with their name, as a player's shows.
-    pub(super) fn shows_name_always(&self) -> bool {
+    pub(super) fn is_name_always_shown(&self) -> bool {
         matches!(
             self,
             Self::Npc(Character {
@@ -406,7 +406,7 @@ impl Kind {
     /// PMMP `canBeCollidedWith`: alive and not an item, orb, projectile, cloud, painting or
     /// firework rocket. An end crystal is alive while its health is above 0, which
     /// `Entity::can_be_collided_with` adds.
-    pub(super) fn blocks_placing(&self) -> bool {
+    pub(super) fn is_obstacle(&self) -> bool {
         match self {
             Self::Item(_)
             | Self::ExperienceOrb(_)
@@ -486,7 +486,7 @@ pub(super) struct Item {
     /// The ticks until a player may pick it up; [`NEVER`] never.
     pub(super) pickup_delay: i16,
     /// The ticks until it disappears; [`NEVER`] never.
-    /// Otherwise it is 0 to the larger of [`MAX_DESPAWN_DELAY`] and `item-despawn-ticks`.
+    /// Otherwise it is 0 to the larger of [`MAX_DESPAWN_DELAY_TICKS`] and `item-despawn-ticks`.
     pub(super) despawn_delay: i32,
     /// PMMP's `Owner` (a player name), kept for the saved form.
     pub(super) owner: String,
@@ -507,7 +507,7 @@ fields!(Item {
 pub(super) struct Orb {
     /// The experience points it gives, 1 to [`Self::MAX_VALUE`].
     pub(super) value: u16,
-    /// The ticks until it disappears; [`NEVER`] never, otherwise 0 to [`MAX_DESPAWN_DELAY`].
+    /// The ticks until it disappears; [`NEVER`] never, otherwise 0 to [`MAX_DESPAWN_DELAY_TICKS`].
     pub(super) despawn_delay: i32,
     /// The ticks since it last looked for a player to follow (PMMP `lookForTargetTime`), 0 to 20.
     pub(super) look_for_target: u8,

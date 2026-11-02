@@ -66,7 +66,7 @@ impl Raised {
 
     /// Whether a listener (not only a monitor) of a raised event ran, so the game may have
     /// changed.
-    pub(super) fn listened(&self, state: &State) -> bool {
+    pub(super) fn has_listened(&self, state: &State) -> bool {
         (self.transaction.is_some() && dispatch::listened::<InventoryTransaction>(state))
             || (self.craft.is_some() && dispatch::listened::<CraftItem>(state))
             || (self.enchant.is_some() && dispatch::listened::<PlayerItemEnchant>(state))

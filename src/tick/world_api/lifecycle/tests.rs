@@ -107,7 +107,13 @@ fn arena(seed: i64) -> Options {
     Options::new().with_kind(Kind::Temporary).with_seed(seed)
 }
 
-// pmmp: WorldManager::generateWorld, WorldInitEvent, WorldLoadEvent, WorldManager::isWorldGenerated, WorldManager::isWorldLoaded, World::isLoaded, WorldCreationOptions, WorldCreationOptions::create, WorldCreationOptions::getSeed, WorldCreationOptions::setSeed, WorldCreationOptions::getSpawnPosition, WorldCreationOptions::setSpawnPosition, WorldCreationOptions::getGeneratorClass, WorldCreationOptions::setGeneratorClass, WorldCreationOptions::getDifficulty, WorldCreationOptions::setDifficulty, GeneratorManager::addGenerator
+// pmmp: WorldManager::generateWorld, WorldInitEvent, WorldLoadEvent
+// pmmp: WorldManager::isWorldGenerated, WorldManager::isWorldLoaded, World::isLoaded
+// pmmp: WorldCreationOptions, WorldCreationOptions::create, WorldCreationOptions::getSeed
+// pmmp: WorldCreationOptions::setSeed, WorldCreationOptions::getSpawnPosition
+// pmmp: WorldCreationOptions::setSpawnPosition, WorldCreationOptions::getGeneratorClass
+// pmmp: WorldCreationOptions::setGeneratorClass, WorldCreationOptions::getDifficulty
+// pmmp: WorldCreationOptions::setDifficulty, GeneratorManager::addGenerator
 #[test]
 fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
     let (mut state, mut output, _rx) = server(world_listeners());
@@ -185,7 +191,10 @@ fn on_spawn(state: &State, w: WorldIndex) -> Vec3 {
     )
 }
 
-// pmmp: WorldManager::unloadWorld, WorldUnloadEvent, WorldUnloadEvent::cancel, WorldUnloadEvent::uncancel, WorldUnloadEvent::isCancelled, World::addOnUnloadCallback, World::removeOnUnloadCallback, WorldManager::getDefaultWorld, WorldManager::setDefaultWorld, WorldManager::getWorldByName
+// pmmp: WorldManager::unloadWorld, WorldUnloadEvent, WorldUnloadEvent::cancel
+// pmmp: WorldUnloadEvent::uncancel, WorldUnloadEvent::isCancelled, World::addOnUnloadCallback
+// pmmp: World::removeOnUnloadCallback, WorldManager::getDefaultWorld
+// pmmp: WorldManager::setDefaultWorld, WorldManager::getWorldByName
 #[test]
 fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world() {
     let (mut state, mut output, mut rx) = server(world_listeners());
@@ -445,7 +454,9 @@ fn a_world_follows_the_server_difficulty_until_it_has_its_own() {
     assert!(cx(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Hard)));
 }
 
-// pmmp: World::registerChunkLoader, World::unregisterChunkLoader, World::getChunkLoaders, World::isChunkInUse, World::loadChunk, World::requestChunkPopulation, World::orderChunkPopulation, ChunkLoader
+// pmmp: World::registerChunkLoader, World::unregisterChunkLoader, World::getChunkLoaders
+// pmmp: World::isChunkInUse, World::loadChunk, World::requestChunkPopulation
+// pmmp: World::orderChunkPopulation, ChunkLoader
 #[test]
 fn a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released() {
     let loads = on(|e: &mut ChunkLoad, _: &mut Context<'_>| {
@@ -1005,7 +1016,8 @@ fn finish(
     handle.join().unwrap().unwrap();
 }
 
-// pmmp: WorldManager::loadWorld, WorldManager::isWorldGenerated, World::stopTime, World::setDifficulty, World::getDifficulty
+// pmmp: WorldManager::loadWorld, WorldManager::isWorldGenerated, World::stopTime
+// pmmp: World::setDifficulty, World::getDifficulty
 #[test]
 fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let dir = crate::save::tests::TempDir::new("world-lifecycle");
@@ -1252,46 +1264,48 @@ fn a_world_made_by_a_load_listener_loads_its_spawn_chunks_from_the_save_thread()
 /// waits for its removal across a save), and saves now and then.
 fn script(state: &mut State) {
     let mut tasks = crate::tick::Tasks::default();
-    tasks.push(std::num::NonZeroU32::MIN, |c: &mut Context<'_>| {
+    tasks.push(std::num::NonZeroU32::MIN, |cx: &mut Context<'_>| {
         // The runs start at tick 4 ([`server`]).
-        match c.tick() % 40 {
+        match cx.tick() % 40 {
             5 => {
-                let id = c.create_world("arena", &Options::new().with_kind(Kind::Temporary));
+                let id = cx.create_world("arena", &Options::new().with_kind(Kind::Temporary));
                 assert!(id.is_ok(), "{id:?}");
             }
             7 => {
-                let lobby = c
+                let lobby = cx
                     .load_world("lobby", &Options::new())
-                    .or_else(|_| c.create_world("lobby", &Options::new().with_generator("void")));
+                    .or_else(|_| cx.create_world("lobby", &Options::new().with_generator("void")));
                 let lobby = lobby.unwrap();
-                let _ticket = c.hold_chunks(lobby, ChunkPos::new(5, 5), 1).unwrap();
-                c.stop_time(lobby);
-                c.set_world_difficulty(lobby, Some(Difficulty::Easy));
-                c.set_weather(lobby, Weather::Thunder);
+                let _ticket = cx.hold_chunks(lobby, ChunkPos::new(5, 5), 1).unwrap();
+                cx.stop_time(lobby);
+                cx.set_world_difficulty(lobby, Some(Difficulty::Easy));
+                cx.set_weather(lobby, Weather::Thunder);
             }
             9 => {
-                c.set_weather(world::Id::DEFAULT, Weather::Rain);
-                let player = c.player(crate::player::Id::new(SessionId::new(1))).unwrap();
+                cx.set_weather(world::Id::DEFAULT, Weather::Rain);
+                let player = cx
+                    .player(crate::player::Id::new(SessionId::new(1)))
+                    .unwrap();
                 let feet = player.position();
                 let lightning = Lightning {
                     damage: true,
                     fire: true,
                 };
-                assert!(c.strike_lightning(world::Id::DEFAULT, feet, lightning));
+                assert!(cx.strike_lightning(world::Id::DEFAULT, feet, lightning));
             }
             12 => {
-                let lobby = c.world_named("lobby").unwrap().id();
-                let set = c
+                let lobby = cx.world_named("lobby").unwrap().id();
+                let set = cx
                     .world_mut(lobby)
                     .unwrap()
                     .set_block(BlockPos::new(80, 0, 80), stone());
                 assert_eq!(set, Ok(()), "the ticket's chunk is loaded");
-                c.save();
+                cx.save();
             }
             24 => {
                 for name in ["arena", "lobby"] {
-                    let id = c.world_named(name).unwrap().id();
-                    c.unload_world(id).unwrap();
+                    let id = cx.world_named(name).unwrap().id();
+                    cx.unload_world(id).unwrap();
                 }
             }
             _ => {}

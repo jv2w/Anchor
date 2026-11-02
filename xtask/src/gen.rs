@@ -38,6 +38,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::Mode;
 use crate::dump::{REFERENCE_DIR, create_dir, limits, read, read_if_exists, write};
 
 /// The IR, relative to the repository root.
@@ -50,9 +51,9 @@ const TOO_MANY_LINES: usize = 100;
 const TYPES_PATH: &str = "src/protocol/types.rs";
 
 /// Runs `gen`: extracts the IR, then writes it and every generated file once all of them are
-/// made; with `check`, compares instead of writing. Returns the differing files on a failed
+/// made; in check mode, compares instead of writing. Returns the differing files on a failed
 /// check.
-pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
+pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     let ir_path = root.join(IR_PATH);
     let dir = root.join("target").join("xtask-gen");
     create_dir(&dir)?;
@@ -87,7 +88,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         (inert::PATH, finish(root, &inert::generate(root, &data)?)?),
     ];
     let mut differ = Vec::new();
-    if check {
+    if mode == Mode::Check {
         if read_if_exists(&ir_path)?.as_deref() != Some(ir_bytes.as_slice()) {
             differ.push(IR_PATH.to_owned());
         }

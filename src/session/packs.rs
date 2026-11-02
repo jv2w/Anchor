@@ -229,7 +229,8 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-type Result<T, E = Error> = std::result::Result<T, E>;
+/// A result with the module's [`enum@Error`].
+pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The chunks of a pack of `size` bytes.
 /// Packs are at most 256 MiB, so the count fits `u32` easily.
@@ -258,6 +259,7 @@ pub(super) fn send_allowance(bytes: usize) -> Duration {
 mod tests {
     use super::*;
 
+    use crate::pack::Acceptance;
     use crate::pack::tests::{UUID, pack};
     use crate::protocol::consts::ResourcePackType;
 
@@ -266,7 +268,7 @@ mod tests {
     fn offer() -> Offer {
         // 300 KiB: three chunks, the last one short.
         let big = pack(UUID, "1.0.0", 300 * 1024);
-        Offer::new(vec![big, pack(OTHER, "2.0.0", 10)], true).unwrap()
+        Offer::new(vec![big, pack(OTHER, "2.0.0", 10)], Acceptance::Required).unwrap()
     }
 
     fn response(response: PackResponse, packs: &[String]) -> ResourcePackClientResponse {

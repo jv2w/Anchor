@@ -24,21 +24,32 @@ use crate::tick::Context;
 use crate::tick::survival::{MARKERS, OVERWORLD_CLOCK_NAME};
 use crate::world::{self, BlockPos, DAY, Particle, World};
 
+/// The line `/say` sends.
 const ANNOUNCEMENT: Msg = Msg::client("chat.type.announcement");
-/// `backups = false`.
+/// The failure line of `/backup` with `backups = false`.
 const BACKUP_OFF: Msg = Msg::own("Backups are turned off on this server");
-/// PMMP has no backup command.
+/// The success line of `/backup`, which PMMP lacks.
 const BACKUP_START: Msg =
     Msg::own("Saving and backing up the data files; the server log tells when the backup is made");
+/// The success line of `/time add` on a clock.
 const CLOCK_ADDED: Msg = Msg::client("commands.time.clock.added");
+/// The failure line of `/time set` with an unknown time marker.
 const CLOCK_MARKER_UNKNOWN: Msg = Msg::client("commands.time.clock.timemarker.failed");
+/// The success line of `/time pause`.
 const CLOCK_PAUSED: Msg = Msg::client("commands.time.clock.paused");
+/// The result line of `/time query` on a clock.
 const CLOCK_QUERY_TIME: Msg = Msg::client("commands.time.clock.query.time");
+/// The success line of `/time resume`.
 const CLOCK_RESUMED: Msg = Msg::client("commands.time.clock.resumed");
+/// The success line of `/time set` on a clock.
 const CLOCK_SET: Msg = Msg::client("commands.time.clock.set");
+/// The failure line of `/time` that would set a clock below 0.
 const CLOCK_TOO_SMALL: Msg = Msg::client("commands.time.clock.num.tooSmall");
+/// The failure line of `/time` for a clock that does not exist.
 const CLOCK_UNKNOWN: Msg = Msg::client("commands.time.clock.failed");
+/// The failure line of `/help` for an unknown command.
 const COMMAND_UNKNOWN: Msg = Msg::client("commands.generic.unknown");
+/// The success line of `/defaultgamemode`.
 const DEFAULTGAMEMODE_SUCCESS: Msg = Msg::client("commands.defaultgamemode.success");
 /// BDS's `Difficulty` enum (P6; PMMP `World::getDifficultyFromString` takes the same words) and
 /// what `/difficulty` reads them as; a number is the difficulty's ID.
@@ -52,12 +63,15 @@ const DIFFICULTIES: [(&str, Difficulty); 8] = [
     ("n", Difficulty::Normal),
     ("h", Difficulty::Hard),
 ];
+/// The success line of `/difficulty`.
 const DIFFICULTY_SUCCESS: Msg = Msg::client("commands.difficulty.success");
+/// The line `/me` sends.
 const EMOTE: Msg = Msg::client("chat.type.emote");
 /// The last line of `/help <command>` for a command with other names.
 const HELP_COMMAND_ALIASES: Msg = Msg::own("§7Also: {%0}");
 /// The first line of `/help <command>`.
 const HELP_COMMAND_NAME: Msg = Msg::own("§e/{%0}");
+/// The first line of `/help`.
 const HELP_HEADER: Msg = Msg::client("commands.help.header");
 /// Which occurrence of a time marker `/time set <marker>` takes, `next` when left out (BDS
 /// 1.26.60's `TimeMarkerOccurrence` enum).
@@ -107,18 +121,29 @@ const PARTICLE_NAMES: [&str; 35] = [
 ];
 /// The random stream that spreads `/particle`'s particles.
 const PARTICLE_SPREAD: u64 = random::tag("command-particle-spread");
+/// The success line of `/particle`.
 const PARTICLE_SUCCESS: Msg = Msg::client("commands.particle.success");
+/// The first line of `/list`.
 const PLAYERS_LIST: Msg = Msg::client("commands.players.list");
+/// The success line of `/save-off`.
 const SAVE_DISABLED: Msg = Msg::client("commands.save.disabled");
+/// The success line of `/save-on`.
 const SAVE_ENABLED: Msg = Msg::client("commands.save.enabled");
+/// The success line of `/save-all`.
 const SAVE_START: Msg = Msg::client("commands.save.start");
+/// The success line of `/seed`.
 const SEED_SUCCESS: Msg = Msg::client("commands.seed.success");
+/// The success line of `/setworldspawn`.
 const SETWORLDSPAWN_SUCCESS: Msg = Msg::client("commands.setworldspawn.success");
+/// The success line of `/stop`.
 const STOP_START: Msg = Msg::client("commands.stop.start");
 /// What `/time query` reads, as BDS 1.26.60 names it (its `TimeQuery2` enum).
 const TIME_QUERIES: [&str; 4] = ["time", "daytime", "gametime", "day"];
+/// The result line of `/time query day`.
 const TIME_QUERY_DAY: Msg = Msg::client("commands.time.query.day");
+/// The result line of `/time query daytime`.
 const TIME_QUERY_DAYTIME: Msg = Msg::client("commands.time.query.daytime");
+/// The result line of `/time query gametime`.
 const TIME_QUERY_GAMETIME: Msg = Msg::client("commands.time.query.gametime");
 /// The `/version` line: the software, its version, the Minecraft version and protocol, and the
 /// operating system.

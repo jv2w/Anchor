@@ -18,7 +18,9 @@ use std::sync::Arc;
 use redb::{Builder, ReadableDatabase, ReadableTable, StorageBackend, TableDefinition};
 use rng::Rng;
 
+/// The page size of the database file in bytes.
 const PAGE: usize = 4096;
+/// The table the tests fill with chunk-sized values.
 const TABLE: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("chunks");
 
 /// A file in memory, shared by the handles opened on it.

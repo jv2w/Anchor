@@ -235,6 +235,7 @@ pub(crate) fn word_count(bits: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::fuzz_round_trip;
 
     /// A layer of `len` palette entries with block (x, y, z) at index (x + y + z) % len.

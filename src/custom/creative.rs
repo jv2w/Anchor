@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Category, Creative, Error, ItemRef, Registry};
+use super::{Category, Creative, Error, ItemRef, Registry, Result};
 use crate::item::{self, CreativeEntry as Entry, Stack, Type};
 use crate::nbt::Value;
 use crate::protocol::{self, packet};
@@ -119,7 +119,7 @@ impl CreativeInventory {
         &self,
         custom: &Registry,
         places: &[(Type, Creative)],
-    ) -> Result<Resolved, Error> {
+    ) -> Result<Resolved> {
         if self.changes.len() > MAX_CHANGES {
             return Err(Error::TooMany {
                 what: "changes of a creative inventory",
@@ -384,7 +384,7 @@ impl Resolved {
 }
 
 /// `name` if it can name a creative group or inventory ([`is_name`]).
-pub(crate) fn checked_name(name: &'static str) -> Result<&'static str, Error> {
+pub(crate) fn checked_name(name: &'static str) -> Result<&'static str> {
     if !is_name(name) {
         return Err(Error::Creative {
             reason: "a creative group or inventory name that is empty or too long",
@@ -400,10 +400,7 @@ pub(crate) fn is_name(name: &str) -> bool {
 }
 
 /// The stack a player takes for `item` (one) and its network form.
-fn resolve_item(
-    custom: &Registry,
-    item: &CreativeItem,
-) -> Result<(Stack, protocol::ItemStack), Error> {
+fn resolve_item(custom: &Registry, item: &CreativeItem) -> Result<(Stack, protocol::ItemStack)> {
     let stack = match item {
         CreativeItem::Item(r) => custom.resolve(*r).map(|t| Stack::new(t, 1)),
         CreativeItem::Stack(s) => Some(s.with_count(1)).filter(|s| !s.is_empty()),

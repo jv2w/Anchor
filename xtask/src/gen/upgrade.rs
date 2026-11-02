@@ -31,8 +31,6 @@ use super::body::{int_lit, str_lit};
 use super::emit::HEADER;
 use apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 
-type R<T> = Result<T, String>;
-
 /// The block schemas that add properties after the dump source's data version (1.26.30), oldest
 /// first; `data` reads them too ([`block_schema`]).
 pub(crate) const ADDING: [&str; 2] = ["0351_1.26.40_to_1.26.50.json", SCHEMA_1_26_60];
@@ -41,6 +39,11 @@ pub(crate) const PATH: &str = "src/import/upgrade/table.rs";
 /// The block schema of 1.26.60: it adds the connection properties of fire, redstone wire and
 /// chorus plants.
 pub(crate) const SCHEMA_1_26_60: &str = "0361_1.26.50_to_1.26.60.json";
+
+type R<T> = Result<T, String>;
+
+/// Upgraded legacy entries: (string ID, meta) → index into the distinct states, with those states.
+type Legacy = (BTreeMap<(String, u8), usize>, Vec<(String, States)>);
 
 /// The path of the copied block schema `name`.
 pub(crate) fn block_schema(root: &Path, name: &str) -> PathBuf {
@@ -460,9 +463,6 @@ fn legacy_ids(path: &Path) -> R<BTreeMap<i16, String>> {
     }
     Ok(out)
 }
-
-/// Upgraded legacy entries: (string ID, meta) → index into the distinct states, with those states.
-type Legacy = (BTreeMap<(String, u8), usize>, Vec<(String, States)>);
 
 /// Upgrades every legacy entry to the newest version, as PMMP's `BlockIdMetaUpgrader` does when
 /// it loads the table; returns the entries whose result is not a reference state too.

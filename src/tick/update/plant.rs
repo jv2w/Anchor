@@ -9,7 +9,7 @@
 use super::props;
 use super::support::{self, side};
 use super::tree::{self, Tx};
-use super::{Cx, pick};
+use super::{Rule, pick};
 use crate::block::{self, Class, Face, ItemForm, Kind, TypeTag};
 use crate::item::Stack;
 use crate::random::Random;
@@ -32,64 +32,64 @@ const MIN_BAMBOO_LIGHT: u8 = 9;
 const MIN_CROP_LIGHT: u8 = 9;
 
 /// Runs a random tick of a plant.
-pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn on_random(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     match block.class() {
-        Class::Bamboo => bamboo(cx, pos, block),
-        Class::BambooSapling => bamboo_sapling(cx, pos, block),
+        Class::Bamboo => bamboo(rule, pos, block),
+        Class::BambooSapling => bamboo_sapling(rule, pos, block),
         Class::Beetroot | Class::Carrot | Class::Potato | Class::Wheat => {
-            if age(block).is_some_and(|a| a < MAX_CROP_GROWTH) && can_grow(cx, pos, block) {
-                grow_age(cx, pos, block, 1);
+            if age(block).is_some_and(|a| a < MAX_CROP_GROWTH) && can_grow(rule, pos, block) {
+                grow_age(rule, pos, block, 1);
             }
         }
-        Class::Cactus => cactus(cx, pos, block),
-        Class::CaveVines => cave_vines(cx, pos, block),
-        Class::ChorusFlower => chorus_flower(cx, pos, block),
+        Class::Cactus => cactus(rule, pos, block),
+        Class::CaveVines => cave_vines(rule, pos, block),
+        Class::ChorusFlower => chorus_flower(rule, pos, block),
         Class::CocoaBlock => {
-            if cx.rng().range(1, 5) == 1 {
-                cocoa_grow(cx, pos, block);
+            if rule.rng().range(1, 5) == 1 {
+                cocoa_grow(rule, pos, block);
             }
         }
         Class::DoublePitcherCrop => {
-            if props::flag(block, "upper_block_bit") == Some(false) && can_grow(cx, pos, block) {
-                double_pitcher_grow(cx, pos, block);
+            if props::flag(block, "upper_block_bit") == Some(false) && can_grow(rule, pos, block) {
+                double_pitcher_grow(rule, pos, block);
             }
         }
-        Class::MelonStem | Class::PumpkinStem => stem(cx, pos, block),
+        Class::MelonStem | Class::PumpkinStem => stem(rule, pos, block),
         Class::NetherVines => {
             let young = vine_age(block).is_some_and(|a| a < MAX_VINE_AGE);
-            if young && cx.rng().range(1, 10) == 1 {
+            if young && rule.rng().range(1, 10) == 1 {
                 let growth = vine_growth(block);
                 if pos
                     .step(growth)
-                    .and_then(|p| cx.get(p))
+                    .and_then(|p| rule.get(p))
                     .is_some_and(block::State::can_be_replaced)
                 {
-                    nether_vines_grow(cx, pos, block, 1);
+                    nether_vines_grow(rule, pos, block, 1);
                 }
             }
         }
         Class::NetherWartPlant => {
             if props::int(block, "age").is_some_and(|a| a < 3)
-                && cx.rng().range(0, 10) == 0
+                && rule.rng().range(0, 10) == 0
                 && let Some(s) = aged(block, "age", 1)
             {
-                cx.grow(pos, s, pos);
+                rule.grow(pos, s, pos);
             }
         }
         Class::PitcherCrop => {
-            if can_grow(cx, pos, block) {
-                pitcher_grow(cx, pos, block);
+            if can_grow(rule, pos, block) {
+                pitcher_grow(rule, pos, block);
             }
         }
-        Class::Sapling => sapling(cx, pos, block),
-        Class::Sugarcane => sugarcane(cx, pos, block),
+        Class::Sapling => sapling(rule, pos, block),
+        Class::Sugarcane => sugarcane(rule, pos, block),
         Class::SweetBerryBush => {
-            if age(block).is_some_and(|a| a < MAX_BERRY_GROWTH) && cx.rng().range(0, 2) == 1 {
-                grow_age(cx, pos, block, 1);
+            if age(block).is_some_and(|a| a < MAX_BERRY_GROWTH) && rule.rng().range(0, 2) == 1 {
+                grow_age(rule, pos, block, 1);
             }
         }
-        Class::TorchflowerCrop if can_grow(cx, pos, block) => {
-            torchflower_grow(cx, pos, block);
+        Class::TorchflowerCrop if can_grow(rule, pos, block) => {
+            torchflower_grow(rule, pos, block);
         }
         _ => {}
     }
@@ -97,25 +97,31 @@ pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
 
 /// Grows a plant with bone meal; whether the bone meal is used up. Ripe sweet berries and cave
 /// vines with berries take none: the interaction rules pick them first.
-pub(super) fn fertilize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+pub(super) fn fertilize(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     match block.class() {
         Class::Azalea => {
-            if cx.rng().range(1, 100) <= 45 {
-                tree::grow(cx, pos, TreeType::Azalea);
+            if rule.rng().range(1, 100) <= 45 {
+                tree::grow(rule, pos, TreeType::Azalea);
             }
             true
         }
         Class::Bamboo => {
-            let Some(top) = seek(cx, pos, block, Face::Up) else {
+            let Some(top) = seek(rule, pos, block, Face::Up) else {
                 return false;
             };
-            let Some(top_block) = cx.get(top) else {
+            let Some(top_block) = rule.get(top) else {
                 return false;
             };
-            let amount = cx.rng().range(1, 2);
-            bamboo_grow(cx, top, top_block, bamboo_max_height(top.x, top.z), amount)
+            let amount = rule.rng().range(1, 2);
+            bamboo_grow(
+                rule,
+                top,
+                top_block,
+                bamboo_max_height(top.x, top.z),
+                amount,
+            )
         }
-        Class::BambooSapling => bamboo_sapling_grow(cx, pos),
+        Class::BambooSapling => bamboo_sapling_grow(rule, pos),
         Class::Beetroot
         | Class::Carrot
         | Class::MelonStem
@@ -125,170 +131,171 @@ pub(super) fn fertilize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> 
             let Some(a) = age(block).filter(|a| *a < MAX_CROP_GROWTH) else {
                 return false;
             };
-            let next = (a + cx.rng().range(2, 5)).min(MAX_CROP_GROWTH);
-            props::with_int(block, GROWTH, next).is_some_and(|s| cx.grow(pos, s, pos))
+            let next = (a + rule.rng().range(2, 5)).min(MAX_CROP_GROWTH);
+            props::with_int(block, GROWTH, next).is_some_and(|s| rule.grow(pos, s, pos))
         }
-        Class::BigDripleafHead | Class::BigDripleafStem => big_dripleaf(cx, pos),
+        Class::BigDripleafHead | Class::BigDripleafStem => big_dripleaf(rule, pos),
         Class::CaveVines => {
-            let head = side(cx, pos, Face::Down).is_some_and(|d| d.kind() != block.kind());
+            let head = side(rule, pos, Face::Down).is_some_and(|d| d.kind() != block.kind());
             !berries(block)
                 && cave_vine_state(block, vine_age(block).unwrap_or(0), true, head)
-                    .is_some_and(|s| cx.grow(pos, s, pos))
+                    .is_some_and(|s| rule.grow(pos, s, pos))
         }
-        Class::CocoaBlock => cocoa_grow(cx, pos, block),
-        Class::DoublePitcherCrop => double_pitcher_grow(cx, pos, block),
-        Class::GlowLichen => glow_lichen(cx, pos, block),
-        Class::NetherFungus => fungus(cx, pos, block),
+        Class::CocoaBlock => cocoa_grow(rule, pos, block),
+        Class::DoublePitcherCrop => double_pitcher_grow(rule, pos, block),
+        Class::GlowLichen => glow_lichen(rule, pos, block),
+        Class::NetherFungus => fungus(rule, pos, block),
         Class::NetherVines => {
-            let amount = cx.rng().range(1, 5);
-            nether_vines_grow(cx, pos, block, amount)
+            let amount = rule.rng().range(1, 5);
+            nether_vines_grow(rule, pos, block, amount)
         }
         Class::PinkPetals => {
             let Some(count) = props::int(block, GROWTH) else {
                 return false;
             };
             if count < 3 {
-                props::with_int(block, GROWTH, count + 1).is_some_and(|s| cx.grow(pos, s, pos))
+                props::with_int(block, GROWTH, count + 1).is_some_and(|s| rule.grow(pos, s, pos))
             } else {
-                drop_self(cx, pos, block)
+                drop_self(rule, pos, block)
             }
         }
-        Class::PitcherCrop => pitcher_grow(cx, pos, block),
-        Class::Sapling => tree::grow_sapling(cx, pos, block),
-        Class::SmallDripleaf => small_dripleaf(cx, pos, block),
+        Class::PitcherCrop => pitcher_grow(rule, pos, block),
+        Class::Sapling => tree::grow_sapling(rule, pos, block),
+        Class::SmallDripleaf => small_dripleaf(rule, pos, block),
         Class::Sugarcane => {
-            let Some(bottom) = seek(cx, pos, block, Face::Down) else {
+            let Some(bottom) = seek(rule, pos, block, Face::Down) else {
                 return false;
             };
-            sugarcane_grow(cx, bottom)
+            sugarcane_grow(rule, bottom)
         }
         Class::SweetBerryBush => {
-            age(block).is_some_and(|a| a < MAX_BERRY_GROWTH) && grow_age(cx, pos, block, 1)
+            age(block).is_some_and(|a| a < MAX_BERRY_GROWTH) && grow_age(rule, pos, block, 1)
         }
-        Class::TallGrass => tall_grass(cx, pos, block),
-        Class::TorchflowerCrop => torchflower_grow(cx, pos, block),
+        Class::TallGrass => tall_grass(rule, pos, block),
+        Class::TorchflowerCrop => torchflower_grow(rule, pos, block),
         _ => false,
     }
 }
 
 /// Runs PMMP's `Sapling::onRandomTick`: in light of 8 or more, one in seven gets ready, then
 /// grows.
-fn sapling(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if cx.full_light(pos) < 8 || cx.rng().range(1, 7) != 1 {
+fn sapling(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
+    if rule.full_light(pos) < 8 || rule.rng().range(1, 7) != 1 {
         return;
     }
     if props::flag(block, "age_bit") == Some(true) {
-        tree::grow_sapling(cx, pos, block);
+        tree::grow_sapling(rule, pos, block);
     } else if let Some(ready) = props::with_flag(block, "age_bit", true) {
-        cx.set(pos, ready);
+        rule.set(pos, ready);
     }
 }
 
 /// Runs PMMP's `NetherFungus::onInteract`: on its own nylium, 40 in 100 grow a huge fungus; the
 /// bone meal is used either way.
-fn fungus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn fungus(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     let (nylium, kind) = if block.kind() == Kind::CrimsonFungus {
         (Kind::CrimsonNylium, TreeType::Crimson)
     } else {
         (Kind::WarpedNylium, TreeType::Warped)
     };
-    if side(cx, pos, Face::Down).is_some_and(|d| d.kind() == nylium) && cx.rng().range(1, 100) <= 40
+    if side(rule, pos, Face::Down).is_some_and(|d| d.kind() == nylium)
+        && rule.rng().range(1, 100) <= 40
     {
-        tree::grow(cx, pos, kind);
+        tree::grow(rule, pos, kind);
     }
     true
 }
 
 /// Runs PMMP's `Stem::onRandomTick`.
-fn stem(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if stem_facing(block) != Some(Face::Up) || !can_grow(cx, pos, block) {
+fn stem(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
+    if stem_facing(block) != Some(Face::Up) || !can_grow(rule, pos, block) {
         return;
     }
     if age(block).is_some_and(|a| a < MAX_CROP_GROWTH) {
-        grow_age(cx, pos, block, 1);
+        grow_age(rule, pos, block, 1);
         return;
     }
     let fruit = stem_fruit(block);
     for face in Face::HORIZONTAL {
-        match side(cx, pos, face) {
+        match side(rule, pos, face) {
             Some(s) if s.kind() == fruit => return,
             Some(_) => {}
             None => return,
         }
     }
-    let face = pick(&mut cx.rng(), &Face::HORIZONTAL);
+    let face = pick(&mut rule.rng(), &Face::HORIZONTAL);
     let Some(at) = pos.step(face) else {
         return;
     };
-    let empty = cx.get(at).is_some_and(|s| s.kind() == Kind::Air);
+    let empty = rule.get(at).is_some_and(|s| s.kind() == Kind::Air);
     let soil = at
         .step(Face::Down)
-        .and_then(|p| cx.get(p))
+        .and_then(|p| rule.get(p))
         .is_some_and(|s| s.has_type_tag(TypeTag::Dirt));
     if empty
         && soil
-        && cx.grow(at, fruit.default_state(), pos)
+        && rule.grow(at, fruit.default_state(), pos)
         && let Some(attached) = stem_with(block, face)
     {
-        cx.set(pos, attached);
+        rule.set(pos, attached);
     }
 }
 
 /// Runs PMMP's `Stem::onNearbyBlockChange`: a stem whose fruit is gone points up again, then the
 /// crop support check.
-pub(super) fn stem_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn stem_on_nearby(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let mut block = block;
     if let Some(face) = stem_facing(block)
         && face != Face::Up
-        && side(cx, pos, face).is_some_and(|s| s.kind() != stem_fruit(block))
+        && side(rule, pos, face).is_some_and(|s| s.kind() != stem_fruit(block))
         && let Some(up) = stem_with(block, Face::Up)
     {
-        cx.set(pos, up);
+        rule.set(pos, up);
         block = up;
     }
-    if support::supported(cx, pos, block) == Some(false) {
-        cx.destroy(pos);
+    if support::supported(rule, pos, block) == Some(false) {
+        rule.destroy(pos);
     }
 }
 
 /// Runs PMMP's `Sugarcane::onNearbyBlockChange`.
-pub(super) fn sugarcane_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn sugarcane_on_nearby(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(below) = pos.step(Face::Down) else {
         return;
     };
-    let Some(down) = cx.loaded_block(below) else {
+    let Some(down) = rule.loaded_block(below) else {
         return;
     };
     // Cane on cane always stays: it needs no water and is supported.
     if down.kind() == block.kind() {
         return;
     }
-    let Some(water) = near_water(cx, below) else {
+    let Some(water) = near_water(rule, below) else {
         return;
     };
-    if !water || support::supported(cx, pos, block) == Some(false) {
-        cx.destroy(pos);
+    if !water || support::supported(rule, pos, block) == Some(false) {
+        rule.destroy(pos);
     }
 }
 
 /// Runs PMMP's `Sugarcane::onRandomTick`.
-fn sugarcane(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn sugarcane(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(below) = pos.step(Face::Down) else {
         return;
     };
-    let Some(down) = cx.loaded_block(below) else {
+    let Some(down) = rule.loaded_block(below) else {
         return;
     };
     if down.kind() == block.kind() {
         return;
     }
-    match near_water(cx, below) {
-        Some(false) => cx.destroy(pos),
+    match near_water(rule, below) {
+        Some(false) => rule.destroy(pos),
         Some(true) => {
             if props::int(block, "age") == Some(15) {
-                sugarcane_grow(cx, pos);
+                sugarcane_grow(rule, pos);
             } else if let Some(s) = aged(block, "age", 1) {
-                cx.set(pos, s);
+                rule.set(pos, s);
             }
         }
         None => {}
@@ -297,8 +304,8 @@ fn sugarcane(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
 
 /// Runs PMMP's `Sugarcane::grow`: up to two blocks of cane grow above `bottom`, then the cane at
 /// `bottom` goes back to age 0. Whether a block grew.
-fn sugarcane_grow(cx: &mut Cx<'_>, bottom: BlockPos) -> bool {
-    let Some(cane) = cx.get(bottom) else {
+fn sugarcane_grow(rule: &mut Rule<'_>, bottom: BlockPos) -> bool {
+    let Some(cane) = rule.get(bottom) else {
         return false;
     };
     let mut grew = false;
@@ -306,11 +313,11 @@ fn sugarcane_grow(cx: &mut Cx<'_>, bottom: BlockPos) -> bool {
         let Some(at) = bottom.offset(0, y, 0) else {
             break;
         };
-        let Some(b) = cx.get(at) else {
+        let Some(b) = rule.get(at) else {
             break;
         };
         if b.kind() == Kind::Air {
-            if cx.grow(at, Kind::Sugarcane.default_state(), bottom) {
+            if rule.grow(at, Kind::Sugarcane.default_state(), bottom) {
                 grew = true;
             } else {
                 break;
@@ -319,25 +326,25 @@ fn sugarcane_grow(cx: &mut Cx<'_>, bottom: BlockPos) -> bool {
             break;
         }
     }
-    if cx.get(bottom) == Some(cane)
+    if rule.get(bottom) == Some(cane)
         && let Some(young) = props::with_int(cane, "age", 0)
     {
-        cx.set(bottom, young);
+        rule.set(bottom, young);
     }
     grew
 }
 
 /// Runs PMMP's `Cactus::onRandomTick`.
-fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn cactus(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(up_pos) = pos.step(Face::Up) else {
         return;
     };
-    if cx.get(up_pos).is_none_or(|u| u.kind() != Kind::Air) {
+    if rule.get(up_pos).is_none_or(|u| u.kind() != Kind::Air) {
         return;
     }
     let mut height = 1;
     while height < 3 {
-        match pos.offset(0, -height, 0).and_then(|p| cx.get(p)) {
+        match pos.offset(0, -height, 0).and_then(|p| rule.get(p)) {
             Some(s) if s.kind() == block.kind() => height += 1,
             _ => break,
         }
@@ -350,7 +357,7 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         for face in Face::HORIZONTAL {
             if up_pos
                 .step(face)
-                .and_then(|p| cx.get(p))
+                .and_then(|p| rule.get(p))
                 .is_none_or(block::State::is_solid)
             {
                 flower = false;
@@ -359,11 +366,11 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         }
         if flower {
             let chance = if height >= 3 { 25 } else { 10 };
-            if cx.rng().range(1, 100) <= chance {
-                if cx.grow(up_pos, Kind::CactusFlower.default_state(), pos)
+            if rule.rng().range(1, 100) <= chance {
+                if rule.grow(up_pos, Kind::CactusFlower.default_state(), pos)
                     && let Some(young) = props::with_int(block, "age", 0)
                 {
-                    cx.set_quietly(pos, young);
+                    rule.set_quietly(pos, young);
                 }
                 return;
             }
@@ -371,67 +378,73 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
     let next = if age == 15 {
         if height < 3 {
-            cx.grow(up_pos, Kind::Cactus.default_state(), pos);
+            rule.grow(up_pos, Kind::Cactus.default_state(), pos);
         }
         0
     } else {
         age + 1
     };
-    if cx.get(pos) == Some(block)
+    if rule.get(pos) == Some(block)
         && let Some(s) = props::with_int(block, "age", next)
     {
-        cx.set_quietly(pos, s);
+        rule.set_quietly(pos, s);
     }
 }
 
 /// Runs PMMP's `CocoaBlock::grow`.
-fn cocoa_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn cocoa_grow(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     props::int(block, "age").is_some_and(|a| a < 2)
-        && aged(block, "age", 1).is_some_and(|s| cx.grow(pos, s, pos))
+        && aged(block, "age", 1).is_some_and(|s| rule.grow(pos, s, pos))
 }
 
 /// Tells whether a cocoa pod's log is still there (PMMP `CocoaBlock::canAttachTo`: jungle wood).
-pub(super) fn cocoa_attached(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
+pub(super) fn cocoa_attached(rule: &Rule<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
     let face = props::facing(block)?.opposite();
-    let log = side(cx, pos, face)?;
+    let log = side(rule, pos, face)?;
     Some(matches!(log.kind(), Kind::JungleLog | Kind::JungleWood))
 }
 
 /// Runs PMMP's `Bamboo::onRandomTick`.
-fn bamboo(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn bamboo(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     if props::flag(block, "age_bit") == Some(true) {
         let Some(unready) = props::with_flag(block, "age_bit", false) else {
             return;
         };
-        if (cx.full_light(pos) < MIN_BAMBOO_LIGHT
-            || !bamboo_grow(cx, pos, unready, bamboo_max_height(pos.x, pos.z), 1))
-            && cx.get(pos) == Some(block)
+        if (rule.full_light(pos) < MIN_BAMBOO_LIGHT
+            || !bamboo_grow(rule, pos, unready, bamboo_max_height(pos.x, pos.z), 1))
+            && rule.get(pos) == Some(block)
         {
-            cx.set(pos, unready);
+            rule.set(pos, unready);
         }
     } else if pos
         .step(Face::Up)
-        .and_then(|p| cx.get(p))
+        .and_then(|p| rule.get(p))
         .is_some_and(block::State::can_be_replaced)
         && let Some(r) = props::with_flag(block, "age_bit", true)
     {
-        cx.set(pos, r);
+        rule.set(pos, r);
     }
 }
 
 /// Runs PMMP's `Bamboo::grow`: the top of a stalk at `pos` grows `amount` blocks up to `max`
 /// high.
-fn bamboo_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, max: i32, amount: i32) -> bool {
+fn bamboo_grow(
+    rule: &mut Rule<'_>,
+    pos: BlockPos,
+    block: block::State,
+    max: i32,
+    amount: i32,
+) -> bool {
     let Some(up) = pos.step(Face::Up) else {
         return false;
     };
-    if !cx.get(up).is_some_and(block::State::can_be_replaced) {
+    if !rule.get(up).is_some_and(block::State::can_be_replaced) {
         return false;
     }
     let mut height = 1;
     while pos
         .offset(0, -height, 0)
-        .and_then(|p| cx.get(p))
+        .and_then(|p| rule.get(p))
         .is_some_and(|s| s.kind() == block.kind())
     {
         height += 1;
@@ -479,7 +492,7 @@ fn bamboo_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, max: i32, am
         }
         dy -= 1;
     }
-    tx.apply(cx, pos)
+    tx.apply(rule, pos)
 }
 
 /// Works out PMMP's `Bamboo::getMaxHeight`: 12 to 16 by a hash of the column.
@@ -501,32 +514,32 @@ fn bamboo_max_height(x: i32, z: i32) -> i32 {
 }
 
 /// Runs PMMP's `BambooSapling::onRandomTick`.
-fn bamboo_sapling(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn bamboo_sapling(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     if props::flag(block, "age_bit") == Some(true) {
         let Some(unready) = props::with_flag(block, "age_bit", false) else {
             return;
         };
-        if (cx.full_light(pos) < MIN_BAMBOO_LIGHT || !bamboo_sapling_grow(cx, pos))
-            && cx.get(pos) == Some(block)
+        if (rule.full_light(pos) < MIN_BAMBOO_LIGHT || !bamboo_sapling_grow(rule, pos))
+            && rule.get(pos) == Some(block)
         {
-            cx.set(pos, unready);
+            rule.set(pos, unready);
         }
     } else if pos
         .step(Face::Up)
-        .and_then(|p| cx.get(p))
+        .and_then(|p| rule.get(p))
         .is_some_and(block::State::can_be_replaced)
         && let Some(r) = props::with_flag(block, "age_bit", true)
     {
-        cx.set(pos, r);
+        rule.set(pos, r);
     }
 }
 
 /// Runs PMMP's `BambooSapling::grow`: bamboo with a small-leaved bamboo above.
-fn bamboo_sapling_grow(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
+fn bamboo_sapling_grow(rule: &mut Rule<'_>, pos: BlockPos) -> bool {
     let Some(up) = pos.step(Face::Up) else {
         return false;
     };
-    if !cx.get(up).is_some_and(block::State::can_be_replaced) {
+    if !rule.get(up).is_some_and(block::State::can_be_replaced) {
         return false;
     }
     let bamboo = Kind::Bamboo.default_state();
@@ -536,18 +549,18 @@ fn bamboo_sapling_grow(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
     let mut tx = Tx::default();
     tx.add(pos, bamboo);
     tx.add(up, small);
-    tx.apply(cx, pos)
+    tx.apply(rule, pos)
 }
 
 /// Runs PMMP's `PitcherCrop::grow`: stages 0 to 2, then the two-block plant.
-fn pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn pitcher_grow(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     match age(block) {
-        Some(a) if a < 2 => grow_age(cx, pos, block, 1),
+        Some(a) if a < 2 => grow_age(rule, pos, block, 1),
         Some(2) => {
             let Some(up) = pos.step(Face::Up) else {
                 return false;
             };
-            if cx.get(up).is_none_or(|u| u.kind() != Kind::Air) {
+            if rule.get(up).is_none_or(|u| u.kind() != Kind::Air) {
                 return false;
             }
             let (Some(bottom), Some(top)) = (pitcher_half(3, false), pitcher_half(3, true)) else {
@@ -556,14 +569,14 @@ fn pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
             let mut tx = Tx::default();
             tx.add(pos, bottom);
             tx.add(up, top);
-            tx.apply(cx, pos)
+            tx.apply(rule, pos)
         }
         _ => false,
     }
 }
 
 /// Runs PMMP's `DoublePitcherCrop::grow`.
-fn double_pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn double_pitcher_grow(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     if age(block) != Some(3) {
         return false;
     }
@@ -584,7 +597,7 @@ fn double_pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> b
     ) else {
         return false;
     };
-    if cx
+    if rule
         .get(top)
         .is_none_or(|t| t.kind() != Kind::Air && t.kind() != block.kind())
     {
@@ -596,26 +609,26 @@ fn double_pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> b
     let mut tx = Tx::default();
     tx.add(bottom, b);
     tx.add(top, t);
-    tx.apply(cx, bottom)
+    tx.apply(rule, bottom)
 }
 
 /// Runs PMMP's `TorchflowerCrop::getNextState`: the crop gets ready, then turns into the
 /// torchflower.
-fn torchflower_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn torchflower_grow(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     let next = if age(block) == Some(1) {
         Some(Kind::Torchflower.default_state())
     } else {
         props::with_int(block, GROWTH, 1)
     };
-    next.is_some_and(|s| cx.grow(pos, s, pos))
+    next.is_some_and(|s| rule.grow(pos, s, pos))
 }
 
 /// Runs PMMP's `CaveVines::onRandomTick`.
-fn cave_vines(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn cave_vines(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(below) = pos.step(Face::Down) else {
         return;
     };
-    let Some(down) = cx.get(below) else {
+    let Some(down) = rule.get(below) else {
         return;
     };
     let head = down.kind() != block.kind();
@@ -626,25 +639,25 @@ fn cave_vines(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         && head != (block.name() == "minecraft:cave_vines_head_with_berries")
         && let Some(s) = cave_vine_state(block, age, true, head)
     {
-        cx.set(pos, s);
+        rule.set(pos, s);
         block = s;
     }
-    let mut rng = cx.rng();
+    let mut rng = rule.rng();
     if age < MAX_VINE_AGE && rng.range(1, 10) == 1 && down.kind() == Kind::Air {
         let fruit = rng.range(1, 9) == 1;
         if let Some(s) = cave_vine_state(block, age + 1, fruit, false) {
-            cx.grow(below, s, pos);
+            rule.grow(below, s, pos);
         }
     }
 }
 
 /// Runs PMMP's `NetherVines::grow`: `amount` blocks grow past the tip, each one older.
-fn nether_vines_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, amount: i32) -> bool {
+fn nether_vines_grow(rule: &mut Rule<'_>, pos: BlockPos, block: block::State, amount: i32) -> bool {
     let growth = vine_growth(block);
-    let Some(tip) = seek(cx, pos, block, growth) else {
+    let Some(tip) = seek(rule, pos, block, growth) else {
         return false;
     };
-    let Some(tip_block) = cx.get(tip) else {
+    let Some(tip_block) = rule.get(tip) else {
         return false;
     };
     let mut age = vine_age(tip_block).unwrap_or(0);
@@ -654,7 +667,7 @@ fn nether_vines_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, amount
         let Some(next) = at.step(growth) else {
             break;
         };
-        if !cx.get(next).is_some_and(block::State::can_be_replaced) {
+        if !rule.get(next).is_some_and(block::State::can_be_replaced) {
             break;
         }
         age = (age + 1).min(MAX_VINE_AGE);
@@ -663,29 +676,29 @@ fn nether_vines_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, amount
         }
         at = next;
     }
-    !tx.is_empty() && tx.apply(cx, tip)
+    !tx.is_empty() && tx.apply(rule, tip)
 }
 
 /// Runs PMMP's `ChorusFlower::onRandomTick`.
-fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn chorus_flower(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(age) = props::int(block, "age").filter(|a| *a < MAX_CHORUS_AGE) else {
         return;
     };
-    let air = |cx: &Cx<'_>, p: Option<BlockPos>| {
-        p.and_then(|p| cx.get(p))
+    let air = |rule: &Rule<'_>, p: Option<BlockPos>| {
+        p.and_then(|p| rule.get(p))
             .is_some_and(|s| s.kind() == Kind::Air)
     };
-    let all_empty = |cx: &Cx<'_>, p: BlockPos, except: Option<Face>| {
+    let all_empty = |rule: &Rule<'_>, p: BlockPos, except: Option<Face>| {
         Face::HORIZONTAL
             .into_iter()
             .filter(|f| Some(*f) != except)
-            .all(|f| air(cx, p.step(f)))
+            .all(|f| air(rule, p.step(f)))
     };
     // Scan the stem.
     let mut stem = 0;
     let mut end_stone = false;
     for y in 1..=5 {
-        match pos.offset(0, -y, 0).and_then(|p| cx.get(p)) {
+        match pos.offset(0, -y, 0).and_then(|p| rule.get(p)) {
             Some(s) if s.kind() == Kind::ChorusPlant => stem += 1,
             Some(s) => {
                 end_stone = s.kind() == Kind::EndStone;
@@ -694,20 +707,20 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             None => break,
         }
     }
-    let mut rng = cx.rng();
+    let mut rng = rule.rng();
     let up = pos.step(Face::Up);
-    let mut grows_up = air(cx, up)
+    let mut grows_up = air(rule, up)
         && up.is_some_and(|u| {
             u.step(Face::Up)
-                .is_none_or(|uu| cx.get(uu).is_none_or(|s| s.kind() == Kind::Air))
+                .is_none_or(|uu| rule.get(uu).is_none_or(|s| s.kind() == Kind::Air))
         });
     if grows_up
-        && !air(cx, pos.step(Face::Down))
+        && !air(rule, pos.step(Face::Down))
         && (stem >= 5 || (stem > 1 && stem > rng.range(0, if end_stone { 4 } else { 3 })))
     {
         grows_up = false;
     }
-    grows_up = grows_up && up.is_some_and(|u| all_empty(cx, u, None));
+    grows_up = grows_up && up.is_some_and(|u| all_empty(rule, u, None));
     let mut tx = Tx::default();
     let older = |by: i32| props::with_int(block, "age", (age + by).min(MAX_CHORUS_AGE));
     if grows_up {
@@ -728,9 +741,9 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             let Some(side_pos) = pos.step(face) else {
                 continue;
             };
-            if air(cx, Some(side_pos))
-                && air(cx, side_pos.step(Face::Down))
-                && all_empty(cx, side_pos, Some(face.opposite()))
+            if air(rule, Some(side_pos))
+                && air(rule, side_pos.step(Face::Down))
+                && all_empty(rule, side_pos, Some(face.opposite()))
                 && let Some(s) = older(1)
             {
                 tx.add(side_pos, s);
@@ -739,20 +752,20 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
     if tx.is_empty() {
         if let Some(dead) = props::with_int(block, "age", MAX_CHORUS_AGE) {
-            cx.set(pos, dead);
+            rule.set(pos, dead);
         }
     } else {
         tx.add(pos, Kind::ChorusPlant.default_state());
-        tx.apply(cx, pos);
+        tx.apply(rule, pos);
     }
 }
 
 /// Runs PMMP's `TallGrass::onInteract`: grass and ferns become their two-block forms.
-fn tall_grass(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn tall_grass(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     let Some(up) = pos.step(Face::Up) else {
         return false;
     };
-    if cx.get(up).is_none_or(|u| u.kind() != Kind::Air) {
+    if rule.get(up).is_none_or(|u| u.kind() != Kind::Air) {
         return false;
     }
     let double = match block.kind() {
@@ -764,21 +777,21 @@ fn tall_grass(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
     let (Some(bottom), Some(top)) = (half(false), half(true)) else {
         return false;
     };
-    cx.set(pos, bottom);
-    cx.set(up, top);
+    rule.set(pos, bottom);
+    rule.set(up, top);
     true
 }
 
 /// Runs PMMP's `GlowLichen::onInteract` with bone meal: the lichen spreads one face somewhere
 /// near. Whether it spread: only then is the bone meal used up.
-fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn glow_lichen(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     let Some(mut faces) = props::faces(block) else {
         return false;
     };
     if faces.is_empty() {
         return false;
     }
-    let mut rng = cx.rng();
+    let mut rng = rule.rng();
     shuffle(&mut rng, &mut faces);
     let mut methods = [0_u8, 1, 2];
     shuffle(&mut rng, &mut methods);
@@ -803,7 +816,7 @@ fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
                         (Some(pos), spread)
                     }
                 };
-                replace.is_some_and(|r| lichen_spread(cx, pos, r, toward))
+                replace.is_some_and(|r| lichen_spread(rule, pos, r, toward))
             });
             if done {
                 return true;
@@ -815,14 +828,14 @@ fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
 
 /// Runs PMMP's `GlowLichen::spread`: the lichen at `source` spreads a face to `replace` on the
 /// side `toward`, if a full face is there.
-fn lichen_spread(cx: &mut Cx<'_>, source: BlockPos, replace: BlockPos, toward: Face) -> bool {
-    let Some(support) = replace.step(toward).and_then(|p| cx.get(p)) else {
+fn lichen_spread(rule: &mut Rule<'_>, source: BlockPos, replace: BlockPos, toward: Face) -> bool {
+    let Some(support) = replace.step(toward).and_then(|p| rule.get(p)) else {
         return false;
     };
     if support.support(toward.opposite()) != block::SupportType::Full {
         return false;
     }
-    let Some(current) = cx.get(replace) else {
+    let Some(current) = rule.get(replace) else {
         return false;
     };
     let base = if current.kind() == Kind::GlowLichen {
@@ -838,35 +851,35 @@ fn lichen_spread(cx: &mut Cx<'_>, source: BlockPos, replace: BlockPos, toward: F
     let bits =
         props::int(base, "multi_face_direction_bits").unwrap_or(0) | props::multi_face_bit(toward);
     props::with_int(base, "multi_face_direction_bits", bits)
-        .is_some_and(|s| cx.spread(replace, s, source))
+        .is_some_and(|s| rule.spread(replace, s, source))
 }
 
 /// Runs PMMP's `SmallDripleaf::grow`: a big dripleaf two to five blocks high.
-fn small_dripleaf(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn small_dripleaf(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     let top = props::flag(block, "upper_block_bit") == Some(true);
     let Some(bottom) = (if top { pos.step(Face::Down) } else { Some(pos) }) else {
         return false;
     };
-    if cx.get(bottom).is_none_or(|b| b.kind() != block.kind()) {
+    if rule.get(bottom).is_none_or(|b| b.kind() != block.kind()) {
         return false;
     }
     let Some(facing) = props::facing(block) else {
         return false;
     };
-    let can_grow_to = |cx: &Cx<'_>, p: Option<BlockPos>| {
-        p.and_then(|p| cx.get(p))
+    let can_grow_to = |rule: &Rule<'_>, p: Option<BlockPos>| {
+        p.and_then(|p| rule.get(p))
             .is_some_and(|s| s.kind() == block.kind() || s.kind() == Kind::Air)
     };
-    let height = cx.rng().range(2, 5);
+    let height = rule.rng().range(2, 5);
     let mut grown = 0;
     let mut tx = Tx::default();
     for i in 0..height {
         let at = bottom.offset(0, i, 0);
-        if !can_grow_to(cx, at) {
+        if !can_grow_to(rule, at) {
             break;
         }
         grown += 1;
-        let kind = if grown < height && can_grow_to(cx, at.and_then(|a| a.step(Face::Up))) {
+        let kind = if grown < height && can_grow_to(rule, at.and_then(|a| a.step(Face::Up))) {
             Kind::BigDripleafStem
         } else {
             Kind::BigDripleafHead
@@ -875,14 +888,14 @@ fn small_dripleaf(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
             tx.add(at, s);
         }
     }
-    grown > 1 && tx.apply(cx, bottom)
+    grown > 1 && tx.apply(rule, bottom)
 }
 
 /// Runs PMMP's `BaseBigDripleaf::grow`: the head moves one block up.
-fn big_dripleaf(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
+fn big_dripleaf(rule: &mut Rule<'_>, pos: BlockPos) -> bool {
     let mut at = pos;
     let head = loop {
-        match cx.get(at) {
+        match rule.get(at) {
             Some(s) if s.class() == Class::BigDripleafHead => break (at, s),
             Some(s) if s.class() == Class::BigDripleafStem => {
                 let Some(next) = at.step(Face::Up) else {
@@ -897,7 +910,7 @@ fn big_dripleaf(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
     let Some(up) = head_pos.step(Face::Up) else {
         return false;
     };
-    if cx.get(up).is_none_or(|u| u.kind() != Kind::Air) {
+    if rule.get(up).is_none_or(|u| u.kind() != Kind::Air) {
         return false;
     }
     let Some(facing) = props::facing(head_block) else {
@@ -912,12 +925,12 @@ fn big_dripleaf(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
     let mut tx = Tx::default();
     tx.add(head_pos, stem);
     tx.add(up, new_head);
-    tx.apply(cx, head_pos)
+    tx.apply(rule, head_pos)
 }
 
 /// Runs PMMP's `BigDripleafHead::onScheduledUpdate`: a tilted leaf tilts further, then comes
 /// back.
-pub(super) fn dripleaf_tilt(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn dripleaf_tilt(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let next = match props::string(block, "big_dripleaf_tilt") {
         Some("full_tilt") => ("none", None),
         Some("unstable") => ("partial_tilt", Some(10)),
@@ -925,31 +938,31 @@ pub(super) fn dripleaf_tilt(cx: &mut Cx<'_>, pos: BlockPos, block: block::State)
         _ => return,
     };
     if let Some(s) = props::with_string(block, "big_dripleaf_tilt", next.0)
-        && cx.set(pos, s)
+        && rule.set(pos, s)
         && let Some(delay) = next.1
     {
-        cx.schedule(pos, delay);
+        rule.schedule(pos, delay);
     }
 }
 
 /// Runs PMMP's `CropGrowthHelper::canGrow`: one chance in `25 / multiplier + 1` (the multiplier
 /// from the farmland under the crop and around it, halved for crops of the same kind not in
 /// spaced rows) and potential light of at least 9.
-pub(super) fn can_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
-    let Some(bound) = growth_bound(cx, pos, block) else {
+pub(super) fn can_grow(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
+    let Some(bound) = growth_bound(rule, pos, block) else {
         return false;
     };
-    cx.rng().range(0, bound) == 0 && cx.potential_light(pos) >= MIN_CROP_LIGHT
+    rule.rng().range(0, bound) == 0 && rule.potential_light(pos) >= MIN_CROP_LIGHT
 }
 
 /// Works out `(int) (25 / multiplier)` of `CropGrowthHelper`, in eighths so the arithmetic is
 /// exact: the multiplier is 1, plus 3 (wet) or 1 (dry) for the farmland below, plus 3/4 or 1/4
 /// for each farmland around, halved for an improper arrangement.
-pub(super) fn growth_bound(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<i32> {
+pub(super) fn growth_bound(rule: &Rule<'_>, pos: BlockPos, block: block::State) -> Option<i32> {
     let below = pos.offset(0, -1, 0)?;
     let wet = |s: block::State| props::int(s, "moisturized_amount").unwrap_or(0) > 0;
     let mut eighths = 8;
-    let farmland = cx.get(below)?;
+    let farmland = rule.get(below)?;
     if farmland.kind() == Kind::Farmland {
         eighths += if wet(farmland) { 24 } else { 8 };
     }
@@ -959,12 +972,12 @@ pub(super) fn growth_bound(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> O
             if x == 0 && z == 0 {
                 continue;
             }
-            let next = cx.get(below.offset(x, 0, z)?)?;
+            let next = rule.get(below.offset(x, 0, z)?)?;
             if next.kind() != Kind::Farmland {
                 continue;
             }
             eighths += if wet(next) { 6 } else { 2 };
-            if !improper && cx.get(pos.offset(x, 0, z)?)?.kind() == block.kind() {
+            if !improper && rule.get(pos.offset(x, 0, z)?)?.kind() == block.kind() {
                 if x == 0 {
                     if z_row {
                         improper = true;
@@ -990,8 +1003,8 @@ pub(super) fn growth_bound(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> O
 }
 
 /// Grows the block `by` stages older (PMMP `BlockEventHelper::grow`).
-fn grow_age(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, by: i32) -> bool {
-    aged(block, GROWTH, by).is_some_and(|s| cx.grow(pos, s, pos))
+fn grow_age(rule: &mut Rule<'_>, pos: BlockPos, block: block::State, by: i32) -> bool {
+    aged(block, GROWTH, by).is_some_and(|s| rule.grow(pos, s, pos))
 }
 
 /// Adds `by` to the block's integer property `name`.
@@ -1006,19 +1019,19 @@ fn age(block: block::State) -> Option<i32> {
 
 /// Drops one of the block's item at its position; false (nothing dropped) for a block without
 /// an item or at the world's entity limit.
-fn drop_self(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
+fn drop_self(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) -> bool {
     let ItemForm::Item(item) = block.item() else {
         return false;
     };
-    cx.drop_item(pos, Stack::new(item, 1))
+    rule.drop_item(pos, Stack::new(item, 1))
 }
 
 /// Finds the last block of the plant's kind from `pos` toward `face`.
-fn seek(cx: &Cx<'_>, pos: BlockPos, block: block::State, face: Face) -> Option<BlockPos> {
+fn seek(rule: &Rule<'_>, pos: BlockPos, block: block::State, face: Face) -> Option<BlockPos> {
     let mut at = pos;
     loop {
         let next = at.step(face)?;
-        match cx.get(next) {
+        match rule.get(next) {
             Some(s) if s.kind() == block.kind() => at = next,
             _ => return Some(at),
         }
@@ -1026,9 +1039,9 @@ fn seek(cx: &Cx<'_>, pos: BlockPos, block: block::State, face: Face) -> Option<B
 }
 
 /// Tells whether water or frosted ice is beside the block under sugar cane.
-fn near_water(cx: &Cx<'_>, below: BlockPos) -> Option<bool> {
+fn near_water(rule: &Rule<'_>, below: BlockPos) -> Option<bool> {
     for face in Face::HORIZONTAL {
-        let s = cx.loaded_block(below.step(face)?)?;
+        let s = rule.loaded_block(below.step(face)?)?;
         if matches!(s.kind(), Kind::FrostedIce | Kind::Water) {
             return Some(true);
         }

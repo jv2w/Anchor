@@ -57,6 +57,10 @@ impl SessionId {
     /// them to reach it.
     pub(crate) const CONSOLE: Self = Self(u64::MAX);
 
+    /// The tick loop's own reports ([`Measure::TickTime`]): a session of its own whose sequence
+    /// number is the tick that reports.
+    pub(crate) const ENGINE: Self = Self(u64::MAX - 3);
+
     /// The results of blocking jobs ([`InputKind::Job`]): a session of its own whose sequence
     /// number is the job's id, so results applied in one tick are ordered by job, after every
     /// connection's inputs and before the console's.
@@ -65,10 +69,6 @@ impl SessionId {
     /// The networking's reports ([`Measure::Connections`]): a session of its own, ordered after
     /// every connection's inputs.
     pub(crate) const NETWORK: Self = Self(u64::MAX - 2);
-
-    /// The tick loop's own reports ([`Measure::TickTime`]): a session of its own whose sequence
-    /// number is the tick that reports.
-    pub(crate) const ENGINE: Self = Self(u64::MAX - 3);
 
     /// The process measures ([`Measure::Process`]): a session of its own, ordered after every
     /// connection's inputs.
@@ -132,9 +132,9 @@ impl Identity {
         skin.hash_into(h);
         h.u64(u64::from(device_os.cast_unsigned()));
         match address {
-            None => h.u64(0),
             Some(IpAddr::V4(a)) => h.bytes(&a.octets()),
             Some(IpAddr::V6(a)) => h.bytes(&a.octets()),
+            None => h.u64(0),
         }
         client.hash_into(h);
     }
@@ -467,7 +467,7 @@ pub(crate) enum Control {
 /// A blocking job's result as it travels to the tick and into the input log: the JSON of the
 /// value its work returned, at most [`MAX_RESULT_BYTES`](crate::task::MAX_RESULT_BYTES), or why
 /// there is none.
-pub(crate) type JobOutcome = std::result::Result<Vec<u8>, crate::task::Error>;
+pub(crate) type JobOutcome = Result<Vec<u8>, crate::task::Error>;
 
 /// Batches encoded and compressed once at start and sent to every player as they are: batch bodies,
 /// each a compression header and the compressed packets, without the encryption a RakNet session
@@ -505,8 +505,8 @@ impl SharedPacket {
     /// share them, and a call while they are being made waits for them.
     pub(crate) async fn batches<E>(
         &self,
-        encode: impl FnOnce(&Packet) -> std::result::Result<SharedBatches, E>,
-    ) -> std::result::Result<SharedBatches, E> {
+        encode: impl FnOnce(&Packet) -> Result<SharedBatches, E>,
+    ) -> Result<SharedBatches, E> {
         let batches = self
             .batches
             .get_or_try_init(|| async { encode(&self.packet) })
@@ -565,16 +565,16 @@ pub(crate) enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Full => "the session's share of the tick input queue is full",
-            Self::Closed => "the tick has stopped",
-        })
+        match self {
+            Self::Full => f.write_str("the session's share of the tick input queue is full"),
+            Self::Closed => f.write_str("the tick has stopped"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the queue [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An input in the queue with the place it takes in its session's share, which the tick gives
@@ -717,7 +717,7 @@ impl InputReceiver {
     }
 
     /// Takes the next input, without waiting.
-    pub(crate) fn try_recv(&mut self) -> std::result::Result<Input, TryRecvError> {
+    pub(crate) fn try_recv(&mut self) -> Result<Input, TryRecvError> {
         self.0.try_recv().map(|queued| queued.input)
     }
 

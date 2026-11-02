@@ -333,7 +333,7 @@ impl Stack {
     /// `ShulkerBoxInventory::canAddItem`, and its slot validator for players), and at most
     /// [`MAX_STORED_BYTES`], so that the box with everything it holds is one stack within
     /// [`MAX_NBT_BYTES`] (PMMP has no such limit). An empty stack fits.
-    pub(crate) fn fits_shulker_box(&self) -> bool {
+    pub(crate) fn can_enter_shulker_box(&self) -> bool {
         let Some(item) = self.item else {
             return true;
         };
@@ -361,10 +361,10 @@ impl Stack {
     /// type's meta otherwise.
     pub(crate) fn meta(&self) -> u16 {
         match self.item {
-            None => 0,
             Some(item) if item.max_durability().is_some() => 0,
             Some(_) if self.damage != 0 => self.damage,
             Some(item) => item.meta(),
+            None => 0,
         }
     }
 
@@ -506,18 +506,18 @@ impl Stack {
         }
         let meta = match nbt.get("Damage") {
             Some(Value::Short(m)) => u16::try_from(*m).ok()?,
-            None => 0,
             Some(_) => return None,
+            None => 0,
         };
         let block = match nbt.get("Block") {
             Some(Value::Compound(b)) => Some(b),
-            None => None,
             Some(_) => return None,
+            None => None,
         };
         let tag = match nbt.get("tag") {
             Some(Value::Compound(t)) => Some(t.clone()),
-            None => None,
             Some(_) => return None,
+            None => None,
         };
         let empty = Compound::new();
         let tag_or_empty = tag.as_ref().unwrap_or(&empty);
@@ -635,9 +635,6 @@ pub enum Error {
     InvalidEnchantmentLevel,
 }
 
-/// A result with the stack [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -657,6 +654,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Checks that every enchantment level of `extra` is from 1 to [`MAX_ENCHANTMENT_LEVEL`], which
 /// its saved form reads back.
@@ -784,6 +784,7 @@ mod tests {
 
     use crate::item::Kind;
 
+    /// The enchantment ID of looting.
     const LOOTING: i16 = 14;
 
     fn kind(k: Kind) -> Type {
@@ -845,12 +846,12 @@ mod tests {
                 ..Extra::default()
             }))
             .unwrap();
-        assert!(rocket.fits_shulker_box());
-        assert!(boots.fits_shulker_box());
+        assert!(rocket.can_enter_shulker_box());
+        assert!(boots.can_enter_shulker_box());
     }
 
     /// Every vanilla type without extra data keeps within what a shulker box's slot takes, at the
-    /// largest damage too, so `fits_shulker_box` takes such a stack without writing it.
+    /// largest damage too, so `can_enter_shulker_box` takes such a stack without writing it.
     #[test]
     fn every_type_without_extra_data_fits_a_shulker_box_slot() {
         for i in 0..u16::try_from(crate::item::table::ITEMS.len()).unwrap() {
@@ -1083,12 +1084,12 @@ mod tests {
         }
     }
 
-    /// A stack's getters read what its `with_*` methods set, and a change makes a new value: the
-    /// count is kept to the type's stack size and 0 empties the stack (PMMP `Item::setCount`,
-    /// `Item::isNull`), the damage and extra data are kept apart (PMMP `Durable`, the item tag).
     // pmmp: Item, Item::getCount, Item::setCount, Item::isNull, Item::canStackWith,
     // pmmp: Durable::getDamage, Durable::setDamage, Item::getCustomName, Item::getLore,
     // pmmp: Item::getEnchantments, Item::getNamedTag
+    /// A stack's getters read what its `with_*` methods set, and a change makes a new value: the
+    /// count is kept to the type's stack size and 0 empties the stack (PMMP `Item::setCount`,
+    /// `Item::isNull`), the damage and extra data are kept apart (PMMP `Durable`, the item tag).
     #[test]
     fn getters_read_what_the_with_methods_set() {
         let pearls = Stack::new(kind(Kind::EnderPearl), 10);
@@ -1367,22 +1368,22 @@ mod tests {
         let (mut lo, mut hi) = (0, MAX_STORED_BYTES);
         while lo < hi {
             let mid = (lo + hi).div_ceil(2);
-            if padded(stick, mid).unwrap().fits_shulker_box() {
+            if padded(stick, mid).unwrap().can_enter_shulker_box() {
                 lo = mid;
             } else {
                 hi = mid - 1;
             }
         }
         let most = padded(stick, lo).unwrap();
-        assert!(!padded(stick, lo + 1).unwrap().fits_shulker_box());
-        assert!(Stack::EMPTY.fits_shulker_box());
+        assert!(!padded(stick, lo + 1).unwrap().can_enter_shulker_box());
+        assert!(Stack::EMPTY.can_enter_shulker_box());
         let shulker = crate::block::State::all()
             .find(|b| b.is(crate::block::Class::ShulkerBox))
             .unwrap();
         let crate::block::ItemForm::Item(box_type) = shulker.item() else {
             panic!("a shulker box item");
         };
-        assert!(!Stack::new(box_type, 1).fits_shulker_box());
+        assert!(!Stack::new(box_type, 1).can_enter_shulker_box());
         // Compounds of one key cost little to write and a tree node each to read.
         let small = |n: usize| {
             let one = Compound::from([("k".to_owned(), Value::Byte(0))]);
@@ -1400,7 +1401,7 @@ mod tests {
         let (mut lo, mut hi) = (0, 20_usize);
         while lo < hi {
             let mid = (lo + hi).div_ceil(2);
-            if small(mid).fits_shulker_box() {
+            if small(mid).can_enter_shulker_box() {
                 lo = mid;
             } else {
                 hi = mid - 1;

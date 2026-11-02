@@ -14,8 +14,6 @@ use super::body::str_lit;
 use super::data::{Data, Tag, bedrock_state, read_json, static_compound};
 use super::emit::HEADER;
 
-type R<T> = Result<T, String>;
-
 /// PMMP's `FurnaceType` cases in declaration order, which is the order `CraftingDataCache` sends
 /// them in: (dump name, Rust variant).
 const FURNACE_TYPES: [(&str, &str); 5] = [
@@ -33,6 +31,8 @@ const SHAPELESS_TYPES: [(&str, &str); 2] = [
     ("crafting_table", "Crafting"),
     ("stonecutter", "Stonecutter"),
 ];
+
+type R<T> = Result<T, String>;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

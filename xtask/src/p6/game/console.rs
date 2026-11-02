@@ -77,12 +77,10 @@ pub(crate) enum Command {
     },
     /// `kill @e[type=!player]`: the villagers this console summoned.
     KillNonPlayers,
-    /// `kill <player>`: [`anchor::player::Player::kill`].
-    Kill(String),
-    /// `summon ender_crystal <x> <y> <z>`: [`Context::spawn_end_crystal`].
-    EndCrystal { pos: Vec3 },
     /// `gamerule randomtickspeed <n>`.
     RandomTickSpeed(u32),
+    /// A command Anchor has no counterpart for; the text says why it is fine.
+    Accepted(&'static str),
     /// `op <player>`: [`Context::op`].
     Op(String),
     /// `kick <player> <reason>`: [`anchor::player::Player::kick`].
@@ -95,6 +93,10 @@ pub(crate) enum Command {
         projectile: anchor::entity::Projectile,
         pos: Vec3,
     },
+    /// `kill <player>`: [`anchor::player::Player::kill`].
+    Kill(String),
+    /// `summon ender_crystal <x> <y> <z>`: [`Context::spawn_end_crystal`].
+    EndCrystal { pos: Vec3 },
     /// `weather clear|rain|thunder`: [`Context::set_weather`] in the default world.
     Weather(world::Weather),
     /// `difficulty peaceful|easy|normal|hard`: [`Context::set_difficulty`].
@@ -102,8 +104,6 @@ pub(crate) enum Command {
     /// `summon lightning_bolt <x> <y> <z>` (whole coordinates, the bolt at the middle of the
     /// block's floor as BDS puts it): [`Context::strike_lightning`] with BDS's damage and fire.
     Lightning { pos: Vec3 },
-    /// A command Anchor has no counterpart for; the text says why it is fine.
-    Accepted(&'static str),
 }
 
 /// The amount of an `xp` command.
@@ -268,12 +268,12 @@ pub(crate) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'stat
         }
         while let Some((line, command, waited)) = pending.front_mut() {
             let result = match execute(cx, command, &mut villagers, &answered) {
+                Outcome::Done(note) => Ok(note),
                 Outcome::Wait(_) if *waited < MAX_WAIT_TICKS => {
                     *waited += 1;
                     break;
                 }
                 Outcome::Wait(why) => Err(format!("gave up waiting: {why}")),
-                Outcome::Done(note) => Ok(note),
                 Outcome::Failed(why) => Err(why),
             };
             let report = Report {
@@ -735,6 +735,12 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
             }
             Outcome::Done(None)
         }
+        Command::Projectile { projectile, pos } => {
+            match cx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
+                Some(_) => Outcome::Done(None),
+                None => Outcome::Failed("no projectile was spawned".to_owned()),
+            }
+        }
         Command::Kill(player) => {
             let Some(p) = joined(cx, player) else {
                 return not_joined(player);
@@ -749,12 +755,6 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
             Some(_) => Outcome::Done(None),
             None => Outcome::Failed("no end crystal was spawned".to_owned()),
         },
-        Command::Projectile { projectile, pos } => {
-            match cx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
-                Some(_) => Outcome::Done(None),
-                None => Outcome::Failed("no projectile was spawned".to_owned()),
-            }
-        }
         Command::Weather(weather) => done(
             cx.set_weather(world::Id::DEFAULT, *weather)
                 .then_some(())

@@ -49,8 +49,8 @@ pub(crate) fn state(entry: &Compound) -> Option<Compound> {
     let (name, nbt_states) = modern_parts(entry)?;
     let version = match entry.get("version") {
         Some(Value::Int(v)) => *v,
-        None => 0,
         Some(_) => return None,
+        None => 0,
     };
     let mut states = States::new();
     for (k, v) in nbt_states {
@@ -200,8 +200,8 @@ fn item(c: &mut Compound) -> bool {
     };
     let meta = match c.get("Damage") {
         Some(Value::Short(m)) => *m,
-        None => 0,
         Some(_) => return false,
+        None => 0,
     };
     let block = if c.contains_key("Block") {
         None

@@ -80,17 +80,19 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::WrongKind => "the block entity is not of the kind the write applies to",
-            Self::Invalid => "the value is not one the block entity takes",
-            Self::TooLong => "the value is too long",
-        })
+        match self {
+            Self::WrongKind => {
+                f.write_str("the block entity is not of the kind the write applies to")
+            }
+            Self::Invalid => f.write_str("the value is not one the block entity takes"),
+            Self::TooLong => f.write_str("the value is too long"),
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// A result with the block entity [`enum@Error`].
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A side of a sign.

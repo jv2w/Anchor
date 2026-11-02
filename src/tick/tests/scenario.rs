@@ -562,8 +562,11 @@ fn consume(count: u8, source: StackRequestSlotInfo) -> StackRequestAction {
 /// `have`: its network ID, its cells (grid index, item) laid out from the top left, and what one
 /// craft makes.
 fn recipe(result: &str, side: u8, have: &[Type]) -> (u32, Vec<(u8, Type)>, Stack) {
-    let pick =
-        |i: &crafting::Ingredient| have.iter().copied().find(|t| i.accepts(&Stack::new(*t, 1)));
+    let pick = |i: &crafting::Ingredient| {
+        have.iter()
+            .copied()
+            .find(|t| i.can_accept(&Stack::new(*t, 1)))
+    };
     (1..)
         .map_while(|id| crafting::recipe(id).map(|r| (id, r)))
         .find_map(|(id, r)| {

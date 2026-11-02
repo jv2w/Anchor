@@ -29,9 +29,6 @@ pub(crate) enum Error {
     ZeroPayload,
 }
 
-/// A segment result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -50,6 +47,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Joins the segments of one reliable channel into whole messages.
 ///

@@ -53,8 +53,6 @@ pub(crate) enum Error {
     Format(&'static str),
 }
 
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -64,6 +62,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Where a checkpoint is written.
 #[derive(Debug, Default)]
@@ -435,11 +436,11 @@ impl<K: Codec + Ord, V: Codec> Codec for BTreeMap<K, V> {
 impl<T: Codec> Codec for Option<T> {
     fn encode(&self, w: &mut Writer) {
         match self {
-            None => w.u8(0),
             Some(v) => {
                 w.u8(1);
                 v.encode(w);
             }
+            None => w.u8(0),
         }
     }
 
@@ -612,7 +613,7 @@ impl Codec for crate::permission::BanEntry {
 fields!(crate::save::PlayerData {
     world,
     position,
-    extra
+    extra,
 });
 
 impl Codec for crate::storage::PlayerKey {
@@ -655,7 +656,7 @@ variants!(crate::display::Sort {
 fields!(crate::display::BossBar {
     title,
     progress,
-    colour
+    colour,
 });
 
 variants!(crate::entity::ArrowPickup {
@@ -1417,7 +1418,7 @@ fn decode_player(
         view: Codec::decode(r)?,
         outbound,
         pending: super::spawn::Pending::default(),
-        extra: super::extra::PlayerExtra::restore(r, data)?,
+        extra: super::extra::Player::restore(r, data)?,
         inventory: Codec::decode(r)?,
         survival: Codec::decode(r)?,
         breaking: Codec::decode(r)?,

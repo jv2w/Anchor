@@ -580,8 +580,8 @@ fn is_explosion(c: &Compound) -> bool {
                 && (!required || !b.is_empty())
                 && b.iter().all(|&d| d < COLOURS)
         }
-        None => !required,
         Some(_) => false,
+        None => !required,
     };
     let flag = |k: &str| matches!(c.get(k), None | Some(Value::Byte(_)));
     c.keys().all(|k| EXPLOSION_KEYS.contains(&k.as_str()))

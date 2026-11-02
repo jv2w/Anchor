@@ -1,11 +1,11 @@
 //! The request actions of the station windows.
 //!
 //! The stations are enchanting, anvil, smithing, stonecutter, loom, beacon payment and trades.
-//! The executor hands a station everything it does not do itself: [`takes_craft_recipe`] says
+//! The executor hands a station everything it does not do itself: [`can_take_craft_recipe`] says
 //! whether a `CraftRecipe` belongs to the open station (an enchanting option, a stonecutter or
-//! smithing recipe, a trade offer) and [`takes_auto_craft`] whether a `CraftRecipeAuto` does (a
+//! smithing recipe, a trade offer) and [`can_take_auto_craft`] whether a `CraftRecipeAuto` does (a
 //! quick trade), [`action`] runs such actions and the station-only ones (`CraftRecipeOptional`,
-//! `CraftLoomRecipe`, `BeaconPayment`) with the executor's slot operations, [`crafting()`] lets
+//! `CraftLoomRecipe`, `BeaconPayment`) with the executor's slot operations, [`is_crafting`] lets
 //! consume actions through, and [`finish`] checks at the end of the request that exactly the
 //! craft's inputs were consumed, from the station's own slots (a quick trade's also from the main
 //! inventory).
@@ -15,7 +15,7 @@
 //! enchanting seed, a damaged anvil, a beacon's effects, a counted trade) is an [`Effect`] the
 //! commit applies ([`apply`]). What the checks need from outside the inventory (the player's
 //! level, the beacon's pyramid, the trade offers) is read before the request runs
-//! ([`context`]).
+//! ([`outside`]).
 
 mod anvil;
 mod enchant;
@@ -89,7 +89,7 @@ crate::tick::checkpoint::fields!(Shown { input, options });
 
 /// What a request's station actions need from outside the inventory.
 #[derive(Debug, Default)]
-pub(super) struct Context {
+pub(super) struct Outside {
     /// The player's experience level, 0 with `experience = false`.
     /// A survival player then takes no enchanting option or anvil work, which all cost levels.
     level: u32,
@@ -172,9 +172,9 @@ pub(super) enum Effect {
 
 /// What the stations need for `request` of `session`, read before the request runs.
 /// The executor sees only the inventory.
-pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequest) -> Context {
+pub(super) fn outside(state: &State, session: SessionId, request: &ItemStackRequest) -> Outside {
     let Some(player) = state.players.get(&session) else {
-        return Context::default();
+        return Outside::default();
     };
     let kind = player.inventory.window.as_ref().map(|w| w.kind);
     // Only a payment reads the pyramid, which takes up to a few hundred block reads.
@@ -207,7 +207,7 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
     } else {
         Vec::new()
     };
-    Context {
+    Outside {
         level: if state.settings.experience {
             survival::xp_level(player)
         } else {
@@ -223,8 +223,8 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
 
 /// Whether the open window's station handles `CraftRecipe` itself.
 /// That is enchanting options, trade offers, smithing and stonecutter recipes (P6).
-pub(super) fn takes_craft_recipe(exec: &Exec<'_>) -> bool {
-    trading(exec)
+pub(super) fn can_take_craft_recipe(exec: &Exec<'_>) -> bool {
+    is_trading(exec)
         || matches!(
             station(exec),
             Some(Station::Enchant | Station::Smithing | Station::Stonecutter)
@@ -232,18 +232,18 @@ pub(super) fn takes_craft_recipe(exec: &Exec<'_>) -> bool {
 }
 
 /// Whether the open window's station handles `CraftRecipeAuto` itself (a quick trade).
-pub(super) fn takes_auto_craft(exec: &Exec<'_>) -> bool {
-    trading(exec)
+pub(super) fn can_take_auto_craft(exec: &Exec<'_>) -> bool {
+    is_trading(exec)
 }
 
 /// Whether a station craft is in progress, so consume actions are allowed.
-pub(super) fn crafting(exec: &Exec<'_>) -> bool {
+pub(super) fn is_crafting(exec: &Exec<'_>) -> bool {
     exec.station.is_some()
 }
 
 /// Whether a destroy action is a beacon's payment, taken as a consume.
 /// The client destroys the payment after `BeaconPayment` (dragonfly).
-pub(super) fn takes_destroy(exec: &Exec<'_>) -> bool {
+pub(super) fn can_take_destroy(exec: &Exec<'_>) -> bool {
     matches!(exec.station, Some(Craft::Beacon { .. }))
 }
 
@@ -265,14 +265,14 @@ pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result
         (StackRequestAction::CraftRecipe(a), Some(Station::Stonecutter)) => {
             begin_stonecutter(exec, a.recipe_network_id, a.number_of_crafts)?
         }
-        (StackRequestAction::CraftRecipe(a), None) if trading(exec) => begin_trade(
+        (StackRequestAction::CraftRecipe(a), None) if is_trading(exec) => begin_trade(
             exec,
             a.recipe_network_id,
             a.number_of_crafts,
             Payments::Slots,
         )?,
         // The client's ingredient list is not used: the consumes are checked against the offer.
-        (StackRequestAction::AutoCraftRecipe(a), None) if trading(exec) => begin_trade(
+        (StackRequestAction::AutoCraftRecipe(a), None) if is_trading(exec) => begin_trade(
             exec,
             a.recipe_network_id,
             a.number_of_crafts,
@@ -352,17 +352,17 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let one = input.with_count(1);
     let result = match exec.outside.custom.recipe(id) {
         Some(Recipe::SmithingTransform(r))
-            if r.input.accepts(&input)
-                && r.addition.accepts(&material)
-                && r.template.accepts(&template) =>
+            if r.input.can_accept(&input)
+                && r.addition.can_accept(&material)
+                && r.template.can_accept(&template) =>
         {
             Stack::from_parts(r.result.item, 1, r.result.meta, one.tag())
                 .map_err(|_| Error::Recipe)?
         }
         Some(Recipe::SmithingTrim(r))
-            if r.input.accepts(&input)
-                && r.addition.accepts(&material)
-                && r.template.accepts(&template) =>
+            if r.input.can_accept(&input)
+                && r.addition.can_accept(&material)
+                && r.template.can_accept(&template) =>
         {
             let pattern = template
                 .item()
@@ -413,7 +413,7 @@ fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
         return Err(Error::Recipe);
     };
     let result = result.to_item().ok_or(Error::Recipe)?;
-    if times == 0 || !ingredient.accepts(&ui(exec, 0)?) {
+    if times == 0 || !ingredient.can_accept(&ui(exec, 0)?) {
         return Err(Error::Recipe);
     }
     exec.set_created(Some(Created::of(&result, u32::from(times))))?;
@@ -506,7 +506,7 @@ fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
         || banner.count() < times
         || dye.count() < times
         || block::BannerPattern::from_id(pattern).is_none()
-        || needs_pattern_item(pattern)
+        || is_pattern_item_needed(pattern)
     {
         return Err(Error::Recipe);
     }
@@ -543,7 +543,7 @@ fn station(exec: &Exec<'_>) -> Option<Station> {
 }
 
 /// Whether a trade window is open.
-fn trading(exec: &Exec<'_>) -> bool {
+fn is_trading(exec: &Exec<'_>) -> bool {
     exec.window
         .is_some_and(|w| matches!(w.kind, WindowKind::Trade { .. }))
 }
@@ -567,7 +567,7 @@ fn made(exec: &mut Exec<'_>, result: Stack, times: u8) {
 
 /// Whether a banner pattern needs its pattern item in the loom.
 /// This is dragonfly's `BannerPatternType.Item`.
-fn needs_pattern_item(pattern: &str) -> bool {
+fn is_pattern_item_needed(pattern: &str) -> bool {
     matches!(
         pattern,
         "bri" | "cre" | "cbo" | "flo" | "moj" | "sku" | "glb" | "pig" | "flw" | "gus"
@@ -594,7 +594,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
                 all_lapis && spent == u32::from(*lapis)
             };
             exec.effects.push(Effect::Enchanted { cost: *cost });
-            only_from(exec, &[0, 1]) && exact(exec, 0, 1, &same(input)) && lapis_ok
+            has_consumed_only_from(exec, &[0, 1]) && exact(exec, 0, 1, &same(input)) && lapis_ok
         }
         Craft::Anvil {
             input,
@@ -607,7 +607,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
                 cost: if finite { *cost } else { 0 },
                 finite,
             });
-            only_from(exec, &[0, 1])
+            has_consumed_only_from(exec, &[0, 1])
                 && exact(exec, 0, u32::from(input.count()), &same(input))
                 && exact(exec, 1, u32::from(*material_used), &same(material))
         }
@@ -616,16 +616,17 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             material,
             template,
         } => {
-            only_from(exec, &[0, 1, 2])
+            has_consumed_only_from(exec, &[0, 1, 2])
                 && exact(exec, 0, 1, &same(input))
                 && exact(exec, 1, 1, &same(material))
                 && exact(exec, 2, 1, &same(template))
         }
         Craft::Stonecutter { ingredient, times } => {
-            only_from(exec, &[0]) && exact(exec, 0, u32::from(*times), &|s| ingredient.accepts(s))
+            has_consumed_only_from(exec, &[0])
+                && exact(exec, 0, u32::from(*times), &|s| ingredient.can_accept(s))
         }
         Craft::Loom { banner, dye, times } => {
-            only_from(exec, &[0, 1])
+            has_consumed_only_from(exec, &[0, 1])
                 && exact(exec, 0, u32::from(*times), &same(banner))
                 && exact(exec, 1, u32::from(*times), &same(dye))
         }
@@ -634,7 +635,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
                 primary: *primary,
                 secondary: *secondary,
             });
-            only_from(exec, &[0])
+            has_consumed_only_from(exec, &[0])
                 && exact(exec, 0, 1, &|s| {
                     s.item().is_some_and(block_entity::beacon_payment)
                 })
@@ -653,7 +654,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             let b = u32::from(offer.buy_b.count()) * times;
             match payments {
                 Payments::Slots => {
-                    only_from(exec, &[0, 1])
+                    has_consumed_only_from(exec, &[0, 1])
                         && exact(
                             exec,
                             0,
@@ -663,7 +664,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
                         && (b == 0 || exact(exec, 1, b, &pays(&offer.buy_b, offer.damage_b)))
                         && (b != 0 || taken_from(exec, 1, |_| true).0 == 0)
                 }
-                Payments::Anywhere => paid_anywhere(exec, offer, times),
+                Payments::Anywhere => is_paid_anywhere(exec, offer, times),
             }
         }
     };
@@ -685,7 +686,7 @@ fn taken_from(exec: &Exec<'_>, i: u8, like: impl Fn(&Stack) -> bool) -> (u32, bo
 }
 
 /// Whether every consume action took from the window's own slots in `allowed`.
-fn only_from(exec: &Exec<'_>, allowed: &[u8]) -> bool {
+fn has_consumed_only_from(exec: &Exec<'_>, allowed: &[u8]) -> bool {
     exec.consumed
         .iter()
         .all(|(r, _)| matches!(r, Some(SlotRef::Ui(i)) if allowed.contains(i)))
@@ -704,7 +705,7 @@ fn pays(want: &Stack, damage: trade::Damage) -> impl Fn(&Stack) -> bool + '_ {
 /// Whether the consume actions of a quick trade took exactly `times` of the offer's payments.
 /// They come from the payment slots and the main inventory. A stack that pays both payments (the
 /// same item twice) counts towards whichever still needs it.
-fn paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
+fn is_paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
     let want_a = u32::from(offer.buy_a.count()) * times;
     let want_b = u32::from(offer.buy_b.count()) * times;
     let (pays_a, pays_b) = (
@@ -732,16 +733,8 @@ fn paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
 
 /// Applies the effects of the committed request `request` of `session`.
 /// They are the levels, the enchanting seed, the anvil's damage, the beacon's effects and the
-/// trade's count. Then, if the request changed an enchanting table's input, its options are
-/// worked out again and sent (PMMP `EnchantInventory::onSlotChange`; BDS sends the empty list
-/// after an enchant, P6).
-pub(super) fn apply(
-    state: &mut State,
-    session: SessionId,
-    request: i32,
-    effects: Vec<Effect>,
-    input_changed: bool,
-) {
+/// trade's count.
+pub(super) fn apply(state: &mut State, session: SessionId, request: i32, effects: Vec<Effect>) {
     let window = state
         .players
         .get(&session)
@@ -789,12 +782,17 @@ pub(super) fn apply(
             }
         }
     }
-    if input_changed
-        && let Some(WindowKind::Station {
-            world,
-            pos,
-            kind: Station::Enchant,
-        }) = window
+}
+
+/// Works out the options of the enchanting table `session` has open again and sends them, after
+/// a request changed its input (PMMP `EnchantInventory::onSlotChange`; BDS sends the empty list
+/// after an enchant, P6).
+pub(super) fn refresh_enchant_options(state: &mut State, session: SessionId) {
+    if let Some(WindowKind::Station {
+        world,
+        pos,
+        kind: Station::Enchant,
+    }) = window_of(state, session)
     {
         refresh_options(state, session, world, pos);
     }

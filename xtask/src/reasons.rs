@@ -41,8 +41,8 @@ fn tagged(reason: &str) -> bool {
     })
 }
 
-/// The `reason = "..."` (or raw string) arguments (after `(` or `,`) in the code of `text`: each string's line
-/// and its text, up to the end of the file.
+/// The `reason = "..."` (or raw string) arguments (after `(` or `,`) in the code of `text`: each
+/// string's line and its text, up to the end of the file.
 fn reasons(text: &str) -> Vec<(usize, &str)> {
     let mut found = Vec::new();
     let mut line = 1;

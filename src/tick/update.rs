@@ -61,11 +61,14 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
 
-/// The saved list keys (Bedrock `PendingTicks` entry names): the position and the engine tick
-/// the update is due at.
+/// The saved list key (Bedrock `PendingTicks` entry name) of the engine tick the update is due
+/// at.
 const KEY_TIME: &str = "time";
+/// The saved list key (Bedrock `PendingTicks` entry name) of the position's x.
 const KEY_X: &str = "x";
+/// The saved list key (Bedrock `PendingTicks` entry name) of the position's y.
 const KEY_Y: &str = "y";
+/// The saved list key (Bedrock `PendingTicks` entry name) of the position's z.
 const KEY_Z: &str = "z";
 /// The most positions a world's neighbour queue holds; more changed blocks wait in the world's
 /// change feed. A change queues at most seven positions.
@@ -77,8 +80,9 @@ const MAX_NEIGHBOUR_UPDATES_PER_TICK: usize = 16_384;
 /// order (PMMP has no limit). Measured (release): a water flow front costs about 4.3 µs an
 /// update, so this keeps a world's scheduled updates under about 18 ms a tick.
 const MAX_SCHEDULED_PER_TICK: usize = 4096;
-/// Random stream purposes.
+/// The random stream purpose of a random tick.
 const RANDOM_TICK: u64 = random::tag("random-tick");
+/// The random stream purpose of a rule run.
 const RULE: u64 = random::tag("block-rule");
 
 /// The pending block updates of the loaded chunks.
@@ -399,7 +403,7 @@ impl Parsed {
 
 /// What a rule sees of the server: the world it runs in, with the reads, writes and requests
 /// to other modules the rules need.
-pub(super) struct Cx<'a> {
+pub(super) struct Rule<'a> {
     /// The server.
     state: &'a mut State,
     /// The world the rule runs in.
@@ -412,7 +416,7 @@ pub(super) struct Cx<'a> {
     player: Option<player::Id>,
 }
 
-impl<'a> Cx<'a> {
+impl<'a> Rule<'a> {
     fn new(state: &'a mut State, world: WorldIndex, at: BlockPos) -> Self {
         Self {
             state,
@@ -592,7 +596,7 @@ impl<'a> Cx<'a> {
     /// Whether the block takes random ticks here: PMMP's `ticksRandomly`, copper that can
     /// oxidize (dragonfly), and not disabled by `disable-block-ticking`; a custom block if its
     /// definition asks for them ([`crate::custom::Block::random_ticks`]).
-    fn ticks_randomly(&self, block: block::State) -> bool {
+    fn has_random_ticks(&self, block: block::State) -> bool {
         if block.custom_block().is_some() {
             return block.ticks_randomly();
         }
@@ -680,12 +684,12 @@ pub(super) fn fertilize(
     pos: BlockPos,
     player: Option<player::Id>,
 ) -> bool {
-    let mut cx = Cx::new(state, world, pos);
-    cx.player = player;
-    let Some(block) = cx.get(pos) else {
+    let mut rule = Rule::new(state, world, pos);
+    rule.player = player;
+    let Some(block) = rule.get(pos) else {
         return false;
     };
-    plant::fertilize(&mut cx, pos, block) || soil::fertilize(&mut cx, pos, block)
+    plant::fertilize(&mut rule, pos, block) || soil::fertilize(&mut rule, pos, block)
 }
 
 /// Lands a living entity (a player or a mob) on the block at `pos` after a fall of
@@ -698,7 +702,12 @@ pub(super) fn trample(
     fall_distance: f64,
     entity: Actor,
 ) {
-    soil::trample(&mut Cx::new(state, world, pos), pos, fall_distance, entity);
+    soil::trample(
+        &mut Rule::new(state, world, pos),
+        pos,
+        fall_distance,
+        entity,
+    );
 }
 
 /// Runs one tick of block updates: due scheduled updates, neighbour updates of the blocks
@@ -732,10 +741,10 @@ fn run_scheduled(state: &mut State, world: WorldIndex) {
         let Some((pos, seq)) = state.rules.updates.pop_due(world, state.tick) else {
             break;
         };
-        let mut cx = Cx::new(state, world, pos);
-        cx.seq = seq;
-        if let Some(block) = cx.get(pos) {
-            on_scheduled(&mut cx, pos, block);
+        let mut rule = Rule::new(state, world, pos);
+        rule.seq = seq;
+        if let Some(block) = rule.get(pos) {
+            on_scheduled(&mut rule, pos, block);
         }
     }
 }
@@ -754,12 +763,12 @@ fn run_neighbours(state: &mut State, world: WorldIndex) {
         // entities in it.
         let mut update = None;
         if dispatch::heard::<BlockUpdate>(state) {
-            let mut cx = Cx::new(state, world, pos);
-            if let Some(block) = cx.get(pos) {
-                let asked = cx.ask(
+            let mut rule = Rule::new(state, world, pos);
+            if let Some(block) = rule.get(pos) {
+                let asked = rule.ask(
                     [pos],
-                    |cx| BlockUpdate {
-                        world: cx.world_id(),
+                    |rule| BlockUpdate {
+                        world: rule.world_id(),
                         pos,
                         block,
                         cancelled: false,
@@ -775,12 +784,12 @@ fn run_neighbours(state: &mut State, world: WorldIndex) {
         // Entities resting on or in the block see the change too (PMMP
         // `Entity::onNearbyBlockChange` through the world's neighbour update).
         super::entity::block_changed(state, world, pos);
-        let mut cx = Cx::new(state, world, pos);
-        cx.seq = n as u64;
-        if let Some(block) = cx.get(pos) {
-            on_nearby(&mut cx, pos, block);
+        let mut rule = Rule::new(state, world, pos);
+        rule.seq = n as u64;
+        if let Some(block) = rule.get(pos) {
+            on_nearby(&mut rule, pos, block);
         }
-        cx.tell(update);
+        rule.tell(update);
     }
 }
 
@@ -864,11 +873,11 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
                 }
                 let pos = random_position(chunk, base_y, bits);
                 bits >>= 12;
-                let mut cx = Cx::new(state, world, pos);
-                if let Some(block) = cx.get(pos)
-                    && cx.ticks_randomly(block)
+                let mut rule = Rule::new(state, world, pos);
+                if let Some(block) = rule.get(pos)
+                    && rule.has_random_ticks(block)
                 {
-                    on_random(&mut cx, pos, block);
+                    on_random(&mut rule, pos, block);
                 }
             }
         }
@@ -918,68 +927,68 @@ fn ticking_chunks(
 }
 
 /// Runs a scheduled update of the block (PMMP `onScheduledUpdate`).
-fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn on_scheduled(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     match block.class() {
-        Class::BigDripleafHead => plant::dripleaf_tilt(cx, pos, block),
+        Class::BigDripleafHead => plant::dripleaf_tilt(rule, pos, block),
         Class::Coral | Class::CoralBlock | Class::FloorCoralFan | Class::WallCoralFan => {
-            soil::coral_check(cx, pos, block);
+            soil::coral_check(rule, pos, block);
         }
-        Class::Fire => fire::on_random(cx, pos, block),
-        Class::FrostedIce => soil::frosted_ice(cx, pos, block),
-        Class::Lava | Class::Water => liquid::on_scheduled(cx, pos, block),
-        Class::StoneButton | Class::WoodenButton => support::release_button(cx, pos, block),
+        Class::Fire => fire::on_random(rule, pos, block),
+        Class::FrostedIce => soil::frosted_ice(rule, pos, block),
+        Class::Lava | Class::Water => liquid::on_scheduled(rule, pos, block),
+        Class::StoneButton | Class::WoodenButton => support::release_button(rule, pos, block),
         _ => {}
     }
 }
 
 /// Runs the block's reaction to a change of itself or a neighbour (PMMP
 /// `onNearbyBlockChange`).
-fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn on_nearby(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     match block.class() {
         Class::Air => {}
-        Class::Bed => support::bed_on_nearby(cx, pos, block),
-        Class::Campfire | Class::SoulCampfire => soil::campfire_on_nearby(cx, pos, block),
+        Class::Bed => support::bed_on_nearby(rule, pos, block),
+        Class::Campfire | Class::SoulCampfire => soil::campfire_on_nearby(rule, pos, block),
         Class::Cauldron | Class::PotionCauldron | Class::WaterCauldron => {
-            soil::cauldron_on_nearby(cx, pos, block);
+            soil::cauldron_on_nearby(rule, pos, block);
         }
-        Class::ConcretePowder => soil::concrete_powder(cx, pos, block),
+        Class::ConcretePowder => soil::concrete_powder(rule, pos, block),
         Class::Coral | Class::CoralBlock | Class::FloorCoralFan | Class::WallCoralFan => {
-            soil::coral_on_nearby(cx, pos, block);
+            soil::coral_on_nearby(rule, pos, block);
         }
-        Class::Farmland | Class::GrassPath => soil::trample_check(cx, pos),
-        Class::Fire => fire::on_nearby(cx, pos),
-        Class::FrostedIce => soil::frosted_ice_on_nearby(cx, pos),
-        Class::Lava | Class::Water => liquid::on_nearby(cx, pos, block),
-        Class::Leaves => soil::leaves_on_nearby(cx, pos, block),
-        Class::MelonStem | Class::PumpkinStem => plant::stem_on_nearby(cx, pos, block),
-        Class::RedstoneOre => soil::redstone_ore_on_nearby(cx, pos, block),
-        Class::SoulFire => fire::soul_on_nearby(cx, pos),
-        Class::Sugarcane => plant::sugarcane_on_nearby(cx, pos, block),
-        _ => support::on_nearby(cx, pos, block),
+        Class::Farmland | Class::GrassPath => soil::trample_check(rule, pos),
+        Class::Fire => fire::on_nearby(rule, pos),
+        Class::FrostedIce => soil::frosted_ice_on_nearby(rule, pos),
+        Class::Lava | Class::Water => liquid::on_nearby(rule, pos, block),
+        Class::Leaves => soil::leaves_on_nearby(rule, pos, block),
+        Class::MelonStem | Class::PumpkinStem => plant::stem_on_nearby(rule, pos, block),
+        Class::RedstoneOre => soil::redstone_ore_on_nearby(rule, pos, block),
+        Class::SoulFire => fire::soul_on_nearby(rule, pos),
+        Class::Sugarcane => plant::sugarcane_on_nearby(rule, pos, block),
+        _ => support::on_nearby(rule, pos, block),
     }
 }
 
 /// Runs a random tick of the block (PMMP `onRandomTick`); a custom block's goes to its
 /// behaviour.
-fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn on_random(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     if block.custom_block().is_some() {
-        interact::random_tick(cx.state, cx.world, pos, block);
+        interact::random_tick(rule.state, rule.world, pos, block);
         return;
     }
     match block.class() {
-        Class::BuddingAmethyst => soil::budding_amethyst(cx, pos),
-        Class::Farmland => soil::farmland(cx, pos, block),
-        Class::Fire => fire::on_random(cx, pos, block),
-        Class::FrostedIce => soil::frosted_ice(cx, pos, block),
-        Class::Grass => soil::grass(cx, pos),
-        Class::Ice => soil::ice(cx, pos),
-        Class::Leaves => soil::leaves_on_random(cx, pos, block),
-        Class::Mycelium => soil::mycelium(cx, pos),
-        Class::Nylium => soil::nylium(cx, pos, block),
-        Class::RedstoneOre => soil::redstone_ore_on_random(cx, pos, block),
-        Class::SnowLayer => soil::snow_layer(cx, pos),
-        _ if soil::is_oxidizable(block) => soil::oxidize(cx, pos, block),
-        _ => plant::on_random(cx, pos, block),
+        Class::BuddingAmethyst => soil::budding_amethyst(rule, pos),
+        Class::Farmland => soil::farmland(rule, pos, block),
+        Class::Fire => fire::on_random(rule, pos, block),
+        Class::FrostedIce => soil::frosted_ice(rule, pos, block),
+        Class::Grass => soil::grass(rule, pos),
+        Class::Ice => soil::ice(rule, pos),
+        Class::Leaves => soil::leaves_on_random(rule, pos, block),
+        Class::Mycelium => soil::mycelium(rule, pos),
+        Class::Nylium => soil::nylium(rule, pos, block),
+        Class::RedstoneOre => soil::redstone_ore_on_random(rule, pos, block),
+        Class::SnowLayer => soil::snow_layer(rule, pos),
+        _ if soil::is_oxidizable(block) => soil::oxidize(rule, pos, block),
+        _ => plant::on_random(rule, pos, block),
     }
 }
 
@@ -1013,6 +1022,7 @@ fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::PropertyValue;
     use crate::event::{
         BlockBurn, BlockGrow, BlockSpread, FarmlandHydrationChange, Listeners, Priority,
@@ -1251,10 +1261,12 @@ mod tests {
         }
     }
 
+    /// A custom block that asks for random ticks.
     static TICKING: crate::custom::Block = crate::custom::Block::new("test:ticking", "t")
         .with_properties(&[crate::custom::Property::bool("lit")])
         .with_behaviour(&Glow)
         .random_ticks();
+    /// A custom block that does not.
     static STILL: crate::custom::Block = crate::custom::Block::new("test:still", "s")
         .with_properties(&[crate::custom::Property::bool("lit")])
         .with_behaviour(&Glow);
@@ -1515,9 +1527,9 @@ mod tests {
         (listeners, rx)
     }
 
+    // pmmp: BlockGrowEvent
     /// A field of wheat on wet farmland around a player: random ticks grow it, the same way
     /// with one pool thread or four, in a second run, and with listeners that change nothing.
-    // pmmp: BlockGrowEvent
     #[test]
     fn random_ticks_are_deterministic_and_grow_crops() {
         let run = |threads: usize, listeners: Listeners| {
@@ -1784,8 +1796,8 @@ mod tests {
                 }
             }
             let expected = (25.0 / pmmp_multiplier(&lands, &crops)).floor();
-            let cx = Cx::new(&mut state, 0, center);
-            let bound = plant::growth_bound(&cx, center, wheat).unwrap();
+            let rule = Rule::new(&mut state, 0, center);
+            let bound = plant::growth_bound(&rule, center, wheat).unwrap();
             assert_eq!(
                 f64::from(bound),
                 expected,
@@ -1800,12 +1812,12 @@ mod tests {
                 set(&mut state, center.offset(x, 0, z).unwrap(), crop);
             }
         }
-        let mut cx = Cx::new(&mut state, 0, center);
-        let bound = plant::growth_bound(&cx, center, wheat).unwrap();
+        let mut rule = Rule::new(&mut state, 0, center);
+        let bound = plant::growth_bound(&rule, center, wheat).unwrap();
         assert_eq!(bound, 2);
         let n = 30_000_u32;
         let hits = (0..n)
-            .filter(|_| plant::can_grow(&mut cx, center, wheat))
+            .filter(|_| plant::can_grow(&mut rule, center, wheat))
             .count();
         let p = 1.0 / f64::from(bound + 1);
         let mean = p * f64::from(n);
@@ -1824,10 +1836,10 @@ mod tests {
             let sapling = named("minecraft:oak_sapling");
             let at = BlockPos::new(20, -60, 20);
             set(&mut state, at, sapling);
-            let mut cx = Cx::new(&mut state, 0, at);
-            let light = cx.full_light(at);
+            let mut rule = Rule::new(&mut state, 0, at);
+            let light = rule.full_light(at);
             for _ in 0..200 {
-                on_random(&mut cx, at, sapling);
+                on_random(&mut rule, at, sapling);
             }
             (light, get(&state, at) != sapling)
         };
@@ -1890,8 +1902,8 @@ mod tests {
         ] {
             let mut state = server();
             let at = BlockPos::new(-20, -60, -20);
-            let mut cx = Cx::new(&mut state, 0, at);
-            assert!(tree::grow(&mut cx, at, kind), "{kind:?}");
+            let mut rule = Rule::new(&mut state, 0, at);
+            assert!(tree::grow(&mut rule, at, kind), "{kind:?}");
         }
     }
 
@@ -1955,7 +1967,7 @@ mod tests {
         let pos = BlockPos::new(79, -60, 0);
         let fire = props::with_int(Kind::Fire.default_state(), "age", 5).unwrap();
         set(&mut state, pos, fire);
-        on_scheduled(&mut Cx::new(&mut state, 0, pos), pos, fire);
+        on_scheduled(&mut Rule::new(&mut state, 0, pos), pos, fire);
         assert_eq!(get(&state, pos), fire);
         assert_eq!(state.rules.updates.len().0, 1, "it tries again");
     }
@@ -2094,9 +2106,9 @@ mod tests {
         }
     }
 
+    // pmmp: BlockBurnEvent
     /// Fire that cannot prime TNT at the world's entity limit leaves the TNT, and no monitor
     /// hears of a burn.
-    // pmmp: BlockBurnEvent
     #[test]
     fn fire_at_the_entity_limit_leaves_tnt_and_tells_no_burn() {
         let (asked_tx, mut asked) = tokio::sync::mpsc::channel(1 << 16);
@@ -2220,7 +2232,7 @@ mod tests {
         let pos = BlockPos::new(79, -60, 0);
         let ice = find("minecraft:frosted_ice", &[("age", PropertyValue::Int(3))]);
         set(&mut state, pos, ice);
-        on_scheduled(&mut Cx::new(&mut state, 0, pos), pos, ice);
+        on_scheduled(&mut Rule::new(&mut state, 0, pos), pos, ice);
         assert_eq!(get(&state, pos), ice);
         assert_eq!(state.rules.updates.len().0, 1, "it checks again");
     }

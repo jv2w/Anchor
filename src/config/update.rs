@@ -13,7 +13,7 @@ use super::{Config, DEFAULT_FILE, Error, Key, MAX_FILE_BYTES, Result, WorldSetti
 use crate::fs::{self, Access};
 
 /// What [`Config::update_file`] changed in the settings file.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Update {
     added: Vec<String>,
     removed: Vec<String>,

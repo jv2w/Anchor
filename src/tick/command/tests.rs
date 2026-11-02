@@ -21,6 +21,7 @@ use crate::tick::tests::{
 };
 use crate::tick::{Output as TickOutput, boundary, deliver, step};
 
+/// A permission only operators have by default.
 const FLY: Permission = Permission::new("test.fly", By::Op);
 
 /// Commands by name with their parameters: name, network type, optional.
@@ -348,7 +349,11 @@ fn syntax_errors_name_the_word_where_the_line_stops_fitting() {
     }
 }
 
-// pmmp: Permissible::hasPermission, Player::hasPermission, Command::testPermissionSilent, Permissible::isPermissionSet, Player::isPermissionSet, PermissionAttachment::setPermission, PermissionAttachment::unsetPermission, Command::setPermission, Server::addOp, Server::removeOp, Server::isOp, Server::getOps, CommandSender, ConsoleCommandSender
+// pmmp: Permissible::hasPermission, Player::hasPermission, Command::testPermissionSilent
+// pmmp: Permissible::isPermissionSet, Player::isPermissionSet
+// pmmp: PermissionAttachment::setPermission, PermissionAttachment::unsetPermission
+// pmmp: Command::setPermission, Server::addOp, Server::removeOp, Server::isOp, Server::getOps
+// pmmp: CommandSender, ConsoleCommandSender
 #[test]
 fn permissions_follow_defaults_operators_and_grants() {
     let fly = Command::new("fly", "flies")
@@ -403,7 +408,8 @@ fn permissions_follow_defaults_operators_and_grants() {
     assert!(state.commands.grants.is_empty());
 }
 
-// pmmp: PermissionAttachment::getPermissions, PermissionAttachment::clearPermissions, Permissible::getEffectivePermissions, Player::getEffectivePermissions
+// pmmp: PermissionAttachment::getPermissions, PermissionAttachment::clearPermissions
+// pmmp: Permissible::getEffectivePermissions, Player::getEffectivePermissions
 #[test]
 fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
     let fly = Command::new("fly", "flies")
@@ -516,7 +522,12 @@ fn a_default_for_a_permission_nothing_registered_fails_the_build() {
     );
 }
 
-// pmmp: CommandMap::register, SimpleCommandMap::register, SimpleCommandMap::unregister, PermissionManager::addPermission, PermissionManager::getPermission, PermissionManager::getPermissions, CommandMap::getCommand, SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName, Command::getDescription, Command::getAliases, Command::setAliases, Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
+// pmmp: CommandMap::register, SimpleCommandMap::register, SimpleCommandMap::unregister
+// pmmp: PermissionManager::addPermission, PermissionManager::getPermission
+// pmmp: PermissionManager::getPermissions, CommandMap::getCommand
+// pmmp: SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName
+// pmmp: Command::getDescription, Command::getAliases, Command::setAliases
+// pmmp: Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
 #[test]
 fn registration_keeps_user_commands_first_and_checks_the_rules() {
     let ok = |c: Command| c.overload(&[], |_, _, _| Ok(Output::new()));
@@ -1335,7 +1346,10 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
     assert_eq!(run_logged(&mut replay, inputs).1, hashes);
 }
 
-// pmmp: BanList::addBan, BanList::add, Server::getNameBans, Server::getIPBans, BanList::remove, BanList::isBanned, BanList::getEntry, BanList::getEntries, Server::addWhitelist, Server::removeWhitelist, Server::isWhitelisted, Server::getWhitelisted, Server::hasWhitelist
+// pmmp: BanList::addBan, BanList::add, Server::getNameBans, Server::getIPBans, BanList::remove
+// pmmp: BanList::isBanned, BanList::getEntry, BanList::getEntries, Server::addWhitelist
+// pmmp: Server::removeWhitelist, Server::isWhitelisted, Server::getWhitelisted
+// pmmp: Server::hasWhitelist
 #[test]
 fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     let ip = IpAddr::from([10, 1, 2, 3]);
@@ -1461,19 +1475,19 @@ fn joins_are_refused_in_pmmp_order_with_the_clients_or_anchors_messages() {
     state.settings.max_players = 2;
     assert_eq!(admit(&state, &someone), Err(Refusal::Full));
     assert_eq!(
-        Refusal::Banned(String::new()).message(),
+        Refusal::Banned(String::new()).to_message(),
         "This server has banned you"
     );
     assert_eq!(
-        Refusal::Banned("spam".to_owned()).message(),
+        Refusal::Banned("spam".to_owned()).to_message(),
         "This server has banned you: spam"
     );
     assert_eq!(
-        Refusal::IpBanned(String::new()).message(),
+        Refusal::IpBanned(String::new()).to_message(),
         "This server has banned your address"
     );
     assert_eq!(
-        Refusal::NotWhitelisted.message(),
+        Refusal::NotWhitelisted.to_message(),
         "disconnectionScreen.notAllowed"
     );
     assert!(matches!(

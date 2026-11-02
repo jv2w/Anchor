@@ -95,7 +95,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The result of a compression or decompression.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Reusable compression state for one algorithm.
@@ -170,8 +170,8 @@ pub(crate) mod tests {
 
     use crate::protocol::Rng;
 
-    const LIMIT: usize = 16 * 1024 * 1024;
-    const MUTATION_LIMIT: usize = 64 * 1024;
+    const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+    const MAX_MUTATION_BYTES: usize = 64 * 1024;
     pub(crate) const ROUND_TRIP_SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, 1024 * 1024];
 
     #[test]
@@ -241,7 +241,7 @@ pub(crate) mod tests {
                 for content in [Content::Random, Content::Repetitive] {
                     let input = sample(len, content, 7);
                     let compressed = compress(compression, &input);
-                    let output = decompress(compression, &compressed, LIMIT).unwrap();
+                    let output = decompress(compression, &compressed, MAX_OUTPUT_BYTES).unwrap();
                     assert_eq!(output, input, "{compression:?} len {len} {content:?}");
                 }
             }
@@ -265,7 +265,7 @@ pub(crate) mod tests {
                 compressor.compress(&input, &mut compressed);
                 assert_eq!(compressed, compress(compression, &input));
                 decompressor
-                    .decompress(&compressed, LIMIT, &mut output)
+                    .decompress(&compressed, MAX_OUTPUT_BYTES, &mut output)
                     .unwrap();
                 assert_eq!(output, input);
             }
@@ -317,10 +317,10 @@ pub(crate) mod tests {
                     }
                 }
                 if decompressor
-                    .decompress(&input, MUTATION_LIMIT, &mut output)
+                    .decompress(&input, MAX_MUTATION_BYTES, &mut output)
                     .is_ok()
                 {
-                    assert!(output.len() <= MUTATION_LIMIT);
+                    assert!(output.len() <= MAX_MUTATION_BYTES);
                 }
             }
         }

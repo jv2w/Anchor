@@ -440,7 +440,10 @@ impl Block {
             None => ("none", ""),
         };
         let mut out = Compound::from([
-            ("components".to_owned(), Value::Compound(self.components())),
+            (
+                "components".to_owned(),
+                Value::Compound(self.to_components()),
+            ),
             (
                 "menu_category".to_owned(),
                 Value::Compound(Compound::from([
@@ -543,7 +546,7 @@ impl Block {
     }
 
     /// Whether it takes random ticks.
-    pub(crate) fn ticks_randomly(&self) -> bool {
+    pub(crate) fn has_random_ticks(&self) -> bool {
         self.random_ticks
     }
 
@@ -569,7 +572,7 @@ impl Block {
     }
 
     /// The block's components: boxes, geometry, materials, light, break time, friction, fire.
-    fn components(&'static self) -> Compound {
+    fn to_components(self) -> Compound {
         let mut components = Compound::new();
         let mut put = |key: &str, value: Compound| {
             components.insert(key.to_owned(), Value::Compound(value));

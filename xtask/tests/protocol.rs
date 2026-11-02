@@ -57,6 +57,7 @@ const LIMITS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/reference/protocol_limits.json"
 );
+/// One mebibyte in bytes.
 const MIB: usize = 1024 * 1024;
 /// The mutation run, made once per test process.
 static MUTATION_RUN: OnceLock<MutationRun> = OnceLock::new();
@@ -555,8 +556,8 @@ fn nested_compounds_with_several_keys_agree_with_gophertunnel() {
             name(*id),
             String::from_utf8_lossy(g)
         );
-        let returned = decode(*id, g).expect("Rust decodes G");
-        assert_eq!(returned, decode(*id, r).expect("Rust decodes R"));
+        let returned = decode(*id, g).expect("the Rust decode of G");
+        assert_eq!(returned, decode(*id, r).expect("the Rust decode of R"));
         assert_eq!(encode(&returned).expect("re-encodes"), *r);
     }
 }
@@ -861,7 +862,10 @@ fn corpus_batch() -> Vec<u8> {
                 id,
                 ..Header::default()
             };
-            (header, decode(id, &samples[0]).expect("P1"))
+            (
+                header,
+                decode(id, &samples[0]).expect("the sample decodes (P1)"),
+            )
         })
         .collect();
     let mut payloads = Vec::new();
@@ -996,7 +1000,7 @@ fn default_packets_round_trip() {
 
 #[test]
 fn trailing_bytes_and_unknown_ids_are_errors() {
-    let packet = Packet::from_id(1).expect("Login");
+    let packet = Packet::from_id(1).expect("the login packet");
     let mut bytes = Vec::new();
     packet.encode(&mut bytes, SHIELD_ID).expect("encodes");
     bytes.push(0);

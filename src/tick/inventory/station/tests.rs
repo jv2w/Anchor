@@ -46,7 +46,7 @@ fn world(stacks: &[Stack]) -> (World, SessionId) {
     for stack in stacks {
         w.give(s, stack.clone());
     }
-    survival::add_experience(w.player(s), 100_000);
+    survival::add_experience(w.player_mut(s), 100_000);
     w.sent(s);
     (w, s)
 }
@@ -326,8 +326,8 @@ fn enchant_request(
 #[test]
 fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
     let (mut w, s, options) = enchanting(3);
-    let level = survival::xp_level(w.player(s));
-    let seed = survival::enchantment_seed(w.player(s));
+    let level = survival::xp_level(w.player_mut(s));
+    let seed = survival::enchantment_seed(w.player_mut(s));
     let before = total_count(&w.state);
     let id = w.next_id(s);
     let actions = enchant_request(&w, s, options[1].0, 1, id);
@@ -346,9 +346,9 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
         1,
         "the second option costs two lapis"
     );
-    assert_eq!(survival::xp_level(w.player(s)), level - 2);
+    assert_eq!(survival::xp_level(w.player_mut(s)), level - 2);
     assert_ne!(
-        survival::enchantment_seed(w.player(s)),
+        survival::enchantment_seed(w.player_mut(s)),
         seed,
         "the seed is drawn again at once, before any later input shows options"
     );
@@ -363,12 +363,12 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
 #[test]
 fn a_spectator_enchanting_spends_the_levels() {
     let (mut w, s, options) = enchanting(3);
-    assert!(w.player(s).set_game_mode(GameMode::Spectator));
-    let level = survival::xp_level(w.player(s));
+    assert!(w.player_mut(s).set_game_mode(GameMode::Spectator));
+    let level = survival::xp_level(w.player_mut(s));
     let id = w.next_id(s);
     let actions = enchant_request(&w, s, options[1].0, 1, id);
     assert!(ok(&w.request_as(s, id, actions)));
-    assert_eq!(survival::xp_level(w.player(s)), level - 2);
+    assert_eq!(survival::xp_level(w.player_mut(s)), level - 2);
 }
 
 #[test]
@@ -478,7 +478,7 @@ fn the_anvil_renames_and_repairs_for_levels() {
     w.open_block(s, AT);
     put(&mut w, s, 0, 1, (C::AnvilInput, 1));
     put(&mut w, s, 1, 5, (C::AnvilMaterial, 2));
-    let level = survival::xp_level(w.player(s));
+    let level = survival::xp_level(w.player_mut(s));
     let expect = anvil::craft(
         &pick,
         &Stack::new(item(Kind::IronIngot), 5),
@@ -507,7 +507,7 @@ fn the_anvil_renames_and_repairs_for_levels() {
     let got = w.inv(s).main.stack(7).clone();
     assert_eq!(got, expect.result);
     assert_eq!(got.custom_name(), "Pick");
-    assert_eq!(survival::xp_level(w.player(s)), level - expect.cost);
+    assert_eq!(survival::xp_level(w.player_mut(s)), level - expect.cost);
     assert_eq!(ui_stack(&w, s, 1).count(), 5 - expect.material_used);
     check_slots(&w.state);
 }
@@ -667,7 +667,7 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
         put(&mut w, s, 0, 1, (C::AnvilInput, 1));
         put(&mut w, s, 1, 1, (C::AnvilMaterial, 2));
         let before = totals(&w.state);
-        let level = survival::xp_level(w.player(s));
+        let level = survival::xp_level(w.player_mut(s));
         let input_id = w.id(s, C::AnvilInput, 1);
         let material_id = w.id(s, C::AnvilMaterial, 2);
         let id = w.next_id(s);
@@ -689,7 +689,7 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
         w.state.tick += 1;
         on_item_stack_request(&mut w.state, s, &request);
         assert_eq!(totals(&w.state), before);
-        assert_eq!(survival::xp_level(w.player(s)), level);
+        assert_eq!(survival::xp_level(w.player_mut(s)), level);
         check_slots(&w.state);
     }
 }
@@ -700,12 +700,12 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
 fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
     let (mut w, s, options) = enchanting(3);
     w.state.settings.experience = false;
-    let level = survival::xp_level(w.player(s));
+    let level = survival::xp_level(w.player_mut(s));
     let id = w.next_id(s);
     let actions = enchant_request(&w, s, options[0].0, 0, id);
     assert!(!ok(&w.request_as(s, id, actions)));
     assert_eq!(ui_stack(&w, s, 0), Stack::new(item(Kind::IronPickaxe), 1));
-    assert_eq!(survival::xp_level(w.player(s)), level);
+    assert_eq!(survival::xp_level(w.player_mut(s)), level);
     let pick = Stack::new(item(Kind::IronPickaxe), 1)
         .with_damage(200)
         .unwrap();
@@ -746,7 +746,7 @@ fn set_ui(w: &mut World, s: SessionId, i: u8, stack: Stack, net: i32) {
         stack,
         id: StackId { net, request: None },
     };
-    assert!(w.player(s).inventory.put(SlotRef::Ui(i), slot));
+    assert!(w.player_mut(s).inventory.put(SlotRef::Ui(i), slot));
 }
 
 /// A stack an ingredient takes.
@@ -797,8 +797,8 @@ fn every_stonecutter_recipe_cuts_and_a_wrong_input_is_refused() {
             &result.with_count(result.count() * 2)
         );
         assert!(ui_stack(&w, s, 0).is_empty());
-        w.player(s).inventory.main.stacks[0] = Stack::EMPTY;
-        w.player(s).inventory.main.ids[0] = StackId::default();
+        w.player_mut(s).inventory.main.stacks[0] = Stack::EMPTY;
+        w.player_mut(s).inventory.main.ids[0] = StackId::default();
         cut += 1;
         if cut == 1 {
             // A stick is no stonecutter input.
@@ -880,8 +880,8 @@ fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
     put(&mut w, s, 3, 1, (C::SmithingTableInput, 51));
     put(&mut w, s, 4, 1, (C::SmithingTableMaterial, 52));
     put(&mut w, s, 5, 1, (C::SmithingTableTemplate, 53));
-    w.player(s).inventory.main.stacks[8] = Stack::EMPTY;
-    w.player(s).inventory.main.ids[8] = StackId::default();
+    w.player_mut(s).inventory.main.stacks[8] = Stack::EMPTY;
+    w.player_mut(s).inventory.main.ids[8] = StackId::default();
     assert!(ok(&smith(&mut w, s, trim)));
     let trimmed = w.inv(s).main.stack(8).clone();
     let trim_tag = trimmed.extra().unwrap().nbt.get("Trim").cloned();

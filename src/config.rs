@@ -1417,7 +1417,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// The result of a settings operation.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A key's place in the file: its table and name. The full path is built only for an error.
@@ -1798,8 +1798,8 @@ mod tests {
             config.general.resource_packs = vec![path.into()];
             let error = config.validate().err().map(|e| e.to_string());
             match error {
-                None => assert!(valid, "{path}"),
                 Some(error) => assert!(!valid && error.contains("not under packs/"), "{error}"),
+                None => assert!(valid, "{path}"),
             }
         }
     }
@@ -1823,7 +1823,8 @@ mod tests {
         let mut config = Config::default();
         assert!(!config.general.force_resources);
         config.general.force_resources = true;
-        let offer = crate::pack::Offer::new(Vec::new(), config.general.force_resources).unwrap();
+        let offer =
+            crate::pack::Offer::new(Vec::new(), config.general.force_resources.into()).unwrap();
         assert!(offer.info().texture_pack_required);
     }
 
@@ -1877,11 +1878,11 @@ old-key = false
             config.general.public_ip = Some(address.parse().unwrap());
             let error = config.validate().err().map(|e| e.to_string());
             match error {
-                None => assert!(valid, "{address}"),
                 Some(error) => assert!(
                     !valid && error.starts_with("`general.public-ip` must be"),
                     "{error}"
                 ),
+                None => assert!(valid, "{address}"),
             }
         }
         config.general.enable_ipv6 = true;

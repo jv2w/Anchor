@@ -84,15 +84,6 @@ impl Sign {
         }
     }
 
-    /// The side the player faces.
-    pub(in crate::tick) fn side_mut(&mut self, front: bool) -> &mut SignText {
-        if front {
-            &mut self.front
-        } else {
-            &mut self.back
-        }
-    }
-
     /// The saved keys (PMMP `writeSaveData`).
     pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
         nbt.insert(sign::FRONT.to_owned(), self.front.write());
@@ -104,40 +95,6 @@ impl Sign {
     pub(in crate::tick) fn spawn(&self, nbt: &mut Compound) {
         self.write(nbt);
         nbt.insert("LockedForEditingBy".to_owned(), Value::Long(-1));
-    }
-}
-
-impl SignText {
-    /// PMMP `Sign::readTextTag` (the lighting bug resolved in a side compound).
-    fn read(mut nbt: Compound) -> Self {
-        let mut side = Self::default();
-        if let Some(Value::String(blob)) = nbt.remove(sign::TEXT) {
-            for (slot, line) in side.lines.iter_mut().zip(crate::tile::blob_lines(&blob)) {
-                line.clone_into(slot);
-            }
-        }
-        if let Some(colour) = take_int(&mut nbt, "SignTextColor") {
-            side.colour = colour;
-        }
-        side.glowing = take_byte(&mut nbt, "IgnoreLighting").is_some_and(|g| g != 0);
-        side
-    }
-
-    /// PMMP `Sign::writeTextTag`.
-    fn write(&self) -> Value {
-        let text = self.lines.join("\n");
-        Value::Compound(Compound::from([
-            (
-                sign::TEXT.to_owned(),
-                Value::String(text.trim_end_matches('\n').to_owned()),
-            ),
-            ("SignTextColor".to_owned(), Value::Int(self.colour)),
-            (
-                "IgnoreLighting".to_owned(),
-                Value::Byte(u8::from(self.glowing)),
-            ),
-            ("PersistFormatting".to_owned(), Value::Byte(1)),
-        ]))
     }
 }
 
@@ -286,6 +243,40 @@ pub(in crate::tick) enum Plant {
         /// Whether clients know it: an inert block, sent as itself.
         shown: bool,
     },
+}
+
+impl SignText {
+    /// PMMP `Sign::readTextTag` (the lighting bug resolved in a side compound).
+    fn read(mut nbt: Compound) -> Self {
+        let mut side = Self::default();
+        if let Some(Value::String(blob)) = nbt.remove(sign::TEXT) {
+            for (slot, line) in side.lines.iter_mut().zip(crate::tile::blob_lines(&blob)) {
+                line.clone_into(slot);
+            }
+        }
+        if let Some(colour) = take_int(&mut nbt, "SignTextColor") {
+            side.colour = colour;
+        }
+        side.glowing = take_byte(&mut nbt, "IgnoreLighting").is_some_and(|g| g != 0);
+        side
+    }
+
+    /// PMMP `Sign::writeTextTag`.
+    fn write(&self) -> Value {
+        let text = self.lines.join("\n");
+        Value::Compound(Compound::from([
+            (
+                sign::TEXT.to_owned(),
+                Value::String(text.trim_end_matches('\n').to_owned()),
+            ),
+            ("SignTextColor".to_owned(), Value::Int(self.colour)),
+            (
+                "IgnoreLighting".to_owned(),
+                Value::Byte(u8::from(self.glowing)),
+            ),
+            ("PersistFormatting".to_owned(), Value::Byte(1)),
+        ]))
+    }
 }
 
 /// A saved item compound of the block entity at `pos` as a stack (custom items through `custom`,

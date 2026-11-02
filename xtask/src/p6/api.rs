@@ -98,6 +98,7 @@ const FACTS_ONLY: [&str; 27] = [
 const FORMS_PACK: &str = "xtask/data/p6/forms-pack";
 /// The pack's folder in the BDS copy's `development_behavior_packs`.
 const FORMS_PACK_DIR: &str = "p6_forms";
+/// The files of the forms pack, relative to [`FORMS_PACK`].
 const FORMS_PACK_FILES: [&str; 2] = ["manifest.json", "scripts/main.js"];
 /// The intended-difference file, relative to the repository root; `import` reads it too.
 pub(crate) const INTENDED: &str = "xtask/data/p6/intended.txt";

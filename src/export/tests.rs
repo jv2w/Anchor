@@ -17,7 +17,9 @@ use crate::storage::seal::seal;
 use crate::storage::{Batch, Start, StartBackup, Storage};
 use crate::world::{BlockPos, Flat, Kind};
 
+/// The name of the world the tests export.
 const NAME: &str = "w";
+/// The seed of the world the tests export.
 const SEED: i64 = 5;
 
 /// A chunk to store: its terrain (`None` for none) and its block entities, entities and

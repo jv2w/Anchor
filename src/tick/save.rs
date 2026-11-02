@@ -149,7 +149,7 @@ impl Saving {
         }
     }
 
-    /// Whether `key` holds a chunk the snapshot in flight holds.
+    /// The start tick of the snapshot in flight if it holds the chunk `key`.
     pub(super) fn holds_chunk(&self, key: &Key) -> Option<u64> {
         self.in_flight
             .as_ref()
@@ -182,12 +182,11 @@ impl Saving {
         h.u64(u64::from(*backup));
         h.u64(u64::from(*check));
         h.u64(match checker {
-            None => 0,
-            Some(Sender::Console) => 1,
             Some(Sender::Player(id)) => id.session().get().wrapping_add(2),
+            Some(Sender::Console) => 1,
+            None => 0,
         });
         match in_flight {
-            None => h.u64(0),
             Some(InFlight {
                 start,
                 chunks,
@@ -210,6 +209,7 @@ impl Saving {
                     h.usize(world);
                 }
             }
+            None => h.u64(0),
         }
         h.usize(offline.len());
         for (key, Offline { data, snapshot }) in offline {
@@ -244,7 +244,7 @@ super::checkpoint::fields!(InFlight {
     start,
     chunks,
     players,
-    worlds
+    worlds,
 });
 super::checkpoint::fields!(Offline { data, snapshot });
 super::checkpoint::variants!(Sender {
@@ -336,7 +336,7 @@ pub(super) fn keep_unloaded(
 /// due with periodic saves off too: they bound memory. `last` takes the final snapshot of a
 /// shutdown whatever is in flight: the save thread commits in order.
 pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Option<Request> {
-    let due = (state.tick >= state.saving.next_due && state.commands.auto_save())
+    let due = (state.tick >= state.saving.next_due && state.commands.is_auto_save_on())
         || state.saving.requested
         || state.chunks.unsaved.len() > MAX_UNSAVED_CHUNKS
         || state.saving.offline.len() > MAX_OFFLINE_PLAYERS
@@ -587,9 +587,6 @@ pub(super) fn load_failed() {
 
 #[cfg(test)]
 mod tests {
-    //! The save events: the player data saves before a snapshot and the world saves after its
-    //! commit.
-
     use super::*;
 
     use std::cell::Cell;
@@ -732,7 +729,7 @@ mod tests {
         state.commands.finish().unwrap();
         if !auto_save {
             crate::tick::command::console(&mut state, "save-off");
-            assert!(!state.commands.auto_save());
+            assert!(!state.commands.is_auto_save_on());
         }
         let pool = crate::runtime::cpu_pool(1).unwrap();
         let mut log = InputLog::default();

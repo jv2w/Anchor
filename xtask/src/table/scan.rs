@@ -12,6 +12,13 @@
 //! other comments and attributes (one or more lines each) may be between it and the `fn`, blank
 //! lines may not.
 
+/// The attribute that starts an alias; `doc(...)` may list other entries too.
+const ATTRIBUTE: &str = "#[doc(";
+/// The comment that gives the item below it the class alias equal to its name.
+const CLASS_COMMENT: &str = "// pmmp-class:";
+/// The comment that lists the aliases a test covers.
+const COMMENT: &str = "// pmmp:";
+
 /// One alias attribute entry on an item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Alias {
@@ -34,12 +41,87 @@ pub(crate) struct Covered {
     pub(crate) test: String,
 }
 
-/// The attribute that starts an alias; `doc(...)` may list other entries too.
-const ATTRIBUTE: &str = "#[doc(";
-/// The comment that gives the item below it the class alias equal to its name.
-const CLASS_COMMENT: &str = "// pmmp-class:";
-/// The comment that lists the aliases a test covers.
-const COMMENT: &str = "// pmmp:";
+/// A position in a source text.
+struct Cursor<'a> {
+    text: &'a str,
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn rest(&self) -> &'a str {
+        self.text.get(self.pos..).unwrap_or_default()
+    }
+
+    fn skip_whitespace(&mut self) {
+        let rest = self.rest();
+        self.pos += rest.len() - rest.trim_start().len();
+    }
+
+    /// Skips whitespace, then consumes `token` if it comes next.
+    fn eat(&mut self, token: &str) -> bool {
+        self.skip_whitespace();
+        let found = self.rest().starts_with(token);
+        if found {
+            self.pos += token.len();
+        }
+        found
+    }
+
+    fn expect(&mut self, token: &str) -> Result<(), String> {
+        if self.eat(token) {
+            Ok(())
+        } else {
+            Err(format!("malformed doc attribute: expected `{token}`"))
+        }
+    }
+
+    fn ident(&mut self) -> &'a str {
+        self.skip_whitespace();
+        let rest = self.rest();
+        let len = rest.find(|c: char| !is_ident(c)).unwrap_or(rest.len());
+        self.pos += len;
+        rest.get(..len).unwrap_or_default()
+    }
+
+    /// A string literal: `"..."` with `\\` and `\"` escapes, or a raw `r"..."`, `r#"..."#`.
+    fn string(&mut self) -> Result<String, String> {
+        self.skip_whitespace();
+        let rest = self.rest();
+        if let Some(raw) = rest.strip_prefix('r') {
+            let hashes = raw.len() - raw.trim_start_matches('#').len();
+            let open = format!("{}\"", "#".repeat(hashes));
+            let close = format!("\"{}", "#".repeat(hashes));
+            let body = raw
+                .strip_prefix(open.as_str())
+                .ok_or("malformed raw string in doc attribute")?;
+            let end = body
+                .find(close.as_str())
+                .ok_or("unterminated raw string in doc attribute")?;
+            let value = body.get(..end).unwrap_or_default().to_owned();
+            self.pos += 1 + open.len() + end + close.len();
+            return Ok(value);
+        }
+        let body = rest
+            .strip_prefix('"')
+            .ok_or("malformed doc attribute: expected a string")?;
+        let mut value = String::new();
+        let mut chars = body.char_indices();
+        while let Some((i, c)) = chars.next() {
+            match c {
+                '"' => {
+                    self.pos += 1 + i + 1;
+                    return Ok(value);
+                }
+                '\\' => match chars.next() {
+                    Some((_, e @ ('\\' | '"'))) => value.push(e),
+                    _ => return Err("unsupported escape in doc alias".to_owned()),
+                },
+                c => value.push(c),
+            }
+        }
+        Err("unterminated string in doc attribute".to_owned())
+    }
+}
 
 /// The aliases of `text` (alias attributes and `// pmmp-class:` comments, by line), or the
 /// errors (`line: message`) of malformed ones.
@@ -258,88 +340,6 @@ fn fn_name(line: &str) -> Option<&str> {
 /// Whether `c` can be in an identifier.
 pub(crate) fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
-}
-
-/// A position in a source text.
-struct Cursor<'a> {
-    text: &'a str,
-    pos: usize,
-}
-
-impl<'a> Cursor<'a> {
-    fn rest(&self) -> &'a str {
-        self.text.get(self.pos..).unwrap_or_default()
-    }
-
-    fn skip_whitespace(&mut self) {
-        let rest = self.rest();
-        self.pos += rest.len() - rest.trim_start().len();
-    }
-
-    /// Skips whitespace, then consumes `token` if it comes next.
-    fn eat(&mut self, token: &str) -> bool {
-        self.skip_whitespace();
-        let found = self.rest().starts_with(token);
-        if found {
-            self.pos += token.len();
-        }
-        found
-    }
-
-    fn expect(&mut self, token: &str) -> Result<(), String> {
-        if self.eat(token) {
-            Ok(())
-        } else {
-            Err(format!("malformed doc attribute: expected `{token}`"))
-        }
-    }
-
-    fn ident(&mut self) -> &'a str {
-        self.skip_whitespace();
-        let rest = self.rest();
-        let len = rest.find(|c: char| !is_ident(c)).unwrap_or(rest.len());
-        self.pos += len;
-        rest.get(..len).unwrap_or_default()
-    }
-
-    /// A string literal: `"..."` with `\\` and `\"` escapes, or a raw `r"..."`, `r#"..."#`.
-    fn string(&mut self) -> Result<String, String> {
-        self.skip_whitespace();
-        let rest = self.rest();
-        if let Some(raw) = rest.strip_prefix('r') {
-            let hashes = raw.len() - raw.trim_start_matches('#').len();
-            let open = format!("{}\"", "#".repeat(hashes));
-            let close = format!("\"{}", "#".repeat(hashes));
-            let body = raw
-                .strip_prefix(open.as_str())
-                .ok_or("malformed raw string in doc attribute")?;
-            let end = body
-                .find(close.as_str())
-                .ok_or("unterminated raw string in doc attribute")?;
-            let value = body.get(..end).unwrap_or_default().to_owned();
-            self.pos += 1 + open.len() + end + close.len();
-            return Ok(value);
-        }
-        let body = rest
-            .strip_prefix('"')
-            .ok_or("malformed doc attribute: expected a string")?;
-        let mut value = String::new();
-        let mut chars = body.char_indices();
-        while let Some((i, c)) = chars.next() {
-            match c {
-                '"' => {
-                    self.pos += 1 + i + 1;
-                    return Ok(value);
-                }
-                '\\' => match chars.next() {
-                    Some((_, e @ ('\\' | '"'))) => value.push(e),
-                    _ => return Err("unsupported escape in doc alias".to_owned()),
-                },
-                c => value.push(c),
-            }
-        }
-        Err("unterminated string in doc attribute".to_owned())
-    }
 }
 
 /// The aliases of a `doc(...)` attribute whose `#[doc(` the cursor is after; entries other than

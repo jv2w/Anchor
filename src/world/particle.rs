@@ -13,35 +13,65 @@
 
 /// PMMP's particle numbers (`ParticleIds`) that the particles use.
 pub(crate) mod id {
+    /// The number of the bubble particle.
     pub(crate) const BUBBLE: i32 = 1;
+    /// The number of the critical hit particle.
     pub(crate) const CRITICAL: i32 = 3;
+    /// The number of the block force field particle.
     pub(crate) const BLOCK_FORCE_FIELD: i32 = 4;
+    /// The number of the smoke particle.
     pub(crate) const SMOKE: i32 = 5;
+    /// The number of the explosion particle.
     pub(crate) const EXPLODE: i32 = 6;
+    /// The number of the flame particle.
     pub(crate) const FLAME: i32 = 8;
+    /// The number of the lava particle.
     pub(crate) const LAVA: i32 = 10;
+    /// The number of the redstone particle.
     pub(crate) const REDSTONE: i32 = 12;
+    /// The number of the item break particle.
     pub(crate) const ITEM_BREAK: i32 = 14;
+    /// The number of the snowball poof particle.
     pub(crate) const SNOWBALL_POOF: i32 = 15;
+    /// The number of the huge explosion particle.
     pub(crate) const HUGE_EXPLODE: i32 = 16;
+    /// The number of the huge explosion seed particle.
     pub(crate) const HUGE_EXPLODE_SEED: i32 = 17;
+    /// The number of the mob flame particle.
     pub(crate) const MOB_FLAME: i32 = 19;
+    /// The number of the heart particle.
     pub(crate) const HEART: i32 = 20;
+    /// The number of the terrain particle.
     pub(crate) const TERRAIN: i32 = 21;
+    /// The number of the town aura particle.
     pub(crate) const TOWN_AURA: i32 = 22;
+    /// The number of the portal particle.
     pub(crate) const PORTAL: i32 = 23;
+    /// The number of the splash particle.
     pub(crate) const SPLASH: i32 = 25;
+    /// The number of the water wake particle.
     pub(crate) const WATER_WAKE: i32 = 27;
+    /// The number of the dripping water particle.
     pub(crate) const DRIP_WATER: i32 = 28;
+    /// The number of the dripping lava particle.
     pub(crate) const DRIP_LAVA: i32 = 29;
+    /// The number of the dust particle.
     pub(crate) const DUST: i32 = 33;
+    /// The number of the mob spell particle.
     pub(crate) const MOB_SPELL: i32 = 34;
+    /// The number of the instant mob spell particle.
     pub(crate) const MOB_SPELL_INSTANTANEOUS: i32 = 36;
+    /// The number of the ink particle.
     pub(crate) const INK: i32 = 37;
+    /// The number of the rain splash particle.
     pub(crate) const RAIN_SPLASH: i32 = 39;
+    /// The number of the angry villager particle.
     pub(crate) const VILLAGER_ANGRY: i32 = 40;
+    /// The number of the happy villager particle.
     pub(crate) const VILLAGER_HAPPY: i32 = 41;
+    /// The number of the enchantment table particle.
     pub(crate) const ENCHANTMENT_TABLE: i32 = 42;
+    /// The number of the sonic explosion particle.
     pub(crate) const SONIC_EXPLOSION: i32 = 85;
 }
 
@@ -276,6 +306,7 @@ fn axis(v: i16, shift: u32, sign: u32) -> i32 {
 mod tests {
     use super::*;
 
+    /// The bit a particle number gets in the packet's event number.
     const MASK: i32 = 0x4000;
 
     fn event(p: Particle) -> (i32, i32) {
@@ -290,7 +321,16 @@ mod tests {
 
     // PMMP's particle numbers (`ParticleIds`) are BDS's: 14 and 15 in BDS's snowball and egg hits
     // (P6), 35 in BDS's potion cloud (P6); gophertunnel's are smaller from 9 on.
-    // pmmp: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle, BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle, DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle, EntityFlameParticle, ExplodeParticle, FlameParticle, HappyVillagerParticle, HeartParticle, HugeExplodeParticle, HugeExplodeSeedParticle, InkParticle, InstantEnchantParticle, ItemBreakParticle, LavaDripParticle, LavaParticle, MobSpawnParticle, PortalParticle, PotionSplashParticle, RainSplashParticle, RedstoneParticle, SmokeParticle, SnowballPoofParticle, SonicExplosionParticle, SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle, Particle
+    // pmmp: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle,
+    // pmmp: BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle,
+    // pmmp: DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle,
+    // pmmp: EntityFlameParticle, ExplodeParticle, FlameParticle, HappyVillagerParticle,
+    // pmmp: HeartParticle, HugeExplodeParticle, HugeExplodeSeedParticle, InkParticle,
+    // pmmp: InstantEnchantParticle, ItemBreakParticle, LavaDripParticle, LavaParticle,
+    // pmmp: MobSpawnParticle, PortalParticle, PotionSplashParticle, RainSplashParticle,
+    // pmmp: RedstoneParticle, SmokeParticle, SnowballPoofParticle, SonicExplosionParticle,
+    // pmmp: SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle,
+    // pmmp: Particle
     #[test]
     fn particles_send_pmmps_events_with_pmmps_numbers() {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();

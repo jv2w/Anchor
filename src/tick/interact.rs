@@ -86,6 +86,7 @@ const MAX_BREAK_DISTANCE: f64 = 16.0;
 const PRESS_GAP_TICKS: u64 = 10;
 /// Interaction reach from the eyes (PMMP `Player::MAX_REACH_DISTANCE_*`).
 const REACH_CREATIVE: f64 = 13.0;
+/// The reach for blocks of a survival player.
 const REACH_SURVIVAL: f64 = 7.0;
 /// An identical click within this many ticks is the client repeating itself (PMMP's 100 ms
 /// "client spam bug" filter); it is ignored, so a doubled packet places once.
@@ -196,10 +197,18 @@ impl Breaking {
         self.last_attacked = None;
     }
 
-    /// Notes a block click at `tick`: a `SimulationTick` click (`repeated`) soon after the last
-    /// one goes on its press; any other click starts a new press.
-    fn note_click(&mut self, tick: u64, repeated: bool) {
-        let held_on = repeated && tick.saturating_sub(self.press.last) <= PRESS_GAP_TICKS;
+    /// Notes a block click at `tick` that starts a new press.
+    fn note_click(&mut self, tick: u64) {
+        self.press = Press {
+            last: tick,
+            raised: false,
+        };
+    }
+
+    /// Notes a `SimulationTick` block click at `tick`: soon after the last click it goes on its
+    /// press.
+    fn note_repeated_click(&mut self, tick: u64) {
+        let held_on = tick.saturating_sub(self.press.last) <= PRESS_GAP_TICKS;
         self.press = Press {
             last: tick,
             raised: held_on && self.press.raised,
@@ -392,7 +401,7 @@ struct Actor {
 
 impl Actor {
     /// Whether items and blocks are used up ([`survival::has_finite_resources`]).
-    fn finite(&self) -> bool {
+    fn has_finite_resources(&self) -> bool {
         survival::has_finite_resources(self.mode)
     }
 
@@ -815,7 +824,7 @@ fn resync(state: &mut State, session: SessionId, positions: impl IntoIterator<It
         let Some(player) = state.players.get_mut(&session) else {
             return;
         };
-        if !player.view.sees(pos.chunk()) || player.view.is_resynced(pos) {
+        if !player.view.can_see(pos.chunk()) || player.view.is_resynced(pos) {
             continue;
         }
         if !player.view.resync(pos) {
@@ -1224,7 +1233,9 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
         debug!(session = session.get(), "break out of reach");
         return false;
     }
-    let counted = timing == Timing::Counted && actor.finite() && state.settings.break_time_check;
+    let counted = timing == Timing::Counted
+        && actor.has_finite_resources()
+        && state.settings.break_time_check;
     if let Some(Hit::Inert(block)) = Hit::at(state, actor.world, pos) {
         return inert::break_block(state, actor, pos, block, counted);
     }
@@ -1379,13 +1390,13 @@ fn use_break_on(
 /// `without_creative_breaking` in the hand.
 fn player_may_break(actor: &Actor, tool: &Stack, name: &str, info: block::BreakInfo) -> bool {
     actor.mode != GameMode::Spectator
-        && (!actor.finite() || info.is_breakable())
+        && (!actor.has_finite_resources() || info.is_breakable())
         && (actor.mode != GameMode::Adventure || adventure_allows(tool, "CanDestroy", name))
         && (actor.mode != GameMode::Creative
             || tool
                 .item()
                 .and_then(crate::item::Type::custom_item)
-                .is_none_or(crate::custom::Item::breaks_in_creative))
+                .is_none_or(crate::custom::Item::can_break_in_creative))
 }
 
 /// Whether a player's break has room for its `count` drops as entities; a break without
@@ -1932,8 +1943,11 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
         return;
     }
     player.breaking.last_click = Some((tick, click));
-    let repeated = TriggerType::try_from(data.trigger_type) == Ok(TriggerType::SimulationTick);
-    player.breaking.note_click(tick, repeated);
+    if TriggerType::try_from(data.trigger_type) == Ok(TriggerType::SimulationTick) {
+        player.breaking.note_repeated_click(tick);
+    } else {
+        player.breaking.note_click(tick);
+    }
     let [x, y, z] = data.clicked_position.map(f64::from);
     let at = Vec3::new(x, y, z);
     let done = held_matches(state, session, data)

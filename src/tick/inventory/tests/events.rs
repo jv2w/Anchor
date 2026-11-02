@@ -59,7 +59,7 @@ fn world_with(listeners: Listeners, stacks: &[Stack]) -> (World, SessionId) {
     for stack in stacks {
         w.give(s, stack.clone());
     }
-    survival::add_experience(w.player(s), 100_000);
+    survival::add_experience(w.player_mut(s), 100_000);
     w.sent(s);
     (w, s)
 }
@@ -688,7 +688,7 @@ fn windows_raise_open_and_close_and_a_cancelled_or_broken_open_stays_closed() {
             format!("open {:?}", Shown::Own)
         ]
     );
-    assert_eq!(w.player(s).window(), Some(Shown::Own));
+    assert_eq!(w.player_mut(s).window(), Some(Shown::Own));
 
     let (mut w, s) = world_with(
         on(|e: &mut InventoryOpen, _: &mut Context<'_>| e.cancel()),
@@ -807,10 +807,10 @@ fn hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot() {
         ],
     );
     on_mob_equipment(&mut w.state, s, &equip(1));
-    assert_eq!(w.player(s).held_slot(), 1);
+    assert_eq!(w.player_mut(s).held_slot(), 1);
     w.sent(s);
     on_mob_equipment(&mut w.state, s, &equip(2));
-    assert_eq!(w.player(s).held_slot(), 1);
+    assert_eq!(w.player_mut(s).held_slot(), 1);
     assert!(
         w.tick_delivered(Vec::new())
             .iter()
@@ -856,10 +856,10 @@ fn a_listener_selecting_another_hotbar_slot_keeps_its_selection() {
         &[],
     );
     on_mob_equipment(&mut w.state, s, &equip(1));
-    assert_eq!(w.player(s).held_slot(), 1);
+    assert_eq!(w.player_mut(s).held_slot(), 1);
     on_mob_equipment(&mut w.state, s, &equip(3));
     assert_eq!(
-        w.player(s).held_slot(),
+        w.player_mut(s).held_slot(),
         0,
         "the slot the listener selected and told the client"
     );

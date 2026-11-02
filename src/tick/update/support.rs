@@ -4,23 +4,23 @@
 //! with nothing under it falls.
 
 use super::props;
-use super::{Cx, plant};
+use super::{Rule, plant};
 use crate::block::{self, Class, Face, Kind, SupportType, Trait, TypeTag};
 use crate::tick::interact;
 use crate::world::BlockPos;
 
 /// Destroys the block with its drops, or makes it fall, if a neighbour change took its support.
-pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn on_nearby(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     if block.has_trait(Trait::Fallable) {
-        fall_check(cx, pos, block);
+        fall_check(rule, pos, block);
         return;
     }
     match block.class() {
-        Class::GlowLichen | Class::ResinClump => multi_face(cx, pos, block),
-        Class::Vine => vine(cx, pos, block),
+        Class::GlowLichen | Class::ResinClump => multi_face(rule, pos, block),
+        Class::Vine => vine(rule, pos, block),
         _ => {
-            if supported(cx, pos, block) == Some(false) {
-                cx.destroy(pos);
+            if supported(rule, pos, block) == Some(false) {
+                rule.destroy(pos);
             }
         }
     }
@@ -29,16 +29,16 @@ pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
 /// Tells whether the block still has what holds it, for the classes that break without it
 /// ([`static_support`], then the attached and two-block ones); `None` for other classes or when
 /// a block the check needs is not loaded.
-pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
-    if let Some(stands) = static_support(block, pos, |p| cx.loaded_block(p)) {
+pub(super) fn supported(rule: &Rule<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
+    if let Some(stands) = static_support(block, pos, |p| rule.loaded_block(p)) {
         return Some(stands);
     }
-    let down = || side(cx, pos, Face::Down);
-    let up = || side(cx, pos, Face::Up);
-    let attached = |face: Face| attached_support(block, face, adjacent(cx, pos, face)?);
+    let down = || side(rule, pos, Face::Down);
+    let up = || side(rule, pos, Face::Up);
+    let attached = |face: Face| attached_support(block, face, adjacent(rule, pos, face)?);
     Some(match block.class() {
         Class::ActivatorRail | Class::DetectorRail | Class::PoweredRail | Class::Rail => {
-            rail(cx, pos, block)?
+            rail(rule, pos, block)?
         }
         Class::AmethystCluster
         | Class::ItemFrame
@@ -58,7 +58,7 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
                 _ => &[facing, facing.opposite()],
             };
             for &face in faces {
-                if adjacent(cx, pos, face)? == SupportType::None {
+                if adjacent(rule, pos, face)? == SupportType::None {
                     return Some(false);
                 }
             }
@@ -85,9 +85,9 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
                 ) && props::facing(u)
                     .is_some_and(|f| props::Axis::of(f) == props::Axis::of(facing)))
         }
-        Class::CocoaBlock => plant::cocoa_attached(cx, pos, block)?,
+        Class::CocoaBlock => plant::cocoa_attached(rule, pos, block)?,
         Class::CopperDoor | Class::Door | Class::WoodenDoor => {
-            adjacent(cx, pos, Face::Down)?.has_edge_support() || down()?.is(Class::Door)
+            adjacent(rule, pos, Face::Down)?.has_edge_support() || down()?.is(Class::Door)
         }
         Class::CopperLantern | Class::Lantern => {
             let face = if props::flag(block, "hanging")? {
@@ -99,7 +99,7 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
         }
         Class::DoublePitcherCrop | Class::DoublePlant | Class::DoubleTallGrass => {
             let top = props::flag(block, "upper_block_bit")?;
-            let other = side(cx, pos, if top { Face::Down } else { Face::Up })?;
+            let other = side(rule, pos, if top { Face::Down } else { Face::Up })?;
             let valid = other.is(Class::DoublePlant)
                 && other.kind() == block.kind()
                 && props::flag(other, "upper_block_bit")? != top;
@@ -110,18 +110,18 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
         Class::Lever => attached(props::lever_facing(block)?.opposite())?,
         Class::OminousWallBanner | Class::WallBanner => {
             let face = props::facing(block)?.opposite();
-            side(cx, pos, face)?.is_solid()
+            side(rule, pos, face)?.is_solid()
         }
         Class::SmallDripleaf => {
             let top = props::flag(block, "upper_block_bit")?;
             if !top && down()?.kind() != Kind::Clay {
                 return Some(false);
             }
-            side(cx, pos, if top { Face::Down } else { Face::Up })?.kind() == block.kind()
+            side(rule, pos, if top { Face::Down } else { Face::Up })?.kind() == block.kind()
         }
         Class::WallSign => {
             let face = props::facing(block)?.opposite();
-            side(cx, pos, face)?.kind() != Kind::Air
+            side(rule, pos, face)?.kind() != Kind::Air
         }
         _ => return None,
     })
@@ -284,14 +284,18 @@ pub(in crate::tick) fn attached_support(
 
 /// Tells whether a rail holds: it needs edge support below, and the block it climbs onto must
 /// have edge support on top (PMMP `BaseRail::onNearbyBlockChange`).
-fn rail(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
-    if !adjacent(cx, pos, Face::Down)?.has_edge_support() {
+fn rail(rule: &Rule<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
+    if !adjacent(rule, pos, Face::Down)?.has_edge_support() {
         return Some(false);
     }
     let Some(ascend) = interact::rail_ascent(props::int(block, "rail_direction")?) else {
         return Some(true);
     };
-    Some(side(cx, pos, ascend)?.support(Face::Up).has_edge_support())
+    Some(
+        side(rule, pos, ascend)?
+            .support(Face::Up)
+            .has_edge_support(),
+    )
 }
 
 /// Tells whether a chorus flower stands (PMMP `ChorusFlower::canBeSupportedAt`), with `side`
@@ -339,19 +343,19 @@ fn chorus_plant(pos: BlockPos, get: &impl Fn(BlockPos) -> Option<block::State>) 
 }
 
 /// Makes a block with a replaceable block under it fall (PMMP `FallableTrait`).
-pub(super) fn fall_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if side(cx, pos, Face::Down).is_some_and(block::State::can_be_replaced) {
-        cx.fall(pos, block);
+pub(super) fn fall_check(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
+    if side(rule, pos, Face::Down).is_some_and(block::State::can_be_replaced) {
+        rule.fall(pos, block);
     }
 }
 
 /// Keeps the faces of vines with a solid block behind them or a vine on that face above (PMMP
 /// `Vine::onNearbyBlockChange`).
-fn vine(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn vine(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(faces) = props::faces(block) else {
         return;
     };
-    let Some(up) = side(cx, pos, Face::Up) else {
+    let Some(up) = side(rule, pos, Face::Up) else {
         return;
     };
     let above = if up.class() == Class::Vine {
@@ -364,56 +368,56 @@ fn vine(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         if above.contains(&face) {
             continue;
         }
-        let Some(behind) = side(cx, pos, face) else {
+        let Some(behind) = side(rule, pos, face) else {
             return;
         };
         if !behind.is_solid() {
             bits &= !props::vine_bit(face).unwrap_or(0);
         }
     }
-    finish_faces(cx, pos, block, "vine_direction_bits", bits);
+    finish_faces(rule, pos, block, "vine_direction_bits", bits);
 }
 
 /// Keeps the faces of glow lichen and resin with full support (PMMP `MultiAnySupportTrait`).
-fn multi_face(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+fn multi_face(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some(faces) = props::faces(block) else {
         return;
     };
     let mut bits = props::int(block, "multi_face_direction_bits").unwrap_or(0);
     for face in faces {
-        let Some(support) = adjacent(cx, pos, face) else {
+        let Some(support) = adjacent(rule, pos, face) else {
             return;
         };
         if support != SupportType::Full {
             bits &= !props::multi_face_bit(face);
         }
     }
-    finish_faces(cx, pos, block, "multi_face_direction_bits", bits);
+    finish_faces(rule, pos, block, "multi_face_direction_bits", bits);
 }
 
 /// Sets the remaining faces, or destroys the block without any.
-fn finish_faces(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, name: &str, bits: i32) {
+fn finish_faces(rule: &mut Rule<'_>, pos: BlockPos, block: block::State, name: &str, bits: i32) {
     if Some(bits) == props::int(block, name) {
         return;
     }
     if bits == 0 {
-        cx.destroy(pos);
+        rule.destroy(pos);
     } else if let Some(next) = props::with_int(block, name, bits) {
-        cx.set(pos, next);
+        rule.set(pos, next);
     }
 }
 
 /// Releases a pressed button on its scheduled update (PMMP `Button::onScheduledUpdate`).
-pub(super) fn release_button(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn release_button(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     if props::flag(block, "button_pressed_bit") == Some(true)
         && let Some(released) = props::with_flag(block, "button_pressed_bit", false)
     {
-        cx.set(pos, released);
+        rule.set(pos, released);
     }
 }
 
 /// Makes a bed's foot follow its head's occupied bit (PMMP `Bed::onNearbyBlockChange`).
-pub(super) fn bed_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+pub(super) fn bed_on_nearby(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let (Some(head), Some(facing), Some(occupied)) = (
         props::flag(block, "head_piece_bit"),
         props::facing(block),
@@ -424,7 +428,7 @@ pub(super) fn bed_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State)
     if head {
         return;
     }
-    let Some(other) = side(cx, pos, facing) else {
+    let Some(other) = side(rule, pos, facing) else {
         return;
     };
     if other.class() == Class::Bed
@@ -434,20 +438,20 @@ pub(super) fn bed_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State)
         && theirs != occupied
         && let Some(next) = props::with_flag(block, "occupied_bit", theirs)
     {
-        cx.set(pos, next);
+        rule.set(pos, next);
     }
 }
 
 /// Reads the support the block on the `face` side of `pos` gives toward `pos` (PMMP
-/// `getAdjacentSupportType`), or `None` if it is not loaded ([`Cx::loaded_block`]).
-pub(super) fn adjacent(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<SupportType> {
-    Some(side(cx, pos, face)?.support(face.opposite()))
+/// `getAdjacentSupportType`), or `None` if it is not loaded ([`Rule::loaded_block`]).
+pub(super) fn adjacent(rule: &Rule<'_>, pos: BlockPos, face: Face) -> Option<SupportType> {
+    Some(side(rule, pos, face)?.support(face.opposite()))
 }
 
 /// Reads the block on the `face` side of `pos`, or `None` if it is not loaded
-/// ([`Cx::loaded_block`]).
-pub(super) fn side(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<block::State> {
-    cx.loaded_block(pos.step(face)?)
+/// ([`Rule::loaded_block`]).
+pub(super) fn side(rule: &Rule<'_>, pos: BlockPos, face: Face) -> Option<block::State> {
+    rule.loaded_block(pos.step(face)?)
 }
 
 /// Tells whether the block has the dirt or mud tag (PMMP `BlockTypeTags::DIRT`, `MUD`).

@@ -316,11 +316,11 @@ mod tests {
         // Unbreaking III spares about three of four points.
         let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, 3);
         let mut taken = 0;
-        for seed in 0..4_000 {
+        for seed in 0..4000 {
             let mut rng = Random::new(seed, 0, 0);
             taken += u32::from(damage(&on, &tough, 1, &mut rng).damage());
         }
-        assert!((800..1_200).contains(&taken), "{taken}");
+        assert!((800..1200).contains(&taken), "{taken}");
     }
 
     #[test]

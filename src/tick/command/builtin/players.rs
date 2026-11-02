@@ -18,42 +18,73 @@ use crate::tick::player::is_valid_address;
 use crate::tick::{Context, TICK, inventory};
 use crate::world::BlockPos;
 
+/// The failure line of `/clear` that found nothing to clear.
 const CLEAR_FAILURE: Msg = Msg::client("commands.clear.failure.no.items");
+/// The success line of `/clear`.
 const CLEAR_SUCCESS: Msg = Msg::client("commands.clear.success");
+/// The result line of `/clear` with a max count of 0.
 const CLEAR_TESTING: Msg = Msg::client("commands.clear.testing");
 /// The port `/transferserver` uses when none is given.
 const DEFAULT_PORT: i32 = 19_132;
+/// The failure line of `/effect` for a player without that effect.
 const EFFECT_NOT_ACTIVE: Msg = Msg::client("commands.effect.failure.notActive");
+/// The failure line of `/effect` for a player without any effect.
 const EFFECT_NOT_ACTIVE_ALL: Msg = Msg::client("commands.effect.failure.notActive.all");
+/// The success line of `/effect` that takes one effect away.
 const EFFECT_REMOVED: Msg = Msg::client("commands.effect.success.removed");
+/// The success line of `/effect` that takes every effect away.
 const EFFECT_REMOVED_ALL: Msg = Msg::client("commands.effect.success.removed.all");
+/// The success line of `/effect` that gives an effect for some seconds.
 const EFFECT_SUCCESS: Msg = Msg::client("commands.effect.success");
+/// The success line of `/effect` that gives an effect with no end.
 const EFFECT_SUCCESS_INFINITE: Msg = Msg::client("commands.effect.success.infinite");
+/// The failure line of `/enchant` for an item that cannot take the enchantment.
 const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
+/// The failure line of `/enchant` for an empty hand.
 const ENCHANT_NO_ITEM: Msg = Msg::client("commands.enchant.noItem");
+/// The success line of `/enchant`.
 const ENCHANT_SUCCESS: Msg = Msg::client("commands.enchant.success");
+/// What a player sees when its game mode changes.
 const GAME_MODE_CHANGED: Msg = Msg::client("gameMode.changed");
+/// The failure line of `/gamemode` for a player already in the mode.
 const GAMEMODE_FAILURE: Msg = Msg::own("The game mode of {%0} stays as it is");
+/// The success line of `/gamemode` for another player.
 const GAMEMODE_SUCCESS_OTHER: Msg = Msg::client("commands.gamemode.success.other");
+/// The success line of `/gamemode` for the sender.
 const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self");
+/// The success line of `/give`.
 const GIVE_SUCCESS: Msg = Msg::client("commands.give.success");
+/// What a player sees when `/give` gives it items.
 const GIVE_SUCCESS_RECIPIENT: Msg = Msg::client("commands.give.successRecipient");
+/// The success line of `/kill`.
 const KILL_SUCCESSFUL: Msg = Msg::client("commands.kill.successful");
 /// The longest `/give` amount (PMMP `GiveCommand`).
 const MAX_GIVE: i32 = 32_767;
+/// What a player sees of a whisper to it.
 const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
+/// What the sender sees of its whisper.
 const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
+/// The failure line of `/tell` that names only the sender.
 const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
+/// The success line of `/spawnpoint`.
 const SPAWNPOINT_SUCCESS: Msg = Msg::client("commands.spawnpoint.success.single");
+/// The success line of `/title`.
 const TITLE_SUCCESS: Msg = Msg::client("commands.title.success");
+/// The success line of `/tp` to a player.
 const TP_SUCCESS: Msg = Msg::client("commands.tp.success");
+/// The success line of `/tp` to coordinates.
 const TP_SUCCESS_COORDINATES: Msg = Msg::client("commands.tp.success.coordinates");
+/// What a player sees when `/tp` moves it.
 const TP_SUCCESS_VICTIM: Msg = Msg::client("commands.tp.successVictim");
 /// How whispers look: aqua, italic.
 const WHISPER_PREFIX: &str = "§b§o";
+/// The success line of `/xp` that gives points.
 const XP_SUCCESS: Msg = Msg::client("commands.xp.success");
+/// The success line of `/xp` that gives levels.
 const XP_SUCCESS_LEVELS: Msg = Msg::client("commands.xp.success.levels");
+/// The success line of `/xp` that takes levels.
 const XP_TAKEN_LEVELS: Msg = Msg::client("commands.xp.success.negative.levels");
+/// The failure line of `/xp` that takes points.
 const XP_WITHDRAW: Msg = Msg::client("commands.xp.failure.widthdrawXp");
 
 /// A slot `/clear` empties, in PMMP's order: the inventory, the cursor, the armour, the off hand.

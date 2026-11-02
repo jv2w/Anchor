@@ -12,7 +12,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 
-use super::{BOTTOM, Channel, ChunkLight, FULL, Nibbles, sky_height};
+use super::{BOTTOM, Channel, FULL, Levels, Nibbles, sky_height};
 use crate::tick::checkpoint::{self, Codec, Error, Reader, Writer};
 use crate::world::chunk::{COLUMNS, SUB_CHUNKS, column, split_y};
 use crate::world::paletted::offset;
@@ -94,7 +94,7 @@ impl Population {
     /// Finishes the population into the light and the blocks noted since the snapshot.
     ///
     /// Uniform sub-chunks of the light take no memory.
-    pub(crate) fn finish(self) -> (ChunkLight, Vec<BlockPos>) {
+    pub(crate) fn finish(self) -> (Levels, Vec<BlockPos>) {
         let levels = self
             .buffers
             .map(|buffers| buffers.levels)
@@ -104,7 +104,7 @@ impl Population {
                 .get(start..start + SUB_NODES)
                 .map_or(Nibbles::Uniform(0), Nibbles::from_values)
         };
-        let light = ChunkLight {
+        let light = Levels {
             arrays: Channel::ALL.map(|channel| {
                 let base = channel as usize * NODES;
                 std::array::from_fn(|sub| pack(base + sub * SUB_NODES))
@@ -140,7 +140,7 @@ impl Population {
         for (column_index, &height) in self.heights.iter().enumerate() {
             let height = i32::from(height);
             let (x, z) = local(column_index);
-            for ly in 0..16u8 {
+            for ly in 0..16_u8 {
                 let at = usize::from(offset(x, ly, z));
                 let y = base + i32::from(ly);
                 buffers.levels[start + at] = if y >= height {

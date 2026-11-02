@@ -759,7 +759,7 @@ mod tests {
                 .map(|s| u32::from(s.count()))
                 .sum()
         };
-        for seed in 0..2_000 {
+        for seed in 0..2000 {
             let mut rng = Random::new(seed, 1, 2);
             let d = drops(ripe(Kind::Wheat), &Stack::EMPTY, &mut rng);
             assert_eq!(count(&d, item::Kind::Wheat), 1);
@@ -791,7 +791,7 @@ mod tests {
         let ore = Kind::DiamondOre.default_state();
         let mut plain = 0_u32;
         let mut lucky = 0_u32;
-        for seed in 0..1_000 {
+        for seed in 0..1000 {
             let mut rng = Random::new(seed, 0, 0);
             plain += u32::from(drops(ore, &Stack::new(pickaxe, 1), &mut rng).items[0].count());
             let mut rng = Random::new(seed, 0, 0);

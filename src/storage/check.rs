@@ -405,7 +405,7 @@ impl Check {
                         (seal::verify(key.value(), value.value()).err(), false)
                     }
                     Some(Err(e)) => {
-                        let e = Error::from(e);
+                        let e = Error::database(e);
                         if !e.is_damage() {
                             self.failure = Some(format!("table {name}: {e}"));
                             self.tables.clear();
@@ -468,7 +468,7 @@ pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
     // Before the open below: reading the mark opens the file read-only, which its lock refuses.
     let checked = super::checks(world, check);
     if !checked && check == IntegrityCheck::AfterUncleanShutdown {
-        debug!(file = %world.display(), "data file closed normally; its integrity is not checked");
+        debug!(path = %world.display(), "data file closed normally; its integrity is not checked");
     }
     let Some(mut db) = open_overlay(world)? else {
         return Ok(());
@@ -544,6 +544,7 @@ pub(super) mod tests {
         pub(crate) static WRITTEN_PEAK: Cell<usize> = const { Cell::new(0) };
     }
 
+    /// The table the tests fill.
     const TABLE: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("values");
 
     /// Values `from..from + n` of 64 KiB under their number, each filled with its low byte.

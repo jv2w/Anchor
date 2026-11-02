@@ -1210,6 +1210,7 @@ fn value(modifiers: &Modifiers, modifier: DamageModifier) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::{AIR, DIRT};
     use crate::effect::Type;
     use crate::event::fixtures::{POS, entity, player, sticks};

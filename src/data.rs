@@ -73,9 +73,6 @@ pub enum Error {
     },
 }
 
-/// A result with the data [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -100,6 +97,9 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A result with the module's [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 /// How the engine makes, saves and loads a registered type without knowing it.
 pub(crate) struct Codec {
     /// The name it is saved under.
@@ -107,7 +107,7 @@ pub(crate) struct Codec {
     /// The registered type.
     pub(crate) type_id: TypeId,
     default: fn() -> Value,
-    encode: fn(&Value, usize) -> std::result::Result<Vec<u8>, JsonError>,
+    encode: fn(&Value, usize) -> Result<Vec<u8>, JsonError>,
     decode: fn(&[u8]) -> serde_json::Result<Value>,
 }
 
@@ -141,11 +141,7 @@ impl Codec {
     }
 
     /// The JSON of `value`, at most `limit` bytes, which deserializes back into the type.
-    pub(crate) fn encode(
-        &self,
-        value: &Value,
-        limit: usize,
-    ) -> std::result::Result<Vec<u8>, JsonError> {
+    pub(crate) fn encode(&self, value: &Value, limit: usize) -> Result<Vec<u8>, JsonError> {
         (self.encode)(value, limit)
     }
 
@@ -235,7 +231,7 @@ pub(crate) fn check_name(name: &str) -> Result<()> {
 pub(crate) fn to_json<T: Serialize + ?Sized>(
     value: &T,
     limit: usize,
-) -> std::result::Result<Vec<u8>, JsonError> {
+) -> Result<Vec<u8>, JsonError> {
     let mut out = Capped {
         bytes: Vec::new(),
         limit,

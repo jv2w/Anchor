@@ -346,7 +346,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// A login result.
+/// A result with the module's [`enum@Error`].
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Verifies a Login packet's connection request.

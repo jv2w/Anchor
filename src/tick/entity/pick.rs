@@ -125,6 +125,7 @@ mod tests {
         static NOTES: std::cell::Cell<Vec<String>> = const { std::cell::Cell::new(Vec::new()) };
     }
 
+    /// The world the tests' entities live in.
     const WORLD: world::Id = world::Id::DEFAULT;
 
     fn item(kind: item::Kind) -> Stack {
@@ -142,7 +143,9 @@ mod tests {
         h.state.rules.entities.get(id).unwrap().picked_item()
     }
 
-    // pmmp: Entity::getPickedItem, entity\object\EndCrystal::getPickedItem, FallingBlock::getPickedItem, Painting::getPickedItem, PrimedTNT::getPickedItem, Villager::getPickedItem, Zombie::getPickedItem
+    // pmmp: Entity::getPickedItem, entity\object\EndCrystal::getPickedItem,
+    // pmmp: FallingBlock::getPickedItem, Painting::getPickedItem, PrimedTNT::getPickedItem,
+    // pmmp: Villager::getPickedItem, Zombie::getPickedItem
     #[test]
     fn each_kind_gives_pmmps_picked_item() {
         let mut h = Harness::new(1);
@@ -212,7 +215,7 @@ mod tests {
         h.step(vec![i]);
     }
 
-    fn player(h: &mut Harness) -> &mut crate::tick::Player {
+    fn player_mut(h: &mut Harness) -> &mut crate::tick::Player {
         h.state.players.get_mut(&SessionId::new(1)).unwrap()
     }
 
@@ -228,25 +231,31 @@ mod tests {
         let (_, zombie) = zombie(&mut h);
         // Survival without an egg: nothing.
         pick(&mut h, zombie);
-        assert!(player(&mut h).inventory.held().is_empty());
+        assert!(player_mut(&mut h).inventory.held().is_empty());
         // Survival with an egg outside the hotbar: swapped into the held slot.
-        inventory::set_main(player(&mut h), 20, egg());
+        inventory::set_main(player_mut(&mut h), 20, egg());
         pick(&mut h, zombie);
-        assert_eq!(player(&mut h).inventory.held(), &egg());
-        assert!(player(&mut h).inventory.main_stack(20).unwrap().is_empty());
+        assert_eq!(player_mut(&mut h).inventory.held(), &egg());
+        assert!(
+            player_mut(&mut h)
+                .inventory
+                .main_stack(20)
+                .unwrap()
+                .is_empty()
+        );
         // Creative: a new egg, but none more if it has one.
-        inventory::set_held(player(&mut h), Stack::EMPTY);
-        assert!(player(&mut h).set_game_mode(GameMode::Creative));
+        inventory::set_held(player_mut(&mut h), Stack::EMPTY);
+        assert!(player_mut(&mut h).set_game_mode(GameMode::Creative));
         h.step(Vec::new());
         pick(&mut h, zombie);
-        assert_eq!(player(&mut h).inventory.held(), &egg());
+        assert_eq!(player_mut(&mut h).inventory.held(), &egg());
         pick(&mut h, zombie);
         let eggs = (0..36)
-            .filter(|&s| player(&mut h).inventory.main_stack(s) == Some(&egg()))
+            .filter(|&s| player_mut(&mut h).inventory.main_stack(s) == Some(&egg()))
             .count();
         assert_eq!(eggs, 1);
         // An unknown entity, or one that gives nothing: nothing.
-        inventory::set_held(player(&mut h), Stack::EMPTY);
+        inventory::set_held(player_mut(&mut h), Stack::EMPTY);
         pick(&mut h, 999_999);
         let guide = Context {
             state: &mut h.state,
@@ -256,7 +265,7 @@ mod tests {
         h.step(Vec::new());
         let guide = h.state.rules.entities.get(guide).unwrap().runtime_id;
         pick(&mut h, guide);
-        assert!(player(&mut h).inventory.held().is_empty());
+        assert!(player_mut(&mut h).inventory.held().is_empty());
     }
 
     /// Writes down `note`.
@@ -273,7 +282,9 @@ mod tests {
         NOTES.with(std::cell::Cell::take)
     }
 
-    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity, PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel, PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
+    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity,
+    // pmmp: PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel,
+    // pmmp: PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
     #[test]
     fn an_entity_pick_listener_sees_the_pick_and_may_cancel_it() {
         let mut l = Listeners::default();
@@ -304,12 +315,12 @@ mod tests {
         });
         let mut h = Harness::with_listeners(1, l);
         h.spawn(1, standing(0.0, 0.0));
-        assert!(player(&mut h).set_game_mode(GameMode::Creative));
+        assert!(player_mut(&mut h).set_game_mode(GameMode::Creative));
         let (id, zombie) = zombie(&mut h);
         pick(&mut h, zombie);
-        assert!(player(&mut h).inventory.held().is_empty(), "cancelled");
+        assert!(player_mut(&mut h).inventory.held().is_empty(), "cancelled");
         pick(&mut h, zombie);
-        assert_eq!(player(&mut h).inventory.held(), &egg());
+        assert_eq!(player_mut(&mut h).inventory.held(), &egg());
         let me = crate::player::Id::new(SessionId::new(1));
         let note = format!("{:?}", (me, id, &egg()));
         assert_eq!(notes(), [note.clone(), note, format!("{:?}", egg())]);
@@ -326,9 +337,9 @@ mod tests {
         );
         let mut h = Harness::with_listeners(1, l);
         h.spawn(1, standing(0.0, 0.0));
-        assert!(player(&mut h).set_game_mode(GameMode::Creative));
+        assert!(player_mut(&mut h).set_game_mode(GameMode::Creative));
         let (_, zombie) = zombie(&mut h);
         pick(&mut h, zombie);
-        assert!(player(&mut h).inventory.held().is_empty());
+        assert!(player_mut(&mut h).inventory.held().is_empty());
     }
 }

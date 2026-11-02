@@ -15,6 +15,17 @@ use crate::protocol::packet::{
     LevelEvent as LevelEventPacket, LevelSoundEvent as LevelSoundEventPacket, Packet,
 };
 
+/// The calls of the goat horn types, in `GoatHornType` order (PMMP `GoatHornSound`).
+const GOAT_CALLS: [SoundEvent; 8] = [
+    SoundEvent::GoatCall0,
+    SoundEvent::GoatCall1,
+    SoundEvent::GoatCall2,
+    SoundEvent::GoatCall3,
+    SoundEvent::GoatCall4,
+    SoundEvent::GoatCall5,
+    SoundEvent::GoatCall6,
+    SoundEvent::GoatCall7,
+];
 /// The entity type of a sound with no entity (PMMP `LevelSoundEventPacket::nonActorSound`).
 const NO_ENTITY: &str = ":";
 /// The entity type of a player (PMMP `Human::getNetworkTypeId`): the one PMMP gives hit and throw
@@ -619,20 +630,10 @@ enum Sent {
 /// The call of a goat horn type (PMMP `GoatHornSound`): its meta in `GoatHornType` order; the
 /// first for another item.
 fn horn_call(horn: item::Type) -> SoundEvent {
-    const CALLS: [SoundEvent; 8] = [
-        SoundEvent::GoatCall0,
-        SoundEvent::GoatCall1,
-        SoundEvent::GoatCall2,
-        SoundEvent::GoatCall3,
-        SoundEvent::GoatCall4,
-        SoundEvent::GoatCall5,
-        SoundEvent::GoatCall6,
-        SoundEvent::GoatCall7,
-    ];
     if horn.kind() != Some(item::Kind::GoatHorn) {
         return SoundEvent::GoatCall0;
     }
-    CALLS
+    GOAT_CALLS
         .get(usize::from(horn.meta()))
         .copied()
         .unwrap_or(SoundEvent::GoatCall0)
@@ -700,7 +701,34 @@ mod tests {
         }
     }
 
-    // pmmp: AmethystBlockChimeSound, AnvilBreakSound, AnvilFallSound, AnvilUseSound, ArmorEquipChainSound, ArmorEquipCopperSound, ArmorEquipDiamondSound, ArmorEquipGenericSound, ArmorEquipGoldSound, ArmorEquipIronSound, ArmorEquipLeatherSound, ArmorEquipNetheriteSound, ArrowHitSound, BarrelCloseSound, BarrelOpenSound, BellRingSound, BlastFurnaceSound, BlazeShootSound, BlockBreakSound, BlockPlaceSound, BlockPunchSound, BottleEmptySound, BowShootSound, BucketEmptyLavaSound, BucketEmptyWaterSound, BucketFillLavaSound, BucketFillWaterSound, BurpSound, CampfireSound, CauldronAddDyeSound, CauldronCleanItemSound, CauldronDyeItemSound, CauldronEmptyLavaSound, CauldronEmptyPotionSound, CauldronEmptyPowderSnowSound, CauldronEmptyWaterSound, CauldronFillLavaSound, CauldronFillPotionSound, CauldronFillPowderSnowSound, CauldronFillWaterSound, ChestCloseSound, ChestOpenSound, ChorusFlowerDieSound, ChorusFlowerGrowSound, ClickSound, CopperWaxApplySound, CopperWaxRemoveSound, DoorBumpSound, DoorCrashSound, DoorSound, DripleafTiltDownSound, DripleafTiltUpSound, DyeUseSound, EnderChestCloseSound, EnderChestOpenSound, EndermanTeleportSound, EntityAttackSound, EntityAttackNoDamageSound, ExplodeSound, FireExtinguishSound, FireworkCrackleSound, FireworkExplosionSound, FireworkLargeExplosionSound, FireworkLaunchSound, FizzSound, FlintSteelSound, FurnaceSound, GhastShootSound, GhastSound, GlowBerriesPickSound, IceBombHitSound, IgniteSound, InkSacUseSound, ItemBreakSound, ItemFrameAddItemSound, ItemFrameRemoveItemSound, ItemFrameRotateItemSound, ItemUseOnBlockSound, LaunchSound, LecternPlaceBookSound, PaintingPlaceSound, PopSound, PotionFinishBrewingSound, PotionSplashSound, RecordStopSound, RespawnAnchorChargeSound, RespawnAnchorDepleteSound, RespawnAnchorSetSpawnSound, ScrapeSound, ShulkerBoxCloseSound, ShulkerBoxOpenSound, SmokerSound, SweetBerriesPickSound, ThrowSound, TotemUseSound, TridentHitBlockSound, TridentHitEntitySound, TridentThrowSound, WaterSplashSound, XpCollectSound, XpLevelUpSound, Sound
+    // pmmp: AmethystBlockChimeSound, AnvilBreakSound, AnvilFallSound, AnvilUseSound,
+    // pmmp: ArmorEquipChainSound, ArmorEquipCopperSound, ArmorEquipDiamondSound,
+    // pmmp: ArmorEquipGenericSound, ArmorEquipGoldSound, ArmorEquipIronSound,
+    // pmmp: ArmorEquipLeatherSound, ArmorEquipNetheriteSound, ArrowHitSound, BarrelCloseSound,
+    // pmmp: BarrelOpenSound, BellRingSound, BlastFurnaceSound, BlazeShootSound,
+    // pmmp: BlockBreakSound, BlockPlaceSound, BlockPunchSound, BottleEmptySound, BowShootSound,
+    // pmmp: BucketEmptyLavaSound, BucketEmptyWaterSound, BucketFillLavaSound,
+    // pmmp: BucketFillWaterSound, BurpSound, CampfireSound, CauldronAddDyeSound,
+    // pmmp: CauldronCleanItemSound, CauldronDyeItemSound, CauldronEmptyLavaSound,
+    // pmmp: CauldronEmptyPotionSound, CauldronEmptyPowderSnowSound, CauldronEmptyWaterSound,
+    // pmmp: CauldronFillLavaSound, CauldronFillPotionSound, CauldronFillPowderSnowSound,
+    // pmmp: CauldronFillWaterSound, ChestCloseSound, ChestOpenSound, ChorusFlowerDieSound,
+    // pmmp: ChorusFlowerGrowSound, ClickSound, CopperWaxApplySound, CopperWaxRemoveSound,
+    // pmmp: DoorBumpSound, DoorCrashSound, DoorSound, DripleafTiltDownSound,
+    // pmmp: DripleafTiltUpSound, DyeUseSound, EnderChestCloseSound, EnderChestOpenSound,
+    // pmmp: EndermanTeleportSound, EntityAttackSound, EntityAttackNoDamageSound, ExplodeSound,
+    // pmmp: FireExtinguishSound, FireworkCrackleSound, FireworkExplosionSound,
+    // pmmp: FireworkLargeExplosionSound, FireworkLaunchSound, FizzSound, FlintSteelSound,
+    // pmmp: FurnaceSound, GhastShootSound, GhastSound, GlowBerriesPickSound, IceBombHitSound,
+    // pmmp: IgniteSound, InkSacUseSound, ItemBreakSound, ItemFrameAddItemSound,
+    // pmmp: ItemFrameRemoveItemSound, ItemFrameRotateItemSound, ItemUseOnBlockSound,
+    // pmmp: LaunchSound, LecternPlaceBookSound, PaintingPlaceSound, PopSound,
+    // pmmp: PotionFinishBrewingSound, PotionSplashSound, RecordStopSound,
+    // pmmp: RespawnAnchorChargeSound, RespawnAnchorDepleteSound, RespawnAnchorSetSpawnSound,
+    // pmmp: ScrapeSound, ShulkerBoxCloseSound, ShulkerBoxOpenSound, SmokerSound,
+    // pmmp: SweetBerriesPickSound, ThrowSound, TotemUseSound, TridentHitBlockSound,
+    // pmmp: TridentHitEntitySound, TridentThrowSound, WaterSplashSound, XpCollectSound,
+    // pmmp: XpLevelUpSound, Sound
     #[test]
     fn sounds_send_pmmps_packets_with_gophertunnel_names() {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();

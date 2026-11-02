@@ -14,11 +14,14 @@ use anchor::protocol::compression::{self, Compression};
 use oracle::Record;
 use rng::Rng;
 
+/// The compressions with the names the oracle takes.
 const ALGORITHMS: [(Compression, &str); 2] =
     [(Compression::Zlib, "zlib"), (Compression::Snappy, "snappy")];
 /// The default `max-batch-bytes`.
 const MAX_BATCH_BYTES: usize = 16 * MIB;
+/// One mebibyte in bytes.
 const MIB: usize = 1024 * 1024;
+/// The payload sizes of the cross-decompression tests.
 const SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, MIB];
 
 /// Settings that compress every non-empty payload: threshold 1, the smallest allowed.
@@ -31,19 +34,31 @@ fn header(compression: Compression) -> u8 {
     u8::try_from(compression.network_id()).expect("ids are 0 and 1")
 }
 
-/// Random bytes, or runs and repeated phrases when `repetitive`.
-fn data(len: usize, repetitive: bool) -> Vec<u8> {
-    let mut rng = Rng(0x00dd_ba11 + u64::try_from(len).expect("fits u64"));
+/// The generator both kinds of data of `len` bytes start from.
+fn seeded(len: usize) -> Rng {
+    Rng(0x00dd_ba11 + u64::try_from(len).expect("fits u64"))
+}
+
+/// Random bytes.
+fn random_data(len: usize) -> Vec<u8> {
+    let mut rng = seeded(len);
     let mut out = Vec::with_capacity(len + 64);
     while out.len() < len {
-        if repetitive {
-            match rng.below(3) {
-                0 => out.extend(std::iter::repeat_n(rng.byte() % 4, rng.below(256))),
-                1 => out.extend_from_slice(b"minecraft:stone"),
-                _ => out.extend((0..rng.below(8)).map(|_| rng.byte())),
-            }
-        } else {
-            out.push(rng.byte());
+        out.push(rng.byte());
+    }
+    out.truncate(len);
+    out
+}
+
+/// Runs and repeated phrases.
+fn repetitive_data(len: usize) -> Vec<u8> {
+    let mut rng = seeded(len);
+    let mut out = Vec::with_capacity(len + 64);
+    while out.len() < len {
+        match rng.below(3) {
+            0 => out.extend(std::iter::repeat_n(rng.byte() % 4, rng.below(256))),
+            1 => out.extend_from_slice(b"minecraft:stone"),
+            _ => out.extend((0..rng.below(8)).map(|_| rng.byte())),
         }
     }
     out.truncate(len);
@@ -54,7 +69,7 @@ fn data(len: usize, repetitive: bool) -> Vec<u8> {
 fn inputs() -> Vec<Record> {
     SIZES
         .iter()
-        .flat_map(|&len| [(0, data(len, false)), (0, data(len, true))])
+        .flat_map(|&len| [(0, random_data(len)), (0, repetitive_data(len))])
         .collect()
 }
 

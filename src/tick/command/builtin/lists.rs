@@ -12,15 +12,25 @@ use crate::permission::{self, BanEntry};
 use crate::tick::Context;
 use crate::tick::command::Refusal;
 
+/// The success line of `/ban`.
 const BAN_SUCCESS: Msg = Msg::client("commands.ban.success");
+/// The failure line of `/ban-ip` for a value that is no address and no online player.
 const BANIP_INVALID: Msg = Msg::client("commands.banip.invalid");
+/// The success line of `/ban-ip` for an address.
 const BANIP_SUCCESS: Msg = Msg::client("commands.banip.success");
+/// The success line of `/ban-ip` for the address of an online player.
 const BANIP_SUCCESS_PLAYERS: Msg = Msg::client("commands.banip.success.players");
+/// The first line of `/banlist ips`.
 const BANLIST_IPS: Msg = Msg::client("commands.banlist.ips");
+/// The first line of `/banlist players`.
 const BANLIST_PLAYERS: Msg = Msg::client("commands.banlist.players");
+/// What a player sees when it loses operator status.
 const DEOP_MESSAGE: Msg = Msg::client("commands.deop.message");
+/// The success line of `/deop`.
 const DEOP_SUCCESS: Msg = Msg::client("commands.deop.success");
+/// The success line of `/kick` without a reason.
 const KICK_SUCCESS: Msg = Msg::client("commands.kick.success");
+/// The success line of `/kick` with a reason.
 const KICK_SUCCESS_REASON: Msg = Msg::client("commands.kick.success.reason");
 /// What a player kicked without a reason sees: the client's "kicked" text.
 const KICKED: &str = "disconnect.kicked";
@@ -29,16 +39,26 @@ const KICKED: &str = "disconnect.kicked";
 const MAX_LISTED: usize = 100;
 /// What an operator sees when its status changes: aqua.
 const OP_CHANGE_PREFIX: &str = "§b";
+/// What a player sees when it becomes an operator.
 const OP_MESSAGE: Msg = Msg::client("commands.op.message");
+/// The success line of `/op`.
 const OP_SUCCESS: Msg = Msg::client("commands.op.success");
+/// The success line of `/pardon`.
 const UNBAN_SUCCESS: Msg = Msg::client("commands.unban.success");
+/// The failure line of `/pardon-ip` for a value that is no address.
 const UNBANIP_INVALID: Msg = Msg::client("commands.unbanip.invalid");
+/// The success line of `/pardon-ip`.
 const UNBANIP_SUCCESS: Msg = Msg::client("commands.unbanip.success");
 // The client names the whitelist "allowlist": it has no `commands.whitelist.*` keys.
+/// The success line of `/whitelist add`.
 const WHITELIST_ADD_SUCCESS: Msg = Msg::client("commands.allowlist.add.success");
+/// The success line of `/whitelist off`.
 const WHITELIST_DISABLED: Msg = Msg::client("commands.allowlist.disabled");
+/// The success line of `/whitelist on`.
 const WHITELIST_ENABLED: Msg = Msg::client("commands.allowlist.enabled");
+/// The first line of `/whitelist list`.
 const WHITELIST_LIST: Msg = Msg::client("commands.allowlist.list");
+/// The success line of `/whitelist remove`.
 const WHITELIST_REMOVE_SUCCESS: Msg = Msg::client("commands.allowlist.remove.success");
 
 /// Adds the commands of this module.
@@ -129,7 +149,7 @@ fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         .map_err(list_error)?;
     let shown = match online {
         Some(id) => {
-            kick(cx, id, &Refusal::Banned(reason.to_owned()).message())?;
+            kick(cx, id, &Refusal::Banned(reason.to_owned()).to_message())?;
             player_name(cx, id)
         }
         None => name.to_owned(),
@@ -163,7 +183,7 @@ fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     let source = name_of(cx, *sender);
     cx.ban(BanEntry::ip(ip).with_reason(reason).with_source(&source))
         .map_err(list_error)?;
-    let message = Refusal::IpBanned(reason.to_owned()).message();
+    let message = Refusal::IpBanned(reason.to_owned()).to_message();
     for id in at_address {
         kick(cx, id, &message)?;
     }
@@ -288,7 +308,7 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
                 .filter(|p| !cx.is_whitelisted(p.name()))
                 .map(crate::player::Player::id)
                 .collect();
-            let message = Refusal::NotWhitelisted.message();
+            let message = Refusal::NotWhitelisted.to_message();
             for id in left_out {
                 kick(cx, id, &message)?;
             }
@@ -319,7 +339,7 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
             if !cx.is_whitelisted(name)
                 && let Some(id) = cx.player_exact(name)
             {
-                kick(cx, id, &Refusal::NotWhitelisted.message())?;
+                kick(cx, id, &Refusal::NotWhitelisted.to_message())?;
             }
             Ok(announce(cx, *sender, WHITELIST_REMOVE_SUCCESS, &[name]))
         }

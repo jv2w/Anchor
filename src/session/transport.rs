@@ -118,5 +118,5 @@ impl std::error::Error for Error {
     }
 }
 
-/// A transport result.
+/// A result with the module's [`enum@Error`].
 pub(super) type Result<T, E = Error> = std::result::Result<T, E>;

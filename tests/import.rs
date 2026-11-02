@@ -18,7 +18,9 @@ use anchor::{Config, Error, Server, import};
 
 use temp_path::TempPath;
 
+/// The Bedrock world folder the tests import.
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
+/// The name of the world the tests import.
 const NAME: &str = "imported";
 /// What the server task saw of the imported world: its seed, its spawn and the spawn column's
 /// lowest block names.

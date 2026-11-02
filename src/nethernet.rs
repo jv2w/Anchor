@@ -86,9 +86,6 @@ pub(crate) enum Error {
     Closed,
 }
 
-/// A NetherNet result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -98,6 +95,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Controls the signaling server and the offer task; the UDP task stops the driver.
 #[derive(Debug)]
@@ -259,9 +259,9 @@ impl Offers {
                 let refused = refusal.reply();
                 let error = &refusal as &(dyn std::error::Error + 'static);
                 if refused == Reply::Code(Code::Internal) {
-                    warn!(network_id, %peer, error, "nethernet offer not answered");
+                    warn!(network_id, addr = %peer, error, "nethernet offer not answered");
                 } else {
-                    debug!(network_id, %peer, error, "nethernet offer refused");
+                    debug!(network_id, addr = %peer, error, "nethernet offer refused");
                 }
                 refused
             }
@@ -574,14 +574,14 @@ impl Driver {
             None => self.by_addr.get(&from).copied(),
         };
         let Some(id) = id else {
-            trace!(%from, "nethernet datagram for no peer dropped");
+            trace!(addr = %from, "nethernet datagram for no peer dropped");
             return;
         };
         let Some(entry) = self.peers.get_mut(&id) else {
             return;
         };
         if !admit(&mut self.by_addr, &mut entry.addrs, id, from) {
-            trace!(%from, "nethernet datagram from a refused address dropped");
+            trace!(addr = %from, "nethernet datagram from a refused address dropped");
             return;
         }
         let now = clock::now();
@@ -968,7 +968,7 @@ fn release(per_ip: &mut BTreeMap<u128, usize>, total: &mut usize, key: u128) {
 fn transmit(sockets: &Sockets, to: SocketAddr, data: &[u8]) {
     if let Err(error) = sockets.send(to, data) {
         trace!(
-            %to,
+            addr = %to,
             error = &error as &(dyn std::error::Error + 'static),
             "nethernet datagram not sent"
         );

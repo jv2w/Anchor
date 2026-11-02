@@ -53,6 +53,7 @@ cancellable! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::event::fixtures::player;
 
     // pmmp: CommandEvent, CommandEvent::getSender, CommandEvent::getCommand,

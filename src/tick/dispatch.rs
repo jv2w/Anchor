@@ -150,7 +150,8 @@ mod tests {
         }
     }
 
-    // pmmp: EventPriority::LOWEST, EventPriority::LOW, EventPriority::NORMAL, EventPriority::HIGH, EventPriority::HIGHEST
+    // pmmp: EventPriority::LOWEST, EventPriority::LOW, EventPriority::NORMAL, EventPriority::HIGH
+    // pmmp: EventPriority::HIGHEST
     #[test]
     fn listeners_run_by_priority_then_in_registration_order_and_monitors_last() {
         let mut listeners = Listeners::default();

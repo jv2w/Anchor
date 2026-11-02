@@ -28,8 +28,6 @@ use crate::tick::{Phase, Player, SessionId, Settings, State, entity};
 pub(super) const ABILITIES: u16 = 1 << 8;
 /// Absorption changed.
 pub(super) const ABSORPTION: u16 = 1 << 6;
-/// The absorption maximum BDS sends; more absorption raises it.
-const ABSORPTION_MAX: f32 = 16.0;
 /// The adventure settings changed (auto jump).
 pub(super) const ADVENTURE: u16 = 1 << 11;
 /// Every attribute.
@@ -90,7 +88,7 @@ const DEFS: [Def; 17] = [
     Def::new("minecraft:underwater_movement", 0.0, f32::MAX, 0.02, 0),
     Def::new("minecraft:lava_movement", 0.0, f32::MAX, 0.02, 0),
     Def::new("minecraft:attack_damage", 1.0, 1.0, 1.0, 0),
-    Def::new("minecraft:absorption", 0.0, ABSORPTION_MAX, 0.0, ABSORPTION),
+    Def::new("minecraft:absorption", 0.0, MAX_ABSORPTION, 0.0, ABSORPTION),
     Def::new("minecraft:luck", -1024.0, 1024.0, 0.0, 0),
     Def::new("minecraft:friction_modifier", 0.0, 256.0, 1.0, 0),
     Def::new("minecraft:bounciness", 0.0, 1.0, 0.0, 0),
@@ -110,6 +108,8 @@ pub(crate) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
 pub(super) const HUNGER: u16 = 1 << 1;
 /// Experience level changed.
 pub(super) const LEVEL: u16 = 1 << 4;
+/// The absorption maximum BDS sends; more absorption raises it.
+const MAX_ABSORPTION: f32 = 16.0;
 /// Movement speed changed (sprinting, speed and slowness).
 pub(super) const MOVEMENT: u16 = 1 << 7;
 /// `PlayerFlagSleep`: bit 1 of the player flags (PMMP `PlayerMetadataFlags::SLEEP`).
@@ -735,11 +735,11 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
 fn layers(s: &Survival) -> Vec<AbilityLayer> {
     let mode = s.mode();
     let mut values = mode_abilities(mode, s.motion.flying);
-    let collides = s.collides();
+    let collides = s.has_block_collision();
     for (on, ability) in [
         (s.custom.operator, Ability::OperatorCommands),
         (s.custom.operator, Ability::Teleport),
-        (s.may_fly(), Ability::MayFly),
+        (s.can_fly(), Ability::MayFly),
         (
             mode == GameMode::Spectator || s.motion.flying,
             Ability::Flying,
@@ -848,6 +848,7 @@ fn rule(name: &str, value: GameRuleValue) -> GameRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 
     #[test]

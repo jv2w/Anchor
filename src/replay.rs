@@ -161,7 +161,7 @@ impl std::error::Error for Error {
     }
 }
 
-/// The result of a replay.
+/// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// How far the replay got, sent to the main thread if a tick panics.
@@ -396,7 +396,7 @@ pub(crate) fn run(
     check_settled(data_dir)?;
     let (from, file, checkpoint) = choose(&log, data_dir, &setup)?;
     info!(
-        file = %file.main.display(),
+        path = %file.main.display(),
         tick = checkpoint.tick(),
         "replaying the crash log"
     );
@@ -608,7 +608,7 @@ fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
             Ok(meta) => files.push((meta, file)),
             Err(e) => {
                 info!(
-                    file = %file.display(),
+                    path = %file.display(),
                     error = &e as &(dyn std::error::Error + 'static),
                     "data file left out of the replay"
                 );

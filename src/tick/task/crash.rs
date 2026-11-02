@@ -42,9 +42,11 @@ const DATA_ENV: &str = "ANCHOR_USER_CRASH_DATA";
 const KILLS: u32 = 20;
 /// The child's environment variable: `run` keeps writing, `check` only reports.
 const MODE_ENV: &str = "ANCHOR_USER_CRASH_MODE";
+/// The name of the player the child joins as.
 const NAME: &str = "keeper";
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-USER";
+/// The session of the child's player.
 const SESSION: SessionId = SessionId::new(1);
 
 /// What the server and the player keep: the last tick that wrote it, and how many ticks have.

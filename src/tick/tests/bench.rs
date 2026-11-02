@@ -414,7 +414,7 @@ fn burst(lighting: bool, run: Run) {
     b.reset();
     let glowstone = block_state("minecraft:glowstone", &[]);
     let spawn = b.state.worlds[0].spawn();
-    for i in 0..1_000 {
+    for i in 0..1000 {
         // A 10 × 10 × 10 lattice, 5 blocks apart, from y -55.
         let pos = BlockPos::new(
             spawn.x - 25 + (i % 10) * 5,

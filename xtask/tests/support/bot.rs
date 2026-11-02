@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+/// The bot executable, built on first use.
+static BINARY: OnceLock<PathBuf> = OnceLock::new();
+
 /// Builds the bot into `dir`, the test binary's folder (the same on every call), on first use and
 /// returns its path. Fails the test if Go is missing.
 pub(crate) fn binary(dir: &Path) -> &'static Path {
-    static BINARY: OnceLock<PathBuf> = OnceLock::new();
     BINARY.get_or_init(|| {
         create_dir(dir);
         let exe = dir.join(format!("bot{}", std::env::consts::EXE_SUFFIX));

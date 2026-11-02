@@ -81,7 +81,7 @@ const MAX_OUTBOX: usize = 4096;
 /// Save thread answers one tick applies; the rest wait for the next tick.
 pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
 /// The ticks between the runs of a world without players with `slow-empty-worlds`.
-const SLOW_WORLD_PERIOD: u64 = 100;
+const SLOW_WORLD_PERIOD_TICKS: u64 = 100;
 /// The length of a tick at [`Context::TICKS_PER_SECOND`].
 pub(crate) const TICK: Duration = Duration::from_millis(1000 / Context::TICKS_PER_SECOND as u64);
 
@@ -261,7 +261,7 @@ impl State {
     }
 
     /// Whether world `world` runs this tick as a world `slow-empty-worlds` holds back: on its one
-    /// tick in [`SLOW_WORLD_PERIOD`] ([`wake`]).
+    /// tick in [`SLOW_WORLD_PERIOD_TICKS`] ([`wake`]).
     pub(crate) fn is_slowed(&self, world: WorldIndex) -> bool {
         self.awake.get(world) == Some(&Pace::Slowed)
     }
@@ -581,7 +581,7 @@ impl State {
             player::QuitCause::Disconnect,
         );
         if let Some(p) = self.remove(session) {
-            info!(session = session.get(), name = %p.identity.name, reason, "player left");
+            info!(session = session.get(), player = %p.identity.name, reason, "player left");
         }
     }
 
@@ -931,10 +931,10 @@ pub struct Player {
     /// What the output phase sends this player at the end of the tick; empty between ticks.
     pending: spawn::Pending,
     /// What the rule modules keep of the player between joins (`extra`).
-    extra: extra::PlayerExtra,
+    extra: extra::Player,
     /// Slots, cursor, crafting grids and open windows.
     inventory: inventory::Inventory,
-    /// Health, hunger, experience, effects, game mode…
+    /// Health, hunger, experience, effects, and game mode.
     survival: survival::Survival,
     /// Block breaking in progress.
     breaking: interact::Breaking,
@@ -1012,7 +1012,7 @@ enum Phase {
 enum Pace {
     /// Not held back: the world has players.
     Every,
-    /// A world without players on its one tick in [`SLOW_WORLD_PERIOD`].
+    /// A world without players on its one tick in [`SLOW_WORLD_PERIOD_TICKS`].
     Slowed,
     /// A world without players between its runs.
     Asleep,
@@ -1353,11 +1353,11 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
         // A joining player and offline loads may wait on the same answer: the join takes it
         // first, so the loads find the player joined, or its data damaged if that refused it.
         Response::Player { key, data } => match task::take_offline_loads(state, &key) {
-            None => spawn::player_loaded(state, &key, data, output),
             Some(loads) => {
                 spawn::player_loaded(state, &key, data.clone(), output);
                 task::answer_offline_loads(state, &key, loads, &data);
             }
+            None => spawn::player_loaded(state, &key, data, output),
         },
         Response::Committed { start } => save::committed(state, log, start),
         Response::CommitFailed { start } => {
@@ -1455,7 +1455,7 @@ fn rules(state: &mut State, pool: &Pool, mark: &mut impl FnMut(Part)) {
 
 /// Works out which worlds run their world rules this tick ([`State::is_awake`]): with
 /// `slow-empty-worlds`, world `w` without players only on the ticks `t` where `(t + w) %
-/// SLOW_WORLD_PERIOD == 0`, so empty worlds run on ticks of their own instead of all on one.
+/// SLOW_WORLD_PERIOD_TICKS == 0`, so empty worlds run on ticks of their own instead of all on one.
 /// Entities and random block ticks need no check: they tick only near players.
 fn wake(state: &mut State) {
     state.awake.clear();
@@ -1467,7 +1467,10 @@ fn wake(state: &mut State) {
     state
         .awake
         .extend((0_u64..).take(state.worlds.len()).map(|phase| {
-            if tick.wrapping_add(phase).is_multiple_of(SLOW_WORLD_PERIOD) {
+            if tick
+                .wrapping_add(phase)
+                .is_multiple_of(SLOW_WORLD_PERIOD_TICKS)
+            {
                 Pace::Slowed
             } else {
                 Pace::Asleep
@@ -1492,7 +1495,7 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
     for (session, name) in overflowed {
         warn!(
             session = session.get(),
-            %name,
+            player = %name,
             "too many packets queued in one tick; disconnecting"
         );
         let disconnect = Packet::Disconnect(Disconnect {
@@ -1631,12 +1634,13 @@ mod tests {
     mod replay;
     mod scenario;
 
+    use super::*;
+
     use std::collections::BTreeSet;
     use std::pin::pin;
     use std::task::{Context, Poll, Waker};
 
     use super::queue::{input_queue, outbound_queue};
-    use super::*;
     use crate::event::{KickFlag, PlayerDuplicateLogin, PlayerLogin, PlayerQuit, Priority};
     use crate::protocol::Uuid;
     use crate::protocol::packet::{
@@ -1645,8 +1649,10 @@ mod tests {
     use crate::save::{Loaded, PlayerLoad};
     use crate::world::{BlockPos, Chunk, ChunkPos, Flat, Generator, Kind};
 
+    /// The reason code and message of a kick for a login from another location.
     const LOGGED_IN_OTHER_LOCATION: (i32, &str) = (43, "disconnectionScreen.loggedinOtherLocation");
-    const MOST: u32 = 256;
+    /// The `chunks-per-tick` setting at its most.
+    const MAX_CHUNKS_PER_TICK: u32 = 256;
     thread_local! {
         /// A CPU pool per test thread; tests do not shut it down.
         static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
@@ -1865,16 +1871,33 @@ mod tests {
         }
     }
 
-    /// Runs 101 ticks of a server with `slow-empty-worlds` set to `slow` and, with `player`, one
+    /// The `slow-empty-worlds` setting of a run.
+    #[derive(Debug, Clone, Copy)]
+    enum SlowEmptyWorlds {
+        On,
+        Off,
+    }
+
+    /// Whether a player joined in a run.
+    #[derive(Debug, Clone, Copy)]
+    enum Joined {
+        Nobody,
+        Player,
+    }
+
+    /// Runs 101 ticks of a server with `slow-empty-worlds` set to `slow` and, with `joined`, one
     /// player joined: the world's time, its scheduled updates and its light hash after each.
-    fn world_rules_over_ticks(slow: bool, player: bool) -> Vec<(i64, usize, u64)> {
+    fn world_rules_over_ticks(slow: SlowEmptyWorlds, joined: Joined) -> Vec<(i64, usize, u64)> {
         let mut state = new_state(
-            settings(|c| c.developer.slow_empty_worlds = slow),
+            settings(|c| c.developer.slow_empty_worlds = matches!(slow, SlowEmptyWorlds::On)),
             Listeners::default(),
         );
         let mut output = Output::default();
         let (j, _rx) = join(1, 0);
-        let mut batch = if player { vec![j] } else { Vec::new() };
+        let mut batch = match joined {
+            Joined::Player => vec![j],
+            Joined::Nobody => Vec::new(),
+        };
         let spawn = state.worlds[0].spawn();
         update::schedule(&mut state, 0, spawn, 1);
         let mut seen = Vec::new();
@@ -1890,7 +1913,7 @@ mod tests {
     /// on ticks that are multiples of 100; with a player, or with the setting off, every tick.
     #[test]
     fn slow_empty_worlds_run_one_tick_in_a_hundred_without_players() {
-        let slow = world_rules_over_ticks(true, false);
+        let slow = world_rules_over_ticks(SlowEmptyWorlds::On, Joined::Nobody);
         assert!(slow[1..100].iter().all(|s| *s == slow[0]), "asleep");
         assert_eq!(slow[100].0, slow[0].0 + 1, "time on tick 100");
         assert_eq!(
@@ -1898,8 +1921,11 @@ mod tests {
             slow[0].1 - 1,
             "the scheduled update on tick 100"
         );
-        for (slow, player) in [(false, false), (true, true)] {
-            let every = world_rules_over_ticks(slow, player);
+        for (slow, joined) in [
+            (SlowEmptyWorlds::Off, Joined::Nobody),
+            (SlowEmptyWorlds::On, Joined::Player),
+        ] {
+            let every = world_rules_over_ticks(slow, joined);
             assert_eq!(every[1].0, every[0].0 + 1, "time every tick");
             assert_eq!(every[1].1, every[0].1 - 1, "the update when due");
             assert_ne!(every[1].2, every[0].2, "light work every tick");
@@ -1907,10 +1933,10 @@ mod tests {
     }
 
     /// How many times the time of each of three worlds moved over 100 ticks, and on which ticks,
-    /// with `slow-empty-worlds` set to `slow` and, with `player`, one player in world 0.
-    fn wakes_over_100_ticks(slow: bool, player: bool) -> Vec<Vec<u64>> {
+    /// with `slow-empty-worlds` set to `slow` and, with `joined`, one player in world 0.
+    fn wakes_over_100_ticks(slow: SlowEmptyWorlds, joined: Joined) -> Vec<Vec<u64>> {
         let mut state = new_state(
-            settings(|c| c.developer.slow_empty_worlds = slow),
+            settings(|c| c.developer.slow_empty_worlds = matches!(slow, SlowEmptyWorlds::On)),
             Listeners::default(),
         );
         let spawn = state.worlds[0].spawn();
@@ -1918,7 +1944,10 @@ mod tests {
         state.add_world(World::new("b", Kind::Temporary, 2, spawn));
         let mut output = Output::default();
         let (j, _rx) = join(1, 0);
-        let mut batch = if player { vec![j] } else { Vec::new() };
+        let mut batch = match joined {
+            Joined::Player => vec![j],
+            Joined::Nobody => Vec::new(),
+        };
         let mut wakes = vec![Vec::new(); 3];
         for _ in 0..100 {
             let before: Vec<i64> = state.worlds.iter().map(World::time_ticks).collect();
@@ -1938,14 +1967,14 @@ mod tests {
     /// with a player, and every world with the setting off, runs every tick.
     #[test]
     fn empty_worlds_wake_on_ticks_of_their_own() {
-        let slow = wakes_over_100_ticks(true, false);
+        let slow = wakes_over_100_ticks(SlowEmptyWorlds::On, Joined::Nobody);
         assert!(slow.iter().all(|w| w.len() == 1), "{slow:?}");
         assert!(slow[0][0].is_multiple_of(100), "{slow:?}");
         assert!(slow[0][0] != slow[1][0] && slow[1][0] != slow[2][0] && slow[0][0] != slow[2][0]);
-        let with_player = wakes_over_100_ticks(true, true);
+        let with_player = wakes_over_100_ticks(SlowEmptyWorlds::On, Joined::Player);
         assert_eq!(with_player[0].len(), 100);
         assert!(with_player[1..].iter().all(|w| w.len() == 1));
-        let off = wakes_over_100_ticks(false, false);
+        let off = wakes_over_100_ticks(SlowEmptyWorlds::Off, Joined::Nobody);
         assert!(off.iter().all(|w| w.len() == 100), "{off:?}");
     }
 
@@ -3908,14 +3937,14 @@ mod tests {
     /// its own has every request of a tick answered in that tick: none waits, none is dropped.
     #[test]
     fn a_request_for_each_chunk_at_the_most_chunks_per_tick_is_answered_in_its_tick() {
-        let settings = settings(|c| c.developer.chunks_per_tick = MOST);
+        let settings = settings(|c| c.developer.chunks_per_tick = MAX_CHUNKS_PER_TICK);
         let mut state = new_state(settings, Listeners::default());
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
         tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
         let mut seq = 1;
         for _ in 0..4 {
-            let mut requests: Vec<_> = (0..MOST)
+            let mut requests: Vec<_> = (0..MAX_CHUNKS_PER_TICK)
                 .map(|_| {
                     seq += 1;
                     sub_chunks(1, seq, [0, 0, 0], vec![[0, 0, 0]])
@@ -3927,7 +3956,7 @@ mod tests {
                 .iter()
                 .filter(|p| matches!(p, Packet::SubChunk(_)))
                 .count();
-            assert_eq!(answers, usize::try_from(MOST).unwrap());
+            assert_eq!(answers, usize::try_from(MAX_CHUNKS_PER_TICK).unwrap());
         }
     }
 

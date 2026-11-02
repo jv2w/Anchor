@@ -34,6 +34,7 @@ thread_local! {
     static PARTICLES: Cell<Vec<(Vec3, Particle)>> = const { Cell::new(Vec::new()) };
 }
 
+/// The world the tests' entities live in.
 const WORLD: crate::world::Id = crate::world::Id::DEFAULT;
 
 /// A harness with player 1 standing at block (0, 0), spawned, in survival.
@@ -459,7 +460,8 @@ fn target(h: &mut Harness, pos: Vec3) -> Id {
     id
 }
 
-// pmmp: entity\object\FireworkRocket::__construct, entity\object\FireworkRocket::setExplosions, entity\object\FireworkRocket::setMaxFlightTimeTicks
+// pmmp: entity\object\FireworkRocket::__construct, entity\object\FireworkRocket::setExplosions,
+// pmmp: entity\object\FireworkRocket::setMaxFlightTimeTicks
 #[test]
 fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
     let mut h = harness();

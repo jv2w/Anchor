@@ -111,9 +111,10 @@ impl Body {
         )
     }
 
-    /// Whether the entity moves this tick (PMMP `hasMovementUpdate`).
-    pub(super) fn has_movement_update(&self, forced: bool) -> bool {
-        forced || self.motion != Vec3::ZERO || !self.on_ground
+    /// Whether the entity moves this tick unless a block change forces it (PMMP
+    /// `hasMovementUpdate`).
+    pub(super) fn has_movement_update(&self) -> bool {
+        self.motion != Vec3::ZERO || !self.on_ground
     }
 }
 
@@ -339,7 +340,7 @@ pub(super) fn step(world: &World, input: &Input) -> Step {
         Some(_) => true,
         None => false,
     };
-    if !held && body.has_movement_update(input.forced) {
+    if !held && (input.forced || body.has_movement_update()) {
         let (seed, tick, key) = input.random;
         let mut random = Random::new(seed, tick, key);
         change_movement(world, physics, &mut body, &mut random);
@@ -400,7 +401,7 @@ fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &m
 fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Random) {
     let p = body.position;
     let BlockPos { x, y, z } = BlockPos::containing(p);
-    if !is_solid(world, x, y, z) || !collides(world, body.bounding_box(physics)) {
+    if !is_solid(world, x, y, z) || !has_collision(world, body.bounding_box(physics)) {
         return;
     }
     let (dx, dy, dz) = (p.x - f64::from(x), p.y - f64::from(y), p.z - f64::from(z));
@@ -742,7 +743,7 @@ pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>
 }
 
 /// Whether the collision box of a block overlaps `area` ([`collisions`] without the list).
-fn collides(world: &World, area: Aabb) -> bool {
+fn has_collision(world: &World, area: Aabb) -> bool {
     visit_collisions(world, area, |_| true)
 }
 

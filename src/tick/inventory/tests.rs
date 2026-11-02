@@ -34,13 +34,19 @@ use crate::tick::{
     Context, InputLog, Output, Player, SessionId, State, block_entity, boundary, deliver, step,
 };
 
+/// The container of the player's combined hotbar and inventory slots.
+const COMBINED: u8 = C::CombinedHotBarAndInventory as u8;
+/// The container of the 2x2 crafting grid.
+const CRAFT: u8 = C::CraftingInput as u8;
+
 thread_local! {
-    /// The test stand-in for item entities: `Some(room)` while a test counts drops itself; each
-    /// drop takes one place of `room` and is kept in [`DROPPED`].
-    static ROOM: Cell<Option<usize>> = const { Cell::new(None) };
+    /// The stacks the stand-in for item entities took.
     static DROPPED: Cell<Vec<Stack>> = const { Cell::new(Vec::new()) };
     /// The menu clicks the model test's handlers heard.
     static MENU_CLICKS: Cell<u32> = const { Cell::new(0) };
+    /// The test stand-in for item entities: `Some(room)` while a test counts drops itself; each
+    /// drop takes one place of `room` and is kept in [`DROPPED`].
+    static ROOM: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 /// The stand-in's answer to a drop: `None` when no test stands in.
@@ -169,7 +175,7 @@ impl World {
         s
     }
 
-    pub(super) fn player(&mut self, s: SessionId) -> &mut Player {
+    pub(super) fn player_mut(&mut self, s: SessionId) -> &mut Player {
         self.state.players.get_mut(&s).unwrap()
     }
 
@@ -179,7 +185,7 @@ impl World {
 
     /// Takes the packets queued for `s`.
     pub(super) fn sent(&mut self, s: SessionId) -> Vec<Packet> {
-        std::mem::take(&mut self.player(s).outbox)
+        std::mem::take(&mut self.player_mut(s).outbox)
     }
 
     pub(super) fn next_id(&mut self, s: SessionId) -> i32 {
@@ -229,7 +235,7 @@ impl World {
     }
 
     pub(super) fn give(&mut self, s: SessionId, stack: Stack) {
-        let left = give(self.player(s), stack);
+        let left = give(self.player_mut(s), stack);
         assert!(left.is_empty());
     }
 
@@ -268,7 +274,7 @@ impl World {
     }
 
     pub(super) fn open_inventory(&mut self, s: SessionId) {
-        let runtime = self.player(s).runtime_id;
+        let runtime = self.player_mut(s).runtime_id;
         on_interact(
             &mut self.state,
             s,
@@ -489,7 +495,7 @@ fn recipe_for(result: Type, allowed: &[Type]) -> (u32, Recipe<'static>) {
                 && res[0].item() == Some(result)
                 && ingredients(*r)
                     .iter()
-                    .all(|i| allowed.iter().any(|a| i.accepts(a)))
+                    .all(|i| allowed.iter().any(|a| i.can_accept(a)))
         })
         .expect("a recipe")
 }
@@ -514,9 +520,6 @@ fn shape(r: &ItemStackResponse) -> Vec<(u8, u8, u8, i32)> {
     }
     out
 }
-
-const COMBINED: u8 = C::CombinedHotBarAndInventory as u8;
-const CRAFT: u8 = C::CraftingInput as u8;
 
 /// `recipe-book = false`: the recipe book's quick crafting is refused and changes nothing; the
 /// grid still crafts.
@@ -600,7 +603,7 @@ fn stack_network_ids_and_responses_follow_the_bds_craft_scenario() {
     w.sent(s);
     w.open_inventory(s);
     let open = w.sent(s);
-    let eye = BlockPos::containing(w.player(s).position);
+    let eye = BlockPos::containing(w.player_mut(s).position);
     assert_eq!(
         open,
         vec![Packet::ContainerOpen(ContainerOpen {
@@ -1162,7 +1165,7 @@ fn random_request(
             for ing in ingredients(recipe) {
                 if let Some(&(c, i)) = full
                     .iter()
-                    .find(|(c, i)| ing.accepts(&w.slot(s, *c, *i).stack))
+                    .find(|(c, i)| ing.can_accept(&w.slot(s, *c, *i).stack))
                 {
                     actions.push(consume(1, name(w, s, (c, i), rng, request)));
                 }
@@ -1319,7 +1322,7 @@ fn lay_out(
     }
     for (cell, ingredient) in wanted {
         let Some(k) = (0..36_u8)
-            .find(|k| left[usize::from(*k)] > 0 && ingredient.accepts(inv.main.stack(*k)))
+            .find(|k| left[usize::from(*k)] > 0 && ingredient.can_accept(inv.main.stack(*k)))
         else {
             return actions;
         };
@@ -1390,7 +1393,7 @@ fn run_model(mode: GameMode, seed: i64, count: u32, listeners: Option<Listeners>
             results(*r).len() == 1
                 && ingredients(*r)
                     .iter()
-                    .all(|i| supplies.iter().any(|t| i.accepts(&Stack::new(*t, 1))))
+                    .all(|i| supplies.iter().any(|t| i.can_accept(&Stack::new(*t, 1))))
         })
         .collect();
     assert!(recipes.len() >= 8, "{} recipes", recipes.len());
@@ -1420,7 +1423,7 @@ fn run_model(mode: GameMode, seed: i64, count: u32, listeners: Option<Listeners>
                 // Pick dropped items up again.
                 let picked = DROPPED.take();
                 for stack in picked {
-                    let left = give(w.player(s), stack);
+                    let left = give(w.player_mut(s), stack);
                     if !left.is_empty() {
                         let mut d = DROPPED.take();
                         d.push(left);
@@ -1755,7 +1758,7 @@ fn closing_leaving_or_dying_mid_craft_returns_every_item() {
     let s = w.join(1);
     mid_craft(&mut w, s);
     close_window(&mut w.state, s);
-    let all = take_all(w.player(s));
+    let all = take_all(w.player_mut(s));
     assert_eq!(all.iter().map(|s| u64::from(s.count())).sum::<u64>(), 64);
     assert!(totals(&w.state).is_empty());
 }
@@ -1771,7 +1774,7 @@ fn the_most_waiting_stacks_lose_no_item_and_holding_more_is_refused() {
     }
     let stick = Stack::new(item(it::Kind::Stick), 1);
     let held = 1 + GRID;
-    let inv = &mut w.player(s).inventory;
+    let inv = &mut w.player_mut(s).inventory;
     inv.pending = vec![stick.clone(); MAX_SAVED_PENDING - held];
     for r in std::iter::once(SlotRef::Cursor).chain((0..4).map(SlotRef::Grid)) {
         let net = inv.new_id();
@@ -1800,7 +1803,7 @@ fn the_most_waiting_stacks_lose_no_item_and_holding_more_is_refused() {
     assert_eq!(totals(&w.state), before);
     assert!(w.inv(s).cursor.stack(0).is_empty());
     // With one waiting stack fewer it is allowed, and a close keeps the bound.
-    w.player(s).inventory.pending.pop();
+    w.player_mut(s).inventory.pending.pop();
     let before = totals(&w.state);
     let id = w.id(s, C::HotBar, 0);
     assert!(ok(&w.request(s, to_cursor(id))));
@@ -1867,7 +1870,7 @@ fn a_save_holds_the_cursor_grids_and_window_slots_once_and_a_load_gives_them_bac
     // A loaded player reopening and closing a window changes nothing.
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    w.player(s).inventory = back;
+    w.player_mut(s).inventory = back;
     let table = BlockPos::new(2, -60, 0);
     w.place_block(table, blk::Kind::CraftingTable.default_state());
     w.open_block(s, table);
@@ -1882,7 +1885,7 @@ fn the_inventory_round_trips_through_the_player_extra_byte_for_byte() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     stock(&mut w, s);
-    let p = w.player(s);
+    let p = w.player_mut(s);
     set_armor(
         p,
         0,
@@ -2323,7 +2326,7 @@ fn spawn_packets_are_the_four_windows_and_the_hotbar() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let mut out = Vec::new();
-    spawn_packets(w.player(s), &mut out);
+    spawn_packets(w.player_mut(s), &mut out);
     let sizes: Vec<(u32, usize)> = out
         .iter()
         .filter_map(|p| match p {
@@ -2467,7 +2470,7 @@ fn sample(i: &Ingredient, by_name: &BTreeMap<String, Stack>) -> Option<Stack> {
         Ingredient::AnyMeta(n) => by_name.get(n.name).cloned().or_else(|| {
             Type::from_name(n.name, 0, None, &crate::nbt::Compound::new()).map(|t| Stack::new(t, 1))
         }),
-        Ingredient::Tag(_) => by_name.values().find(|s| i.accepts(s)).cloned(),
+        Ingredient::Tag(_) => by_name.values().find(|s| i.can_accept(s)).cloned(),
     }
 }
 
@@ -2480,7 +2483,7 @@ fn layout(recipe: Recipe<'static>, by_name: &BTreeMap<String, Stack>) -> Option<
                 for x in 0..usize::from(r.width) {
                     if let Some(i) = &r.grid[y * usize::from(r.width) + x] {
                         let s = sample(i, by_name)?;
-                        assert!(i.accepts(&s));
+                        assert!(i.can_accept(&s));
                         cells[y * 3 + x] = s;
                     }
                 }
@@ -2561,7 +2564,7 @@ fn shift_one(cells: &[Stack]) -> Option<Vec<Stack>> {
 
 /// Puts `cells` into the crafting table grid (test setup, outside requests).
 fn set_grid(w: &mut World, s: SessionId, cells: &[Stack]) {
-    let window = w.player(s).inventory.window.as_mut().unwrap();
+    let window = w.player_mut(s).inventory.window.as_mut().unwrap();
     for (slot, c) in window.ui.iter_mut().zip(cells) {
         slot.stack = c.clone();
         slot.id = StackId {
@@ -2573,7 +2576,7 @@ fn set_grid(w: &mut World, s: SessionId, cells: &[Stack]) {
 
 /// Empties the grid and the hotbar (test setup).
 fn clear(w: &mut World, s: SessionId) {
-    let inv = &mut w.player(s).inventory;
+    let inv = &mut w.player_mut(s).inventory;
     if let Some(window) = inv.window.as_mut() {
         for slot in &mut window.ui {
             *slot = Slot::default();
@@ -2624,7 +2627,7 @@ fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
     use crate::tick::tests::initialised;
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let runtime_id = w.player(s).runtime_id;
+    let runtime_id = w.player_mut(s).runtime_id;
     w.tick(vec![initialised(1, 2, runtime_id)]);
     // Distinct items, so none merge: the main slots full and the most waiting stacks.
     let mut items = crafting_samples()
@@ -2636,10 +2639,10 @@ fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
     }
     let pending: Vec<Stack> = items.by_ref().take(MAX_SAVED_PENDING).collect();
     assert_eq!(pending.len(), MAX_SAVED_PENDING);
-    w.player(s).inventory.pending = pending;
+    w.player_mut(s).inventory.pending = pending;
     let before: u64 = totals(&w.state).values().sum();
     // The world's entity limit: no death drop drops.
-    let at = w.player(s).position;
+    let at = w.player_mut(s).position;
     while entity::drop_item(&mut w.state, 0, at, Stack::new(item(it::Kind::Stick), 1)) {}
     assert!(survival::damage(
         &mut w.state,
@@ -2657,7 +2660,7 @@ fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
         }
     };
     let mut saved = Compound::new();
-    survival::save(&w.player(s).survival, &mut saved);
+    survival::save(&w.player_mut(s).survival, &mut saved);
     let kept: u64 = totals(&w.state).values().sum();
     assert_eq!(kept + held(&saved), before, "no item is lost on death");
     // A restart loads every held-back stack.
@@ -2727,7 +2730,7 @@ fn an_open_listener_that_opens_a_menu_keeps_the_menu_in_place_of_the_window() {
 fn a_menu_opens_nothing_for_a_player_out_of_reach_of_its_blocks() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    w.player(s).position = Vec3::new(0.5, 400.0, 0.5);
+    w.player_mut(s).position = Vec3::new(0.5, 400.0, 0.5);
     let menu = crate::menu::Menu::new(crate::menu::Kind::Chest);
     let opened = Context {
         state: &mut w.state,

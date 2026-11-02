@@ -54,9 +54,9 @@ use std::sync::Arc;
 use super::Entity;
 use super::custom::{self, EntityTypes};
 use super::kind::{
-    Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind,
-    MAX_DESPAWN_DELAY, MAX_NAME_TAG_BYTES, NEVER, Orb, Painting, Pickup, Projectile, Shot, Tnt,
-    Trident,
+    Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY_TICKS, Falling, Form, Item,
+    Kind, MAX_DESPAWN_DELAY_TICKS, MAX_NAME_TAG_BYTES, NEVER, Orb, Painting, Pickup, Projectile,
+    Shot, Tnt, Trident,
 };
 use super::object::{data_facing, facing_data};
 use super::physics::{self, Body};
@@ -80,7 +80,7 @@ pub(super) const DATA_KEY: &str = "AnchorData";
 /// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
 const MAINHAND: &str = "Mainhand";
 /// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
-pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
+pub(super) const MAX_CLOUD_AGE_TICKS: i32 = 24_000;
 /// The largest cloud radius and radius change read, in blocks (PMMP's default radius is 3).
 pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
 /// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
@@ -147,7 +147,7 @@ pub(super) fn save(entity: &Entity) -> Compound {
             Value::Byte(u8::from(entity.name_tag_visible)),
         );
     }
-    if entity.name_tag_always_visible != entity.kind.shows_name_always() {
+    if entity.name_tag_always_visible != entity.kind.is_name_always_shown() {
         put(
             "CustomNameAlwaysVisible",
             Value::Byte(u8::from(entity.name_tag_always_visible)),
@@ -167,8 +167,8 @@ pub(super) fn save(entity: &Entity) -> Compound {
         Kind::Item(item) => {
             put("Item", Value::Compound(item.stack.to_nbt()));
             put("Health", Value::Short(health_short(entity.health)));
-            put("Age", Value::Short(age(item.despawn_delay)));
-            if item.despawn_delay > MAX_DESPAWN_DELAY {
+            put("Age", Value::Short(age_ticks(item.despawn_delay)));
+            if item.despawn_delay > MAX_DESPAWN_DELAY_TICKS {
                 put("DespawnDelay", Value::Int(item.despawn_delay));
             }
             put("PickupDelay", Value::Short(item.pickup_delay));
@@ -176,7 +176,7 @@ pub(super) fn save(entity: &Entity) -> Compound {
             put("Thrower", Value::String(item.thrower.clone()));
         }
         Kind::ExperienceOrb(orb) => {
-            put("Age", Value::Short(age(orb.despawn_delay)));
+            put("Age", Value::Short(age_ticks(orb.despawn_delay)));
             #[expect(
                 clippy::expect_used,
                 reason = "invariant: an orb's value is 1 to `i16::MAX` (`Orb`)"
@@ -343,8 +343,8 @@ pub(super) fn load(
         return None;
     }
     let motion = match c.get("Motion") {
+        some @ Some(_) => physics::bounded(vector(some)?),
         None => Vec3::ZERO,
-        some => physics::bounded(vector(some)?),
     };
     let (yaw, pitch) = match c.get("Rotation") {
         Some(Value::List(List::Float(r))) if r.len() == 2 => {
@@ -458,7 +458,7 @@ fn load_kind(
         "minecraft:tnt" | "PrimedTNT" | "PrimedTnt" => Kind::Tnt(Tnt {
             fuse: match c.get("Fuse") {
                 Some(Value::Short(f)) => u16::try_from(*f).ok().filter(|f| *f <= Tnt::MAX_FUSE)?,
-                _ => super::TNT_FUSE,
+                _ => super::TNT_FUSE_TICKS,
             },
             underwater: matches!(c.get("AllowUnderwater"), Some(Value::Byte(b)) if *b != 0),
         }),
@@ -486,8 +486,8 @@ fn load_kind(
                 // The trade module bounds and checks the offers it reads.
                 offers: match c.get("Offers") {
                     Some(Value::Compound(offers)) => Offers::from_nbt(offers, content),
-                    None => Offers::default(),
                     Some(_) => return None,
+                    None => Offers::default(),
                 },
                 baby: is_baby(c),
             },
@@ -536,8 +536,8 @@ fn save_skin(skin: &Skin) -> Compound {
 fn load_skin(c: &Compound) -> Option<Skin> {
     let bytes = |k: &str| match c.get(k) {
         Some(Value::ByteArray(b)) => Some(b.clone()),
-        None => Some(Vec::new()),
         Some(_) => None,
+        None => Some(Vec::new()),
     };
     let Some(Value::String(name)) = c.get("Name") else {
         return None;
@@ -578,8 +578,8 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     let longest = i32::try_from(*ITEM_DESPAWN_TICKS_RANGE.end())
         .expect("the despawn delay bound fits an int");
     let despawn_delay = match c.get("DespawnDelay") {
-        Some(Value::Int(d)) if (MAX_DESPAWN_DELAY + 1..=longest).contains(d) => *d,
-        _ => despawn_delay(c),
+        Some(Value::Int(d)) if (MAX_DESPAWN_DELAY_TICKS + 1..=longest).contains(d) => *d,
+        _ => despawn_delay_ticks(c),
     };
     Some(Item {
         stack,
@@ -601,7 +601,7 @@ fn load_orb(c: &Compound) -> Orb {
     let value = u16::try_from(value.clamp(1, i32::from(i16::MAX))).unwrap_or(1);
     Orb {
         value,
-        despawn_delay: despawn_delay(c),
+        despawn_delay: despawn_delay_ticks(c),
         look_for_target: 0,
         target: None,
     }
@@ -739,7 +739,7 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
     };
     let age = match c.get("SpawnTick") {
         Some(Value::Long(t)) => {
-            u32::try_from(t.saturating_neg().clamp(0, i64::from(MAX_CLOUD_AGE))).unwrap_or(0)
+            u32::try_from(t.saturating_neg().clamp(0, i64::from(MAX_CLOUD_AGE_TICKS))).unwrap_or(0)
         }
         _ => 0,
     };
@@ -759,10 +759,11 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
     Some(Cloud {
         effects,
         age,
-        max_age: int("Duration", super::projectile::CLOUD_DURATION).clamp(0, MAX_CLOUD_AGE),
-        max_age_on_use: int("DurationOnUse", 0).clamp(-MAX_CLOUD_AGE, MAX_CLOUD_AGE),
+        max_age: int("Duration", super::projectile::CLOUD_DURATION_TICKS)
+            .clamp(0, MAX_CLOUD_AGE_TICKS),
+        max_age_on_use: int("DurationOnUse", 0).clamp(-MAX_CLOUD_AGE_TICKS, MAX_CLOUD_AGE_TICKS),
         reapplication_delay: int("ReapplicationDelay", super::projectile::CLOUD_REAPPLICATION)
-            .clamp(0, MAX_CLOUD_AGE),
+            .clamp(0, MAX_CLOUD_AGE_TICKS),
         pickup_count: int("PickupCount", 0),
         initial_radius,
         radius: float("Radius", initial_radius),
@@ -806,8 +807,8 @@ fn load_npc(c: &Compound, form: Form, content: &Registry) -> Option<Character> {
             [item] => Stack::from_nbt_with(item, content)?,
             _ => return None,
         },
-        None => Stack::EMPTY,
         Some(_) => return None,
+        None => Stack::EMPTY,
     };
     Some(Character {
         form,
@@ -822,28 +823,28 @@ fn load_npc(c: &Compound, form: Form, content: &Registry) -> Option<Character> {
 
 /// The despawn delay a saved `Age` gives (PMMP: `-32768` never, otherwise 6000 minus the age, at
 /// least 0).
-fn despawn_delay(c: &Compound) -> i32 {
+fn despawn_delay_ticks(c: &Compound) -> i32 {
     match c.get("Age") {
         Some(Value::Short(AGE_NEVER)) => i32::from(NEVER),
         Some(Value::Short(a)) => {
-            (DEFAULT_DESPAWN_DELAY - i32::from(*a)).clamp(0, MAX_DESPAWN_DELAY)
+            (DEFAULT_DESPAWN_DELAY_TICKS - i32::from(*a)).clamp(0, MAX_DESPAWN_DELAY_TICKS)
         }
-        _ => DEFAULT_DESPAWN_DELAY,
+        _ => DEFAULT_DESPAWN_DELAY_TICKS,
     }
 }
 
-/// The `Age` short of a despawn delay: the age a delay past [`MAX_DESPAWN_DELAY`] would have
+/// The `Age` short of a despawn delay: the age a delay past [`MAX_DESPAWN_DELAY_TICKS`] would have
 /// stops above [`AGE_NEVER`].
 #[expect(
     clippy::expect_used,
     reason = "invariant: a despawn delay other than `NEVER` is not negative (`Item`, `Orb`), so \
-              the age is at most `DEFAULT_DESPAWN_DELAY`"
+              the age is at most `DEFAULT_DESPAWN_DELAY_TICKS`"
 )]
-fn age(despawn_delay: i32) -> i16 {
-    if despawn_delay == i32::from(NEVER) {
+fn age_ticks(despawn_delay_ticks: i32) -> i16 {
+    if despawn_delay_ticks == i32::from(NEVER) {
         return AGE_NEVER;
     }
-    let a = DEFAULT_DESPAWN_DELAY - despawn_delay;
+    let a = DEFAULT_DESPAWN_DELAY_TICKS - despawn_delay_ticks;
     i16::try_from(a.max(i32::from(AGE_NEVER) + 1)).expect("an age fits the saved short")
 }
 
@@ -982,7 +983,7 @@ pub(super) mod tests {
             Kind::Item(Item {
                 stack: stack("minecraft:oak_planks", 64),
                 pickup_delay: 0,
-                despawn_delay: MAX_DESPAWN_DELAY,
+                despawn_delay: MAX_DESPAWN_DELAY_TICKS,
                 owner: String::new(),
                 thrower: String::new(),
             }),

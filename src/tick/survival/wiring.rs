@@ -27,7 +27,9 @@ use crate::tick::tests::{initialised, input, join, new_state, packet, radius, re
 use crate::tick::{Output, inventory};
 use crate::world;
 
+/// The attributes an experience change sends.
 const EXPERIENCE_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
+/// The attributes a hunger change sends.
 const HUNGER_ATTRIBUTES: [&str; 3] = [
     "minecraft:player.hunger",
     "minecraft:player.saturation",
@@ -103,7 +105,7 @@ impl Game {
         self.state.players.get_mut(&sid(s)).unwrap()
     }
 
-    fn survival(&mut self, s: u64) -> &mut Survival {
+    fn survival_mut(&mut self, s: u64) -> &mut Survival {
         &mut self.player_mut(s).survival
     }
 
@@ -217,15 +219,15 @@ fn damage_listeners_see_the_hit_and_cancel_or_change_it() {
     assert_eq!(game.state.hash(), before, "a cancelled hit changes nothing");
     assert!(drain(&mut watched).is_empty());
     assert!(damage(&mut game.state, sid(1), 4.0, Damage::Contact));
-    assert_eq!(game.survival(1).health, 19.0);
+    assert_eq!(game.survival_mut(1).health, 19.0);
     assert_eq!(drain(&mut watched), [19.0]);
     game.idle(10);
-    game.survival(1).health = 20.0;
+    game.survival_mut(1).health = 20.0;
     let chest = stack(ItemKind::DiamondChestplate, 1);
     inventory::set_armor(game.player_mut(1), 1, chest);
     assert!(damage(&mut game.state, sid(1), 5.0, Damage::Contact));
     assert_eq!(
-        game.survival(1).health,
+        game.survival_mut(1).health,
         15.0,
         "the armour modifier was set to 0"
     );
@@ -337,7 +339,7 @@ fn an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon() {
     game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
     inventory::set_held(game.player_mut(1), stack(ItemKind::DiamondSword, 1));
     attack_player(&mut game.state, sid(1), sid(2));
-    assert!(game.survival(2).health < 20.0, "the hit landed");
+    assert!(game.survival_mut(2).health < 20.0, "the hit landed");
     assert_eq!(game.player(1).inventory.held().damage(), 1);
 }
 
@@ -375,11 +377,11 @@ fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     });
     let mut game = Game::new(1, listeners);
     assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Contact));
-    assert_eq!(game.survival(1).health, 20.0);
+    assert_eq!(game.survival_mut(1).health, 20.0);
     // A suicide spares no game mode.
     let source = DamageSource::Entity(Actor::Player(pid(1)));
     assert!(damage_by(&mut game.state, sid(1), 30.0, Damage::Suicide, source).is_some());
-    assert!(game.survival(1).is_dead());
+    assert!(game.survival_mut(1).is_dead());
 }
 
 /// A listener that weakens a hit leaves the totem and the absorption the hit no longer needs:
@@ -389,9 +391,9 @@ fn a_hit_a_listener_weakens_wastes_neither_a_totem_nor_absorption() {
     let listeners = on(|e: &mut EntityDamage, _: &mut Context<'_>| e.set_base_damage(2.0));
     let mut game = Game::new(1, listeners);
     inventory::set_held(game.player_mut(1), stack(ItemKind::Totem, 1));
-    game.survival(1).absorption = 4.0;
+    game.survival_mut(1).absorption = 4.0;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!((s.health, s.absorption), (20.0, 2.0));
     assert!(s.effects.is_empty(), "the totem gave nothing");
     assert_eq!(game.player(1).inventory.held(), &stack(ItemKind::Totem, 1));
@@ -408,7 +410,7 @@ fn a_totem_a_listener_takes_out_of_hand_saves_no_one() {
     let mut game = Game::new(1, listeners);
     inventory::set_held(game.player_mut(1), stack(ItemKind::Totem, 1));
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    assert!(game.survival(1).is_dead());
+    assert!(game.survival_mut(1).is_dead());
 }
 
 // pmmp: EntityRegainHealthEvent
@@ -426,23 +428,23 @@ fn regain_listeners_change_or_cancel_the_healing() {
     let mut game = Game::with(1, listeners, |c| {
         c.general.difficulty = Difficulty::Peaceful;
     });
-    game.survival(1).health = 10.0;
+    game.survival_mut(1).health = 10.0;
     heal(&mut game.state, sid(1), 1.0);
-    assert_eq!(game.survival(1).health, 15.0);
+    assert_eq!(game.survival_mut(1).health, 15.0);
     effects::add(
         &mut game.state,
         sid(1),
         effect::Type::Regeneration,
         effects::Active::new(99, 4),
     );
-    game.survival(1).food_timer = 59;
+    game.survival_mut(1).food_timer = 59;
     game.idle(1);
     let calls = drain(&mut seen);
     assert!(calls.contains(&(RegainReason::Magic, 1.0)));
     assert!(calls.contains(&(RegainReason::Regen, 1.0)));
     assert!(calls.contains(&(RegainReason::Saturation, 1.0)));
     // The regeneration was cancelled; the peaceful saturation healed.
-    assert_eq!(game.survival(1).health, 16.0);
+    assert_eq!(game.survival_mut(1).health, 16.0);
 }
 
 /// Healing a player follows the same rule as an NPC: nothing is asked at full health, and an
@@ -461,11 +463,11 @@ fn healing_asks_only_below_full_health_and_an_amount_that_does_not_heal_cancels_
     let mut game = Game::new(1, listeners);
     heal(&mut game.state, sid(1), 4.0);
     assert!(drain(&mut asked).is_empty(), "full health");
-    game.survival(1).health = 10.0;
+    game.survival_mut(1).health = 10.0;
     heal(&mut game.state, sid(1), 4.0);
     assert_eq!(drain(&mut asked), [4.0]);
     assert!(drain(&mut watched).is_empty(), "cancelled");
-    assert_eq!(game.survival(1).health, 10.0);
+    assert_eq!(game.survival_mut(1).health, 10.0);
 }
 
 /// A full bar on peaceful heals twice in one tick, each a regain of its own, then exhausts (PMMP
@@ -488,11 +490,11 @@ fn peaceful_and_full_bar_heals_are_regains_of_their_own() {
     let mut game = Game::with(1, listeners, |c| {
         c.general.difficulty = Difficulty::Peaceful;
     });
-    game.survival(1).health = 10.0;
-    game.survival(1).food_timer = 79;
+    game.survival_mut(1).health = 10.0;
+    game.survival_mut(1).food_timer = 79;
     game.idle(1);
     assert_eq!(drain(&mut seen), ["regain 1", "regain 1", "exhaust 6"]);
-    assert_eq!(game.survival(1).health, 12.0);
+    assert_eq!(game.survival_mut(1).health, 12.0);
 }
 
 /// A creative player that dies drops nothing but still loses what it carries, but for the items
@@ -503,7 +505,7 @@ fn a_creative_player_that_dies_loses_its_inventory_and_drops_nothing() {
     assert!(game.player_mut(1).set_game_mode(GameMode::Creative));
     assert!(inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5)).is_empty());
     assert!(damage(&mut game.state, sid(1), 30.0, Damage::Suicide));
-    assert!(game.survival(1).is_dead());
+    assert!(game.survival_mut(1).is_dead());
     assert_eq!(carried(game.player(1)), 0);
     game.idle(1);
     assert_eq!(dropped(&game.take(1)), 0);
@@ -524,10 +526,10 @@ fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
     let player = game.player_mut(1);
     inventory::give(player, stack(ItemKind::Bread, 5));
     inventory::give(player, stack(ItemKind::Bowl, 2));
-    game.survival(1).xp_level = 10;
+    game.survival_mut(1).xp_level = 10;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     assert_eq!(carried(game.player(1)), 0, "the replaced stacks are gone");
-    assert_eq!(game.survival(1).xp_level, 10, "the experience is kept");
+    assert_eq!(game.survival_mut(1).xp_level, 10, "the experience is kept");
     game.idle(1);
     let own = game.take(1);
     assert_eq!(dropped(&own), 3, "only the listener's drops fall");
@@ -549,10 +551,10 @@ fn without_orbs_a_death_offers_no_experience_to_drop() {
         tx.try_send(e.xp_drop_amount()).unwrap();
     });
     let mut game = Game::with(1, listeners, |c| c.general.experience_orbs = false);
-    game.survival(1).xp_level = 10;
+    game.survival_mut(1).xp_level = 10;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     assert_eq!(drain(&mut seen), [0]);
-    assert_eq!(game.survival(1).xp_level, 0);
+    assert_eq!(game.survival_mut(1).xp_level, 0);
 }
 
 // pmmp: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage
@@ -744,7 +746,7 @@ fn a_respawned_player_neither_swims_nor_glides() {
     game.player_mut(1).set_gliding(true);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     damage::respawn(&mut game.state, sid(1));
-    let motion = &game.survival(1).motion;
+    let motion = &game.survival_mut(1).motion;
     assert!(!motion.swimming && !motion.gliding);
 }
 
@@ -801,7 +803,7 @@ fn a_respawn_point_outside_the_border_respawns_at_the_world_spawn() {
     let mut game = Game::new(1, Listeners::default());
     let spawn = game.player(1).position;
     let name = game.state.worlds[0].name().to_owned();
-    game.survival(1).spawn = Some(Point {
+    game.survival_mut(1).spawn = Some(Point {
         world: name,
         pos: BlockPos::new(30_000_000, -60, 0),
     });
@@ -867,7 +869,7 @@ fn move_listeners_send_the_player_back_or_elsewhere() {
         p,
         Packet::MovePlayer(m) if m.mode == u8::from(MoveMode::Reset)
     )));
-    game.survival(1).motion.force_sync = false;
+    game.survival_mut(1).motion.force_sync = false;
     let near = p::PlayerAuthInput {
         position: (start + Vec3::new(1.0, 0.0, 0.0)).to_f32(),
         tick: 1,
@@ -981,12 +983,12 @@ fn a_client_flight_toggle_forgets_the_fall() {
     game.idle(1);
     // In the air: no landing ends the fall instead.
     game.player_mut(1).position += Vec3::new(0.0, 10.0, 0.0);
-    game.survival(1).fall_distance = 20.0;
+    game.survival_mut(1).fall_distance = 20.0;
     let input = game.flags(1, &[InputFlag::StopFlying]);
     game.run(vec![input]);
-    assert!(!game.survival(1).motion.flying);
+    assert!(!game.survival_mut(1).motion.flying);
     // What is left is the input's own rounding to f32.
-    assert!(game.survival(1).fall_distance < 0.001);
+    assert!(game.survival_mut(1).fall_distance < 0.001);
 }
 
 // pmmp: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent,
@@ -1163,14 +1165,14 @@ fn exhaust_listeners_change_or_cancel_the_exhaustion() {
     let mut game = Game::new(1, listeners);
     let input = game.flags(1, &[InputFlag::StartSprinting, InputFlag::StartJumping]);
     game.run(vec![input]);
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!(
         (s.saturation, s.exhaustion),
         (4.0, 0.0),
         "4 cost a saturation point"
     );
     exhaust_by(&mut game.state, sid(1), 3.0, ExhaustCause::Mining);
-    assert_eq!(game.survival(1).exhaustion, 0.0);
+    assert_eq!(game.survival_mut(1).exhaustion, 0.0);
     let calls = drain(&mut seen);
     assert_eq!(calls[0], (pid(1), ExhaustCause::SprintJumping, 0.2));
     assert_eq!(calls[1], (pid(1), ExhaustCause::Mining, 3.0));
@@ -1191,10 +1193,10 @@ fn experience_listeners_choose_the_level_or_cancel_the_gain() {
     });
     let mut game = Game::new(1, listeners);
     assert!(pickup_experience(&mut game.state, sid(1), 3));
-    assert_eq!(game.survival(1).xp_lifetime, 0, "cancelled");
+    assert_eq!(game.survival_mut(1).xp_lifetime, 0, "cancelled");
     game.idle(3);
     assert!(pickup_experience(&mut game.state, sid(1), 20));
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!(s.xp_level, 30);
     assert!(s.xp_progress < 1.0);
     assert_eq!(s.xp_lifetime, 20);
@@ -1216,7 +1218,7 @@ fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
         }
     });
     let mut game = Game::new(1, listeners);
-    game.survival(1).food = 10.0;
+    game.survival_mut(1).food = 10.0;
     inventory::set_held(game.player_mut(1), stack(ItemKind::MushroomStew, 1));
     let eat = |game: &mut Game| {
         assert!(start_eating(&mut game.state, sid(1)));
@@ -1224,13 +1226,13 @@ fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
         assert!(finish_eating(&mut game.state, sid(1)));
     };
     eat(&mut game);
-    assert_eq!(game.survival(1).food, 10.0, "cancelled");
+    assert_eq!(game.survival_mut(1).food, 10.0, "cancelled");
     assert_eq!(
         game.player(1).inventory.held(),
         &stack(ItemKind::MushroomStew, 1)
     );
     eat(&mut game);
-    assert!(game.survival(1).food > 10.0);
+    assert!(game.survival_mut(1).food > 10.0);
     let player = game.player(1);
     assert_eq!(
         player.inventory.held().item(),
@@ -1285,7 +1287,7 @@ fn bed_listeners_keep_a_player_up_and_hear_it_leave() {
         game.idle(1);
     }
     assert!(!sleep(&mut game.state, sid(1), 0, foot), "cancelled");
-    assert_eq!(game.survival(1).sleeping, None);
+    assert_eq!(game.survival_mut(1).sleeping, None);
     assert_eq!(game.state.worlds[0].block(head), Some(bed(true)));
     game.idle(1);
     assert!(sleep(&mut game.state, sid(1), 0, foot));
@@ -1343,7 +1345,11 @@ fn an_effect_a_listener_gives_in_place_of_a_removed_one_stays() {
         effects::Active::new(100, 0),
     );
     effects::remove(&mut game.state, sid(1), effect::Type::Speed);
-    let kept = game.survival(1).effects.get(&effect::Type::Speed).copied();
+    let kept = game
+        .survival_mut(1)
+        .effects
+        .get(&effect::Type::Speed)
+        .copied();
     assert_eq!(kept.map(|a| (a.duration, a.amplifier)), Some((200, 1)));
 }
 
@@ -1366,12 +1372,12 @@ fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
     let mut game = Game::new(1, listeners);
     let fire = CombustSource::Block(BlockPos::new(0, -60, 0));
     set_on_fire_by(&mut game.state, sid(1), 8, fire);
-    assert_eq!(game.survival(1).fire_ticks, 0, "cancelled");
+    assert_eq!(game.survival_mut(1).fire_ticks, 0, "cancelled");
     let by = CombustSource::Entity(Actor::Player(pid(1)));
     set_on_fire_by(&mut game.state, sid(1), 8, by);
-    assert_eq!(game.survival(1).fire_ticks, 20);
+    assert_eq!(game.survival_mut(1).fire_ticks, 20);
     game.idle(20);
-    assert_eq!(game.survival(1).fire_ticks, 0);
+    assert_eq!(game.survival_mut(1).fire_ticks, 0);
     assert_eq!(drain(&mut seen), [ExtinguishCause::Ticking]);
 }
 
@@ -1387,7 +1393,7 @@ fn a_burn_of_no_seconds_is_not_heard_by_monitors() {
     let mut game = Game::new(1, listeners);
     let by = CombustSource::Entity(Actor::Player(pid(1)));
     set_on_fire_by(&mut game.state, sid(1), 8, by);
-    assert_eq!(game.survival(1).fire_ticks, 0);
+    assert_eq!(game.survival_mut(1).fire_ticks, 0);
     assert!(drain(&mut watched).is_empty());
 }
 
@@ -2032,7 +2038,7 @@ fn hunger_off_spends_and_gains_no_food_raises_no_event_and_sends_no_hunger_attri
         effects::Active::new(10, 0),
     );
     game.idle(200);
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!(
         (s.food, s.saturation, s.exhaustion, s.food_timer),
         (20.0, 5.0, 0.0, 0)
@@ -2059,7 +2065,7 @@ fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
     let (tx, mut seen) = record();
     let mut game = Game::with(1, named_events(&tx), |c| c.general.experience = false);
     // A level saved while experience was on stays as it is.
-    game.survival(1).xp_level = 10;
+    game.survival_mut(1).xp_level = 10;
     let p = game.player_mut(1);
     let off = Err(crate::player::Error::Disabled);
     assert_eq!(p.set_xp_level(5), off);
@@ -2075,7 +2081,7 @@ fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
     // A death drops no experience and keeps the level.
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(2);
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!(
         (s.xp_level, s.xp_progress, s.xp_lifetime, s.xp_cooldown),
         (10, 0.0, 0, 0)
@@ -2124,11 +2130,11 @@ fn fall_damage_off_lands_softly_and_spares_ender_pearl_falls() {
     );
     let (tx, mut seen) = record();
     let mut game = Game::with(1, named_events(&tx), |c| c.general.fall_damage = false);
-    game.survival(1).fall_distance = 10.0;
+    game.survival_mut(1).fall_distance = 10.0;
     let input = move_by(&mut game, 1, Vec3::new(0.5, 0.0, 0.0));
     game.run(vec![input]);
-    assert_eq!(game.survival(1).health, 20.0);
-    assert_eq!(game.survival(1).fall_distance, 0.0, "landed");
+    assert_eq!(game.survival_mut(1).health, 20.0);
+    assert_eq!(game.survival_mut(1).fall_distance, 0.0, "landed");
     assert_eq!(
         sounds(&game.take(1)),
         [crate::protocol::consts::SoundEvent::Land.as_str()]
@@ -2178,7 +2184,7 @@ fn drowning_off_keeps_the_air_full_the_player_breathing_and_unhurt() {
         .set_block(eye, block::Kind::Stone.default_state())
         .unwrap();
     game.idle(40);
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!((s.air, s.breathing, s.health), (300, true, 20.0));
     assert!(drain(&mut seen).is_empty());
     let data = game
@@ -2210,7 +2216,7 @@ fn the_thorns_answer_counts_the_wearers_strength() {
     assert!(add_effect(&mut game.state, sid(1), strength));
     assert!(damage(&mut game.state, sid(1), 1.0, Damage::Attack(sid(2))));
     // Strength II: 1 + 1 × 0.3 × 2.
-    assert_eq!(game.survival(2).health, 20.0 - 1.6);
+    assert_eq!(game.survival_mut(2).health, 20.0 - 1.6);
     assert_eq!(drain(&mut seen).last().copied(), Some(0.6));
 }
 
@@ -2251,9 +2257,9 @@ fn armour_off_neither_protects_nor_wears_nor_answers_with_thorns() {
     ));
     game.idle(10);
     assert!(damage(&mut game.state, sid(1), 4.0, Damage::FallingBlock));
-    assert_eq!(game.survival(1).health, 6.0, "every hit landed whole");
+    assert_eq!(game.survival_mut(1).health, 6.0, "every hit landed whole");
     assert_eq!(game.player(1).inventory.armor(), worn.as_slice(), "no wear");
-    assert_eq!(game.survival(2).health, 20.0, "no thorns");
+    assert_eq!(game.survival_mut(2).health, 20.0, "no thorns");
     assert_eq!(drain(&mut seen), [[false; 3]; 2]);
 }
 
@@ -2272,7 +2278,7 @@ fn beds_off_let_no_one_sleep_or_set_a_spawn_point() {
     };
     assert!(!cx.sleep_on(pid(1), foot));
     game.idle(100);
-    let s = game.survival(1);
+    let s = game.survival_mut(1);
     assert_eq!((s.sleeping, s.spawn.clone()), (None, None));
     assert_eq!(game.state.worlds[0].block(head), Some(bed(true)));
     assert!(drain(&mut seen).is_empty());
@@ -2340,13 +2346,13 @@ fn critical_hits_setting_decides_critical_hits_while_sprinting() {
         });
         let base = game.player(1).position;
         game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
-        game.survival(1).motion.yaw = 0.0;
+        game.survival_mut(1).motion.yaw = 0.0;
         game.idle(1);
-        let s = game.survival(1);
+        let s = game.survival_mut(1);
         s.motion.sprinting = sprinting;
         s.fall_distance = 1.0;
         attack_player(&mut game.state, sid(1), sid(2));
-        20.0 - game.survival(2).health
+        20.0 - game.survival_mut(2).health
     };
     assert_eq!(taken(CriticalHits::Off, false), 1.0);
     assert_eq!(taken(CriticalHits::Sprint, false), 1.5);

@@ -641,7 +641,7 @@ fn hit_entities(
         let landed = match raise {
             Raise::Events => (hooks.damage)(state, session, damage, player_cause, by),
             Raise::Quiet => survival::damage_quiet(state, session, damage, player_cause)
-                .then_some((super::KNOCKBACK, super::KNOCKBACK_VERTICAL_LIMIT)),
+                .then_some((super::KNOCKBACK, super::MAX_KNOCKBACK_VERTICAL)),
         };
         let mut push = direction * impact;
         if let Some((base, vertical)) = landed

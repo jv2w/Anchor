@@ -757,29 +757,35 @@ pub(super) fn locator_removed(runtime_id: u64) -> Packet {
     )
 }
 
-/// A dead player leaves the bars of those who see it (BDS: its location hidden, its waypoint
-/// invisible); `alive` puts its waypoint back (BDS at the respawn).
-pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet> {
-    let shown = waypoint(
-        runtime_id,
-        WaypointAction::Update.into(),
-        Waypoint {
-            update_flag: WAYPOINT_VISIBLE,
-            visible: Some(alive),
-            ..Waypoint::default()
-        },
-    );
-    if alive {
-        return vec![shown];
-    }
-    vec![
+/// The packets that make a dead player leave the bars of those who see it (BDS: its location
+/// hidden, its waypoint invisible).
+pub(in crate::tick) fn locator_hidden(runtime_id: u64) -> [Packet; 2] {
+    [
         Packet::PlayerLocation(PlayerLocation {
             r#type: PlayerLocationType::Hide.into(),
             entity_unique_id: super::unique_id(runtime_id),
             position: [0.0; 3],
         }),
-        shown,
+        waypoint_visible(runtime_id, false),
     ]
+}
+
+/// The packet that puts a respawned player's waypoint back on the bars (BDS at the respawn).
+pub(in crate::tick) fn locator_visible(runtime_id: u64) -> Packet {
+    waypoint_visible(runtime_id, true)
+}
+
+/// A waypoint update of the player with runtime ID `runtime_id` that shows or hides it.
+fn waypoint_visible(runtime_id: u64, visible: bool) -> Packet {
+    waypoint(
+        runtime_id,
+        WaypointAction::Update.into(),
+        Waypoint {
+            update_flag: WAYPOINT_VISIBLE,
+            visible: Some(visible),
+            ..Waypoint::default()
+        },
+    )
 }
 
 /// A waypoint of the player with runtime ID `runtime_id`; its group handle is made of the ID

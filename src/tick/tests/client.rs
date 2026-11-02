@@ -32,11 +32,13 @@ use crate::world::BlockPos;
 
 /// The UI slot of the created output.
 const CREATED_SLOT: u8 = 50;
-/// The upper bound of the creative item network IDs the generator draws; the creative inventory
-/// has fewer items, so some draws are refused.
-const CREATIVE_ID_BOUND: usize = 1700;
 /// The UI slot of the 2x2 crafting grid's first cell; the 3x3 grid's cells follow its four.
 pub(super) const GRID_2X2: u8 = 28;
+/// The upper bound of the creative item network IDs the generator draws; the creative inventory
+/// has fewer items, so some draws are refused.
+const MAX_CREATIVE_ID: usize = 1700;
+/// The lowest recipe network ID making planks from an oak log alone, and how many it makes.
+static PLANKS_RECIPE: std::sync::OnceLock<(u32, u8)> = std::sync::OnceLock::new();
 
 /// What the clients of a run received, by kind, over every session: the run must reach each.
 pub(super) type Seen = BTreeMap<&'static str, usize>;
@@ -571,7 +573,7 @@ impl Client {
                         actions.push(StackRequestAction::CraftCreative(
                             CraftCreativeStackRequestAction {
                                 creative_item_network_id: 1 + u32::try_from(
-                                    rng.below(CREATIVE_ID_BOUND),
+                                    rng.below(MAX_CREATIVE_ID),
                                 )
                                 .unwrap(),
                                 number_of_crafts: 1,
@@ -671,8 +673,7 @@ impl Default for Client {
 
 /// The lowest recipe network ID making planks from an oak log alone, and how many it makes.
 fn planks_recipe() -> (u32, u8) {
-    static FOUND: std::sync::OnceLock<(u32, u8)> = std::sync::OnceLock::new();
-    *FOUND.get_or_init(|| {
+    *PLANKS_RECIPE.get_or_init(|| {
         let block::ItemForm::Item(log) = block::Kind::OakLog.default_state().item() else {
             panic!("oak logs have an item");
         };
@@ -687,7 +688,7 @@ fn planks_recipe() -> (u32, u8) {
                 };
                 let result = results.first()?.to_item()?;
                 let planks = result.item()?.name().ends_with("_planks");
-                (planks && ingredients.len() == 1 && ingredients[0].accepts(&log))
+                (planks && ingredients.len() == 1 && ingredients[0].can_accept(&log))
                     .then_some((id, result.count()))
             })
             .expect("a planks recipe")

@@ -15,6 +15,7 @@ use crate::protocol::consts::{InventoryActionSource, WINDOW_ID_ARMOUR, WINDOW_ID
 use crate::protocol::{InventoryAction, UseItemOnEntityTransactionData};
 use crate::tick::Context;
 
+/// The block beside the target, at foot level.
 const BESIDE: BlockPos = BlockPos::new(2, -60, 1);
 thread_local! {
     /// How many times a [`cancel`] listener ran on this test's thread (the tick runs there).
@@ -30,6 +31,7 @@ thread_local! {
         })
     };
 }
+/// The grass block under the target.
 const GROUND: BlockPos = BlockPos::new(2, -61, 0);
 thread_local! {
     /// What the re-entry test's listeners and monitors heard, in order.
@@ -39,6 +41,7 @@ thread_local! {
     /// Whether the re-entry test's break listener is running.
     static INSIDE: Cell<bool> = const { Cell::new(false) };
 }
+/// A block diagonal to the target, at foot level.
 const PLACED: BlockPos = BlockPos::new(3, -60, 1);
 
 /// The player of the harness.

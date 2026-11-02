@@ -6,11 +6,13 @@
 const BLOCK_BYTES: usize = 64;
 /// Where the message length starts in the last block: the length fills its final 8 bytes.
 const LENGTH_OFFSET_BYTES: usize = 56;
+/// The left rotation of each of the 64 steps.
 const SHIFTS: [u32; 64] = [
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
     14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
     21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 ];
+/// The additive constant of each of the 64 steps.
 const SINES: [u32; 64] = [
     0xd76a_a478,
     0xe8c7_b756,

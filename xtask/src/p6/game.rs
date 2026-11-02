@@ -277,6 +277,12 @@ impl Running {
         })
     }
 
+    /// Whether the bot has started its first step (it has joined and teleported).
+    fn stepped(&self) -> Result<bool, String> {
+        let text = super::read_growing_text(&self.capture)?;
+        Ok(text.contains(r#""type":"step""#))
+    }
+
     /// Passes the bot's new command records to `console`; true once the bot has exited.
     fn relay(
         &mut self,
@@ -295,19 +301,16 @@ impl Running {
         Ok(exited)
     }
 
-    /// Whether the bot has started its first step (it has joined and teleported).
-    fn stepped(&self) -> Result<bool, String> {
-        let text = super::read_growing_text(&self.capture)?;
-        Ok(text.contains(r#""type":"step""#))
+    /// Kills the bot, waits for it, and reports its result.
+    fn kill_and_finish(mut self, out: &mut impl Write) -> Result<bool, String> {
+        self.child
+            .kill()
+            .map_err(|e| format!("kill the bot: {e}"))?;
+        self.finish(out)
     }
 
-    /// Waits for the bot, killing it first when `kill`, and reports its result.
-    fn finish(mut self, kill: bool, out: &mut impl Write) -> Result<bool, String> {
-        if kill {
-            self.child
-                .kill()
-                .map_err(|e| format!("kill the bot: {e}"))?;
-        }
+    /// Waits for the bot and reports its result.
+    fn finish(self, out: &mut impl Write) -> Result<bool, String> {
         let output = self
             .child
             .wait_with_output()
@@ -377,10 +380,18 @@ pub(crate) fn run_scenarios(
         }
         super::pause();
     };
-    let kill = relay.is_err();
-    let mut passed = main.finish(kill, out)?;
+    let failed = relay.is_err();
+    let mut passed = if failed {
+        main.kill_and_finish(out)?
+    } else {
+        main.finish(out)?
+    };
     if let Some(c) = second {
-        passed &= c.finish(kill, out)?;
+        passed &= if failed {
+            c.kill_and_finish(out)?
+        } else {
+            c.finish(out)?
+        };
     }
     relay?;
     Ok(passed)

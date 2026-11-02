@@ -32,7 +32,7 @@ use crate::data::{
 use crate::nbt::{self, Compound};
 use crate::player::Player;
 use crate::tick::checkpoint::{self, Reader, Writer};
-use crate::tick::extra::PlayerExtra;
+use crate::tick::extra;
 
 /// The key of the player's extra compound that holds its data values.
 pub(in crate::tick) const DATA_KEY: &str = "anchor:data";
@@ -404,7 +404,7 @@ impl Offline {
 /// is read from its saved extra, or is its type's default when none is saved. A saved value that
 /// is not a JSON byte array or does not deserialize into its type is left as saved and reads as
 /// `None`.
-pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
+pub(in crate::tick) fn placed(data: &UserData, extra: &mut extra::Player) {
     let mut values = BTreeMap::new();
     let saved = extra.raw().get(DATA_KEY);
     // A key not written by Anchor is kept as it is, and every value reads as none.
@@ -415,7 +415,6 @@ pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
             _ => None,
         };
         let value = match json {
-            None if !foreign => codec.default_value(),
             Some(nbt::Value::ByteArray(json)) => match codec.decode(json) {
                 Ok(value) => value,
                 Err(e) => {
@@ -427,6 +426,7 @@ pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
                     continue;
                 }
             },
+            None if !foreign => codec.default_value(),
             None | Some(_) => {
                 error!(
                     name = codec.name,
@@ -442,18 +442,18 @@ pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
 
 /// Writes the player's data values into `out`, the extra compound a save writes (it starts as
 /// the one kept as saved). A value with no JSON within its limit keeps its saved form.
-pub(in crate::tick) fn save_player(data: &UserData, extra: &PlayerExtra, out: &mut Compound) {
+pub(in crate::tick) fn save_player(data: &UserData, extra: &extra::Player, out: &mut Compound) {
     if extra.user.data.is_empty() {
         return;
     }
     let mut values = match out.remove(DATA_KEY) {
         Some(nbt::Value::Compound(values)) => values,
-        None => Compound::new(),
         Some(other) => {
             // Not written by Anchor: kept as it is (`placed` read no value from it).
             out.insert(DATA_KEY.to_owned(), other);
             return;
         }
+        None => Compound::new(),
     };
     for codec in &data.players {
         let Some(value) = extra.user.data.get(&codec.type_id) else {
@@ -476,7 +476,7 @@ pub(in crate::tick) fn save_player(data: &UserData, extra: &PlayerExtra, out: &m
 
 /// Keeps the data values of `saved`, the extra compound a snapshot took for the player, as the
 /// ones kept as saved.
-pub(in crate::tick) fn player_saved(extra: &mut PlayerExtra, saved: &Compound) {
+pub(in crate::tick) fn player_saved(extra: &mut extra::Player, saved: &Compound) {
     extra.keep_saved(DATA_KEY, saved);
 }
 

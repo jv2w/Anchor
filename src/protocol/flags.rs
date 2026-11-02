@@ -211,6 +211,7 @@ impl InputFlags {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::consts::{Ability, EntityDataFlag, MoveFlag};
 
     #[test]

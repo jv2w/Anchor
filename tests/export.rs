@@ -17,7 +17,9 @@ use anchor::{Config, Error, Server, export};
 
 use temp_path::TempPath;
 
+/// The Bedrock world folder the tests import and export.
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
+/// The name of the world the tests export.
 const NAME: &str = "exported";
 
 /// Returns a server of the data folder `data` with two CPU threads and the world [`NAME`].

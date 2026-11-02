@@ -58,9 +58,6 @@ pub(crate) enum Error {
     Invariant(&'static str),
 }
 
-/// A RakNet result.
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -73,6 +70,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The driver, run by the UDP task: the listener, the session channels and the clock.
 #[derive(Debug)]
@@ -128,7 +128,7 @@ impl Driver {
     /// Handles a datagram from `from`.
     pub(crate) fn receive(&mut self, from: SocketAddr, datagram: &[u8]) {
         if datagram.len() > MAX_DATAGRAM_BYTES {
-            trace!(%from, len = datagram.len(), "raknet oversized datagram dropped");
+            trace!(addr = %from, len = datagram.len(), "raknet oversized datagram dropped");
             return;
         }
         let now = self.now();
@@ -252,7 +252,7 @@ impl Sink for Io {
         // A full send buffer drops the datagram; the reliability layer resends what matters.
         if let Err(error) = self.sockets.send(to, datagram) {
             trace!(
-                %to,
+                addr = %to,
                 error = &error as &(dyn std::error::Error + 'static),
                 "raknet datagram not sent"
             );

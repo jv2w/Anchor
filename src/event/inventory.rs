@@ -329,6 +329,7 @@ cancellable! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::DIRT;
     use crate::event::fixtures::{POS, entity, player, sticks};
 

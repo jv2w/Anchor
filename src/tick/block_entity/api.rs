@@ -492,7 +492,10 @@ impl Mut<'_> {
     pub fn set_sign_text(&mut self, side: Side, text: SignText) -> Result<()> {
         self.edit(|e| match &mut e.kind {
             Kind::Sign(s) => {
-                *s.side_mut(side == Side::Front) = text;
+                match side {
+                    Side::Front => s.front = text,
+                    Side::Back => s.back = text,
+                }
                 Some(Ok(()))
             }
             _ => None,
@@ -705,9 +708,9 @@ impl Mut<'_> {
     #[doc(alias = "block\\tile\\ChiseledBookshelf::setLastInteractedSlot")]
     pub fn set_last_interacted_slot(&mut self, slot: Option<u8>) -> Result<()> {
         let last = match slot {
-            None => 0,
             Some(s) if usize::from(s) < BOOKSHELF_SLOTS => i32::from(s) + 1,
             Some(_) => return Err(Error::Invalid),
+            None => 0,
         };
         self.edit(|e| match &mut e.kind {
             Kind::ChiseledBookshelf { last: l } => {
@@ -740,7 +743,6 @@ impl Mut<'_> {
     #[doc(alias = "block\\tile\\Cauldron::setPotionItem")]
     pub fn set_cauldron_potion(&mut self, potion: &Stack) -> Result<()> {
         let (container, id) = match potion.item() {
-            None => (-1, -1),
             Some(t) => {
                 let container = POTIONS
                     .iter()
@@ -752,6 +754,7 @@ impl Mut<'_> {
                     i16::try_from(t.meta()).map_err(|_| Error::Invalid)?,
                 )
             }
+            None => (-1, -1),
         };
         self.edit(|e| match &mut e.kind {
             Kind::Cauldron(c) => {
@@ -838,6 +841,7 @@ mod tests {
     use crate::tick::tests::{answer, join, new_state, radius, settings};
     use crate::tick::{InputLog, Output, SessionId, boundary, deliver, step};
 
+    /// The world the tests use.
     const WORLD: world::Id = world::Id::DEFAULT;
 
     /// A flat world with one player who sees the spawn chunks.
@@ -960,7 +964,7 @@ mod tests {
 
     fn text(lines: [&str; 4], argb: u32) -> SignText {
         let colour = crate::tile::from_argb(argb.cast_signed());
-        SignText::new(lines.map(String::from), colour, false).unwrap()
+        SignText::new(lines.map(str::to_owned), colour, false).unwrap()
     }
 
     fn compound<'a>(nbt: &'a Compound, key: &str) -> &'a Compound {
@@ -1064,7 +1068,7 @@ mod tests {
         let tile = cx.block_entity(WORLD, pos).unwrap();
         assert_eq!(
             tile.sign_text(Side::Back).map(SignText::lines),
-            Some(&["", "Back", "", ""].map(String::from))
+            Some(&["", "Back", "", ""].map(str::to_owned))
         );
         assert!(tile.is_sign_waxed());
     }

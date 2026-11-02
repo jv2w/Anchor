@@ -147,7 +147,7 @@ impl Commands {
 
     /// Whether periodic saves are on: the save snapshot due every `save-interval-minutes` is
     /// taken only then (PMMP `WorldManager::getAutoSave`).
-    pub(super) fn auto_save(&self) -> bool {
+    pub(super) fn is_auto_save_on(&self) -> bool {
         self.auto_save
     }
 
@@ -478,7 +478,7 @@ pub(crate) enum Refusal {
 
 impl Refusal {
     /// What the refused player sees: the client's text where it has one, Anchor's otherwise.
-    pub(crate) fn message(&self) -> String {
+    pub(crate) fn to_message(&self) -> String {
         match self {
             Self::Full => "disconnectionScreen.serverFull".to_owned(),
             Self::NotWhitelisted => "disconnectionScreen.notAllowed".to_owned(),
@@ -500,7 +500,7 @@ impl Refusal {
             _ => Packet::Disconnect(Disconnect {
                 reason: i32::from(DisconnectReason::NotAllowed),
                 hide_disconnection_screen: false,
-                message: self.message(),
+                message: self.to_message(),
                 filtered_message: String::new(),
             }),
         }
@@ -706,7 +706,7 @@ pub(super) fn console(state: &mut State, line: &str) {
         if success {
             info!(output = %line, "console command");
         } else {
-            info!(error = %line, "console command failed");
+            info!(output = %line, "console command failed");
         }
     }
 }
@@ -804,12 +804,12 @@ fn execute(state: &mut State, sender: Sender, line: &str) -> command::Result<Out
         clippy::expect_used,
         reason = "invariant: no handler of the command runs, so each waits in its slot"
     )]
-    let mut handler = handler_slot(state, index, overload)
+    let mut handler = handler_slot_mut(state, index, overload)
         .take()
         .expect("a handler that is not running waits in its slot");
     let outer = std::mem::replace(&mut state.commands.admins, Admins::Unknown);
     let result = handler(&mut Context { state }, &sender, &args);
-    *handler_slot(state, index, overload) = Some(handler);
+    *handler_slot_mut(state, index, overload) = Some(handler);
     // A run inside this one may have changed a permission: the outer run looks them up again.
     state.commands.admins = match outer {
         Admins::Idle => Admins::Idle,
@@ -829,7 +829,11 @@ fn command_at(state: &State, index: usize) -> &Command {
 
 /// Lends the slot where the handler of overload `overload` of command `index` waits between
 /// runs.
-fn handler_slot(state: &mut State, index: usize, overload: usize) -> &mut Option<command::Handler> {
+fn handler_slot_mut(
+    state: &mut State,
+    index: usize,
+    overload: usize,
+) -> &mut Option<command::Handler> {
     #[expect(
         clippy::indexing_slicing,
         reason = "invariant: `index` and `overload` name an overload of a registered command"
@@ -1265,7 +1269,7 @@ impl Context<'_> {
         self.tell_admins(sender, &packets);
         if let Sender::Player(_) = sender {
             let source = self.sender_name(sender).unwrap_or_default();
-            info!(%source, %result, "command result");
+            info!(player = %source, %result, "command result");
         }
         Ok(())
     }
@@ -1277,12 +1281,12 @@ impl Context<'_> {
     fn tell_admins(&mut self, sender: Sender, packets: &player::Packets) {
         let running = !matches!(self.state.commands.admins, Admins::Idle);
         let admins = match std::mem::replace(&mut self.state.commands.admins, Admins::Idle) {
-            Admins::Known(admins) => admins,
             Admins::Idle | Admins::Unknown => self
                 .players()
                 .map(player::Player::id)
                 .filter(|&id| self.has_permission(Sender::Player(id), permission::BROADCAST_ADMIN))
                 .collect(),
+            Admins::Known(admins) => admins,
         };
         for &id in &admins {
             if Sender::Player(id) == sender {
@@ -1667,14 +1671,14 @@ impl Context<'_> {
     /// Whether the whitelist is on (`white-list`).
     #[doc(alias = "Server::hasWhitelist")]
     pub fn whitelist_enabled(&self) -> bool {
-        self.state.commands.access.whitelist_enabled()
+        self.state.commands.access.is_whitelist_enabled()
     }
 
     /// Turns the whitelist on or off until the server stops (`white-list` decides at start:
     /// Anchor never writes the settings file). Players already online stay; one whose saved data
     /// is still loading is refused when its data arrives, if the whitelist then keeps it out.
     pub fn set_whitelist_enabled(&mut self, enabled: bool) {
-        if self.state.commands.access.whitelist_enabled() != enabled {
+        if self.state.commands.access.is_whitelist_enabled() != enabled {
             info!(enabled, "whitelist switched until the server stops");
         }
         self.state.commands.access.set_whitelist_enabled(enabled);

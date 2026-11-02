@@ -14,6 +14,7 @@ use crate::item::Extra;
 use crate::save::{Request, Response};
 use crate::world;
 
+/// A custom block with a `lit` property that its behaviour toggles.
 static SWITCH: Block = Block::new("test:switch", "test_switch")
     .with_properties(&[Property::bool("lit")])
     .with_hardness(0.0)
