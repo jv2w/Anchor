@@ -1,6 +1,5 @@
 //! Survival rules of players: movement, health, food, xp, effects, damage, death and
-//! respawn, game modes and abilities, attributes, combat, sleeping and the world clock (PMMP
-//! `Player`, `Human`, `Living`, `HungerManager`, `ExperienceManager`, `EffectManager`).
+//! respawn, game modes and abilities, attributes, combat and the world clock.
 //!
 //! Every rule runs on the tick thread in a serial phase. A player's survival state changes only
 //! here; other modules call the functions below. The client hears about changes at the end of
@@ -28,12 +27,10 @@ pub(super) use api::{marked, sync};
 pub(super) use appearance::{SkinBudget, send_skins, skin_waits};
 pub(super) use attributes::{
     HEALTH_ATTRIBUTE, actor_data, adventure_settings, all_attributes, full_metadata, game_rules,
-    update_abilities,
+    layer_of, mode_abilities, update_abilities,
 };
-pub(super) use clock::{
-    Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
-};
-pub(super) use damage::{Damage, bds_cause, heals, highest_armor_level, respawn_joined};
+pub(super) use clock::{Clock, clock_definition, clock_state, day_cycle_lock_time};
+pub(super) use damage::{Damage, actor_cause, heals, highest_armor_level, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
 use std::collections::BTreeMap;
@@ -58,22 +55,21 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{BlockPos, Weather, World};
 
-/// The saturation of a new or respawned player: BDS sends 5 (P6; PMMP starts at 20).
+/// The saturation of a new or respawned player (P6).
 const DEFAULT_SATURATION: f64 = 5.0;
-/// How far a player reaches an entity or a player (PMMP
-/// `Player::MAX_REACH_DISTANCE_ENTITY_INTERACTION`).
+/// How far a player reaches an entity or a player.
 pub(super) const ENTITY_REACH: f64 = 8.0;
-/// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
+/// Eye height above the feet; a human NPC's too.
 pub(super) const EYE_HEIGHT: f64 = 1.62;
-/// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
+/// Air supply in ticks.
 const MAX_AIR_TICKS: i16 = 300;
-/// The largest exhaustion: BDS's `minecraft:player.exhaustion` maximum (P6; PMMP's is 5).
+/// The largest exhaustion: the official server's `minecraft:player.exhaustion` maximum (P6).
 const MAX_EXHAUSTION: f64 = 20.0;
-/// The longest burn in ticks (PMMP `Entity::setFireTicks` refuses more than `0x7fff`).
+/// The longest burn in ticks.
 const MAX_FIRE_TICKS: u32 = 0x7fff;
-/// The largest food level (PMMP `Attribute::HUNGER`).
+/// The largest food level.
 const MAX_FOOD: f64 = 20.0;
-/// The health of a player without effects (PMMP `Attribute::HEALTH` default).
+/// The health of a player without effects.
 const MAX_HEALTH: f64 = 20.0;
 /// The most held-back death drops: what death takes (the slots and the stacks waiting for room,
 /// [`inventory::MAX_SAVED_PENDING`]) and drops a listener set in its place, all refused by the
@@ -82,16 +78,13 @@ const MAX_HELD_BACK: usize = inventory::CARRIED + inventory::MAX_SAVED_PENDING +
 /// The most drops a [`PlayerDeath`](crate::event::PlayerDeath) listener sets that are kept: one
 /// inventory.
 const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
-/// The largest saturation (PMMP `Attribute::SATURATION`).
+/// The largest saturation.
 const MAX_SATURATION: f64 = 20.0;
 /// The lowest air supply in ticks: a player under water reaching it takes drowning damage and
-/// has 0 again (PMMP `Living::doAirSupplyTick`).
+/// has 0 again.
 const MIN_AIR_TICKS: i16 = -20;
-/// How far behind the plane its eyes look through a player reaches (PMMP `Player::canInteract`
-/// default `maxDiff`: `M_SQRT3 / 2`).
+/// How far behind the plane its eyes look through a player reaches: `√3 / 2`.
 const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
-/// The random stream key of the enchanting seed.
-const SEED: u64 = random::tag("player-seed");
 
 /// A player's survival state.
 #[derive(Debug)]
@@ -106,26 +99,24 @@ pub(super) struct Survival {
     switches: Switches,
     /// Health in half hearts, 0 to [`Self::max_health`]; 0 is dead.
     health: f64,
-    /// Extra health absorbed first (PMMP `Living::getAbsorption`), 0 or more.
+    /// Extra health absorbed first, 0 or more.
     absorption: f64,
-    /// Food level, 0 to 20 (PMMP keeps a float).
+    /// Food level, 0 to 20.
     food: f64,
     /// Saturation, 0 to 20.
     saturation: f64,
     /// Exhaustion, 0 to [`MAX_EXHAUSTION`]; below 4 after each exhaustion.
     exhaustion: f64,
-    /// Ticks of the food cycle, 0 to 79 (PMMP `HungerManager::$foodTickTimer`).
+    /// Ticks of the food cycle, 0 to 79.
     food_timer: u32,
     /// Xp level, 0 to 24,791.
     xp_level: u32,
     /// Progress through the level, 0 to below 1.
     xp_progress: f64,
-    /// Xp collected since the last death (PMMP `XpTotal`), at most `i32::MAX`.
+    /// Xp collected since the last death, at most `i32::MAX`.
     xp_lifetime: u32,
-    /// Ticks until the next orb pickup, 0 to 2 (PMMP `ExperienceManager::$xpCooldown`).
+    /// Ticks until the next orb pickup, 0 to 2.
     xp_cooldown: u8,
-    /// The enchanting seed (PMMP `XpSeed`), drawn on the first tick if the save has none.
-    xp_seed: Option<i32>,
     /// Active effects; at most one per effect type.
     effects: BTreeMap<effect::Type, effects::Active>,
     /// Ticks the player keeps burning, 0 to 32,767.
@@ -133,31 +124,28 @@ pub(super) struct Survival {
     /// Air supply in ticks, [`MIN_AIR_TICKS`] to the largest the API set ([`MAX_AIR_TICKS`] unless changed).
     air: i16,
     /// Whether the player could breathe at its last tick (the Breathing entity flag): false until
-    /// its first tick, as BDS shows a new player (P6).
+    /// its first tick, as the official server shows a new player (P6).
     breathing: bool,
     /// Blocks fallen since the player last stood on something.
     fall_distance: f64,
-    /// The respawn point (PMMP `Player::setSpawn`), set by sleeping, `/spawnpoint` and the API,
-    /// and saved; `None` respawns the player at the default world's spawn.
+    /// The respawn point, set by the API and saved; `None` respawns the player at the default
+    /// world's spawn.
     spawn: Option<Point>,
     /// Where the player last died.
     death: Option<Point>,
-    /// The bed the player sleeps in.
-    sleeping: Option<BlockPos>,
     /// Movement and input state.
     motion: movement::Motion,
-    /// Ticks the player ignores damage after respawning (PMMP `noDamageTicks`).
+    /// Ticks the player ignores damage after respawning.
     no_damage_ticks: u32,
-    /// Ticks since the last hit within which a weaker hit does nothing (PMMP `attackTime`).
+    /// Ticks since the last hit within which a weaker hit does nothing.
     attack_time: u32,
-    /// The base damage of the last hit taken (PMMP `lastDamageCause->getBaseDamage()`).
+    /// The base damage of the last hit taken.
     last_damage: Option<f64>,
-    /// Why and from what the player last took damage (PMMP `lastDamageCause`); kept through a
-    /// respawn, as in PMMP. Not saved.
+    /// Why and from what the player last took damage; kept through a respawn. Not saved.
     last_cause: Option<(DamageCause, DamageSource)>,
     /// The item the player started eating or drinking, and when.
     using: Option<food::Using>,
-    /// Item cooldowns: the cooldown key and the tick it ends (PMMP `usedItemsCooldown`).
+    /// Item cooldowns: the cooldown key and the tick it ends.
     cooldowns: BTreeMap<food::CooldownKey, u64>,
     /// Death drops that could not be dropped (entity limit) nor put back; dropped as soon as the
     /// world takes them: at most [`MAX_HELD_BACK`]. Saved with the player.
@@ -235,7 +223,6 @@ impl Survival {
             xp_progress: 0.0,
             xp_lifetime: 0,
             xp_cooldown: 0,
-            xp_seed: None,
             effects: BTreeMap::new(),
             fire_ticks: 0,
             air: MAX_AIR_TICKS,
@@ -243,7 +230,6 @@ impl Survival {
             fall_distance: 0.0,
             spawn: None,
             death: None,
-            sleeping: None,
             motion: movement::Motion::default(),
             no_damage_ticks: 0,
             attack_time: 0,
@@ -260,8 +246,8 @@ impl Survival {
         }
     }
 
-    /// The game mode: the player's own, or the server's. `force-gamemode` applies at the join
-    /// (PMMP): the saved mode is not loaded, and a later change stays until the player leaves.
+    /// The game mode: the player's own, or the server's. `force-gamemode` applies at the join:
+    /// the saved mode is not loaded, and a later change stays until the player leaves.
     fn mode(&self) -> GameMode {
         self.game_mode.unwrap_or(self.default_mode)
     }
@@ -311,7 +297,6 @@ impl Survival {
             xp_progress,
             xp_lifetime,
             xp_cooldown,
-            xp_seed,
             effects,
             fire_ticks,
             air,
@@ -319,7 +304,6 @@ impl Survival {
             fall_distance,
             spawn,
             death,
-            sleeping,
             motion,
             no_damage_ticks,
             attack_time,
@@ -360,7 +344,6 @@ impl Survival {
         h.u64(u64::from(*xp_level));
         h.u64(u64::from(*xp_lifetime));
         h.u64(u64::from(*xp_cooldown));
-        h.u64(xp_seed.map_or(0, |s| u64::from(s.cast_unsigned()) + 1));
         h.usize(effects.len());
         for (effect, active) in effects {
             h.u64(u64::from(effect.id()));
@@ -377,10 +360,6 @@ impl Survival {
                 }
                 None => h.u64(0),
             }
-        }
-        match sleeping {
-            Some(p) => h.block_pos(*p),
-            None => h.u64(0),
         }
         motion.hash_into(h);
         h.u64(u64::from(*no_damage_ticks));
@@ -430,7 +409,6 @@ checkpoint::fields!(Survival {
     xp_progress,
     xp_lifetime,
     xp_cooldown,
-    xp_seed,
     effects,
     fire_ticks,
     air,
@@ -438,7 +416,6 @@ checkpoint::fields!(Survival {
     fall_distance,
     spawn,
     death,
-    sleeping,
     motion,
     no_damage_ticks,
     attack_time,
@@ -461,8 +438,7 @@ checkpoint::fields!(Switches { food, xp, drowning });
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Refused;
 
-/// A melee hit a player makes on an entity that is not a player, from the attacker's side (PMMP
-/// `Player::attackEntity`, `EntityDamageByEntityEvent::addAttackerModifiers`).
+/// A melee hit a player makes on an entity that is not a player, from the attacker's side.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Melee {
     /// The damage: the held item's attack points with Strength, Weakness, Sharpness and a
@@ -471,7 +447,7 @@ pub(super) struct Melee {
     /// A critical hit (falling, not flying, not blind, not under water, and not sprinting
     /// under `critical-hits = "sprint"`) that added damage.
     pub(super) critical: bool,
-    /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
+    /// A weapon enchantment added damage.
     pub(super) magic: bool,
 }
 
@@ -487,44 +463,42 @@ pub(super) fn save(survival: &Survival, extra: &mut Compound) {
 }
 
 /// `PlayerAuthInput`: rotation, input flags (sneaking, sprinting, swimming, gliding, flying,
-/// jumping, missed swings) and the movement, checked as PMMP does (PMMP
-/// `InGamePacketHandler::handlePlayerAuthInput`, `Player::handleMovement`). Positions that are
-/// not finite or outside the world border are ignored: tick state holds no NaN or infinity.
+/// jumping, missed swings) and the movement, checked. Positions that are not finite or outside
+/// the world border are ignored: tick state holds no NaN or infinity.
 pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &PlayerAuthInput) {
     movement::on_auth_input(state, session, packet);
 }
 
-/// Applies a `PlayerAction`: respawn, jumping, sprinting, sneaking, sleeping, or gliding.
+/// Applies a `PlayerAction`: respawn, jumping, sprinting, sneaking, or gliding.
 pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
     movement::on_player_action(state, session, packet);
 }
 
-/// `Animate`: ignored, as PMMP does (`InGamePacketHandler::handleAnimate` filters it as noisy):
-/// the arm swing other players see comes from the attacks and missed swings the server handles,
-/// so a client cannot make every viewer receive a packet per packet it sends.
+/// `Animate`: ignored. The arm swing other players see comes from the attacks and missed swings
+/// the server handles, so a client cannot make every viewer receive a packet per packet it
+/// sends.
 pub(super) fn on_animate(state: &mut State, session: SessionId, packet: &Animate) {
     let _ = (state, session, packet);
 }
 
 /// `Respawn` from the client: the respawn button on the death screen
-/// (`RespawnStateClientReadyToSpawn`) is answered with the respawn position (PMMP
-/// `DeathPacketHandler::handleRespawn`); the respawn itself follows `PlayerAction` respawn.
+/// (`RespawnStateClientReadyToSpawn`) is answered with the respawn position; the respawn itself
+/// follows `PlayerAction` respawn.
 pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn) {
     damage::on_respawn(state, session, packet);
 }
 
 /// `Emote`: a spawned player plays an emote, at most once every 6 ticks, and the players that see
-/// it see it too (PMMP `InGamePacketHandler::handleEmote`, `Player::emote`); a
-/// [`PlayerEmote`](crate::event::PlayerEmote) listener may cancel it or play another.
+/// it see it too; a [`PlayerEmote`](crate::event::PlayerEmote) listener may cancel it or play
+/// another.
 pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
     appearance::on_emote(state, session, packet);
 }
 
-/// `PlayerSkin`: a spawned player changes its skin in game (PMMP
-/// `InGamePacketHandler::handlePlayerSkin`, `Player::changeSkin`): checked like a login skin
-/// (image sizes, at most 4 MiB), at most once a second; every player then gets it, or the
-/// player gets its old skin back if a
-/// [`PlayerChangeSkin`](crate::event::PlayerChangeSkin) listener cancels it.
+/// `PlayerSkin`: a spawned player changes its skin in game: checked like a login skin (image
+/// sizes, at most 4 MiB), at most once a second; every player then gets it, or the player gets
+/// its old skin back if a [`PlayerChangeSkin`](crate::event::PlayerChangeSkin) listener cancels
+/// it.
 pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin) {
     appearance::on_skin(state, session, packet);
 }
@@ -582,9 +556,9 @@ fn valid_stacks(stacks: &[Stack], limit: usize) -> Vec<Stack> {
 }
 
 /// Asks the [`PlayerGameModeChange`] listeners whether the player of `session` may change to
-/// `mode` (PMMP `Player::setGamemode`): [`Refused`] if it already has the mode, if a listener
-/// cancels it or if, after the listeners, the player is gone or already has the mode; otherwise
-/// the event to [`watch`] once the mode changed.
+/// `mode`: [`Refused`] if it already has the mode, if a listener cancels it or if, after the
+/// listeners, the player is gone or already has the mode; otherwise the event to [`watch`] once
+/// the mode changed.
 fn ask_game_mode(
     state: &mut State,
     session: SessionId,
@@ -632,18 +606,18 @@ impl Context<'_> {
         let Ok(event) = ask_game_mode(self.state, session, mode) else {
             return false;
         };
-        let changed = self
-            .state
-            .players
-            .get_mut(&session)
-            .is_some_and(|p| p.set_game_mode(mode));
+        let changed = self.state.players.get_mut(&session).is_some_and(|p| {
+            let differs = p.game_mode() != mode;
+            p.set_game_mode(mode);
+            differs
+        });
         watch(self.state, event.as_ref());
         changed
     }
 }
 
-/// One tick of the world clocks, then of every spawned player's survival state (PMMP
-/// `World::actuallyDoTick` then `Player::onUpdate`), then the client updates.
+/// One tick of the world clocks, then of every spawned player's survival state, then the client
+/// updates.
 pub(super) fn tick(state: &mut State) {
     clock::tick(state);
     let mut next = first_session(state);
@@ -654,10 +628,8 @@ pub(super) fn tick(state: &mut State) {
     attributes::flush(state);
 }
 
-/// One tick of a spawned, living player (PMMP `Player::onUpdate`, `Human::entityBaseTick`,
-/// `Living::entityBaseTick`, `Entity::entityBaseTick`).
+/// One tick of a spawned, living player.
 fn player_tick(state: &mut State, session: SessionId) {
-    let tick = state.tick;
     let settings = &state.settings;
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -667,10 +639,6 @@ fn player_tick(state: &mut State, session: SessionId) {
     }
     let food = settings.food && player.survival.custom.food && is_survival(player.survival.mode());
     player.survival.motion.food = food;
-    if player.survival.xp_seed.is_none() {
-        let seed = state.worlds.get(player.world).map_or(0, World::seed);
-        draw_enchantment_seed(seed, tick, player);
-    }
     if player.survival.is_dead() {
         // Killed through the API: the death's drops come now.
         if !player.survival.motion.death_shown && std::mem::take(&mut player.survival.custom.killed)
@@ -678,9 +646,6 @@ fn player_tick(state: &mut State, session: SessionId) {
             damage::die(state, session, damage::GENERIC_DEATH, None);
         }
         return;
-    }
-    if player.survival.sleeping.is_some() && !player.survival.motion.in_bed {
-        clock::wake(state, session);
     }
     movement::process(state, session);
     if let Some(player) = state.players.get_mut(&session) {
@@ -708,14 +673,6 @@ fn player_tick(state: &mut State, session: SessionId) {
     if let Some(player) = state.players.get_mut(&session) {
         movement::end_tick(player);
     }
-}
-
-/// Draws the player's enchanting seed from a stream of its own.
-fn draw_enchantment_seed(seed: i64, tick: u64, player: &mut Player) {
-    let mut random = player_random(seed, tick, player, SEED);
-    let [a, b, c, d, ..] = random.next_u64().to_le_bytes();
-    player.survival.xp_seed = Some(i32::from_le_bytes([a, b, c, d]));
-    player.data_dirty = true;
 }
 
 /// A random stream for one draw purpose of a player in a world with `seed`; each call opens a
@@ -761,7 +718,7 @@ pub(super) fn game_mode(_state: &State, player: &Player) -> GameMode {
 }
 
 /// The player's own game mode, `None` when it uses the server default (`StartGame` then names
-/// the world's mode, as BDS does for a new player).
+/// the world's mode, as the official server does for a new player).
 pub(super) fn own_game_mode(settings: &Settings, player: &Player) -> Option<GameMode> {
     if settings.force_game_mode {
         return None;
@@ -780,8 +737,7 @@ pub(super) fn health_shown(player: &Player) -> i32 {
 }
 
 /// The player confirmed its spawn: its entity data is what the spawn window showed, and it
-/// learns its active effects (PMMP sends them once the player is in game). The settings argument
-/// is the spawn module's calling form.
+/// learns its active effects. The settings argument is the spawn module's calling form.
 pub(super) fn spawned(_settings: &Settings, player: &mut Player) {
     attributes::spawned(player);
     let packets: Vec<Packet> = effects::all_packets(player).collect();
@@ -790,14 +746,13 @@ pub(super) fn spawned(_settings: &Settings, player: &mut Player) {
     }
 }
 
-/// Whether the game mode takes damage and gets hungry (PMMP `Player::isSurvival`: survival or
-/// adventure).
+/// Whether the game mode takes damage and gets hungry: survival or adventure.
 fn is_survival(mode: GameMode) -> bool {
     matches!(mode, GameMode::Survival | GameMode::Adventure)
 }
 
 /// Whether the game mode uses items up: placing, eating, shooting and hitting wear them, and a
-/// death drops them (PMMP `Player::hasFiniteResources`: every mode but creative).
+/// death drops them: every mode but creative.
 pub(super) fn has_finite_resources(mode: GameMode) -> bool {
     mode != GameMode::Creative
 }
@@ -809,8 +764,8 @@ pub(super) fn damage(state: &mut State, session: SessionId, amount: f64, cause: 
     damage::damage(state, session, amount, cause)
 }
 
-/// [`damage_by`] without a source and without events, for the direct API: a death and a wake
-/// follow at the player's survival sync.
+/// [`damage_by`] without a source and without events, for the direct API: a death follows at the
+/// player's survival sync.
 pub(super) fn damage_quiet(
     state: &mut State,
     session: SessionId,
@@ -835,77 +790,55 @@ pub(super) fn damage_by(
     damage::damage_by(state, session, amount, cause, source)
 }
 
-/// Adds food exhaustion (PMMP `HungerManager::exhaust`) without an event; nothing while food is
-/// off for the player (`food = false`, creative, spectator). Rules raise
+/// Adds food exhaustion without an event; nothing while food is off for the player
+/// (`food = false`, creative, spectator). Rules raise
 /// [`PlayerExhaust`](crate::event::PlayerExhaust) with [`exhaust_by`] instead.
 #[cfg(test)]
 pub(super) fn exhaust(player: &mut Player, amount: f64) {
     food::exhaust(&mut player.survival, amount);
 }
 
-/// Adds food exhaustion for `cause`, raising [`PlayerExhaust`](crate::event::PlayerExhaust)
-/// (PMMP `HungerManager::exhaust`).
+/// Adds food exhaustion for `cause`, raising [`PlayerExhaust`](crate::event::PlayerExhaust).
 pub(super) fn exhaust_by(state: &mut State, session: SessionId, amount: f64, cause: ExhaustCause) {
     food::exhaust_as(state, session, amount, cause);
 }
 
-/// Adds xp points (orbs, furnaces, trades, breaking ores); the API has
-/// [`Player::add_xp`].
+/// Adds xp points (orbs, trades); the API has [`Player::add_xp`].
 #[cfg(test)]
 pub(super) fn add_xp(player: &mut Player, amount: u32) {
     food::add_xp(player, amount);
 }
 
-/// The enchanting seed of the player (PMMP `Human::getEnchantmentSeed`), 0 until its first tick.
-pub(super) fn enchantment_seed(player: &Player) -> i32 {
-    player.survival.xp_seed.unwrap_or(0)
-}
-
-/// The xp level (PMMP `ExperienceManager::getXpLevel`).
+/// The xp level of the player.
 pub(super) fn xp_level(player: &Player) -> u32 {
     player.survival.xp_level
 }
 
-/// Takes `levels` xp levels, keeping the progress (PMMP `subtractXpLevels`); not below 0.
-/// Nothing with `xp = false`.
-pub(super) fn subtract_levels(player: &mut Player, levels: u32) {
-    if levels == 0 || !player.survival.switches.xp {
-        return;
-    }
-    let s = &mut player.survival;
-    s.xp_level = s.xp_level.saturating_sub(levels);
-    s.mark(attributes::LEVEL);
-    player.data_dirty = true;
-}
-
-/// `attacker` hits the player `target` in melee with its held item (PMMP `Player::attackEntity`).
+/// `attacker` hits the player `target` in melee with its held item.
 pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: SessionId) {
     damage::attack_player(state, attacker, target);
 }
 
-/// The player clicks in the air while it eats or drinks the item it holds: PMMP
-/// `Player::consumeHeldItem`. False, changing nothing, if it does not eat the held item.
+/// The player clicks in the air while it eats or drinks the item it holds. False, changing
+/// nothing, if it does not eat the held item.
 pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
     food::finish_eating(state, session)
 }
 
-/// The player starts eating or drinking the item it holds: PMMP `Player::useHeldItem`. True when
-/// the item is a consumable it handled.
+/// The player starts eating or drinking the item it holds. True when the item is a consumable it
+/// handled.
 pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
     food::start_eating(state, session)
 }
 
-/// The player stops using its held item: drawing a bow or trident, eating or drinking (PMMP
-/// `Player::setUsingItem(false)`).
+/// The player stops using its held item: drawing a bow or trident, eating or drinking.
 pub(super) fn stop_using_item(player: &mut Player) {
     player.breaking.stop_using();
     player.survival.using = None;
 }
 
-/// The player leaves: it wakes up (the bed is free again) and stops eating (PMMP
-/// `Player::onPostDisconnect` → `stopSleep`).
-pub(super) fn left(state: &mut State, player: &mut Player) {
-    clock::stop_sleep(state, player);
+/// The player leaves: it stops eating.
+pub(super) fn left(player: &mut Player) {
     player.survival.using = None;
 }
 
@@ -914,10 +847,9 @@ pub(super) fn feet(player: &Player) -> Vec3 {
     feet_at(player.position)
 }
 
-/// The feet position of a player whose eyes are at `eye`, rounded to 4 decimals as PMMP keeps it
-/// (`InGamePacketHandler`: `round(4)` of the eye - 1.62): the one rule every feet position the
-/// tick and the API use follows. Unrounded, the `f32` eye of a player on a block is a hair below
-/// it and its feet floor to the block under that.
+/// The feet position of a player whose eyes are at `eye`, rounded to 4 decimals: the one rule
+/// every feet position the tick and the API use follows. Unrounded, the `f32` eye of a player on
+/// a block is a hair below it and its feet floor to the block under that.
 pub(super) fn feet_at(eye: Vec3) -> Vec3 {
     let round = |v: f64| (v * 10_000.0).round() / 10_000.0;
     let f = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
@@ -934,8 +866,8 @@ pub(super) fn standing_eye(feet: BlockPos) -> Vec3 {
     )
 }
 
-/// The player's box: its pose's size around its feet (PMMP `Entity::$boundingBox`, which
-/// `Living::recalculateSize` sizes); the one box the survival and the entity rules use.
+/// The player's box: its pose's size around its feet; the one box the survival and the entity
+/// rules use.
 pub(super) fn bounding_box(player: &Player) -> crate::math::Aabb {
     movement::bounding_box(&player.survival, feet(player))
 }
@@ -962,23 +894,23 @@ fn difficulty(state: &State, world: WorldIndex) -> Difficulty {
     super::world_api::difficulty(state, world)
 }
 
-/// Whether the player is alive (PMMP `Entity::isAlive`): not dead and waiting to respawn.
+/// Whether the player is alive: not dead and waiting to respawn.
 pub(super) fn is_alive(player: &Player) -> bool {
     !player.survival.is_dead()
 }
 
-/// Gives the player an effect (potions, beacons, food, clouds; PMMP `EffectManager::add`): false
-/// if one of the same type with a higher amplifier, or the same amplifier and a longer duration,
-/// stays. A replaced effect is undone first (health boost, absorption), the new one applies, and
-/// the client hears `MobEffect` add or modify. An instant effect (healing, harming) acts on the
-/// player's next tick, as PMMP's effect tick does.
+/// Gives the player an effect (potions, food, clouds): false if one of the same type with a
+/// higher amplifier, or the same amplifier and a longer duration, stays. A replaced effect is
+/// undone first (health boost, absorption), the new one applies, and the client hears
+/// `MobEffect` add or modify. An instant effect (healing, harming) acts on the player's next
+/// tick.
 pub(super) fn add_effect(state: &mut State, session: SessionId, effect: effect::Instance) -> bool {
     effects::add(state, session, effect.effect(), effects::Active::of(effect))
 }
 
-/// Moves the player's eyes to `pos` in `world` (PMMP `Player::teleport`; ender pearls, chorus
-/// fruit, respawns, commands): its window closes, it wakes, its breaking stops, its fall ends,
-/// the client gets `MovePlayer` in teleport mode and the players that see it the same packet.
+/// Moves the player's eyes to `pos` in `world` (ender pearls, chorus fruit, respawns, commands):
+/// its window closes, its breaking stops, its fall ends, the client gets `MovePlayer` in
+/// teleport mode and the players that see it the same packet.
 /// Another world first closes, without an event, a window an `InventoryClose` listener opened
 /// (its blocks stand in the old world), closes the view of the old world, opens it around `pos`
 /// in the new one (its chunks are sent again from the next view phase) and the client gets the
@@ -995,7 +927,6 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
     }
     let other_world = player.world != world;
     inventory::close_window(state, session);
-    clock::wake(state, session);
     super::interact::stop_breaking(state, session);
     if other_world {
         inventory::close_window_without_event(state, session);
@@ -1032,7 +963,8 @@ pub(super) fn check_destination(
 }
 
 /// Shows the player and the players that see it the rotation the API set, as a teleport where it
-/// stands (BDS `/tp` with a rotation): `MovePlayer` in teleport mode.
+/// stands (as the official server does for `/tp` with a rotation): `MovePlayer` in teleport
+/// mode.
 fn send_rotation(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -1044,9 +976,8 @@ fn send_rotation(state: &mut State, session: SessionId) {
 
 /// Moves the player into another world: the old world's chunks are let go, the view opens at
 /// `pos` in the new world with the radius the player asked for, up to the new world's
-/// `view-distance`, and the client learns the new world's difficulty, weather, clock and sleeping
-/// counts (PMMP `Player::setPosition`, `NetworkSession::onEnterWorld`). The other players see it
-/// leave and arrive through entity tracking, which follows the world.
+/// `view-distance`, and the client learns the new world's difficulty, weather and clock. The
+/// other players see it leave and arrive through entity tracking, which follows the world.
 fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
     let Some(mut player) = state.players.remove(&session) else {
         return;
@@ -1060,8 +991,8 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     super::view::close(state, &mut player);
     let difficulty = super::world_api::difficulty(state, world);
     if super::world_api::difficulty(state, player.world) != difficulty {
-        // PMMP `NetworkSession::onEnterWorld` syncs the world's difficulty; the player has had
-        // its `StartGame` (see the weather below).
+        // Entering a world syncs its difficulty; the player has had its `StartGame` (see the
+        // weather below).
         player.send_packet(Packet::SetDifficulty(
             crate::protocol::packet::SetDifficulty {
                 difficulty: super::spawn::difficulty_id(difficulty).cast_unsigned(),
@@ -1087,19 +1018,12 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     } else if radius > 0 {
         super::view::set_radius(state, &mut player, radius);
     }
-    // Back in the map first: the sleeping counts include the player that arrives. Its client has
-    // the old world's clock and counts from its join, as it has the weather.
+    // Its client has the old world's clock from its join, as it has the weather.
+    player.send_packet(clock_state(state, world));
     state.players.insert(session, player);
-    let packets = [clock_state(state, world), sleeping_players(state, world)];
-    if let Some(player) = state.players.get_mut(&session) {
-        for packet in packets {
-            player.send_packet(packet);
-        }
-    }
 }
 
-/// The level of the haste effect (0 without it), for the break speed (PMMP
-/// `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`).
+/// The level of the haste effect (0 without it), for the break speed.
 pub(super) fn haste_level(player: &Player) -> u32 {
     player.survival.effect_level(effect::Type::Haste)
 }
@@ -1109,61 +1033,58 @@ pub(super) fn mining_fatigue_level(player: &Player) -> u32 {
     player.survival.effect_level(effect::Type::MiningFatigue)
 }
 
-/// Whether the player flies (creative or spectator flight, PMMP `Player::isFlying`).
+/// Whether the player flies (creative or spectator flight).
 pub(super) fn is_flying(player: &Player) -> bool {
     player.survival.motion.flying
 }
 
-/// Whether the player stands on something (PMMP `Entity::isOnGround`).
+/// Whether the player stands on something.
 pub(super) fn is_on_ground(player: &Player) -> bool {
     player.survival.motion.on_ground
 }
 
-/// Whether the player sneaks (PMMP `Player::isSneaking`): a sneaking player places against
-/// blocks it would otherwise use.
+/// Whether the player sneaks: a sneaking player places against blocks it would otherwise use.
 pub(super) fn is_sneaking(player: &Player) -> bool {
     player.survival.motion.sneaking
 }
 
-/// Whether the player holds the sneak key (PMMP `Player::isSneakPressed`): a click on a block
-/// then uses the held item instead of the block.
+/// Whether the player holds the sneak key: a click on a block then uses the held item instead of
+/// the block.
 pub(super) fn is_sneak_pressed(player: &Player) -> bool {
     player.survival.motion.sneak_pressed
 }
 
-/// The player's yaw and pitch in degrees, yaw in [0, 360) (PMMP `Location::getYaw`,
-/// `getPitch`): the facing of placed blocks, the flight of thrown items and arrows.
+/// The player's yaw and pitch in degrees, yaw in [0, 360): the facing of placed blocks, the
+/// flight of thrown items and arrows.
 pub(super) fn rotation(player: &Player) -> (f64, f64) {
     (player.survival.motion.yaw, player.survival.motion.pitch)
 }
 
 /// Whether a player with its eyes at `eye`, looking along the unit vector `direction`, reaches
-/// `target` (PMMP `Player::canInteract`): within `max` blocks of the eyes and at most √3/2
-/// behind the plane they look through.
+/// `target`: within `max` blocks of the eyes and at most √3/2 behind the plane they look
+/// through.
 pub(super) fn can_interact(eye: Vec3, direction: Vec3, target: Vec3, max: f64) -> bool {
     eye.distance_squared(target) <= max * max
         && direction.dot(target) - direction.dot(eye) >= -REACH_BEHIND
 }
 
-/// The unit vector the player looks along (PMMP `Entity::getDirectionVector`).
+/// The unit vector the player looks along.
 pub(super) fn look_direction(player: &Player) -> Vec3 {
     let m = &player.survival.motion;
     super::entity::direction(m.yaw, m.pitch)
 }
 
-/// Whether the player's eyes are under water (PMMP `Entity::isUnderwater`), for the break speed.
+/// Whether the player's eyes are under water, for the break speed.
 pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
     movement::is_underwater(state, player)
 }
 
-/// Whether `item`'s cooldown still runs for the player (PMMP `Player::hasItemCooldown`): ender
-/// pearls, chorus fruit, goat horns.
+/// Whether `item`'s cooldown still runs for the player: ender pearls, chorus fruit, goat horns.
 pub(super) fn has_item_cooldown(state: &State, player: &Player, item: crate::item::Type) -> bool {
     food::has_cooldown(state.tick, &player.survival, item)
 }
 
-/// Starts `item`'s cooldown after a use and tells the client (PMMP `Player::resetItemCooldown`);
-/// nothing for an item without one.
+/// Starts `item`'s cooldown after a use and tells the client; nothing for an item without one.
 pub(super) fn reset_item_cooldown(state: &mut State, session: SessionId, item: crate::item::Type) {
     let tick = state.tick;
     if let Some(player) = state.players.get_mut(&session) {
@@ -1171,10 +1092,10 @@ pub(super) fn reset_item_cooldown(state: &mut State, session: SessionId, item: c
     }
 }
 
-/// The player picks up an xp orb worth `amount` points (PMMP
-/// `ExperienceManager::onPickupXp`): false, and the orb stays, while the pickup cooldown of 2
-/// ticks runs. Mending on a damaged held, off-hand or worn item (one picked at random) repairs 2
-/// durability per point first; the rest becomes xp, with the collect or level-up sound.
+/// The player picks up an xp orb worth `amount` points: false, and the orb stays, while the
+/// pickup cooldown of 2 ticks runs. Mending on a damaged held, off-hand or worn item (one picked
+/// at random) repairs 2 durability per point first; the rest becomes xp, with the collect or
+/// level-up sound.
 pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> bool {
     food::pickup_xp(state, session, amount)
 }
@@ -1185,16 +1106,16 @@ pub(super) fn instant_amount(effect: effect::Type, amplifier: u8) -> f64 {
     effects::instant_amount(effect, amplifier)
 }
 
-/// Heals the player by `amount` (PMMP `Entity::heal`: a splash potion of healing, weaker with
-/// the distance), raising [`EntityRegainHealth`](crate::event::EntityRegainHealth) for magic;
-/// nothing for a dead player or one at full health.
+/// Heals the player by `amount` (a splash potion of healing, weaker with the distance), raising
+/// [`EntityRegainHealth`](crate::event::EntityRegainHealth) for magic; nothing for a dead player
+/// or one at full health.
 pub(super) fn heal(state: &mut State, session: SessionId, amount: f64) {
     damage::heal(state, session, amount, RegainReason::Magic);
 }
 
-/// Sets the player on fire for `seconds` by `source` (PMMP `Living::setOnFire`: a burning
-/// arrow), raising [`EntityCombust`](crate::event::EntityCombust), which names the source; a
-/// longer burn already running stays.
+/// Sets the player on fire for `seconds` by `source` (a burning arrow), raising
+/// [`EntityCombust`](crate::event::EntityCombust), which names the source; a longer burn already
+/// running stays.
 pub(super) fn set_on_fire_by(
     state: &mut State,
     session: SessionId,
@@ -1204,8 +1125,8 @@ pub(super) fn set_on_fire_by(
     damage::combust(state, session, seconds, source);
 }
 
-/// Whether the player's hit cooldown runs (PMMP `Living::$attackTime` above 0): a hit now only
-/// counts what it deals beyond the last one and does not knock the player back.
+/// Whether the player's hit cooldown runs: a hit now only counts what it deals beyond the last
+/// one and does not knock the player back.
 pub(super) fn has_attack_cooldown(player: &Player) -> bool {
     player.survival.attack_time > 0
 }
@@ -1218,7 +1139,7 @@ pub(super) fn melee(state: &State, session: SessionId) -> Option<Melee> {
 
 /// The attacker's side of a melee hit the player of `session` landed with `held`: `enchant`
 /// applies the weapon's Knockback force and Fire Aspect seconds to the target, then a living
-/// attacker's weapon wears and it gets hungrier (PMMP `Player::attackEntity`).
+/// attacker's weapon wears and it gets hungrier.
 pub(super) fn after_melee(
     state: &mut State,
     session: SessionId,
@@ -1228,13 +1149,12 @@ pub(super) fn after_melee(
     damage::after_melee(state, session, held, enchant);
 }
 
-/// The player's arm swing, for the players that see it (PMMP `ArmSwingAnimation`).
+/// The player's arm swing, for the players that see it.
 pub(super) fn swing(state: &mut State, session: SessionId) {
     damage::swing(state, session);
 }
 
-/// A melee hit's sound at `at` in the world of `session` (PMMP `EntityAttackSound`,
-/// `EntityAttackNoDamageSound`).
+/// A melee hit's sound at `at` in the world of `session`.
 pub(super) fn hit_sound(
     state: &mut State,
     session: SessionId,
@@ -1268,7 +1188,8 @@ mod tests {
     };
     use crate::tick::{Output, inventory};
 
-    /// BDS's player flags (P6 bds-game craft): the spawn window's, and with Breathing (bit 35).
+    /// The official server's player flags (P6 `craft`): the spawn window's, and with Breathing
+    /// (bit 35).
     const FLAGS: i64 = 844_424_930_656_256;
     /// [`FLAGS`] with Breathing.
     const FLAGS_BREATHING: i64 = FLAGS | 1 << 35;
@@ -1371,7 +1292,7 @@ mod tests {
     }
 
     #[test]
-    fn the_spawn_window_has_the_bds_order() {
+    fn the_spawn_window_has_the_official_order() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
@@ -1388,10 +1309,9 @@ mod tests {
             .into_iter()
             .filter(|i| !chunks.contains(i))
             .collect();
-        // BDS's spawn window (P6) without the spawn sound Anchor never sends (deferred.txt).
+        // The official server's spawn window (P6) without the spawn sound Anchor never sends.
         let property = id(&Packet::SyncActorProperty(p::SyncActorProperty::default()));
         let mut want = vec![
-            id(&Packet::LevelEventGeneric(p::LevelEventGeneric::default())),
             id(&Packet::PlayerList(p::PlayerList::default())),
             id(&Packet::SyncWorldClocks(p::SyncWorldClocks::default())),
             id(&Packet::JigsawStructureData(
@@ -1466,14 +1386,8 @@ mod tests {
     }
 
     #[test]
-    fn the_spawn_window_has_the_bds_sleeping_list_and_clocks() {
+    fn the_spawn_window_has_the_official_player_list_and_clocks() {
         let packets = window();
-        let sleeping = picked(&packets, |p| match p {
-            Packet::LevelEventGeneric(x) => Some(x),
-            _ => None,
-        });
-        assert_eq!(sleeping[0].event_id, 9801);
-        assert_eq!(size(&Packet::LevelEventGeneric(sleeping[0].clone())), 63);
         let lists = picked(&packets, |p| match p {
             Packet::PlayerList(x) => Some(x),
             _ => None,
@@ -1506,7 +1420,7 @@ mod tests {
     }
 
     #[test]
-    fn the_spawn_window_has_the_bds_settings_abilities_and_rules() {
+    fn the_spawn_window_has_the_official_settings_abilities_and_rules() {
         let packets = window();
         assert!(packets.contains(&Packet::SetDifficulty(p::SetDifficulty { difficulty: 2 })));
         assert!(packets.contains(&adventure_settings()));
@@ -1534,7 +1448,7 @@ mod tests {
     }
 
     #[test]
-    fn the_spawn_window_has_the_bds_player_state() {
+    fn the_spawn_window_has_the_official_player_state() {
         let packets = window();
         let attributes = picked(&packets, |p| match p {
             Packet::UpdateAttributes(x) => Some(&x.attributes),
@@ -1578,16 +1492,18 @@ mod tests {
         assert_eq!(metadata[&7], MetadataValue::Int16(300));
         assert_eq!(metadata[&130], MetadataValue::Vec3([0.6, 1.8, 0.0]));
         assert_eq!(metadata[&4], MetadataValue::String("player1".to_owned()));
-        // BDS's types of keys 136 to 141 (P6 `others` data types); 139 is not sent.
+        // The official server's types of keys 136 to 141 (P6 `others` data types); 139 is not
+        // sent.
         assert_eq!(metadata[&136], MetadataValue::Int32(-1));
         assert_eq!(metadata[&137], MetadataValue::Int32(-1));
         assert_eq!(metadata[&138], MetadataValue::Int32(-1));
         assert_eq!(metadata[&140], MetadataValue::Float32(64.0));
         assert_eq!(metadata[&141], MetadataValue::Byte(0));
-        // BDS: the last death position in block coordinates, the bed entry as floats.
+        // The official server sends the last death position in block coordinates and the bed
+        // entry as floats.
         assert_eq!(metadata[&127], MetadataValue::BlockPos([0, 0, 0]));
         assert_eq!(metadata[&133], MetadataValue::Vec3([0.0, 0.0, 0.0]));
-        // BDS's SetActorData for "AnchorBot" is 400 payload bytes (P6); this name is 2 shorter.
+        // Its SetActorData for "AnchorBot" is 400 payload bytes (P6); this name is 2 shorter.
         assert_eq!(size(&Packet::SetActorData(data[0].clone())), 400 - 2);
         assert!(packets.contains(&Packet::SetHealth(p::SetHealth { health: 20 })));
     }
@@ -1604,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn the_breathing_flag_comes_with_the_first_tick_after_the_spawn_window_as_bds() {
+    fn the_breathing_flag_comes_with_the_first_tick_after_the_spawn_window() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         let (joined, mut rx) = join(1, 0);
@@ -1618,9 +1534,8 @@ mod tests {
         assert_eq!(own_data(&after), [&want]);
     }
 
-    /// The hit cooldown counts down after drowning hurts (PMMP `Living::entityBaseTick`): its last
-    /// tick still weighs a drowning hit against the last hit, and a drowning hit's own cooldown
-    /// starts counting the same tick.
+    /// The hit cooldown counts down after drowning hurts: its last tick still weighs a drowning
+    /// hit against the last hit, and a drowning hit's own cooldown starts counting the same tick.
     #[test]
     fn drowning_weighs_against_the_last_hit_before_the_cooldown_counts_down() {
         let mut server = Server::new(1, |_| {});
@@ -1643,7 +1558,7 @@ mod tests {
     }
 
     #[test]
-    fn under_water_the_air_drops_and_out_of_it_refills_as_bds() {
+    fn under_water_the_air_drops_and_out_of_it_refills() {
         let mut server = Server::new(1, |_| {});
         let eye = BlockPos::containing(server.player(1).position);
         server.state.worlds[0]
@@ -1687,14 +1602,14 @@ mod tests {
     }
 
     #[test]
-    fn spawn_window_packets_have_the_bds_sizes() {
-        // Payload sizes of BDS 1.26.60's packets (P6 capture sizes minus the packet header).
+    fn spawn_window_packets_have_the_official_sizes() {
+        // Payload sizes of the official server's packets (P6 capture sizes minus the packet
+        // header).
         let server = Server::new(1, |_| {});
         let settings = &server.state.settings;
         assert_eq!(size(&game_rules(settings)), 749);
         assert_eq!(size(&all_attributes(server.player(1))), 840);
         assert_eq!(size(&adventure_settings()), 5);
-        assert_eq!(size(&sleeping_players(&server.state, 0)), 63);
         let mut state = server.state;
         state.worlds[0].set_time(26);
         assert_eq!(size(&clock_state(&state, 0)), 13);
@@ -1730,7 +1645,7 @@ mod tests {
     }
 
     #[test]
-    fn armour_resistance_and_protection_reduce_damage_as_pmmp() {
+    fn armour_resistance_and_protection_reduce_damage() {
         let mut server = Server::new(1, |_| {});
         let chest = stack(ItemKind::DiamondChestplate, 1);
         let points = f64::from(chest.item().unwrap().defense_points());
@@ -1784,7 +1699,7 @@ mod tests {
     }
 
     #[test]
-    fn protection_factors_follow_pmmp() {
+    fn protection_factors_follow_the_formula() {
         assert_eq!(damage::epf(4, 0.75), 5);
         assert_eq!(damage::epf(1, 0.75), 1);
         assert_eq!(damage::epf(4, 1.25), 9);
@@ -1798,7 +1713,7 @@ mod tests {
     }
 
     #[test]
-    fn fall_damage_follows_pmmp() {
+    fn fall_damage_follows_the_formula() {
         let mut s = Survival::default();
         assert_eq!(damage::fall_damage(&s, 3.0), 0.0);
         assert_eq!(damage::fall_damage(&s, 3.5), 1.0);
@@ -1843,8 +1758,7 @@ mod tests {
         assert!(!damage(&mut server.state, sid(1), -1.0, Damage::Magic));
     }
 
-    /// A player the fire kills stops its effects in the same tick (PMMP `Living::entityBaseTick`
-    /// ticks them only while alive).
+    /// A player the fire kills stops its effects in the same tick: they tick only while alive.
     #[test]
     fn effects_do_not_tick_on_a_player_that_just_died() {
         let mut server = Server::new(1, |_| {});
@@ -1862,8 +1776,7 @@ mod tests {
         assert_eq!(left, Some(speed));
     }
 
-    /// A player shot dead sees who shot it; a projectile no player shot is a generic death (PMMP
-    /// `PlayerDeathEvent::deriveMessage`).
+    /// A player shot dead sees who shot it; a projectile no player shot is a generic death.
     #[test]
     fn a_death_by_arrow_names_the_shooter() {
         let mut server = Server::new(2, |_| {});
@@ -1900,7 +1813,7 @@ mod tests {
         assert_eq!(death[0].0, damage::GENERIC_DEATH);
     }
 
-    /// A trident's kill names the trident, not an arrow (PMMP `PlayerDeathEvent::deriveMessage`).
+    /// A trident's kill names the trident, not an arrow.
     #[test]
     fn a_death_by_trident_says_trident() {
         let mut server = Server::new(2, |_| {});
@@ -1926,7 +1839,7 @@ mod tests {
         assert!(died);
     }
 
-    /// A player that may fly takes no fall damage, flying or not (PMMP `Player::attack`).
+    /// A player that may fly takes no fall damage, flying or not.
     #[test]
     fn a_player_that_may_fly_takes_no_fall_damage() {
         let mut server = Server::new(1, |_| {});
@@ -1935,8 +1848,8 @@ mod tests {
         assert!(server.hurt(1, 4.0, Damage::Contact));
     }
 
-    /// The respawn invulnerability counts down after the void and the fire hurt (PMMP
-    /// `Entity::entityBaseTick`): its last tick still keeps them off.
+    /// The respawn invulnerability counts down after the void and the fire hurt: its last tick
+    /// still keeps them off.
     #[test]
     fn the_last_invulnerable_tick_keeps_the_fire_off() {
         let mut server = Server::new(1, |_| {});
@@ -1959,10 +1872,10 @@ mod tests {
         server
     }
 
-    /// The hurt event's data is BDS's damage cause number (P6: drowning 9 in `craft`, an attack 2
-    /// in `others`, lightning 24 in `weather`).
+    /// The hurt event's data is the official server's damage cause number (P6: drowning 9 in
+    /// `craft`, an attack 2 in `others`, lightning 24 in `weather`).
     #[test]
-    fn hurt_events_carry_the_bds_damage_cause() {
+    fn hurt_events_carry_the_official_damage_cause() {
         let mut server = duel(|_| {});
         let hurt = |packets: &[Packet]| {
             packets.iter().find_map(|p| match p {
@@ -2037,8 +1950,7 @@ mod tests {
         assert_eq!(server.survival_mut(2).health, 20.0 - points - 1.0);
     }
 
-    /// An attack on a dead player does nothing: no swing, no sound (PMMP `Player::attackEntity`
-    /// returns first).
+    /// An attack on a dead player does nothing: no swing, no sound.
     #[test]
     fn attacking_a_dead_player_neither_swings_nor_sounds() {
         let mut server = duel(|_| {});
@@ -2057,9 +1969,8 @@ mod tests {
         assert!(!swung, "no swing");
     }
 
-    /// The critical hit animation shows only when the critical hit added damage (PMMP
-    /// `Player::attackEntity` reads the modifier after the hit): Weakness V takes a bare hand's
-    /// point away, so half of nothing is nothing.
+    /// The critical hit animation shows only when the critical hit added damage: Weakness V takes
+    /// a bare hand's point away, so half of nothing is nothing.
     #[test]
     fn a_critical_hit_that_adds_nothing_shows_no_animation() {
         let mut server = duel(|_| {});
@@ -2105,7 +2016,7 @@ mod tests {
         }
     }
 
-    /// PMMP `Trident::onAttackEntity`: a melee hit wears a trident by 1.
+    /// A melee hit wears a trident by 1.
     #[test]
     fn a_trident_hit_on_a_player_wears_the_trident_by_one() {
         let mut server = duel(|_| {});
@@ -2176,7 +2087,7 @@ mod tests {
         assert_eq!(s.health, 11.0);
     }
 
-    /// Peaceful fills food up to 20, not past it (PMMP `HungerManager::addFood`).
+    /// Peaceful fills food up to 20, not past it.
     #[test]
     fn peaceful_fills_food_no_higher_than_twenty() {
         let mut server = Server::new(1, |c| c.general.difficulty = Difficulty::Peaceful);
@@ -2197,7 +2108,7 @@ mod tests {
     }
 
     #[test]
-    fn sprinting_and_jumping_exhaust_as_pmmp() {
+    fn sprinting_and_jumping_exhaust() {
         let mut server = Server::new(1, |_| {});
         let start = server.player(1).position;
         let flags: FlagSet<InputFlag> = [InputFlag::StartSprinting, InputFlag::StartJumping]
@@ -2260,7 +2171,7 @@ mod tests {
     }
 
     /// Clearing the effects removes them in effect ID order, each removal carrying the effect's
-    /// amplifier and the time it had left, as BDS sends them (P6 `syntax` `effect @s clear`).
+    /// amplifier and the time it had left, as the official server sends them (P6 `syntax`).
     #[test]
     fn cleared_effects_go_in_id_order_with_what_they_had() {
         let mut server = Server::new(1, |_| {});
@@ -2291,7 +2202,7 @@ mod tests {
             })
             .collect();
         assert_eq!(removed, [(8, 1, 99), (10, 0, 99), (16, 0, 99)]);
-        // The API's clear (`/effect <player> clear`) removes in the same order.
+        // The API's clear removes in the same order.
         for (effect, amplifier) in [
             (effect::Type::Regeneration, 0),
             (effect::Type::JumpBoost, 1),
@@ -2321,7 +2232,7 @@ mod tests {
     }
 
     #[test]
-    fn effects_tick_at_pmmp_intervals_and_end() {
+    fn effects_tick_at_their_intervals_and_end() {
         let mut server = Server::new(1, |_| {});
         server.survival_mut(1).food = 17.0;
         effects::add(
@@ -2387,7 +2298,7 @@ mod tests {
     }
 
     #[test]
-    fn xp_levels_follow_the_pmmp_formula() {
+    fn xp_levels_follow_the_formula() {
         let mut server = Server::new(1, |_| {});
         add_xp(server.player_mut(1), 7);
         assert_eq!(server.survival_mut(1).xp_level, 1);
@@ -2526,7 +2437,7 @@ mod tests {
     }
 
     #[test]
-    fn death_and_respawn_follow_the_pmmp_sequence() {
+    fn death_and_respawn_follow_their_sequence() {
         let mut server = Server::new(1, |_| {});
         add_xp(server.player_mut(1), 100);
         server.idle(1);
@@ -2591,8 +2502,9 @@ mod tests {
         )));
     }
 
-    /// A player that dies leaves the others' locator bar until it respawns, as BDS shows it (P6
-    /// `others`): a hidden location and an invisible waypoint, then a visible one.
+    /// A player that dies leaves the others' locator bar until it respawns, as the official
+    /// server shows it (P6 `others`): a hidden location and an invisible waypoint, then a visible
+    /// one.
     #[test]
     fn the_dead_leave_the_locator_bar_until_they_respawn() {
         let mut server = duel(|_| {});
@@ -2659,10 +2571,10 @@ mod tests {
         );
     }
 
-    /// The client shrinks a dying player's box and only the box size keys bring it back: BDS sends
-    /// 0.2 by 0.2 at the death and 0.6 by 1.8 after the respawn, to the player and its viewers (P6
-    /// `others`). Without them the others see a respawned player with a small hit box and a low
-    /// name tag.
+    /// The client shrinks a dying player's box and only the box size keys bring it back: the
+    /// official server sends 0.2 by 0.2 at the death and 0.6 by 1.8 after the respawn, to the
+    /// player and its viewers (P6 `others`). Without them the others see a respawned player with a
+    /// small hit box and a low name tag.
     #[test]
     fn viewers_see_a_respawned_player_at_full_size() {
         use crate::protocol::MetadataValue;
@@ -2714,7 +2626,8 @@ mod tests {
     }
 
     /// Viewers hear another player's health when it changes, at its death and after its respawn,
-    /// as BDS tells them (P6 `others`): the client counts a player at 0 health as dead.
+    /// as the official server tells them (P6 `others`): the client counts a player at 0 health as
+    /// dead.
     #[test]
     fn viewers_see_the_health_of_other_players() {
         let mut server = duel(|_| {});
@@ -2885,118 +2798,6 @@ mod tests {
         assert_eq!(sprint(1), sprint(2));
     }
 
-    /// The bed state facing south (direction 0), head or foot, occupied or not.
-    fn bed(head: bool, occupied: bool) -> block::State {
-        block::State::find(
-            "minecraft:bed",
-            &[
-                ("direction", PropertyValue::Int(0)),
-                ("head_piece_bit", PropertyValue::Byte(u8::from(head))),
-                ("occupied_bit", PropertyValue::Byte(u8::from(occupied))),
-            ],
-        )
-        .unwrap()
-    }
-
-    // api: Player::isSleeping, Player::stopSleep
-    #[test]
-    fn stop_sleep_frees_the_bed_by_the_end_of_the_tick() {
-        let mut server = Server::new(1, |_| {});
-        let spawn = server.state.worlds[0].spawn();
-        let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
-        let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
-        let world = &mut server.state.worlds[0];
-        world.set_block(foot, bed(false, false)).unwrap();
-        world.set_block(head, bed(true, false)).unwrap();
-        world.set_time(13_000);
-        assert!(!server.player_mut(1).stop_sleep(), "awake");
-        let mut cx = Context {
-            state: &mut server.state,
-        };
-        assert!(cx.sleep_on(Id::new(sid(1)), foot));
-        assert!(server.player(1).is_sleeping());
-        assert!(server.player_mut(1).stop_sleep());
-        server.take(1);
-        server.idle(1);
-        assert!(!server.player(1).is_sleeping());
-        assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
-        assert!(
-            server
-                .take(1)
-                .iter()
-                .any(|p| matches!(p, Packet::Animate(_)))
-        );
-    }
-
-    // api: Player::sleepOn
-    #[test]
-    fn sleep_on_lies_down_by_day_and_from_afar_without_an_event() {
-        let mut server = Server::new(2, |_| {});
-        let spawn = server.state.worlds[0].spawn();
-        let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 10);
-        let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 11);
-        let world = &mut server.state.worlds[0];
-        world.set_block(foot, bed(false, false)).unwrap();
-        world.set_block(head, bed(true, false)).unwrap();
-        let (one, two) = (Id::new(sid(1)), Id::new(sid(2)));
-        let mut cx = Context {
-            state: &mut server.state,
-        };
-        assert!(!cx.sleep_on(one, spawn), "not a bed");
-        assert!(cx.sleep_on(one, foot), "day, 10 blocks away");
-        assert!(!cx.sleep_on(one, foot), "already asleep");
-        assert!(!cx.sleep_on(two, head), "occupied");
-        assert!(!cx.sleep_on(Id::new(sid(9)), head), "gone");
-        assert_eq!(server.survival_mut(1).sleeping, Some(head));
-        assert_eq!(server.state.worlds[0].block(head), Some(bed(true, true)));
-        assert_eq!(
-            server.survival_mut(1).spawn.clone().map(|p| p.pos),
-            Some(head)
-        );
-    }
-
-    #[test]
-    fn damage_wakes_a_sleeper_and_occupied_beds_refuse() {
-        let mut server = Server::new(2, |_| {});
-        let spawn = server.state.worlds[0].spawn();
-        let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
-        let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
-        server.state.worlds[0]
-            .set_block(foot, bed(false, false))
-            .unwrap();
-        server.state.worlds[0]
-            .set_block(head, bed(true, false))
-            .unwrap();
-        let mut cx = Context {
-            state: &mut server.state,
-        };
-        assert!(cx.sleep_on(Id::new(sid(1)), head));
-        assert!(!cx.sleep_on(Id::new(sid(2)), foot), "occupied");
-        assert!(server.hurt(1, 1.0, Damage::Magic));
-        assert_eq!(server.survival_mut(1).sleeping, None);
-        assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
-    }
-
-    #[test]
-    fn a_saved_sleeper_wakes() {
-        let mut server = Server::new(1, |_| {});
-        let spawn = server.state.worlds[0].spawn();
-        let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
-        let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
-        server.state.worlds[0]
-            .set_block(foot, bed(false, true))
-            .unwrap();
-        server.state.worlds[0]
-            .set_block(head, bed(true, true))
-            .unwrap();
-        // As loaded from a snapshot taken while the player slept.
-        server.survival_mut(1).sleeping = Some(head);
-        server.idle(1);
-        assert_eq!(server.survival_mut(1).sleeping, None);
-        assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
-        assert_eq!(server.state.worlds[0].block(foot), Some(bed(false, false)));
-    }
-
     /// The identity of `player1` ([`join`]) for a join of another session.
     fn player1() -> crate::tick::queue::Identity {
         crate::tick::queue::Identity {
@@ -3036,8 +2837,8 @@ mod tests {
     }
 
     /// A player that comes back dead (the server stopped, or it left, before it respawned)
-    /// respawns before its start-game packets, as PMMP respawns it at its first spawn: a client
-    /// that spawns dead shows no death screen and so never asks to respawn.
+    /// respawns before its start-game packets: a client that spawns dead shows no death screen
+    /// and so never asks to respawn.
     #[test]
     fn a_player_that_joins_dead_respawns_before_it_spawns() {
         let saving = |c: &mut Config| c.general.save_player_data = true;
@@ -3128,19 +2929,6 @@ mod tests {
     }
 
     #[test]
-    fn the_enchanting_seed_is_drawn_once_and_saved() {
-        let mut a = Server::new(1, |_| {});
-        let mut b = Server::new(1, |_| {});
-        let seed = enchantment_seed(a.player(1));
-        assert_eq!(seed, enchantment_seed(b.player(1)));
-        a.idle(5);
-        assert_eq!(enchantment_seed(a.player(1)), seed);
-        let mut extra = Compound::new();
-        save(b.survival_mut(1), &mut extra);
-        assert_eq!(extra.get("XpSeed"), Some(&crate::nbt::Value::Int(seed)));
-    }
-
-    #[test]
     fn join_and_leave_cycles_leave_nothing_behind() {
         let mut server = Server::new(1, |_| {});
         let clocks = server.state.worlds[0].time_ticks();
@@ -3197,13 +2985,13 @@ mod tests {
                 spawn: None,
             }]
         };
-        // A world 23,990 ticks old with its spawn moved (`/setworldspawn`), run 5 ticks, then
-        // saved at the tick boundary.
+        // A world 23,990 ticks old with its spawn moved, run 5 ticks, then saved at the tick
+        // boundary.
         let moved = crate::world::BlockPos::new(8, -59, -8);
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         state.worlds[0].set_time(23_990);
-        state.worlds[0].set_spawn(moved);
+        state.worlds[0].set_spawn(moved).unwrap();
         for _ in 0..5 {
             tick(&mut state, &mut Vec::new(), &mut output);
         }
@@ -3281,7 +3069,7 @@ mod tests {
     }
 
     /// The attacker's side of a hit on an NPC is the one of a hit on a player: Strength and
-    /// Weakness (PMMP `addAttackerModifiers`), then half again for a critical hit.
+    /// Weakness, then half again for a critical hit.
     #[test]
     fn melee_hits_count_strength_weakness_and_criticals() {
         let mut server = Server::new(1, |_| {});
@@ -3308,7 +3096,7 @@ mod tests {
     }
 
     /// A falling hit that Weakness brings to nothing is no critical hit: half of nothing adds
-    /// nothing (PMMP shows the animation only for a critical modifier above 0).
+    /// nothing, so the animation is not shown.
     #[test]
     fn a_critical_hit_of_nothing_is_not_critical() {
         let mut server = Server::new(1, |_| {});
@@ -3323,7 +3111,7 @@ mod tests {
 
     /// Healing, burning and the hit cooldown other rules reach through the contract.
     #[test]
-    fn heal_burn_and_the_hit_cooldown_follow_pmmp() {
+    fn heal_burn_and_the_hit_cooldown_work_through_the_contract() {
         let mut server = Server::new(1, |_| {});
         server.survival_mut(1).health = 10.0;
         heal(&mut server.state, sid(1), 4.0);
@@ -3386,7 +3174,7 @@ mod tests {
     }
 
     #[test]
-    fn effects_replace_only_stronger_or_longer_ones_as_pmmp() {
+    fn effects_replace_only_stronger_or_longer_ones() {
         let mut server = Server::new(1, |_| {});
         let speed = |duration, amplifier| {
             effect::Instance::new(effect::Type::Speed, duration, amplifier, true, false)
@@ -3422,7 +3210,7 @@ mod tests {
             u8::from(MobEffectOperation::Modify),
         );
         assert_eq!(operations, [add, modify, modify]);
-        // A replaced health boost is undone first (PMMP `HealthBoostEffect::remove`).
+        // A replaced health boost is undone first.
         let boost = |amplifier| {
             effect::Instance::new(effect::Type::HealthBoost, 600, amplifier, true, false)
         };
@@ -3434,7 +3222,7 @@ mod tests {
     }
 
     #[test]
-    fn a_totem_in_either_hand_saves_the_player_as_pmmp() {
+    fn a_totem_in_either_hand_saves_the_player() {
         for main in [true, false] {
             let mut server = Server::new(1, |_| {});
             let totem = stack(ItemKind::Totem, 1);
@@ -3478,7 +3266,7 @@ mod tests {
     }
 
     #[test]
-    fn orb_pickups_mend_first_then_add_xp_as_pmmp() {
+    fn orb_pickups_mend_first_then_add_xp() {
         let mut server = Server::new(1, |_| {});
         let pick = enchanted(ItemKind::DiamondPickaxe, &[(Enchantment::Mending, 1)])
             .with_damage(10)
@@ -3575,8 +3363,8 @@ mod tests {
         assert!(s.fire_ticks > 0);
     }
 
-    /// A contact death names the cactus only when a cactus dealt it (PMMP
-    /// `PlayerDeathEvent::deriveMessage`); a sweet berry bush is a generic death.
+    /// A contact death names the cactus only when a cactus dealt it; a sweet berry bush is a
+    /// generic death.
     #[test]
     fn a_contact_death_names_the_cactus_only_for_a_cactus() {
         let bush = block::Kind::SweetBerryBush
@@ -3700,7 +3488,8 @@ mod tests {
             })
             .concat()
         };
-        // The joining player's own list (twice, as BDS) and the other player's addition.
+        // The joining player's own list (twice, as the official server) and the other player's
+        // addition.
         let own = entries(&received(&mut rx).0);
         let theirs = entries(&server.take(1));
         let shown: Vec<_> = own
@@ -3730,29 +3519,6 @@ mod tests {
         assert!(bytes.windows(skin_data.len()).any(|w| w == skin_data));
         let again = crate::tick::InputLog::decode(&bytes).unwrap();
         assert_eq!(again.encode().unwrap(), bytes);
-    }
-
-    /// A player that enters another world counts itself in the sleeping counts it is sent, as the
-    /// spawn window counts it.
-    #[test]
-    fn a_player_entering_a_world_is_counted_in_its_sleeping_players() {
-        let mut server = Server::new(2, |_| {});
-        let spawn = BlockPos::new(0, -60, 0);
-        let other = World::new("other", crate::world::Kind::Temporary, 3, spawn);
-        server.state.add_world(other);
-        let there = Vec3::new(0.5, -58.38, 0.5);
-        teleport(&mut server.state, sid(2), 1, there);
-        server.idle(1);
-        server.take(1);
-        teleport(&mut server.state, sid(1), 1, there);
-        let expected = sleeping_players(&server.state, 1);
-        server.idle(1);
-        let counts: Vec<Packet> = server
-            .take(1)
-            .into_iter()
-            .filter(|p| matches!(p, Packet::LevelEventGeneric(_)))
-            .collect();
-        assert_eq!(counts, [expected]);
     }
 
     #[test]
@@ -3810,6 +3576,11 @@ mod tests {
             Packet::SyncWorldClocks(c) if c.sync_states.first().is_some_and(|s| s.time > 5000)
         )));
         assert!(sent.iter().any(|p| matches!(p, Packet::LevelChunk(_))));
+        assert!(
+            !sent
+                .iter()
+                .any(|p| matches!(p, Packet::LevelEventGeneric(_)))
+        );
         // Back home, nothing of the trip is held.
         let home = server.player(2).position;
         teleport(&mut server.state, sid(1), 0, home);

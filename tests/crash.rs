@@ -202,7 +202,7 @@ impl Mover {
             && let Some(world) = cx.world_mut(id)
         {
             let x = i32::try_from(tick % 16).unwrap();
-            world.set_spawn(BlockPos::new(x, -60, 0));
+            world.set_spawn(BlockPos::new(x, -60, 0)).unwrap();
             self.extra_x = Some(x);
         }
     }

@@ -1245,7 +1245,7 @@ fn chests_pair(state: &State, world: WorldIndex, pos: BlockPos, other: BlockPos)
 /// the old block entity stays readable until this runs, in the tick's block change phase after
 /// the change.
 ///
-/// Breaking ([`interact::destroy`]) and placing ([`placed`]) do their block entities
+/// Breaking ([`interact::destroy_deferring_hooks`]) and placing ([`placed`]) do their block entities
 /// themselves; this catches every other change: a task's or a command's `World::set_block`, an
 /// explosion, a generator's blocks. A block entity of a kind Anchor does not type
 /// ([`Kind::Other`]) belongs to blocks Anchor cannot tell, so it goes only when its block becomes

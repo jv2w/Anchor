@@ -195,7 +195,8 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// The position is outside the world height or border (a chunk ticket's center too), or a
-    /// local position outside its chunk.
+    /// local position outside its chunk; or it is not finite, a spawn where a player would stand
+    /// outside the border, or an explosion's size that is not above 0.
     OutOfRange,
     /// The chunk of the position is not loaded.
     NotLoaded,
@@ -231,8 +232,11 @@ pub enum Error {
     InvalidSettings,
     /// A limit is reached: the most worlds a run names (or the server file holds),
     /// [`MAX_TICKETS`] chunk tickets or [`MAX_TICKET_CHUNKS`] chunks they hold, a ticket radius
-    /// over [`MAX_TICKET_RADIUS`], or the unknown states a chunk can hold.
+    /// over [`MAX_TICKET_RADIUS`], the unknown states a chunk can hold, or the lightning bolts
+    /// still showing (1,024).
     Full,
+    /// The server is `hardcore`: every world plays on hard.
+    Hardcore,
 }
 
 impl fmt::Display for Error {
@@ -251,6 +255,7 @@ impl fmt::Display for Error {
             Self::InvalidName => f.write_str("world name cannot be a file name"),
             Self::InvalidSettings => f.write_str("world view value is out of range"),
             Self::Full => f.write_str("world, chunk ticket or chunk unknown state limit reached"),
+            Self::Hardcore => f.write_str("a hardcore server plays every world on hard"),
         }
     }
 }
@@ -511,17 +516,11 @@ pub enum Weather {
 }
 
 /// What a lightning bolt of [`Context::strike_lightning`](crate::Context::strike_lightning)
-/// does besides being seen and heard, which it always is. The default does nothing more; BDS's
-/// bolt (`summon lightning_bolt`) does both.
+/// does besides being seen and heard, which it always is. The default does nothing more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Lightning {
-    /// The players and living entities near the strike take 5 damage, as from BDS's bolt, and
-    /// burn for 8 seconds, at every difficulty.
+    /// The players and living entities near the strike take 5 damage, at every difficulty.
     pub damage: bool,
-    /// The block of the strike and blocks around it catch fire where fire can stand: air on a
-    /// block with a full top. As with BDS's bolt, only at normal and hard difficulty (the
-    /// world's).
-    pub fire: bool,
 }
 
 /// A world: its settings and the chunks loaded in memory.
@@ -941,9 +940,17 @@ impl World {
     /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
     /// sees them (PMMP keeps the old ones held and does not hold the new ones). No event tells
     /// of the move.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a spawn where a player would stand outside the world border.
     #[doc(alias = "World::setSpawnLocation")]
-    pub fn set_spawn(&mut self, spawn: BlockPos) {
+    pub fn set_spawn(&mut self, spawn: BlockPos) -> Result<()> {
+        if !is_valid_spawn(spawn) {
+            return Err(Error::OutOfRange);
+        }
         self.spawn = spawn;
+        Ok(())
     }
 
     /// One more tick of [`Self::age_ticks`]: the clock's tick.
@@ -1345,6 +1352,14 @@ crate::tick::checkpoint::fields!(Saved {
 pub(crate) fn is_inside_border(pos: ChunkPos) -> bool {
     let limit = (BORDER >> 4).unsigned_abs();
     pos.x.unsigned_abs() <= limit && pos.z.unsigned_abs() <= limit
+}
+
+/// Whether a player may stand at `spawn`: the middle of its block is inside the world border on
+/// every axis.
+pub(crate) fn is_valid_spawn(spawn: BlockPos) -> bool {
+    [spawn.x, spawn.y, spawn.z]
+        .iter()
+        .all(|c| (-BORDER..BORDER).contains(c))
 }
 
 #[cfg(test)]

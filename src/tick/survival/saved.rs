@@ -1,17 +1,17 @@
-//! The survival keys of a player's saved extra, with PMMP's names and types (PMMP
-//! `Player::getSaveData`, `Human::saveNBT`, `Living::saveNBT`, `Entity::saveNBT`), plus
-//! `AbsorptionAmount`, `SleepingPos` and `PendingDeathDrops` (the held-back death drops, as
-//! Bedrock item compounds), which PMMP does not keep.
+//! The survival keys of a player's saved extra, with their names and types, plus
+//! `AbsorptionAmount` and `PendingDeathDrops` (the held-back death drops, as Bedrock item
+//! compounds).
 //!
 //! The extra comes from the server file, so every value is checked on load: a wrong type or a
 //! value out of range keeps the default, except that the health is cut to the maximum health, the
-//! air to [`MIN_AIR_TICKS`]..=[`MAX_AIR_TICKS`], the xp level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
+//! air to [`MIN_AIR_TICKS`]..=[`MAX_AIR_TICKS`], the xp level to
+//! [`MAX_LEVEL`](crate::player::MAX_LEVEL), the xp ever collected to [`MAX_LIFETIME_XP`], and
 //! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
 
 use tracing::warn;
 
 use super::effects::Active;
-use super::food::FOOD_CYCLE;
+use super::food::{FOOD_CYCLE, MAX_LIFETIME_XP};
 use super::{
     MAX_AIR_TICKS, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, MIN_AIR_TICKS, Point,
     Survival,
@@ -57,8 +57,8 @@ const LAST_PLAYED: &str = "lastPlayed";
 const MAX_EFFECTS: usize = crate::effect::TYPE_COUNT;
 /// The most falling distance kept (a longer fall kills anyway).
 const MAX_FALL: f64 = 4096.0;
-/// The saved IDs of the game modes (PMMP `GameModeIdMap`), for saving and loading. Spectator is 3
-/// here, unlike the protocol's game type.
+/// The saved IDs of the game modes, for saving and loading. Spectator is 3 here, unlike the
+/// protocol's game type.
 const SAVED_MODES: [(GameMode, i32); 4] = [
     (GameMode::Survival, 0),
     (GameMode::Creative, 1),
@@ -67,8 +67,6 @@ const SAVED_MODES: [(GameMode, i32); 4] = [
 ];
 /// The key of the food saturation.
 const SATURATION: &str = "foodSaturationLevel";
-/// The key of the sleeping position.
-const SLEEPING: &str = "SleepingPos";
 /// The keys of the spawn position's coordinates.
 const SPAWN: [&str; 3] = ["SpawnX", "SpawnY", "SpawnZ"];
 /// The key of the spawn position's world.
@@ -77,8 +75,6 @@ const SPAWN_WORLD: &str = "SpawnLevel";
 const XP_LEVEL: &str = "XpLevel";
 /// The key of the progress to the next xp level.
 const XP_PROGRESS: &str = "XpP";
-/// The key of the xp seed.
-const XP_SEED: &str = "XpSeed";
 /// The key of the total xp.
 const XP_TOTAL: &str = "XpTotal";
 
@@ -145,8 +141,8 @@ fn point(extra: &Compound, world: &str, keys: [&str; 3]) -> Option<Point> {
 
 /// Reads the survival keys; each missing or bad key keeps its default, but for the few the module
 /// documentation names, which are cut into range. With `force-gamemode` the saved game mode is
-/// not loaded: the player joins in the server's mode (PMMP). Held-back items
-/// read with the server's `custom` items and blocks, so a custom item is not lost.
+/// not loaded: the player joins in the server's mode. Held-back items are read with the server's
+/// `custom` items and blocks, so a custom item is not lost.
 pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::custom::Registry) {
     let s = survival;
     s.game_mode = int(extra, GAME_MODE)
@@ -189,9 +185,8 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
         s.xp_progress = if progress >= 1.0 { 0.0 } else { progress };
     }
     if let Some(total) = int(extra, XP_TOTAL).and_then(|total| u32::try_from(total).ok()) {
-        s.xp_lifetime = total;
+        s.xp_lifetime = total.min(MAX_LIFETIME_XP);
     }
-    s.xp_seed = int(extra, XP_SEED);
     if let Some(fire) = short(extra, FIRE).and_then(|fire| u16::try_from(fire).ok()) {
         s.fire_ticks = fire;
     }
@@ -206,13 +201,6 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     }
     s.spawn = point(extra, SPAWN_WORLD, SPAWN);
     s.death = point(extra, DEATH_WORLD, DEATH);
-    s.sleeping = match extra.get(SLEEPING) {
-        Some(Value::IntArray(pos)) => match pos.as_slice() {
-            &[x, y, z] => Some(BlockPos::new(x, y, z)),
-            _ => None,
-        },
-        _ => None,
-    };
     s.held_back = match extra.get(HELD_BACK) {
         Some(Value::List(List::Compound(list))) => list
             .iter()
@@ -220,8 +208,11 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
             .filter_map(|nbt| {
                 let stack = Stack::from_nbt_with(nbt, custom);
                 if stack.is_none() {
-                    // PMMP `Item::safeNbtDeserialize`: an item it does not know is left out.
-                    warn!(?nbt, "a held-back death drop is unknown; it is left out");
+                    // The held-back list is written again at the next save, so the item is lost.
+                    warn!(
+                        ?nbt,
+                        "a held-back death drop is unknown; it is left out and lost at the next save"
+                    );
                 }
                 stack.filter(|s| !s.is_empty())
             })
@@ -230,9 +221,8 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     };
 }
 
-/// The saved play history (PMMP `Player::TAG_FIRST_PLAYED`, `Player::TAG_LAST_PLAYED`: longs of
-/// milliseconds since the Unix epoch): the first join and the last save, each `None` when
-/// missing or not a long.
+/// The saved play history (longs of milliseconds since the Unix epoch): the first join and the
+/// last save, each `None` when missing or not a long.
 pub(in crate::tick) fn load_played(extra: &Compound) -> (Option<i64>, Option<i64>) {
     let long = |key| match extra.get(key) {
         Some(Value::Long(v)) => Some(*v),
@@ -266,7 +256,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     put(ABSORPTION, Some(Value::Float(to_f32(s.absorption))));
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "consistency: the food level, 0 to 20 and maybe fractional, is saved truncated as PMMP saves it"
+        reason = "consistency: the food level, 0 to 20 and maybe fractional, is saved truncated"
     )]
     let food = s.food as i32;
     put(FOOD, Some(Value::Int(food)));
@@ -285,11 +275,12 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     let xp_level = i32::try_from(s.xp_level).expect("the xp level fits an int");
     put(XP_LEVEL, Some(Value::Int(xp_level)));
     put(XP_PROGRESS, Some(Value::Float(to_f32(s.xp_progress))));
-    put(
-        XP_TOTAL,
-        Some(Value::Int(i32::try_from(s.xp_lifetime).unwrap_or(i32::MAX))),
-    );
-    put(XP_SEED, s.xp_seed.map(Value::Int));
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the xp ever collected is at most `MAX_LIFETIME_XP`"
+    )]
+    let xp_total = i32::try_from(s.xp_lifetime).expect("the xp total fits an int");
+    put(XP_TOTAL, Some(Value::Int(xp_total)));
     let effects: Vec<Compound> = s
         .effects
         .iter()
@@ -321,10 +312,6 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
         }
     }
     put(
-        SLEEPING,
-        s.sleeping.map(|b| Value::IntArray(vec![b.x, b.y, b.z])),
-    );
-    put(
         HELD_BACK,
         (!s.held_back.is_empty()).then(|| {
             Value::List(List::Compound(
@@ -354,7 +341,6 @@ mod tests {
             xp_level: 21,
             xp_progress: 0.5,
             xp_lifetime: 1234,
-            xp_seed: Some(-77),
             fire_ticks: 120,
             air: 150,
             breathing: false,
@@ -367,7 +353,6 @@ mod tests {
                 world: "nether".to_owned(),
                 pos: BlockPos::new(-5, 70, 9),
             }),
-            sleeping: Some(BlockPos::new(4, 5, 6)),
             ..Survival::default()
         };
         s.effects.insert(Effect::Speed, Active::new(200, 1));
@@ -400,14 +385,12 @@ mod tests {
         assert_eq!(loaded.xp_level, s.xp_level);
         assert_eq!(loaded.xp_progress, s.xp_progress);
         assert_eq!(loaded.xp_lifetime, s.xp_lifetime);
-        assert_eq!(loaded.xp_seed, s.xp_seed);
         assert_eq!(loaded.effects, s.effects);
         assert_eq!(loaded.fire_ticks, s.fire_ticks);
         assert_eq!(loaded.air, s.air);
         assert_eq!(loaded.fall_distance, s.fall_distance);
         assert_eq!(loaded.spawn, s.spawn);
         assert_eq!(loaded.death, s.death);
-        assert_eq!(loaded.sleeping, s.sleeping);
         assert_eq!(extra.get("Other"), Some(&Value::String("kept".to_owned())));
         let mut h1 = crate::tick::Fnv::new();
         hash_nbt(&mut h1, &extra);
@@ -421,14 +404,7 @@ mod tests {
         let mut extra = Compound::new();
         save(&full(), &mut extra);
         save(&Survival::default(), &mut extra);
-        for key in [
-            GAME_MODE,
-            XP_SEED,
-            EFFECTS,
-            SPAWN_WORLD,
-            DEATH_WORLD,
-            SLEEPING,
-        ] {
+        for key in [GAME_MODE, EFFECTS, SPAWN_WORLD, DEATH_WORLD] {
             assert!(!extra.contains_key(key), "{key}");
         }
         assert_eq!(extra.get(HEALTH), Some(&Value::Float(20.0)));

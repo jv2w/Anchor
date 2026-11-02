@@ -30,7 +30,7 @@ Every `.rs` file has exactly this order:
 3. `pub use` re-exports.
 4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::` and child modules (`use kind::Kind;`). Macros of an external crate are imported (`use tracing::warn;`, `use serde::Deserialize;`), never written with their crate path.
 5. Constants and statics.
-6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro counts as a trait `impl`, called through the imported module as `checkpoint::fields!(…)` and `checkpoint::variants!(…)`, its list ending with a trailing comma when it spans lines. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type.
+6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro counts as a trait `impl`, called through the imported module as `checkpoint::fields!(…)` and `checkpoint::variants!(…)`, its list ending with a trailing comma when it spans lines. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type; a checkpoint macro for another module's type follows that type's block, or stands in its place by the type's name.
 7. Free functions.
 8. `#[cfg(test)] mod tests` as the last item.
 
@@ -93,7 +93,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Comments say only what the code cannot: reasons, ordering, the trap avoided, the invariant kept. Never restate the code; never write history, work process, previous states, authors, or schedules.
 - A wrong comment is worse than none; changing code changes its comments in the same change.
 - A `// api-class: Name` line sits after the item's attributes, directly above the item.
-- A public function that returns `Result` has a `# Errors` section, and one that can panic a `# Panics` section (Rust API Guidelines C-FAILURE). A public item's example uses `?`, never `unwrap` (C-QUESTION-MARK).
+- A public function that returns `Result` has a `# Errors` section, and one that can panic a `# Panics` section (Rust API Guidelines C-FAILURE). The `# Errors` section gives one line per variant: "[`Error::Variant`] for …" (`/// [`Error::OutOfRange`] for a motion that is not finite.`). A public item's example uses `?`, never `unwrap` (C-QUESTION-MARK).
 - Where code departs from the Rust API Guidelines or std's naming and shape, the reason (safety, determinism, a protocol fact) is one comment line at that spot.
 - Outside explanation points to `.claude/docs/<file>.md` by file name only, never by section.
 - The first line of every rustdoc is one sentence ending with a period. Functions start with a third-person verb ("Reads", "Sets"); types, fields, variants, constants, constructors, getters, `_mut` lenders, and queries (methods and free functions that only read) with a noun phrase ("A new empty chunk.", "The chunks written.", "The chunk, to change it.", "Whether the file is new."). A test's rustdoc states the behavior it checks, never "Checks that".

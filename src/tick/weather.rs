@@ -1,33 +1,33 @@
-//! What clients are told of a world's weather, as BDS tells them (P6 `weather`, `joinrain`,
-//! `joinstorm`): `StartGame`'s rain and lightning levels and one level event in the spawn window at
-//! a join, and the level events of a change for the players already in the world
+//! What clients are told of a world's weather, as the official server tells them (P6 `weather`,
+//! `joinrain`, `joinstorm`): `StartGame`'s rain and lightning levels and one level event in the
+//! spawn window at a join, and the level events of a change for the players already in the world
 //! ([`Context::set_weather`](crate::Context::set_weather)) or arriving from another world.
 //!
-//! BDS raises and lowers its levels over about five seconds and sends what the levels reached
-//! call for; Anchor's weather changes at once, which is BDS's weather once it settled: a change
-//! starts or stops the rain when the rain changes and the thunder when the thunder changes, a
-//! start with the full level (65535) and a stop with 0, rain first.
+//! The official server raises and lowers its levels over about five seconds and sends what the
+//! levels reached call for; Anchor's weather changes at once, which is the official weather once
+//! it settled: a change starts or stops the rain when the rain changes and the thunder when the
+//! thunder changes, a start with the full level and a stop with 0, rain first.
 
 use crate::protocol::consts::LevelEvent;
 use crate::protocol::packet::{LevelEvent as LevelEventPacket, Packet};
 use crate::world::Weather;
 
-/// The data of a start event: the full level (BDS).
-const FULL: i32 = 65_535;
+/// The data of a start event: the full level, as the official server sends.
+const FULL_LEVEL: i32 = 65_535;
 
-/// The level events that move a client from `from` to `to`, in BDS's order (none for the same
-/// weather).
+/// The level events that move a client from `from` to `to`, in the official server's order (none
+/// for the same weather).
 pub(super) fn changes(from: Weather, to: Weather) -> impl Iterator<Item = Packet> {
     let rain = (rains(from) != rains(to)).then(|| {
         if rains(to) {
-            level_event(LevelEvent::StartRaining, FULL)
+            level_event(LevelEvent::StartRaining, FULL_LEVEL)
         } else {
             level_event(LevelEvent::StopRaining, 0)
         }
     });
     let thunder = (thunders(from) != thunders(to)).then(|| {
         if thunders(to) {
-            level_event(LevelEvent::StartThunderstorm, FULL)
+            level_event(LevelEvent::StartThunderstorm, FULL_LEVEL)
         } else {
             level_event(LevelEvent::StopThunderstorm, 0)
         }
@@ -40,8 +40,8 @@ pub(super) fn changes(from: Weather, to: Weather) -> impl Iterator<Item = Packet
 pub(super) fn joined(weather: Weather) -> Option<Packet> {
     match weather {
         Weather::Clear => None,
-        Weather::Rain => Some(level_event(LevelEvent::StartRaining, FULL)),
-        Weather::Thunder => Some(level_event(LevelEvent::StartThunderstorm, FULL)),
+        Weather::Rain => Some(level_event(LevelEvent::StartRaining, FULL_LEVEL)),
+        Weather::Thunder => Some(level_event(LevelEvent::StartThunderstorm, FULL_LEVEL)),
     }
 }
 

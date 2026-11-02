@@ -1,5 +1,5 @@
-//! The look of a human NPC (PMMP `Skin`): an image on a geometry, checked when it is made, so a
-//! skin from the user or from a saved chunk is always one a client can draw.
+//! The look of a human NPC: an image on a geometry, checked when it is made, so a skin from the
+//! user or from a saved chunk is always one a client can draw.
 
 use std::fmt;
 
@@ -27,8 +27,9 @@ pub(crate) const MAX_SKIN_JSON_DEPTH: usize = 64;
 /// The geometry JSON sent for a vanilla geometry: the field must hold JSON, and an empty one
 /// declares no custom geometry.
 pub(crate) const NO_CUSTOM_GEOMETRY: &[u8] = b"{}";
-/// The image sizes a [`Skin`] may have, each as its bytes of RGBA, width and height in pixels
-/// (PMMP `Skin::ACCEPTED_SKIN_SIZES`): 64 × 32, 64 × 64 and 128 × 128.
+/// The image sizes a [`Skin`] may have, each as its bytes of RGBA, width and height in pixels:
+/// 64 × 32, 64 × 64 and 128 × 128.
+#[doc(alias = "Skin::ACCEPTED_SKIN_SIZES")]
 pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
     (64 * 32 * 4, 64, 32),
     (64 * 64 * 4, 64, 64),
@@ -37,6 +38,9 @@ pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
 
 /// A skin: an ID, an RGBA image of an accepted size, an optional cape and the geometry it is drawn
 /// on (a vanilla geometry name, or a custom one with its JSON).
+///
+/// It is the skin of a human NPC, given when the NPC is spawned. A player's skin is the
+/// protocol's skin that [`Player::skin`](crate::player::Player::skin) lends.
 #[derive(Clone, PartialEq, Eq, Hash)]
 // api-class: Skin
 pub struct Skin {
@@ -50,7 +54,7 @@ pub struct Skin {
 impl Skin {
     /// A skin with the image `data` (RGBA rows of 64 × 32, 64 × 64 or 128 × 128 pixels) on the
     /// standard player model, without a cape. `None` if `id` is empty or longer than 256 bytes or
-    /// `data` has another size (PMMP throws).
+    /// `data` has another size.
     #[doc(alias = "Skin::__construct")]
     pub fn new(id: impl Into<String>, data: Vec<u8>) -> Option<Self> {
         let id = id.into();

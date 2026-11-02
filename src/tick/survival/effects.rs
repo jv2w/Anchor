@@ -1,6 +1,5 @@
-//! Status effects of players (PMMP `EffectManager`, `EffectCollection`, `entity/effect/*`):
-//! adding with PMMP's replacement rule, what each effect does when added, every few ticks and
-//! when removed, and the `MobEffect` packets that tell the player.
+//! Status effects of players: adding with the replacement rule, what each effect does when
+//! added, every few ticks and when removed, and the `MobEffect` packets that tell the player.
 
 use super::attributes::{ABSORPTION, HEALTH, MOVEMENT};
 use super::damage::{self, Damage};
@@ -12,23 +11,21 @@ use crate::protocol::consts::MobEffectOperation;
 use crate::protocol::packet::{MobEffect, Packet};
 use crate::tick::{Phase, Player, SessionId, State};
 
-/// The health an instant damage effect takes at its lowest level (PMMP `InstantDamageEffect`:
-/// 6 << amplifier).
+/// The health an instant damage effect takes at its lowest level: 6, doubled for each amplifier.
 const INSTANT_DAMAGE_AMOUNT: f64 = 6.0;
-/// The health an instant health effect restores at its lowest level (PMMP `InstantHealthEffect`:
-/// 4 << amplifier).
+/// The health an instant health effect restores at its lowest level: 4, doubled for each
+/// amplifier.
 const INSTANT_HEALTH_AMOUNT: f64 = 4.0;
-/// The most effects the packed entity data holds (PMMP `Living::syncNetworkData`).
+/// The most effects the packed entity data holds.
 const MAX_PACKED_EFFECTS: usize = 8;
-/// The ticks between two applications of poison at its lowest level (PMMP
-/// `Effect::getApplyInterval`).
+/// The ticks between two applications of poison at its lowest level.
 const POISON_INTERVAL_TICKS: u32 = 25;
 /// The ticks between two applications of regeneration at its lowest level.
 const REGENERATION_INTERVAL_TICKS: u32 = 50;
 /// The ticks between two applications of wither at its lowest level.
 const WITHER_INTERVAL_TICKS: u32 = 40;
 
-/// An active effect (PMMP `EffectInstance`).
+/// An active effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Active {
     /// Ticks left; an infinite effect wraps around instead of ending.
@@ -37,7 +34,7 @@ pub(super) struct Active {
     pub(super) amplifier: u8,
     /// Whether it shows particles.
     pub(super) visible: bool,
-    /// Whether its particles are faint (beacons).
+    /// Whether its particles are faint.
     pub(super) ambient: bool,
     /// Whether it never ends (saved as duration -1).
     pub(super) infinite: bool,
@@ -66,7 +63,7 @@ impl Active {
         }
     }
 
-    /// The level: amplifier + 1 (PMMP `getEffectLevel`).
+    /// The level: amplifier + 1.
     pub(super) fn level(self) -> u32 {
         u32::from(self.amplifier) + 1
     }
@@ -106,9 +103,9 @@ crate::tick::checkpoint::fields!(Active {
     infinite,
 });
 
-/// Adds an effect to the player (PMMP `EffectManager::add`): false if a stronger or longer one is
-/// active or an [`EntityEffectAdd`] listener cancels it. A replaced effect is removed first, so
-/// its changes (health boost, speed) undo.
+/// Adds an effect to the player: false if a stronger or longer one is active or an
+/// [`EntityEffectAdd`] listener cancels it. A replaced effect is removed first, so its changes
+/// (health boost, speed) undo.
 pub(super) fn add(state: &mut State, session: SessionId, effect: Type, new: Active) -> bool {
     let addable = |state: &State| {
         state.players.get(&session).map(|p| {
@@ -205,15 +202,16 @@ pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
     on_remove(&mut player.survival, effect);
     player.data_dirty = true;
     if player.phase == Phase::Spawned {
-        // BDS's removal carries the effect's amplifier and the time it had left (P6 `syntax`).
+        // The official server's removal carries the effect's amplifier and the time it had left
+        // (P6 `syntax`).
         let packet = packet(player, effect, old, MobEffectOperation::Remove);
         player.send_packet(packet);
     }
     true
 }
 
-/// Removes every effect (milk, respawn, a totem), in effect ID order as BDS removes them (P6
-/// `syntax` `effect @s clear`).
+/// Removes every effect (milk, respawn, a totem), in effect ID order as the official server
+/// removes them (P6 `syntax`).
 pub(super) fn clear(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -223,8 +221,8 @@ pub(super) fn clear(state: &mut State, session: SessionId) {
     }
 }
 
-/// Counts one tick of the living player's effects (PMMP `EffectManager::tick`): each effect acts
-/// if its interval divides its remaining duration, then counts down and ends at 0.
+/// Counts one tick of the living player's effects: each effect acts if its interval divides its
+/// remaining duration, then counts down and ends at 0.
 pub(super) fn tick(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -272,8 +270,8 @@ pub(super) fn all_packets(player: &Player) -> impl Iterator<Item = Packet> + '_ 
         .map(|(&effect, &active)| packet(player, effect, active, MobEffectOperation::Add))
 }
 
-/// The visible effects packed for the entity data (PMMP `Living::syncNetworkData`): up to
-/// [`MAX_PACKED_EFFECTS`] effects with particles, by ID, 7 bits each (6-bit ID, ambient bit).
+/// The visible effects packed for the entity data: up to [`MAX_PACKED_EFFECTS`] effects with
+/// particles, by ID, 7 bits each (6-bit ID, ambient bit).
 pub(super) fn packed(s: &Survival) -> i64 {
     let mut ids = [(0_u8, false); effect::TYPE_COUNT];
     let mut count = 0;
@@ -299,8 +297,7 @@ pub(super) fn of_instances(instances: &[effect::Instance]) -> impl Iterator<Item
     instances.iter().map(|i| (i.effect(), Active::of(*i)))
 }
 
-/// The ticks between applications of an effect (PMMP `Effect::getApplyInterval`); 0 never
-/// applies.
+/// The ticks between applications of an effect; 0 never applies.
 pub(super) fn interval_ticks(effect: Type, amplifier: u8) -> u32 {
     let shifted = |base: u32| base.checked_shr(u32::from(amplifier)).unwrap_or(0).max(1);
     match effect {
@@ -312,8 +309,8 @@ pub(super) fn interval_ticks(effect: Type, amplifier: u8) -> u32 {
     }
 }
 
-/// What an instant effect at full potency heals or hurts (PMMP `InstantHealthEffect`,
-/// `InstantDamageEffect`), for players and entities, drunk or splashed; 0 for any other effect.
+/// What an instant effect at full potency heals or hurts, for players and entities, drunk or
+/// splashed; 0 for any other effect.
 pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
     let base = match effect {
         Type::InstantHealth => INSTANT_HEALTH_AMOUNT,
@@ -323,7 +320,7 @@ pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
     base * doubled(amplifier)
 }
 
-/// What an effect does when it acts (PMMP `Effect::applyEffect`).
+/// What an effect does when it acts.
 fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
     match effect {
         Type::Poison | Type::FatalPoison => {
@@ -385,7 +382,7 @@ fn active_types(s: &Survival) -> [Option<Type>; effect::TYPE_COUNT] {
     out
 }
 
-/// What an effect changes when it starts (PMMP `Effect::add`).
+/// What an effect changes when it starts.
 fn on_add(s: &mut Survival, effect: Type, new: Active) {
     match effect {
         Type::Absorption => {
@@ -401,7 +398,7 @@ fn on_add(s: &mut Survival, effect: Type, new: Active) {
     }
 }
 
-/// What an effect undoes when it ends (PMMP `Effect::remove`).
+/// What an effect undoes when it ends.
 fn on_remove(s: &mut Survival, effect: Type) {
     match effect {
         Type::Absorption => {
@@ -438,7 +435,7 @@ fn packet(player: &Player, effect: Type, active: Active, operation: MobEffectOpe
     })
 }
 
-/// 2 to the power `n` (PMMP's `x << amplifier`, without the integer overflow).
+/// 2 to the power `n`, without an integer overflow.
 fn doubled(n: u8) -> f64 {
     (0..n).fold(1.0, |v, _| v * 2.0)
 }
@@ -448,7 +445,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn intervals_follow_pmmp() {
+    fn intervals_shrink_with_the_amplifier() {
         assert_eq!(interval_ticks(Type::Poison, 0), 25);
         assert_eq!(interval_ticks(Type::Poison, 1), 12);
         assert_eq!(interval_ticks(Type::Poison, 5), 1);

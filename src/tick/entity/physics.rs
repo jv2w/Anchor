@@ -1,6 +1,6 @@
-//! Entity movement (PMMP `Entity::tryChangeMovement`, `move`, `checkObstruction`,
-//! `checkBlockIntersections`, `Liquid::getFlowVector`): pure functions of an entity's body and the
-//! world's blocks, so the tick runs them on the CPU pool and applies the results in entity order.
+//! Entity movement (gravity and drag, collision, pushing out of blocks, the blocks an entity is
+//! inside, the push of flowing liquid): pure functions of an entity's body and the world's blocks,
+//! so the tick runs them on the CPU pool and applies the results in entity order.
 //! Only `crate::math` arithmetic is used, so the bits do not depend on the platform or the thread.
 //!
 //! Blocks of chunks that are not loaded, and states neither Anchor nor clients know, are full
@@ -9,9 +9,8 @@
 //! never moves into a chunk that is not loaded (a projectile sticks at its border). Positions of
 //! loaded chunks above or below the world height are air, so entities fall out of the world.
 //!
-//! Projectiles move along a ray that stops at the first block it meets (PMMP `Projectile::move`,
-//! `VoxelRayTrace`, `AxisAlignedBB::calculateIntercept`); the entities on the ray are found in the
-//! serial phase, where the other entities' places are final.
+//! Projectiles move along a ray that stops at the first block it meets; the entities on the ray
+//! are found in the serial phase, where the other entities' places are final.
 
 use super::EPSILON;
 use super::kind::Physics;
@@ -23,18 +22,17 @@ use crate::tick::checkpoint::fields;
 use crate::tick::interact::props::{self, Axis};
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
-/// The seconds a block sets what it burns on fire for (PMMP `EntityCombustByBlockEvent` of 8).
+/// The seconds a block sets what it burns on fire for.
 const BURN_SECS: u8 = 8;
 /// The width of a chunk, in blocks.
 const CHUNK_WIDTH: f64 = 16.0;
-/// The push of flowing liquid per tick (PMMP `checkBlockIntersections`).
+/// The push of flowing liquid per tick.
 const CURRENT: f64 = 0.014;
-/// The downward pull a falling liquid adds to its flow where it is blocked on a side (PMMP
-/// `Liquid::getFlowVector`).
+/// The downward pull a falling liquid adds to its flow where it is blocked on a side.
 const FALLING_PULL: f64 = -6.0;
-/// The horizontal directions in PMMP's `Facing::HORIZONTAL` order: north, south, west, east.
+/// The horizontal directions in the order north, south, west, east.
 const HORIZONTAL: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
-/// The inset of the block cells an entity is inside (PMMP `getBlocksAroundWithEntityInsideActions`).
+/// The inset of the block cells an entity is inside.
 pub(in crate::tick) const INSIDE_INSET: f64 = 0.001;
 /// The most cells a ray visits: a move of at most [`MAX_SPEED`] per axis crosses at most 33
 /// cells, so this never cuts a projectile's ray short.
@@ -43,17 +41,15 @@ const MAX_RAY_CELLS: usize = 128;
 /// 0.04 against drag 0.02), and a saved, given or computed speed above this is cut, so one move
 /// looks at a bounded number of blocks.
 pub(super) const MAX_SPEED: f64 = 10.0;
-/// The least square of the span of a segment along an axis for it to cross a plane of that axis
-/// (PMMP `Vector3::getIntermediateWith*Value`).
+/// The least square of the span of a segment along an axis for it to cross a plane of that axis.
 const MIN_SPAN_SQUARED: f64 = 0.000_000_1;
-/// A motion component at or below this counts as zero (PMMP `Entity::MOTION_THRESHOLD`).
+/// A motion component at or below this counts as zero.
 pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
-/// How far a stuck projectile's box reaches for its block (PMMP `onNearbyBlockChange`).
+/// How far a stuck projectile's box reaches for its block.
 const STUCK_REACH: f64 = 0.001;
-/// The weakest push of an entity inside a solid block (PMMP `checkObstruction`).
+/// The weakest push of an entity inside a solid block.
 const UNSTICK_FORCE_BASE: f64 = 0.1;
-/// The random part added to the weakest push of an entity inside a solid block (PMMP
-/// `checkObstruction`).
+/// The random part added to the weakest push of an entity inside a solid block.
 const UNSTICK_FORCE_SPREAD: f64 = 0.2;
 
 /// The input of one entity's step.
@@ -61,7 +57,7 @@ const UNSTICK_FORCE_SPREAD: f64 = 0.2;
 pub(super) struct Input {
     pub(super) body: Body,
     pub(super) physics: Physics,
-    /// A block changed nearby: move even at rest (PMMP `forceMovementUpdate`).
+    /// A block changed nearby or the API moved it: move even at rest.
     pub(super) forced: bool,
     /// The random stream of this entity this tick.
     pub(super) random: (i64, u64, u64),
@@ -73,9 +69,9 @@ pub(super) struct Input {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Step {
     pub(super) body: Body,
-    /// The fall distance when the entity hit the ground this tick (PMMP `onHitGround`).
+    /// The fall distance when the entity hit the ground this tick.
     pub(super) landed: Option<f64>,
-    /// The blocks acting on it, in PMMP's cell order (z, x, y).
+    /// The blocks acting on it, in cell order (z, x, y).
     pub(super) inside: Vec<Inside>,
     /// A projectile's flight this tick: the serial phase looks for entities on it.
     pub(super) flight: Option<Flight>,
@@ -101,7 +97,7 @@ pub(super) struct Body {
 }
 
 impl Body {
-    /// The bounding box (PMMP `recalculateBoundingBox`).
+    /// The bounding box.
     pub(super) fn bounding_box(&self, physics: &Physics) -> Aabb {
         let half = physics.width / 2.0;
         let p = self.position;
@@ -111,8 +107,7 @@ impl Body {
         )
     }
 
-    /// Whether the entity moves this tick unless a block change forces it (PMMP
-    /// `hasMovementUpdate`).
+    /// Whether the entity moves this tick unless a block change forces it.
     pub(super) fn has_movement_update(&self) -> bool {
         self.motion != Vec3::ZERO || !self.on_ground
     }
@@ -147,8 +142,8 @@ pub(super) struct BlockHit {
     pub(super) face: Face,
 }
 
-/// What a block the entity is inside does to it (PMMP `onEntityInside`), for the serial phase:
-/// these change health and fire, which the kind rules decide on.
+/// What a block the entity is inside does to it, for the serial phase: these change health and
+/// fire, which the kind rules decide on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Inside {
     /// A block at this position that hurts ([`Harm`]).
@@ -159,8 +154,8 @@ pub(super) enum Inside {
     WaterCauldron(BlockPos),
 }
 
-/// What a block does to what is inside it (PMMP `onEntityInside`), besides the player-only
-/// ladders and wither roses: the one rule for players and entities.
+/// What a block does to what is inside it, besides the player-only ladders and wither roses:
+/// the one rule for players and entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tick) enum Touch {
     /// It hurts ([`Harm`]).
@@ -194,8 +189,7 @@ impl Touch {
     }
 }
 
-/// How a block hurts what is inside it (PMMP `onEntityInside`): the one rule for players and
-/// entities.
+/// How a block hurts what is inside it: the one rule for players and entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tick) enum Harm {
     /// Fire (1) or soul fire (2) fire damage, then burning.
@@ -246,7 +240,7 @@ impl Harm {
         }
     }
 
-    /// The seconds it then sets on fire for (PMMP `EntityCombustByBlockEvent` of 8), if it does.
+    /// The seconds it then sets on fire for, if it does.
     pub(in crate::tick) fn burn_secs(self) -> Option<u8> {
         matches!(self, Self::Fire(_) | Self::Lava { .. }).then_some(BURN_SECS)
     }
@@ -274,13 +268,12 @@ impl Harm {
         matches!(self, Self::Lava { cauldron: false } | Self::BerryBush)
     }
 
-    /// Whether only living things take it (PMMP checks `instanceof Living`); fire, lava and
-    /// cactus hurt everything.
+    /// Whether only living things take it; fire, lava and cactus hurt everything.
     pub(in crate::tick) fn is_living_only(self) -> bool {
         matches!(self, Self::Campfire(_) | Self::Magma | Self::BerryBush)
     }
 
-    /// Whether sneaking or Frost Walker spares a living thing (PMMP `Magma::onEntityInside`).
+    /// Whether sneaking or Frost Walker spares a living thing.
     pub(in crate::tick) fn is_spared_by_sneaking(self) -> bool {
         self == Self::Magma
     }
@@ -310,8 +303,7 @@ impl Cell {
     }
 }
 
-/// One tick of movement of an entity (PMMP `onUpdate` up to `updateMovement`, with the block
-/// intersections of `entityBaseTick`).
+/// One tick of movement of an entity, with the blocks it is inside.
 pub(super) fn step(world: &World, input: &Input) -> Step {
     let physics = &input.physics;
     let mut body = input.body;
@@ -359,8 +351,8 @@ pub(super) fn step(world: &World, input: &Input) -> Step {
     out
 }
 
-/// Applies gravity, drag and ground friction (PMMP `tryChangeMovement`, with `checkObstruction`
-/// first for kinds that push themselves out of blocks), then cuts the speed to [`MAX_SPEED`].
+/// Applies gravity, drag and ground friction (after pushing itself out of blocks, for kinds that
+/// do), then cuts the speed to [`MAX_SPEED`].
 fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &mut Random) {
     if physics.unstuck {
         unstick(world, physics, body, random);
@@ -390,7 +382,7 @@ fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &m
     ));
 }
 
-/// Pushes an entity inside a solid block toward the nearest open side (PMMP `checkObstruction`).
+/// Pushes an entity inside a solid block toward the nearest open side.
 fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Random) {
     let p = body.position;
     let BlockPos { x, y, z } = BlockPos::containing(p);
@@ -406,7 +398,7 @@ fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Rando
             z.saturating_add(oz),
         )
     };
-    // The nearest open face, as PMMP picks: earlier ones on ties.
+    // The nearest open face; earlier ones win on ties.
     let mut nearest: Option<(Axis, f64, f64)> = None;
     for (is_open, distance, axis, sign) in [
         (open(-1, 0, 0), dx, Axis::X, -1.0),
@@ -431,9 +423,8 @@ fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Rando
     }
 }
 
-/// Moves the entity by its motion against the blocks (PMMP `Entity::move`): clipping, the block
-/// intersections, the ground state and the fall. No kind steps up blocks (PMMP's step height is 0
-/// for each of them), so PMMP's stepping and its `ySize` are not here.
+/// Moves the entity by its motion against the blocks: clipping, the block intersections, the
+/// ground state and the fall. No kind steps up blocks, so there is no stepping here.
 fn travel(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
     let wanted = body.motion;
     let start = body.bounding_box(physics);
@@ -490,9 +481,9 @@ fn clip_move(world: &World, boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb,
 
 /// The move `d` of the box `moving` along the horizontal unit axis `along`, cut so that the
 /// box's centre stays in its chunk when the chunk it would move into is not loaded. The wall
-/// cubes of such a chunk stop only a box that does not overlap them yet (PMMP's clip), so a box
-/// that already reaches into it (dropped at its border, grown by a scale) needs this to keep the
-/// entity in the loaded chunks, where it is indexed and saved.
+/// cubes of such a chunk stop only a box that does not overlap them yet, so a box that already
+/// reaches into it (dropped at its border, grown by a scale) needs this to keep the entity in the
+/// loaded chunks, where it is indexed and saved.
 fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
     let centre = Vec3::new(
         f64::midpoint(moving.min.x, moving.max.x),
@@ -513,10 +504,9 @@ fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
     }
 }
 
-/// Moves a projectile along its motion up to the first block (PMMP `Projectile::move` without the
-/// entities): on a block it stops on the block's box (water is a full block to an ice bomb),
-/// lands and stops moving; otherwise it turns along its flight. Then the blocks it is inside act
-/// on it.
+/// Moves a projectile along its motion up to the first block, without looking for entities: on a
+/// block it stops on the block's box (water is a full block to an ice bomb), lands and stops
+/// moving; otherwise it turns along its flight. Then the blocks it is inside act on it.
 fn fly(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
     let start = body.position;
     let mut end = start + body.motion;
@@ -557,7 +547,7 @@ fn fly(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
     intersect(world, physics, body, &mut out.inside);
 }
 
-/// The yaw and pitch of a flight along `motion` in degrees (PMMP `Projectile::move`).
+/// The yaw and pitch of a flight along `motion` in degrees.
 pub(super) fn heading(motion: Vec3) -> (f64, f64) {
     let f = (motion.x * motion.x + motion.z * motion.z).sqrt();
     (
@@ -566,8 +556,8 @@ pub(super) fn heading(motion: Vec3) -> (f64, f64) {
     )
 }
 
-/// Whether the block at `pos` still holds a projectile with the box `bounds` (PMMP
-/// `collidesWithBB` with the box grown by 0.001); a block that is not loaded holds it.
+/// Whether the block at `pos` still holds a projectile with the box `bounds` grown by
+/// [`STUCK_REACH`]; a block that is not loaded holds it.
 fn can_hold(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
     let area = bounds.grow(Vec3::new(STUCK_REACH, STUCK_REACH, STUCK_REACH));
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
@@ -578,8 +568,8 @@ fn can_hold(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
     }
 }
 
-/// Records the blocks the entity is inside (PMMP `checkBlockIntersections`): falls reset at
-/// once, since a landing in water hurts no one; flowing liquid pushes; the rest goes to `inside`.
+/// Records the blocks the entity is inside: falls reset at once, since a landing in water hurts
+/// no one; flowing liquid pushes; the rest goes to `inside`.
 fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec<Inside>) {
     let b = body.bounding_box(physics);
     let inset = Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET);
@@ -632,7 +622,7 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
     }
 }
 
-/// The direction the liquid at (x, y, z) pushes (PMMP `Liquid::getFlowVector`).
+/// The direction the liquid at (x, y, z) pushes.
 fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
     let (decay, falling) = depth(liquid);
     let decay = if falling { 0 } else { decay };
@@ -675,8 +665,7 @@ fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
     v.normalize()
 }
 
-/// The decay a liquid sees in `cell` (PMMP `getEffectiveFlowDecay`): -1 for anything but the same
-/// liquid, 0 for falling liquid.
+/// The decay a liquid sees in `cell`: -1 for anything but the same liquid, 0 for falling liquid.
 fn effective_decay(liquid: block::State, cell: Cell) -> i32 {
     match cell {
         Cell::Block(other) if is_same_liquid(liquid, other) => {
@@ -687,7 +676,7 @@ fn effective_decay(liquid: block::State, cell: Cell) -> i32 {
     }
 }
 
-/// Whether liquid can flow into the cell (PMMP `Liquid::canFlowInto`).
+/// Whether liquid can flow into the cell.
 fn can_flow_into(cell: Cell) -> bool {
     match cell {
         Cell::Outside => true,
@@ -702,8 +691,7 @@ fn can_flow_into(cell: Cell) -> bool {
     }
 }
 
-/// Whether two liquid states are the same liquid (PMMP `hasSameTypeId`: still and flowing
-/// water are one type).
+/// Whether two liquid states are the same liquid (still and flowing water are one liquid).
 fn is_same_liquid(a: block::State, b: block::State) -> bool {
     (a.is(Class::Water) && b.is(Class::Water)) || (a.is(Class::Lava) && b.is(Class::Lava))
 }
@@ -721,11 +709,10 @@ pub(in crate::tick) fn liquid_depth(state: block::State) -> Option<(i32, bool)> 
     Some((depth & 7, depth & 8 != 0))
 }
 
-/// Fills `out` with the collision boxes of the blocks that overlap `area` (PMMP
-/// `getBlockCollisionBoxes`), in cell order. Boxes leave their cell only up and down: fences and
-/// walls are 1.5 high, a pitcher crop reaches 1/16 below
-/// (`collision_boxes_leave_their_cell_only_up_and_down` checks the data), so the cells under and
-/// over the area are looked at too.
+/// Fills `out` with the collision boxes of the blocks that overlap `area`, in cell order.
+/// Boxes leave their cell only up and down: fences and walls are 1.5 high, a pitcher crop reaches
+/// 1/16 below (`collision_boxes_leave_their_cell_only_up_and_down` checks the data), so the cells
+/// under and over the area are looked at too.
 pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>) {
     out.clear();
     visit_collisions(world, area, |b| {
@@ -776,7 +763,7 @@ fn visit_collisions(world: &World, area: Aabb, mut visit: impl FnMut(Aabb) -> bo
     false
 }
 
-/// Whether an entity cannot stand in the cell (PMMP `isSolid`).
+/// Whether an entity cannot stand in the cell.
 pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
     match cell(world, x, y, z) {
         Cell::Outside => false,
@@ -787,7 +774,7 @@ pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
 }
 
 /// Whether the block at the eyes `eye` is an opaque solid one whose collision boxes overlap
-/// `bounds` (PMMP `Entity::isInsideOfSolid`): the one rule for players and entities.
+/// `bounds`: the one rule for players and entities.
 pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -> bool {
     let cell = BlockPos::containing(eye);
     let at = Vec3::new(f64::from(cell.x), f64::from(cell.y), f64::from(cell.z));
@@ -800,8 +787,8 @@ pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -
     })
 }
 
-/// Whether a ray from `from` to `to` passes no block box (PMMP `Explosion::getExposure`: a
-/// block intercepts the segment); blocks of chunks that are not loaded stop it.
+/// Whether a ray from `from` to `to` passes no block box; blocks of chunks that are not loaded
+/// stop it.
 pub(super) fn is_clear(world: &World, from: Vec3, to: Vec3) -> bool {
     let mut blocked = false;
     cells(from, to, |x, y, z| {
@@ -812,7 +799,7 @@ pub(super) fn is_clear(world: &World, from: Vec3, to: Vec3) -> bool {
 }
 
 /// The nearest point where the segment `from`–`to` enters a collision box of the block at `pos`,
-/// and the face (PMMP `Block::calculateIntercept`); a block that is not loaded is a full cube.
+/// and the face; a block that is not loaded is a full cube.
 pub(super) fn block_intercept(
     world: &World,
     pos: BlockPos,
@@ -839,13 +826,12 @@ pub(super) fn block_intercept(
     best.map(|(p, f, _)| (p, f))
 }
 
-/// The point nearest `from` where the segment `from`–`to` meets a face of `b`, and that face
-/// (PMMP `AxisAlignedBB::calculateIntercept`).
+/// The point nearest `from` where the segment `from`–`to` meets a face of `b`, and that face.
 pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<(Vec3, Face)> {
     let across_x = |v: &Vec3| v.y >= b.min.y && v.y <= b.max.y && v.z >= b.min.z && v.z <= b.max.z;
     let across_y = |v: &Vec3| v.x >= b.min.x && v.x <= b.max.x && v.z >= b.min.z && v.z <= b.max.z;
     let across_z = |v: &Vec3| v.x >= b.min.x && v.x <= b.max.x && v.y >= b.min.y && v.y <= b.max.y;
-    // In PMMP's order (x, y, z; the lower face first): the first of equal distances wins.
+    // In the order x, y, z with the lower face first: the first of equal distances wins.
     let candidates = [
         (
             Face::West,
@@ -885,7 +871,7 @@ pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<(Vec3, Face)> {
 }
 
 /// The point where the segment `from`–`to` crosses the plane where the coordinate of `axis` is
-/// `value` (PMMP `Vector3::getIntermediateWith*Value`).
+/// `value`.
 fn on_plane(from: Vec3, to: Vec3, axis: Axis, value: f64) -> Option<Vec3> {
     let (start, stop) = match axis {
         Axis::X => (from.x, to.x),
@@ -921,8 +907,7 @@ pub(super) fn cells(start: Vec3, end: Vec3, visit: impl FnMut(i32, i32, i32) -> 
 
 /// Visits the cells a ray from `start` along the unit vector `d` passes within `length` blocks,
 /// from the cell of `start`, each one step on one axis from the last, crossing corners z, then
-/// y, then x first (PMMP `VoxelRayTrace::betweenPoints`), until `visit` returns true; at most
-/// `cap` cells.
+/// y, then x first, until `visit` returns true; at most `cap` cells.
 pub(in crate::tick) fn cells_along(
     start: Vec3,
     d: Vec3,
@@ -978,8 +963,7 @@ pub(in crate::tick) fn cells_along(
     }
 }
 
-/// The distance along a ray from `s` with direction component `ds` to the next cell boundary
-/// (PMMP `rayTraceDistanceToBoundary`).
+/// The distance along a ray from `s` with direction component `ds` to the next cell boundary.
 fn to_boundary(s: f64, ds: f64) -> f64 {
     if ds == 0.0 {
         return f64::INFINITY;
@@ -1196,8 +1180,8 @@ pub(super) mod tests {
         }
     }
 
-    /// A block only clients know (inert) has BDS's collision boxes: an item comes to rest on
-    /// moss carpet (1/16 high), not on a full cube.
+    /// A block only clients know (inert) has its collision boxes: an item comes to rest on moss
+    /// carpet (1/16 high), not on a full cube.
     #[test]
     fn an_item_rests_on_the_collision_box_of_an_inert_block() {
         let mut w = flat();
@@ -1226,7 +1210,7 @@ pub(super) mod tests {
             on_ground: true,
             ..Body::default()
         };
-        // A block placed on a resting entity makes it move (PMMP `onNearbyBlockChange`).
+        // A block placed on a resting entity makes it move.
         let forced = Input {
             forced: true,
             ..input(start, item_physics())

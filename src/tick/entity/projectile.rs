@@ -1,24 +1,23 @@
-//! Projectiles and potion clouds (PMMP `Projectile`, `Arrow`, `Throwable` and its kinds,
-//! `Trident`, `IceBomb`, `ProjectileItem::onClickAir`, `Bow::onReleaseUsing`,
-//! `item\Trident::onReleaseUsing`, `AreaEffectCloud`).
+//! Projectiles and potion clouds.
 //!
 //! A projectile flies along a ray each tick ([`super::physics`]); the serial phase then looks for
 //! the nearest player, NPC or end crystal on the ray (not the shooter in its first 5 ticks, never
 //! for a trident) and resolves the hit: the kind's effect (an arrow's or trident's damage and
-//! knockback, an ender pearl's teleport, a potion's splash or cloud, a bottle's xp, an ice
-//! bomb's frost), then a block hit sticks an arrow or a trident and ends a thrown item, an entity
-//! hit ends any projectile but a trident, which bounces back and hits nothing more until it meets a
-//! block. Eggs hatch nothing (mobs are out of scope). A stuck trident is picked up whole by the
-//! first player who touches it and has room for it.
+//! knockback, an ender pearl's teleport, a potion's splash or cloud, a bottle's xp), then a block
+//! hit sticks an arrow or a trident and ends a thrown item, an entity hit ends any projectile but
+//! a trident, which bounces back and hits nothing more until it meets a block. Eggs hatch
+//! nothing (mobs are out of scope). A projectile changes no block: a burning arrow lights no TNT,
+//! an ice bomb freezes no water and a water bottle puts out no fire. With `pvp = false` a
+//! projectile or a splash that a player shot hurts no player. A stuck trident is picked up whole
+//! by the first player who touches it and has room for it.
 //!
-//! Fixed PMMP defects: a critical arrow's extra damage is counted before the hit clears the
-//! critical flag (PMMP clears it first, so the bonus never applies); arrows shot by players
-//! with infinite items (creative) are picked up by creative players only, so no one else gets
-//! arrows out of nothing; a lingering potion still lingers after a load; a creative player
-//! without room does not pick up a trident (PMMP gives it to a full inventory, which loses it);
-//! a listener of a shot that changes the shooter's game mode cancels it, so what the shot takes
-//! from the player and what the projectile gives back follow one game mode; a cloud grows no
-//! larger and lives no longer than its saved form holds.
+//! A critical arrow's extra damage is counted before the hit clears the critical flag; arrows
+//! shot by players with infinite items (creative) are picked up by creative players only, so no
+//! one else gets arrows out of nothing; a lingering potion still lingers after a load; a creative
+//! player without room does not pick up a trident; a listener of a shot that changes the
+//! shooter's game mode cancels it, so what the shot takes from the player and what the projectile
+//! gives back follow one game mode; a cloud grows no larger and lives no longer than its saved
+//! form holds.
 
 use tracing::debug;
 
@@ -31,7 +30,7 @@ use super::{
     create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
     player_actor, push_entity, send_to, with, worn,
 };
-use crate::block::{self, Face, TypeTag};
+use crate::block;
 use crate::config::GameMode;
 use crate::effect::{self, Potion};
 use crate::entity::Id;
@@ -49,75 +48,67 @@ use crate::tick::dispatch;
 use crate::tick::{Context, Phase, inventory, survival};
 use crate::world::particle_id;
 
-/// An arrow's base damage (PMMP `Arrow::$damage`).
+/// An arrow's base damage.
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
-/// The shake data of an arrow that hits a block (PMMP `ArrowShakeAnimation`).
+/// The shake data of an arrow that hits a block.
 const ARROW_SHAKE: i32 = 7;
 /// The random stream of a bottle's xp.
 const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
-/// The xp a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
+/// The xp a bottle drops, from the first to the second value.
 const BOTTLE_XP: (i32, i32) = (3, 11);
 /// The random stream of a bow's wear.
 const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
-/// A cloud's life, in ticks (PMMP `AreaEffectCloud::DEFAULT_DURATION`).
+/// A cloud's life, in ticks.
 pub(super) const CLOUD_DURATION_TICKS: i32 = 600;
-/// A cloud's first radius, in blocks (PMMP `AreaEffectCloud::DEFAULT_RADIUS`).
+/// A cloud's first radius, in blocks.
 pub(super) const CLOUD_RADIUS: f64 = 3.0;
 /// A cloud's radius change per entity it affects, in blocks.
 pub(super) const CLOUD_RADIUS_ON_USE: f64 = -0.5;
 /// A cloud's radius change per tick, in blocks: it shrinks to nothing over its life.
 pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION_TICKS as f64);
-/// The ticks before a cloud affects an entity again (PMMP
-/// `AreaEffectCloud::DEFAULT_REAPPLICATION_DELAY`).
+/// The ticks before a cloud affects an entity again.
 pub(super) const CLOUD_REAPPLICATION: i32 = 40;
-/// Ticks between a cloud's applications (PMMP `UPDATE_DELAY`).
+/// Ticks between a cloud's applications.
 const CLOUD_UPDATE_DELAY_TICKS: u32 = 10;
 /// The random stream of a critical arrow's bonus damage.
 const CRITICAL_RANDOM: u64 = random::tag("projectile-critical");
-/// The burn a Flame bow gives its arrow (PMMP: `setOnFire(100)`), in ticks.
+/// The burn a Flame bow gives its arrow, in ticks.
 const FLAME_TICKS: i16 = 2000;
-/// The burn a burning projectile gives the player or NPC it hits (PMMP `Projectile::onHitEntity`).
+/// The burn a burning projectile gives the player or NPC it hits.
 const HIT_FIRE_SECONDS: i16 = 5;
-/// The particles a snowball or an egg leaves where it hits (PMMP `Snowball::onHit`,
-/// `Egg::onHit`; BDS sends as many).
+/// The particles a snowball or an egg leaves where it hits; the official server sends as many.
 const HIT_PARTICLES: usize = 6;
-/// How much bigger an entity's box is to a projectile (PMMP `expandedCopy(0.3, …)`).
+/// How much bigger an entity's box is to a projectile, in blocks.
 const HIT_REACH: f64 = 0.3;
-/// How far around the block it hits an ice bomb freezes water (PMMP `IceBomb::onHitBlock`: the
-/// 3 × 3 × 3 blocks around it).
-const ICE_BOMB_REACH: i32 = 1;
-/// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
+/// The lingering potion item (a splash potion that lingers).
 const LINGERING_POTION: &str = "minecraft:lingering_potion";
-/// The weakest bow draw that shoots (PMMP `Bow::onReleaseUsing`).
+/// The weakest bow draw that shoots.
 const MIN_BOW_FORCE: f64 = 0.1;
-/// The fewest ticks a bow is drawn to shoot (PMMP `Bow::onReleaseUsing`).
+/// The fewest ticks a bow is drawn to shoot.
 const MIN_BOW_TICKS: u32 = 5;
-/// The smallest radius a cloud has (PMMP `entityBaseTick`).
+/// The smallest radius a cloud has.
 const MIN_CLOUD_RADIUS: f64 = 0.5;
 /// The shortest effect a splash gives, in ticks.
 const MIN_SPLASH_TICKS: f64 = 20.0;
-/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`).
+/// The fewest ticks a trident is drawn to throw.
 const MIN_TRIDENT_TICKS: u32 = 14;
-/// Ticks a projectile flies through its shooter (PMMP `Projectile::move`).
+/// Ticks a projectile flies through its shooter.
 const OWNER_GRACE_TICKS: u32 = 5;
-/// The fall damage an ender pearl's thrower takes (PMMP `EnderPearl::onHit`).
+/// The fall damage an ender pearl's thrower takes.
 const PEARL_DAMAGE: f64 = 5.0;
 /// What a splash's share of effect durations loses per block of distance ([`duration_share`]).
 const SPLASH_DURATION_FALLOFF: f64 = 0.225;
 /// The share of a splash's effect durations at the target's middle line ([`duration_share`]),
-/// before the cut to 1, as BDS gives it (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5
-/// and 3.5 blocks).
+/// before the cut to 1, as the official server gives it (measured: 2565, 1755 and 945 of 3600
+/// ticks at 1.5, 2.5 and 3.5 blocks).
 const SPLASH_DURATION_FULL: f64 = 1.05;
-/// The farthest a splash potion's effects reach from the eyes, in blocks (PMMP
-/// `SplashPotion::onHit`).
+/// The farthest a splash potion's effects reach from the eyes, in blocks.
 const SPLASH_RANGE: f64 = 4.0;
-/// How far around a splash potion's box its effects reach (PMMP `SplashPotion::onHit`).
+/// How far around a splash potion's box its effects reach.
 const SPLASH_REACH: Vec3 = Vec3::new(4.125, 2.125, 4.125);
-/// What a trident keeps of its speed when it bounces off what it hit (PMMP
-/// `Trident::onHitEntity`).
+/// What a trident keeps of its speed when it bounces off what it hit.
 const TRIDENT_BOUNCE: Vec3 = Vec3::new(-0.01, -0.1, -0.01);
-/// The speed of a trident thrown at a full draw, in blocks per tick (PMMP
-/// `item\Trident::onReleaseUsing`).
+/// The speed of a trident thrown at a full draw, in blocks per tick.
 const TRIDENT_FORCE: f64 = 2.4;
 /// The random stream of a thrown trident's wear.
 const TRIDENT_RANDOM: u64 = random::tag("projectile-trident-wear");
@@ -158,7 +149,7 @@ enum Hit {
     Entity(ProjectileHitEntity),
 }
 
-/// The base damage of an arrow shot from a bow of Power `power` (PMMP `Bow::onReleaseUsing`).
+/// The base damage of an arrow shot from a bow of Power `power`.
 pub(super) const fn bow_arrow_damage(power: u16) -> f64 {
     if power > 0 {
         ARROW_DAMAGE + f64::midpoint(power as f64, 1.0)
@@ -259,8 +250,8 @@ fn still_shoots(state: &State, session: SessionId, mode: GameMode, hooks: Hooks)
     shooter(state, session, hooks).is_some_and(|s| s.mode == mode)
 }
 
-/// The force of a bow or trident drawn for `used_ticks`, 0 to 1 (PMMP `onReleaseUsing`:
-/// `min((p² + 2p) / 3, 1)` for `p` seconds).
+/// The force of a bow or trident drawn for `used_ticks`, 0 to 1: `min((p² + 2p) / 3, 1)` for `p`
+/// seconds.
 fn draw_force(used_ticks: u32) -> f64 {
     let p = f64::from(used_ticks) / f64::from(Context::TICKS_PER_SECOND);
     crate::math::min((p * p + p * 2.0) / 3.0, 1.0)
@@ -358,8 +349,7 @@ pub(super) fn release_bow_with(
     true
 }
 
-/// Throws the trident `session` holds after drawing it for `used_ticks` (PMMP
-/// `item\Trident::onReleaseUsing`): drawn 14 ticks or more, one trident leaves the hand worn by
+/// Throws the trident `session` holds after drawing it for `used_ticks`: drawn 14 ticks or more, one trident leaves the hand worn by
 /// one (with finite items; a throw that would break it fails) and flies from the eyes along the
 /// look at up to 2.4 blocks per tick. False if nothing was thrown; the caller takes the trident
 /// from the hand on true.
@@ -423,14 +413,13 @@ pub(super) fn release_trident_with(
     if !launch(state, id, still) {
         return false;
     }
-    // BDS plays it at the middle of the thrower's body (P6 `itemuse`).
+    // The official server plays it at the middle of the thrower's body.
     let middle = survival::feet_at(s.eye) + Vec3::new(0.0, PLAYER_HEIGHT / 2.0, 0.0);
     super::play(state, s.world, middle, crate::world::Sound::TridentThrow);
     true
 }
 
-/// Raises [`ProjectileLaunch`] for the new projectile `id` (PMMP `ProjectileItem::onClickAir`,
-/// `Bow::onReleaseUsing`): false, with the projectile taken away unseen, when a listener
+/// Raises [`ProjectileLaunch`] for the new projectile `id`: false, with the projectile taken away unseen, when a listener
 /// cancels it or `still` (the throw's check) fails after the listeners.
 fn launch(state: &mut State, id: Id, still: impl Fn(&State) -> bool) -> bool {
     if !dispatch::heard::<ProjectileLaunch>(state) {
@@ -452,8 +441,7 @@ fn launch(state: &mut State, id: Id, still: impl Fn(&State) -> bool) -> bool {
 }
 
 /// Raises [`EntityShootBow`], which someone hears, for `session` shooting the new arrow `id`
-/// from `bow` at `force` blocks per tick along `aim` (PMMP `Bow::onReleaseUsing`): the event for
-/// the monitors once the shot is done, or `None`, with the arrow taken away unseen, when a
+/// from `bow` at `force` blocks per tick along `aim`: the event for the monitors once the shot is done, or `None`, with the arrow taken away unseen, when a
 /// listener cancels it or `still` (the shot's check) fails after the listeners. A force a
 /// listener sets becomes the arrow's speed.
 fn shoot(
@@ -487,9 +475,8 @@ fn shoot(
     Some(e)
 }
 
-/// Resolves the hits of a projectile's flight (PMMP `Projectile::move` after the ray): the
-/// nearest player or NPC on the way, else the block the ray met. Projectiles on the ground
-/// (just let go by their block) hit no one, as in PMMP `canCollideWith`.
+/// Resolves the hits of a projectile's flight: the nearest player or NPC on the way, else the
+/// block the ray met. Projectiles on the ground (just let go by their block) hit no one.
 pub(super) fn hit(
     state: &mut State,
     id: Id,
@@ -505,7 +492,7 @@ pub(super) fn hit(
         return;
     };
     let (world, age, owner) = (this.world, this.age, shot_data.owner);
-    // PMMP `Trident::canCollideWith`: not between an entity hit and a block, never its owner.
+    // A trident hits nothing between an entity hit and a block, and never its owner.
     let (collides, trident) = match &shot_data.shot {
         Shot::Trident(t) => (t.can_collide, true),
         _ => (true, false),
@@ -576,8 +563,7 @@ pub(super) fn hit(
     on_hit(state, id, end, flight.motion, struck, hooks);
 }
 
-/// The damage a projectile deals to what it hits (PMMP `getResultDamage`): an arrow's base
-/// damage times its speed, rounded up, plus a random bonus up to half when critical; none for
+/// The damage a projectile deals to what it hits: an arrow's base damage times its speed, rounded up, plus a random bonus up to half when critical; none for
 /// potions and bottles.
 fn result_damage(state: &State, id: Id, p: &Projectile, motion: Vec3) -> Option<f64> {
     match p.shot {
@@ -606,7 +592,7 @@ fn result_damage(state: &State, id: Id, p: &Projectile, motion: Vec3) -> Option<
     }
 }
 
-/// A hit (PMMP `onHit`, then `onHitEntity` or `onHitBlock`).
+/// A hit of the projectile `id`: its events, then its effect on what it struck.
 fn on_hit(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck, hooks: Hooks) {
     let event = hit_event(state, id, at, struck);
     if event.is_some() && !is_live(state, id) {
@@ -622,7 +608,7 @@ fn on_hit(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck, hoo
 }
 
 /// Raises [`ProjectileHitBlock`] or [`ProjectileHitEntity`] for the projectile `id` hitting
-/// `struck` at `at` (PMMP `Projectile::move`, before `onHit`); `None` when nobody listens.
+/// `struck` at `at`, before it has any effect; `None` when nobody listens.
 fn hit_event(state: &mut State, id: Id, at: Vec3, struck: Struck) -> Option<Hit> {
     let world = state.rules.entities.get(id)?.world;
     match struck {
@@ -713,15 +699,15 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
             hit_particles(state, world, at, (egg << 16) | particle_id::ITEM_BREAK);
         }
         Shot::EnderPearl => pearl(state, world, at, p.owner, hooks),
+        Shot::Potion { potion, linger } => {
+            potion_hit(state, id, world, at, *potion, *linger, struck, hooks);
+        }
         Shot::XpBottle => {
             splash_effect(state, world, at, super::track::DEFAULT_POTION_COLOUR);
             let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
             let mut r = Random::new(seed, state.tick, random::key(BOTTLE_RANDOM, &[runtime_id]));
             let amount = r.range(BOTTLE_XP.0, BOTTLE_XP.1);
             super::drop_xp(state, world, at, amount.unsigned_abs());
-        }
-        Shot::Potion { potion, linger } => {
-            potion_hit(state, id, world, at, *potion, *linger, struck, hooks);
         }
         Shot::Trident(_) => {}
         Shot::IceBomb => {
@@ -762,27 +748,18 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
     }
 }
 
-/// A projectile of `shot` hits the block `b` at `at` (PMMP `onHitBlock`): it is stuck there, a
-/// burning one lights TNT; an arrow shakes and stays, a trident stays and may hit entities
-/// again, an ice bomb freezes the water around and ends, any other thrown item ends.
+/// A projectile of `shot` hits the block `b` at `at`: it is stuck there; an arrow shakes and
+/// stays, a trident stays and may hit entities again, any other thrown item ends. The block
+/// stays as it is.
 fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit) {
-    let Some((world, burning)) = with(state, id, |e| {
+    let Some(world) = with(state, id, |e| {
         if let Kind::Projectile(p) = &mut e.kind {
             p.stuck = Some(b.pos);
         }
-        (e.world, e.fire_ticks > 0)
+        e.world
     }) else {
         return;
     };
-    if burning
-        && state
-            .worlds
-            .get(world)
-            .and_then(|w| w.block(b.pos))
-            .is_some_and(|s| s.is(block::Class::Tnt))
-    {
-        super::ignite(state, world, b.pos, u32::from(super::TNT_FUSE_TICKS));
-    }
     match shot {
         Shot::Arrow(_) => {
             if let Some(e) = state.rules.entities.get(id) {
@@ -790,16 +767,17 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit) {
                 send_to(&mut state.players, &e.viewers, &packet);
             }
         }
+        Shot::Snowball
+        | Shot::Egg
+        | Shot::EnderPearl
+        | Shot::Potion { .. }
+        | Shot::XpBottle
+        | Shot::IceBomb => {
+            state.rules.entities.doom(id);
+        }
         Shot::Trident(_) => {
             with(state, id, |e| set_collides(e, true));
             super::play(state, world, at, crate::world::Sound::TridentHitBlock);
-        }
-        Shot::IceBomb => {
-            state.rules.entities.doom(id);
-            freeze(state, world, b.pos);
-        }
-        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::Potion { .. } | Shot::XpBottle => {
-            state.rules.entities.doom(id);
         }
     }
 }
@@ -817,9 +795,8 @@ fn is_trident(state: &State, id: Id) -> bool {
     })
 }
 
-/// A projectile that hit a player or an entity at `at`, flying at `motion`, ends (PMMP
-/// `despawnsOnEntityHit`), except a trident: it bounces back and hits nothing more until it meets
-/// a block (PMMP `Trident::onHitEntity`).
+/// A projectile that hit a player or an entity at `at`, flying at `motion`, ends, except a
+/// trident: it bounces back and hits nothing more until it meets a block.
 fn ended(state: &mut State, id: Id, world: usize, at: Vec3, motion: Vec3) {
     let bounced = with(state, id, |e| {
         let trident = matches!(
@@ -846,7 +823,7 @@ fn ended(state: &mut State, id: Id, world: usize, at: Vec3, motion: Vec3) {
     }
 }
 
-/// Sets whether a trident may hit players and entities (PMMP `canCollide`).
+/// Sets whether a trident may hit players and entities.
 fn set_collides(e: &mut Entity, collides: bool) {
     if let Kind::Projectile(Projectile {
         shot: Shot::Trident(t),
@@ -857,34 +834,7 @@ fn set_collides(e: &mut Entity, collides: bool) {
     }
 }
 
-/// An ice bomb that hit the block `pos` freezes the water in the 3 × 3 × 3 blocks around it into
-/// ice (PMMP `IceBomb::onHitBlock`, which raises no block event).
-fn freeze(state: &mut State, world: usize, pos: crate::world::BlockPos) {
-    let Some(w) = state.worlds.get_mut(world) else {
-        return;
-    };
-    let ice = block::Kind::Ice.default_state();
-    for dx in -ICE_BOMB_REACH..=ICE_BOMB_REACH {
-        for dy in -ICE_BOMB_REACH..=ICE_BOMB_REACH {
-            for dz in -ICE_BOMB_REACH..=ICE_BOMB_REACH {
-                let Some(at) = pos.offset(dx, dy, dz) else {
-                    continue;
-                };
-                if w.block(at).is_some_and(|s| s.is(block::Class::Water))
-                    && let Err(e) = w.set_block(at, ice)
-                {
-                    // The water stays; nothing else depends on it.
-                    debug!(
-                        error = &e as &(dyn std::error::Error + 'static),
-                        "an ice bomb could not freeze water"
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// The extra push of a Punch arrow (PMMP `Arrow::onHitEntity`).
+/// The extra push of a Punch arrow.
 fn punch(p: &Projectile, motion: Vec3) -> Option<Vec3> {
     let Shot::Arrow(a) = &p.shot else {
         return None;
@@ -897,13 +847,12 @@ fn punch(p: &Projectile, motion: Vec3) -> Option<Vec3> {
     Some(Vec3::new(motion.x * m, 0.1, motion.z * m))
 }
 
-/// A projectile hits a player (PMMP `Projectile::onHitEntity`): the damage of `blow` from its
-/// source (PMMP `EntityDamageByChildEntityEvent`); the knockback along the flight only on a hit
-/// outside the player's hit cooldown (PMMP `Living::attack` with the child entity's motion); a
-/// burning projectile (`fire`, its source) sets the player on fire for 5 seconds; a Punch
+/// A projectile hits a player: the damage of `blow` from its source; the knockback along the
+/// flight only on a hit outside the player's hit cooldown, with the force the damage listeners
+/// left; a burning projectile (`fire`, its source) sets the player on fire for 5 seconds; a Punch
 /// arrow's push. The pushes are sent as the player's motion. A hit that does not land (creative,
-/// spectator, a weaker hit within the cooldown) does nothing else, as for NPCs (PMMP still burns
-/// and pushes then).
+/// spectator, a weaker hit within the cooldown) does nothing else, as for NPCs. With `pvp = false`
+/// a projectile a player shot does not hit a player at all.
 fn hit_player(
     state: &mut State,
     session: SessionId,
@@ -913,6 +862,9 @@ fn hit_player(
     p: &Projectile,
     hooks: Hooks,
 ) {
+    if !may_hurt_player(state, blow.source) {
+        return;
+    }
     let cold = state
         .players
         .get(&session)
@@ -949,10 +901,23 @@ fn hit_player(
     }
 }
 
-/// An ender pearl lands at `at` (PMMP `EnderPearl::onHit`): its thrower, if still in the world
-/// and alive, is moved there and takes 5 fall damage. [`EntityTeleport`] comes first: cancelling
-/// keeps the thrower where it is (and unhurt), and a listener may send it elsewhere; a place no
-/// teleport may go (`survival::check_destination`) counts as a cancel.
+/// Whether damage from `source` may reach a player: not when `pvp` is off and a player shot or
+/// threw the projectile.
+fn may_hurt_player(state: &State, source: DamageSource) -> bool {
+    state.settings.pvp
+        || !matches!(
+            source,
+            DamageSource::Child {
+                owner: Some(Actor::Player(_)),
+                ..
+            }
+        )
+}
+
+/// An ender pearl lands at `at`: its thrower, if still in the world and alive, is moved there
+/// and takes 5 fall damage. [`EntityTeleport`] comes first: cancelling keeps the thrower where it
+/// is (and unhurt), and a listener may send it elsewhere; a place no teleport may go
+/// (`survival::check_destination`) counts as a cancel.
 fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, hooks: Hooks) {
     let Some(owner) = owner else {
         return;
@@ -1009,17 +974,16 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     }
 }
 
-/// [`HIT_PARTICLES`] numbered particles `data` at `at`, in BDS's form: `LevelEvent` 2009
-/// (`ParticleGenericSpawn`) with the particle number and its extra value in the data
-/// (P6).
+/// [`HIT_PARTICLES`] numbered particles `data` at `at`, in the official server's form:
+/// `LevelEvent` 2009 (`ParticleGenericSpawn`) with the particle number and its extra value in the
+/// data.
 fn hit_particles(state: &mut State, world: usize, at: Vec3, data: i32) {
     for _ in 0..HIT_PARTICLES {
         level_event(state, world, at, LevelEvent::ParticleGenericSpawn, data);
     }
 }
 
-/// The splash particle in a colour and the glass sound (PMMP `PotionSplashParticle`,
-/// `PotionSplashSound`).
+/// The splash particle in a colour and the glass sound.
 fn splash_effect(state: &mut State, world: usize, at: Vec3, colour: [u8; 4]) {
     let [r, g, b, a] = colour;
     let splash = crate::world::Particle::PotionSplash(crate::protocol::Rgba { r, g, b, a });
@@ -1027,8 +991,8 @@ fn splash_effect(state: &mut State, world: usize, at: Vec3, colour: [u8; 4]) {
     super::play(state, world, at, crate::world::Sound::PotionSplash);
 }
 
-/// A new cloud giving `effects` (at most [`Cloud::MAX_EFFECTS`] of them) with PMMP's defaults
-/// for a lingering potion's (`AreaEffectCloud::__construct`).
+/// A new cloud giving `effects` (at most [`Cloud::MAX_EFFECTS`] of them) with the defaults of a
+/// lingering potion's.
 pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
     Cloud {
         effects: effects.iter().copied().take(Cloud::MAX_EFFECTS).collect(),
@@ -1046,13 +1010,13 @@ pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
     }
 }
 
-/// A potion hits (PMMP `SplashPotion::onHit`): a splash gives its effects to the players and
-/// NPCs within 4 blocks of their eyes, weaker with the distance (full to what it hit: durations
-/// by [`duration_share`], instant effects by PMMP's distance from the eyes); a lingering potion
-/// leaves a cloud; a water bottle puts out the fire it lands by.
+/// A potion hits: a splash gives its effects to the players and NPCs within 4 blocks of their
+/// eyes, weaker with the distance (full to what it hit: durations by [`duration_share`], instant
+/// effects by the distance from the eyes); a lingering potion leaves a cloud. A water bottle
+/// changes nothing.
 #[expect(
     clippy::too_many_arguments,
-    reason = "consistency: the hit's parts, as PMMP's `onHit` reads them from its event"
+    reason = "consistency: the hit's parts, as the hit event holds them"
 )]
 fn potion_hit(
     state: &mut State,
@@ -1110,34 +1074,6 @@ fn potion_hit(
             }
         }
     }
-    if effects.is_empty()
-        && potion.id() == 0
-        && let Struck::Block(b) = struck
-    {
-        extinguish(state, world, b);
-    }
-}
-
-/// Puts out the fire in the block next to the hit face and beside it (PMMP: a water splash).
-fn extinguish(state: &mut State, world: usize, b: BlockHit) {
-    let Some(inside) = b.pos.step(b.face) else {
-        return;
-    };
-    let around = [Face::North, Face::South, Face::West, Face::East].map(|f| inside.step(f));
-    for pos in std::iter::once(Some(inside)).chain(around).flatten() {
-        let Some(w) = state.worlds.get_mut(world) else {
-            return;
-        };
-        if w.block(pos).is_some_and(|s| s.has_type_tag(TypeTag::Fire))
-            && let Err(e) = w.set_block(pos, block::AIR)
-        {
-            // The fire stays; nothing else depends on it.
-            debug!(
-                error = &e as &(dyn std::error::Error + 'static),
-                "a splash could not put out a fire"
-            );
-        }
-    }
 }
 
 /// Who a potion or cloud can affect in `area`: living NPCs (not `except`) in `Id` order, then
@@ -1165,11 +1101,10 @@ fn eye_of(state: &State, target: Struck) -> Option<Vec3> {
     }
 }
 
-/// The share of a splash potion's effect durations `target` gets from a splash at `at`, as BDS
-/// gives it (P6 `itemuse`): full within 2/9 of a block of the target's upright middle line (feet to
-/// the top of its box), then 0.225 less per block. PMMP's `0.75 × (1 − distance from the eyes / 4)`
-/// gives a third less at the feet and differs with the height of the splash, which BDS ignores
-/// beside the body.
+/// The share of a splash potion's effect durations `target` gets from a splash at `at`, as the
+/// official server gives it: full within 2/9 of a block of the target's upright middle line (feet
+/// to the top of its box), then 0.225 less per block. The height of the splash beside the body
+/// does not matter.
 fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
     let b = match target {
         Struck::Player(s) => state.players.get(&s).map(survival::bounding_box),
@@ -1232,8 +1167,8 @@ fn give(state: &mut State, target: Struck, effect: effect::Instance, hooks: Hook
     }
 }
 
-/// An instant effect at `potency` (PMMP `InstantHealthEffect`: heals the drunk amount ×
-/// potency; `InstantDamageEffect`: the drunk amount × potency magic damage from `source`).
+/// An instant effect at `potency`: health heals the drunk amount × potency; damage deals the
+/// drunk amount × potency magic damage from `source`, to a player only where [`may_hurt_player`].
 fn instant(
     state: &mut State,
     target: Struck,
@@ -1251,8 +1186,10 @@ fn instant(
         },
         effect::Type::InstantDamage => match target {
             Struck::Player(s) => {
-                let none = DamageSource::None;
-                (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
+                if may_hurt_player(state, source) {
+                    let none = DamageSource::None;
+                    (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
+                }
             }
             Struck::Entity(id) => {
                 hurt(state, id, Blow::of(Cause::Magic, amount).by(source), None);
@@ -1263,7 +1200,7 @@ fn instant(
     }
 }
 
-/// A projectile's own tick (PMMP `Arrow::entityBaseTick`): a stuck arrow goes after a minute.
+/// A projectile's own tick: a stuck arrow goes after a minute.
 pub(super) fn tick(state: &mut State, id: Id) {
     with(state, id, |e| {
         let Kind::Projectile(p) = &mut e.kind else {
@@ -1283,9 +1220,8 @@ pub(super) fn tick(state: &mut State, id: Id) {
     });
 }
 
-/// A player touches a stuck arrow (PMMP `Arrow::onCollideWithPlayer`): a player with finite
-/// items gets the arrow if it fits and the arrow allows; a creative player takes it for nothing.
-/// True if the arrow was taken.
+/// A player touches a stuck arrow: a player with finite items gets the arrow if it fits and the
+/// arrow allows; a creative player takes it for nothing. True if the arrow was taken.
 ///
 /// While someone listens to [`EntityItemPickup`] the event comes first, offering one arrow:
 /// cancelling leaves the arrow; a listener that changes the arrow or the player so that the
@@ -1364,14 +1300,13 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
     finish_pickup(state, session, id, event)
 }
 
-/// A player touches a stuck trident (PMMP `Trident::onCollideWithPlayer`, `pickup`): the player
-/// gets its item if all of it fits, and it goes; one thrown in creative goes and gives nothing.
-/// True if the trident was taken.
+/// A player touches a stuck trident: the player gets its item if all of it fits, and it goes; one
+/// thrown in creative goes and gives nothing. True if the trident was taken.
 ///
 /// While someone listens to [`EntityItemPickup`] the event comes first (not for one thrown in
-/// creative, which PMMP offers cancelled): cancelling leaves the trident; a listener that changes
-/// the trident or the player so that the pickup no longer holds cancels it; an item a listener
-/// sets is given instead (what of it does not fit drops where the trident was).
+/// creative): cancelling leaves the trident; a listener that changes the trident or the player so
+/// that the pickup no longer holds cancels it; an item a listener sets is given instead (what of
+/// it does not fit drops where the trident was).
 fn pick_up_trident(state: &mut State, session: SessionId, id: Id, hooks: Hooks) -> bool {
     let check = |state: &State| -> Option<(Stack, bool)> {
         let e = state.rules.entities.get(id).filter(|e| !e.flagged)?;
@@ -1471,8 +1406,8 @@ fn finish_pickup(
 }
 
 /// Raises [`AreaEffectCloudApply`] for the cloud `id` and the players and NPCs it is about to
-/// affect (PMMP `AreaEffectCloud::entityBaseTick`), into `event` for the monitors: false when a
-/// listener cancelled it or took the cloud away.
+/// affect, into `event` for the monitors: false when a listener cancelled it or took the cloud
+/// away.
 fn cloud_applies(
     state: &mut State,
     id: Id,
@@ -1495,8 +1430,7 @@ fn cloud_applies(
     true
 }
 
-/// A cloud's tick (PMMP `AreaEffectCloud::entityBaseTick`): it shrinks each tick and goes below
-/// half a block; every 10 ticks it gives its effects to the players and NPCs standing in it that
+/// A cloud's tick: it shrinks each tick and goes below half a block; every 10 ticks it gives its effects to the players and NPCs standing in it that
 /// it has not affected within the reapplication delay (instant effects at half strength, lasting
 /// effects a quarter as long), shrinking and shortening per entity affected.
 pub(super) fn cloud_tick(state: &mut State, id: Id, hooks: Hooks) {
@@ -1625,7 +1559,9 @@ mod tests {
     use crate::tick::entity::physics::MOTION_THRESHOLD;
     use crate::tick::entity::physics::tests::named;
     use crate::tick::entity::saved::tests::stack;
-    use crate::tick::entity::tests::{Harness, TEST_HOOKS, at, calls, room, standing, taken};
+    use crate::tick::entity::tests::{
+        Harness, TEST_HOOKS, at, calls, room, session, standing, taken,
+    };
     use crate::world::BlockPos;
 
     /// A potion item of `potion`, splash or lingering.
@@ -1643,11 +1579,7 @@ mod tests {
         Stack::new(t, 1)
     }
 
-    fn session(n: u64) -> SessionId {
-        SessionId::new(n)
-    }
-
-    /// PMMP `InstantHealthEffect` and `InstantDamageEffect`: a splash's amount is the drunk
+    /// A splash's instant amount is the drunk
     /// potion's (4 or 6 × 2^amplifier) at every amplifier, without the integer overflow.
     #[test]
     fn a_splash_at_amplifier_17_heals_and_hurts_what_the_drink_does() {
@@ -1686,7 +1618,7 @@ mod tests {
 
     // api: ProjectileItem::onClickAir
     #[test]
-    fn a_snowball_flies_with_pmmps_constants() {
+    fn a_snowball_flies_with_its_constants() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         calls(|c| c.look = (90.0, -30.0));
@@ -1697,7 +1629,7 @@ mod tests {
             &stack("minecraft:snowball", 1),
             TEST_HOOKS
         ));
-        // PMMP: motion = direction × 1.5; each tick drag 0.01 before gravity 0.03, then move.
+        // Motion = direction × 1.5; each tick drag 0.01 before gravity 0.03, then move.
         let mut position = eye;
         let mut motion = direction(90.0, -30.0) * 1.5;
         for tick in 0..6 {
@@ -1718,7 +1650,8 @@ mod tests {
         assert!((yaw + 90.0).abs() < 1e-6, "flies west: {yaw}");
     }
 
-    /// A snowball and an egg leave six numbered particles where they land, as BDS sends them:
+    /// A snowball and an egg leave six numbered particles where they land, as the official server
+    /// sends them:
     /// `LevelEvent` 2009 with the snowball poof (15), or the egg item breaking (its runtime ID
     /// 393 (0x189) above the item break particle 14).
     #[test]
@@ -1853,7 +1786,7 @@ mod tests {
     }
 
     /// A burning arrow sets the player it hits on fire for 5 seconds; a hit within the player's
-    /// hit cooldown does not knock it back (PMMP `Living::attack` only knocks back cold hits).
+    /// hit cooldown does not knock it back.
     #[test]
     fn burning_arrows_set_players_on_fire_and_cooldown_hits_do_not_knock_back() {
         let mut h = Harness::new(1);
@@ -1912,8 +1845,30 @@ mod tests {
         assert!(!pushed, "no knockback");
     }
 
-    /// A bow worn to its durability shoots without breaking further (PMMP
-    /// `Durable::applyDamage` leaves a broken item as it is).
+    /// With `pvp = false` an arrow a player shot hurts and pushes no player; with `pvp = true`
+    /// it does.
+    #[test]
+    fn an_arrow_hurts_a_player_only_where_pvp_is_on() {
+        for pvp in [false, true] {
+            let mut h = Harness::new(1);
+            h.state.settings.pvp = pvp;
+            h.spawn(1, standing(0.0, 0.0));
+            h.spawn(2, standing(0.0, 8.0));
+            calls(|c| {
+                c.look = (0.0, 0.0);
+                c.arrows = 1;
+            });
+            let bow = stack("minecraft:bow", 1);
+            inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), bow);
+            assert!(release_bow_with(&mut h.state, session(1), 20, TEST_HOOKS));
+            for _ in 0..5 {
+                h.entities();
+            }
+            assert_eq!(calls(|c| c.damage.len()), usize::from(pvp), "pvp {pvp}");
+        }
+    }
+
+    /// A bow worn to its durability shoots without breaking further.
     #[test]
     fn an_already_broken_bow_is_not_destroyed_by_wear() {
         let mut h = Harness::new(1);
@@ -1939,8 +1894,7 @@ mod tests {
             const { std::cell::Cell::new(Vec::new()) };
     }
 
-    /// An arrow that hits a player names the arrow and its shooter in `EntityDamage` (PMMP
-    /// `EntityDamageByChildEntityEvent`).
+    /// An arrow that hits a player names the arrow and its shooter in `EntityDamage`.
     #[test]
     fn an_arrow_hit_names_its_shooter_in_entity_damage() {
         let mut l = crate::event::Listeners::default();
@@ -1979,8 +1933,7 @@ mod tests {
     }
 
     /// The running server's hooks: throws fly along the look the survival rules keep, and a bow
-    /// in survival takes its arrow from the off hand first (PMMP `Bow::onReleaseUsing`); Infinity
-    /// needs an arrow but keeps it.
+    /// in survival takes its arrow from the off hand first; Infinity needs an arrow but keeps it.
     #[test]
     fn the_running_server_aims_with_the_look_and_takes_arrows_off_hand_first() {
         let mut h = Harness::new(1);
@@ -2155,8 +2108,8 @@ mod tests {
             .find(|p| format!("{p:?}") == "Regeneration")
             .unwrap()
             .effects()[0];
-        // BDS (P6 `itemuse`): the whole duration at the feet, 1.05 − 0.225 × 2 of it two blocks
-        // from the body's middle line.
+        // The whole duration at the feet, 1.05 − 0.225 × 2 of it two blocks from the body's
+        // middle line.
         let full = f64::from(regeneration.duration_ticks());
         let expected = [full, (full * 0.6).round()];
         let eyes = [1, 2].map(|n| h.state.players[&session(n)].position);
@@ -2291,7 +2244,7 @@ mod tests {
     }
 
     #[test]
-    fn a_burning_arrow_lights_tnt_and_players_pick_nothing_up_when_dead() {
+    fn a_burning_arrow_leaves_tnt_alone_and_players_pick_nothing_up_when_dead() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         let tnt = BlockPos::new(0, -59, 5);
@@ -2314,10 +2267,10 @@ mod tests {
             h.entities();
         }
         assert!(
-            h.live().iter().any(|e| matches!(e.kind, Kind::Tnt(_))),
-            "lit"
+            h.live().iter().all(|e| !matches!(e.kind, Kind::Tnt(_))),
+            "not lit"
         );
-        assert!(!h.state.worlds[0].block(tnt).unwrap().is(BlockClass::Tnt));
+        assert!(h.state.worlds[0].block(tnt).unwrap().is(BlockClass::Tnt));
         // A dead player does not pick up items.
         calls(|c| c.dead.insert(1));
         room(64);
@@ -2342,7 +2295,7 @@ mod tests {
             crate::event::Priority::Normal,
             |_: &mut ProjectileLaunch, cx: &mut crate::tick::Context<'_>| {
                 let player = cx.player_mut(crate::player::Id::new(session(1))).unwrap();
-                assert!(player.set_game_mode(GameMode::Creative));
+                player.set_game_mode(GameMode::Creative);
             },
         );
         let mut h = Harness::with_listeners(1, l);

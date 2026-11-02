@@ -1,20 +1,23 @@
-//! Animations a player or an entity plays for the players who see it (PMMP `entity\animation\*`),
-//! sent with [`Context::play_animation`](crate::Context::play_animation).
+//! Animations a player or an entity plays for the players who see it, sent with
+//! [`Context::play_animation`](crate::Context::play_animation).
 
 use crate::item;
 use crate::protocol::consts::{ActorEvent, AnimateAction, HandSlot};
 use crate::protocol::packet::{self, Packet};
 
-/// An animation (one PMMP animation class per variant). The client plays it on the actor it is
-/// sent for; one that does not fit the actor (a totem on a dropped item) shows nothing.
+/// An animation. The client plays it on the actor it is sent for; one that does not fit the actor
+/// (a totem on a dropped item) shows nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 // api-class: Animation
 pub enum Animation {
-    /// The arm swings.
+    /// The arm swings. Anchor raises no event for the swing of a player's own left click; a
+    /// receive hook ([`ServerBuilder::on_receive`](crate::ServerBuilder::on_receive)) sees its
+    /// `Animate` packet.
     #[doc(alias = "ArmSwingAnimation")]
     #[doc(alias = "ArmSwingAnimation::__construct")]
     ArmSwing,
-    /// A stuck arrow shakes for `ticks` (PMMP shakes a hit arrow for 7).
+    /// A stuck arrow shakes for `ticks` (a hit arrow shakes for 7).
     #[doc(alias = "ArrowShakeAnimation")]
     #[doc(alias = "ArrowShakeAnimation::__construct")]
     ArrowShake {
@@ -25,7 +28,7 @@ pub enum Animation {
     #[doc(alias = "ConsumingItemAnimation")]
     #[doc(alias = "ConsumingItemAnimation::__construct")]
     ConsumingItem(item::Type),
-    /// The critical hit stars, `particles` of them (PMMP's default is 55).
+    /// The critical hit stars, `particles` of them.
     #[doc(alias = "CriticalHitAnimation")]
     #[doc(alias = "CriticalHitAnimation::__construct")]
     CriticalHit {
@@ -51,7 +54,7 @@ pub enum Animation {
         /// The items it shows.
         count: u8,
     },
-    /// The enchanted hit stars, `particles` of them (PMMP's default is 15).
+    /// The enchanted hit stars, `particles` of them.
     #[doc(alias = "MagicHitAnimation")]
     #[doc(alias = "MagicHitAnimation::__construct")]
     MagicHit {
@@ -69,7 +72,7 @@ pub enum Animation {
 }
 
 impl Animation {
-    /// The packet that plays it on the actor `runtime_id` (PMMP `Animation::encode`).
+    /// The packet that plays it on the actor `runtime_id`.
     pub(crate) fn packet(self, runtime_id: u64) -> Packet {
         let event = |event: ActorEvent, data: i32| {
             Packet::ActorEvent(packet::ActorEvent {

@@ -182,14 +182,8 @@ fn harness(threads: usize, types: Vec<Definition>) -> Harness {
     h
 }
 
-fn context(h: &mut Harness) -> Context<'_> {
-    Context {
-        state: &mut h.state,
-    }
-}
-
 fn spawn(h: &mut Harness, identifier: &str, pos: Vec3) -> Id {
-    context(h)
+    h.context()
         .spawn_custom_entity(WORLD, pos, identifier)
         .expect("spawned")
 }
@@ -200,7 +194,7 @@ fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() 
     let mut h = harness(1, vec![ghost()]);
     h.take(1);
     let id = spawn(&mut h, "test:ghost", at(2.5, -60.0, 2.5));
-    let e = context(&mut h).entity(id).unwrap().clone();
+    let e = h.context().entity(id).unwrap().clone();
     assert_eq!(e.entity_type(), Type::Custom);
     assert_eq!(e.custom_type(), Some("test:ghost"));
     assert_eq!(e.network_type(), "test:ghost");
@@ -248,8 +242,8 @@ fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() 
         meta(EntityDataKey::Name),
         Some(MetadataValue::String("Ghost".to_owned()))
     );
-    // A hit shows the new health, rounded up as PMMP shows it.
-    assert!(context(&mut h).entity_mut(id).unwrap().attack(4.5));
+    // A hit shows the new health, rounded up.
+    assert!(h.context().entity_mut(id).unwrap().attack(4.5));
     h.step(Vec::new());
     let health: Vec<f32> = h
         .take(1)
@@ -263,21 +257,18 @@ fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() 
         .collect();
     assert_eq!(health, [26.0], "once");
     // Death: the animation, then the removal 25 ticks later.
-    context(&mut h).entity_mut(id).unwrap().kill();
+    h.context().entity_mut(id).unwrap().kill();
     for _ in 0..30 {
         h.step(Vec::new());
     }
-    assert!(context(&mut h).entity(id).is_none());
+    assert!(h.context().entity(id).is_none());
     assert_eq!(removes(&h.take(1)), [runtime_id]);
     // A despawn removes it at the end of the tick.
     let other = spawn(&mut h, "test:ghost", at(2.5, -60.0, 2.5));
     h.step(Vec::new());
-    let runtime_id = context(&mut h).entity(other).unwrap().runtime_id().unwrap();
+    let runtime_id = h.context().entity(other).unwrap().runtime_id().unwrap();
     assert_eq!(adds(&h.take(1)), [runtime_id]);
-    context(&mut h)
-        .entity_mut(other)
-        .unwrap()
-        .flag_for_despawn();
+    h.context().entity_mut(other).unwrap().flag_for_despawn();
     h.step(Vec::new());
     assert_eq!(removes(&h.take(1)), [runtime_id]);
 }
@@ -375,7 +366,7 @@ fn behaviours_tick_every_period_in_id_order_and_answer_interactions() {
     assert_eq!(calls(&mut rx), [Call::Interact("b", b1, player)]);
     let far = spawn(&mut h, "test:a", at(0.5, -60.0, 12.5));
     assert!(!interact(&mut h, far), "out of reach");
-    context(&mut h).entity_mut(a2).unwrap().kill();
+    h.context().entity_mut(a2).unwrap().kill();
     assert!(!interact(&mut h, a2), "dying");
     assert!(calls(&mut rx).is_empty());
     // A dying entity ticks no more; the behaviours are back in the registry.
@@ -403,26 +394,32 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
         ("team".to_owned(), Value::String("red".to_owned())),
     ]);
     {
-        let mut cx = context(&mut h);
+        let mut cx = h.context();
         let mut m = cx.entity_mut(id).unwrap();
-        assert!(m.set_custom_data(data.clone()));
-        assert!(!m.set_custom_data(too_big()));
-        assert!(m.set_health(12.0));
-        assert!(m.set_invulnerable(true));
-        assert!(m.set_name_tag("Boo"));
+        m.set_custom_data(data.clone()).unwrap();
+        assert!(m.set_custom_data(too_big()).is_err());
+        m.set_health(12.0).unwrap();
+        m.set_invulnerable(true).unwrap();
+        m.set_name_tag("Boo").unwrap();
         assert!(!cx.entity(prop).unwrap().can_save_with_chunk());
         assert!(
-            !cx.entity_mut(prop).unwrap().set_can_save_with_chunk(true),
+            cx.entity_mut(prop)
+                .unwrap()
+                .set_can_save_with_chunk(true)
+                .is_err(),
             "a temporary type is never saved"
         );
         assert!(!cx.entity(prop).unwrap().can_save_with_chunk());
         let tnt = cx.spawn_tnt(WORLD, at(3.5, -60.0, 2.5), 80).unwrap();
         let mut m = cx.entity_mut(tnt).unwrap();
-        assert!(!m.set_custom_data(data.clone()), "not a custom entity");
+        assert!(
+            m.set_custom_data(data.clone()).is_err(),
+            "not a custom entity"
+        );
         assert_eq!((m.custom_data(), m.custom_type()), (None, None));
         m.flag_for_despawn();
     }
-    let e = context(&mut h).entity(id).unwrap().clone();
+    let e = h.context().entity(id).unwrap().clone();
     // The harness's chunks hold saved compounds of their own that are not entities.
     let list: Vec<Compound> = h
         .state
@@ -479,20 +476,18 @@ fn scale_is_refused_when_the_box_would_exceed_16_blocks() {
     let big = || vec![Definition::new("test:big").with_size(16.0, 16.0)];
     let mut h = harness(1, big());
     let id = spawn(&mut h, "test:big", at(2.5, -60.0, 2.5));
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let mut m = cx.entity_mut(id).unwrap();
-    assert!(!m.set_scale(64.0));
-    assert!(m.set_scale(1.0));
+    assert!(m.set_scale(64.0).is_err());
+    m.set_scale(1.0).unwrap();
     let stick = crate::item::Stack::new(crate::item::Kind::Stick.default_type(), 1);
     let item = cx
         .drop_item(WORLD, at(3.5, -60.0, 3.5), stick, None)
         .unwrap();
-    assert!(
-        cx.entity_mut(item).unwrap().set_scale(64.0),
-        "0.25 × 64 = 16"
-    );
+    // 0.25 × 64 = 16.
+    cx.entity_mut(item).unwrap().set_scale(64.0).unwrap();
     // A saved big entity with scale 64 is not loaded.
-    let mut c = saved::save(context(&mut h).entity(id).unwrap());
+    let mut c = saved::save(h.context().entity(id).unwrap());
     c.insert("Scale".to_owned(), Value::Float(64.0));
     let mut store = Entities::default();
     store.set_customs(registry(big()));
@@ -507,7 +502,7 @@ fn scale_is_refused_when_the_box_would_exceed_16_blocks() {
 #[test]
 fn the_entity_cap_and_the_spawn_checks_apply_to_custom_entities() {
     let mut h = harness(1, vec![ghost()]);
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let pos = at(2.5, -60.0, 2.5);
     assert_eq!(
         cx.spawn_custom_entity(WORLD, pos, "test:nothing"),
@@ -558,7 +553,7 @@ fn spawning_and_removing_custom_entities_leaves_every_table_at_its_start() {
             h.entities();
         }
         for (i, &id) in ids.iter().enumerate() {
-            let mut cx = context(&mut h);
+            let mut cx = h.context();
             let mut m = cx.entity_mut(id).unwrap();
             if (i + round) % 2 == 0 {
                 m.flag_for_despawn();
@@ -616,7 +611,8 @@ impl Behaviour for Restless {
             let x = f64::from(key % 7) * 0.05 - 0.15;
             cx.entity_mut(entity)
                 .unwrap()
-                .set_motion(Vec3::new(x, 0.42, -x));
+                .set_motion(Vec3::new(x, 0.42, -x))
+                .unwrap();
         }
         if key % 11 == 0 {
             cx.entity_mut(entity).unwrap().attack(3.0);
@@ -654,7 +650,7 @@ fn custom_entities_tick_the_same_on_one_or_many_threads() {
                 } else {
                     "test:slow"
                 };
-                let _spawned = context(&mut h).spawn_custom_entity(WORLD, pos, name);
+                let _spawned = h.context().spawn_custom_entity(WORLD, pos, name);
             }
             if tick % 9 == 0 {
                 let center = at(0.5, -59.0, 0.5);
@@ -683,5 +679,5 @@ fn a_custom_entity_suffocates_with_its_eyes_in_a_solid_block() {
         .unwrap();
     let id = spawn(&mut h, "test:ghost", at(3.5, -60.0, 3.5));
     h.entities();
-    assert_eq!(context(&mut h).entity(id).unwrap().health(), 29.0);
+    assert_eq!(h.context().entity(id).unwrap().health(), 29.0);
 }

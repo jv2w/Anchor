@@ -1,14 +1,15 @@
-//! The pictures a painting shows (PMMP `PaintingMotive`): Bedrock's closed set with their sizes in
-//! blocks, in PMMP's order (a placed painting picks among the largest that fit).
+//! The pictures a painting shows: Bedrock's pictures with their sizes in blocks, in the order of
+//! the game's list.
 
 /// Declares [`PaintingMotive`] and its table from one list, so a name, a size and a variant are
 /// written once.
 macro_rules! motives {
     ($($variant:ident $name:literal $width:literal $height:literal,)*) => {
-        /// A painting's picture (PMMP `PaintingMotive`): its name is what clients draw, its size
-        /// how many blocks the painting covers. The set is closed: a client draws only the
-        /// pictures its resources hold (PMMP's `registerMotive` adds names no client knows).
+        /// A painting's picture: its name is what clients draw, its size how many blocks the
+        /// painting covers. A client draws only the pictures its resources hold, so there is no
+        /// way to add one.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[non_exhaustive]
         // api-class: PaintingMotive
         pub enum PaintingMotive {
             $(
@@ -19,8 +20,7 @@ macro_rules! motives {
         }
 
         impl PaintingMotive {
-            /// The motive named `name` (PMMP `getMotiveByName`; names are case-sensitive, as
-            /// saved).
+            /// The motive named `name` (names are case-sensitive, as saved).
             #[doc(alias = "PaintingMotive::getMotiveByName")]
             pub fn from_name(name: &str) -> Option<Self> {
                 match name {
@@ -29,13 +29,13 @@ macro_rules! motives {
                 }
             }
 
-            /// Every motive, in PMMP's order (PMMP `getAll`).
+            /// Every motive, in declaration order.
             #[doc(alias = "PaintingMotive::getAll")]
             pub fn all() -> &'static [Self] {
                 &[$(Self::$variant,)*]
             }
 
-            /// Its height in blocks, 1 to 4 (PMMP `getHeight`).
+            /// Its height in blocks, 1 to 4.
             #[doc(alias = "PaintingMotive::getHeight")]
             pub fn height(self) -> u8 {
                 match self {
@@ -43,7 +43,7 @@ macro_rules! motives {
                 }
             }
 
-            /// The name clients know it by and saves keep (PMMP `getName`), such as `Kebab`.
+            /// The name clients know it by and saves keep, such as `Kebab`.
             #[doc(alias = "PaintingMotive::getName")]
             pub fn name(self) -> &'static str {
                 match self {
@@ -51,7 +51,7 @@ macro_rules! motives {
                 }
             }
 
-            /// Its width in blocks, 1 to 4 (PMMP `getWidth`).
+            /// Its width in blocks, 1 to 4.
             #[doc(alias = "PaintingMotive::getWidth")]
             pub fn width(self) -> u8 {
                 match self {
@@ -122,7 +122,7 @@ mod tests {
     // api: PaintingMotive, PaintingMotive::getAll, PaintingMotive::getName,
     // api: PaintingMotive::getWidth, PaintingMotive::getHeight, PaintingMotive::getMotiveByName
     #[test]
-    fn motives_are_pmmps_fifty_with_their_sizes() {
+    fn motives_are_the_fifty_pictures_with_their_sizes() {
         let all = PaintingMotive::all();
         assert_eq!(all.len(), 50);
         assert_eq!(all[0], PaintingMotive::Alban);

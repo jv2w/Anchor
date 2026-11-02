@@ -1,12 +1,10 @@
-//! The sounds of survival events, as PMMP plays them (`Entity::broadcastSound`,
-//! `Player::broadcastSound`: the player and every player that sees it hear the sound at its
-//! feet): xp pickup and level-up, the totem, burping after food, landing and falling,
-//! items breaking, and melee hits. All but the landing and falling sounds of the player (which
-//! name the player, and `world::Sound` leaves out) go through `tick::emit` with their
+//! The sounds of survival events, which the player and every player that sees it hear at its
+//! feet: xp pickup and level-up, the totem, burping after food, landing and falling, items
+//! breaking, and melee hits. All but the landing and falling sounds of the player (which name the
+//! player, and `world::Sound` leaves out) go through `tick::emit` with their
 //! [`WorldSound`](crate::event::WorldSound).
 //!
-//! BDS was seen sending the xp pickup sound (`LevelEvent` 1051); the other sounds follow
-//! PMMP's packets.
+//! The official server was seen sending the xp pickup sound (`LevelEvent` 1051).
 
 use super::{broadcast_from, feet};
 use crate::math::Vec3;
@@ -15,8 +13,8 @@ use crate::protocol::packet::{self, Packet};
 use crate::tick::{SessionId, State, emit, entity};
 use crate::world::{PLAYER_ENTITY_TYPE, Sound};
 
-/// Plays a sound at the player's feet (PMMP `XpCollectSound`, `TotemUseSound`,
-/// `XpLevelUpSound`, `BurpSound`, `ItemBreakSound`).
+/// Plays a sound at the player's feet: xp collect and level-up, the totem, a burp, an item
+/// breaking.
 pub(super) fn at_feet(state: &mut State, session: SessionId, sound: Sound) {
     let Some((world, at)) = state.players.get(&session).map(|p| (p.world, feet(p))) else {
         return;
@@ -24,8 +22,8 @@ pub(super) fn at_feet(state: &mut State, session: SessionId, sound: Sound) {
     emit::sound(state, world, at, sound);
 }
 
-/// Plays a sound the player makes (PMMP `EntityLandSound`, `EntityLongFallSound`,
-/// `EntityShortFallSound`): it names the player's entity type and runtime ID.
+/// Plays a sound the player makes (landing, a long or short fall): it names the player's entity
+/// type and runtime ID.
 pub(super) fn of_player(state: &mut State, session: SessionId, sound: SoundEvent, extra: i32) {
     let Some((at, runtime_id)) = state.players.get(&session).map(|p| (feet(p), p.runtime_id))
     else {
@@ -44,8 +42,7 @@ pub(super) fn of_player(state: &mut State, session: SessionId, sound: SoundEvent
     broadcast_from(state, session, &packet);
 }
 
-/// Plays a player's hit sound at `at` in the world of `session` (PMMP `World::addSound` at the
-/// hit player or entity: `EntityAttackSound`, `EntityAttackNoDamageSound`).
+/// Plays a player's hit sound at `at` in the world of `session`, at the hit player or entity.
 pub(super) fn hit(state: &mut State, session: SessionId, at: Vec3, sound: Sound) {
     let Some(world) = state.players.get(&session).map(|p| p.world) else {
         return;

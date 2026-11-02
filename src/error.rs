@@ -75,6 +75,12 @@ pub enum Error {
         /// The name.
         name: String,
     },
+    /// The spawn the generator of a new world gives is where a player would stand outside the
+    /// world border ([`world::Error::OutOfRange`](crate::world::Error::OutOfRange)).
+    GeneratorSpawn {
+        /// The world's name.
+        name: String,
+    },
     /// The registered commands or permissions break a rule; the source says which.
     Command(command::Error),
     /// A registered custom entity type breaks a rule; the source says which.
@@ -135,6 +141,10 @@ impl fmt::Display for Error {
             Self::DuplicateGenerator { name } => {
                 write!(f, "two generator types are named {name:?}")
             }
+            Self::GeneratorSpawn { name } => write!(
+                f,
+                "the generator's spawn for the world {name:?} is outside the world border"
+            ),
             Self::Command(_) => f.write_str("a registered command or permission is invalid"),
             Self::CustomEntity(_) => f.write_str("a registered custom entity type is invalid"),
             Self::Custom(_) => f.write_str("a registered custom item, block or recipe is invalid"),
@@ -171,6 +181,7 @@ impl std::error::Error for Error {
             | Self::DuplicateWorld { .. }
             | Self::InvalidWorldName { .. }
             | Self::DuplicateGenerator { .. }
+            | Self::GeneratorSpawn { .. }
             | Self::Usage => None,
         }
     }

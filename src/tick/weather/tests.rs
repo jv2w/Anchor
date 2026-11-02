@@ -1,8 +1,8 @@
-//! Tests of the weather and lightning: the level events of each change as BDS sends them once
-//! settled (P6 `weather`), who is told of a change, what a join and a move to another world say,
-//! the send and start-game hooks, and lightning bolts with their damage and fire options. Saving is
-//! tested with the world record (`save`, `storage::codec`), replays with the world lifecycle script
-//! (`world_api::lifecycle`).
+//! Tests of the weather and lightning: the level events of each change as the official server
+//! sends them once settled (P6 `weather`), who is told of a change, what a join and a move to
+//! another world say, the send and start-game hooks, and lightning bolts with their damage.
+//! Saving is tested with the world record (`save`, `storage::codec`), replays with the world
+//! lifecycle script (`world_api::lifecycle`).
 
 use tokio::sync::mpsc;
 
@@ -52,9 +52,9 @@ fn events(packets: &[Packet]) -> Vec<(i32, i32)> {
 }
 
 #[test]
-fn changes_start_and_stop_rain_and_thunder_as_settled_bds_weather_does() {
+fn changes_start_and_stop_rain_and_thunder_as_the_settled_official_weather_does() {
     use Weather::{Clear, Rain, Thunder};
-    // P6 `weather` (P6), every step after BDS's levels settled.
+    // P6 `weather`, every step after the official server's levels settled.
     let cases = [
         (Clear, Rain, vec![start(START_RAIN)]),
         (Rain, Rain, Vec::new()),
@@ -161,13 +161,14 @@ fn a_change_reaches_the_players_of_its_world_only_and_stays() {
         "a new world is clear"
     );
     let mut c = cx(&mut state);
-    assert!(c.set_weather(WORLD, Weather::Rain));
-    assert!(
-        c.set_weather(WORLD, Weather::Rain),
-        "the same again tells nothing"
+    c.set_weather(WORLD, Weather::Rain).unwrap();
+    c.set_weather(WORLD, Weather::Rain)
+        .expect("the same again tells nothing");
+    c.set_weather(arena, Weather::Thunder).unwrap();
+    assert_eq!(
+        c.set_weather(world::Id::of(9), Weather::Rain),
+        Err(world::Error::WorldNotLoaded)
     );
-    assert!(c.set_weather(arena, Weather::Thunder));
-    assert!(!c.set_weather(world::Id::of(9), Weather::Rain));
     assert_eq!(c.world(WORLD).unwrap().weather(), Weather::Rain);
     assert_eq!(c.world(arena).unwrap().weather(), Weather::Thunder);
     tick(&mut state, &mut Vec::new(), &mut output);
@@ -192,7 +193,7 @@ fn a_joining_player_is_told_the_weather_by_start_game_and_the_spawn_window() {
         (Weather::Thunder, (1.0, 1.0), vec![start(START_THUNDER)]),
     ] {
         let mut state = new_state(settings(|_| {}), Listeners::default());
-        assert!(cx(&mut state).set_weather(WORLD, weather));
+        cx(&mut state).set_weather(WORLD, weather).unwrap();
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
         tick(&mut state, &mut vec![j], &mut output);
@@ -204,7 +205,7 @@ fn a_joining_player_is_told_the_weather_by_start_game_and_the_spawn_window() {
         });
         assert_eq!(start_game, Some(levels), "{weather:?}");
         assert_eq!(events(&packets), told, "{weather:?}");
-        // BDS's place: right after `SetCommandsEnabled`.
+        // The official server's place: right after `SetCommandsEnabled`.
         if !told.is_empty() {
             let at = packets
                 .iter()
@@ -223,7 +224,7 @@ fn a_player_moving_to_a_world_of_other_weather_is_told_the_change() {
     let (mut state, mut output, [mut rx]) = spawned([1]);
     let (arena, a) = arena(&mut state, &mut output);
     let rx = &mut rx;
-    assert!(cx(&mut state).set_weather(WORLD, Weather::Rain));
+    cx(&mut state).set_weather(WORLD, Weather::Rain).unwrap();
     // The weather of the world the player goes to, set while it is elsewhere, and what the move
     // tells it.
     for (to, id, weather, told) in [
@@ -232,7 +233,7 @@ fn a_player_moving_to_a_world_of_other_weather_is_told_the_change() {
         (a, arena, Weather::Thunder, vec![start(START_THUNDER)]),
         (0, WORLD, Weather::Rain, vec![stop(STOP_THUNDER)]),
     ] {
-        assert!(cx(&mut state).set_weather(id, weather));
+        cx(&mut state).set_weather(id, weather).unwrap();
         tick(&mut state, &mut Vec::new(), &mut output);
         received(rx);
         move_to(&mut state, 1, to);
@@ -246,7 +247,7 @@ fn a_player_moving_to_a_world_of_other_weather_is_told_the_change() {
 fn joining(weather: Weather) -> (State, Output, mpsc::Receiver<Outbound>) {
     let slow = settings(|c| c.developer.chunks_per_tick = 1);
     let mut state = new_state(slow, Listeners::default());
-    assert!(cx(&mut state).set_weather(WORLD, weather));
+    cx(&mut state).set_weather(WORLD, weather).unwrap();
     let mut output = Output::default();
     let (j, rx) = join(1, 0);
     tick(&mut state, &mut vec![j], &mut output);
@@ -279,12 +280,12 @@ fn a_player_waiting_for_its_spawn_chunks_is_told_a_change() {
     let (mut state, mut output, mut rx) = joining(Weather::Clear);
     open_window(&mut state, &mut output);
     received(&mut rx);
-    assert!(cx(&mut state).set_weather(WORLD, Weather::Rain));
+    cx(&mut state).set_weather(WORLD, Weather::Rain).unwrap();
     finish_spawn(&mut state, &mut output);
     assert_eq!(sent_events(&mut rx), [start(START_RAIN)]);
     // Before it, under the levels `StartGame` had: the window only starts weather.
     let (mut state, mut output, mut rx) = joining(Weather::Thunder);
-    assert!(cx(&mut state).set_weather(WORLD, Weather::Clear));
+    cx(&mut state).set_weather(WORLD, Weather::Clear).unwrap();
     open_window(&mut state, &mut output);
     finish_spawn(&mut state, &mut output);
     assert_eq!(sent_events(&mut rx), [stop(STOP_RAIN), stop(STOP_THUNDER)]);
@@ -308,7 +309,7 @@ fn weather_and_lightning_packets_pass_the_send_hooks_and_start_game_keeps_the_le
         .start_game(|s| s.rain_level = 0.5);
     let mut state = new_state(settings(|_| {}), Listeners::default());
     state.hooks = builder.setup.hooks;
-    assert!(cx(&mut state).set_weather(WORLD, Weather::Rain));
+    cx(&mut state).set_weather(WORLD, Weather::Rain).unwrap();
     let mut output = Output::default();
     let (j, mut rx) = join(1, 0);
     tick(&mut state, &mut vec![j], &mut output);
@@ -333,9 +334,10 @@ fn weather_and_lightning_packets_pass_the_send_hooks_and_start_game_keeps_the_le
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(sent_events(rx), [], "the spawn window's event is dropped");
     let mut c = cx(&mut state);
-    assert!(c.set_weather(WORLD, Weather::Thunder));
+    c.set_weather(WORLD, Weather::Thunder).unwrap();
     let feet = spawn_feet(c.state, 0);
-    assert!(c.strike_lightning(WORLD, feet, Lightning::default()));
+    c.strike_lightning(WORLD, feet, Lightning::default())
+        .unwrap();
     tick(&mut state, &mut Vec::new(), &mut output);
     let packets = received(rx).0;
     assert_eq!(events(&packets), []);
@@ -390,14 +392,19 @@ fn a_bolt_shows_with_its_sounds_to_those_who_see_it_and_goes_a_second_later() {
     let far = Vec3::new(5000.0, -60.0, 5000.0);
     let before = state.next_runtime_id;
     let mut c = cx(&mut state);
-    assert!(c.strike_lightning(WORLD, at, Lightning::default()));
-    assert!(
-        c.strike_lightning(WORLD, far, Lightning::default()),
-        "nobody sees it"
+    c.strike_lightning(WORLD, at, Lightning::default()).unwrap();
+    c.strike_lightning(WORLD, far, Lightning::default())
+        .expect("nobody sees it");
+    assert_eq!(
+        c.strike_lightning(world::Id::of(9), at, Lightning::default()),
+        Err(world::Error::WorldNotLoaded)
     );
-    assert!(!c.strike_lightning(world::Id::of(9), at, Lightning::default()));
-    assert!(!c.strike_lightning(WORLD, Vec3::new(f64::NAN, 0.0, 0.0), Lightning::default()));
-    assert!(!c.strike_lightning(WORLD, Vec3::new(4e7, 0.0, 0.0), Lightning::default()));
+    for outside in [Vec3::new(f64::NAN, 0.0, 0.0), Vec3::new(4e7, 0.0, 0.0)] {
+        assert_eq!(
+            c.strike_lightning(WORLD, outside, Lightning::default()),
+            Err(world::Error::OutOfRange)
+        );
+    }
     assert_eq!(
         state.rules.entities.bolts_waiting(),
         1,
@@ -437,19 +444,26 @@ fn bolts_over_the_limit_are_refused_and_all_go_with_their_removal() {
     let at = spawn_feet(&state, 0);
     for _ in 0..4 {
         for _ in 0..256 {
-            assert!(cx(&mut state).strike_lightning(WORLD, at, Lightning::default()));
+            cx(&mut state)
+                .strike_lightning(WORLD, at, Lightning::default())
+                .unwrap();
         }
         tick(&mut state, &mut Vec::new(), &mut output);
         received(&mut rx);
     }
     assert_eq!(state.rules.entities.bolts_waiting(), 1024);
-    assert!(!cx(&mut state).strike_lightning(WORLD, at, Lightning::default()));
+    assert_eq!(
+        cx(&mut state).strike_lightning(WORLD, at, Lightning::default()),
+        Err(world::Error::Full)
+    );
     for _ in 0..20 {
         tick(&mut state, &mut Vec::new(), &mut output);
     }
     assert_eq!(state.rules.entities.bolts_waiting(), 0);
     assert_eq!(bolt_packets(&received(&mut rx).0).removed.len(), 1024);
-    assert!(cx(&mut state).strike_lightning(WORLD, at, Lightning::default()));
+    cx(&mut state)
+        .strike_lightning(WORLD, at, Lightning::default())
+        .unwrap();
 }
 
 /// A strike at `at` in the default world of a server with player 1 at the spawn and a zombie
@@ -464,7 +478,7 @@ fn struck(lightning: Lightning) -> ((f64, u32), [(f64, u16); 2]) {
     let far = c
         .spawn_zombie(WORLD, feet + Vec3::new(8.0, 0.0, 0.0))
         .unwrap();
-    assert!(c.strike_lightning(WORLD, feet, lightning));
+    c.strike_lightning(WORLD, feet, lightning).unwrap();
     let player = c.player(player::Id::new(SessionId::new(1))).unwrap();
     let hurt = (player.health(), player.fire_ticks());
     let zombie = |id| {
@@ -477,84 +491,46 @@ fn struck(lightning: Lightning) -> ((f64, u32), [(f64, u16); 2]) {
 }
 
 #[test]
-fn lightning_hurts_and_burns_what_is_near_only_with_its_damage() {
+fn lightning_hurts_what_is_near_and_burns_nothing_only_with_its_damage() {
     let calm = struck(Lightning::default());
     assert_eq!(calm, ((20.0, 0), [(20.0, 0), (20.0, 0)]));
-    let (player, [near, far]) = struck(Lightning {
-        damage: true,
-        fire: false,
-    });
-    assert_eq!(player, (15.0, 160), "BDS's 5 damage, 8 seconds of fire");
-    assert_eq!(near, (15.0, 160));
+    let (player, [near, far]) = struck(Lightning { damage: true });
+    assert_eq!(player, (15.0, 0), "5 damage and no fire");
+    assert_eq!(near, (15.0, 0));
     assert_eq!(far, (20.0, 0), "out of reach");
 }
 
 #[test]
-fn lightning_sets_fire_around_its_block_only_with_fire() {
-    let fires = |lightning: Lightning| {
-        let (mut state, mut output, _rx) = spawned([1]);
-        let at = spawn_feet(&state, 0) + Vec3::new(0.0, 0.0, 6.0);
-        let strike = BlockPos::containing(at);
-        assert!(cx(&mut state).strike_lightning(WORLD, at, lightning));
-        let mut found = Vec::new();
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    let pos = BlockPos::new(strike.x + dx, strike.y + dy, strike.z + dz);
-                    let b = state.worlds[0].block(pos).unwrap();
-                    if b.kind() == block::Kind::Fire {
-                        found.push(pos);
-                    }
-                }
-            }
-        }
-        tick(&mut state, &mut Vec::new(), &mut output);
-        (strike, found)
-    };
-    let (_, none) = fires(Lightning {
-        damage: true,
-        fire: false,
-    });
-    assert!(none.is_empty());
-    let (strike, found) = fires(Lightning {
-        damage: false,
-        fire: true,
-    });
-    assert!(found.contains(&strike), "{found:?}");
-    assert!(found.len() <= 5);
-    // Fire stands only on the grass layer: air with a full block under it.
-    assert!(found.iter().all(|p| p.y == strike.y), "{found:?}");
-}
-
-#[test]
-fn lightning_sets_fire_at_normal_and_hard_difficulty_only_and_hurts_at_every_one() {
-    let bolt = Lightning {
-        damage: true,
-        fire: true,
-    };
-    for (difficulty, burns) in [
-        (Difficulty::Peaceful, false),
-        (Difficulty::Easy, false),
-        (Difficulty::Normal, true),
-        (Difficulty::Hard, true),
+fn lightning_hurts_at_every_difficulty_and_sets_no_block_on_fire() {
+    let bolt = Lightning { damage: true };
+    for difficulty in [
+        Difficulty::Peaceful,
+        Difficulty::Easy,
+        Difficulty::Normal,
+        Difficulty::Hard,
     ] {
         let (mut state, mut output, _rx) = spawned([1]);
         let feet = spawn_feet(&state, 0);
         let at = feet + Vec3::new(2.0, 0.0, 0.0);
+        let strike = BlockPos::containing(at);
         let mut c = cx(&mut state);
-        assert!(c.set_difficulty(difficulty));
-        assert!(c.strike_lightning(WORLD, at, bolt));
+        c.set_difficulty(difficulty).unwrap();
+        c.strike_lightning(WORLD, at, bolt).unwrap();
         let player = c.player(player::Id::new(SessionId::new(1))).unwrap();
-        assert_eq!(player.health(), 15.0, "{difficulty:?}: BDS's 5 damage");
-        let fire = state.worlds[0]
-            .block(BlockPos::containing(at))
-            .unwrap()
-            .kind()
-            == block::Kind::Fire;
         assert_eq!(
-            fire, burns,
-            "{difficulty:?}: fire as BDS's bolt (P6 bolt scenarios)"
+            player.health(),
+            15.0,
+            "{difficulty:?}: the official server's 5 damage"
         );
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    let pos = BlockPos::new(strike.x + dx, strike.y + dy, strike.z + dz);
+                    let found = state.worlds[0].block(pos).unwrap();
+                    assert_ne!(found.kind(), block::Kind::Fire, "{difficulty:?} at {pos:?}");
+                }
+            }
+        }
         tick(&mut state, &mut Vec::new(), &mut output);
     }
 }

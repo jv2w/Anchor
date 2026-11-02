@@ -23,7 +23,7 @@ use crate::tick::survival::{self, PLAYER_HEIGHT, PLAYER_WIDTH};
 use crate::tick::trade::Offers;
 use crate::world::{BlockPos, PLAYER_ENTITY_TYPE};
 
-/// PMMP `Arrow`: 0.25 × 0.25, gravity 0.05, drag 0.01 before gravity.
+/// An arrow: 0.25 × 0.25, gravity 0.05, drag 0.01 before gravity.
 const ARROW: Physics = Physics {
     width: 0.25,
     height: 0.25,
@@ -35,12 +35,12 @@ const ARROW: Physics = Physics {
     ray: true,
     water: false,
 };
-/// PMMP `ExperienceBottle`: gravity 0.07.
+/// An xp bottle: gravity 0.07.
 const BOTTLE: Physics = Physics {
     gravity: 0.07,
     ..THROWN
 };
-/// PMMP `AreaEffectCloud`: no gravity, no drag; [`Kind::size`] gives its box.
+/// A cloud: no gravity, no drag; [`Kind::size`] gives its box.
 const CLOUD: Physics = Physics {
     width: 0.5,
     height: 0.5,
@@ -53,15 +53,15 @@ const CLOUD: Physics = Physics {
     water: false,
 };
 /// The ticks a new orb lives, which the saved `Age` counts from.
-/// It is 5 minutes (PMMP `DEFAULT_DESPAWN_DELAY`); a dropped item lives `item-despawn-ticks`.
+/// It is 5 minutes; a dropped item lives `item-despawn-ticks`.
 pub(super) const DEFAULT_DESPAWN_DELAY_TICKS: i32 = 6000;
-/// PMMP `EndCrystal`: 2 × 2, no gravity, a drag of 1 that stops every motion before it moves.
+/// An end crystal: 2 × 2, no gravity, a drag of 1 that stops every motion before it moves.
 const END_CRYSTAL: Physics = Physics {
     width: 2.0,
     height: 2.0,
     ..PAINTING
 };
-/// PMMP `FallingBlock`: 0.98 × 0.98, gravity 0.04, drag 0.02, not moved by liquids.
+/// A falling block: 0.98 × 0.98, gravity 0.04, drag 0.02, not moved by liquids.
 const FALLING: Physics = Physics {
     width: 0.98,
     height: 0.98,
@@ -73,7 +73,7 @@ const FALLING: Physics = Physics {
     ray: false,
     water: false,
 };
-/// PMMP `FireworkRocket`: 0.25 × 0.25, no gravity, no drag; liquids push it.
+/// A firework rocket: 0.25 × 0.25, no gravity, no drag; liquids push it.
 const FIREWORK: Physics = Physics {
     width: 0.25,
     height: 0.25,
@@ -81,18 +81,18 @@ const FIREWORK: Physics = Physics {
     currents: true,
     ..PAINTING
 };
-/// PMMP `Human`: a player's box.
+/// A human NPC: a player's box.
 const HUMAN: Physics = Physics {
     width: PLAYER_WIDTH,
     height: PLAYER_HEIGHT,
     ..VILLAGER
 };
-/// PMMP `IceBomb` (a `Throwable`): its ray stops at water.
+/// An ice bomb (a thrown item): its ray stops at water.
 const ICE_BOMB: Physics = Physics {
     water: true,
     ..THROWN
 };
-/// PMMP `ItemEntity`: 0.25 × 0.25, gravity 0.04, drag 0.02 before gravity.
+/// A dropped item: 0.25 × 0.25, gravity 0.04, drag 0.02 before gravity.
 pub(super) const ITEM: Physics = Physics {
     width: 0.25,
     height: 0.25,
@@ -104,22 +104,22 @@ pub(super) const ITEM: Physics = Physics {
     ray: false,
     water: false,
 };
-/// The longest despawn delay the saved `Age` short can express (PMMP `MAX_DESPAWN_DELAY`).
+/// The longest despawn delay the saved `Age` short can express.
 pub(super) const MAX_DESPAWN_DELAY_TICKS: i32 = i16::MAX as i32 + DEFAULT_DESPAWN_DELAY_TICKS;
 /// The longest name tag, in bytes.
 /// It bounds an entity's ([`Mut::set_name_tag`](super::Mut::set_name_tag)), a human NPC's name and
 /// a dropped item's owner or thrower (a player name is at most 16 characters).
 pub const MAX_NAME_TAG_BYTES: usize = 1024;
-/// The value of a pickup or despawn delay that means never (PMMP `NEVER_DESPAWN`).
+/// The value of a pickup or despawn delay that means never.
 pub(super) const NEVER: i16 = -1;
-/// PMMP `ExperienceOrb`: as an item, with drag after gravity.
+/// An xp orb: as an item, with drag after gravity.
 const ORB: Physics = Physics {
     drag_before_gravity: false,
     ..ITEM
 };
-/// PMMP `Painting`: a 0.5 box, no gravity, a drag of 1 that stops every motion.
-/// PMMP calls the box "not accurate, but not used", and [`Kind::size`] is not its box either
-/// (`Entity::bounding_box` is). Liquids do not move it (PMMP: it has no movement update).
+/// A painting: a 0.5 box, no gravity, a drag of 1 that stops every motion.
+/// The box is not used, and [`Kind::size`] is not its box either (`Entity::bounding_box` is).
+/// Liquids do not move it.
 const PAINTING: Physics = Physics {
     width: 0.5,
     height: 0.5,
@@ -131,29 +131,29 @@ const PAINTING: Physics = Physics {
     ray: false,
     water: false,
 };
-/// PMMP `SplashPotion`: gravity 0.05.
+/// A thrown potion: gravity 0.05.
 const POTION: Physics = Physics {
     gravity: 0.05,
     ..THROWN
 };
-/// PMMP `Throwable`: as an arrow with gravity 0.03.
+/// A thrown item: as an arrow with gravity 0.03.
 const THROWN: Physics = Physics {
     gravity: 0.03,
     ..ARROW
 };
-/// PMMP `PrimedTNT`: as a falling block, moved by liquids.
+/// Primed TNT: as a falling block, moved by liquids.
 const TNT: Physics = Physics {
     currents: true,
     ..FALLING
 };
-/// PMMP `Trident`: 0.25 wide, 0.35 high, gravity 0.1, drag 0.01 before gravity.
+/// A thrown trident: 0.25 wide, 0.35 high, gravity 0.1, drag 0.01 before gravity.
 const TRIDENT: Physics = Physics {
     width: 0.25,
     height: 0.35,
     gravity: 0.1,
     ..ARROW
 };
-/// PMMP `Villager` (`Living`: gravity 0.08, drag 0.02): 0.6 × 1.9.
+/// A villager (gravity 0.08, drag 0.02): 0.6 × 1.9.
 const VILLAGER: Physics = Physics {
     width: 0.6,
     height: 1.9,
@@ -165,32 +165,32 @@ const VILLAGER: Physics = Physics {
     ray: false,
     water: false,
 };
-/// PMMP `Zombie`: as a villager, 0.6 × 1.9.
+/// A zombie: as a villager, 0.6 × 1.9.
 const ZOMBIE: Physics = VILLAGER;
 
 /// What an entity is, with the data only that kind has.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Kind {
-    /// A dropped item stack (PMMP `ItemEntity`).
+    /// A dropped item stack.
     Item(Item),
-    /// An xp orb (PMMP `ExperienceOrb`).
+    /// An xp orb.
     XpOrb(Orb),
-    /// A falling block: sand, gravel, an anvil… (PMMP `FallingBlock`).
+    /// A falling block that the API spawned: sand, gravel, an anvil…
     FallingBlock(Falling),
-    /// Primed TNT (PMMP `PrimedTNT`).
+    /// Primed TNT.
     Tnt(Tnt),
-    /// An arrow or a thrown item in flight or stuck (PMMP `Projectile`).
+    /// An arrow or a thrown item in flight or stuck.
     Projectile(Projectile),
-    /// A lingering potion's cloud (PMMP `AreaEffectCloud`).
+    /// A lingering potion's cloud.
     Cloud(Cloud),
     /// A non-player character without AI.
     /// It is a villager that trades, a human, a zombie or a custom entity.
     Npc(Character),
-    /// A painting on a wall (PMMP `Painting`).
+    /// A painting on a wall.
     Painting(Painting),
-    /// An end crystal (PMMP `EndCrystal`).
+    /// An end crystal.
     EndCrystal(Crystal),
-    /// A flying firework rocket (PMMP `FireworkRocket`).
+    /// A flying firework rocket.
     Firework(Firework),
 }
 
@@ -266,8 +266,7 @@ impl Kind {
     }
 
     /// Width and height of the box.
-    /// It is the physics size, except a cloud's, which is as wide as its radius × 2 (PMMP
-    /// `AreaEffectCloud::getInitialSizeInfo`).
+    /// It is the physics size, except a cloud's, which is as wide as its radius × 2.
     pub(super) fn size(&self) -> (f64, f64) {
         if let Self::Cloud(c) = self {
             (c.radius * 2.0, CLOUD.height)
@@ -277,7 +276,7 @@ impl Kind {
         }
     }
 
-    /// The Bedrock actor type sent to clients (PMMP `getNetworkTypeId`).
+    /// The Bedrock actor type sent to clients.
     pub(super) fn identifier(&self) -> &str {
         match self {
             Self::Item(_) => "minecraft:item",
@@ -309,8 +308,7 @@ impl Kind {
 
     /// The saved `identifier`, which is the actor type except for two kinds.
     /// A lingering potion saves Bedrock's `minecraft:lingering_potion`, so it still lingers after
-    /// a load (PMMP saves no flag, and a loaded lingering potion splashes). A human NPC saves
-    /// PMMP's `Human`.
+    /// a load. A human NPC saves `Human`.
     pub(super) fn saved_identifier(&self) -> &str {
         match self {
             Self::Projectile(Projectile {
@@ -325,7 +323,7 @@ impl Kind {
         }
     }
 
-    /// How far above its position the client draws it (PMMP `getOffsetPosition`).
+    /// How far above its position the client draws it.
     pub(super) fn network_offset(&self) -> f64 {
         match self {
             Self::Item(_) => 0.125,
@@ -344,8 +342,8 @@ impl Kind {
     }
 
     /// The health of a new entity of this kind.
-    /// PMMP gives 5 to items, 1 to projectiles, paintings and end crystals, and the `Entity`
-    /// default 20 to the rest; a custom type has its own.
+    /// It is 5 for items, 1 for projectiles, paintings and end crystals, and 20 for the rest; a
+    /// custom type has its own.
     pub(super) fn max_health(&self) -> f64 {
         match self {
             Self::Item(_) => 5.0,
@@ -362,8 +360,7 @@ impl Kind {
         }
     }
 
-    /// Whether fire and lava leave it alone.
-    /// PMMP `isFireProof`: netherite items, clouds and end crystals.
+    /// Whether fire and lava leave it alone: netherite items, clouds and end crystals.
     pub(super) fn is_fire_proof(&self) -> bool {
         match self {
             Self::Item(item) => item
@@ -382,9 +379,9 @@ impl Kind {
     }
 
     /// Whether damage of `cause` hurts it.
-    /// PMMP `attack` overrides: falling blocks, primed TNT and projectiles take only void damage,
-    /// fire-proof entities ignore fire and lava, and an invulnerable NPC takes only void damage.
-    pub(super) fn takes(&self, cause: Cause) -> bool {
+    /// Falling blocks, primed TNT and projectiles take only void damage, fire-proof entities
+    /// ignore fire and lava, and an invulnerable NPC takes only void damage.
+    pub(super) fn is_hurt_by(&self, cause: Cause) -> bool {
         let only_void = match self {
             Self::Item(_)
             | Self::XpOrb(_)
@@ -403,8 +400,8 @@ impl Kind {
     }
 
     /// Whether placing a block in its box is refused.
-    /// PMMP `canBeCollidedWith`: alive and not an item, orb, projectile, cloud, painting or
-    /// firework rocket. An end crystal is alive while its health is above 0, which
+    /// It is so for what is alive and not an item, orb, projectile, cloud, painting or firework
+    /// rocket. An end crystal is alive while its health is above 0, which
     /// `Entity::can_be_collided_with` adds.
     pub(super) fn is_obstacle(&self) -> bool {
         match self {
@@ -419,7 +416,7 @@ impl Kind {
         }
     }
 
-    /// Whether it is a baby (PMMP `Ageable::isBaby`): a villager or a zombie made one.
+    /// Whether it is a baby: a villager or a zombie made one.
     pub(super) fn is_baby(&self) -> bool {
         matches!(
             self,
@@ -430,7 +427,7 @@ impl Kind {
         )
     }
 
-    /// Whether it is a living NPC that projectiles, potions and clouds can hit (PMMP `Living`).
+    /// Whether it is a living NPC that projectiles, potions and clouds can hit.
     pub(super) fn is_living(&self) -> bool {
         matches!(self, Self::Npc(n) if n.dead_ticks.is_none())
     }
@@ -442,7 +439,7 @@ impl Kind {
     }
 
     /// Whether an entity of this kind may be saved with its chunk at all.
-    /// Firework rockets never are (PMMP `NeverSavedWithChunkEntity`).
+    /// Firework rockets never are.
     pub(super) fn can_be_saved(&self) -> bool {
         !matches!(self, Self::Firework(_))
     }
@@ -478,7 +475,7 @@ variants!(Kind {
     9 => Firework(firework),
 });
 
-/// A dropped item (PMMP `ItemEntity`).
+/// A dropped item.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Item {
     /// The items; never empty.
@@ -488,9 +485,9 @@ pub(super) struct Item {
     /// The ticks until it disappears; [`NEVER`] never.
     /// Otherwise it is 0 to the larger of [`MAX_DESPAWN_DELAY_TICKS`] and `item-despawn-ticks`.
     pub(super) despawn_delay: i32,
-    /// PMMP's `Owner` (a player name), kept for the saved form.
+    /// The saved `Owner` (a player name).
     pub(super) owner: String,
-    /// PMMP's `Thrower` (a player name), kept for the saved form.
+    /// The saved `Thrower` (a player name).
     pub(super) thrower: String,
 }
 
@@ -502,14 +499,14 @@ fields!(Item {
     thrower,
 });
 
-/// An xp orb (PMMP `ExperienceOrb`).
+/// An xp orb.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Orb {
     /// The xp points it gives, 1 to [`Self::MAX_VALUE`].
     pub(super) value: u16,
     /// The ticks until it disappears; [`NEVER`] never, otherwise 0 to [`MAX_DESPAWN_DELAY_TICKS`].
     pub(super) despawn_delay: i32,
-    /// The ticks since it last looked for a player to follow (PMMP `lookForTargetTime`), 0 to 20.
+    /// The ticks since it last looked for a player to follow, 0 to 20.
     pub(super) look_for_target: u8,
     /// The player it follows.
     pub(super) target: Option<SessionId>,
@@ -527,7 +524,7 @@ fields!(Orb {
     target,
 });
 
-/// A falling block (PMMP `FallingBlock`).
+/// A falling block.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Falling {
     /// The block it is, placed as it is when it lands (an anvil keeps its damage and facing).
@@ -536,33 +533,33 @@ pub(super) struct Falling {
 
 fields!(Falling { block });
 
-/// Primed TNT (PMMP `PrimedTNT`).
+/// Primed TNT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Tnt {
     /// The ticks until it explodes, 0 to [`Self::MAX_FUSE`].
     /// A fuse of 0 waits for the next tick's explosion budget.
     pub(super) fuse: u16,
-    /// Whether it is shown as underwater TNT (PMMP does not change the explosion either).
+    /// Whether it is shown as underwater TNT; the explosion does not change.
     pub(super) underwater: bool,
 }
 
 impl Tnt {
-    /// The longest fuse (PMMP `PrimedTNT::setFuse`: the saved short).
+    /// The longest fuse: what the saved `Fuse` short holds.
     pub(super) const MAX_FUSE: u16 = 32_767;
 }
 
 fields!(Tnt { fuse, underwater });
 
-/// An arrow or thrown item (PMMP `Projectile`).
+/// An arrow or thrown item.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Projectile {
     /// What it is.
     pub(super) shot: Shot,
-    /// The base damage (PMMP `Projectile::$damage`), finite and not negative.
+    /// The base damage, finite and not negative.
     pub(super) damage: f64,
-    /// The block it is stuck in (PMMP `blockHit`); it does not move while stuck.
+    /// The block it is stuck in; it does not move while stuck.
     pub(super) stuck: Option<BlockPos>,
-    /// The player who shot or threw it (not saved: PMMP's owner is an entity of one run).
+    /// The player who shot or threw it (not saved: a session belongs to one run).
     pub(super) owner: Option<SessionId>,
     /// The runtime ID of the owner, shown to clients (0: none).
     pub(super) owner_runtime_id: u64,
@@ -579,26 +576,26 @@ fields!(Projectile {
 /// What a projectile is.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Shot {
-    /// PMMP `Arrow`.
+    /// An arrow.
     Arrow(Arrow),
-    /// PMMP `Snowball`.
+    /// A snowball.
     Snowball,
-    /// PMMP `Egg` (no chickens: mobs are out of scope).
+    /// An egg (no chickens: mobs are out of scope).
     Egg,
-    /// PMMP `EnderPearl`.
+    /// An ender pearl.
     EnderPearl,
-    /// PMMP `SplashPotion`; a lingering one leaves a cloud.
+    /// A thrown potion; a lingering one leaves a cloud.
     Potion {
         /// The potion.
         potion: Potion,
-        /// Whether it leaves a cloud (PMMP `willLinger`).
+        /// Whether it leaves a cloud.
         linger: bool,
     },
-    /// PMMP `ExperienceBottle`.
+    /// An xp bottle.
     XpBottle,
-    /// PMMP `Trident`.
+    /// A thrown trident.
     Trident(Trident),
-    /// PMMP `IceBomb`.
+    /// An ice bomb.
     IceBomb,
 }
 
@@ -613,21 +610,21 @@ variants!(Shot {
     7 => IceBomb,
 });
 
-/// An arrow's own data (PMMP `Arrow`).
+/// An arrow's own data.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Arrow {
-    /// Whether it is fully drawn: more damage, and a trail (PMMP `isCritical`).
+    /// Whether it is fully drawn: more damage, and a trail.
     pub(super) critical: bool,
     /// Who may pick it up once stuck.
     pub(super) pickup: Pickup,
-    /// The Punch level: extra knockback (PMMP `punchKnockback`), 0 to 255.
+    /// The Punch level: extra knockback, 0 to 255.
     pub(super) punch: u8,
-    /// The ticks it has been stuck (PMMP `collideTicks`); it goes after [`Self::MAX_LIFE`].
+    /// The ticks it has been stuck; it goes after [`Self::MAX_LIFE`].
     pub(super) life: i16,
 }
 
 impl Arrow {
-    /// The ticks a stuck arrow stays (PMMP `Arrow::entityBaseTick`: more than 1,200).
+    /// The ticks a stuck arrow stays: it goes once it has been stuck for more.
     pub(super) const MAX_LIFE: i16 = 1200;
 }
 
@@ -638,21 +635,21 @@ fields!(Arrow {
     life,
 });
 
-/// A thrown trident's own data (PMMP `Trident`).
+/// A thrown trident's own data.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Trident {
     /// The trident item it holds (never empty); a player picks it up whole.
     pub(super) item: Stack,
-    /// Whether a creative player threw it (PMMP `spawnedInCreative`).
+    /// Whether a creative player threw it.
     /// A pickup takes it away without giving the item.
     pub(super) creative: bool,
-    /// Whether it may hit players and NPCs (PMMP `canCollide`).
+    /// Whether it may hit players and NPCs.
     /// It may not between an entity hit and the next block. Not saved.
     pub(super) can_collide: bool,
 }
 
 impl Trident {
-    /// A thrown trident's base damage (PMMP `Trident::$damage`).
+    /// A thrown trident's base damage.
     pub(super) const DAMAGE: f64 = 8.0;
 }
 
@@ -662,30 +659,30 @@ fields!(Trident {
     can_collide,
 });
 
-/// A lingering potion's cloud (PMMP `AreaEffectCloud`).
+/// A lingering potion's cloud.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Cloud {
     /// The effects it gives (at most [`Self::MAX_EFFECTS`]).
     pub(super) effects: Vec<effect::Instance>,
     /// The ticks since it appeared.
     pub(super) age: u32,
-    /// The age at which it goes (PMMP `maxAge`, `Duration`).
+    /// The age at which it goes (the saved `Duration`).
     pub(super) max_age: i32,
-    /// The change of `max_age` per entity it affects (PMMP `DurationOnUse`).
+    /// The change of `max_age` per entity it affects (the saved `DurationOnUse`).
     pub(super) max_age_on_use: i32,
-    /// The ticks before an affected entity is affected again (PMMP `ReapplicationDelay`).
+    /// The ticks before an affected entity is affected again.
     pub(super) reapplication_delay: i32,
-    /// PMMP `PickupCount` (bottles of dragon breath), kept for the saved form.
+    /// The bottles of dragon breath taken (the saved `PickupCount`), kept for the saved form.
     pub(super) pickup_count: i32,
     /// The radius it started with, in blocks.
     pub(super) initial_radius: f64,
     /// The radius now, in blocks, at least 0.5 while it exists.
     pub(super) radius: f64,
-    /// PMMP `RadiusChangeOnPickup`, kept for the saved form.
+    /// The change of the radius when a bottle takes from it, kept for the saved form.
     pub(super) radius_on_pickup: f64,
-    /// The change of the radius per entity it affects (PMMP `RadiusOnUse`).
+    /// The change of the radius per entity it affects.
     pub(super) radius_on_use: f64,
-    /// The change of the radius per tick (PMMP `RadiusPerTick`).
+    /// The change of the radius per tick.
     pub(super) radius_per_tick: f64,
     /// Who it affected and the age at which they may be affected again.
     /// It holds at most one entry per living entity of the world, players and NPCs; the expired
@@ -727,7 +724,7 @@ variants!(Victim {
     1 => Entity(id),
 });
 
-/// A non-player character (PMMP `Living` without AI).
+/// A non-player character without AI.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Character {
     /// What it looks like and does.
@@ -736,11 +733,11 @@ pub(super) struct Character {
     /// It is the default of the villager and human NPCs that `spawn_npc` makes, not of a zombie or
     /// a custom entity.
     pub(super) invulnerable: bool,
-    /// The ticks within which a weaker hit does nothing (PMMP `attackTime`).
+    /// The ticks within which a weaker hit does nothing.
     pub(super) attack_time: u32,
-    /// The base damage of the last hit (PMMP `lastDamageCause`), while `attack_time` runs.
+    /// The base damage of the last hit, while `attack_time` runs.
     pub(super) last_damage: f64,
-    /// The ticks since it died (PMMP `deadTicks`); `None` while alive.
+    /// The ticks since it died; `None` while alive.
     pub(super) dead_ticks: Option<u8>,
     /// The user's payload, saved (at most [`super::custom::MAX_DATA_BYTES`] encoded).
     pub(super) data: Compound,
@@ -749,7 +746,7 @@ pub(super) struct Character {
 }
 
 impl Character {
-    /// The ticks a dead NPC shows its death before it goes (PMMP `Living::$maxDeadTicks`).
+    /// The ticks a dead NPC shows its death before it goes.
     pub(super) const MAX_DEAD_TICKS: u8 = 25;
 }
 
@@ -772,15 +769,15 @@ pub(super) enum Form {
         profession: u8,
         /// Its trades.
         offers: Offers,
-        /// Whether it is a baby (PMMP `Villager::isBaby`; shown by the `Baby` flag).
+        /// Whether it is a baby (shown by the `Baby` flag).
         baby: bool,
     },
-    /// A zombie without AI (PMMP `Zombie`).
+    /// A zombie without AI.
     Zombie {
-        /// Whether it is a baby (shown by the `Baby` flag; PMMP's zombie has none).
+        /// Whether it is a baby (shown by the `Baby` flag).
         baby: bool,
     },
-    /// A player-shaped NPC (PMMP `Human`), shown with `AddPlayer`.
+    /// A player-shaped NPC, shown with `AddPlayer`.
     /// Its name tag is its player list name.
     Human {
         /// The player list UUID, made from the runtime ID when it gets one.
@@ -828,9 +825,9 @@ impl Codec for Custom {
     }
 }
 
-/// A painting (PMMP `Painting`).
-/// It hangs in the block of its position, on the wall behind `facing` (PMMP `blockIn` is that
-/// wall block: the position's block one step against `facing`).
+/// A painting.
+/// It hangs in the block of its position, on the wall behind `facing`: the wall block is the
+/// position's block one step against `facing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Painting {
     /// The picture.
@@ -838,8 +835,8 @@ pub(super) struct Painting {
     /// The side of the wall it hangs on: north, south, west or east.
     pub(super) facing: Face,
     /// Whether it drops its item when it dies.
-    /// It does not when a player with infinite items broke it (PMMP `onDeath`). Not saved: it
-    /// matters only between its death and its removal.
+    /// It does not when a player with infinite items broke it. Not saved: it matters only
+    /// between its death and its removal.
     pub(super) drops: bool,
 }
 
@@ -849,14 +846,14 @@ fields!(Painting {
     drops,
 });
 
-/// An end crystal (PMMP `EndCrystal`).
+/// An end crystal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Crystal {
-    /// Whether its bedrock base shows (PMMP `showBase`).
+    /// Whether its bedrock base shows.
     pub(super) show_base: bool,
-    /// The block its beam points at (PMMP `beamTarget`).
+    /// The block its beam points at.
     pub(super) beam_target: Option<BlockPos>,
-    /// Whether a hit other than the void's landed (PMMP `primed`).
+    /// Whether a hit other than the void's landed.
     /// At its death it explodes. Not saved.
     pub(super) primed: bool,
 }
@@ -867,10 +864,10 @@ fields!(Crystal {
     primed,
 });
 
-/// A firework rocket (PMMP `FireworkRocket`; never saved with its chunk).
+/// A firework rocket, never saved with its chunk.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Firework {
-    /// The age in ticks at which it bursts (PMMP `maxFlightTimeTicks`).
+    /// The age in ticks at which it bursts.
     pub(super) max_flight: u32,
     /// Its explosions: the item's `Explosions` compounds, each checked.
     /// It holds at most [`Self::MAX_EXPLOSIONS`].
@@ -878,8 +875,8 @@ pub(super) struct Firework {
     /// The player who launched it (not saved).
     pub(super) owner: Option<SessionId>,
     /// The flight multiplier its shown item carries.
-    /// It is `Flight`, as BDS shows a launched rocket's item. Shown only: not in checkpoints or
-    /// the state hash (a restored rocket shows 0).
+    /// It is `Flight`, as the official server shows a launched rocket's item. Shown only: not in
+    /// checkpoints or the state hash (a restored rocket shows 0).
     pub(super) flight: u8,
 }
 
@@ -898,8 +895,6 @@ fields!(Firework {
 });
 
 /// The physics constants of a kind.
-/// They are PMMP's `getInitialDragMultiplier`, `getInitialGravity` and the overrides that change
-/// `Entity::move`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Physics {
     /// The width and depth of the bounding box, in blocks.
@@ -910,22 +905,19 @@ pub(super) struct Physics {
     pub(super) gravity: f64,
     /// The share of the speed lost per tick in the air.
     pub(super) drag: f64,
-    /// Whether drag applies before gravity (PMMP `applyDragBeforeGravity`: items, projectiles).
+    /// Whether drag applies before gravity (items, projectiles).
     pub(super) drag_before_gravity: bool,
-    /// Whether it pushes itself out of solid blocks (PMMP `checkObstruction`: items, orbs).
+    /// Whether it pushes itself out of solid blocks (items, orbs).
     pub(super) unstuck: bool,
-    /// Whether flowing liquids push it (PMMP `canBeMovedByCurrents`).
+    /// Whether flowing liquids push it.
     pub(super) currents: bool,
     /// Whether it moves along a ray that stops at the first block, not sliding along blocks.
-    /// This is PMMP `Projectile::move`.
     pub(super) ray: bool,
-    /// Whether its ray stops at water as at a full block.
-    /// This is PMMP `IceBomb::calculateInterceptWithBlock`.
+    /// Whether its ray stops at water as at a full block (an ice bomb).
     pub(super) water: bool,
 }
 
 /// Why an entity takes damage, as far as entities other than players care.
-/// The causes follow PMMP `EntityDamageEvent::CAUSE_*`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Cause {
     /// Inside fire.
@@ -952,17 +944,15 @@ pub(super) enum Cause {
     Fall,
     /// Inside a solid block.
     Suffocation,
-    /// A falling anvil.
-    FallingBlock,
-    /// A lightning bolt (no PMMP cause).
+    /// A lightning bolt.
     /// Its event cause is custom, and the hurt event shows the lightning number.
     Lightning,
-    /// Damage dealt through the API (PMMP `CAUSE_CUSTOM`).
+    /// Damage dealt through the API.
     Custom,
 }
 
 impl Cause {
-    /// The event's cause of this damage (PMMP `CAUSE_*`).
+    /// The event's cause of this damage.
     pub(super) fn event_cause(self) -> DamageCause {
         match self {
             Self::Fire => DamageCause::Fire,
@@ -977,18 +967,17 @@ impl Cause {
             Self::Magic => DamageCause::Magic,
             Self::Fall => DamageCause::Fall,
             Self::Suffocation => DamageCause::Suffocation,
-            Self::FallingBlock => DamageCause::FallingBlock,
             Self::Lightning | Self::Custom => DamageCause::Custom,
         }
     }
 
-    /// BDS's damage cause number, which the hurt event carries.
+    /// The official server's damage cause number, which the hurt event carries.
     /// A lightning bolt has the players' number; every other cause follows
-    /// [`survival::bds_cause`] (P6: a trident's hit on a villager 3).
-    pub(super) fn bds_cause(self) -> i32 {
+    /// [`survival::actor_cause`] (P6: a trident's hit on a villager 3).
+    pub(super) fn actor_cause(self) -> i32 {
         match self {
-            Self::Lightning => survival::Damage::Lightning.bds_cause(),
-            _ => survival::bds_cause(self.event_cause()),
+            Self::Lightning => survival::Damage::Lightning.actor_cause(),
+            _ => survival::actor_cause(self.event_cause()),
         }
     }
 }

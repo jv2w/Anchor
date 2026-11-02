@@ -1,5 +1,5 @@
-//! Custom entity types: their definition ([`Custom`]), what drives them
-//! ([`Behaviour`]) and why one is refused ([`Error`]).
+//! Custom entity types: their definition ([`Custom`]), what drives them ([`Behaviour`]) and why a
+//! call on entities fails ([`Error`]).
 
 use std::fmt;
 use std::num::NonZeroU32;
@@ -19,10 +19,9 @@ use crate::player;
 ///   burning, the void and its living rules (suffocation, hit cooldown), every `tick_period`
 ///   ticks of its age (the ticks it has been ticked; the first call comes when it is
 ///   `tick_period` ticks old). A dying entity is not ticked.
-/// - [`on_interact`](Self::on_interact) when a player within reach interacts with a live entity
-///   (PMMP `Player::interactEntity`), after the
-///   [`PlayerEntityInteract`](crate::event::PlayerEntityInteract) listeners and before its
-///   monitors; not when a listener cancels the event.
+/// - [`on_interact`](Self::on_interact) when a player within reach interacts with a live entity,
+///   after the [`PlayerEntityInteract`](crate::event::PlayerEntityInteract) listeners and before
+///   its monitors; not when a listener cancels the event.
 ///
 /// Damage and death are the [`EntityDamage`](crate::event::EntityDamage) and
 /// [`EntityDeath`](crate::event::EntityDeath) events, which name the entity; its
@@ -47,16 +46,15 @@ pub trait Behaviour: Send {
 ///
 /// A custom entity is a living entity without AI (as Anchor's NPCs): it falls and collides with
 /// the physics constants of its type, takes damage (fire, lava, the void, falls, suffocation,
-/// explosions, hits and projectiles) with PMMP `Living`'s hit cooldown, knockback and death
+/// explosions, hits and projectiles) with a living entity's hit cooldown, knockback and death
 /// animation, raises the entity events, and is saved with its chunk under its identifier unless
 /// its type is temporary; a saved entity whose type is no longer registered stays in the chunk as
 /// it was saved. The engine lists the registered identifiers in `AvailableActorIdentifiers` and
 /// shows each entity with `AddActor` of its identifier, its name tag, scale, box and health.
 ///
-/// The defaults are PMMP `Living`'s: a 0.6 × 1.8 box, gravity 0.08, drag 0.02, 20 health; no
-/// name tag, saved with its chunk, ticked every tick, not summonable, without a spawn egg and
-/// without a behaviour. [`build`](crate::ServerBuilder::build) checks the values
-/// ([`Error::InvalidValue`]).
+/// The defaults: a 0.6 × 1.8 box, gravity 0.08, drag 0.02, 20 health; no name tag, saved with its
+/// chunk, ticked every tick, not summonable, without a spawn egg and without a behaviour.
+/// [`build`](crate::ServerBuilder::build) checks the values ([`Error::InvalidValue`]).
 pub struct Custom {
     pub(crate) identifier: String,
     pub(crate) summonable: bool,
@@ -73,6 +71,17 @@ pub struct Custom {
 }
 
 impl Custom {
+    /// The drag of a type that sets none.
+    const DEFAULT_DRAG: f64 = 0.02;
+    /// The gravity, in blocks per tick², of a type that sets none.
+    const DEFAULT_GRAVITY: f64 = 0.08;
+    /// The box height, in blocks, of a type that sets none.
+    const DEFAULT_HEIGHT: f64 = 1.8;
+    /// The maximum health of a type that sets none.
+    const DEFAULT_MAX_HEALTH: f64 = 20.0;
+    /// The box width and depth, in blocks, of a type that sets none.
+    const DEFAULT_WIDTH: f64 = 0.6;
+
     /// A type named `identifier`: `namespace:name` in lowercase ASCII letters, digits and `_.-`
     /// (`/` too in the name), at most 128 bytes, in a namespace other than `minecraft`.
     pub fn new(identifier: impl Into<String>) -> Self {
@@ -80,11 +89,11 @@ impl Custom {
             identifier: identifier.into(),
             summonable: false,
             spawn_egg: false,
-            width: 0.6,
-            height: 1.8,
-            gravity: 0.08,
-            drag: 0.02,
-            max_health: 20.0,
+            width: Self::DEFAULT_WIDTH,
+            height: Self::DEFAULT_HEIGHT,
+            gravity: Self::DEFAULT_GRAVITY,
+            drag: Self::DEFAULT_DRAG,
+            max_health: Self::DEFAULT_MAX_HEALTH,
             name_tag: String::new(),
             saved: true,
             tick_period: NonZeroU32::MIN,
@@ -150,8 +159,8 @@ impl Custom {
         }
     }
 
-    /// This type with a spawn egg flagged in the actor identifier list (the egg item itself
-    /// comes from the resource pack; Anchor adds none).
+    /// This type flagged as having a spawn egg in the actor identifier list. It sets the flag
+    /// only: Anchor adds no spawn egg item.
     #[must_use]
     pub fn spawn_egg(self) -> Self {
         Self {
@@ -160,8 +169,8 @@ impl Custom {
         }
     }
 
-    /// This type flagged summonable in the actor identifier list (the client's `/summon`
-    /// completion; Anchor adds no `/summon` command).
+    /// This type flagged summonable in the actor identifier list. It sets the flag only: Anchor
+    /// adds no `/summon` command.
     #[must_use]
     pub fn summonable(self) -> Self {
         Self {
@@ -205,8 +214,10 @@ impl fmt::Debug for Custom {
     }
 }
 
-/// Why a custom entity type was refused or a custom entity was not spawned.
+/// Why a call on entities failed: a custom entity type was refused, an entity was not spawned, or
+/// an entity or a player refused a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The identifier is not `namespace:name` of the allowed characters, is too long, or is in
     /// the `minecraft` namespace.
@@ -233,9 +244,17 @@ pub enum Error {
         /// The identifier.
         identifier: String,
     },
-    /// The world does not exist, the position is not finite, outside the world border or not
-    /// loaded, or the world is at its entity limit.
+    /// The entity does not live: it is dying.
+    NotAlive,
+    /// The player is not online.
+    NotOnline,
+    /// The entity was not spawned: the world does not exist, the position is not finite, outside
+    /// the world border or not loaded, or the world is at its entity limit.
     NotSpawned,
+    /// A value is outside the range the call allows, or is not a number.
+    OutOfRange,
+    /// The entity is of another kind than the call works on.
+    WrongKind,
 }
 
 impl fmt::Display for Error {
@@ -257,7 +276,11 @@ impl fmt::Display for Error {
             Self::UnknownType { identifier } => {
                 write!(f, "no custom entity type is named {identifier:?}")
             }
-            Self::NotSpawned => f.write_str("the custom entity could not be spawned there"),
+            Self::NotAlive => f.write_str("the entity is not alive"),
+            Self::NotOnline => f.write_str("the player is not online"),
+            Self::NotSpawned => f.write_str("the entity could not be spawned there"),
+            Self::OutOfRange => f.write_str("a value is out of range"),
+            Self::WrongKind => f.write_str("the entity is of another kind"),
         }
     }
 }

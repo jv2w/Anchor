@@ -9,7 +9,9 @@
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 use tracing::warn;
 
 /// How long [`Pool::shutdown`] waits for each thread to end. Threads end as soon as their queue
@@ -50,19 +52,38 @@ impl Pool {
     /// references only, as the parallel tick phases are read-only. Fewer than two items, or a
     /// pool of one thread, are mapped on the calling thread, which saves the hand-off (waking a
     /// pool thread and waiting on a lock) that could gain nothing.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
-    )]
     pub(crate) fn map<T, R>(&self, items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R>
     where
         T: Sync,
         R: Send,
     {
+        let mut out = Vec::new();
+        self.map_into(items, &mut out, f);
+        out
+    }
+
+    /// [`map`](Self::map) into `out`, which is cleared first and keeps its capacity, so a phase
+    /// that runs every tick allocates once.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
+    )]
+    pub(crate) fn map_into<T, R>(
+        &self,
+        items: &[T],
+        out: &mut Vec<R>,
+        f: impl Fn(&T) -> R + Sync + Send,
+    ) where
+        T: Sync,
+        R: Send,
+    {
+        out.clear();
         if self.maps_inline(items.len()) {
-            return items.iter().map(f).collect();
+            out.extend(items.iter().map(f));
+            return;
         }
-        self.inner.install(|| items.par_iter().map(f).collect())
+        self.inner
+            .install(|| items.par_iter().map(f).collect_into_vec(out));
     }
 
     /// [`map`](Self::map) of items `f` takes by value: what a phase took out of the tick's state

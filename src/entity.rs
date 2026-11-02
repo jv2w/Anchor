@@ -45,8 +45,9 @@ impl Id {
     }
 }
 
-/// What an entity is: a closed set (mob AI is out of scope).
+/// What an entity is: the types Anchor knows (mob AI is out of scope).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Type {
     /// A dropped item stack.
     #[doc(alias = "ItemEntity")]
@@ -54,7 +55,7 @@ pub enum Type {
     /// An XP orb.
     #[doc(alias = "ExperienceOrb")]
     XpOrb,
-    /// A falling block: sand, gravel, an anvil...
+    /// A block that falls and lands as a block again.
     // api-class: FallingBlock
     FallingBlock,
     /// Primed TNT.
@@ -75,7 +76,7 @@ pub enum Type {
     /// A thrown splash or lingering potion.
     #[doc(alias = "entity\\projectile\\SplashPotion")]
     SplashPotion,
-    /// A thrown bottle o' enchanting.
+    /// A thrown XP bottle.
     #[doc(alias = "entity\\projectile\\ExperienceBottle")]
     XpBottle,
     /// A lingering potion's cloud.
@@ -87,8 +88,7 @@ pub enum Type {
     /// A player-shaped NPC (no AI).
     // api-class: Human
     Human,
-    /// A zombie without AI (PMMP's has none either): it stands, falls, burns, takes hits and
-    /// drops rotten flesh.
+    /// A zombie without AI: it stands, falls, burns, takes hits and drops rotten flesh.
     // api-class: Zombie
     Zombie,
     /// An entity of a [`Custom`] type ([`Entity::custom_type`] names it).
@@ -110,7 +110,7 @@ pub enum Type {
     IceBomb,
 }
 
-/// Who may pick up an arrow stuck in a block (PMMP `Arrow::PICKUP_*`).
+/// Who may pick up an arrow stuck in a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArrowPickup {
     /// Nobody.
@@ -122,7 +122,7 @@ pub enum ArrowPickup {
 }
 
 impl ArrowPickup {
-    /// The mode of a saved byte; PMMP's default (any) for an unknown one.
+    /// The mode of a saved byte; any for an unknown one.
     pub(crate) fn from_byte(b: u8) -> Self {
         match b {
             0 => Self::None,
@@ -131,7 +131,7 @@ impl ArrowPickup {
         }
     }
 
-    /// The saved byte (PMMP `pickup`).
+    /// The saved byte.
     pub(crate) fn to_byte(self) -> u8 {
         match self {
             Self::None => 0,
@@ -145,9 +145,10 @@ impl ArrowPickup {
 /// it flies and hits as one a player threw or shot, without an owner (an ender pearl without an
 /// owner teleports nobody).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Projectile {
-    /// An arrow with PMMP's base damage 2 that anyone may pick up once stuck; `critical` as a
-    /// fully drawn bow's (more damage, a trail).
+    /// An arrow with the base damage 2 that anyone may pick up once stuck; `critical` as a fully
+    /// drawn bow's (more damage, a trail).
     Arrow {
         /// Shot with full force.
         critical: bool,
@@ -162,7 +163,7 @@ pub enum Projectile {
     SplashPotion(crate::effect::Potion),
     /// A lingering potion of the type: it leaves a cloud.
     LingeringPotion(crate::effect::Potion),
-    /// A bottle o' enchanting.
+    /// An XP bottle.
     XpBottle,
     /// An ice bomb.
     IceBomb,

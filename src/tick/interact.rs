@@ -426,7 +426,7 @@ struct BreakPlan {
 
 /// The blocks a break takes together: the block and, for a bed, door, double plant or small
 /// dripleaf, its other half.
-type Affected = [Option<(BlockPos, block::State)>; 2];
+pub(super) type Affected = [Option<(BlockPos, block::State)>; 2];
 
 /// What destroying a block does, worked out before anything changes: the blocks that go
 /// together, then the drops (a shulker box's contents included).
@@ -691,24 +691,44 @@ fn sign_edit_check(
 }
 
 /// Destroys the block at `pos` for `cause`: sets air, removes its block entity, spawns the drops,
-/// then plays the break effect and runs the custom blocks' `on_break`. Both halves of a bed, door
-/// or double plant go together, so a block group breaks and drops once. An explosion plays no
-/// per-block break effect (a large explosion would otherwise fill the viewers' outboxes). False if
-/// the position is not loaded or already air.
+/// then plays the break effect and runs the custom blocks' `on_break`. False if the position is
+/// not loaded or already air.
+#[cfg(test)]
+pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause: Destroy) -> bool {
+    let breaker = match &cause {
+        Destroy::Player { session, .. } => Some(*session),
+        Destroy::Explosion { .. } => None,
+    };
+    let particles = !matches!(cause, Destroy::Explosion { .. });
+    let Some(affected) = destroy_deferring_hooks(state, world, pos, cause) else {
+        return false;
+    };
+    destroyed(state, world, breaker, affected, particles);
+    true
+}
+
+/// Destroys the block at `pos` for `cause`: sets air, removes its block entity and spawns the
+/// drops, leaving the custom `on_break` hooks of what it removed for [`run_break_hooks`]. Both
+/// halves of a bed, door or double plant go together, so a block group breaks and drops once. An
+/// explosion plays no per-block break effect (a large explosion would otherwise fill the
+/// viewers' outboxes). `None` if the position is not loaded or already air.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "consistency: every caller hands over the cause it built, so it is taken by value"
 )]
-pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause: Destroy) -> bool {
-    let Some(plan) = plan_destruction(state, world, pos, &cause) else {
-        return false;
-    };
-    let Some(affected) = apply_destruction(state, world, pos, &cause, plan) else {
-        return false;
-    };
-    let particles = !matches!(cause, Destroy::Explosion { .. });
-    destroyed(state, world, breaker(&cause), affected, particles);
-    true
+pub(super) fn destroy_deferring_hooks(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    cause: Destroy,
+) -> Option<Affected> {
+    let plan = plan_destruction(state, world, pos, &cause)?;
+    apply_destruction(state, world, pos, &cause, plan)
+}
+
+/// Runs the `on_break` hooks of the custom blocks a deferred destruction removed.
+pub(super) fn run_break_hooks(state: &mut State, world: WorldIndex, affected: Affected) {
+    destroyed(state, world, None, affected, false);
 }
 
 /// Runs one tick of breaking in progress (cracking progress, creative and survival timing): each
@@ -1628,14 +1648,6 @@ fn destroyed(
         if s.custom_block().is_some() {
             custom::broken(state, breaker, world, p, s);
         }
-    }
-}
-
-/// The player who caused a destruction, if one did.
-fn breaker(cause: &Destroy) -> Option<SessionId> {
-    match cause {
-        Destroy::Player { session, .. } => Some(*session),
-        Destroy::Explosion { .. } => None,
     }
 }
 

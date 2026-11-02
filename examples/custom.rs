@@ -131,8 +131,8 @@ impl entity::Behaviour for Wisp {
             Some(Value::Int(n)) => n.saturating_add(1),
             _ => 1,
         };
-        entity.set_custom_data(Compound::from([("pokes".to_owned(), Value::Int(pokes))]));
-        entity.set_motion(Vec3::new(0.0, 0.4, 0.0));
+        or_log(entity.set_custom_data(Compound::from([("pokes".to_owned(), Value::Int(pokes))])));
+        or_log(entity.set_motion(Vec3::new(0.0, 0.4, 0.0)));
         tell(
             cx,
             player,

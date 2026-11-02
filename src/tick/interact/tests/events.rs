@@ -1313,7 +1313,7 @@ fn direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs
             let world = crate::world::Id::DEFAULT;
             let stone = Kind::Stone.default_state();
             cx.default_world_mut().set_block(PLACED, stone).unwrap();
-            assert!(cx.explode(world, Vec3::new(-0.5, -60.0, 0.5), 1.0));
+            cx.explode(world, Vec3::new(-0.5, -60.0, 0.5), 1.0).unwrap();
             let p = cx.player_mut(me()).unwrap();
             let left = p
                 .inventory_mut(crate::inventory::Kind::Main)
@@ -1381,7 +1381,8 @@ fn a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick() {
     let mut cx = Context {
         state: &mut h.state,
     };
-    assert!(cx.explode(crate::world::Id::DEFAULT, Vec3::new(0.5, -60.0, 0.5), 2.0));
+    cx.explode(crate::world::Id::DEFAULT, Vec3::new(0.5, -60.0, 0.5), 2.0)
+        .unwrap();
     assert!(HEARD.with(Cell::take).is_empty(), "the call raised nothing");
     assert!(!h.player().is_alive());
     h.run(Vec::new());
@@ -1660,9 +1661,11 @@ fn direct_sounds_particles_and_explosions_raise_no_world_sound_or_particle() {
         state: &mut h.state,
     };
     let at = Vec3::new(20.5, -60.0, 20.5);
-    assert!(cx.add_sound(crate::world::Id::DEFAULT, at, crate::world::Sound::Explode));
-    assert!(cx.add_particle(crate::world::Id::DEFAULT, at, crate::world::Particle::Flame));
-    assert!(cx.explode(crate::world::Id::DEFAULT, at, 1.0));
+    cx.add_sound(crate::world::Id::DEFAULT, at, crate::world::Sound::Explode)
+        .unwrap();
+    cx.add_particle(crate::world::Id::DEFAULT, at, crate::world::Particle::Flame)
+        .unwrap();
+    cx.explode(crate::world::Id::DEFAULT, at, 1.0).unwrap();
     let heard = HEARD.with(Cell::take);
     assert!(
         !heard
@@ -1748,7 +1751,7 @@ fn a_uses_sound_listeners_hear_it_once_the_held_item_is_applied() {
 fn a_place_listener_that_ends_creative_mode_has_the_block_paid_for() {
     let survival = listen(|_: &mut BlockPlace, cx: &mut Context<'_>| {
         let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
-        assert!(player.set_game_mode(GameMode::Survival));
+        player.set_game_mode(GameMode::Survival);
     });
     let mut h = Harness::with(creative, survival);
     let planks = block_item(Kind::OakPlanks, 5);

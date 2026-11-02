@@ -1039,10 +1039,15 @@ impl Context<'_> {
     /// Sets the difficulty until the server stops and tells the players. Every loaded world
     /// follows it from now on: a difficulty of its own
     /// ([`set_world_difficulty`](Self::set_world_difficulty)) is dropped. On a `hardcore` server
-    /// only [`Difficulty::Hard`] is allowed: false, changing nothing, for another.
-    pub fn set_difficulty(&mut self, difficulty: Difficulty) -> bool {
+    /// only [`Difficulty::Hard`] is allowed.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Hardcore`](crate::world::Error::Hardcore) for another difficulty on a hardcore
+    /// server, changing nothing.
+    pub fn set_difficulty(&mut self, difficulty: Difficulty) -> crate::world::Result<()> {
         if self.state.settings.hardcore && difficulty != Difficulty::Hard {
-            return false;
+            return Err(crate::world::Error::Hardcore);
         }
         self.state.settings.difficulty = difficulty;
         for (i, world) in self.state.worlds.iter_mut().enumerate() {
@@ -1060,7 +1065,7 @@ impl Context<'_> {
                 p.send_packet(packet.clone());
             }
         }
-        true
+        Ok(())
     }
 
     /// Sets the game mode new players get (`gamemode`) until the server stops; with

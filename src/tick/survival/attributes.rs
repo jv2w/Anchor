@@ -1,6 +1,7 @@
 //! What the client is told about a player's survival state: attributes (`UpdateAttributes`),
 //! entity data (`SetActorData`), abilities (`UpdateAbilities`), adventure settings and game
-//! rules, with the values BDS sends (P6) and the changes sent at the end of each tick.
+//! rules, with the values the official server sends (P6) and the changes sent at the end of each
+//! tick.
 
 use super::{
     DEFAULT_SATURATION, MAX_EXHAUSTION, MAX_FOOD, MAX_HEALTH, MAX_SATURATION, PLAYER_HEIGHT,
@@ -34,12 +35,12 @@ pub(super) const ADVENTURE: u16 = 1 << 11;
 /// Every attribute.
 pub(super) const ALL: u16 =
     HEALTH | FOOD | SATURATION | EXHAUSTION | LEVEL | XP | ABSORPTION | MOVEMENT;
-/// The base movement speed (BDS and PMMP `Attribute::MOVEMENT_SPEED` default).
+/// The base movement speed.
 pub(super) const BASE_SPEED: f64 = 0.1;
 /// Entity data the API set changed (flags, fire): the end of the tick compares it.
 pub(super) const DATA: u16 = 1 << 10;
-/// The attributes of a player in the order BDS sends them, with BDS's ranges and defaults
-/// (P6: 17 attributes, no modifiers).
+/// The attributes of a player in the order the official server sends them, with its ranges and
+/// defaults (P6: 17 attributes, no modifiers).
 const DEFS: [Def; 17] = [
     Def::new(
         "minecraft:player.hunger",
@@ -95,7 +96,8 @@ const DEFS: [Def; 17] = [
     Def::new("minecraft:bounciness", 0.0, 1.0, 0.0, 0),
     Def::new("minecraft:air_drag_modifier", 0.0, 256.0, 1.0, 0),
 ];
-/// The box width and height of a dying player, as BDS sends them at the death (P6 `others`).
+/// The box width and height of a dying player, as the official server sends them at the death (P6
+/// `others`).
 pub(super) const DYING_SIZE: [f32; 2] = [0.2, 0.2];
 /// Exhaustion changed.
 pub(super) const EXHAUSTION: u16 = 1 << 3;
@@ -107,17 +109,13 @@ pub(super) const HEALTH: u16 = 1;
 pub(crate) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
 /// Xp level changed.
 pub(super) const LEVEL: u16 = 1 << 4;
-/// The absorption maximum BDS sends; more absorption raises it.
+/// The absorption maximum the official server sends; more absorption raises it.
 const MAX_ABSORPTION: f32 = 16.0;
 /// Movement speed changed (sprinting, speed and slowness).
 pub(super) const MOVEMENT: u16 = 1 << 7;
-/// `PlayerFlagSleep`: bit 1 of the player flags (PMMP `PlayerMetadataFlags::SLEEP`).
-const PLAYER_FLAG_SLEEP: u8 = 1 << 1;
-/// The game rule that sets random block ticks per sub-chunk per tick.
-const RANDOM_TICK_SPEED: &str = "randomTickSpeed";
 /// Saturation changed.
 pub(super) const SATURATION: u16 = 1 << 2;
-/// The box height of a sneaking player (PMMP `Living::recalculateSize`).
+/// The box height of a sneaking player.
 const SNEAKING_HEIGHT: f32 = 1.49;
 /// The name tag or the score tag changed.
 pub(super) const TAGS: u16 = 1 << 9;
@@ -147,7 +145,7 @@ impl Def {
     }
 }
 
-/// The entity data of a player that changes (keys 0, 7, 26, 28, 42, 53, 54, 92, 127, 129, 131).
+/// The entity data of a player that changes (keys 0, 7, 42, 53, 54, 92, 127, 129, 131).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct Shown {
     /// Entity flags, keys 0 and 92.
@@ -156,10 +154,6 @@ pub(super) struct Shown {
     air: i16,
     /// The full air supply, key 42.
     max_air: i16,
-    /// Player flags (bit 1: sleeping), key 26.
-    player_flags: u8,
-    /// The bed position, key 28.
-    bed: [i32; 3],
     /// Whether the player has died, key 129, and where, key 127.
     died: bool,
     death: [i32; 3],
@@ -177,8 +171,6 @@ impl Shown {
             flags,
             air,
             max_air,
-            player_flags,
-            bed,
             died,
             death,
             size,
@@ -189,8 +181,7 @@ impl Shown {
         }
         h.u64(u64::from(air.cast_unsigned()));
         h.u64(u64::from(max_air.cast_unsigned()));
-        h.u64(u64::from(*player_flags));
-        for c in bed.iter().chain(death) {
+        for c in death {
             h.u64(u64::from(c.cast_unsigned()));
         }
         h.u64(u64::from(*died));
@@ -205,8 +196,6 @@ crate::tick::checkpoint::fields!(Shown {
     flags,
     air,
     max_air,
-    player_flags,
-    bed,
     died,
     death,
     size,
@@ -307,15 +296,16 @@ pub(in crate::tick) fn all_attributes(player: &Player) -> Packet {
     attributes_of(player, |d| d.bit & (food | xp) == 0)
 }
 
-/// The player's health for those who see it, as BDS tells them at a hit, a death and a respawn
-/// (P6 `others`). BDS sends viewers the player's food and exhaustion too, which the client shows
-/// nobody but the player: left out, they would cost a packet per viewer each time they move.
+/// The player's health for those who see it, as the official server tells them at a hit, a death
+/// and a respawn (P6 `others`). It sends viewers the player's food and exhaustion too, which the
+/// client shows nobody but the player: left out, they would cost a packet per viewer each time
+/// they move.
 pub(super) fn health_packet(player: &Player) -> Packet {
     attributes_packet(player, HEALTH)
 }
 
-/// `UpdateAbilities` for the player, with BDS's values: a member's permissions, or an operator's
-/// (P6: `op` sends command permissions 1 and player permissions 2).
+/// `UpdateAbilities` for the player, with the official server's values: a member's permissions,
+/// or an operator's (P6: `op` sends command permissions 1 and player permissions 2).
 pub(in crate::tick) fn update_abilities(player: &Player) -> Packet {
     let (player_permissions, command_permissions) = if player.survival.custom.operator {
         (
@@ -335,16 +325,19 @@ pub(in crate::tick) fn update_abilities(player: &Player) -> Packet {
     })
 }
 
-/// `UpdateAdventureSettings` as BDS sends it (P6).
+/// `UpdateAdventureSettings` as the official server sends it (P6).
 pub(in crate::tick) fn adventure_settings() -> Packet {
     adventure_packet(true)
 }
 
-/// The 39 game rules BDS sends, in its order (P6), with the values Anchor's rules have: what Anchor
-/// does not simulate (mob spawning, weather, insomnia, freezing, command blocks, respawn anchors
-/// exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`, the day cycle,
+/// The 39 game rules the official server sends, in its order (P6), with the values Anchor's rules
+/// have: what Anchor does not simulate (mob spawning, weather, insomnia, freezing, command
+/// blocks, respawn anchors exploding, projectiles breaking blocks) is off, `pvp`, the day cycle,
 /// drowning, fall damage, the coordinates, the waypoints, the immediate respawn and the death
 /// messages come from the settings, and players respawn on the spawn block (`spawnRadius` 0).
+/// The values are the client's display only; no API changes them, and a send hook that rewrites
+/// `playerWaypoints` does not change the locator bar packets, which follow the `locator-bar`
+/// setting.
 pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     use GameRuleValue::{Bool, Uint32};
     let rules = [
@@ -365,8 +358,8 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("mobGriefing", Bool(true)),
         ("pvp", Bool(settings.pvp)),
         ("showCoordinates", Bool(settings.show_coordinates)),
-        // BDS saves 0 in a world without the others' waypoints, 1 by default; it saves no
-        // `locatorbar`.
+        // The official server saves 0 in a world without the others' waypoints, 1 by default; it
+        // saves no `locatorbar`.
         ("playerWaypoints", Uint32(u32::from(settings.locator_bar))),
         ("locatorbar", Bool(true)),
         ("showDaysPlayed", Bool(false)),
@@ -376,7 +369,7 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("maxCommandChainLength", Uint32(65_535)),
         ("doInsomnia", Bool(false)),
         ("commandBlocksEnabled", Bool(false)),
-        (RANDOM_TICK_SPEED, Uint32(RANDOM_TICKS_PER_SUB_CHUNK)),
+        ("randomTickSpeed", Uint32(RANDOM_TICKS_PER_SUB_CHUNK)),
         ("doImmediateRespawn", Bool(settings.immediate_respawn)),
         ("showDeathMessages", Bool(settings.show_death_messages)),
         ("functionCommandLimit", Uint32(10_000)),
@@ -398,8 +391,8 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     })
 }
 
-/// The whole entity data of a player as BDS sends it at spawn (P6: 73 keys; the types match BDS's
-/// packet size).
+/// The whole entity data of a player as the official server sends it at spawn (P6: 73 keys; the
+/// types match its packet size).
 pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
     use EntityDataKey as K;
     use MetadataValue as V;
@@ -410,6 +403,8 @@ pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
     put(K::StructuralIntegrity, V::Int32(1));
     put(K::Variant, V::Int32(0));
     put(K::ColorIndex, V::Byte(0));
+    put(K::PlayerFlags, V::Byte(0));
+    put(K::BedPosition, V::BlockPos([0; 3]));
     put(K::Name, V::String(player.name_tag().to_owned()));
     put(K::Owner, V::Int64(-1));
     put(K::Target, V::Int64(0));
@@ -462,16 +457,16 @@ pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
     put(K::HeartbeatSoundEvent, V::Int32(614));
     put(K::PlayerLastDeathDimension, V::Int32(0));
     put(K::FilteredName, V::String(String::new()));
-    // BDS sends this key as three floats (P6 `others` data types).
+    // The official server sends this key as three floats (P6 `others` data types).
     put(K::EnterBedPosition, V::Vec3([0.0; 3]));
     put(K::SeatThirdPersonCameraRadius, V::Float32(0.0));
     put(K::SeatCameraRelaxDistanceSmoothing, V::Float32(0.0));
     put(K::AimAssistPriorityPresetId, V::Int32(-1));
     put(K::AimAssistPriorityCategoryId, V::Int32(-1));
-    // BDS sends this key as an int32 (P6 `others` data types).
+    // The official server sends this key as an int32 (P6 `others` data types).
     put(K::AimAssistPriorityActorId, V::Int32(-1));
     put(K::NameplateRenderDistanceMax, V::Float32(64.0));
-    // BDS 1.26.60 sends players this byte, 0 (P6 `spawn` and `others`).
+    // The official server sends players this byte, 0 (P6 `spawn` and `others`).
     put(K::Reserved141, V::Byte(0));
     changed_metadata(&shown(player), None, &mut m);
     m
@@ -481,7 +476,7 @@ pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
 pub(super) fn shown(player: &Player) -> Shown {
     let s = &player.survival;
     let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
-    // BDS sends these for every player (P6); PMMP sets `CAN_CLIMB` for players too.
+    // The official server sends these for every player (P6).
     flags.insert(EntityDataFlag::HiddenWhenInvisible);
     flags.insert(EntityDataFlag::PushTowardsClosestSpace);
     if s.mode() != GameMode::Spectator {
@@ -501,7 +496,7 @@ pub(super) fn shown(player: &Player) -> Shown {
         (s.motion.sprinting, EntityDataFlag::Sprinting),
         // The client predicts the use animation and stops it unless the server agrees with this
         // flag (bedrock-protocol-docs changelog 776 `StartUsingItem`): eating, drinking and
-        // using a bow, trident, goat horn or spyglass (PMMP `ACTION`, set from `startAction`).
+        // using a bow, trident, goat horn or spyglass.
         (
             s.using.is_some() || player.breaking.is_using(),
             EntityDataFlag::UsingItem,
@@ -518,17 +513,10 @@ pub(super) fn shown(player: &Player) -> Shown {
         }
     }
     let [w0, w1, _] = flags.words();
-    let bed = s.sleeping.map_or([0; 3], |b| [b.x, b.y, b.z]);
     Shown {
         flags: [w0, w1],
         air: s.air,
         max_air: s.custom.max_air,
-        player_flags: if s.sleeping.is_some() {
-            PLAYER_FLAG_SLEEP
-        } else {
-            0
-        },
-        bed,
         died: s.death.is_some(),
         death: s
             .death
@@ -539,9 +527,9 @@ pub(super) fn shown(player: &Player) -> Shown {
     }
 }
 
-/// The box width and height of the player's pose, sent as entity data 53 and 54 (PMMP
-/// `Living::recalculateSize`): 0.6 by 1.8, [`SNEAKING_HEIGHT`] high sneaking, as high as wide
-/// swimming or gliding, and [`DYING_SIZE`] once the death is shown.
+/// The box width and height of the player's pose, sent as entity data 53 and 54: 0.6 by 1.8,
+/// [`SNEAKING_HEIGHT`] high sneaking, as high as wide swimming or gliding, and [`DYING_SIZE`]
+/// once the death is shown, whatever the pose does after.
 pub(super) fn size(s: &Survival) -> [f32; 2] {
     if s.motion.death_shown {
         return DYING_SIZE;
@@ -557,8 +545,8 @@ pub(super) fn size(s: &Survival) -> [f32; 2] {
 }
 
 /// `SetActorData` with a player's box width and height (keys 53, 54). The client keeps a dead
-/// player's small box (it hits and draws the name tag by it) until these keys come, so BDS sends
-/// them at the death and after the respawn (P6 `others`).
+/// player's small box (it hits and draws the name tag by it) until these keys come, so the
+/// official server sends them at the death and after the respawn (P6 `others`).
 pub(super) fn size_data(runtime_id: u64, [width, height]: [f32; 2]) -> Packet {
     let mut m = EntityMetadata::new();
     m.insert(EntityDataKey::Width.into(), MetadataValue::Float32(width));
@@ -567,7 +555,7 @@ pub(super) fn size_data(runtime_id: u64, [width, height]: [f32; 2]) -> Packet {
 }
 
 /// `SetActorData` with `entity_metadata` of the entity with `runtime_id`, answering the input of
-/// `tick` (0 for none); it carries no entity properties.
+/// `tick` (0 for none); it carries no entity properties, and no API sets any.
 pub(crate) fn actor_data(runtime_id: u64, entity_metadata: EntityMetadata, tick: u64) -> Packet {
     Packet::SetActorData(SetActorData {
         entity_runtime_id: runtime_id,
@@ -577,12 +565,12 @@ pub(crate) fn actor_data(runtime_id: u64, entity_metadata: EntityMetadata, tick:
     })
 }
 
-/// The attributes whose bits are set in `bits`, in BDS order.
+/// The attributes whose bits are set in `bits`, in the official server's order.
 fn attributes_packet(player: &Player, bits: u16) -> Packet {
     attributes_of(player, |d| d.bit & bits != 0)
 }
 
-/// The attributes `keep` keeps, in BDS order.
+/// The attributes `keep` keeps, in the official server's order.
 fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
     let s = &player.survival;
     Packet::UpdateAttributes(UpdateAttributes {
@@ -627,9 +615,8 @@ fn attribute(def: &Def, s: &Survival) -> Attribute {
 }
 
 /// The movement speed: the base (0.1 unless the API set another), times 1.3 sprinting, times
-/// 1 + 0.2 per speed level, times 1 - 0.15 per slowness level (at least 0). PMMP multiplies and
-/// divides the attribute as each changes, which drifts and stays at 0 once slowness reached it;
-/// Anchor works it out again.
+/// 1 + 0.2 per speed level, times 1 - 0.15 per slowness level (at least 0). It is worked out from
+/// the base each time, so it does not drift as sprinting and effects change.
 pub(super) fn movement_speed(s: &Survival) -> f64 {
     let sprint = if s.motion.sprinting { 1.3 } else { 1.0 };
     let speed = 1.0 + 0.2 * f64::from(s.effect_level(effect::Type::Speed));
@@ -642,7 +629,8 @@ pub(super) fn movement_speed(s: &Survival) -> f64 {
 /// them and the standing collision box (130), but width and height (53, 54) only where the pose's
 /// box differs from the standing one.
 fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) {
-    // Each flag word only when it changed, as BDS (P6: `{0: ...}` alone when Breathing changes).
+    // Each flag word only when it changed, as the official server does (P6: `{0: ...}` alone when
+    // Breathing changes).
     if old.is_none_or(|o| o.flags[0] != new.flags[0]) {
         out.insert(
             EntityDataKey::Flags.into(),
@@ -667,21 +655,9 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
             MetadataValue::Int16(new.max_air),
         );
     }
-    if old.is_none_or(|o| o.player_flags != new.player_flags) {
-        out.insert(
-            EntityDataKey::PlayerFlags.into(),
-            MetadataValue::Byte(new.player_flags),
-        );
-    }
-    if old.is_none_or(|o| o.bed != new.bed) {
-        out.insert(
-            EntityDataKey::BedPosition.into(),
-            MetadataValue::BlockPos(new.bed),
-        );
-    }
     if old.is_none_or(|o| o.died != new.died || o.death != new.death) {
-        // BDS sends the death position as a block position (P6 `others` data types and its
-        // death).
+        // The official server sends the death position as a block position (P6 `others` data
+        // types and its death).
         out.insert(
             EntityDataKey::PlayerLastDeathPosition.into(),
             MetadataValue::BlockPos(new.death),
@@ -692,7 +668,7 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
         );
     }
     // The collision box (130) is the standing box, sent once at spawn; the pose's box goes in the
-    // width and height (53, 54), as BDS and PMMP answer a sneak (P6 `sneak`).
+    // width and height (53, 54), as the official server answers a sneak (P6 `sneak`).
     let standing = [to_f32(PLAYER_WIDTH), to_f32(PLAYER_HEIGHT)];
     if old.is_none() {
         out.insert(
@@ -721,11 +697,10 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
     }
 }
 
-/// The player's ability layers: its game mode's base layer with what the API set (PMMP
-/// `NetworkSession::syncAbilities`): operator commands and teleporting for an operator, flight
-/// allowed, flying in any mode, block collision and the flight speed. Without block collision
-/// outside spectator mode, a spectator layer makes the client fly, as PMMP does: the client
-/// falls through the blocks otherwise.
+/// The player's ability layers: its game mode's base layer with what the API set: operator
+/// commands and teleporting for an operator, flight allowed, flying in any mode, block collision
+/// and the flight speed. Without block collision outside spectator mode, a spectator layer makes
+/// the client fly: the client falls through the blocks otherwise.
 fn layers(s: &Survival) -> Vec<AbilityLayer> {
     let mode = s.mode();
     let mut values = mode_abilities(mode, s.motion.flying);
@@ -746,7 +721,7 @@ fn layers(s: &Survival) -> Vec<AbilityLayer> {
             values.remove(ability);
         }
     }
-    let mut layers = vec![layer_of(values, s.custom.flight_speed)];
+    let mut layers = vec![layer_of(values, to_f32(s.custom.flight_speed))];
     if !collides && mode != GameMode::Spectator {
         let flying: FlagSet<Ability> = [Ability::Flying].into_iter().collect();
         let bits = ability_bits(flying);
@@ -762,8 +737,9 @@ fn layers(s: &Survival) -> Vec<AbilityLayer> {
     layers
 }
 
-/// The base abilities of a game mode, as BDS sends them for a member (P6: survival `Values` 63).
-fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<Ability> {
+/// The base abilities of a game mode, as the official server sends them for a member (P6:
+/// survival `Values` 63).
+pub(in crate::tick) fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<Ability> {
     let survival = [
         Ability::Build,
         Ability::Mine,
@@ -795,8 +771,9 @@ fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<Ability> {
     }
 }
 
-/// The base ability layer with `values`, every ability defined (BDS).
-fn layer_of(values: FlagSet<Ability>, fly_speed: f32) -> AbilityLayer {
+/// The base ability layer with `values` and `fly_speed`, every ability defined, as the official
+/// server sends it; the one place that builds it.
+pub(in crate::tick) fn layer_of(values: FlagSet<Ability>, fly_speed: f32) -> AbilityLayer {
     let all: FlagSet<Ability> = Ability::ALL.into_iter().collect();
     AbilityLayer {
         r#type: AbilityLayerType::Base.into(),
@@ -818,8 +795,7 @@ fn ability_bits(abilities: FlagSet<Ability>) -> u32 {
     u32::try_from(bits).expect("an ability bit is below 32")
 }
 
-/// `UpdateAdventureSettings` with BDS's values and `auto_jump` (PMMP
-/// `NetworkSession::syncAdventureSettings`).
+/// `UpdateAdventureSettings` with the official server's values and `auto_jump`.
 fn adventure_packet(auto_jump: bool) -> Packet {
     Packet::UpdateAdventureSettings(UpdateAdventureSettings {
         no_pv_m: false,
@@ -846,7 +822,7 @@ mod tests {
     use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 
     #[test]
-    fn the_ability_layers_have_bds_values() {
+    fn the_ability_layers_have_the_official_values() {
         let mode_layer =
             |mode, flying| layer_of(mode_abilities(mode, flying), ABILITY_BASE_FLY_SPEED);
         let survival = mode_layer(GameMode::Survival, false);
@@ -878,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn the_flag_words_match_bds() {
+    fn the_flag_words_match_the_official_server() {
         let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
         flags.insert(EntityDataFlag::Climb);
         flags.insert(EntityDataFlag::HiddenWhenInvisible);
@@ -888,6 +864,23 @@ mod tests {
         let [w0, w1, _] = flags.words();
         assert_eq!(w0, 844_424_930_656_256);
         assert_eq!(w1, 35_184_405_643_264);
+    }
+
+    /// The spawn data still carries the player flags and the bed position, as the official server
+    /// sends them, although nothing changes them after the spawn.
+    #[test]
+    fn the_spawn_data_has_the_empty_player_flags_and_bed_position() {
+        let (mut state, _rx) = crate::tick::player::tests::two();
+        let player = crate::tick::player::tests::player_mut(&mut state, 1);
+        let data = full_metadata(player);
+        assert_eq!(
+            data.get(&EntityDataKey::PlayerFlags.into()),
+            Some(&MetadataValue::Byte(0))
+        );
+        assert_eq!(
+            data.get(&EntityDataKey::BedPosition.into()),
+            Some(&MetadataValue::BlockPos([0; 3]))
+        );
     }
 
     #[test]

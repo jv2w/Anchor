@@ -1,11 +1,10 @@
-//! The public [`Player`] methods on its survival state (PMMP `Player`, `Human`, `Living`, `Entity`,
-//! `HungerManager`, `ExperienceManager`, `EffectManager`): game mode, health, food, xp,
-//! effects, fire, flight, the spawn point and the entity data the viewers see.
+//! The public [`Player`] methods on its survival state: game mode, health, food, xp, effects,
+//! fire, flight, the spawn point and the entity data the viewers see.
 //!
 //! Each setter changes the value at once. What the client and the viewers must learn is marked
 //! (attribute and data bits, [`Custom`] marks) and sent by the tick's attribute flush or by
-//! [`super::sync`] at the end of the tick. What needs the world (a death's drops, a respawn,
-//! leaving a bed) waits for the player to be spawned. No call raises an event.
+//! [`sync`] at the end of the tick. What needs the world (a death's drops, a respawn) waits for
+//! the player to be spawned. No call raises an event.
 
 use super::attributes::{
     self, ABILITIES, ABSORPTION, ADVENTURE, DATA, EXHAUSTION, HEALTH, LEVEL, MOVEMENT, SATURATION,
@@ -26,63 +25,58 @@ use crate::math::{Vec3, to_f32};
 use crate::player::{Error, Id, Result, check_text};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
-use crate::tick::interact::drops;
 use crate::tick::queue::Skin;
 use crate::tick::{Context, Phase, Player, SessionId, State, entity, inventory};
 use crate::world::{BlockPos, Entry};
 
-/// The farthest a look reaches, in blocks (PMMP `Living::getLineOfSight`).
+/// The farthest a look reaches, in blocks.
 const MAX_SIGHT: u32 = 120;
 /// The most blocks a look of [`MAX_SIGHT`] passes through: a ray crosses at most one block
 /// boundary per axis per block travelled.
 const MAX_SIGHT_CELLS: usize = 3 * MAX_SIGHT as usize + 4;
 
-/// What the API sets on top of the rules (PMMP setters): entity data, abilities and the marks of
-/// work that waits for the end of the tick or the spawn. None of it is saved, as in PMMP.
+/// What the API sets on top of the rules: entity data, abilities and the marks of work that waits
+/// for the end of the tick or the spawn. None of it is saved.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Custom {
-    /// The name above the player (PMMP `nameTag`); `None` shows its name.
+    /// The name above the player; `None` shows its name.
     pub(super) name_tag: Option<String>,
-    /// The line under the name tag (PMMP `scoreTag`).
+    /// The line under the name tag.
     pub(super) score_tag: String,
-    /// Hidden from the viewers (PMMP `Entity::$invisible`).
+    /// Hidden from the viewers.
     pub(super) invisible: bool,
-    /// Makes no sounds (PMMP `Entity::$silent`).
+    /// Makes no sounds.
     pub(super) silent: bool,
-    /// The client does not move the player (PMMP `noClientPredictions`, the `NoAi` flag).
+    /// The client does not move the player (the `NoAi` flag).
     pub(super) no_client_predictions: bool,
     /// May the player fly; `None` follows the game mode (creative and spectator).
     pub(super) allow_flight: Option<bool>,
     /// Do blocks stop the player; `None` follows the game mode (all but spectator).
     pub(super) block_collision: Option<bool>,
-    /// The flight speed (PMMP `flightSpeedMultiplier`), finite.
-    pub(super) flight_speed: f32,
-    /// The health without effects (PMMP `maxHealth`), at least 1.
+    /// The flight speed, finite and within what the client holds (`f32`).
+    pub(super) flight_speed: f64,
+    /// The health without effects, at least 1.
     pub(super) max_health: u32,
     /// The player was killed by the API: its death drops wait for its next survival step.
     pub(super) killed: bool,
     /// The player asked to respawn through the API.
     pub(super) respawn: bool,
-    /// The player asked to leave its bed through the API.
-    pub(super) wake: bool,
-    /// The player is an operator: its abilities carry operator permissions (BDS, PMMP
-    /// `NetworkSession::syncAbilities`). Follows the operator list, which is saved.
+    /// The player is an operator: its abilities carry operator permissions, as the official
+    /// server gives them. Follows the operator list, which is saved.
     pub(super) operator: bool,
-    /// May the player climb ladders and vines (PMMP `canClimb`, the `Climb` flag).
+    /// May the player climb ladders and vines (the `Climb` flag).
     pub(super) can_climb: bool,
-    /// May the player climb any wall (PMMP `canClimbWalls`, the `WallClimbing` flag).
+    /// May the player climb any wall (the `WallClimbing` flag).
     pub(super) can_climb_walls: bool,
-    /// Does food run for the player (PMMP `HungerManager::$enabled`), on top of the `food`
-    /// setting and the game mode.
+    /// Does food run for the player, on top of the `food` setting and the game mode.
     pub(super) food: bool,
-    /// Do xp orbs fly to the player (PMMP `ExperienceManager::$canAttractXpOrbs`).
+    /// Do xp orbs fly to the player.
     pub(super) attracts_orbs: bool,
-    /// The movement speed before sprinting and effects (PMMP's movement attribute), finite and
-    /// not negative.
+    /// The movement speed before sprinting and effects, finite and not negative.
     pub(super) movement_speed: f64,
-    /// The full air supply in ticks (PMMP `maxBreathTicks`), at least 1.
+    /// The full air supply in ticks, at least 1.
     pub(super) max_air: i16,
-    /// Does the client jump up blocks by itself (PMMP `autoJump`).
+    /// Does the client jump up blocks by itself.
     pub(super) auto_jump: bool,
     /// The motion the API gave the player, for it and its viewers at the end of the tick.
     pub(super) motion: Option<Vec3>,
@@ -100,6 +94,7 @@ pub(super) struct Custom {
 }
 
 impl Custom {
+    /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -114,7 +109,6 @@ impl Custom {
             max_health,
             killed,
             respawn,
-            wake,
             operator,
             can_climb,
             can_climb_walls,
@@ -143,16 +137,15 @@ impl Custom {
                 | u64::from(*no_client_predictions) << 2
                 | u64::from(*killed) << 3
                 | u64::from(*respawn) << 4
-                | u64::from(*wake) << 5
-                | u64::from(*touched) << 6
-                | u64::from(*operator) << 7
-                | u64::from(*can_climb) << 8
-                | u64::from(*can_climb_walls) << 9
-                | u64::from(*food) << 10
-                | u64::from(*attracts_orbs) << 11
-                | u64::from(*auto_jump) << 12
-                | u64::from(*skin) << 13
-                | u64::from(*turned) << 14,
+                | u64::from(*touched) << 5
+                | u64::from(*operator) << 6
+                | u64::from(*can_climb) << 7
+                | u64::from(*can_climb_walls) << 8
+                | u64::from(*food) << 9
+                | u64::from(*attracts_orbs) << 10
+                | u64::from(*auto_jump) << 11
+                | u64::from(*skin) << 12
+                | u64::from(*turned) << 13,
         );
         h.u64(movement_speed.to_bits());
         h.u64(u64::from(max_air.cast_unsigned()));
@@ -168,7 +161,7 @@ impl Custom {
             Some(id) => h.bytes(id.as_bytes()),
             None => h.u64(u64::MAX),
         }
-        h.u64(u64::from(flight_speed.to_bits()));
+        h.u64(flight_speed.to_bits());
         h.u64(u64::from(*max_health));
     }
 }
@@ -183,11 +176,10 @@ impl Default for Custom {
             no_client_predictions: false,
             allow_flight: None,
             block_collision: None,
-            flight_speed: ABILITY_BASE_FLY_SPEED,
+            flight_speed: f64::from(ABILITY_BASE_FLY_SPEED),
             max_health: 20,
             killed: false,
             respawn: false,
-            wake: false,
             operator: false,
             can_climb: true,
             can_climb_walls: false,
@@ -217,7 +209,6 @@ crate::tick::checkpoint::fields!(Custom {
     max_health,
     killed,
     respawn,
-    wake,
     operator,
     can_climb,
     can_climb_walls,
@@ -249,19 +240,20 @@ impl Survival {
             .unwrap_or(self.mode() != GameMode::Spectator)
     }
 
-    /// Marks client state to send, by the end of the tick even after the rules' flush.
-    pub(super) fn touch(&mut self, bits: u16) {
-        self.mark(bits);
-        self.custom.touched = true;
-    }
-
     /// Shows the client operator permissions (`op`) or a member's; a change sends
-    /// `UpdateAbilities` by the end of the tick, as BDS does after `op` and `deop`.
+    /// `UpdateAbilities` by the end of the tick, as the official server does after `op` and
+    /// `deop`.
     pub(in crate::tick) fn set_operator(&mut self, op: bool) {
         if self.custom.operator != op {
             self.custom.operator = op;
             self.touch(ABILITIES);
         }
+    }
+
+    /// Marks client state to send, by the end of the tick even after the rules' flush.
+    pub(super) fn touch(&mut self, bits: u16) {
+        self.mark(bits);
+        self.custom.touched = true;
     }
 }
 
@@ -272,9 +264,8 @@ impl Player {
         self.survival.mode()
     }
 
-    /// Whether the player is in survival or adventure mode, the modes that take damage (PMMP's
-    /// default, not literal, check). Items are used up in every mode but creative
-    /// ([`has_finite_resources`](Self::has_finite_resources)).
+    /// Whether the player is in survival or adventure mode, the modes that take damage. Items are
+    /// used up in every mode but creative ([`has_finite_resources`](Self::has_finite_resources)).
     #[doc(alias = "Player::isSurvival")]
     pub fn is_survival(&self) -> bool {
         is_survival(self.game_mode())
@@ -379,7 +370,7 @@ impl Player {
         food::current_xp(&self.survival)
     }
 
-    /// The xp points collected since the last death.
+    /// The xp points collected in all; losing them to death or spending them does not lower it.
     #[doc(alias = "ExperienceManager::getLifetimeTotalXp")]
     pub fn lifetime_total_xp(&self) -> u32 {
         self.survival.xp_lifetime
@@ -402,12 +393,6 @@ impl Player {
     #[doc(alias = "ExperienceManager::canAttractXpOrbs")]
     pub fn can_attract_xp_orbs(&self) -> bool {
         self.survival.custom.attracts_orbs
-    }
-
-    /// The enchanting seed, 0 until the player's first tick draws one.
-    #[doc(alias = "Human::getEnchantmentSeed")]
-    pub fn enchantment_seed(&self) -> i32 {
-        super::enchantment_seed(self)
     }
 
     /// The active effects, in the order of [`effect::Type`].
@@ -510,8 +495,8 @@ impl Player {
     }
 
     /// Whether the player may reach `pos`: within `max_distance` of its eyes, and not more than
-    /// √3/2 blocks behind the plane it looks through (PMMP's default `maxDiff`). False for a
-    /// position or distance that is not finite.
+    /// √3/2 blocks behind the plane it looks through. False for a position or distance that is not
+    /// finite.
     #[doc(alias = "Player::canInteract")]
     pub fn can_interact(&self, pos: Vec3, max_distance: f64) -> bool {
         pos.is_finite()
@@ -557,18 +542,8 @@ impl Player {
         damage::armor_points(self)
     }
 
-    /// The Frost Walker level of the boots the player wears (0 without): moving freezes the
-    /// water around its feet, and magma does not burn it.
-    #[doc(alias = "Living::getFrostWalkerLevel")]
-    pub fn frost_walker_level(&self) -> u32 {
-        let feet = item::ArmorSlot::Feet.index();
-        self.inventory.armor().get(feet).map_or(0, |boots| {
-            u32::from(drops::level(boots, item::Enchantment::FrostWalker))
-        })
-    }
-
     /// Why and from what the player last took damage, kept through a respawn; `None` before its
-    /// first damage in this session. Not saved, as in PMMP.
+    /// first damage in this session. Not saved.
     #[doc(alias = "Entity::getLastDamageCause")]
     pub fn last_damage_cause(&self) -> Option<(DamageCause, DamageSource)> {
         self.survival.last_cause
@@ -625,7 +600,7 @@ impl Player {
 
     /// The flight speed: 0.05 by default; 10 times it is the speed in blocks a tick.
     #[doc(alias = "Player::getFlightSpeedMultiplier")]
-    pub fn flight_speed(&self) -> f32 {
+    pub fn flight_speed(&self) -> f64 {
         self.survival.custom.flight_speed
     }
 
@@ -635,15 +610,10 @@ impl Player {
         self.survival.has_block_collision()
     }
 
-    /// Whether the player sleeps in a bed.
-    #[doc(alias = "Player::isSleeping")]
-    pub fn is_sleeping(&self) -> bool {
-        self.survival.sleeping.is_some()
-    }
-
-    /// The player's own respawn point: the world name and block, set by a bed or
-    /// [`set_spawn`](Self::set_spawn); `None` respawns it at the default world's spawn. A point
-    /// in a world the server does not run counts as none when the player respawns.
+    /// The player's own respawn point: the world name and block, set by
+    /// [`set_spawn`](Self::set_spawn); `None` respawns it at the default world's spawn. A point in
+    /// a world the server does not run, or whose centre lies outside the world border, counts as
+    /// none when the player respawns.
     #[doc(alias = "Player::getSpawn")]
     #[doc(alias = "Player::hasValidCustomSpawn")]
     pub fn spawn(&self) -> Option<(&str, BlockPos)> {
@@ -701,14 +671,14 @@ impl Player {
         self.survival.custom.no_client_predictions
     }
 
-    /// Changes the player's game mode as PMMP does: creative may fly, spectator flies through
-    /// blocks, survival and adventure stop flying; the client and its abilities follow. False,
-    /// changing nothing, if it already has `mode`. The mode is saved; with `force-gamemode` the
-    /// server's mode applies again at the next join.
+    /// Changes the player's game mode: creative may fly, spectator flies through blocks, survival
+    /// and adventure stop flying; the client and its abilities follow. Nothing changes if it
+    /// already has `mode`. The mode is saved; with `force-gamemode` the server's mode applies
+    /// again at the next join.
     #[doc(alias = "Player::setGamemode")]
-    pub fn set_game_mode(&mut self, mode: GameMode) -> bool {
+    pub fn set_game_mode(&mut self, mode: GameMode) {
         if self.game_mode() == mode {
-            return false;
+            return;
         }
         let s = &mut self.survival;
         s.game_mode = Some(mode);
@@ -725,7 +695,6 @@ impl Player {
         self.data_dirty = true;
         let packet = game_type_packet(self, mode);
         self.send_packet(packet);
-        true
     }
 
     /// Sets the health, at most [`max_health`](Self::max_health); 0 or less kills the player as
@@ -752,8 +721,8 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the health without effects; the health above the new maximum is cut (PMMP leaves it
-    /// above, which shows a health bar beyond its end). Not saved, as in PMMP. Fails for 0.
+    /// Sets the health without effects; the health above the new maximum is cut. Not saved. Fails
+    /// for 0.
     #[doc(alias = "Entity::setMaxHealth")]
     #[doc(alias = "Living::setMaxHealth")]
     pub fn set_max_health(&mut self, max: u32) -> Result<()> {
@@ -840,8 +809,8 @@ impl Player {
         Ok(())
     }
 
-    /// Turns food on or off for the player: off, its food and saturation stay as they are.
-    /// Not saved, as in PMMP.
+    /// Turns food on or off for the player: off, its food and saturation stay as they are. Not
+    /// saved.
     #[doc(alias = "HungerManager::setEnabled")]
     pub fn set_food_enabled(&mut self, enabled: bool) {
         self.survival.custom.food = enabled;
@@ -919,12 +888,16 @@ impl Player {
         self.set_xp_level(level)
     }
 
-    /// Takes xp levels, keeping the progress; not below 0. Nothing with
-    /// `xp = false`.
+    /// Takes xp levels, keeping the progress; not below 0. Nothing with `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXpLevels")]
     pub fn subtract_xp_levels(&mut self, levels: u32) {
-        super::subtract_levels(self, levels);
-        self.survival.touch(0);
+        if !self.survival.switches.xp {
+            return;
+        }
+        let s = &mut self.survival;
+        s.xp_level = s.xp_level.saturating_sub(levels);
+        s.touch(LEVEL);
+        self.data_dirty = true;
     }
 
     /// Sets the progress through the level. Fails outside 0 to below 1 (a full bar is the next
@@ -942,8 +915,8 @@ impl Player {
         Ok(())
     }
 
-    /// Adds xp points, raising the level as they fill it (without PMMP's sound); the
-    /// points ever collected stay below 2^31. Nothing with `xp = false`.
+    /// Adds xp points, raising the level as they fill it, without a sound; the points ever
+    /// collected stay within 2^31 - 1. Nothing with `xp = false`.
     #[doc(alias = "ExperienceManager::addXp")]
     pub fn add_xp(&mut self, points: u32) {
         if !self.survival.switches.xp {
@@ -953,8 +926,7 @@ impl Player {
         self.survival.touch(0);
     }
 
-    /// Takes xp points, lowering the level; not below 0. Nothing with
-    /// `xp = false`.
+    /// Takes xp points, lowering the level; not below 0. Nothing with `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXp")]
     pub fn subtract_xp(&mut self, points: u32) {
         if !self.survival.switches.xp {
@@ -981,12 +953,11 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the xp points collected since the last death. Fails above 2^31 - 1, and
-    /// with `xp = false`.
+    /// Sets the xp points collected in all. Fails above 2^31 - 1, and with `xp = false`.
     #[doc(alias = "ExperienceManager::setLifetimeTotalXp")]
     pub fn set_lifetime_total_xp(&mut self, points: u32) -> Result<()> {
         enabled(self.survival.switches.xp)?;
-        if points > i32::MAX.cast_unsigned() {
+        if points > food::MAX_LIFETIME_XP {
             return Err(Error::OutOfRange);
         }
         self.survival.xp_lifetime = points;
@@ -994,32 +965,16 @@ impl Player {
         Ok(())
     }
 
-    /// Lets xp orbs fly to the player, or not. Not saved, as in PMMP.
+    /// Lets xp orbs fly to the player, or not. Not saved.
     #[doc(alias = "ExperienceManager::setCanAttractXpOrbs")]
     pub fn set_can_attract_xp_orbs(&mut self, attracts: bool) {
         self.survival.custom.attracts_orbs = attracts;
     }
 
-    /// Sets the enchanting seed, which picks the enchanting table's offers.
-    #[doc(alias = "Human::setEnchantmentSeed")]
-    pub fn set_enchantment_seed(&mut self, seed: i32) {
-        self.survival.xp_seed = Some(seed);
-        self.data_dirty = true;
-    }
-
-    /// Draws a new enchanting seed on the player's next tick;
-    /// [`enchantment_seed`](Self::enchantment_seed) is 0 until then. Enchanting at a table draws
-    /// the new seed at once.
-    #[doc(alias = "Human::regenerateEnchantmentSeed")]
-    pub fn regenerate_enchantment_seed(&mut self) {
-        self.survival.xp_seed = None;
-        self.data_dirty = true;
-    }
-
     /// Gives the player `effect`: its type, duration, amplifier, particles (shown, faint or
     /// hidden) and whether it never ends all come from the [`Instance`], which
-    /// [`effect::Type::instance`] starts with PMMP's defaults. False if an effect of the type with
-    /// a higher amplifier, or the same amplifier and a longer duration, stays.
+    /// [`effect::Type::instance`] starts with its defaults. False if an effect of the type with a
+    /// higher amplifier, or the same amplifier and a longer duration, stays.
     ///
     /// ```
     /// use anchor::effect;
@@ -1055,7 +1010,7 @@ impl Player {
     /// Ends every effect.
     #[doc(alias = "EffectCollection::clear")]
     pub fn clear_effects(&mut self) {
-        // In effect ID order, as BDS removes them (P6 `syntax` `effect @s clear`).
+        // In effect ID order, as the official server removes them (P6 `syntax` `effect @s clear`).
         for effect in effects::active_types_by_id(&self.survival)
             .into_iter()
             .flatten()
@@ -1065,8 +1020,7 @@ impl Player {
         self.survival.touch(0);
     }
 
-    /// Sets the ticks the player keeps burning; 0 puts the fire out (PMMP `extinguish`, merged:
-    /// a direct call raises no event). Fails above 32,767.
+    /// Sets the ticks the player keeps burning; 0 puts the fire out. Fails above 32,767.
     #[doc(alias = "Entity::setFireTicks")]
     #[doc(alias = "Entity::extinguish")]
     pub fn set_fire_ticks(&mut self, ticks: u32) -> Result<()> {
@@ -1090,8 +1044,8 @@ impl Player {
     }
 
     /// Sets the air supply in ticks; the client and the viewers see it. Fails outside -20 to
-    /// [`max_air_supply_ticks`](Self::max_air_supply_ticks) (PMMP takes any number, which the
-    /// air rules never reach again), and with `drowning = false`.
+    /// [`max_air_supply_ticks`](Self::max_air_supply_ticks) (the air rules never reach another
+    /// number again), and with `drowning = false`.
     #[doc(alias = "Living::setAirSupplyTicks")]
     pub fn set_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
         enabled(self.survival.switches.drowning)?;
@@ -1107,7 +1061,7 @@ impl Player {
     }
 
     /// Sets the full air supply in ticks: the air refills to it, and the air above it is cut.
-    /// Not saved, as in PMMP. Fails outside 1 to 32,767, and with `drowning = false`.
+    /// Not saved. Fails outside 1 to 32,767, and with `drowning = false`.
     #[doc(alias = "Living::setMaxAirSupplyTicks")]
     pub fn set_max_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
         enabled(self.survival.switches.drowning)?;
@@ -1127,9 +1081,9 @@ impl Player {
 
     /// Sets whether the player counts as breathing (the Breathing entity flag); the client and
     /// the viewers see it by the end of the tick. Each tick of a living, spawned player sets it
-    /// again from whether it can breathe, as BDS does, so it holds only while the player does not
-    /// tick; the air refills or drops whatever this says. Nothing with `drowning = false`: the
-    /// player then always breathes.
+    /// again from whether it can breathe, as the official server does, so it holds only while the
+    /// player does not tick; the air refills or drops whatever this says. Nothing with
+    /// `drowning = false`: the player then always breathes.
     #[doc(alias = "Living::setBreathing")]
     pub fn set_breathing(&mut self, breathing: bool) {
         if self.survival.switches.drowning {
@@ -1161,8 +1115,7 @@ impl Player {
     /// Turns the player to `yaw` and `pitch` in degrees, kept to float precision as the client
     /// sends them: [`yaw`](Self::yaw) and [`pitch`](Self::pitch) read the new rotation at once,
     /// and by the end of the tick the client and the viewers see it, in the tick's teleport if
-    /// there is one (BDS `/tp` with a rotation). Fails for a rotation
-    /// [`is_rotation`](Self::is_rotation) refuses.
+    /// there is one. Fails for a rotation [`is_rotation`](Self::is_rotation) refuses.
     #[doc(alias = "Entity::setRotation")]
     pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> Result<()> {
         if !Self::is_rotation(yaw, pitch) {
@@ -1175,7 +1128,7 @@ impl Player {
     }
 
     /// Makes the player sneak, or not, for it and its viewers, until the client reports a
-    /// change (the client owns its input, as in PMMP).
+    /// change (the client owns its input).
     #[doc(alias = "Living::setSneaking")]
     pub fn set_sneaking(&mut self, sneaking: bool) {
         self.survival.motion.sneaking = sneaking;
@@ -1204,10 +1157,9 @@ impl Player {
         self.survival.touch(DATA);
     }
 
-    /// Sets the movement speed before sprinting and effects; the client walks at it. PMMP sets
-    /// the attribute with sprinting and effects in it, which drifts as they change; Anchor works
-    /// the speed out from the base. Not saved, as in PMMP. Fails for a speed that is negative,
-    /// above `f32::MAX` or not finite.
+    /// Sets the movement speed before sprinting and effects; the client walks at it. The speed
+    /// with sprinting and effects is worked out from this base each time. Not saved. Fails for a
+    /// speed that is negative, above `f32::MAX` or not finite.
     #[doc(alias = "Living::setMovementSpeed")]
     pub fn set_movement_speed(&mut self, speed: f64) -> Result<()> {
         within(speed, 0.0..=f64::from(f32::MAX))?;
@@ -1223,21 +1175,21 @@ impl Player {
         self.survival.last_cause = cause;
     }
 
-    /// Lets the player climb ladders and vines, or not. Not saved, as in PMMP.
+    /// Lets the player climb ladders and vines, or not. Not saved.
     #[doc(alias = "Entity::setCanClimb")]
     pub fn set_can_climb(&mut self, can: bool) {
         self.survival.custom.can_climb = can;
         self.survival.touch(DATA);
     }
 
-    /// Lets the player climb any wall, or not. Not saved, as in PMMP.
+    /// Lets the player climb any wall, or not. Not saved.
     #[doc(alias = "Entity::setCanClimbWalls")]
     pub fn set_can_climb_walls(&mut self, can: bool) {
         self.survival.custom.can_climb_walls = can;
         self.survival.touch(DATA);
     }
 
-    /// Lets the client jump up blocks by itself, or not. Not saved, as in PMMP.
+    /// Lets the client jump up blocks by itself, or not. Not saved.
     #[doc(alias = "Player::setAutoJump")]
     pub fn set_auto_jump(&mut self, auto_jump: bool) {
         let s = &mut self.survival;
@@ -1248,9 +1200,8 @@ impl Player {
     }
 
     /// Pushes the player: its client moves it by `motion` blocks a tick, and its viewers see
-    /// it, at the end of the tick (PMMP `Player::setMotion`; players have no server-side motion,
-    /// as with knockback). A second call in the tick wins. Fails for a motion that is not
-    /// finite.
+    /// it, at the end of the tick. Players have no server-side motion, as with knockback, so no
+    /// call reads one. A second call in the tick wins. Fails for a motion that is not finite.
     #[doc(alias = "Player::setMotion")]
     pub fn set_motion(&mut self, motion: Vec3) -> Result<()> {
         if !motion.is_finite() {
@@ -1311,12 +1262,10 @@ impl Player {
     }
 
     /// Sets the flight speed; 0 stops horizontal flight and a negative speed reverses the
-    /// controls. Fails for a value that is not finite.
+    /// controls. Fails for a speed that is not finite or beyond what `f32` holds.
     #[doc(alias = "Player::setFlightSpeedMultiplier")]
-    pub fn set_flight_speed(&mut self, speed: f32) -> Result<()> {
-        if !speed.is_finite() {
-            return Err(Error::OutOfRange);
-        }
+    pub fn set_flight_speed(&mut self, speed: f64) -> Result<()> {
+        within(speed, -f64::from(f32::MAX)..=f64::from(f32::MAX))?;
         let s = &mut self.survival;
         if s.custom.flight_speed.to_bits() != speed.to_bits() {
             s.custom.flight_speed = speed;
@@ -1326,7 +1275,7 @@ impl Player {
     }
 
     /// Lets the player move through blocks, or not, until its game mode changes. Without block
-    /// collision the client flies, as PMMP makes it.
+    /// collision the client flies.
     #[doc(alias = "Player::setHasBlockCollision")]
     pub fn set_block_collision(&mut self, collision: bool) {
         let s = &mut self.survival;
@@ -1336,19 +1285,9 @@ impl Player {
         }
     }
 
-    /// Gets the player out of its bed by the end of the tick, freeing the bed. False if it does
-    /// not sleep.
-    #[doc(alias = "Player::stopSleep")]
-    pub fn stop_sleep(&mut self) -> bool {
-        if self.survival.sleeping.is_none() {
-            return false;
-        }
-        self.survival.custom.wake = true;
-        true
-    }
-
     /// Sets or clears the player's respawn point: a world name and the block to respawn on. It is
-    /// saved. Fails for a world name longer than 250 bytes, which no world has.
+    /// saved. A block whose centre lies outside the world border counts as none when the player
+    /// respawns. Fails for a world name longer than 250 bytes, which no world has.
     #[doc(alias = "Player::setSpawn")]
     pub fn set_spawn(&mut self, spawn: Option<(&str, BlockPos)>) -> Result<()> {
         self.survival.spawn = point(spawn)?;
@@ -1366,8 +1305,8 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the name shown above the player, for it and its viewers. Not saved, as in PMMP.
-    /// Fails for a tag longer than 65,536 bytes.
+    /// Sets the name shown above the player, for it and its viewers. Not saved. Fails for a tag
+    /// longer than 65,536 bytes.
     #[doc(alias = "Entity::setNameTag")]
     pub fn set_name_tag(&mut self, tag: impl Into<String>) -> Result<()> {
         let tag = tag.into();
@@ -1422,8 +1361,7 @@ impl Context<'_> {
         self.item_cooldown_expiry(player, item).is_some()
     }
 
-    /// The engine tick ([`Context::tick`]) `item`'s cooldown for `player` ends at, while it
-    /// runs (PMMP returns 0 for none).
+    /// The engine tick ([`Context::tick`]) `item`'s cooldown for `player` ends at, while it runs.
     #[doc(alias = "Player::getItemCooldownExpiry")]
     pub fn item_cooldown_expiry(&self, player: Id, item: item::Type) -> Option<u64> {
         let p = self.state.players.get(&player.session())?;
@@ -1459,11 +1397,10 @@ impl Context<'_> {
     }
 
     /// The blocks `player` looks through, from its eyes along its look for at most
-    /// `max_distance` blocks (at most 120), up to and with the first block that is not air
-    /// (PMMP `Living::getLineOfSight` with no transparent list); only the last `max_length`
-    /// unless it is 0. Blocks of chunks that are not loaded and positions above or below the
-    /// world count as air; blocks only clients know stop the look, as clients show them. Empty
-    /// if the player is gone.
+    /// `max_distance` blocks (at most 120), up to and with the first block that is not air; only
+    /// the last `max_length` unless it is 0. Blocks of chunks that are not loaded and positions
+    /// above or below the world count as air; blocks only clients know stop the look, as clients
+    /// show them. It does not tell which face the look hits. Empty if the player is gone.
     #[doc(alias = "Living::getLineOfSight")]
     pub fn line_of_sight(&self, player: Id, max_distance: u32, max_length: usize) -> Vec<BlockPos> {
         let Some(p) = self.state.players.get(&player.session()) else {
@@ -1478,8 +1415,8 @@ impl Context<'_> {
     }
 
     /// The block `player` looks at within `max_distance` blocks (at most 120): the first that is
-    /// not air, or the last block in reach if all are air (PMMP `Living::getTargetBlock`), by
-    /// the rules of [`line_of_sight`](Self::line_of_sight). `None` if the player is gone.
+    /// not air, or the last block in reach if all are air, by the rules of
+    /// [`line_of_sight`](Self::line_of_sight). `None` if the player is gone.
     #[doc(alias = "Living::getTargetBlock")]
     pub fn target_block(&self, player: Id, max_distance: u32) -> Option<BlockPos> {
         let p = self.state.players.get(&player.session())?;
@@ -1489,7 +1426,7 @@ impl Context<'_> {
     }
 
     /// Starts `item`'s cooldown for `player` again: `ticks` long, or the item's own cooldown for
-    /// `None`; the client shows it. Items sharing a cooldown (PMMP's cooldown tag) share it.
+    /// `None`; the client shows it, up to 2^31 - 1 ticks. Items sharing a cooldown tag share it.
     /// False, starting nothing, if the player is gone or the cooldown would be 0 ticks.
     #[doc(alias = "Player::resetItemCooldown")]
     pub fn reset_item_cooldown(
@@ -1510,10 +1447,10 @@ impl Context<'_> {
         true
     }
 
-    /// Makes `player` drop `stack` as Q does (PMMP `Player::dropItem`): it leaves below its eyes
-    /// along its look, may be picked up after 40 ticks, and the viewers see the arm swing. The
-    /// stack does not come from the inventory. `Err` gives the stack back when it is empty, the
-    /// player is gone or not spawned, or the world is at its entity limit.
+    /// Makes `player` drop `stack` as Q does: it leaves below its eyes along its look, may be
+    /// picked up after 40 ticks, and the viewers see the arm swing. The stack does not come from
+    /// the inventory. `Err` gives the stack back when it is empty, the player is gone or not
+    /// spawned, or the world is at its entity limit.
     #[doc(alias = "Player::dropItem")]
     pub fn drop_from(&mut self, player: Id, stack: Stack) -> std::result::Result<(), Stack> {
         let session = player.session();
@@ -1533,23 +1470,13 @@ impl Context<'_> {
         }
     }
 
-    /// Puts `player` to sleep in the bed at `pos` in its world, night or day and however far
-    /// (PMMP `Player::sleepOn`, without its event: a direct call raises none): the bed shows
-    /// occupied and becomes its respawn point. False unless the player is spawned, alive and
-    /// awake and `pos` is a half of a whole bed nobody sleeps in; always false with
-    /// `beds = false`.
-    #[doc(alias = "Player::sleepOn")]
-    pub fn sleep_on(&mut self, player: Id, pos: BlockPos) -> bool {
-        super::clock::sleep_on(self.state, player.session(), pos)
-    }
-
     /// Hurts `player` by `amount` half hearts as [`Mut::attack`](crate::entity::Mut::attack)
-    /// hurts an entity (PMMP `Player::attack` with `CAUSE_CUSTOM`, without the event): armour,
-    /// effects, invulnerability and the game mode count, within the hit cooldown only a stronger
-    /// hit lands (its difference), and a hit that starts the cooldown shows the hurt animation. A
-    /// death follows at the end of the tick with the generic death message. False if no damage
-    /// was taken, as for a player gone or not spawned, or an amount that is below 0, above
-    /// [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) or not finite.
+    /// hurts an entity, without the event: armour, effects, invulnerability and the game mode
+    /// count, within the hit cooldown only a stronger hit lands (its difference), and a hit that
+    /// starts the cooldown shows the hurt animation. A death follows at the end of the tick with
+    /// the generic death message. False if no damage was taken, as for a player gone or not
+    /// spawned, or an amount that is below 0, above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) or
+    /// not finite.
     #[doc(alias = "Player::attack")]
     pub fn attack_player(&mut self, player: Id, amount: f64) -> bool {
         damage::damage_quiet(self.state, player.session(), amount, damage::Damage::Custom)
@@ -1563,7 +1490,6 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
     player.phase == Phase::Spawned
         && (c.killed
             || c.respawn
-            || c.wake
             || c.touched
             || c.skin
             || c.motion.is_some()
@@ -1571,11 +1497,11 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
             || c.turned)
 }
 
-/// The marks of a spawned player's survival state at the end of the tick: an API death drops its
-/// items, a respawn and a wake happen, and the attributes and entity data changed since the rules'
-/// flush are sent. These are the game's own steps in the tick's serial phase, so they raise their
-/// events (the call raised none, what follows from it does). A changed skin is left marked for
-/// [`appearance::send_skins`].
+/// Applies the marks of a spawned player's survival state at the end of the tick: an API death
+/// drops its items, a respawn happens, and the attributes and entity data changed since the
+/// rules' flush are sent. These are the game's own steps in the tick's serial phase, so they raise
+/// their events (the call raised none, what follows from it does). A changed skin is left marked
+/// for [`appearance::send_skins`].
 pub(in crate::tick) fn sync(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -1584,10 +1510,9 @@ pub(in crate::tick) fn sync(state: &mut State, session: SessionId) {
         return;
     }
     let c = &mut player.survival.custom;
-    let (killed, respawn, wake, touched) = (
+    let (killed, respawn, touched) = (
         std::mem::take(&mut c.killed),
         std::mem::take(&mut c.respawn),
-        std::mem::take(&mut c.wake),
         std::mem::take(&mut c.touched),
     );
     let (motion, emote) = (c.motion.take(), c.emote.take());
@@ -1615,17 +1540,14 @@ pub(in crate::tick) fn sync(state: &mut State, session: SessionId) {
     if respawn {
         damage::respawn(state, session);
     }
-    if wake {
-        super::clock::wake(state, session);
-    }
-    if killed || respawn || wake || touched {
+    if killed || respawn || touched {
         attributes::flush_one(state, session);
     }
 }
 
-/// The packet that tells `player` its new game `mode`, as BDS sends it: `UpdatePlayerGameType`
-/// with the player's own unique ID (P6; PMMP sends `SetPlayerGameType`). The client ignores it for
-/// another player's ID, so only the player gets it.
+/// The packet that tells `player` its new game `mode`, as the official server sends it:
+/// `UpdatePlayerGameType` with the player's own unique ID (P6). The client ignores it for another
+/// player's ID, so only the player gets it.
 pub(super) fn game_type_packet(player: &Player, mode: GameMode) -> Packet {
     Packet::UpdatePlayerGameType(UpdatePlayerGameType {
         game_type: super::saved::game_mode_id(mode),
@@ -1666,8 +1588,7 @@ fn point(at: Option<(&str, BlockPos)>) -> Result<Option<Point>> {
 
 /// Calls `visit` with the blocks `player` looks through, from its eyes along its look for at most
 /// `max_distance` blocks (at most [`MAX_SIGHT`]), in order, up to and with the first block that
-/// stops the look (PMMP `VoxelRayTrace::inDirection`, the entity rules'
-/// [`entity::cells_along`]). Air, chunks that are not loaded and positions above or below the
+/// stops the look ([`entity::cells_along`]). Air, chunks that are not loaded and positions above or below the
 /// world let the look through; every other block stops it, blocks only clients know included.
 fn look(state: &State, player: &Player, max_distance: u32, mut visit: impl FnMut(BlockPos)) {
     let world = state.worlds.get(player.world);
@@ -1695,19 +1616,18 @@ mod tests {
     use crate::tick::player::tests::{player_mut, run, two};
     use crate::tick::tests::received;
 
-    /// A game mode change that starts or stops flight forgets the fall, as `set_flying` does
-    /// (PMMP `Player::setFlying`).
+    /// A game mode change that starts or stops flight forgets the fall, as `set_flying` does.
     #[test]
     fn a_game_mode_change_of_flight_forgets_the_fall() {
         let (mut state, _rx) = two();
         let p = player_mut(&mut state, 1);
-        assert!(p.set_game_mode(GameMode::Creative));
+        p.set_game_mode(GameMode::Creative);
         p.set_flying(true);
         p.survival.fall_distance = 30.0;
-        assert!(p.set_game_mode(GameMode::Survival));
+        p.set_game_mode(GameMode::Survival);
         assert_eq!(p.fall_distance(), 0.0);
         p.survival.fall_distance = 30.0;
-        assert!(p.set_game_mode(GameMode::Spectator));
+        p.set_game_mode(GameMode::Spectator);
         assert_eq!(p.fall_distance(), 0.0);
     }
 
@@ -1731,8 +1651,10 @@ mod tests {
         let p = player_mut(&mut state, 1);
         assert_eq!(p.game_mode(), GameMode::Survival);
         assert!(p.is_survival() && p.has_finite_resources() && !p.allow_flight());
-        assert!(!p.set_game_mode(GameMode::Survival), "already survival");
-        assert!(p.set_game_mode(GameMode::Creative));
+        p.data_dirty = false;
+        p.set_game_mode(GameMode::Survival);
+        assert!(!p.data_dirty, "already survival changes nothing");
+        p.set_game_mode(GameMode::Creative);
         assert!(p.is_creative() && !p.has_finite_resources() && p.allow_flight());
         run(&mut state, Vec::new());
         let got = received(&mut rx1).0;
@@ -1746,7 +1668,9 @@ mod tests {
                     );
                     Some(g.game_type)
                 }
-                Packet::SetPlayerGameType(_) => panic!("BDS sends UpdatePlayerGameType"),
+                Packet::SetPlayerGameType(_) => {
+                    panic!("the game type goes in UpdatePlayerGameType")
+                }
                 _ => None,
             })
             .collect();
@@ -1754,11 +1678,11 @@ mod tests {
         let (values, _, _) = abilities(&got).expect("abilities sent");
         assert!(values.contains(Ability::MayFly) && values.contains(Ability::InstantBuild));
         let p = player_mut(&mut state, 1);
-        assert!(p.set_game_mode(GameMode::Adventure));
+        p.set_game_mode(GameMode::Adventure);
         assert!(p.is_adventure() && p.is_survival());
-        assert!(p.set_game_mode(GameMode::Spectator));
+        p.set_game_mode(GameMode::Spectator);
         assert!(p.is_spectator() && p.is_flying() && !p.has_block_collision());
-        assert!(p.set_game_mode(GameMode::Survival));
+        p.set_game_mode(GameMode::Survival);
         assert!(!p.is_flying() && p.has_block_collision());
         assert!(state.players.values().next().unwrap().data_dirty);
     }
@@ -1991,7 +1915,7 @@ mod tests {
     fn an_exhaustion_the_api_set_survives_a_save_and_load() {
         let (mut state, _rx) = two();
         let p = player_mut(&mut state, 1);
-        assert!(p.set_game_mode(GameMode::Creative));
+        p.set_game_mode(GameMode::Creative);
         p.set_exhaustion(10.0).unwrap();
         run(&mut state, Vec::new());
         let p = player_mut(&mut state, 1);
@@ -2012,10 +1936,9 @@ mod tests {
     // api: ExperienceManager::getXpProgress, ExperienceManager::setXpProgress,
     // api: ExperienceManager::addXp, ExperienceManager::subtractXp,
     // api: ExperienceManager::getCurrentTotalXp, ExperienceManager::setCurrentTotalXp,
-    // api: ExperienceManager::getLifetimeTotalXp, Human::getEnchantmentSeed,
-    // api: Human::setEnchantmentSeed, Human::regenerateEnchantmentSeed
+    // api: ExperienceManager::getLifetimeTotalXp
     #[test]
-    fn xp_and_the_enchanting_seed_follow_pmmp() {
+    fn xp_levels_and_points_are_set_and_taken_within_their_bounds() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
         p.add_xp(1395);
@@ -2034,7 +1957,10 @@ mod tests {
         p.set_xp_progress(0.5).unwrap();
         assert_eq!(p.xp_progress(), 0.5);
         assert_eq!(p.set_current_total_xp(u32::MAX), Err(Error::OutOfRange));
-        assert_eq!(p.set_lifetime_total_xp(1 << 31), Err(Error::OutOfRange));
+        assert_eq!(
+            p.set_lifetime_total_xp(food::MAX_LIFETIME_XP + 1),
+            Err(Error::OutOfRange)
+        );
         assert_eq!(
             (p.xp_level(), p.xp_progress()),
             (0, 0.5),
@@ -2052,12 +1978,7 @@ mod tests {
         assert_eq!(p.xp_level(), 24_791, "the points held can be set again");
         p.set_current_total_xp(7).unwrap();
         assert_eq!((p.xp_level(), p.xp_progress()), (1, 0.0));
-        p.set_enchantment_seed(42);
-        assert_eq!(p.enchantment_seed(), 42);
-        p.regenerate_enchantment_seed();
-        assert_eq!(p.enchantment_seed(), 0);
         run(&mut state, Vec::new());
-        assert_ne!(state.players.values().next().unwrap().enchantment_seed(), 0);
         let got = received(&mut rx1).0;
         assert_eq!(
             attribute(&got, "minecraft:player.level").map(|a| a.0),
@@ -2069,7 +1990,7 @@ mod tests {
     // api: EffectCollection::has, EffectManager::add, EffectCollection::add,
     // api: EffectManager::remove, EffectCollection::remove, EffectCollection::clear
     #[test]
-    fn effects_are_added_read_and_removed_as_pmmp() {
+    fn effects_are_added_read_and_removed() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
         let speed = effect::Type::Speed.instance().with_duration_ticks(200);
@@ -2108,9 +2029,9 @@ mod tests {
     }
 
     // api: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite
-    /// An instance's particles, faint particles and endless duration reach the player as BDS
-    /// sends `/effect <player> resistance 600 255 true` (P6 `potions`: `MobEffect` with
-    /// `Particles` false, key 131 still 0) and as PMMP packs the visible effects.
+    /// An instance's particles, faint particles and endless duration reach the player as the
+    /// official server sends `/effect <player> resistance 600 255 true` (P6 `potions`: `MobEffect`
+    /// with `Particles` false, key 131 still 0).
     #[test]
     fn effects_keep_their_particles_and_endless_duration() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2249,10 +2170,11 @@ mod tests {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
         assert!(!p.allow_flight() && !p.is_flying() && p.has_block_collision());
-        assert_eq!(p.flight_speed(), ABILITY_BASE_FLY_SPEED);
+        assert_eq!(p.flight_speed(), f64::from(ABILITY_BASE_FLY_SPEED));
         p.set_allow_flight(true);
         p.set_flying(true);
-        assert_eq!(p.set_flight_speed(f32::NAN), Err(Error::OutOfRange));
+        assert_eq!(p.set_flight_speed(f64::NAN), Err(Error::OutOfRange));
+        assert_eq!(p.set_flight_speed(1e39), Err(Error::OutOfRange));
         p.set_flight_speed(0.1).unwrap();
         p.set_block_collision(false);
         assert!(p.allow_flight() && p.is_flying() && !p.has_block_collision());
@@ -2264,7 +2186,7 @@ mod tests {
         assert_eq!(
             (speed, layers),
             (0.1, 2),
-            "PMMP's spectator layer without collision"
+            "the spectator layer without collision"
         );
         let p = player_mut(&mut state, 1);
         p.set_allow_flight(false);
@@ -2384,7 +2306,7 @@ mod tests {
         p.set_air_supply_ticks(50).unwrap();
         p.set_breathing(false);
         run(&mut state, Vec::new());
-        // Out of water: breathing again and 4 ticks of air back each tick (BDS).
+        // Out of water: breathing again and 4 ticks of air back each tick.
         let p = player_mut(&mut state, 1);
         assert_eq!(p.air_supply_ticks(), 54);
         assert!(p.is_breathing());
@@ -2451,7 +2373,7 @@ mod tests {
         // Level 1 needs 7 points: 3 into it.
         assert_eq!((p.xp_level(), p.remainder_xp()), (1, 3));
         assert_eq!(
-            p.set_lifetime_total_xp(i32::MAX.cast_unsigned() + 1),
+            p.set_lifetime_total_xp(food::MAX_LIFETIME_XP + 1),
             Err(Error::OutOfRange)
         );
         p.set_lifetime_total_xp(500).unwrap();

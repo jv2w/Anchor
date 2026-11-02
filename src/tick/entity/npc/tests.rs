@@ -110,11 +110,9 @@ fn npcs_save_and_load_with_their_offers_byte_identically() {
 }
 
 fn zombie(h: &mut Harness, pos: Vec3) -> Id {
-    crate::tick::Context {
-        state: &mut h.state,
-    }
-    .spawn_zombie(crate::world::Id::DEFAULT, pos)
-    .unwrap()
+    h.context()
+        .spawn_zombie(crate::world::Id::DEFAULT, pos)
+        .unwrap()
 }
 
 #[test]
@@ -126,12 +124,13 @@ fn villager_human_and_zombie_npcs_keep_their_custom_data_through_a_save() {
         zombie(&mut h, at(5.5, -60.0, 1.5)),
     ];
     let mark = Compound::from([("npc".to_owned(), Value::String("enforce".to_owned()))]);
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     for id in npcs {
         assert_eq!(cx.entity(id).unwrap().custom_data(), Some(&Compound::new()));
-        assert!(cx.entity_mut(id).unwrap().set_custom_data(mark.clone()));
+        cx.entity_mut(id)
+            .unwrap()
+            .set_custom_data(mark.clone())
+            .unwrap();
         assert_eq!(cx.entity(id).unwrap().custom_data(), Some(&mark));
     }
     let key = (0, ChunkPos::new(0, 0));
@@ -158,8 +157,7 @@ fn open(_: &mut State, _: SessionId, _: Id) -> bool {
 // api: Player::interactEntity
 #[test]
 fn interacting_with_a_villager_in_reach_opens_trading() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let near = villager(&mut h, at(2.5, -60.0, 0.5));
     let far = villager(&mut h, at(12.5, -60.0, 0.5));
     let guide = human(&mut h, at(0.5, -60.0, 2.5), "Guide");
@@ -206,9 +204,8 @@ fn e_runtime(h: &Harness, id: Id) -> u64 {
 
 // api: Player::attackEntity
 #[test]
-fn hits_on_npcs_follow_pmmps_living_rules() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
+    let mut h = Harness::with_player();
     let s = SessionId::new(1);
     calls(|c| c.look = (270.0, 0.0));
     let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
@@ -237,7 +234,7 @@ fn hits_on_npcs_follow_pmmps_living_rules() {
     );
     h.entities();
     let runtime_id = e_runtime(&h, guide);
-    // The hurt event carries BDS's cause number, 2 for an attack (P6).
+    // The hurt event carries the official server's cause number, 2 for an attack (P6).
     let hurt = h.take(1).iter().any(|p| {
         matches!(p,
         Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id
@@ -286,9 +283,8 @@ fn hits_on_npcs_follow_pmmps_living_rules() {
 
 // api: EntityDamageEvent
 /// A player's hit on an invulnerable NPC raises [`crate::event::EntityDamage`] already cancelled.
-/// The event names the attacker (PMMP raises the event of a hit that does not land cancelled);
-/// the NPC takes nothing, whatever the listeners do. A hit by nothing, such as a fall, raises
-/// nothing.
+/// The event names the attacker; the NPC takes nothing, whatever the listeners do. A hit by
+/// nothing, such as a fall, raises nothing.
 #[test]
 fn a_hit_on_an_invulnerable_npc_raises_a_cancelled_damage_event() {
     use crate::event::{Actor, DamageCause, EntityDamage};
@@ -331,8 +327,7 @@ fn a_hit_on_an_invulnerable_npc_raises_a_cancelled_damage_event() {
 /// on the NPC; a hit out of reach swings and sounds empty.
 #[test]
 fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     h.spawn(2, standing(0.0, 3.0));
     let s = SessionId::new(1);
     calls(|c| c.look = (270.0, 0.0));
@@ -400,8 +395,7 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
 /// A hit on an entity in another world than the player's is not swung at or heard.
 #[test]
 fn a_hit_on_an_entity_in_another_world_is_not_swung_at_or_heard() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     h.spawn(2, standing(0.0, 3.0));
     calls(|c| c.look = (270.0, 0.0));
     let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
@@ -445,8 +439,7 @@ fn a_listener_sets_an_npcs_hit_cooldown_beyond_255_ticks() {
 // api: Zombie, Zombie::getName, Zombie::getNetworkTypeId
 #[test]
 fn a_zombie_is_an_ai_less_living_mob_that_takes_damage() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     h.take(1);
     let z = zombie(&mut h, at(2.5, -57.0, 0.5));
     let e = h.state.rules.entities.get(z).unwrap();
@@ -470,12 +463,7 @@ fn a_zombie_is_an_ai_less_living_mob_that_takes_damage() {
         .iter()
         .any(|p| matches!(p, Packet::AddActor(a) if a.entity_type == "minecraft:zombie"));
     assert!(added);
-    crate::tick::Context {
-        state: &mut h.state,
-    }
-    .entity_mut(z)
-    .unwrap()
-    .attack(5.0);
+    h.context().entity_mut(z).unwrap().attack(5.0);
     assert_eq!(health(&h, z), 15.0);
 }
 
@@ -505,17 +493,14 @@ fn loot(h: &Harness) -> (u32, u32, u32) {
 
 #[test]
 fn dead_zombies_drop_rotten_flesh_sometimes_a_rare_item_and_five_xp() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let count = 400;
     let mut zombies = Vec::new();
     for i in 0..count {
         let (x, z) = (f64::from(i % 20) - 10.0, f64::from(i / 20) - 10.0);
         zombies.push(zombie(&mut h, at(x + 0.5, -60.0, z + 0.5)));
     }
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     for &z in &zombies {
         cx.entity_mut(z).unwrap().kill();
     }
@@ -526,7 +511,7 @@ fn dead_zombies_drop_rotten_flesh_sometimes_a_rare_item_and_five_xp() {
     );
     h.entities();
     let (flesh, rare, xp) = loot(&h);
-    // PMMP: 0 to 2 flesh each (1 on average), a rare item with a 5 in 200 chance.
+    // 0 to 2 flesh each (1 on average), a rare item with a 5 in 200 chance.
     assert!((300..=500).contains(&flesh), "{flesh}");
     assert!((2..=25).contains(&rare), "{rare}");
     assert_eq!(xp, 5 * count);
@@ -550,12 +535,7 @@ fn a_death_listener_sees_and_changes_a_zombies_drops() {
     let mut h = Harness::with_listeners(1, l);
     h.spawn(1, standing(0.0, 0.0));
     let z = zombie(&mut h, at(2.5, -60.0, 0.5));
-    crate::tick::Context {
-        state: &mut h.state,
-    }
-    .entity_mut(z)
-    .unwrap()
-    .kill();
+    h.context().entity_mut(z).unwrap().kill();
     h.entities();
     assert_eq!(loot(&h), (0, 0, 0));
 }
@@ -575,12 +555,7 @@ fn without_xp_a_zombie_death_names_and_drops_no_xp() {
     h.state.settings.xp = false;
     h.spawn(1, standing(0.0, 0.0));
     let z = zombie(&mut h, at(2.5, -60.0, 0.5));
-    crate::tick::Context {
-        state: &mut h.state,
-    }
-    .entity_mut(z)
-    .unwrap()
-    .kill();
+    h.context().entity_mut(z).unwrap().kill();
     h.entities();
     assert_eq!(rx.try_recv(), Ok(0));
     assert_eq!(loot(&h).2, 0);
@@ -595,22 +570,19 @@ fn shown_baby(h: &Harness, id: Id) -> bool {
 // api: entity\Ageable, entity\Ageable::isBaby, Villager::isBaby
 #[test]
 fn villagers_and_zombies_can_be_babies_and_viewers_see_it() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let trader = villager(&mut h, at(2.5, -60.0, 0.5));
     let walker = zombie(&mut h, at(3.5, -60.0, 0.5));
     let guide = human(&mut h, at(4.5, -60.0, 0.5), "Guide");
     h.entities();
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     for id in [trader, walker] {
         assert!(!cx.entity(id).unwrap().is_baby());
-        assert!(cx.entity_mut(id).unwrap().set_baby(true));
+        cx.entity_mut(id).unwrap().set_baby(true).unwrap();
         assert!(cx.entity(id).unwrap().is_baby());
     }
     assert!(
-        !cx.entity_mut(guide).unwrap().set_baby(true),
+        cx.entity_mut(guide).unwrap().set_baby(true).is_err(),
         "humans grow up"
     );
     assert!(!cx.entity(guide).unwrap().is_baby());
@@ -628,10 +600,8 @@ fn villagers_and_zombies_can_be_babies_and_viewers_see_it() {
         })
         .count();
     assert_eq!(sent, 2);
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
-    assert!(cx.entity_mut(walker).unwrap().set_baby(false));
+    let mut cx = h.context();
+    cx.entity_mut(walker).unwrap().set_baby(false).unwrap();
     assert!(!cx.entity(walker).unwrap().is_baby());
 }
 
@@ -640,11 +610,9 @@ fn baby_zombies_and_villagers_survive_a_checkpoint() {
     let mut h = Harness::new(1);
     let v = villager(&mut h, at(2.5, -60.0, 0.5));
     let z = zombie(&mut h, at(3.5, -60.0, 0.5));
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     for id in [v, z] {
-        assert!(cx.entity_mut(id).unwrap().set_baby(true));
+        cx.entity_mut(id).unwrap().set_baby(true).unwrap();
     }
     h.entities();
     let mut fresh = crate::tick::tests::new_state(
@@ -668,8 +636,7 @@ fn baby_zombies_and_villagers_survive_a_checkpoint() {
 
 #[test]
 fn npcs_leave_farmland_as_it_is_and_take_fall_damage_when_they_land() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let soil = BlockPos::new(5, -61, 5);
     let farmland = named("minecraft:farmland");
     h.state.worlds[0].set_block(soil, farmland).unwrap();
@@ -694,8 +661,7 @@ fn offers_mut(h: &mut Harness, v: Id) -> &mut Offers {
 
 #[test]
 fn a_trade_sends_the_villagers_viewers_the_keys_it_changed() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let v = villager(&mut h, at(2.5, -60.0, 0.5));
     h.entities();
     h.take(1);
@@ -738,8 +704,7 @@ fn a_trade_sends_the_villagers_viewers_the_keys_it_changed() {
 
 #[test]
 fn npcs_are_shown_as_their_actor_and_humans_through_the_player_list() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     h.take(1);
     let v = villager(&mut h, at(2.5, -60.0, 0.5));
     let g = human(&mut h, at(4.5, -60.0, 0.5), "Guide");
@@ -753,7 +718,7 @@ fn npcs_are_shown_as_their_actor_and_humans_through_the_player_list() {
     });
     let actor = actor.unwrap();
     assert_eq!(actor.entity_type, "minecraft:villager_v2");
-    // BDS `villager_v2` (P6 `trade`): the variant, tier 0 of 4, no xp, skin 0.
+    // The official server's `villager_v2` (P6 `trade`): the variant, tier 0 of 4, no xp, skin 0.
     for (key, value) in [
         (K::Variant, 4),
         (K::TradeTier, 0),
@@ -784,20 +749,20 @@ fn npcs_are_shown_as_their_actor_and_humans_through_the_player_list() {
 /// it when it changes. Other kinds hold nothing.
 #[test]
 fn an_npcs_held_item_shows_to_its_viewers_and_is_saved() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     h.take(1);
     let v = villager(&mut h, at(2.5, -60.0, 0.5));
     let g = human(&mut h, at(4.5, -60.0, 0.5), "Guide");
     let sword = stack("minecraft:diamond_sword", 1);
     h.entities();
     h.take(1);
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     assert_eq!(cx.entity(v).unwrap().held_item(), Some(&Stack::EMPTY));
     for id in [v, g] {
-        assert!(cx.entity_mut(id).unwrap().set_held_item(sword.clone()));
+        cx.entity_mut(id)
+            .unwrap()
+            .set_held_item(sword.clone())
+            .unwrap();
         assert_eq!(cx.entity(id).unwrap().held_item(), Some(&sword));
     }
     h.entities();
@@ -835,10 +800,11 @@ fn an_npcs_held_item_shows_to_its_viewers_and_is_saved() {
     assert!(add.is_some() && add < equipment, "after its actor");
     assert_eq!(held(&packets, vr), std::slice::from_ref(&sword));
     assert_eq!(held(&packets, gr), std::slice::from_ref(&sword));
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
-    assert!(cx.entity_mut(v).unwrap().set_held_item(Stack::EMPTY));
+    let mut cx = h.context();
+    cx.entity_mut(v)
+        .unwrap()
+        .set_held_item(Stack::EMPTY)
+        .unwrap();
     h.entities();
     assert_eq!(held(&h.take(1), vr), [Stack::EMPTY], "emptied");
     h.entities();
@@ -868,19 +834,21 @@ fn an_npcs_held_item_shows_to_its_viewers_and_is_saved() {
         .ids()
         .find(|&id| matches!(entities.get(id).unwrap().kind, Kind::Item(_)))
         .unwrap();
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     assert_eq!(cx.entity(item).unwrap().held_item(), None);
-    assert!(!cx.entity_mut(item).unwrap().set_held_item(Stack::EMPTY));
+    assert!(
+        cx.entity_mut(item)
+            .unwrap()
+            .set_held_item(Stack::EMPTY)
+            .is_err()
+    );
 }
 
 /// The hurt event of an NPC carries the official cause number of an explosion.
 /// It is Mojang's `ActorDamageCause`: 10 for a block's or nothing's, 11 for an entity's.
 #[test]
 fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let target = human(&mut h, at(3.5, -60.0, 0.5), "Target");
     let source = human(&mut h, at(-3.5, -60.0, 0.5), "Source");
     vulnerable(&mut h, target);
@@ -922,17 +890,13 @@ fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
 /// This is P6 `weather`.
 #[test]
 fn an_npc_hurt_by_lightning_shows_the_lightning_cause() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let target = human(&mut h, at(3.5, -60.0, 0.5), "Target");
     vulnerable(&mut h, target);
     h.entities();
     let runtime_id = e_runtime(&h, target);
     h.take(1);
-    let bolt = crate::world::Lightning {
-        damage: true,
-        fire: false,
-    };
+    let bolt = crate::world::Lightning { damage: true };
     assert!(crate::tick::entity::strike_lightning(
         &mut h.state,
         0,
@@ -955,13 +919,38 @@ fn an_npc_hurt_by_lightning_shows_the_lightning_cause() {
     assert_eq!(causes, [24]);
 }
 
-/// PMMP `SweetBerryBush::onEntityInside` and `Magma::onEntityInside` hurt every living thing.
-/// A vulnerable NPC in a bush past its first stage and on magma takes their damage, as a player
-/// does.
+/// A lightning bolt hurts but sets no block on fire, whatever the blocks around the strike.
+#[test]
+fn lightning_sets_no_block_on_fire() {
+    let mut h = Harness::with_player();
+    let planks = named("minecraft:oak_planks");
+    let below = BlockPos::new(3, -61, 0);
+    h.state.worlds[0].set_block(below, planks).unwrap();
+    let bolt = crate::world::Lightning { damage: true };
+    assert!(crate::tick::entity::strike_lightning(
+        &mut h.state,
+        0,
+        at(3.5, -60.0, 0.5),
+        bolt
+    ));
+    h.entities();
+    let fire = named("minecraft:fire");
+    for x in -1..=7 {
+        for y in -62..=-58 {
+            for z in -4..=4 {
+                let pos = BlockPos::new(x, y, z);
+                assert_ne!(h.state.worlds[0].block(pos), Some(fire), "{pos:?}");
+            }
+        }
+    }
+    assert_eq!(h.state.worlds[0].block(below), Some(planks));
+}
+
+/// A sweet berry bush past its first stage and magma hurt every living thing inside them.
+/// A vulnerable NPC in a bush and on magma takes their damage, as a player does.
 #[test]
 fn a_berry_bush_and_magma_hurt_a_vulnerable_npc_inside_them() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let bush = crate::block::Kind::SweetBerryBush
         .default_state()
         .with("growth", crate::block::PropertyValue::Int(1))
@@ -987,16 +976,13 @@ fn a_berry_bush_and_magma_hurt_a_vulnerable_npc_inside_them() {
 /// A zombie twice its size suffocates in a block at its scaled eye height.
 #[test]
 fn a_scaled_zombie_suffocates_at_its_scaled_eyes() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     h.state.worlds[0]
         .set_block(BlockPos::new(3, -58, 0), named("minecraft:stone"))
         .unwrap();
     let z = zombie(&mut h, at(3.5, -60.0, 0.5));
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
-    assert!(cx.entity_mut(z).unwrap().set_scale(2.0));
+    let mut cx = h.context();
+    cx.entity_mut(z).unwrap().set_scale(2.0).unwrap();
     h.entities();
     assert_eq!(health(&h, z), 19.0);
 }
@@ -1005,14 +991,11 @@ fn a_scaled_zombie_suffocates_at_its_scaled_eyes() {
 /// The scale multiplies the whole eye height, the 0.1 above half the height included.
 #[test]
 fn a_scaled_zombie_has_its_whole_eye_height_scaled() {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
+    let mut h = Harness::with_player();
     let z = zombie(&mut h, at(3.5, -60.0, 0.5));
-    let mut cx = crate::tick::Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     for (scale, eye) in [(2.0, 2.1), (0.5, 0.525)] {
-        assert!(cx.entity_mut(z).unwrap().set_scale(scale));
+        cx.entity_mut(z).unwrap().set_scale(scale).unwrap();
         let got = cx.entity(z).unwrap().eye_height();
         assert!((got - eye).abs() < 1e-9, "scale {scale}: {got}");
     }

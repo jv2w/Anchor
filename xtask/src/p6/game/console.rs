@@ -732,8 +732,8 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
         }
         Command::Projectile { projectile, pos } => {
             match cx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
-                Some(_) => Outcome::Done(None),
-                None => Outcome::Failed("no projectile was spawned".to_owned()),
+                Ok(_) => Outcome::Done(None),
+                Err(e) => Outcome::Failed(e.to_string()),
             }
         }
         Command::Kill(player) => {
@@ -747,28 +747,21 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
             }
         }
         Command::EndCrystal { pos } => match cx.spawn_end_crystal(world::Id::DEFAULT, *pos) {
-            Some(_) => Outcome::Done(None),
-            None => Outcome::Failed("no end crystal was spawned".to_owned()),
+            Ok(_) => Outcome::Done(None),
+            Err(e) => Outcome::Failed(e.to_string()),
         },
         Command::Weather(weather) => done(
             cx.set_weather(world::Id::DEFAULT, *weather)
-                .then_some(())
-                .ok_or_else(|| "the default world is not loaded".to_owned()),
+                .map_err(|e| e.to_string()),
         ),
-        Command::Difficulty(difficulty) => done(
-            cx.set_difficulty(*difficulty)
-                .then_some(())
-                .ok_or_else(|| "a hardcore server keeps hard".to_owned()),
-        ),
+        Command::Difficulty(difficulty) => {
+            done(cx.set_difficulty(*difficulty).map_err(|e| e.to_string()))
+        }
         Command::Lightning { pos } => {
-            let official = world::Lightning {
-                damage: true,
-                fire: true,
-            };
+            let official = world::Lightning { damage: true };
             done(
                 cx.strike_lightning(world::Id::DEFAULT, *pos, official)
-                    .then_some(())
-                    .ok_or_else(|| "no bolt was struck".to_owned()),
+                    .map_err(|e| e.to_string()),
             )
         }
         _ => Outcome::Failed("not a command of the API scenarios".to_owned()),

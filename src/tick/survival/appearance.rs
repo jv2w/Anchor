@@ -1,5 +1,4 @@
-//! Emotes and skin changes in game (PMMP `Player::emote`, `Human::emote`, `Player::changeSkin`,
-//! `InGamePacketHandler::handleEmote`, `handlePlayerSkin`), with their events.
+//! Emotes and skin changes in game, with their events.
 
 use std::ops::Bound;
 use std::sync::Arc;
@@ -16,12 +15,12 @@ use crate::protocol::packet::{Emote, Packet, PlayerSkin};
 use crate::tick::Context;
 use crate::tick::queue::{SharedPacket, Skin};
 
-/// Ticks that must pass between two emotes of a player: more than 5 (PMMP `Player::emote`).
+/// Ticks that must pass between two emotes of a player: more than 5.
 const EMOTE_COOLDOWN: u64 = 5;
 /// The longest emote ID passed on: an emote ID is a UUID (36 bytes); more is not an emote.
 const MAX_EMOTE_ID: usize = 128;
-/// Ticks between two skin changes of a player: one a second. PMMP has no limit, and each change
-/// sends a skin of up to 4 MiB to every player.
+/// Ticks between two skin changes of a player: one a second, as each change sends a skin of up
+/// to 4 MiB to every player.
 const SKIN_COOLDOWN: u64 = Context::TICKS_PER_SECOND as u64;
 /// The skin bytes the server's skin budget ([`SkinBudget`]) gains each tick: 128 KiB a second,
 /// about 1 Mbit/s. Every receiver gets every broadcast, so this is the most skin changes add to
@@ -35,9 +34,9 @@ const SKIN_COOLDOWN: u64 = Context::TICKS_PER_SECOND as u64;
 /// after about 4 minutes (the trade-off in `.claude/docs/network.md`).
 const SKIN_REFILL_BYTES_PER_TICK: usize = (128 << 10) / Context::TICKS_PER_SECOND as usize;
 
-/// The server's budget for skin broadcasts (PMMP sends every change at once): a token bucket of
-/// skin bytes that holds one skin of the largest size and refills by
-/// [`SKIN_REFILL_BYTES_PER_TICK`]. Each broadcast is held once for all its receivers
+/// The server's budget for skin broadcasts: a token bucket of skin bytes that holds one skin of
+/// the largest size and refills by [`SKIN_REFILL_BYTES_PER_TICK`]. Each broadcast is held once
+/// for all its receivers
 /// ([`Player::send_shared`]) and encoded and compressed once for all their sessions, but every
 /// receiver's link carries it. A change that does not fit stays marked, and only the player's
 /// latest skin goes out when it does, so a player that changes fast costs one waiting broadcast.
@@ -95,8 +94,8 @@ pub(super) struct Appearance {
     emote: Option<u64>,
     /// The tick of the last skin change asked for.
     skin: Option<u64>,
-    /// The full ID of the skin last asked for (PMMP `lastRequestedFullSkinId`): the client sends
-    /// back a skin the server sent it, which must not count as a change.
+    /// The full ID of the skin last asked for: the client sends back a skin the server sent it,
+    /// which must not count as a change.
     skin_id: Option<String>,
 }
 
@@ -151,6 +150,7 @@ pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
             cancelled: false,
         },
         PlayerEmote::is_cancelled,
+        // A listener that sets an emote ID `valid_emote` refuses cancels the emote.
         |state, e| state.players.contains_key(&session) && valid_emote(&e.emote_id),
     ) else {
         return;
@@ -166,12 +166,11 @@ pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
     super::watch(state, event.as_ref());
 }
 
-/// The `Emote` packet that shows the player with `runtime_id` playing `emote_id` (PMMP
-/// `EntityEventBroadcaster::onEmote`).
+/// The `Emote` packet that shows the player with `runtime_id` playing `emote_id`.
 pub(super) fn emote_packet(runtime_id: u64, emote_id: String) -> Packet {
     Packet::Emote(Emote {
         entity_runtime_id: runtime_id,
-        // PMMP: the client ignores it, and a value from a client must not be passed on.
+        // The client ignores it, and a value from a client must not be passed on.
         emote_length: 0,
         emote_id,
         xuid: String::new(),
@@ -282,9 +281,8 @@ pub(in crate::tick) fn skin_waits(player: &Player) -> bool {
     player.survival.custom.skin
 }
 
-/// Sends the skin of the player of `session` to every player (PMMP `Human::sendSkin` to all),
-/// one copy shared by all of them, and clears its mark, if it fits in the skin budget; false,
-/// sending nothing, if it does not.
+/// Sends the skin of the player of `session` to every player, one copy shared by all of them,
+/// and clears its mark, if it fits in the skin budget; false, sending nothing, if it does not.
 fn send_skin(state: &mut State, session: SessionId) -> bool {
     let Some(player) = state.players.get_mut(&session) else {
         return true;
@@ -310,7 +308,7 @@ fn send_skin(state: &mut State, session: SessionId) -> bool {
     true
 }
 
-/// The `PlayerSkin` packet that shows `skin` on the player with `uuid` (PMMP `Human::sendSkin`).
+/// The `PlayerSkin` packet that shows `skin` on the player with `uuid`.
 fn skin_packet(uuid: protocol::Uuid, skin: &Skin) -> Packet {
     Packet::PlayerSkin(PlayerSkin {
         uuid,

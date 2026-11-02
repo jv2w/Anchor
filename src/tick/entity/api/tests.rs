@@ -12,24 +12,11 @@ use crate::protocol::packet::Packet;
 use crate::protocol::{EntityMetadata, FlagSet, MetadataValue};
 use crate::tick::entity::kind::Projectile as Thrown;
 use crate::tick::entity::saved::tests::{kinds, stack};
-use crate::tick::entity::tests::{Harness, adds, at, removes, standing};
+use crate::tick::entity::tests::{Harness, adds, at, player_id, removes, session, standing};
 use crate::tick::entity::{EntityTypes, saved};
 
 /// The world the tests' entities live in.
 const WORLD: world::Id = world::Id::DEFAULT;
-
-/// A harness with player 1 standing at block (0, 0), spawned.
-fn harness() -> Harness {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
-    h
-}
-
-fn context(h: &mut Harness) -> Context<'_> {
-    Context {
-        state: &mut h.state,
-    }
-}
 
 /// Every kind made at a spot of its own near the player, with its ID.
 fn every_kind(h: &mut Harness) -> Vec<(Id, Kind)> {
@@ -88,9 +75,9 @@ fn object_reads(e: &Entity, kind: &Kind) {
 // api: AreaEffectCloud::getRadius, Villager::getProfession
 #[test]
 fn every_kind_reads_as_what_it_is() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let made = every_kind(&mut h);
-    let cx = context(&mut h);
+    let cx = h.context();
     for (id, kind) in &made {
         let e = cx.entity(*id).unwrap();
         assert!(e.runtime_id().is_some());
@@ -196,8 +183,8 @@ fn every_kind_reads_as_what_it_is() {
 // api: ExperienceOrb::hasTargetPlayer, Entity::getViewers
 #[test]
 fn owners_targets_and_viewers_are_players() {
-    let mut h = harness();
-    let me = crate::tick::SessionId::new(1);
+    let mut h = Harness::with_player();
+    let me = session(1);
     let arrow = Kind::Projectile(Thrown {
         shot: Shot::Snowball,
         damage: 0.0,
@@ -220,11 +207,11 @@ fn owners_targets_and_viewers_are_players() {
     })
     .unwrap();
     let player = player::Id::new(me);
-    let cx = context(&mut h);
+    let cx = h.context();
     assert_eq!(cx.entity(a).unwrap().owning_player(), Some(player));
     assert_eq!(cx.entity(o).unwrap().target_player(), Some(player));
     h.entities();
-    let cx = context(&mut h);
+    let cx = h.context();
     assert_eq!(
         cx.entity(a).unwrap().viewers().collect::<Vec<_>>(),
         vec![player]
@@ -250,8 +237,9 @@ fn data_of(packets: &[Packet], runtime_id: u64) -> Vec<EntityMetadata> {
 // api: Entity::setInvisible, Entity::isInvisible, Entity::setHasGravity, Entity::hasGravity
 #[test]
 fn looks_change_at_once_reach_the_viewers_and_are_saved() {
-    let mut h = harness();
-    let id = context(&mut h)
+    let mut h = Harness::with_player();
+    let id = h
+        .context()
         .spawn_tnt(WORLD, at(2.5, -60.0, 2.5), 1000)
         .unwrap();
     for _ in 0..3 {
@@ -260,14 +248,16 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
     {
-        let mut cx = context(&mut h);
+        let mut cx = h.context();
         let mut e = cx.entity_mut(id).unwrap();
-        assert!(e.set_name_tag("Boom"));
-        assert!(!e.set_name_tag(&"x".repeat(1025)));
+        e.set_name_tag("Boom").unwrap();
+        assert!(e.set_name_tag(&"x".repeat(1025)).is_err());
         e.set_name_tag_visible(false);
         e.set_name_tag_always_visible(true);
-        assert!(e.set_scale(2.0));
-        assert!(!e.set_scale(0.0) && !e.set_scale(65.0) && !e.set_scale(f64::NAN));
+        e.set_scale(2.0).unwrap();
+        for scale in [0.0, 65.0, f64::NAN] {
+            assert!(e.set_scale(scale).is_err(), "{scale}");
+        }
         e.set_invisible(true);
         e.set_has_gravity(false);
         assert_eq!(e.name_tag(), "Boom");
@@ -321,24 +311,31 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     assert_eq!(e.position().y, -60.0);
 }
 
+/// The IDs [`Context::entities_in`] visits, in its order.
+fn entities_in(cx: &Context<'_>, world: world::Id, area: Aabb) -> Vec<Id> {
+    let mut found = Vec::new();
+    cx.entities_in(world, area, |id, _| found.push(id));
+    found
+}
+
 // api: Entity::setMotion, Entity::addMotion, Entity::setRotation, Living::lookAt, Entity::teleport
 #[test]
 fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     let id = cx
         .spawn_human(WORLD, at(0.5, -60.0, 3.5), "Guide", None)
         .unwrap();
     let mut e = cx.entity_mut(id).unwrap();
-    assert!(!e.set_motion(Vec3::new(f64::NAN, 0.0, 0.0)));
-    assert!(e.set_motion(Vec3::new(0.0, 0.5, 0.0)));
+    assert!(e.set_motion(Vec3::new(f64::NAN, 0.0, 0.0)).is_err());
+    e.set_motion(Vec3::new(0.0, 0.5, 0.0)).unwrap();
     assert_eq!(e.motion(), Vec3::new(0.0, 0.5, 0.0));
-    assert!(e.set_rotation(90.25, -10.0));
+    e.set_rotation(90.25, -10.0).unwrap();
     assert_eq!((e.yaw(), e.pitch()), (90.25, -10.0));
-    assert!(!e.set_rotation(f64::INFINITY, 0.0));
+    assert!(e.set_rotation(f64::INFINITY, 0.0).is_err());
     // Finite as a double but past a float's range: refused, as no tick state holds an infinity.
-    assert!(!e.set_rotation(1e39, 0.0));
-    assert!(!e.set_rotation(0.0, -1e39));
+    assert!(e.set_rotation(1e39, 0.0).is_err());
+    assert!(e.set_rotation(0.0, -1e39).is_err());
     assert_eq!((e.yaw(), e.pitch()), (90.25, -10.0));
     // A target straight south of the eyes: yaw 0, level.
     assert!(e.look_at(at(0.5, -60.0 + e.eye_height(), 13.5)));
@@ -352,14 +349,19 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     assert!(!e.teleport(world::Id::of(1), at(0.5, -60.0, 0.5)));
     assert!(!e.teleport(WORLD, at(0.5, 30_000_001.0, 0.5)));
     assert!(!e.teleport(WORLD, at(0.5, f64::NAN, 0.5)));
-    let found = cx.entities_in(
+    let found = entities_in(
+        &cx,
         WORLD,
         Aabb::new(at(39.0, -61.0, 39.0), at(42.0, -58.0, 42.0)),
     );
     assert_eq!(found, vec![id]);
     assert!(
-        cx.entities_in(WORLD, Aabb::new(at(-2.0, -61.0, 2.0), at(2.0, -58.0, 5.0)))
-            .is_empty()
+        entities_in(
+            &cx,
+            WORLD,
+            Aabb::new(at(-2.0, -61.0, 2.0), at(2.0, -58.0, 5.0))
+        )
+        .is_empty()
     );
     assert_eq!(cx.chunk_entities(WORLD, ChunkPos::new(2, 2)).count(), 1);
     assert_eq!(cx.chunk_entities(WORLD, ChunkPos::new(0, 0)).count(), 0);
@@ -369,9 +371,9 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
 // api: Entity::kill, Entity::setOnFire, Living::setOnFire, Entity::setFireTicks,
 // api: Entity::getFireTicks, Entity::isOnFire, Entity::extinguish, Living::knockBack
 #[test]
-fn health_fire_damage_and_death_follow_pmmp_without_events() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+fn health_fire_damage_and_death_raise_no_events() {
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     let human = cx
         .spawn_human(WORLD, at(2.5, -60.0, 2.5), "Target", None)
         .unwrap();
@@ -386,17 +388,17 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
     let mut e = cx.entity_mut(human).unwrap();
     // Invulnerable NPCs take no API damage.
     assert!(!e.attack(5.0));
-    assert!(e.set_invulnerable(false));
+    e.set_invulnerable(false).unwrap();
     assert!(e.attack(5.0));
     assert_eq!(e.health(), 15.0);
     // Within the cooldown only a stronger hit counts its difference.
     assert!(!e.attack(4.0));
     assert!(e.attack(7.0));
     assert_eq!(e.health(), 13.0);
-    assert!(e.set_health(30.0));
+    e.set_health(30.0).unwrap();
     assert_eq!(e.health(), 20.0, "at most the maximum");
-    assert!(!e.set_health(f64::NAN));
-    assert!(e.set_health(4.0));
+    assert!(e.set_health(f64::NAN).is_err());
+    e.set_health(4.0).unwrap();
     assert!(e.heal(2.5));
     assert!(!e.heal(-1.0));
     assert_eq!(e.health(), 6.5);
@@ -413,12 +415,12 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
     assert!(!e.knock_back(0.0, 0.0, 0.4, 0.4));
     e.kill();
     assert!(!e.is_alive());
-    assert!(!e.set_health(10.0), "a dying NPC stays dying");
+    assert!(e.set_health(10.0).is_err(), "a dying NPC stays dying");
     e.kill();
     let mut i = cx.entity_mut(item).unwrap();
     assert!(!i.knock_back(1.0, 0.0, 0.4, 0.4), "only living NPCs");
     assert!(i.attack(2.0));
-    assert!(i.set_health(0.0));
+    i.set_health(0.0).unwrap();
     assert!(cx.entity(item).is_none(), "a dead item is gone");
     for _ in 0..30 {
         h.entities();
@@ -434,9 +436,9 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
 // api: Villager::setProfession
 #[test]
 fn kind_setters_change_their_kind_only() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let made = every_kind(&mut h);
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     for (id, kind) in made {
         let mut e = cx.entity_mut(id).unwrap();
         let is = |t: Type| e.entity_type() == t;
@@ -452,25 +454,27 @@ fn kind_setters_change_their_kind_only() {
             is(Type::Painting),
         );
         let projectile = matches!(kind, Kind::Projectile(_));
-        assert_eq!(e.set_pickup_delay_ticks(-5), item);
-        assert_eq!(e.set_despawn_delay_ticks(100), item || orb);
-        assert!(!e.set_despawn_delay_ticks(-2) && !e.set_despawn_delay_ticks(40_000));
-        assert_eq!(e.set_owner("me"), item);
-        assert_eq!(e.set_thrower("you"), item);
-        assert_eq!(e.set_xp_value(9), orb);
-        assert!(!e.set_xp_value(0) && !e.set_xp_value(40_000));
-        assert_eq!(e.set_fuse_ticks(12), tnt);
-        assert!(!e.set_fuse_ticks(40_000));
-        assert_eq!(e.set_works_underwater(true), tnt);
-        assert_eq!(e.set_base_damage(6.0), projectile);
-        assert!(!e.set_base_damage(-1.0) && !e.set_base_damage(f64::NAN));
-        assert_eq!(e.set_critical(true), arrow);
-        assert_eq!(e.set_pickup_mode(ArrowPickup::None), arrow);
-        assert_eq!(e.set_punch_knockback(3), arrow);
-        assert_eq!(e.set_linger(true), potion);
-        assert_eq!(e.set_profession(4), villager);
+        assert_eq!(e.set_pickup_delay_ticks(-1).is_ok(), item);
+        assert_eq!(e.set_despawn_delay_ticks(100).is_ok(), item || orb);
+        for ticks in [-2, 40_000] {
+            assert!(e.set_despawn_delay_ticks(ticks).is_err(), "{ticks}");
+        }
+        assert_eq!(e.set_owner("me").is_ok(), item);
+        assert_eq!(e.set_thrower("you").is_ok(), item);
+        assert_eq!(e.set_xp_value(9).is_ok(), orb);
+        assert!(e.set_xp_value(0).is_err() && e.set_xp_value(40_000).is_err());
+        assert_eq!(e.set_fuse_ticks(12).is_ok(), tnt);
+        assert!(e.set_fuse_ticks(40_000).is_err());
+        assert_eq!(e.set_works_underwater(true).is_ok(), tnt);
+        assert_eq!(e.set_base_damage(6.0).is_ok(), projectile);
+        assert!(e.set_base_damage(-1.0).is_err() && e.set_base_damage(f64::NAN).is_err());
+        assert_eq!(e.set_critical(true).is_ok(), arrow);
+        assert_eq!(e.set_pickup_mode(ArrowPickup::None).is_ok(), arrow);
+        assert_eq!(e.set_punch_knockback(3).is_ok(), arrow);
+        assert_eq!(e.set_linger(true).is_ok(), potion);
+        assert_eq!(e.set_profession(4).is_ok(), villager);
         assert_eq!(
-            e.set_scale(1.0),
+            e.set_scale(1.0).is_ok(),
             !painting,
             "a painting's box is its picture"
         );
@@ -505,33 +509,33 @@ fn kind_setters_change_their_kind_only() {
 /// A dropped item takes the despawn delay `item-despawn-ticks` gave it, and no more.
 #[test]
 fn a_dropped_item_takes_the_despawn_delay_its_getter_returns() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     h.state.settings.item_despawn_ticks = 50_000;
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let stick = stack("minecraft:stick", 1);
     let id = cx
         .drop_item(WORLD, at(2.5, -60.0, 2.5), stick, None)
         .unwrap();
     let mut e = cx.entity_mut(id).unwrap();
     assert_eq!(e.despawn_delay_ticks(), Some(50_000));
-    assert!(e.set_despawn_delay_ticks(50_000));
-    assert!(!e.set_despawn_delay_ticks(50_001));
+    e.set_despawn_delay_ticks(50_000).unwrap();
+    assert!(e.set_despawn_delay_ticks(50_001).is_err());
 }
 
 // api: Entity::setCanSaveWithChunk, Entity::canSaveWithChunk
 #[test]
 fn entities_not_saved_with_their_chunk_are_left_out_and_go_with_it() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let key = (0, ChunkPos::new(1, 1));
     // The chunk holds sample saved compounds of its own.
     let before = h.state.rules.entities.list(key).len();
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let pos = at(20.5, -60.0, 20.5);
     let kept = cx.spawn_tnt(WORLD, pos, 1000).unwrap();
     let temporary = cx.spawn_tnt(WORLD, pos, 1000).unwrap();
     let mut e = cx.entity_mut(temporary).unwrap();
     assert!(e.can_save_with_chunk());
-    assert!(e.set_can_save_with_chunk(false));
+    e.set_can_save_with_chunk(false).unwrap();
     assert!(!e.can_save_with_chunk());
     let list = h.state.rules.entities.list(key);
     assert_eq!(list.len(), before + 1, "only the saved one");
@@ -544,16 +548,16 @@ fn entities_not_saved_with_their_chunk_are_left_out_and_go_with_it() {
 /// A firework rocket is never saved with its chunk, whatever the API asks.
 #[test]
 fn a_firework_rocket_is_never_saved_with_its_chunk() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     let rocket = cx
         .spawn_firework_rocket(WORLD, at(2.5, -55.0, 2.5), 30, Vec::new(), Vec3::ZERO)
         .unwrap();
     let mut e = cx.entity_mut(rocket).unwrap();
     assert!(!e.can_save_with_chunk());
-    assert!(!e.set_can_save_with_chunk(true));
+    assert!(e.set_can_save_with_chunk(true).is_err());
     assert!(!e.can_save_with_chunk());
-    assert!(e.set_can_save_with_chunk(false));
+    e.set_can_save_with_chunk(false).unwrap();
 }
 
 // api: Entity::flagForDespawn, Entity::close, World::dropItem, World::dropExperience,
@@ -561,7 +565,7 @@ fn a_firework_rocket_is_never_saved_with_its_chunk() {
 // api: Human::__construct
 #[test]
 fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     for _ in 0..4 {
         h.entities();
     }
@@ -573,7 +577,7 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
     for round in 0..200_i32 {
         let x = f64::from(round % 20) - 10.0;
         let p = at(x + 0.5, -55.0, 6.5);
-        let mut cx = context(&mut h);
+        let mut cx = h.context();
         let mut ids = vec![
             cx.drop_item(WORLD, p, stack("minecraft:stick", 1), Some(Vec3::ZERO))
                 .unwrap(),
@@ -632,8 +636,8 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
 // api: World::getEntities, World::getChunkEntities, WorldManager::findEntity, World::getEntity
 #[test]
 fn queries_go_through_the_chunk_index_whatever_the_area() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     let mut ids = Vec::new();
     for i in 0..40_i32 {
         let p = at(
@@ -645,21 +649,25 @@ fn queries_go_through_the_chunk_index_whatever_the_area() {
     }
     // A small box, a box over many chunks (the index walk) and a huge one agree.
     let small = Aabb::new(at(-61.0, -61.0, -16.0), at(-55.0, -50.0, 20.0));
-    let found = cx.entities_in(WORLD, small);
+    let found = entities_in(&cx, WORLD, small);
     assert_eq!(found, ids[..2].to_vec());
     let big = Aabb::new(at(-61.0, -61.0, -16.0), at(60.0, -50.0, 20.0));
-    let all = cx.entities_in(WORLD, big);
+    let all = entities_in(&cx, WORLD, big);
     assert_eq!(all.len(), 40);
     let mut sorted = all.clone();
     sorted.sort_unstable();
     assert_eq!(sorted, ids);
     let huge = Aabb::new(at(-3e7, -1e9, -3e7), at(3e7, 1e9, 3e7));
-    assert_eq!(cx.entities_in(WORLD, huge), all, "chunk then Id order");
+    assert_eq!(entities_in(&cx, WORLD, huge), all, "chunk then Id order");
     assert!(
-        cx.entities_in(WORLD, Aabb::new(at(f64::NAN, 0.0, 0.0), at(1.0, 1.0, 1.0)))
-            .is_empty()
+        entities_in(
+            &cx,
+            WORLD,
+            Aabb::new(at(f64::NAN, 0.0, 0.0), at(1.0, 1.0, 1.0))
+        )
+        .is_empty()
     );
-    assert!(cx.entities_in(world::Id::of(3), big).is_empty());
+    assert!(entities_in(&cx, world::Id::of(3), big).is_empty());
     // The nearest, with a filter and a reach.
     let origin = at(-60.0, -60.0, -15.0);
     assert_eq!(
@@ -691,7 +699,7 @@ fn queries_go_through_the_chunk_index_whatever_the_area() {
     let chunk = cx.chunk_entities(WORLD, ChunkPos::new(-4, -1)).count();
     assert_eq!(chunk, 3);
     h.entities();
-    let cx = context(&mut h);
+    let cx = h.context();
     let runtime_id = cx.entity(ids[5]).unwrap().runtime_id().unwrap();
     assert_eq!(cx.find_entity(runtime_id), Some(ids[5]));
     assert_eq!(cx.find_entity(u64::MAX), None);
@@ -699,8 +707,8 @@ fn queries_go_through_the_chunk_index_whatever_the_area() {
 
 #[test]
 fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     let stick = stack("minecraft:stick", 7);
     let ok = at(0.5, -60.0, 0.5);
     let far = at(5000.5, -60.0, 0.5);
@@ -727,11 +735,19 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
     );
     assert_eq!(cx.drop_xp(WORLD, far, 50), 0);
     assert_eq!(cx.drop_xp(world::Id::of(9), ok, 50), 0);
-    assert!(cx.spawn_xp_orb(WORLD, ok, 0).is_none());
-    assert!(cx.spawn_tnt(WORLD, ok, 40_000).is_none());
+    assert_eq!(cx.spawn_xp_orb(WORLD, ok, 0), Err(Error::OutOfRange));
+    assert_eq!(cx.spawn_tnt(WORLD, ok, 40_000), Err(Error::OutOfRange));
+    assert_eq!(cx.spawn_tnt(WORLD, far, 10), Err(Error::NotSpawned));
+    assert_eq!(
+        cx.spawn_tnt(world::Id::of(1), ok, 10),
+        Err(Error::NotSpawned)
+    );
     let high = at(0.5, 30_000_001.0, 0.5);
-    assert!(cx.spawn_tnt(WORLD, high, 10).is_none());
-    assert!(cx.spawn_human(WORLD, high, "up", None).is_none());
+    assert_eq!(cx.spawn_tnt(WORLD, high, 10), Err(Error::NotSpawned));
+    assert_eq!(
+        cx.spawn_human(WORLD, high, "up", None),
+        Err(Error::NotSpawned)
+    );
     assert_eq!(cx.drop_xp(WORLD, high, 5), 0);
     assert_eq!(
         cx.drop_item(WORLD, high, stick.clone(), None),
@@ -739,9 +755,9 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
     );
     assert!(
         cx.spawn_projectile(WORLD, ok, Projectile::Egg, Vec3::new(0.0, f64::NAN, 0.0))
-            .is_none()
+            .is_err()
     );
-    assert!(cx.spawn_human(WORLD, ok, &"n".repeat(1025), None).is_none());
+    assert!(cx.spawn_human(WORLD, ok, &"n".repeat(1025), None).is_err());
     assert!(cx.entity_mut(Id::new(77, 0)).is_none());
     // At the cap nothing more is made and the stack comes back.
     let n = MAX_ENTITIES_PER_WORLD - cx.entities(WORLD).count();
@@ -749,14 +765,15 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
         cx.spawn_tnt(WORLD, ok, 1000).unwrap();
     }
     assert_eq!(cx.drop_item(WORLD, ok, stick.clone(), None), Err(stick));
-    assert!(cx.spawn_human(WORLD, ok, "late", None).is_none());
+    assert!(cx.spawn_human(WORLD, ok, "late", None).is_err());
 }
 
 #[test]
 fn human_npcs_show_their_skin_and_keep_it_across_a_save() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let skin = Skin::new("custom", vec![9; 64 * 64 * 4]).unwrap();
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_human(WORLD, at(1.5, -60.0, 3.5), "Shop", Some(skin.clone()))
         .unwrap();
     for _ in 0..3 {
@@ -773,7 +790,7 @@ fn human_npcs_show_their_skin_and_keep_it_across_a_save() {
     assert_eq!(list.username, "Shop");
     assert_eq!(list.skin.skin_data, skin.data());
     assert_eq!(list.skin.skin_image_height, 64);
-    let cx = context(&mut h);
+    let cx = h.context();
     let e = cx.entity(id).unwrap();
     assert_eq!(e.skin(), Some(&skin));
     assert!(e.is_name_tag_always_visible());
@@ -819,11 +836,6 @@ fn animations_of(packets: &[Packet], runtime_id: u64) -> Vec<(u8, f64)> {
         .collect()
 }
 
-/// The player of session `s`.
-fn player_of(s: u64) -> player::Id {
-    player::Id::new(crate::tick::SessionId::new(s))
-}
-
 // api: Entity::broadcastAnimation, Player::broadcastAnimation, Animation, ArmSwingAnimation,
 // api: ArmSwingAnimation::__construct, ArrowShakeAnimation, ArrowShakeAnimation::__construct,
 // api: ConsumingItemAnimation, ConsumingItemAnimation::__construct, CriticalHitAnimation,
@@ -834,9 +846,10 @@ fn player_of(s: u64) -> player::Id {
 // api: MagicHitAnimation::__construct, RespawnAnimation, RespawnAnimation::__construct,
 // api: TotemUseAnimation, TotemUseAnimation::__construct
 #[test]
-fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
-    let mut h = harness();
-    let id = context(&mut h)
+fn animations_reach_the_players_who_see_the_actor_with_the_official_values() {
+    let mut h = Harness::with_player();
+    let id = h
+        .context()
         .spawn_tnt(WORLD, at(2.5, -60.0, 2.5), 1000)
         .unwrap();
     h.entities();
@@ -859,7 +872,7 @@ fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
         (Animation::Respawn, (18, 0.0)),
         (Animation::TotemUse, (65, 0.0)),
     ];
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     for (animation, _) in all {
         assert!(cx.play_animation(Actor::Entity(id), animation));
     }
@@ -867,9 +880,9 @@ fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
     h.entities();
     assert_eq!(animations_of(&h.take(1), runtime_id), want);
     // A player sees its own animation; a gone actor plays nothing.
-    let mut cx = context(&mut h);
-    assert!(cx.play_animation(Actor::Player(player_of(1)), Animation::Hurt));
-    assert!(!cx.play_animation(Actor::Player(player_of(9)), Animation::Hurt));
+    let mut cx = h.context();
+    assert!(cx.play_animation(Actor::Player(player_id(1)), Animation::Hurt));
+    assert!(!cx.play_animation(Actor::Player(player_id(9)), Animation::Hurt));
     cx.entity_mut(id).unwrap().flag_for_despawn();
     assert!(!cx.play_animation(Actor::Entity(id), Animation::Hurt));
     let own = h.runtime_id(1);
@@ -880,19 +893,19 @@ fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
 // api: Player::hidePlayer, Player::showPlayer, Player::canSee
 #[test]
 fn hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     h.spawn(2, standing(3.0, 3.0));
     let (one, two) = (h.runtime_id(1), h.runtime_id(2));
     h.step(Vec::new());
     h.take(1);
     h.take(2);
-    let (p1, p2) = (player_of(1), player_of(2));
-    let mut cx = context(&mut h);
+    let (p1, p2) = (player_id(1), player_id(2));
+    let mut cx = h.context();
     assert!(cx.can_see(p1, p2));
     assert!(cx.hide_player(p1, p2));
     assert!(cx.hide_player(p1, p2), "hiding twice is hiding once");
     assert!(!cx.hide_player(p1, p1));
-    assert!(!cx.hide_player(p1, player_of(9)) && !cx.hide_player(player_of(9), p1));
+    assert!(!cx.hide_player(p1, player_id(9)) && !cx.hide_player(player_id(9), p1));
     assert!(!cx.can_see(p1, p2) && cx.can_see(p2, p1));
     h.step(Vec::new());
     assert_eq!(removes(&h.take(1)), vec![two]);
@@ -900,13 +913,13 @@ fn hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone() {
     h.go(2, standing(4.0, 3.0));
     h.step(Vec::new());
     assert!(adds(&h.take(1)).is_empty(), "not sent again while hidden");
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     assert!(cx.show_player(p1, p2));
     assert!(!cx.show_player(p1, p2));
     h.step(Vec::new());
     assert_eq!(adds(&h.take(1)), vec![two]);
     // A pair goes when either player leaves.
-    assert!(context(&mut h).hide_player(p2, p1));
+    assert!(h.context().hide_player(p2, p1));
     h.step(vec![crate::tick::tests::leave(1, 99)]);
     h.step(Vec::new());
     assert!(h.state.rules.entities.hidden.is_empty());
@@ -916,13 +929,13 @@ fn hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone() {
 /// The pairs of a player who leaves go as it leaves, both ways, before any entity tick.
 #[test]
 fn hidden_pairs_go_when_a_player_leaves() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     h.spawn(2, standing(3.0, 3.0));
     h.spawn(3, standing(5.0, 3.0));
-    let mut cx = context(&mut h);
-    let (p1, p2, p3) = (player_of(1), player_of(2), player_of(3));
+    let mut cx = h.context();
+    let (p1, p2, p3) = (player_id(1), player_id(2), player_id(3));
     assert!(cx.hide_player(p1, p2) && cx.hide_player(p2, p1) && cx.hide_player(p1, p3));
-    assert!(h.state.remove(crate::tick::SessionId::new(2)).is_some());
+    assert!(h.state.remove(session(2)).is_some());
     let left: Vec<_> = h.state.rules.entities.hidden.iter().copied().collect();
     assert_eq!(left, vec![(p1.session(), p3.session())]);
 }
@@ -931,8 +944,8 @@ fn hidden_pairs_go_when_a_player_leaves() {
 /// So no health becomes infinite.
 #[test]
 fn damage_not_finite_or_above_the_limit_is_refused() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     let stick = stack("minecraft:stick", 1);
     let item = cx
         .drop_item(WORLD, at(2.5, -60.0, 2.5), stick, None)
@@ -947,16 +960,16 @@ fn damage_not_finite_or_above_the_limit_is_refused() {
 
 #[test]
 fn a_player_hides_at_most_its_bound() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     h.spawn(2, standing(3.0, 3.0));
-    let viewer = crate::tick::SessionId::new(1);
+    let viewer = session(1);
     let hidden = &mut h.state.rules.entities.hidden;
     for s in 0..u64::try_from(MAX_HIDDEN_PER_PLAYER).unwrap() {
-        hidden.insert((viewer, crate::tick::SessionId::new(1000 + s)));
+        hidden.insert((viewer, session(1000 + s)));
     }
-    let mut cx = context(&mut h);
-    assert!(!cx.hide_player(player_of(1), player_of(2)));
-    assert!(cx.hide_player(player_of(2), player_of(1)));
+    let mut cx = h.context();
+    assert!(!cx.hide_player(player_id(1), player_id(2)));
+    assert!(cx.hide_player(player_id(2), player_id(1)));
 }
 
 // api: AreaEffectCloud::__construct, AreaEffectCloud::getEffects, AreaEffectCloud::getAge,
@@ -968,16 +981,13 @@ fn a_player_hides_at_most_its_bound() {
 // api: AreaEffectCloud::setRadiusChangeOnPickup, AreaEffectCloud::setRadiusChangeOnUse,
 // api: AreaEffectCloud::setRadiusChangePerTick
 #[test]
-fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
-    let mut h = harness();
+fn clouds_spawn_with_their_defaults_and_take_bounded_values() {
+    let mut h = Harness::with_player();
     let effects = Potion::Poison.effects();
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let too_many = vec![effects[0]; 33];
     let place = at(1.5, -60.0, 1.5);
-    assert!(
-        cx.spawn_area_effect_cloud(WORLD, place, &too_many)
-            .is_none()
-    );
+    assert!(cx.spawn_area_effect_cloud(WORLD, place, &too_many).is_err());
     let id = cx.spawn_area_effect_cloud(WORLD, place, effects).unwrap();
     let e = cx.entity(id).unwrap();
     assert_eq!(e.entity_type(), Type::AreaEffectCloud);
@@ -992,17 +1002,17 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     assert_eq!(e.cloud_radius_change_on_use(), Some(-0.5));
     assert_eq!(e.cloud_radius_change_per_tick(), Some(-0.005));
     let mut e = cx.entity_mut(id).unwrap();
-    assert!(e.set_cloud_max_age_ticks(1200));
-    assert!(!e.set_cloud_max_age_ticks(-1) && !e.set_cloud_max_age_ticks(24_001));
-    assert!(e.set_cloud_max_age_change_on_use_ticks(-20));
-    assert!(!e.set_cloud_max_age_change_on_use_ticks(30_000));
-    assert!(
-        e.set_cloud_reapplication_delay_ticks(80) && !e.set_cloud_reapplication_delay_ticks(-1)
-    );
-    assert!(e.set_cloud_radius_change_on_pickup(-1.0));
-    assert!(e.set_cloud_radius_change_on_use(0.25) && !e.set_cloud_radius_change_on_use(65.0));
-    assert!(e.set_cloud_radius_change_per_tick(0.0));
-    assert!(!e.set_cloud_radius_change_per_tick(f64::NAN));
+    e.set_cloud_max_age_ticks(1200).unwrap();
+    assert!(e.set_cloud_max_age_ticks(-1).is_err() && e.set_cloud_max_age_ticks(24_001).is_err());
+    e.set_cloud_max_age_change_on_use_ticks(-20).unwrap();
+    assert!(e.set_cloud_max_age_change_on_use_ticks(30_000).is_err());
+    e.set_cloud_reapplication_delay_ticks(80).unwrap();
+    assert!(e.set_cloud_reapplication_delay_ticks(-1).is_err());
+    e.set_cloud_radius_change_on_pickup(-1.0).unwrap();
+    e.set_cloud_radius_change_on_use(0.25).unwrap();
+    assert!(e.set_cloud_radius_change_on_use(65.0).is_err());
+    e.set_cloud_radius_change_per_tick(0.0).unwrap();
+    assert!(e.set_cloud_radius_change_per_tick(f64::NAN).is_err());
     assert_eq!(e.cloud_max_age_ticks(), Some(1200));
     assert_eq!(e.cloud_max_age_change_on_use_ticks(), Some(-20));
     assert_eq!(e.cloud_reapplication_delay_ticks(), Some(80));
@@ -1013,26 +1023,31 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     for _ in 0..5 {
         h.entities();
     }
-    let e = context(&mut h)
+    let e = h
+        .context()
         .entity(id)
         .map(|e| (e.cloud_age_ticks(), e.cloud_radius()));
     assert_eq!(e, Some((Some(5), Some(3.0))));
     // Other kinds take none of it.
-    let tnt = context(&mut h)
+    let tnt = h
+        .context()
         .spawn_tnt(WORLD, at(-2.5, -60.0, 2.5), 100)
         .unwrap();
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let mut e = cx.entity_mut(tnt).unwrap();
     assert!(e.cloud_effects().is_none() && e.cloud_max_age_ticks().is_none());
-    assert!(!e.set_cloud_max_age_ticks(10) && !e.set_cloud_radius_change_on_use(0.0));
+    assert!(
+        e.set_cloud_max_age_ticks(10).is_err() && e.set_cloud_radius_change_on_use(0.0).is_err()
+    );
 }
 
 /// A cloud's changed duration and pickup radius change reach its viewers, which draw them.
 #[test]
 fn a_cloud_shows_a_changed_duration_and_pickup_radius_change() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let effects = Potion::Poison.effects();
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_area_effect_cloud(WORLD, at(1.5, -60.0, 1.5), effects)
         .unwrap();
     for _ in 0..3 {
@@ -1041,10 +1056,10 @@ fn a_cloud_shows_a_changed_duration_and_pickup_radius_change() {
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
     {
-        let mut cx = context(&mut h);
+        let mut cx = h.context();
         let mut e = cx.entity_mut(id).unwrap();
-        assert!(e.set_cloud_max_age_ticks(1200));
-        assert!(e.set_cloud_radius_change_on_pickup(-1.0));
+        e.set_cloud_max_age_ticks(1200).unwrap();
+        e.set_cloud_radius_change_on_pickup(-1.0).unwrap();
     }
     h.entities();
     let shown = data_of(&h.take(1), runtime_id);
@@ -1061,15 +1076,19 @@ fn a_cloud_shows_a_changed_duration_and_pickup_radius_change() {
 /// A rocket's changed flight time shows in the flight multiplier its item carries.
 #[test]
 fn a_rocket_shows_the_flight_multiplier_of_a_changed_flight_time() {
-    let mut h = harness();
-    let id = context(&mut h)
+    let mut h = Harness::with_player();
+    let id = h
+        .context()
         .spawn_firework_rocket(WORLD, at(1.5, -55.0, 1.5), 20, Vec::new(), Vec3::ZERO)
         .unwrap();
     h.entities();
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    let mut cx = context(&mut h);
-    assert!(cx.entity_mut(id).unwrap().set_max_flight_time_ticks(50));
+    let mut cx = h.context();
+    cx.entity_mut(id)
+        .unwrap()
+        .set_max_flight_time_ticks(50)
+        .unwrap();
     h.entities();
     let flight = data_of(&h.take(1), runtime_id).iter().find_map(|m| {
         let Some(MetadataValue::CompoundTag(item)) =
@@ -1091,34 +1110,34 @@ fn a_rocket_shows_the_flight_multiplier_of_a_changed_flight_time() {
 // api: Entity::getStepHeight, Villager::getName
 #[test]
 fn owners_targets_counts_potions_and_names_change_their_kind_only() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let made = every_kind(&mut h);
-    let (me, gone) = (player_of(1), player_of(9));
-    let mut cx = context(&mut h);
+    let (me, gone) = (player_id(1), player_id(9));
+    let mut cx = h.context();
     for (id, kind) in made {
         let mut e = cx.entity_mut(id).unwrap();
         let t = e.entity_type();
         let projectile = matches!(kind, Kind::Projectile(_) | Kind::Firework(_));
         assert_eq!(e.gravity(), kind.physics().gravity);
         assert_eq!(e.step_height(), 0.0);
-        assert_eq!(e.set_owning_player(Some(me)), projectile);
-        assert!(!e.set_owning_player(Some(gone)));
+        assert_eq!(e.set_owning_player(Some(me)).is_ok(), projectile);
+        assert!(e.set_owning_player(Some(gone)).is_err());
         assert_eq!(e.owning_player(), projectile.then_some(me));
-        assert_eq!(e.set_owning_player(None), projectile);
+        assert_eq!(e.set_owning_player(None).is_ok(), projectile);
         assert!(e.owning_player().is_none());
         let orb = t == Type::XpOrb;
-        assert_eq!(e.set_target_player(Some(me)), orb);
-        assert!(!e.set_target_player(Some(gone)));
+        assert_eq!(e.set_target_player(Some(me)).is_ok(), orb);
+        assert!(e.set_target_player(Some(gone)).is_err());
         assert_eq!(e.target_player(), orb.then_some(me));
         let potion = t == Type::SplashPotion;
-        assert_eq!(e.set_potion(Potion::Healing), potion);
+        assert_eq!(e.set_potion(Potion::Healing).is_ok(), potion);
         if potion {
             assert_eq!(e.potion(), Some(Potion::Healing));
             assert_eq!(e.potion_effects(), Some(Potion::Healing.effects()));
         } else {
             assert!(e.potion_effects().is_none());
         }
-        assert_eq!(e.set_stack_size(1), t == Type::Item);
+        assert_eq!(e.set_stack_size(1).is_ok(), t == Type::Item);
         let name = match t {
             Type::Villager => Some("Villager".to_owned()),
             Type::Zombie => Some("Zombie".to_owned()),
@@ -1130,38 +1149,19 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
     // A dropped item takes counts up to its stack size and shows the new one.
     let stick = stack("minecraft:stick", 3);
     // Away from the kinds above: the TNT among them sets off the end crystals.
-    let id = context(&mut h)
+    let id = h
+        .context()
         .drop_item(WORLD, at(0.5, -60.0, 24.5), stick, Some(Vec3::ZERO))
         .unwrap();
     h.entities();
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let mut e = cx.entity_mut(id).unwrap();
-    assert!(!e.set_stack_size(0) && !e.set_stack_size(65));
-    assert!(e.set_stack_size(64));
+    assert!(e.set_stack_size(0).is_err() && e.set_stack_size(65).is_err());
+    e.set_stack_size(64).unwrap();
     assert_eq!(e.item().map(Stack::count), Some(64));
     assert_eq!(e.gravity(), 0.04);
     h.entities();
     assert_eq!(animations_of(&h.take(1), runtime_id), vec![(69, 64.0)]);
-}
-
-/// A damaged anvil that falls far enough breaks on landing (PMMP `FallingBlock::onHitGround`).
-/// It leaves the store and its viewers, as every entity that is used up does.
-#[test]
-fn a_damaged_anvil_that_breaks_on_landing_is_removed() {
-    let mut h = harness();
-    let anvil = crate::tick::entity::physics::tests::named("minecraft:damaged_anvil");
-    // 20 blocks above the ground: the chance to break is then certain.
-    let id = context(&mut h)
-        .spawn_falling_block(WORLD, at(4.5, -40.0, 0.5), anvil)
-        .unwrap();
-    h.entities();
-    let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    for _ in 0..80 {
-        h.entities();
-    }
-    assert!(h.live().is_empty(), "the anvil is gone");
-    assert_eq!(h.state.rules.entities.count(0), 0);
-    assert!(removes(&h.take(1)).contains(&runtime_id));
 }

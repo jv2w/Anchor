@@ -52,8 +52,8 @@ use crate::storage::{
 };
 use crate::tick::{ChunkRules, EntityTypes};
 use crate::world::{
-    BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS, SubChunk,
-    World,
+    self, BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS,
+    SubChunk, World,
 };
 
 /// Requests the save thread's queue holds. The tick sends at most one load batch per tick and
@@ -958,7 +958,8 @@ fn resolve(
                         time,
                         spawn,
                     },
-                );
+                )
+                .map_err(|e| crate::Error::WorldDamaged(Box::new(e)))?;
             }
             (Some(_), None) => {
                 // A new file: its keys carry the next free number.
@@ -967,6 +968,9 @@ fn resolve(
                 next_number = next_number.saturating_add(1);
             }
             (None, _) => {}
+        }
+        if new {
+            check_new_spawn(&world, &spec)?;
         }
         info!(world = spec.name, kind = ?spec.kind, seed = world.seed(), new, "world loaded");
         world.set_generator(spec.generator.name());
@@ -1000,6 +1004,24 @@ fn resolve(
             entity_types: Arc::default(),
             check: None,
         },
+    })
+}
+
+/// Checks that a player standing at the spawn of the new world `world` is inside the world
+/// border; the error names the setting or the generator that gave the spawn.
+fn check_new_spawn(world: &World, spec: &WorldSpec) -> Result<(), crate::Error> {
+    if world::is_valid_spawn(world.spawn()) {
+        return Ok(());
+    }
+    Err(if spec.spawn.is_some() {
+        crate::Error::Config(crate::config::Error::Invalid {
+            key: format!("worlds.{}.spawn", spec.name),
+            expected: "a spawn inside the world border".to_owned(),
+        })
+    } else {
+        crate::Error::GeneratorSpawn {
+            name: spec.name.clone(),
+        }
     })
 }
 
@@ -2111,10 +2133,14 @@ pub(crate) fn default_seed(name: &str) -> i64 {
 }
 
 /// Gives `world` the state its stored `record` keeps: its number, time and spawn.
-pub(crate) fn resume(world: &mut World, record: WorldRecord) {
+///
+/// # Errors
+///
+/// [`world::Error::OutOfRange`] for a stored spawn outside the world border.
+pub(crate) fn resume(world: &mut World, record: WorldRecord) -> world::Result<()> {
     world.set_number(Some(record.number));
     world.set_time(record.time);
-    world.set_spawn(record.spawn);
+    world.set_spawn(record.spawn)
 }
 
 /// Learns the worlds the tick made or loaded: a new one is the next index (the tick numbers its
@@ -4153,6 +4179,50 @@ pub(crate) mod tests {
         assert!(
             matches!(&refused, Some(crate::Error::Storage(_))),
             "{refused:?}"
+        );
+    }
+
+    /// A generator that spawns players outside the world border.
+    struct FarSpawn;
+
+    impl Generator for FarSpawn {
+        fn generate(&self, _seed: i64, _pos: ChunkPos, _chunk: &mut Chunk) {}
+
+        fn spawn(&self, _seed: i64) -> BlockPos {
+            BlockPos::new(world::BORDER, 64, 0)
+        }
+    }
+
+    /// A new world whose spawn is outside the world border refuses the start; the error names
+    /// the generator's spawn, or the setting when the setting gave the spawn.
+    #[test]
+    fn a_new_world_with_a_spawn_outside_the_border_refuses_the_start() {
+        let dir = TempDir::new("spawn-outside");
+        let far = |spawn| WorldSpec {
+            name: "far".to_owned(),
+            kind: Kind::Temporary,
+            generator: Arc::new(FarSpawn),
+            seed: None,
+            spawn,
+        };
+        let mut generated = specs();
+        generated.push(far(None));
+        assert!(
+            matches!(
+                open(&dir.0, generated).err(),
+                Some(crate::Error::GeneratorSpawn { name }) if name == "far"
+            ),
+            "the generator's spawn"
+        );
+        let mut set = specs();
+        set.push(far(Some(BlockPos::new(0, 64, world::BORDER))));
+        assert!(
+            matches!(
+                open(&dir.0, set).err(),
+                Some(crate::Error::Config(crate::config::Error::Invalid { key, .. }))
+                    if key == "worlds.far.spawn"
+            ),
+            "the setting's spawn"
         );
     }
 

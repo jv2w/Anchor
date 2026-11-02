@@ -27,16 +27,16 @@ const DISK: ChunkPos = ChunkPos::new(40, 40);
 /// ages.
 const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
     [
-        0x11fd_89d6_955c_0395,
-        0x2c54_6c43_0665_5ffd,
+        0xf735_3ba5_f92d_4035,
+        0x3940_4dc6_a003_819d,
         0xc4d0_b7b4_ec98_80fa,
         0xb713_398d_58c8_d5e5,
     ],
     [
-        0x1a4e_ba01_9a02_cc21,
-        0xd62e_0010_7731_d6f9,
+        0xba5f_4255_12d0_ed82,
+        0xce78_5002_959b_6c8a,
         0xc4d0_b7b4_ec98_80fa,
-        0x4778_78da_6d4b_a174,
+        0x8529_4a2b_6280_7bf4,
     ],
 ];
 /// What reading the fixture's extras counts in each of the [`RUNS`]: 13 block entities (8 chests,
@@ -390,7 +390,12 @@ fn a_chunk_load_reads_no_extras_on_the_tick() {
             off_tick, EXPECTED_READS[i],
             "the load reads the extras, custom {custom}"
         );
-        assert_eq!(on_tick, Reads::default(), "custom {custom}");
+        // A saved orb of a server without orbs stays as saved: the tick keeps its compound.
+        let kept_orbs = Reads {
+            clones: if xp { 0 } else { 2 },
+            ..Reads::default()
+        };
+        assert_eq!(on_tick, kept_orbs, "custom {custom}");
     }
 }
 

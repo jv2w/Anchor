@@ -280,8 +280,8 @@ pub(super) struct RadiusAnswer {
     first: bool,
 }
 
-/// What the spawn windows of a tick share: the player list and each world's clock and sleeping
-/// packets. Built only when a player needs a window this tick.
+/// What the spawn windows of a tick share: the player list and each world's clock packets. Built
+/// only when a player needs a window this tick.
 #[derive(Debug, Default)]
 struct Window {
     /// The list of every placed player, in session order, built once for every window: it holds
@@ -289,8 +289,7 @@ struct Window {
     /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet and a session sends at most
     /// `max-batch-bytes` in one batch, so a longer or larger list goes in several.
     player_list: Vec<Arc<SharedPacket>>,
-    /// The packets of each world a window is in. Only those worlds, as each world's sleeping
-    /// counts look at every player.
+    /// The packets of each world a window is in. Only those worlds.
     worlds: BTreeMap<WorldIndex, WorldPackets>,
 }
 
@@ -308,7 +307,6 @@ impl Window {
                     WorldPackets {
                         clock_state: survival::clock_state(state, w),
                         clock_definition: survival::clock_definition(state, w),
-                        sleeping: survival::sleeping_players(state, w),
                     },
                 );
             }
@@ -347,8 +345,6 @@ struct WorldPackets {
     clock_state: Packet,
     /// The clock definition.
     clock_definition: Packet,
-    /// The sleeping counts.
-    sleeping: Packet,
 }
 
 /// A player with something to send at the end of a tick, and the packets the serial phases
@@ -637,7 +633,6 @@ fn messages(
     };
     let packets = window.world(player.world);
     if player.pending.start_game {
-        out.extend(packets.map(|w| Message::Packet(w.sleeping.clone())));
         out.extend(window.player_list());
         out.extend(packets.map(|w| Message::Packet(w.clock_state.clone())));
         out.push(Message::Shared(Arc::clone(&shared.jigsaw_structure_data)));
@@ -829,10 +824,10 @@ fn gets_list_changes(player: &Player) -> bool {
     player.phase != Phase::Loading && !player.pending.start_game
 }
 
-/// Wakes up a player that left (`State::remove`) and takes it out of the other players' lists,
-/// if they were told of it.
+/// Stops what a player that left (`State::remove`) was doing and takes it out of the other
+/// players' lists, if they were told of it.
 pub(super) fn left(state: &mut State, player: &mut Player) {
-    survival::left(state, player);
+    survival::left(player);
     if player.phase == Phase::Loading {
         return;
     }

@@ -1,24 +1,24 @@
 //! Non-player characters without AI, and players' melee hits and interactions with entities.
 //!
-//! The NPCs are villagers that trade, humans and PMMP's zombie (all PMMP `Living`), and custom
-//! entities ([`super::custom`]). The hits and interactions follow PMMP `Player::attackEntity` and
-//! `Player::interactEntity`.
+//! The NPCs are villagers that trade, humans and zombies (all living), and custom entities
+//! ([`super::custom`]).
 //!
 //! NPCs that [`spawn_npc`] makes are invulnerable, except zombies: lobby and shop NPCs are the
 //! use, and a trader killed by a stray hit would take its offers with it. An NPC whose
-//! `Invulnerable` flag is off follows PMMP `Living`: a 10-tick cooldown in which only stronger
-//! hits count the difference, knockback and the hurt animation on a cold hit, fall damage,
-//! suffocation, burning and the blocks that hurt a living thing inside them (the players' rule,
-//! `Harm`), and at 0 health the death animation and removal 25 ticks later; its drops (a
-//! zombie's; other NPCs drop nothing) come at its first tick after the death. NPCs have no
-//! lasting effects (no AI they could change), so a wither rose does nothing to them; instant
-//! health and damage apply. Drowning is not counted (no air supply).
+//! `Invulnerable` flag is off has a 10-tick cooldown in which only stronger hits count the
+//! difference, knockback and the hurt animation on a cold hit, fall damage, suffocation, burning
+//! and the blocks that hurt a living thing inside them (the players' rule, `Harm`), and at 0
+//! health the death animation and removal 25 ticks later; its drops (a zombie's; other NPCs drop
+//! nothing) come at its first tick after the death. NPCs have no lasting effects (no AI they
+//! could change), so a wither rose does nothing to them; instant health and damage apply.
+//! Drowning is not counted (no air supply). An NPC that lands from a fall takes the fall damage
+//! and changes no block.
 //!
-//! Melee hits on items, orbs, projectiles and clouds do nothing (PMMP kicks the player for items
-//! and arrows; a hit packet is not worth a kick). A hit on an NPC, a painting or an end crystal
-//! counts what the survival rules count for a hit on a player: the attacker's Strength and
-//! Weakness, Sharpness and a critical hit (a painting breaks, an end crystal explodes; the hit
-//! animations, knockback and Fire Aspect are for NPCs, PMMP `Living`).
+//! Melee hits on items, orbs, projectiles and clouds do nothing (a hit packet is not worth a
+//! kick). A hit on an NPC, a painting or an end crystal counts what the survival rules count for
+//! a hit on a player: the attacker's Strength and Weakness, Sharpness and a critical hit (a
+//! painting breaks, an end crystal explodes; the hit animations, knockback and Fire Aspect are
+//! for NPCs).
 //!
 //! [`spawn_npc`]: super::spawn_npc
 
@@ -66,7 +66,7 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
         }
     };
     let kind = Kind::Npc(Character {
-        // PMMP's zombie is a mob, not a lobby figure: it takes damage.
+        // A zombie is a mob, not a lobby figure: it takes damage.
         invulnerable: !matches!(form, Form::Zombie { .. }),
         form,
         attack_time: 0,
@@ -80,7 +80,7 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
     Some(id)
 }
 
-/// Interacts as `session` with the entity `target` (PMMP `Player::interactEntity`).
+/// Interacts as `session` with the entity `target`.
 /// A villager NPC within reach opens trading with `open` (`trade::open`), and a live custom
 /// entity calls its behaviour. False if nothing happened.
 pub(super) fn interact_with(
@@ -114,7 +114,7 @@ pub(super) fn interact_with(
     villager && open(state, session, target)
 }
 
-/// Hits the entity `target` in melee as `session` (PMMP `Player::attackEntity`).
+/// Hits the entity `target` in melee as `session`.
 /// An NPC within reach takes the survival rules' melee damage (attack points, Strength,
 /// Weakness, Sharpness, a critical hit), with knockback from the player, Knockback and Fire
 /// Aspect; the weapon wears and the player gets hungrier. The viewers see the arm swing and hear
@@ -199,7 +199,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
 
 /// The eye position of the player `session` and the position of the entity `target`.
 /// They are there if the player can act on the entity: spawned, alive, not a spectator, in the
-/// same world and within reach of its eyes and look (PMMP `Player::canInteract`).
+/// same world and within reach of its eyes and look.
 pub(super) fn reaches(
     state: &State,
     session: SessionId,
@@ -256,7 +256,7 @@ fn enchanted_hit(
     }
 }
 
-/// Ticks an NPC (PMMP `Living::entityBaseTick`).
+/// Ticks an NPC.
 /// It suffocates inside a solid block, then its hit cooldown counts down.
 pub(super) fn tick(state: &mut State, id: Id) {
     let Some(e) = state.rules.entities.get(id) else {
@@ -283,7 +283,7 @@ pub(super) fn tick(state: &mut State, id: Id) {
     });
 }
 
-/// Handles an NPC landing after a fall of `fall` blocks (PMMP `Living::onHitGround`).
+/// Handles an NPC landing after a fall of `fall` blocks.
 /// It takes the fall damage beyond 3 blocks.
 pub(super) fn landed(state: &mut State, id: Id, fall: f64) {
     let damage = (fall - SAFE_FALL).ceil();

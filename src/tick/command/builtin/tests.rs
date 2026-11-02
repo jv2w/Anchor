@@ -627,9 +627,14 @@ fn messages_to_the_players_acted_on_are_raw_text() {
 #[test]
 fn a_hardcore_server_stays_hard() {
     let (mut state, _rx) = with_op();
-    assert!(Context { state: &mut state }.set_difficulty(Difficulty::Peaceful));
+    Context { state: &mut state }
+        .set_difficulty(Difficulty::Peaceful)
+        .unwrap();
     state.settings.hardcore = true;
-    assert!(!Context { state: &mut state }.set_difficulty(Difficulty::Easy));
+    assert_eq!(
+        Context { state: &mut state }.set_difficulty(Difficulty::Easy),
+        Err(crate::world::Error::Hardcore)
+    );
     assert_eq!(
         Context { state: &mut state }.difficulty(),
         Difficulty::Peaceful
@@ -773,14 +778,18 @@ fn tp_moves_players_to_players_and_positions() {
 #[test]
 fn the_world_age_goes_on_while_the_clock_is_paused_or_moved() {
     let (mut state, _rx) = with_op();
-    assert!(Context { state: &mut state }.stop_time(crate::world::Id::DEFAULT));
+    Context { state: &mut state }
+        .stop_time(crate::world::Id::DEFAULT)
+        .unwrap();
     let (time, age) = (state.worlds[0].time_ticks(), state.worlds[0].age_ticks());
     for _ in 0..3 {
         tick(&mut state, &mut Vec::new(), &mut TickOutput::default());
     }
     assert_eq!(state.worlds[0].time_ticks(), time);
     assert_eq!(state.worlds[0].age_ticks(), age + 3);
-    assert!(Context { state: &mut state }.set_time(crate::world::Id::DEFAULT, 50_000));
+    Context { state: &mut state }
+        .set_time(crate::world::Id::DEFAULT, 50_000)
+        .unwrap();
     assert_eq!(state.worlds[0].age_ticks(), age + 3);
 }
 
@@ -816,12 +825,12 @@ fn the_players_are_told_each_change_of_the_clock() {
     let (mut state, mut rx) = with_op();
     let world = crate::world::Id::DEFAULT;
     // Paused, so the ticks between leave the clock where it is.
-    assert!(Context { state: &mut state }.stop_time(world));
+    Context { state: &mut state }.stop_time(world).unwrap();
     clock_syncs(&mut state, &mut rx[0]);
-    assert!(Context { state: &mut state }.set_time(world, 6000));
+    Context { state: &mut state }.set_time(world, 6000).unwrap();
     assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(6000, true)]]);
-    assert!(Context { state: &mut state }.set_time(world, 7000));
-    assert!(Context { state: &mut state }.set_time(world, 6000));
+    Context { state: &mut state }.set_time(world, 7000).unwrap();
+    Context { state: &mut state }.set_time(world, 6000).unwrap();
     assert_eq!(
         clock_syncs(&mut state, &mut rx[0]),
         [[(7000, true)], [(6000, true)]]

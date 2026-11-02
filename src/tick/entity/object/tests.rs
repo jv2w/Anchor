@@ -16,9 +16,9 @@ use crate::protocol::{
 };
 use crate::tick::entity::kind::Shot;
 use crate::tick::entity::saved::tests::stack;
-use crate::tick::entity::tests::{Harness, adds, at, removes, standing};
+use crate::tick::entity::tests::{Harness, adds, at, removes, session, standing};
 use crate::tick::entity::{
-    Entities, Entity, MAX_ENTITIES_PER_WORLD, Npc, drop_item, release_trident, saved, spawn_npc,
+    Entities, Entity, MAX_ENTITIES_PER_WORLD, drop_item, release_trident, saved,
 };
 use crate::tick::tests::{input, packet};
 use crate::tick::{Context, inventory};
@@ -36,17 +36,6 @@ thread_local! {
 
 /// The world the tests' entities live in.
 const WORLD: crate::world::Id = crate::world::Id::DEFAULT;
-
-/// A harness with player 1 standing at block (0, 0), spawned, in survival.
-fn harness() -> Harness {
-    let mut h = Harness::new(1);
-    h.spawn(1, standing(0.0, 0.0));
-    h
-}
-
-fn session(n: u64) -> SessionId {
-    SessionId::new(n)
-}
 
 fn hold(h: &mut Harness, stack: Stack) {
     inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), stack);
@@ -140,15 +129,9 @@ fn on_ground(h: &Harness, item: item::Kind) -> u64 {
         .sum()
 }
 
-fn context(h: &mut Harness) -> Context<'_> {
-    Context {
-        state: &mut h.state,
-    }
-}
-
 fn game_mode(h: &mut Harness, mode: GameMode) {
     let p = h.state.players.get_mut(&session(1)).unwrap();
-    assert!(p.set_game_mode(mode));
+    p.set_game_mode(mode);
     h.step(Vec::new());
 }
 
@@ -166,10 +149,10 @@ fn hit(h: &mut Harness, id: Id) {
 // api: Painting::__construct, Painting::canFit
 #[test]
 fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     h.look(1, 270.0, 0.0);
     wall(&mut h);
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let pos = BlockPos::new(2, -59, 0);
     let big = PaintingMotive::Pointer;
     assert!(cx.can_hang_painting(WORLD, pos, Face::West, big));
@@ -182,13 +165,13 @@ fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
         !cx.can_hang_painting(WORLD, BlockPos::new(3, -59, 0), Face::West, big),
         "inside the wall"
     );
-    assert!(cx.spawn_painting(WORLD, pos, Face::Up, big).is_none());
+    assert!(cx.spawn_painting(WORLD, pos, Face::Up, big).is_err());
     let id = cx.spawn_painting(WORLD, pos, Face::West, big).unwrap();
     assert!(
         !cx.can_hang_painting(WORLD, pos, Face::West, PaintingMotive::Kebab),
         "taken"
     );
-    // Saved with PMMP's keys: the wall block, the facing twice, the motive.
+    // Saved as the wall block, the facing twice and the motive.
     let saved = saved::save(entity(&h, id));
     assert_eq!(
         saved.get("identifier"),
@@ -210,7 +193,8 @@ fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
     assert!(h.state.rules.entities.get(id).is_none());
     assert_eq!(on_ground(&h, item::Kind::Painting), 1);
     game_mode(&mut h, GameMode::Creative);
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_painting(WORLD, pos, Face::West, big)
         .unwrap();
     h.step(Vec::new());
@@ -254,13 +238,14 @@ fn flags_of(m: &crate::protocol::EntityMetadata) -> FlagSet<EntityDataFlag> {
 // api: entity\object\EndCrystal::setShowBase, entity\object\EndCrystal::setBeamTarget
 #[test]
 fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let obsidian = BlockKind::Obsidian.default_state();
     let base = BlockPos::new(3, -61, 0);
     set(&mut h, base, obsidian);
     h.step(Vec::new());
     h.take(1);
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_end_crystal(WORLD, at(3.5, -60.0, 0.5))
         .unwrap();
     assert_eq!(entity(&h, id).body.position, at(3.5, -60.0, 0.5));
@@ -274,10 +259,10 @@ fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
         Some(&MetadataValue::BlockPos([0, 0, 0]))
     );
     assert!(!flags_of(&m).contains(EntityDataFlag::ShowBottom));
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let mut e = cx.entity_mut(id).unwrap();
-    assert!(e.set_show_base(true));
-    assert!(e.set_beam_target(Some(BlockPos::new(0, 80, 0))));
+    e.set_show_base(true).unwrap();
+    e.set_beam_target(Some(BlockPos::new(0, 80, 0))).unwrap();
     assert!(e.shows_base() && e.beam_target() == Some(BlockPos::new(0, 80, 0)));
     h.step(Vec::new());
     let data: Vec<_> = h
@@ -315,10 +300,11 @@ fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
 
 #[test]
 fn an_end_crystal_the_void_kills_does_not_explode_and_chains_go_off() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     // Away from the blasts below.
     h.teleport(1, standing(-20.0, 0.0));
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_end_crystal(WORLD, at(0.5, -90.0, 0.5))
         .unwrap();
     for _ in 0..3 {
@@ -328,14 +314,16 @@ fn an_end_crystal_the_void_kills_does_not_explode_and_chains_go_off() {
     assert!(h.take(1).iter().all(|p| !matches!(p, Packet::LevelEvent(e)
         if e.event_type == i32::from(LevelEvent::ParticlesExplosion))));
     // Two crystals side by side: the explosion of one sets off the other.
-    let a = context(&mut h)
+    let a = h
+        .context()
         .spawn_end_crystal(WORLD, at(4.5, -60.0, 0.5))
         .unwrap();
-    let b = context(&mut h)
+    let b = h
+        .context()
         .spawn_end_crystal(WORLD, at(7.5, -60.0, 0.5))
         .unwrap();
     h.step(Vec::new());
-    assert!(context(&mut h).entity_mut(a).unwrap().attack(1.0));
+    assert!(h.context().entity_mut(a).unwrap().attack(1.0));
     let blasts = |h: &mut Harness| {
         h.take(1)
             .iter()
@@ -352,38 +340,23 @@ fn an_end_crystal_the_void_kills_does_not_explode_and_chains_go_off() {
     assert_eq!(blasts(&mut h), 2);
 }
 
-/// A vulnerable human NPC standing at `pos`.
-fn target(h: &mut Harness, pos: Vec3) -> Id {
-    let npc = Npc::Human {
-        name: "target".to_owned(),
-        skin: None,
-    };
-    let id = spawn_npc(&mut h.state, 0, pos, npc).unwrap();
-    with(&mut h.state, id, |e| {
-        if let Kind::Npc(c) = &mut e.kind {
-            c.invulnerable = false;
-        }
-    });
-    id
-}
-
 // api: entity\object\FireworkRocket::__construct, entity\object\FireworkRocket::setExplosions,
 // api: entity\object\FireworkRocket::setMaxFlightTimeTicks
 #[test]
 fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let explosion = Compound::from([
         (TAG_TYPE.to_owned(), Value::Byte(LARGE_BALL)),
         (TAG_COLOURS.to_owned(), Value::ByteArray(vec![1, 14])),
         (TAG_TWINKLE.to_owned(), Value::Byte(1)),
     ]);
-    let npc = target(&mut h, at(8.5, -60.0, 0.5));
-    let mut cx = context(&mut h);
+    let npc = h.vulnerable_human(at(8.5, -60.0, 0.5));
+    let mut cx = h.context();
     let bad = Compound::from([(TAG_TYPE.to_owned(), Value::Byte(9))]);
     let at_burst = at(6.5, -60.0, 0.5);
     assert!(
         cx.spawn_firework_rocket(WORLD, at_burst, 1, vec![bad.clone()], Vec3::ZERO)
-            .is_none()
+            .is_err()
     );
     let id = cx
         .spawn_firework_rocket(WORLD, at_burst, 100, Vec::new(), Vec3::ZERO)
@@ -391,18 +364,18 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
     h.take(1);
     // Shown first; then its flight ends at once.
     h.step(Vec::new());
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let mut e = cx.entity_mut(id).unwrap();
-    assert!(!e.set_firework_explosions(vec![bad]));
-    assert!(e.set_firework_explosions(vec![explosion.clone()]));
-    assert!(e.set_max_flight_time_ticks(1));
+    assert!(e.set_firework_explosions(vec![bad]).is_err());
+    e.set_firework_explosions(vec![explosion.clone()]).unwrap();
+    e.set_max_flight_time_ticks(1).unwrap();
     assert_eq!(e.max_flight_time_ticks(), Some(1));
-    e.set_can_save_with_chunk(true);
+    assert!(e.set_can_save_with_chunk(true).is_err());
     assert!(!e.can_save_with_chunk(), "never saved");
     let burst_at = e.position() + e.motion();
     h.step(Vec::new());
     assert!(h.state.rules.entities.get(id).is_none(), "burst");
-    // PMMP: (1 × 2 + 5) × √((5 − d) / 5) to the NPC two blocks away; player 1 is farther.
+    // The damage is (1 × 2 + 5) × √((5 − d) / 5) to the NPC two blocks away; player 1 is farther.
     let d = burst_at.distance_squared(at(8.5, -60.0, 0.5)).sqrt();
     let expected = 7.0 * ((5.0 - d) / 5.0).sqrt();
     let health = entity(&h, npc).health;
@@ -425,9 +398,10 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
             && sounds.contains(&"twinkle"),
         "{sounds:?}"
     );
-    // Without explosions a rocket bursts quietly and harmlessly, its burst event shown as BDS
-    // shows it (P6 `entities`).
-    let quiet = context(&mut h)
+    // Without explosions a rocket bursts quietly and harmlessly, its burst event shown as the
+    // official server shows it (P6 `entities`).
+    let quiet = h
+        .context()
         .spawn_firework_rocket(WORLD, at_burst, 2, Vec::new(), Vec3::ZERO)
         .unwrap();
     let before = entity(&h, npc).health;
@@ -476,11 +450,11 @@ fn the_multiplier_an_api_rocket_shows_inverts_the_flight_time_of_an_item() {
 /// slow start up with its own drift, looking up, without owner or explosions, never saved.
 #[test]
 fn an_api_launch_flies_as_a_rocket_item_without_data() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     assert!(
         cx.launch_firework_rocket(WORLD, at(f64::NAN, -60.0, 0.5))
-            .is_none()
+            .is_err()
     );
     let ids = [0; 2].map(|_| {
         cx.launch_firework_rocket(WORLD, at(6.5, -60.0, 0.5))
@@ -505,7 +479,7 @@ fn an_api_launch_flies_as_a_rocket_item_without_data() {
 
 #[test]
 fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let fireworks = Compound::from([
         (TAG_FLIGHT.to_owned(), Value::Byte(2)),
         (
@@ -555,8 +529,8 @@ fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
     else {
         panic!("firework item");
     };
-    // BDS (P6 `entities`): the item's explosions and flight, the direction (0, 1, 0), no attached
-    // entity, no owner.
+    // As the official server shows it (P6 `entities`): the item's explosions and flight, the
+    // direction (0, 1, 0), no attached entity, no owner.
     assert!(matches!(item_nbt.get(TAG_FIREWORKS),
         Some(Value::Compound(fireworks)) if fireworks.contains_key(TAG_EXPLOSIONS)
             && fireworks.get(TAG_FLIGHT) == Some(&Value::Byte(2))));
@@ -605,10 +579,11 @@ fn throw_trident(h: &mut Harness, ticks: u32) {
     release(h);
 }
 
-/// BDS sounds a trident's throw at the middle of the thrower's body (P6 `itemuse`).
+/// A trident's throw sounds at the middle of the thrower's body, as on the official server (P6
+/// `itemuse`).
 #[test]
 fn a_trident_throw_sounds_at_the_middle_of_the_body() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     hold(&mut h, stack("minecraft:trident", 1));
     h.take(1);
     throw_trident(&mut h, 20);
@@ -633,7 +608,7 @@ fn carried(h: &Harness, item: item::Kind) -> u64 {
 
 #[test]
 fn a_thrown_trident_hits_sticks_and_comes_back_once() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     let trident = stack("minecraft:trident", 1);
     hold(&mut h, trident.clone());
     // Drawn too short: nothing.
@@ -682,10 +657,11 @@ fn a_thrown_trident_hits_sticks_and_comes_back_once() {
 
 #[test]
 fn a_trident_hurts_by_eight_bounces_back_and_a_creative_one_gives_nothing() {
-    let mut h = harness();
-    let npc = target(&mut h, at(4.5, -60.0, 0.5));
+    let mut h = Harness::with_player();
+    let npc = h.vulnerable_human(at(4.5, -60.0, 0.5));
     let trident = stack("minecraft:trident", 1);
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_trident(
             WORLD,
             at(1.5, -59.0, 0.5),
@@ -707,7 +683,7 @@ fn a_trident_hurts_by_eight_bounces_back_and_a_creative_one_gives_nothing() {
     assert!(!t.can_collide, "no more hits until a block");
     assert!(!e.flagged, "it bounced");
     // Thrown in creative: the hand keeps it and the pickup takes it away.
-    let mut h = harness();
+    let mut h = Harness::with_player();
     game_mode(&mut h, GameMode::Creative);
     hold(&mut h, trident.clone());
     throw_trident(&mut h, 20);
@@ -733,8 +709,8 @@ fn a_trident_hurts_by_eight_bounces_back_and_a_creative_one_gives_nothing() {
 // api: entity\projectile\Trident::__construct, entity\projectile\Trident::setItem
 #[test]
 fn tridents_save_their_item_and_show_its_glint() {
-    let mut h = harness();
-    let mut cx = context(&mut h);
+    let mut h = Harness::with_player();
+    let mut cx = h.context();
     assert_eq!(
         cx.spawn_trident(WORLD, at(0.5, -59.0, 3.5), Stack::EMPTY, Vec3::ZERO),
         Err(Stack::EMPTY)
@@ -764,10 +740,10 @@ fn tridents_save_their_item_and_show_its_glint() {
     assert_eq!(saved.get("isCreative"), Some(&Value::Byte(0)));
     assert_eq!(saved.get("damage"), Some(&Value::Double(8.0)));
     // A plain item takes the glint away.
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     let mut e = cx.entity_mut(id).unwrap();
-    assert!(!e.set_item(Stack::EMPTY));
-    assert!(e.set_item(plain.clone()));
+    assert!(e.set_item(Stack::EMPTY).is_err());
+    e.set_item(plain.clone()).unwrap();
     assert_eq!(e.item(), Some(&plain));
     h.step(Vec::new());
     let flags: Vec<_> = h
@@ -782,8 +758,8 @@ fn tridents_save_their_item_and_show_its_glint() {
 }
 
 #[test]
-fn an_ice_bomb_freezes_the_water_around_where_it_lands_and_hurts_no_one() {
-    let mut h = harness();
+fn an_ice_bomb_breaks_where_it_lands_leaves_the_water_as_it_is_and_hurts_no_one() {
+    let mut h = Harness::with_player();
     let water = BlockKind::Water.default_state();
     let mut pool = Vec::new();
     for x in 3..=6 {
@@ -794,7 +770,8 @@ fn an_ice_bomb_freezes_the_water_around_where_it_lands_and_hurts_no_one() {
         }
     }
     h.step(Vec::new());
-    let id = context(&mut h)
+    let id = h
+        .context()
         .spawn_projectile(
             WORLD,
             at(4.5, -58.0, 0.5),
@@ -809,14 +786,11 @@ fn an_ice_bomb_freezes_the_water_around_where_it_lands_and_hurts_no_one() {
         h.state.rules.entities.get(id).is_none(),
         "it broke on the water"
     );
-    let ice = BlockKind::Ice.default_state();
     for pos in pool {
-        let near = (3..=5).contains(&pos.x) && (-1..=1).contains(&pos.z);
-        let now = block_at_pos(&h, pos);
-        assert_eq!(now == ice, near, "{pos:?}");
+        assert_eq!(block_at_pos(&h, pos), water, "{pos:?}");
     }
     // From the hand: one used up, an ice bomb flies; on an NPC it breaks without damage.
-    let npc = target(&mut h, at(0.5, -60.0, 3.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 3.5));
     hold(&mut h, stack("minecraft:ice_bomb", 2));
     use_in_air(&mut h);
     assert_eq!(held(&h).count(), 1);
@@ -830,7 +804,7 @@ fn an_ice_bomb_freezes_the_water_around_where_it_lands_and_hurts_no_one() {
 
 #[test]
 fn at_the_entity_cap_rockets_and_tridents_are_refused_and_items_stay() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     wall(&mut h);
     h.step(Vec::new());
     let have = h.state.rules.entities.count(0);
@@ -858,18 +832,18 @@ fn at_the_entity_cap_rockets_and_tridents_are_refused_and_items_stay() {
     hold(&mut h, trident.clone());
     assert!(!release_trident(&mut h.state, session(1), 20));
     assert_eq!(held(&h), trident);
-    let mut cx = context(&mut h);
+    let mut cx = h.context();
     assert_eq!(
         cx.spawn_trident(WORLD, at(0.5, -59.0, 0.5), trident.clone(), Vec3::ZERO),
         Err(trident)
     );
-    assert!(cx.spawn_end_crystal(WORLD, at(0.5, -59.0, 0.5)).is_none());
+    assert!(cx.spawn_end_crystal(WORLD, at(0.5, -59.0, 0.5)).is_err());
     h.state.rules.entities = Entities::default();
 }
 
 #[test]
 fn spawning_and_removing_each_kind_leaves_every_table_at_its_start() {
-    let mut h = harness();
+    let mut h = Harness::with_player();
     wall(&mut h);
     for _ in 0..3 {
         h.step(Vec::new());
@@ -877,7 +851,7 @@ fn spawning_and_removing_each_kind_leaves_every_table_at_its_start() {
     h.state.rules.entities.take_changed();
     let start = h.state.rules.entities.count(0);
     for round in 0..200_i32 {
-        let mut cx = context(&mut h);
+        let mut cx = h.context();
         let z = f64::from(round % 5) - 2.0;
         let mut ids = vec![
             cx.spawn_painting(
@@ -902,7 +876,7 @@ fn spawning_and_removing_each_kind_leaves_every_table_at_its_start() {
         ];
         h.step(Vec::new());
         for id in ids.drain(..) {
-            if let Some(mut e) = context(&mut h).entity_mut(id) {
+            if let Some(mut e) = h.context().entity_mut(id) {
                 e.flag_for_despawn();
             }
         }
@@ -994,6 +968,29 @@ fn a_tridents_launch_and_pickup_ask_their_listeners() {
     assert_eq!(carried(&h, item::Kind::Trident), 1);
 }
 
+/// A painting stays where it hangs when the wall behind it goes.
+#[test]
+fn a_painting_stays_when_its_wall_goes() {
+    let mut h = Harness::with_player();
+    wall(&mut h);
+    let id = h
+        .context()
+        .spawn_painting(
+            WORLD,
+            BlockPos::new(2, -59, 0),
+            Face::West,
+            PaintingMotive::Kebab,
+        )
+        .unwrap();
+    h.step(Vec::new());
+    set(&mut h, BlockPos::new(3, -59, 0), block::AIR);
+    for _ in 0..5 {
+        h.step(Vec::new());
+    }
+    assert!(h.state.rules.entities.get(id).is_some_and(|e| !e.flagged));
+    assert_eq!(on_ground(&h, item::Kind::Painting), 0);
+}
+
 #[test]
 fn a_breaking_painting_shows_its_planks_through_world_particle() {
     let listeners = || {
@@ -1028,18 +1025,19 @@ fn a_breaking_painting_shows_its_planks_through_world_particle() {
         PARTICLES.with(Cell::take);
         let mut h = Harness::with_listeners(1, listeners());
         h.spawn(1, standing(0.0, 0.0));
+        h.look(1, 270.0, 0.0);
         wall(&mut h);
         let pos = BlockPos::new(2, -59, 0);
-        let id = context(&mut h)
+        let id = h
+            .context()
             .spawn_painting(WORLD, pos, Face::West, PaintingMotive::Kebab)
             .unwrap();
         h.step(Vec::new());
         let hung = entity(&h, id).body.position;
         h.take(1);
-        set(&mut h, BlockPos::new(3, -59, 0), block::AIR);
+        hit(&mut h, id);
         h.step(Vec::new());
-        h.step(Vec::new());
-        assert!(h.state.rules.entities.get(id).is_none(), "fell");
+        assert!(h.state.rules.entities.get(id).is_none(), "broke");
         let seen = PARTICLES.with(Cell::take);
         assert_eq!(seen, [(hung + Vec3::new(0.5, 0.5, 0.5), planks)]);
         let shown = planks_shown(&h.take(1));

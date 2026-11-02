@@ -7,16 +7,16 @@ use tokio::sync::mpsc;
 
 use super::*;
 use crate::action::{self, Action};
-use crate::block::{self, PropertyValue};
+use crate::block;
 use crate::config::{Config, CriticalHits};
 use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
     EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, EntityTeleport,
-    ExtinguishCause, Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerChangeSkin, PlayerChat,
-    PlayerDeath, PlayerEmote, PlayerExhaust, PlayerGameModeChange, PlayerItemConsume, PlayerJump,
-    PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight,
-    PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer,
-    PlayerXpChange, Priority, TeleportCause,
+    ExtinguishCause, Listeners, MAX_DAMAGE, PlayerChangeSkin, PlayerChat, PlayerDeath, PlayerEmote,
+    PlayerExhaust, PlayerGameModeChange, PlayerItemConsume, PlayerJump, PlayerKick,
+    PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide,
+    PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerXpChange,
+    Priority, TeleportCause,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -378,7 +378,7 @@ fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     let mut game = Game::new(1, listeners);
     assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Contact));
     assert_eq!(game.survival_mut(1).health, 20.0);
-    // A suicide spares no game mode.
+    // A suicide is not spared by a game mode.
     let source = DamageSource::Entity(Actor::Player(pid(1)));
     assert!(damage_by(&mut game.state, sid(1), 30.0, Damage::Suicide, source).is_some());
     assert!(game.survival_mut(1).is_dead());
@@ -470,8 +470,7 @@ fn healing_asks_only_below_full_health_and_an_amount_that_does_not_heal_cancels_
     assert_eq!(game.survival_mut(1).health, 10.0);
 }
 
-/// A full bar on peaceful heals twice in one tick, each a regain of its own, then exhausts (PMMP
-/// `HungerManager::tick`).
+/// A full bar on peaceful heals twice in one tick, each a regain of its own, then exhausts.
 #[test]
 fn peaceful_and_full_bar_heals_are_regains_of_their_own() {
     let (tx, mut seen) = record();
@@ -498,11 +497,11 @@ fn peaceful_and_full_bar_heals_are_regains_of_their_own() {
 }
 
 /// A creative player that dies drops nothing but still loses what it carries, but for the items
-/// kept on death (PMMP `Player::onDeath`, `Player::getDrops`).
+/// kept on death.
 #[test]
 fn a_creative_player_that_dies_loses_its_inventory_and_drops_nothing() {
     let mut game = Game::new(1, Listeners::default());
-    assert!(game.player_mut(1).set_game_mode(GameMode::Creative));
+    game.player_mut(1).set_game_mode(GameMode::Creative);
     assert!(inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5)).is_empty());
     assert!(damage(&mut game.state, sid(1), 30.0, Damage::Suicide));
     assert!(game.survival_mut(1).is_dead());
@@ -828,7 +827,7 @@ fn the_game_mode_action_asks_and_the_direct_call_does_not() {
     assert_eq!(game.player(1).game_mode(), GameMode::Survival);
     game.perform(action::SetGameMode::new(pid(1), GameMode::Creative));
     assert_eq!(game.player(1).game_mode(), GameMode::Creative);
-    assert!(game.player_mut(1).set_game_mode(GameMode::Spectator));
+    game.player_mut(1).set_game_mode(GameMode::Spectator);
     assert_eq!(
         drain(&mut seen),
         [GameMode::Adventure, GameMode::Creative],
@@ -973,8 +972,7 @@ fn toggle_listeners(tx: mpsc::Sender<&'static str>) -> Listeners {
     listeners
 }
 
-/// The client starting or stopping flight forgets the fall (PMMP `Player::toggleFlight` through
-/// `setFlying`).
+/// The client starting or stopping flight forgets the fall.
 #[test]
 fn a_client_flight_toggle_forgets_the_fall() {
     let mut game = Game::new(1, Listeners::default());
@@ -1086,9 +1084,9 @@ fn a_sneak_answer_carries_its_input_tick() {
     assert_eq!(answer_ticks(game.take(1)), [0]);
 }
 
-/// A sneak's box goes in the height (54), as BDS and PMMP send it; the collision box (130) stays
-/// the standing one (P6 `sneak`). Sent as the collision box, a sneak made the client crouch by
-/// itself when a jump met a ceiling.
+/// A sneak's box goes in the height (54), as the official server sends it; the collision box
+/// (130) stays the standing one (P6 `sneak`). Sent as the collision box, a sneak made the client
+/// crouch by itself when a jump met a ceiling.
 #[test]
 fn a_sneak_answer_sends_the_height_not_the_collision_box() {
     use crate::protocol::MetadataValue;
@@ -1240,19 +1238,6 @@ fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
     );
     // The listener's 200 apples are one stack of at most 64.
     assert_eq!(carried(player), 1 + 64);
-}
-
-/// A bed of the default direction.
-fn bed(head: bool) -> block::State {
-    block::State::find(
-        "minecraft:bed",
-        &[
-            ("direction", PropertyValue::Int(0)),
-            ("head_piece_bit", PropertyValue::Byte(u8::from(head))),
-            ("occupied_bit", PropertyValue::Byte(0)),
-        ],
-    )
-    .unwrap()
 }
 
 // api: EntityEffectAddEvent, EntityEffectRemoveEvent
@@ -1950,13 +1935,6 @@ fn named_events(tx: &mpsc::Sender<&'static str>) -> Listeners {
             .unwrap();
         },
     );
-    let t = tx.clone();
-    l.push(
-        Priority::Normal,
-        move |_: &mut PlayerBedEnter, _: &mut Context<'_>| {
-            t.try_send("bed").unwrap();
-        },
-    );
     l
 }
 
@@ -2030,8 +2008,6 @@ fn xp_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
     p.add_xp(100);
     p.subtract_xp(5);
     p.subtract_xp_levels(3);
-    // What an enchanting table or an anvil takes.
-    subtract_levels(game.player_mut(1), 2);
     // A death drops no xp and keeps the level.
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(2);
@@ -2091,7 +2067,7 @@ fn fall_damage_off_lands_softly_and_spares_ender_pearl_falls() {
         sounds(&game.take(1)),
         [crate::protocol::consts::SoundEvent::Land.as_str()]
     );
-    // An ender pearl's landing (PMMP: fall damage).
+    // An ender pearl's landing is fall damage.
     assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Fall));
     assert_eq!(drain(&mut seen), ["exhaust"], "only the walk");
 }
@@ -2147,8 +2123,7 @@ fn drowning_off_keeps_the_air_full_the_player_breathing_and_unhurt() {
     assert_eq!(data, 0, "no air or breathing change is sent");
 }
 
-/// The thorns answer counts the wearer's Strength, as any hit by it does (PMMP
-/// `EntityDamageByEntityEvent::addAttackerModifiers`).
+/// The thorns answer counts the wearer's Strength, as any hit by it does.
 #[test]
 fn the_thorns_answer_counts_the_wearers_strength() {
     let (tx, mut seen) = record();
@@ -2215,32 +2190,12 @@ fn armour_off_neither_protects_nor_wears_nor_answers_with_thorns() {
     assert_eq!(drain(&mut seen), [[false; 3]; 2]);
 }
 
+/// `daylight-cycle = false` holds the time; the client is told as the official server tells it
+/// with `doDayLightCycle` false (P6 `rules`/`rulesjoin`): the rule, the time of day in
+/// `StartGame`'s day cycle lock, the clock not paused and still corrected now and then, at the
+/// held time.
 #[test]
-fn beds_off_let_no_one_sleep_or_set_a_spawn_point() {
-    let (tx, mut seen) = record();
-    let mut game = Game::with(1, named_events(&tx), |c| c.general.beds = false);
-    let spawn = game.state.worlds[0].spawn();
-    let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
-    let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
-    game.state.worlds[0].set_block(foot, bed(false)).unwrap();
-    game.state.worlds[0].set_block(head, bed(true)).unwrap();
-    game.state.worlds[0].set_time(13_000);
-    let mut cx = Context {
-        state: &mut game.state,
-    };
-    assert!(!cx.sleep_on(pid(1), foot));
-    game.idle(100);
-    let s = game.survival_mut(1);
-    assert_eq!((s.sleeping, s.spawn.clone()), (None, None));
-    assert_eq!(game.state.worlds[0].block(head), Some(bed(true)));
-    assert!(drain(&mut seen).is_empty());
-}
-
-/// `daylight-cycle = false` holds the time; the client is told as BDS tells it with
-/// `doDayLightCycle` false (P6 `rules`/`rulesjoin`): the rule, the time of day in `StartGame`'s day
-/// cycle lock, the clock not paused and still corrected now and then, at the held time.
-#[test]
-fn daylight_cycle_off_stops_the_time_and_tells_the_client_as_bds() {
+fn daylight_cycle_off_stops_the_time_and_tells_the_client_as_the_official_server() {
     let window = spawn_window(|c| c.general.daylight_cycle = false);
     assert_eq!(
         game_rule(&window, "doDayLightCycle"),
@@ -2290,6 +2245,41 @@ fn daylight_cycle_off_stops_the_time_and_tells_the_client_as_bds() {
     assert!(times.iter().all(|&t| i64::from(t) == start), "{times:?}");
 }
 
+/// `pvp = false`: no hit another player causes lands, by hand, by a projectile or by a blast,
+/// while a player still hurts itself and a kill by another player's name goes through.
+#[test]
+fn pvp_off_spares_a_player_from_every_hit_another_player_causes() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |_: &mut EntityDamage, _: &mut Context<'_>| {
+        tx.try_send(()).unwrap();
+    });
+    let mut game = Game::with(2, listeners, |c| c.general.pvp = false);
+    let base = game.player(1).position;
+    game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
+    game.idle(1);
+    let shot_by = |owner: u64| DamageSource::Child {
+        child: crate::entity::Id::new(0, 0),
+        owner: Some(Actor::Player(pid(owner))),
+    };
+    let by_hand = DamageSource::Entity(Actor::Player(pid(1)));
+    attack_player(&mut game.state, sid(1), sid(2));
+    let blows = [
+        (Damage::Entity, shot_by(1)),
+        (Damage::Explosion, shot_by(1)),
+        (Damage::Magic, by_hand),
+    ];
+    for (cause, source) in blows {
+        assert!(damage_by(&mut game.state, sid(2), 4.0, cause, source).is_none());
+    }
+    assert_eq!(game.survival_mut(2).health, 20.0);
+    assert!(drain(&mut seen).is_empty());
+    assert!(damage_by(&mut game.state, sid(2), 4.0, Damage::Entity, shot_by(2)).is_some());
+    assert_eq!(game.survival_mut(2).health, 16.0);
+    game.idle(10);
+    assert!(damage_by(&mut game.state, sid(2), 30.0, Damage::Suicide, by_hand).is_some());
+    assert!(game.survival_mut(2).is_dead());
+}
+
 #[test]
 fn critical_hits_setting_decides_critical_hits_while_sprinting() {
     let taken = |critical_hits: CriticalHits, sprinting: bool| {
@@ -2311,7 +2301,7 @@ fn critical_hits_setting_decides_critical_hits_while_sprinting() {
     assert_eq!(
         taken(CriticalHits::Sprint, true),
         1.0,
-        "PMMP: no critical hit while sprinting"
+        "no critical hit while sprinting"
     );
     assert_eq!(taken(CriticalHits::Always, true), 1.5);
 }

@@ -1,10 +1,8 @@
 //! Entities on the tick: the store of every world, physics, tracking and the per-kind rules
-//! (dropped items, xp orbs, falling blocks, primed TNT and explosions, projectiles, potion
-//! clouds, NPCs, custom entities ([`custom`]), paintings, end crystals and firework rockets
-//! ([`object`])) (PMMP `Entity`, `ItemEntity`, `ExperienceOrb`, `FallingBlock`, `PrimedTNT`,
-//! `Explosion`, `Projectile` and its kinds, `AreaEffectCloud`, `Living`, `Human`, `Villager`,
-//! `Painting`, `EndCrystal`, `FireworkRocket`, `World::dropItem`, `World::dropExperience`), and
-//! lightning bolts, which are shown like entities but are none ([`lightning`]).
+//! (dropped items, xp orbs, falling blocks the API makes, primed TNT and explosions,
+//! projectiles, potion clouds, NPCs, custom entities ([`custom`]), paintings, end crystals and
+//! firework rockets ([`object`])), and lightning bolts, which are shown like entities but are
+//! none ([`lightning`]).
 //!
 //! # Store
 //!
@@ -35,9 +33,13 @@
 //!    burst when their flight time is up.
 //!    An entity whose body a rule changed after its step was computed (a knockback, a push), and
 //!    the entities near an explosion of this tick (whose blocks changed), move again from their
-//!    new state when their turn comes (serially), as PMMP's one-by-one update would. Then
-//!    players pick up the items and stuck arrows they touch (what does not fit stays on the
-//!    ground).
+//!    new state when their turn comes (serially), so each moves from what the ones before it
+//!    left. Then players pick up the items and stuck arrows they touch (what does not fit stays
+//!    on the ground).
+//!    An NPC that dies and an end crystal that is killed finish dying (the death shown, the drops
+//!    and [`EntityDeath`], the explosion) only in a tick of their chunk, so one outside every
+//!    player's `tick-radius` waits until a player comes near, and one whose chunk unloads first
+//!    leaves the store as it is, without them.
 //! 3. Removals, then tracking: players who see an entity's chunk are sent it, its movement and
 //!    its removal; players who see each other's chunk are sent each other. Showing and taking
 //!    away entities and players share one bound per player and tick
@@ -52,16 +54,20 @@
 //! parallel and its results apply in `Id` order, where the hits, pickups, merges, landings and
 //! explosions raise theirs. An entity a listener changes through [`Mut`] while the steps apply
 //! moves on from its new state, not by the step computed before. Spawns are announced by the
-//! entity tick (before the physics and again before the removals; PMMP's `onFirstUpdate`), so a
-//! rule that creates an entity in the middle of its work, and the direct API, never call
-//! listeners there; removals are announced as they happen and entities that leave with their
-//! chunk at the next entity tick. Direct API calls raise nothing ([`Raise::Quiet`]). Without
+//! entity tick (before the physics and again before the removals), so a rule that creates an
+//! entity in the middle of its work, and the direct API, never call listeners there; an entity
+//! a listener creates is announced at the next announcement. An entity loaded with its chunk is
+//! announced once it has its runtime ID, and one removed before it was announced never is, so
+//! it raises no [`EntityDespawn`]. Removals are announced as they happen, after the entity has
+//! left the store (a listener has only its [`Id`]), and entities that leave with their chunk at
+//! the next entity tick. Direct API calls raise nothing ([`Raise::Quiet`]). Without
 //! listeners and monitors no event is built and every rule runs as before.
 //!
 //! # Saving
 //!
 //! Each loaded chunk's entities are its extras of kind 2 ([`saved`]). Compounds that are not an
-//! entity Anchor knows, and entities over the world's cap, are kept as saved and written back.
+//! entity Anchor knows, entities over the world's cap, and xp orbs while `xp` or `xp-orbs` is
+//! off, are kept as saved and written back.
 //! A chunk changes when one of its entities ticks, arrives, leaves or is removed. Entities of
 //! a chunk that unloads leave the store with it; viewers are sent their removal next tick.
 //! Temporary worlds are never saved (the snapshot skips them).
@@ -87,8 +93,7 @@ pub use kind::MAX_NAME_TAG_BYTES;
 pub(super) use object::Placed;
 pub(crate) use physics::bounded as bounded_motion;
 pub(super) use physics::{
-    INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid, is_solid,
-    liquid_depth,
+    INSIDE_INSET, Touch, cells_along, collisions, is_inside_solid, is_solid, liquid_depth,
 };
 pub(super) use pick::on_actor_pick_request;
 pub(super) use track::{locator_hidden, locator_visible};
@@ -122,33 +127,22 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
 
-use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY_TICKS, Falling, Form, Item, Kind, NEVER, Orb};
+use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY_TICKS, Form, Item, Kind, NEVER, Orb};
 #[cfg(test)]
-use kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
+use kind::{Cloud, Crystal, Falling, Firework, Painting, Projectile, Shot, Tnt};
 use physics::{Body, Inside, Step};
 
-/// The fall damage of an anvil per block fallen (PMMP `Anvil`).
-const ANVIL_DAMAGE_PER_BLOCK: f64 = 2.0;
-/// The random stream (`crate::random`) of an anvil's landing.
-const ANVIL_RANDOM: u64 = random::tag("entity-anvil-land");
-/// The anvil blocks from whole to most damaged; one more hit on the last breaks it.
-const ANVILS: [&str; 3] = [
-    "minecraft:anvil",
-    "minecraft:chipped_anvil",
-    "minecraft:damaged_anvil",
-];
-/// Ticks within which a weaker hit on an entity or a player does nothing (PMMP
-/// `EntityDamageEvent::$attackCooldown`).
+/// Ticks within which a weaker hit on an entity or a player does nothing.
 pub(super) const ATTACK_COOLDOWN_TICKS: u8 = 10;
 /// The random stream (`crate::random`) of a death's drops.
 const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
-/// The pickup delay of a dropped item, in ticks (PMMP `World::dropItem`).
+/// The pickup delay of a dropped item, in ticks.
 const DROP_PICKUP_DELAY_TICKS: i16 = 10;
 /// The random stream (`crate::random`) of a drop.
 const DROP_RANDOM: u64 = random::tag("entity-drop");
-/// The overlap two boxes need to touch (PMMP `intersectsWith`).
+/// The overlap two boxes need to touch.
 pub(super) const EPSILON: f64 = 0.000_01;
-/// Ticks between the damage of burning (PMMP `Entity::doOnFireTick`).
+/// Ticks between the damage of burning.
 pub(super) const FIRE_DAMAGE_TICKS: u8 = 20;
 /// The hooks of the running server.
 const HOOKS: Hooks = Hooks {
@@ -166,21 +160,18 @@ const HOOKS: Hooks = Hooks {
     has_arrow: inventory::has_arrow,
     take_arrow: inventory::take_arrow,
 };
-/// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
+/// Horizontal knockback of a hit on an entity or a player.
 pub(super) const KNOCKBACK: f64 = 0.4;
-/// The most fall damage of an anvil (PMMP `Anvil`).
-const MAX_ANVIL_DAMAGE: f64 = 40.0;
 /// The most chunks a "what is near" query looks up one by one; a larger area walks the chunk
 /// index instead ([`Entities::nearby`]).
 const MAX_CHUNK_LOOKUPS: u64 = 64;
 /// The most entities one world holds. `tick_cost` measures the tick of 10,000 falling items at a
-/// few milliseconds, and 16,384 keeps the store's memory near 6 MiB; PMMP and dragonfly have no
-/// cap. At the cap, actions that would create an entity are refused and the caller keeps its
-/// items.
+/// few milliseconds, and 16,384 keeps the store's memory near 6 MiB. At the cap, actions that
+/// would create an entity are refused and the caller keeps its items.
 pub const MAX_ENTITIES_PER_WORLD: usize = 16_384;
 /// The most players one player hides (`Context::hide_player`).
 pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
-/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
+/// The most upward knockback.
 pub(super) const MAX_KNOCKBACK_VERTICAL: f64 = 0.4;
 /// Item merges per tick; later candidates check again two ticks on.
 const MAX_MERGES_PER_TICK: usize = 256;
@@ -200,39 +191,37 @@ const MAX_REMOVALS_PER_TICK: usize = 512;
 /// takes; the rest wait (a view entering a chunk full of items, or a crowd teleported together,
 /// fills in over ticks instead of overflowing the outbox).
 const MAX_SPAWNS_PER_PLAYER: u32 = 512;
-/// Ticks between an item's merge checks (PMMP `MERGE_CHECK_PERIOD`).
+/// Ticks between an item's merge checks.
 const MERGE_CHECK_PERIOD_TICKS: i32 = 2;
 /// How far around an item's box it looks for stacks to merge with.
 const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
-/// Ticks between an orb's searches for a player (PMMP `lookForTargetTime`).
+/// Ticks between an orb's searches for a player.
 const ORB_LOOK_PERIOD_TICKS: u8 = 20;
-/// The orb sizes a drop of xp splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
+/// The orb sizes a drop of xp splits into, largest first.
 const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
-/// How far an orb looks for a player to follow (PMMP `MAX_TARGET_DISTANCE`).
+/// How far an orb looks for a player to follow.
 const ORB_TARGET_DISTANCE: f64 = 8.0;
-/// How far around a player's box it picks items up (PMMP `checkNearEntities`).
+/// How far around a player's box it picks items up.
 const PICKUP_REACH: Vec3 = Vec3::new(1.0, 0.5, 1.0);
-/// The change of a cloud's radius that is sent (PMMP sends each tick's; a twentieth of a block
-/// is too small to see and saves nine of ten packets).
+/// The change of a cloud's radius that is sent: a twentieth of a block is too small to see and
+/// saves nine of ten packets.
 const RADIUS_STEP: f64 = 0.05;
-/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
+/// Fall distance that does not hurt.
 pub(super) const SAFE_FALL: f64 = 3.0;
-/// Damage of a tick with the eyes inside a solid block (PMMP `Living::entityBaseTick`).
+/// Damage of a tick with the eyes inside a solid block.
 pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
-/// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
-/// without one (PMMP `PrimedTNT::initEntity`).
+/// The fuse of lit TNT in ticks (4 seconds), and of saved primed TNT without one.
 pub(super) const TNT_FUSE_TICKS: u16 = 80;
 /// The random stream (`crate::random`) of unsticking.
 const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
-/// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
+/// Damage the void deals an entity or a player each tick.
 pub(super) const VOID_DAMAGE: f64 = 10.0;
 /// At or below this feet height the void hurts: 16 under the lowest block.
 pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
-/// The xp a zombie drops (PMMP `Zombie::getXpDropAmount`).
+/// The xp a zombie drops.
 const ZOMBIE_XP: u32 = 5;
 
-/// The state players were last sent of an entity's movement and flags (PMMP `lastLocation`,
-/// `lastMotion`).
+/// The state players were last sent of an entity's movement and flags.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Sent {
     position: Vec3,
@@ -262,14 +251,13 @@ enum Hurt {
     /// Nothing: the kind ignores the cause, or a weaker hit came within an NPC's cooldown.
     Ignored,
     /// It took the damage; `cold` when an NPC's cooldown was over (knockback and the hurt
-    /// animation follow, PMMP `Living::attack`).
+    /// animation follow).
     Took { cold: bool },
     /// It died: an NPC shows its death, anything else is removed.
     Died,
 }
 
-/// A knockback (PMMP `Living::knockBack`): away along (`x`, `z`) with `force`, up at most
-/// `vertical`.
+/// A knockback: away along (`x`, `z`) with `force`, up at most `vertical`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Knock {
     x: f64,
@@ -290,8 +278,7 @@ impl Knock {
     }
 
     /// The motion of something moving at `motion` after this knockback; `None` without a
-    /// horizontal direction (PMMP `knockBack`; knockback resistance is 0 for entities and
-    /// players here).
+    /// horizontal direction (knockback resistance is 0 for entities and players here).
     fn applied_to(self, motion: Vec3) -> Option<Vec3> {
         let f = (self.x * self.x + self.z * self.z).sqrt();
         if f.is_nan() || f <= 0.0 {
@@ -313,7 +300,7 @@ struct Plan {
     /// An NPC's cooldown is over: the hit starts it, knocks back and shows.
     cold: bool,
     /// The base damage of the last hit within an NPC's cooldown, which this hit's damage counts
-    /// less (PMMP `MODIFIER_PREVIOUS_DAMAGE_COOLDOWN`).
+    /// less ([`DamageModifier::PreviousDamageCooldown`]).
     previous: Option<f64>,
 }
 
@@ -383,8 +370,8 @@ pub(super) enum Audience {
     Viewers,
 }
 
-/// An entity, as a [`Context`](crate::Context) lends it (PMMP `Entity`): what it is and where;
-/// [`Mut`] changes it.
+/// An entity, as a [`Context`](crate::Context) lends it: what it is and where; [`Mut`] changes
+/// it.
 #[derive(Debug, Clone)]
 // api-class: Entity
 pub struct Entity {
@@ -407,24 +394,24 @@ pub struct Entity {
     kind: Kind,
     /// The name tag (at most [`kind::MAX_NAME_TAG_BYTES`]); a human NPC's is its name.
     name_tag: String,
-    /// The name tag shows when looked at (PMMP `nameTagVisible`).
+    /// The name tag shows when looked at.
     name_tag_visible: bool,
-    /// The name tag shows always (PMMP `alwaysShowNameTag`; human NPCs start with it).
+    /// The name tag shows always (human NPCs start with it).
     name_tag_always_visible: bool,
     /// The size multiplier of its box and model, above 0 and within [`is_valid_scale`].
     scale: f64,
-    /// Not drawn by clients (PMMP `invisible`).
+    /// Not drawn by clients.
     invisible: bool,
-    /// Gravity pulls it (PMMP `gravityEnabled`).
+    /// Gravity pulls it.
     gravity: bool,
-    /// Saved with its chunk (PMMP `savedWithChunk`); one that is not goes when the chunk unloads.
+    /// Saved with its chunk; one that is not goes when the chunk unloads.
     saved: bool,
     /// Its metadata changed (name tag, scale, kind values): the viewers get it at the next
     /// movement pass.
     resend: bool,
     /// Gone: removed at the end of a tick, ignored until then.
     flagged: bool,
-    /// Its motion was zero at the last movement check (PMMP `noClientPredictions`).
+    /// Its motion was zero at the last movement check: clients then make no prediction.
     still: bool,
     /// The players it was sent to.
     viewers: BTreeSet<SessionId>,
@@ -433,9 +420,9 @@ pub struct Entity {
 }
 
 impl Entity {
-    /// A new entity at `body` (not yet in the store). One at rest is still from the start: PMMP
-    /// sets `noClientPredictions` only when the motion changes, so an entity that never moves
-    /// would be left to the client, which pushes it where the server never put it.
+    /// A new entity at `body` (not yet in the store). One at rest is still from the start:
+    /// still is otherwise set only when the motion changes, so an entity that never moves would
+    /// be left to the client, which pushes it where the server never put it.
     fn new(world: WorldIndex, body: Body, yaw: f64, pitch: f64, kind: Kind) -> Self {
         let health = kind.max_health();
         let still = body.motion.length_squared() == 0.0;
@@ -480,7 +467,7 @@ impl Entity {
         e
     }
 
-    /// Width and height of its box: its kind's, times its scale (PMMP `EntitySizeInfo::scale`).
+    /// Width and height of its box: its kind's, times its scale.
     fn size(&self) -> (f64, f64) {
         let (width, height) = self.kind.size();
         (width * self.scale, height * self.scale)
@@ -498,8 +485,7 @@ impl Entity {
         }
     }
 
-    /// Its box (PMMP `boundingBox`): its size around its position; a painting's is the picture
-    /// on its wall (PMMP `Painting::recalculateBoundingBox`).
+    /// Its box: its size around its position; a painting's is the picture on its wall.
     #[doc(alias = "Entity::getBoundingBox")]
     pub fn bounding_box(&self) -> Aabb {
         if let Kind::Painting(p) = &self.kind {
@@ -518,13 +504,13 @@ impl Entity {
         )
     }
 
-    /// Whether a hit of `amount` for `cause` would hurt it, and how (PMMP `Entity::attack` and
-    /// `Living::attack`'s cooldown for NPCs, before the event): `None` when the kind ignores the
-    /// cause, the amount is not within 0 through [`MAX_DAMAGE`], an NPC is dying, or a hit no
-    /// stronger than the last comes within an NPC's cooldown.
+    /// Whether a hit of `amount` for `cause` would hurt it, and how (with an NPC's cooldown,
+    /// before the event): `None` when the kind ignores the cause, the amount is not within 0
+    /// through [`MAX_DAMAGE`], an NPC is dying, or a hit no stronger than the last comes within
+    /// an NPC's cooldown.
     fn plan_hit(&self, cause: Cause, amount: f64) -> Option<Plan> {
         let dead_crystal = matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0;
-        if !self.kind.takes(cause) || !(0.0..=MAX_DAMAGE).contains(&amount) || dead_crystal {
+        if !self.kind.is_hurt_by(cause) || !(0.0..=MAX_DAMAGE).contains(&amount) || dead_crystal {
             return None;
         }
         let Kind::Npc(c) = &self.kind else {
@@ -570,10 +556,10 @@ impl Entity {
         }
     }
 
-    /// What a hit that came to `result` does afterwards to the kinds that care (PMMP
-    /// `EndCrystal::attack`): an end crystal hit by anything but the void is primed, and when dead
-    /// it stays until its tick explodes it ([`explosion::crystal_died`]). True when a death removes
-    /// the entity at once (every other kind that does not live).
+    /// What a hit that came to `result` does afterwards to the kinds that care: an end crystal
+    /// hit by anything but the void is primed, and when dead it stays until its tick explodes it
+    /// ([`explosion::crystal_died`]). True when a death removes the entity at once (every other
+    /// kind that does not live).
     fn after_hit(&mut self, cause: Cause, result: Hurt) -> bool {
         match &mut self.kind {
             Kind::EndCrystal(c) => {
@@ -586,25 +572,25 @@ impl Entity {
         }
     }
 
-    /// Whether placing a block in its box is refused (PMMP `canBeCollidedWith`: its kind's
-    /// answer, and an end crystal only while its health is above 0).
+    /// Whether placing a block in its box is refused: its kind's answer, and an end crystal only
+    /// while its health is above 0.
     fn is_obstacle(&self) -> bool {
         self.kind.is_obstacle() && !(matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0)
     }
 
-    /// Whether setting it on fire for `seconds` would change its burning (PMMP `setOnFire`).
+    /// Whether setting it on fire for `seconds` would change its burning.
     fn can_burn(&self, seconds: i16) -> bool {
         seconds.saturating_mul(20) > self.fire_ticks && !self.kind.is_fire_proof()
     }
 
-    /// Sets it on fire for `seconds` unless it burns longer already (PMMP `setOnFire`).
+    /// Sets it on fire for `seconds` unless it burns longer already.
     fn set_on_fire(&mut self, seconds: i16) {
         if self.can_burn(seconds) {
             self.fire_ticks = seconds.saturating_mul(20);
         }
     }
 
-    /// One tick of burning (PMMP `doOnFireTick`): true when a burn's damage is due.
+    /// One tick of burning: true when a burn's damage is due.
     fn burn(&mut self) -> bool {
         if self.fire_ticks <= 0 {
             return false;
@@ -954,8 +940,8 @@ pub(super) struct Entities {
     departed: Vec<Departed>,
     /// Players shown to other players, by session.
     watched: BTreeMap<SessionId, Watched>,
-    /// (viewer, player) pairs where the viewer is not shown the player (PMMP `hidePlayer`): at
-    /// most [`MAX_HIDDEN_PER_PLAYER`] per viewer, dropped when either leaves.
+    /// (viewer, player) pairs where the viewer is not shown the player: at most
+    /// [`MAX_HIDDEN_PER_PLAYER`] per viewer, dropped when either leaves.
     hidden: BTreeSet<(SessionId, SessionId)>,
     /// Every player by world, chunk and session, sorted, while [`Self::players_fresh`]: built at
     /// the start of each entity tick so a lookup of the players in an area asks only the chunks
@@ -966,6 +952,10 @@ pub(super) struct Entities {
     players_fresh: bool,
     /// Flagged entities waiting for their removal (at most every entity).
     doomed: BTreeSet<Id>,
+    /// Entities whose death is in progress (a dying NPC counting its dead ticks, an end crystal
+    /// hit to death): they tick wherever they are, so their end does not wait for a player to
+    /// come near. At most every entity; removed with the entity.
+    ending: BTreeSet<Id>,
     /// The slot where the next movement pass starts, so every entity is sent in turn.
     cursor: u32,
     /// Entities near an explosion of this tick, or changed by a listener while the steps apply,
@@ -990,9 +980,16 @@ pub(super) struct Entities {
     bolts: VecDeque<lightning::Bolt>,
     /// The custom entity types, fixed at start.
     custom: Customs,
-    /// Whether xp exists (`xp`, fixed at start): without it a load drops saved
-    /// orbs.
+    /// Whether xp exists (`xp`, fixed at start): without it a load keeps saved orbs as saved.
     xp: bool,
+    /// The entities that tick this tick, kept so the tick does not allocate the list again (at
+    /// most every entity; empty between ticks).
+    ticking: Vec<Id>,
+    /// The movement computed for [`Self::ticking`], kept for the same reason (empty between
+    /// ticks).
+    steps: Vec<Computed>,
+    /// How many explosions are running their blocks' `on_break` hooks, one inside another.
+    blast_depth: u8,
 }
 
 impl Entities {
@@ -1111,6 +1108,7 @@ impl Entities {
             self.runtime_ids.remove(&entity.runtime_id);
         }
         self.doomed.remove(&id);
+        self.ending.remove(&id);
         self.restep.remove(&id);
         self.spawned.remove(&id);
         self.changed.insert(key);
@@ -1158,8 +1156,23 @@ impl Entities {
         true
     }
 
+    /// Adds the entity `id` to [`Self::ending`] if its death is in progress.
+    fn note_ending(&mut self, id: Id) {
+        let ends = self.get(id).is_some_and(|e| {
+            !e.flagged
+                && match &e.kind {
+                    Kind::Npc(c) => c.dead_ticks.is_some(),
+                    Kind::EndCrystal(_) => e.health <= 0.0,
+                    _ => false,
+                }
+        });
+        if ends {
+            self.ending.insert(id);
+        }
+    }
+
     /// The live, unflagged entities of `world` whose box overlaps `area`, in chunk then `Id`
-    /// order (PMMP `getNearbyEntities`: the chunks within 2 blocks of the box). A small area looks
+    /// order (the chunks within 2 blocks of the box). A small area looks
     /// up each of its chunks; a large one walks the index's columns in its x range instead, so
     /// the cost is bounded by the entities' chunks whatever the area (API callers pass any box).
     fn nearby(&self, world: WorldIndex, area: Aabb) -> Vec<Id> {
@@ -1214,12 +1227,10 @@ impl Entities {
 
     /// A chunk's saved list arrived ([`mod@super::rules`]), `saved` read from `list` off the
     /// tick ([`read`]): its entities enter the store, waiting for runtime IDs; compounds that are
-    /// not entities here, and entities over the cap, are kept as saved. Without xp, saved
-    /// orbs are dropped and the chunk is saved without them.
+    /// not entities here, entities over the cap, and, without xp, saved orbs are kept as saved.
     pub(super) fn load(&mut self, key: Key, saved: Vec<Saved>, list: &[Compound]) {
         let mut kept = Vec::new();
         let mut over = 0_usize;
-        let mut dropped = false;
         for (Saved(read), c) in saved.into_iter().zip(list) {
             let l = match read {
                 Read::Entity(l) => *l,
@@ -1228,12 +1239,10 @@ impl Entities {
                     continue;
                 }
             };
-            if !self.xp && matches!(l.kind, Kind::XpOrb(_)) {
-                dropped = true;
-                continue;
-            }
-            if self.count(key.0) >= MAX_ENTITIES_PER_WORLD {
-                over += 1;
+            let orb_off = !self.xp && matches!(l.kind, Kind::XpOrb(_));
+            let full = self.count(key.0) >= MAX_ENTITIES_PER_WORLD;
+            if orb_off || full {
+                over += usize::from(full);
                 #[cfg(test)]
                 super::rules::reads::add(|r| r.clones += 1);
                 kept.push(c.clone());
@@ -1259,14 +1268,11 @@ impl Entities {
             e.gravity = gravity;
             e.sent.flags = track::flags(&e, e.still);
             let id = self.insert(e);
+            self.note_ending(id);
             self.unassigned.push(id);
         }
-        // Loading changes nothing to save, but a dropped orb.
-        if dropped {
-            self.changed.insert(key);
-        } else {
-            self.changed.remove(&key);
-        }
+        // Loading changes nothing to save.
+        self.changed.remove(&key);
         if over > 0 {
             warn!(
                 world = key.0,
@@ -1404,6 +1410,7 @@ impl Entities {
             players: _,
             players_fresh: _,
             doomed,
+            ending,
             cursor,
             restep,
             applying,
@@ -1416,6 +1423,11 @@ impl Entities {
             custom: _,
             // A setting, fixed at start.
             xp: _,
+            // Empty between ticks: buffers of the entity tick.
+            ticking: _,
+            steps: _,
+            // Back to 0 when each explosion ends, so 0 between ticks.
+            blast_depth: _,
         } = self;
         h.usize(slots.len());
         for s in slots {
@@ -1490,6 +1502,10 @@ impl Entities {
         for &i in doomed {
             hash_id(h, i);
         }
+        h.usize(ending.len());
+        for &i in ending {
+            hash_id(h, i);
+        }
         h.u64(u64::from(*cursor));
         h.usize(restep.len());
         for &i in restep {
@@ -1531,6 +1547,7 @@ impl Entities {
             players: _,
             players_fresh: _,
             doomed,
+            ending,
             cursor,
             restep,
             applying,
@@ -1540,6 +1557,11 @@ impl Entities {
             bolts,
             custom: _,
             xp: _,
+            // Empty between ticks: buffers of the entity tick.
+            ticking: _,
+            steps: _,
+            // Back to 0 when each explosion ends, so 0 between ticks.
+            blast_depth: _,
         } = self;
         slots.encode(w);
         free.encode(w);
@@ -1554,6 +1576,7 @@ impl Entities {
         watched.encode(w);
         hidden.encode(w);
         doomed.encode(w);
+        ending.encode(w);
         cursor.encode(w);
         restep.encode(w);
         applying.encode(w);
@@ -1585,6 +1608,7 @@ impl Entities {
             players: Vec::new(),
             players_fresh: false,
             doomed: Codec::decode(r)?,
+            ending: Codec::decode(r)?,
             cursor: Codec::decode(r)?,
             restep: Codec::decode(r)?,
             applying: Codec::decode(r)?,
@@ -1594,6 +1618,9 @@ impl Entities {
             bolts: Codec::decode(r)?,
             custom: std::mem::take(&mut self.custom),
             xp: self.xp,
+            ticking: Vec::new(),
+            steps: Vec::new(),
+            blast_depth: 0,
         };
         Ok(())
     }
@@ -1611,6 +1638,10 @@ enum Read {
     /// Not an entity here: the store keeps the compound as saved.
     Kept(Compound),
 }
+
+/// An entity and the movement computed for it, with the body it was computed from; `None` when
+/// its world is gone.
+type Computed = (Id, Option<(Body, Step)>);
 
 /// A knockback's force and vertical limit, as the damage listeners left them.
 type Knockback = (f64, f64);
@@ -1645,8 +1676,7 @@ struct Hooks {
     look: fn(&Player) -> (f64, f64),
     /// Whether a player carries an arrow (off hand or inventory).
     has_arrow: fn(&Player) -> bool,
-    /// Takes one arrow from a player, off hand first (PMMP `Bow::onReleaseUsing`); false if it
-    /// has none.
+    /// Takes one arrow from a player, off hand first; false if it has none.
     take_arrow: fn(&mut Player) -> bool,
 }
 
@@ -1660,15 +1690,14 @@ pub(super) enum Npc {
         /// Its trades.
         offers: super::trade::Offers,
     },
-    /// A human NPC (PMMP `Human`): shown as a player with `name` and `skin` (`None`: the default
-    /// skin).
+    /// A human NPC: shown as a player with `name` and `skin` (`None`: the default skin).
     Human {
         /// The name tag.
         name: String,
         /// The skin.
         skin: Option<crate::entity::Skin>,
     },
-    /// A zombie (PMMP `Zombie`): no AI, and unlike the other NPCs it takes damage.
+    /// A zombie: no AI, and unlike the other NPCs it takes damage.
     Zombie,
 }
 
@@ -1706,7 +1735,7 @@ enum Rule {
     Custom,
     /// [`object::firework_tick`].
     Firework,
-    /// Nothing of its own (paintings and end crystals: PMMP's `entityBaseTick` only).
+    /// Nothing of its own (paintings and end crystals).
     Inert,
 }
 
@@ -1812,9 +1841,8 @@ pub(super) fn is_valid_explosion(center: Vec3, size: f64) -> bool {
     is_valid_position(center) && size.is_finite() && size > 0.0
 }
 
-/// Whether `scale` may be the scale of an entity of `kind`: above 0 (PMMP), and its scaled box
-/// at most [`custom::MAX_SIZE`] blocks on a side (physics walks every block the box covers), so
-/// finite.
+/// Whether `scale` may be the scale of an entity of `kind`: above 0, and its scaled box at most
+/// [`custom::MAX_SIZE`] blocks on a side (physics walks every block the box covers), so finite.
 fn is_valid_scale(scale: f64, kind: &Kind) -> bool {
     let physics = kind.physics();
     scale > 0.0
@@ -1885,8 +1913,8 @@ fn discard(state: &mut State, id: Id) {
 }
 
 /// Announces the entities that left with their chunk ([`EntityDespawn`]) and those that
-/// appeared since the last announcement ([`ItemSpawn`] for dropped items, then [`EntitySpawn`],
-/// PMMP `onFirstUpdate`), in `Id` order. The entity tick calls it before the physics and again
+/// appeared since the last announcement ([`ItemSpawn`] for dropped items, then [`EntitySpawn`]),
+/// in `Id` order. The entity tick calls it before the physics and again
 /// before the removals, so every entity is announced before it goes. Entities a listener makes
 /// wait for the next announcement.
 fn announce(state: &mut State) {
@@ -1916,14 +1944,14 @@ fn announce(state: &mut State) {
     }
 }
 
-/// A random yaw as PMMP picks one (`getRandomFloat() * 360`), kept to float precision as saved.
+/// A random yaw from 0 up to 360 degrees, kept to float precision as saved.
 fn random_yaw(random: &mut Random) -> f64 {
     f64::from(to_f32(random.unit() * 360.0))
 }
 
-/// Drops `stack` as an item entity at `pos` with PMMP `World::dropItem`'s random motion and
-/// pickup delay. False (nothing created, the caller keeps the stack) when the world's entity
-/// limit is reached or the position is not loaded; true for an empty stack, which drops nothing.
+/// Drops `stack` as an item entity at `pos` with a random motion and the default pickup delay.
+/// False (nothing created, the caller keeps the stack) when the world's entity limit is reached
+/// or the position is not loaded; true for an empty stack, which drops nothing.
 pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: Stack) -> bool {
     drop_item_with(
         state,
@@ -1936,9 +1964,9 @@ pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: 
     )
 }
 
-/// [`drop_item`] with a given motion (`None`: PMMP's random one), pickup delay in ticks and
-/// thrower (the name of the player who throws it, saved with it; empty for none), for items a
-/// player throws (PMMP `Player::dropItem`: its look direction × 0.4, delay 40).
+/// [`drop_item`] with a given motion (`None`: a random one), pickup delay in ticks and thrower
+/// (the name of the player who throws it, saved with it; empty for none), for items a player
+/// throws (its look direction × 0.4, delay 40).
 pub(super) fn drop_item_with(
     state: &mut State,
     world: WorldIndex,
@@ -1990,11 +2018,10 @@ fn max_delay(d: i16) -> i16 {
     d.max(NEVER)
 }
 
-/// Drops `amount` xp as orbs at `pos` (PMMP `World::dropExperience`: split into the orb
-/// sizes, each with a random motion). At the world's entity limit the rest is not dropped:
-/// xp is not an item a caller can keep. Without orbs ([`Settings::has_orbs`]) nothing
-/// drops: every rule that gives xp (blocks, mobs, furnaces, trades, bottles, deaths)
-/// comes here.
+/// Drops `amount` xp as orbs at `pos`, split into the orb sizes, each with a random motion. At
+/// the world's entity limit the rest is not dropped: xp is not an item a caller can keep.
+/// Without orbs ([`Settings::has_orbs`]) nothing drops: every rule that gives xp (mobs, trades,
+/// bottles, deaths) comes here.
 ///
 /// [`Settings::has_orbs`]: super::Settings::has_orbs
 pub(super) fn drop_xp(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) {
@@ -2033,10 +2060,9 @@ fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u3
     amount - left
 }
 
-/// Turns the block at `pos` into a falling block entity (sand, gravel, anvils…): the block
-/// becomes air and the entity starts at the bottom centre of its cell (PMMP `FallableTrait`).
-/// False, with the block left as it is, when [`can_create`] refuses or `pos` is outside the
-/// world height.
+/// Turns the block at `pos` into a falling block entity: the block becomes air and the entity
+/// starts at the bottom centre of its cell. False, with the block left as it is, when
+/// [`can_create`] refuses or `pos` is outside the world height.
 #[cfg(test)]
 pub(super) fn fall(
     state: &mut State,
@@ -2075,26 +2101,17 @@ pub(super) fn remove(state: &mut State, id: Id) -> bool {
     state.rules.entities.doom(id)
 }
 
-/// A neighbour update reached the block at `pos`: the entities whose box touches its cell move
-/// at their next tick even at rest, so an item falls when the block under it goes (PMMP's
-/// neighbour update loop calls `onNearbyBlockChange`). Block updates call it for each neighbour
-/// update they run.
+/// The block at `pos` changed or is next to one that did: the entities whose box touches its
+/// cell move at their next tick even at rest, so an item falls when the block under it goes.
+/// Block updates call it for each changed block and its neighbours.
 pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
     let cell = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
     let entities = &mut state.rules.entities;
-    let mut paintings = Vec::new();
     for id in entities.nearby(world, cell) {
         if let Some(e) = entities.get_mut(id) {
             e.forced = true;
-            if matches!(e.kind, Kind::Painting(_)) {
-                paintings.push(id);
-            }
         }
-    }
-    // PMMP `Painting::onNearbyBlockChange`: a painting whose wall or room went falls.
-    for id in paintings {
-        object::check_painting(state, id);
     }
 }
 
@@ -2109,9 +2126,11 @@ fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
     state.rules.entities.despawn_heard = dispatch::heard::<EntityDespawn>(state);
     assign_runtime_ids(state);
     announce(state);
-    let steps = compute(state, pool);
+    let mut steps = std::mem::take(&mut state.rules.entities.steps);
+    compute(state, pool, &mut steps);
     index_players(state);
-    apply_steps(state, steps, hooks);
+    apply_steps(state, &mut steps, hooks);
+    state.rules.entities.steps = steps;
     let entities = &mut state.rules.entities;
     entities.players.clear();
     entities.players_fresh = false;
@@ -2143,15 +2162,19 @@ fn step_of(worlds: &[World], tick: u64, e: &Entity) -> Option<Step> {
 }
 
 /// Phase 2: the movement of every ticking entity, on the CPU pool, in `Id` order, with the body
-/// it was computed from. Each pool task reads its entity and builds its input itself, so the
-/// tick thread only lists the entities.
-fn compute(state: &State, pool: &Pool) -> Vec<(Id, Option<(Body, Step)>)> {
+/// it was computed from, put in `steps` (emptied first). Each pool task reads its entity and
+/// builds its input itself, so the tick thread only lists the entities.
+fn compute(state: &mut State, pool: &Pool, steps: &mut Vec<Computed>) {
+    let mut ids = std::mem::take(&mut state.rules.entities.ticking);
+    ticking(state, &mut ids);
     let (slots, worlds, tick) = (&state.rules.entities.slots, &state.worlds, state.tick);
-    pool.map(&ticking(state), |&id| {
+    pool.map_into(&ids, steps, |&id| {
         let computed =
             live(slots, id).and_then(|e| step_of(worlds, tick, e).map(|step| (e.body, step)));
         (id, computed)
-    })
+    });
+    ids.clear();
+    state.rules.entities.ticking = ids;
 }
 
 /// The live entity `id` names among `slots` ([`Entities::get`]).
@@ -2164,12 +2187,11 @@ fn live(slots: &[Slot], id: Id) -> Option<&Entity> {
 
 /// Phase 3: the steps applied and the kind rules run, in `Id` order; an entity whose body
 /// changed since its step was computed (a rule's knockback or push), or that is in
-/// [`Entities::restep`], moves again from its new state; then the damage falling anvils dealt.
-fn apply_steps(state: &mut State, steps: Vec<(Id, Option<(Body, Step)>)>, hooks: Hooks) {
+/// [`Entities::restep`], moves again from its new state. `steps` is emptied.
+fn apply_steps(state: &mut State, steps: &mut Vec<Computed>, hooks: Hooks) {
     let mut budget = Budget::default();
-    let mut hits = Vec::new();
     state.rules.entities.applying = true;
-    for (id, computed) in steps {
+    for (id, computed) in steps.drain(..) {
         let marked = state.rules.entities.restep.remove(&id);
         let step = match computed {
             Some((from, step))
@@ -2181,20 +2203,11 @@ fn apply_steps(state: &mut State, steps: Vec<(Id, Option<(Body, Step)>)>, hooks:
             None => None,
         };
         if let Some(step) = step {
-            apply(state, id, step, hooks, &mut budget, &mut hits);
+            apply(state, id, step, hooks, &mut budget);
         }
     }
     state.rules.entities.applying = false;
     state.rules.entities.restep.clear();
-    for (session, damage, anvil) in hits {
-        (hooks.damage)(
-            state,
-            session,
-            damage,
-            survival::Damage::FallingBlock,
-            DamageSource::Entity(Actor::Entity(anvil)),
-        );
-    }
 }
 
 /// An entity's movement computed again, serially, from its state now.
@@ -2239,10 +2252,10 @@ fn given(e: &mut Entity, runtime_id: u64) {
 
 /// The entities that tick: in chunks within their world's `tick-radius` of a player of their
 /// world whose view is open (as blocks, [`super::view::tick_centres`]), with a runtime ID and
-/// not flagged, in `Id` order.
-fn ticking(state: &State) -> Vec<Id> {
+/// not flagged, put in `ids` (emptied first) in `Id` order.
+fn ticking(state: &State, ids: &mut Vec<Id>) {
     let entities = &state.rules.entities;
-    let mut ids = Vec::new();
+    ids.clear();
     // By world, so only the columns of worlds with players are walked, each against its own.
     for (world, centres) in super::view::tick_centres(state) {
         let radius = state.settings.view(world).tick_radius;
@@ -2261,20 +2274,19 @@ fn ticking(state: &State) -> Vec<Id> {
             }
         }
     }
+    // A death in progress ends wherever it happens.
+    ids.extend(entities.ending.iter().copied().filter(|&id| {
+        entities
+            .get(id)
+            .is_some_and(|e| !e.flagged && e.runtime_id != 0)
+    }));
     ids.sort_unstable();
-    ids
+    ids.dedup();
 }
 
-/// Applies one entity's step and runs its rules (PMMP `onUpdate`: a dead NPC's death, the
-/// movement with a projectile's hits, then `entityBaseTick`).
-fn apply(
-    state: &mut State,
-    id: Id,
-    step: Step,
-    hooks: Hooks,
-    budget: &mut Budget,
-    hits: &mut Vec<(SessionId, f64, Id)>,
-) {
+/// Applies one entity's step and runs its rules: a dead NPC's death, the movement with a
+/// projectile's hits, then the blocks it is inside, the void, burning and its kind's rule.
+fn apply(state: &mut State, id: Id, step: Step, hooks: Hooks, budget: &mut Budget) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
     };
@@ -2282,7 +2294,6 @@ fn apply(
         return;
     }
     if matches!(e.kind, Kind::EndCrystal(_)) && e.health <= 0.0 {
-        // PMMP `EndCrystal::onDeathUpdate`.
         explosion::crystal_died(state, id, budget, hooks);
         return;
     }
@@ -2293,7 +2304,7 @@ fn apply(
     if let Kind::Npc(c) = &mut e.kind
         && let Some(t) = c.dead_ticks
     {
-        // PMMP `Living::onDeathUpdate`: the death shows, then the NPC goes.
+        // The death shows, then the NPC goes.
         let t = t.saturating_add(1);
         c.dead_ticks = Some(t);
         let (world, at) = (e.world, e.body.position);
@@ -2324,7 +2335,7 @@ fn apply(
         projectile::hit(state, id, flight, step.hit, was_on_ground, hooks);
     }
     if let Some(fall) = step.landed {
-        landed(state, id, fall, hooks, hits);
+        landed(state, id, fall);
     }
     if !is_live(state, id) {
         return;
@@ -2359,8 +2370,8 @@ fn apply(
     }
 }
 
-/// The blocks an entity is inside, the void and burning (PMMP `entityBaseTick`, `onEntityInside`,
-/// `doOnFireTick`). Entities never sneak nor wear boots: magma spares none that is living.
+/// The blocks an entity is inside, the void and burning. Entities never sneak nor wear boots:
+/// magma spares none that is living.
 fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
     for inside in inside {
         match inside {
@@ -2426,8 +2437,7 @@ fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
     }
 }
 
-/// Whether projectiles hit it (PMMP `Projectile::canCollideWith`: living things, and end
-/// crystals while they live).
+/// Whether projectiles hit it: living things, and end crystals while they live.
 fn is_projectile_target(e: &Entity) -> bool {
     e.kind.is_living() || (matches!(e.kind, Kind::EndCrystal(_)) && e.health > 0.0)
 }
@@ -2447,10 +2457,9 @@ fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Optio
         .map(f)
 }
 
-/// Hurts the entity `id` as the game does, with the events (PMMP `Entity::attack`,
-/// `Living::attack`): [`EntityDamage`] before the health changes (cancelling keeps it, and no
-/// knockback follows) and [`EntityMotion`] for the knockback. An NPC hit after its cooldown is
-/// knocked back by `knock` and shows the hit, an NPC that dies shows its death (its drops follow
+/// Hurts the entity `id` as the game does, with the events: [`EntityDamage`] before the health
+/// changes (cancelling keeps it, and no knockback follows) and [`EntityMotion`] for the
+/// knockback. An NPC hit after its cooldown is knocked back by `knock` and shows the hit, an NPC that dies shows its death (its drops follow
 /// at its next tick, [`died`]), anything else that dies is removed; an invulnerable NPC's hit by
 /// an entity raises the event cancelled ([`shielded`]). Without listeners it is [`hurt_in`].
 fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
@@ -2490,6 +2499,7 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
     let living = matches!(e.kind, Kind::Npc(_));
     let key = (e.world, e.chunk);
     entities.changed.insert(key);
+    entities.note_ending(id);
     if result == Hurt::Died && !living && removed {
         state.rules.entities.doom(id);
         broken_by(state, id, blow.source);
@@ -2505,7 +2515,7 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
         let (shown_event, data) = if result == Hurt::Died {
             (ActorEvent::Death, 0)
         } else {
-            (ActorEvent::Hurt, blow.cause.bds_cause())
+            (ActorEvent::Hurt, blow.cause.actor_cause())
         };
         if let Some(e) = state.rules.entities.get(id) {
             let packet = actor_event(e.runtime_id, shown_event, data);
@@ -2519,7 +2529,7 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
 }
 
 /// A painting that `source` broke drops nothing when that is a player with infinite items, or
-/// a projectile such a player shot (PMMP `Painting::onDeath`: the last damage's damager).
+/// a projectile such a player shot (the last damage's damager).
 fn broken_by(state: &mut State, id: Id, source: DamageSource) {
     let (DamageSource::Entity(Actor::Player(p))
     | DamageSource::Child {
@@ -2613,7 +2623,7 @@ fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) ->
 
 /// An invulnerable NPC ignores `blow` (see [`hurt`]); one an entity dealt (a player's hit, a
 /// projectile) still raises [`EntityDamage`], already cancelled, so listeners learn who hit it,
-/// as PMMP raises the event of a hit that does not land cancelled. The NPC takes nothing
+/// as the event of a hit that does not land is raised cancelled. The NPC takes nothing
 /// whatever they do, and no monitor sees a cancelled event. A blow of nothing or a block (a
 /// fall, a cactus) raises nothing.
 fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
@@ -2635,11 +2645,10 @@ fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
     }
 }
 
-/// The NPC `id` died at `at` (PMMP `Living::onDeath`), seen at its first tick after the death,
-/// whatever killed it (a hit, the API): it drops its kind's drops and xp (a zombie's;
-/// other NPCs drop nothing; no xp with `xp = false`), as [`EntityDeath`]'s
-/// listeners leave them. Drops the world cannot take (the entity limit) are lost: they never
-/// existed outside the rule.
+/// The NPC `id` died at `at`, seen at its first tick after the death, whatever killed it (a
+/// hit, the API): it drops its kind's drops and xp (a zombie's; other NPCs drop nothing; no xp
+/// with `xp = false`), as [`EntityDeath`]'s listeners leave them. Drops the world cannot take
+/// (the entity limit) are lost: they never existed outside the rule.
 fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
     let Some(npc) = state.rules.entities.get(id) else {
         return;
@@ -2685,7 +2694,7 @@ fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
     }
 }
 
-/// What a dead zombie drops (PMMP `Zombie::getDrops`): 0 to 2 rotten flesh, and with a 5 in 200
+/// What a dead zombie drops: 0 to 2 rotten flesh, and with a 5 in 200
 /// chance one iron ingot, carrot or potato.
 fn zombie_drops(r: &mut Random) -> Vec<Stack> {
     let one = |kind: crate::item::Kind, count: i32| {
@@ -2705,8 +2714,8 @@ fn zombie_drops(r: &mut Random) -> Vec<Stack> {
     drops
 }
 
-/// Sets the motion a rule gives the entity `id` (knockback, an explosion's push, a Punch arrow;
-/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion, and a
+/// Sets the motion a rule gives the entity `id` (knockback, an explosion's push, a Punch arrow),
+/// through [`EntityMotion`]: cancelling keeps its motion, and a
 /// listener's motion replaces the push.
 fn push_entity(state: &mut State, id: Id, motion: Vec3) {
     let mut motion = physics::bounded(motion);
@@ -2731,8 +2740,7 @@ fn push_entity(state: &mut State, id: Id, motion: Vec3) {
 }
 
 /// Sets the entity `id` on fire for `seconds` as a rule does (fire, lava, a burning arrow, Fire
-/// Aspect; PMMP `EntityCombustByBlockEvent`, `EntityCombustByEntityEvent`): through
-/// [`EntityCombust`], whose listeners may change the time or cancel it.
+/// Aspect): through [`EntityCombust`], whose listeners may change the time or cancel it.
 fn combust(state: &mut State, id: Id, seconds: i16, source: CombustSource) {
     if !dispatch::heard::<EntityCombust>(state) {
         with(state, id, |e| e.set_on_fire(seconds));
@@ -2794,10 +2802,10 @@ fn block_at(state: &State, id: Id, pos: BlockPos) -> Option<(WorldIndex, block::
     Some((world, state.worlds.get(world)?.block(pos)?))
 }
 
-/// Heals the entity `id` by `amount` as a rule does (instant health; PMMP `Entity::heal`),
-/// through [`EntityRegainHealth`] as a player heals: nothing happens, and no event is raised,
-/// unless the amount [`survival::heals`] it; listeners may change the amount or cancel it, and
-/// an amount they leave that does not heal it cancels it.
+/// Heals the entity `id` by `amount` as a rule does (instant health), through
+/// [`EntityRegainHealth`] as a player heals: nothing happens, and no event is raised, unless
+/// the amount [`survival::heals`] it; listeners may change the amount or cancel it, and an
+/// amount they leave that does not heal it cancels it.
 fn heal(state: &mut State, id: Id, amount: f64, reason: RegainReason) {
     let heals_now = |state: &State, amount: f64| {
         state.rules.entities.get(id).is_some_and(|e| {
@@ -2861,7 +2869,7 @@ fn hurt_in(
         Some(if result == Hurt::Died {
             (ActorEvent::Death, 0)
         } else {
-            (ActorEvent::Hurt, cause.bds_cause())
+            (ActorEvent::Hurt, cause.actor_cause())
         })
     } else {
         None
@@ -2873,13 +2881,14 @@ fn hurt_in(
     if result != Hurt::Ignored {
         entities.changed.insert(key);
     }
+    entities.note_ending(id);
     if result == Hurt::Died && !living && removed {
         entities.doom(id);
     }
     result
 }
 
-/// Plays `sound` at `at` for the game (PMMP `World::addSound`, [`super::emit`]).
+/// Plays `sound` at `at` for the game ([`super::emit`]).
 fn play(state: &mut State, world: WorldIndex, at: Vec3, sound: crate::world::Sound) {
     super::emit::sound(state, world, at, sound);
 }
@@ -2904,8 +2913,8 @@ pub(in crate::tick) fn knock_player(
     }
 }
 
-/// Pushes a player: its client is sent the motion, and so are the players who see it (PMMP
-/// `Player::setMotion`; the server keeps no motion of players). With [`Raise::Events`] it goes
+/// Pushes a player: its client is sent the motion, and so are the players who see it (the
+/// server keeps no motion of players). With [`Raise::Events`] it goes
 /// through [`EntityMotion`]: cancelling sends nothing, and a listener's motion replaces the push.
 fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise) {
     let mut motion = physics::bounded(motion);
@@ -2955,8 +2964,7 @@ fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
     }
 }
 
-/// The look direction of a yaw and pitch in degrees, of an entity or a player (PMMP
-/// `Entity::getDirectionVector`).
+/// The look direction of a yaw and pitch in degrees, of an entity or a player.
 pub(super) fn direction(yaw: f64, pitch: f64) -> Vec3 {
     let (yaw, pitch) = (crate::math::radians(yaw), crate::math::radians(pitch));
     let xz = crate::math::cos(pitch);
@@ -2997,7 +3005,7 @@ fn rule_of(kind: &Kind) -> Rule {
     }
 }
 
-/// An item's tick (PMMP `ItemEntity::entityBaseTick`): the pickup delay, merging, despawning.
+/// An item's tick: the pickup delay, merging, despawning.
 fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     let entities = &mut state.rules.entities;
     let Some(e) = entities.get_mut(id) else {
@@ -3037,7 +3045,7 @@ fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     }
 }
 
-/// A dropped item's time is up (PMMP `ItemEntity::entityBaseTick`): [`ItemDespawn`], whose
+/// A dropped item's time is up: [`ItemDespawn`], whose
 /// cancelling gives it the whole time again; a listener that gave it time itself keeps it.
 fn despawn_item(state: &mut State, id: Id) {
     let due = |state: &State| {
@@ -3069,12 +3077,12 @@ fn despawn_item(state: &mut State, id: Id) {
     dispatch::watch(state, &e);
 }
 
-/// PMMP `isMergeCandidate`: it can be picked up and its stack is not full.
+/// Whether the item can merge: it can be picked up and its stack is not full.
 fn is_merge_candidate(item: &Item) -> bool {
     item.pickup_delay != NEVER && item.stack.count() < item.stack.max_count()
 }
 
-/// PMMP `isMergeable`: two candidates of stacking stacks that fit one stack.
+/// Whether two items merge: two candidates of stacking stacks that fit one stack.
 fn is_mergeable(a: &Item, b: &Item) -> bool {
     is_merge_candidate(a)
         && is_merge_candidate(b)
@@ -3090,8 +3098,7 @@ fn as_item(e: &Entity) -> Option<&Item> {
     }
 }
 
-/// Merges the items around `id` into the one with the largest stack (PMMP: the merge check of
-/// `ItemEntity::entityBaseTick` and `tryMergeInto`).
+/// Merges the items around `id` into the one with the largest stack.
 fn merge(state: &mut State, id: Id, merges: &mut usize) {
     let entities = &state.rules.entities;
     let Some(this) = entities.get(id) else {
@@ -3128,7 +3135,7 @@ fn merge(state: &mut State, id: Id, merges: &mut usize) {
 }
 
 /// Moves the stack of `source` into `target` if they can merge now; tells the target's viewers
-/// its new count (PMMP `ItemEntityStackSizeChangeAnimation`).
+/// its new count.
 fn merge_into(state: &mut State, source: Id, target: Id) -> bool {
     let mergeable = |state: &State| {
         let entities = &state.rules.entities;
@@ -3216,8 +3223,7 @@ fn send_to(
     }
 }
 
-/// Whether a player picks up items and attracts orbs: spawned, alive and not a spectator (PMMP
-/// `Player::onUpdate` checks nearby entities only while the player is alive).
+/// Whether a player picks up items and attracts orbs: spawned, alive and not a spectator.
 fn can_collect(state: &State, player: &Player, hooks: Hooks) -> bool {
     player.phase == Phase::Spawned
         && (hooks.is_alive)(player)
@@ -3247,7 +3253,7 @@ pub(super) fn player_moved(state: &mut State) {
 }
 
 /// Calls `f` with each player [`targetable`] in `world` whose box overlaps `area` by more than
-/// [`EPSILON`], in session order (PMMP `World::getNearbyEntities` for players). With the players'
+/// [`EPSILON`], in session order. With the players'
 /// index of the entity tick it asks the chunks within a block of `area` (a box is at most 0.6
 /// wide; the feet round by less than 1e-4), at most [`MAX_PLAYER_COLUMNS`] of them; otherwise it
 /// passes over every player, with the same result.
@@ -3324,13 +3330,13 @@ fn each_player_in(
     }
 }
 
-/// Whether projectiles, potions, clouds and falling anvils reach a player (PMMP
-/// `canBeCollidedWith`: alive and not a spectator), in `world`.
+/// Whether projectiles, potions, clouds and explosions reach a player: alive and not a
+/// spectator, in `world`.
 fn is_targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -> bool {
     player.world == world && can_collect(state, player, hooks)
 }
 
-/// An orb's tick (PMMP `ExperienceOrb::entityBaseTick`): despawning, following the nearest
+/// An orb's tick: despawning, following the nearest
 /// player within 8 blocks, and giving it the xp on touch.
 fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
@@ -3341,7 +3347,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     };
     let (world, position, bounds) = (e.world, e.body.position, e.bounding_box());
     let mut despawn = orb.despawn_delay;
-    // PMMP counts "never" (-1) down too and removes such orbs at once; never means never here.
+    // Never (-1) is not counted down: such an orb stays.
     if despawn != i32::from(NEVER) {
         despawn -= 1;
         if despawn <= 0 {
@@ -3408,7 +3414,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     orb.look_for_target = look;
     orb.target = target;
     let value = orb.value;
-    // PMMP: the orb goes only when the player can pick it up (`ExperienceManager::canPickupXp`).
+    // The orb goes only when the player can pick it up.
     if let Some(s) = picker
         && (hooks.pickup_xp)(state, s, u32::from(value))
         && let Some(e) = state.rules.entities.get_mut(id)
@@ -3417,8 +3423,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     }
 }
 
-/// A falling block's tick (PMMP `FallingBlock::entityBaseTick`): on the ground (or turned into
-/// another block, as concrete powder by water) it is placed where it is if that block can be
+/// A falling block's tick: on the ground it is placed where it is if that block can be
 /// replaced, otherwise its item form drops. If the item cannot drop (the entity limit), the
 /// falling block stays and tries again next tick.
 fn falling_tick(state: &mut State, id: Id) {
@@ -3435,17 +3440,15 @@ fn falling_tick(state: &mut State, id: Id) {
     let Some(w) = state.worlds.get(world) else {
         return;
     };
-    let turned = harden(w, pos, falling.block);
-    if !on_ground && turned.is_none() {
+    if !on_ground {
         return;
     }
-    let result = turned.unwrap_or(falling.block);
     let fits = (MIN_Y..=MAX_Y).contains(&pos.y)
         && w.block(pos).is_some_and(block::State::can_be_replaced)
-        && !(on_ground && (position.y - position.y.floor()).abs() > 0.001);
+        && (position.y - position.y.floor()).abs() <= 0.001;
     let done = if fits {
         let before = w.block(pos).unwrap_or(block::AIR);
-        land(state, id, world, pos, before, result)
+        land(state, id, world, pos, before, falling.block)
     } else {
         match falling.block.item() {
             block::ItemForm::Item(t) => drop_item(state, world, position, Stack::new(t, 1)),
@@ -3459,11 +3462,10 @@ fn falling_tick(state: &mut State, id: Id) {
     }
 }
 
-/// The falling block `id` becomes `to` at `pos`, where `before` is (PMMP `FallingBlock::
-/// entityBaseTick`), through [`EntityBlockChange`]: cancelling, or a listener leaving a block
-/// there that cannot be replaced, keeps the old block and the falling block goes all the same
-/// (PMMP). True when the falling block is done; false to try again next tick (the block could
-/// not be set).
+/// The falling block `id` becomes `to` at `pos`, where `before` is, through
+/// [`EntityBlockChange`]: cancelling, or a listener leaving a block there that cannot be
+/// replaced, keeps the old block and the falling block goes all the same. True when the falling
+/// block is done; false to try again next tick (the block could not be set).
 fn land(
     state: &mut State,
     id: Id,
@@ -3506,106 +3508,22 @@ fn land(
     set
 }
 
-/// The block a falling block turns into before it lands (PMMP `Fallable::tickFalling`):
-/// concrete powder next to water (not below it) becomes concrete.
-fn harden(world: &World, pos: BlockPos, block: block::State) -> Option<block::State> {
-    if !block.is(Class::ConcretePowder) {
-        return None;
-    }
-    let wet = [(0, 1, 0), (0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)]
-        .into_iter()
-        .any(|(dx, dy, dz)| {
-            let side = BlockPos::new(
-                pos.x.saturating_add(dx),
-                pos.y.saturating_add(dy),
-                pos.z.saturating_add(dz),
-            );
-            world.block(side).is_some_and(|s| s.is(Class::Water))
-        });
-    if !wet {
-        return None;
-    }
-    let concrete = block.name().strip_suffix("_powder")?;
-    block::State::find(concrete, &[])
-}
-
-/// An entity hit the ground after falling `fall` blocks (PMMP `onHitGround`): an NPC tramples
-/// farmland and takes fall damage ([`npc::landed`]); a falling anvil hurts the players (in
-/// `hits`, with the anvil) and NPCs under it as a falling block (PMMP `Anvil::onHitGround`) and
-/// may take damage, or break.
-fn landed(
-    state: &mut State,
-    id: Id,
-    fall: f64,
-    hooks: Hooks,
-    hits: &mut Vec<(SessionId, f64, Id)>,
-) {
-    let Some(e) = state.rules.entities.get(id) else {
-        return;
-    };
-    if matches!(e.kind, Kind::Npc(_)) {
-        npc::landed(state, id, fall);
-        return;
-    }
-    let Kind::FallingBlock(falling) = e.kind else {
-        return;
-    };
-    if !falling.block.is(Class::Anvil) {
-        return;
-    }
-    let (world, bounds, runtime_id) = (e.world, e.bounding_box(), e.runtime_id);
-    let fallen = fall.round() - 1.0;
-    if fallen > 0.0 {
-        let damage = crate::math::min(fallen * ANVIL_DAMAGE_PER_BLOCK, MAX_ANVIL_DAMAGE);
-        each_player_in(state, world, bounds, hooks, |s, _| {
-            hits.push((s, damage, id));
-        });
-        let at = e.body.position;
-        for other in state.rules.entities.nearby(world, bounds) {
-            let Some(o) = state.rules.entities.get(other) else {
-                continue;
-            };
-            if other != id && o.kind.is_living() {
-                let d = o.body.position - at;
-                let knock = Knock::new(d.x, d.z);
-                let blow = Blow::of(Cause::FallingBlock, damage)
-                    .by(DamageSource::Entity(Actor::Entity(id)));
-                hurt(state, other, blow, Some(knock));
-            }
-        }
-    }
-    let Some(w) = state.worlds.get(world) else {
-        return;
-    };
-    let mut random = Random::new(
-        w.seed(),
-        state.tick,
-        random::key(ANVIL_RANDOM, &[runtime_id]),
-    );
-    if random.unit() >= 0.05 + fallen * 0.05 {
-        return;
-    }
-    let rank = ANVILS.iter().position(|&n| n == falling.block.name());
-    let Some(next) = rank.and_then(|i| ANVILS.get(i + 1)) else {
-        state.rules.entities.doom(id);
-        return;
-    };
-    let properties: Vec<(&str, block::PropertyValue<'_>)> = falling
-        .block
-        .properties()
-        .map(|p| (p.name(), p.value()))
-        .collect();
-    if let Some(damaged) = block::State::find(next, &properties)
-        && let Some(e) = state.rules.entities.get_mut(id)
+/// An entity hit the ground after falling `fall` blocks: an NPC takes fall damage
+/// ([`npc::landed`]).
+fn landed(state: &mut State, id: Id, fall: f64) {
+    if state
+        .rules
+        .entities
+        .get(id)
+        .is_some_and(|e| matches!(e.kind, Kind::Npc(_)))
     {
-        e.kind = Kind::FallingBlock(Falling { block: damaged });
+        npc::landed(state, id, fall);
     }
 }
 
-/// Players pick up the items they touch (PMMP `Player::checkNearEntities` and
-/// `ItemEntity::onCollideWithPlayer`): what fits goes to the inventory; a stack taken whole is
+/// Players pick up the items they touch: what fits goes to the inventory; a stack taken whole is
 /// shown taken (`TakeItemActor`, then `RemoveActor`), a part leaves the rest on the ground.
-/// Stuck arrows are picked up as PMMP `Arrow::onCollideWithPlayer` says. A player looks once
+/// Stuck arrows are picked up by the rules of [`projectile::pick_up`]. A player looks once
 /// every `item-pickup-interval` ticks, on the ticks its session number staggers it to, so the
 /// players' looks spread over the interval.
 fn pick_up(state: &mut State, hooks: Hooks) {
@@ -3679,10 +3597,9 @@ fn pick_up(state: &mut State, hooks: Hooks) {
     }
 }
 
-/// A player picks up the item `id` while someone listens to [`EntityItemPickup`] (PMMP
-/// `ItemEntity::onCollideWithPlayer`): the event offers what fits; cancelling leaves the item
-/// where it is, and so does a listener that changes the item, the player or its room so that
-/// the offer no longer holds. An item a listener replaced is given instead (what of it does not
+/// A player picks up the item `id` while someone listens to [`EntityItemPickup`]: the event
+/// offers what fits; cancelling leaves the item where it is, and so does a listener that
+/// changes the item, the player or its room so that the offer no longer holds. An item a listener replaced is given instead (what of it does not
 /// fit drops where the item was), and the item on the ground loses what was offered. True if the
 /// item was taken, whole or in part.
 fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) -> bool {
@@ -3787,7 +3704,7 @@ fn player_actor(session: SessionId) -> Actor {
 }
 
 /// How much of `stack` a player's inventory takes now, up to its count: what
-/// [`inventory::give`] would put in (PMMP `getAddableItemQuantity`), so that a pickup is offered
+/// [`inventory::give`] would put in, so that a pickup is offered
 /// before anything moves.
 fn room(player: &Player, stack: &Stack) -> u8 {
     player
@@ -3937,9 +3854,9 @@ fn show_to(
     sent
 }
 
-/// Sends the movement, speed and flag changes of entities to their viewers (PMMP
-/// `updateMovement`), starting where the last pass stopped, at most
-/// [`MAX_MOVEMENTS_PER_TICK`] entities with viewers; the others wait in turn. The pass goes
+/// Sends the movement, speed and flag changes of entities to their viewers, starting where the
+/// last pass stopped, at most [`MAX_MOVEMENTS_PER_TICK`] entities with viewers; the others wait
+/// in turn. The pass goes
 /// over the slots in a ring: most entities rest, and the check of one is a few comparisons,
 /// cheaper than keeping an index of the moved ones (measured in `tick_cost`).
 fn send_movements(state: &mut State) {
@@ -3991,10 +3908,10 @@ fn send_movements(state: &mut State) {
     state.rules.entities.cursor = start;
 }
 
-/// Puts in `packets` the packets an entity's change since it was last sent needs (PMMP
-/// `updateMovement`): the flags (no client prediction while it rests, burning), or all its
-/// metadata (and an NPC's held item) after an API change, the position. Its speed goes only in
-/// its spawn packet: BDS 1.26.60 sends no `SetActorMotion` for entities but players (P6).
+/// Puts in `packets` the packets an entity's change since it was last sent needs: the flags (no
+/// client prediction while it rests, burning), or all its metadata (and an NPC's held item)
+/// after an API change, the position. Its speed goes only in its spawn packet: the official
+/// server sends no `SetActorMotion` for entities but players.
 fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
     if e.resend {
         packets.push(track::all_data(e, change.flags));
@@ -4002,7 +3919,7 @@ fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
             packets.push(track::held(e.runtime_id, &c.held, 0));
         }
     } else if change.flags != e.sent.flags || change.radius.is_some() {
-        packets.push(track::data(e.runtime_id, change.flags, change.radius));
+        packets.push(track::data(e, change.flags, change.radius));
     }
     if change.moved {
         packets.push(track::movement(e));
@@ -4252,32 +4169,32 @@ pub(super) fn left(state: &mut State, session: SessionId) {
 }
 
 /// Throws the projectile of `item` from `session`'s eyes along its look (snowball, egg, ender
-/// pearl, splash or lingering potion, xp bottle; PMMP `ProjectileItem::onClickAir`).
-/// False if `item` throws nothing (a bottle o' enchanting with `xp-orbs = false`), the
-/// player cannot (not spawned, dead, spectator) or the entity limit is reached (the caller keeps
-/// the item; it takes one away on true, and keeps the ender pearl cooldown).
+/// pearl, splash or lingering potion, xp bottle). False if `item` throws nothing (a bottle o'
+/// enchanting with `xp-orbs = false`), the player cannot (not spawned, dead, spectator) or the
+/// entity limit is reached (the caller keeps the item; it takes one away on true, and keeps the
+/// ender pearl cooldown).
 #[doc(alias = "ProjectileItem::onClickAir")]
 pub(super) fn throw(state: &mut State, session: SessionId, item: &Stack) -> bool {
     projectile::throw_with(state, session, item, HOOKS)
 }
 
-/// Releases a bow drawn for `used_ticks` (PMMP `Bow::onReleaseUsing`): shoots an arrow from the
-/// held bow, takes an arrow (unless Infinity, or creative) and wears the bow. False if nothing
-/// was shot (no bow held, no arrow, drawn under 5 ticks, the entity limit).
+/// Releases a bow drawn for `used_ticks`: shoots an arrow from the held bow, takes an arrow
+/// (unless Infinity, or creative) and wears the bow. False if nothing was shot (no bow held, no
+/// arrow, drawn under 5 ticks, the entity limit).
 #[doc(alias = "Bow::onReleaseUsing")]
 pub(super) fn release_bow(state: &mut State, session: SessionId, used_ticks: u32) -> bool {
     projectile::release_bow_with(state, session, used_ticks, HOOKS)
 }
 
-/// Throws the trident `session` holds, drawn for `used_ticks` (PMMP
-/// `item\Trident::onReleaseUsing`; see [`projectile::release_trident_with`]). False if nothing
-/// was thrown; on true the caller takes one trident from the hand (with finite items).
+/// Throws the trident `session` holds, drawn for `used_ticks` (see
+/// [`projectile::release_trident_with`]). False if nothing was thrown; on true the caller takes
+/// one trident from the hand (with finite items).
 pub(super) fn release_trident(state: &mut State, session: SessionId, used_ticks: u32) -> bool {
     projectile::release_trident_with(state, session, used_ticks, HOOKS)
 }
 
-/// Launches the firework `item` that `session` used at `at` (PMMP `item\FireworkRocket::
-/// onInteractBlock`; see [`object::launch_firework`]). False at the entity limit.
+/// Launches the firework `item` that `session` used at `at` (see [`object::launch_firework`]).
+/// False at the entity limit.
 pub(super) fn launch_firework(
     state: &mut State,
     session: SessionId,
@@ -4289,16 +4206,9 @@ pub(super) fn launch_firework(
     object::launch_firework(state, session, world, at, item, random)
 }
 
-/// Turns the TNT block at `pos` into primed TNT with `fuse` ticks (PMMP `TNT::ignite`). False at
-/// the entity limit (the block stays) or if the block is not TNT.
-#[doc(alias = "TNT::ignite")]
-pub(super) fn ignite(state: &mut State, world: WorldIndex, pos: BlockPos, fuse: u32) -> bool {
-    explosion::light(state, world, pos, fuse, Raise::Events)
-}
-
-/// An explosion of `size` at `center` (PMMP `Explosion::explodeA/B`): breaks blocks through
-/// `interact::destroy`, hurts and pushes entities and players, sets fire when `fire`, raising
-/// the events of the hits and pushes with [`Raise::Events`]. See [`explosion`] for the bounds.
+/// An explosion of `size` at `center`: breaks blocks through `interact::destroy_deferring_hooks`, hurts and
+/// pushes entities and players, sets fire when `fire`, raising the events of the hits and
+/// pushes with [`Raise::Events`]. See [`explosion`] for the bounds.
 pub(super) fn explode(
     state: &mut State,
     world: WorldIndex,
@@ -4323,15 +4233,15 @@ pub(super) fn strike_lightning(
     lightning::strike(state, world, at, lightning)
 }
 
-/// `session` hits the entity `target` in melee (PMMP `Player::attackEntity`); see [`npc`].
+/// `session` hits the entity `target` in melee; see [`npc`].
 #[doc(alias = "Player::attackEntity")]
 pub(super) fn attack(state: &mut State, session: SessionId, target: Id) {
     npc::attack_with(state, session, target, HOOKS);
 }
 
-/// `session` interacts with the entity `target` (PMMP `Player::interactEntity`): a villager NPC
-/// within reach (8 blocks, in front) opens trading through `open_trade` (`trade::open`, or
-/// `trade::open_from_client` for the player's client). False if nothing happened.
+/// `session` interacts with the entity `target`: a villager NPC within reach (8 blocks, in
+/// front) opens trading through `open_trade` (`trade::open`, or `trade::open_from_client` for
+/// the player's client). False if nothing happened.
 #[doc(alias = "Player::interactEntity")]
 pub(super) fn interact(
     state: &mut State,
@@ -4343,8 +4253,7 @@ pub(super) fn interact(
 }
 
 /// Whether `session` can act on the entity `id`: spawned, alive, not a spectator, in its world
-/// and within reach of its eyes and look (PMMP `Player::canInteract`, the check of
-/// [`interact`] and [`attack`]).
+/// and within reach of its eyes and look (the check of [`interact`] and [`attack`]).
 pub(super) fn reaches(state: &State, session: SessionId, id: Id) -> bool {
     npc::reaches(state, session, id, HOOKS).is_some()
 }
@@ -4360,10 +4269,9 @@ pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Np
     npc::spawn(state, world, pos, npc)
 }
 
-/// A spawn egg used on a block (PMMP `SpawnEgg::onInteractBlock`): a zombie or a villager (with
-/// no trades, and taking damage as PMMP's) stands at `at` facing `yaw`, named after the egg's
-/// custom name if it has one. A squid's egg does nothing (squids swim: mob AI is out of scope),
-/// and neither does any other item.
+/// A spawn egg used on a block: a zombie or a villager (with no trades, taking damage) stands
+/// at `at` facing `yaw`, named after the egg's custom name if it has one. A squid's egg does
+/// nothing (squids swim: mob AI is out of scope), and neither does any other item.
 pub(super) fn hatch(
     state: &mut State,
     world: WorldIndex,
@@ -4393,26 +4301,6 @@ pub(super) fn hatch(
         }
     });
     Placed::Made
-}
-
-/// The boxes of the entities and spawned players in `area` of `world` (PMMP
-/// `World::getNearbyEntities`: boxes that overlap it by more than [`EPSILON`]). A caller that
-/// asks about many parts of an area gathers them once and tests each part against them alone.
-pub(super) fn boxes_in(state: &State, world: WorldIndex, area: Aabb) -> Vec<Aabb> {
-    let entities = &state.rules.entities;
-    let mut boxes = Vec::new();
-    entities.each_nearby(world, area, |id| {
-        boxes.extend(entities.get(id).map(Entity::bounding_box));
-    });
-    boxes.extend(
-        state
-            .players
-            .values()
-            .filter(|p| p.world == world && p.phase == Phase::Spawned)
-            .map(survival::bounding_box)
-            .filter(|b| b.overlaps(area, EPSILON)),
-    );
-    boxes
 }
 
 /// Whether `world` can take `count` more entities now (below its entity limit), so a caller can
@@ -4446,7 +4334,7 @@ pub(super) fn villager(
 }
 
 /// The trade tier or xp of the villager NPC `id` changed from `before` (a trade, a
-/// change of its offers): its viewers get the changed keys (BDS, P6 `trade`).
+/// change of its offers): its viewers get the changed keys.
 pub(super) fn villager_traded(state: &mut State, id: Id, before: (u8, u32)) {
     let State { players, rules, .. } = state;
     let Some(e) = rules.entities.get(id).filter(|e| !e.flagged) else {
@@ -4793,6 +4681,13 @@ mod tests {
             }
         }
 
+        /// [`Harness::new`] with player 1 standing at block (0, 0), spawned.
+        pub(super) fn with_player() -> Self {
+            let mut h = Self::new(1);
+            h.spawn(1, standing(0.0, 0.0));
+            h
+        }
+
         fn next_seq(&mut self, session: u64) -> u64 {
             let seq = self.seq.entry(session).or_insert(0);
             *seq += 1;
@@ -4926,6 +4821,28 @@ mod tests {
                 })
                 .sum()
         }
+
+        /// The context over the state, to call the public API.
+        pub(super) fn context(&mut self) -> crate::tick::Context<'_> {
+            crate::tick::Context {
+                state: &mut self.state,
+            }
+        }
+
+        /// A human NPC named "target" at `pos` that takes damage.
+        pub(super) fn vulnerable_human(&mut self, pos: Vec3) -> Id {
+            let npc = Npc::Human {
+                name: "target".to_owned(),
+                skin: None,
+            };
+            let id = spawn_npc(&mut self.state, 0, pos, npc).unwrap();
+            with(&mut self.state, id, |e| {
+                if let Kind::Npc(c) = &mut e.kind {
+                    c.invulnerable = false;
+                }
+            });
+            id
+        }
     }
 
     impl Drop for Harness {
@@ -5058,6 +4975,16 @@ mod tests {
             c.arrows = c.arrows.saturating_sub(1);
             had
         })
+    }
+
+    /// The session ID `n`.
+    pub(super) fn session(n: u64) -> SessionId {
+        SessionId::new(n)
+    }
+
+    /// The player ID of session `n`.
+    pub(super) fn player_id(n: u64) -> crate::player::Id {
+        crate::player::Id::new(session(n))
     }
 
     /// The eye position of a player standing on the flat ground at block (x, z).
@@ -5359,8 +5286,8 @@ mod tests {
         assert_eq!(taken(), 10);
     }
 
-    /// A player's box is the one of its pose (PMMP `Living::recalculateSize`): sneaking 1.49
-    /// high, swimming 0.6, so it picks up less high than standing (1.8).
+    /// A player's box is the one of its pose: sneaking 1.49 high, swimming 0.6, so it picks up
+    /// less high than standing (1.8).
     #[test]
     fn a_sneaking_or_swimming_player_picks_up_within_its_lower_box() {
         for (height_above_feet, pose) in [(2.1, "sneaking"), (1.2, "swimming")] {
@@ -5417,7 +5344,7 @@ mod tests {
     }
 
     #[test]
-    fn a_resting_item_falls_when_a_neighbour_update_reaches_its_block() {
+    fn a_resting_item_falls_when_a_block_next_to_it_changes() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(8.0, 8.0));
         let stone = BlockPos::new(0, -60, 0);
@@ -5444,7 +5371,7 @@ mod tests {
             -59.0,
             "at rest, nothing moves it"
         );
-        // The neighbour update of the block above the one that changed.
+        // The block above the one that changed is next to it.
         block_changed(&mut h.state, 0, BlockPos::new(0, -59, 0));
         for _ in 0..20 {
             h.entities();
@@ -5556,11 +5483,8 @@ mod tests {
         w.set_block(BlockPos::new(2, -60, 0), named("minecraft:torch"))
             .unwrap();
         w.set_block(BlockPos::new(2, -50, 0), sand).unwrap();
-        let anvil = named("minecraft:anvil");
-        w.set_block(BlockPos::new(4, -40, 0), anvil).unwrap();
         assert!(fall(&mut h.state, 0, BlockPos::new(0, -50, 0), sand));
         assert!(fall(&mut h.state, 0, BlockPos::new(2, -50, 0), sand));
-        assert!(fall(&mut h.state, 0, BlockPos::new(4, -40, 0), anvil));
         assert_eq!(
             h.state.worlds[0].block(BlockPos::new(0, -50, 0)),
             Some(block::AIR)
@@ -5574,15 +5498,30 @@ mod tests {
             w.block(BlockPos::new(2, -60, 0)),
             Some(named("minecraft:torch"))
         );
-        let landed = w.block(BlockPos::new(4, -60, 0)).unwrap();
-        assert!(
-            landed.is(Class::Anvil),
-            "an anvil, maybe damaged: {landed:?}"
-        );
         let left = h.live();
         assert_eq!(left.len(), 1, "the sand on the torch dropped as an item");
         assert!(
             matches!(&left[0].kind, Kind::Item(i) if i.stack.item().unwrap().name() == "minecraft:sand")
+        );
+    }
+
+    /// A falling concrete powder beside water lands as powder: no block turns into another.
+    #[test]
+    fn falling_concrete_powder_beside_water_stays_powder() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(8.0, 8.0));
+        let powder = named("minecraft:white_concrete_powder");
+        let w = &mut h.state.worlds[0];
+        w.set_block(BlockPos::new(1, -60, 0), named("minecraft:water"))
+            .unwrap();
+        w.set_block(BlockPos::new(0, -50, 0), powder).unwrap();
+        assert!(fall(&mut h.state, 0, BlockPos::new(0, -50, 0), powder));
+        for _ in 0..80 {
+            h.entities();
+        }
+        assert_eq!(
+            h.state.worlds[0].block(BlockPos::new(0, -60, 0)),
+            Some(powder)
         );
     }
 
@@ -5601,7 +5540,7 @@ mod tests {
             })
             .collect();
         assert_eq!(values, vec![73, 17, 7, 3]);
-        // Far orbs creep (PMMP's pull fades with distance and ground friction is strong).
+        // Far orbs creep: the pull fades with distance and ground friction is strong.
         for _ in 0..1200 {
             h.entities();
         }
@@ -5625,7 +5564,11 @@ mod tests {
             };
             let world = crate::world::Id::DEFAULT;
             assert_eq!(cx.drop_xp(world, at(2.5, -59.0, 0.5), 100), 0, "{i}");
-            assert_eq!(cx.spawn_xp_orb(world, at(2.5, -59.0, 0.5), 5), None, "{i}");
+            assert_eq!(
+                cx.spawn_xp_orb(world, at(2.5, -59.0, 0.5), 5),
+                Err(crate::entity::Error::NotSpawned),
+                "{i}"
+            );
             assert!(h.live().is_empty(), "{i}");
             assert_eq!(h.state.next_runtime_id, next, "no runtime ID is used ({i})");
         }
@@ -5644,11 +5587,11 @@ mod tests {
             .collect()
     }
 
-    /// `xp = false` or `xp-orbs = false`: the orbs of a saved chunk are dropped
-    /// as it loads, out of the tick radius too (no runtime ID, never sent), and the chunk is
-    /// saved without them; with both they stay.
+    /// `xp = false` or `xp-orbs = false`: the orbs of a saved chunk do not enter the store as it
+    /// loads, out of the tick radius too (no runtime ID, never sent), and stay in the chunk's
+    /// saved list unchanged for when orbs come back; with both on they enter it.
     #[test]
-    fn without_xp_or_orbs_saved_orbs_are_dropped_as_their_chunk_loads() {
+    fn without_xp_or_orbs_saved_orbs_stay_as_saved_as_their_chunk_loads() {
         let key = (0, ChunkPos::new(5, 0));
         let list = {
             let mut h = Harness::new(1);
@@ -5662,8 +5605,11 @@ mod tests {
             c.get("identifier") == Some(&crate::nbt::Value::String("minecraft:xp_orb".to_owned()))
         };
         // The stand-in save thread's markers come with them, kept as saved.
-        let without: Vec<Compound> = list.iter().filter(|c| !is_orb(c)).cloned().collect();
-        assert_eq!(list.len() - without.len(), 1, "one orb: {list:?}");
+        assert_eq!(
+            list.iter().filter(|c| is_orb(c)).count(),
+            1,
+            "one orb: {list:?}"
+        );
         for (xp, orbs) in [(false, true), (true, false), (true, true)] {
             let mut h = Harness::with_config(1, Listeners::default(), |c| {
                 c.general.xp = xp;
@@ -5689,16 +5635,12 @@ mod tests {
             assert_eq!(h.live().len(), kept, "xp {xp}, orbs {orbs}");
             assert_eq!(adds(&h.take(1)).len(), kept, "xp {xp}, orbs {orbs}");
             let saved = h.state.rules.entities.unload(key);
-            if both {
-                assert_eq!(saved, None, "nothing changed");
-            } else {
-                assert_eq!(saved, Some(without.clone()), "saved without the orb");
-            }
+            assert_eq!(saved, None, "nothing changed, xp {xp}, orbs {orbs}");
         }
     }
 
     /// An item a player throws (the Q key) flies along its look at 0.4 and waits 40 ticks before
-    /// anyone picks it up (PMMP `Player::dropItem`).
+    /// anyone picks it up.
     #[test]
     fn thrown_items_fly_along_the_look() {
         let mut h = Harness::new(1);
@@ -5740,7 +5682,7 @@ mod tests {
     }
 
     /// What a full inventory cannot take back as a window closes, or as the player dies, the
-    /// player throws (PMMP `doCloseInventory`: a `DropItemAction`, `Player::dropItem`).
+    /// player throws.
     #[test]
     fn items_a_full_inventory_cannot_take_back_are_thrown_by_the_player() {
         for dies in [false, true] {
@@ -5780,8 +5722,8 @@ mod tests {
         }
     }
 
-    /// An orb the player touches while its pickup cooldown runs stays (PMMP
-    /// `ExperienceManager::canPickupXp`), and goes once the player can pick it up.
+    /// An orb the player touches while its pickup cooldown runs stays, and goes once the player
+    /// can pick it up.
     #[test]
     fn orbs_stay_while_the_pickup_cooldown_runs() {
         let mut h = Harness::new(1);
@@ -5801,9 +5743,9 @@ mod tests {
         assert_eq!(XP.with(Cell::get), 3);
     }
 
-    /// An orb measures its distance to a player from the player's feet rounded as PMMP keeps
-    /// them (`survival::feet`): a hair under 8 blocks above them it finds the player, which the
-    /// `f32` eye less the eye height puts a hair over 8.
+    /// An orb measures its distance to a player from the player's feet rounded as the player
+    /// keeps them (`survival::feet`): a hair under 8 blocks above them it finds the player,
+    /// which the `f32` eye less the eye height puts a hair over 8.
     #[test]
     fn an_orb_finds_a_player_from_its_rounded_feet() {
         let mut h = Harness::new(1);
@@ -5968,6 +5910,7 @@ mod tests {
             players,
             players_fresh,
             doomed,
+            ending,
             cursor: _,
             restep,
             applying,
@@ -5977,12 +5920,15 @@ mod tests {
             bolts,
             custom: _,
             xp: _,
+            ticking: _,
+            steps: _,
+            blast_depth: _,
         } = &h.state.rules.entities;
         assert!(players.is_empty() && !players_fresh);
         assert!(slots.is_empty() && free.is_empty() && counts.is_empty() && bolts.is_empty());
         assert!(columns.is_empty() && runtime_ids.is_empty() && unassigned.is_empty());
         assert!(changed.is_empty() && departed.is_empty() && hidden.is_empty());
-        assert!(doomed.is_empty() && restep.is_empty() && !applying);
+        assert!(doomed.is_empty() && ending.is_empty() && restep.is_empty() && !applying);
         assert!(spawned.is_empty() && left.is_empty());
         assert!(
             kept.values().all(|k| !k.is_empty()),
@@ -6173,7 +6119,7 @@ mod tests {
     }
 
     #[test]
-    fn items_are_shown_and_moved_as_bds_sends_them() {
+    fn items_are_shown_and_moved_as_the_official_server_sends_them() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         h.take(1);
@@ -6193,7 +6139,7 @@ mod tests {
         assert_eq!(
             added.unwrap().position,
             shown(feet),
-            "BDS: 0.125 above the feet"
+            "the official server: 0.125 above the feet"
         );
         // While it falls, every tick sends its new position with Ticks 0.
         for _ in 0..5 {
@@ -6360,8 +6306,9 @@ mod tests {
         assert!(!has_room(&h.state, 0, usize::MAX));
     }
 
+    /// A falling anvil lands as an anvil: it hurts nobody under it and is not damaged.
     #[test]
-    fn a_falling_anvil_hurts_the_players_and_npcs_under_it() {
+    fn a_falling_anvil_lands_whole_and_hurts_nobody() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         let anvil = named("minecraft:anvil");
@@ -6371,30 +6318,26 @@ mod tests {
         for _ in 0..60 {
             h.entities();
         }
-        let hits = calls(|c| c.damage.clone());
-        assert_eq!(hits.len(), 1, "{hits:?}");
-        let (who, amount, cause) = hits[0];
-        assert_eq!((who, cause), (1, survival::Damage::FallingBlock));
-        // It fell about 10 blocks onto the player's head: (round(fall) − 1) × 2.
-        assert!(
-            (14.0..=26.0).contains(&amount) && amount % 2.0 == 0.0,
-            "{amount}"
+        assert_eq!(calls(|c| c.damage.clone()), Vec::new());
+        assert_eq!(
+            h.state.worlds[0].block(BlockPos::new(0, -60, 0)),
+            Some(anvil)
         );
     }
 
-    /// A falling anvil that lands on a zombie made after it knocks the zombie back, and the
-    /// zombie moves on from the knockback, not by the step computed before the anvil landed.
+    /// Primed TNT that explodes beside a zombie made after it knocks the zombie back, and the
+    /// zombie moves on from the knockback, not by the step computed before the blast.
     #[test]
     fn a_knockback_a_rule_gives_a_later_entity_is_not_undone_by_its_step() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(8.0, 8.0));
-        let anvil = named("minecraft:anvil");
-        let pos = BlockPos::new(0, -50, 0);
-        h.state.worlds[0].set_block(pos, anvil).unwrap();
-        assert!(fall(&mut h.state, 0, pos, anvil));
-        // Beside the anvil's cell, its box within the anvil's.
-        let beside = at(1.2, -60.0, 0.5);
-        let zombie = spawn_npc(&mut h.state, 0, beside, Npc::Zombie).unwrap();
+        let tnt = Kind::Tnt(Tnt {
+            fuse: 1,
+            underwater: false,
+        });
+        let at_rest = |_: &mut Random| (Vec3::ZERO, 0.0, 0.0);
+        create(&mut h.state, 0, at(0.5, -60.0, 0.5), tnt, at_rest).unwrap();
+        let zombie = spawn_npc(&mut h.state, 0, at(1.5, -60.0, 0.5), Npc::Zombie).unwrap();
         let health = |h: &Harness| h.state.rules.entities.get(zombie).unwrap().health;
         let full = health(&h);
         for _ in 0..60 {
@@ -6403,12 +6346,9 @@ mod tests {
                 break;
             }
         }
-        assert!(health(&h) < full, "the anvil landed on the zombie");
+        assert!(health(&h) < full, "the blast hurt the zombie");
         let motion = h.state.rules.entities.get(zombie).unwrap().body.motion;
-        assert!(
-            motion.x > 0.0,
-            "knocked back away from the anvil: {motion:?}"
-        );
+        assert!(motion.x > 0.0, "knocked back away from the TNT: {motion:?}");
     }
 
     // api: Entity, ExperienceOrb, FallingBlock, AreaEffectCloud, Villager, Human
@@ -6464,13 +6404,14 @@ mod tests {
             changed,
             departed,
             doomed,
+            ending,
             restep,
             ..
         } = &h.state.rules.entities;
         assert!(slots.is_empty() && free.is_empty() && counts.is_empty());
         assert!(columns.is_empty() && runtime_ids.is_empty() && unassigned.is_empty());
         assert!(changed.is_empty() && departed.is_empty() && doomed.is_empty());
-        assert!(restep.is_empty());
+        assert!(ending.is_empty() && restep.is_empty());
         let packets = h.take(1);
         assert_eq!(adds(&packets).len(), removes(&packets).len());
         assert!(adds(&packets).len() >= spawned, "every kind was shown");
@@ -6568,8 +6509,8 @@ mod tests {
     }
 
     /// Another player's walk and look reach those who see it as `MoveActorAbsolute` at its eyes
-    /// with the ground flag and no teleport flag, which the client interpolates (PMMP
-    /// `broadcastMovement`). A `MovePlayer` puts it there at once: 20 jumps a second.
+    /// with the ground flag and no teleport flag, which the client interpolates. A `MovePlayer`
+    /// puts it there at once: 20 jumps a second.
     #[test]
     fn other_players_walk_and_turn_by_interpolated_moves() {
         let mut h = Harness::new(1);
@@ -6686,10 +6627,11 @@ mod tests {
         assert_eq!(turn.flags, u8::from(MoveFlag::OnGround));
     }
 
-    /// Another player is shown as BDS shows it (P6 `others`): its own whole entity data (its
-    /// Breathing flag now) with BDS's seven additions, its device ID and build platform.
+    /// Another player is shown as the official server shows it: its own whole entity data (its
+    /// Breathing flag now) with the official server's seven additions, its device ID and build
+    /// platform.
     #[test]
-    fn players_see_each_others_bds_entity_data() {
+    fn players_see_each_others_official_entity_data() {
         let mut h = Harness::new(1);
         // Without drowning a player breathes from the start.
         h.state.settings.drowning = false;
@@ -6758,9 +6700,9 @@ mod tests {
         assert!(!again);
     }
 
-    /// Players see each other on the locator bar as BDS shows them (P6 `others`): with the player,
-    /// its location and a waypoint (added, then given to the client to follow); when it goes, the
-    /// waypoint goes.
+    /// Players see each other on the locator bar as the official server shows them: with the
+    /// player, its location and a waypoint (added, then given to the client to follow); when it
+    /// goes, the waypoint goes.
     #[test]
     fn players_see_each_other_on_the_locator_bar() {
         let mut h = Harness::new(1);
@@ -6885,9 +6827,11 @@ mod tests {
                     state.rules.entities.despawn_heard = dispatch::heard::<EntityDespawn>(state);
                     assign_runtime_ids(state);
                     announce(state);
-                    let steps = compute(state, &h.pool);
+                    let mut steps = std::mem::take(&mut state.rules.entities.steps);
+                    compute(state, &h.pool, &mut steps);
                     mark(0, &mut lap);
-                    apply_steps(state, steps, TEST_HOOKS);
+                    apply_steps(state, &mut steps, TEST_HOOKS);
+                    state.rules.entities.steps = steps;
                     mark(1, &mut lap);
                     pick_up(state, TEST_HOOKS);
                     announce(state);

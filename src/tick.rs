@@ -338,7 +338,6 @@ impl State {
             drowning: _,
             armor: _,
             durability: _,
-            beds: _,
             daylight_cycle: _,
             item_despawn_ticks: _,
             critical_hits: _,
@@ -722,8 +721,6 @@ pub(crate) struct Settings {
     armor: bool,
     /// Whether tools, weapons and armour wear out (`durability`).
     durability: bool,
-    /// Whether beds can be slept in and set spawn points (`beds`).
-    beds: bool,
     /// Whether the time of day moves on (`daylight-cycle`).
     daylight_cycle: bool,
     /// Ticks a dropped item stays on the ground (`item-despawn-ticks`).
@@ -790,7 +787,6 @@ impl Settings {
             drowning: general.drowning,
             armor: general.armor,
             durability: general.durability,
-            beds: general.beds,
             daylight_cycle: general.daylight_cycle,
             item_despawn_ticks: general.item_despawn_ticks,
             critical_hits: general.critical_hits,
@@ -1665,12 +1661,11 @@ mod tests {
     const SEEDS: [u64; 4] = [0x5eed_0005, 42, u64::MAX, 0x8000_0000_0000_0000];
     /// The shared start-game batches, built once for all tests.
     static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
-    /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,
+    /// The IDs of the start-game packets (the official server, P6): `PlayerList`,
     /// `SyncWorldClocks`, `JigsawStructureData`, `VoxelShapes`, `StartGame`, 13
     /// `SyncActorProperty`, `ItemRegistry`.
-    const START_GAME: [u32; 20] = [
-        124, 63, 344, 313, 337, 11, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165,
-        165, 162,
+    const START_GAME: [u32; 19] = [
+        63, 344, 313, 337, 11, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 162,
     ];
     /// Ticks of a determinism run.
     const TICKS: usize = 400;
@@ -2417,12 +2412,11 @@ mod tests {
     fn the_hash_changes_with_the_difficulty_and_default_game_mode() {
         let base = run_ticks(settings(|_| {}), Vec::new());
         let mut difficulty = run_ticks(settings(|_| {}), Vec::new());
-        assert!(
-            crate::tick::Context {
-                state: &mut difficulty
-            }
-            .set_difficulty(Difficulty::Peaceful)
-        );
+        crate::tick::Context {
+            state: &mut difficulty,
+        }
+        .set_difficulty(Difficulty::Peaceful)
+        .unwrap();
         let mut game_mode = run_ticks(settings(|_| {}), Vec::new());
         crate::tick::Context {
             state: &mut game_mode,

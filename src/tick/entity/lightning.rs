@@ -1,4 +1,4 @@
-//! Lightning bolts, shown as BDS's `summon lightning_bolt` shows them (P6 `weather`).
+//! Lightning bolts, shown as the official server shows a summoned bolt.
 //!
 //! [`Context::strike_lightning`](crate::Context::strike_lightning) sends the
 //! `minecraft:lightning_bolt` actor at the strike with its `thunder` and `explode` sounds to the
@@ -6,43 +6,29 @@
 //!
 //! The bolt is no entity of the store: it does nothing after its strike and nothing touches it,
 //! so it is its packets and the removal it waits for ([`Bolt`]). What it does, it does at once
-//! (BDS hurts in the strike's tick, P6): with [`Lightning::damage`] the players and living
-//! entities in the box from 3 blocks around and below the strike to 9 above it (dragonfly
-//! `lightningState.dealDamage`, the box of Java's bolt) burn for 8 seconds and take 5 damage;
-//! with [`Lightning::fire`] the strike's block and 4 random blocks next to it catch fire where
-//! fire can stand (dragonfly `spreadFire`, each try from the strike's block as in Java), at
-//! normal and hard difficulty only, as BDS (P6 `boltpeaceful`, `bolteasy`, `bolthard`). Like
-//! every direct call it raises no events.
+//! (the official server hurts in the strike's tick): with [`Lightning::damage`] the players and
+//! living entities in the box from 3 blocks around and below the strike to 9 above it take 5
+//! damage. A bolt sets nothing on fire. Like every direct call it raises no events.
 
 use std::collections::BTreeSet;
 
-use super::explosion::set_fire;
 use super::kind::Cause;
-use super::{HOOKS, chunk_of, each_player_in, hurt_in, is_valid_position, with};
-use crate::block;
-use crate::config::Difficulty;
+use super::{HOOKS, chunk_of, each_player_in, hurt_in, is_valid_position};
 use crate::entity::Id;
 use crate::math::{Aabb, Vec3};
 use crate::protocol::consts::{EntityDataKey, SoundEvent};
 use crate::protocol::packet::{AddActor, LevelSoundEvent, Packet};
 use crate::protocol::{EntityMetadata, MetadataValue};
-use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::checkpoint::fields;
 use crate::tick::queue::SessionId;
-use crate::tick::{State, survival, world_api};
-use crate::world::{BlockPos, Lightning};
+use crate::tick::{State, survival};
+use crate::world::Lightning;
 
 /// The entity type of a bolt.
 const BOLT: &str = "minecraft:lightning_bolt";
-/// How long a struck player or entity burns (dragonfly and Java: 8 seconds).
-const BURN_SECONDS: i16 = 8;
-/// The damage of a bolt (BDS: 5, P6 `weather`).
+/// The damage of a bolt.
 const DAMAGE: f64 = 5.0;
-/// The random stream of a bolt's fires.
-const FIRE_RANDOM: u64 = random::tag("lightning-fire");
-/// The fires a bolt tries to start next to its block (dragonfly, Java).
-const FIRE_TRIES: usize = 4;
 /// The most bolts waiting for their removal; a strike beyond it is refused.
 pub(super) const MAX_BOLTS: usize = 1024;
 /// How far around and below the strike a bolt hurts, in blocks.
@@ -62,8 +48,8 @@ pub(super) struct Bolt {
 }
 
 impl Bolt {
-    /// How long a bolt stays with its viewers, in ticks.
-    /// BDS removes it between one and two seconds after the strike (P6), dragonfly after one.
+    /// How long a bolt stays with its viewers, in ticks: the official server removes it between
+    /// one and two seconds after the strike.
     const LIFETIME_TICKS: u64 = 20;
 
     #[cfg(test)]
@@ -111,9 +97,6 @@ pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: 
     show(state, world, at, runtime_id);
     if lightning.damage {
         hurt(state, world, at);
-    }
-    if lightning.fire {
-        ignite(state, world, at, runtime_id);
     }
     true
 }
@@ -197,7 +180,7 @@ pub(super) fn remove_due(state: &mut State) {
     }
 }
 
-/// Burns and hurts the players and living entities near `at` with the bolt's damage.
+/// Hurts the players and living entities near `at` with the bolt's damage.
 fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
     let area = Aabb::new(
         at - Vec3::new(REACH, REACH, REACH),
@@ -210,7 +193,6 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
         .filter(|&id| entities.get(id).is_some_and(|e| e.kind.is_living()))
         .collect();
     for id in living {
-        with(state, id, |e| e.set_on_fire(BURN_SECONDS));
         let State { rules, players, .. } = &mut *state;
         hurt_in(
             &mut rules.entities,
@@ -226,39 +208,6 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
         struck.push(s);
     });
     for session in struck {
-        if let Some(p) = state.players.get_mut(&session) {
-            p.set_on_fire(BURN_SECONDS.unsigned_abs().into());
-        }
         survival::damage_quiet(state, session, DAMAGE, survival::Damage::Lightning);
-    }
-}
-
-/// Sets fire in the block of `at` and tries [`FIRE_TRIES`] random blocks next to it.
-/// It does so at normal and hard difficulty only: BDS's bolt sets no fire at peaceful and easy
-/// (P6 `boltpeaceful`, `bolteasy`; dragonfly and Java the same) and hurts at every difficulty.
-fn ignite(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
-    if matches!(
-        world_api::difficulty(state, world),
-        Difficulty::Peaceful | Difficulty::Easy
-    ) {
-        return;
-    }
-    let Some(seed) = state.worlds.get(world).map(crate::world::World::seed) else {
-        return;
-    };
-    let key = random::key(FIRE_RANDOM, &[runtime_id]);
-    let mut random = Random::new(seed, state.tick, key);
-    let strike = BlockPos::containing(at);
-    let flame = block::Kind::Fire.default_state();
-    set_fire(state, world, strike, flame);
-    for _ in 0..FIRE_TRIES {
-        let mut near = || random.range(-1, 1);
-        let (dx, dy, dz) = (near(), near(), near());
-        let pos = BlockPos::new(
-            strike.x.saturating_add(dx),
-            strike.y.saturating_add(dy),
-            strike.z.saturating_add(dz),
-        );
-        set_fire(state, world, pos, flame);
     }
 }

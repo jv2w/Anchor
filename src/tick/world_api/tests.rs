@@ -70,7 +70,11 @@ fn moving_the_spawn_moves_the_held_spawn_chunks() {
     assert_eq!(held(&state, old), 9);
     let before = state.chunks.held();
     let far = BlockPos::new(800, -60, -800);
-    context(&mut state).world_mut(WORLD).unwrap().set_spawn(far);
+    context(&mut state)
+        .world_mut(WORLD)
+        .unwrap()
+        .set_spawn(far)
+        .unwrap();
     assert_eq!(state.worlds[0].spawn(), far);
     assert!(state.worlds[0].is_spawn_chunk(ChunkPos::new(50, -50)));
     assert!(state.worlds[0].is_spawn_chunk(ChunkPos::new(49, -51)));
@@ -87,8 +91,32 @@ fn moving_the_spawn_moves_the_held_spawn_chunks() {
     assert!(state.worlds[0].is_chunk_loaded(far.chunk()));
     // Setting the same spawn again changes nothing.
     let hash = state.hash();
-    context(&mut state).world_mut(WORLD).unwrap().set_spawn(far);
+    context(&mut state)
+        .world_mut(WORLD)
+        .unwrap()
+        .set_spawn(far)
+        .unwrap();
     assert_eq!(state.hash(), hash);
+}
+
+// api: World::setSpawnLocation
+#[test]
+fn a_spawn_outside_the_world_border_is_refused_and_the_spawn_stays() {
+    let mut state = new_state(settings(|_| {}), Listeners::default());
+    let before = state.worlds[0].spawn();
+    let mut cx = context(&mut state);
+    let world = cx.world_mut(WORLD).unwrap();
+    for outside in [
+        BlockPos::new(world::BORDER, -60, 0),
+        BlockPos::new(0, -60, world::BORDER),
+        BlockPos::new(i32::MIN, -60, 0),
+    ] {
+        assert_eq!(world.set_spawn(outside), Err(world::Error::OutOfRange));
+    }
+    assert_eq!(world.spawn(), before);
+    world
+        .set_spawn(BlockPos::new(world::BORDER - 1, -60, 0))
+        .unwrap();
 }
 
 /// A state with session 1 spawned at the world spawn with a view of radius 2 and session 2
@@ -138,19 +166,29 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     received(&mut rx1);
     received(&mut rx2);
     let mut cx = context(&mut state);
-    assert!(cx.add_sound(WORLD, here, Sound::AnvilFall));
-    assert!(cx.add_particle(WORLD, here, Particle::Flame));
-    assert!(cx.add_particle(WORLD, far, Particle::Heart(1)));
-    assert!(!cx.add_sound(world::Id::of(1), here, Sound::AnvilFall));
-    assert!(!cx.add_particle(WORLD, Vec3::new(f64::NAN, 0.0, 0.0), Particle::Flame));
-    assert!(!cx.broadcast_packet(WORLD, Vec3::new(4e7, 0.0, 0.0), &Sound::Burp.packet(here)));
+    let pop = Sound::Pop { pitch: 1.0 };
+    cx.add_sound(WORLD, here, pop).unwrap();
+    cx.add_particle(WORLD, here, Particle::Flame).unwrap();
+    cx.add_particle(WORLD, far, Particle::Heart(1)).unwrap();
+    assert_eq!(
+        cx.add_sound(world::Id::of(1), here, pop),
+        Err(world::Error::WorldNotLoaded)
+    );
+    assert_eq!(
+        cx.add_particle(WORLD, Vec3::new(f64::NAN, 0.0, 0.0), Particle::Flame),
+        Err(world::Error::OutOfRange)
+    );
+    assert_eq!(
+        cx.broadcast_packet(WORLD, Vec3::new(4e7, 0.0, 0.0), &Sound::Burp.packet(here)),
+        Err(world::Error::OutOfRange)
+    );
     tick(&mut state, &mut Vec::new(), &mut Output::default());
     let seen = level_events(&mut rx1);
-    let anvil = i32::from(crate::protocol::consts::LevelEvent::SoundAnvilLand);
+    let pop_event = i32::from(crate::protocol::consts::LevelEvent::SoundInfinityArrowPickup);
     let flame = 0x4000 | 8;
     assert_eq!(
         seen.iter().map(|e| e.event_type).collect::<Vec<_>>(),
-        vec![anvil, flame],
+        vec![pop_event, flame],
         "the far heart is not seen"
     );
     assert_eq!(seen[1].position, here.to_f32());
@@ -158,7 +196,7 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     // A flood of effects stops before the outbox would disconnect the player.
     let mut cx = context(&mut state);
     for _ in 0..MAX_OUTBOX {
-        cx.add_particle(WORLD, here, Particle::Flame);
+        cx.add_particle(WORLD, here, Particle::Flame).unwrap();
     }
     assert_eq!(
         state.players[&SessionId::new(1)].outbox.len(),
@@ -175,8 +213,11 @@ fn setting_the_time_tells_the_players_of_the_world_at_once() {
     received(&mut rx1);
     received(&mut rx2);
     let mut cx = context(&mut state);
-    assert!(cx.set_time(WORLD, 18_000));
-    assert!(!cx.set_time(world::Id::of(1), 5));
+    cx.set_time(WORLD, 18_000).unwrap();
+    assert_eq!(
+        cx.set_time(world::Id::of(1), 5),
+        Err(world::Error::WorldNotLoaded)
+    );
     assert_eq!(cx.world(WORLD).unwrap().time_ticks(), 18_000);
     let players: Vec<player::Id> = cx.players_in(WORLD).collect();
     assert_eq!(
@@ -332,13 +373,25 @@ fn explosions_break_blocks_and_refuse_what_cannot_explode() {
     );
     let before = state.worlds[0].block(below);
     let mut cx = context(&mut state);
-    assert!(!cx.explode(world::Id::of(1), center, 4.0));
-    assert!(!cx.explode(WORLD, center, 0.0));
-    assert!(!cx.explode(WORLD, center, f64::NAN));
-    assert!(!cx.explode_with_fire(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0));
-    assert!(cx.explode(WORLD, center, 4.0));
+    assert_eq!(
+        cx.explode(world::Id::of(1), center, 4.0),
+        Err(world::Error::WorldNotLoaded)
+    );
+    for size in [0.0, f64::NAN] {
+        assert_eq!(
+            cx.explode(WORLD, center, size),
+            Err(world::Error::OutOfRange)
+        );
+    }
+    assert_eq!(
+        cx.explode_with_fire(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0),
+        Err(world::Error::OutOfRange)
+    );
+    cx.explode(WORLD, center, 4.0).unwrap();
     assert_ne!(state.worlds[0].block(below), before, "the block is gone");
-    assert!(context(&mut state).explode_with_fire(WORLD, center, 3.0));
+    context(&mut state)
+        .explode_with_fire(WORLD, center, 3.0)
+        .unwrap();
 }
 
 #[test]

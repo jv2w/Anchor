@@ -1,6 +1,4 @@
-//! Picking an entity: the middle click on an entity (PMMP `Player::pickEntity`,
-//! `Entity::getPickedItem` and the overrides of `EndCrystal`, `FallingBlock`, `Painting`,
-//! `PrimedTNT`, `Villager` and `Zombie`).
+//! Picking an entity: the middle click on an entity.
 
 use super::find;
 use super::kind::{Character, Form, Kind};
@@ -11,10 +9,9 @@ use crate::protocol::packet::ActorPickRequest;
 use crate::tick::interact::props;
 use crate::tick::{Phase, SessionId, State, dispatch, inventory, survival};
 
-/// Handles `ActorPickRequest` from the client (PMMP `Player::pickEntity`): the item of the entity
-/// with that unique ID in the player's world goes to its hand ([`inventory::equip_or_add`]) after
-/// [`PlayerEntityPick`]. Only a creative player gets an item it does not have; others select or
-/// swap one they carry (PMMP raises the event cancelled then; Anchor raises none).
+/// Handles `ActorPickRequest` from the client: the item of the entity with that unique ID in the
+/// player's world goes to its hand ([`inventory::equip_or_add`]) after [`PlayerEntityPick`].
+/// Only a creative player gets an item it does not have; others select or swap one they carry.
 pub(in crate::tick) fn on_actor_pick_request(
     state: &mut State,
     session: SessionId,
@@ -73,8 +70,7 @@ fn pick(state: &State, session: SessionId, runtime_id: u64) -> Option<(crate::en
     (!finite || inventory::has(player, &picked)).then_some((id, picked))
 }
 
-/// The item picking an entity of `kind` gives (PMMP `getPickedItem`); `None` for the kinds that
-/// give none (items, orbs, projectiles, clouds, rockets, human and custom NPCs).
+/// The item picking an entity of `kind` gives; `None` for the kinds that give none (items, orbs, projectiles, clouds, rockets, human and custom NPCs).
 pub(super) fn picked_item(kind: &Kind) -> Option<Stack> {
     let one = |t: item::Type| Stack::new(t, 1);
     let block_item = |b: block::State| match b.item() {
@@ -147,7 +143,7 @@ mod tests {
     // api: FallingBlock::getPickedItem, Painting::getPickedItem, PrimedTNT::getPickedItem,
     // api: Villager::getPickedItem, Zombie::getPickedItem
     #[test]
-    fn each_kind_gives_pmmps_picked_item() {
+    fn each_kind_gives_its_picked_item() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         let mut cx = Context {
@@ -164,7 +160,10 @@ mod tests {
             .unwrap();
         let tnt = cx.spawn_tnt(WORLD, at(7.5, -60.0, 0.5), 80).unwrap();
         let wet = cx.spawn_tnt(WORLD, at(8.5, -60.0, 0.5), 80).unwrap();
-        assert!(cx.entity_mut(wet).unwrap().set_works_underwater(true));
+        cx.entity_mut(wet)
+            .unwrap()
+            .set_works_underwater(true)
+            .unwrap();
         let villager = cx
             .spawn_villager(WORLD, at(9.5, -60.0, 0.5), 0, &[])
             .unwrap();
@@ -245,7 +244,7 @@ mod tests {
         );
         // Creative: a new egg, but none more if it has one.
         inventory::set_held(player_mut(&mut h), Stack::EMPTY);
-        assert!(player_mut(&mut h).set_game_mode(GameMode::Creative));
+        player_mut(&mut h).set_game_mode(GameMode::Creative);
         h.step(Vec::new());
         pick(&mut h, zombie);
         assert_eq!(player_mut(&mut h).inventory.held(), &egg());
@@ -315,7 +314,7 @@ mod tests {
         });
         let mut h = Harness::with_listeners(1, l);
         h.spawn(1, standing(0.0, 0.0));
-        assert!(player_mut(&mut h).set_game_mode(GameMode::Creative));
+        player_mut(&mut h).set_game_mode(GameMode::Creative);
         let (id, zombie) = zombie(&mut h);
         pick(&mut h, zombie);
         assert!(player_mut(&mut h).inventory.held().is_empty(), "cancelled");
@@ -337,7 +336,7 @@ mod tests {
         );
         let mut h = Harness::with_listeners(1, l);
         h.spawn(1, standing(0.0, 0.0));
-        assert!(player_mut(&mut h).set_game_mode(GameMode::Creative));
+        player_mut(&mut h).set_game_mode(GameMode::Creative);
         let (_, zombie) = zombie(&mut h);
         pick(&mut h, zombie);
         assert!(player_mut(&mut h).inventory.held().is_empty());

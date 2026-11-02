@@ -46,8 +46,8 @@ impl ChunkLoad {
 /// chunks are kept this way, a further cancel is ignored: the chunk unloads with a warning and
 /// the monitors see no cancel. A listener that holds the chunk instead
 /// ([`Context::hold_chunks`](crate::Context::hold_chunks) keeps chunks until released) keeps it
-/// too, which the monitors see as a cancel. A world's unload ([`WorldUnload`]) unloads its chunks
-/// without this event.
+/// too, which the monitors see as a cancel. A world's unload ([`WorldUnload`]) raises it for each
+/// chunk the world loaded; a cancel changes nothing.
 #[doc(alias = "ChunkUnloadEvent")]
 #[derive(Debug)]
 pub struct ChunkUnload {

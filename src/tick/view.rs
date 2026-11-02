@@ -1739,9 +1739,12 @@ pub(super) fn hold_world(state: &mut State, world: WorldIndex) {
 
 /// Lets go of everything a world that unloads holds (its players are gone already): its spawn
 /// chunks, its tickets, the chunks listeners kept; its loads in flight become stale. Then every
-/// chunk unloads at once, without [`ChunkUnload`] (nothing can keep it), its unsaved changes
-/// waiting in memory for a commit.
+/// chunk unloads at once, after [`ChunkUnload`] is raised for each (nothing can keep it), its
+/// unsaved changes waiting in memory for a commit.
 pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
+    if dispatch::heard::<ChunkUnload>(state) {
+        announce_unload(state, world);
+    }
     let chunks = &mut state.chunks;
     let tickets: Vec<u64> = chunks
         .tickets
@@ -1792,6 +1795,25 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
         .unwrap_or_default();
     for pos in loaded {
         unload_now(state, (world, pos));
+    }
+}
+
+/// Raises [`ChunkUnload`] for each chunk of the world that unloads; a cancel changes nothing.
+fn announce_unload(state: &mut State, world: WorldIndex) {
+    let loaded: Vec<ChunkPos> = state
+        .worlds
+        .get(world)
+        .map(|w| w.loaded_chunks().collect())
+        .unwrap_or_default();
+    for chunk in loaded {
+        let mut e = ChunkUnload {
+            world: crate::world::Id::of(world),
+            chunk,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        e.cancelled = false;
+        dispatch::watch(state, &e);
     }
 }
 
@@ -2629,37 +2651,6 @@ mod tests {
         assert!(logged().is_empty(), "a chunk is sent once");
     }
 
-    /// A spawn moved past the world border holds and loads no chunk there, where the rules that
-    /// add to a loaded position would overflow; one moved back holds its chunks again.
-    #[test]
-    fn spawn_chunks_past_the_world_border_are_not_held() {
-        let mut state = state(Listeners::default());
-        let mut output = Output::default();
-        let start = state.chunks.held();
-        let spawn = state.worlds[0].spawn();
-        let edge = BlockPos::new(2_147_483_620, 64, 0);
-        state.worlds[0].set_spawn(edge);
-        for _ in 0..4 {
-            tick(&mut state, &mut Vec::new(), &mut output);
-        }
-        let past = ChunkPos::new(134_217_727, 0);
-        assert!(!state.worlds[0].is_chunk_loaded(past));
-        assert!(!state.chunks.has_chunk((0, past)));
-        assert!(!state.worlds[0].is_spawn_chunk(past));
-        let tip = BlockPos::new(2_147_483_646, -60, 0);
-        assert!(!Context { state: &mut state }.grow_tree(
-            crate::world::Id::DEFAULT,
-            tip,
-            crate::world::TreeType::Oak
-        ));
-        state.worlds[0].set_spawn(spawn);
-        for _ in 0..4 {
-            tick(&mut state, &mut Vec::new(), &mut output);
-        }
-        assert_eq!(state.chunks.held(), start);
-        assert!(state.chunks.has_chunk((0, spawn.chunk())));
-    }
-
     /// A world whose spawn moves to another chunk in the tick it unloads holds and loads no chunk
     /// once it is unloaded: neither its old spawn chunks nor its new ones.
     #[test]
@@ -2679,7 +2670,8 @@ mod tests {
         let mut cx = Context { state: &mut state };
         cx.world_mut(id)
             .unwrap()
-            .set_spawn(BlockPos::new(640, -60, 640));
+            .set_spawn(BlockPos::new(640, -60, 640))
+            .unwrap();
         cx.unload_world(id).unwrap();
         for _ in 0..4 {
             tick(&mut state, &mut Vec::new(), &mut output);

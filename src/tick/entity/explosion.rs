@@ -1,39 +1,41 @@
-//! Primed TNT, end crystals' explosions and explosions (PMMP `TNT::ignite`, `PrimedTNT`,
-//! `EndCrystal::onDeathUpdate`, `EndCrystal::explode`, `Explosion::explodeA`, `explodeB`,
-//! `getExposure`).
+//! Primed TNT, end crystals' explosions and explosions.
 //!
-//! An explosion casts PMMP's 1,352 rays from its centre; each ray starts with the size × 0.7 to
-//! 1.3 (engine randomness) and loses force per 0.3-block step and per block by the block's blast
-//! resistance; the blocks it still has force for are destroyed through `interact::destroy`
-//! (drops with 1 / size chance, containers spill) or, for TNT, lit with a 10 to 30 tick fuse.
-//! Entities and players within twice the size are hurt and pushed by their exposure (the share
-//! of rays from the centre to points of their box no block stops). With `fire`, a third of the
-//! destroyed blocks become fire where the block under them is a full top.
+//! An explosion casts 1,352 rays from its centre; each ray starts with the size × 0.7 to 1.3
+//! (engine randomness) and loses force per 0.3-block step and per block by the block's blast
+//! resistance; the blocks it still has force for are destroyed through `interact::destroy_deferring_hooks`
+//! (drops with 1 / size chance, containers spill; TNT drops its own item like any block, so
+//! explosions never light more TNT). Entities and players within twice the size are hurt and
+//! pushed by their exposure (the share of rays from the centre to points of their box no block
+//! stops). With `fire`, a third of the destroyed blocks become fire where the block under them is
+//! a full top; that fire is a plain block, which never spreads or burns out.
 //!
 //! Bounds: the size is at most [`MAX_EXPLOSION_RADIUS`], so the block rays of one explosion look at no more
 //! than 1,352 × 47 cells (the exposure rays to each entity and player hit come on top); primed TNT
 //! and end crystals that died explode while the tick has done fewer than
 //! [`MAX_EXPLOSIONS_PER_TICK`] explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`] blocks,
 //! and wait otherwise (TNT with an empty fuse). A ray stops at a chunk that is not loaded and at a
-//! block clients do not know either (PMMP skips cells that are not loaded and goes on), so an
-//! explosion never reaches past the loaded border; a block only clients know (inert) weakens a ray
-//! by its blast resistance and is never destroyed (`.claude/docs/data.md`). Clouds are not hurt by
-//! explosions (their box can be 128 blocks wide; PMMP hurts them).
+//! block clients do not know either, so an explosion never reaches past the loaded border; a
+//! block only clients know (inert) weakens a ray by its blast resistance and is never destroyed
+//! (`.claude/docs/data.md`). Clouds are not hurt by explosions (their box can be 128 blocks wide).
 //!
-//! Primed TNT and end crystals raise `EntityPreExplode` before they explode (PMMP
-//! `ExplosionPrimeEvent` is this event here): its listeners may cancel it, or change the radius,
-//! the fire chance and whether blocks break. The explosion of an entity then raises
-//! `EntityExplode` once its blocks are known. The exploding entity stays until its explosion is
-//! over, so these listeners can look it up; it goes either way.
+//! The custom blocks an explosion destroys run their `on_break` hooks as one step after the
+//! explosion is over (its sound and monitors included), so a hook sees the whole explosion
+//! applied. An explosion a hook starts is nested; past [`MAX_NESTED_EXPLOSIONS`] levels it does
+//! nothing, so a chain of such blocks cannot overflow the tick thread's stack.
+//!
+//! Primed TNT and end crystals raise `EntityPreExplode` before they explode: its listeners may
+//! cancel it, or change the radius, the fire chance and whether blocks break. The explosion of an
+//! entity then raises `EntityExplode` once its blocks are known. The exploding entity stays until
+//! its explosion is over, so these listeners can look it up; it goes either way.
 
 use tracing::debug;
 
-use super::kind::{Kind, Tnt};
+use super::kind::Kind;
 use super::{
-    Blow, Budget, Cause, Hooks, Knock, Raise, State, create, hurt, hurt_in, is_live,
-    is_valid_explosion, level_event, physics, push_entity, survival, with,
+    Blow, Budget, Cause, Hooks, Knock, Raise, State, hurt, hurt_in, is_live, is_valid_explosion,
+    level_event, physics, push_entity, survival, with,
 };
-use crate::block::{self, Class, Face, SupportType};
+use crate::block::{self, Face, SupportType};
 use crate::entity::Id;
 use crate::event::{
     Actor, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode, MAX_EXPLOSION_RADIUS,
@@ -46,9 +48,7 @@ use crate::save::WorldIndex;
 use crate::tick::{SessionId, dispatch, interact};
 use crate::world::{self, BlockPos, Entry, MAX_Y, MIN_Y, World};
 
-/// The fuse of lit TNT that an explosion reaches (PMMP `explodeB`: `mt_rand(10, 30)`).
-const CHAIN_FUSE: (i32, i32) = (10, 30);
-/// The size of an end crystal's explosion (PMMP `EndCrystal::explode`).
+/// The size of an end crystal's explosion.
 const CRYSTAL_SIZE: f64 = 6.0;
 /// Blocks the explosions of primed TNT and end crystals of one tick affect before the rest wait
 /// (each explosion runs whole, so a tick may end a little over it); also the most blocks, and the
@@ -56,20 +56,21 @@ const CRYSTAL_SIZE: f64 = 6.0;
 pub(super) const MAX_BLOCKS_PER_TICK: usize = 8192;
 /// Explosions of primed TNT and end crystals per tick; the rest wait for the next tick.
 pub(super) const MAX_EXPLOSIONS_PER_TICK: usize = 64;
-/// Rays per edge of PMMP's cube of rays.
+/// How many explosions may run inside each other's custom block hooks; a deeper one does nothing.
+const MAX_NESTED_EXPLOSIONS: u8 = 8;
+/// Rays per edge of the cube of rays.
 const RAYS: u32 = 16;
-/// The random stream of the rays' strengths and the chained fuses.
+/// The random stream of the rays' strengths and the fires.
 const RAYS_RANDOM: u64 = random::tag("explosion-rays");
 /// How far an entity may move in a tick (the speed bound of `physics::MAX_SPEED` per axis plus
 /// one): entities this near an explosion move again from their new state.
 const RESTEP_REACH: f64 = physics::MAX_SPEED + 1.0;
 /// The step along a ray, in blocks.
 const STEP: f64 = 0.3;
-/// The size of a TNT explosion (PMMP `PrimedTNT::explode`).
+/// The size of a TNT explosion.
 const TNT_SIZE: f64 = 4.0;
 
-/// What an explosion is (PMMP `Explosion`'s radius and fire chance, and whether `explodeA`
-/// runs).
+/// What an explosion is: its radius, its fire chance, and whether it breaks blocks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::tick) struct Blast {
     /// The size (radius), above 0; cut to [`MAX_EXPLOSION_RADIUS`].
@@ -81,7 +82,7 @@ pub(in crate::tick) struct Blast {
 }
 
 impl Blast {
-    /// A block-breaking explosion of `size`, with PMMP's default fire chance when `fire`.
+    /// A block-breaking explosion of `size`, with the default fire chance when `fire`.
     pub(in crate::tick) fn new(size: f64, fire: bool) -> Self {
         Self {
             size,
@@ -91,7 +92,7 @@ impl Blast {
     }
 }
 
-/// What explodes (PMMP `Explosion::$what`).
+/// What explodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Source {
     /// Nothing in particular: a direct call.
@@ -109,7 +110,7 @@ impl Source {
         }
     }
 
-    /// What deals the hurt (PMMP `EntityDamageByEntityEvent`).
+    /// What deals the hurt.
     fn damage_source(self) -> DamageSource {
         match self {
             Self::None => DamageSource::None,
@@ -119,7 +120,7 @@ impl Source {
 }
 
 /// The blocks an explosion breaks and sets on fire: as its rays found them, or as the listeners
-/// of its event left them (PMMP `explodeB`).
+/// of its event left them.
 enum Outcome {
     /// Nobody heard the event, or none was raised.
     Found {
@@ -201,54 +202,8 @@ impl Outcome {
     }
 }
 
-/// Turns the TNT block at `pos` into primed TNT with `fuse` ticks (PMMP `TNT::ignite`), its
-/// fuse sound with [`WorldSound`](crate::event::WorldSound) if `raise` says so. False, with the
-/// block left as it is, when [`can_create`](super::can_create) refuses or the block is not TNT.
-pub(super) fn light(
-    state: &mut State,
-    world: WorldIndex,
-    pos: BlockPos,
-    fuse: u32,
-    raise: Raise,
-) -> bool {
-    let Some(block) = state.worlds.get(world).and_then(|w| w.block(pos)) else {
-        return false;
-    };
-    let at = Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y),
-        f64::from(pos.z) + 0.5,
-    );
-    if !block.is(Class::Tnt) || !super::can_create(state, world, at) {
-        return false;
-    }
-    let tnt = Tnt {
-        fuse: u16::try_from(fuse).map_or(Tnt::MAX_FUSE, |f| f.min(Tnt::MAX_FUSE)),
-        underwater: block.name() == "minecraft:underwater_tnt",
-    };
-    let Some(w) = state.worlds.get_mut(world) else {
-        return false;
-    };
-    if w.set_block(pos, block::AIR).is_err() {
-        return false;
-    }
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: `can_create` allowed it and setting a block changes neither the \
-                  entities nor the runtime IDs"
-    )]
-    create(state, world, at, Kind::Tnt(tnt), |r| {
-        let turn = (r.unit() * 2.0 - 1.0) * std::f64::consts::PI * 2.0;
-        let motion = Vec3::new(-math::sin(turn) * 0.02, 0.2, -math::cos(turn) * 0.02);
-        (motion, 0.0, 0.0)
-    })
-    .expect("the entity is made");
-    crate::tick::emit::sound_as(state, world, at, world::Sound::Ignite, raise);
-    true
-}
-
-/// The ticking primed TNT `id` (PMMP `PrimedTNT::entityBaseTick`): the fuse burns down; at 0 it
-/// explodes if the tick's budget allows, else it waits.
+/// The ticking primed TNT `id`: the fuse burns down; at 0 it explodes if the tick's budget
+/// allows, else it waits.
 pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Hooks) {
     let burnt_out = with(state, id, |e| {
         let Kind::Tnt(t) = &mut e.kind else {
@@ -263,9 +218,8 @@ pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Ho
     blow_up(state, id, TNT_SIZE, budget, hooks);
 }
 
-/// The end crystal `id`, at 0 health, ends (PMMP `EndCrystal::onDeathUpdate`): a primed one
-/// explodes with size 6 at its position if the tick's budget allows (else it waits), then it
-/// goes; one the void killed just goes.
+/// The end crystal `id`, at 0 health, ends: a primed one explodes with size 6 at its position if
+/// the tick's budget allows (else it waits), then it goes; one the void killed just goes.
 pub(super) fn crystal_died(state: &mut State, id: Id, budget: &mut Budget, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
@@ -285,8 +239,8 @@ fn has_budget(budget: &Budget) -> bool {
     budget.explosions < MAX_EXPLOSIONS_PER_TICK && budget.blocks < MAX_BLOCKS_PER_TICK
 }
 
-/// The explosive entity `id` explodes with `size` and goes (PMMP `PrimedTNT::explode`,
-/// `EndCrystal::explode`), counted in the tick's `budget`: `EntityPreExplode` first, whose
+/// The explosive entity `id` explodes with `size` and goes, counted in the tick's `budget`:
+/// `EntityPreExplode` first, whose
 /// listeners may cancel it or change the radius, the fire chance and whether blocks break. It
 /// explodes where it is after the listeners: primed TNT half its height above its position, an
 /// end crystal at its position. A listener that takes it away cancels the explosion.
@@ -338,10 +292,13 @@ fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hoo
 /// state.
 ///
 /// With [`Raise::Events`], an explosion by an entity raises [`EntityExplode`] once the blocks are
-/// known (PMMP `explodeB`): cancelling stops it there (no
-/// block breaks, nothing is hurt), and the listeners' block list (at most
-/// [`MAX_BLOCKS_PER_TICK`], unloaded blocks left alone), ignitions and yield are used; the hits
-/// and pushes raise their own events.
+/// known: cancelling stops it there (no block breaks, nothing is hurt), and the listeners' block
+/// list (at most [`MAX_BLOCKS_PER_TICK`], unloaded blocks left alone), ignitions and yield are
+/// used; the hits and pushes raise their own events.
+///
+/// The `on_break` hooks of the custom blocks it destroyed run last, as one step. An explosion
+/// inside such a hook that is already [`MAX_NESTED_EXPLOSIONS`] levels deep does nothing and
+/// affects 0 blocks.
 ///
 /// [`explode`]: super::explode
 pub(super) fn explode_with(
@@ -356,7 +313,9 @@ pub(super) fn explode_with(
     let Some(w) = state.worlds.get(world) else {
         return 0;
     };
-    if !is_valid_explosion(center, blast.size) {
+    if !is_valid_explosion(center, blast.size)
+        || state.rules.entities.blast_depth >= MAX_NESTED_EXPLOSIONS
+    {
         return 0;
     }
     let size = math::min(blast.size, MAX_EXPLOSION_RADIUS);
@@ -409,34 +368,31 @@ pub(super) fn explode_with(
         let near = state.rules.entities.nearby(world, area);
         state.rules.entities.restep.extend(near);
     }
+    let mut destroyed = Vec::new();
     for &pos in outcome.blocks() {
-        let Some(now) = state.worlds.get(world).and_then(|w| w.block(pos)) else {
-            continue;
+        let cause = interact::Destroy::Explosion {
+            size: drop_size,
+            raise,
         };
-        if now == block::AIR {
-            continue;
-        }
-        if now.is(Class::Tnt) {
-            let fuse = random.range(CHAIN_FUSE.0, CHAIN_FUSE.1);
-            light(state, world, pos, fuse.unsigned_abs(), raise);
-        } else {
-            let cause = interact::Destroy::Explosion {
-                size: drop_size,
-                raise,
-            };
-            interact::destroy(state, world, pos, cause);
+        if let Some(removed) = interact::destroy_deferring_hooks(state, world, pos, cause) {
+            destroyed.push(removed);
         }
     }
     let flame = block::Kind::Fire.default_state();
     for &pos in outcome.ignitions() {
         set_fire(state, world, pos, flame);
     }
-    // BDS's explosion level event (PMMP's `HugeExplodeSeedParticle` is a numbered particle).
+    // The official server's explosion level event.
     level_event(state, world, center, LevelEvent::ParticlesExplosion, 0);
     let explode = crate::world::Sound::Explode;
     crate::tick::emit::sound_as(state, world, center, explode, raise);
     let broken = outcome.blocks().len();
     outcome.watch(state);
+    state.rules.entities.blast_depth = state.rules.entities.blast_depth.saturating_add(1);
+    for removed in destroyed {
+        interact::run_break_hooks(state, world, removed);
+    }
+    state.rules.entities.blast_depth = state.rules.entities.blast_depth.saturating_sub(1);
     broken
 }
 
@@ -445,9 +401,8 @@ fn capped(list: &[BlockPos]) -> &[BlockPos] {
     list.get(..MAX_BLOCKS_PER_TICK).unwrap_or(list)
 }
 
-/// Sets fire at `pos` if it was destroyed and the block under it has a full top (PMMP
-/// `explodeB`).
-pub(super) fn set_fire(state: &mut State, world: WorldIndex, pos: BlockPos, flame: block::State) {
+/// Sets a plain fire block at `pos` if it was destroyed and the block under it has a full top.
+fn set_fire(state: &mut State, world: WorldIndex, pos: BlockPos, flame: block::State) {
     let Some(w) = state.worlds.get_mut(world) else {
         return;
     };
@@ -464,8 +419,8 @@ pub(super) fn set_fire(state: &mut State, world: WorldIndex, pos: BlockPos, flam
     }
 }
 
-/// The blocks the explosion destroys, in the order the rays find them, and those set on fire
-/// (PMMP `explodeA`). Pure: reads the world only.
+/// The blocks the explosion destroys, in the order the rays find them, and those set on fire.
+/// Pure: reads the world only.
 fn affected(
     w: &World,
     center: Vec3,
@@ -536,10 +491,9 @@ fn affected(
     (blocks, ignitions)
 }
 
-/// Hurts and pushes the entities and players within twice the size of the centre (PMMP
-/// `explodeB`): damage by the impact (closeness × exposure), a push along the line from the
-/// centre by the impact; living things also take the knockback of a hit from an exploding
-/// entity.
+/// Hurts and pushes the entities and players within twice the size of the centre: damage by the
+/// impact (closeness × exposure), a push along the line from the centre by the impact; living
+/// things also take the knockback of a hit from an exploding entity.
 fn hit_entities(
     state: &mut State,
     world: WorldIndex,
@@ -589,7 +543,7 @@ fn hit_entities(
         }
     });
     let by = source.damage_source();
-    // PMMP: `CAUSE_ENTITY_EXPLOSION` for an entity's, `CAUSE_BLOCK_EXPLOSION` otherwise.
+    // An entity's explosion and one of no entity are different causes.
     let (entity_cause, player_cause) = match source {
         Source::Entity(_) => (Cause::EntityExplosion, survival::Damage::Explosion),
         Source::None => (Cause::BlockExplosion, survival::Damage::BlockExplosion),
@@ -632,7 +586,7 @@ fn hit_entities(
     }
 }
 
-/// An entity takes an explosion's `blow` with `knock`, then its `push` (PMMP `explodeB`).
+/// An entity takes an explosion's `blow` with `knock`, then its `push`.
 fn hit_entity(
     state: &mut State,
     id: Id,
@@ -666,7 +620,7 @@ fn hit_entity(
 }
 
 /// The impact on something at `position` with the box `bounds` and the direction it is pushed:
-/// `None` beyond `reach` (PMMP `explodeB`).
+/// `None` beyond `reach`.
 fn impact(
     w: &World,
     center: Vec3,
@@ -682,7 +636,7 @@ fn impact(
     Some(((1.0 - distance) * exposure(w, center, bounds), direction))
 }
 
-/// The damage of an impact (PMMP: `(int) (((impact² + impact) / 2) × 8 × size × 2 + 1)`).
+/// The damage of an impact: `(int) (((impact² + impact) / 2) × 8 × size × 2 + 1)`.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "invariant: impact is 0 to 1 and reach at most 16, so the value fits"
@@ -692,7 +646,7 @@ fn damage_of(impact: f64, reach: f64) -> f64 {
 }
 
 /// The share of points spread over `bounds` that a ray from `origin` reaches without a block in
-/// the way (PMMP `getExposure`); blocks of chunks that are not loaded stop rays.
+/// the way; blocks of chunks that are not loaded stop rays.
 fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
     let size = bounds.max - bounds.min;
     let diff = Vec3::new(size.x * 2.0 + 1.0, size.y * 2.0 + 1.0, size.z * 2.0 + 1.0);
@@ -730,8 +684,10 @@ fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
 mod tests {
     use super::*;
 
+    use crate::block::Class;
     use crate::protocol::packet::Packet;
-    use crate::tick::entity::kind::{Character, Form};
+    use crate::tick::entity::create;
+    use crate::tick::entity::kind::{Character, Form, Tnt};
     use crate::tick::entity::physics::tests::named;
     use crate::tick::entity::tests::{Harness, TEST_HOOKS, calls, standing};
 
@@ -797,19 +753,36 @@ mod tests {
         panic!("TNT still primed after {limit} ticks");
     }
 
-    /// A stone cube around one TNT block, lit; what the explosion destroyed, the items it
-    /// dropped and the state hash.
+    /// Primes TNT with a `fuse` of ticks in the cell of the block `pos`, which it clears.
+    fn prime(h: &mut Harness, pos: BlockPos, fuse: u16) {
+        h.state.worlds[0].set_block(pos, block::AIR).unwrap();
+        let at = Vec3::new(
+            f64::from(pos.x) + 0.5,
+            f64::from(pos.y),
+            f64::from(pos.z) + 0.5,
+        );
+        let tnt = Kind::Tnt(Tnt {
+            fuse,
+            underwater: false,
+        });
+        let made = create(&mut h.state, 0, at, tnt, |r| {
+            let turn = (r.unit() * 2.0 - 1.0) * std::f64::consts::PI * 2.0;
+            let motion = Vec3::new(-math::sin(turn) * 0.02, 0.2, -math::cos(turn) * 0.02);
+            (motion, 0.0, 0.0)
+        });
+        assert!(made.is_some());
+    }
+
+    /// A stone cube around one primed TNT; what the explosion destroyed, the items it dropped
+    /// and the state hash.
     fn stone_scene(threads: usize) -> (std::collections::BTreeSet<BlockPos>, u64, u64) {
         let mut h = Harness::new(threads);
         h.spawn(1, standing(20.0, 20.0));
         let (from, to) = (BlockPos::new(-5, -55, -5), BlockPos::new(5, -45, 5));
         fill(&mut h, from, to, "minecraft:stone");
         let center = BlockPos::new(0, -50, 0);
-        h.state.worlds[0]
-            .set_block(center, named("minecraft:tnt"))
-            .unwrap();
-        assert!(light(&mut h.state, 0, center, 80, Raise::Events));
-        assert_eq!(burn_out(&mut h, 200), 80, "PMMP's fuse: 80 ticks");
+        prime(&mut h, center, 80);
+        assert_eq!(burn_out(&mut h, 200), 80, "the fuse: 80 ticks");
         let mut destroyed = air(&h, from, to);
         destroyed.remove(&center);
         (destroyed, h.ground(), h.state.hash())
@@ -847,7 +820,7 @@ mod tests {
         }
         assert!(
             items <= destroyed.len() as u64,
-            "at most one cobblestone per block"
+            "at most one item per block"
         );
         assert_eq!(destroyed.len(), GOLDEN_STONE);
     }
@@ -897,11 +870,7 @@ mod tests {
         for (from, to, name) in walls {
             fill(&mut h, from, to, name);
         }
-        let center = BlockPos::new(0, -50, 0);
-        h.state.worlds[0]
-            .set_block(center, named("minecraft:tnt"))
-            .unwrap();
-        assert!(light(&mut h.state, 0, center, 1, Raise::Events));
+        prime(&mut h, BlockPos::new(0, -50, 0), 1);
         burn_out(&mut h, 10);
         let gone = |h: &Harness, (from, to, _): (BlockPos, BlockPos, &str)| air(h, from, to).len();
         assert_eq!(gone(&h, walls[0]), 0, "obsidian (1,200 × 5) holds");
@@ -920,9 +889,8 @@ mod tests {
         assert!(air(&h, walls[2].0, walls[2].1).contains(&BlockPos::new(0, -50, -2)));
     }
 
-    // api: TNT::ignite
     #[test]
-    fn tnt_lights_the_tnt_it_reaches_with_ten_to_thirty_ticks() {
+    fn a_blast_breaks_the_tnt_it_reaches_without_lighting_it() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(20.0, 20.0));
         // On the ground, three blocks apart.
@@ -932,28 +900,21 @@ mod tests {
                 .set_block(p, named("minecraft:tnt"))
                 .unwrap();
         }
-        assert!(light(&mut h.state, 0, line[0], 1, Raise::Events));
-        let mut explosions = Vec::new();
-        for tick in 0..400_u32 {
+        prime(&mut h, line[0], 1);
+        let mut explosions = 0;
+        for _ in 0..400_u32 {
             h.entities();
-            let n = h
+            explosions += h
                 .take(1)
                 .iter()
                 .filter(|p| matches!(p, Packet::LevelEvent(e) if e.event_type == i32::from(LevelEvent::ParticlesExplosion)))
                 .count();
-            for _ in 0..n {
-                explosions.push(tick);
-            }
+            assert!(tnt_count(&h) <= 1, "no more TNT is lit");
         }
-        assert_eq!(explosions.len(), 6, "every TNT went: {explosions:?}");
-        for later in &explosions[1..] {
-            assert!(later - explosions[0] >= 10, "chained fuses: {explosions:?}");
-        }
-        assert!(
-            line.iter()
-                .all(|&p| h.state.worlds[0].block(p) == Some(block::AIR))
-        );
-        assert_eq!(tnt_count(&h), 0);
+        assert_eq!(explosions, 1, "only the lit TNT went");
+        let tnt_at = |p: BlockPos| h.state.worlds[0].block(p).is_some_and(|s| s.is(Class::Tnt));
+        assert!(!tnt_at(line[1]), "the next TNT is broken like any block");
+        assert!(tnt_at(line[5]), "TNT out of reach stays");
     }
 
     #[test]
@@ -980,7 +941,7 @@ mod tests {
         );
         let half = exposure(&h.state.worlds[0], origin, open);
         assert!(half > 0.0 && half < 1.0, "{half}");
-        // PMMP's damage formula.
+        // The damage formula.
         assert_eq!(damage_of(1.0, 8.0), 65.0);
         assert_eq!(damage_of(0.25, 8.0), 11.0);
         assert_eq!(damage_of(0.0, 8.0), 1.0);
@@ -1047,7 +1008,7 @@ mod tests {
             h.state.rules.entities.get(npc).unwrap().body.motion.x < 0.0,
             "pushed away"
         );
-        // PMMP: an explosion of no entity is a block explosion.
+        // An explosion of no entity is a block explosion.
         let cause = crate::tick::survival::Damage::BlockExplosion;
         assert_eq!(calls(|c| c.damage.clone()), vec![(1, player_damage, cause)]);
         let me = h.runtime_id(1);
@@ -1093,10 +1054,7 @@ mod tests {
         let (from, to) = (BlockPos::new(-4, -54, -4), BlockPos::new(4, -46, 4));
         fill(&mut h, from, to, "minecraft:dirt");
         let center = BlockPos::new(0, -50, 0);
-        h.state.worlds[0]
-            .set_block(center, named("minecraft:tnt"))
-            .unwrap();
-        assert!(light(&mut h.state, 0, center, 1, Raise::Events));
+        prime(&mut h, center, 1);
         burn_out(&mut h, 10);
         let mut destroyed = air(&h, from, to);
         destroyed.remove(&center);
@@ -1240,78 +1198,30 @@ mod tests {
         );
         let mut h = Harness::with_listeners(1, l);
         h.spawn(1, standing(20.0, 20.0));
-        let center = BlockPos::new(0, -50, 0);
-        h.state.worlds[0]
-            .set_block(center, named("minecraft:tnt"))
-            .unwrap();
         FOUND.with(std::cell::Cell::take);
-        assert!(light(&mut h.state, 0, center, 1, Raise::Events));
+        prime(&mut h, BlockPos::new(0, -50, 0), 1);
         burn_out(&mut h, 10);
         assert_eq!(FOUND.with(std::cell::Cell::take), [true, true]);
     }
 
-    /// Measures a 100-TNT chain: the worst entity tick while it goes off. `cargo test --release
-    /// --lib tick::entity::explosion::tests::chain_cost -- --ignored --nocapture`.
+    /// An explosion inside the hooks of a destroyed custom block does nothing past the nesting
+    /// limit, and an explosion leaves the nesting depth as it found it.
     #[test]
-    #[ignore = "measurement"]
-    #[expect(
-        clippy::print_stderr,
-        clippy::disallowed_methods,
-        reason = "consistency: a measurement prints its result and reads the wall clock"
-    )]
-    fn chain_cost() {
-        for threads in [1, 4] {
-            let mut h = Harness::new(threads);
-            h.spawn(1, standing(30.0, 30.0));
-            fill(
-                &mut h,
-                BlockPos::new(-8, -61, -8),
-                BlockPos::new(8, -52, 8),
-                "minecraft:stone",
-            );
-            for i in 0..100_i32 {
-                let p = BlockPos::new(i % 5 * 2 - 4, -56 + i / 25, i / 5 % 5 * 2 - 4);
-                h.state.worlds[0]
-                    .set_block(p, named("minecraft:tnt"))
-                    .unwrap();
-            }
-            assert!(light(
-                &mut h.state,
-                0,
-                BlockPos::new(-4, -56, -4),
-                1,
-                Raise::Events
-            ));
-            let (mut worst, mut total, mut ticks, mut explosions) =
-                (std::time::Duration::ZERO, std::time::Duration::ZERO, 0, 0);
-            for _ in 0..600 {
-                let start = std::time::Instant::now();
-                h.entities();
-                let took = start.elapsed();
-                h.take(1);
-                worst = worst.max(took);
-                total += took;
-                ticks += 1;
-                if tnt_count(&h) == 0
-                    && h.state.worlds[0].block(BlockPos::new(-4, -56, -4)) == Some(block::AIR)
-                {
-                    explosions += 1;
-                    if explosions > 3 {
-                        break;
-                    }
-                }
-            }
-            let left = (0..100_i32)
-                .filter(|i| {
-                    let p = BlockPos::new(i % 5 * 2 - 4, -56 + i / 25, i / 5 % 5 * 2 - 4);
-                    h.state.worlds[0].block(p).is_some_and(|s| s.is(Class::Tnt))
-                })
-                .count();
-            assert_eq!(left, 0, "every TNT went off");
-            eprintln!(
-                "100-TNT chain, {threads} threads: worst tick {worst:?}, {ticks} ticks, mean {:?}",
-                total / ticks
-            );
-        }
+    fn explosions_nested_past_the_limit_do_nothing_and_leave_the_depth_unchanged() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(20.0, 20.0));
+        let (from, to) = (BlockPos::new(-5, -55, -5), BlockPos::new(5, -45, 5));
+        fill(&mut h, from, to, "minecraft:stone");
+        let center = Vec3::new(0.5, -49.5, 0.5);
+        h.state.rules.entities.blast_depth = MAX_NESTED_EXPLOSIONS;
+        size_four(&mut h, center);
+        assert!(air(&h, from, to).is_empty(), "too deep: nothing breaks");
+        h.state.rules.entities.blast_depth = MAX_NESTED_EXPLOSIONS - 1;
+        size_four(&mut h, center);
+        assert!(!air(&h, from, to).is_empty());
+        assert_eq!(
+            h.state.rules.entities.blast_depth,
+            MAX_NESTED_EXPLOSIONS - 1
+        );
     }
 }

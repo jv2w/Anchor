@@ -1,14 +1,10 @@
-//! The saved form of entities: chunk extras kind 2, one Bedrock-like NBT compound per entity, with
-//! PMMP's keys (`Entity::saveNBT` and the kinds' overrides).
+//! The saved form of entities: chunk extras kind 2, one Bedrock-like NBT compound per entity.
 //!
-//! Common keys: `identifier` (the Bedrock actor type; a compound without it is read by `id`, and
-//! PMMP's save names `Item`, `XPOrb`, `FallingSand`, `PrimedTNT`, `PrimedTnt`, `Arrow`,
-//! `Snowball`, `Egg`, `ThrownEnderpearl`, `ThrownPotion`, `ThrownExpBottle`, `Villager`,
-//! `Zombie`, `Painting`, `EnderCrystal`, `Trident`, `ThrownTrident` and the Bedrock
-//! types `minecraft:villager` and `minecraft:trident` are read too), `Pos` and `Motion` (lists
-//! of three doubles; floats are read too), `Rotation` (yaw and pitch floats), `FallDistance`
-//! (float), `Fire` (short), `OnGround` (byte); with a name tag `CustomName` (string);
-//! `CustomNameVisible` (byte, PMMP's "shown when looked at") with a name tag or when it is off.
+//! Common keys: `identifier` (the Bedrock actor type; the older Bedrock types
+//! `minecraft:villager` and `minecraft:trident` are read too; `Human` for a human NPC), `Pos` and
+//! `Motion` (lists of three doubles; floats are read too), `Rotation` (yaw and pitch floats),
+//! `FallDistance` (float), `Fire` (short), `OnGround` (byte); with a name tag `CustomName`
+//! (string); `CustomNameVisible` (byte, "shown when looked at") with a name tag or when it is off.
 //! Anchor's own keys, written only when they differ from the kind's default:
 //! `CustomNameAlwaysVisible` (byte), `Scale` (float), `Invisible` and `NoGravity` (bytes). An
 //! entity that is not saved with its chunk (the API's choice) writes nothing. Then per kind:
@@ -16,33 +12,35 @@
 //!   health), `Age` and `PickupDelay` (shorts), `Owner` and `Thrower` (strings of at most
 //!   [`MAX_NAME_TAG_BYTES`]); Anchor's `DespawnDelay` (int) for a despawn delay past what `Age`
 //!   holds (`item-despawn-ticks` goes up to 72,000), which a load takes over `Age`;
-//! - orbs: `Age`, `Value` (short) and `experience value` (int);
+//! - orbs: `Age` and `Value` (short);
 //! - falling blocks: `FallingBlock` (the block state as Bedrock's disk palette writes it);
 //! - primed TNT: `Fuse` (short), `AllowUnderwater` (byte, only when set);
 //! - projectiles: `damage` (double), `StuckToBlockPos` (three ints, while stuck); arrows `pickup`,
-//!   `crit` (bytes), `life` (short) and `punch` (byte, Anchor's: PMMP forgets Punch on a load);
-//!   potions `PotionId` (short; a lingering one is saved as `minecraft:lingering_potion`, which
-//!   PMMP loses); tridents `Trident` (the item, [`Stack::to_nbt`]) and `isCreative` (byte);
+//!   `crit` (bytes), `life` (short) and `punch` (byte); potions `PotionId` (short; a lingering
+//!   one is saved as `minecraft:lingering_potion`); tridents `Trident` (the item,
+//!   [`Stack::to_nbt`]) and `isCreative` (byte);
 //! - paintings: `TileX`, `TileY`, `TileZ` (ints: the wall block, which is the position's block one
 //!   step against the facing), `Facing` and `Direction` (bytes: south 0, west 1, north 2, east 3)
 //!   and `Motive` (string);
 //! - end crystals: `ShowBottom` (byte) and, with a beam target, `BlockTargetX`, `BlockTargetY`,
 //!   `BlockTargetZ` (ints);
-//! - firework rockets are never saved (PMMP `NeverSavedWithChunkEntity`);
-//! - clouds: PMMP's `AreaEffectCloud` keys; `SpawnTick` is minus the cloud's age (the world clock
-//!   is not at hand here; only the difference is read back);
+//! - firework rockets are never saved;
+//! - clouds: `SpawnTick` (minus the cloud's age: the world clock is not at hand here, and only
+//!   the difference is read back), `PotionId`, `Duration`, `DurationOnUse`, `PickupCount`,
+//!   `ReapplicationDelay`, `InitialRadius`, `Radius`, `RadiusChangeOnPickup`, `RadiusOnUse`,
+//!   `RadiusPerTick` and, with effects, `mobEffects`;
 //! - NPCs: `Health` (float), `Invulnerable` (byte) and, when not empty, `AnchorData` (the user's
 //!   compound, at most [`custom::MAX_DATA_BYTES`]) and Bedrock's `Mainhand` (the held item, a
 //!   list of one [`Stack::to_nbt`]); villagers `Profession` (int), `Offers` (the offer list,
 //!   [`Offers::to_nbt`]) and Bedrock's `IsBaby` (byte); zombies `IsBaby`; human NPCs their name as
-//!   the name tag and, with a skin, PMMP's `Skin`
-//!   compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin that does not
-//!   pass [`Skin`]'s checks loads as the default skin);
+//!   the name tag and, with a skin, a `Skin` compound (`Name`, `Data`, `CapeData`,
+//!   `GeometryName`, `GeometryData`; a skin that does not pass [`Skin`]'s checks loads as the
+//!   default skin);
 //! - custom entities: the type's identifier and the NPC keys. One whose type the server does not
 //!   register is not an entity here (like an unknown block) and stays as saved.
 //!
 //! Runtime and unique IDs are not saved: they are numbers of one run; so are the owner of a
-//! projectile and who a cloud affected (PMMP does not save them either).
+//! projectile and who a cloud affected.
 //!
 //! The file is outside input: a compound that does not describe an entity Anchor knows (an unknown
 //! identifier, a missing or invalid key, a position outside its chunk) is not an entity to the
@@ -71,17 +69,17 @@ use crate::protocol::Uuid;
 use crate::tick::trade::Offers;
 use crate::world::{BlockPos, ChunkPos};
 
-/// `Age` that means "never despawns" (PMMP).
+/// The `Age` that means "never despawns".
 const AGE_NEVER: i16 = i16::MIN;
 /// Bedrock's baby flag of a mob (`IsBaby`).
 const BABY: &str = "IsBaby";
-/// The key of an NPC's data (Anchor's: PMMP keeps plugin data in the entity's own compound).
+/// The key of an NPC's data.
 pub(super) const DATA_KEY: &str = "AnchorData";
 /// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
 const MAINHAND: &str = "Mainhand";
-/// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
+/// The longest a cloud lives, in ticks (one day of the world).
 pub(super) const MAX_CLOUD_AGE_TICKS: i32 = 24_000;
-/// The largest cloud radius and radius change read, in blocks (PMMP's default radius is 3).
+/// The largest cloud radius and radius change read, in blocks.
 pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
 /// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
 pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
@@ -183,7 +181,6 @@ pub(super) fn save(entity: &Entity) -> Compound {
             )]
             let value = i16::try_from(orb.value).expect("an orb's value fits the saved short");
             put("Value", Value::Short(value));
-            put("experience value", Value::Int(i32::from(value)));
         }
         Kind::FallingBlock(falling) => {
             put(
@@ -214,8 +211,7 @@ pub(super) fn save(entity: &Entity) -> Compound {
     c
 }
 
-/// An NPC's keys: its health, `Invulnerable`, its data, its held item and its form's own (PMMP
-/// `Living::saveNBT`, `Villager::saveNBT`, `Human::saveNBT`).
+/// An NPC's keys: its health, `Invulnerable`, its data, its held item and its form's own.
 fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
     put("Health", Value::Float(to_f32(health)));
     put("Invulnerable", Value::Byte(u8::from(npc.invulnerable)));
@@ -248,8 +244,7 @@ fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
     }
 }
 
-/// A painting's keys (PMMP `Painting::saveNBT`): the wall block, the facing twice (Java's and
-/// Bedrock's key) and the motive.
+/// A painting's keys: the wall block, the facing twice (`Facing` and `Direction`) and the motive.
 fn save_painting(painting: Painting, position: Vec3, put: &mut impl FnMut(&str, Value)) {
     let block = BlockPos::containing(position);
     let (dx, dy, dz) = painting.facing.opposite().offset();
@@ -263,7 +258,7 @@ fn save_painting(painting: Painting, position: Vec3, put: &mut impl FnMut(&str, 
     put("Motive", Value::String(painting.motive.name().to_owned()));
 }
 
-/// An end crystal's keys (PMMP `EndCrystal::saveNBT`): the base shown and the beam target.
+/// An end crystal's keys: the base shown and the beam target.
 fn save_crystal(crystal: Crystal, put: &mut impl FnMut(&str, Value)) {
     put("ShowBottom", Value::Byte(u8::from(crystal.show_base)));
     if let Some(t) = crystal.beam_target {
@@ -273,7 +268,7 @@ fn save_crystal(crystal: Crystal, put: &mut impl FnMut(&str, Value)) {
     }
 }
 
-/// A projectile's keys (PMMP `Projectile::saveNBT`, `Arrow::saveNBT`, `SplashPotion::saveNBT`).
+/// A projectile's keys: the damage, the block it is stuck in and its shot's own.
 fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
     put("damage", Value::Double(p.damage));
     if let Some(pos) = p.stuck {
@@ -302,7 +297,7 @@ fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
     }
 }
 
-/// A cloud's keys (PMMP `AreaEffectCloud::saveNBT`).
+/// A cloud's keys.
 fn save_cloud(cloud: &Cloud, put: &mut impl FnMut(&str, Value)) {
     put("SpawnTick", Value::Long(-i64::from(cloud.age)));
     put("PotionId", Value::Short(0));
@@ -334,7 +329,7 @@ pub(super) fn load(
 ) -> Option<Loaded> {
     #[cfg(test)]
     crate::tick::rules::reads::add(|r| r.entities += 1);
-    let identifier = match c.get("identifier").or_else(|| c.get("id")) {
+    let identifier = match c.get("identifier") {
         Some(Value::String(s)) => s.as_str(),
         _ => return None,
     };
@@ -373,8 +368,7 @@ pub(super) fn load(
     }
     let looks = load_looks(c, &kind)?;
     let health = match (&kind, c.get("Health")) {
-        // PMMP `Entity::setHealth`, which the load goes through, keeps the health within 0 and
-        // the maximum.
+        // The health stays within 0 and the maximum, as `Mut::set_health` keeps it.
         (Kind::Item(_), Some(Value::Short(h))) => {
             crate::math::clamp(f64::from(*h), 0.0, kind.max_health())
         }
@@ -383,8 +377,7 @@ pub(super) fn load(
         }
         _ => kind.max_health(),
     };
-    // PMMP `Entity::setHealth` of 0 while `justCreated`: an NPC saved while it died loads dead,
-    // past the tick of its drops, and finishes dying.
+    // An NPC saved while it died loads dead, past the tick of its drops, and finishes dying.
     if let Kind::Npc(n) = &mut kind
         && health <= 0.0
     {
@@ -406,8 +399,8 @@ pub(super) fn load(
     })
 }
 
-/// The name tag and looks of an entity of `kind` (PMMP `Entity::initEntity` and Anchor's keys);
-/// `None` for a name tag over [`MAX_NAME_TAG_BYTES`] or a scale `is_valid_scale` refuses.
+/// The name tag and looks of an entity of `kind`; `None` for a name tag over
+/// [`MAX_NAME_TAG_BYTES`] or a scale `is_valid_scale` refuses.
 fn load_looks(c: &Compound, kind: &Kind) -> Option<Looks> {
     let flag = |k: &str| match c.get(k) {
         Some(Value::Byte(b)) => Some(*b != 0),
@@ -418,11 +411,7 @@ fn load_looks(c: &Compound, kind: &Kind) -> Option<Looks> {
         Some(_) => return None,
         None => String::new(),
     };
-    let name_tag_visible = match c.get("CustomNameVisible") {
-        // Older PMMP versions saved a string (PMMP 890f72d).
-        Some(Value::String(s)) => !s.is_empty(),
-        _ => flag("CustomNameVisible").unwrap_or(true),
-    };
+    let name_tag_visible = flag("CustomNameVisible").unwrap_or(true);
     let scale = match c.get("Scale") {
         Some(Value::Float(s)) => Some(f64::from(*s)).filter(|s| super::is_valid_scale(*s, kind))?,
         _ => 1.0,
@@ -445,9 +434,9 @@ fn load_kind(
     content: &Registry,
 ) -> Option<Kind> {
     Some(match identifier {
-        "minecraft:item" | "Item" => Kind::Item(load_item(c, content)?),
-        "minecraft:xp_orb" | "XPOrb" => Kind::XpOrb(load_orb(c)),
-        "minecraft:falling_block" | "FallingSand" => {
+        "minecraft:item" => Kind::Item(load_item(c, content)?),
+        "minecraft:xp_orb" => Kind::XpOrb(load_orb(c)),
+        "minecraft:falling_block" => {
             let Some(Value::Compound(block)) = c.get("FallingBlock") else {
                 return None;
             };
@@ -455,28 +444,28 @@ fn load_kind(
                 block: crate::save::find_state(block)?,
             })
         }
-        "minecraft:tnt" | "PrimedTNT" | "PrimedTnt" => Kind::Tnt(Tnt {
+        "minecraft:tnt" => Kind::Tnt(Tnt {
             fuse: match c.get("Fuse") {
                 Some(Value::Short(f)) => u16::try_from(*f).ok().filter(|f| *f <= Tnt::MAX_FUSE)?,
                 _ => super::TNT_FUSE_TICKS,
             },
             underwater: matches!(c.get("AllowUnderwater"), Some(Value::Byte(b)) if *b != 0),
         }),
-        "minecraft:arrow" | "Arrow" => load_projectile(c, Shot::Arrow(load_arrow(c)))?,
-        "minecraft:snowball" | "Snowball" => load_projectile(c, Shot::Snowball)?,
-        "minecraft:egg" | "Egg" => load_projectile(c, Shot::Egg)?,
-        "minecraft:ender_pearl" | "ThrownEnderpearl" => load_projectile(c, Shot::EnderPearl)?,
-        "minecraft:xp_bottle" | "ThrownExpBottle" => load_projectile(c, Shot::XpBottle)?,
+        "minecraft:arrow" => load_projectile(c, Shot::Arrow(load_arrow(c)))?,
+        "minecraft:snowball" => load_projectile(c, Shot::Snowball)?,
+        "minecraft:egg" => load_projectile(c, Shot::Egg)?,
+        "minecraft:ender_pearl" => load_projectile(c, Shot::EnderPearl)?,
+        "minecraft:xp_bottle" => load_projectile(c, Shot::XpBottle)?,
         "minecraft:ice_bomb" => load_projectile(c, Shot::IceBomb)?,
-        "minecraft:thrown_trident" | "minecraft:trident" | "Trident" | "ThrownTrident" => {
+        "minecraft:thrown_trident" | "minecraft:trident" => {
             load_projectile(c, Shot::Trident(load_trident(c, content)?))?
         }
-        "minecraft:painting" | "Painting" => Kind::Painting(load_painting(c)?),
-        "minecraft:ender_crystal" | "EnderCrystal" => Kind::EndCrystal(load_crystal(c)),
-        "minecraft:splash_potion" | "ThrownPotion" => load_projectile(c, potion(c, false)?)?,
+        "minecraft:painting" => Kind::Painting(load_painting(c)?),
+        "minecraft:ender_crystal" => Kind::EndCrystal(load_crystal(c)),
+        "minecraft:splash_potion" => load_projectile(c, potion(c, false)?)?,
         "minecraft:lingering_potion" => load_projectile(c, potion(c, true)?)?,
         "minecraft:area_effect_cloud" => Kind::Cloud(load_cloud(c)?),
-        "minecraft:villager_v2" | "minecraft:villager" | "Villager" => Kind::Npc(load_npc(
+        "minecraft:villager_v2" | "minecraft:villager" => Kind::Npc(load_npc(
             c,
             Form::Villager {
                 profession: match c.get("Profession") {
@@ -493,9 +482,7 @@ fn load_kind(
             },
             content,
         )?),
-        "minecraft:zombie" | "Zombie" => {
-            Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) }, content)?)
-        }
+        "minecraft:zombie" => Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) }, content)?),
         "Human" => Kind::Npc(load_npc(
             c,
             Form::Human {
@@ -511,7 +498,7 @@ fn load_kind(
     })
 }
 
-/// A human NPC's `Skin` compound (PMMP `Human::saveNBT`).
+/// A human NPC's `Skin` compound.
 fn save_skin(skin: &Skin) -> Compound {
     Compound::from([
         ("Name".to_owned(), Value::String(skin.id().to_owned())),
@@ -531,8 +518,8 @@ fn save_skin(skin: &Skin) -> Compound {
     ])
 }
 
-/// The skin of a saved `Skin` compound (PMMP `Human::parseSkinNBT`); `None` (the default skin)
-/// when it does not pass [`Skin`]'s checks.
+/// The skin of a saved `Skin` compound; `None` (the default skin) when it does not pass
+/// [`Skin`]'s checks.
 fn load_skin(c: &Compound) -> Option<Skin> {
     let bytes = |k: &str| match c.get(k) {
         Some(Value::ByteArray(b)) => Some(b.clone()),
@@ -551,8 +538,8 @@ fn load_skin(c: &Compound) -> Option<Skin> {
         .with_geometry(geometry, bytes("GeometryData")?)
 }
 
-/// A dropped item's keys (PMMP `ItemEntity::initEntity`); `None` without a valid stack, or with
-/// an owner or thrower that is not a string of at most [`MAX_NAME_TAG_BYTES`].
+/// A dropped item's keys; `None` without a valid stack, or with an owner or thrower that is not a
+/// string of at most [`MAX_NAME_TAG_BYTES`].
 fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     let Some(Value::Compound(stack)) = c.get("Item") else {
         return None;
@@ -590,15 +577,12 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     })
 }
 
-/// An orb's keys (PMMP's `XPOrb` factory and `initEntity`): `Value`, else `experience value`,
-/// else 1; values over the `Value` short are cut to it.
+/// An orb's keys: `Value` (at least 1; its short never passes [`Orb::MAX_VALUE`]), else 1.
 fn load_orb(c: &Compound) -> Orb {
-    let value = match (c.get("Value"), c.get("experience value")) {
-        (Some(Value::Short(v)), _) => i32::from(*v),
-        (_, Some(Value::Int(v))) => *v,
+    let value = match c.get("Value") {
+        Some(Value::Short(v)) => (*v).max(1).cast_unsigned(),
         _ => 1,
     };
-    let value = u16::try_from(value.clamp(1, i32::from(i16::MAX))).unwrap_or(1);
     Orb {
         value,
         despawn_delay: despawn_delay_ticks(c),
@@ -607,8 +591,8 @@ fn load_orb(c: &Compound) -> Orb {
     }
 }
 
-/// A projectile's keys (PMMP `Projectile::initEntity`): the damage (finite, 0 to
-/// [`MAX_PROJECTILE_DAMAGE`]) and the block it is stuck in.
+/// A projectile's keys: the damage (finite, 0 to [`MAX_PROJECTILE_DAMAGE`]) and the block it is
+/// stuck in.
 fn load_projectile(c: &Compound, shot: Shot) -> Option<Kind> {
     let damage = match c.get("damage") {
         Some(Value::Double(d)) if d.is_finite() && (0.0..=MAX_PROJECTILE_DAMAGE).contains(d) => *d,
@@ -635,8 +619,7 @@ fn load_projectile(c: &Compound, shot: Shot) -> Option<Kind> {
     }))
 }
 
-/// A thrown trident's keys (PMMP's `Trident` factory and `initEntity`); `None` without a valid
-/// item.
+/// A thrown trident's keys; `None` without a valid item.
 fn load_trident(c: &Compound, content: &Registry) -> Option<Trident> {
     let Some(Value::Compound(item)) = c.get("Trident") else {
         return None;
@@ -651,8 +634,7 @@ fn load_trident(c: &Compound, content: &Registry) -> Option<Trident> {
     })
 }
 
-/// A painting's keys (PMMP's `Painting` factory): a known motive and a facing (`Direction`,
-/// else `Facing`).
+/// A painting's keys: a known motive and a facing (`Direction`, else `Facing`).
 fn load_painting(c: &Compound) -> Option<Painting> {
     let Some(Value::String(motive)) = c.get("Motive") else {
         return None;
@@ -669,7 +651,7 @@ fn load_painting(c: &Compound) -> Option<Painting> {
 }
 
 /// Whether a saved painting's wall block (`TileX`, `TileY`, `TileZ`) is the block behind its
-/// position, as every painting PMMP or Anchor saves has it.
+/// position, as every painting Anchor saves has it.
 fn hangs_at(c: &Compound, painting: Painting, position: Vec3) -> bool {
     let (Some(Value::Int(x)), Some(Value::Int(y)), Some(Value::Int(z))) =
         (c.get("TileX"), c.get("TileY"), c.get("TileZ"))
@@ -679,8 +661,7 @@ fn hangs_at(c: &Compound, painting: Painting, position: Vec3) -> bool {
     BlockPos::new(*x, *y, *z).step(painting.facing) == Some(BlockPos::containing(position))
 }
 
-/// An end crystal's keys (PMMP `EndCrystal::initEntity`): the beam target only with all three
-/// ints.
+/// An end crystal's keys: the beam target only with all three ints.
 fn load_crystal(c: &Compound) -> Crystal {
     let target = match (
         c.get("BlockTargetX"),
@@ -699,7 +680,7 @@ fn load_crystal(c: &Compound) -> Crystal {
     }
 }
 
-/// An arrow's keys (PMMP `Arrow::initEntity`).
+/// An arrow's keys.
 fn load_arrow(c: &Compound) -> Arrow {
     let byte = |k: &str| match c.get(k) {
         Some(Value::Byte(b)) => Some(*b),
@@ -716,7 +697,7 @@ fn load_arrow(c: &Compound) -> Arrow {
     }
 }
 
-/// A potion's `PotionId` (PMMP `SplashPotion`); water when missing.
+/// A potion's `PotionId`; water when missing.
 fn potion(c: &Compound, linger: bool) -> Option<Shot> {
     let potion = match c.get("PotionId") {
         Some(Value::Short(id)) => Potion::from_id(i32::from(*id))?,
@@ -725,7 +706,7 @@ fn potion(c: &Compound, linger: bool) -> Option<Shot> {
     Some(Shot::Potion { potion, linger })
 }
 
-/// A cloud's keys (PMMP `AreaEffectCloud::initEntity`), with every number bounded.
+/// A cloud's keys, with every number bounded.
 fn load_cloud(c: &Compound) -> Option<Cloud> {
     let int = |k: &str, default: i32| match c.get(k) {
         Some(Value::Int(v)) => *v,
@@ -821,8 +802,8 @@ fn load_npc(c: &Compound, form: Form, content: &Registry) -> Option<Character> {
     })
 }
 
-/// The despawn delay a saved `Age` gives (PMMP: `-32768` never, otherwise 6000 minus the age, at
-/// least 0).
+/// The despawn delay a saved `Age` gives (`-32768` never, otherwise 6000 minus the age, at least
+/// 0).
 fn despawn_delay_ticks(c: &Compound) -> i32 {
     match c.get("Age") {
         Some(Value::Short(AGE_NEVER)) => i32::from(NEVER),
@@ -863,7 +844,7 @@ fn doubles(v: Vec3) -> Value {
     Value::List(List::Double(vec![v.x, v.y, v.z]))
 }
 
-/// A finite vector from a list of three doubles or floats (PMMP `EntityDataHelper::parseVec3`).
+/// A finite vector from a list of three doubles or floats.
 fn vector(v: Option<&Value>) -> Option<Vec3> {
     let v = match v? {
         Value::List(List::Double(d)) if d.len() == 3 => {
@@ -1397,14 +1378,12 @@ pub(super) mod tests {
             Vec3::new(10.0, -10.0, 0.5),
             "speeds are cut"
         );
-        assert_eq!(
+        assert!(
             broken(&|c| {
                 c.insert("identifier".to_owned(), Value::String("Item".to_owned()));
             })
-            .unwrap()
-            .kind,
-            e.kind,
-            "PMMP's save name"
+            .is_none(),
+            "a name Anchor does not write"
         );
         // Out-of-range numbers of a fuse, a projectile and a villager.
         let tnt = save(&entity(kinds().remove(6), Vec3::new(5.25, -59.5, -3.75)));

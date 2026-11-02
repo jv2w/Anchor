@@ -701,7 +701,6 @@ fn a_click_on_a_removed_block_changes_nothing_and_resends_it() {
         h.packets();
         use_on_target(&mut h);
         assert_eq!(h.block(TARGET), state, "{state:?}");
-        assert!(!h.player().is_sleeping(), "{state:?}");
         let sent = h.packets();
         assert!(updates(&sent).contains(&TARGET), "{state:?}");
         assert!(

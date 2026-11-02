@@ -13,6 +13,7 @@ use crate::event::{
     AreaEffectCloudApply, EntityExplode, EntityPreExplode, EntityShootBow, EntityTeleport,
     Priority, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch, TeleportCause,
 };
+use crate::protocol::packet::Packet;
 use crate::tick::Context;
 use crate::tick::dispatch::run_deferred;
 
@@ -174,6 +175,48 @@ fn spawns_and_despawns_are_announced_once_by_the_entity_tick() {
     assert_eq!(got(&seen), [("despawn", orb, false)]);
 }
 
+/// An entity a spawn listener makes is announced too, once, by a later entity tick.
+#[test]
+fn an_entity_made_by_a_spawn_listener_is_announced_too() {
+    let switch = Mode::new();
+    let seen: Log<Id> = log();
+    let mut listeners = Listeners::default();
+    let (sw, sink) = (switch, seen.sink());
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntitySpawn, cx: &mut Context<'_>| {
+            sink.push(e.entity());
+            if mode(sw) == 1 {
+                set(sw, 2);
+                cx.drop_item(
+                    world::Id::DEFAULT,
+                    at(12.5, -59.0, 12.5),
+                    stack("minecraft:stick", 1),
+                    None,
+                )
+                .unwrap();
+            }
+        },
+    );
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(0.0, 0.0));
+    set(switch, 1);
+    clear(&seen);
+    assert!(drop_item(
+        &mut h.state,
+        0,
+        at(0.5, -59.0, 0.5),
+        stack("minecraft:stick", 1)
+    ));
+    let first = newest(&h);
+    for _ in 0..3 {
+        h.entities();
+    }
+    let second = newest(&h);
+    assert_ne!(first, second);
+    assert_eq!(got(&seen), [first, second]);
+}
+
 fn mode(m: Mode) -> u8 {
     MODES.with(Cell::get)[m.0]
 }
@@ -199,7 +242,7 @@ fn a_cancelled_item_despawn_gives_the_whole_time_again() {
             0 => e.cancel(),
             1 => {
                 let mut item = cx.entity_mut(e.entity()).unwrap();
-                assert!(item.set_despawn_delay_ticks(100));
+                item.set_despawn_delay_ticks(100).unwrap();
             }
             _ => {}
         },
@@ -263,10 +306,11 @@ fn an_item_set_to_despawn_now_goes_with_or_without_a_listener() {
             stack("minecraft:stick", 1)
         ));
         let id = newest(&h);
-        let mut cx = Context {
-            state: &mut h.state,
-        };
-        assert!(cx.entity_mut(id).unwrap().set_despawn_delay_ticks(0));
+        let mut cx = h.context();
+        cx.entity_mut(id)
+            .unwrap()
+            .set_despawn_delay_ticks(0)
+            .unwrap();
         h.entities();
         let left = h
             .state
@@ -310,11 +354,10 @@ fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
             match mode(sw) {
                 0 => e.cancel(),
                 1 => {
-                    assert!(
-                        cx.entity_mut(e.target())
-                            .unwrap()
-                            .set_pickup_delay_ticks(-1)
-                    );
+                    cx.entity_mut(e.target())
+                        .unwrap()
+                        .set_pickup_delay_ticks(-1)
+                        .unwrap();
                 }
                 _ => {}
             }
@@ -367,14 +410,6 @@ fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
     let w = got(&watched);
     assert_eq!(w.len(), 1);
     assert_eq!(w[0].1, Some(8), "the monitor sees the merged stack");
-}
-
-fn session(n: u64) -> SessionId {
-    SessionId::new(n)
-}
-
-fn player_id(n: u64) -> crate::player::Id {
-    crate::player::Id::new(session(n))
 }
 
 // api: EntityItemPickupEvent
@@ -495,7 +530,10 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
             match roll {
                 0 => e.cancel(),
                 1 => {
-                    cx.entity_mut(e.target()).unwrap().set_pickup_delay_ticks(5);
+                    cx.entity_mut(e.target())
+                        .unwrap()
+                        .set_pickup_delay_ticks(5)
+                        .unwrap();
                 }
                 _ => {}
             }
@@ -526,21 +564,6 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
         assert_eq!(h.ground() + taken(), dropped, "tick {tick}");
     }
     assert!(taken() > 0);
-}
-
-/// A human NPC at `pos` that takes damage.
-fn npc_at(h: &mut Harness, pos: Vec3) -> Id {
-    let npc = Npc::Human {
-        name: "target".to_owned(),
-        skin: None,
-    };
-    let id = spawn_npc(&mut h.state, 0, pos, npc).unwrap();
-    with(&mut h.state, id, |e| {
-        if let Kind::Npc(c) = &mut e.kind {
-            c.invulnerable = false;
-        }
-    });
-    id
 }
 
 fn health(h: &Harness, id: Id) -> f64 {
@@ -585,7 +608,7 @@ fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     });
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
-    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 2.5));
     hit(&mut h, npc);
     assert_eq!(health(&h, npc), 20.0, "cancelled");
     assert_eq!(
@@ -611,7 +634,7 @@ fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     );
     assert_eq!(got(&watched), [15.0], "the monitor sees the new health");
     set(switch, 2);
-    let other = npc_at(&mut h, at(1.5, -60.0, 2.5));
+    let other = h.vulnerable_human(at(1.5, -60.0, 2.5));
     hit(&mut h, other);
     assert_eq!(health(&h, other), 20.0, "removed by the listener: not hurt");
 }
@@ -641,7 +664,7 @@ fn a_dying_npc_drops_what_its_death_listeners_give_it() {
     });
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
-    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 2.5));
     with(&mut h.state, npc, |e| e.health = 0.5);
     hit(&mut h, npc);
     assert!(npc::is_dying(&h.state, npc));
@@ -686,7 +709,7 @@ fn a_cancelled_motion_keeps_the_npc_still() {
     });
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
-    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 2.5));
     hit(&mut h, npc);
     assert_eq!(
         h.state.rules.entities.get(npc).unwrap().body.motion,
@@ -696,7 +719,7 @@ fn a_cancelled_motion_keeps_the_npc_still() {
     assert_eq!(s.len(), 1);
     assert!(s[0].z > 0.0, "away from the player: {:?}", s[0]);
     set(switch, 1);
-    let other = npc_at(&mut h, at(-0.5, -60.0, 2.5));
+    let other = h.vulnerable_human(at(-0.5, -60.0, 2.5));
     hit(&mut h, other);
     assert_ne!(
         h.state.rules.entities.get(other).unwrap().body.motion,
@@ -724,7 +747,7 @@ fn a_motion_listener_replaces_an_npc_s_push() {
     });
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
-    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 2.5));
     hit(&mut h, npc);
     assert_eq!(got(&seen), [push]);
 }
@@ -845,12 +868,12 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     fill(&mut h, from, to, "minecraft:dirt");
     let center = BlockPos::new(0, -50, 0);
     // On top of the dirt, within reach of the blast.
-    let npc = npc_at(&mut h, at(0.5, -46.0, 0.5));
+    let npc = h.vulnerable_human(at(0.5, -46.0, 0.5));
     let explode = |h: &mut Harness| {
-        h.state.worlds[0]
-            .set_block(center, named("minecraft:tnt"))
+        h.state.worlds[0].set_block(center, block::AIR).unwrap();
+        h.context()
+            .spawn_tnt(world::Id::DEFAULT, at(0.5, -50.0, 0.5), 1)
             .unwrap();
-        assert!(ignite(&mut h.state, 0, center, 1));
         for _ in 0..3 {
             h.entities();
         }
@@ -888,8 +911,57 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     assert!(health(&h, npc) < 20.0, "the blast hurts once it goes off");
 }
 
-/// Scaled primed TNT explodes at half its scaled height (PMMP `PrimedTNT::explode` reads its
-/// size, which `setScale` scales).
+/// An explosion breaks the TNT blocks it reaches into their own item, and primes none.
+/// A listener raising the yield to the whole makes every broken block drop.
+#[test]
+fn an_explosion_breaks_tnt_blocks_into_their_item_and_primes_none() {
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |e: &mut EntityExplode, _: &mut Context<'_>| e.set_yield_percent(100.0),
+    );
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(20.0, 20.0));
+    let beside = [
+        BlockPos::new(1, -50, 0),
+        BlockPos::new(-1, -50, 0),
+        BlockPos::new(0, -49, 0),
+        BlockPos::new(0, -51, 0),
+        BlockPos::new(0, -50, 1),
+        BlockPos::new(0, -50, -1),
+    ];
+    for pos in beside {
+        h.state.worlds[0]
+            .set_block(pos, named("minecraft:tnt"))
+            .unwrap();
+    }
+    h.context()
+        .spawn_tnt(world::Id::DEFAULT, at(0.5, -50.0, 0.5), 1)
+        .unwrap();
+    for _ in 0..3 {
+        h.entities();
+    }
+    for pos in beside {
+        assert_eq!(block(&h, pos), block::AIR, "{pos:?}");
+    }
+    assert!(
+        h.live().iter().all(|e| !matches!(e.kind, Kind::Tnt(_))),
+        "no TNT is primed by the blast"
+    );
+    let tnt = stack("minecraft:tnt", 1).item().unwrap();
+    let dropped: u64 = h
+        .live()
+        .iter()
+        .filter_map(|e| match &e.kind {
+            Kind::Item(i) if i.stack.item() == Some(tnt) => Some(u64::from(i.stack.count())),
+            _ => None,
+        })
+        .sum();
+    assert_eq!(dropped, 6);
+    assert_eq!(h.ground(), 6, "nothing else dropped");
+}
+
+/// Scaled primed TNT explodes at half its scaled height, as its box scales.
 #[test]
 fn scaled_tnt_explodes_at_half_its_scaled_height() {
     let centres: Log<Vec3> = log();
@@ -901,11 +973,9 @@ fn scaled_tnt_explodes_at_half_its_scaled_height() {
     );
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(20.0, 20.0));
-    let pos = BlockPos::new(0, -50, 0);
-    h.state.worlds[0]
-        .set_block(pos, named("minecraft:tnt"))
+    h.context()
+        .spawn_tnt(world::Id::DEFAULT, at(0.5, -50.0, 0.5), 3)
         .unwrap();
-    assert!(ignite(&mut h.state, 0, pos, 3));
     let tnt = newest(&h);
     let start = with(&mut h.state, tnt, |e| {
         e.scale = 2.0;
@@ -923,8 +993,8 @@ fn scaled_tnt_explodes_at_half_its_scaled_height() {
     assert!((centre.y - start.y - 0.98).abs() < 1e-9, "{centre:?}");
 }
 
-/// A scaled falling block lands in the block its scaled box names (PMMP
-/// `FallingBlock::entityBaseTick`: its position less half its width, plus its height).
+/// A scaled falling block lands in the block its scaled box names: its position less half its
+/// width, plus its height.
 #[test]
 fn a_scaled_falling_block_lands_where_its_scaled_box_says() {
     let mut h = Harness::new(1);
@@ -1087,7 +1157,7 @@ fn projectile_hits_name_what_they_hit() {
     assert_eq!((b[0].0, b[0].1, b[0].2), (ball, wall, stone));
     assert_eq!(b[0].3.z, 6.0, "on the wall's face");
     // An NPC in the way of an arrow: the hit names it, and the listener's removal spares it.
-    let npc = npc_at(&mut h, at(0.5, -60.0, 3.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 3.5));
     calls(|c| c.arrows = 1);
     held(&mut h, 1, stack("minecraft:bow", 1));
     assert!(projectile::release_bow_with(
@@ -1227,6 +1297,23 @@ fn a_cancelled_cloud_application_gives_no_effects() {
     assert!(calls(|c| !c.effects.is_empty()));
 }
 
+/// A falling block the API made lands as the block it is and drops nothing.
+#[test]
+fn a_landing_falling_block_becomes_its_block() {
+    let mut h = Harness::new(1);
+    h.spawn(1, standing(8.0, 8.0));
+    let sand = named("minecraft:sand");
+    let pos = BlockPos::new(0, -55, 0);
+    h.state.worlds[0].set_block(pos, sand).unwrap();
+    assert!(fall(&mut h.state, 0, pos, sand));
+    for _ in 0..40 {
+        h.entities();
+    }
+    assert!(h.live().is_empty(), "it landed");
+    assert_eq!(block(&h, BlockPos::new(0, -60, 0)), sand);
+    assert_eq!(h.ground(), 0, "nothing dropped");
+}
+
 // api: EntityBlockChangeEvent
 #[test]
 fn a_landing_falling_block_asks_before_it_becomes_a_block() {
@@ -1301,7 +1388,7 @@ fn healing_an_npc_asks_its_listeners() {
     );
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(8.0, 8.0));
-    let npc = npc_at(&mut h, at(0.5, -60.0, 0.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 0.5));
     with(&mut h.state, npc, |e| e.health = 10.0);
     crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert_eq!(health(&h, npc), 10.0, "cancelled");
@@ -1328,7 +1415,7 @@ fn healing_an_npc_asks_only_below_full_health_and_an_amount_that_does_not_heal_c
     listeners.push_monitor(move |e: &EntityRegainHealth, _: &Context<'_>| sink.push(e.amount()));
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(8.0, 8.0));
-    let npc = npc_at(&mut h, at(0.5, -60.0, 0.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 0.5));
     let full = health(&h, npc);
     crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert!(got(&asked).is_empty(), "full health");
@@ -1405,14 +1492,6 @@ fn ticks_with_listeners_are_the_same_on_one_or_many_threads() {
         );
         listeners.push(
             Priority::Normal,
-            |e: &mut EntityBlockChange, cx: &mut Context<'_>| {
-                if cx.tick().is_multiple_of(3) {
-                    e.cancel();
-                }
-            },
-        );
-        listeners.push(
-            Priority::Normal,
             |_: &mut EntitySpawn, _: &mut Context<'_>| {},
         );
         listeners.push_monitor(|_: &EntityDespawn, _: &Context<'_>| {});
@@ -1453,13 +1532,11 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
     h.look(1, 0.0, 0.0);
-    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
-    let behind = npc_at(&mut h, at(0.5, -60.0, -3.5));
+    let npc = h.vulnerable_human(at(0.5, -60.0, 2.5));
+    let behind = h.vulnerable_human(at(0.5, -60.0, -3.5));
     assert!(reaches(&h.state, session(1), npc));
     assert!(!reaches(&h.state, session(1), behind), "behind the look");
-    let mut cx = Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     cx.perform(Attack::new(player_id(1), npc)).unwrap();
     assert!(got(&causes).is_empty(), "performed after the callback");
     let mut runs = 0;
@@ -1468,12 +1545,10 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     assert!(health(&h, npc) < 20.0);
     // A direct explosion hurts without events; the action raises them.
     clear(&causes);
-    let far = npc_at(&mut h, at(30.5, -60.0, 30.5));
+    let far = h.vulnerable_human(at(30.5, -60.0, 30.5));
     let center = Vec3::new(30.5, -59.0, 31.5);
-    let mut cx = Context {
-        state: &mut h.state,
-    };
-    assert!(cx.explode(world::Id::DEFAULT, center, 2.0));
+    let mut cx = h.context();
+    cx.explode(world::Id::DEFAULT, center, 2.0).unwrap();
     assert!(health(&h, far) < 20.0);
     assert!(got(&causes).is_empty(), "direct calls raise nothing");
     let before = health(&h, far);
@@ -1483,9 +1558,7 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     }
     let blast = Explode::new(world::Id::DEFAULT, center, 3.0).fire();
     assert!(blast.fire);
-    let mut cx = Context {
-        state: &mut h.state,
-    };
+    let mut cx = h.context();
     cx.perform(blast).unwrap();
     run_deferred(&mut h.state, &mut runs);
     // The NPC and the items the first blast dropped.
@@ -1493,4 +1566,65 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     assert!(!causes.is_empty());
     assert!(causes.iter().all(|&c| c == DamageCause::BlockExplosion));
     assert!(health(&h, far) < before);
+}
+
+/// A player an exploding entity hits is pushed back with the knockback the damage listeners left.
+#[test]
+fn an_explosion_pushes_a_player_back_with_the_knockback_the_listeners_left() {
+    let pushed = |listeners: Listeners| {
+        let mut h = Harness::with_listeners(1, listeners);
+        h.spawn(1, standing(0.0, 0.0));
+        let player = h.runtime_id(1);
+        h.take(1);
+        h.context()
+            .spawn_tnt(world::Id::DEFAULT, at(3.5, -60.0, 0.5), 1)
+            .unwrap();
+        for _ in 0..3 {
+            h.step(Vec::new());
+        }
+        h.take(1)
+            .iter()
+            .filter_map(|p| match p {
+                Packet::SetActorMotion(m) if m.entity_runtime_id == player => {
+                    Some(f64::from(m.velocity[0]).abs() + f64::from(m.velocity[2]).abs())
+                }
+                _ => None,
+            })
+            .sum::<f64>()
+    };
+    let mut no_knockback = Listeners::default();
+    no_knockback.push(
+        Priority::Normal,
+        |e: &mut EntityDamage, _: &mut Context<'_>| e.set_knockback(0.0),
+    );
+    let by_default = pushed(Listeners::default());
+    let by_listener = pushed(no_knockback);
+    assert!(by_default > by_listener + 0.1, "{by_default} {by_listener}");
+}
+
+/// A dying NPC and a hit end crystal finish their end in a chunk no player keeps ticking.
+#[test]
+fn a_death_in_a_chunk_no_player_ticks_still_completes() {
+    let deaths: Log<()> = log();
+    let mut listeners = Listeners::default();
+    let sink = deaths.sink();
+    listeners.push_monitor(move |_: &EntityDeath, _: &Context<'_>| sink.push(()));
+    let mut h = Harness::with_config(1, listeners, |c| c.developer.tick_radius = 1);
+    h.spawn(1, standing(0.0, 0.0));
+    let npc = h.vulnerable_human(at(40.5, -60.0, 40.5));
+    let mut cx = h.context();
+    let crystal = cx
+        .spawn_end_crystal(world::Id::DEFAULT, at(41.5, -60.0, 40.5))
+        .unwrap();
+    h.entities();
+    let mut cx = h.context();
+    cx.entity_mut(npc).unwrap().kill();
+    cx.entity_mut(crystal).unwrap().attack(1.0);
+    for _ in 0..40 {
+        h.entities();
+    }
+    let entities = &h.state.rules.entities;
+    assert!(entities.get(npc).is_none(), "the NPC went");
+    assert!(entities.get(crystal).is_none(), "the crystal blew");
+    assert_eq!(got(&deaths).len(), 1);
 }

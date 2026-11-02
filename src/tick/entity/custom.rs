@@ -13,7 +13,11 @@
 //!
 //! Saved custom entities keep their identifier, health, invulnerability, data and held item
 //! ([`super::saved`]); one whose type is not registered at load stays as saved, like an unknown
-//! block, and is written back unchanged.
+//! block, and is written back unchanged. A type keeps its identifier for good: no entity moves to
+//! another identifier, so a type that is dropped from the registry leaves its saved entities
+//! unloaded until it is registered again.
+//!
+//! A type's box is its width and height; the API has no separate hit box, collision box or shadow.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -69,8 +73,10 @@ impl Customs {
 
     /// The `AvailableActorIdentifiers` list with one entry per type appended to `base`.
     /// `base` is the vanilla list, network NBT `{idlist: [..]}`. The entries follow registration
-    /// order, as BDS lists an add-on's entities (`bid` empty, `hasspawnegg`, `id`, `rid` after the
-    /// largest vanilla one, `summonable`). Without types it is `base`, byte for byte.
+    /// order, as the official server lists an add-on's entities (`bid` empty, `hasspawnegg`, `id`,
+    /// `rid` after the largest vanilla one, `summonable`). The two flags only mark the entry:
+    /// Anchor has no `summon` command and adds no spawn egg item. Without types it is `base`, byte
+    /// for byte.
     pub(crate) fn identifier_list(&self, base: &[u8]) -> protocol::Result<Vec<u8>> {
         let types = &self.types.types;
         if types.is_empty() {
@@ -248,11 +254,11 @@ pub(super) struct Spec {
     pub(super) index: u16,
     /// Its identifier, such as `example:ghost`.
     pub(super) identifier: String,
-    /// Whether the `summon` command takes it.
+    /// Whether its entry in the identifier list is marked summonable.
     pub(super) summonable: bool,
-    /// Whether it has a spawn egg.
+    /// Whether its entry in the identifier list is marked as having a spawn egg.
     pub(super) spawn_egg: bool,
-    /// Its box and how it moves (PMMP `Living`'s rules with the type's size, gravity and drag).
+    /// Its box and how it moves: the type's size, gravity and drag.
     pub(super) physics: Physics,
     /// The health of a new entity of it.
     pub(super) max_health: f64,
@@ -329,7 +335,8 @@ impl Entity {
 
     /// An NPC's data, saved with it, empty until set.
     /// It is a custom entity's, a villager's ([`Context::spawn_villager`]), a human's
-    /// ([`Context::spawn_human`]) or a zombie's. `None` for another kind.
+    /// ([`Context::spawn_human`]) or a zombie's. `None` for another kind. [`Mut::set_custom_data`]
+    /// replaces it whole: to change one key, clone it, change the copy and set it back.
     pub fn custom_data(&self) -> Option<&Compound> {
         match &self.kind {
             Kind::Npc(c) => Some(&c.data),
@@ -348,29 +355,35 @@ impl Entity {
 
 impl Mut<'_> {
     /// Sets an NPC's data ([`Entity::custom_data`]), saved with it.
-    /// False, changing nothing, for another kind or data whose saved form takes more than 4,096
-    /// bytes.
-    pub fn set_custom_data(&mut self, data: Compound) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`] for data whose saved form
+    /// takes more than 4,096 bytes; nothing changes.
+    pub fn set_custom_data(&mut self, data: Compound) -> Result<(), Error> {
         if !fits(&data) {
-            return false;
+            return Err(Error::OutOfRange);
         }
         let Kind::Npc(c) = &mut self.entity_mut().kind else {
-            return false;
+            return Err(Error::WrongKind);
         };
         c.data = data;
-        true
+        Ok(())
     }
 
     /// Puts `stack` in an NPC's hand ([`Entity::held_item`]; [`Stack::EMPTY`] empties it).
-    /// Its viewers see it, and it is saved with the NPC. False, changing nothing, for another
-    /// kind.
-    pub fn set_held_item(&mut self, stack: Stack) -> bool {
+    /// Its viewers see it, and it is saved with the NPC.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind; nothing changes.
+    pub fn set_held_item(&mut self, stack: Stack) -> Result<(), Error> {
         let Kind::Npc(c) = &mut self.entity_mut().kind else {
-            return false;
+            return Err(Error::WrongKind);
         };
         c.held = stack;
         self.shown_mut();
-        true
+        Ok(())
     }
 }
 
