@@ -75,6 +75,9 @@ impl Block {
     /// The most drops one block lists.
     const MAX_DROPS: usize = 64;
 
+    /// The highest friction.
+    const MAX_FRICTION: f64 = 1.0;
+
     /// The highest harvest level, netherite.
     const MAX_HARVEST_LEVEL: u8 = 6;
 
@@ -238,10 +241,9 @@ impl Block {
     }
 
     /// The same block taking `hardness` to break (the seconds are 1.5 times it with a compatible
-    /// tool, 5 times without), with a blast resistance of 5 times it
-    /// that replaces one given before ([`with_blast_resistance`](Self::with_blast_resistance)
-    /// after it keeps its own). A block nothing breaks is [`unbreakable`](Self::unbreakable), not
-    /// a hardness of -1.
+    /// tool, 5 times without), with a blast resistance of 5 times it that replaces one given
+    /// before ([`with_blast_resistance`](Self::with_blast_resistance) after it keeps its own). A
+    /// block nothing breaks is [`unbreakable`](Self::unbreakable), not a hardness of -1.
     #[must_use]
     pub const fn with_hardness(mut self, hardness: f64) -> Self {
         let b = self.info.breaking();
@@ -376,8 +378,8 @@ impl Block {
         if !hardness_ok || !b.blast_resistance().is_finite() || b.blast_resistance() < 0.0 {
             return Some("a hardness or blast resistance that is negative or not finite");
         }
-        let friction = self.info.friction_value();
-        if !friction.is_finite() || friction < Self::MIN_FRICTION || friction > 1.0 {
+        let friction = self.info.friction();
+        if !(Self::MIN_FRICTION..=Self::MAX_FRICTION).contains(&friction) {
             return Some("a friction outside 0.1 to 1");
         }
         if b.harvest_level() > Self::MAX_HARVEST_LEVEL {
@@ -412,48 +414,18 @@ impl Block {
         self.light_emission
     }
 
-    /// The block's `StartGame` entry properties: components, the creative menu, the block ID and
-    /// the property list. `block_id` is 10,000 plus its registration index.
-    pub(crate) fn entry_nbt(&'static self, block_id: i32) -> Compound {
-        let (category, group) = match self.creative {
-            Some(c) => (c.category.name(), c.group.unwrap_or_default()),
-            None => ("none", ""),
-        };
-        let mut out = Compound::from([
-            (
-                "components".to_owned(),
-                Value::Compound(self.to_components()),
-            ),
-            (
-                "menu_category".to_owned(),
-                Value::Compound(Compound::from([
-                    ("category".to_owned(), Value::String(category.to_owned())),
-                    ("group".to_owned(), Value::String(group.to_owned())),
-                ])),
-            ),
-            ("molangVersion".to_owned(), Value::Int(MOLANG_VERSION)),
-            (
-                "vanilla_block_data".to_owned(),
-                Value::Compound(Compound::from([(
-                    "block_id".to_owned(),
-                    Value::Int(block_id),
-                )])),
-            ),
-        ]);
-        if !self.properties.is_empty() {
-            let list = self.properties.iter().map(Property::nbt).collect();
-            out.insert("properties".to_owned(), Value::List(List::Compound(list)));
-        }
-        out
-    }
-
     /// The light filter.
     pub(crate) fn filter(&self) -> u8 {
         match self.light_filter {
             Some(level) => level,
-            None if self.info.has(block::flag::TRANSPARENT) => 0,
+            None if self.info.has_flag(block::flag::TRANSPARENT) => 0,
             None => Self::MAX_LIGHT_LEVEL,
         }
+    }
+
+    /// Whether it takes random ticks.
+    pub(crate) fn has_random_ticks(&self) -> bool {
+        self.random_ticks
     }
 
     /// The identifier, such as `example:lamp`.
@@ -520,11 +492,6 @@ impl Block {
             .unwrap_or(u32::MAX)
     }
 
-    /// Whether it takes random ticks.
-    pub(crate) fn has_random_ticks(&self) -> bool {
-        self.random_ticks
-    }
-
     /// The state `index` with property `name` set to `value`.
     pub(crate) fn with_value(
         &self,
@@ -544,6 +511,49 @@ impl Block {
             scale = scale.checked_mul(count)?;
         }
         None
+    }
+
+    /// The block's `StartGame` entry properties: components, the creative menu, the block ID and
+    /// the property list. `block_id` is the block's ID among the custom blocks' IDs.
+    pub(crate) fn entry_nbt(&'static self, block_id: i32) -> Compound {
+        let (category, group) = match self.creative {
+            Some(c) => (c.category.name(), c.group.unwrap_or_default()),
+            None => ("none", ""),
+        };
+        let mut out = Compound::from([
+            (
+                "components".to_owned(),
+                Value::Compound(self.to_components()),
+            ),
+            (
+                "menu_category".to_owned(),
+                Value::Compound(Compound::from([
+                    ("category".to_owned(), Value::String(category.to_owned())),
+                    ("group".to_owned(), Value::String(group.to_owned())),
+                ])),
+            ),
+            ("molangVersion".to_owned(), Value::Int(MOLANG_VERSION)),
+            (
+                "vanilla_block_data".to_owned(),
+                Value::Compound(Compound::from([(
+                    "block_id".to_owned(),
+                    Value::Int(block_id),
+                )])),
+            ),
+        ]);
+        if !self.properties.is_empty() {
+            let list = self.properties.iter().map(Property::nbt).collect();
+            out.insert("properties".to_owned(), Value::List(List::Compound(list)));
+        }
+        out
+    }
+
+    /// The materials it is drawn with.
+    fn material_list(&self) -> &[Material] {
+        match self.materials {
+            Some(m) => m,
+            None => std::slice::from_ref(&self.texture),
+        }
     }
 
     /// The block's components: boxes, geometry, materials, light, break time, friction,
@@ -613,7 +623,7 @@ impl Block {
             );
         }
         // The client's friction is the other way round: 0.4 for the server's 0.6.
-        let friction = self.info.friction_value();
+        let friction = self.info.friction();
         if friction != Self::DEFAULT_FRICTION {
             let value = to_f32(1.0 - friction);
             put(
@@ -637,14 +647,6 @@ impl Block {
             );
         }
         components
-    }
-
-    /// The materials it is drawn with.
-    fn material_list(&self) -> &[Material] {
-        match self.materials {
-            Some(m) => m,
-            None => std::slice::from_ref(&self.texture),
-        }
     }
 }
 
@@ -969,11 +971,10 @@ pub trait Behaviour: Send + Sync {
         let _ = (cx, world, pos, state);
     }
 
-    /// The player used (right-clicked) the block at `pos`. True if the block did something:
-    /// then the held item is neither used nor placed. False means
-    /// nothing was done: the engine goes on to use the held item or place it, checking the click
-    /// again first. A client holding the button repeats the click, and the hook runs again at
-    /// least 2 ticks after its last run.
+    /// The player used (right-clicked) the block at `pos`. True if the block did something: then
+    /// the held item is neither used nor placed. False means nothing was done: the engine goes
+    /// on to use the held item or place it, checking the click again first. A client holding the
+    /// button repeats the click, and the hook runs again at least 2 ticks after its last run.
     fn on_use(
         &self,
         cx: &mut Context<'_>,

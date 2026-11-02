@@ -24,18 +24,11 @@ impl Entry {
     /// Air, the value of an empty slot.
     pub(crate) const AIR: Self = Self::Known(block::AIR);
 
-    /// The index in the chunk's unknown list of a state Anchor does not know.
-    pub(crate) fn unknown_index(self) -> Option<u32> {
+    /// The block-local collision boxes, or `None` for a state Anchor does not know.
+    #[inline]
+    pub(crate) fn collision_boxes(self) -> Option<&'static [Aabb]> {
         match self {
-            Self::Known(_) => None,
-            Self::Unknown(i) => Some(i),
-        }
-    }
-
-    /// The block state of an entry Anchor knows.
-    pub(crate) fn state(self) -> Option<State> {
-        match self {
-            Self::Known(state) => Some(state),
+            Self::Known(state) => Some(state.collision_boxes()),
             Self::Unknown(_) => None,
         }
     }
@@ -48,12 +41,19 @@ impl Entry {
         }
     }
 
-    /// The block-local collision boxes, or `None` for a state Anchor does not know.
-    #[inline]
-    pub(crate) fn collision_boxes(self) -> Option<&'static [Aabb]> {
+    /// The block state of an entry Anchor knows.
+    pub(crate) fn state(self) -> Option<State> {
         match self {
-            Self::Known(state) => Some(state.collision_boxes()),
+            Self::Known(state) => Some(state),
             Self::Unknown(_) => None,
+        }
+    }
+
+    /// The index in the chunk's unknown list of a state Anchor does not know.
+    pub(crate) fn unknown_index(self) -> Option<u32> {
+        match self {
+            Self::Known(_) => None,
+            Self::Unknown(i) => Some(i),
         }
     }
 }
@@ -69,8 +69,6 @@ pub(crate) struct SubChunk {
     layers: [Paletted<Entry>; 2],
 }
 
-crate::tick::checkpoint::fields!(SubChunk { layers });
-
 impl SubChunk {
     /// A sub-chunk of air.
     pub(crate) fn new() -> Self {
@@ -82,39 +80,6 @@ impl SubChunk {
     /// A sub-chunk of these layers (layer 0, then layer 1).
     pub(crate) fn from_layers(layers: [Paletted<Entry>; 2]) -> Self {
         Self { layers }
-    }
-
-    /// The layers: 0 holds blocks, 1 water logging.
-    pub(crate) fn layers(&self) -> &[Paletted<Entry>; 2] {
-        &self.layers
-    }
-
-    /// The layer 0 entry of a slot.
-    #[inline]
-    pub(crate) fn get(&self, offset: u16) -> Entry {
-        let [blocks, _] = &self.layers;
-        blocks.get(offset)
-    }
-
-    /// The light values of the layer 0 block of a slot, kept by its palette.
-    #[inline]
-    pub(crate) fn light_values(&self, offset: u16) -> super::light::Values {
-        let [blocks, _] = &self.layers;
-        blocks.derived(offset)
-    }
-
-    /// Whether both layers are all air: such a sub-chunk is not kept.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.layers.iter().all(|l| l.is_uniform(Entry::AIR))
-    }
-
-    /// The most bytes [`Self::encode`] writes: three header bytes and both layers.
-    pub(crate) fn max_encoded_bytes(&self) -> usize {
-        3 + self
-            .layers
-            .iter()
-            .map(Paletted::max_encoded_bytes)
-            .sum::<usize>()
     }
 
     /// Writes the network form (version 9): the layers in runtime form with network IDs, unknown
@@ -132,12 +97,37 @@ impl SubChunk {
         }
     }
 
-    /// Sets the layer 0 entry of a slot, clears its layer 1 entry (the water a stored block held,
-    /// which no rule keeps in step with a new block), and returns the old layer 0 entry.
-    pub(crate) fn set(&mut self, offset: u16, entry: Entry) -> Entry {
-        let [blocks, water] = &mut self.layers;
-        water.set(offset, Entry::AIR);
-        blocks.set(offset, entry)
+    /// The layer 0 entry of a slot.
+    #[inline]
+    pub(crate) fn get(&self, offset: u16) -> Entry {
+        let [blocks, _] = &self.layers;
+        blocks.get(offset)
+    }
+
+    /// Whether both layers are all air: such a sub-chunk is not kept.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.layers.iter().all(|l| l.is_uniform(Entry::AIR))
+    }
+
+    /// The layers: 0 holds blocks, 1 water logging.
+    pub(crate) fn layers(&self) -> &[Paletted<Entry>; 2] {
+        &self.layers
+    }
+
+    /// The light values of the layer 0 block of a slot, kept by its palette.
+    #[inline]
+    pub(crate) fn light_values(&self, offset: u16) -> super::light::Values {
+        let [blocks, _] = &self.layers;
+        blocks.derived(offset)
+    }
+
+    /// The most bytes [`Self::encode`] writes: three header bytes and both layers.
+    pub(crate) fn max_encoded_bytes(&self) -> usize {
+        3 + self
+            .layers
+            .iter()
+            .map(Paletted::max_encoded_bytes)
+            .sum::<usize>()
     }
 
     /// Compacts both layers ([`Paletted::compact`]).
@@ -146,4 +136,14 @@ impl SubChunk {
             layer.compact();
         }
     }
+
+    /// Sets the layer 0 entry of a slot, clears its layer 1 entry (the water a stored block held,
+    /// which no rule keeps in step with a new block), and returns the old layer 0 entry.
+    pub(crate) fn set(&mut self, offset: u16, entry: Entry) -> Entry {
+        let [blocks, water] = &mut self.layers;
+        water.set(offset, Entry::AIR);
+        blocks.set(offset, entry)
+    }
 }
+
+crate::tick::checkpoint::fields!(SubChunk { layers });

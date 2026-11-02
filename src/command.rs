@@ -25,9 +25,9 @@
 //! `CommandOutput` packet; the console's goes to the log. Each player's client autocompletes the
 //! commands that player may use (`AvailableCommands`), sent again when its permissions change.
 //!
-//! The server also has Anchor's own commands (`/give`, `/tp`, `/ban`, ...), with the permissions of [`permission`](crate::permission). A command of the user's with the
-//! same name replaces one, and
-//! [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) drops one.
+//! The server also has Anchor's own commands (`/give`, `/tp`, `/ban`, ...), with the permissions
+//! of [`permission`](crate::permission). A command of the user's with the same name replaces one,
+//! and [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) drops one.
 
 pub(crate) mod parse;
 
@@ -109,13 +109,59 @@ impl Command {
         }
     }
 
-    /// The command with `usage` as the usage `/help` shows and an [`Error::Usage`] carries, such
-    /// as `/heal [player]`. Without it the usage is made from the overloads.
+    /// The command with `usage` as the usage an [`Error::Usage`] carries, such as
+    /// `/heal [player]`. Without it the usage is made from the overloads.
     #[doc(alias = "Command::setUsage")]
     #[must_use]
     pub fn with_usage(mut self, usage: impl Into<String>) -> Self {
         self.usage = Some(usage.into());
         self
+    }
+
+    /// The other names.
+    #[doc(alias = "Command::getAliases")]
+    pub fn aliases(&self) -> &[String] {
+        &self.aliases
+    }
+
+    /// The description.
+    #[doc(alias = "Command::getDescription")]
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// The name.
+    #[doc(alias = "Command::getName")]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The permissions a sender needs one of; empty if everyone may use the command.
+    #[doc(alias = "Command::getPermissions")]
+    pub fn permissions(&self) -> &[Permission] {
+        &self.permissions
+    }
+
+    /// The usage an [`Error::Usage`] carries: the one set, or one made from the overloads, such
+    /// as `/give <player: target> <item: Item> [amount: int]`, one per line.
+    #[doc(alias = "Command::getUsage")]
+    pub fn usage_text(&self) -> String {
+        if let Some(usage) = &self.usage {
+            return usage.clone();
+        }
+        let mut out = String::new();
+        for (i, overload) in self.overloads.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            out.push('/');
+            out.push_str(&self.name);
+            for param in &overload.params {
+                out.push(' ');
+                param.write_usage(&mut out);
+            }
+        }
+        out
     }
 
     /// Adds another name for the command.
@@ -144,9 +190,9 @@ impl Command {
     }
 
     /// Lets only senders with `permission` use the command (and see it in their command list).
-    /// Called again, it adds another: a sender needs any one of them, and
-    /// the handler checks which one an argument needs, such as `/give`'s permissions for giving
-    /// oneself and others. A command names at most 16.
+    /// Called again, it adds another: a sender needs any one of them, and the handler checks
+    /// which one an argument needs, such as `/give`'s permissions for giving oneself and others.
+    /// A command names at most 16.
     #[doc(alias = "Command::setPermission")]
     #[doc(alias = "Command::setPermissions")]
     #[must_use]
@@ -155,52 +201,6 @@ impl Command {
             self.permissions.push(permission);
         }
         self
-    }
-
-    /// The other names.
-    #[doc(alias = "Command::getAliases")]
-    pub fn aliases(&self) -> &[String] {
-        &self.aliases
-    }
-
-    /// The description.
-    #[doc(alias = "Command::getDescription")]
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-
-    /// The name.
-    #[doc(alias = "Command::getName")]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// The permissions a sender needs one of; empty if everyone may use the command.
-    #[doc(alias = "Command::getPermissions")]
-    pub fn permissions(&self) -> &[Permission] {
-        &self.permissions
-    }
-
-    /// The usage `/help` shows and an [`Error::Usage`] carries: the one set, or one made from the
-    /// overloads, such as `/give <player: target> <item: Item> [amount: int]`, one per line.
-    #[doc(alias = "Command::getUsage")]
-    pub fn usage_text(&self) -> String {
-        if let Some(usage) = &self.usage {
-            return usage.clone();
-        }
-        let mut out = String::new();
-        for (i, overload) in self.overloads.iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            out.push('/');
-            out.push_str(&self.name);
-            for param in &overload.params {
-                out.push(' ');
-                param.write_usage(&mut out);
-            }
-        }
-        out
     }
 }
 
@@ -348,7 +348,7 @@ impl Param {
         Self::new(name, Kind::String)
     }
 
-    /// A 32-bit whole number with `suffix` right after it ([`Args::int`]), such as `/xp`'s `10L`
+    /// A 32-bit whole number with `suffix` right after it ([`Args::int`]), such as `10L`
     /// with the suffix `l` (ASCII case does not matter). A suffix other than 1 to 64 ASCII letters
     /// refuses the build ([`Error::InvalidOverload`]).
     pub fn suffixed_int(name: impl Into<String>, suffix: &str) -> Self {
@@ -367,13 +367,6 @@ impl Param {
         Self::new(name, Kind::Target)
     }
 
-    /// The parameter, but one a line may leave out (only at the end).
-    #[must_use]
-    pub fn optional(mut self) -> Self {
-        self.optional = true;
-        self
-    }
-
     /// Whether a line may leave it out.
     pub fn is_optional(&self) -> bool {
         self.optional
@@ -387,6 +380,13 @@ impl Param {
     /// Whether it takes the rest of the line.
     pub(crate) fn takes_rest(&self) -> bool {
         matches!(self.kind, Kind::Message | Kind::RawText)
+    }
+
+    /// The parameter, but one a line may leave out (only at the end).
+    #[must_use]
+    pub fn optional(mut self) -> Self {
+        self.optional = true;
+        self
     }
 
     fn new(name: impl Into<String>, kind: Kind) -> Self {
@@ -640,9 +640,9 @@ impl Output {
         self
     }
 
-    /// The lines' texts (or keys), in order.
-    pub fn lines(&self) -> impl Iterator<Item = &str> {
-        self.lines.iter().map(|l| l.text.as_str())
+    /// The lines, in order.
+    pub fn lines(&self) -> impl Iterator<Item = &Line> {
+        self.lines.iter()
     }
 }
 
@@ -660,9 +660,21 @@ impl From<String> for Output {
 
 /// One line of output or an error message: text or a translation key, and its parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Line {
+pub struct Line {
     pub(crate) text: String,
     pub(crate) params: Vec<String>,
+}
+
+impl Line {
+    /// The text, or the translation key.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The parameters the client fills the translation key with; empty for plain text.
+    pub fn params(&self) -> &[String] {
+        &self.params
+    }
 }
 
 /// Why a command did not run or failed, or why the commands registered on a
@@ -672,6 +684,7 @@ pub(crate) struct Line {
 /// for the case, as the official server sends it, and Anchor's text otherwise; a handler fails with
 /// [`Error::failed`] or [`Error::translated`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// No command has this name or alias.
     Unknown {
@@ -730,6 +743,12 @@ pub enum Error {
     },
     /// Two registered commands share a name or alias.
     Duplicate {
+        /// The name.
+        name: String,
+    },
+    /// [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) named no
+    /// command of Anchor's own (an alias or an unknown name).
+    UnknownCommand {
         /// The name.
         name: String,
     },
@@ -832,6 +851,7 @@ impl Error {
             }
             Self::InvalidName { .. }
             | Self::Duplicate { .. }
+            | Self::UnknownCommand { .. }
             | Self::InvalidOverload { .. }
             | Self::DescriptionTooLong { .. }
             | Self::ConflictingPermission { .. }
@@ -865,6 +885,9 @@ impl fmt::Display for Error {
             }
             Self::InvalidName { name } => write!(f, "invalid command name {name:?}"),
             Self::Duplicate { name } => write!(f, "two commands are named {name:?}"),
+            Self::UnknownCommand { name } => {
+                write!(f, "no command of Anchor's is named {name:?}")
+            }
             Self::InvalidOverload { command, reason } => {
                 write!(f, "invalid overload of command {command:?}: {reason}")
             }

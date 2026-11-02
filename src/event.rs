@@ -18,10 +18,16 @@
 
 /// Writes `cancel`, `uncancel` and `is_cancelled` for each listed event, which has a
 /// `cancelled: bool` field. The three attributes after a name, when given, are the API-table
-/// aliases of the three methods in that order.
+/// aliases of `cancel`, `uncancel` and `is_cancelled`, in that order.
 macro_rules! cancellable {
     ($($event:ident $(#[$cancel:meta] #[$uncancel:meta] #[$is:meta])?;)*) => {$(
         impl $event {
+            /// Whether a listener cancelled the event.
+            $(#[$is])?
+            pub fn is_cancelled(&self) -> bool {
+                self.cancelled
+            }
+
             /// Cancels the event: Anchor does not do what the event announces.
             $(#[$cancel])?
             pub fn cancel(&mut self) {
@@ -32,12 +38,6 @@ macro_rules! cancellable {
             $(#[$uncancel])?
             pub fn uncancel(&mut self) {
                 self.cancelled = false;
-            }
-
-            /// Whether a listener cancelled the event.
-            $(#[$is])?
-            pub fn is_cancelled(&self) -> bool {
-                self.cancelled
             }
         }
     )*};

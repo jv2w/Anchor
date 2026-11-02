@@ -14,12 +14,18 @@
 //! The test runs its own test binary as the server process (`crash_child`) and kills only that
 //! child, through its process handle (SIGKILL on Unix).
 
+// Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
+
+#[path = "support/rng.rs"]
+mod rng;
+#[path = "support/temp_path.rs"]
+mod temp_path;
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -28,6 +34,9 @@ use anchor::block::State;
 use anchor::event::WorldSave;
 use anchor::world::{self, BlockPos, ChunkPos, Options, World};
 use anchor::{Config, Context, Server};
+
+use rng::Rng;
+use temp_path::TempPath;
 
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
@@ -312,7 +321,7 @@ fn roll_backs(server: &mut Running) -> Vec<String> {
 
 /// Kills a child started `idle` after `lines` lines of its console log, or once it logs that it
 /// started: during its start's roll back of the files a kill left, or soon after.
-fn kill_during_start(server: &mut Running, lines: u64) {
+fn kill_during_start(server: &mut Running, lines: usize) {
     for _ in 0..lines {
         let line = server
             .log
@@ -359,32 +368,11 @@ fn report(server: &mut Running) -> (u64, Vec<(i32, i32)>, String) {
     (start, golds, extra)
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test prepares its data folder"
-)]
-fn fresh(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap_or(());
-    std::fs::create_dir_all(dir).unwrap();
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test removes its data folder"
-)]
-fn remove(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
 /// Records the second world's text of a tick line in `extras`.
 fn record(line: &str, extras: &mut BTreeMap<u64, String>) {
     if let (Some(tick), Some(extra)) = (field(line, "tick"), field(line, "extra")) {
         extras.insert(tick.parse().unwrap(), extra.to_owned());
     }
-}
-
-fn data_dir() -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("crash-{}", std::process::id()))
 }
 
 #[test]
@@ -393,16 +381,9 @@ fn data_dir() -> PathBuf {
     reason = "consistency: the test tells how often a restart rolled a file back"
 )]
 fn forced_kills_never_damage_duplicate_or_lose_the_block() {
-    let data = data_dir();
-    fresh(&data);
-    // A fixed-seed generator for the kill moments (xorshift).
-    let mut seed = 0x5eed_c0de_u64;
-    let mut next = || {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        seed
-    };
+    let folder = TempPath::new("crash");
+    let data = folder.0.as_path();
+    let mut rng = Rng(0x5eed_c0de);
     let mut placed = false;
     let mut checked = 0;
     // Runs whose kill came after at least one commit: the start tick moved on.
@@ -414,7 +395,7 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     let mut extras: BTreeMap<u64, String> = BTreeMap::new();
     for kill in 0..=KILLS {
         let mode = if kill == KILLS { "check" } else { "run" };
-        let mut server = start(&data, mode);
+        let mut server = start(data, mode);
         let (start_tick, golds, extra) = report(&mut server);
         let roll_backs = roll_backs(&mut server);
         // The second world as the main file's last save had it: as the task of its tick left it.
@@ -464,7 +445,7 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
         if mode == "run" {
             // The kill lands a random number of ticks after the run's first commit, counted by
             // the child's reports, however slow the machine is.
-            let after = next() % 30;
+            let after = rng.below(30);
             let mut since_commit = None;
             while since_commit.is_none_or(|ticks| ticks < after) {
                 let line = server
@@ -487,12 +468,11 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
             record(&line, &mut extras);
         }
         if mode == "run" && kill % 2 == 1 {
-            let mut interrupted = start(&data, "idle");
-            kill_during_start(&mut interrupted, next() % 8);
+            let mut interrupted = start(data, "idle");
+            kill_during_start(&mut interrupted, rng.below(8));
         }
     }
     assert_eq!(checked, KILLS + 1);
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
     println!("restarts that rolled the world file back: {rolled_back} of {KILLS}");
-    remove(&data);
 }

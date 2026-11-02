@@ -5,7 +5,7 @@
 //! screen message shows the client's own text.
 
 use std::fmt;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use super::set_clamped;
@@ -103,8 +103,8 @@ cancellable! {
 }
 
 /// Raised when a player sends a chat message. Cancelling sends it to nobody, and so does a
-/// speaker who is not online when the listeners are done or a line longer than [`player::MAX_TEXT`] bytes;
-/// monitors hear none of these.
+/// speaker who is not online when the listeners are done or a line longer than
+/// [`player::MAX_TEXT`] bytes; monitors hear none of these.
 #[doc(alias = "PlayerChatEvent")]
 #[derive(Debug)]
 pub struct PlayerChat {
@@ -126,12 +126,24 @@ getters!(PlayerChat {
     recipients: &[player::Id],
 });
 
+impl PlayerChat {
+    /// How the line looks: `None` for the standard line, sent as the official server sends it (a
+    /// chat text with the speaker's name as its source and the raw message, which the client shows
+    /// as `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
+    /// message and `{%%` a literal `{%`. Starts as `None`.
+    #[doc(alias = "PlayerChatEvent::getFormatter")]
+    pub fn format(&self) -> Option<&str> {
+        self.format.as_deref()
+    }
+}
+
 setters!(PlayerChat {
     /// Makes another player the speaker; if that player is not online when the listeners are
     /// done (joined and not leaving), the line goes to nobody and no monitor sees it.
     #[doc(alias = "PlayerChatEvent::setPlayer")]
     set_player => player: player::Id,
-    /// Replaces the message; a line over [`player::MAX_TEXT`] bytes goes to nobody and no monitor sees it.
+    /// Replaces the message; a line over [`player::MAX_TEXT`] bytes goes to nobody and no monitor
+    /// sees it.
     #[doc(alias = "PlayerChatEvent::setMessage")]
     set_message => message: String,
     /// Replaces the players who see it; players who left are skipped.
@@ -145,17 +157,6 @@ setters!(PlayerChat {
     #[doc(alias = "PlayerChatEvent::setFormatter")]
     set_format => format: Option<String>,
 });
-
-impl PlayerChat {
-    /// How the line looks: `None` for the standard line, sent as the official server sends it (a
-    /// chat text with the speaker's name as its source and the raw message, which the client shows
-    /// as `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
-    /// message and `{%%` a literal `{%`. Starts as `None`.
-    #[doc(alias = "PlayerChatEvent::getFormatter")]
-    pub fn format(&self) -> Option<&str> {
-        self.format.as_deref()
-    }
-}
 
 cancellable! {
     PlayerChat
@@ -264,8 +265,8 @@ setters!(PlayerDeath {
     /// Replaces the chat message; one longer than [`player::MAX_TEXT`] bytes shows nothing.
     #[doc(alias = "PlayerDeathEvent::setDeathMessage")]
     set_death_message => death_message: String,
-    /// Replaces the death screen message; an empty one, or one longer than [`player::MAX_TEXT`] bytes, shows
-    /// the death's translated message.
+    /// Replaces the death screen message; an empty one, or one longer than [`player::MAX_TEXT`]
+    /// bytes, shows the death's translated message.
     #[doc(alias = "PlayerDeathEvent::setDeathScreenMessage")]
     set_death_screen_message => death_screen_message: String,
     /// Sets whether the player keeps the inventory.
@@ -925,8 +926,9 @@ cancellable! {
 }
 
 /// Raised when a player uses the held item in the air (throwing, drawing a bow, eating, drinking,
-/// putting on armour). Cancelling refuses the use: nothing is thrown, drawn, eaten, drunk or worn,
-/// and no cooldown starts.
+/// putting on armour, sounding a goat horn). A spectator, or an item whose cooldown still runs,
+/// raises nothing. Cancelling refuses the use: nothing is thrown, drawn, eaten, drunk, worn or
+/// sounded, and no cooldown starts. Monitors hear only a use that worked.
 #[doc(alias = "PlayerItemUseEvent")]
 #[derive(Debug)]
 pub struct PlayerItemUse {
@@ -1016,6 +1018,17 @@ getters!(PlayerKick {
     quit_message: &str,
 });
 
+impl PlayerKick {
+    /// The message the player sees: the screen message, or the reason when there is none.
+    #[doc(alias = "PlayerKickEvent::getDisconnectScreenMessage")]
+    #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectScreenMessage")]
+    pub fn disconnect_screen_message(&self) -> &str {
+        self.screen_message
+            .as_deref()
+            .unwrap_or(&self.disconnect_reason)
+    }
+}
+
 setters!(PlayerKick {
     /// Replaces the reason. An empty one, with no screen message, shows the client's own
     /// "disconnected" text.
@@ -1030,17 +1043,6 @@ setters!(PlayerKick {
     #[doc(alias = "PlayerKickEvent::setQuitMessage")]
     set_quit_message => quit_message: String,
 });
-
-impl PlayerKick {
-    /// The message the player sees: the screen message, or the reason when there is none.
-    #[doc(alias = "PlayerKickEvent::getDisconnectScreenMessage")]
-    #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectScreenMessage")]
-    pub fn disconnect_screen_message(&self) -> &str {
-        self.screen_message
-            .as_deref()
-            .unwrap_or(&self.disconnect_reason)
-    }
-}
 
 cancellable! {
     PlayerKick
@@ -1060,7 +1062,8 @@ cancellable! {
 #[derive(Debug)]
 pub struct PlayerLogin {
     pub(crate) info: PlayerInfo,
-    pub(crate) address: SocketAddr,
+    pub(crate) ip: Option<IpAddr>,
+    pub(crate) port: u16,
     pub(crate) kicks: [Option<Kick>; KickFlag::ALL.len()],
 }
 
@@ -1103,10 +1106,11 @@ impl PlayerLogin {
         &self.info
     }
 
-    /// The player's IP address; 0.0.0.0 when the connection has none.
+    /// The IP address the client connected from, as [`Player::ip`](crate::player::Player::ip)
+    /// gives it; `None` only for a player made without a connection (tests).
     #[doc(alias = "PlayerPreLoginEvent::getIp")]
-    pub fn ip(&self) -> IpAddr {
-        self.address.ip()
+    pub fn ip(&self) -> Option<IpAddr> {
+        self.ip
     }
 
     /// Whether no flag is set, so the player joins.
@@ -1130,10 +1134,11 @@ impl PlayerLogin {
             .filter_map(|(flag, kick)| kick.as_ref().map(|_| flag))
     }
 
-    /// The port the player connected from.
+    /// The port the client connected from; 0 only for a player made without a connection
+    /// (tests).
     #[doc(alias = "PlayerPreLoginEvent::getPort")]
     pub fn port(&self) -> u16 {
-        self.address.port()
+        self.port
     }
 
     /// Clears every flag: the player joins.
@@ -1605,7 +1610,8 @@ cancellable! {
 }
 
 /// Raised when a player is about to be sent to another server. Cancelling keeps the player here,
-/// and so does an empty address or one longer than 253 bytes, or a message longer than [`player::MAX_TEXT`] bytes.
+/// and so does an empty address or one longer than 253 bytes, or a message longer than
+/// [`player::MAX_TEXT`] bytes.
 #[doc(alias = "PlayerTransferEvent")]
 #[derive(Debug)]
 pub struct PlayerTransfer {
@@ -1676,9 +1682,12 @@ mod tests {
     use crate::block::DIRT;
     use crate::event::fixtures::{POS, entity, player, sticks};
 
+    /// The world of the events.
     const WORLD: world::Id = world::Id::DEFAULT;
+    /// A position and vector the events carry.
     const AT: Vec3 = Vec3::new(0.5, 65.0, -1.5);
 
+    /// An identity named `name`, without an XUID or an address.
     fn identity(name: &str) -> Identity {
         Identity {
             name: name.to_owned(),
@@ -2222,14 +2231,15 @@ mod tests {
     // api: PlayerPreLoginEvent::KICK_FLAG_BANNED
     #[test]
     fn login_refuses_with_the_first_kick_flag() {
-        let address: SocketAddr = "192.0.2.1:19132".parse().expect("address");
+        let ip: IpAddr = "192.0.2.1".parse().expect("a valid IP address");
         let mut e = PlayerLogin {
             info: PlayerInfo(identity("Steve")),
-            address,
+            ip: Some(ip),
+            port: 19_132,
             kicks: Default::default(),
         };
         assert_eq!(e.info().name(), "Steve");
-        assert_eq!((e.ip(), e.port()), (address.ip(), 19_132));
+        assert_eq!((e.ip(), e.port()), (Some(ip), 19_132));
         assert!(e.is_allowed());
         assert_eq!(e.final_disconnect_reason(), None);
         e.set_kick_flag(

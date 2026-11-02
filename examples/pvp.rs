@@ -25,11 +25,11 @@ use anchor::event::{
     PlayerRespawn, Priority,
 };
 use anchor::inventory::Kind;
-use anchor::item::{Stack, Type};
+use anchor::item::{self, Stack};
 use anchor::math::Vec3;
 use anchor::permission::{Default, Permission};
 use anchor::player::{self, Message, Player};
-use anchor::{Config, Context, Server, nbt};
+use anchor::{Config, Context, Server};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -44,20 +44,20 @@ const KILL_CREDIT_TICKS: u64 = 10 * 20;
 /// The kill streak that gets announced.
 const STREAK: u32 = 3;
 
-/// What `/kit` refills: item name and count.
-const REFILL: [(&str, u8); 3] = [
-    ("minecraft:arrow", 16),
-    ("minecraft:golden_apple", 2),
-    ("minecraft:cooked_beef", 8),
+/// What `/kit` refills: item and count.
+const REFILL: [(item::Kind, u8); 3] = [
+    (item::Kind::Arrow, 16),
+    (item::Kind::GoldenApple, 2),
+    (item::Kind::Steak, 8),
 ];
 /// What every life starts with besides the refill.
-const WEAPONS: [&str; 2] = ["minecraft:iron_sword", "minecraft:bow"];
+const WEAPONS: [item::Kind; 2] = [item::Kind::IronSword, item::Kind::Bow];
 /// The armour, helmet to boots (the order of the armour slots).
-const ARMOR: [&str; 4] = [
-    "minecraft:iron_helmet",
-    "minecraft:iron_chestplate",
-    "minecraft:iron_leggings",
-    "minecraft:iron_boots",
+const ARMOR: [item::Kind; 4] = [
+    item::Kind::IronHelmet,
+    item::Kind::IronChestplate,
+    item::Kind::IronLeggings,
+    item::Kind::IronBoots,
 ];
 
 /// A player's record, saved with the player.
@@ -123,17 +123,16 @@ fn kit_command() -> Command {
         })
 }
 
-/// A stack of the item `name`, empty if Anchor has no such item.
-fn item(name: &str, count: u8) -> Stack {
-    Type::from_name(name, 0, None, &nbt::Compound::new())
-        .map_or(Stack::EMPTY, |item| Stack::new(item, count))
+/// A stack of `count` items of `kind`.
+fn stack(kind: item::Kind, count: u8) -> Stack {
+    Stack::new(kind.default_type(), count)
 }
 
 /// Puts the refill items into the main inventory; what does not fit is not given.
 fn refill(player: &mut Player) {
     let mut main = player.inventory_mut(Kind::Main);
-    for (name, count) in REFILL {
-        let _left = main.add(&item(name, count));
+    for (kind, count) in REFILL {
+        let _left = main.add(&stack(kind, count));
     }
 }
 
@@ -141,13 +140,13 @@ fn refill(player: &mut Player) {
 fn reset_kit(player: &mut Player) {
     let mut main = player.inventory_mut(Kind::Main);
     main.clear_all();
-    for name in WEAPONS {
-        let _left = main.add(&item(name, 1));
+    for kind in WEAPONS {
+        let _left = main.add(&stack(kind, 1));
     }
     let mut armor = player.inventory_mut(Kind::Armor);
-    for (slot, name) in ARMOR.into_iter().enumerate() {
+    for (slot, kind) in ARMOR.into_iter().enumerate() {
         // The four armour slots exist and take one item each.
-        let _set = armor.set(slot, item(name, 1));
+        let _set = armor.set(slot, stack(kind, 1));
     }
     refill(player);
 }

@@ -1,9 +1,9 @@
-//! The custom content of one server: what the builder registered, checked
-//! and numbered when the server is built, and every lookup the engine needs of it.
+//! The custom content of one server: what the builder registered, checked and numbered when the
+//! server is built, and every lookup the engine needs of it.
 //!
 //! Numbers follow registration order, so they are the same on every start: custom items and
 //! custom blocks' items take the runtime IDs after the last vanilla one, custom blocks the block
-//! IDs from 10,000. Every custom state gets its network hash; one equal to another
+//! IDs from [`FIRST_BLOCK_ID`]. Every custom state gets its network hash; one equal to another
 //! state's refuses the build (rename the block).
 
 use std::collections::BTreeMap;
@@ -16,12 +16,15 @@ use crate::nbt::{Compound, Value};
 use crate::protocol::consts::{CreativeCategory, ItemEntryVersion};
 use crate::protocol::{BlockEntry, ItemEntry, packet};
 
-/// The first block ID of custom blocks (10,000 plus the block's index).
+/// The first block ID of custom blocks, plus the block's index.
 const FIRST_BLOCK_ID: i32 = 10_000;
+
 /// The most states of all custom blocks together.
 const MAX_ALL_STATES: usize = 65_536;
+
 /// The most custom items and blocks together.
 pub(crate) const MAX_ENTRIES: usize = 4096;
+
 /// The longest identifier, in bytes.
 const MAX_IDENTIFIER: usize = 128;
 
@@ -46,38 +49,44 @@ pub(crate) struct Registry {
 }
 
 impl Registry {
-    /// The item type an [`ItemRef`] names, `None` for a vanilla block kind with no item of its
-    /// own ([`block::ItemForm`] other than `Item`) or a custom item or block that is not
-    /// registered (or before [`Self::finish`]).
-    pub(crate) fn resolve(&self, item: ItemRef) -> Option<Type> {
-        match item {
-            ItemRef::Item(t) => Some(t),
-            ItemRef::Block(kind) => match kind.default_state().item() {
-                block::ItemForm::Item(t) => Some(t),
-                block::ItemForm::None | block::ItemForm::BlockEntity => None,
-            },
-            ItemRef::Custom(i) => self.by_identifier(i.identifier()),
-            ItemRef::CustomBlock(b) => self.by_identifier(b.identifier()),
-        }
-    }
-
-    /// The custom item type (or custom block item) of `identifier`.
-    pub(crate) fn by_identifier(&self, identifier: &str) -> Option<Type> {
-        let at = *self.by_name.get(identifier)?;
-        self.types.get(at).copied()
-    }
-
-    /// The registered custom item `item` as an item type.
-    pub(crate) fn item_type(&self, item: &Item) -> Option<Type> {
-        self.by_identifier(item.identifier())
-            .filter(|t| t.custom_item().is_some())
-    }
-
     /// The default state of the registered custom block `block`.
     pub(crate) fn block_state(&self, block: &Block) -> Option<block::State> {
         self.by_identifier(block.identifier())
             .filter(|t| t.custom_block().is_some())?
             .block()
+    }
+
+    /// The `CreativeContent` packet of the default creative inventory.
+    #[cfg(test)]
+    pub(crate) fn creative_content(&self) -> packet::CreativeContent {
+        self.creatives()
+            .first()
+            .map(|c| c.content().clone())
+            .unwrap_or_default()
+    }
+
+    /// The index in [`Self::creatives`] of the alternative creative inventory `name`, or of the
+    /// default one for `None`; `None` for a name that is not registered.
+    pub(crate) fn creative_index(&self, name: Option<&str>) -> Option<u16> {
+        match name {
+            Some(name) => self.creative_names.get(name).copied(),
+            None => Some(0),
+        }
+    }
+
+    /// The name of the creative inventory at `index` ([`Self::creative_index`]); `None` for the
+    /// default one.
+    pub(crate) fn creative_name(&self, index: u16) -> Option<&'static str> {
+        self.creatives().get(usize::from(index))?.name()
+    }
+
+    /// The stack of the creative item with this network ID in creative inventory `inventory`
+    /// ([`Self::creatives`]), one item. O(1).
+    pub(crate) fn creative_stack(&self, inventory: u16, network_id: u32) -> Option<Stack> {
+        self.creatives()
+            .get(usize::from(inventory))?
+            .stack(network_id)
+            .cloned()
     }
 
     /// The custom state a disk palette entry `{name, states, version}` names.
@@ -103,20 +112,31 @@ impl Registry {
         registry
     }
 
-    /// The `StartGame` block definitions of the custom blocks, in registration order.
-    pub(crate) fn to_block_entries(&self) -> Vec<BlockEntry> {
-        let mut out = Vec::new();
-        let mut block_id = FIRST_BLOCK_ID;
-        for entry in &self.entries {
-            if let Entry::Block(b) = entry {
-                out.push(BlockEntry {
-                    name: b.identifier().to_owned(),
-                    properties: b.entry_nbt(block_id),
-                });
-                block_id += 1;
-            }
+    /// The registered custom item `item` as an item type.
+    pub(crate) fn item_type(&self, item: &Item) -> Option<Type> {
+        self.by_identifier(item.identifier())
+            .filter(|t| t.custom_item().is_some())
+    }
+
+    /// The item type an [`ItemRef`] names, `None` for a vanilla block kind with no item of its
+    /// own ([`block::ItemForm`] other than `Item`) or a custom item or block that is not
+    /// registered (or before [`Self::finish`]).
+    pub(crate) fn resolve(&self, item: ItemRef) -> Option<Type> {
+        match item {
+            ItemRef::Item(t) => Some(t),
+            ItemRef::Block(kind) => match kind.default_state().item() {
+                block::ItemForm::Item(t) => Some(t),
+                block::ItemForm::None | block::ItemForm::BlockEntity => None,
+            },
+            ItemRef::Custom(i) => self.by_identifier(i.identifier()),
+            ItemRef::CustomBlock(b) => self.by_identifier(b.identifier()),
         }
-        out
+    }
+
+    /// The custom item type (or custom block item) of `identifier`.
+    pub(crate) fn by_identifier(&self, identifier: &str) -> Option<Type> {
+        let at = *self.by_name.get(identifier)?;
+        self.types.get(at).copied()
     }
 
     /// The creative inventories: the default one (index 0), then the alternatives in
@@ -125,52 +145,9 @@ impl Registry {
         &self.creatives.0
     }
 
-    /// The `CreativeContent` packet of the default creative inventory.
-    #[cfg(test)]
-    pub(crate) fn creative_content(&self) -> packet::CreativeContent {
-        self.creatives()
-            .first()
-            .map(|c| c.content().clone())
-            .unwrap_or_default()
-    }
-
-    /// The stack of the creative item with this network ID in creative inventory `inventory`
-    /// ([`Self::creatives`]), one item. O(1).
-    pub(crate) fn creative_stack(&self, inventory: u16, network_id: u32) -> Option<Stack> {
-        self.creatives()
-            .get(usize::from(inventory))?
-            .stack(network_id)
-            .cloned()
-    }
-
-    /// The index in [`Self::creatives`] of the alternative creative inventory `name`, or of the
-    /// default one for `None`; `None` for a name that is not registered.
-    pub(crate) fn creative_index(&self, name: Option<&str>) -> Option<u16> {
-        match name {
-            Some(name) => self.creative_names.get(name).copied(),
-            None => Some(0),
-        }
-    }
-
-    /// The name of the creative inventory at `index` ([`Self::creative_index`]); `None` for the
-    /// default one.
-    pub(crate) fn creative_name(&self, index: u16) -> Option<&'static str> {
-        self.creatives().get(usize::from(index))?.name()
-    }
-
-    /// Registers a custom item (checked by [`Self::finish`]).
-    pub(crate) fn add_item(&mut self, item: &'static Item) {
-        self.entries.push(Entry::Item(item));
-    }
-
     /// Registers a custom block.
     pub(crate) fn add_block(&mut self, block: &'static Block) {
         self.entries.push(Entry::Block(block));
-    }
-
-    /// Sets the default creative inventory.
-    pub(crate) fn set_creative_inventory(&mut self, inventory: CreativeInventory) {
-        self.creative_inventory = inventory;
     }
 
     /// Registers an alternative creative inventory.
@@ -180,6 +157,11 @@ impl Registry {
         inventory: CreativeInventory,
     ) {
         self.alternatives.push((name, inventory));
+    }
+
+    /// Registers a custom item (checked by [`Self::finish`]).
+    pub(crate) fn add_item(&mut self, item: &'static Item) {
+        self.entries.push(Entry::Item(item));
     }
 
     /// Checks every registration and numbers the content (when the server is built). On failure
@@ -264,32 +246,25 @@ impl Registry {
         Ok(())
     }
 
-    /// Resolves the default creative inventory (with the custom `places`) and the alternatives
-    /// (each name once) against the numbered custom items.
-    fn resolve_creatives(
-        &mut self,
-        default: &CreativeInventory,
-        alternatives: &[(&'static str, CreativeInventory)],
-        places: &[(Type, Creative)],
-    ) -> Result<()> {
-        if alternatives.len() > creative::MAX_ALTERNATIVES {
-            return Err(Error::TooMany {
-                what: "alternative creative inventories",
-                limit: creative::MAX_ALTERNATIVES,
-            });
-        }
-        let mut resolved = Vec::with_capacity(alternatives.len() + 1);
-        resolved.push(default.resolve(self, places)?);
-        let mut names = BTreeMap::new();
-        for (index, (name, inventory)) in (1_u16..).zip(alternatives) {
-            if names.insert(creative::checked_name(name)?, index).is_some() {
-                return Err(Error::Duplicate { identifier: name });
+    /// Sets the default creative inventory.
+    pub(crate) fn set_creative_inventory(&mut self, inventory: CreativeInventory) {
+        self.creative_inventory = inventory;
+    }
+
+    /// The `StartGame` block definitions of the custom blocks, in registration order.
+    pub(crate) fn to_block_entries(&self) -> Vec<BlockEntry> {
+        let mut out = Vec::new();
+        let mut block_id = FIRST_BLOCK_ID;
+        for entry in &self.entries {
+            if let Entry::Block(b) = entry {
+                out.push(BlockEntry {
+                    name: b.identifier().to_owned(),
+                    properties: b.entry_nbt(block_id),
+                });
+                block_id += 1;
             }
-            resolved.push(inventory.resolve(self, &[])?.with_name(name));
         }
-        self.creatives = Creatives(resolved);
-        self.creative_names = names;
-        Ok(())
+        out
     }
 
     /// Checks that every custom state's network ID is its own: no other custom state's and no
@@ -362,6 +337,34 @@ impl Registry {
                 },
             })
     }
+
+    /// Resolves the default creative inventory (with the custom `places`) and the alternatives
+    /// (each name once) against the numbered custom items.
+    fn resolve_creatives(
+        &mut self,
+        default: &CreativeInventory,
+        alternatives: &[(&'static str, CreativeInventory)],
+        places: &[(Type, Creative)],
+    ) -> Result<()> {
+        if alternatives.len() > creative::MAX_ALTERNATIVES {
+            return Err(Error::TooMany {
+                what: "alternative creative inventories",
+                limit: creative::MAX_ALTERNATIVES,
+            });
+        }
+        let mut resolved = Vec::with_capacity(alternatives.len() + 1);
+        resolved.push(default.resolve(self, places)?);
+        let mut names = BTreeMap::new();
+        for (index, (name, inventory)) in (1_u16..).zip(alternatives) {
+            if names.insert(creative::checked_name(name)?, index).is_some() {
+                return Err(Error::Duplicate { identifier: name });
+            }
+            resolved.push(inventory.resolve(self, &[])?.with_name(name));
+        }
+        self.creatives = Creatives(resolved);
+        self.creative_names = names;
+        Ok(())
+    }
 }
 
 /// One registration.
@@ -372,19 +375,19 @@ enum Entry {
 }
 
 impl Entry {
-    /// The identifier of the item or block.
-    fn identifier(self) -> &'static str {
-        match self {
-            Self::Item(i) => i.identifier(),
-            Self::Block(b) => b.identifier(),
-        }
-    }
-
     /// Where the item or block goes in the default creative inventory.
     fn creative(self) -> Option<Creative> {
         match self {
             Self::Item(i) => i.creative_place(),
             Self::Block(b) => b.creative_place(),
+        }
+    }
+
+    /// The identifier of the item or block.
+    fn identifier(self) -> &'static str {
+        match self {
+            Self::Item(i) => i.identifier(),
+            Self::Block(b) => b.identifier(),
         }
     }
 }

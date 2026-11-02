@@ -1,5 +1,6 @@
-//! Block states: every block state of the reference list that Anchor places, breaks and sends,
-//! with its 1.26.60 network ID and its values: light, type, class and traits, break info,
+//! Block states: every block state of the reference list that Anchor places, breaks and sends.
+//!
+//! A state has its 1.26.60 network ID and its values: light, type, class and traits, break info,
 //! physics, collision boxes, support and item form.
 //!
 //! The states are the Bedrock forms of the dump's block states, upgraded to the client version:
@@ -25,7 +26,7 @@ pub(crate) mod flag {
     pub(crate) const TRANSPARENT: u16 = 1 << 1;
     /// The block can be replaced when placing another.
     pub(super) const REPLACEABLE: u16 = 1 << 2;
-    /// A liquid can flow into the block.
+    /// A liquid's current reaches into the block.
     pub(super) const FLOWABLE: u16 = 1 << 3;
     /// The block has entity collision.
     pub(super) const ENTITY_COLLISION: u16 = 1 << 4;
@@ -47,8 +48,7 @@ use crate::custom;
 use crate::item;
 use crate::math::Aabb;
 
-/// The state item sentinel of [`table::STATE_ITEMS`] for a state whose item the block entity
-/// decides.
+/// The state item sentinel of [`table::STATE_ITEMS`] for a state with a block entity item.
 const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
 
 /// The classes of a custom block that is opaque: no class of its own.
@@ -85,15 +85,17 @@ pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
 pub struct State(Repr);
 
 impl State {
-    /// The state with this table index. Only generated tables call it, with indices of the
-    /// state table.
+    /// The state with this table index.
+    ///
+    /// Only generated tables call it, with indices of the state table.
     pub(crate) const fn from_index(index: u16) -> Self {
         Self(Repr::Vanilla(index))
     }
 
-    /// The state `index` of the registered custom block `block`, whose item has the runtime ID
-    /// `item_runtime_id`; `None` if the block has no such state. Only the custom registry and
-    /// the custom states themselves call it, so every custom state is one of a registered block.
+    /// The state `index` of the registered custom block `block`, or `None` without such a state.
+    ///
+    /// `item_runtime_id` is the runtime ID of the block's item. Only the custom registry and the
+    /// custom states themselves call it, so every custom state is one of a registered block.
     pub(crate) fn custom(
         block: &'static custom::Block,
         index: u16,
@@ -115,8 +117,9 @@ impl State {
         })))
     }
 
-    /// Every state of the table, in table order (by name, then properties). Custom states are
-    /// not in it.
+    /// Every state of the table, in table order.
+    ///
+    /// The order is by name, then properties. Custom states are not in it.
     ///
     /// It lets a caller see the whole table without knowing its names, such as to list every
     /// block or to check the table against a reference list.
@@ -165,11 +168,13 @@ impl State {
         u16::try_from(at).ok().map(Self::from_index)
     }
 
-    /// The state a vanilla block state from outside the server becomes: the state of the table
-    /// with this name and exactly these properties ([`State::find`]), else the state the dump
-    /// reads it as. The dump ignores some vanilla properties and has one value for them, so a
-    /// pumpkin facing east is the pumpkin facing south. `None` for a state the reference list
-    /// does not have (the caller keeps it as an unknown block). It never allocates.
+    /// The state a vanilla block state from outside the server becomes.
+    ///
+    /// It is the state of the table with this name and exactly these properties
+    /// ([`State::find`]), else the state the dump reads it as. The dump ignores some vanilla
+    /// properties and has one value for them, so a pumpkin facing east is the pumpkin facing
+    /// south. `None` for a state the reference list does not have (the caller keeps it as an
+    /// unknown block). It never allocates.
     pub(crate) fn read(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
         Self::find(name, properties).or_else(|| {
             let at = search(
@@ -182,9 +187,10 @@ impl State {
         })
     }
 
-    /// The state with the same name and properties except `name`, which has `value`; `None` if
-    /// the state has no property `name` or no state has that value (a crop's `growth` past its
-    /// last stage). It never allocates.
+    /// The state with the property `name` set to `value` and the other properties kept.
+    ///
+    /// `None` if the state has no property `name` or no state has that value (a crop's `growth`
+    /// past its last stage). It never allocates.
     pub fn with(self, name: &str, value: PropertyValue<'_>) -> Option<Self> {
         let data = match self.0 {
             Repr::Vanilla(i) => Self::data(i),
@@ -265,8 +271,9 @@ impl State {
         }
     }
 
-    /// The block type, such as [`Kind::OakPlanks`]. A custom block and a state the dump has no
-    /// type for read as [`Kind::InfoUpdate`].
+    /// The block type, such as [`Kind::OakPlanks`].
+    ///
+    /// A custom block and a state the dump has no type for read as [`Kind::InfoUpdate`].
     #[doc(alias = "Block::getTypeId")]
     #[inline]
     pub fn kind(self) -> Kind {
@@ -284,8 +291,9 @@ impl State {
         }
     }
 
-    /// The class of the block, such as [`Class::Wheat`]; [`Class::Transparent`] or
-    /// [`Class::Opaque`] for a custom block.
+    /// The class of the block, such as [`Class::Wheat`].
+    ///
+    /// A custom block's is [`Class::Transparent`] or [`Class::Opaque`].
     #[expect(
         clippy::indexing_slicing,
         reason = "invariant: a class chain holds at least the block's own class"
@@ -352,12 +360,13 @@ impl State {
         self.info().breaking()
     }
 
-    /// The seconds the block takes to break with `tool` (the empty stack is a hand):
-    /// [`BreakInfo::break_time_secs`], except for the blocks with a rule of their own: shears
-    /// break leaves and swords break bamboo at once, and shears take three times as long on wool.
-    /// `None` for a block that cannot be broken and if the tool's efficiency is not positive. It
-    /// is the time before the breaker's conditions (on the ground, in water, Haste, Mining
-    /// Fatigue).
+    /// The seconds the block takes to break with `tool` (the empty stack is a hand).
+    ///
+    /// It is [`BreakInfo::break_time_secs`], except for the blocks with a rule of their own:
+    /// shears break leaves and swords break bamboo at once, and shears take three times as long
+    /// on wool. `None` for a block that cannot be broken and if the tool's efficiency is not
+    /// positive. It is the time before the breaker's conditions (on the ground, in water, Haste,
+    /// Mining Fatigue).
     pub fn break_time_secs(self, tool: &item::Stack) -> Option<f64> {
         let tool_type = tool
             .item()
@@ -396,8 +405,9 @@ impl State {
         self.has_flag(flag::REPLACEABLE)
     }
 
-    /// Whether liquid can flow into the block, which decides where a liquid's current pushes an
-    /// entity.
+    /// Whether a liquid's current reaches into the block.
+    ///
+    /// It decides where a liquid's current pushes an entity.
     #[doc(alias = "Block::canBeFlowedInto")]
     #[inline]
     pub fn can_be_flowed_into(self) -> bool {
@@ -415,7 +425,7 @@ impl State {
     #[doc(alias = "Block::getFrictionFactor")]
     #[inline]
     pub fn friction_factor(self) -> f64 {
-        self.info().friction_value()
+        self.info().friction()
     }
 
     /// Whether the block's type has the tag.
@@ -437,9 +447,10 @@ impl State {
         }
     }
 
-    /// The collision boxes relative to the block's lowest corner. A fence's, pane's or stair's
-    /// are those of the connections or shape its state names; a chorus plant's do not show its
-    /// connections.
+    /// The collision boxes relative to the block's lowest corner.
+    ///
+    /// A fence's, pane's or stair's are those of the connections or shape its state names; a
+    /// chorus plant's do not show its connections.
     #[doc(alias = "Block::getCollisionBoxes")]
     #[expect(
         clippy::indexing_slicing,
@@ -478,10 +489,13 @@ impl State {
     /// The state's part in neighbour connections.
     pub(crate) fn connection(self) -> Connection {
         let word = self.connect();
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the group is four bits of the connection word"
+        )]
+        let group = u8::try_from((word >> 12) & 0xf).expect("a four-bit group fits `u8`");
         match word & 0xf {
-            1 => Connection::Fence {
-                group: u8::try_from((word >> 12) & 0xf).unwrap_or_default(),
-            },
+            1 => Connection::Fence { group },
             2 => Connection::Thin,
             3 => Connection::Wall,
             4 => Connection::FenceGate,
@@ -492,8 +506,9 @@ impl State {
         }
     }
 
-    /// Whether the face toward `face` gives full support: fences, panes and walls connect to such
-    /// a face.
+    /// Whether the face toward `face` gives full support.
+    ///
+    /// Fences, panes and walls connect to such a face.
     pub(crate) fn has_full_face(self, face: Facing) -> bool {
         self.connect() & (u32::from(face.bit()) << 4) != 0
     }
@@ -509,16 +524,18 @@ impl State {
         self.connect() & (1 << 11) != 0
     }
 
-    /// Everything the neighbour rules read of a state as a neighbour: its kind and fence group,
-    /// full faces, facing, upside down and whether it is air. Two states with the same view
-    /// leave their neighbours' states the same.
+    /// Everything the neighbour rules read of a state as a neighbour.
+    ///
+    /// It is the state's kind and fence group, full faces, facing, upside down and whether it is
+    /// air. Two states with the same view leave their neighbours' states the same.
     pub(crate) fn neighbour_view(self) -> u32 {
         (self.connect() & 0xffff) | (u32::from(self == AIR) << 16)
     }
 
-    /// The variant `index` of this state (see [`State::connect`] for the order): the state with
-    /// the same properties except those the neighbours decide. `None` if the state has no
-    /// variants or `index` is past them.
+    /// The variant `index` of this state (see [`State::connect`] for the order).
+    ///
+    /// It is the state with the same properties except those the neighbours decide. `None` if
+    /// the state has no variants or `index` is past them.
     pub(crate) fn variant(self, index: usize) -> Option<Self> {
         let word = self.connect();
         let offset = word >> 16;
@@ -585,21 +602,23 @@ impl State {
     fn classes(self) -> &'static [Class] {
         match self.0 {
             Repr::Vanilla(_) => self.kind().classes(),
-            Repr::Custom(c) if c.block.info().has(flag::TRANSPARENT) => &CUSTOM_TRANSPARENT,
+            Repr::Custom(c) if c.block.info().has_flag(flag::TRANSPARENT) => &CUSTOM_TRANSPARENT,
             Repr::Custom(_) => &CUSTOM_OPAQUE,
         }
     }
 
     #[inline]
     fn has_flag(self, bit: u16) -> bool {
-        self.info().has(bit)
+        self.info().has_flag(bit)
     }
 
-    /// The state's connection word in [`table::CONNECT`]: bits 0-3 the [`Connection`] kind (0
-    /// none, then fence, thin, wall, fence gate, stair, tripwire, tripwire hook), bits 4-7 the
-    /// horizontal faces with full support ([`Facing::bit`]), bits 8-10 the facing (0 none, then
-    /// 1 + the index in [`Facing::ALL`]), bit 11 upside down (stairs), bits 12-15 the fence group
-    /// and bits 16-31 the offset of the state's variants in [`table::VARIANTS`] (`0xffff`: none).
+    /// The state's connection word in [`table::CONNECT`].
+    ///
+    /// Bits 0-3 are the [`Connection`] kind (0 none, then fence, thin, wall, fence gate, stair,
+    /// tripwire, tripwire hook), bits 4-7 the horizontal faces with full support
+    /// ([`Facing::bit`]), bits 8-10 the facing (0 none, then 1 + the index in [`Facing::ALL`]),
+    /// bit 11 upside down (stairs), bits 12-15 the fence group and bits 16-31 the offset of the
+    /// state's variants in [`table::VARIANTS`] (`0xffff`: none).
     ///
     /// Variants are the states that differ only in what the neighbours decide, indexed so:
     /// fences, panes, bars and tripwire by their connection set (bit [`Facing::bit`] set when
@@ -657,8 +676,10 @@ impl Hash for State {
     }
 }
 
-/// States of the table come first, in table order; then custom states by block identifier and
-/// state index (never by address, so the order is the same on every run).
+/// States of the table come first, in table order.
+///
+/// Then come custom states by block identifier and state index (never by address, so the order
+/// is the same on every run).
 impl Ord for State {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
@@ -704,10 +725,11 @@ enum Repr {
     Custom(Custom),
 }
 
-/// A state of a custom block: the definition, the state's index among the block's states (the
-/// property values in [`custom::Block`] order), and what the server assigned when it was built
-/// (the block item's runtime ID and the state's network hash), carried so every lookup needs
-/// no registry.
+/// A state of a custom block.
+///
+/// It holds the definition, the state's index among the block's states (the property values in
+/// [`custom::Block`] order), and what the server assigned when it was built (the block item's
+/// runtime ID and the state's network hash), carried so every lookup needs no registry.
 #[derive(Clone, Copy)]
 struct Custom {
     block: &'static custom::Block,
@@ -896,8 +918,9 @@ impl BreakInfo {
         self.harvest_level
     }
 
-    /// Whether `tool` (the empty stack is a hand) is the proper tool, so the block drops what a
-    /// compatible tool gets.
+    /// Whether `tool` (the empty stack is a hand) is the proper tool.
+    ///
+    /// Then the block drops what a compatible tool gets.
     #[doc(alias = "BlockBreakInfo::isToolCompatible")]
     pub fn is_tool_compatible(self, tool: &item::Stack) -> bool {
         let item = tool.item();
@@ -907,14 +930,15 @@ impl BreakInfo {
         )
     }
 
-    /// The seconds the block takes to break with `tool` (the empty stack is a hand): the
-    /// hardness, times 1.5 with a compatible tool or 5 without, divided by the tool's mining
-    /// efficiency. The efficiency is a tool's base efficiency plus level² + 1 for an Efficiency
-    /// enchantment when its tool type fits the block, else 1; a sword's is half again either way.
-    /// `None` for a block that cannot be broken and if the efficiency is not positive. It is the
-    /// time before the breaker's conditions (on the ground, in water, Haste, Mining Fatigue).
-    /// Leaves, bamboo and wool have rules of their own: [`State::break_time_secs`] has the time
-    /// of a given block.
+    /// The seconds the block takes to break with `tool` (the empty stack is a hand).
+    ///
+    /// It is the hardness, times 1.5 with a compatible tool or 5 without, divided by the tool's
+    /// mining efficiency. The efficiency is a tool's base efficiency plus level² + 1 for an
+    /// Efficiency enchantment when its tool type fits the block, else 1; a sword's is half again
+    /// either way. `None` for a block that cannot be broken and if the efficiency is not
+    /// positive. It is the time before the breaker's conditions (on the ground, in water, Haste,
+    /// Mining Fatigue). Leaves, bamboo and wool have rules of their own:
+    /// [`State::break_time_secs`] has the time of a given block.
     #[doc(alias = "BlockBreakInfo::getBreakTime")]
     pub fn break_time_secs(self, tool: &item::Stack) -> Option<f64> {
         if !self.is_breakable() {
@@ -956,8 +980,9 @@ impl BreakInfo {
         (efficiency > 0.0).then(|| self.hardness * multiplier / efficiency)
     }
 
-    /// Whether a tool of these tool types and this harvest level (an empty hand is
-    /// [`ToolType::NONE`] and 0) is the proper tool.
+    /// Whether a tool of these tool types and this harvest level is the proper tool.
+    ///
+    /// An empty hand is [`ToolType::NONE`] and 0.
     fn accepts(self, tool_type: ToolType, harvest_level: u8) -> bool {
         if self.hardness < 0.0 {
             return false;
@@ -996,8 +1021,9 @@ impl SupportType {
     }
 }
 
-/// A face of a block, in the order down (-y), up (+y), north (-z), south (+z), west (-x), east
-/// (+x).
+/// A face of a block.
+///
+/// The order is down (-y), up (+y), north (-z), south (+z), west (-x), east (+x).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Face {
     /// -y.
@@ -1015,8 +1041,9 @@ pub enum Face {
 }
 
 impl Face {
-    /// Every face, in declaration order: with [`BlockPos::step`](crate::world::BlockPos::step), a
-    /// block's six neighbours.
+    /// Every face, in declaration order.
+    ///
+    /// With [`BlockPos::step`](crate::world::BlockPos::step), it gives a block's six neighbours.
     #[doc(alias = "Block::getAllSides")]
     pub const ALL: [Self; 6] = [
         Self::Down,
@@ -1027,8 +1054,10 @@ impl Face {
         Self::East,
     ];
 
-    /// The four sideways faces, in the order north, south, west, east: with
-    /// [`BlockPos::step`](crate::world::BlockPos::step), a block's neighbours on its level.
+    /// The four sideways faces, in the order north, south, west, east.
+    ///
+    /// With [`BlockPos::step`](crate::world::BlockPos::step), they give a block's neighbours on
+    /// its level.
     #[doc(alias = "Block::getHorizontalSides")]
     pub const HORIZONTAL: [Self; 4] = [Self::North, Self::South, Self::West, Self::East];
 
@@ -1064,8 +1093,9 @@ impl Face {
         }
     }
 
-    /// The face's number (down 0, up 1, north 2, south 3, west 4, east 5): what packets,
-    /// particles and block entities carry.
+    /// The face's number (down 0, up 1, north 2, south 3, west 4, east 5).
+    ///
+    /// Packets, particles and block entities carry it.
     pub(crate) const fn index(self) -> u8 {
         match self {
             Self::Down => 0,
@@ -1085,8 +1115,10 @@ pub enum ItemForm {
     None,
     /// This item type.
     Item(item::Type),
-    /// The item depends on the block entity: the colour of a bed, the colour and pattern of a
-    /// banner (see the module documentation).
+    /// The item depends on the block entity.
+    ///
+    /// That is the colour of a bed, the colour and pattern of a banner (see the module
+    /// documentation).
     BlockEntity,
 }
 
@@ -1154,8 +1186,10 @@ impl Facing {
     }
 }
 
-/// How a state takes part in neighbour connections: the kind of block whose rules work its state
-/// out from the neighbours, or which those rules look for.
+/// How a state takes part in neighbour connections.
+///
+/// It is the kind of block whose rules work its state out from the neighbours, or which those
+/// rules look for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Connection {
     None,
@@ -1172,8 +1206,9 @@ pub(crate) enum Connection {
     TripwireHook,
 }
 
-/// A row of the physics table: the values of a state other than its kind and light. A custom
-/// block holds one of its own ([`Info::custom`]).
+/// A row of the physics table: the values of a state other than its kind and light.
+///
+/// A custom block holds one of its own ([`Info::custom`]).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Info {
     breaking: BreakInfo,
@@ -1182,8 +1217,9 @@ pub(crate) struct Info {
     friction: f64,
     /// [`TypeTag`] bits.
     tags: u16,
-    /// A [`SupportType`] code (full 0, center 1, edge 2, none 3) per face, two bits each, in
-    /// [`Face::ALL`] order from the low bits.
+    /// A [`SupportType`] code (full 0, center 1, edge 2, none 3) per face.
+    ///
+    /// Two bits each, in [`Face::ALL`] order from the low bits.
     support: u16,
     /// The first of the state's boxes in [`table::BOXES`].
     box_start: u16,
@@ -1211,8 +1247,10 @@ impl Info {
         }
     }
 
-    /// The row of a custom block: no type tags and no table boxes (a custom block keeps its
-    /// own, [`State::collision_boxes`]); `support` in the [`Info::support`] coding.
+    /// The row of a custom block, with `support` in the [`Info::support`] coding.
+    ///
+    /// It has no type tags and no table boxes (a custom block keeps its own,
+    /// [`State::collision_boxes`]).
     pub(crate) const fn custom(
         breaking: BreakInfo,
         flags: u16,
@@ -1256,12 +1294,12 @@ impl Info {
     }
 
     /// Whether the flag `bit` is set.
-    pub(crate) const fn has(&self, bit: u16) -> bool {
+    pub(crate) const fn has_flag(&self, bit: u16) -> bool {
         self.flags & bit != 0
     }
 
     /// The friction factor.
-    pub(crate) const fn friction_value(&self) -> f64 {
+    pub(crate) const fn friction(&self) -> f64 {
         self.friction
     }
 }
@@ -1324,8 +1362,9 @@ impl Data {
     }
 }
 
-/// One row of the alias table: a reference state that is not a state of the table, and the
-/// state the dump reads it as.
+/// One row of the alias table.
+///
+/// It is a reference state that is not a state of the table, and the state the dump reads it as.
 #[derive(Debug)]
 struct Alias {
     /// Index into [`table::NAMES`].
@@ -1363,8 +1402,10 @@ impl Kind {
         table::KIND_NAMES[self as usize]
     }
 
-    /// The default state of the kind. A kind whose states share Bedrock states with another
-    /// kind's (an ominous banner, a potion cauldron) gives a state of that other kind.
+    /// The default state of the kind.
+    ///
+    /// A kind whose states share Bedrock states with another kind's (an ominous banner, a potion
+    /// cauldron) gives a state of that other kind.
     #[doc(alias = "VanillaBlocks")]
     pub fn default_state(self) -> State {
         self.data().default
@@ -1467,15 +1508,17 @@ impl BannerPattern {
     }
 }
 
-/// Whether `id` is the network ID of a vanilla state the client knows: of a state of the table
-/// or an alias (together the reference list's states).
+/// Whether `id` is the network ID of a vanilla state the client knows.
+///
+/// That is a state of the table or an alias (together the reference list's states).
 pub(crate) fn is_vanilla_network_id(id: u32) -> bool {
     State::from_network_id(id).is_some() || table::ALIAS_NETWORK_IDS.binary_search(&id).is_ok()
 }
 
-/// The index of the row of `rows` with this name and exactly these properties, given in any
-/// order, or `None`. `rows` are sorted by name and then properties, and `key` gives a row's name
-/// index, first property and property count. It never allocates.
+/// The index of the row of `rows` with this name and exactly these properties, or `None`.
+///
+/// The properties come in any order. `rows` are sorted by name and then properties, and `key`
+/// gives a row's name index, first property and property count. It never allocates.
 fn search<T>(
     rows: &[T],
     key: impl Fn(&T) -> (u16, u32, u8),
@@ -1506,12 +1549,17 @@ fn search<T>(
 /// The `count` rows of [`table::STATE_PROPERTIES`] from `first`: those of a state or an alias.
 #[inline]
 fn property_rows(first: u32, count: u8) -> std::slice::Iter<'static, u16> {
-    let start = usize::try_from(first).unwrap_or(usize::MAX);
-    let end = start.saturating_add(usize::from(count));
-    table::STATE_PROPERTIES
-        .get(start..end)
-        .unwrap_or_default()
-        .iter()
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the generated offsets fit `usize`"
+    )]
+    let start = usize::try_from(first).expect("a state property offset fits `usize`");
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated rows lie inside the state property table"
+    )]
+    let rows = &table::STATE_PROPERTIES[start..start + usize::from(count)];
+    rows.iter()
 }
 
 /// The properties of the `count` rows from `first` ([`property_rows`]), sorted by name.
@@ -1562,8 +1610,9 @@ mod tests {
             .collect()
     }
 
-    /// Every variant list holds the states that differ from the state only in the properties
-    /// the neighbours decide, at the index the variant order gives.
+    /// Every variant list holds the states that differ only in the neighbours' properties.
+    ///
+    /// Each is at the index the variant order gives.
     #[test]
     fn variants_follow_the_documented_order() {
         let mut counts = [0_usize; 8];
@@ -1640,9 +1689,10 @@ mod tests {
         assert_eq!(Face::from_index(-1), None);
     }
 
-    /// The table's facings and full faces agree with the client states the official server shows
-    /// (P6 `blocks.txt`): `weirdo_direction` 0 is east, a tripwire hook's `direction` 3 is east,
-    /// a stair's back is full when it is straight or an inner corner.
+    /// The table's facings and full faces agree with the client states the official server shows.
+    ///
+    /// P6 `blocks.txt`: `weirdo_direction` 0 is east, a tripwire hook's `direction` 3 is east, a
+    /// stair's back is full when it is straight or an inner corner.
     #[test]
     fn facings_and_faces_match_the_client_states() {
         let stairs = |dir: i32, corner: &'static str| {
@@ -1698,8 +1748,10 @@ mod tests {
     }
 
     // api: BlockBreakInfo::getBreakTime
-    /// Swords break every block half again as fast, Efficiency counts only with the right tool
-    /// type, and leaves, bamboo and wool have their own rules.
+    /// Swords break every block half again as fast.
+    ///
+    /// Efficiency counts only with the right tool type, and leaves, bamboo and wool have their
+    /// own rules.
     #[test]
     fn break_times_follow_the_tool_rules() {
         use item::Kind as I;
@@ -2018,9 +2070,11 @@ mod tests {
         (json["name"].as_str().unwrap(), properties)
     }
 
-    /// Every state of the 1.26.60 reference list hashes to its network ID and is a state of the
-    /// table with that ID or an alias, every state of the table is a reference state and hashes
-    /// to the ID it holds, and a table state written to disk and read back is the same state.
+    /// Every state of the 1.26.60 reference list hashes to its network ID.
+    ///
+    /// It is a state of the table with that ID or an alias, every state of the table is a
+    /// reference state and hashes to the ID it holds, and a table state written to disk and read
+    /// back is the same state.
     #[test]
     fn every_reference_state_is_a_table_state_or_an_alias_with_its_network_id() {
         let reference = reference();
@@ -2055,10 +2109,12 @@ mod tests {
         assert_eq!(network_hash("minecraft:unknown", []), 0xffff_fffe);
     }
 
-    /// Every reference state reads as the dump reads it (the dump's `deserialized.json`, which
-    /// lists the states the dump does not read as themselves): a state read as itself is that
-    /// state of the table, one read as another state is that state's, and one the dump rejects
-    /// is the table's own state (fence connections, stair corners, a state without a dump type).
+    /// Every reference state reads as the dump reads it.
+    ///
+    /// The dump's `deserialized.json` lists the states the dump does not read as themselves: a
+    /// state read as itself is that state of the table, one read as another state is that
+    /// state's, and one the dump rejects is the table's own state (fence connections, stair
+    /// corners, a state without a dump type).
     #[test]
     fn every_reference_state_reads_as_the_state_the_dump_reads_it_as() {
         let reference = reference();
@@ -2090,9 +2146,10 @@ mod tests {
         assert_eq!((same, other, rejected), (8963, 4884, 10_113));
     }
 
-    /// Every alias reads as its state with its properties in any order; changed inputs (another
-    /// name, one value changed, one property left out or added) never panic, and a changed value
-    /// or an added property gives `None`.
+    /// Every alias reads as its state with its properties in any order.
+    ///
+    /// Changed inputs (another name, one value changed, one property left out or added) never
+    /// panic, and a changed value or an added property gives `None`.
     #[test]
     fn aliases_read_in_any_order_and_changed_inputs_never_panic() {
         let pumpkin = |facing| {
@@ -2149,8 +2206,9 @@ mod tests {
         }
     }
 
-    /// A reference state the dump has no type for is a state of the table that reads as
-    /// `InfoUpdate`, has no item and is never replaced, and has the reference list's collision
+    /// A reference state the dump has no type for reads as `InfoUpdate` and has no item.
+    ///
+    /// It is a state of the table that is never replaced, and has the reference list's collision
     /// boxes, light and hardness; any tool breaks it as the right one.
     #[test]
     fn a_state_without_a_dump_type_has_the_reference_physics() {
@@ -2215,8 +2273,9 @@ mod tests {
         }
     }
 
-    /// A state outside the reference list is not read: a value out of range or of another type,
-    /// and a name that is no reference block.
+    /// A state outside the reference list is not read.
+    ///
+    /// That is a value out of range or of another type, and a name that is no reference block.
     #[test]
     fn states_outside_the_reference_list_are_not_read() {
         let kelp = |age| State::read("minecraft:kelp", &[("kelp_age", age)]);

@@ -20,8 +20,7 @@
 //!   other tripwire and hook is not.
 //!
 //! A neighbour in a chunk that is not loaded, or in a state Anchor does not know, reads as air and
-//! is not changed. Which blocks are
-//! worked out again: the set block, its four horizontal neighbours and the block below (a wall's
+//! is not changed. Which blocks are worked out again: the set block, its four horizontal neighbours and the block below (a wall's
 //! post depends on the block above), and the horizontal neighbours of a neighbour whose full faces
 //! changed (a stair whose corner changed). No rule depends on a state that a second round could
 //! change, so this covers every block whose state follows.
@@ -31,7 +30,7 @@ use crate::block::{Connection, Facing, PropertyValue, State};
 use super::sub_chunk::Entry;
 use super::{BlockPos, World};
 
-/// The most tripwire between two hooks that still attaches them (vanilla's 40).
+/// The most tripwire between two hooks that still attaches them.
 const MAX_TRIPWIRE: usize = 40;
 
 /// A straight line of tripwire and the hooks at its ends that face it.

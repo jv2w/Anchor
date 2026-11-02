@@ -205,13 +205,13 @@ impl EntityDamage {
     /// Whether `modifier` applies to this damage.
     #[doc(alias = "EntityDamageEvent::isApplicable")]
     pub fn is_applicable(&self, modifier: DamageModifier) -> bool {
-        value(&self.modifiers, modifier).is_some()
+        modifier_value(&self.modifiers, modifier).is_some()
     }
 
     /// The value of `modifier`, 0 when it does not apply.
     #[doc(alias = "EntityDamageEvent::getModifier")]
     pub fn modifier(&self, modifier: DamageModifier) -> f64 {
-        value(&self.modifiers, modifier).unwrap_or(0.0)
+        modifier_value(&self.modifiers, modifier).unwrap_or(0.0)
     }
 
     /// The modifiers that apply, with their values, in [`DamageModifier`] order.
@@ -223,7 +223,7 @@ impl EntityDamage {
     /// The value `modifier` started with, 0 when it did not apply.
     #[doc(alias = "EntityDamageEvent::getOriginalModifier")]
     pub fn original_modifier(&self, modifier: DamageModifier) -> f64 {
-        value(&self.original_modifiers, modifier).unwrap_or(0.0)
+        modifier_value(&self.original_modifiers, modifier).unwrap_or(0.0)
     }
 
     /// The modifiers the event started with, in [`DamageModifier`] order.
@@ -747,6 +747,12 @@ getters!(EntityPreExplode {
     fire_chance: f64,
 });
 
+setters!(EntityPreExplode {
+    /// Sets whether the explosion breaks blocks.
+    #[doc(alias = "EntityPreExplodeEvent::setBlockBreaking")]
+    set_block_breaking => block_breaking: bool,
+});
+
 impl EntityPreExplode {
     /// Whether the explosion breaks blocks.
     #[doc(alias = "EntityPreExplodeEvent::isBlockBreaking")]
@@ -780,12 +786,6 @@ impl EntityPreExplode {
         set_radius(&mut self.radius, radius);
     }
 }
-
-setters!(EntityPreExplode {
-    /// Sets whether the explosion breaks blocks.
-    #[doc(alias = "EntityPreExplodeEvent::setBlockBreaking")]
-    set_block_breaking => block_breaking: bool,
-});
 
 cancellable! {
     EntityPreExplode
@@ -1106,7 +1106,7 @@ fn applicable(modifiers: &Modifiers) -> impl Iterator<Item = (DamageModifier, f6
 }
 
 /// The value of `modifier` in `modifiers`, if it applies.
-fn value(modifiers: &Modifiers, modifier: DamageModifier) -> Option<f64> {
+fn modifier_value(modifiers: &Modifiers, modifier: DamageModifier) -> Option<f64> {
     #[expect(
         clippy::indexing_slicing,
         reason = "invariant: a modifier's number is its place in a modifier array"

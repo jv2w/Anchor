@@ -249,7 +249,7 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
 
 fn world_record(storage: &mut Storage) -> Option<WorldRecord> {
     let sealed = storage.read(&[Key::World]).unwrap().pop()?.unwrap()?;
-    Some(crate::storage::seal::unseal(&Key::World.to_bytes(), &sealed).unwrap())
+    Some(unseal(&Key::World.to_bytes(), &sealed).unwrap())
 }
 
 fn known(nbt: &Compound) -> crate::block::State {
@@ -573,30 +573,27 @@ fn a_chunk_that_fails_ends_the_import_with_its_position_and_writes_nothing() {
     let raws: BTreeMap<(i32, i32), Raw> = (0..300).map(|i| ((i, 0), full_raw())).collect();
     let mut outside = full_raw();
     outside.sections[0].y = 20;
-    for (bad, x) in [(outside, 280)] {
-        let disk = Disk::default();
-        let mut storage = memory(&disk);
-        let mut raws = raws.clone();
-        raws.insert((x, 0), bad);
-        let err = import(&mut storage, 3, &raws, [0, 64, 0]).0.unwrap_err();
-        match err {
-            crate::Error::Import(Error::Chunk {
-                x: ex,
-                z: 0,
-                source,
-            }) => {
-                assert_eq!(ex, x);
-                assert!(matches!(*source, Error::Malformed(_)), "{source:?}");
-            }
-            e => panic!("{e:?}"),
-        }
-        assert_eq!(world_record(&mut storage), None);
-        for x in [0, 279] {
-            let values = storage
-                .read_chunks(&[ChunkId { world: 0, x, z: 0 }])
-                .unwrap();
-            assert!(values[0].as_ref().unwrap().is_empty(), "{x}");
-        }
+    let disk = Disk::default();
+    let mut storage = memory(&disk);
+    let mut bad_raws = raws;
+    bad_raws.insert((280, 0), outside);
+    let err = import(&mut storage, 3, &bad_raws, [0, 64, 0])
+        .0
+        .unwrap_err();
+    match err {
+        crate::Error::Import(Error::Chunk {
+            x: 280,
+            z: 0,
+            source,
+        }) => assert!(matches!(*source, Error::Malformed(_)), "{source:?}"),
+        e => panic!("{e:?}"),
+    }
+    assert_eq!(world_record(&mut storage), None);
+    for x in [0, 279] {
+        let values = storage
+            .read_chunks(&[ChunkId { world: 0, x, z: 0 }])
+            .unwrap();
+        assert!(values[0].as_ref().unwrap().is_empty(), "{x}");
     }
     // A read or decode failure is the reader's, already naming its chunk.
     let disk = Disk::default();
@@ -824,7 +821,7 @@ fn a_world_file_made_before_the_import_writes_is_refused_and_kept() {
         NAME,
     )
     .unwrap();
-    let place = crate::storage::Place::world(&data, NAME);
+    let place = Place::world(&data, NAME);
     let before = std::fs::read(&place.file).unwrap();
     let err = write_world(
         &place,
@@ -855,7 +852,7 @@ fn a_world_file_made_before_the_import_writes_is_refused_and_kept() {
 )]
 fn a_world_file_another_process_opened_is_refused_and_kept() {
     let dir = crate::save::tests::TempDir::new("import-opened-meanwhile");
-    let place = crate::storage::Place::world(&dir.0.join("data"), NAME);
+    let place = Place::world(&dir.0.join("data"), NAME);
     let start = Start::checked(StartBackup::Make);
     let held = Storage::open(&place, start).unwrap();
     let err = open_created(&place, start, NAME).unwrap_err();
@@ -918,7 +915,7 @@ fn an_import_makes_no_world_file_past_the_most_the_folder_holds() {
         ),
         "{err:?}"
     );
-    assert!(!crate::storage::Place::world(&data, NAME).file.exists());
+    assert!(!Place::world(&data, NAME).file.exists());
     assert_eq!(
         save::world_files(&data).unwrap().len(),
         crate::storage::MAX_WORLDS
@@ -1002,12 +999,8 @@ fn file_mib(path: &Path) -> u64 {
 )]
 fn measure_100k_chunk_import() {
     let dir = crate::save::tests::TempDir::new("import-measure");
-    let place = crate::storage::Place::world(&dir.0, NAME);
-    let mut storage = Storage::open(
-        &place,
-        crate::storage::Start::checked(crate::storage::StartBackup::Make),
-    )
-    .unwrap();
+    let place = Place::world(&dir.0, NAME);
+    let mut storage = Storage::open(&place, Start::checked(StartBackup::Make)).unwrap();
     let mut rng = crate::protocol::Rng(0x0010_0000);
     // A few distinct chunks, read again and again: generating each would dominate the time.
     let templates: Vec<Raw> = (0..64).map(|_| terrain_raw(&mut rng)).collect();
@@ -1067,7 +1060,7 @@ fn the_official_server_fixture_imports_with_every_block_known_and_in_place() {
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
     let catalog = source.catalog().unwrap();
     let mut storage = Storage::open(
-        &crate::storage::Place::world(&data, NAME),
+        &Place::world(&data, NAME),
         Start::checked(StartBackup::Make),
     )
     .unwrap();
@@ -1140,7 +1133,7 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
     assert_eq!(report.ignored_tags().get(&0x2b), Some(&2));
     let mut source = Source::open(&world).unwrap();
     let mut storage = Storage::open(
-        &crate::storage::Place::world(&data, NAME),
+        &Place::world(&data, NAME),
         Start::checked(StartBackup::Make),
     )
     .unwrap();

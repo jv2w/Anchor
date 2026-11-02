@@ -1,13 +1,16 @@
-//! Actions on entities: a player's melee hit and an explosion, done through the game rules with
-//! their events (the entity rules do them, `tick::entity`).
+//! Actions on entities: a player's melee hit and an explosion.
+//!
+//! They go through the game rules with their events (the entity rules do them,
+//! `tick::entity`).
 
 use super::Action;
 use crate::math::Vec3;
 use crate::{entity, player, world};
 
-/// A player hits an entity in melee as its client's hit would:
-/// reach, the damage of the held item with Strength, Weakness, Sharpness and a critical hit,
-/// knockback, Knockback and Fire Aspect, wear and food, with the events of each
+/// A player hits an entity in melee as its client's hit would.
+///
+/// The hit has reach, the damage of the held item with Strength, Weakness, Sharpness and a
+/// critical hit, knockback, Knockback and Fire Aspect, wear and food, with the events of each
 /// ([`EntityDamage`](crate::event::EntityDamage), [`EntityMotion`](crate::event::EntityMotion),
 /// [`EntityCombust`](crate::event::EntityCombust), [`EntityDeath`](crate::event::EntityDeath)).
 /// A painting or an end crystal is hit too; nothing happens for any other target that is not a
@@ -29,9 +32,10 @@ impl Attack {
 
 impl Action for Attack {}
 
-/// An explosion as the game makes one: what
-/// [`Context::explode`](crate::Context::explode) does, with the events of the entities it hurts
-/// and pushes ([`EntityDamage`](crate::event::EntityDamage),
+/// An explosion as the game makes one.
+///
+/// It does what [`Context::explode`](crate::Context::explode) does, with the events of the
+/// entities it hurts and pushes ([`EntityDamage`](crate::event::EntityDamage),
 /// [`EntityMotion`](crate::event::EntityMotion)). It has no source entity, so no
 /// [`EntityExplode`](crate::event::EntityExplode). Nothing happens for a world that is not
 /// loaded, a centre that is not finite or outside the world border, or a size that is not finite
@@ -57,8 +61,9 @@ impl Explode {
         }
     }
 
-    /// The same explosion, setting a third of the broken blocks on fire
-    /// where the block under them can hold fire.
+    /// The same explosion, with fire.
+    ///
+    /// A third of the broken blocks are set on fire where the block under them can hold fire.
     #[doc(alias = "Explosion::setFireChance")]
     #[must_use]
     pub fn fire(self) -> Self {

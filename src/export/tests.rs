@@ -234,6 +234,13 @@ fn messages_say_what_the_export_needs() {
         name: NAME.to_owned(),
     };
     assert_eq!(missing.to_string(), "the world \"w\" has no saved state");
+    let temporary = Error::TemporaryWorld {
+        name: NAME.to_owned(),
+    };
+    assert_eq!(
+        temporary.to_string(),
+        "the world \"w\" is declared temporary"
+    );
 }
 
 #[test]
@@ -278,7 +285,7 @@ fn a_folder_already_there_is_left_as_it_is() {
 
 #[test]
 #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-fn a_world_without_a_file_or_declared_temporary_is_not_there() {
+fn a_world_without_a_file_is_not_there_and_one_declared_temporary_is_refused() {
     let data = TempDir::new("export-missing");
     let out = data.0.join("out");
     let e = run(&data.0, &worlds(), 2, NAME, &out).unwrap_err();
@@ -291,7 +298,7 @@ fn a_world_without_a_file_or_declared_temporary_is_not_there() {
     temporary[0].kind = Kind::Temporary;
     let e = run(&data.0, &temporary, 2, NAME, &out).unwrap_err();
     assert!(
-        matches!(e, crate::Error::Export(Error::NoWorld { .. })),
+        matches!(e, crate::Error::Export(Error::TemporaryWorld { ref name }) if name == NAME),
         "{e:?}"
     );
     assert!(!out.exists());

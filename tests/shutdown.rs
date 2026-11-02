@@ -9,9 +9,14 @@
 
 #![cfg(test)]
 
+#[path = "support/local_config.rs"]
+mod local_config;
+#[path = "support/temp_path.rs"]
+mod temp_path;
+
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
@@ -21,6 +26,9 @@ use anchor::block::State;
 use anchor::config::{IntegrityCheck, LogLevel};
 use anchor::world::{BlockPos, ChunkPos};
 use anchor::{Config, Server};
+
+use local_config::local_config;
+use temp_path::TempPath;
 
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
@@ -43,14 +51,9 @@ fn gold() -> State {
 }
 
 /// Settings that run without the network beyond loopback, reading commands from the console.
-/// Nothing connects to the child, so port 0 lets the system pick every port at bind time: a port
-/// picked earlier and released could be taken by another process before the child binds it.
 /// A start checks only the files without the normal-stop mark and logs the others at debug level.
-fn local_config() -> Config {
-    let mut config = Config::default();
-    config.general.xbox_auth = false;
-    config.general.enable_ipv6 = false;
-    config.general.server_port = 0;
+fn console_config() -> Config {
+    let mut config = local_config();
     config.general.log_level = LogLevel::Debug;
     config.developer.console_input = true;
     config.developer.integrity_check = IntegrityCheck::AfterUncleanShutdown;
@@ -72,7 +75,7 @@ fn shutdown_child() {
     let mut start = None;
     let mut reported = false;
     Server::builder()
-        .config(local_config())
+        .config(console_config())
         .data_dir(&data)
         .every(NonZeroU32::MIN, move |cx| {
             let start = *start.get_or_insert(cx.tick());
@@ -185,44 +188,30 @@ fn report(server: &mut Running) -> String {
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the test prepares and inspects its data folder"
-)]
-fn fresh(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap_or(());
-    std::fs::create_dir_all(dir).unwrap();
-}
-
-#[expect(
-    clippy::disallowed_methods,
     reason = "off-tick: the test inspects its data folder"
 )]
 fn exists(path: &Path) -> bool {
     path.exists()
 }
 
-/// The data folder of the test `name`: the tests of this file run at once.
-fn data_dir(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("shutdown-{name}-{}", std::process::id()))
-}
-
 /// Starts a child with `command` that places the marker, stops it with `stop` once it has, and
 /// checks that it stopped normally: it exits with success, writes no crash log, leaves the
 /// normal-stop mark on every data file, and a restart finds the marker.
 fn stop_saves_the_last_tick(name: &str, command: Command, stop: impl FnOnce(&mut Running)) {
-    let data = data_dir(name);
-    fresh(&data);
-    let mut server = start(command, &data, "place");
+    // The tests of this file run at once, each on a folder of its own.
+    let data = TempPath::new(&format!("shutdown-{name}"));
+    let mut server = start(command, &data.0, "place");
     assert_eq!(report(&mut server), "placed");
     stop(&mut server);
     let status = server.child.wait().unwrap();
     assert!(status.success(), "the child exited with {status}");
     assert!(
-        !exists(&data.join("crash")),
+        !exists(&data.0.join("crash")),
         "a normal stop wrote a crash log"
     );
 
     // Nothing saved the marker before the stop: only the final commit holds it.
-    let mut server = start(child(), &data, "check");
+    let mut server = start(child(), &data.0, "check");
     assert_eq!(report(&mut server), "gold=true");
     let status = server.child.wait().unwrap();
     assert!(status.success(), "the check child exited with {status}");
@@ -235,7 +224,6 @@ fn stop_saves_the_last_tick(name: &str, command: Command, stop: impl FnOnce(&mut
             log.join("\n")
         );
     }
-    fresh(&data);
 }
 
 #[test]

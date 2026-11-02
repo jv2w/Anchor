@@ -8,7 +8,8 @@
 //! lower. The numbers used are the variants' docs.
 //!
 //! Left out: floating text (an invisible entity per viewer, not an event; a human NPC with a name
-//! tag does the same).
+//! tag does the same), and particles by name with `MoLang` variables (the `SpawnParticleEffect`
+//! packet).
 
 /// The official server's particle numbers that the particles use.
 pub(crate) mod id {
@@ -84,6 +85,7 @@ use crate::tile;
 
 /// A particle effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 // api-class: Particle
 pub enum Particle {
     /// An angry villager's cloud (`VILLAGER_ANGRY`, 40).
@@ -293,8 +295,8 @@ fn punch_data(network_id: u32, face: Face) -> i32 {
     network_id.cast_signed() | (i32::from(face.index()) << 24)
 }
 
-/// The dragon egg trail data of one axis: the size in
-/// a byte at `shift` and the sign in bit `sign`.
+/// The dragon egg trail data of one axis: the size in a byte at `shift` and the sign in bit
+/// `sign`.
 fn axis(v: i16, shift: u32, sign: u32) -> i32 {
     let size = i32::from(v.unsigned_abs().min(255));
     (size << shift) | if v < 0 { 1 << sign } else { 0 }

@@ -1,9 +1,10 @@
-//! The network block hash: the ID a client with `UseBlockNetworkIDHashes`
-//! knows a block state by, FNV-1a 32 over the state's little-endian NBT `{name, states}` with
-//! the states in name order (the reference list's hash; the official server sends the same values).
+//! The network block hash: the ID a client with `UseBlockNetworkIDHashes` knows a block state by.
 //!
-//! The state table carries the reference list's IDs, which the golden test of the block module recomputes;
-//! custom states get theirs from here when the server makes them.
+//! It is FNV-1a 32 over the state's little-endian NBT `{name, states}` with the states in name
+//! order (the reference list's hash; the official server sends the same values).
+//!
+//! The state table carries the reference list's IDs, which the golden test of the block module
+//! recomputes; custom states get theirs from here when the server makes them.
 //!
 //! `cargo xtask dump` includes this file by path to hash the reference list's states, so it names
 //! nothing outside itself.
@@ -27,8 +28,9 @@ const UNKNOWN: u32 = 0xffff_fffe;
 
 /// The value of a block state property, typed as the client's block state NBT types it.
 ///
-/// The table's values borrow `'static` strings; a lookup such as [`State::find`](super::State::find) takes values
-/// borrowed from its input. Values order by type (byte, int, string), then by value.
+/// The table's values borrow `'static` strings; a lookup such as
+/// [`State::find`](super::State::find) takes values borrowed from its input. Values order by
+/// type (byte, int, string), then by value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PropertyValue<'a> {
     /// A `TAG_Byte`; boolean properties are 0 or 1.
@@ -49,9 +51,11 @@ impl Fnv {
         }
     }
 
-    /// Feeds an NBT string: its length as a little-endian `u16`, then its bytes. Names and values
-    /// are short (block identifiers and property values are checked when they are registered); a
-    /// longer one is cut at the length the prefix can hold, as no client could send it.
+    /// Feeds an NBT string: its length as a little-endian `u16`, then its bytes.
+    ///
+    /// Names and values are short (block identifiers and property values are checked when they
+    /// are registered); a longer one is cut at the length the prefix can hold, as no client could
+    /// send it.
     fn string(&mut self, s: &str) {
         let len = u16::try_from(s.len()).unwrap_or(u16::MAX);
         self.bytes(&len.to_le_bytes());
@@ -59,8 +63,9 @@ impl Fnv {
     }
 }
 
-/// The network hash of the state `name` with `properties`, which must come in name order (as
-/// `State::properties` gives them).
+/// The network hash of the state `name` with `properties`.
+///
+/// The properties must come in name order (as `State::properties` gives them).
 pub(crate) fn network_hash<'a>(
     name: &str,
     properties: impl IntoIterator<Item = (&'a str, PropertyValue<'a>)>,

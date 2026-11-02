@@ -10,7 +10,6 @@ mod vanilla;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -1194,12 +1193,10 @@ fn login(
         return (admitted, None);
     }
     let mut anchor = command::refusals(state, identity);
-    let ip = identity
-        .address
-        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
     let mut event = PlayerLogin {
         info: PlayerInfo(identity.clone()),
-        address: SocketAddr::new(ip, identity.client.port),
+        ip: identity.address,
+        port: identity.client.port,
         kicks: Default::default(),
     };
     for r in anchor.iter().flatten() {
@@ -1632,7 +1629,7 @@ mod tests {
         fn login_listeners_get_every_refusal_and_decide_the_join() {
             let listener = |e: &mut PlayerLogin, _: &mut Context<'_>| {
                 log(format!(
-                    "{} {} {} {}",
+                    "{} {:?} {} {}",
                     e.info().name(),
                     e.ip(),
                     e.port(),
@@ -1652,8 +1649,8 @@ mod tests {
             assert_eq!(
                 logged(),
                 [
-                    "player1 0.0.0.0 0 []",
-                    "Banned 192.0.2.7 0 [ServerFull, Banned]"
+                    "player1 None 0 []",
+                    "Banned Some(192.0.2.7) 0 [ServerFull, Banned]"
                 ]
             );
             let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
@@ -1664,7 +1661,7 @@ mod tests {
             Context { state: &mut state }.unban("banned");
             let (j, mut rx) = join_as(3, identity("Banned", address));
             run(&mut state, vec![j]);
-            assert_eq!(logged(), ["Banned 192.0.2.7 0 [ServerFull]"]);
+            assert_eq!(logged(), ["Banned Some(192.0.2.7) 0 [ServerFull]"]);
             assert!(
                 received(&mut rx).1.is_none(),
                 "a listener lets a full server take one more"
@@ -1676,14 +1673,14 @@ mod tests {
         #[test]
         fn the_login_event_has_the_address_and_port_the_client_connected_from() {
             let listener = |e: &mut PlayerLogin, _: &mut Context<'_>| {
-                log(format!("{} {}", e.ip(), e.port()));
+                log(format!("{:?} {}", e.ip(), e.port()));
             };
             let mut state = state(|_| {}, on(listener));
             let mut who = identity("Ported", Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7))));
             who.client.port = 19_133;
             let (j, _rx) = join_as(1, who);
             run(&mut state, vec![j]);
-            assert_eq!(logged(), ["192.0.2.7 19133"]);
+            assert_eq!(logged(), ["Some(192.0.2.7) 19133"]);
         }
 
         // api: PlayerPreLoginEvent

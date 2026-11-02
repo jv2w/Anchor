@@ -460,8 +460,8 @@ fn biomes_entities_and_pending_ticks_are_not_read() {
     assert_eq!(raw.ignored, vec![0x2b, 0x2d, 0x32, 0x33]);
 }
 
-/// The legacy terrain golden values, from the dump's converter, on ids `(i * 7 + 3) & 0xff` and meta bytes
-/// `(i * 13 + 5) & 0xff`, sub-chunk 3, returns `id << 4 | meta` at (x, y, z).
+/// The legacy terrain golden values, from the dump's converter, on ids `(i * 7 + 3) & 0xff` and
+/// meta bytes `(i * 13 + 5) & 0xff`: `id << 4 | meta` at (x, y, z) of sub-chunk 3.
 const LEGACY_COLUMN_GOLDEN: [((usize, usize, usize), u16); 5] = [
     ((0, 0, 0), 1341),
     ((1, 2, 3), 3610),

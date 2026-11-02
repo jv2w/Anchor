@@ -280,7 +280,7 @@ fn entries_that_are_not_states_are_not_upgraded() {
 
 #[test]
 fn a_state_saved_with_a_foreign_data_version_upgrades_without_it() {
-    // Another server program writes `PMMPDataVersion` next to every state it saves.
+    // Worlds from other programs carry `FOREIGN_DATA_VERSION` next to every state they save.
     // 17_825_808 is 1.16.0.16, before wool split.
     let wool = || {
         Compound::from([
@@ -290,7 +290,7 @@ fn a_state_saved_with_a_foreign_data_version_upgrades_without_it() {
                 Value::Compound(Compound::from([("color".to_owned(), s("red"))])),
             ),
             ("version".to_owned(), Value::Int(17_825_808)),
-            ("PMMPDataVersion".to_owned(), Value::Long(1)),
+            (FOREIGN_DATA_VERSION.to_owned(), Value::Long(1)),
         ])
     };
     let red_wool = Compound::from([
@@ -308,7 +308,7 @@ fn a_state_saved_with_a_foreign_data_version_upgrades_without_it() {
     assert_eq!(stack.get("Block"), Some(&Value::Compound(red_wool.clone())));
     // A current state with the key counts as changed too: only the key goes.
     let mut current = red_wool.clone();
-    current.insert("PMMPDataVersion".to_owned(), Value::Long(1));
+    current.insert(FOREIGN_DATA_VERSION.to_owned(), Value::Long(1));
     let mut block = item_stack(&[("Block", Value::Compound(current))]);
     assert_eq!(nbt(&mut block), 1);
     assert_eq!(block.get("Block"), Some(&Value::Compound(red_wool)));

@@ -20,7 +20,7 @@ use crate::tick::queue::SessionId;
 
 /// The height of a standing player's box in blocks; a human NPC's too.
 pub const HEIGHT: f64 = 1.8;
-/// The highest XP level.
+/// The highest xp level.
 pub(crate) const MAX_LEVEL: u32 = 24_791;
 /// The most parameters of a translated message a client decodes.
 const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
@@ -71,6 +71,7 @@ impl Ticket {
 
 /// Why a player call changed nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// A text is longer than a client accepts: 65,536 bytes, 256 for a chat source name; or a
     /// world name is longer than a world's: 250 bytes.
@@ -141,6 +142,7 @@ pub(crate) type Packets = [Option<Packet>; 3];
 /// Texts may hold `§` format codes; a key is a client translation key such as
 /// `chat.type.text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Message {
     /// A chat line shown as it is.
     Raw(String),
@@ -415,7 +417,7 @@ pub fn level_from_xp(xp: u64) -> (u32, f64) {
     (lo, progress)
 }
 
-/// The XP points from `level` to the next.
+/// The xp points from `level` to the next.
 #[doc(alias = "ExperienceUtils::getXpToCompleteLevel")]
 pub fn xp_to_complete_level(level: u32) -> u64 {
     let l = u64::from(level);
@@ -428,7 +430,7 @@ pub fn xp_to_complete_level(level: u32) -> u64 {
     }
 }
 
-/// The XP points that reach `level` from none, saturating at `u64::MAX`.
+/// The xp points that reach `level` from none, saturating at `u64::MAX`.
 #[doc(alias = "ExperienceUtils")]
 #[doc(alias = "ExperienceUtils::getXpToReachLevel")]
 pub fn xp_to_reach_level(level: u32) -> u64 {

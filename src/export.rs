@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use tracing::{info, warn};
 
-use crate::import::MAX_CHUNKS;
+use crate::import::{MAX_CHUNKS, STEP, STEP_BYTES};
 use crate::nbt::{Compound, Value};
 use crate::pool::Pool;
 use crate::save::{self, WorldSpec};
@@ -42,11 +42,6 @@ use crate::world::{Chunk, ChunkPos, Generator};
 /// Value bytes after which a run of a step's values, made into data blocks on one pool item,
 /// ends: a few blocks, so few blocks end short at the end of a run.
 const RUN_BYTES: usize = 4 * leveldb::DATA_BLOCK_BYTES;
-/// Most chunks read, then converted, per step: with [`STEP_BYTES`], bounds the chunk data
-/// held at once.
-const STEP: usize = 256;
-/// Read value bytes after which a step ends, if it has not reached [`STEP`] chunks.
-const STEP_BYTES: usize = 256 << 20;
 
 /// What [`Server::export_world`](crate::Server::export_world) wrote and what it left out.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -85,8 +80,15 @@ impl Report {
 #[non_exhaustive]
 pub enum Error {
     /// The world has no saved state: no file `data/worlds/<name>.redb` (in any letter case) or no
-    /// world record in it, or the world is declared temporary.
+    /// world record in it.
     NoWorld {
+        /// The name.
+        name: String,
+    },
+    /// A temporary world of this name, in any letter case, is declared on the builder
+    /// ([`Kind::Temporary`](crate::world::Kind::Temporary)): it is never saved, so nothing can be
+    /// exported from it.
+    TemporaryWorld {
         /// The name.
         name: String,
     },
@@ -119,6 +121,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoWorld { name } => write!(f, "the world {name:?} has no saved state"),
+            Self::TemporaryWorld { name } => {
+                write!(f, "the world {name:?} is declared temporary")
+            }
             Self::FolderExists { path } => write!(
                 f,
                 "{} is already there; the export writes a new folder and takes the world by its \
@@ -134,9 +139,9 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::NoWorld { .. } | Self::TemporaryWorld { .. } | Self::FolderExists { .. } => None,
             Self::Write { source, .. } => Some(source),
             Self::Chunk { source, .. } => Some(source.as_ref()),
-            Self::NoWorld { .. } | Self::FolderExists { .. } => None,
         }
     }
 }
@@ -176,7 +181,9 @@ pub(crate) fn run(
     };
     // The world by its file's name, which may differ from `name` in letter case.
     let file = save::world_file_name(data_dir, name)?.ok_or_else(no_world)?;
-    let spec = save::file_world(worlds, &file).ok_or_else(no_world)?;
+    let spec = save::file_world(worlds, &file).ok_or_else(|| Error::TemporaryWorld {
+        name: name.to_owned(),
+    })?;
     // Without a trailing separator, which would put the temporary folder inside the folder.
     let dir: PathBuf = dir.components().collect();
     let mut temp = dir.clone().into_os_string();

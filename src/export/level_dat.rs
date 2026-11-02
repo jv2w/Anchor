@@ -2,9 +2,9 @@
 //! little-endian `i32` storage version, the `i32` length of the rest, one little-endian NBT root
 //! compound). It holds the world's state (name, spawn, time), the storage and network versions
 //! of this protocol's release, and a flat generator, which makes the chunks the world never
-//! saved: the official server's default flat layers for a world of [`Flat`] (the same terrain Anchor generated),
-//! a layer of air for any other generator. No setting is written (game mode, difficulty, game
-//! rules, seed): the game takes its defaults, and a server its own settings.
+//! saved: the official server's default flat layers for a world of [`Flat`] (the same terrain
+//! Anchor generated), a layer of air for any other generator. No setting is written (game mode,
+//! difficulty, game rules, seed): the game takes its defaults, and a server its own settings.
 
 use crate::import::level_dat::STORAGE_VERSION;
 use crate::nbt::{Compound, Encoding, Value};
@@ -20,8 +20,8 @@ const AIR_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     \"world_version\":\"version.post_1_18\"}\n";
 /// The `Generator` of a flat world.
 const FLAT_GENERATOR: i32 = 2;
-/// `FlatWorldLayers` as the official server 1.26.60 writes it for its default flat world: bedrock at y -64,
-/// dirt at -63 and -62, grass at -61, plains.
+/// `FlatWorldLayers` as the official server writes it for its default flat world: bedrock at
+/// y -64, dirt at -63 and -62, grass at -61, plains.
 const FLAT_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     {\"block_name\":\"minecraft:bedrock\",\"count\":1},\
     {\"block_name\":\"minecraft:dirt\",\"count\":2},\
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_flat_world_has_the_layers_the_official_server_writes_and_any_other_air() {
-        // The level.dat the official server 1.26.60 wrote for its P6 flat world
+        // The level.dat the official server wrote for its P6 flat world
         // (`cargo xtask p6 official`).
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/export/level.dat");
         let official = root(&std::fs::read(path).unwrap());

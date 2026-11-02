@@ -1,7 +1,7 @@
-//! The lookup-only chunk index: chunk positions to loaded chunks
-//! through a hash table with a fixed hash, so a block lookup costs one probe instead of a
-//! tree search (measured in `world::tests::block_access_cost`: 1.6 ns against 14 to 29 ns for a
-//! `BTreeMap` of 25 to 1,089 chunks).
+//! The lookup-only chunk index: chunk positions to loaded chunks through a hash table with a
+//! fixed hash, so a block lookup costs one probe instead of a tree search (measured in
+//! `world::tests::block_access_cost`: 1.6 ns against 14 to 29 ns for a `BTreeMap` of 25 to 1,089
+//! chunks).
 //!
 //! It has no iteration API, so its order can never reach game logic; the world keeps the
 //! positions in order beside it.
@@ -89,6 +89,19 @@ impl Chunks {
         Some(*chunk)
     }
 
+    /// The slot holding `pos`.
+    #[inline]
+    fn find(&self, pos: ChunkPos) -> Option<usize> {
+        let mut i = self.home(pos);
+        loop {
+            match self.slots.get(i)? {
+                Some((k, _)) if *k == pos => return Some(i),
+                Some(_) => i = (i + 1) & self.mask(),
+                None => return None,
+            }
+        }
+    }
+
     /// The home slot of a key: Fibonacci hashing of the coordinates (fixed, deterministic).
     #[inline]
     fn home(&self, pos: ChunkPos) -> usize {
@@ -108,16 +121,11 @@ impl Chunks {
         self.slots.len() - 1
     }
 
-    /// The slot holding `pos`.
-    #[inline]
-    fn find(&self, pos: ChunkPos) -> Option<usize> {
-        let mut i = self.home(pos);
-        loop {
-            match self.slots.get(i)? {
-                Some((k, _)) if *k == pos => return Some(i),
-                Some(_) => i = (i + 1) & self.mask(),
-                None => return None,
-            }
+    /// Rebuilds the table with `slots` slots, placing every chunk again.
+    fn resize(&mut self, slots: usize) {
+        let old = std::mem::replace(&mut self.slots, empty(slots));
+        for (pos, chunk) in old.into_iter().flatten() {
+            self.place(pos, chunk);
         }
     }
 
@@ -134,14 +142,6 @@ impl Chunks {
         )]
         let slot = &mut self.slots[i];
         *slot = Some((pos, chunk));
-    }
-
-    /// Rebuilds the table with `slots` slots, placing every chunk again.
-    fn resize(&mut self, slots: usize) {
-        let old = std::mem::replace(&mut self.slots, empty(slots));
-        for (pos, chunk) in old.into_iter().flatten() {
-            self.place(pos, chunk);
-        }
     }
 }
 

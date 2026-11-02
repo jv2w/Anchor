@@ -1,10 +1,10 @@
-//! `level.dat`: the world's settings.
+//! `level.dat`: the world's spawn and time.
 //!
 //! Layout: little-endian `i32` storage version, `i32` length of the rest, then one little-endian
 //! NBT root compound filling exactly that length. The version that counts is the
-//! `StorageVersion` tag (the official server 1.26.52 writes 10 in both places), a world newer
-//! than 10 is refused, and `NetworkVersion` must be at most the protocol Anchor speaks (the
-//! official server 1.26.52 writes 2193, the protocol of the same release): a newer game may have stored blocks Anchor cannot read.
+//! `StorageVersion` tag (the official server writes 10 in both places), a world newer than
+//! [`STORAGE_VERSION`] is refused, and `NetworkVersion` must be at most the protocol Anchor
+//! speaks ([`PROTOCOL_VERSION`]): a newer game may have stored blocks Anchor cannot read.
 
 use super::{Error, Result};
 use crate::nbt::{Compound, Encoding, Value};

@@ -16,16 +16,18 @@
 //! Chunks are read in (x, z) order a step at a time, then decoded and converted on the CPU pool,
 //! which keeps input order, so the same source gives the same bytes whatever the thread count.
 //! Any chunk that fails ends the import before its commit and leaves no world file, and the
-//! source is never written.
+//! source is never written. The world is written into `<name>.redb.tmp`, which the listing of
+//! `data/worlds/` skips, and renamed to its name once whole, so an import that is cut short
+//! leaves no world file and can be run again.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tracing::{error, info, warn};
 
 use super::chunk::{self, Layer, LegacyBlock, LegacyLayer, Raw};
 use super::level_dat::{SPAWN_Y_UNSET, WorldData};
-use super::{Catalog, Error, Source, upgrade};
+use super::{Catalog, Error, STEP, STEP_BYTES, Source, upgrade};
 use crate::custom::Registry;
 use crate::nbt::{Compound, Value};
 use crate::pool::Pool;
@@ -35,6 +37,8 @@ use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
 use crate::world::{self, BlockPos, Chunk, ChunkPos, MIN_SUB_CHUNK_Y, Paletted, SLOTS, SUB_CHUNKS};
 
+/// The values a batch reserves room for per chunk beyond its sub-chunks: a few block entity pages.
+const CHUNK_EXTRA_VALUES: usize = 3;
 /// The newest sub-chunk version that takes legacy block extra data as its second layer.
 const LAST_EXTRA_DATA_VERSION: u8 = 7;
 /// The sub-chunks legacy block extra data reaches: its blocks' y is 0 to 255.
@@ -45,11 +49,6 @@ const LEGACY_SUB_CHUNKS: usize = 16;
 const MAX_LISTED_UNKNOWN: usize = 4096;
 /// Most bytes of the unknown block names the report lists: a name may be an NBT string's 32 KiB.
 const MAX_LISTED_UNKNOWN_BYTES: usize = 1 << 20;
-/// Most chunks read, then converted, per step: bounds the chunk data held at once.
-const STEP: usize = 256;
-/// Read chunk bytes after which a step ends, if it has not reached [`STEP`] chunks: a step holds
-/// less than this plus one chunk's most (`chunk::MAX_CHUNK_BYTES`) before converting.
-const STEP_BYTES: usize = 256 << 20;
 
 /// What [`Server::import_world`](crate::Server::import_world) imported and what it left out.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -222,9 +221,10 @@ pub(crate) fn run(
 }
 
 /// Writes the world `spec` names from `source` into the new world file at `place`, opened as
-/// `start` says, on a CPU pool of `cpu` threads that is joined before returning. A file there
-/// already, made since the caller found none, is refused with [`Error::WorldExists`] and left as
-/// it is ([`create_file`], [`open_created`]). On any other failure, no world file is left.
+/// `start` says, on a CPU pool of `cpu` threads that is joined before returning. It is written
+/// into a temporary file ([`temp_place`]) and renamed to `place` once whole ([`publish`]). A file
+/// at `place` already, made since the caller found none, is refused with [`Error::WorldExists`]
+/// and left as it is. On any other failure, no world file is left.
 fn write_world(
     place: &Place,
     start: Start,
@@ -235,10 +235,11 @@ fn write_world(
 ) -> crate::Result<Report> {
     let catalog = source.catalog()?;
     let world = *source.world();
-    // Started before the world file is made, so a pool that fails to start leaves no file.
+    // Started before the temporary file is made, so a pool that fails to start leaves no file.
     let pool = crate::runtime::cpu_pool(cpu)?;
-    let written = create_file(place, &spec.name).and_then(|()| {
-        let mut storage = open_created(place, start, &spec.name)?;
+    let temp = temp_place(place);
+    let written = create_file(&temp, &spec.name).and_then(|()| {
+        let mut storage = open_created(&temp, start, &spec.name)?;
         let imported = (|| {
             let (import, report) = prepare(
                 &mut storage,
@@ -262,20 +263,36 @@ fn write_world(
             storage.close()?;
             Ok(report)
         });
-        if closed.is_err() {
-            // The world file is the import's own: it goes whole.
-            remove_file(&place.file);
+        let published = closed.and_then(|report| {
+            publish(&temp.file, &place.file, &spec.name)?;
+            Ok(report)
+        });
+        if published.is_err() {
+            // The temporary file is the import's own: it goes whole.
+            remove_file(&temp.file);
         }
-        closed
+        published
     });
     // `Pool::shutdown` warns about threads that did not end.
     pool.shutdown();
     written
 }
 
-/// Makes the empty world file of `place` for the world `name`, which [`Storage::open`] starts as a
-/// new one; a file there already refuses it with [`Error::WorldExists`]. Making it only if there
-/// is none makes the file the import's own, which a failure removes.
+/// The place of the temporary file the import writes the world file of `place` into: beside it,
+/// with `.tmp` after its name, so the listing of `data/worlds/` skips it.
+fn temp_place(place: &Place) -> Place {
+    let mut file = place.file.clone().into_os_string();
+    file.push(".tmp");
+    Place {
+        file: PathBuf::from(file),
+        backups: place.backups.clone(),
+    }
+}
+
+/// Makes the empty temporary world file of `place` for the world `name`, which [`Storage::open`]
+/// starts as a new one. One a crashed import left is that import's own and goes first; one made
+/// again since, by an import of the same name, refuses it with [`Error::WorldExists`]. Making it
+/// only if there is none makes the file the import's own, which a failure removes.
 #[expect(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -284,6 +301,11 @@ fn write_world(
 fn create_file(place: &Place, name: &str) -> crate::Result<()> {
     if let Some(dir) = place.file.parent() {
         std::fs::create_dir_all(dir).map_err(crate::storage::Error::Io)?;
+    }
+    match std::fs::remove_file(&place.file) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(crate::storage::Error::Io(e).into()),
     }
     match std::fs::OpenOptions::new()
         .write(true)
@@ -299,9 +321,9 @@ fn create_file(place: &Place, name: &str) -> crate::Result<()> {
     }
 }
 
-/// Opens the world file of `place` that the import just made for the world `name`, as `start`
-/// says. A file another process opened first (a server that made a world of the name meanwhile)
-/// is that process's: refused with [`Error::WorldExists`] and left as it is. On any other failure
+/// Opens the temporary world file of `place` that the import just made for the world `name`, as
+/// `start` says. A file another process opened first (an import of the same name meanwhile) is
+/// that process's: refused with [`Error::WorldExists`] and left as it is. On any other failure
 /// the file is removed.
 fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storage> {
     match Storage::open(place, start) {
@@ -317,19 +339,43 @@ fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storag
     }
 }
 
-/// Removes the world file of a failed import; one that stays refuses the next import of the name
-/// until the operator removes it.
+/// Renames the finished temporary file `temp` to the world file `file`, which must not be there:
+/// one made since the caller found none is refused with [`Error::WorldExists`] and left as it is.
+/// A name that cannot be made durable fails the import whole, `file` removed.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the import publishes its own world file before the server runs"
+)]
+fn publish(temp: &Path, file: &Path, name: &str) -> crate::Result<()> {
+    if std::fs::exists(file).map_err(crate::storage::Error::Io)? {
+        return Err(Error::WorldExists {
+            name: name.to_owned(),
+        }
+        .into());
+    }
+    std::fs::rename(temp, file).map_err(crate::storage::Error::Io)?;
+    if let Err(e) = crate::fs::sync_parent(file) {
+        remove_file(file);
+        return Err(crate::storage::Error::Io(e).into());
+    }
+    Ok(())
+}
+
+/// Removes the world file of a failed import, if it is there; one that stays would fill
+/// `data/worlds/` with a file that holds no world.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the import removes its own world file before the server runs"
 )]
 fn remove_file(file: &Path) {
-    if let Err(e) = std::fs::remove_file(file) {
-        error!(
+    match std::fs::remove_file(file) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => error!(
             path = %file.display(),
             error = &e as &(dyn std::error::Error + 'static),
             "could not remove the failed import's world file"
-        );
+        ),
     }
 }
 
@@ -450,7 +496,7 @@ fn write_chunks<E: Sync>(
                 source: Box::new(e),
             })
         });
-        let mut batch = Batch::with_capacity(read_step.len() * (SUB_CHUNKS + 3));
+        let mut batch = Batch::with_capacity(read_step.len() * (SUB_CHUNKS + CHUNK_EXTRA_VALUES));
         for c in converted {
             let c = c?;
             report.chunks += 1;

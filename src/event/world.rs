@@ -158,9 +158,9 @@ getters!(WorldSave {
 });
 
 /// Raised when the game plays a sound at a place (an explosion, a hit...), before the players
-/// hear it. Cancelling plays it to nobody. A sound made
-/// for a direct call such as [`Context::add_sound`](crate::Context::add_sound) raises none, and
-/// neither do an entity's own sounds (landing, falling).
+/// hear it. Cancelling plays it to nobody. A sound made for a direct call such as
+/// [`Context::add_sound`](crate::Context::add_sound) raises none, and neither do an entity's own
+/// sounds (landing, falling).
 #[doc(alias = "WorldSoundEvent")]
 #[derive(Debug)]
 pub struct WorldSound {

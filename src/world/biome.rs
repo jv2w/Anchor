@@ -8,7 +8,8 @@ mod table;
 use crate::protocol::BiomeDefinition;
 use crate::protocol::packet::BiomeDefinitionList;
 
-/// The biome ID the official server sends for every vanilla biome: the client finds a vanilla biome by its name.
+/// The biome ID the official server sends for every vanilla biome: the client finds a vanilla
+/// biome by its name.
 const VANILLA_ID: i16 = -1;
 
 /// One biome definition as the official server sends it, its strings as indices into [`table::STRINGS`].
@@ -72,6 +73,10 @@ mod tests {
 
     use crate::protocol::packet::Packet;
 
+    /// The reference list's biome definitions.
+    const DATA: &str = include_str!("../../xtask/data/reference/biomes.json");
+    /// The biome definition keys that hold a float.
+    const FLOATS: [&str; 5] = ["temperature", "downfall", "foliage_snow", "depth", "scale"];
     /// The payload size of the official server 1.26.52's `BiomeDefinitionList`.
     ///
     /// P6 measured 7,668 bytes with the one-byte packet header. It depends only on the content,
@@ -86,7 +91,9 @@ mod tests {
         assert!(
             list.biome_definitions
                 .iter()
-                .all(|d| d.biome_id == -1 && d.chunk_generation.is_none() && d.tags.is_some())
+                .all(|d| d.biome_id == VANILLA_ID
+                    && d.chunk_generation.is_none()
+                    && d.tags.is_some())
         );
         let packet = Packet::BiomeDefinitionList(list);
         let mut bytes = Vec::new();
@@ -103,11 +110,6 @@ mod tests {
         let unique: BTreeSet<&String> = list.string_list.iter().collect();
         assert_eq!(unique.len(), list.string_list.len());
     }
-
-    /// The reference list's biome definitions.
-    const DATA: &str = include_str!("../../xtask/data/reference/biomes.json");
-    /// The biome definition keys that hold a float.
-    const FLOATS: [&str; 5] = ["temperature", "downfall", "foliage_snow", "depth", "scale"];
 
     /// A data number at the packet's precision, rounded once from its decimal text.
     fn single(json: &Json) -> f32 {

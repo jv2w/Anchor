@@ -567,7 +567,7 @@ pub(crate) mod tests {
     use crate::protocol::Rng;
 
     /// Checks every invariant of the type.
-    pub(crate) fn check<T: Derive + std::fmt::Debug>(p: &Paletted<T>) {
+    pub(crate) fn check<T: Derive + fmt::Debug>(p: &Paletted<T>) {
         assert!(WIDTHS.contains(&p.bits));
         assert_eq!(p.words.len(), word_count(p.bits));
         assert!(p.palette.len() <= capacity(p.bits));

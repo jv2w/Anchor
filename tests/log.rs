@@ -8,18 +8,25 @@
 
 #![cfg(test)]
 
-use std::fmt;
-use std::io::{ErrorKind, Write as _};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::Duration;
+#[path = "support/local_config.rs"]
+mod local_config;
+#[path = "support/overrun.rs"]
+mod overrun;
+#[path = "support/temp_path.rs"]
+mod temp_path;
 
+use std::io::Write as _;
+use std::process::{Command, Stdio};
+
+use anchor::Server;
 use anchor::config::LogLevel;
 use anchor::world::ChunkPos;
-use anchor::{Config, Server};
-use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
+
+use local_config::local_config;
+use overrun::{Message, overrun_tick};
+use temp_path::TempPath;
 
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
@@ -28,9 +35,6 @@ const DATA_ENV: &str = "ANCHOR_LOG_DATA";
 /// The child's environment variable: `info`, `debug`, `off` (`log-level = "off"` and a program
 /// subscriber) or `own` (`without_console_log` and a program subscriber).
 const MODE_ENV: &str = "ANCHOR_LOG_MODE";
-/// How long the child holds its first tick: more than two tick periods of 50 ms, after which the
-/// tick pacer warns that ticks overran, as it does on a loaded machine.
-const OVERRUN: Duration = Duration::from_millis(200);
 /// The prefix of the lines the program's own subscriber writes on standard output.
 const OWN: &str = "ANCHOR-OWN";
 
@@ -59,44 +63,10 @@ impl Subscriber for Own {
     fn exit(&self, _: &Id) {}
 }
 
-/// The message of an event.
-#[derive(Default)]
-struct Message(String);
-
-impl Visit for Message {
-    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        if field.name() == "message" {
-            self.0 = format!("{value:?}");
-        }
-    }
-}
-
 /// What a child wrote: its standard output and the log lines of its standard error.
 struct Written {
     stdout: String,
     log: Vec<String>,
-}
-
-/// Settings that run without the network beyond loopback. Port 0 lets the system pick every port
-/// at bind time: nothing connects, and a port picked earlier and released could be taken by
-/// another process first.
-fn local_config() -> Config {
-    let mut config = Config::default();
-    config.general.xbox_auth = false;
-    config.general.enable_ipv6 = false;
-    config.general.server_ip = std::net::Ipv4Addr::LOCALHOST;
-    config.general.server_port = 0;
-    config.developer.console_input = false;
-    config
-}
-
-/// Holds the tick for [`OVERRUN`].
-#[expect(
-    clippy::disallowed_methods,
-    reason = "consistency: the child overruns its first tick as a loaded machine does"
-)]
-fn overrun_tick() {
-    std::thread::sleep(OVERRUN);
 }
 
 /// The server process the parent test starts. Without the parent's environment it does nothing.
@@ -111,6 +81,7 @@ fn log_child() {
         return;
     };
     let mut config = local_config();
+    config.developer.console_input = false;
     config.general.log_level = match mode.as_str() {
         "debug" => LogLevel::Debug,
         "off" => LogLevel::Off,
@@ -143,22 +114,8 @@ fn log_child() {
     std::io::stdout().flush().unwrap();
 }
 
-fn data_dir(mode: &str) -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("log-{mode}-{}", std::process::id()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test starts its child process and prepares its data folder"
-)]
 fn run_child(mode: &str) -> Written {
-    let data = data_dir(mode);
-    match std::fs::remove_dir_all(&data) {
-        Ok(()) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => panic!("cannot clear {}: {e}", data.display()),
-    }
-    std::fs::create_dir_all(&data).unwrap();
+    let data = TempPath::new(&format!("log-{mode}"));
     let out = Command::new(std::env::current_exe().unwrap())
         .args([
             "log_child",
@@ -167,12 +124,11 @@ fn run_child(mode: &str) -> Written {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env(DATA_ENV, &data)
+        .env(DATA_ENV, &data.0)
         .env(MODE_ENV, mode)
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    std::fs::remove_dir_all(&data).unwrap();
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(out.status.success(), "the {mode} child failed: {stderr}");
     // Lines that start like a date are log lines; libtest and panics write others.

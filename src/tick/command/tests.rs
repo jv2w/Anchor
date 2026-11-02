@@ -95,7 +95,11 @@ pub(super) fn server_with(
 
 /// Collects the texts or keys of the lines of a success.
 pub(super) fn lines(result: command::Result<Output>) -> Vec<String> {
-    result.unwrap().lines().map(str::to_owned).collect()
+    result
+        .unwrap()
+        .lines()
+        .map(|l| l.text().to_owned())
+        .collect()
 }
 
 #[test]
@@ -523,6 +527,17 @@ fn a_default_for_a_permission_nothing_registered_fails_the_build() {
 // api: PermissionManager::addPermission, PermissionManager::getPermission
 // api: PermissionManager::getPermissions, CommandMap::getCommand
 // api: SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName
+/// Dropping a name that is no command of Anchor's own fails the build.
+#[test]
+fn dropping_an_unknown_builtin_fails_the_build() {
+    let mut commands = Commands::default();
+    commands.removed.insert("hub".to_owned());
+    assert!(matches!(
+        commands.finish().unwrap_err(),
+        Error::UnknownCommand { .. }
+    ));
+}
+
 // api: Command::getDescription, Command::getAliases, Command::setAliases
 // api: Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
 #[test]
@@ -533,9 +548,9 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
             .alias("hub")
             .alias("lobby")))
         .permission(FLY)
-        .without_command("zap");
+        .without_command("kick");
     let mut commands = builder.setup.commands;
-    commands.register(ok(Command::new("zap", "builtin")), Origin::Builtin);
+    commands.register(ok(Command::new("kick", "builtin")), Origin::Builtin);
     commands.register(ok(Command::new("spawn", "builtin")), Origin::Builtin);
     commands.register(
         ok(Command::new("list", "builtin").alias("hub").alias("who")),
@@ -553,7 +568,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
     assert_eq!(spawn.aliases(), ["hub", "lobby"]);
     assert!(spawn.permissions().is_empty());
     assert_eq!(spawn.usage_text(), "/spawn");
-    assert!(cx.command("zap").is_none(), "dropped with without_command");
+    assert!(cx.command("kick").is_none(), "dropped with without_command");
     let list = cx.command("who").unwrap();
     assert_eq!(
         (list.name(), list.aliases()),

@@ -18,8 +18,8 @@ use crate::nbt::{Compound, List, Value};
 use crate::save::palette_entry;
 use apply::States;
 
-/// The key another server program adds to every block state it saves; the import drops it,
-/// of any type, when it reads a state.
+/// The data version key some world writers add to every block state they save; the import drops
+/// it, of any type, when it reads a state.
 const FOREIGN_DATA_VERSION: &str = "PMMPDataVersion";
 
 /// One item schema: renamed IDs and, by ID, metas whose item
@@ -32,7 +32,7 @@ struct ItemSchema {
 
 /// A disk palette entry upgraded to the protocol version:
 /// `{name, states, version}`. A modern entry is `{name, states}` with an optional `version` (0
-/// without one), an optional data version key of another server (dropped) and nothing else, its
+/// without one), an optional foreign data version key (dropped) and nothing else, its
 /// properties bytes, ints or strings; a legacy one is `{name, val}` with a string and a short,
 /// looked up in the 1.12.0 table. `None` for anything else and for a legacy name and meta the
 /// table does not have.

@@ -9,7 +9,7 @@
 //! use anchor::form::{Button, Custom, Image, Menu, Response, Value};
 //! use anchor::player;
 //!
-//! fn open_menu(cx:&mut Context<'_>, player: player::Id) {
+//! fn open_menu(cx: &mut Context<'_>, player: player::Id) {
 //!     let menu = Menu::new("Lobby")
 //!         .with_content("Pick a game")
 //!         .button(
@@ -41,6 +41,7 @@
 
 use std::fmt;
 
+use serde::Serialize;
 use serde_json::{Value as Json, json};
 
 use crate::data::{JsonError, to_json};
@@ -58,7 +59,7 @@ const MAX_OPTIONS: usize = 256;
 pub(crate) const MAX_PENDING: usize = 16;
 /// The longest answer accepted, in bytes of JSON; a longer one is dropped before it is parsed.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 64 * 1024;
-/// The `timeout` the official server writes on every slider (P6), copied as it is: its unit is not known.
+/// The `timeout` the official server writes on every slider, copied as it is: its unit is not known.
 const SLIDER_TIMEOUT: u32 = 100;
 /// How far, in steps, a slider answer may lie off a step or outside the range and still count:
 /// the client computes the value in 32-bit floats.
@@ -93,10 +94,7 @@ impl Form {
             Self::Menu(m) => menu(m)?,
             Self::Custom(c) => custom(c)?,
         };
-        let bytes = to_json(&json, MAX_FORM_BYTES).map_err(|e| match e {
-            JsonError::TooLarge => Error::Invalid("the JSON is longer than 256 KiB"),
-            JsonError::Encode => Error::Invalid("not serializable"),
-        })?;
+        let bytes = encode(&json, MAX_FORM_BYTES, "the JSON is longer than 256 KiB")?;
         Ok((bytes, shape))
     }
 }
@@ -418,6 +416,7 @@ enum Element {
 
 /// A player's answer to a form.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Response {
     /// The player closed the form without answering.
     Closed,
@@ -433,6 +432,7 @@ pub enum Response {
 
 /// The value of one element of a [`Custom`] form.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Value {
     /// A label, header or divider, which hold no value.
     Empty,
@@ -448,6 +448,7 @@ pub enum Value {
 
 /// Why a form was not sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The player is not in the game: it has left, or has not joined yet.
     Offline,
@@ -538,29 +539,30 @@ fn menu(m: &Menu) -> Result<(Json, Shape)> {
     if m.elements.len() > MAX_ELEMENTS {
         return Err(Error::Invalid("more than 256 elements"));
     }
-    let mut buttons = 0;
+    let buttons = m
+        .elements
+        .iter()
+        .filter(|e| matches!(e, MenuElement::Button(_)))
+        .count();
     let elements: Vec<Json> = m
         .elements
         .iter()
         .map(|e| match e {
-            MenuElement::Button(b) => {
-                buttons += 1;
-                match &b.image {
-                    Some(image) => {
-                        let (kind, data) = match image {
-                            Image::Path(p) => ("path", p),
-                            Image::Url(u) => ("url", u),
-                        };
-                        json!({
-                            "type": "button",
-                            "text": b.text,
-                            "image": { "type": kind, "data": data },
-                        })
-                    }
-                    // The official server writes the key for a button without an image too.
-                    None => json!({ "type": "button", "text": b.text, "image": null }),
+            MenuElement::Button(b) => match &b.image {
+                Some(image) => {
+                    let (kind, data) = match image {
+                        Image::Path(p) => ("path", p),
+                        Image::Url(u) => ("url", u),
+                    };
+                    json!({
+                        "type": "button",
+                        "text": b.text,
+                        "image": { "type": kind, "data": data },
+                    })
                 }
-            }
+                // The official server writes the key for a button without an image too.
+                None => json!({ "type": "button", "text": b.text, "image": null }),
+            },
             MenuElement::Header(t) => json!({ "type": "header", "text": t }),
             MenuElement::Label(t) => json!({ "type": "label", "text": t }),
             MenuElement::Divider => json!({ "type": "divider", "text": "" }),
@@ -684,11 +686,24 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
 /// Checks that the answer a client sends when the player changes nothing, `default_answer`, fits
 /// [`MAX_RESPONSE_BYTES`] as JSON.
 fn check_default_answer(default_answer: &[Json]) -> Result<()> {
-    to_json(default_answer, MAX_RESPONSE_BYTES).map_err(|e| match e {
-        JsonError::TooLarge => Error::Invalid("the default answer is longer than 64 KiB"),
-        JsonError::Encode => Error::Invalid("not serializable"),
-    })?;
+    encode(
+        default_answer,
+        MAX_RESPONSE_BYTES,
+        "the default answer is longer than 64 KiB",
+    )?;
     Ok(())
+}
+
+/// `value` as JSON of at most `limit` bytes; `too_large` is the reason a longer one is refused.
+fn encode(
+    value: &(impl Serialize + ?Sized),
+    limit: usize,
+    too_large: &'static str,
+) -> Result<Vec<u8>> {
+    to_json(value, limit).map_err(|e| match e {
+        JsonError::TooLarge => Error::Invalid(too_large),
+        JsonError::Encode => Error::Invalid("not serializable"),
+    })
 }
 
 /// Checks the numbers of a slider: finite, ordered, a positive step, and a range whose number

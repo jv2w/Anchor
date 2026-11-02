@@ -276,7 +276,15 @@ impl Commands {
     /// builds the commands' network form and reports the first registration error.
     /// `ServerBuilder::build` calls it once.
     pub(crate) fn finish(&mut self) -> command::Result<()> {
-        for command in builtin::all() {
+        let builtins = builtin::all();
+        if let Some(name) = self
+            .removed
+            .iter()
+            .find(|n| !builtins.iter().any(|c| &c.name == *n))
+        {
+            return Err(Error::UnknownCommand { name: name.clone() });
+        }
+        for command in builtins {
             self.register(command, Origin::Builtin);
         }
         if let Some(e) = self.error.take() {
@@ -513,8 +521,8 @@ impl ServerBuilder {
     }
 
     /// Drops Anchor's own command named `name` (ASCII case does not matter), such as `"list"`. An
-    /// alias, or a name none of Anchor's commands has, drops nothing and the build still
-    /// succeeds.
+    /// alias, or a name none of Anchor's commands has, fails the build with
+    /// [`command::Error::UnknownCommand`].
     #[doc(alias = "SimpleCommandMap::unregister")]
     #[must_use]
     pub fn without_command(mut self, name: &str) -> Self {
@@ -1326,12 +1334,12 @@ pub(super) fn typed(
 /// A command fails while one of its handlers runs: it cannot run itself again through any of its
 /// overloads.
 fn execute(state: &mut State, sender: Sender, line: &str) -> command::Result<Output> {
-    let words = parse::split(line)?;
-    let Some((label, rest)) = words.split_first() else {
+    let Some(label) = parse::first_word(line)? else {
         return Err(Error::Unknown {
             name: String::new(),
         });
     };
+    let rest_start = label.end;
     let label = label.text.to_ascii_lowercase();
     let Some(&index) = state.commands.by_name.get(&label) else {
         return Err(Error::Unknown { name: label });
@@ -1343,17 +1351,22 @@ fn execute(state: &mut State, sender: Sender, line: &str) -> command::Result<Out
     }
     // The first overload that fits, else where the overload that fits furthest stops.
     let mut furthest = 0;
+    let mut unclosed = false;
     let mut fitted = None;
     for (i, o) in command.overloads.iter().enumerate() {
-        match parse::fit(&o.params, line, rest, &state.commands.names) {
+        match parse::fit(&o.params, line, rest_start, &state.commands.names) {
             Ok(raw) => {
                 fitted = Some((o, i, raw));
                 break;
             }
-            Err(at) => furthest = furthest.max(at),
+            Err(parse::Misfit::At(at)) => furthest = furthest.max(at),
+            Err(parse::Misfit::UnclosedQuote) => unclosed = true,
         }
     }
     let Some((fitted, overload, raw)) = fitted else {
+        if unclosed {
+            return Err(Error::UnclosedQuote);
+        }
         return Err(parse::syntax_error(line, furthest));
     };
     let names: Vec<String> = fitted.params.iter().map(|p| p.name.clone()).collect();

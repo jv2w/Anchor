@@ -1,5 +1,5 @@
-//! Creative inventories: what the creative
-//! inventory screen lists. A server has a default inventory (the vanilla list, or the one given to
+//! Creative inventories: what the creative inventory screen lists. A server has a default
+//! inventory (the vanilla list, or the one given to
 //! [`ServerBuilder::creative_inventory`](crate::ServerBuilder::creative_inventory), then the
 //! places custom items and blocks ask for) and may register named alternatives that a player is
 //! switched to while the server runs
@@ -32,10 +32,10 @@ pub(crate) const MAX_ENTRIES: usize = 8192;
 /// The longest creative group or inventory name, in bytes.
 const MAX_NAME_BYTES: usize = 128;
 
-/// A creative inventory to register: the vanilla list or an empty one,
-/// then the changes made to it in order. The server resolves it when it is built (where an
-/// item that is unknown, or custom and not registered, refuses the build) and never changes it
-/// afterwards. The default is the vanilla list.
+/// A creative inventory to register: the vanilla list or an empty one, then the changes made to
+/// it in order. The server resolves it when it is built (where an item that is unknown, or
+/// custom and not registered, refuses the build) and never changes it afterwards. The default is
+/// the vanilla list.
 ///
 /// ```
 /// use anchor::custom::{Category, CreativeGroup, CreativeInventory, ItemRef};
@@ -102,8 +102,8 @@ impl CreativeInventory {
         self
     }
 
-    /// Removes the first entry of `item`'s type and damage (the NBT is
-    /// not compared); nothing if there is none.
+    /// Removes the first entry of `item`'s type and damage (the NBT is not compared); nothing if
+    /// there is none.
     #[doc(alias = "CreativeInventory::remove")]
     #[doc(alias = "CreativeInventoryEntry::matchesItem")]
     #[must_use]
@@ -213,9 +213,9 @@ enum Change {
     Clear,
 }
 
-/// A named group of creative entries, shown folded under its icon.
-/// The name is a translation key such as `itemGroup.name.sword` or plain text; it must not be
-/// empty (checked when the server is built).
+/// A named group of creative entries, shown folded under its icon. The name is a translation key
+/// such as `itemGroup.name.sword` or plain text; it must not be empty (checked when the server
+/// is built).
 #[derive(Debug, Clone)]
 // api-class: CreativeGroup
 pub struct CreativeGroup {

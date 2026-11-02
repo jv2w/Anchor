@@ -39,6 +39,11 @@ use leveldb::Stamp;
 pub(crate) const MAX_CHUNKS: usize = 1 << 22;
 /// The largest `level.dat`: its header and the 4 MiB NBT limit.
 const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
+/// The most chunks the import and the export read, then convert, per step: with [`STEP_BYTES`],
+/// it bounds the chunk data held at once.
+pub(crate) const STEP: usize = 256;
+/// The read value bytes after which a step ends, if it has not reached [`STEP`] chunks.
+pub(crate) const STEP_BYTES: usize = 256 << 20;
 
 /// A failure to read the world being imported.
 #[derive(Debug)]
@@ -162,11 +167,6 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Read(e) => Some(e),
-            Self::Compression(e) => Some(e),
-            Self::Nbt(e) => Some(e),
-            Self::File { source, .. } | Self::Chunk { source, .. } | Self::Key { source, .. } => {
-                Some(source.as_ref())
-            }
             Self::TooLarge { .. }
             | Self::Malformed(_)
             | Self::Checksum
@@ -175,6 +175,11 @@ impl std::error::Error for Error {
             | Self::SourceChanged { .. }
             | Self::TemporaryWorld { .. }
             | Self::WorldExists { .. } => None,
+            Self::Compression(e) => Some(e),
+            Self::Nbt(e) => Some(e),
+            Self::File { source, .. } | Self::Chunk { source, .. } | Self::Key { source, .. } => {
+                Some(source.as_ref())
+            }
         }
     }
 }

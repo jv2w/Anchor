@@ -1,21 +1,22 @@
 //! Bedrock chunk keys and values, decoded into raw data (no block state upgrade).
 //!
-//! Keys (checked on official server 1.26.52 output):
+//! Keys (checked on the official server's output):
 //! chunk x and z as little-endian `i32`, a little-endian `i32` dimension for the Nether (1) and
 //! the End (2) only, a tag byte, and for sub-chunks the sub-chunk y as a signed byte. Entities
 //! since 1.18.30: `digp` + chunk position holds the chunk's 8-byte actor ids, `actorprefix` + id
 //! each actor's NBT; older chunks keep entities under tag 50.
 //!
-//! Anchor imports blocks and block entities only. The values it reads (official server 1.26.52
+//! Anchor imports blocks and block entities only. The values it reads (the official server's
 //! output for the current forms):
-//! - Version (44, or 118 in old worlds): one byte, 0 to 42 (42 = 1.21.120; the official server
-//!   1.26.52 still writes 42).
+//! - Version (44, or 118 in old worlds): one byte, 0 to 42 (42 = 1.21.120, which the official
+//!   server still writes).
 //! - Sub-chunk (47): a version byte, then for 0 and the misnumbered 2 to 7 4,096 block ids and
 //!   2,048 bytes of meta nibbles in x-z-y order (optionally 4,096 bytes of light after, as before
 //!   1.1); 1 one block layer; 8 a layer count and the layers; 9 a layer count, the sub-chunk y
 //!   (which must equal the key's) and the layers. A layer is a header byte (bits per index × 2;
 //!   a set low bit means network ids, never on disk), the packed words, a little-endian `i32`
-//!   palette length (absent with 0 bits: one entry) and that many little-endian NBT compounds.
+//!   palette length (absent with 0 bits: one entry, though some worlds put the length 1 there
+//!   too) and that many little-endian NBT compounds.
 //!   Chunk versions 24 to 26 (1.16.220 to 1.16.230 caves and cliffs experiments) store
 //!   sub-chunk y + 4 in the key.
 //! - Legacy terrain (48, chunk versions 0 to 2): the whole 16 × 128 × 16 column: 32,768 ids,
@@ -64,18 +65,20 @@ const LEGACY_LIGHT_BYTES: usize = 32_768;
 /// The meta nibbles of legacy terrain.
 const LEGACY_META_BYTES: usize = 16_384;
 /// A legacy sub-chunk: ids and meta nibbles, and optionally light after.
-const LEGACY_SECTION_BYTES: usize = 4096 + 2048;
+const LEGACY_SECTION_BYTES: usize = BLOCKS + BLOCKS / 2;
 /// A legacy sub-chunk with light after its ids and meta nibbles.
-const LEGACY_SECTION_LIGHT_BYTES: usize = LEGACY_SECTION_BYTES + 4096;
+const LEGACY_SECTION_LIGHT_BYTES: usize = LEGACY_SECTION_BYTES + BLOCKS;
+/// The sub-chunks of legacy terrain: its column is 128 blocks high.
+const LEGACY_TERRAIN_SUB_CHUNKS: usize = 8;
 /// Legacy terrain: ids, meta, light, height map, biome colours.
 const LEGACY_TERRAIN_BYTES: usize =
     LEGACY_IDS_BYTES + LEGACY_META_BYTES + LEGACY_LIGHT_BYTES + 256 + 1024;
 /// The most value bytes kept for one chunk.
 const MAX_CHUNK_BYTES: usize = 64 << 20;
-/// The newest chunk version read (1.21.120).
-const MAX_CHUNK_VERSION: u8 = 42;
-/// The newest sub-chunk version read.
-const MAX_SUB_CHUNK_VERSION: u8 = 9;
+/// The newest chunk version read (1.21.120), which the export writes.
+pub(crate) const MAX_CHUNK_VERSION: u8 = 42;
+/// The newest sub-chunk version read, which the export writes.
+pub(crate) const MAX_SUB_CHUNK_VERSION: u8 = 9;
 /// The highest sub-chunk y imported: Anchor's world height.
 const MAX_SUB_CHUNK_Y: i32 = crate::world::MAX_Y >> 4;
 /// The tags whose values are kept for decoding, with their names in Mojang's LevelDB
@@ -122,6 +125,7 @@ pub(crate) struct Entries {
 }
 
 impl Entries {
+    /// No values yet for the overworld chunk (`x`, `z`).
     pub(crate) fn new(x: i32, z: i32) -> Self {
         Self {
             x,
@@ -244,19 +248,19 @@ pub(crate) enum Layer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LegacyLayer {
     /// The block ids.
-    pub(crate) ids: Box<[u8; 4096]>,
+    pub(crate) ids: Box<[u8; BLOCKS]>,
     /// The meta values, two per byte: offset `i` in byte `i >> 1`, the low nibble for even `i`.
-    pub(crate) meta: Box<[u8; 2048]>,
+    pub(crate) meta: Box<[u8; BLOCKS / 2]>,
 }
 
 impl LegacyLayer {
-    /// The id and meta (0 to 15) of the block at `offset`, taken modulo 4,096.
+    /// The id and meta (0 to 15) of the block at `offset`, taken modulo the blocks of a layer.
     #[expect(
         clippy::indexing_slicing,
-        reason = "invariant: the offset is masked below the arrays' lengths"
+        reason = "invariant: the offset is reduced below the arrays' lengths"
     )]
     pub(crate) fn get(&self, offset: u16) -> (u8, u8) {
-        let i = usize::from(offset & 0xfff);
+        let i = usize::from(offset) % BLOCKS;
         (self.ids[i], self.meta[i >> 1] >> ((i & 1) * 4) & 0xf)
     }
 }
@@ -439,7 +443,7 @@ fn terrain(
     Ok(sections)
 }
 
-/// Legacy terrain: eight legacy sub-chunks from y 0.
+/// Legacy terrain: [`LEGACY_TERRAIN_SUB_CHUNKS`] legacy sub-chunks from y 0.
 #[expect(
     clippy::indexing_slicing,
     reason = "invariant: the length is checked first and every index is below its array's length"
@@ -450,11 +454,11 @@ fn legacy_terrain(value: &[u8]) -> Result<Vec<Section>> {
     }
     let ids = &value[..LEGACY_IDS_BYTES];
     let meta = &value[LEGACY_IDS_BYTES..LEGACY_IDS_BYTES + LEGACY_META_BYTES];
-    let mut sections = Vec::with_capacity(8);
-    for (sy, section_y) in (0..8_usize).zip(0_i8..) {
+    let mut sections = Vec::with_capacity(LEGACY_TERRAIN_SUB_CHUNKS);
+    for (sy, section_y) in (0..LEGACY_TERRAIN_SUB_CHUNKS).zip(0_i8..) {
         let mut layer = LegacyLayer {
-            ids: Box::new([0; 4096]),
-            meta: Box::new([0; 2048]),
+            ids: Box::new([0; BLOCKS]),
+            meta: Box::new([0; BLOCKS / 2]),
         };
         for x in 0..16_usize {
             for z in 0..16_usize {
@@ -525,12 +529,12 @@ fn section(value: &[u8], key_y: i8, y: i8, budget: &mut usize) -> Result<Section
 /// The first 6,144 bytes of a legacy sub-chunk body: ids and meta.
 fn legacy_layer(body: &[u8]) -> Result<LegacyLayer> {
     let ids = body
-        .get(..4096)
-        .and_then(|b| <[u8; 4096]>::try_from(b).ok())
+        .get(..BLOCKS)
+        .and_then(|b| <[u8; BLOCKS]>::try_from(b).ok())
         .ok_or(Error::Malformed("legacy sub-chunk length"))?;
     let meta = body
-        .get(4096..LEGACY_SECTION_BYTES)
-        .and_then(|b| <[u8; 2048]>::try_from(b).ok())
+        .get(BLOCKS..LEGACY_SECTION_BYTES)
+        .and_then(|b| <[u8; BLOCKS / 2]>::try_from(b).ok())
         .ok_or(Error::Malformed("legacy sub-chunk length"))?;
     Ok(LegacyLayer {
         ids: Box::new(ids),
@@ -547,6 +551,11 @@ fn block_layer(r: &mut Reader<'_>) -> Result<BlockLayer> {
     let words = packed(r, bits)?;
     // The palette length: 1 without a length for 0 bits.
     let len = if bits == 0 {
+        // Some worlds write the length 1 there too; an entry starts with its compound tag, which
+        // is not the length's first byte.
+        if r.remaining().starts_with(&1_i32.to_le_bytes()) {
+            r.int32().map_err(short)?;
+        }
         1
     } else {
         usize::try_from(r.int32().map_err(short)?)

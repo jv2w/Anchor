@@ -1,5 +1,4 @@
-//! The actions of a player's survival, place and connection: damage, game mode, chat, teleport,
-//! kick, transfer.
+//! Actions on a player: damage, game mode, chat, teleport, kick and transfer.
 
 use super::{Action, Sealed};
 use crate::config::GameMode;
@@ -8,9 +7,10 @@ use crate::math::Vec3;
 use crate::tick::Context;
 use crate::{player, world};
 
-/// A player says something in chat as if it had typed it: the chat limits
-/// apply (2 lines a tick, 512 bytes a line), a line starting with `/` runs as its command,
-/// and each other line raises [`PlayerChat`](crate::event::PlayerChat).
+/// A player says something in chat as if it had typed it.
+///
+/// The chat limits apply (2 lines a tick, 512 bytes a line), a line starting with `/` runs as
+/// its command, and each other line raises [`PlayerChat`](crate::event::PlayerChat).
 #[doc(alias = "Player::chat")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chat {
@@ -36,11 +36,13 @@ impl Sealed for Chat {
     }
 }
 
-/// Damage to a player as the game would deal it: its armour, effects, enchantments, invulnerability and game mode count
-/// (except for [`DamageCause::Suicide`], which skips them), the
-/// [`EntityDamage`](crate::event::EntityDamage) listeners decide, and a death raises
-/// [`PlayerDeath`](crate::event::PlayerDeath). A player in the source is the attacker: its
-/// Strength adds damage, the player is knocked back from it, and thorns answer the hit.
+/// Damage to a player as the game would deal it.
+///
+/// Its armour, effects, enchantments, invulnerability and game mode count (except for
+/// [`DamageCause::Suicide`], which skips them), the [`EntityDamage`](crate::event::EntityDamage)
+/// listeners decide, and a death raises [`PlayerDeath`](crate::event::PlayerDeath). A player in
+/// the source is the attacker: its Strength adds damage, the player is knocked back from it, and
+/// thorns answer the hit.
 /// `/kill` deals no damage: it calls [`Player::kill`](crate::player::Player::kill).
 #[doc(alias = "Entity::attack")]
 #[doc(alias = "Living::attack")]
@@ -54,9 +56,10 @@ pub struct Damage {
 }
 
 impl Damage {
-    /// `amount` damage (half hearts, before the modifiers) to `player` for `cause`, from no source
-    /// in particular. An amount that is negative, not finite or above
-    /// [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) does nothing.
+    /// `amount` damage to `player` for `cause`, from no source in particular.
+    ///
+    /// The amount is in half hearts, before the modifiers. An amount that is negative, not
+    /// finite or above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) does nothing.
     pub fn new(player: player::Id, amount: f64, cause: DamageCause) -> Self {
         Self {
             player,
@@ -81,8 +84,9 @@ impl Sealed for Damage {
     }
 }
 
-/// A kick of a player as the game would do it: the
-/// [`PlayerKick`](crate::event::PlayerKick) listeners may keep it or change the messages; it
+/// A kick of a player as the game would do it.
+///
+/// The [`PlayerKick`](crate::event::PlayerKick) listeners may keep it or change the messages; it
 /// leaves at the end of the tick, raising [`PlayerQuit`](crate::event::PlayerQuit). Nothing
 /// happens if the player is gone or already leaving, a text is longer than 65,536 bytes, or a
 /// listener cancels it. [`Player::kick`](crate::player::Player::kick) kicks without asking.
@@ -96,8 +100,10 @@ pub struct Kick {
 }
 
 impl Kick {
-    /// A kick of `player` with `reason` for the log and its screen (the client's "disconnected"
-    /// text when empty); the other players see that it left the game.
+    /// A kick of `player` with `reason`.
+    ///
+    /// The reason goes to the log and the player's screen (the client's "disconnected" text when
+    /// empty); the other players see that it left the game.
     pub fn new(player: player::Id, reason: impl Into<String>) -> Self {
         Self {
             player,
@@ -139,9 +145,11 @@ impl Sealed for Kick {
     }
 }
 
-/// A change of a player's game mode as the game would make it: the
-/// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listeners may keep the old one.
-/// [`Player::set_game_mode`](crate::player::Player::set_game_mode) changes it without asking.
+/// A change of a player's game mode as the game would make it.
+///
+/// The [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listeners may keep the old
+/// one. [`Player::set_game_mode`](crate::player::Player::set_game_mode) changes it without
+/// asking.
 #[doc(alias = "Player::setGamemode")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetGameMode {
@@ -164,9 +172,10 @@ impl Sealed for SetGameMode {
     }
 }
 
-/// A teleport of a player as the game would do it: the
-/// [`EntityTeleport`](crate::event::EntityTeleport) listeners may keep it where it is or send it
-/// elsewhere. [`Context::teleport`] moves it without asking.
+/// A teleport of a player as the game would do it.
+///
+/// The [`EntityTeleport`](crate::event::EntityTeleport) listeners may keep it where it is or
+/// send it elsewhere. [`Context::teleport`] moves it without asking.
 #[doc(alias = "Entity::teleport")]
 #[doc(alias = "Player::teleport")]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -178,8 +187,9 @@ pub struct Teleport {
 }
 
 impl Teleport {
-    /// A teleport of `player`'s feet to `feet` in `world`; nothing where [`Context::teleport`]
-    /// fails.
+    /// A teleport of `player`'s feet to `feet` in `world`.
+    ///
+    /// It does nothing where [`Context::teleport`] fails.
     pub fn new(player: player::Id, world: world::Id, feet: Vec3) -> Self {
         Self {
             player,
@@ -206,8 +216,9 @@ impl Sealed for Teleport {
     }
 }
 
-/// A transfer of a player to another server as the game would do it:
-/// the [`PlayerTransfer`](crate::event::PlayerTransfer) listeners may keep it or change where it
+/// A transfer of a player to another server as the game would do it.
+///
+/// The [`PlayerTransfer`](crate::event::PlayerTransfer) listeners may keep it or change where it
 /// goes; it leaves at the end of the tick, raising [`PlayerQuit`](crate::event::PlayerQuit).
 /// Nothing happens if the player is gone or already leaving, the address is empty or longer than
 /// 253 bytes, a text is longer than 65,536 bytes, or a listener cancels it.

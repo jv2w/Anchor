@@ -141,7 +141,7 @@ mod tests {
     }
 
     fn play_sound(state: &mut State, at: Vec3) {
-        sound(state, 0, at, Sound::AnvilBreak);
+        sound(state, 0, at, Sound::Explode);
     }
 
     fn play_particle(state: &mut State, at: Vec3) {

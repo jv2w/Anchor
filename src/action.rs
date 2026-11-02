@@ -1,9 +1,11 @@
-//! Actions: things a player or the game does, done on request through the game rules so that
-//! their events are raised. [`Context::perform`](crate::Context::perform)
-//! takes one.
+//! Actions: what a player or the game does, done on request through the game rules.
+//!
+//! [`Context::perform`](crate::Context::perform) takes one and raises its events.
 //!
 //! The direct API (for example [`Player`](crate::player::Player) setters) changes the game
-//! without events; an action goes the way the game itself would, events and all.
+//! without events; an action goes the way the game itself would, events and all. An action is
+//! queued and checks its conditions when it runs, so one that fails does nothing and reports
+//! nothing.
 
 mod entity;
 mod interact;
@@ -26,14 +28,15 @@ pub use survival::{Chat, Damage, Kick, SetGameMode, Teleport, Transfer};
 
 use std::fmt;
 
-/// An action [`Context::perform`](crate::Context::perform) can do. Only Anchor's actions
-/// implement it.
+/// An action [`Context::perform`](crate::Context::perform) can do.
+///
+/// Only Anchor's actions implement it.
 pub trait Action: Sealed + Send + 'static {}
 
 /// Why an action or a deferred callback was not queued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// The deferred queue is full (4,096 callbacks wait), so nothing was queued.
+    /// The deferred queue is full, so nothing was queued.
     Full,
 }
 

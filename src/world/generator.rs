@@ -28,7 +28,8 @@ pub trait Generator: Send + Sync + 'static {
     #[doc(alias = "Generator::generateChunk")]
     fn generate(&self, seed: i64, pos: ChunkPos, chunk: &mut Chunk);
 
-    /// Where players appear in a new world made with `seed`. The default is x 0, y 64, z 0.
+    /// Where players appear in a new world made with `seed`. The default is x 0, y 64, z 0. A spawn
+    /// outside the world border is refused when the world is made.
     fn spawn(&self, _seed: i64) -> BlockPos {
         BlockPos::new(0, 64, 0)
     }

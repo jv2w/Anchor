@@ -931,7 +931,7 @@ pub(crate) fn dump(db: &mut Db) -> String {
 }
 
 #[test]
-fn the_bds_fixture_reads_like_goleveldb() {
+fn the_official_server_fixture_reads_like_goleveldb() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("xtask/data/import");
     let mut db = Db::open(root.join("flat")).unwrap();
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]

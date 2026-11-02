@@ -145,15 +145,11 @@ impl Engine {
     /// There is none if the chunk is not loaded or not lit yet, or `pos` is outside the world
     /// height. With [`Mode::Fixed`], block light is 0 and sky light the fixed level.
     pub(crate) fn light(&self, chunks: &Chunks, pos: BlockPos, channel: Channel) -> Option<u8> {
-        let spot = Spot::of(pos)?;
-        let chunk = chunks.get(spot.chunk)?;
-        if let Mode::Fixed(level) = self.mode {
-            return Some(match channel {
-                Channel::Block => 0,
-                Channel::Sky => level,
-            });
-        }
-        Some(chunk.light()?.get(channel, spot.sub, spot.at))
+        let (block, sky) = self.lights(chunks, pos)?;
+        Some(match channel {
+            Channel::Block => block,
+            Channel::Sky => sky,
+        })
     }
 
     /// The block light and the sky light at `pos`, from one lookup of the chunk, or `None` where
@@ -322,7 +318,8 @@ impl Engine {
     /// Takes in a chunk just put at `pos`.
     ///
     /// Its light is connected to its lit neighbours, or it is lit on the tick if it came without
-    /// light.
+    /// light (a chunk put back from memory before its commit). That work is bounded by the
+    /// budget of [`Self::step`] per tick.
     pub(crate) fn loaded(&mut self, chunks: &mut Chunks, pos: ChunkPos) {
         let Some(chunk) = chunks.get_mut(pos) else {
             return;
@@ -432,6 +429,11 @@ impl Engine {
                 .light()?
                 .get(channel, spot.sub, spot.at),
         )
+    }
+
+    /// Whether the chunk at `pos` is loaded and has light.
+    fn has_light(chunks: &Chunks, pos: ChunkPos) -> bool {
+        chunks.get(pos).is_some_and(|chunk| chunk.light().is_some())
     }
 
     /// Whether neither of two chunks can light the other through sub-chunk `sub`.
@@ -697,11 +699,7 @@ impl Engine {
                 let lit_beside = Facing::ALL
                     .into_iter()
                     .filter_map(|side| beside(pos, side))
-                    .any(|other| {
-                        chunks
-                            .get(other)
-                            .is_some_and(|chunk| chunk.light().is_some())
-                    });
+                    .any(|other| Self::has_light(chunks, other));
                 if lit_beside && self.retired.len() >= self.limits.retired {
                     // Wait behind the other tasks for a retired slot.
                     self.add_task(pos, Kind::Reset, Task::Reset(pos));
@@ -769,8 +767,7 @@ impl Engine {
         let Some(other) = beside(pos, side) else {
             return true;
         };
-        let is_lit = |pos| chunks.get(pos).is_some_and(|chunk| chunk.light().is_some());
-        if !is_lit(pos) || !is_lit(other) {
+        if !Self::has_light(chunks, pos) || !Self::has_light(chunks, other) {
             return true;
         }
         while *left > 0 && self.is_queue_empty() {
@@ -815,11 +812,7 @@ impl Engine {
     /// Queues spreading across each face between the chunk at `pos` and a lit neighbour.
     fn connect(&mut self, chunks: &Chunks, pos: ChunkPos) {
         for side in Facing::ALL {
-            if beside(pos, side).is_some_and(|other| {
-                chunks
-                    .get(other)
-                    .is_some_and(|chunk| chunk.light().is_some())
-            }) {
+            if beside(pos, side).is_some_and(|other| Self::has_light(chunks, other)) {
                 self.add_task(pos, Kind::Border(side.bit()), Task::Border(pos, side, 0));
             }
         }
@@ -830,13 +823,8 @@ impl Engine {
     /// With no lit neighbour it is dropped; with too many chunks retiring, the neighbours are lit
     /// again instead.
     fn retire(&mut self, chunks: &Chunks, pos: ChunkPos, light: Box<Levels>) {
-        let lit = Facing::ALL.map(|side| {
-            beside(pos, side).filter(|&other| {
-                chunks
-                    .get(other)
-                    .is_some_and(|chunk| chunk.light().is_some())
-            })
-        });
+        let lit = Facing::ALL
+            .map(|side| beside(pos, side).filter(|&other| Self::has_light(chunks, other)));
         if lit.iter().all(Option::is_none) {
             return;
         }
@@ -959,7 +947,7 @@ impl Engine {
 
     /// Marks a lit chunk to be lit again from scratch: work about it did not fit a queue.
     fn reset(&mut self, chunks: &Chunks, pos: ChunkPos) {
-        if chunks.get(pos).is_some_and(|chunk| chunk.light().is_some()) {
+        if Self::has_light(chunks, pos) {
             self.add_task(pos, Kind::Reset, Task::Reset(pos));
         }
     }

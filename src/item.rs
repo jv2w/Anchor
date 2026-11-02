@@ -38,10 +38,6 @@ use crate::protocol::{self, ItemType, packet};
 /// The data of a custom block's item: a plain block item.
 static CUSTOM_BLOCK_ITEM: Info = Info::custom(MAX_STACK, 0, 1, None);
 
-/// The ticks eating a custom food takes (1.6 seconds); its clients are sent it as the item's
-/// `use_duration`.
-const CUSTOM_EAT_TICKS: u16 = 32;
-
 /// The dye colours by dye colour ID (white 0 … black 15): the dye item's name and the colour's
 /// RGB value.
 const DYES: [(&str, u32); 16] = [
@@ -159,31 +155,6 @@ pub const TRIM_PATTERNS: [&str; 18] = [
 pub struct Type(Repr);
 
 impl Type {
-    /// The type with this table index. Only generated tables call it, with indices of the item
-    /// table.
-    #[inline]
-    pub(crate) const fn from_index(index: u16) -> Self {
-        Self(Repr::Vanilla(index))
-    }
-
-    /// The registered custom item `item` with the runtime ID the server gave it. Only the custom
-    /// registry calls it.
-    pub(crate) const fn from_custom_item(item: &'static custom::Item, runtime_id: i16) -> Self {
-        Self(Repr::Item(item, runtime_id))
-    }
-
-    /// The item of the registered custom block `block`, with the runtime ID the server gave it.
-    /// Only the custom registry and the block's states call it, for blocks it has checked.
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: a checked custom block has at least one state"
-    )]
-    pub(crate) fn from_custom_block(block: &'static custom::Block, runtime_id: i16) -> Self {
-        let placed =
-            block::State::custom(block, 0, runtime_id).expect("a checked block has a state 0");
-        Self(Repr::Block(block, runtime_id, placed.network_id()))
-    }
-
     /// The item type named `name` (with or without `minecraft:`): the default type of an item
     /// kind, or the item of a block kind's default state. `None` for a name Anchor does not know;
     /// a custom item or block is found by [`Context::custom_item`](crate::Context::custom_item)
@@ -198,6 +169,24 @@ impl Type {
         let i = kinds.binary_search_by(|k| k.name().cmp(name)).ok()?;
         let state = kinds.get(i)?.default_state();
         Self::from_name(state.name(), 0, Some(state), &nbt::Compound::new())
+    }
+
+    /// The item of the registered custom block `block`, with the runtime ID the server gave it.
+    /// Only the custom registry and the block's states call it, for blocks it has checked.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a checked custom block has at least one state"
+    )]
+    pub(crate) fn from_custom_block(block: &'static custom::Block, runtime_id: i16) -> Self {
+        let placed =
+            block::State::custom(block, 0, runtime_id).expect("a checked block has a state 0");
+        Self(Repr::Block(block, runtime_id, placed.network_id()))
+    }
+
+    /// The registered custom item `item` with the runtime ID the server gave it. Only the custom
+    /// registry calls it.
+    pub(crate) const fn from_custom_item(item: &'static custom::Item, runtime_id: i16) -> Self {
+        Self(Repr::Item(item, runtime_id))
     }
 
     /// The type of an item in saved Bedrock form: its name, meta, the block state of a block item
@@ -233,26 +222,6 @@ impl Type {
         }
     }
 
-    /// The type of an item in network form, as a client sends it: runtime ID, meta, the network
-    /// ID of the block a block item is sent with (0 for others) and the stack NBT. The rules are
-    /// those of [`Type::from_name`]; a meta beyond 16 bits matches only as stack state.
-    #[doc(alias = "ItemTranslator::fromNetworkId")]
-    pub fn from_network(
-        runtime_id: i32,
-        meta: u32,
-        block_runtime_id: i32,
-        nbt: &nbt::Compound,
-    ) -> Option<Self> {
-        let runtime_id = i16::try_from(runtime_id).ok()?;
-        let block = block_runtime_id.cast_unsigned();
-        Self::lookup(
-            Self::rows(runtime_id),
-            |e| e.1 == block,
-            u16::try_from(meta).ok(),
-            nbt,
-        )
-    }
-
     /// The inverse of [`network_stack`] for tests: [`Type::from_network`] with the block, else
     /// the one type of the runtime ID and meta with any block; `None` if several types could be
     /// meant.
@@ -279,54 +248,42 @@ impl Type {
         })
     }
 
-    /// The custom item this is, `None` for any other type.
-    #[inline]
-    pub fn custom_item(self) -> Option<&'static custom::Item> {
-        match self.0 {
-            Repr::Item(item, _) => Some(item),
-            Repr::Vanilla(_) | Repr::Block(..) => None,
-        }
+    /// The type of an item in network form, as a client sends it: runtime ID, meta, the network
+    /// ID of the block a block item is sent with (0 for others) and the stack NBT. The rules are
+    /// those of [`Type::from_name`]; a meta beyond 16 bits matches only as stack state.
+    #[doc(alias = "ItemTranslator::fromNetworkId")]
+    pub fn from_network(
+        runtime_id: i32,
+        meta: u32,
+        block_runtime_id: i32,
+        nbt: &nbt::Compound,
+    ) -> Option<Self> {
+        let runtime_id = i16::try_from(runtime_id).ok()?;
+        let block = block_runtime_id.cast_unsigned();
+        Self::lookup(
+            Self::rows(runtime_id),
+            |e| e.1 == block,
+            u16::try_from(meta).ok(),
+            nbt,
+        )
     }
 
-    /// The custom block this is the item of, `None` for any other type.
+    /// The type with this table index. Only generated tables call it, with indices of the item
+    /// table.
     #[inline]
-    pub fn custom_block(self) -> Option<&'static custom::Block> {
-        match self.0 {
-            Repr::Block(block, ..) => Some(block),
-            Repr::Vanilla(_) | Repr::Item(..) => None,
-        }
+    pub(crate) const fn from_index(index: u16) -> Self {
+        Self(Repr::Vanilla(index))
     }
 
-    /// The Bedrock item name, such as `minecraft:stick`, or a custom item's or block's
-    /// identifier.
-    #[inline]
-    pub fn name(self) -> &'static str {
-        match self.0 {
-            Repr::Vanilla(i) => Self::data(i).name,
-            Repr::Item(item, _) => item.identifier(),
-            Repr::Block(block, ..) => block.identifier(),
-        }
+    /// What the item is as armour.
+    pub fn armor(self) -> Option<Armor> {
+        self.info().armor
     }
 
-    /// The meta (damage) value that tells apart types sharing a name, such as potion kinds; 0
-    /// for custom types.
-    #[inline]
-    pub fn meta(self) -> u16 {
-        match self.0 {
-            Repr::Vanilla(i) => Self::data(i).meta,
-            Repr::Item(..) | Repr::Block(..) => 0,
-        }
-    }
-
-    /// The block state of a block item's saved form, which tells apart the types of one item
-    /// name; `None` for items without a block. The state placing the item puts down is
-    /// [`Type::placed_block`] (a bamboo item places a bamboo sapling).
-    pub fn block(self) -> Option<block::State> {
-        match self.0 {
-            Repr::Vanilla(i) => Self::data(i).block,
-            Repr::Item(..) => None,
-            Repr::Block(block, runtime_id, _) => block::State::custom(block, 0, runtime_id),
-        }
+    /// The damage a hit with the item deals (1 for items that are not weapons).
+    #[doc(alias = "Item::getAttackPoints")]
+    pub fn attack_points(self) -> u8 {
+        self.info().attack_points
     }
 
     /// The network ID of the block state a block item is sent with, 0 for other items. It is the
@@ -341,30 +298,72 @@ impl Type {
         }
     }
 
-    /// The network runtime ID of the name in the supported version; for a custom type, the one
-    /// the server gave it (after every vanilla runtime ID, in registration order).
+    /// The harvest level the item has as a tool (0 for other items).
+    #[doc(alias = "Item::getBlockToolHarvestLevel")]
+    pub fn block_tool_harvest_level(self) -> u8 {
+        self.info().harvest_level
+    }
+
+    /// The block tool types the item counts as.
+    #[doc(alias = "Item::getBlockToolType")]
     #[inline]
-    pub fn runtime_id(self) -> i16 {
+    pub fn block_tool_type(self) -> ToolType {
+        self.info().tool_type
+    }
+
+    /// The item class, such as [`Class::Sword`].
+    #[inline]
+    pub fn class(self) -> Class {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every class chain ends with `Class::Item`, so none is empty"
+        )]
+        self.classes()[0]
+    }
+
+    /// What consuming the item leaves and does.
+    pub fn consumable(self) -> Option<Consumable> {
+        self.info().consumable
+    }
+
+    /// The cooldown after using the item.
+    pub fn cooldown(self) -> Option<Cooldown> {
+        self.info().cooldown
+    }
+
+    /// The custom block this is the item of, `None` for any other type.
+    #[inline]
+    pub fn custom_block(self) -> Option<&'static custom::Block> {
         match self.0 {
-            Repr::Vanilla(i) => Self::data(i).runtime_id,
-            Repr::Item(_, id) | Repr::Block(_, id, _) => id,
+            Repr::Block(block, ..) => Some(block),
+            Repr::Vanilla(_) | Repr::Item(..) => None,
         }
     }
 
-    /// NBT that is part of the type rather than of a stack, such as an ominous banner's `Type`.
-    pub(crate) fn nbt(self) -> Option<StaticCompound> {
+    /// The custom item this is, `None` for any other type.
+    #[inline]
+    pub fn custom_item(self) -> Option<&'static custom::Item> {
         match self.0 {
-            Repr::Vanilla(i) => Self::data(i).nbt,
-            Repr::Item(..) | Repr::Block(..) => None,
+            Repr::Item(item, _) => Some(item),
+            Repr::Vanilla(_) | Repr::Block(..) => None,
         }
     }
 
-    /// The item kind; `None` for block items, whose block state has a [`block::Kind`], and for
-    /// custom items.
-    #[doc(alias = "Item::getTypeId")]
+    /// The armour points the item gives when worn.
+    #[doc(alias = "Item::getDefensePoints")]
+    pub fn defense_points(self) -> u8 {
+        self.info().defense_points
+    }
+
+    /// What eating the item restores.
+    pub fn food(self) -> Option<Food> {
+        self.info().food
+    }
+
+    /// Whether the item is of the class or a subclass of it.
     #[inline]
-    pub fn kind(self) -> Option<Kind> {
-        self.info().kind
+    pub fn is(self, class: Class) -> bool {
+        self.classes().contains(&class)
     }
 
     /// The item class and its parents, leaf first, ending with [`Class::Item`].
@@ -386,27 +385,19 @@ impl Type {
         }
     }
 
-    /// The item class, such as [`Class::Sword`].
+    /// Whether the item survives fire and lava as a dropped item.
+    #[doc(alias = "Item::isFireProof")]
     #[inline]
-    pub fn class(self) -> Class {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: every class chain ends with `Class::Item`, so none is empty"
-        )]
-        self.classes()[0]
+    pub fn is_fire_proof(self) -> bool {
+        self.info().fire_proof
     }
 
-    /// Whether the item is of the class or a subclass of it.
+    /// The item kind; `None` for block items, whose block state has a [`block::Kind`], and for
+    /// custom items.
+    #[doc(alias = "Item::getTypeId")]
     #[inline]
-    pub fn is(self, class: Class) -> bool {
-        self.classes().contains(&class)
-    }
-
-    /// The most items a stack holds.
-    #[doc(alias = "Item::getMaxStackSize")]
-    #[inline]
-    pub fn max_stack_size(self) -> u8 {
-        self.info().max_stack
+    pub fn kind(self) -> Option<Kind> {
+        self.info().kind
     }
 
     /// The durability of a new item; `None` for items that do not wear.
@@ -416,36 +407,21 @@ impl Type {
         Some(self.info().max_durability).filter(|d| *d > 0)
     }
 
-    /// Whether the item survives fire and lava as a dropped item.
-    #[doc(alias = "Item::isFireProof")]
+    /// The most items a stack holds.
+    #[doc(alias = "Item::getMaxStackSize")]
     #[inline]
-    pub fn is_fire_proof(self) -> bool {
-        self.info().fire_proof
+    pub fn max_stack_size(self) -> u8 {
+        self.info().max_stack
     }
 
-    /// The damage a hit with the item deals (1 for items that are not weapons).
-    #[doc(alias = "Item::getAttackPoints")]
-    pub fn attack_points(self) -> u8 {
-        self.info().attack_points
-    }
-
-    /// The armour points the item gives when worn.
-    #[doc(alias = "Item::getDefensePoints")]
-    pub fn defense_points(self) -> u8 {
-        self.info().defense_points
-    }
-
-    /// The block tool types the item counts as.
-    #[doc(alias = "Item::getBlockToolType")]
+    /// The meta (damage) value that tells apart types sharing a name, such as potion kinds; 0
+    /// for custom types.
     #[inline]
-    pub fn block_tool_type(self) -> ToolType {
-        self.info().tool_type
-    }
-
-    /// The harvest level the item has as a tool (0 for other items).
-    #[doc(alias = "Item::getBlockToolHarvestLevel")]
-    pub fn block_tool_harvest_level(self) -> u8 {
-        self.info().harvest_level
+    pub fn meta(self) -> u16 {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).meta,
+            Repr::Item(..) | Repr::Block(..) => 0,
+        }
     }
 
     /// The mining efficiency on blocks of its tool type, before an Efficiency enchantment (1 for
@@ -455,42 +431,23 @@ impl Type {
         self.info().efficiency
     }
 
-    /// What the item is as armour.
-    pub fn armor(self) -> Option<Armor> {
-        self.info().armor
+    /// The Bedrock item name, such as `minecraft:stick`, or a custom item's or block's
+    /// identifier.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).name,
+            Repr::Item(item, _) => item.identifier(),
+            Repr::Block(block, ..) => block.identifier(),
+        }
     }
 
-    /// What eating the item restores.
-    pub fn food(self) -> Option<Food> {
-        self.info().food
-    }
-
-    /// What consuming the item leaves and does.
-    pub fn consumable(self) -> Option<Consumable> {
-        self.info().consumable
-    }
-
-    /// The ticks the client takes to eat or drink one (the `use_duration` of the item data it
-    /// is sent); 0 for items not consumed.
-    pub(crate) fn use_ticks(self) -> u16 {
-        self.info().use_ticks
-    }
-
-    /// The cooldown after using the item.
-    pub fn cooldown(self) -> Option<Cooldown> {
-        self.info().cooldown
-    }
-
-    /// The speed a thrown item leaves with (snowballs, potions, pearls).
-    #[doc(alias = "ProjectileItem::getThrowForce")]
-    pub fn throw_force(self) -> Option<f64> {
-        self.info().throw_force
-    }
-
-    /// The potion type a potion, splash potion or lingering potion holds.
-    #[doc(alias = "Potion::getType")]
-    pub fn potion(self) -> Option<effect::Potion> {
-        self.info().potion
+    /// NBT that is part of the type rather than of a stack, such as an ominous banner's `Type`.
+    pub(crate) fn nbt(self) -> Option<StaticCompound> {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).nbt,
+            Repr::Item(..) | Repr::Block(..) => None,
+        }
     }
 
     /// The block state placing the item on the `clicked` face of a block puts down, before the
@@ -519,6 +476,45 @@ impl Type {
         }
     }
 
+    /// The block state of a block item's saved form, which tells apart the types of one item
+    /// name; `None` for items without a block. The state placing the item puts down is
+    /// [`Type::placed_block`] (a bamboo item places a bamboo sapling).
+    pub fn block(self) -> Option<block::State> {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).block,
+            Repr::Item(..) => None,
+            Repr::Block(block, runtime_id, _) => block::State::custom(block, 0, runtime_id),
+        }
+    }
+
+    /// The potion type a potion, splash potion or lingering potion holds.
+    #[doc(alias = "Potion::getType")]
+    pub fn potion(self) -> Option<effect::Potion> {
+        self.info().potion
+    }
+
+    /// The network runtime ID of the name in the supported version; for a custom type, the one
+    /// the server gave it (after every vanilla runtime ID, in registration order).
+    #[inline]
+    pub fn runtime_id(self) -> i16 {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).runtime_id,
+            Repr::Item(_, id) | Repr::Block(_, id, _) => id,
+        }
+    }
+
+    /// The speed a thrown item leaves with (snowballs, potions, pearls).
+    #[doc(alias = "ProjectileItem::getThrowForce")]
+    pub fn throw_force(self) -> Option<f64> {
+        self.info().throw_force
+    }
+
+    /// The ticks the client takes to eat or drink one (the `use_duration` of the item data it
+    /// is sent); 0 for items not consumed.
+    pub(crate) fn use_ticks(self) -> u16 {
+        self.info().use_ticks
+    }
+
     /// The item table row at `index`.
     #[inline]
     fn data(index: u16) -> &'static Data {
@@ -545,12 +541,6 @@ impl Type {
             Repr::Item(item, _) => item.info(),
             Repr::Block(..) => &CUSTOM_BLOCK_ITEM,
         }
-    }
-
-    /// The rows of [`table::BY_NETWORK`] with this runtime ID. A runtime ID has few types (at
-    /// most the kinds of potion), so the scans over them are short.
-    fn rows(runtime_id: i16) -> &'static [(i16, u32, u16, u16)] {
-        equal_range(&table::BY_NETWORK, |e| e.0.cmp(&runtime_id))
     }
 
     /// The lookup rules of [`Type::from_name`] among the `rows` of a runtime ID that `block`
@@ -585,6 +575,12 @@ impl Type {
                 .max_by_key(|e| Self::from_index(e.3).nbt().map_or(0, <[_]>::len))?,
         };
         Some(Self::from_index(found.3))
+    }
+
+    /// The rows of [`table::BY_NETWORK`] with this runtime ID. A runtime ID has few types (at
+    /// most the kinds of potion), so the scans over them are short.
+    fn rows(runtime_id: i16) -> &'static [(i16, u32, u16, u16)] {
+        equal_range(&table::BY_NETWORK, |e| e.0.cmp(&runtime_id))
     }
 }
 
@@ -714,6 +710,10 @@ pub(crate) struct Info {
 }
 
 impl Info {
+    /// The ticks eating a custom food takes (1.6 seconds); its clients are sent it as the item's
+    /// `use_duration`.
+    const CUSTOM_EAT_TICKS: u16 = 32;
+
     /// The row of a custom item with this stack size, durability (0: none), attack damage and
     /// food. A food item is consumed whole, leaving nothing, with no effects.
     pub(crate) const fn custom(
@@ -741,16 +741,21 @@ impl Info {
             } else {
                 None
             },
-            use_ticks: if edible { CUSTOM_EAT_TICKS } else { 0 },
+            use_ticks: if edible { Self::CUSTOM_EAT_TICKS } else { 0 },
             cooldown: None,
             throw_force: None,
             potion: None,
         }
     }
 
-    /// The most items a stack holds.
-    pub(crate) const fn max_stack(&self) -> u8 {
-        self.max_stack
+    /// The damage of a hit.
+    pub(crate) const fn attack_points(&self) -> u8 {
+        self.attack_points
+    }
+
+    /// What eating restores.
+    pub(crate) const fn food(&self) -> Option<Food> {
+        self.food
     }
 
     /// The durability; 0 for none.
@@ -759,19 +764,14 @@ impl Info {
         self.max_durability
     }
 
-    /// What eating restores.
-    pub(crate) const fn food(&self) -> Option<Food> {
-        self.food
+    /// The most items a stack holds.
+    pub(crate) const fn max_stack(&self) -> u8 {
+        self.max_stack
     }
 
     /// The ticks eating or drinking one takes; 0 for items not consumed.
     pub(crate) const fn use_ticks(&self) -> u16 {
         self.use_ticks
-    }
-
-    /// The damage of a hit.
-    pub(crate) const fn attack_points(&self) -> u8 {
-        self.attack_points
     }
 }
 
@@ -863,16 +863,16 @@ impl Food {
         self.points
     }
 
-    /// The saturation restored.
-    #[doc(alias = "FoodSource::getSaturationRestore")]
-    pub fn saturation_restore(self) -> f64 {
-        self.saturation
-    }
-
     /// Whether the player must be hungry to eat it.
     #[doc(alias = "FoodSource::requiresHunger")]
     pub fn requires_food(self) -> bool {
         self.only_below_full
+    }
+
+    /// The saturation restored.
+    #[doc(alias = "FoodSource::getSaturationRestore")]
+    pub fn saturation_restore(self) -> f64 {
+        self.saturation
     }
 }
 
@@ -891,12 +891,6 @@ impl Consumable {
         Self { residue, effects }
     }
 
-    /// The item left after consuming one (a bowl, a glass bottle).
-    #[doc(alias = "ConsumableItem::getResidue")]
-    pub fn residue(self) -> Option<Type> {
-        self.residue
-    }
-
     /// The effects consuming one gives; `None` if they are drawn at random (a poisonous potato
     /// poisons six times in ten), which the eating rules work out.
     #[doc(alias = "Consumable::getAdditionalEffects")]
@@ -908,6 +902,12 @@ impl Consumable {
             reason = "invariant: the generator writes effect ranges inside the effect table"
         )]
         Some(&table::CONSUME_EFFECTS[start..start + usize::from(count)])
+    }
+
+    /// The item left after consuming one (a bowl, a glass bottle).
+    #[doc(alias = "ConsumableItem::getResidue")]
+    pub fn residue(self) -> Option<Type> {
+        self.residue
     }
 }
 
@@ -923,16 +923,16 @@ impl Cooldown {
         Self { ticks, tag }
     }
 
-    /// The cooldown in ticks.
-    #[doc(alias = "Item::getCooldownTicks")]
-    pub fn ticks(self) -> u16 {
-        self.ticks
-    }
-
     /// The tag items sharing the cooldown have; `None`: the item type alone.
     #[doc(alias = "Item::getCooldownTag")]
     pub fn tag(self) -> Option<&'static str> {
         self.tag
+    }
+
+    /// The cooldown in ticks.
+    #[doc(alias = "Item::getCooldownTicks")]
+    pub fn ticks(self) -> u16 {
+        self.ticks
     }
 }
 
@@ -978,6 +978,11 @@ impl StaticStack {
         Self { item, meta, nbt }
     }
 
+    /// The network form of one item of this stack.
+    fn to_network(&self) -> protocol::ItemStack {
+        network_stack(self.item, self.meta, 1, self.nbt)
+    }
+
     /// One item of this stack.
     #[expect(
         clippy::expect_used,
@@ -986,11 +991,6 @@ impl StaticStack {
     fn to_stack(&self) -> Stack {
         Stack::from_parts(self.item, 1, self.meta, self.nbt.map(nbt::compound))
             .expect("a generated stack is within the stack limits")
-    }
-
-    /// The network form of one item of this stack.
-    fn to_network(&self) -> protocol::ItemStack {
-        network_stack(self.item, self.meta, 1, self.nbt)
     }
 }
 
@@ -1080,16 +1080,6 @@ impl Kind {
         &table::KINDS
     }
 
-    /// The lowercase name, such as `iron_ingot`.
-    #[inline]
-    pub fn name(self) -> &'static str {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated tables have a name per kind"
-        )]
-        table::KIND_NAMES[self as usize]
-    }
-
     /// The default item type of the kind (a kind with variants, such as potions, has more
     /// types).
     #[doc(alias = "VanillaItems")]
@@ -1099,6 +1089,16 @@ impl Kind {
             reason = "invariant: the generated tables have a default type per kind"
         )]
         table::KIND_DEFAULTS[self as usize]
+    }
+
+    /// The lowercase name, such as `iron_ingot`.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated tables have a name per kind"
+        )]
+        table::KIND_NAMES[self as usize]
     }
 }
 
@@ -1534,15 +1534,15 @@ mod tests {
         ] {
             packet.encode(&mut bytes, shield).unwrap();
         }
-        // The decoder takes at most 1,024 list elements (protocol MAX_LIST_LEN), fewer than the
-        // full lists, so every element goes back through the decoder in packets of 1,024.
+        // The decoder takes at most `MAX_LIST_LEN` list elements, fewer than the full lists, so
+        // every element goes back through the decoder in packets of that many.
         let mut packets = Vec::new();
-        for items in registry.items.chunks(1024) {
+        for items in registry.items.chunks(protocol::MAX_LIST_LEN) {
             packets.push(Packet::ItemRegistry(packet::ItemRegistry {
                 items: items.to_vec(),
             }));
         }
-        for items in content.items.chunks(1024) {
+        for items in content.items.chunks(protocol::MAX_LIST_LEN) {
             packets.push(Packet::CreativeContent(packet::CreativeContent {
                 groups: content.groups.clone(),
                 items: items.to_vec(),
@@ -2032,7 +2032,8 @@ mod tests {
         let ids: BTreeSet<i32> = types.iter().map(|t| i32::from(t.runtime_id())).collect();
         let ominous: Compound = [("Type".to_owned(), Value::Int(1))].into();
         let empty = Compound::new();
-        let pick = |rng: &mut Rng| types[usize::try_from(rng.below(1613)).unwrap()];
+        let count = u64::try_from(types.len()).unwrap();
+        let pick = |rng: &mut Rng| types[usize::try_from(rng.below(count)).unwrap()];
         for _ in 0..100_000 {
             let base = pick(&mut rng);
             let low = |rng: &mut Rng| i32::try_from(rng.below(64)).unwrap();

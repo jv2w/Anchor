@@ -4,8 +4,9 @@
 //!
 //! Left out: sounds of an entity (`EntityLandSound`, `EntityLongFallSound`,
 //! `EntityShortFallSound`: the entity rules play them) and pressure plates' (`PressurePlate*`:
-//! redstone). Levers and buttons switch their own state, with their
-//! `RedstonePower*` sounds.
+//! redstone).
+//!
+//! A sound outside [`Sound`], such as a resource pack's named sound, cannot be played.
 
 use crate::block;
 use crate::item;
@@ -34,20 +35,12 @@ pub(crate) const PLAYER_ENTITY_TYPE: &str = "minecraft:player";
 
 /// A sound.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 // api-class: Sound
 pub enum Sound {
     /// An amethyst block chiming.
     #[doc(alias = "AmethystBlockChimeSound")]
     AmethystBlockChime,
-    /// An anvil breaking.
-    #[doc(alias = "AnvilBreakSound")]
-    AnvilBreak,
-    /// An anvil landing.
-    #[doc(alias = "AnvilFallSound")]
-    AnvilFall,
-    /// An anvil being used.
-    #[doc(alias = "AnvilUseSound")]
-    AnvilUse,
     /// Chainmail armour being put on.
     #[doc(alias = "ArmorEquipChainSound")]
     ArmorEquipChain,
@@ -84,9 +77,6 @@ pub enum Sound {
     /// A bell ringing.
     #[doc(alias = "BellRingSound")]
     BellRing,
-    /// A blast furnace crackling.
-    #[doc(alias = "BlastFurnaceSound")]
-    BlastFurnace,
     /// A blaze shooting.
     #[doc(alias = "BlazeShootSound")]
     BlazeShoot,
@@ -120,9 +110,6 @@ pub enum Sound {
     /// A burp after eating.
     #[doc(alias = "BurpSound")]
     Burp,
-    /// A campfire crackling.
-    #[doc(alias = "CampfireSound")]
-    Campfire,
     /// Dye going into a cauldron.
     #[doc(alias = "CauldronAddDyeSound")]
     CauldronAddDye,
@@ -243,9 +230,6 @@ pub enum Sound {
     /// Flint and steel striking.
     #[doc(alias = "FlintSteelSound")]
     FlintSteel,
-    /// A furnace burning.
-    #[doc(alias = "FurnaceSound")]
-    Furnace,
     /// A ghast shooting.
     #[doc(alias = "GhastShootSound")]
     GhastShoot,
@@ -309,9 +293,6 @@ pub enum Sound {
         /// The pitch.
         pitch: f32,
     },
-    /// A brewing stand finishing.
-    #[doc(alias = "PotionFinishBrewingSound")]
-    PotionFinishBrewing,
     /// A potion bottle shattering.
     #[doc(alias = "PotionSplashSound")]
     PotionSplash,
@@ -346,9 +327,6 @@ pub enum Sound {
     /// A shulker box opening.
     #[doc(alias = "ShulkerBoxOpenSound")]
     ShulkerBoxOpen,
-    /// A smoker smoking.
-    #[doc(alias = "SmokerSound")]
-    Smoker,
     /// Sweet berries being picked.
     #[doc(alias = "SweetBerriesPickSound")]
     SweetBerriesPick,
@@ -437,9 +415,6 @@ impl Sound {
         let block = |s, b: block::State| Sent::Sound(s, b.network_id().cast_signed(), NO_ENTITY);
         match self {
             Self::AmethystBlockChime => plain(S::AmethystBlockChime),
-            Self::AnvilBreak => level(L::SoundAnvilBroken),
-            Self::AnvilFall => level(L::SoundAnvilLand),
-            Self::AnvilUse => level(L::SoundAnvilUsed),
             Self::ArmorEquipChain => plain(S::EquipChain),
             Self::ArmorEquipCopper => plain(S::EquipCopper),
             Self::ArmorEquipDiamond => plain(S::EquipDiamond),
@@ -452,7 +427,6 @@ impl Sound {
             Self::BarrelClose => plain(S::BarrelClose),
             Self::BarrelOpen => plain(S::BarrelOpen),
             Self::BellRing => plain(S::Bell),
-            Self::BlastFurnace => plain(S::BlastFurnaceUse),
             Self::BlazeShoot => level(L::SoundBlazeFireball),
             Self::BlockBreak(b) => block(S::Break, b),
             Self::BlockPlace(b) => block(S::Place, b),
@@ -464,7 +438,6 @@ impl Sound {
             Self::BucketFillLava => plain(S::BucketFillLava),
             Self::BucketFillWater => plain(S::BucketFillWater),
             Self::Burp => plain(S::Burp),
-            Self::Campfire => plain(S::CampfireCrackle),
             Self::CauldronAddDye => level(L::CauldronAddDye),
             Self::CauldronCleanItem => level(L::CauldronCleanArmor),
             Self::CauldronDyeItem => level(L::CauldronDyeArmor),
@@ -503,7 +476,6 @@ impl Sound {
             Self::FireworkLaunch => plain(S::Launch),
             Self::Fizz { pitch } => Sent::Level(L::SoundFizz, permille(pitch)),
             Self::FlintSteel => plain(S::Ignite),
-            Self::Furnace => plain(S::FurnaceUse),
             Self::GhastShoot => level(L::SoundGhastFireball),
             Self::Ghast => level(L::SoundGhastWarning),
             Self::GlowBerriesPick => plain(S::CaveVinesPickBerries),
@@ -524,7 +496,6 @@ impl Sound {
             // Item frames and paintings share the sound.
             Self::PaintingPlace => level(L::SoundItemFramePlace),
             Self::Pop { pitch } => Sent::Level(L::SoundInfinityArrowPickup, permille(pitch)),
-            Self::PotionFinishBrewing => plain(S::PotionBrewed),
             Self::PotionSplash => plain(S::Glass),
             Self::Record(disc) => plain(record(disc)),
             Self::RecordStop => plain(S::RecordNull),
@@ -536,7 +507,6 @@ impl Sound {
             Self::Scrape => plain(S::Scrape),
             Self::ShulkerBoxClose => plain(S::ShulkerBoxClosed),
             Self::ShulkerBoxOpen => plain(S::ShulkerBoxOpen),
-            Self::Smoker => plain(S::SmokerUse),
             Self::SweetBerriesPick => plain(S::SweetBerryBushPick),
             Self::Throw => Sent::Sound(S::Throw, -1, PLAYER_ENTITY_TYPE),
             Self::TotemUse => level(L::SoundTotemUsed),
@@ -559,6 +529,7 @@ impl Sound {
 
 /// The instrument of a [`Sound::Note`], by the block under a note block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 // api-class: NoteInstrument
 pub enum NoteInstrument {
     /// The default: harp and piano.
@@ -700,14 +671,13 @@ mod tests {
         }
     }
 
-    // api: AmethystBlockChimeSound, AnvilBreakSound, AnvilFallSound, AnvilUseSound,
-    // api: ArmorEquipChainSound, ArmorEquipCopperSound, ArmorEquipDiamondSound,
-    // api: ArmorEquipGenericSound, ArmorEquipGoldSound, ArmorEquipIronSound,
-    // api: ArmorEquipLeatherSound, ArmorEquipNetheriteSound, ArrowHitSound, BarrelCloseSound,
-    // api: BarrelOpenSound, BellRingSound, BlastFurnaceSound, BlazeShootSound,
+    // api: AmethystBlockChimeSound, ArmorEquipChainSound, ArmorEquipCopperSound,
+    // api: ArmorEquipDiamondSound, ArmorEquipGenericSound, ArmorEquipGoldSound,
+    // api: ArmorEquipIronSound, ArmorEquipLeatherSound, ArmorEquipNetheriteSound, ArrowHitSound,
+    // api: BarrelCloseSound, BarrelOpenSound, BellRingSound, BlazeShootSound,
     // api: BlockBreakSound, BlockPlaceSound, BlockPunchSound, BottleEmptySound, BowShootSound,
     // api: BucketEmptyLavaSound, BucketEmptyWaterSound, BucketFillLavaSound,
-    // api: BucketFillWaterSound, BurpSound, CampfireSound, CauldronAddDyeSound,
+    // api: BucketFillWaterSound, BurpSound, CauldronAddDyeSound,
     // api: CauldronCleanItemSound, CauldronDyeItemSound, CauldronEmptyLavaSound,
     // api: CauldronEmptyPotionSound, CauldronEmptyPowderSnowSound, CauldronEmptyWaterSound,
     // api: CauldronFillLavaSound, CauldronFillPotionSound, CauldronFillPowderSnowSound,
@@ -718,13 +688,13 @@ mod tests {
     // api: EndermanTeleportSound, EntityAttackSound, EntityAttackNoDamageSound, ExplodeSound,
     // api: FireExtinguishSound, FireworkCrackleSound, FireworkExplosionSound,
     // api: FireworkLargeExplosionSound, FireworkLaunchSound, FizzSound, FlintSteelSound,
-    // api: FurnaceSound, GhastShootSound, GhastSound, GlowBerriesPickSound, IceBombHitSound,
+    // api: GhastShootSound, GhastSound, GlowBerriesPickSound, IceBombHitSound,
     // api: IgniteSound, InkSacUseSound, ItemBreakSound, ItemFrameAddItemSound,
     // api: ItemFrameRemoveItemSound, ItemFrameRotateItemSound, ItemUseOnBlockSound,
     // api: LaunchSound, LecternPlaceBookSound, PaintingPlaceSound, PopSound,
-    // api: PotionFinishBrewingSound, PotionSplashSound, RecordStopSound,
+    // api: PotionSplashSound, RecordStopSound,
     // api: RespawnAnchorChargeSound, RespawnAnchorDepleteSound, RespawnAnchorSetSpawnSound,
-    // api: ScrapeSound, ShulkerBoxCloseSound, ShulkerBoxOpenSound, SmokerSound,
+    // api: ScrapeSound, ShulkerBoxCloseSound, ShulkerBoxOpenSound,
     // api: SweetBerriesPickSound, ThrowSound, TotemUseSound, TridentHitBlockSound,
     // api: TridentHitEntitySound, TridentThrowSound, WaterSplashSound, XpCollectSound,
     // api: XpLevelUpSound, Sound
@@ -756,10 +726,6 @@ mod tests {
             (
                 Sound::ArmorEquipNetherite,
                 ("armor.equip_netherite".to_owned(), -1, ":".to_owned()),
-            ),
-            (
-                Sound::AnvilFall,
-                ("level 1022".to_owned(), 0, String::new()),
             ),
             (
                 Sound::Click { pitch: 1.5 },
@@ -844,8 +810,6 @@ mod tests {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();
         let every = [
             Sound::AmethystBlockChime,
-            Sound::AnvilBreak,
-            Sound::AnvilUse,
             Sound::ArmorEquipChain,
             Sound::ArmorEquipCopper,
             Sound::ArmorEquipDiamond,
@@ -857,7 +821,6 @@ mod tests {
             Sound::BarrelClose,
             Sound::BarrelOpen,
             Sound::BellRing,
-            Sound::BlastFurnace,
             Sound::BlazeShoot,
             Sound::BlockPlace(stone),
             Sound::BottleEmpty,
@@ -867,7 +830,6 @@ mod tests {
             Sound::BucketFillLava,
             Sound::BucketFillWater,
             Sound::Burp,
-            Sound::Campfire,
             Sound::CauldronAddDye,
             Sound::CauldronCleanItem,
             Sound::CauldronDyeItem,
@@ -901,7 +863,6 @@ mod tests {
             Sound::FireworkLaunch,
             Sound::Fizz { pitch: 0.0 },
             Sound::FlintSteel,
-            Sound::Furnace,
             Sound::GhastShoot,
             Sound::Ghast,
             Sound::GlowBerriesPick,
@@ -916,7 +877,6 @@ mod tests {
             Sound::Launch { pitch: 0.0 },
             Sound::LecternPlaceBook,
             Sound::PaintingPlace,
-            Sound::PotionFinishBrewing,
             Sound::PotionSplash,
             Sound::RecordStop,
             Sound::RespawnAnchorCharge,
@@ -925,7 +885,6 @@ mod tests {
             Sound::Scrape,
             Sound::ShulkerBoxClose,
             Sound::ShulkerBoxOpen,
-            Sound::Smoker,
             Sound::SweetBerriesPick,
             Sound::Throw,
             Sound::TotemUse,

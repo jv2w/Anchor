@@ -37,25 +37,23 @@ use anchor::event::{
 };
 use anchor::form::{self, Button, Image, Response};
 use anchor::inventory::Kind;
-use anchor::item::{Stack, Type};
+use anchor::item::{self, Stack};
 use anchor::math::Vec3;
 use anchor::menu::{self, Input};
 use anchor::player::{self, Message, Player};
 use anchor::world::{self, BlockPos, Flat};
-use anchor::{Config, Context, Server, nbt};
+use anchor::{Config, Context, Server};
 use tracing::debug;
 
 /// The arena world's name.
 const ARENA: &str = "arena";
 /// Where players land in the arena: on the grass of the flat world.
 const ARENA_START: BlockPos = BlockPos::new(8, -60, 8);
-/// The item that opens the games menu.
-const COMPASS: &str = "minecraft:compass";
-/// What the shop sells: menu slot, item name and count.
-const SHOP: [(usize, &str, u8); 3] = [
-    (11, "minecraft:diamond_sword", 1),
-    (13, "minecraft:bow", 1),
-    (15, "minecraft:golden_apple", 4),
+/// What the shop sells: menu slot, item and count.
+const SHOP: [(usize, item::Kind, u8); 3] = [
+    (11, item::Kind::DiamondSword, 1),
+    (13, item::Kind::Bow, 1),
+    (15, item::Kind::GoldenApple, 4),
 ];
 /// One second: 20 ticks.
 const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(19);
@@ -138,7 +136,8 @@ fn welcome(cx: &mut Context<'_>, id: player::Id) {
     or_log(player.insert_extension(Welcomed));
     // The first slot, not the first free one: the compass is not doubled when a player who kept
     // it joins again.
-    or_log(player.inventory_mut(Kind::Main).set(0, item(COMPASS, 1)));
+    let compass = Stack::new(item::Kind::Compass.default_type(), 1);
+    or_log(player.inventory_mut(Kind::Main).set(0, compass));
     or_log(player.send(Message::Title {
         title: "§bWelcome!".to_owned(),
         subtitle: "Use the compass or /games".to_owned(),
@@ -176,8 +175,8 @@ fn to_arena(cx: &mut Context<'_>, id: player::Id) {
 /// Opens the shop: a click on an item gives the player a copy and closes the menu.
 fn open_shop(cx: &mut Context<'_>, id: player::Id) {
     let mut shop = menu::Menu::new(menu::Kind::Chest).with_title("Shop");
-    for (slot, name, count) in SHOP {
-        shop = shop.item(slot, item(name, count));
+    for (slot, kind, count) in SHOP {
+        shop = shop.item(slot, Stack::new(kind.default_type(), count));
     }
     or_log(cx.open_menu(id, shop, |cx, id, input| {
         // The shop has no editable slots: every input but the close is a click.
@@ -210,13 +209,9 @@ fn in_lobby(cx: &Context<'_>, id: player::Id) -> bool {
 }
 
 fn is_compass(stack: &Stack) -> bool {
-    stack.item().is_some_and(|t| t.name() == COMPASS)
-}
-
-/// A stack of the item `name`, empty if Anchor has no such item.
-fn item(name: &str, count: u8) -> Stack {
-    Type::from_name(name, 0, None, &nbt::Compound::new())
-        .map_or(Stack::EMPTY, |item| Stack::new(item, count))
+    stack
+        .item()
+        .is_some_and(|t| t.kind() == Some(item::Kind::Compass))
 }
 
 /// The feet of a player standing on the block `pos`, in its middle.

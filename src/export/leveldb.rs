@@ -27,8 +27,8 @@ use crate::import::leveldb::table::{
 use crate::import::leveldb::{COMPARATOR, KIND_VALUE, LEVELS, TAG, masked_crc};
 use crate::protocol::compression::zlib::Encoder;
 
-/// The size a data block is closed at, before compression. The official server 1.26.52 writes blocks of over
-/// 100 KiB (a 106,535-byte one in `xtask/data/import/flat`).
+/// The size a data block is closed at, before compression. The official server writes blocks of
+/// over 100 KiB (a 106,535-byte one in `xtask/data/import/flat`).
 pub(super) const DATA_BLOCK_BYTES: usize = 128 << 10;
 /// The DEFLATE level blocks are compressed at: zlib's default.
 const DEFLATE_LEVEL: u8 = 6;

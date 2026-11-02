@@ -527,8 +527,8 @@ impl Recipe {
             max_uses,
             uses,
             tier,
-            trader_exp,
-            reward_exp,
+            trader_xp: trader_exp,
+            reward_xp: reward_exp,
             price_multipliers: (price_multiplier_a, price_multiplier_b),
             demand,
         } = crate::custom::Offer::new(buy_a, sell, max_uses);

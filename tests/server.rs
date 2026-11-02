@@ -3,13 +3,15 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/local_config.rs"]
+mod local_config;
+#[path = "support/overrun.rs"]
+mod overrun;
 #[path = "support/temp_path.rs"]
 mod temp_path;
 
-use std::fmt;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use anchor::command::{Command, Output};
 use anchor::config::Threads;
@@ -17,19 +19,17 @@ use anchor::event::{PlayerDuplicateLogin, Priority};
 use anchor::pack::Pack;
 use anchor::world::{Flat, Kind, Void, World};
 use anchor::{Config, Error, Server, ShutdownHandle};
-use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
 
+use local_config::local_config;
+use overrun::{Message, overrun_tick};
 use temp_path::TempPath;
 
 /// The tracing target of the tick pacer's warning that ticks overran.
 const CLOCK_TARGET: &str = "anchor::clock";
 /// The tick intervals `tick_intervals` measures.
 const INTERVALS: usize = 200;
-/// How long the first tick is held: more than two tick periods of 50 ms, after which the tick
-/// pacer warns that ticks overran, as it does on a loaded machine.
-const OVERRUN: Duration = Duration::from_millis(200);
 /// Ticks `tick_intervals` leaves out at the start, while the spawn area loads.
 const WARM_UP: usize = 20;
 /// The warnings and errors logged on threads named `anchor-*`, as `thread: message`, except the
@@ -52,18 +52,6 @@ fn the_error_and_the_handle_cross_threads() {
 #[test]
 fn default_settings_build() {
     Server::builder().build().unwrap();
-}
-
-/// Settings that run without the network beyond loopback: offline login (no authorization
-/// fetch), the loopback address, and port 0, so the system picks every port at bind time (no test
-/// connects to them; a port picked earlier and released could be taken by another process first).
-fn local_config() -> Config {
-    let mut config = Config::default();
-    config.general.xbox_auth = false;
-    config.general.enable_ipv6 = false;
-    config.general.server_ip = std::net::Ipv4Addr::LOCALHOST;
-    config.general.server_port = 0;
-    config
 }
 
 // api: Server, PluginManager::registerEvent, Event, EventPriority
@@ -411,27 +399,6 @@ impl Subscriber for Warnings {
     }
     fn enter(&self, _: &Id) {}
     fn exit(&self, _: &Id) {}
-}
-
-/// The message of an event.
-#[derive(Default)]
-struct Message(String);
-
-impl Visit for Message {
-    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        if field.name() == "message" {
-            self.0 = format!("{value:?}");
-        }
-    }
-}
-
-/// Holds the tick for [`OVERRUN`].
-#[expect(
-    clippy::disallowed_methods,
-    reason = "consistency: the test overruns its first tick as a loaded machine does"
-)]
-fn overrun_tick() {
-    std::thread::sleep(OVERRUN);
 }
 
 /// Stops a running server from another thread. The verdict does not depend on the machine's

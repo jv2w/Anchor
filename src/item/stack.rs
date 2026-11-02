@@ -81,7 +81,7 @@ const TAG_ITEMS: &str = "Items";
 /// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1.
 pub const TAG_KEEP_ON_DEATH: &str = "minecraft:keep_on_death";
 /// The key in [`Extra::nbt`] of an armour piece's trim: a compound of [`TAG_TRIM_MATERIAL`] and
-/// [`TAG_TRIM_PATTERN`], as smithing writes it.
+/// [`TAG_TRIM_PATTERN`], as the client reads it.
 pub const TAG_TRIM: &str = "Trim";
 /// The trim's material in [`TAG_TRIM`]: a `TAG_String`, one of
 /// [`TRIM_MATERIALS`](super::TRIM_MATERIALS).
@@ -143,8 +143,11 @@ impl Stack {
 
     /// The same stack with `damage`: for an item that wears, the durability used, 0 to its
     /// [`max_durability`](Type::max_durability); for another, the stack state its saved form
-    /// keeps (a firework star's colour). Fails with [`Error::InvalidDamage`] for a damage the
-    /// saved form would not read back; `self` stays as it is.
+    /// keeps (a firework star's colour). `self` stays as it is.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidDamage`] for a damage the saved form would not read back.
     #[doc(alias = "Durable::setDamage")]
     pub fn with_damage(&self, damage: u16) -> Result<Self> {
         let Some(item) = self.item else {
@@ -162,9 +165,13 @@ impl Stack {
     /// The same stack with `extra` (`None` removes it), read as its outside forms read the tag
     /// it makes: keys of [`Extra::nbt`] in the exact form of a name, lore, enchantments or (for
     /// an item that wears) a durability become those fields and that damage, where the fields do
-    /// not already set them. Fails if the stack would be over a limit ([`MAX_NBT_BYTES`],
-    /// [`MAX_NAME_BYTES`]) or an enchantment level is outside 1 to [`MAX_ENCHANTMENT_LEVEL`];
-    /// `self` stays as it is.
+    /// not already set them. `self` stays as it is.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::TooLarge`] for a stack over [`MAX_NBT_BYTES`].
+    /// - [`Error::NameTooLong`] for a custom name over [`MAX_NAME_BYTES`].
+    /// - [`Error::InvalidEnchantmentLevel`] for a level outside 1 to [`MAX_ENCHANTMENT_LEVEL`].
     pub fn with_extra(&self, extra: Option<Extra>) -> Result<Self> {
         let Some(item) = self.item else {
             return Ok(Self::EMPTY);

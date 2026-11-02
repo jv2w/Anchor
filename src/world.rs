@@ -192,6 +192,7 @@ pub enum Kind {
 
 /// A world operation that failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The position is outside the world height or border (a chunk ticket's center too), or a
     /// local position outside its chunk; or it is not finite, a spawn where a player would stand
@@ -265,10 +266,10 @@ impl std::error::Error for Error {}
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The settings [`Context::create_world`](crate::Context::create_world) makes a world with and
-/// [`Context::load_world`](crate::Context::load_world) loads a stored one with. The defaults: a [`Kind::Persistent`] world of the `flat` generator,
-/// a seed made from the world's name, the generator's spawn, the server's difficulty and the
-/// global view values. The server file saves none of them: a world loaded after a
-/// restart takes the options of that load.
+/// [`Context::load_world`](crate::Context::load_world) loads a stored one with. The defaults: a
+/// [`Kind::Persistent`] world of the `flat` generator, a seed made from the world's name, the
+/// generator's spawn, the server's difficulty and the global view values. The server file saves
+/// none of them: a world loaded after a restart takes the options of that load.
 #[doc(alias = "WorldCreationOptions")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
@@ -642,10 +643,9 @@ impl World {
     }
 
     /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
-    /// setting. It goes up by one
-    /// each tick the world is loaded, unless its time is stopped or `daylight-cycle` is off, and
-    /// jumps when [`Context::set_time`](crate::Context::set_time) moves it. It counts on past a
-    /// day (the time of day is [`Self::time_of_day`]).
+    /// setting. It goes up by one each tick the world is loaded, unless its time is stopped or
+    /// `daylight-cycle` is off, and jumps when [`Context::set_time`](crate::Context::set_time)
+    /// moves it. It counts on past a day (the time of day is [`Self::time_of_day`]).
     #[doc(alias = "World::getTime")]
     pub fn time_ticks(&self) -> i64 {
         self.time
@@ -1005,13 +1005,19 @@ impl World {
     /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire),
     /// so the block may end up in a state that differs from `state` in those properties.
     /// Neighbours in chunks that are not loaded read as air and are not changed. No other block
-    /// reacts: blocks never change by themselves or because a neighbour changed.
+    /// reacts: blocks never change by themselves or because a neighbour changed. The block's
+    /// water layer is cleared.
     ///
     /// The block entity follows in the tick's next block change phase: a block that has one (a
     /// chest, a sign) gets an empty one there, which
     /// [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a block
-    /// entity the new block does not take goes, dropping what it held as items. Until then the
-    /// old block entity is still there.
+    /// entity the new block does not take goes, dropping what it held as items and losing its
+    /// other data (sign text, banner patterns). Until then the old block entity is still there.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a position outside the world height, [`Error::NotLoaded`] for a
+    /// chunk that is not loaded and [`Error::Quarantined`] for a quarantined one.
     #[doc(alias = "World::setBlockAt")]
     #[doc(alias = "World::setBlock")]
     pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
@@ -1020,7 +1026,12 @@ impl World {
 
     /// Sets the block at `pos` as [`Self::set_block`] does, a state Anchor does not know included:
     /// that one is kept as stored and sent to clients as a chunk read from the server file sends
-    /// it. Fails with [`Error::Full`] too when the chunk holds the most unknown states it can.
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::set_block`], and [`Error::Full`] when the chunk holds the most
+    /// unknown states it can.
     pub fn set_stored_block(&mut self, pos: BlockPos, block: &StoredBlock) -> Result<()> {
         let entry = match block {
             StoredBlock::Known(state) => Entry::Known(*state),
@@ -1064,6 +1075,10 @@ impl World {
 
     /// Sets the biome ID at `pos`, saved with the chunk. Players see it when they are sent the
     /// chunk again.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::set_block`].
     #[doc(alias = "World::setBiomeId")]
     pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
         let (x, z) = pos.local();

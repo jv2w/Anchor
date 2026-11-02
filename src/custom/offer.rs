@@ -1,12 +1,12 @@
-//! Villager trade offers as typed values: what the API takes and gives instead of
-//! offer NBT. The villager keeps them in its entity; [`Context::set_trade_offers`] and the other
-//! trade methods read and change them.
+//! Villager trade offers as typed values: what the API takes and gives instead of offer NBT. The
+//! villager keeps them in its entity; [`Context::set_trade_offers`] and the other trade methods
+//! read and change them.
 //!
 //! [`Context::set_trade_offers`]: crate::Context::set_trade_offers
 
 use crate::item::Stack;
 
-/// The price multiplier the official server gives most offers (P6, `xtask/data/p6/facts.md`).
+/// The price multiplier the official server gives most offers (`xtask/data/p6/facts.md`).
 pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 
 /// The most offers one villager holds ([`check_offers`](super::check_offers)): well above the
@@ -43,16 +43,16 @@ pub struct Offer {
     pub(crate) max_uses: u32,
     pub(crate) uses: u32,
     pub(crate) tier: u8,
-    pub(crate) trader_exp: u32,
-    pub(crate) reward_exp: bool,
+    pub(crate) trader_xp: u32,
+    pub(crate) reward_xp: bool,
     pub(crate) price_multipliers: (f32, f32),
     pub(crate) demand: i32,
 }
 
 impl Offer {
-    /// An offer of `sell` for `buy` at most `max_uses` times, with the official server's defaults: no second
-    /// payment, tier 0 (novice), no villager xp, reward orbs for the player, price
-    /// multipliers 0.05, demand 0.
+    /// An offer of `sell` for `buy` at most `max_uses` times, with the official server's
+    /// defaults: no second payment, tier 0 (novice), no villager xp, reward orbs for the player,
+    /// price multipliers 0.05, demand 0.
     pub fn new(buy: Stack, sell: Stack, max_uses: u32) -> Self {
         Self {
             buy_a: buy,
@@ -62,15 +62,15 @@ impl Offer {
             max_uses,
             uses: 0,
             tier: 0,
-            trader_exp: 0,
-            reward_exp: true,
+            trader_xp: 0,
+            reward_xp: true,
             price_multipliers: (DEFAULT_PRICE_MULTIPLIER, DEFAULT_PRICE_MULTIPLIER),
             demand: 0,
         }
     }
 
-    /// The same offer taking its payments of any damage (worn tools, any meta), as the official server's offers
-    /// carry `Damage` 32767.
+    /// The same offer taking its payments of any damage (worn tools, any meta), as the official
+    /// server's offers carry `Damage` 32767.
     #[must_use]
     pub fn with_any_damage(mut self) -> Self {
         self.any_damage = true;
@@ -109,7 +109,7 @@ impl Offer {
     /// The same offer giving the villager `xp` per trade (towards its next tier).
     #[must_use]
     pub fn with_trader_xp(mut self, xp: u32) -> Self {
-        self.trader_exp = xp;
+        self.trader_xp = xp;
         self
     }
 
@@ -123,7 +123,7 @@ impl Offer {
     /// The same offer dropping no xp orbs for the player.
     #[must_use]
     pub fn without_reward_xp(mut self) -> Self {
-        self.reward_exp = false;
+        self.reward_xp = false;
         self
     }
 
@@ -149,7 +149,7 @@ impl Offer {
 
     /// Whether each trade drops xp orbs for the player.
     pub fn rewards_xp(&self) -> bool {
-        self.reward_exp
+        self.reward_xp
     }
 
     /// The second payment, or the empty stack.
@@ -174,7 +174,7 @@ impl Offer {
 
     /// The villager xp per trade.
     pub fn trader_xp(&self) -> u32 {
-        self.trader_exp
+        self.trader_xp
     }
 
     /// The trades made since the last reset.

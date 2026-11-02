@@ -11,7 +11,6 @@ use super::{Error, Kind, Param, Result, Value};
 use crate::block;
 use crate::effect;
 use crate::item;
-use crate::nbt::Compound;
 
 /// The longest line, in bytes: the chat limit, which commands share.
 pub(crate) const MAX_LINE_BYTES: usize = 2048;
@@ -28,6 +27,8 @@ pub struct Word<'a> {
     /// Owned only for a quoted word, which has its quotes and escapes taken out.
     pub(crate) text: Cow<'a, str>,
     pub(crate) start: usize,
+    /// The byte offset just after the word (after its closing quote, if quoted).
+    pub(crate) end: usize,
 }
 
 impl Word<'_> {
@@ -64,6 +65,15 @@ pub(crate) struct Coord {
     pub(crate) relative: bool,
     /// The number, finite; 0 for a lone `~`.
     pub(crate) value: f64,
+}
+
+/// Why the words stop fitting an overload ([`fit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Misfit {
+    /// The byte offset in the line where they stop fitting.
+    At(usize),
+    /// A quote that a word of the overload reads is not closed.
+    UnclosedQuote,
 }
 
 /// An argument as fitted, before players and relative coordinates are resolved.
@@ -108,7 +118,7 @@ impl Names {
         items.sort_unstable();
         items.dedup();
         // The dump's names (`element_hydrogen`) are judged by the Bedrock name of their item.
-        items.retain(|n| !Self::item(n).is_some_and(|t| item::is_education(t.name())));
+        items.retain(|n| !item::Type::find(n).is_some_and(|t| item::is_education(t.name())));
         Self {
             effects,
             enchantments,
@@ -151,24 +161,12 @@ impl Names {
         &self.items
     }
 
-    /// The item an item parameter names ([`Self::item`]), if the client offers that name (no
-    /// Education item).
+    /// The item an item parameter names ([`item::Type::find`]), if the client offers that name
+    /// (no Education item).
     pub(crate) fn item_param(&self, name: &str) -> Option<item::Type> {
         let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
         self.items.binary_search(&name).ok()?;
-        Self::item(name)
-    }
-
-    /// The item named `name` (with or without `minecraft:`): an item's, or the item of a
-    /// block's default state.
-    pub(crate) fn item(name: &str) -> Option<item::Type> {
-        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
-        let kinds = item::Kind::all();
-        if let Ok(i) = kinds.binary_search_by(|k| k.name().cmp(name)) {
-            return kinds.get(i).map(|k| k.default_type());
-        }
-        let state = Self::block(name)?.default_state();
-        item::Type::from_name(state.name(), 0, Some(state), &Compound::new())
+        item::Type::find(name)
     }
 
     /// The block kind named `name` (with or without `minecraft:`).
@@ -186,92 +184,49 @@ impl Names {
 /// with [`Error::UnclosedQuote`] for an unclosed quote and
 /// with [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
 /// A line within the bounds has at most 256 words.
-#[expect(
-    clippy::missing_panics_doc,
-    reason = "invariant: `start` and `end` are character boundaries of `line`"
-)]
 pub fn split(line: &str) -> Result<Vec<Word<'_>>> {
-    if line.len() > MAX_LINE_BYTES || line.chars().count() > MAX_LINE_CHARS {
-        return Err(Error::TooLong);
-    }
+    check_length(line)?;
     let mut words = Vec::new();
-    let mut chars = line.char_indices().peekable();
-    while let Some(&(start, c)) = chars.peek() {
-        if c.is_whitespace() {
-            chars.next();
-            continue;
-        }
-        if c == '"' {
-            chars.next();
-            let mut text = String::new();
-            let mut closed = false;
-            while let Some((_, c)) = chars.next() {
-                match c {
-                    '"' => {
-                        closed = true;
-                        break;
-                    }
-                    '\\' => match chars.peek() {
-                        Some(&(_, e @ ('"' | '\\'))) => {
-                            text.push(e);
-                            chars.next();
-                        }
-                        _ => text.push('\\'),
-                    },
-                    c => text.push(c),
-                }
-            }
-            if !closed {
-                return Err(Error::UnclosedQuote);
-            }
-            words.push(Word {
-                text: Cow::Owned(text),
-                start,
-            });
-        } else {
-            let mut end = line.len();
-            while let Some(&(i, c)) = chars.peek() {
-                if c.is_whitespace() {
-                    end = i;
-                    break;
-                }
-                chars.next();
-            }
-            #[expect(
-                clippy::expect_used,
-                reason = "invariant: `start` and `end` are character boundaries of `line`"
-            )]
-            let text = line.get(start..end).expect("a word lies inside its line");
-            words.push(Word {
-                text: Cow::Borrowed(text),
-                start,
-            });
-        }
+    let mut at = 0;
+    while let Some(word) = next_word(line, at)? {
+        at = word.end;
+        words.push(word);
     }
     Ok(words)
 }
 
-/// Fits `words` (of `line`) to `params`: one argument per parameter given, in order, or the
-/// byte offset in `line` where the words stop fitting: the start of a word of the wrong kind or
-/// of the first word left over, or the end of the line's text where a required word is missing.
+/// The first word of `line`, the command's name; `None` for a line without words. Fails like
+/// [`split`] for a line that is too long, and for an unclosed quote in the word itself; the
+/// words after it are read by [`fit`], since a parameter may take the rest of the line as typed.
+pub(crate) fn first_word(line: &str) -> Result<Option<Word<'_>>> {
+    check_length(line)?;
+    next_word(line, 0)
+}
+
+/// Fits the words of `line` from the byte `from` on to `params`: one argument per parameter
+/// given, in order, or where the words stop fitting. That is the byte offset in `line` of a word
+/// of the wrong kind or of the first word left over, or the end of the line's text where a
+/// required word is missing. Words are read as the parameters take them, so a parameter that
+/// takes the rest of the line (or a JSON value) reads quotes as typed.
 pub(crate) fn fit(
     params: &[Param],
     line: &str,
-    words: &[Word<'_>],
+    from: usize,
     names: &Names,
-) -> Result<Vec<Raw>, usize> {
+) -> Result<Vec<Raw>, Misfit> {
     let end = line.trim_end().len();
     let mut out = Vec::with_capacity(params.len());
-    let mut i = 0;
+    let mut at = from;
     for param in params {
-        let Some(word) = words.get(i) else {
+        let Some(word) = word_at(line, at)? else {
             if param.optional {
                 break;
             }
-            return Err(end);
+            return Err(Misfit::At(end));
         };
-        let bad = word.start;
+        let bad = Misfit::At(word.start);
         let text = word.text.as_ref();
+        let mut next = word.end;
         let raw = match &param.kind {
             Kind::Int => Raw::Value(Value::Int(text.parse().map_err(|_| bad)?)),
             Kind::Float => Raw::Value(Value::Float(number(text).ok_or(bad)?)),
@@ -283,8 +238,8 @@ pub(crate) fn fit(
             } else {
                 return Err(bad);
             })),
-            Kind::Target => Raw::Target(target(word).ok_or(bad)?),
-            Kind::Name => match target(word) {
+            Kind::Target => Raw::Target(target(&word).ok_or(bad)?),
+            Kind::Name => match target(&word) {
                 Some(Target::Name(name)) => Raw::Value(Value::Text(name)),
                 _ => return Err(bad),
             },
@@ -305,38 +260,34 @@ pub(crate) fn fit(
                     relative: false,
                     value: 0.0,
                 }; 3];
-                for (k, c) in coords.iter_mut().enumerate() {
-                    let w = words.get(i + k).ok_or(end)?;
-                    *c = coord(w).ok_or(w.start)?;
+                let mut from_here = at;
+                for c in &mut coords {
+                    let w = word_at(line, from_here)?.ok_or(Misfit::At(end))?;
+                    *c = coord(&w).ok_or(Misfit::At(w.start))?;
+                    from_here = w.end;
                 }
-                i += 2;
+                next = from_here;
                 Raw::Position(coords)
             }
             Kind::Message | Kind::RawText => {
                 let rest = rest_from(line, word.start).trim_end();
-                i = words.len();
-                out.push(Raw::Value(Value::Text(rest.to_owned())));
-                continue;
+                next = line.len();
+                Raw::Value(Value::Text(rest.to_owned()))
             }
             Kind::Json => {
                 let rest = rest_from(line, word.start);
                 let json_len = json_end(rest).ok_or(bad)?;
                 let json = rest.get(..json_len).ok_or(bad)?;
-                let after = word.start.checked_add(json_len).ok_or(bad)?;
+                next = word.start.checked_add(json_len).ok_or(bad)?;
                 // The value must end where a word does.
                 if line
-                    .get(after..)
+                    .get(next..)
                     .and_then(|s| s.chars().next())
                     .is_some_and(|c| !c.is_whitespace())
                 {
                     return Err(bad);
                 }
-                i = words
-                    .iter()
-                    .position(|w| w.start >= after)
-                    .unwrap_or(words.len());
-                out.push(Raw::Value(Value::Text(json.to_owned())));
-                continue;
+                Raw::Value(Value::Text(json.to_owned()))
             }
             Kind::Enum { values, .. } => {
                 let value = values
@@ -353,17 +304,17 @@ pub(crate) fn fit(
             }
         };
         out.push(raw);
-        i += 1;
+        at = next;
     }
-    match words.get(i) {
-        Some(left_over) => Err(left_over.start),
+    match word_at(line, at)? {
+        Some(left_over) => Err(Misfit::At(left_over.start)),
         None => Ok(out),
     }
 }
 
-/// The official server's syntax error for `line` (without its `/`) that stops fitting at byte `at` ([`fit`]):
-/// the word there, with up to [`SYNTAX_CONTEXT`] characters of `/` and the line before and after
-/// it (P6 `syntax`, `xtask/data/p6/facts.md`).
+/// The official server's syntax error for `line` (without its `/`) that stops fitting at byte
+/// `at` ([`fit`]): the word there, with up to [`SYNTAX_CONTEXT`] characters of `/` and the line
+/// before and after it.
 pub(crate) fn syntax_error(line: &str, at: usize) -> Error {
     let typed = format!("/{line}");
     let at = at.saturating_add(1).min(typed.len());
@@ -457,6 +408,70 @@ fn snake_name(variant: &str) -> String {
     out
 }
 
+/// Fails with [`Error::TooLong`] for a line over [`MAX_LINE_BYTES`] bytes or [`MAX_LINE_CHARS`]
+/// characters.
+fn check_length(line: &str) -> Result<()> {
+    if line.len() > MAX_LINE_BYTES || line.chars().count() > MAX_LINE_CHARS {
+        return Err(Error::TooLong);
+    }
+    Ok(())
+}
+
+/// [`next_word`] for [`fit`]: the only way it fails is an unclosed quote.
+fn word_at(line: &str, from: usize) -> Result<Option<Word<'_>>, Misfit> {
+    next_word(line, from).map_err(|_| Misfit::UnclosedQuote)
+}
+
+/// The first word of `line` at or after the byte `from`, a character boundary: `None` if only
+/// whitespace follows.
+fn next_word(line: &str, from: usize) -> Result<Option<Word<'_>>> {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `from` is 0 or the end of a word, a character boundary of `line`"
+    )]
+    let tail = line.get(from..).expect("a word ends inside its line");
+    let mut chars = tail.char_indices().map(|(i, c)| (from + i, c)).peekable();
+    let Some((start, first)) = chars.find(|&(_, c)| !c.is_whitespace()) else {
+        return Ok(None);
+    };
+    if first == '"' {
+        let mut text = String::new();
+        loop {
+            match chars.next() {
+                None => return Err(Error::UnclosedQuote),
+                Some((closing, '"')) => {
+                    return Ok(Some(Word {
+                        text: Cow::Owned(text),
+                        start,
+                        end: closing + 1,
+                    }));
+                }
+                Some((_, '\\')) => match chars.peek() {
+                    Some(&(_, escaped @ ('"' | '\\'))) => {
+                        text.push(escaped);
+                        chars.next();
+                    }
+                    _ => text.push('\\'),
+                },
+                Some((_, c)) => text.push(c),
+            }
+        }
+    }
+    let end = chars
+        .find(|&(_, c)| c.is_whitespace())
+        .map_or(line.len(), |(i, _)| i);
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `start` and `end` are character boundaries of `line`"
+    )]
+    let text = line.get(start..end).expect("a word lies inside its line");
+    Ok(Some(Word {
+        text: Cow::Borrowed(text),
+        start,
+        end,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,8 +492,8 @@ mod tests {
             ["give", "steve jobs", "apple"]
         );
         assert_eq!(
-            texts(r#"say "This is a \"string containing quotes\"""#),
-            ["say", r#"This is a "string containing quotes""#]
+            texts(r#"echo "This is a \"string containing quotes\"""#),
+            ["echo", r#"This is a "string containing quotes""#]
         );
         assert_eq!(texts(r#"a "x\\y" "\n""#), ["a", r"x\y", r"\n"]);
         assert_eq!(texts(r#"ab"cd "e"f"#), [r#"ab"cd"#, "e", "f"]);
@@ -489,8 +504,36 @@ mod tests {
             .map(Word::is_quoted)
             .collect();
         assert_eq!(quoted, [false, true, true]);
-        assert_eq!(split(r#"say "open"#), Err(Error::UnclosedQuote));
-        assert_eq!(split(r#"say "a\""#), Err(Error::UnclosedQuote));
+        assert_eq!(split(r#"echo "open"#), Err(Error::UnclosedQuote));
+        assert_eq!(split(r#"echo "a\""#), Err(Error::UnclosedQuote));
+    }
+
+    #[test]
+    fn parameters_taking_the_rest_of_the_line_read_quotes_as_typed() {
+        let names = Names::new();
+        let text = |value: &str| Raw::Value(Value::Text(value.to_owned()));
+        let line = r#"echo it's "open  "#;
+        let from = first_word(line).unwrap().unwrap().end;
+        assert_eq!(
+            fit(&[Param::message("m")], line, from, &names),
+            Ok(vec![text(r#"it's "open"#)])
+        );
+        assert_eq!(
+            fit(&[Param::string("s")], line, from, &names),
+            Err(Misfit::UnclosedQuote)
+        );
+        let line = r#"x "he said \"hi\" now" 5"#;
+        let from = first_word(line).unwrap().unwrap().end;
+        assert_eq!(
+            fit(&[Param::string("s"), Param::int("n")], line, from, &names),
+            Ok(vec![text("he said \"hi\" now"), Raw::Value(Value::Int(5))])
+        );
+        let line = r#"x {"a": "b c"} 5"#;
+        let from = first_word(line).unwrap().unwrap().end;
+        assert_eq!(
+            fit(&[Param::json("j"), Param::int("n")], line, from, &names),
+            Ok(vec![text(r#"{"a": "b c"}"#), Raw::Value(Value::Int(5))])
+        );
     }
 
     #[test]
@@ -532,9 +575,9 @@ mod tests {
             item::Enchantment::all().len()
         );
         assert!(names.item_names().windows(2).all(|w| w[0] < w[1]));
-        assert!(Names::item("minecraft:stick").is_some());
-        assert!(Names::item("stone").is_some(), "a block's item");
-        assert!(Names::item("no_such_item").is_none());
+        assert!(item::Type::find("minecraft:stick").is_some());
+        assert!(item::Type::find("stone").is_some(), "a block's item");
+        assert!(item::Type::find("no_such_item").is_none());
         assert_eq!(
             Names::block("oak_planks").map(block::Kind::name),
             Some("oak_planks")
@@ -553,7 +596,7 @@ mod tests {
         ];
         for name in education {
             assert!(
-                Names::item(name).is_some_and(|t| item::is_education(t.name())),
+                item::Type::find(name).is_some_and(|t| item::is_education(t.name())),
                 "{name}"
             );
         }

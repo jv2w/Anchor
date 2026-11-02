@@ -7,21 +7,20 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::block::State;
-use crate::nbt;
-use crate::protocol::Writer;
-
 use super::light::{self, Levels};
-use super::paletted::{Derive, Paletted, offset};
+use super::paletted::{Derive, Paletted, SLOTS, offset};
 use super::sub_chunk::{Entry, SubChunk};
 use super::{
     ChunkPos, Error, Generator, MAX_Y, MIN_SUB_CHUNK_Y, MIN_Y, Result, StoredBlock, UnknownBlock,
 };
+use crate::block::State;
+use crate::nbt;
+use crate::protocol::Writer;
 
 /// Columns in a chunk.
 pub(super) const COLUMNS: usize = 256;
 /// The most unknown states a chunk can use: one per slot of both layers.
-const MAX_UNKNOWN: usize = SUB_CHUNKS * 2 * 4096;
+const MAX_UNKNOWN: usize = SUB_CHUNKS * 2 * SLOTS as usize;
 /// The [`Chunk::heights`] value of a column of air.
 pub(crate) const NO_HEIGHT: i16 = i16::MIN;
 /// The biome every slot of a new chunk has.
@@ -234,32 +233,6 @@ impl Chunk {
         u8::try_from(top + 1).expect("a sub-chunk limit fits u8")
     }
 
-    /// The `LevelChunk` payload of the sub-chunk request system: the biomes of the 24
-    /// sub-chunks (one equal to the one below it is written as 0xff), then 0 border blocks.
-    pub(crate) fn to_level_chunk_payload(&self) -> Vec<u8> {
-        // Each section once: `None` for one equal to the one below it.
-        let sections = || {
-            let mut below: Option<&Arc<Paletted<u32>>> = None;
-            self.biomes.iter().map(move |biomes| {
-                let repeated = below.is_some_and(|b| Arc::ptr_eq(b, biomes) || b == biomes);
-                below = Some(biomes);
-                (!repeated).then_some(biomes)
-            })
-        };
-        let sections_bytes: usize = sections()
-            .map(|section| section.map_or(1, |biomes| biomes.max_encoded_bytes()))
-            .sum();
-        let mut w = Writer::new(Vec::with_capacity(sections_bytes + 1), 0);
-        for section in sections() {
-            match section {
-                Some(biomes) => biomes.encode(&mut w, |id| id),
-                None => w.uint8(0xff),
-            }
-        }
-        w.uint8(0);
-        w.into_inner()
-    }
-
     /// The network payload of the sub-chunk at `index` (0 is the lowest), or `None` if it is air
     /// (the client is told `SuccessAllAir`).
     pub(crate) fn sub_chunk_payload(&self, index: usize) -> Option<Vec<u8>> {
@@ -272,7 +245,12 @@ impl Chunk {
     }
 
     /// Sets the block at local (x, y, z). Neighbour connections (fences, stairs) are not worked
-    /// out here: a generator writes the states it means.
+    /// out here: a generator writes the states it means. The slot's water (the stored water
+    /// logging of a block, which the chunk keeps apart from the block) is cleared.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a position outside the chunk.
     #[doc(alias = "Chunk::setBlockStateId")]
     pub fn set_block(&mut self, x: u8, y: i32, z: u8, state: State) -> Result<()> {
         self.put(x, y, z, Entry::Known(state))
@@ -282,6 +260,10 @@ impl Chunk {
 
     /// Sets the biome ID at local (x, y, z), such as 1 for plains (the client's biome
     /// definitions number them).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a position outside the chunk.
     #[doc(alias = "Chunk::setBiomeId")]
     pub fn set_biome(&mut self, x: u8, y: i32, z: u8, biome: u32) -> Result<()> {
         let (index, y) = split_y(y)
@@ -324,9 +306,9 @@ impl Chunk {
         Ok(Entry::Unknown(index))
     }
 
-    /// Sets the layer 0 entry at local (x, y, z) and returns the old one, or `None` (changing
-    /// nothing) outside the chunk. Keeps the column height and drops a sub-chunk that becomes
-    /// air.
+    /// Sets the layer 0 entry at local (x, y, z), clears the slot's layer 1 water, and returns the
+    /// old layer 0 entry, or `None` (changing nothing) outside the chunk. Keeps the column height
+    /// and drops a sub-chunk that becomes air.
     pub(crate) fn put(&mut self, x: u8, y: i32, z: u8, entry: Entry) -> Option<Entry> {
         let (index, ly) = split_y(y).filter(|_| x < 16 && z < 16)?;
         let slot = self.sub_chunks.get_mut(index)?;
@@ -336,9 +318,10 @@ impl Chunk {
             None => slot.insert(Arc::new(SubChunk::new())),
         };
         let at = offset(x, ly, z);
-        // Checked before `make_mut`, so writing the same entry never copies a sub-chunk a save
-        // snapshot or checkpoint shares.
-        if shared.get(at) == entry {
+        // Checked before `make_mut`, so writing the same entry over a slot without water never
+        // copies a sub-chunk a save snapshot or checkpoint shares.
+        let [_, water] = shared.layers();
+        if shared.get(at) == entry && water.get(at) == Entry::AIR {
             return Some(entry);
         }
         let sub = Arc::make_mut(shared);
@@ -419,6 +402,32 @@ impl Chunk {
     /// Takes the chunk's light away.
     pub(super) fn take_light(&mut self) -> Option<Box<Levels>> {
         self.light.take()
+    }
+
+    /// Encodes the `LevelChunk` payload of the sub-chunk request system: the biomes of the 24
+    /// sub-chunks (one equal to the one below it is written as 0xff), then 0 border blocks.
+    pub(crate) fn to_level_chunk_payload(&self) -> Vec<u8> {
+        // Each section once: `None` for one equal to the one below it.
+        let sections = || {
+            let mut below: Option<&Arc<Paletted<u32>>> = None;
+            self.biomes.iter().map(move |biomes| {
+                let repeated = below.is_some_and(|b| Arc::ptr_eq(b, biomes) || b == biomes);
+                below = Some(biomes);
+                (!repeated).then_some(biomes)
+            })
+        };
+        let sections_bytes: usize = sections()
+            .map(|section| section.map_or(1, |biomes| biomes.max_encoded_bytes()))
+            .sum();
+        let mut w = Writer::new(Vec::with_capacity(sections_bytes + 1), 0);
+        for section in sections() {
+            match section {
+                Some(biomes) => biomes.encode(&mut w, |id| id),
+                None => w.uint8(0xff),
+            }
+        }
+        w.uint8(0);
+        w.into_inner()
     }
 
     /// A chunk from checkpoint parts: the parts of [`Self::from_parts`] unchanged, with the save
@@ -711,11 +720,11 @@ pub(crate) mod tests {
         let states = plain_states();
         let mut rng = Rng(0x00c4_0002);
         let mut layers = [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)];
-        let mut model = vec![vec![Entry::AIR; 4096]; 2];
+        let mut model = vec![vec![Entry::AIR; usize::from(SLOTS)]; 2];
         for round in 0..100_000_usize {
             let pool = if (round / 10_000) % 2 == 0 { 2500 } else { 2 };
             let layer = rng.below(2);
-            let o = rng.below(4096);
+            let o = rng.below(usize::from(SLOTS));
             let entry = Entry::Known(states[rng.below(pool)]);
             let offset = u16::try_from(o).unwrap();
             assert_eq!(layers[layer].set(offset, entry), model[layer][o]);
@@ -860,6 +869,28 @@ pub(crate) mod tests {
         let mut sub = SubChunk::from_layers(layers);
         sub.set(slot, Entry::Known(block::DIRT));
         assert!(sub.layers()[1].is_uniform(Entry::AIR));
+    }
+
+    // api: Chunk::setBlockStateId
+    #[test]
+    fn setting_air_clears_the_water_over_an_air_slot() {
+        let water = State::find(
+            "minecraft:water",
+            &[("liquid_depth", block::PropertyValue::Int(0))],
+        )
+        .unwrap();
+        let mut layers = [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)];
+        layers[1].set(offset(1, 2, 1), Entry::Known(water));
+        let mut subs: [Option<SubChunk>; SUB_CHUNKS] = Default::default();
+        subs[0] = Some(SubChunk::from_layers(layers));
+        let biomes = std::array::from_fn(|_| Paletted::uniform(PLAINS));
+        let mut chunk = Chunk::from_parts(subs, biomes, Vec::new()).unwrap();
+        assert!(chunk.sub_chunk(0).is_some());
+        chunk.set_block(1, MIN_Y + 2, 1, block::AIR).unwrap();
+        assert!(
+            chunk.sub_chunk(0).is_none(),
+            "no water and no block is left"
+        );
     }
 
     /// The flat chunk's payloads: its `LevelChunk` payload is the empty chunk's, and its one

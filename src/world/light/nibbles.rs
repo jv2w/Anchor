@@ -8,9 +8,10 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::tick::checkpoint::{self, Codec, Error, Reader, Writer};
+use crate::world::SLOTS;
 
-/// The bytes of a full array: 4096 values of 4 bits.
-const FULL_BYTES: usize = 2048;
+/// The bytes of a full array: one cube of values of 4 bits.
+const FULL_BYTES: usize = SLOTS as usize / 2;
 
 /// The light values of a 16×16×16 cube, indexed like the block layers (x, then z, then y).
 #[derive(Clone, PartialEq, Eq)]

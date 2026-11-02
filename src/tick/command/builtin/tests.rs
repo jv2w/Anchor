@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::command::{self, Command};
+use crate::command::{self, Command, Line};
 use crate::config::{Difficulty, GameMode};
 use crate::event::{
     EntityTeleport, Listeners, PlayerGameModeChange, PlayerKick, Priority, TeleportCause,
@@ -97,7 +97,10 @@ fn own_texts_fill_each_parameter_once() {
     assert_eq!(msg.render(&["{%1}", "x"]).unwrap(), "a {%1} b x {%2}");
     assert_eq!(Msg::client("k").render(&[]), None);
     assert_eq!(
-        msg.output(&["1", "2"]).lines().collect::<Vec<_>>(),
+        msg.output(&["1", "2"])
+            .lines()
+            .map(Line::text)
+            .collect::<Vec<_>>(),
         ["a 1 b 2 {%2}"]
     );
 }
@@ -674,8 +677,8 @@ fn give_fills_the_inventory_in_stacks_and_reports_what_fit() {
 #[test]
 fn clear_counts_and_takes_items_from_every_slot() {
     let (mut state, _rx) = with_op();
-    let stone = crate::command::parse::Names::item("stone").unwrap();
-    let stick = crate::command::parse::Names::item("stick").unwrap();
+    let stone = crate::item::Type::find("stone").unwrap();
+    let stick = crate::item::Type::find("stick").unwrap();
     let p2 = crate::player::Id::new(SessionId::new(2));
     let mut cx = Context { state: &mut state };
     let _left = cx

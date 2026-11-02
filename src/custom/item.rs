@@ -121,9 +121,9 @@ impl Item {
         self
     }
 
-    /// The same item eaten for `food` points and `saturation` when the player is
-    /// hungry; [`with_food_always`](Self::with_food_always) makes one eaten at any time. It
-    /// cannot have durability.
+    /// The same item eaten for `food` points and `saturation` when the player is hungry;
+    /// [`with_food_always`](Self::with_food_always) makes one eaten at any time. It cannot have
+    /// durability.
     #[must_use]
     pub const fn with_food(mut self, food: u8, saturation: f64) -> Self {
         self.info = item::Info::custom(

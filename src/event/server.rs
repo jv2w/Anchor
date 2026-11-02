@@ -8,7 +8,6 @@ use crate::command::Sender;
 /// no player has joined yet. A replay of the run raises it again in the same tick; a replay from a
 /// later checkpoint does not, as the run had raised it before that checkpoint.
 #[derive(Debug)]
-#[non_exhaustive]
 pub struct ServerStart {}
 
 /// Raised for each command line a player or the console sends, ahead of parsing. Cancelling skips

@@ -1,13 +1,12 @@
-//! Custom content: items and blocks a server adds beyond vanilla, its
-//! creative inventories, and villager trade offers as typed values.
+//! Custom content: items and blocks a server adds beyond vanilla, creative inventories, and
+//! villager trade offers as typed values.
 //!
 //! Items and blocks are `static` definitions ([`Item`], [`Block`]) given to the builder
 //! ([`ServerBuilder::custom_item`], [`ServerBuilder::custom_block`]).
-//! [`ServerBuilder::build`](crate::ServerBuilder::build) checks
-//! them all and numbers them in registration order: runtime IDs after the vanilla items, network
-//! hashes for every block state. The engine then sends them in the
-//! start-game packets (`StartGame` block definitions, `ItemRegistry`, `CreativeContent`);
-//! textures and models come from a resource pack.
+//! [`ServerBuilder::build`](crate::ServerBuilder::build) checks them all and numbers them in
+//! registration order: runtime IDs after the vanilla items, network hashes for every block
+//! state. The engine then sends them in the start-game packets (`StartGame` block definitions,
+//! `ItemRegistry`, `CreativeContent`); textures and models come from a resource pack.
 //!
 //! A custom item or block state is an [`item::Type`](crate::item::Type) or
 //! [`block::State`](crate::block::State) like a vanilla one: the server makes them
@@ -152,8 +151,11 @@ pub enum Error {
     },
     /// The entity is not a villager NPC.
     NotVillager,
-    /// The villager was not spawned: the world does not exist, the position is not finite or
-    /// outside the world border, its chunk is not loaded, or the world is at its entity limit.
+    /// The villager was not spawned, for the reasons of
+    /// [`entity::Error::NotSpawned`](crate::entity::Error::NotSpawned): the world does not exist,
+    /// the position is not finite or outside the world border, its chunk is not loaded, or the
+    /// world is at its entity limit. The villager call returns this error because its offers can
+    /// fail with [`Error::Offer`] too.
     NotSpawned,
     /// An offer or an offer list change breaks a rule.
     Offer {
@@ -224,9 +226,9 @@ impl ServerBuilder {
     }
 
     /// Registers `inventory` as the alternative creative inventory `name`, which a player is
-    /// switched to while the server runs. It holds what it lists: no custom item or block place is added.
-    /// [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or repeated
-    /// name, or more than 64 alternatives.
+    /// switched to while the server runs. It holds what it lists: no custom item or block place
+    /// is added. [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or
+    /// repeated name, or more than 64 alternatives.
     #[must_use]
     pub fn alternative_creative_inventory(
         mut self,

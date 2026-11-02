@@ -1561,7 +1561,7 @@ pub(super) mod tests {
         let p = player_mut(&mut state, 1);
         p.add_full_volume_sound(at, note).unwrap();
         assert_eq!(
-            p.add_full_volume_sound(at, Sound::AnvilFall),
+            p.add_full_volume_sound(at, Sound::XpCollect),
             Err(Error::NoFullVolume)
         );
         assert_eq!(

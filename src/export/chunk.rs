@@ -1,22 +1,21 @@
 //! The values of an exported chunk, keyed as the import's `chunk` module reads them: the chunk
 //! version, `Data3D` (the height map, then the biomes of each sub-chunk), a value per sub-chunk
-//! that has blocks, the block entities and the finalization state. Their layouts are those the official server
-//! 1.26.52 writes (`xtask/data/import/flat`): [`CHUNK_VERSION`], [`SUB_CHUNK_VERSION`], block
-//! layers with a width byte of `bits << 1` (disk palettes of NBT block states), biome storages
-//! with `bits << 1 | 1` and [`SAME_BIOMES`] for one the same as the storage below, and
-//! [`FINISHED`]. The height map is left at zero; the official server loads such chunks and sends their blocks as
-//! stored (`cargo xtask p6 import`).
+//! that has blocks, the block entities and the finalization state. Their layouts are those the
+//! official server writes (`xtask/data/import/flat`): the newest chunk and sub-chunk versions the
+//! import reads ([`MAX_CHUNK_VERSION`], [`MAX_SUB_CHUNK_VERSION`]), block layers with a width byte of `bits << 1` (disk palettes of NBT block states), biome
+//! storages with `bits << 1 | 1` and [`SAME_BIOMES`] for one the same as the storage below, and
+//! [`FINISHED`]. The height map is left at zero; the official server loads such chunks and sends
+//! their blocks as stored (`cargo xtask p6 import`).
 
 use crate::import::chunk::{
-    CHUNK_TAG_BLOCK_ENTITIES, CHUNK_TAG_SUB_CHUNK, CHUNK_TAG_VERSION, prefix,
+    CHUNK_TAG_BLOCK_ENTITIES, CHUNK_TAG_SUB_CHUNK, CHUNK_TAG_VERSION, MAX_CHUNK_VERSION,
+    MAX_SUB_CHUNK_VERSION, prefix,
 };
 use crate::nbt::{Compound, Encoding};
 use crate::protocol::{Result, Writer, length};
 use crate::storage::codec::{Biomes, BlockLayer, ChunkRecord};
 use crate::world::{ChunkPos, MIN_Y};
 
-/// The chunk version of the layout written.
-const CHUNK_VERSION: u8 = 42;
 /// The key tag of a chunk's height map and biomes, which the import does not read.
 const DATA_3D: u8 = 0x2b;
 /// The key tag of a chunk's finalization state, which the import does not read.
@@ -28,8 +27,6 @@ const FINISHED: i32 = 2;
 const HEIGHT_MAP_BYTES: usize = 512;
 /// A biome storage header that repeats the storage below.
 const SAME_BIOMES: u8 = 0xff;
-/// The sub-chunk version of the layout written.
-const SUB_CHUNK_VERSION: u8 = 9;
 
 /// Returns the values of the chunk at `pos` with the terrain `record` and the block entities
 /// `block_entities`, sorted by key.
@@ -45,7 +42,7 @@ pub(super) fn values(
         key
     };
     let mut values = vec![
-        (key(CHUNK_TAG_VERSION, &[]), vec![CHUNK_VERSION]),
+        (key(CHUNK_TAG_VERSION, &[]), vec![MAX_CHUNK_VERSION]),
         (key(DATA_3D, &[]), data_3d(record)?),
         (key(FINALIZED_STATE, &[]), FINISHED.to_le_bytes().to_vec()),
     ];
@@ -56,7 +53,7 @@ pub(super) fn values(
         // The sub-chunk y as a signed byte.
         let [y, ..] = y.to_le_bytes();
         let mut w = Writer::new(Vec::new(), 0);
-        w.uint8(SUB_CHUNK_VERSION);
+        w.uint8(MAX_SUB_CHUNK_VERSION);
         w.uint8(length(sub.layers.len())?);
         w.uint8(y);
         for layer in &sub.layers {
