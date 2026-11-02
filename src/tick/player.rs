@@ -19,7 +19,9 @@ use tracing::info;
 
 use super::queue::SessionId;
 use super::{Context, Output, Phase, Player, State, dispatch, inside_border, inventory, survival};
-use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, TeleportCause};
+use crate::event::{
+    Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, QuitReason, TeleportCause,
+};
 use crate::math::Vec3;
 use crate::player::{Error, Id, Message, Packets, Result};
 use crate::protocol::Uuid;
@@ -818,15 +820,6 @@ super::checkpoint::fields!(Presence {
     placed_tick,
 });
 
-/// Why a player quits, as [`PlayerQuit::is_shutdown`] tells it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum QuitCause {
-    /// It left, was kicked or replaced, or its connection ended.
-    Disconnect,
-    /// The server stops.
-    Shutdown,
-}
-
 /// Does what the player setters marked this tick, after the inputs, tasks and rules and before
 /// the views move and the output is built: kicked and transferred players get their last packet
 /// and leave, refused hotbar selections are answered, teleported players move, the survival
@@ -853,23 +846,18 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
         after = Bound::Excluded(session);
         if let Some(leave) = player.marks.leave.take() {
             let reason = leave.reason().to_owned();
-            match &leave {
+            let quit_reason = match &leave {
                 Leave::Kick { .. } => {
                     info!(session = session.get(), player = %player.identity.name, %reason, "player kicked");
+                    QuitReason::Kicked(reason)
                 }
                 Leave::Transfer { address, port, .. } => {
                     info!(session = session.get(), player = %player.identity.name, %address, port, %reason, "player transferred");
+                    QuitReason::Transferred(reason)
                 }
-            }
+            };
             let (packet, quit_message) = leave.into_parts();
-            state.send_off(
-                session,
-                &reason,
-                quit_message,
-                QuitCause::Disconnect,
-                packet,
-                output,
-            );
+            state.send_off(session, quit_reason, quit_message, packet, output);
             continue;
         }
         inventory::answer_held(player);
@@ -916,9 +904,8 @@ fn apply_marks(state: &mut State, session: SessionId) {
 pub(super) fn quit(
     state: &mut State,
     session: SessionId,
-    reason: &str,
+    reason: QuitReason,
     quit_message: String,
-    cause: QuitCause,
 ) {
     let Some(name) = state
         .players
@@ -933,8 +920,7 @@ pub(super) fn quit(
         let e = event.insert(PlayerQuit {
             player: Id::new(session),
             quit_message,
-            quit_reason: reason.to_owned(),
-            shutdown: cause == QuitCause::Shutdown,
+            reason,
         });
         dispatch::call(state, e);
         e.quit_message.clone()
@@ -1357,7 +1343,7 @@ pub(super) mod tests {
             listeners.push(
                 crate::event::Priority::Normal,
                 |e: &mut PlayerQuit, _: &mut Context<'_>| {
-                    let own = if e.quit_reason() == "quiet" {
+                    let own = if *e.reason() == QuitReason::Kicked("quiet".to_owned()) {
                         String::new()
                     } else {
                         format!("{} is gone", e.player().session().get())
@@ -1440,7 +1426,7 @@ pub(super) mod tests {
         listeners.push(
             crate::event::Priority::Normal,
             move |e: &mut PlayerQuit, _: &mut Context<'_>| {
-                quits.try_send(e.is_shutdown()).unwrap();
+                quits.try_send(*e.reason() == QuitReason::Shutdown).unwrap();
             },
         );
         let (mut state, _rx) = two_with(listeners);

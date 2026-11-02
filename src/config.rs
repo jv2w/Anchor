@@ -19,6 +19,7 @@ use crate::fs::{self, Access};
 use crate::protocol::batch;
 use crate::protocol::compression::Compression;
 use crate::protocol::consts::GameType;
+use crate::world::{BORDER, is_valid_spawn};
 
 /// The `chunks-per-tick` range: 0 would never send a chunk, and 256 sends the largest view in
 /// about 3 seconds.
@@ -77,14 +78,8 @@ drowning = true
 armor = true
 # Tools, weapons and armour wear out with use.
 durability = true
-# Sleeping in beds and bed spawn points.
-beds = true
 # The time of day moving on.
 daylight-cycle = true
-# The recipe book: false hides it and refuses its quick crafting; the crafting grid still works.
-recipe-book = true
-# The vanilla recipes; false keeps only recipes the server program registers.
-vanilla-recipes = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
 # Critical hits: "off", "sprint" (only when not sprinting) or "always" (sprinting too).
@@ -155,14 +150,9 @@ cpu-threads = "auto"
 chunks-per-tick = 4
 # Chunk radius sent before a player spawns (at most view-distance).
 spawn-radius = 4
-# Chunk radius around players where blocks get random ticks and entities are ticked (at most
-# view-distance). Block updates (liquids, fire, falling blocks) run in every loaded chunk.
+# Chunk radius around players where custom blocks get random ticks and entities are ticked (at
+# most view-distance).
 tick-radius = 4
-# Random block ticks per sub-chunk per tick (crop growth, leaf decay). 0 turns them off.
-random-tick-speed = 3
-# Blocks that never get random ticks, by name, for example "minecraft:grass_block". Every block
-# of the same kind as a named block stops too. Custom blocks ignore this list.
-disable-block-ticking = []
 # true: a world without players runs one tick in every 100.
 slow-empty-worlds = false
 # "dynamic": light is calculated and follows block changes.
@@ -206,7 +196,7 @@ const ITEM_PICKUP_INTERVAL_RANGE: RangeInclusive<u8> = 1..=20;
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
-/// See [`MAX_MOTD_BYTES`].
+/// The longest `level-name`, in bytes; the bound is explained at [`MAX_MOTD_BYTES`].
 const MAX_LEVEL_NAME_BYTES: usize = 64;
 
 /// The longest `motd`, in bytes ([`is_motd`]). The RakNet pong carries `motd` and `level-name` in
@@ -227,10 +217,6 @@ const PLAYERS_RANGE: RangeInclusive<u32> = 1..=10_000;
 /// so a larger value means nothing.
 const RADIUS_RANGE: RangeInclusive<u8> = 1..=*VIEW_DISTANCE_RANGE.end();
 
-/// The `random-tick-speed` range; a sub-chunk holds 4096 blocks, so more ticks than blocks add
-/// only cost.
-pub(crate) const RANDOM_TICK_SPEED_RANGE: RangeInclusive<u32> = 0..=4096;
-
 /// The `save-interval-minutes` range: one minute to one day.
 const SAVE_INTERVAL_MINUTES_RANGE: RangeInclusive<u16> = 1..=1440;
 
@@ -241,7 +227,8 @@ const THREADS_RANGE: RangeInclusive<u16> = 1..=u16::MAX;
 /// The `view-distance` range the settings file accepts.
 pub(crate) const VIEW_DISTANCE_RANGE: RangeInclusive<u8> = 2..=64;
 
-/// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
+/// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`. The
+/// fields are public because a program sets them in code; the server builder checks them.
 ///
 /// The data files save none of them: every start takes the settings from the config it is built
 /// with, so a value changed while the server runs (the difficulty, a world's difficulty, a game
@@ -285,6 +272,19 @@ impl Config {
     /// When the program was started as `<program> update-config`, the file is first updated as
     /// [`Config::update_file`] does, and [`Server::run`](crate::Server::run) then reports what
     /// changed instead of running the server.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Read`] for a file that cannot be read.
+    /// [`Error::Write`] for a default file that cannot be written.
+    /// [`Error::TooLarge`] for a file of more than 1 MiB.
+    /// [`Error::Syntax`] for a file that is not UTF-8 TOML.
+    /// [`Error::UnknownKey`] for a key Anchor does not know.
+    /// [`Error::Invalid`] for a value of the wrong type or form.
+    /// [`Error::Range`] for a whole number outside its range.
+    /// [`Error::Batch`] for a compression setting that [`batch::Settings::new`] rejects.
+    /// [`Error::HeaderlessTable`] for an update that cannot add a key to a table written without
+    /// its header.
     pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         match crate::args::current() {
@@ -317,6 +317,14 @@ impl Config {
     /// A server program started as `<program> update-config` runs this from [`Config::load`],
     /// whether the server runs or not: a running server reads the file only at its next start.
     /// This does blocking file I/O.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Read`] for a file that is missing or cannot be read.
+    /// [`Error::Write`] for an update that cannot be written.
+    /// [`Error::TooLarge`] for a file, or an update, of more than 1 MiB.
+    /// [`Error::HeaderlessTable`] for a table lacking a key that is written without its header.
+    /// Every other [`Error`] for a file that would not load after the update.
     pub fn update_file(path: impl AsRef<Path>) -> Result<Update> {
         update::run(path.as_ref())
     }
@@ -353,7 +361,7 @@ impl Config {
     }
 
     /// The `tick-radius` limited to `view-distance`: the chunk radius around players that gets
-    /// random block ticks and entity ticks.
+    /// random ticks of custom blocks and entity ticks.
     pub fn effective_tick_radius(&self) -> u8 {
         self.view_limits(None).tick_radius
     }
@@ -508,15 +516,6 @@ impl Config {
         range(Key::developer("spawn-radius"), d.spawn_radius, RADIUS_RANGE)?;
         range(Key::developer("tick-radius"), d.tick_radius, RADIUS_RANGE)?;
         range(
-            Key::developer("random-tick-speed"),
-            d.random_tick_speed,
-            RANDOM_TICK_SPEED_RANGE,
-        )?;
-        if !d.disable_block_ticking.iter().all(|n| is_block_name(n)) {
-            return Err(Key::developer("disable-block-ticking")
-                .invalid("a list of block names like \"minecraft:grass_block\""));
-        }
-        range(
             Key::developer("fixed-light-level"),
             d.fixed_light_level,
             FIXED_LIGHT_LEVEL_RANGE,
@@ -569,14 +568,9 @@ impl Config {
             &g.shutdown_message,
             MAX_SHUTDOWN_MESSAGE_BYTES,
         )?;
-        // A path into the old `packs` folder would now name `data/packs/packs/...`; Anchor never
-        // writes the file, so the setting must be changed.
-        if g.resource_packs
-            .iter()
-            .any(|p| p.as_os_str().is_empty() || p.starts_with(crate::pack::FOLDER))
-        {
+        if g.resource_packs.iter().any(|p| p.as_os_str().is_empty()) {
             return Err(Key::general("resource-packs")
-                .invalid("a list of non-empty paths relative to data/packs, not under packs/"));
+                .invalid("a list of non-empty paths relative to data/packs"));
         }
         Ok(())
     }
@@ -636,14 +630,8 @@ pub struct General {
     pub armor: bool,
     /// `durability`: whether tools, weapons and armour wear out with use.
     pub durability: bool,
-    /// `beds`: whether players can sleep in beds and set their spawn point with them.
-    pub beds: bool,
     /// `daylight-cycle`: whether the time of day moves on.
     pub daylight_cycle: bool,
-    /// `recipe-book`: whether the recipe book is shown and its quick crafting accepted.
-    pub recipe_book: bool,
-    /// `vanilla-recipes`: whether the vanilla recipes exist besides those the server registers.
-    pub vanilla_recipes: bool,
     /// `item-despawn-ticks`: ticks a dropped item stays on the ground.
     pub item_despawn_ticks: u32,
     /// `critical-hits`: when a hit can be critical.
@@ -666,7 +654,9 @@ pub struct General {
     pub show_death_messages: bool,
     /// `level-name`: the main world's name.
     pub level_name: String,
-    /// `level-type`: the generator of the main world's chunks never saved.
+    /// `level-type`: the generator of the main world's chunks never saved. A custom
+    /// [`Generator`](crate::world::Generator) goes only to a world declared with
+    /// [`ServerBuilder::world`](crate::ServerBuilder::world).
     pub level_type: LevelType,
     /// `level-seed`: the main world's seed; `None` makes one from its name, the same at every
     /// start.
@@ -680,9 +670,9 @@ pub struct General {
     pub backups: bool,
     /// `shutdown-message`: the message players see when the server stops.
     pub shutdown_message: String,
-    /// `resource-packs`: resource pack files, relative to `packs` in the data folder; a relative
-    /// path may not start with `packs`. Players keep a downloaded pack by its uuid and version, so
-    /// the manifest version must rise when a pack changes.
+    /// `resource-packs`: resource pack files, relative to `packs` in the data folder, none empty.
+    /// Players keep a downloaded pack by its uuid and version, so the manifest
+    /// version must rise when a pack changes.
     #[doc(alias = "ResourcePackManager::__construct")]
     pub resource_packs: Vec<PathBuf>,
     /// `force-resources`: whether players must accept the resource packs to join.
@@ -722,10 +712,7 @@ impl General {
                 "drowning" => self.drowning = boolean(value, key)?,
                 "armor" => self.armor = boolean(value, key)?,
                 "durability" => self.durability = boolean(value, key)?,
-                "beds" => self.beds = boolean(value, key)?,
                 "daylight-cycle" => self.daylight_cycle = boolean(value, key)?,
-                "recipe-book" => self.recipe_book = boolean(value, key)?,
-                "vanilla-recipes" => self.vanilla_recipes = boolean(value, key)?,
                 "item-despawn-ticks" => {
                     self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS_RANGE)?;
                 }
@@ -781,10 +768,7 @@ impl Default for General {
             drowning: true,
             armor: true,
             durability: true,
-            beds: true,
             daylight_cycle: true,
-            recipe_book: true,
-            vanilla_recipes: true,
             item_despawn_ticks: 6000,
             critical_hits: CriticalHits::Sprint,
             break_time_check: true,
@@ -838,14 +822,9 @@ pub struct Developer {
     pub chunks_per_tick: u32,
     /// `spawn-radius`: the chunk radius sent before a player spawns.
     pub spawn_radius: u8,
-    /// `tick-radius`: the chunk radius around players where blocks get random ticks and entities
-    /// are ticked; block updates (liquids, fire, falling blocks) run in every loaded chunk.
+    /// `tick-radius`: the chunk radius around players where custom blocks get random ticks and
+    /// entities are ticked.
     pub tick_radius: u8,
-    /// `random-tick-speed`: random block ticks per sub-chunk per tick.
-    pub random_tick_speed: u32,
-    /// `disable-block-ticking`: blocks that never get random ticks, by name; every block of the
-    /// same kind as a named block stops too, and custom blocks ignore the list.
-    pub disable_block_ticking: Vec<String>,
     /// `slow-empty-worlds`: whether a world without players runs one tick in every 100.
     pub slow_empty_worlds: bool,
     /// `lighting`: how light is calculated.
@@ -900,14 +879,8 @@ impl Developer {
                 }
                 "spawn-radius" => self.spawn_radius = int(value, key, RADIUS_RANGE)?,
                 "tick-radius" => self.tick_radius = int(value, key, RADIUS_RANGE)?,
-                "random-tick-speed" => {
-                    self.random_tick_speed = int(value, key, RANDOM_TICK_SPEED_RANGE)?;
-                }
-                "disable-block-ticking" => {
-                    self.disable_block_ticking = strings(value, key)?.map(str::to_owned).collect();
-                }
                 "slow-empty-worlds" => self.slow_empty_worlds = boolean(value, key)?,
-                "lighting" => self.lighting = lighting(value, key)?,
+                "lighting" => self.lighting = choice(value, key, &Lighting::NAMES)?,
                 "fixed-light-level" => {
                     self.fixed_light_level = int(value, key, FIXED_LIGHT_LEVEL_RANGE)?;
                 }
@@ -947,8 +920,6 @@ impl Default for Developer {
             chunks_per_tick: 4,
             spawn_radius: 4,
             tick_radius: 4,
-            random_tick_speed: 3,
-            disable_block_ticking: Vec::new(),
             slow_empty_worlds: false,
             lighting: Lighting::Dynamic,
             fixed_light_level: 15,
@@ -972,12 +943,12 @@ pub struct WorldSettings {
     pub chunks_per_tick: Option<u32>,
     /// `spawn-radius`: the chunk radius sent before a player spawns in the world.
     pub spawn_radius: Option<u8>,
-    /// `tick-radius`: the chunk radius around players where the world's blocks get random ticks
-    /// and its entities are ticked.
+    /// `tick-radius`: the chunk radius around players where the world's custom blocks get random
+    /// ticks and its entities are ticked.
     pub tick_radius: Option<u8>,
-    /// `spawn = [x, y, z]`: where players appear in the world when it is new; `None` is the
-    /// generator's spawn. The world's file then keeps its spawn, moved or not, and a later start
-    /// does not use this.
+    /// `spawn = [x, y, z]`: where players appear in the world when it is new, each number inside
+    /// the world border; `None` is the generator's spawn. The world's file then keeps its spawn,
+    /// moved or not, and a later start does not use this.
     pub spawn: Option<crate::world::BlockPos>,
 }
 
@@ -1005,6 +976,13 @@ impl WorldSettings {
         }
         if let Some(v) = self.tick_radius {
             range(Key::new(path, "tick-radius"), v, RADIUS_RANGE)?;
+        }
+        if self.spawn.is_some_and(|spawn| !is_valid_spawn(spawn)) {
+            return Err(Key::new(path, "spawn").invalid(format!(
+                "[x, y, z] with each number from {} to {}",
+                -BORDER,
+                BORDER - 1
+            )));
         }
         Ok(())
     }
@@ -1065,16 +1043,14 @@ impl ViewLimits {
 
 /// How light is calculated (`lighting`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Lighting {
     /// `"dynamic"`: light is calculated and follows block changes.
     Dynamic,
     /// `"on-load"`: light is calculated when a chunk loads but not after block changes.
     OnLoad,
     /// `"fixed"`: no light is calculated; every block has `fixed-light-level` as sky light and no
-    /// block light. Random ticks see that light everywhere, underground too: at 15 crops and
-    /// saplings grow in caves (saplings by day, as sky light dims at night), below 9 crops never
-    /// grow and below 8 saplings never grow. Without block light, ice blocks and snow layers never
-    /// melt (frosted ice still melts in sky light).
+    /// block light.
     Fixed,
 }
 
@@ -1094,6 +1070,7 @@ impl Lighting {
 
 /// When the data files are checked at start (`integrity-check`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum IntegrityCheck {
     /// `"always"`: on every start.
     Always,
@@ -1158,8 +1135,7 @@ pub enum GameMode {
 }
 
 impl GameMode {
-    /// PMMP's names of the game modes (`GameMode::getAliases`), which [`from_name`](Self::from_name)
-    /// takes.
+    /// The names, letters and numbers of the game modes that [`from_name`](Self::from_name) takes.
     const ALIASES: [(&str, Self); 13] = [
         ("survival", Self::Survival),
         ("s", Self::Survival),
@@ -1184,9 +1160,9 @@ impl GameMode {
         ("spectator", Self::Spectator),
     ];
 
-    /// The game mode one of PMMP's names gives, ignoring ASCII case: the name (`survival`), its
-    /// letter (`s`, `c`, `a`, `v` or `view`) or its number (`0` to `3`). The `gamemode` setting
-    /// takes the full names only.
+    /// The game mode a name gives, ignoring ASCII case: the name (`survival`), its letter (`s`,
+    /// `c`, `a`, `v` or `view`) or its number (`0` to `3`). The `gamemode` setting takes the full
+    /// names only.
     #[doc(alias = "GameMode::fromString")]
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALIASES
@@ -1238,8 +1214,7 @@ impl Difficulty {
         ("hard", Self::Hard),
     ];
 
-    /// The protocol ID of the difficulty (`SetDifficulty`, `StartGame`), which PMMP and
-    /// `/difficulty <0-3>` use too: peaceful 0 to hard 3.
+    /// The protocol ID of the difficulty (`SetDifficulty`, `StartGame`): peaceful 0 to hard 3.
     pub(crate) const fn id(self) -> u8 {
         match self {
             Self::Peaceful => 0,
@@ -1252,6 +1227,7 @@ impl Difficulty {
 
 /// The generator of a new world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum LevelType {
     /// `"flat"`.
     Flat,
@@ -1266,6 +1242,7 @@ impl LevelType {
 
 /// When a melee hit can be critical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CriticalHits {
     /// `"off"`: never.
     Off,
@@ -1545,15 +1522,6 @@ fn strings<'v>(value: &'v Value, key: Key<'_>) -> Result<impl Iterator<Item = &'
     Ok(items.iter().filter_map(Value::as_str))
 }
 
-/// Reads a `lighting` value; the `true` and `false` of older files mean `"dynamic"` and `"fixed"`.
-fn lighting(value: &Value, key: Key<'_>) -> Result<Lighting> {
-    match value.as_bool() {
-        Some(true) => Ok(Lighting::Dynamic),
-        Some(false) => Ok(Lighting::Fixed),
-        None => choice(value, key, &Lighting::NAMES),
-    }
-}
-
 /// Reads one of `choices` by name.
 fn choice<T: Copy>(value: &Value, key: Key<'_>, choices: &[(&str, T)]) -> Result<T> {
     let name = value.as_str();
@@ -1608,18 +1576,6 @@ pub fn is_motd(motd: &str) -> bool {
 /// can list.
 fn is_list_text(value: &str) -> bool {
     !value.is_empty() && !value.chars().any(|c| c == ';' || c.is_control())
-}
-
-/// Whether `name` has the shape `namespace:path` of a block identifier.
-fn is_block_name(name: &str) -> bool {
-    let Some((namespace, path)) = name.split_once(':') else {
-        return false;
-    };
-    let base = |b: u8| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.');
-    !namespace.is_empty()
-        && !path.is_empty()
-        && namespace.bytes().all(base)
-        && path.bytes().all(|b| base(b) || b == b'/')
 }
 
 /// A settings file's bytes as text; [`Error::Syntax`] if they are not UTF-8.
@@ -1687,6 +1643,9 @@ fn read(path: &Path) -> Result<Option<Vec<u8>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The number of keys in the default file.
+    pub(super) const DEFAULT_KEY_COUNT: usize = 63;
 
     fn apply(text: &str) -> Result<Config> {
         Config::default().apply(text.as_bytes())
@@ -1780,20 +1739,9 @@ mod tests {
         config.general.resource_packs.push(PathBuf::new());
         assert!(config.validate().is_err());
 
-        // A path into the old `packs` folder is refused; another relative path is not.
-        for (path, valid) in [
-            ("packs/b.zip", false),
-            ("packs", false),
-            ("sub/b.zip", true),
-        ] {
-            let mut config = Config::default();
-            config.general.resource_packs = vec![path.into()];
-            let error = config.validate().err().map(|e| e.to_string());
-            match error {
-                Some(error) => assert!(!valid && error.contains("not under packs/"), "{error}"),
-                None => assert!(valid, "{path}"),
-            }
-        }
+        let mut config = Config::default();
+        config.general.resource_packs = vec!["packs/b.zip".into()];
+        config.validate().expect("a path under packs is a path");
     }
 
     // api: ResourcePackManager::__construct
@@ -1853,7 +1801,7 @@ old-key = false
         let config = Config::default().load_updated(&path).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 68);
+        assert_eq!(update.added().len(), DEFAULT_KEY_COUNT);
         let again = Config::default().load_updated(&path).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }
@@ -1922,7 +1870,7 @@ old-key = false
 
     // api: GameMode::fromString, GameMode
     #[test]
-    fn game_modes_parse_pmmps_names_letters_and_numbers() {
+    fn game_modes_parse_names_letters_and_numbers() {
         assert_eq!(GameMode::from_name("Survival"), Some(GameMode::Survival));
         assert_eq!(GameMode::from_name("c"), Some(GameMode::Creative));
         assert_eq!(GameMode::from_name("2"), Some(GameMode::Adventure));

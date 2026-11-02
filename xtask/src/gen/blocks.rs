@@ -1,4 +1,5 @@
-//! `src/block/table.rs`: the block state table from [`Data`].
+//! `src/block/table.rs`: the block state table from [`Data`]: the states of the dump and the
+//! reference states it does not have, in one table.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,13 +39,14 @@ type Interned<'a> = (
 /// A named state: constant name, block name and properties.
 type Named = (&'static str, &'static str, &'static [(&'static str, Prop)]);
 
-/// Generates the file text (unformatted).
-pub(crate) fn generate(data: &Data) -> Result<String, String> {
+/// Generates the file text (unformatted) for the reference list of the game version
+/// `game_version`.
+pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Block states generated from the PMMP dump, the block upgrade schemas and the \
-         1.26.60 reference list: {} states and {} aliases.\n\n\
+        "{HEADER}\n//! Block states generated from the dump, the block upgrade schemas and the \
+         {game_version} reference list: {} states and {} aliases.\n\n\
          use super::{{Alias, BreakInfo, Data, Info, KindData, Property, PropertyValue, State, \
          ToolType}};\n\
          use crate::math::{{Aabb, Vec3}};\n\n",
@@ -69,12 +71,11 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
         let (name, start, count) = intern(&s.key)?;
         put!(
             states,
-            "Data::new({name}, {start}, {count}, {}, {}, {}, {}, {}),",
+            "Data::new({name}, {start}, {count}, {}, {}, {}, {}),",
             hex_lit(u64::from(s.network_id), 8),
             s.light_emission,
             s.light_filter,
             s.blocks_direct_sky_light,
-            s.ticks_randomly,
         );
     }
     let mut aliases = String::new();
@@ -99,15 +100,15 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     put!(
         out,
         "/// Every state, sorted by name and then properties: (name, first property, property \
-         count, network ID, light emission, light filter, blocks direct sky light, ticks \
-         randomly).\npub(super) static STATES: [Data; {}] = [{states}];\n\n",
+         count, network ID, light emission, light filter, blocks direct sky light).\n\
+         pub(super) static STATES: [Data; {}] = [{states}];\n\n",
         data.states.len()
     );
     put!(
         out,
-        "/// The reference states that are not states but that PMMP reads as one, \
+        "/// The reference states that are not states but that the dump reads as one, \
          sorted by name and then properties: (name, first property, property count, the state \
-         PMMP reads it as).\npub(super) static ALIASES: [Alias; {}] = [{aliases}];\n\n",
+         the dump reads it as).\npub(super) static ALIASES: [Alias; {}] = [{aliases}];\n\n",
         data.aliases.len()
     );
     lookups(&mut out, data)?;
@@ -172,18 +173,18 @@ pub(crate) fn enumeration(out: &mut String, doc: &str, name: &str, variants: &[(
     api_enumeration(out, doc, "", name, variants);
 }
 
-/// [`enumeration`] with the PMMP mapping lines (`// api-class:` comments and `#[doc(alias)]`
+/// [`enumeration`] with the API table lines (`// api-class:` comments and `#[doc(alias)]`
 /// attributes, each ending in a newline) between the doc and the derives.
 pub(crate) fn api_enumeration(
     out: &mut String,
     doc: &str,
-    pmmp: &str,
+    api: &str,
     name: &str,
     variants: &[(String, String)],
 ) {
     put!(
         out,
-        "\n/// {doc}\n{pmmp}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{"
+        "\n/// {doc}\n{api}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{"
     );
     for (variant, documented) in variants {
         put!(out, "/// `{documented}`.\n{variant},");
@@ -253,21 +254,20 @@ pub(crate) fn strings(out: &mut String, doc: &str, name: &str, list: &[&str]) {
     out.push_str("];\n");
 }
 
-/// The PMMP block types: the `Kind` enum, its names, and each kind's default state, class chain
-/// and traits; and the class, trait and type tag enums.
+/// The block types: the `Kind` enum, its names, and each kind's default state, class chain and
+/// traits; and the class and trait enums.
 fn kinds(out: &mut String, data: &Data) -> Result<(), String> {
     let names: Vec<&str> = data.kinds.iter().map(|(k, _)| k.kind.as_str()).collect();
     let kind_variants = variants(&names)?;
     enumeration(
         out,
-        "A PMMP block type (a `VanillaBlocks` entry), such as `OakPlanks`; [`State::kind`] gives \
-         a state's.",
+        "A block type, such as `OakPlanks`; [`State::kind`] gives a state's.",
         "Kind",
         &kind_variants,
     );
     strings(
         out,
-        "The `VanillaBlocks` name of each kind, lowercase.",
+        "The name of each kind, lowercase.",
         "KIND_NAMES",
         &names,
     );
@@ -296,20 +296,20 @@ fn kinds(out: &mut String, data: &Data) -> Result<(), String> {
     let class_variants = variants(&classes)?;
     enumeration(
         out,
-        "A PMMP block class or one of its parents (`Block` for every block); [`State::class`] \
-         gives a state's.",
+        "A block class or one of its parents (`Block` for every block); [`State::class`] gives a \
+         state's.",
         "Class",
         &class_variants,
     );
-    strings(out, "The PMMP name of each class.", "CLASS_NAMES", &classes);
+    strings(out, "The name of each class.", "CLASS_NAMES", &classes);
     enumeration(
         out,
-        "A PMMP block trait or interface (`FallableTrait` and `Fallable` are both `Fallable`); \
+        "A block trait or interface (`FallableTrait` and `Fallable` are both `Fallable`); \
          [`State::has_trait`] tells a state's.",
         "Trait",
         &variants(&traits)?,
     );
-    strings(out, "The PMMP name of each trait.", "TRAIT_NAMES", &traits);
+    strings(out, "The name of each trait.", "TRAIT_NAMES", &traits);
 
     let mut chains = String::new();
     let mut chain_len = 0;
@@ -333,9 +333,8 @@ fn kinds(out: &mut String, data: &Data) -> Result<(), String> {
     put!(
         out,
         "\n/// The class chains of [`KIND_DATA`] one after another, leaf first.\npub(super) static \
-         CLASS_CHAINS: [Class; {chain_len}] = [{chains}];\n\n/// Each kind's default state (PMMP \
-         `VanillaBlocks`), class chain and traits.\npub(super) static KIND_DATA: [KindData; {}] = \
-         [{rows}];\n",
+         CLASS_CHAINS: [Class; {chain_len}] = [{chains}];\n\n/// Each kind's default state, class \
+         chain and traits.\npub(super) static KIND_DATA: [KindData; {}] = [{rows}];\n",
         names.len()
     );
     Ok(())
@@ -362,24 +361,15 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
     if tags.len() > 16 {
         return Err("more than 16 type tags".to_owned());
     }
-    let tag_names: Vec<&str> = tags
-        .iter()
-        .map(|t| t.strip_prefix("pocketmine:").unwrap_or(t))
-        .collect();
     api_enumeration(
         out,
-        "A PMMP block type tag (`BlockTypeTags`); [`State::has_type_tag`] tells a state's.",
+        "A block type tag; [`State::has_type_tag`] tells a state's.",
         "#[doc(alias = \"BlockTypeTags\")]
 ",
         "TypeTag",
-        &variants(&tag_names)?,
+        &variants(&tags)?,
     );
-    strings(
-        out,
-        "The PMMP name of each type tag.",
-        "TYPE_TAG_NAMES",
-        &tags,
-    );
+    strings(out, "The name of each type tag.", "TYPE_TAG_NAMES", &tags);
 
     let kind_index: BTreeMap<&str, usize> = data
         .kinds
@@ -409,19 +399,14 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
             .iter()
             .enumerate()
             .fold(0_u16, |acc, (i, code)| acc | u16::from(*code) << (2 * i));
-        let flags = u16::from(p.flags) | u16::from(p.burns_forever) << 8;
         let b = &p.break_info;
         let row = format!(
-            "Info::new(BreakInfo::new({}, {}, ToolType({}), {}, {}), {}, {}, {}, {}, {}, {}, {}, \
-             {}),",
+            "Info::new(BreakInfo::new({}, {}, ToolType({}), {}), {}, {}, {}, {}, {}, {}),",
             f64_lit(b.hardness),
             f64_lit(b.blast_resistance),
             b.tool_type,
             b.harvest_level,
-            b.explosion_harvestable,
-            p.flammability,
-            p.encouragement,
-            hex_lit(u64::from(flags), 4),
+            hex_lit(u64::from(p.flags), 4),
             f64_lit(p.friction),
             bit_set(&p.tags, &tags, "type tag")?,
             hex_lit(u64::from(support), 4),
@@ -498,7 +483,7 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
     Ok(())
 }
 
-/// The banner pattern enum and IDs (PMMP `BannerPatternType`, `BannerPatternTypeIdMap`).
+/// The banner pattern enum and IDs.
 fn banner_patterns(out: &mut String, data: &Data) {
     let list = &data.tables.banner_patterns;
     let names: Vec<&str> = list.iter().map(|b| b.name.as_str()).collect();
@@ -508,7 +493,7 @@ fn banner_patterns(out: &mut String, data: &Data) {
         .collect();
     api_enumeration(
         out,
-        "A banner pattern (PMMP `BannerPatternType`).",
+        "A banner pattern.",
         "#[doc(alias = \"BannerPatternType\")]
 ",
         "BannerPattern",

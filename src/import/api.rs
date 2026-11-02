@@ -7,8 +7,8 @@
 //! entries Anchor knows become its states, the server's custom blocks resolve, the rest stays as
 //! unknown blocks with their NBT) and the sealing the save thread uses, so the bytes are those
 //! Anchor writes itself; an all-air chunk is written too, or it would be generated. Legacy
-//! numeric layers become paletted ones, and legacy block extra data their second layer (as PMMP
-//! applies it, to sub-chunks of versions 0 to 7). Block entities keep their Bedrock compounds
+//! numeric layers become paletted ones, and legacy block extra data their second layer (for
+//! sub-chunks of versions 0 to 7). Block entities keep their Bedrock compounds
 //! whole, their items upgraded. Only blocks and block entities are imported: a chunk's biomes are
 //! those the world's generator gives the chunk, and entities and pending block updates are left
 //! out and counted.
@@ -33,9 +33,7 @@ use crate::save::{self, WorldSpec};
 use crate::storage::codec::{BlockLayer, ChunkRecord, SubChunkRecord, WorldRecord};
 use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
-use crate::world::{
-    self, BlockPos, Chunk, ChunkPos, Entry, MIN_SUB_CHUNK_Y, Paletted, SLOTS, SUB_CHUNKS,
-};
+use crate::world::{self, BlockPos, Chunk, ChunkPos, MIN_SUB_CHUNK_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// The newest sub-chunk version that takes legacy block extra data as its second layer.
 const LAST_EXTRA_DATA_VERSION: u8 = 7;
@@ -68,8 +66,6 @@ pub struct Report {
     other_keys: u64,
     unknown_blocks: BTreeMap<String, u64>,
     unlisted_unknown_blocks: u64,
-    inert_blocks: u64,
-    placeholder_blocks: u64,
     spawn: BlockPos,
 }
 
@@ -132,7 +128,8 @@ impl Report {
     }
 
     /// Blocks Anchor does not know, by name (`legacy:<id>:<meta>` for a legacy value without
-    /// one), with how many there are. They are kept as unknown blocks with their NBT. The first
+    /// one), with how many there are. They are kept as unknown blocks with their NBT, and clients
+    /// see `minecraft:info_update` ("update!") in their place. The first
     /// 4,096 names found, up to 1 MiB of them, are listed; blocks of later names are counted in
     /// [`unlisted_unknown_blocks`](Self::unlisted_unknown_blocks).
     pub fn unknown_blocks(&self) -> &BTreeMap<String, u64> {
@@ -143,19 +140,6 @@ impl Report {
     /// list, past its caps. They are kept as unknown blocks too.
     pub fn unlisted_unknown_blocks(&self) -> u64 {
         self.unlisted_unknown_blocks
-    }
-
-    /// Of the blocks Anchor does not know, those clients know (states of the protocol's block
-    /// list): clients see them as themselves; the server gives them no behaviour beyond
-    /// their collision, light and breaking (no drops).
-    pub fn inert_blocks(&self) -> u64 {
-        self.inert_blocks
-    }
-
-    /// Of the blocks Anchor does not know, those clients do not know either: clients see
-    /// `minecraft:info_update` ("update!") in their place.
-    pub fn placeholder_blocks(&self) -> u64 {
-        self.placeholder_blocks
     }
 
     /// The vanilla world's spawn, from `level.dat`, which the imported world keeps as its spawn; a
@@ -175,8 +159,6 @@ struct Converted {
     upgraded_nbt: u64,
     ignored: Vec<u8>,
     unknown: BTreeMap<String, u64>,
-    /// Of the unknown blocks, those clients know.
-    inert: u64,
     /// The highest block at the spawn column, if this is the spawn's chunk.
     spawn_height: Option<i32>,
 }
@@ -231,11 +213,9 @@ pub(crate) fn run(
         warn!(
             world = spec.name.as_str(),
             kinds = report.unknown_blocks.len(),
-            shown_as_themselves = report.inert_blocks,
-            shown_as_update_blocks = report.placeholder_blocks,
             unlisted_blocks = report.unlisted_unknown_blocks,
-            "imported blocks Anchor does not implement are kept: clients see the ones they know \
-             as themselves, with no server behaviour, and the rest as update! blocks"
+            "imported blocks Anchor does not know are kept as stored: clients see update! blocks \
+             in their place"
         );
     }
     Ok(report)
@@ -479,9 +459,6 @@ fn write_chunks<E: Sync>(
             for tag in c.ignored {
                 *report.ignored_tags.entry(tag).or_default() += 1;
             }
-            let unknown: u64 = c.unknown.values().sum();
-            report.inert_blocks += c.inert;
-            report.placeholder_blocks += unknown - c.inert;
             for (name, count) in c.unknown {
                 if let Some(listed) = report.unknown_blocks.get_mut(&name) {
                     *listed += count;
@@ -538,11 +515,9 @@ fn convert(pos: ChunkPos, raw: Raw, target: &Target<'_>) -> super::Result<Conver
     }
     let chunk = save::to_chunk(ChunkRecord { sub_chunks }, target.custom)
         .ok_or(Error::Malformed("the terrain does not make a valid chunk"))?;
-    let (unknown, inert) = unknown_blocks(&chunk);
     let mut converted = Converted {
         ignored,
-        unknown,
-        inert,
+        unknown: unknown_blocks(&chunk),
         ..Converted::default()
     };
     if let Some((spawn, x, z)) = target.spawn
@@ -601,7 +576,7 @@ fn legacy_layer(layer: &LegacyLayer) -> BlockLayer {
 }
 
 /// The legacy block extra data as a cube of [`legacy_value`]s over air per sub-chunk y, for the
-/// sub-chunks it has blocks in (PMMP `deserializeLegacyExtraData`).
+/// sub-chunks it has blocks in.
 #[expect(
     clippy::indexing_slicing,
     reason = "invariant: a block's y is a byte, so y >> 4 is below LEGACY_SUB_CHUNKS"
@@ -645,13 +620,12 @@ fn paletted_layer(cube: &Paletted<u16>) -> BlockLayer {
     }
 }
 
-/// The chunk's unknown blocks by name, with how many there are, and how many of them are inert.
-fn unknown_blocks(chunk: &Chunk) -> (BTreeMap<String, u64>, u64) {
+/// The chunk's unknown blocks by name, with how many there are.
+fn unknown_blocks(chunk: &Chunk) -> BTreeMap<String, u64> {
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    let mut inert = 0_u64;
     let unknown = chunk.unknown();
     if unknown.is_empty() {
-        return (counts, inert);
+        return counts;
     }
     let mut per_entry = vec![0_u64; unknown.len()];
     for sub in (0..SUB_CHUNKS).filter_map(|i| chunk.sub_chunk(i)) {
@@ -660,12 +634,10 @@ fn unknown_blocks(chunk: &Chunk) -> (BTreeMap<String, u64>, u64) {
                 continue;
             }
             for offset in 0..SLOTS {
-                let entry = layer.get(offset);
-                if let Some(i) = entry.unknown_index()
+                if let Some(i) = layer.get(offset).unknown_index()
                     && let Some(n) = usize::try_from(i).ok().and_then(|i| per_entry.get_mut(i))
                 {
                     *n += 1;
-                    inert += u64::from(matches!(entry, Entry::Inert(..)));
                 }
             }
         }
@@ -680,7 +652,7 @@ fn unknown_blocks(chunk: &Chunk) -> (BTreeMap<String, u64>, u64) {
         };
         *counts.entry(name).or_default() += count;
     }
-    (counts, inert)
+    counts
 }
 
 #[cfg(test)]

@@ -10,10 +10,10 @@ use std::num::NonZeroU32;
 use super::*;
 use crate::action::{self, Chat, Damage, Kick};
 use crate::event::{
-    Actor, BlockBreak, BlockPlace, BlockUpdate, Command, CraftItem, DamageCause, EntityDamage,
-    EntityItemPickup, InventoryTransaction, ItemSpawn, PlayerChat, PlayerDropItem, PlayerExhaust,
-    PlayerInteract, PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerMove, PlayerQuit,
-    PlayerToggleSneak, ProjectileLaunch, Trade, TradeOpen,
+    Actor, BlockBreak, BlockPlace, Command, DamageCause, EntityDamage, EntityItemPickup,
+    InventoryTransaction, ItemSpawn, PlayerChat, PlayerDropItem, PlayerExhaust, PlayerInteract,
+    PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerMove, PlayerQuit, PlayerToggleSneak,
+    ProjectileLaunch, Trade, TradeOpen,
 };
 use crate::form::{Modal, Response};
 use crate::protocol::consts::TextType;
@@ -301,20 +301,10 @@ fn busy() -> Listeners {
     l.push_monitor(|e: &ItemSpawn, cx| {
         assert!(cx.entity(e.entity()).is_some());
     });
-    l.push_monitor(|e: &BlockUpdate, cx| {
-        assert!(cx.default_world().block(e.pos()).is_some());
-    });
     let mut n = 0;
     l.push(Priority::Normal, move |e: &mut EntityItemPickup, _| {
         n += 1;
         if every(n, 5) {
-            e.cancel();
-        }
-    });
-    let mut n = 0;
-    l.push(Priority::Normal, move |e: &mut CraftItem, _| {
-        n += 1;
-        if every(n, 4) {
             e.cancel();
         }
     });

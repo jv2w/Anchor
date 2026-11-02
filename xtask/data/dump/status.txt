@@ -340,8 +340,8 @@ block\inventory\BlockInventoryTrait skipped a block inventory is found by its po
 block\inventory\DoubleChestInventory::getLeftSide skipped a double chest is one inventory at either half's position, left half first (`Context::block_inventory`)
 block\inventory\DoubleChestInventory::getRightSide skipped a double chest is one inventory at either half's position, left half first (`Context::block_inventory`)
 block\inventory\EnderChestInventory::getEnderInventory merged Human::getEnderInventory
-block\inventory\EnchantInventory::getOption merged PlayerEnchantingOptionsRequestEvent::getOptions
-block\inventory\EnchantInventory::getOutput merged PlayerItemEnchantEvent::getOutputItem
+block\inventory\EnchantInventory::getOption skipped enchanting is out of scope: the enchanting table does nothing
+block\inventory\EnchantInventory::getOutput skipped enchanting is out of scope: the enchanting table does nothing
 block\inventory\FurnaceInventory::getFurnaceType merged Block
 block\inventory\FurnaceInventory::* merged Container::getRealInventory
 
@@ -360,7 +360,7 @@ block\Block::hasSameTypeId merged Block::getTypeId
 block\Block::getTypeTags merged Block::hasTypeTag
 block\Block::isSameState merged Block
 block\Block::generateStatePermutations merged BlockStateDictionary::getStates
-block\**::getFuelTime merged Item::getFuelTime
+block\**::getFuelTime skipped fuel is out of scope: furnaces do nothing
 block\**::getMaxStackSize merged Item::getMaxStackSize
 block\Block::isFireProofAsItem merged Item::isFireProof
 block\**::collidesWithBB merged Block::getCollisionBoxes
@@ -377,23 +377,23 @@ item\Item::getVanillaName skipped English item names are client-side translation
 # Data-driven values: overrides of implemented `Block` methods.
 block\**::asItem merged Block::asItem
 block\**::blocksDirectSkyLight merged Block::blocksDirectSkyLight
-block\**::burnsForever merged Block::burnsForever
+block\**::burnsForever skipped fire is out of scope: blocks do not burn
 block\**::canBeFlowedInto merged Block::canBeFlowedInto
 block\**::canBeReplaced merged Block::canBeReplaced
-block\**::canClimb merged Block::canClimb
-block\**::getFlameEncouragement merged Block::getFlameEncouragement
-block\**::getFlammability merged Block::getFlammability
+block\**::canClimb skipped climbing is the client's rule: Anchor has no per-block climb data
+block\**::getFlameEncouragement skipped fire is out of scope: blocks do not burn
+block\**::getFlammability skipped fire is out of scope: blocks do not burn
 block\**::getFrictionFactor merged Block::getFrictionFactor
 block\**::getLightFilter merged Block::getLightFilter
 block\**::getLightLevel merged Block::getLightLevel
 block\Candle::getBaseLightLevel merged Block::getLightLevel
-block\**::getModelPositionOffset merged Block::getModelPositionOffset
+block\**::getModelPositionOffset skipped the offset is the client's rendering: Anchor has no per-block offset data
 block\**::getSupportType merged Block::getSupportType
 block\**::hasEntityCollision merged Block::hasEntityCollision
-block\**::isAffectedBySilkTouch merged Block::isAffectedBySilkTouch
+block\**::isAffectedBySilkTouch skipped a broken block drops its own item: there are no vanilla drop rules
 block\**::isSolid merged Block::isSolid
 block\**::isTransparent merged Block::isTransparent
-block\**::ticksRandomly merged Block::ticksRandomly
+block\**::ticksRandomly skipped vanilla blocks have no random ticks: only custom blocks take them
 block\BaseCake::getFoodRestore skipped cake is eaten by the block rule
 block\BaseCake::getSaturationRestore skipped cake is eaten by the block rule
 block\BaseCake::requiresHunger skipped cake is eaten by the block rule
@@ -643,7 +643,7 @@ block\utils\**::id skipped PHP enum plumbing: Anchor's closed sets are Rust enum
 block\utils\**::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums
 block\utils\RecordType::getSoundId skipped deprecated in PMMP and always 0: a disc plays as `world::Sound::Record`
 block\utils\RecordType::get*Name skipped a disc's names are client-side translations (Anchor sends translation keys)
-block\utils\WoodType::isFlammable merged Block::isFlammable
+block\utils\WoodType::isFlammable skipped fire is out of scope: blocks do not burn
 block\utils\WoodType::get*LogSuffix skipped PMMP's block naming: Anchor's block names are the generated Bedrock names
 block\utils\DripleafState::getScheduledUpdateDelayTicks skipped block rule code
 block\utils\SaplingType::getTreeType skipped block rule code
@@ -669,9 +669,9 @@ item\**::getCooldownTag merged Item::getCooldownTag
 item\**::getCooldownTicks merged Item::getCooldownTicks
 item\Armor::getDefensePoints merged Item::getDefensePoints
 item\ArmorTypeInfo::getDefensePoints merged Item::getDefensePoints
-item\**::getEnchantability merged Item::getEnchantability
-item\**::getFuelResidue merged Item::getFuelResidue
-item\**::getFuelTime merged Item::getFuelTime
+item\**::getEnchantability skipped enchanting is out of scope: the enchanting table does nothing
+item\**::getFuelResidue skipped fuel is out of scope: furnaces do nothing
+item\**::getFuelTime skipped fuel is out of scope: furnaces do nothing
 item\**::getMaxStackSize merged Item::getMaxStackSize
 item\**::getMiningEfficiency merged Item::getMiningEfficiency
 item\**::isFireProof merged Item::isFireProof
@@ -719,14 +719,12 @@ item\enchantment\VanillaEnchantments::* merged VanillaEnchantments
 item\enchantment\*Enchantment merged Enchantment
 item\enchantment\EnchantmentInstance** merged Item::getEnchantments
 item\enchantment\EnchantingOption::__construct skipped enchanting options are made by the enchanting table rule
-item\enchantment\IncompatibleEnchantmentRegistry::areCompatible merged Enchantment::isCompatibleWith
-item\enchantment\IncompatibleEnchantmentRegistry** skipped enchantment tables are generated and fixed
-item\enchantment\IncompatibleEnchantmentGroups merged Enchantment::isCompatibleWith
-item\enchantment\AvailableEnchantmentRegistry::isAvailableForItem merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
-item\enchantment\AvailableEnchantmentRegistry** skipped enchantment tables are generated and fixed
+item\enchantment\IncompatibleEnchantmentRegistry** skipped enchanting is out of scope: Anchor has no enchantment compatibility rules
+item\enchantment\IncompatibleEnchantmentGroups skipped enchanting is out of scope: Anchor has no enchantment compatibility rules
+item\enchantment\AvailableEnchantmentRegistry** skipped enchanting is out of scope: Anchor has no enchantment availability rules
 item\enchantment\ItemEnchantmentTagRegistry** skipped item tags are a generated table
 item\enchantment\StringToEnchantmentParser** skipped PMMP's string-keyed lookups: Anchor looks things up by typed names
-item\enchantment\Rarity merged Enchantment::getRarity
+item\enchantment\Rarity skipped enchanting is out of scope: rarity only weighs enchanting table options
 item\enchantment\ItemFlags skipped legacy item flags: Anchor uses the item tags
 item\enchantment\Enchantment::getPrimaryItemFlags skipped legacy item flags: Anchor uses the item tags
 item\enchantment\Enchantment::getSecondaryItemFlags skipped legacy item flags: Anchor uses the item tags
@@ -749,7 +747,7 @@ item\Item::equalsExact merged Item
 item\Item::canBePlaced merged Item::getBlock
 item\Item::*CustomName merged Item::getCustomName
 item\Item::setLore merged Item::getLore
-item\Item::getEnchantmentTags merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+item\Item::getEnchantmentTags skipped enchanting is out of scope: Anchor has no enchantment availability rules
 item\Item::*Enchantment* merged Item::getEnchantments
 item\ItemEnchantmentHandlingTrait** merged Item::getEnchantments
 item\Item::*NamedTag merged Item::getNamedTag
@@ -1358,7 +1356,7 @@ event\world\ChunkEvent::getChunk merged World::getChunk
 block\Block::getSide merged Position::getSide
 
 # Other rows that are not entities.
-block\Block::getEnchantmentTags merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+block\Block::getEnchantmentTags skipped enchanting is out of scope: Anchor has no enchantment availability rules
 block\CakeWithDyedCandle::getCandle merged Block
 block\Element::* skipped Education Edition chemistry values (symbol, atomic weight, group) are not in the PMMP dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`)
 block\inventory\DoubleChestInventory::getInventory merged InventoryHolder::getInventory
@@ -1371,10 +1369,10 @@ command\CommandSender::setScreenLineHeight merged Player::setScreenLineHeight
 console\ConsoleCommandSender::*etScreenLineHeight skipped the console's output goes to the log, which pages nothing
 console\ConsoleCommandSender::getEffectivePermissions merged Permissible::getEffectivePermissions
 console\ConsoleCommandSender::*etBasePermission skipped the console counts as an operator: its permissions are the operators' defaults
-event\block\BrewItemEvent::getRecipe skipped recipe objects are not public: the event gives the input and the result, and `Context::brewing_result` asks by item
-event\inventory\CraftItemEvent::getRecipe skipped recipe objects are not public: the event gives the inputs and the outputs, and `Context::crafting_result` asks by item
-event\inventory\CraftItemEvent::getTransaction merged InventoryTransactionEvent::getTransaction
-event\player\PlayerItemEnchantEvent::getTransaction merged InventoryTransactionEvent::getTransaction
+event\block\BrewItemEvent::getRecipe skipped brewing is out of scope: the brewing stand does nothing
+event\inventory\CraftItemEvent::getRecipe skipped crafting is out of scope: Anchor has no recipes
+event\inventory\CraftItemEvent::getTransaction skipped crafting is out of scope: Anchor has no recipes
+event\player\PlayerItemEnchantEvent::getTransaction skipped enchanting is out of scope: the enchanting table does nothing
 event\inventory\InventoryEvent::getViewers merged Player::getCurrentWindow
 event\entity\EntityItemPickupEvent::*etInventory skipped the pickup rule puts the item into the picker's inventory; a listener changes the item (`set_item`), or cancels and gives it elsewhere through `Player::inventory_mut`
 event\entity\EntityShootBowEvent::setProjectile skipped the arrow is an entity the rule has made: a listener changes it through `Context::entity_mut`, or cancels and spawns another with `Context::spawn_projectile`

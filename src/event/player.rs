@@ -1,10 +1,10 @@
-//! Player events (PMMP `pocketmine\event\player`): joining, leaving, moving, chatting and the
-//! other things a player does.
+//! Player events: joining, leaving, moving, chatting and the other things a player does.
 //!
 //! Messages are plain text or client translation keys, which the default join, quit and death
 //! lines are. An empty join, quit or chat death message shows nothing; an empty kick or death
 //! screen message shows the client's own text.
 
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
@@ -12,58 +12,12 @@ use super::set_clamped;
 use crate::block::{Face, State};
 use crate::config::GameMode;
 use crate::entity;
-use crate::item::{Enchantment, Stack};
+use crate::item::Stack;
 use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::{self, Uuid};
 use crate::tick::queue::{Identity, Skin};
 use crate::world::{self, BlockPos, ChunkPos};
-
-/// Raised when a player lies down in a bed. Cancelling keeps the player up.
-#[doc(alias = "PlayerBedEnterEvent")]
-#[derive(Debug)]
-pub struct PlayerBedEnter {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) bed: BlockPos,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerBedEnter {
-    /// The player.
-    player: player::Id,
-    /// The world of the bed.
-    world: world::Id,
-    /// Where the bed's head is.
-    #[doc(alias = "PlayerBedEnterEvent::getBed")]
-    bed: BlockPos,
-});
-
-cancellable! {
-    PlayerBedEnter
-        #[doc(alias = "PlayerBedEnterEvent::cancel")]
-        #[doc(alias = "PlayerBedEnterEvent::uncancel")]
-        #[doc(alias = "PlayerBedEnterEvent::isCancelled")];
-}
-
-/// Raised when a player gets out of a bed.
-#[doc(alias = "PlayerBedLeaveEvent")]
-#[derive(Debug)]
-pub struct PlayerBedLeave {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) bed: BlockPos,
-}
-
-getters!(PlayerBedLeave {
-    /// The player.
-    player: player::Id,
-    /// The world of the bed.
-    world: world::Id,
-    /// Where the bed's head is.
-    #[doc(alias = "PlayerBedLeaveEvent::getBed")]
-    bed: BlockPos,
-});
 
 /// Raised when a player picks a block (middle click), before the item goes to the hotbar: a
 /// creative player gets the block's item, others only select or swap one they carry. Cancelling
@@ -99,95 +53,6 @@ cancellable! {
         #[doc(alias = "PlayerBlockPickEvent::cancel")]
         #[doc(alias = "PlayerBlockPickEvent::uncancel")]
         #[doc(alias = "PlayerBlockPickEvent::isCancelled")];
-}
-
-/// Raised when a player empties a bucket into the world. Cancelling keeps the world and the
-/// bucket as they were.
-///
-/// A cauldron raises neither this nor [`PlayerBucketFill`]; clicking it raises [`PlayerInteract`].
-#[doc(alias = "PlayerBucketEmptyEvent")]
-#[doc(alias = "PlayerBucketEvent")]
-#[derive(Debug)]
-pub struct PlayerBucketEmpty {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) block_clicked: BlockPos,
-    pub(crate) block_face: Face,
-    pub(crate) bucket: Stack,
-    pub(crate) item: Stack,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerBucketEmpty {
-    /// The player.
-    player: player::Id,
-    /// The world of the block.
-    world: world::Id,
-    /// The block the player clicked.
-    #[doc(alias = "PlayerBucketEvent::getBlockClicked")]
-    block_clicked: BlockPos,
-    /// The face the player clicked.
-    #[doc(alias = "PlayerBucketEvent::getBlockFace")]
-    block_face: Face,
-    /// The bucket before.
-    #[doc(alias = "PlayerBucketEvent::getBucket")]
-    bucket: &Stack,
-    /// What the player gets back instead of the bucket: an empty bucket until a listener replaces
-    /// it. It takes the hand if the bucket emptied it, otherwise it goes to the inventory.
-    #[doc(alias = "PlayerBucketEvent::getItem")]
-    item: &Stack,
-});
-
-setters!(PlayerBucketEmpty {
-    /// Replaces what the player gets back.
-    #[doc(alias = "PlayerBucketEvent::setItem")]
-    set_item => item: Stack,
-});
-
-cancellable! {
-    PlayerBucketEmpty
-        #[doc(alias = "PlayerBucketEvent::cancel")]
-        #[doc(alias = "PlayerBucketEvent::uncancel")]
-        #[doc(alias = "PlayerBucketEvent::isCancelled")];
-}
-
-/// Raised when a player fills a bucket from the world. Cancelling keeps the world and the bucket
-/// as they were.
-#[doc(alias = "PlayerBucketFillEvent")]
-#[derive(Debug)]
-pub struct PlayerBucketFill {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) block_clicked: BlockPos,
-    pub(crate) block_face: Face,
-    pub(crate) bucket: Stack,
-    pub(crate) item: Stack,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerBucketFill {
-    /// The player.
-    player: player::Id,
-    /// The world of the block.
-    world: world::Id,
-    /// The block the player clicked.
-    block_clicked: BlockPos,
-    /// The face the player clicked.
-    block_face: Face,
-    /// The bucket before.
-    bucket: &Stack,
-    /// What the player gets back: the filled bucket until a listener replaces it. It takes the
-    /// hand if the bucket emptied it, otherwise it goes to the inventory.
-    item: &Stack,
-});
-
-setters!(PlayerBucketFill {
-    /// Replaces what the player gets back.
-    set_item => item: Stack,
-});
-
-cancellable! {
-    PlayerBucketFill;
 }
 
 /// Raised when a player changes skin in game.
@@ -238,7 +103,7 @@ cancellable! {
 }
 
 /// Raised when a player sends a chat message. Cancelling sends it to nobody, and so does a
-/// speaker who is not online when the listeners are done or a line longer than 65,536 bytes;
+/// speaker who is not online when the listeners are done or a line longer than [`player::MAX_TEXT`] bytes;
 /// monitors hear none of these.
 #[doc(alias = "PlayerChatEvent")]
 #[derive(Debug)]
@@ -266,13 +131,13 @@ setters!(PlayerChat {
     /// done (joined and not leaving), the line goes to nobody and no monitor sees it.
     #[doc(alias = "PlayerChatEvent::setPlayer")]
     set_player => player: player::Id,
-    /// Replaces the message; a line over 65,536 bytes goes to nobody and no monitor sees it.
+    /// Replaces the message; a line over [`player::MAX_TEXT`] bytes goes to nobody and no monitor sees it.
     #[doc(alias = "PlayerChatEvent::setMessage")]
     set_message => message: String,
     /// Replaces the players who see it; players who left are skipped.
     #[doc(alias = "PlayerChatEvent::setRecipients")]
     set_recipients => recipients: Vec<player::Id>,
-    /// Replaces the format: `None` for the standard line (sent as BDS sends it, see
+    /// Replaces the format: `None` for the standard line (sent as the official server sends it, see
     /// [`PlayerChat::format`]), or a text where `{%0}` is the speaker's display name, `{%1}` the
     /// message and `{%%` a literal `{%`. Text put into the format, such as a name,
     /// keeps its own `{%0}` with every `{%` written as `{%%`: `text.replace("{%", "{%%")`. The
@@ -282,11 +147,10 @@ setters!(PlayerChat {
 });
 
 impl PlayerChat {
-    /// How the line looks: `None` for the standard line, sent as BDS sends it (a chat text with
-    /// the speaker's name as its source and the raw message, which the client shows as
-    /// `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
-    /// message and `{%%` a literal `{%` (PMMP `LegacyRawChatFormatter`, which has no
-    /// escape). Starts as `None`.
+    /// How the line looks: `None` for the standard line, sent as the official server sends it (a
+    /// chat text with the speaker's name as its source and the raw message, which the client shows
+    /// as `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
+    /// message and `{%%` a literal `{%`. Starts as `None`.
     #[doc(alias = "PlayerChatEvent::getFormatter")]
     pub fn format(&self) -> Option<&str> {
         self.format.as_deref()
@@ -310,7 +174,7 @@ cancellable! {
 #[derive(Debug)]
 pub struct PlayerDataSave {
     pub(crate) player: player::Id,
-    pub(crate) player_name: String,
+    pub(crate) record_key: String,
     pub(crate) cancelled: bool,
 }
 
@@ -318,9 +182,10 @@ getters!(PlayerDataSave {
     /// The player.
     #[doc(alias = "PlayerDataSaveEvent::getPlayer")]
     player: player::Id,
-    /// The name the record is saved under.
+    /// The key the record is saved under: the XUID in decimal, or `offline:` and the lowercase
+    /// name when the player has no XUID.
     #[doc(alias = "PlayerDataSaveEvent::getPlayerName")]
-    player_name: &str,
+    record_key: &str,
 });
 
 impl PlayerDataSave {
@@ -373,11 +238,11 @@ getters!(PlayerDeath {
     /// The message every player sees in chat. With `show-death-messages` it starts as the
     /// death's translation key, which, left so, the client translates with the dead player's and
     /// the attacker's names; otherwise it starts empty. An empty one shows nothing, one longer
-    /// than 65,536 bytes is not sent, any other shows as it is.
+    /// than [`player::MAX_TEXT`] bytes is not sent, any other shows as it is.
     #[doc(alias = "PlayerDeathEvent::getDeathMessage")]
     death_message: &str,
     /// The message on the dead player's death screen. Starts empty, which shows the death's
-    /// translated message; so does one longer than 65,536 bytes.
+    /// translated message; so does one longer than [`player::MAX_TEXT`] bytes.
     #[doc(alias = "PlayerDeathEvent::getDeathScreenMessage")]
     death_screen_message: &str,
     /// Whether the player keeps the inventory.
@@ -396,10 +261,10 @@ setters!(PlayerDeath {
     set_drops => drops: Vec<Stack>,
     /// Replaces the XP the player drops.
     set_xp_drop_amount => xp_drop_amount: u32,
-    /// Replaces the chat message; one longer than 65,536 bytes shows nothing.
+    /// Replaces the chat message; one longer than [`player::MAX_TEXT`] bytes shows nothing.
     #[doc(alias = "PlayerDeathEvent::setDeathMessage")]
     set_death_message => death_message: String,
-    /// Replaces the death screen message; an empty one, or one longer than 65,536 bytes, shows
+    /// Replaces the death screen message; an empty one, or one longer than [`player::MAX_TEXT`] bytes, shows
     /// the death's translated message.
     #[doc(alias = "PlayerDeathEvent::setDeathScreenMessage")]
     set_death_screen_message => death_screen_message: String,
@@ -509,13 +374,15 @@ impl PlayerDuplicateLogin {
         self.cancelled = true;
     }
 
-    /// Replaces the reason given to the disconnected player.
+    /// Replaces the reason given to the disconnected player. A text longer than
+    /// [`player::MAX_TEXT`] bytes is cut to it when sent.
     #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectReason")]
     pub fn set_disconnect_reason(&mut self, reason: impl Into<String>) {
         self.reason = reason.into();
     }
 
-    /// Replaces the message the disconnected player sees; `None` shows the reason.
+    /// Replaces the message the disconnected player sees; `None` shows the reason. A text longer
+    /// than [`player::MAX_TEXT`] bytes is cut to it when sent.
     #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectScreenMessage")]
     pub fn set_disconnect_screen_message(&mut self, message: Option<String>) {
         self.screen_message = message;
@@ -546,7 +413,8 @@ pub(crate) struct DuplicateOutcome {
     pub(crate) cancelled: bool,
     /// The text of the `Disconnect` the disconnected player gets.
     pub(crate) message: String,
-    /// Why the disconnected player left, for [`PlayerQuit`]: the reason, never the screen message.
+    /// Why the disconnected player left, for [`QuitReason::Replaced`]: the reason, never the
+    /// screen message.
     pub(crate) reason: String,
 }
 
@@ -618,7 +486,7 @@ cancellable! {
         #[doc(alias = "PlayerEditBookEvent::isCancelled")];
 }
 
-/// What a player did to a book (PMMP `PlayerEditBookEvent::ACTION_*`).
+/// What a player did to a book.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BookAction {
     /// Rewrote a page.
@@ -669,57 +537,13 @@ cancellable! {
         #[doc(alias = "PlayerEmoteEvent::isCancelled")];
 }
 
-/// Raised when an item goes into an enchanting table and the table shows its options. Cancelling
-/// shows none. It is raised for every non-empty input, with no options when the table offers none
-/// for the item.
-#[doc(alias = "PlayerEnchantingOptionsRequestEvent")]
-#[derive(Debug)]
-pub struct PlayerEnchantingOptionsRequest {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) pos: BlockPos,
-    pub(crate) options: Vec<EnchantOption>,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerEnchantingOptionsRequest {
-    /// The player.
-    player: player::Id,
-    /// The world of the table.
-    world: world::Id,
-    /// Where the table is.
-    #[doc(alias = "PlayerEnchantingOptionsRequestEvent::getInventory")]
-    pos: BlockPos,
-    /// The options shown, at most three.
-    #[doc(alias = "PlayerEnchantingOptionsRequestEvent::getOptions")]
-    options: &[EnchantOption],
-});
-
-impl PlayerEnchantingOptionsRequest {
-    /// Replaces the options shown; options past the third are dropped. When they are shown, a name
-    /// is cut to 64 bytes, enchantments of level 0 go and at most 16 enchantments of an option
-    /// stay; monitors see the options as shown.
-    #[doc(alias = "PlayerEnchantingOptionsRequestEvent::setOptions")]
-    pub fn set_options(&mut self, mut options: Vec<EnchantOption>) {
-        options.truncate(protocol::PLAYER_ENCHANT_OPTIONS_OPTIONS_MAX_LEN);
-        self.options = options;
-    }
-}
-
-cancellable! {
-    PlayerEnchantingOptionsRequest
-        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::cancel")]
-        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::uncancel")]
-        #[doc(alias = "PlayerEnchantingOptionsRequestEvent::isCancelled")];
-}
-
 /// Raised when a player uses (right clicks) an entity within reach, before the entity reacts: a
 /// villager NPC opens trading, a custom entity runs its behaviour
 /// ([`Behaviour::on_interact`](crate::entity::Behaviour::on_interact)). Cancelling keeps the
 /// entity from reacting.
 ///
-/// Using another player raises nothing, and item frames and flower pots are blocks, so they raise
-/// [`PlayerInteract`]. Monitors are called only when the entity reacted.
+/// Using another player raises nothing: a player has no [`entity::Id`]. Monitors are called only
+/// when the entity reacted.
 #[doc(alias = "PlayerEntityInteractEvent")]
 #[derive(Debug)]
 pub struct PlayerEntityInteract {
@@ -814,8 +638,9 @@ cancellable! {
         #[doc(alias = "PlayerExhaustEvent::isCancelled")];
 }
 
-/// Why a player gets hungrier (PMMP `PlayerExhaustEvent::CAUSE_*`).
+/// Why a player gets hungrier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ExhaustCause {
     /// Hitting.
     #[doc(alias = "PlayerExhaustEvent::CAUSE_ATTACK")]
@@ -847,8 +672,8 @@ pub enum ExhaustCause {
 }
 
 /// Raised when a player picks up XP orbs, before the points are added to the level and
-/// progress. Cancelling keeps both. Levels the game takes (enchanting, anvils, death) and the
-/// points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
+/// progress. Cancelling keeps both. The reset on death ([`PlayerDeath::keep_xp`] decides it) and
+/// the points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
 #[doc(alias = "PlayerExperienceChangeEvent")]
 #[derive(Debug)]
 pub struct PlayerXpChange {
@@ -1024,8 +849,7 @@ cancellable! {
         #[doc(alias = "PlayerInteractEvent::isCancelled")];
 }
 
-/// How a player touches a block (PMMP `PlayerInteractEvent::LEFT_CLICK_BLOCK`,
-/// `RIGHT_CLICK_BLOCK`).
+/// How a player touches a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InteractAction {
     /// Starting to break it.
@@ -1060,7 +884,7 @@ getters!(PlayerItemConsume {
 
 setters!(PlayerItemConsume {
     /// Replaces what is left after. At most 4 stacks are kept, none of them empty, each cut to
-    /// its item's stack size.
+    /// its item's stack size. A creative player gets none, whatever is set.
     #[doc(alias = "PlayerItemConsumeEvent::setResidue")]
     set_residue => residue: Vec<Stack>,
 });
@@ -1071,82 +895,6 @@ cancellable! {
         #[doc(alias = "PlayerItemConsumeEvent::uncancel")]
         #[doc(alias = "PlayerItemConsumeEvent::isCancelled")];
 }
-
-/// Raised when a player picks an enchanting option, before the item is enchanted and the levels
-/// are paid. Cancelling keeps the item and the levels.
-#[doc(alias = "PlayerItemEnchantEvent")]
-#[derive(Debug)]
-pub struct PlayerItemEnchant {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) pos: BlockPos,
-    pub(crate) option: EnchantOption,
-    pub(crate) input_item: Stack,
-    pub(crate) output_item: Stack,
-    pub(crate) cost: u8,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerItemEnchant {
-    /// The player.
-    player: player::Id,
-    /// The world of the table.
-    world: world::Id,
-    /// Where the table is.
-    pos: BlockPos,
-    /// The option picked.
-    #[doc(alias = "PlayerItemEnchantEvent::getOption")]
-    option: &EnchantOption,
-    /// The item before.
-    #[doc(alias = "PlayerItemEnchantEvent::getInputItem")]
-    input_item: &Stack,
-    /// The enchanted item.
-    #[doc(alias = "PlayerItemEnchantEvent::getOutputItem")]
-    output_item: &Stack,
-    /// The levels (and lapis) it costs, 1 to 3.
-    #[doc(alias = "PlayerItemEnchantEvent::getCost")]
-    cost: u8,
-});
-
-cancellable! {
-    PlayerItemEnchant
-        #[doc(alias = "PlayerItemEnchantEvent::cancel")]
-        #[doc(alias = "PlayerItemEnchantEvent::uncancel")]
-        #[doc(alias = "PlayerItemEnchantEvent::isCancelled")];
-}
-
-/// One enchanting option of an enchanting table (PMMP `EnchantingOption`).
-#[doc(alias = "EnchantingOption")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnchantOption {
-    pub(crate) required_level: u8,
-    pub(crate) name: String,
-    pub(crate) enchantments: Vec<(Enchantment, u8)>,
-}
-
-impl EnchantOption {
-    /// An option needing `required_level`, shown as `name` in the enchanting alphabet, that gives
-    /// `enchantments` (each with its level).
-    pub fn new(required_level: u8, name: String, enchantments: Vec<(Enchantment, u8)>) -> Self {
-        Self {
-            required_level,
-            name,
-            enchantments,
-        }
-    }
-}
-
-getters!(EnchantOption {
-    /// The XP level the option needs (it costs 1 to 3 levels, by its place).
-    #[doc(alias = "EnchantingOption::getRequiredXpLevel")]
-    required_level: u8,
-    /// The name shown in the enchanting alphabet.
-    #[doc(alias = "EnchantingOption::getDisplayName")]
-    name: &str,
-    /// What it enchants, each with its level, in order.
-    #[doc(alias = "EnchantingOption::getEnchantments")]
-    enchantments: &[(Enchantment, u8)],
-});
 
 /// Raised when a player selects another hotbar slot. Cancelling keeps the old one.
 #[doc(alias = "PlayerItemHeldEvent")]
@@ -1243,7 +991,7 @@ getters!(PlayerJump {
 });
 
 /// Raised when a player is about to be kicked. Cancelling keeps the player, and so does a text a
-/// listener sets longer than 65,536 bytes.
+/// listener sets longer than [`player::MAX_TEXT`] bytes.
 #[doc(alias = "PlayerKickEvent")]
 #[derive(Debug)]
 pub struct PlayerKick {
@@ -1401,7 +1149,7 @@ impl PlayerLogin {
     }
 
     /// Sets `flag` with the reason for the log and the message for the player's screen (`None`:
-    /// the reason).
+    /// the reason). A text longer than [`player::MAX_TEXT`] bytes is cut to it when sent.
     #[doc(alias = "PlayerPreLoginEvent::setKickFlag")]
     pub fn set_kick_flag(
         &mut self,
@@ -1436,14 +1184,14 @@ impl PlayerLogin {
     }
 }
 
-/// Why a joining player may be refused (PMMP `PlayerPreLoginEvent::KICK_FLAG_*`), in order of
-/// precedence: the first set flag gives the message (PMMP `KICK_FLAG_PRIORITY`).
+/// Why a joining player may be refused, in order of precedence: the first set flag gives the
+/// message.
 #[doc(alias = "PlayerPreLoginEvent::KICK_FLAG_PRIORITY")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KickFlag {
     /// A listener refuses the player.
     #[doc(alias = "PlayerPreLoginEvent::KICK_FLAG_PLUGIN")]
-    Plugin,
+    Listener,
     /// The server is full.
     #[doc(alias = "PlayerPreLoginEvent::KICK_FLAG_SERVER_FULL")]
     ServerFull,
@@ -1458,7 +1206,7 @@ pub enum KickFlag {
 impl KickFlag {
     /// Every flag, in order of precedence.
     pub const ALL: [Self; 4] = [
-        Self::Plugin,
+        Self::Listener,
         Self::ServerFull,
         Self::ServerWhitelisted,
         Self::Banned,
@@ -1599,8 +1347,7 @@ getters!(PlayerPostChunkSend {
 pub struct PlayerQuit {
     pub(crate) player: player::Id,
     pub(crate) quit_message: String,
-    pub(crate) quit_reason: String,
-    pub(crate) shutdown: bool,
+    pub(crate) reason: QuitReason,
 }
 
 getters!(PlayerQuit {
@@ -1611,14 +1358,9 @@ getters!(PlayerQuit {
     /// player's name.
     #[doc(alias = "PlayerQuitEvent::getQuitMessage")]
     quit_message: &str,
-    /// Why the player left: `"client disconnect"` when its session ended (the client left or
-    /// its connection closed, timed out or failed), `"connection lost"` when the server dropped
-    /// a session whose outbound queue was full or closed, `"too many packets"` when it overflowed
-    /// its output, the reason of a kick or transfer, the [`PlayerDuplicateLogin`] disconnect
-    /// reason when a new login replaced it, or the shutdown message when the server stops
-    /// ([`PlayerQuit::is_shutdown`]).
+    /// Why the player left.
     #[doc(alias = "PlayerQuitEvent::getQuitReason")]
-    quit_reason: &str,
+    reason: &QuitReason,
 });
 
 setters!(PlayerQuit {
@@ -1627,11 +1369,44 @@ setters!(PlayerQuit {
     set_quit_message => quit_message: String,
 });
 
-impl PlayerQuit {
-    /// Whether the player leaves because the server stops: every player still online leaves so
-    /// once the last tick has run, and what the listeners change is in the final save.
-    pub fn is_shutdown(&self) -> bool {
-        self.shutdown
+/// Why a player left, as the log and [`PlayerQuit`] tell it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum QuitReason {
+    /// The client left.
+    Left,
+    /// The connection closed without the client leaving.
+    ConnectionClosed,
+    /// The connection stayed silent until it timed out.
+    TimedOut,
+    /// The server dropped a session whose outbound queue was full or closed.
+    ConnectionLost,
+    /// The player overflowed its output.
+    TooManyPackets,
+    /// A kick, with the reason it gave.
+    Kicked(String),
+    /// A transfer to another server, with its message.
+    Transferred(String),
+    /// A new login replaced the player, with the [`PlayerDuplicateLogin`] disconnect reason.
+    Replaced(String),
+    /// The server stops: every player still online leaves so once the last tick has run, and
+    /// what the listeners change is in the final save.
+    Shutdown,
+}
+
+impl fmt::Display for QuitReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Left => f.write_str("client left"),
+            Self::ConnectionClosed => f.write_str("connection closed"),
+            Self::TimedOut => f.write_str("timed out"),
+            Self::ConnectionLost => f.write_str("connection lost"),
+            Self::TooManyPackets => f.write_str("too many packets"),
+            Self::Kicked(reason) => write!(f, "kicked: {reason}"),
+            Self::Transferred(message) => write!(f, "transferred: {message}"),
+            Self::Replaced(reason) => write!(f, "replaced: {reason}"),
+            Self::Shutdown => f.write_str("server shutdown"),
+        }
     }
 }
 
@@ -1670,59 +1445,6 @@ impl PlayerRespawn {
             self.position = position;
         }
     }
-}
-
-/// Raised when a player uses a charged respawn anchor with anything but glowstone it can take,
-/// before the anchor acts. Cancelling keeps the anchor as it is (the held item may then be used or
-/// placed, as for any block that does not react).
-#[doc(alias = "PlayerRespawnAnchorUseEvent")]
-#[derive(Debug)]
-pub struct PlayerRespawnAnchorUse {
-    pub(crate) player: player::Id,
-    pub(crate) world: world::Id,
-    pub(crate) pos: BlockPos,
-    pub(crate) block: State,
-    pub(crate) action: RespawnAnchorAction,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerRespawnAnchorUse {
-    /// The player.
-    player: player::Id,
-    /// The world of the anchor.
-    world: world::Id,
-    /// Where the anchor is.
-    pos: BlockPos,
-    /// The anchor.
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::getBlock")]
-    block: State,
-    /// What the anchor does. Starts as [`RespawnAnchorAction::Explode`].
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::getAction")]
-    action: RespawnAnchorAction,
-});
-
-setters!(PlayerRespawnAnchorUse {
-    /// Changes what the anchor does.
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::setAction")]
-    set_action => action: RespawnAnchorAction,
-});
-
-cancellable! {
-    PlayerRespawnAnchorUse
-        #[doc(alias = "PlayerRespawnAnchorUseEvent::cancel")]
-        #[doc(alias = "PlayerRespawnAnchorUseEvent::uncancel")]
-        #[doc(alias = "PlayerRespawnAnchorUseEvent::isCancelled")];
-}
-
-/// What using a charged respawn anchor does (PMMP `PlayerRespawnAnchorUseEvent::ACTION_*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RespawnAnchorAction {
-    /// The anchor explodes: what a player's use does.
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_EXPLODE")]
-    Explode,
-    /// The anchor becomes the player's respawn point.
-    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_SET_SPAWN")]
-    SetSpawn,
 }
 
 /// Raised when a player starts flying, which only a player who may fly can, or stops flying.
@@ -1880,7 +1602,7 @@ cancellable! {
 }
 
 /// Raised when a player is about to be sent to another server. Cancelling keeps the player here,
-/// and so does an empty address or one longer than 253 bytes, or a message longer than 65,536 bytes.
+/// and so does an empty address or one longer than 253 bytes, or a message longer than [`player::MAX_TEXT`] bytes.
 #[doc(alias = "PlayerTransferEvent")]
 #[derive(Debug)]
 pub struct PlayerTransfer {
@@ -1900,7 +1622,7 @@ getters!(PlayerTransfer {
     /// The other server's port.
     #[doc(alias = "PlayerTransferEvent::getPort")]
     port: u16,
-    /// The message for the log and [`PlayerQuit::quit_reason`].
+    /// The message for the log and [`QuitReason::Transferred`].
     #[doc(alias = "PlayerTransferEvent::getMessage")]
     message: &str,
 });
@@ -1912,7 +1634,7 @@ setters!(PlayerTransfer {
     /// Sends the player to another port.
     #[doc(alias = "PlayerTransferEvent::setPort")]
     set_port => port: u16,
-    /// Replaces the message for the log and [`PlayerQuit::quit_reason`].
+    /// Replaces the message for the log and [`QuitReason::Transferred`].
     #[doc(alias = "PlayerTransferEvent::setMessage")]
     set_message => message: String,
 });
@@ -1979,36 +1701,6 @@ mod tests {
         );
     }
 
-    // api: PlayerBedEnterEvent, PlayerBedLeaveEvent, PlayerBedEnterEvent::getBed,
-    // api: PlayerBedEnterEvent::cancel, PlayerBedEnterEvent::uncancel,
-    // api: PlayerBedEnterEvent::isCancelled, PlayerBedLeaveEvent::getBed
-    #[test]
-    fn bed_events_name_the_bed() {
-        let mut enter = PlayerBedEnter {
-            player: player(1),
-            world: WORLD,
-            bed: POS,
-            cancelled: false,
-        };
-        assert_eq!(
-            (enter.player(), enter.world(), enter.bed()),
-            (player(1), WORLD, POS)
-        );
-        enter.cancel();
-        assert!(enter.is_cancelled());
-        enter.uncancel();
-        assert!(!enter.is_cancelled());
-        let leave = PlayerBedLeave {
-            player: player(1),
-            world: WORLD,
-            bed: POS,
-        };
-        assert_eq!(
-            (leave.player(), leave.world(), leave.bed()),
-            (player(1), WORLD, POS)
-        );
-    }
-
     // api: PlayerBlockPickEvent, PlayerBlockPickEvent::getBlock,
     // api: PlayerBlockPickEvent::getResultItem, PlayerBlockPickEvent::cancel,
     // api: PlayerBlockPickEvent::uncancel, PlayerBlockPickEvent::isCancelled
@@ -2031,65 +1723,6 @@ mod tests {
         assert!(e.is_cancelled());
         e.uncancel();
         assert!(!e.is_cancelled());
-    }
-
-    // api: PlayerBucketEmptyEvent, PlayerBucketFillEvent, PlayerBucketEvent,
-    // api: PlayerBucketEvent::getBlockClicked, PlayerBucketEvent::getBlockFace,
-    // api: PlayerBucketEvent::getBucket, PlayerBucketEvent::getItem,
-    // api: PlayerBucketEvent::setItem, PlayerBucketEvent::cancel,
-    // api: PlayerBucketEvent::uncancel, PlayerBucketEvent::isCancelled
-    #[test]
-    fn bucket_events_item_can_change() {
-        let mut empty = PlayerBucketEmpty {
-            player: player(1),
-            world: WORLD,
-            block_clicked: POS,
-            block_face: Face::Up,
-            bucket: sticks(1),
-            item: sticks(2),
-            cancelled: false,
-        };
-        assert_eq!(
-            (
-                empty.player(),
-                empty.world(),
-                empty.block_clicked(),
-                empty.block_face()
-            ),
-            (player(1), WORLD, POS, Face::Up)
-        );
-        assert_eq!((empty.bucket(), empty.item()), (&sticks(1), &sticks(2)));
-        empty.set_item(sticks(3));
-        assert_eq!(empty.item(), &sticks(3));
-        empty.cancel();
-        assert!(empty.is_cancelled());
-        empty.uncancel();
-        assert!(!empty.is_cancelled());
-        let mut fill = PlayerBucketFill {
-            player: player(1),
-            world: WORLD,
-            block_clicked: POS,
-            block_face: Face::North,
-            bucket: sticks(1),
-            item: sticks(2),
-            cancelled: false,
-        };
-        assert_eq!(
-            (
-                fill.player(),
-                fill.world(),
-                fill.block_clicked(),
-                fill.block_face()
-            ),
-            (player(1), WORLD, POS, Face::North)
-        );
-        assert_eq!((fill.bucket(), fill.item()), (&sticks(1), &sticks(2)));
-        fill.set_item(Stack::EMPTY);
-        assert_eq!(fill.item(), &Stack::EMPTY);
-        fill.cancel();
-        assert!(fill.is_cancelled());
-        fill.uncancel();
-        assert!(!fill.is_cancelled());
     }
 
     // api: PlayerChangeSkinEvent, PlayerChangeSkinEvent::getOldSkin,
@@ -2158,10 +1791,10 @@ mod tests {
     fn data_save_names_the_record() {
         let mut e = PlayerDataSave {
             player: player(1),
-            player_name: "Steve".to_owned(),
+            record_key: "offline:steve".to_owned(),
             cancelled: false,
         };
-        assert_eq!((e.player(), e.player_name()), (player(1), "Steve"));
+        assert_eq!((e.player(), e.record_key()), (player(1), "offline:steve"));
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();
@@ -2270,43 +1903,6 @@ mod tests {
         assert_eq!((e.player(), e.emote_id()), (player(1), "a"));
         e.set_emote_id("b".to_owned());
         assert_eq!(e.emote_id(), "b");
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
-    // api: EnchantingOption, PlayerEnchantingOptionsRequestEvent,
-    // api: EnchantingOption::getRequiredXpLevel, EnchantingOption::getDisplayName,
-    // api: EnchantingOption::getEnchantments,
-    // api: PlayerEnchantingOptionsRequestEvent::getInventory,
-    // api: PlayerEnchantingOptionsRequestEvent::getOptions,
-    // api: PlayerEnchantingOptionsRequestEvent::setOptions,
-    // api: PlayerEnchantingOptionsRequestEvent::cancel,
-    // api: PlayerEnchantingOptionsRequestEvent::uncancel,
-    // api: PlayerEnchantingOptionsRequestEvent::isCancelled
-    #[test]
-    fn enchanting_options_are_at_most_three() {
-        let option = EnchantOption::new(5, "abc".to_owned(), vec![(Enchantment::Efficiency, 2)]);
-        assert_eq!(
-            (
-                option.required_level(),
-                option.name(),
-                option.enchantments()
-            ),
-            (5, "abc", [(Enchantment::Efficiency, 2)].as_slice())
-        );
-        let mut e = PlayerEnchantingOptionsRequest {
-            player: player(1),
-            world: WORLD,
-            pos: POS,
-            options: vec![option.clone()],
-            cancelled: false,
-        };
-        assert_eq!((e.player(), e.world(), e.pos()), (player(1), WORLD, POS));
-        assert_eq!(e.options(), [option.clone()].as_slice());
-        e.set_options(vec![option.clone(); 5]);
-        assert_eq!(e.options().len(), 3);
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();
@@ -2505,32 +2101,6 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // api: PlayerItemEnchantEvent, PlayerItemEnchantEvent::getOption,
-    // api: PlayerItemEnchantEvent::getInputItem, PlayerItemEnchantEvent::getOutputItem,
-    // api: PlayerItemEnchantEvent::getCost, PlayerItemEnchantEvent::cancel,
-    // api: PlayerItemEnchantEvent::uncancel, PlayerItemEnchantEvent::isCancelled
-    #[test]
-    fn item_enchant_names_the_option_and_items() {
-        let option = EnchantOption::new(1, "x".to_owned(), Vec::new());
-        let mut e = PlayerItemEnchant {
-            player: player(1),
-            world: WORLD,
-            pos: POS,
-            option: option.clone(),
-            input_item: sticks(1),
-            output_item: sticks(2),
-            cost: 1,
-            cancelled: false,
-        };
-        assert_eq!((e.player(), e.world(), e.pos()), (player(1), WORLD, POS));
-        assert_eq!((e.option(), e.cost()), (&option, 1));
-        assert_eq!((e.input_item(), e.output_item()), (&sticks(1), &sticks(2)));
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
     // api: PlayerItemHeldEvent, PlayerItemUseEvent, PlayerItemHeldEvent::getItem,
     // api: PlayerItemHeldEvent::getSlot, PlayerItemHeldEvent::cancel,
     // api: PlayerItemHeldEvent::uncancel, PlayerItemHeldEvent::isCancelled,
@@ -2585,12 +2155,11 @@ mod tests {
         let mut quit = PlayerQuit {
             player: player(1),
             quit_message: "left".to_owned(),
-            quit_reason: "timeout".to_owned(),
-            shutdown: false,
+            reason: QuitReason::TimedOut,
         };
         assert_eq!(
-            (quit.player(), quit.quit_message(), quit.quit_reason()),
-            (player(1), "left", "timeout")
+            (quit.player(), quit.quit_message(), quit.reason()),
+            (player(1), "left", &QuitReason::TimedOut)
         );
         quit.set_quit_message("gone".to_owned());
         assert_eq!(quit.quit_message(), "gone");
@@ -2668,7 +2237,7 @@ mod tests {
         e.set_kick_flag(KickFlag::ServerFull, "full", None);
         assert!(!e.is_allowed());
         assert!(e.is_kick_flag_set(KickFlag::Banned));
-        assert!(!e.is_kick_flag_set(KickFlag::Plugin));
+        assert!(!e.is_kick_flag_set(KickFlag::Listener));
         assert_eq!(
             e.kick_flags().collect::<Vec<_>>(),
             [KickFlag::ServerFull, KickFlag::Banned]
@@ -2687,7 +2256,7 @@ mod tests {
         assert_eq!(e.final_disconnect_screen_message(), Some("full"));
         e.clear_kick_flag(KickFlag::ServerFull);
         assert_eq!(e.final_disconnect_screen_message(), Some("You are banned"));
-        e.set_kick_flag(KickFlag::Plugin, "no", None);
+        e.set_kick_flag(KickFlag::Listener, "no", None);
         assert_eq!(e.final_disconnect_reason(), Some("no"));
         e.clear_all_kick_flags();
         assert!(e.is_allowed());
@@ -2873,33 +2442,6 @@ mod tests {
             (e.address(), e.port(), e.message()),
             ("b.example", 19_133, "")
         );
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
-    // api: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock,
-    // api: PlayerRespawnAnchorUseEvent::getAction, PlayerRespawnAnchorUseEvent::setAction,
-    // api: PlayerRespawnAnchorUseEvent::cancel, PlayerRespawnAnchorUseEvent::uncancel,
-    // api: PlayerRespawnAnchorUseEvent::isCancelled
-    #[test]
-    fn respawn_anchor_use_names_the_anchor_and_its_action() {
-        let mut e = PlayerRespawnAnchorUse {
-            player: player(1),
-            world: WORLD,
-            pos: POS,
-            block: DIRT,
-            action: RespawnAnchorAction::Explode,
-            cancelled: false,
-        };
-        assert_eq!(
-            (e.player(), e.world(), e.pos(), e.block()),
-            (player(1), WORLD, POS, DIRT)
-        );
-        assert_eq!(e.action(), RespawnAnchorAction::Explode);
-        e.set_action(RespawnAnchorAction::SetSpawn);
-        assert_eq!(e.action(), RespawnAnchorAction::SetSpawn);
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();

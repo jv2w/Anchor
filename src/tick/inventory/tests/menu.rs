@@ -1456,7 +1456,7 @@ fn a_leaving_player_s_menu_closes_after_the_quit_listeners_and_monitors_and_befo
     let s = w.join(1);
     w.state.saving.players = true;
     let menu = open_closing(&mut w, s, Way::Leave, Response::Keep);
-    w.state.leave(s, "client disconnect");
+    w.state.leave(s, crate::event::QuitReason::Left);
     assert_eq!(
         QUITS.get(),
         2,
@@ -1499,7 +1499,7 @@ fn a_quit_listener_s_teleport_closes_the_menu_before_the_quit_monitors() {
     let mut w = World::with_listeners(GameMode::Survival, listeners);
     let s = w.join(1);
     let menu = open_closing(&mut w, s, Way::Leave, Response::Keep);
-    w.state.leave(s, "client disconnect");
+    w.state.leave(s, crate::event::QuitReason::Left);
     assert_eq!(AT_MONITOR.get(), Some(1), "closed before the monitors");
     let heard = CLOSES.take();
     assert!(

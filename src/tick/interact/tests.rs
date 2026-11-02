@@ -24,19 +24,20 @@ use crate::tick::queue::{Input, InputKind, Message, Outbound, SessionId};
 use crate::tick::survival::EYE_HEIGHT;
 use crate::tick::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
 use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
+use crate::world::Entry;
 
 /// Window opening clicks squeezed into one tick by a client that changes each click a little
 /// (so none is a repeat) and acknowledges every close at once.
 const CLICKS: usize = 1000;
 /// The network ID of dripstone in the 1.26.60 reference list (the value the official server
-/// sends), a block only clients know.
+/// sends), a block without a dump type.
 const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
 /// Looking east, level.
 const EAST: f32 = 270.0;
 /// The player's feet: on the flat world's grass at the spawn.
 const FEET: [f64; 3] = [0.5, -60.0, 0.5];
 /// The network ID of moss in the 1.26.60 reference list (the value the official server sends), a
-/// block only clients know.
+/// block without a dump type.
 const MOSS_BLOCK: u32 = 3_743_819_255;
 /// The notes of listeners and hooks.
 const SEEN: usize = 0;
@@ -1813,17 +1814,22 @@ fn sets(packets: &[Packet], pos: BlockPos, id: u32) -> bool {
     blocks_set(packets).contains(&(pos, id))
 }
 
-/// An inert block (one only clients know) breaks like a block of its hardness: dripstone by
-/// hand in 1.5 × 1.5 s, 45 ticks. Too early, the client gets it back as itself; in time it
-/// becomes air, the viewers see it break, and it drops nothing.
+/// The block of `name` with its default properties, one without a dump type.
+fn without_dump_type(name: &str) -> block::State {
+    let state = block::State::find(name, &[]).unwrap();
+    assert_eq!(state.kind(), Kind::InfoUpdate, "{name}");
+    state
+}
+
+/// A block without a dump type breaks like a block of its hardness: dripstone by hand in
+/// 1.5 × 1.5 s, 45 ticks. Too early, the client gets it back as itself; in time it becomes air,
+/// the viewers see it break, and it drops nothing.
 #[test]
-fn an_inert_block_breaks_in_its_time_into_air_with_no_drops() {
+fn a_block_without_a_dump_type_breaks_in_its_time_into_air_with_no_drops() {
     let mut h = Harness::new(|_| {});
-    let inert = h.state.worlds[0]
-        .put_unknown(TARGET, stored("minecraft:dripstone_block"))
-        .unwrap();
-    assert!(matches!(inert, Entry::Inert(..)), "{inert:?}");
-    assert_eq!(inert.network_id(), DRIPSTONE_BLOCK);
+    let dripstone = without_dump_type("minecraft:dripstone_block");
+    h.set(TARGET, dripstone);
+    assert_eq!(dripstone.network_id(), DRIPSTONE_BLOCK);
     let entities = h.state.rules.entities.count(0);
     h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
     assert!(h.player().breaking.target.is_some());
@@ -1836,7 +1842,7 @@ fn an_inert_block_breaks_in_its_time_into_air_with_no_drops() {
         TARGET,
         Face::West,
     )]);
-    assert_eq!(h.state.worlds[0].entry(TARGET), Some(inert));
+    assert_eq!(h.block(TARGET), dripstone);
     assert!(
         sets(&h.packets(), TARGET, DRIPSTONE_BLOCK),
         "resent as itself"
@@ -1858,62 +1864,91 @@ fn an_inert_block_breaks_in_its_time_into_air_with_no_drops() {
     assert_eq!(h.state.rules.entities.count(0), entities, "no drops");
 }
 
-/// A creative player breaks an inert block at once; a spectator cannot.
+/// A creative player breaks a block without a dump type at once; a spectator cannot.
 #[test]
-fn creative_breaks_an_inert_block_at_once_and_a_spectator_cannot() {
+fn creative_breaks_a_block_without_a_dump_type_at_once_and_a_spectator_cannot() {
     for (mode, broken) in [(GameMode::Creative, true), (GameMode::Spectator, false)] {
         let mut h = Harness::new(|c| c.general.gamemode = mode);
-        let inert = h.state.worlds[0]
-            .put_unknown(TARGET, stored("minecraft:moss_block"))
-            .unwrap();
+        let moss = without_dump_type("minecraft:moss_block");
+        h.set(TARGET, moss);
         h.act(vec![action(
             PlayerAction::PredictDestroyBlock,
             TARGET,
             Face::West,
         )]);
-        let now = h.state.worlds[0].entry(TARGET);
         if broken {
-            assert_eq!(now, Some(Entry::AIR), "{mode:?}");
+            assert_eq!(h.block(TARGET), block::AIR, "{mode:?}");
         } else {
-            assert_eq!(now, Some(inert), "{mode:?}");
+            assert_eq!(h.block(TARGET), moss, "{mode:?}");
             assert!(sets(&h.packets(), TARGET, MOSS_BLOCK), "resent as itself");
         }
     }
 }
 
-/// Blocks go on inert blocks (ones only clients know) as on their stand-ins, and a torch needs no
-/// support: the block goes into the cell above, seagrass is not replaced, and the inert block
-/// stays.
+/// Breaking goes on only through a state change of the same block: moss swapped for dripstone by
+/// code in the middle of a break resets the break.
 #[test]
-fn blocks_go_on_inert_blocks_beside_them() {
+fn swapping_a_block_without_a_dump_type_for_another_resets_the_break() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, without_dump_type("minecraft:moss_block"));
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    for _ in 0..30 {
+        h.act(Vec::new());
+    }
+    let dripstone = without_dump_type("minecraft:dripstone_block");
+    h.set(TARGET, dripstone);
+    h.packets();
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), dripstone);
+    assert!(updates(&h.packets()).contains(&TARGET), "resynced");
+}
+
+/// A block goes next to a block without a dump type, which no placement replaces, and a torch
+/// needs no support: the block goes into the cell above and the clicked block stays.
+#[test]
+fn blocks_go_beside_blocks_without_a_dump_type() {
     let above = BlockPos::new(2, -59, 0);
     let cases = [
         ("minecraft:moss_block", Kind::Stone),
         ("minecraft:moss_block", Kind::Torch),
         ("minecraft:moss_carpet", Kind::Torch),
         ("minecraft:moss_carpet", Kind::Stone),
-        ("minecraft:seagrass", Kind::Stone),
     ];
     for (name, kind) in cases {
         let mut h = Harness::new(|_| {});
-        let mut nbt = stored(name);
-        if name == "minecraft:seagrass" {
-            let states = crate::nbt::Compound::from([(
-                "sea_grass_type".to_owned(),
-                crate::nbt::Value::String("default".to_owned()),
-            )]);
-            nbt.insert("states".to_owned(), crate::nbt::Value::Compound(states));
-        }
-        let inert = h.state.worlds[0].put_unknown(TARGET, nbt).unwrap();
-        assert!(matches!(inert, Entry::Inert(..)), "{name}");
+        let clicked = without_dump_type(name);
+        h.set(TARGET, clicked);
         let item = block_item(kind, 4);
         h.hold(item.clone());
         let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &item)));
         h.run(vec![input]);
-        assert_eq!(h.state.worlds[0].entry(TARGET), Some(inert), "{name} stays");
+        assert_eq!(h.block(TARGET), clicked, "{name} stays");
         assert_eq!(h.block(above).kind(), kind, "{name} {kind:?}");
         assert_eq!(h.held().count(), 3);
     }
+}
+
+/// Seagrass is not replaced by a placement either.
+#[test]
+fn seagrass_is_not_replaced_by_a_placement() {
+    let mut h = Harness::new(|_| {});
+    let seagrass = block::State::find(
+        "minecraft:seagrass",
+        &[("sea_grass_type", block::PropertyValue::String("default"))],
+    )
+    .unwrap();
+    h.set(TARGET, seagrass);
+    let item = block_item(Kind::Stone, 4);
+    h.hold(item.clone());
+    let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &item)));
+    h.run(vec![input]);
+    assert_eq!(h.block(TARGET), seagrass);
+    assert_eq!(h.block(BlockPos::new(2, -59, 0)).kind(), Kind::Stone);
+    assert_eq!(h.held().count(), 3);
 }
 
 /// A block whose second cell holds a state nobody knows (kept as stored) is not placed: the

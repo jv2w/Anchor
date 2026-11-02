@@ -1558,7 +1558,7 @@ fn join_open_close_leave_cycles_leave_every_table_at_its_start() {
         if n % 2 == 0 {
             w.close(s);
         }
-        w.state.leave(s, "client disconnect");
+        w.state.leave(s, crate::event::QuitReason::Left);
         w.tick(Vec::new());
         let now = w.state.rules.block_entities.sizes();
         assert_eq!(

@@ -1,17 +1,14 @@
 //! Server light: block light and sky light for game rules, never sent to clients.
 //!
-//! A port of PMMP 6a7cc02 `src/world/light/*` and the light parts of its `World`, with PMMP's
-//! defects fixed (listed on [`Engine`]).
-//!
 //! A lit chunk holds 4-bit block and sky light per sub-chunk next to its blocks, so a light change
-//! never copies a shared block sub-chunk, and the sky height of each column (PMMP's height map):
-//! one above the highest block that stops direct sky light. Light is never saved; it is worked out
-//! again after a load.
+//! never copies a shared block sub-chunk, and the sky height of each column: one above the highest
+//! block that stops direct sky light. Light is never saved; it is worked out again after a load.
 //!
-//! The rules are PMMP's. A block spreads its light to its six neighbours, less the neighbour's
-//! filter plus 1 (PMMP `LightUpdate::BASE_LIGHT_FILTER`). Block light starts at emitters; sky light
-//! is 15 at and above the sky height and comes into the top block from above the world. Light
-//! does not enter or leave chunks that are not loaded.
+//! A block spreads its light to its six neighbours, less the neighbour's filter plus 1. Block
+//! light starts at emitters; sky light is 15 at and above the sky height and comes into the top
+//! block from above the world. Light is worked out in steps under a budget of units per tick
+//! ([`Engine::step`]), and a chunk is lit alone first (`populate`, which the save thread does off
+//! the tick for a chunk it loads). Light does not enter or leave chunks that are not loaded.
 
 mod nibbles;
 mod population;
@@ -23,7 +20,7 @@ use super::chunk::{COLUMNS, SUB_CHUNKS, column, split_y};
 use super::index::Chunks;
 use super::paletted::{Derive, offset};
 use super::sub_chunk::Entry;
-use super::{BlockPos, Chunk, ChunkPos, DAY, MAX_Y, MIN_Y};
+use super::{BlockPos, Chunk, ChunkPos, MAX_Y, MIN_Y, tick_of_day};
 use crate::block::{self, Facing};
 use crate::config::Lighting;
 use crate::tick::checkpoint::{self, Codec, Error, Reader, Writer};
@@ -40,11 +37,10 @@ const FACE_PAIRS: u32 = 24 * SUB_FACE_PAIRS;
 const FULL: u8 = 15;
 /// The sky light reduction from each time of day on.
 ///
-/// This is PMMP `World::computeSkyLightReduction` of `computeSunAnglePercentage`, which use
-/// `cos`. Each entry is the first tick of the day with that reduction; the test
-/// `the_time_table_is_pmmps_formula` recomputes all 24,000 ticks with the deterministic
-/// [`crate::math::cos`]. A table keeps platform `cos` out of tick code and costs a binary search
-/// over 23 entries.
+/// The reduction follows the sun's angle through a cosine. Each entry is the first tick of the day
+/// with that reduction; the test `the_time_table_follows_the_sun_angle_formula` recomputes all
+/// 24,000 ticks with the deterministic [`crate::math::cos`]. A table keeps platform `cos` out of
+/// tick code and costs a binary search over 23 entries.
 const REDUCTION: [(i64, u8); 23] = [
     (0, 0),
     (12_041, 1),
@@ -81,22 +77,15 @@ const _: () = assert!(SUB_CHUNKS == 24);
 /// Only the tick uses it; [`Self::step`] does the queued work under a budget of units (one per
 /// block looked at), in a fixed order, so the result does not depend on threads or timing.
 ///
-/// PMMP defects fixed here:
-/// 1. PMMP does every queued update at the end of the tick, however many: here a budget bounds
-///    each tick and the rest waits.
-/// 2. PMMP lights a chunk alone and never lets light cross into it from loaded neighbours or out
-///    of it: here every face between lit chunks is spread both ways.
-/// 3. PMMP drops updates in a chunk whose light is being worked out and installs a result that
-///    may be out of date (a gap it knows of): here a population works on a snapshot and the
-///    changes after it are replayed.
-/// 4. PMMP's removal sets a weaker emitter beside a removed light to 0 and never gives its light
-///    back: here a block keeps its own light and spreads it again.
-/// 5. PMMP's removal does not look past a block that had light 1, so such a block lit from
-///    another side stays dark: here every darkened block is looked past.
-/// 6. PMMP keeps the light an unloaded chunk gave its neighbours, which later changes can no
-///    longer take out: here it is taken out.
-/// 7. PMMP's queues are unbounded and its time correction uses platform `cos`: here queues are
-///    bounded (an overflow lights the chunk again) and the correction is a table.
+/// How it keeps the light right:
+/// 1. A budget bounds each tick's work and the rest waits.
+/// 2. Every face between lit chunks is spread both ways.
+/// 3. A population works on a snapshot and the changes after it are replayed.
+/// 4. A block keeps its own light and spreads it again when a neighbour's light is removed.
+/// 5. Every darkened block is looked past, so a block lit from another side stays lit.
+/// 6. The light an unloaded chunk gave its neighbours is taken out.
+/// 7. Queues are bounded (an overflow lights the chunk again) and the time correction is a table,
+///    not a platform `cos`.
 #[derive(Clone)]
 pub(crate) struct Engine {
     /// How light is worked out.
@@ -491,7 +480,7 @@ impl Engine {
         }
     }
 
-    /// Spreads a queued block's light to its neighbours (PMMP `LightUpdate::execute`).
+    /// Spreads a queued block's light to its neighbours.
     fn spread_from(&mut self, chunks: &mut Chunks, node: Node) {
         let Some(spot) = Spot::of(node.pos) else {
             return;
@@ -520,8 +509,7 @@ impl Engine {
 
     /// Works out a block's light again from its own light and its neighbours.
     ///
-    /// The difference is queued (PMMP `BlockLightUpdate::recalculateNode`,
-    /// `SkyLightUpdate::recalculateNode`).
+    /// The difference is queued.
     fn recalculate(&mut self, chunks: &mut Chunks, pos: BlockPos, channel: Channel) {
         let Some(spot) = Spot::of(pos) else {
             return;
@@ -577,7 +565,7 @@ impl Engine {
     /// to the block) or the block just under the old height no longer does (it drops to the next
     /// one below, the one case that scans). Every block changed since the heights were right has
     /// its change queued, and each is applied against the chunk as it is now, so after the last
-    /// one the height is the column's (PMMP `SkyLightUpdate::updateHeightMapColumn`-style).
+    /// one the height is the column's.
     fn apply_change(&mut self, chunks: &mut Chunks, pos: BlockPos) -> u32 {
         let Some(spot) = Spot::of(pos) else {
             return 1;
@@ -893,10 +881,9 @@ impl Engine {
 
     /// Handles the light at `target` (in `chunk`) that may have come from a lost neighbour light.
     ///
-    /// The neighbour's light `old` is gone. The light at `target` is darkened to its own light and queued for removal, or, if it is brighter (lit from
-    /// elsewhere) or its own source, queued to spread again (PMMP
-    /// `LightUpdate::computeRemoveLight`, fixed: the own light stays and every darkened block is
-    /// looked past).
+    /// The neighbour's light `old` is gone. The light at `target` is darkened to its own light and
+    /// queued for removal, or, if it is brighter (lit from elsewhere) or its own source, queued to
+    /// spread again: the own light stays and every darkened block is looked past.
     fn remove_at(
         &mut self,
         chunk: &mut Chunk,
@@ -938,7 +925,7 @@ impl Engine {
 
     /// Raises `target` (in `chunk`) to `level` less its filter if that is brighter.
     ///
-    /// It queues the block to spread (PMMP `LightUpdate::computeSpreadLight`).
+    /// It queues the block to spread.
     #[inline]
     fn relax_at(
         &mut self,
@@ -1346,8 +1333,6 @@ pub(crate) struct Values {
     /// The light the block gives off.
     emission: u8,
     /// The light that drops when light enters the block: its filter plus 1, at most 15.
-    ///
-    /// This is PMMP `RuntimeBlockStateRegistry::$lightFilter`.
     filter: u8,
     /// Whether the block stops direct sky light.
     blocks_sky: bool,
@@ -1441,8 +1426,7 @@ impl Digest {
 
 /// The light values of an entry are its state's.
 ///
-/// An unknown state counts as `minecraft:info_update`, the block clients see in its place. An
-/// inert state stops direct sky light when it filters any (PMMP `Block::blocksDirectSkyLight`).
+/// An unknown state counts as `minecraft:info_update`, the block clients see in its place.
 impl Derive for Entry {
     type Derived = Values;
 
@@ -1461,7 +1445,6 @@ impl Derive for Entry {
                     s.blocks_direct_sky_light(),
                 )
             }
-            Entry::Inert(s, _) => (s.light_emission(), s.light_filter(), s.light_filter() > 0),
         };
         Values {
             emission: emission.min(FULL),
@@ -1473,10 +1456,10 @@ impl Derive for Entry {
 
 /// How much sky light the time of day takes away, 0 (day) to 11 (night).
 ///
-/// This is PMMP `World::getSkyLightReduction`. `time` is the world time in ticks; only `time` mod
-/// 24,000 counts (PMMP keeps the sign of a negative time; Anchor counts it from the day's start).
+/// `time` is the world time in ticks; only `time` mod 24,000 counts, and a negative time counts
+/// from the day's start.
 pub(crate) fn sky_light_reduction(time: i64) -> u8 {
-    let tick = time.rem_euclid(DAY);
+    let tick = i64::from(tick_of_day(time));
     let after = REDUCTION.partition_point(|&(start, _)| start <= tick);
     REDUCTION
         .get(after.saturating_sub(1))
@@ -1485,8 +1468,8 @@ pub(crate) fn sky_light_reduction(time: i64) -> u8 {
 
 /// The light of `chunk` worked out alone, as if every neighbour were dark.
 ///
-/// This is PMMP `LightPopulationTask`. It is a pure function of the chunk, for the CPU pool; the
-/// tick connects it to its neighbours when it loads.
+/// It is a pure function of the chunk, for the CPU pool; the tick connects it to its neighbours
+/// when it loads.
 pub(crate) fn populate(chunk: &Chunk) -> Levels {
     let mut population = Population::new(chunk.clone());
     let mut units = u32::MAX;
@@ -1500,7 +1483,7 @@ pub(crate) fn populate(chunk: &Chunk) -> Levels {
 ///
 /// Block light comes from its emission; sky light is 15 at and above its column's sky height, and
 /// for the top block of a column blocked at the top, 15 less its filter (the sky above the
-/// world, PMMP `SkyLightUpdate::getEffectiveLight`).
+/// world).
 fn source(channel: Channel, values: Values, y: i32, height: i32) -> u8 {
     match channel {
         Channel::Block => values.emission,
@@ -1512,8 +1495,8 @@ fn source(channel: Channel, values: Values, y: i32, height: i32) -> u8 {
 
 /// The sky height of local column (x, z) from its blocks at and below `top`.
 ///
-/// It is one above the highest block that stops direct sky light, or the world bottom (PMMP
-/// `SkyLightUpdate::recalculateHeightMapColumn`), and the number of blocks looked at.
+/// It is one above the highest block that stops direct sky light, or the world bottom, and the
+/// number of blocks looked at.
 fn sky_height(chunk: &Chunk, x: u8, z: u8, top: i32) -> (i16, u32) {
     let Some(top) = chunk.highest_block(x, z).map(|height| height.min(top)) else {
         return (BOTTOM, 0);
@@ -1666,7 +1649,7 @@ mod tests {
     use crate::protocol::Rng;
     use crate::tick::Customs;
     use crate::world::chunk::tests::plain_states;
-    use crate::world::{Flat, Generator, PLAINS, Paletted, SubChunk, Void, World};
+    use crate::world::{DAY, Flat, Generator, PLAINS, Paletted, SubChunk, Void, World};
 
     /// Blocks in a chunk, indexed by [`cell`].
     const CELLS: usize = 384 * 256;
@@ -1745,7 +1728,7 @@ mod tests {
 
     /// The light of every loaded chunk worked out from scratch, independently of the engine.
     ///
-    /// It is a plain breadth-first spread over all loaded chunks from PMMP's sources (emitters;
+    /// It is a plain breadth-first spread over all loaded chunks from the sources (emitters;
     /// sky light 15 at and above one over each column's highest sky blocker, and from above the
     /// world into the top block), dropping by filter + 1 per block and never entering a chunk
     /// that is not loaded. It holds each column's sky height too.
@@ -1937,7 +1920,7 @@ mod tests {
 
     // api: World::getBlockLightAt
     #[test]
-    fn block_light_follows_pmmp_rules() {
+    fn block_light_follows_the_spread_rules() {
         let torch = find("minecraft:torch");
         let glowstone = find("minecraft:glowstone");
         let water = water();
@@ -1966,8 +1949,7 @@ mod tests {
         assert_eq!(w.block_light(at(-6)), Some(10));
         assert_eq!(w.block_light(at(-5)), Some(7));
         assert_eq!(w.block_light(at(-4)), Some(6));
-        // A stronger emitter beside a weaker one, then removed: the weaker keeps its light
-        // (PMMP darkens it).
+        // A stronger emitter beside a weaker one, then removed: the weaker keeps its light.
         w.set_block(at(-11), glowstone).unwrap();
         settle(&mut w, 1000);
         assert_eq!(w.block_light(at(-10)), Some(14));
@@ -1976,7 +1958,7 @@ mod tests {
         assert_eq!(w.block_light(at(-10)), Some(14));
         assert_eq!(w.block_light(at(-11)), Some(13));
         // Two torches whose light meets at 1 in x 3; the first removed, x 3 keeps 1 from the
-        // second (PMMP does not look past a block it darkens from 1, so it stays dark).
+        // second (a block darkened from 1 is looked past too).
         w.set_block(at(-5), block::AIR).unwrap();
         w.set_block(at(16), torch).unwrap();
         settle(&mut w, 1000);
@@ -1996,7 +1978,7 @@ mod tests {
 
     // api: World::getPotentialBlockSkyLightAt
     #[test]
-    fn sky_light_follows_pmmp_rules() {
+    fn sky_light_follows_the_spread_rules() {
         let leaves = find("minecraft:oak_leaves");
         let glass = find("minecraft:glass");
         let water = water();
@@ -2096,7 +2078,7 @@ mod tests {
                     .collect();
                 w.step_light(500);
                 for (p, c) in gone {
-                    w.restore_chunk(p, c);
+                    w.insert_chunk(p, c);
                 }
             }
         }
@@ -2130,7 +2112,7 @@ mod tests {
         assert_eq!(w.block_light(BlockPos::new(15, -60, 5)), Some(0));
         assert_matches_reference(&w);
         // Back from memory, it is lit on the tick and its light crosses again.
-        w.restore_chunk(pos, chunk);
+        w.insert_chunk(pos, chunk);
         assert_eq!(
             w.block_light(BlockPos::new(16, -60, 5)),
             None,
@@ -2238,7 +2220,7 @@ mod tests {
     }
 
     #[test]
-    fn the_time_table_is_pmmps_formula() {
+    fn the_time_table_follows_the_sun_angle_formula() {
         use crate::math::{clamp, cos};
         use std::f64::consts::PI;
         for time in 0..DAY {
@@ -2246,7 +2228,7 @@ mod tests {
             let sun = progress + if progress < 0.25 { 0.75 } else { -0.25 };
             #[expect(
                 clippy::manual_midpoint,
-                reason = "consistency: PMMP's formula as it is written"
+                reason = "consistency: the sun-angle formula as it is written"
             )]
             let diff = ((1.0 - (cos(sun * PI) + 1.0) / 2.0) - sun) / 3.0;
             let angle = sun + diff;
@@ -2254,7 +2236,7 @@ mod tests {
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
-                reason = "consistency: PMMP's (int) cast of a value from 0 to 11"
+                reason = "consistency: the formula's integer cast of a value from 0 to 11"
             )]
             let want = (percentage * 11.0) as u8;
             assert_eq!(sky_light_reduction(time), want, "time {time}");
@@ -2523,7 +2505,7 @@ mod tests {
         let mut units = 0_u64;
         for x in -2..=2 {
             let c = w.remove_chunk(ChunkPos::new(x, 0)).unwrap();
-            w.restore_chunk(ChunkPos::new(x, 0), c);
+            w.insert_chunk(ChunkPos::new(x, 0), c);
             while !w.is_light_idle() {
                 units += u64::from(w.step_light(u32::MAX));
             }

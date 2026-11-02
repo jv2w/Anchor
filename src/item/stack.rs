@@ -1,16 +1,15 @@
 //! Item stacks: immutable values.
 //!
-//! A stack is an item type, a count, a damage (durability used, or the stack state PMMP keeps in
-//! the meta) and optional extra data (custom name, lore, enchantments and every other NBT key,
-//! kept as received). Changing a stack makes a new value; the extra data is shared until changed.
+//! A stack is an item type, a count, a damage (durability used, or the stack state kept in the
+//! meta) and optional extra data (custom name, lore, enchantments and every other NBT key, kept
+//! as received). Changing a stack makes a new value; the extra data is shared until changed.
 //!
 //! A stack has two outside forms, both built from the same item NBT `tag` ([`Stack::tag`]):
 //!
-//! - network (PMMP `TypeConverter::coreItemStackToNet`): runtime ID, the meta, the network ID of
-//!   the block state a block item is sent with and the tag, with the contents of
-//!   a stored container reduced to what the client shows;
-//! - disk (PMMP `SavedItemStackData`, Bedrock form): `{Name, Count, Damage, Block?, tag?}`, plus
-//!   `Slot` where a list stores it.
+//! - network: runtime ID, the meta, the network ID of the block state a block item is sent with
+//!   and the tag, with the contents of a stored container reduced to what the client shows;
+//! - disk (Bedrock form): `{Name, Count, Damage, Block?, tag?}`, plus `Slot` where a list stores
+//!   it.
 //!
 //! In the tag, `display.Name`, `display.Lore`, the entries of `ench` and an item's durability
 //! (`Damage`) are read into the stack's fields; every other key, every `ench` entry of an
@@ -18,19 +17,21 @@
 //! writes, stays in [`Extra::nbt`] untouched, so a stack Anchor wrote reads back equal and writes
 //! back byte for byte. Extra data a stack is given is read the same way ([`Stack::with_extra`]),
 //! so a stack in memory is the stack its outside forms read back as. A `Damage` of 0 is read too,
-//! as no wear, and not written back (PMMP `Durable`), so it stacks with a new item. NBT that is
+//! as no wear, and not written back, so it stacks with a new item. NBT that is
 //! part of the item type (an ominous banner's `Type`) is not kept in the stack: the type adds it
 //! when the tag is written.
 //!
 //! Limits: a stack is refused where its extra data is set ([`Stack::with_extra`],
 //! and the conversions from outside forms) if its saved form is over [`MAX_NBT_BYTES`] or its
-//! custom name over [`MAX_NAME_BYTES`]. PMMP has no such limit. The limits are sized so that
+//! custom name over [`MAX_NAME_BYTES`]. The limits are sized so that
 //! everything the game stores whole fits its record: a player's `MAX_SAVED_STACKS` (`tick::inventory`) stacks and user
 //! data in its record, a container's 27 stacks in one NBT root, and a shulker box's 27 stacks of
 //! at most [`MAX_STORED_BYTES`] with its name in one stack.
 
 use std::fmt;
 use std::sync::Arc;
+
+use tracing::warn;
 
 use super::{Enchantment, Type};
 use crate::nbt::{self, Compound, Cost, Encoding, List, Value};
@@ -63,7 +64,7 @@ const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 28;
 /// longest state, about 2.5 KB) fit.
 pub(crate) const MAX_STORED_BYTES: usize = MAX_NBT_BYTES / 32;
 
-/// Block entity data of a block item; the client never reads it (PMMP strips it).
+/// Block entity data of a block item; the client never reads it, so the network form drops it.
 const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 /// The durability used by an item that wears (`TAG_Int`, written only when above 0).
 const TAG_DAMAGE: &str = "Damage";
@@ -77,8 +78,7 @@ const TAG_DISPLAY_NAME: &str = "Name";
 const TAG_ENCH: &str = "ench";
 /// The items a container block item holds (a shulker box).
 const TAG_ITEMS: &str = "Items";
-/// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1 (PMMP
-/// `Item::setKeepOnDeath`).
+/// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1.
 pub const TAG_KEEP_ON_DEATH: &str = "minecraft:keep_on_death";
 /// The key in [`Extra::nbt`] of an armour piece's trim: a compound of [`TAG_TRIM_MATERIAL`] and
 /// [`TAG_TRIM_PATTERN`], as smithing writes it.
@@ -90,7 +90,7 @@ pub const TAG_TRIM_MATERIAL: &str = "Material";
 /// [`TRIM_PATTERNS`](super::TRIM_PATTERNS).
 pub const TAG_TRIM_PATTERN: &str = "Pattern";
 /// The key in [`Extra::nbt`] that keeps an item that wears from wearing: a `TAG_Byte` other than
-/// 0 (PMMP `Durable::setUnbreakable`).
+/// 0.
 pub const TAG_UNBREAKABLE: &str = "Unbreakable";
 
 /// A stack of items, or nothing (an empty slot).
@@ -144,8 +144,7 @@ impl Stack {
     /// The same stack with `damage`: for an item that wears, the durability used, 0 to its
     /// [`max_durability`](Type::max_durability); for another, the stack state its saved form
     /// keeps (a firework star's colour). Fails with [`Error::InvalidDamage`] for a damage the
-    /// saved form would not read back, as PMMP `Durable::setDamage` throws for one out of range;
-    /// `self` stays as it is.
+    /// saved form would not read back; `self` stays as it is.
     #[doc(alias = "Durable::setDamage")]
     pub fn with_damage(&self, damage: u16) -> Result<Self> {
         let Some(item) = self.item else {
@@ -191,7 +190,7 @@ impl Stack {
 
     /// `count` items of `item` from the parts of an outside form: its meta and item NBT tag.
     /// The meta is the stack state where it is not the type's (an item that wears reads an old
-    /// meta as damage, as PMMP does); the tag's known keys are read into the fields. Empty when
+    /// meta as damage); the tag's known keys are read into the fields. Empty when
     /// `count` is 0; the count is limited to the maximum stack size. Fails as
     /// [`Stack::with_damage`] and [`Stack::with_extra`] do.
     pub(crate) fn from_parts(
@@ -206,7 +205,7 @@ impl Stack {
         }
         let (damage, extra) = split_tag(item, tag.unwrap_or_default());
         let damage = match item.max_durability() {
-            // PMMP `ItemDeserializer`: an old meta is the damage of an undamaged item.
+            // An old meta is the damage of an undamaged item.
             Some(max) => damage.unwrap_or(meta.min(max)),
             None if meta != item.meta() => meta,
             None => 0,
@@ -288,8 +287,7 @@ impl Stack {
         self.extra.as_deref()
     }
 
-    /// The level of enchantment `e` on the stack (PMMP `Item::getEnchantmentLevel`), `None`
-    /// without it.
+    /// The level of enchantment `e` on the stack, `None` without it.
     pub(crate) fn enchantment_level(&self, e: Enchantment) -> Option<u16> {
         self.extra()?
             .enchantments
@@ -318,8 +316,8 @@ impl Stack {
         self.item.map_or(0, Type::max_stack_size)
     }
 
-    /// Whether `other` can join this stack: the same type, damage and extra data (PMMP
-    /// `Item::canStackWith`). Empty stacks stack with nothing.
+    /// Whether `other` can join this stack: the same type, damage and extra data.
+    /// Empty stacks stack with nothing.
     #[doc(alias = "Item::canStackWith")]
     #[inline]
     pub fn can_stack_with(&self, other: &Self) -> bool {
@@ -329,10 +327,9 @@ impl Stack {
             && self.extra == other.extra
     }
 
-    /// Whether a shulker box's slots take the stack: not a shulker box (PMMP
-    /// `ShulkerBoxInventory::canAddItem`, and its slot validator for players), and at most
+    /// Whether a shulker box's slots take the stack: not a shulker box, and at most
     /// [`MAX_STORED_BYTES`], so that the box with everything it holds is one stack within
-    /// [`MAX_NBT_BYTES`] (PMMP has no such limit). An empty stack fits.
+    /// [`MAX_NBT_BYTES`]. An empty stack fits.
     pub(crate) fn can_enter_shulker_box(&self) -> bool {
         let Some(item) = self.item else {
             return true;
@@ -349,7 +346,7 @@ impl Stack {
                     .is_some())
     }
 
-    /// The custom name, or "" (PMMP `Item::getCustomName`).
+    /// The custom name, or "".
     pub(crate) fn custom_name(&self) -> &str {
         self.extra()
             .and_then(|e| e.custom_name.as_deref())
@@ -357,7 +354,7 @@ impl Stack {
     }
 
     /// The meta of the stack's outside forms: 0 for an item that wears (its durability is in the
-    /// tag), the stack state where PMMP keeps one in the meta (a firework star's colour), the
+    /// tag), the stack state where one is kept in the meta (a firework star's colour), the
     /// type's meta otherwise.
     pub(crate) fn meta(&self) -> u16 {
         match self.item {
@@ -378,10 +375,9 @@ impl Stack {
         )
     }
 
-    /// The network form (PMMP `TypeConverter::coreItemStackToNet`): runtime ID, meta, count, the
-    /// network ID of the block state a block item is sent with, and the tag without block entity
-    /// data and with stored items reduced to their type, count and name. The air stack for an
-    /// empty stack.
+    /// The network form: runtime ID, meta, count, the network ID of the block state a block item
+    /// is sent with, and the tag without block entity data and with stored items reduced to
+    /// their type, count and name. The air stack for an empty stack.
     pub(crate) fn to_network(&self) -> protocol::ItemStack {
         let Some(item) = self.item else {
             return protocol::ItemStack::default();
@@ -445,8 +441,8 @@ impl Stack {
         out
     }
 
-    /// The disk form as BDS writes it in the NBT it sends (a furnace's `LastFuel`, trade offers):
-    /// with `WasPickedUp` 0 (P6).
+    /// The disk form as the official server writes it in the NBT it sends (trade offers): with
+    /// `WasPickedUp` 0 (P6).
     pub(crate) fn to_sent_nbt(&self) -> Compound {
         let mut out = self.to_nbt();
         out.insert("WasPickedUp".to_owned(), Value::Byte(0));
@@ -531,7 +527,17 @@ impl Stack {
         let item = vanilla.or_else(|| custom?.by_identifier(name))?;
         // performance: saved data is outside input, so a stack read back is checked as
         // a new one is: one more write of its NBT, only for a stack with extra data.
-        Self::from_parts(item, *count, meta, tag).ok()
+        match Self::from_parts(item, *count, meta, tag) {
+            Ok(stack) => Some(stack),
+            Err(e) => {
+                warn!(
+                    item = name.as_str(),
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "a saved stack is refused and reads as unknown"
+                );
+                None
+            }
+        }
     }
 
     /// The item NBT tag of `item` with `tag` as the extra NBT: the type's own NBT where the extra
@@ -571,7 +577,7 @@ impl Stack {
                     .map(|&(e, level)| {
                         // `checked` keeps every level at most `MAX_ENCHANTMENT_LEVEL`, a short.
                         Compound::from([
-                            ("id".to_owned(), Value::Short(i16::from(e.id()))),
+                            ("id".to_owned(), Value::Short(e.id())),
                             ("lvl".to_owned(), Value::Short(level.cast_signed())),
                         ])
                     })
@@ -596,8 +602,7 @@ pub struct Extra {
     #[doc(alias = "Item::getLore")]
     pub lore: Vec<String>,
     /// Enchantments and their levels (the `ench` entries of enchantments Anchor knows), in the
-    /// order applied. A level is from 1 to [`MAX_ENCHANTMENT_LEVEL`], past the enchantment's
-    /// [`max_level`](Enchantment::max_level) too.
+    /// order applied. A level is from 1 to [`MAX_ENCHANTMENT_LEVEL`].
     #[doc(alias = "Item::getEnchantments")]
     pub enchantments: Vec<(Enchantment, u16)>,
     /// Every other NBT key of the stack, kept as received (book pages, fireworks, patterns…),
@@ -679,10 +684,9 @@ fn keeps_damage(item: Type, damage: u16) -> bool {
             ))
 }
 
-/// Reads the known keys of an item tag (PMMP `Item::deserializeCompoundTag`): the durability of
-/// an item that wears (0 too, which [`Stack::tag`] leaves out, as PMMP `Durable` does), the custom
-/// name, the lore and the enchantments, each only in the exact form [`Stack::tag`] writes; the
-/// rest, without the type's own NBT, is the extra NBT.
+/// Reads the known keys of an item tag: the durability of an item that wears (0 too, which
+/// [`Stack::tag`] leaves out), the custom name, the lore and the enchantments, each only in the
+/// exact form [`Stack::tag`] writes; the rest, without the type's own NBT, is the extra NBT.
 fn split_tag(item: Type, mut tag: Compound) -> (Option<u16>, Extra) {
     if let Some(static_nbt) = item.nbt() {
         for entry in static_nbt {
@@ -736,7 +740,7 @@ fn split_tag(item: Type, mut tag: Compound) -> (Option<u16>, Extra) {
 }
 
 /// The enchantment of an `ench` entry that is exactly `{id, lvl}` of a known enchantment and a
-/// level above 0 (PMMP skips the others).
+/// level above 0.
 fn read_enchantment(entry: &Compound) -> Option<(Enchantment, u16)> {
     if entry.len() != 2 {
         return None;
@@ -749,8 +753,7 @@ fn read_enchantment(entry: &Compound) -> Option<(Enchantment, u16)> {
     Some((Enchantment::from_id(*id)?, level))
 }
 
-/// What the client shows of a stored item compound (PMMP
-/// `TypeConverter::stripContainedItemNonVisualNBT`): its type, count, slot and custom name.
+/// What the client shows of a stored item compound: its type, count, slot and custom name.
 fn visible_only(stored: &Compound) -> Compound {
     let mut visible: Compound = stored
         .iter()
@@ -831,7 +834,7 @@ mod tests {
         let boots = Stack::new(kind(Kind::NetheriteBoots), 1)
             .with_extra(Some(Extra {
                 custom_name: Some("n".repeat(MAX_NAME_BYTES)),
-                enchantments: enchantments.map(|e| (e, u16::from(e.max_level()))).to_vec(),
+                enchantments: enchantments.map(|e| (e, 5)).to_vec(),
                 nbt: Compound::from([("RepairCost".to_owned(), Value::Int(39))]),
                 ..Extra::default()
             }))
@@ -913,7 +916,7 @@ mod tests {
         assert_eq!(Stack::from_network(&net), Some(stack));
     }
 
-    /// A level is any above 0 that the saved `lvl` (a `TAG_Short`) holds, as PMMP reads it: one
+    /// A level is any above 0 that the saved `lvl` (a `TAG_Short`) holds: one
     /// above 255 reads back from both forms; 0 and one past a short are refused.
     #[test]
     fn enchantment_levels_are_the_positive_shorts() {
@@ -947,7 +950,7 @@ mod tests {
                 ("lvl".to_owned(), Value::Short(level)),
             ])
         };
-        let sharpness = entry(i16::from(Enchantment::Sharpness.id()), 5);
+        let sharpness = entry(Enchantment::Sharpness.id(), 5);
         let looting = entry(LOOTING, 3);
         let mut disk = Stack::new(kind(Kind::DiamondSword), 1).to_nbt();
         let list = vec![sharpness.clone(), looting.clone()];
@@ -959,7 +962,7 @@ mod tests {
         let mut extra = stack.extra().cloned().unwrap();
         extra.enchantments.push((Enchantment::Unbreaking, 1));
         let more = stack.with_extra(Some(extra)).unwrap();
-        let unbreaking = entry(i16::from(Enchantment::Unbreaking.id()), 1);
+        let unbreaking = entry(Enchantment::Unbreaking.id(), 1);
         let written = more.tag().expect("the tag is written");
         assert_eq!(
             written.get(TAG_ENCH),
@@ -983,10 +986,7 @@ mod tests {
         };
         assert_eq!(sword.with_extra(Some(long)), Err(Error::NameTooLong));
         let sharpness = Compound::from([
-            (
-                "id".to_owned(),
-                Value::Short(i16::from(Enchantment::Sharpness.id())),
-            ),
+            ("id".to_owned(), Value::Short(Enchantment::Sharpness.id())),
             ("lvl".to_owned(), Value::Short(5)),
         ]);
         let raw = Extra {
@@ -1006,8 +1006,8 @@ mod tests {
         assert_eq!(Stack::from_nbt(&stack.to_nbt()), Some(stack));
     }
 
-    /// PMMP `Durable` reads a tag `Damage` of 0 as no wear (over an old meta too) and writes no
-    /// key for it, so such a stack equals and stacks with a new one.
+    /// A tag `Damage` of 0 reads as no wear (over an old meta too) and is not written, so such
+    /// a stack equals and stacks with a new one.
     #[test]
     fn a_tag_damage_of_zero_is_no_wear_and_is_not_written() {
         let fresh = Stack::new(kind(Kind::DiamondSword), 1);
@@ -1078,8 +1078,8 @@ mod tests {
     // api: Durable::getDamage, Durable::setDamage, Item::getCustomName, Item::getLore,
     // api: Item::getEnchantments, Item::getNamedTag
     /// A stack's getters read what its `with_*` methods set, and a change makes a new value: the
-    /// count is kept to the type's stack size and 0 empties the stack (PMMP `Item::setCount`,
-    /// `Item::isNull`), the damage and extra data are kept apart (PMMP `Durable`, the item tag).
+    /// count is kept to the type's stack size and 0 empties the stack, the damage and extra data
+    /// are kept apart.
     #[test]
     fn getters_read_what_the_with_methods_set() {
         let pearls = Stack::new(kind(Kind::EnderPearl), 10);
@@ -1221,15 +1221,15 @@ mod tests {
 
     #[test]
     fn a_block_item_sent_with_another_block_id_is_still_known() {
-        let crate::block::ItemForm::Item(table) =
-            crate::block::Kind::CraftingTable.default_state().item()
+        let crate::block::ItemForm::Item(planks) =
+            crate::block::Kind::OakPlanks.default_state().item()
         else {
-            panic!("a crafting table has an item form");
+            panic!("oak planks have an item form");
         };
-        let table = Stack::new(table, 1);
-        let mut net = table.to_network();
+        let planks = Stack::new(planks, 1);
+        let mut net = planks.to_network();
         net.block_runtime_id = 12_345;
-        assert_eq!(Stack::from_network(&net), Some(table));
+        assert_eq!(Stack::from_network(&net), Some(planks));
     }
 
     #[test]

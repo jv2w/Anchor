@@ -1,11 +1,10 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs`,
-//! `src/protocol/packet.rs` and `src/protocol/consts.rs` from it, and the block, item and recipe
-//! tables (see `data`; with the reference states Anchor shows but does not implement, see
-//! `inert`), the biome table and the import's upgrade tables (see `upgrade`) from the committed
-//! data in `xtask/data/`. It extracts the IR into `target/` and writes the committed IR and the
-//! generated files only after all of them are made. With `--check` it writes nothing and fails
-//! if the committed IR or a generated file differs. The protocol decoders also apply the
+//! `src/protocol/packet.rs` and `src/protocol/consts.rs` from it, and the block and item tables
+//! (see `data`), the biome table and the import's upgrade tables (see `upgrade`) from the
+//! committed data in `xtask/data/`. It extracts the IR into `target/` and writes the committed IR
+//! and the generated files only after all of them are made. With `--check` it writes nothing and
+//! fails if the committed IR or a generated file differs. The protocol decoders also apply the
 //! per-field limits in `xtask/data/reference/protocol_limits.json`.
 
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
@@ -21,16 +20,13 @@ mod body;
 mod consts;
 mod creative;
 pub(crate) mod data;
-mod drops;
 mod effects;
 mod emit;
-mod inert;
 mod info;
 mod ir;
 mod items;
 mod model;
 mod names;
-mod recipes;
 mod registry;
 pub(crate) mod upgrade;
 
@@ -66,26 +62,27 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     let model = model::Model::new(&ir, limits)?;
     let output = emit::generate(&model)?;
     let data = data::Data::load(root)?;
+    let game_version = ir.source.game_version.as_str();
     let files = [
         (TYPES_PATH, finish(root, &output.types)?),
         (PACKET_PATH, finish(root, &output.packet)?),
         (consts::PATH, finish(root, &consts::generate(&ir)?)?),
-        (blocks::PATH, finish(root, &blocks::generate(&data)?)?),
-        (items::PATH, finish(root, &items::generate(&data)?)?),
+        (
+            blocks::PATH,
+            finish(root, &blocks::generate(&data, game_version)?)?,
+        ),
+        (
+            items::PATH,
+            finish(root, &items::generate(&data, game_version)?)?,
+        ),
         (registry::PATH, finish(root, &registry::generate(root)?)?),
         (
             creative::PATH,
             finish(root, &creative::generate(root, &data)?)?,
         ),
-        (
-            recipes::PATH,
-            finish(root, &recipes::generate(root, &data)?)?,
-        ),
         (biomes::PATH, finish(root, &biomes::generate(root)?)?),
         (effects::PATH, finish(root, &effects::generate(&data)?)?),
-        (drops::PATH, finish(root, &drops::generate(&data)?)?),
         (upgrade::PATH, finish(root, &upgrade::generate(root)?)?),
-        (inert::PATH, finish(root, &inert::generate(root, &data)?)?),
     ];
     let mut differ = Vec::new();
     if mode == Mode::Check {

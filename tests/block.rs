@@ -1,14 +1,19 @@
 //! Block states through the public API: the state table against the reference list (network
-//! IDs included) and the PMMP dump, and unknown input to the lookups.
+//! IDs included) and the dump, and unknown input to the lookups.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
+
+#[path = "support/rng.rs"]
+mod rng;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anchor::block::{Face, PropertyValue, State, SupportType};
 use serde_json::Value as Json;
+
+use rng::Rng;
 
 /// Inputs per unknown-input test.
 const RANDOM_INPUTS: usize = 100_000;
@@ -59,22 +64,7 @@ impl Owned {
 /// A block name and its properties sorted by name.
 type Key = (String, Vec<(String, Owned)>);
 
-/// splitmix64: a small fixed-seed generator for reproducible inputs.
-struct Rng(u64);
-
 impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-
-    fn below(&mut self, n: usize) -> usize {
-        usize::try_from(self.next() % u64::try_from(n).expect("n fits u64")).expect("below n")
-    }
-
     fn u32(&mut self) -> u32 {
         u32::try_from(self.next() >> 32).expect("high half fits u32")
     }
@@ -135,7 +125,7 @@ fn reference() -> Vec<(Key, u32)> {
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
     let reference: BTreeMap<Key, u32> = reference().into_iter().collect();
-    assert_eq!(State::all().len(), 14_307);
+    assert_eq!(State::all().len(), 19_076);
     for state in State::all() {
         let key = key_of(state);
         assert_eq!(
@@ -176,8 +166,8 @@ fn float(v: &Json) -> f64 {
     v.as_f64().expect("number")
 }
 
-/// The state has the dumped break info and fire values.
-fn check_break_and_fire(state: State, block: &Json) {
+/// The state has the dumped break info.
+fn check_break(state: State, block: &Json) {
     let info = state.break_info();
     let want = &block["break"];
     assert_eq!(info.hardness(), float(&want["hardness"]), "{state:?}");
@@ -189,24 +179,6 @@ fn check_break_and_fire(state: State, block: &Json) {
     let tool = |field: &str| u8::try_from(want[field].as_u64().expect("number")).expect("byte");
     assert_eq!(info.tool_type().bits(), tool("tool_type"), "{state:?}");
     assert_eq!(info.harvest_level(), tool("harvest_level"), "{state:?}");
-    assert_eq!(
-        Some(info.is_explosion_harvestable()),
-        want["explosion_harvestable"].as_bool(),
-        "{state:?}"
-    );
-    let fire = &block["fire"];
-    assert_eq!(
-        [
-            u64::from(state.flammability()),
-            u64::from(state.flame_encouragement())
-        ],
-        [
-            fire[0].as_u64().expect("number"),
-            fire[1].as_u64().expect("number")
-        ],
-        "{state:?}"
-    );
-    assert_eq!(Some(state.burns_forever()), fire[2].as_bool(), "{state:?}");
 }
 
 /// The state has the dumped flags, friction, support and number of collision boxes.
@@ -222,10 +194,7 @@ fn check_physics(state: State, block: &Json) {
         ("transparent", state.is_transparent()),
         ("replaceable", state.can_be_replaced()),
         ("flowable", state.can_be_flowed_into()),
-        ("climbable", state.can_climb()),
         ("entity_collision", state.has_entity_collision()),
-        ("silk_touch", state.is_affected_by_silk_touch()),
-        ("position_offset", state.has_position_offset()),
     ] {
         assert_eq!(has, flags.contains(flag), "{state:?} {flag}");
     }
@@ -250,25 +219,22 @@ fn check_physics(state: State, block: &Json) {
         .map(|s| s.as_str().expect("support type"))
         .collect();
     assert_eq!(support, want, "{state:?}");
-    // PMMP's inside-out box (a wall hanging sign's bar) is rebuilt as BDS's bar, so the count
-    // stays (BDS, P6).
+    // The dump's inside-out box (a wall hanging sign's bar) is rebuilt as the official server's
+    // bar, so the count stays (P6).
     let boxes = block["boxes"].as_array().expect("boxes").len();
     assert_eq!(state.collision_boxes().len(), boxes, "{state:?}");
 }
 
 // api: Block, VanillaBlocks, Block::getTypeId, Block::getLightLevel, Block::getLightFilter,
-// api: Block::blocksDirectSkyLight, Block::ticksRandomly, Block::getBreakInfo,
-// api: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,
-// api: BlockBreakInfo::getToolType, BlockBreakInfo::getToolHarvestLevel,
-// api: BlockBreakInfo::isExplosionHarvestable, Block::getFlammability,
-// api: Block::getFlameEncouragement, Block::burnsForever, Block::isSolid, Block::isTransparent,
-// api: Block::canBeReplaced, Block::canBeFlowedInto, Block::canClimb, Block::hasEntityCollision,
-// api: Block::isAffectedBySilkTouch, Block::getModelPositionOffset, Block::getFrictionFactor,
-// api: Block::getSupportType, Block::getCollisionBoxes
-/// Every state of the PMMP dump has PMMP's values: light, random ticks, the default state of its
-/// type, break info, fire, flags, friction, support and its number of collision boxes.
+// api: Block::blocksDirectSkyLight, Block::getBreakInfo, BlockBreakInfo::getHardness,
+// api: BlockBreakInfo::getBlastResistance, BlockBreakInfo::getToolType,
+// api: BlockBreakInfo::getToolHarvestLevel, Block::isSolid, Block::isTransparent,
+// api: Block::canBeReplaced, Block::canBeFlowedInto, Block::hasEntityCollision,
+// api: Block::getFrictionFactor, Block::getSupportType, Block::getCollisionBoxes
+/// Every state of the dump has the dump's values: light, the default state of its type, break
+/// info, flags, friction, support and its number of collision boxes.
 #[test]
-fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
+fn every_dump_state_finds_its_upgraded_state_with_its_values() {
     // The block schemas that add properties after the dump's data version.
     let schemas = [
         read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json"),
@@ -298,12 +264,7 @@ fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
             block["blocks_direct_sky_light"].as_bool(),
             "{state:?}"
         );
-        assert_eq!(
-            Some(state.ticks_randomly()),
-            block["ticks_randomly"].as_bool(),
-            "{state:?}"
-        );
-        // Where PMMP states share a Bedrock state, the state takes one PMMP type's values (the
+        // Where dump states share a Bedrock state, the state takes one dump type's values (the
         // block module documentation); the rest are checked on the state's own type.
         if state.kind().name() != block["type"] {
             continue;
@@ -311,7 +272,7 @@ fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
         if block["default"].as_bool() == Some(true) {
             assert_eq!(state.kind().default_state(), state, "{state:?}");
         }
-        check_break_and_fire(state, block);
+        check_break(state, block);
         check_physics(state, block);
     }
 }
@@ -446,5 +407,5 @@ fn unknown_names_and_properties_give_none() {
         );
         found += usize::from(expected.is_some());
     }
-    assert_eq!(found, 12_232);
+    assert_eq!(found, 11_782);
 }

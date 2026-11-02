@@ -1,148 +1,10 @@
-//! Inventory events (PMMP `pocketmine\event\inventory`): windows, transactions, crafting and the
-//! furnace, and the two trade events PMMP does not have.
+//! Inventory events: windows, transactions and villager trades.
 
-use super::MAX_SAVED_FUEL_TIME;
-use crate::block::State;
 use crate::entity;
 use crate::inventory::Kind;
 use crate::item::Stack;
 use crate::player;
 use crate::world::{self, BlockPos};
-
-/// Raised when a player crafts, before the inputs are used up. Cancelling keeps the inputs and
-/// makes nothing.
-#[doc(alias = "CraftItemEvent")]
-#[derive(Debug)]
-pub struct CraftItem {
-    pub(crate) player: player::Id,
-    pub(crate) inputs: Vec<Stack>,
-    pub(crate) outputs: Vec<Stack>,
-    pub(crate) repetitions: u32,
-    pub(crate) cancelled: bool,
-}
-
-getters!(CraftItem {
-    /// The player crafting.
-    #[doc(alias = "CraftItemEvent::getPlayer")]
-    player: player::Id,
-    /// What one craft uses up.
-    #[doc(alias = "CraftItemEvent::getInputs")]
-    inputs: &[Stack],
-    /// What one craft makes.
-    #[doc(alias = "CraftItemEvent::getOutputs")]
-    outputs: &[Stack],
-    /// How many times the recipe is made at once.
-    #[doc(alias = "CraftItemEvent::getRepetitions")]
-    repetitions: u32,
-});
-
-cancellable! {
-    CraftItem
-        #[doc(alias = "CraftItemEvent::cancel")]
-        #[doc(alias = "CraftItemEvent::uncancel")]
-        #[doc(alias = "CraftItemEvent::isCancelled")];
-}
-
-/// Raised when a furnace, blast furnace or smoker burns a new fuel item. Cancelling keeps the fuel
-/// and the furnace stays out.
-#[doc(alias = "FurnaceBurnEvent")]
-#[derive(Debug)]
-pub struct FurnaceBurn {
-    pub(crate) world: world::Id,
-    pub(crate) pos: BlockPos,
-    pub(crate) block: State,
-    pub(crate) fuel: Stack,
-    pub(crate) burn_time_ticks: u32,
-    pub(crate) burning: bool,
-    pub(crate) cancelled: bool,
-}
-
-getters!(FurnaceBurn {
-    /// The world of the furnace.
-    world: world::Id,
-    /// Where the furnace is.
-    #[doc(alias = "FurnaceBurnEvent::getFurnace")]
-    pos: BlockPos,
-    /// The furnace.
-    block: State,
-    /// The fuel.
-    #[doc(alias = "FurnaceBurnEvent::getFuel")]
-    fuel: &Stack,
-    /// How long the fuel burns, in ticks.
-    #[doc(alias = "FurnaceBurnEvent::getBurnTime")]
-    burn_time_ticks: u32,
-});
-
-impl FurnaceBurn {
-    /// Whether the fuel item is used up. Starts true.
-    #[doc(alias = "FurnaceBurnEvent::isBurning")]
-    pub fn is_burning(&self) -> bool {
-        self.burning
-    }
-
-    /// Sets how long the fuel burns, in ticks, at most 32,767 (more counts as 32,767); 0 burns
-    /// nothing and keeps the fuel, as if cancelled.
-    #[doc(alias = "FurnaceBurnEvent::setBurnTime")]
-    pub fn set_burn_time_ticks(&mut self, burn_time_ticks: u32) {
-        self.burn_time_ticks = burn_time_ticks.min(MAX_SAVED_FUEL_TIME);
-    }
-}
-
-setters!(FurnaceBurn {
-    /// Sets whether the fuel item is used up (false: the furnace burns for free).
-    #[doc(alias = "FurnaceBurnEvent::setBurning")]
-    set_burning => burning: bool,
-});
-
-cancellable! {
-    FurnaceBurn
-        #[doc(alias = "FurnaceBurnEvent::cancel")]
-        #[doc(alias = "FurnaceBurnEvent::uncancel")]
-        #[doc(alias = "FurnaceBurnEvent::isCancelled")];
-}
-
-/// Raised when a furnace, blast furnace or smoker finishes smelting an item. Cancelling keeps the
-/// item unsmelted.
-#[doc(alias = "FurnaceSmeltEvent")]
-#[derive(Debug)]
-pub struct FurnaceSmelt {
-    pub(crate) world: world::Id,
-    pub(crate) pos: BlockPos,
-    pub(crate) block: State,
-    pub(crate) source: Stack,
-    pub(crate) result: Stack,
-    pub(crate) cancelled: bool,
-}
-
-getters!(FurnaceSmelt {
-    /// The world of the furnace.
-    world: world::Id,
-    /// Where the furnace is.
-    #[doc(alias = "FurnaceSmeltEvent::getFurnace")]
-    pos: BlockPos,
-    /// The furnace.
-    block: State,
-    /// The item smelted (one of the input stack).
-    #[doc(alias = "FurnaceSmeltEvent::getSource")]
-    source: &Stack,
-    /// What goes to the output slot.
-    #[doc(alias = "FurnaceSmeltEvent::getResult")]
-    result: &Stack,
-});
-
-setters!(FurnaceSmelt {
-    /// Replaces what goes to the output slot. A result that is empty or does not fit there
-    /// cancels the smelt.
-    #[doc(alias = "FurnaceSmeltEvent::setResult")]
-    set_result => result: Stack,
-});
-
-cancellable! {
-    FurnaceSmelt
-        #[doc(alias = "FurnaceSmeltEvent::cancel")]
-        #[doc(alias = "FurnaceSmeltEvent::uncancel")]
-        #[doc(alias = "FurnaceSmeltEvent::isCancelled")];
-}
 
 /// Raised when a player's window other than a menu closes, a trade window included (the pair of
 /// [`TradeOpen`]): the player closed it, left, died, was moved away or opened another window, or
@@ -194,7 +56,7 @@ cancellable! {
 pub enum Window {
     /// The player's own inventory.
     Own,
-    /// The window of a block: a container, a crafting table, a station, an ender chest.
+    /// The window of a block: a container or an ender chest.
     Block {
         /// The world of the block.
         world: world::Id,
@@ -269,8 +131,8 @@ pub enum Inventory {
         /// Where the block is (a double chest's left half).
         pos: BlockPos,
     },
-    /// The open window's own slots: a crafting table's grid, a station's inputs, the payment
-    /// slots of a trade, a menu's editable slots ([`crate::menu`]).
+    /// The open window's own slots: the payment slots of a trade, a menu's editable slots
+    /// ([`crate::menu`]).
     Window,
 }
 
@@ -330,91 +192,9 @@ cancellable! {
 mod tests {
     use super::*;
 
-    use crate::block::DIRT;
     use crate::event::fixtures::{POS, entity, player, sticks};
 
     const WORLD: world::Id = world::Id::DEFAULT;
-
-    // api: CraftItemEvent, CraftItemEvent::getPlayer, CraftItemEvent::getInputs,
-    // api: CraftItemEvent::getOutputs, CraftItemEvent::getRepetitions, CraftItemEvent::cancel,
-    // api: CraftItemEvent::uncancel, CraftItemEvent::isCancelled
-    #[test]
-    fn craft_item_lists_inputs_and_outputs() {
-        let mut e = CraftItem {
-            player: player(1),
-            inputs: vec![sticks(2)],
-            outputs: vec![sticks(4)],
-            repetitions: 3,
-            cancelled: false,
-        };
-        assert_eq!((e.player(), e.repetitions()), (player(1), 3));
-        assert_eq!(
-            (e.inputs(), e.outputs()),
-            ([sticks(2)].as_slice(), [sticks(4)].as_slice())
-        );
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
-    // api: FurnaceBurnEvent, FurnaceBurnEvent::getFurnace, FurnaceBurnEvent::getFuel,
-    // api: FurnaceBurnEvent::getBurnTime, FurnaceBurnEvent::setBurnTime,
-    // api: FurnaceBurnEvent::isBurning, FurnaceBurnEvent::setBurning, FurnaceBurnEvent::cancel,
-    // api: FurnaceBurnEvent::uncancel, FurnaceBurnEvent::isCancelled
-    #[test]
-    fn furnace_burn_time_and_use_can_change() {
-        let mut e = FurnaceBurn {
-            world: WORLD,
-            pos: POS,
-            block: DIRT,
-            fuel: sticks(1),
-            burn_time_ticks: 100,
-            burning: true,
-            cancelled: false,
-        };
-        assert_eq!((e.world(), e.pos(), e.block()), (WORLD, POS, DIRT));
-        assert_eq!((e.fuel(), e.burn_time_ticks()), (&sticks(1), 100));
-        assert!(e.is_burning());
-        e.set_burn_time_ticks(40);
-        e.set_burning(false);
-        assert_eq!(e.burn_time_ticks(), 40);
-        assert!(!e.is_burning());
-        e.set_burn_time_ticks(100_000);
-        assert_eq!(
-            e.burn_time_ticks(),
-            32_767,
-            "a furnace saves at most a short"
-        );
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
-    // api: FurnaceSmeltEvent, FurnaceSmeltEvent::getFurnace, FurnaceSmeltEvent::getSource,
-    // api: FurnaceSmeltEvent::getResult, FurnaceSmeltEvent::setResult,
-    // api: FurnaceSmeltEvent::cancel, FurnaceSmeltEvent::uncancel,
-    // api: FurnaceSmeltEvent::isCancelled
-    #[test]
-    fn furnace_smelt_result_can_change() {
-        let mut e = FurnaceSmelt {
-            world: WORLD,
-            pos: POS,
-            block: DIRT,
-            source: sticks(1),
-            result: sticks(2),
-            cancelled: false,
-        };
-        assert_eq!((e.world(), e.pos(), e.block()), (WORLD, POS, DIRT));
-        assert_eq!((e.source(), e.result()), (&sticks(1), &sticks(2)));
-        e.set_result(sticks(3));
-        assert_eq!(e.result(), &sticks(3));
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
 
     // api: InventoryOpenEvent, InventoryCloseEvent, InventoryOpenEvent::getPlayer,
     // api: InventoryEvent::getInventory, InventoryOpenEvent::cancel,

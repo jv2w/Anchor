@@ -170,8 +170,11 @@ pub(crate) mod tests {
 
     use crate::protocol::Rng;
 
-    const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+    /// The decompression limit of the mutation test.
     const MAX_MUTATION_BYTES: usize = 64 * 1024;
+    /// The decompression limit of the round-trip tests.
+    const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+    /// The input sizes of the round-trip tests.
     pub(crate) const ROUND_TRIP_SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, 1024 * 1024];
 
     #[test]

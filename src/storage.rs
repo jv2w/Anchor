@@ -439,7 +439,7 @@ impl PlayerKey {
     }
 
     /// The key of an offline player: names that differ only in ASCII case are one player, as the
-    /// tick matches them (PMMP `strcasecmp`).
+    /// tick matches them.
     pub(crate) fn offline(name: &str) -> Self {
         Self(format!("offline:{}", name.to_ascii_lowercase()))
     }
@@ -1662,7 +1662,7 @@ fn roll_back(db: &Database, saved: &Meta) -> Result<Option<(WriteTransaction, bo
 }
 
 /// The meta value of the commit `txn` reads, if the file holds one. A newer format fails as
-/// [`Error::NewerFormat`] before the checksum ([`unseal`]).
+/// [`Error::NewerFormat`] ([`unseal`]).
 fn committed(txn: &ReadTransaction) -> Result<Option<Meta>> {
     let Some(table) = open_read(txn, META)? else {
         return Ok(None);
@@ -3133,6 +3133,11 @@ pub(crate) mod tests {
         let mut storage = Storage::open(&dir.place(), start).unwrap();
         let mut sealed = seal(META_KEY, &Meta::at(1)).unwrap();
         sealed[..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+        let mut crc = seal::Crc32c::new();
+        crc.update(META_KEY);
+        crc.update(&sealed[..8]);
+        crc.update(&sealed[12..]);
+        sealed[8..12].copy_from_slice(&crc.finish().to_le_bytes());
         let mut batch = Batch::default();
         batch.put(Key::Meta, sealed);
         storage.commit(&batch).unwrap();

@@ -11,10 +11,7 @@ use crate::nbt::{Compound, List, Value};
 use crate::player;
 use crate::world::{self, BlockPos};
 
-/// The most the client takes as a block's friction component: its value is 1 minus the friction.
-const MAX_CLIENT_FRICTION: f64 = 0.9;
-
-/// The Molang version dragonfly sends with custom blocks.
+/// The Molang version custom blocks are sent with.
 const MOLANG_VERSION: i32 = 10;
 
 /// The pixels along one edge of a block, which the box components count in.
@@ -26,10 +23,10 @@ const PIXELS_PER_BLOCK: f64 = 16.0;
 /// file as `tile.<identifier>.name`.
 ///
 /// The definition gives the client the block's states (the product of its [`Property`]
-/// values), shape, materials, light and break time, and gives the server the data its rules
-/// read: break info, solid and transparent, light, friction, fire, collision box and drops. The
-/// server gives the block an item, in the creative inventory if [`with_creative`](Self::with_creative)
-/// says so.
+/// values), shape, materials, light, break time, friction and flammability, and gives the server
+/// the data its rules read: break info, solid and transparent, light, friction, collision box and
+/// drops. The server gives the block an item, in the creative inventory if
+/// [`with_creative`](Self::with_creative) says so.
 ///
 /// ```
 /// use anchor::custom::{Block, Category, Creative, Property};
@@ -54,6 +51,8 @@ pub struct Block {
     /// `None`: 15 for an opaque block, 0 for a transparent one.
     light_filter: Option<u8>,
     info: block::Info,
+    flammability: u8,
+    flame_encouragement: u8,
     drops: Drops,
     creative: Option<Creative>,
     behaviour: Option<&'static dyn Behaviour>,
@@ -61,10 +60,10 @@ pub struct Block {
 }
 
 impl Block {
-    /// The blast resistance of a block per point of hardness (PMMP `BlockBreakInfo`).
+    /// The blast resistance of a block per point of hardness.
     const BLAST_RESISTANCE_PER_HARDNESS: f64 = 5.0;
 
-    /// The friction of most blocks (PMMP); the client's component leaves it out.
+    /// The friction of most blocks; the client's component leaves it out.
     const DEFAULT_FRICTION: f64 = 0.6;
 
     /// The hardness of a block made by [`new`](Self::new).
@@ -76,7 +75,7 @@ impl Block {
     /// The most drops one block lists.
     const MAX_DROPS: usize = 64;
 
-    /// The highest harvest level, netherite (PMMP `ToolTier`).
+    /// The highest harvest level, netherite.
     const MAX_HARVEST_LEVEL: u8 = 6;
 
     /// The highest light level.
@@ -90,6 +89,10 @@ impl Block {
 
     /// The most states one custom block has (each is a `u16` index).
     const MAX_STATES: u32 = 4096;
+
+    /// The lowest friction: the client takes 1 minus the friction as its component, at most 0.9,
+    /// so a lower one would slide differently there than in the server's rules.
+    const MIN_FRICTION: f64 = 0.1;
 
     /// A full, opaque, solid cube with `texture` on every face, named `identifier`
     /// (`namespace:name`, not in `minecraft`): hardness 1 by hand, friction 0.6, no light,
@@ -111,14 +114,13 @@ impl Block {
                     Self::DEFAULT_HARDNESS * Self::BLAST_RESISTANCE_PER_HARDNESS,
                     ToolType::NONE,
                     0,
-                    false,
                 ),
-                0,
-                0,
                 block::flag::SOLID,
                 Self::DEFAULT_FRICTION,
                 block::SUPPORT_FULL,
             ),
+            flammability: 0,
+            flame_encouragement: 0,
             drops: Drops::Itself,
             creative: None,
             behaviour: None,
@@ -126,7 +128,7 @@ impl Block {
         }
     }
 
-    /// The same block that entities can stand inside (PMMP `isSolid` false), such as a plant.
+    /// The same block that entities can stand inside, such as a plant.
     #[must_use]
     pub const fn non_solid(mut self) -> Self {
         self.info = self.info.with_flag(block::flag::SOLID, false);
@@ -134,23 +136,22 @@ impl Block {
     }
 
     /// The same block taking random ticks, which call its behaviour's
-    /// [`on_random_tick`](Behaviour::on_random_tick) (PMMP `ticksRandomly`). Blocks that do not
-    /// need them cost nothing on random ticks without this.
+    /// [`on_random_tick`](Behaviour::on_random_tick). Blocks that do not need them cost nothing
+    /// on random ticks without this.
     #[must_use]
     pub const fn random_ticks(mut self) -> Self {
         self.random_ticks = true;
         self
     }
 
-    /// The same block letting light through and not hiding the faces next to it (PMMP
-    /// `Transparent`).
+    /// The same block letting light through and not hiding the faces next to it.
     #[must_use]
     pub const fn transparent(mut self) -> Self {
         self.info = self.info.with_flag(block::flag::TRANSPARENT, true);
         self
     }
 
-    /// The same block that nothing breaks (PMMP hardness -1).
+    /// The same block that nothing breaks (hardness -1).
     #[must_use]
     pub const fn unbreakable(mut self) -> Self {
         let b = self.info.breaking();
@@ -159,7 +160,6 @@ impl Block {
             b.blast_resistance(),
             b.tool_type(),
             b.harvest_level(),
-            b.is_explosion_harvestable(),
         ));
         self
     }
@@ -180,7 +180,6 @@ impl Block {
             resistance,
             b.tool_type(),
             b.harvest_level(),
-            b.is_explosion_harvestable(),
         ));
         self
     }
@@ -206,27 +205,24 @@ impl Block {
         self
     }
 
-    /// The same block dropping `drops`. Unless they are [`Drops::Itself`], Silk Touch drops the
-    /// block itself.
+    /// The same block dropping `drops`.
     #[must_use]
     pub const fn with_drops(mut self, drops: Drops) -> Self {
         self.drops = drops;
-        let silk = !matches!(drops, Drops::Itself);
-        self.info = self.info.with_flag(block::flag::SILK_TOUCH, silk);
         self
     }
 
-    /// The same block catching fire with chance `flammability` and helping fire spread by
-    /// `encouragement` (PMMP `getFlammability`, `getFlameEncouragement`).
+    /// The same block telling the client it catches fire with chance `flammability` and helps
+    /// fire spread by `encouragement` (`minecraft:flammable`); the server spreads no fire.
     #[must_use]
     pub const fn with_flammability(mut self, flammability: u8, encouragement: u8) -> Self {
-        self.info = self.info.with_fire(flammability, encouragement);
+        self.flammability = flammability;
+        self.flame_encouragement = encouragement;
         self
     }
 
-    /// The same block with this friction factor (PMMP: 0.6 for most blocks, 0.98 for ice). The
-    /// client takes 1 minus the friction as its component, at most 0.9: it slides a friction
-    /// below 0.1 as it slides 0.1, while the server's rules read the factor given.
+    /// The same block with this friction factor, 0.1 to 1 (0.6 for most blocks, 0.98 for ice); a
+    /// block with another factor is refused when the server is built.
     #[must_use]
     pub const fn with_friction(mut self, friction: f64) -> Self {
         self.info = self.info.with_friction(friction);
@@ -241,8 +237,8 @@ impl Block {
         self
     }
 
-    /// The same block taking `hardness` to break (PMMP `BlockBreakInfo`: the seconds are 1.5
-    /// times it with a compatible tool, 5 times without), with a blast resistance of 5 times it
+    /// The same block taking `hardness` to break (the seconds are 1.5 times it with a compatible
+    /// tool, 5 times without), with a blast resistance of 5 times it
     /// that replaces one given before ([`with_blast_resistance`](Self::with_blast_resistance)
     /// after it keeps its own). A block nothing breaks is [`unbreakable`](Self::unbreakable), not
     /// a hardness of -1.
@@ -254,7 +250,6 @@ impl Block {
             hardness * Self::BLAST_RESISTANCE_PER_HARDNESS,
             b.tool_type(),
             b.harvest_level(),
-            b.is_explosion_harvestable(),
         ));
         self
     }
@@ -297,8 +292,8 @@ impl Block {
         self
     }
 
-    /// The same block needing `tool` and a tool of at least `harvest_level` (PMMP `ToolTier`:
-    /// wood 1 to netherite 6; 0: any) to drop anything. The server breaks it faster with `tool`;
+    /// The same block needing `tool` and a tool of at least `harvest_level` (wood 1 to
+    /// netherite 6; 0: any) to drop anything. The server breaks it faster with `tool`;
     /// the client is sent the time by hand only (it has no per-tool component), so a player
     /// waits that long for the block to break on screen.
     #[must_use]
@@ -309,7 +304,6 @@ impl Block {
             b.blast_resistance(),
             tool,
             harvest_level,
-            b.is_explosion_harvestable(),
         ));
         self
     }
@@ -383,8 +377,8 @@ impl Block {
             return Some("a hardness or blast resistance that is negative or not finite");
         }
         let friction = self.info.friction_value();
-        if !friction.is_finite() || friction <= 0.0 || friction > 1.0 {
-            return Some("a friction outside 0 (excluded) to 1");
+        if !friction.is_finite() || friction < Self::MIN_FRICTION || friction > 1.0 {
+            return Some("a friction outside 0.1 to 1");
         }
         if b.harvest_level() > Self::MAX_HARVEST_LEVEL {
             return Some("a harvest level above 6 (netherite)");
@@ -418,9 +412,8 @@ impl Block {
         self.light_emission
     }
 
-    /// The block's `StartGame` entry properties (dragonfly `blockinternal.Components`):
-    /// components, the creative menu, the block ID and the property list. `block_id` is 10,000
-    /// plus its registration index, as dragonfly gives custom blocks.
+    /// The block's `StartGame` entry properties: components, the creative menu, the block ID and
+    /// the property list. `block_id` is 10,000 plus its registration index.
     pub(crate) fn entry_nbt(&'static self, block_id: i32) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category.name(), c.group.unwrap_or_default()),
@@ -553,7 +546,8 @@ impl Block {
         None
     }
 
-    /// The block's components: boxes, geometry, materials, light, break time, friction, fire.
+    /// The block's components: boxes, geometry, materials, light, break time, friction,
+    /// flammability.
     fn to_components(self) -> Compound {
         let mut components = Compound::new();
         let mut put = |key: &str, value: Compound| {
@@ -612,30 +606,32 @@ impl Block {
         );
         let breaking = self.info.breaking();
         if let Some(seconds) = breaking.break_time_secs(&crate::item::Stack::EMPTY) {
-            // The seconds by hand: the client has no per-tool component (dragonfly).
+            // The seconds by hand: the client has no per-tool component.
             put(
                 "minecraft:destructible_by_mining",
                 Compound::from([("value".to_owned(), Value::Float(to_f32(seconds)))]),
             );
         }
-        // Bedrock's friction is the other way round: 0.4 for PMMP's 0.6.
+        // The client's friction is the other way round: 0.4 for the server's 0.6.
         let friction = self.info.friction_value();
         if friction != Self::DEFAULT_FRICTION {
-            let value = to_f32(crate::math::clamp(1.0 - friction, 0.0, MAX_CLIENT_FRICTION));
+            let value = to_f32(1.0 - friction);
             put(
                 "minecraft:friction",
                 Compound::from([("value".to_owned(), Value::Float(value))]),
             );
         }
-        let (flammability, encouragement) = self.info.fire();
-        if flammability > 0 {
+        if self.flammability > 0 {
             put(
                 "minecraft:flammable",
                 Compound::from([
-                    ("burn_odds".to_owned(), Value::Int(i32::from(flammability))),
+                    (
+                        "burn_odds".to_owned(),
+                        Value::Int(i32::from(self.flammability)),
+                    ),
                     (
                         "flame_odds".to_owned(),
-                        Value::Int(i32::from(encouragement)),
+                        Value::Int(i32::from(self.flame_encouragement)),
                     ),
                 ]),
             );
@@ -665,6 +661,8 @@ impl fmt::Debug for Block {
             .field("light_emission", &self.light_emission)
             .field("light_filter", &self.light_filter)
             .field("info", &self.info)
+            .field("flammability", &self.flammability)
+            .field("flame_encouragement", &self.flame_encouragement)
             .field("drops", &self.drops)
             .field("creative", &self.creative)
             .field("behaviour", &self.behaviour.is_some())
@@ -817,7 +815,7 @@ enum Values {
 }
 
 /// What a face of a custom block shows: a texture of the resource pack (its short name in
-/// `terrain_texture.json`) and how it is drawn (dragonfly `customblock.Material`).
+/// `terrain_texture.json`) and how it is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Material {
     /// `*` (every face) or a face: `up`, `down`, `north`, `south`, `east`, `west`.
@@ -868,8 +866,7 @@ impl Material {
         self
     }
 
-    /// The `material_instances` entry (dragonfly `Material.Encode`): ambient occlusion only for
-    /// the methods that keep it.
+    /// The `material_instances` entry: ambient occlusion only for the methods that keep it.
     fn nbt(&self) -> Compound {
         let occlusion = match self.render_method {
             RenderMethod::Opaque | RenderMethod::DoubleSided => 1.0,
@@ -922,8 +919,7 @@ pub enum Drops {
     Itself,
     /// Nothing.
     Nothing,
-    /// These items and counts, with a compatible tool (PMMP `getDropsForCompatibleTool`); a
-    /// Silk Touch tool drops the block itself instead.
+    /// These items and counts, with a compatible tool.
     Items(&'static [(ItemRef, u8)]),
 }
 
@@ -932,8 +928,10 @@ pub enum Drops {
 /// whole game, once the engine has applied the action (its listeners first; the held item, drops
 /// and wear included) and before the action's monitors; direct API calls in it raise no events.
 pub trait Behaviour: Send + Sync {
-    /// The block at `pos` was broken and removed, by `player` if one broke it (PMMP
-    /// `Block::onBreak`). Its drops have been spawned and the tool's wear applied.
+    /// The block at `pos` was broken and removed, by `player` if one broke it. Its drops have
+    /// been spawned and the tool's wear applied. An explosion destroying the block runs the hook
+    /// after the explosion; an explosion the hook starts is nested, and past a few levels it does
+    /// nothing.
     fn on_break(
         &self,
         cx: &mut Context<'_>,
@@ -945,9 +943,8 @@ pub trait Behaviour: Send + Sync {
         let _ = (cx, player, world, pos, state);
     }
 
-    /// The block was placed at `pos` by `player`, whose held item is already used up (PMMP
-    /// `Block::onPostPlace`). Only a player's placing runs it: a block set through the API does
-    /// not.
+    /// The block was placed at `pos` by `player`, whose held item is already used up. Only a
+    /// player's placing runs it: a block set through the API does not.
     fn on_place(
         &self,
         cx: &mut Context<'_>,
@@ -959,9 +956,9 @@ pub trait Behaviour: Send + Sync {
         let _ = (cx, player, world, pos, state);
     }
 
-    /// A random tick reached the block at `pos` (PMMP `Block::onRandomTick`). Only a block whose
-    /// definition takes random ticks ([`Block::random_ticks`]) gets them: in the block update
-    /// pass, in the same order and at the same rate (`random-tick-speed`) as vanilla blocks.
+    /// A random tick reached the block at `pos`. Only a block whose definition takes random ticks
+    /// ([`Block::random_ticks`]) gets them: each tick, at a few random positions of every
+    /// sub-chunk within `tick-radius` of a player.
     fn on_random_tick(
         &self,
         cx: &mut Context<'_>,
@@ -973,7 +970,7 @@ pub trait Behaviour: Send + Sync {
     }
 
     /// The player used (right-clicked) the block at `pos`. True if the block did something:
-    /// then the held item is neither used nor placed (PMMP `Block::onInteract`). False means
+    /// then the held item is neither used nor placed. False means
     /// nothing was done: the engine goes on to use the held item or place it, checking the click
     /// again first. A client holding the button repeats the click, and the hook runs again at
     /// least 2 ticks after its last run.
@@ -999,7 +996,7 @@ enum Geometry {
     Model(&'static str),
 }
 
-/// The `minecraft:collision_box` component of a box (dragonfly `collisionBoxComponent`).
+/// The `minecraft:collision_box` component of a box.
 fn collision_box(b: Aabb) -> Compound {
     let corner = Compound::from([
         ("maxX".to_owned(), Value::Float(pixels(b.max.x))),
@@ -1018,8 +1015,8 @@ fn collision_box(b: Aabb) -> Compound {
     ])
 }
 
-/// The `minecraft:selection_box` component of a box (dragonfly `selectionBoxComponent`: the
-/// origin is from the bottom centre of the cell).
+/// The `minecraft:selection_box` component of a box (its origin is from the bottom centre of the
+/// cell).
 fn selection_box(b: Aabb) -> Compound {
     let half_cell = to_f32(PIXELS_PER_BLOCK / 2.0);
     let origin = vec![
@@ -1143,6 +1140,17 @@ mod tests {
                 .check(),
             Some(format!("more than {} drops, or a drop count of 0", Block::MAX_DROPS).as_str())
         );
+    }
+
+    #[test]
+    fn a_friction_the_client_cannot_slide_is_refused() {
+        let refusal = Some("a friction outside 0.1 to 1");
+        let with = |friction| Block::new("a:b", "t").with_friction(friction).check();
+        assert_eq!(with(Block::MIN_FRICTION - 0.05), refusal);
+        assert_eq!(with(1.5), refusal);
+        assert_eq!(with(f64::NAN), refusal);
+        assert_eq!(with(Block::MIN_FRICTION), None);
+        assert_eq!(with(1.0), None);
     }
 
     /// An every-face material and two for the top.

@@ -20,7 +20,7 @@ pub struct Update {
 }
 
 impl Update {
-    /// The keys added, such as `general.recipe-book`, in the order of the default file.
+    /// The keys added, such as `general.motd`, in the order of the default file.
     pub fn added(&self) -> &[String] {
         &self.added
     }
@@ -350,7 +350,7 @@ mod tests {
             "# Settings for anyone opening a server.\n[general]\n"
         );
         let keys: Vec<_> = sections.iter().flat_map(|s| &s.keys).collect();
-        assert_eq!(keys.len(), 68);
+        assert_eq!(keys.len(), crate::config::tests::DEFAULT_KEY_COUNT);
         assert_eq!(
             keys[0].lines,
             "# Name shown in the server list.\nmotd = \"Anchor Server\"\n"

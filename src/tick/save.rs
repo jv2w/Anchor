@@ -475,13 +475,13 @@ fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
     for (session, name) in dirty {
         let mut e = PlayerDataSave {
             player: player::Id::new(session),
-            player_name: name,
+            record_key: name,
             cancelled: false,
         };
         dispatch::call(state, &mut e);
         if e.cancelled {
             debug!(
-                player = e.player_name.as_str(),
+                player = e.record_key.as_str(),
                 "a cancelled player data save is saved all the same"
             );
         }
@@ -658,11 +658,7 @@ mod tests {
     #[test]
     fn player_data_save_runs_before_the_snapshot_so_listener_changes_are_in_it() {
         let mut listeners = on(|e: &mut PlayerDataSave, cx: &mut Context<'_>| {
-            log(format!(
-                "{} {}",
-                e.player().session().get(),
-                e.player_name()
-            ));
+            log(format!("{} {}", e.player().session().get(), e.record_key()));
             cx.player_mut(e.player()).unwrap().set_xp_level(7).unwrap();
         });
         listeners.push_monitor(|e: &PlayerDataSave, cx: &Context<'_>| {

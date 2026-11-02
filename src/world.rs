@@ -25,7 +25,6 @@ pub(crate) use light::Mode as LightMode;
 pub(crate) use paletted::{Paletted, SLOTS, offset};
 pub use particle::Particle;
 pub(crate) use particle::id as particle_id;
-pub(crate) use particle::punch_data;
 pub(crate) use sound::PLAYER_ENTITY_TYPE;
 pub use sound::{NoteInstrument, Sound};
 pub(crate) use sub_chunk::{Entry, SubChunk};
@@ -39,9 +38,9 @@ use crate::block::{Facing, State};
 /// The Bedrock world border: the farthest a player, an entity or a command position may be from
 /// the world's middle on an axis, in blocks.
 pub(crate) const BORDER: i32 = 30_000_000;
-/// Ticks in a day (PMMP `World::TIME_FULL`).
+/// Ticks in a day.
 pub(crate) const DAY: i64 = 24_000;
-/// The highest block y of the world (PMMP's `getMaxY` is one above: the first y outside).
+/// The highest block y of the world.
 #[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;
 /// The lowest sub-chunk y of a world.
@@ -87,7 +86,7 @@ impl BlockPos {
     }
 
     /// The position one block toward `face`, if it is a valid `i32` position (the world height
-    /// is not checked). PMMP's `step` argument is this, repeated.
+    /// is not checked).
     #[doc(alias = "Position::getSide")]
     pub fn step(self, face: crate::block::Face) -> Option<Self> {
         let (dx, dy, dz) = face.offset();
@@ -220,7 +219,7 @@ pub enum Error {
     /// [`ServerBuilder::generator`]: crate::ServerBuilder::generator
     UnknownGenerator,
     /// The name cannot be the name of the world's file `data/worlds/<name>.redb` on Windows and
-    /// Linux alike: it is empty or longer than 250 bytes; holds a control character or one of
+    /// Linux alike: it is empty or too long; holds a control character or one of
     /// `< > : " / \ | ? *` (so no path); ends in a dot or a space or starts with a space; or is a
     /// name Windows keeps for a device, in any letter case and with any extension (`CON`, `PRN`,
     /// `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a
@@ -266,8 +265,7 @@ impl std::error::Error for Error {}
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The settings [`Context::create_world`](crate::Context::create_world) makes a world with and
-/// [`Context::load_world`](crate::Context::load_world) loads a stored one with (PMMP
-/// `WorldCreationOptions`). The defaults: a [`Kind::Persistent`] world of the `flat` generator,
+/// [`Context::load_world`](crate::Context::load_world) loads a stored one with. The defaults: a [`Kind::Persistent`] world of the `flat` generator,
 /// a seed made from the world's name, the generator's spawn, the server's difficulty and the
 /// global view values. The server file saves none of them: a world loaded after a
 /// restart takes the options of that load.
@@ -394,8 +392,9 @@ impl Default for Options {
 }
 
 /// Chunks [`Context::hold_chunks`](crate::Context::hold_chunks) keeps loaded until
-/// [`Context::release_chunks`](crate::Context::release_chunks) lets them go (PMMP
-/// `ChunkLoader`). A ticket is never given out twice while the server runs.
+/// [`Context::release_chunks`](crate::Context::release_chunks) lets them go. A ticket is never
+/// given out twice while the server runs. A ticket never released keeps its chunks loaded for as
+/// long as the server runs.
 #[doc(alias = "ChunkLoader")]
 #[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -456,8 +455,8 @@ impl fmt::Debug for UnknownBlock {
 }
 
 /// The weather of a world ([`World::weather`]). It stays as set: there is no natural cycle and
-/// no duration. Clients draw rain as snow where their biome is cold. BDS strikes lightning at
-/// random during thunder; Anchor strikes only where
+/// no duration. Clients draw rain as snow where their biome is cold. The official server strikes
+/// lightning at random during thunder; Anchor strikes only where
 /// [`Context::strike_lightning`](crate::Context::strike_lightning) says.
 ///
 /// Anchor neither saves the weather nor changes it by itself: every world is clear when the
@@ -535,9 +534,9 @@ pub struct World {
     kind: Kind,
     seed: i64,
     spawn: BlockPos,
-    /// The world's clock in ticks (PMMP `World::$time`); the day cycle follows it.
+    /// The world's clock in ticks; the day cycle follows it.
     time: i64,
-    /// The time stands still (PMMP `World::$stopTime`), until the server stops.
+    /// The time stands still, until the server stops.
     time_stopped: bool,
     /// Ticks the world has run since it was made or loaded ([`Self::age_ticks`]).
     age_ticks: u64,
@@ -564,7 +563,8 @@ pub struct World {
     fed: BTreeSet<BlockPos>,
     /// The light work of the loaded chunks.
     light: light::Engine,
-    /// The server's custom content, for the loaders of saved block entities and entities.
+    /// The server's custom content, for the loaders of saved block entities and entities (`None`
+    /// only in tests that make worlds without any).
     custom: Option<std::sync::Arc<crate::custom::Registry>>,
 }
 
@@ -608,8 +608,7 @@ impl World {
         self.id
     }
 
-    /// The world's name, unique on the server: its folder name and the name it shows (PMMP keeps
-    /// a display name apart; Anchor's worlds have one name).
+    /// The world's name, unique on the server: its file name and the name it shows.
     #[doc(alias = "World::getFolderName")]
     #[doc(alias = "World::getDisplayName")]
     pub fn name(&self) -> &str {
@@ -644,9 +643,9 @@ impl World {
 
     /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
     /// setting. It goes up by one
-    /// each tick the world is loaded and awake, unless its time is stopped or `daylight-cycle` is
-    /// off, and jumps when everyone sleeps through the night or `/time` moves it. It counts on
-    /// past a day, as BDS's clock does (the time of day is [`Self::time_of_day`]).
+    /// each tick the world is loaded, unless its time is stopped or `daylight-cycle` is off, and
+    /// jumps when [`Context::set_time`](crate::Context::set_time) moves it. It counts on past a
+    /// day (the time of day is [`Self::time_of_day`]).
     #[doc(alias = "World::getTime")]
     pub fn time_ticks(&self) -> i64 {
         self.time
@@ -660,31 +659,23 @@ impl World {
     }
 
     /// The time of the day cycle, 0 to 23,999: 1,000 is day, 6,000 noon, 13,000 night, 18,000
-    /// midnight and 23,000 sunrise (PMMP `World::TIME_*`).
+    /// midnight and 23,000 sunrise.
     #[doc(alias = "World::getTimeOfDay")]
-    #[expect(
-        clippy::missing_panics_doc,
-        reason = "invariant: the remainder of a day is below DAY, which fits u32"
-    )]
     pub fn time_of_day(&self) -> u32 {
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: the remainder of a day is below DAY, which fits u32"
-        )]
-        u32::try_from(self.time.rem_euclid(DAY)).expect("a time of day fits u32")
+        tick_of_day(self.time)
     }
 
     /// Whether the time stands still ([`Context::stop_time`](crate::Context::stop_time)): the
-    /// day cycle and the sun stay where they are. Not saved: every start runs the time, as PMMP
-    /// does (`daylight-cycle` stops every world's).
+    /// day cycle and the sun stay where they are. Not saved: every start runs the time
+    /// (`daylight-cycle` stops every world's).
     pub fn is_time_stopped(&self) -> bool {
         self.time_stopped
     }
 
     /// The world's own difficulty, or `None` while it follows the server's
     /// ([`Context::difficulty`](crate::Context::difficulty)), as a new world does unless it is
-    /// made or loaded with one. The rules of the world use it (food, fire), but on a `hardcore`
-    /// server they use hard whatever it says. Not saved: it comes from the options of every load.
+    /// made or loaded with one. The rules of the world use it, but on a `hardcore` server they use
+    /// hard whatever it says. Not saved: it comes from the options of every load.
     #[doc(alias = "World::getDifficulty")]
     pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
         self.difficulty
@@ -766,10 +757,8 @@ impl World {
     /// Light is worked out on the server for game rules and never sent to clients. With the
     /// setting `lighting = "fixed"` nothing is worked out: block light is 0 and sky light is
     /// `fixed-light-level` (15 by default, as under an open sky at noon) at every position of a
-    /// loaded chunk. Rules that need light then act as if every block had that sky light: at 15
-    /// crops and saplings grow underground, and nothing melts from block light. With
-    /// `lighting = "on-load"` a chunk's light is worked out when it loads and block changes
-    /// leave it as it is.
+    /// loaded chunk. With `lighting = "on-load"` a chunk's light is worked out when it loads and
+    /// block changes leave it as it is.
     #[doc(alias = "World::getBlockLightAt")]
     pub fn block_light(&self, pos: BlockPos) -> Option<u8> {
         self.light.light(&self.chunks, pos, light::Channel::Block)
@@ -821,7 +810,7 @@ impl World {
         self.chunks.get(pos.chunk())?.entry(x, pos.y, z)
     }
 
-    /// The loaded chunk at `pos`, to read; `None` if it is not loaded (PMMP loads it). Blocks
+    /// The loaded chunk at `pos`, to read; `None` if it is not loaded. Blocks
     /// change through [`Self::set_block`], which keeps the block rules, light and viewers up to
     /// date.
     #[doc(alias = "World::getChunk")]
@@ -938,8 +927,7 @@ impl World {
     /// Moves the spawn. A persistent world saves it with its state, so it stays after a restart.
     /// The 3 × 3 spawn chunks the server keeps loaded (those inside the world border) move
     /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
-    /// sees them (PMMP keeps the old ones held and does not hold the new ones). No event tells
-    /// of the move.
+    /// sees them. No event tells of the move.
     ///
     /// # Errors
     ///
@@ -958,8 +946,8 @@ impl World {
         self.age_ticks = self.age_ticks.saturating_add(1);
     }
 
-    /// Sets the time: the saved time at start, the clock's tick and night skips. Clients learn it
-    /// from the clock's next correction.
+    /// Sets the time: the saved time at start, the clock's tick and the context's calls. Clients
+    /// learn it from the clock's next correction.
     pub(crate) fn set_time(&mut self, time: i64) {
         self.time = time;
     }
@@ -1016,12 +1004,14 @@ impl World {
     /// The neighbour rules then work out the connection properties of the block and of its
     /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire),
     /// so the block may end up in a state that differs from `state` in those properties.
-    /// Neighbours in chunks that are not loaded read as air and are not changed.
+    /// Neighbours in chunks that are not loaded read as air and are not changed. No other block
+    /// reacts: blocks never change by themselves or because a neighbour changed.
     ///
-    /// The block entity follows in the tick's next block update phase, as PMMP's tiles follow
-    /// their block: a block that has one (a chest, a sign) gets an empty one there,
-    /// which [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a
-    /// block entity the new block does not take goes, dropping what it held as items.
+    /// The block entity follows in the tick's next block change phase: a block that has one (a
+    /// chest, a sign) gets an empty one there, which
+    /// [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a block
+    /// entity the new block does not take goes, dropping what it held as items. Until then the
+    /// old block entity is still there.
     #[doc(alias = "World::setBlockAt")]
     #[doc(alias = "World::setBlock")]
     pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
@@ -1059,8 +1049,7 @@ impl World {
     }
 
     /// Puts the stored state `nbt`, which Anchor does not know, at `pos` as a chunk read from the
-    /// server file holds it (inert if clients know it); the entry, or `None` if the chunk is not
-    /// loaded.
+    /// server file holds it; the entry, or `None` if the chunk is not loaded.
     #[cfg(test)]
     pub(crate) fn put_unknown(
         &mut self,
@@ -1074,7 +1063,7 @@ impl World {
     }
 
     /// Sets the biome ID at `pos`, saved with the chunk. Players see it when they are sent the
-    /// chunk again (as in PMMP).
+    /// chunk again.
     #[doc(alias = "World::setBiomeId")]
     pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
         let (x, z) = pos.local();
@@ -1107,12 +1096,14 @@ impl World {
         self.light.step(&mut self.chunks, budget)
     }
 
-    /// Loads `chunk` at `pos`, from disk or a generator (clean, its saved custom blocks already
-    /// resolved by the save thread). Lifts a quarantine of `pos` and returns a chunk it replaces,
-    /// whose light leaves with it.
+    /// Loads `chunk` at `pos`: from disk or a generator (clean, its saved custom blocks already
+    /// resolved by the save thread), or from memory as it is (an unloaded chunk whose changes are
+    /// not committed yet keeps its dirty mark). Lifts a quarantine of `pos` and returns a chunk it
+    /// replaces, whose light leaves with it.
     ///
     /// A chunk lit on the CPU pool ([`Chunk::populate_light`]) keeps its light and is connected
-    /// to its lit neighbours; one without light is lit on the tick.
+    /// to its lit neighbours; one without light (a chunk from memory, whose copy never holds
+    /// light) is lit on the tick, in steps under the light budget of each tick.
     pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
         self.quarantined.remove(&pos);
         self.loaded.insert(pos);
@@ -1122,12 +1113,6 @@ impl World {
         }
         self.light.loaded(&mut self.chunks, pos);
         old
-    }
-
-    /// Loads `chunk` at `pos` from memory as it is: an unloaded chunk whose changes are not
-    /// committed yet keeps its dirty mark.
-    pub(crate) fn restore_chunk(&mut self, pos: ChunkPos, chunk: Chunk) {
-        self.insert_chunk(pos, chunk);
     }
 
     /// Quarantines `pos` because its saved data is damaged: a chunk loaded there is dropped,
@@ -1345,6 +1330,15 @@ crate::tick::checkpoint::fields!(Saved {
     changes,
     feed,
 });
+
+/// The tick of the day cycle at world clock `time`, 0 to 23,999.
+pub(crate) fn tick_of_day(time: i64) -> u32 {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the remainder of a day is below DAY, which fits u32"
+    )]
+    u32::try_from(time.rem_euclid(DAY)).expect("a time of day fits u32")
+}
 
 /// Whether chunk `pos` is inside the world border. The server holds chunks only around centers
 /// inside it (spawn chunks inside it, ticket centers), so a rule that adds a few blocks to a
@@ -1653,18 +1647,18 @@ mod tests {
         format!("{}[{}]", state.name(), properties.join(","))
     }
 
-    /// A step of [`BDS_STEPS`]: where the block goes (dx, dz), its state, and the last state
-    /// BDS sent for each position it updated.
+    /// A step of [`OFFICIAL_STEPS`]: where the block goes (dx, dz), its state, and the last state
+    /// the official server sent for each position it updated.
     type Step = (
         (i32, i32),
         &'static str,
         &'static [((i32, i32), &'static str)],
     );
 
-    /// BDS's P6 `blocks` scenario (`xtask/src/p6.rs` `BLOCK_STEPS`, BDS 1.26.52.3,
-    /// `target/p6/bds-zlib/blocks.txt`): the block placed at (dx, dz) from the base, and the
-    /// last state BDS sent for each position it updated in that step.
-    const BDS_STEPS: &[Step] = &[
+    /// The official server's P6 `blocks` scenario (`xtask/src/p6.rs` `BLOCK_STEPS`): the block
+    /// placed at (dx, dz) from the base, and the last state the official server sent for each
+    /// position it updated in that step.
+    const OFFICIAL_STEPS: &[Step] = &[
         (
             (0, 0),
             "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
@@ -1926,13 +1920,13 @@ mod tests {
     ];
 
     #[test]
-    fn connections_match_every_bds_step() {
+    fn connections_match_every_official_server_step() {
         let by_text: BTreeMap<String, State> = State::all().map(|s| (render(s), s)).collect();
         let mut w = world(&Flat, 2);
         // The P6 base: the spawn column plus 2, on the grass.
         let base = BlockPos::new(2, -60, 2);
         let at = |(dx, dz): (i32, i32)| BlockPos::new(base.x + dx, base.y, base.z + dz);
-        for (n, (placed, input, expected)) in BDS_STEPS.iter().enumerate() {
+        for (n, (placed, input, expected)) in OFFICIAL_STEPS.iter().enumerate() {
             let before: BTreeMap<BlockPos, String> = expected
                 .iter()
                 .map(|(d, _)| (at(*d), render(w.block(at(*d)).unwrap())))
@@ -1941,10 +1935,10 @@ mod tests {
             w.set_block(at(*placed), state).unwrap();
             let changes = w.take_changes();
             let mut want_changed = BTreeSet::new();
-            for (d, bds) in *expected {
+            for (d, official) in *expected {
                 let got = render(w.block(at(*d)).unwrap());
-                assert_eq!(got, *bds, "step {n} at {d:?}");
-                if before[&at(*d)] != *bds {
+                assert_eq!(got, *official, "step {n} at {d:?}");
+                if before[&at(*d)] != *official {
                     want_changed.insert(at(*d));
                 }
             }
@@ -1972,29 +1966,20 @@ mod tests {
             .value()
     }
 
-    /// The connection rules read an inert block as its stand-in, as the placement rules do: a
-    /// fence joins a moss block's full face but not a moss carpet, and the inert block stays.
+    /// The connection rules read a block with no behaviour of its own by its full faces: a fence
+    /// joins a moss block's full face but not a moss carpet, and neither changes.
     #[test]
-    fn fences_connect_to_a_solid_inert_block_only() {
-        use crate::nbt::{Compound, Value};
+    fn fences_connect_to_a_solid_moss_block_only() {
         let fence = BlockPos::new(0, -60, 0);
-        let inert = BlockPos::new(1, -60, 0);
+        let beside = BlockPos::new(1, -60, 0);
         for (name, joined) in [("minecraft:moss_block", 1), ("minecraft:moss_carpet", 0)] {
             let mut w = world(&Flat, 1);
-            let nbt = Compound::from([
-                ("name".to_owned(), Value::String(name.to_owned())),
-                ("states".to_owned(), Value::Compound(Compound::new())),
-                (
-                    "version".to_owned(),
-                    Value::Int(crate::import::BLOCK_STATE_VERSION),
-                ),
-            ]);
-            let entry = w.put_unknown(inert, nbt).unwrap();
-            assert!(matches!(entry, Entry::Inert(..)), "{name}");
+            let state = by_name(name);
+            w.set_block(beside, state).unwrap();
             w.set_block(fence, by_name("minecraft:oak_fence")).unwrap();
             let east = prop(w.block(fence).unwrap(), "minecraft:connection_east");
             assert_eq!(east, PropertyValue::Byte(joined), "{name}");
-            assert_eq!(w.entry(inert), Some(entry), "{name}");
+            assert_eq!(w.block(beside), Some(state), "{name}");
         }
     }
 
@@ -2047,9 +2032,10 @@ mod tests {
             .unwrap()
     }
 
-    /// Walls (BDS P6 for the post, PMMP for a block above), fence gates and panes next to walls.
+    /// Walls (the official server's P6 run for the post, the API table for a block above), fence
+    /// gates and panes next to walls.
     #[test]
-    fn walls_and_fence_gates_follow_bds_and_pmmp() {
+    fn walls_and_fence_gates_follow_the_official_server_and_the_dump() {
         let none = PropertyValue::String("none");
         let wall = find(
             "minecraft:cobblestone_wall",
@@ -2065,7 +2051,7 @@ mod tests {
         let p = BlockPos::new(4, -60, 4);
         w.set_block(p, wall).unwrap();
         let post = |w: &World, at| prop(w.block(at).unwrap(), "wall_post_bit");
-        // A lone wall: no connections, a post (BDS).
+        // A lone wall: no connections, a post.
         assert_eq!(post(&w, p), PropertyValue::Byte(1));
         let east = BlockPos::new(5, -60, 4);
         w.set_block(east, wall).unwrap();
@@ -2083,7 +2069,7 @@ mod tests {
         let west = BlockPos::new(3, -60, 4);
         w.set_block(west, wall).unwrap();
         assert_eq!(post(&w, p), PropertyValue::Byte(0));
-        // A block above makes the post (PMMP).
+        // A block above makes the post.
         let stone = find("minecraft:stone", &[]);
         w.set_block(BlockPos::new(4, -59, 4), stone).unwrap();
         assert_eq!(post(&w, p), PropertyValue::Byte(1));
@@ -2120,10 +2106,10 @@ mod tests {
         );
     }
 
-    /// The fence groups (fixed from PMMP), fences next to gates, and a stair corner that changes
-    /// a fence's solid face.
+    /// The fence groups, fences next to gates, and a stair corner that changes a fence's solid
+    /// face.
     #[test]
-    fn fences_and_stairs_follow_pmmp() {
+    fn fences_and_stairs_connect_by_their_groups() {
         let mut w = world(&Flat, 1);
         let none = PropertyValue::String("none");
         // A nether brick fence and an oak fence do not connect either way.
@@ -2135,7 +2121,7 @@ mod tests {
         w.set_block(at_nether, nether).unwrap();
         assert_eq!(w.block(at_oak), Some(oak));
         assert_eq!(w.block(at_nether), Some(nether));
-        // An oak fence connects to a fence gate in any direction (PMMP).
+        // An oak fence connects to a fence gate in any direction.
         w.set_block(BlockPos::new(0, -60, 11), gate("east"))
             .unwrap();
         assert_eq!(

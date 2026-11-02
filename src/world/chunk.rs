@@ -71,8 +71,8 @@ impl Chunk {
     }
 
     /// Generates the chunk at `pos` (a pure function of the seed and the position),
-    /// then compacts its palettes: the order of first use, as BDS writes them (P6), whatever
-    /// order the generator wrote in.
+    /// then compacts its palettes: the order of first use, as the official server writes them,
+    /// whatever order the generator wrote in.
     pub(crate) fn generate(generator: &dyn Generator, seed: i64, pos: ChunkPos) -> Self {
         let mut chunk = Self::new();
         generator.generate(seed, pos, &mut chunk);
@@ -87,7 +87,7 @@ impl Chunk {
     }
 
     /// A chunk from stored parts (external input): the sub-chunks from the bottom,
-    /// the biomes of each, and the unknown states the layers' unknown and inert entries index.
+    /// the biomes of each, and the unknown states the layers' unknown entries index.
     /// Fails if an entry indexes past the unknown list or the list is longer than one per slot.
     /// Sub-chunks of air are dropped.
     pub(crate) fn from_parts(
@@ -139,7 +139,7 @@ impl Chunk {
     pub(super) fn stored_block(&self, x: u8, y: i32, z: u8) -> Option<StoredBlock> {
         Some(match self.entry(x, y, z)? {
             Entry::Known(state) => StoredBlock::Known(state),
-            Entry::Unknown(i) | Entry::Inert(_, i) => {
+            Entry::Unknown(i) => {
                 let index = usize::try_from(i).ok().filter(|&i| i < self.unknown.len());
                 #[expect(
                     clippy::expect_used,
@@ -235,8 +235,7 @@ impl Chunk {
     }
 
     /// The `LevelChunk` payload of the sub-chunk request system: the biomes of the 24
-    /// sub-chunks (one equal to the one below it is written as 0xff), then 0 border blocks
-    /// (dragonfly network encoding).
+    /// sub-chunks (one equal to the one below it is written as 0xff), then 0 border blocks.
     pub(crate) fn to_level_chunk_payload(&self) -> Vec<u8> {
         // Each section once: `None` for one equal to the one below it.
         let sections = || {
@@ -322,7 +321,7 @@ impl Chunk {
             reason = "invariant: the list holds at most MAX_UNKNOWN states, far below u32::MAX"
         )]
         let index = u32::try_from(index).expect("an unknown state index past u32");
-        Ok(Entry::unknown(index, nbt))
+        Ok(Entry::Unknown(index))
     }
 
     /// Sets the layer 0 entry at local (x, y, z) and returns the old one, or `None` (changing
@@ -372,7 +371,7 @@ impl Chunk {
         nbt: nbt::Compound,
     ) -> Option<Entry> {
         let mut list = self.unknown.to_vec();
-        let entry = Entry::unknown(u32::try_from(list.len()).ok()?, &nbt);
+        let entry = Entry::Unknown(u32::try_from(list.len()).ok()?);
         list.push(nbt);
         self.unknown = Arc::new(list);
         self.put(x, y, z, entry)?;
@@ -400,9 +399,9 @@ impl Chunk {
         self.split = true;
     }
 
-    /// Works out the chunk's light alone, as if its neighbours were dark (PMMP
-    /// `LightPopulationTask`): a pure function of the chunk for the CPU pool, done when a chunk is
-    /// loaded or generated. The world connects it to its neighbours when the chunk is loaded.
+    /// Works out the chunk's light alone, as if its neighbours were dark: a pure function of the
+    /// chunk for the CPU pool, done when a chunk is loaded or generated. The world connects it to
+    /// its neighbours when the chunk is loaded.
     pub(crate) fn populate_light(&mut self) {
         self.light = Some(Box::new(light::populate(self)));
     }
@@ -624,7 +623,7 @@ pub(crate) mod tests {
     use crate::world::{Flat, Void};
 
     /// The network ID of `minecraft:kelp` with `kelp_age` 3 in the 1.26.60 reference list (the
-    /// value BDS sends).
+    /// value the official server sends).
     const KELP_AGE_3: u32 = 3_718_566_417;
 
     #[test]
@@ -848,11 +847,26 @@ pub(crate) mod tests {
         ));
     }
 
-    /// The flat chunk's payloads: its `LevelChunk` payload is the empty chunk's, and its one
-    /// sub-chunk is the bytes BDS sends for its flat world (P6 `spawn` record: 1,049 bytes,
-    /// SHA-256 below).
     #[test]
-    fn the_flat_chunk_is_the_bytes_bds_sends() {
+    fn replacing_a_block_clears_the_water_of_its_slot() {
+        let water = State::find(
+            "minecraft:water",
+            &[("liquid_depth", block::PropertyValue::Int(0))],
+        )
+        .unwrap();
+        let slot = offset(1, 2, 1);
+        let mut layers = [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)];
+        layers[1].set(slot, Entry::Known(water));
+        let mut sub = SubChunk::from_layers(layers);
+        sub.set(slot, Entry::Known(block::DIRT));
+        assert!(sub.layers()[1].is_uniform(Entry::AIR));
+    }
+
+    /// The flat chunk's payloads: its `LevelChunk` payload is the empty chunk's, and its one
+    /// sub-chunk is the bytes the official server sends for its flat world (P6 `spawn` record:
+    /// 1,049 bytes, SHA-256 below).
+    #[test]
+    fn the_flat_chunk_is_the_bytes_the_official_server_sends() {
         let chunk = Chunk::generate(&Flat, 0, ChunkPos::new(0, 0));
         let mut empty = vec![0x01, 0x02];
         empty.extend([0xff; 23]);
@@ -862,12 +876,12 @@ pub(crate) mod tests {
         assert_eq!(chunk.sub_chunk_limit(), 1);
         let sub = chunk.sub_chunk_payload(0).unwrap();
         assert_eq!(sub.len(), 1049);
-        let bds: Vec<u8> = "339f98f0a6ae6cf5937eb56ce77a684f7a1cb66f08e7aec3f919125fceb73692"
+        let official: Vec<u8> = "339f98f0a6ae6cf5937eb56ce77a684f7a1cb66f08e7aec3f919125fceb73692"
             .as_bytes()
             .chunks(2)
             .map(|h| u8::from_str_radix(std::str::from_utf8(h).unwrap(), 16).unwrap())
             .collect();
-        assert_eq!(sha256(&[&sub]).to_vec(), bds);
+        assert_eq!(sha256(&[&sub]).to_vec(), official);
         assert_eq!(chunk.sub_chunk_payload(1), None);
         assert!(chunk.heights.iter().all(|&h| h == -61));
         let void = Chunk::generate(&Void, 0, ChunkPos::new(0, 0));
@@ -913,7 +927,7 @@ pub(crate) mod tests {
         layers[0].set(offset(1, 1, 1), Entry::Unknown(0));
         layers[0].set(offset(2, 1, 1), Entry::Unknown(1));
         layers[1].set(offset(1, 2, 1), Entry::Known(water));
-        // Kelp in water: a state only clients know, with its water in layer 1.
+        // Kelp in water, with its water in layer 1.
         let kelp = nbt::Compound::from([
             (
                 "name".to_owned(),
@@ -927,11 +941,12 @@ pub(crate) mod tests {
                 )])),
             ),
         ]);
-        layers[0].set(offset(3, 1, 1), Entry::unknown(2, &kelp));
+        let kelp = crate::save::find_state(&kelp).unwrap();
+        layers[0].set(offset(3, 1, 1), Entry::Known(kelp));
         layers[1].set(offset(3, 1, 1), Entry::Known(water));
         sub = SubChunk::from_layers(layers);
         subs[1] = Some(sub);
-        let unknown = vec![nbt::Compound::new(), nbt::Compound::new(), kelp];
+        let unknown = vec![nbt::Compound::new(), nbt::Compound::new()];
         Chunk::from_parts(subs, biomes, unknown).unwrap()
     }
 
@@ -964,11 +979,10 @@ pub(crate) mod tests {
         let chunk = varied(160);
         assert_eq!(chunk.block(1, -47, 1), None, "unknown state");
         assert_eq!(chunk.entry(1, -47, 1), Some(Entry::Unknown(0)));
-        // Kelp is sent as the ID of the reference list (and BDS) for `kelp_age` 3, over water.
+        // Kelp is sent as the ID of the reference list for `kelp_age` 3, over water.
         let kelp = chunk.entry(3, -47, 1).unwrap();
-        assert!(matches!(kelp, Entry::Inert(_, 2)), "{kelp:?}");
         assert_eq!(kelp.network_id(), KELP_AGE_3);
-        assert_eq!(chunk.block(3, -47, 1), None, "inert state");
+        assert_eq!(chunk.block(3, -47, 1), kelp.state());
         let mut seen = 0;
         for i in 0..SUB_CHUNKS {
             let Some(payload) = chunk.sub_chunk_payload(i) else {
@@ -991,7 +1005,6 @@ pub(crate) mod tests {
                             let want = match layer.get(offset(x, y, z)) {
                                 Entry::Known(s) => s.network_id(),
                                 Entry::Unknown(_) => block::INFO_UPDATE.network_id(),
-                                Entry::Inert(s, _) => s.network_id(),
                             };
                             assert_eq!(id, want);
                         }
@@ -1049,7 +1062,7 @@ pub(crate) mod tests {
             chunk.to_level_chunk_payload()
         );
         assert_eq!(back.heights, chunk.heights);
-        assert_eq!(back.unknown().len(), 3);
+        assert_eq!(back.unknown().len(), 2);
         assert!(!back.is_dirty());
     }
 

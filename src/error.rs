@@ -85,7 +85,7 @@ pub enum Error {
     Command(command::Error),
     /// A registered custom entity type breaks a rule; the source says which.
     CustomEntity(entity::Error),
-    /// The registered custom items, blocks or recipes break a rule; the source says which.
+    /// The registered custom items or blocks break a rule; the source says which.
     Custom(crate::custom::Error),
     /// The registered user data types break a rule, or a saved server data value does not
     /// deserialize into its registered type (the value stays as saved); the source says which.
@@ -147,7 +147,7 @@ impl fmt::Display for Error {
             ),
             Self::Command(_) => f.write_str("a registered command or permission is invalid"),
             Self::CustomEntity(_) => f.write_str("a registered custom entity type is invalid"),
-            Self::Custom(_) => f.write_str("a registered custom item, block or recipe is invalid"),
+            Self::Custom(_) => f.write_str("a registered custom item or block is invalid"),
             Self::Data(_) => f.write_str("a registered data type is invalid"),
             Self::Pack(_) => f.write_str("a resource pack is invalid"),
             Self::Import(_) => f.write_str("the world could not be imported"),

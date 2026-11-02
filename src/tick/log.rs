@@ -94,7 +94,7 @@ const CRASH_DIR: &str = "crash";
 const CRC_BYTES: usize = 4;
 /// The written format's version: the layout of the log and of the checkpoints it holds, which
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 26;
+const FORMAT: u32 = 1;
 /// The outcome byte of a job result that has its JSON; other values are
 /// [`Error::code`](crate::task::Error::code)s.
 const JOB_DONE: u8 = 0;
@@ -1748,21 +1748,6 @@ mod tests {
             log.needs_checkpoint(),
             "a snapshot's segment waits for its checkpoint"
         );
-    }
-
-    #[test]
-    fn logs_before_segments_are_refused() {
-        // Format 7: not truncated, start 0, no ticks.
-        let mut bytes = MAGIC.to_vec();
-        bytes.extend_from_slice(&7_u32.to_le_bytes());
-        bytes.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
-        bytes.push(0);
-        bytes.extend_from_slice(&0_u64.to_le_bytes());
-        bytes.extend_from_slice(&0_u32.to_le_bytes());
-        assert!(matches!(
-            InputLog::decode(&bytes),
-            Err(Error::OtherFormat(7))
-        ));
     }
 
     #[test]

@@ -2,10 +2,10 @@
 //!
 //! Header (12 bytes, little-endian): format version u16, method u8 (0 stored, 2 raw DEFLATE),
 //! reserved u8 (0), record length u32, CRC-32C u32 over the key, the first 8 header bytes and the
-//! body. The first two bytes are the format version, so a newer value is told from a damaged one.
-//! Opening reads only the version before it checks the checksum, and checks the declared length
-//! against [`MAX_RECORD`] before it allocates. Only the current format reads: a value of another
-//! is damage.
+//! body, so a flipped version byte is a checksum failure, not a newer format. Opening checks the
+//! checksum, then the version (a newer one is [`Error::NewerFormat`]), and checks the declared
+//! length against [`MAX_RECORD`] before it allocates. Only the current format reads: a value of
+//! an older one is damage.
 
 use std::borrow::Cow;
 
@@ -31,7 +31,7 @@ const DEFLATE_LEVEL: u8 = 6;
 /// normal stop deletes it; the main file keeps none. The main file's `meta` table also holds a
 /// deletion mark (`deleted:` and the world's name, a `Mark`) for each world its save deleted
 /// whose file may still be there.
-pub(crate) const FORMAT_VERSION: u16 = 12;
+pub(crate) const FORMAT_VERSION: u16 = 1;
 /// The bytes of a sealed value's header.
 const HEADER_BYTES: usize = 12;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
@@ -184,19 +184,24 @@ fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
 /// Checks a sealed value's header and checksum; returns its compression method, its record
 /// length (at most [`MAX_RECORD`]) and its body.
 fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
-    let version = version(sealed)?;
-    if version > FORMAT_VERSION {
-        return Err(Error::NewerFormat { version });
-    }
     let (header, body) = sealed
         .split_first_chunk::<HEADER_BYTES>()
         .ok_or(Error::Malformed("shorter than the header"))?;
-    let [_, _, method, reserved, l0, l1, l2, l3, c0, c1, c2, c3] = *header;
+    let [v0, v1, method, reserved, l0, l1, l2, l3, c0, c1, c2, c3] = *header;
     if checksum(key, sealed) != u32::from_le_bytes([c0, c1, c2, c3]) {
         return Err(Error::Checksum);
     }
-    if version != FORMAT_VERSION || reserved != 0 {
-        return Err(Error::Malformed("unknown version or reserved bits set"));
+    let version = u16::from_le_bytes([v0, v1]);
+    if version > FORMAT_VERSION {
+        return Err(Error::NewerFormat { version });
+    }
+    if version != FORMAT_VERSION {
+        return Err(Error::Malformed(
+            "format version older than this Anchor reads",
+        ));
+    }
+    if reserved != 0 {
+        return Err(Error::Malformed("reserved bits set"));
     }
     let raw_len = usize::try_from(u32::from_le_bytes([l0, l1, l2, l3]))
         .map_err(|_| Error::Malformed("record length over the limit"))?;
@@ -204,14 +209,6 @@ fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
         return Err(Error::Malformed("record length over the limit"));
     }
     Ok((method, raw_len, body))
-}
-
-/// The format version of a sealed value, read without checking anything else.
-pub(crate) fn version(sealed: &[u8]) -> Result<u16> {
-    let bytes = sealed
-        .first_chunk::<2>()
-        .ok_or(Error::Malformed("shorter than the header"))?;
-    Ok(u16::from_le_bytes(*bytes))
 }
 
 /// The CRC-32C a sealed value carries: over `key` and the value without its checksum field.
@@ -336,7 +333,7 @@ mod tests {
         let sealed = seal(b"meta", &meta).unwrap();
         assert_eq!((sealed[2], sealed.len()), (METHOD_STORED, HEADER_BYTES + 9));
         assert_eq!(unseal::<Meta>(b"meta", &sealed).unwrap(), meta);
-        assert_eq!(version(&sealed).unwrap(), FORMAT_VERSION);
+        assert_eq!(sealed[..2], FORMAT_VERSION.to_le_bytes());
         // The checksum field is what the seal wrote.
         let sealed = seal(KEY, &chunk).unwrap();
         assert_eq!(stored_checksum(&sealed), checksum(KEY, &sealed));
@@ -358,20 +355,24 @@ mod tests {
     fn versions_are_checked() {
         let mut sealed = seal(b"meta", &Meta::at(1)).unwrap();
         sealed[..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+        // A flipped version byte alone is damage, not a newer format.
+        assert!(matches!(
+            unseal::<Meta>(b"meta", &sealed),
+            Err(Error::Checksum)
+        ));
+        reseal(b"meta", &mut sealed);
         assert!(matches!(
             unseal::<Meta>(b"meta", &sealed),
             Err(Error::NewerFormat { version }) if version == FORMAT_VERSION + 1
         ));
-        // An older format is damage, as is version 0.
-        for older in [FORMAT_VERSION - 1, 1, 0] {
-            sealed[..2].copy_from_slice(&older.to_le_bytes());
-            reseal(b"meta", &mut sealed);
-            assert!(
-                matches!(unseal::<Meta>(b"meta", &sealed), Err(Error::Malformed(_))),
-                "{older}"
-            );
-            assert!(matches!(verify(b"meta", &sealed), Err(Error::Malformed(_))));
-        }
+        // An older format is damage.
+        sealed[..2].copy_from_slice(&(FORMAT_VERSION - 1).to_le_bytes());
+        reseal(b"meta", &mut sealed);
+        assert!(matches!(
+            unseal::<Meta>(b"meta", &sealed),
+            Err(Error::Malformed(_))
+        ));
+        assert!(matches!(verify(b"meta", &sealed), Err(Error::Malformed(_))));
     }
 
     #[test]
@@ -578,7 +579,7 @@ mod tests {
         f64::from(u32::try_from(n).unwrap())
     }
 
-    /// A BDS default flat chunk: bedrock, two dirt and grass at the bottom, plains.
+    /// A default flat chunk of the official server: bedrock, two dirt and grass at the bottom, plains.
     fn flat_chunk() -> ChunkRecord {
         use crate::storage::codec::tests::{block, pack};
         let mut chunk = empty_chunk();

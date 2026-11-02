@@ -76,8 +76,8 @@ impl Context<'_> {
     /// Grows a tree of `kind` from `pos` in `world`, as a sapling (or an azalea, a fungus) there
     /// would: the engine's random numbers, so the same server state and calls grow the same
     /// tree. Nothing changes, and the result is false, where the tree does not fit, `pos` is
-    /// outside the world height or a block it needs is in a chunk that is not loaded, for
-    /// [`TreeType::DarkOak`] (it has no shape) or a world the server does not have. Like every
+    /// outside the world height or a block it needs is in a chunk that is not loaded, or for a
+    /// world the server does not have. Like every
     /// direct call it raises no event.
     #[doc(alias = "TreeFactory")]
     #[doc(alias = "TreeFactory::get")]
@@ -473,7 +473,11 @@ mod tests {
         let run = || {
             let pool = pool();
             let (mut state, ticking, still) = custom_server();
-            assert!(ticking.ticks_randomly() && !still.ticks_randomly());
+            let ticks = |s: crate::block::State| {
+                s.custom_block()
+                    .is_some_and(crate::custom::Block::has_random_ticks)
+            };
+            assert!(ticks(ticking) && !ticks(still));
             for x in -16..16 {
                 for z in -16..16 {
                     let s = if (x + z) % 2 == 0 { ticking } else { still };
@@ -663,12 +667,9 @@ mod tests {
             !cx.grow_tree(world, at, TreeType::Oak),
             "a log is in the way"
         );
-        let dark = BlockPos::new(-20, -60, 20);
-        assert!(!cx.grow_tree(world, dark, TreeType::DarkOak));
         let missing = world::Id::new(7).unwrap();
         assert!(!cx.grow_tree(missing, at, TreeType::Oak));
         assert!(!cx.grow_tree(world, BlockPos::new(10_000, -60, 0), TreeType::Oak));
-        assert_eq!(state.worlds[0].block(dark), Some(crate::block::AIR));
         assert_eq!(
             logs(&state, at),
             logs(&state, at.step(Face::Up).unwrap()) + 1

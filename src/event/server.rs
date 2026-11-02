@@ -1,7 +1,6 @@
-//! Server events (PMMP `pocketmine\event\server`): the start and commands.
+//! Server events: the start and commands.
 //!
-//! PMMP's packet events (`DataPacketReceiveEvent`, `DataPacketSendEvent`,
-//! `DataPacketDecodeEvent`) are packet hooks in Anchor.
+//! Packets are seen through packet hooks, not events.
 
 use crate::command::Sender;
 
@@ -63,15 +62,15 @@ mod tests {
     fn command_line_can_change() {
         let mut e = Command {
             sender: Sender::Player(player(1)),
-            line: "say hi".to_owned(),
+            line: "list".to_owned(),
             cancelled: false,
         };
         assert_eq!(
             (e.sender(), e.command()),
-            (Sender::Player(player(1)), "say hi")
+            (Sender::Player(player(1)), "list")
         );
-        e.set_command("me waves".to_owned());
-        assert_eq!(e.command(), "me waves");
+        e.set_command("status".to_owned());
+        assert_eq!(e.command(), "status");
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();

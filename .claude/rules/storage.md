@@ -28,7 +28,7 @@ paths:
 
 ## Records
 - Store blocks only as Bedrock disk-palette NBT `{name, states, version}`, never as runtime IDs.
-- Check a value in this order: format version, checksum, length, decompression.
+- Check a value in this order: checksum, format version, length, decompression. The checksum covers the version bytes, so a damaged version is never reported as a newer format.
 - Make every decoder check that each palette index is inside its palette and that the value ends exactly where its record ends.
 
 ## Changing the format
@@ -83,7 +83,7 @@ paths:
 - Open the world file read-only and read it in one read transaction. Write nothing in the data folder.
 - Write only a new folder. Never touch an existing one: write everything into `<folder>.tmp`, flush it, then rename it. On failure, remove the temporary folder.
 - Write block palettes and block entities as their stored NBT. Never upgrade or normalize them.
-- Leave out stored values that are not in Bedrock form (entities, scheduled block updates, spills) and count them in the report.
+- Leave out stored values that are not in Bedrock form (entities, spills) and count them in the report.
 - Refuse a data folder whose players or world file is later than its main file (`storage::check_settled`).
 - Make the same world file give the same bytes whatever the thread count.
 

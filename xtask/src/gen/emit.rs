@@ -18,7 +18,6 @@ const MAX_ROUNDS: usize = 8;
 /// from game state or user input: the code that builds it uses the constant.
 const SEND_LIMITS: &[&str] = &[
     "packet.BossEvent.BossBarTitle",
-    "packet.PlayerEnchantOptions.Options",
     "packet.PlayerList.Entries",
     "packet.SubChunk.SubChunkEntries",
     "packet.Text.Message",

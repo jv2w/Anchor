@@ -1106,7 +1106,7 @@ fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) 
         && let Some(world) = worlds.get_mut(key.0)
     {
         let read = rules.read(key, extras.extras(), &chunk, world);
-        world.restore_chunk(key.1, chunk);
+        world.insert_chunk(key.1, chunk);
         rules.load(key, read, extras.extras());
         chunks.extras.chunk_restored(key, extras);
         if chunks.heard.load {

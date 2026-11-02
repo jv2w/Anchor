@@ -1,7 +1,7 @@
 //! How long blocks take to break and what breaking costs a tool.
 
 use super::drops::level;
-use crate::block::{Inert, State};
+use crate::block::State;
 use crate::item::{self, Enchantment, Stack};
 use crate::random::Random;
 use crate::tick::{Context, Settings};
@@ -55,11 +55,6 @@ impl Conditions {
 /// that cannot be broken.
 pub(super) fn progress_per_tick(state: State, tool: &Stack, conditions: Conditions) -> f64 {
     progress(state.break_time_secs(tool), conditions)
-}
-
-/// The share of an inert block one tick of breaking takes, as its [`Inert::break_info`] says.
-pub(super) fn inert_progress_per_tick(state: Inert, tool: &Stack, conditions: Conditions) -> f64 {
-    progress(state.break_info().break_time_secs(tool), conditions)
 }
 
 /// The share of a block one tick of breaking takes when it takes `seconds` with the held tool

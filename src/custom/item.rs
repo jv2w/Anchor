@@ -1,12 +1,12 @@
-//! Custom item definitions: what the client is told about the item (its item
-//! components, dragonfly `iteminternal.Components`) and the data the server's rules read.
+//! Custom item definitions: what the client is told about the item (its item components) and
+//! the data the server's rules read.
 
 use super::{Category, Creative};
 use crate::inventory::MAX_STACK;
 use crate::item::{self, Class, Food};
 use crate::nbt::{Compound, Value};
 
-/// The `use_animation` of eating (dragonfly: 1 eat, 2 drink).
+/// The `use_animation` of eating (1 eat, 2 drink).
 const EAT_ANIMATION: i32 = 1;
 
 /// A custom item: a `static` definition the server is given with
@@ -121,7 +121,7 @@ impl Item {
         self
     }
 
-    /// The same item eaten for `food` points and `saturation` (PMMP `Food`) when the player is
+    /// The same item eaten for `food` points and `saturation` when the player is
     /// hungry; [`with_food_always`](Self::with_food_always) makes one eaten at any time. It
     /// cannot have durability.
     #[must_use]
@@ -199,7 +199,7 @@ impl Item {
         None
     }
 
-    /// The PMMP classes the rules see: a food, a durable item or a plain item.
+    /// The classes the rules see: a food, a durable item or a plain item.
     pub(crate) fn classes(&self) -> &'static [Class] {
         if self.info.food().is_some() {
             &Self::CLASSES_FOOD
@@ -210,9 +210,28 @@ impl Item {
         }
     }
 
-    /// The `ItemRegistry` data of the item (dragonfly `iteminternal.Components`): the item
-    /// properties (icon, creative place, stack size and the flags), the display name, and the
-    /// durability and food components.
+    /// Where it shows in the creative inventory.
+    pub(crate) fn creative_place(&self) -> Option<Creative> {
+        self.creative
+    }
+
+    /// The name the client shows for it, such as `Ruby`.
+    pub const fn display_name(&self) -> &'static str {
+        self.display_name
+    }
+
+    /// The identifier, such as `example:ruby`.
+    pub const fn identifier(&self) -> &'static str {
+        self.identifier
+    }
+
+    /// The data row the rules read.
+    pub(crate) fn info(&'static self) -> &'static item::Info {
+        &self.info
+    }
+
+    /// The `ItemRegistry` data of the item: the item properties (icon, creative place, stack
+    /// size and the flags), the display name, and the durability and food components.
     pub(crate) fn to_components(&self) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category, c.group.unwrap_or_default()),
@@ -285,26 +304,6 @@ impl Item {
         }
         components.insert("item_properties".to_owned(), Value::Compound(properties));
         Compound::from([("components".to_owned(), Value::Compound(components))])
-    }
-
-    /// Where it shows in the creative inventory.
-    pub(crate) fn creative_place(&self) -> Option<Creative> {
-        self.creative
-    }
-
-    /// The name the client shows for it, such as `Ruby`.
-    pub const fn display_name(&self) -> &'static str {
-        self.display_name
-    }
-
-    /// The identifier, such as `example:ruby`.
-    pub const fn identifier(&self) -> &'static str {
-        self.identifier
-    }
-
-    /// The data row the rules read.
-    pub(crate) fn info(&'static self) -> &'static item::Info {
-        &self.info
     }
 }
 

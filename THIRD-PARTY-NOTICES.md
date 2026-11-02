@@ -132,14 +132,12 @@ Dedicated to the public domain under CC0 1.0; listed for attribution only.
 
 - opencollab-incubator/BedrockBlockUpgradeSchema and opencollab-incubator/BedrockItemUpgradeSchema:
   `xtask/data/upgrade/` and the table generated into `src/import/upgrade/`.
-- pocketmine/bedrock-data: the recipes in `xtask/data/dump/recipes.json` and the table generated into
-  `src/crafting/`.
 
 ## PocketMine-MP output
 
-`blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `recipes.json`, `tables.json`,
-`place.json`, `liquid.txt` and `api.json` in `xtask/data/dump/` are output of PocketMine-MP (LGPL-3.0)
-run by the scripts in `xtask/php/`: block and item values, recipes, effect and enchantment tables, test
+`blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `tables.json` and `api.json` in
+`xtask/data/dump/` are output of PocketMine-MP (LGPL-3.0)
+run by the scripts in `xtask/php/`: block and item values, effect and enchantment tables, test
 goldens, and a list of its public class and method names and signatures. They contain no PocketMine-MP
 implementation code.
 

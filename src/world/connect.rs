@@ -1,25 +1,26 @@
 //! Neighbour connections: after a block is set, the states of the block and of
 //! the neighbours that depend on it are worked out again from their neighbours.
 //!
-//! The rules follow BDS where P6 recorded it (fences, panes, bars, stairs, tripwire) and PMMP's
-//! `readStateFromWorld` rules elsewhere (walls, fence gates, what counts as a solid face):
-//! - Fences connect to fences of the same group, fence gates and full faces. PMMP connects a
-//!   nether brick fence to wooden fences but not the other way (`instanceof static`); the group
-//!   makes it symmetric, as in vanilla.
+//! The rules follow the official server where P6 recorded it (fences, panes, bars, stairs,
+//! tripwire) and the dump's rules elsewhere (walls, fence gates, what counts as a solid face):
+//! - Fences connect to fences of the same group, fence gates and full faces. The dump connects a
+//!   nether brick fence to wooden fences but not the other way; the group makes it symmetric.
 //! - Panes and bars connect to panes and bars, walls and full faces.
-//! - Walls connect to walls, fence gates, panes and bars and full faces, always "short" (PMMP
-//!   does not make tall connections). The post is up unless the wall runs straight through (two
-//!   opposite sides only), as BDS shows (P6), or when the block above is not air (PMMP).
+//! - Walls connect to walls, fence gates, panes and bars and full faces, always "short" (the dump
+//!   makes no tall connections). The post is up unless the wall runs straight through (two
+//!   opposite sides only), as the official server shows (P6), or when the block above is not air
+//!   (the dump).
 //! - A fence gate is "in wall" when a wall is on its left or right.
-//! - Stairs take PMMP's corner rule (outer when the stair behind is perpendicular, inner when the
-//!   one in front is).
-//! - Tripwire (not in PMMP; BDS P6 and vanilla) connects to tripwire and to tripwire hooks that
-//!   face it, and a tripwire set is suspended (BDS sets `suspended_bit` on every placement). A
-//!   straight line of at most [`MAX_TRIPWIRE`] tripwire between two hooks facing each other is
-//!   attached, the hooks too (`attached_bit`, BDS P6); every other tripwire and hook is not.
+//! - Stairs take the dump's corner rule (outer when the stair behind is perpendicular, inner when
+//!   the one in front is).
+//! - Tripwire (not in the dump; the official server in P6) connects to tripwire and to tripwire
+//!   hooks that face it, and a tripwire set is suspended (the official server sets
+//!   `suspended_bit` on every placement). A straight line of at most [`MAX_TRIPWIRE`] tripwire
+//!   between two hooks facing each other is attached, the hooks too (`attached_bit`, P6); every
+//!   other tripwire and hook is not.
 //!
-//! A neighbour in a chunk that is not loaded reads as air and is not changed; an inert neighbour
-//! reads as its stand-in, as for the placement rules, and is not changed. Which blocks are
+//! A neighbour in a chunk that is not loaded, or in a state Anchor does not know, reads as air and
+//! is not changed. Which blocks are
 //! worked out again: the set block, its four horizontal neighbours and the block below (a wall's
 //! post depends on the block above), and the horizontal neighbours of a neighbour whose full faces
 //! changed (a stair whose corner changed). No rule depends on a state that a second round could
@@ -48,7 +49,7 @@ impl World {
     pub(super) fn connect_around(&mut self, pos: BlockPos, old: Entry, new: Entry) {
         let placed = match self.reconnect(pos) {
             Some((_, connected)) => Some(connected),
-            None => new.stand_in(),
+            None => new.state(),
         };
         if let (Entry::Known(old), Some(placed)) = (old, placed)
             && old.neighbour_view() == placed.neighbour_view()
@@ -88,7 +89,7 @@ impl World {
                 )
             })
         };
-        if !involved(new.stand_in()) && !involved(old.state()) {
+        if !involved(new.state()) && !involved(old.state()) {
             return;
         }
         for axis in [Facing::East, Facing::South] {
@@ -173,10 +174,9 @@ impl World {
         })
     }
 
-    /// The known state at `pos`, an inert block's stand-in ([`crate::block::Inert::stand_in`],
-    /// read only: no rule writes it), or `None` for unknown states and unloaded chunks.
+    /// The known state at `pos`, or `None` for unknown states and unloaded chunks.
     fn known(&self, pos: Option<BlockPos>) -> Option<State> {
-        self.entry(pos?)?.stand_in()
+        self.entry(pos?)?.state()
     }
 
     /// The state `state` takes at `pos` given its neighbours, or `None` if it has no variants.

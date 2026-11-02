@@ -252,11 +252,10 @@ fn a_cancelled_break_changes_nothing_and_resyncs_the_block() {
     );
 }
 
-/// A break listener sees an inert block (one only clients know) as `minecraft:info_update` and
-/// can keep it, which the client gets back as itself; without a cancel, the listener's drops
-/// fall.
+/// A break listener sees a block without a dump type as itself and can keep it, which the client
+/// gets back as itself; without a cancel, the listener's drops fall.
 #[test]
-fn a_block_break_listener_sees_an_inert_block_as_info_update_and_can_keep_it() {
+fn a_block_break_listener_sees_a_block_without_a_dump_type_as_itself_and_can_keep_it() {
     let run = |cancelled: bool| {
         let listener = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
             note(SEEN, e.block());
@@ -267,31 +266,30 @@ fn a_block_break_listener_sees_an_inert_block_as_info_update_and_can_keep_it() {
             }
         });
         let mut h = Harness::with(creative, listener);
-        let inert = h.state.worlds[0]
-            .put_unknown(TARGET, super::stored("minecraft:moss_block"))
-            .unwrap();
+        let moss = super::without_dump_type("minecraft:moss_block");
+        h.set(TARGET, moss);
         h.act(vec![action(
             PlayerAction::PredictDestroyBlock,
             TARGET,
             Face::West,
         )]);
-        assert_eq!(notes(SEEN), [dbg(block::INFO_UPDATE)]);
+        assert_eq!(notes(SEEN), [dbg(moss)]);
         (
-            h.state.worlds[0].entry(TARGET),
-            inert,
+            h.state.worlds[0].block(TARGET),
+            Some(moss),
             h.packets(),
             ground(&mut h, ItemKind::Apple.default_type()),
         )
     };
-    let (now, inert, sent, (apples, _)) = run(true);
-    assert_eq!(now, Some(inert));
+    let (now, kept, sent, (apples, _)) = run(true);
+    assert_eq!(now, kept);
     assert!(
         super::sets(&sent, TARGET, super::MOSS_BLOCK),
         "resent as itself"
     );
     assert_eq!(apples, 0);
     let (now, _, _, (apples, _)) = run(false);
-    assert_eq!(now, Some(Entry::AIR));
+    assert_eq!(now, Some(block::AIR));
     assert_eq!(apples, 1);
 }
 

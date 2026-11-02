@@ -15,6 +15,7 @@ pub(crate) const MAX_VINE_AGE: i32 = 25;
 
 /// A kind of tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 // api-class: TreeType
 pub enum TreeType {
     /// Oak.
@@ -32,9 +33,6 @@ pub enum TreeType {
     /// Acacia.
     #[doc(alias = "TreeType::ACACIA")]
     Acacia,
-    /// Dark oak: Anchor has no shape for it, so it never grows.
-    #[doc(alias = "TreeType::DARK_OAK")]
-    DarkOak,
     /// A huge crimson fungus, with weeping vines.
     #[doc(alias = "TreeType::CRIMSON")]
     Crimson,
@@ -47,7 +45,7 @@ pub enum TreeType {
 }
 
 impl TreeType {
-    /// The kind's name as players read it, such as `Dark Oak`.
+    /// The kind's name as players read it, such as `Oak`.
     #[doc(alias = "TreeType::getDisplayName")]
     pub fn display_name(self) -> &'static str {
         match self {
@@ -56,7 +54,6 @@ impl TreeType {
             Self::Birch => "Birch",
             Self::Jungle => "Jungle",
             Self::Acacia => "Acacia",
-            Self::DarkOak => "Dark Oak",
             Self::Crimson => "Crimson",
             Self::Warped => "Warped",
             Self::Azalea => "Azalea",
@@ -400,7 +397,6 @@ pub(crate) fn shape(
         }
         TreeType::Jungle => Tree::new(Kind::JungleLog, Kind::JungleLeaves, 8),
         TreeType::Acacia => Tree::new(Kind::AcaciaLog, Kind::AcaciaLeaves, 0),
-        TreeType::DarkOak => return None,
         TreeType::Crimson | TreeType::Warped => {
             let base = below(rng, 9) + 4;
             let height = base * if rng.below(12) == 0 { 2 } else { 1 };
@@ -601,7 +597,7 @@ fn below(rng: &mut Random, n: i32) -> i32 {
 fn block_at(world: &World, pos: Option<BlockPos>) -> block::State {
     match pos.and_then(|p| world.entry(p)) {
         Some(Entry::Known(s)) => s,
-        Some(Entry::Unknown(_) | Entry::Inert(..)) => block::BEDROCK,
+        Some(Entry::Unknown(_)) => block::BEDROCK,
         None => block::AIR,
     }
 }
@@ -626,7 +622,6 @@ mod tests {
     #[test]
     fn tree_types_have_display_names() {
         assert_eq!(TreeType::Oak.display_name(), "Oak");
-        assert_eq!(TreeType::DarkOak.display_name(), "Dark Oak");
         assert_eq!(TreeType::Azalea.display_name(), "Azalea");
     }
 

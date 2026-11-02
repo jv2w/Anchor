@@ -61,14 +61,8 @@ drowning = true
 armor = true
 # Tools, weapons and armour wear out with use.
 durability = true
-# Sleeping in beds and bed spawn points.
-beds = true
 # The time of day moving on.
 daylight-cycle = true
-# The recipe book: false hides it and refuses its quick crafting; the crafting grid still works.
-recipe-book = true
-# The vanilla recipes; false keeps only recipes the server program registers.
-vanilla-recipes = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
 # Critical hits: "off", "sprint" (only when not sprinting) or "always" (sprinting too).
@@ -139,14 +133,9 @@ cpu-threads = "auto"
 chunks-per-tick = 4
 # Chunk radius sent before a player spawns (at most view-distance).
 spawn-radius = 4
-# Chunk radius around players where blocks get random ticks and entities are ticked (at most
-# view-distance). Block updates (liquids, fire, falling blocks) run in every loaded chunk.
+# Chunk radius around players where custom blocks get random ticks and entities are ticked (at
+# most view-distance).
 tick-radius = 4
-# Random block ticks per sub-chunk per tick (crop growth, leaf decay). 0 turns them off.
-random-tick-speed = 3
-# Blocks that never get random ticks, by name, for example "minecraft:grass_block". Every block
-# of the same kind as a named block stops too. Custom blocks ignore this list.
-disable-block-ticking = []
 # true: a world without players runs one tick in every 100.
 slow-empty-worlds = false
 # "dynamic": light is calculated and follows block changes.
@@ -190,6 +179,7 @@ console-input = true
 - `hardcore = true` requires `difficulty = "hard"` (`Invalid`).
 - A `level-name` that cannot be a world file name is `Invalid`, naming `general.level-name`.
 - An IPv6 `public-ip` with `enable-ipv6 = false` is `Invalid`, naming `general.public-ip`.
+- A `[worlds.<name>]` `spawn` with a number outside the world border (`world::BORDER`, from -BORDER to BORDER - 1) is `Invalid`, naming `worlds.<name>.spawn`.
 - `nethernet-tls-cert` and `nethernet-tls-key` are both empty or both set (`Invalid`).
 - `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 
@@ -216,16 +206,13 @@ console-input = true
 | `hardcore` | bool | `false` | `true` only with `difficulty = "hard"` | Hardcore |
 | `pvp` | bool | `true` | | Whether players can hurt each other |
 | `food` | bool | `true` | | Food |
-| `xp` | bool | `true` | | Gaining XP points and levels. `false` also means no XP orbs, and enchanting tables and anvils count the player's level as 0, refusing anything that costs levels |
-| `xp-orbs` | bool | `true` | | XP orbs and throwing bottles o' enchanting. `false` computes no dropped XP, makes and reads no orbs (the orbs of loading chunks are deleted), and refuses throwing bottles; no XP is given directly in their place. Points, levels, and `/xp` follow `xp` only |
+| `xp` | bool | `true` | | Gaining XP points and levels. `false` also means no XP orbs |
+| `xp-orbs` | bool | `true` | | XP orbs and throwing bottles o' enchanting. `false` computes no dropped XP, makes and reads no orbs (the orbs of loading chunks are deleted), and refuses throwing bottles; no XP is given directly in their place. Points and levels follow `xp` only |
 | `fall-damage` | bool | `true` | | Fall damage |
 | `drowning` | bool | `true` | | Air supply under water, drowning damage, and suffocation damage |
 | `armor` | bool | `true` | | Armor protection, armor wear, and thorns; `false` removes all three |
 | `durability` | bool | `true` | | Tools, weapons, and armor wearing out with use. With `armor = true`, `false` keeps armor protecting without wearing |
-| `beds` | bool | `true` | | Sleeping in beds and bed spawn points; `false` makes beds decorative blocks |
 | `daylight-cycle` | bool | `true` | | The time of day moving on; `false` also stops the client's clock (game rule `doDayLightCycle`) |
-| `recipe-book` | bool | `true` | | The recipe book; `false` hides it and refuses its quick crafting, while crafting in the grid still works |
-| `vanilla-recipes` | bool | `true` | | The vanilla recipes; `false` leaves only the recipes the server program registers |
 | `item-despawn-ticks` | integer | `6000` | 1 to 72000 | Ticks a dropped item stays on the ground |
 | `critical-hits` | string | `"sprint"` | `off`, `sprint`, `always` | Critical hits: `off` never, `sprint` only when the attacker is not sprinting (vanilla), `always` sprinting or not |
 | `break-time-check` | bool | `true` | | Whether the server checks that a block took long enough to break. Reach is checked either way |
@@ -235,17 +222,17 @@ console-input = true
 | `immediate-respawn` | bool | `false` | | Whether dead players come back at once, without the death screen (game rule `doImmediateRespawn`). The client that receives the rule skips the screen and asks to respawn at once; the server's respawn flow (the `Respawn` packet, `PlayerRespawn`) is the same |
 | `show-death-messages` | bool | `false` | | Whether every player sees in chat how a player died (game rule `showDeathMessages`). The message is the death screen's translation key with the dead player's and the attacker's names, which the client translates. `PlayerDeath::death_message` starts as that key (empty when the setting is off); a listener that leaves it shows the translation, other text shows as it is, and an empty message shows nothing |
 | `level-name` | string | `"world"` | 1 to 64 bytes; no `;` or control characters; a name that can be a world file name (`world::Error::InvalidName` gives the rule) | The default world's name; its file is `data/worlds/<name>.redb`. The length bound is explained at `motd` |
-| `level-type` | string | `"flat"` | `flat`, `void` | Generator of the default world's chunks that were never saved |
+| `level-type` | string | `"flat"` | `flat`, `void` | Generator of the default world's chunks that were never saved. A custom `Generator` goes only to a world declared with `ServerBuilder::world` |
 | `level-seed` | string | `""` | empty or an `i64` as text | The default world's seed; empty makes one from the world name, the same at every start (`storage.md`) |
 | `view-distance` | integer | `16` | 2 to 64 | Largest view distance a player may use, in chunks |
 | `save-player-data` | bool | `true` | | Whether inventories and positions are kept between joins |
 | `backups` | bool | `true` | | Whether the data files are copied to `data/backups` at start and by the `backup` command (`storage.md`) |
 | `shutdown-message` | string | `"The server has stopped"` | at most 1024 bytes | Message players see when the server stops |
-| `resource-packs` | array of strings | `[]` | non-empty paths; a relative path is relative to `data/packs` and may not start with `packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it. Players keep a downloaded pack by its uuid and version: raise the manifest version when a pack changes |
+| `resource-packs` | array of strings | `[]` | non-empty paths; a relative path is relative to `data/packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it. Players keep a downloaded pack by its uuid and version: raise the manifest version when a pack changes |
 | `force-resources` | bool | `false` | | Whether players must accept the resource packs to join |
 | `log-level` | string | `"info"` | `off`, `error`, `warn`, `info`, `debug`, `trace` | Detail of Anchor's console log; `off` writes no console log |
 
-A relative `resource-packs` path that starts with `packs` is rejected, and the user changes it: it would name `data/packs/packs/...`, which is where a path written relative to a `packs` folder beside the settings file ends up. Packs are read only from `data/packs`.
+Packs are read only from `data/packs`, as the files the `resource-packs` list names.
 
 ## `[developer]`
 
@@ -264,11 +251,9 @@ A relative `resource-packs` path that starts with `packs` is rejected, and the u
 | `cpu-threads` | string or integer | `"auto"` | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, max(L, 4) − 2 − network threads). When network threads + CPU threads + 2 (the tick and save threads) exceed max(L, 4), `build` fails with `anchor::Error::Config` (`config::Error::Invalid`) naming `developer.network-threads` when the total leaves no room for one CPU thread, or else `developer.cpu-threads` |
 | `chunks-per-tick` | integer | `4` | 1 to 256 | Chunks sent to each player per tick. 0 would never send a chunk; 256 sends the largest view in about 3 seconds |
 | `spawn-radius` | integer | `4` | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) and, before a player spawns, the radius that player asks for |
-| `tick-radius` | integer | `4` | 1 to 64 | Chunk radius around players where blocks get random ticks and entities are ticked; the effective value is min(value, `view-distance`). Block updates (liquids, fire, falling blocks) run in every loaded chunk |
-| `random-tick-speed` | integer | `3` | 0 to 4096 | Random block ticks per sub-chunk per tick (crop growth, leaf decay); 0 turns them off. A sub-chunk holds 4096 blocks, so more ticks only add cost |
-| `disable-block-ticking` | array of strings | `[]` | block names `namespace:path` of `a`–`z`, `0`–`9`, `_`, `-`, `.`, and `/` in the path | Blocks that never get random ticks. Every block of the same kind as a named block stops too. Custom blocks ignore this list |
+| `tick-radius` | integer | `4` | 1 to 64 | Chunk radius around players where custom blocks get random ticks and entities are ticked; the effective value is min(value, `view-distance`) |
 | `slow-empty-worlds` | bool | `false` | | Whether a world without players runs only on ticks that are multiples of 100 |
-| `lighting` | string | `"dynamic"` | `dynamic`, `on-load`, `fixed`, or a bool | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level`. `true` reads as `dynamic` and `false` as `fixed` |
+| `lighting` | string | `"dynamic"` | `dynamic`, `on-load`, `fixed` | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level` |
 | `fixed-light-level` | integer | `15` | 0 to 15 | Sky light everywhere when `lighting = "fixed"` |
 | `item-pickup-interval` | integer | `1` | 1 to 20 | Ticks between checks for items a player can pick up |
 | `hook-movement-packets` | bool | `true` | | Whether movement packets the server sends pass the send hooks |
@@ -276,8 +261,6 @@ A relative `resource-packs` path that starts with `packs` is rejected, and the u
 | `save-interval-minutes` | integer | `10` | 1 to 1440 | Minutes between whole-state saves |
 | `integrity-check` | string | `"always"` | `always`, `after-unclean-shutdown`, `never` | When the data files are checked at start; the `check` command checks them while the server runs. What each value checks, and its start cost, is in `storage.md` |
 | `console-input` | bool | `true` | | Whether commands are read from standard input |
-
-With `lighting = "fixed"`, random ticks see that light everywhere, underground too. At 15, crops and saplings grow in caves (saplings only by day, as sky light dims at night); below 9 crops never grow, and below 8 saplings never grow. Without block light, ice blocks and snow layers never melt (frosted ice still melts in sky light). The default is 15 because at 0 crops never grow, and block light 15 would melt ice and snow.
 
 ## Per-world values `[worlds.<name>]`
 
@@ -289,29 +272,9 @@ A table may exist for each declared world. Each key it sets replaces the global 
 | `chunks-per-tick` | integer | 1 to 256 | The world's chunks per player per tick |
 | `spawn-radius` | integer | 1 to 64 | The world's chunk radius sent before spawning, at most the world's view distance |
 | `tick-radius` | integer | 1 to 64 | The world's tick radius, at most the world's view distance |
-| `spawn` | three integers `[x, y, z]` | each an `i32` | Where players appear in the world when it is new; without it, the generator's spawn |
+| `spawn` | three integers `[x, y, z]` | each inside the world border | Where players appear in the world when it is new; without it, the generator's spawn |
 
 `spawn` applies only to a world whose file has no record yet; from then on the world file keeps its spawn as world state (`storage.md`). A world made or loaded at run time (`Context::create_world`, `Context::load_world`) takes these values from its `world::Options`, never from a `[worlds.<name>]` table, which only declared worlds may have. A table's name must equal a declared world's name exactly; world files ignore letter case, tables do not.
-
-## Keys named differently in PMMP
-
-| PMMP | Anchor |
-|---|---|
-| `network.batch-threshold` | `compression-threshold` |
-| `chunk-ticking.blocks-per-subchunk-per-tick` | `random-tick-speed` (the name of the `randomTickSpeed` game rule; default 3 as in PMMP, while the official server's rule defaults to 1) |
-| `chunk-sending.per-tick` | `chunks-per-tick` |
-| `ticks-per.autosave` | `save-interval-minutes` (minutes, not ticks) |
-| `debug.level` | `log-level` (named levels and `off`, not a number) |
-| `console.enable-input` | `console-input` |
-
-Every other PMMP key with an Anchor counterpart keeps its last path segment, such as `network.max-mtu-size` → `max-mtu-size`.
-
-PMMP keys with no counterpart:
-- PHP runtime, reports, and updates: `memory`, `settings.async-workers`, `settings.enable-profiling`, `settings.profile-report-trigger`, `timings`, `auto-report`, `anonymous-statistics`, `auto-updater`, `settings.enable-dev-builds`.
-- Plugins: `plugins`.
-- Out of scope: `enable-query` and `settings.query-plugins` (query), `network.upnp-forwarding`, `level-settings.default-format` (Anchor has one world format).
-- Replaced by Anchor's structure: `player.verify-xuid`, `generator-settings` (generators are Rust types), `aliases` and `worlds` (commands and worlds are registered in code), `language` and `settings.force-language`, `server-portv6` (one `server-port` serves IPv4 and IPv6), `auto-save` (`save-interval-minutes` always saves), `network.async-compression` and `network.async-compression-threshold` (compression always runs outside the tick).
-- Not provided: `chunk-generation.population-queue-size`, `console.title-tick`.
 
 ## Updating the file
 
@@ -323,7 +286,7 @@ Running the server program as `<program> update-config` updates a file written b
 - No value is fixed. When the result would not load (an unknown key, an out-of-range value, a syntax error), the update returns that error and leaves the file as it was. It also refuses, leaving the file, when a table that lacks a key is written without its header (an inline table or dotted keys: `HeaderlessTable`) and when the result would exceed 1 MiB (`TooLarge`).
 - The file is written only when something changed, whole (a temporary file renamed into place). The returned `config::Update` lists the added keys (`added`, in default file order) and the removed keys (`removed`, in file order). A second run changes nothing.
 - The added values are the defaults, so the file means what it meant without them. A value set in code before `load`, for a key the update adds, is then replaced by the file's value, as with a missing file.
-- Older value forms that still load (`lighting = true`) and the comments of keys already present are not changed.
+- The comments of keys already present are not changed.
 
 ## Feature switches
 

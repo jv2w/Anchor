@@ -1,9 +1,8 @@
-//! World events (PMMP `pocketmine\event\world`): worlds made, loaded and unloaded, chunks,
-//! saving, and the sounds and particles the game plays.
+//! World events: worlds made, loaded and unloaded, chunks, saving, and the sounds and particles
+//! the game plays.
 //!
-//! Only the direct API changes the difficulty and moves the spawn (the built-in `/difficulty` and
-//! `/setworldspawn` call it), and direct calls raise no events, so there is no
-//! `WorldDifficultyChangeEvent` or `SpawnChangeEvent`. For the same reason
+//! Only the direct API changes the difficulty and moves the spawn, and direct calls raise no
+//! events, so there is no difficulty or spawn change event. For the same reason
 //! [`Context::add_sound`](crate::Context::add_sound) and
 //! [`add_particle`](crate::Context::add_particle) raise no [`WorldSound`] or [`WorldParticle`].
 
@@ -34,7 +33,7 @@ getters!(ChunkLoad {
 });
 
 impl ChunkLoad {
-    /// Whether the generator just made the chunk (PMMP's `ChunkPopulateEvent` too).
+    /// Whether the generator just made the chunk.
     #[doc(alias = "ChunkLoadEvent::isNewChunk")]
     pub fn is_new_chunk(&self) -> bool {
         self.new_chunk
@@ -97,11 +96,11 @@ getters!(WorldLoad {
     world: world::Id,
 });
 
-/// Raised when the game shows a particle at a place (PMMP `World::addParticle`: a block broken,
-/// a potion splashing...), before the players see it. Cancelling shows it to nobody. A particle
-/// made for a direct call such as [`Context::add_particle`](crate::Context::add_particle) raises
-/// none, and neither do the effects the game sends as level events: block cracking, bone meal's
-/// growth sparkles, the generic particles of a projectile's hit and an explosion's.
+/// Raised when the game shows a particle at a place (a block broken, a potion splashing...),
+/// before the players see it. Cancelling shows it to nobody. A particle made for a direct call
+/// such as [`Context::add_particle`](crate::Context::add_particle) raises none, and neither do the
+/// effects the game sends as level events: block cracking, the generic particles of a
+/// projectile's hit and an explosion's.
 #[doc(alias = "WorldParticleEvent")]
 #[derive(Debug)]
 pub struct WorldParticle {
@@ -131,7 +130,7 @@ setters!(WorldParticle {
     /// Shows another particle instead.
     #[doc(alias = "WorldParticleEvent::setParticle")]
     set_particle => particle: Particle,
-    /// Replaces who sees it. Players who do not see the place are left out (PMMP).
+    /// Replaces who sees it. Players who do not see the place are left out.
     #[doc(alias = "WorldParticleEvent::setRecipients")]
     set_recipients => recipients: Vec<player::Id>,
 });
@@ -143,7 +142,9 @@ cancellable! {
         #[doc(alias = "WorldParticleEvent::isCancelled")];
 }
 
-/// Raised after the world was saved with the server's state (every save, for each saved world).
+/// Raised after a save commit, for each permanent world loaded when the commit is answered. A
+/// world unloaded before then raises none for that commit; a world made after the save began may
+/// raise it before its first save.
 #[doc(alias = "WorldSaveEvent")]
 #[derive(Debug)]
 pub struct WorldSave {
@@ -156,8 +157,8 @@ getters!(WorldSave {
     world: world::Id,
 });
 
-/// Raised when the game plays a sound at a place (PMMP `World::addSound`: a block used, an
-/// explosion, a hit...), before the players hear it. Cancelling plays it to nobody. A sound made
+/// Raised when the game plays a sound at a place (an explosion, a hit...), before the players
+/// hear it. Cancelling plays it to nobody. A sound made
 /// for a direct call such as [`Context::add_sound`](crate::Context::add_sound) raises none, and
 /// neither do an entity's own sounds (landing, falling).
 #[doc(alias = "WorldSoundEvent")]
@@ -189,7 +190,7 @@ setters!(WorldSound {
     /// Plays another sound instead.
     #[doc(alias = "WorldSoundEvent::setSound")]
     set_sound => sound: Sound,
-    /// Replaces who hears it. Players who do not see the place are left out (PMMP).
+    /// Replaces who hears it. Players who do not see the place are left out.
     #[doc(alias = "WorldSoundEvent::setRecipients")]
     set_recipients => recipients: Vec<player::Id>,
 });
@@ -206,7 +207,7 @@ cancellable! {
 /// listener that makes the world the default one keeps it either way. The monitors see only an
 /// unload that happened, not cancelled, and the world gone: its players moved to the default
 /// world's spawn, its chunks unloaded and its changes waiting for the next commit, which the
-/// unload asks for. It stands for PMMP's unload callbacks (`World::addOnUnloadCallback`) too.
+/// unload asks for.
 #[doc(alias = "WorldUnloadEvent")]
 #[doc(alias = "World::addOnUnloadCallback")]
 #[doc(alias = "World::removeOnUnloadCallback")]

@@ -632,7 +632,9 @@ fn a_player_who_left_is_forgotten() {
     let mut server = Server::new(1);
     let v = server.villager(1, sample());
     assert!(server.open(1, v));
-    server.state.leave(SessionId::new(1), "client disconnect");
+    server
+        .state
+        .leave(SessionId::new(1), crate::event::QuitReason::Left);
     server.tick();
     assert!(server.state.trades.sessions.is_empty());
     assert!(server.state.trades.by_villager.is_empty());

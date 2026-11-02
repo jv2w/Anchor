@@ -17,7 +17,6 @@ paths:
   - "src/import/upgrade/**"
   - "src/tick/update.rs"
   - "src/tick/interact.rs"
-  - "src/tick/interact/inert.rs"
   - "src/tick/interact/breaking.rs"
   - "src/tick/interact/place.rs"
   - "src/tick/interact/using.rs"
@@ -30,14 +29,13 @@ paths:
   - "xtask/php/**"
   - "xtask/go/reference/**"
   - "xtask/data/dump/*.json"
-  - "xtask/data/dump/liquid.txt"
   - "xtask/data/reference/**"
   - "xtask/data/upgrade/**"
 ---
 # Block and item data rules
 
 ## Sources
-- Never write block, item, recipe, creative inventory, effect, or enchantment tables by hand. Commit what running or converting the pinned sources produces to `xtask/data/`, and generate the tables under `src/` from it with `cargo xtask gen`.
+- Never write block, item, creative inventory, effect, or enchantment tables by hand. Commit what running or converting the pinned sources produces to `xtask/data/`, and generate the tables under `src/` from it with `cargo xtask gen`.
 - Take block and item kinds, states, and serialization from the dump (the sources table in `.claude/docs/data.md`).
 - Take version-specific numbers (block network IDs, item runtime IDs) from the reference list. Use the reference list only to check and number, never to define a block. Exception: the item component values clients receive (`use_duration`) also drive behavior.
 - Reference list source A is pinned to an unmerged pull request; move the pin to a release when one ships.
@@ -58,7 +56,7 @@ paths:
 - Use the reference list's block network IDs. Use the hash function only for custom blocks.
 - Use only the biome definitions without chunk generation data.
 - Dump states that map to one Bedrock state may differ only in data the block entity holds (a bed's colour, a banner's colour), and only for the Bedrock states in `SHARED` (`xtask/src/gen/data.rs`).
-- Use the official server's light dampening only for inert blocks.
+- Use the official server's light dampening only for states the dump has no type for.
 - Never use the official server's `isSolid`. Solidity comes from collision boxes.
 - Never send the data-driven block definitions the official server puts in StartGame.
 
@@ -72,21 +70,15 @@ paths:
   - an upgraded dump state that is not in the reference list;
   - an upgrade entry for a block that neither the dump nor the reference list has;
   - dump states of one Bedrock state that disagree outside `SHARED`, or a `SHARED` entry no group needs;
-  - an item name the reference list lacks, or a recipe or creative item that resolves to no item type;
+  - an item name the reference list lacks, or a creative item that resolves to no item type;
+  - a vanilla creative state of an item with a single dump block item type that does not read (state, else alias) as a block whose item is that item;
   - a reference state the dump source reads as itself that is not an Anchor state, an Anchor state it reads as another state, or a reference state it reads as a state with no Anchor state.
 
-## Unknown and inert blocks
+## Unknown blocks and states without a dump type
 - Keep a stored block state Anchor does not know as its original NBT.
 - When a client sends a block or item Anchor does not know, reject only that request.
-- Send an inert block (`block::Inert`) to clients as its own hash ID, the value the official server sends. Send every other unknown state as `minecraft:info_update`.
-- Decide whether a state is inert once, when the chunk is read, into the palette entry `Entry::Inert`. Never decide it again per tick.
-- The block update rules and liquids read an inert block as bedrock. The connection and placement rules read it as its stand-in: bedrock (full support on every face) when its only collision box is the whole cell, otherwise a cobweb (no support, no collision). Neither stand-in can be replaced.
-- Never replace a seagrass or kelp cell.
-- An inert block breaks in its hardness × 1.5 ÷ the held tool's efficiency: count the held tool as the right tool, so the server never allows a longer break time than the client takes.
-- Breaking an inert block turns it into air and removes its block entity. It has no drops of its own.
-- Events carry Anchor states only. `BlockBreak` and right-click `PlayerInteract` carry `block::INFO_UPDATE` in place of an inert block. A cancel leaves the block and sends it again as it was.
-- Never raise a left-click `PlayerInteract` or a `WorldParticle` for an inert block.
-- Keep the blocks and patterns inside block entities as stored. A flower pot plant (`PlantBlock`) Anchor does not know stays as it came and goes to clients only when it is inert. A banner pattern ID Anchor does not know stays and goes to clients.
+- Hold every reference state in the one block table. A state the dump has no type for (kind `InfoUpdate`, classes `Opaque` and `Block`, no item, no connection) has the official server's light dampening and the physics of `block_physics.json`: solid with full support on every face when its only collision box is the whole cell, otherwise transparent with no support. Its break info is the hardness, five times the hardness as blast resistance, and every tool type. It is an ordinary `block::State` everywhere: events carry it, it breaks like any block, explosions break it, and it drops nothing. A state outside the table is `Entry::Unknown` and goes to clients as `minecraft:info_update`.
+- Keep a block state outside the table as stored in a block entity too: a flower pot plant (`PlantBlock`) Anchor does not know stays as it came and never goes to clients. A banner pattern ID Anchor does not know stays and goes to clients.
 - The public API shows only blocks and patterns Anchor knows.
 - Send a block entity whose kind Anchor does not type (`Kind::Other`) to clients as stored when it has an `id`.
 - Drop items Anchor does not know from block entities, with an info log (warn for an item in no valid slot).

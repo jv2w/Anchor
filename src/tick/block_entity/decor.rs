@@ -14,8 +14,7 @@ use crate::tile::{DyeColour, SignText};
 
 /// The colour of a bed whose colour is missing or unknown: red.
 pub(in crate::tick) const DEFAULT_BED_COLOUR: u8 = 14;
-/// The most patterns a banner keeps; more in saved data are left out (Bedrock's loom stops at
-/// six).
+/// The most patterns a banner keeps; more in saved data are left out.
 pub(in crate::tick) const MAX_PATTERNS: usize = 16;
 /// Rotations of a mob head on the floor: sixteenths of a turn.
 pub(in crate::tick) const SKULL_ROTATIONS: u8 = 16;
@@ -127,13 +126,8 @@ pub(in crate::tick) enum Plant {
     /// A block state Anchor knows.
     Known(block::State),
     /// A saved plant Anchor does not know, kept as an unknown block in a chunk is: no rule takes it
-    /// out or drops it.
-    Unknown {
-        /// The `PlantBlock` compound as it came.
-        nbt: Compound,
-        /// Whether clients know it: an inert block, sent as itself.
-        shown: bool,
-    },
+    /// out or drops it, and clients are not sent it. The `PlantBlock` compound as it came.
+    Unknown(Compound),
 }
 
 impl SignText {
@@ -213,17 +207,14 @@ pub(in crate::tick) fn read_plant(nbt: &mut Compound) -> Option<Plant> {
     if let Some(state) = crate::save::find_state(&plant) {
         return (state != block::AIR).then_some(Plant::Known(state));
     }
-    let shown = block::Inert::from_nbt(&plant).is_some();
-    Some(Plant::Unknown { nbt: plant, shown })
+    Some(Plant::Unknown(plant))
 }
 
-/// The `PlantBlock` key of `form`: clients get a plant Anchor does not know only if they know it.
+/// The `PlantBlock` key of `form`: clients get no plant Anchor does not know.
 pub(super) fn write_plant(plant: Option<&Plant>, form: Form, nbt: &mut Compound) {
     let value = match plant {
         Some(Plant::Known(state)) => crate::save::state_nbt(*state),
-        Some(Plant::Unknown { nbt: saved, shown }) if *shown || form == Form::Saved => {
-            saved.clone()
-        }
+        Some(Plant::Unknown(saved)) if form == Form::Saved => saved.clone(),
         _ => return,
     };
     nbt.insert("PlantBlock".to_owned(), Value::Compound(value));

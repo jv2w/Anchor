@@ -21,13 +21,15 @@ pub(crate) static APPLE: Item = Item::new("test:apple", "Golden Thing", "test_ap
 /// A block whose one state hashes, as found by a search, to the network ID of a reference state
 /// that is not a state of the table: an alias's.
 static AS_ALIAS: Block = Block::new("test:c26250", "x");
-/// A block whose one state hashes, as found by a search, to the network ID of a reference state
-/// that is not a state of the table: an inert state's.
-static AS_INERT: Block = Block::new("test:c257583", "x");
+/// A block whose one state hashes, as found by a search, to the network ID of a state of the
+/// table that the dump has no type for.
+static AS_STATE: Block = Block::new("test:c257583", "x");
 /// An item whose stack size is past the most a stack can hold.
 static BIG_STACK: Item = Item::new("test:big", "Big", "big").with_max_stack_size(65);
 /// A block whose light emission is past the most a block can emit.
 static BRIGHT: Block = Block::new("test:bright", "x").with_light_emission(16);
+/// A block that tells the client it burns.
+static FLAMMABLE: Block = Block::new("test:flammable", "x").with_flammability(5, 20);
 /// A transparent block with three properties, a geometry, a collision box and materials.
 pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
     .with_properties(&[
@@ -162,7 +164,7 @@ fn compound<'a>(c: &'a Compound, key: &str) -> &'a Compound {
 }
 
 #[test]
-fn item_components_have_dragonflys_shape() {
+fn item_components_have_the_shape_the_client_reads() {
     let sword = SWORD.to_components();
     let components = compound(&sword, "components");
     let properties = compound(components, "item_properties");
@@ -221,11 +223,9 @@ fn custom_types_answer_the_rules_from_their_definition() {
     assert_eq!((food.food_restore(), food.saturation_restore()), (4, 9.6));
     assert!(!food.requires_food());
     assert!(apple.consumable().is_some() && apple.is(item::Class::Food));
-    assert!(apple.has_trait(item::Trait::Releasable));
     let ruby = r.item_type(&RUBY).unwrap();
     assert_eq!(ruby.max_stack_size(), 64);
     assert!(ruby.food().is_none());
-    assert!(!item::Tag::find("minecraft:logs").unwrap().contains(ruby));
     let ore_item = r.resolve(ItemRef::CustomBlock(&ORE)).unwrap();
     assert_eq!(ore_item.class(), item::Class::ItemBlock);
     assert_eq!(ore_item.block(), r.block_state(&ORE));
@@ -279,7 +279,7 @@ fn custom_states_follow_their_properties() {
     assert_eq!(lamp.kind(), block::Kind::InfoUpdate);
     assert_eq!(lamp.collision_boxes().len(), 1);
     assert_eq!(lamp.support(block::Face::Up), block::SupportType::None);
-    assert!(!lamp.ticks_randomly() && !lamp.has_trait(block::Trait::Fallable));
+    assert!(!lamp.has_trait(block::Trait::Fallable));
     let ore = r.block_state(&ORE).unwrap();
     assert!(ore.is_solid() && !ore.is_transparent() && ore.is(block::Class::Opaque));
     assert_eq!(ore.light_filter(), 15);
@@ -291,7 +291,6 @@ fn custom_states_follow_their_properties() {
         (info.tool_type(), info.harvest_level()),
         (ToolType::PICKAXE, 2)
     );
-    assert!(ore.is_affected_by_silk_touch());
     assert_eq!(ore.properties().len(), 0);
     assert_eq!(
         format!("{blue:?}"),
@@ -366,11 +365,11 @@ fn a_palette_entry_must_name_exactly_the_properties_of_the_block() {
     }
 }
 
-/// Custom network IDs are dragonfly's `networkBlockHash` of `test:lamp` with {color red, level 0,
-/// lit 0} and with {color blue, level 2, lit 1}, and of `test:ruby_ore` without properties. The
-/// golden values come from `go run` over dragonfly v0.11.5's `server/world/network_block_hash.go`.
+/// Custom network IDs are the network block hash of `test:lamp` with {color red, level 0, lit 0}
+/// and with {color blue, level 2, lit 1}, and of `test:ruby_ore` without properties. The golden
+/// values come from an independent implementation of the hash, run with `go run`.
 #[test]
-fn custom_network_ids_are_dragonflys_hashes() {
+fn custom_network_ids_are_the_network_block_hashes() {
     let r = registry();
     let lamp = r.block_state(&LAMP).unwrap();
     assert_eq!(lamp.network_id(), 0x181a_df90);
@@ -390,7 +389,7 @@ fn custom_network_ids_are_dragonflys_hashes() {
 }
 
 #[test]
-fn start_game_blocks_carry_dragonflys_components() {
+fn start_game_blocks_carry_the_components_the_client_reads() {
     let r = registry();
     let blocks = r.to_block_entries();
     assert_eq!(blocks.len(), 2);
@@ -456,6 +455,12 @@ fn start_game_blocks_carry_dragonflys_components() {
         compound(components, "minecraft:light_emission").get("emission"),
         Some(&Value::Int(15))
     );
+    // Only a block given a flammability carries the component.
+    assert!(!compound(ore, "components").contains_key("minecraft:flammable"));
+    let flammable = FLAMMABLE.entry_nbt(10_002);
+    let flammable = compound(compound(&flammable, "components"), "minecraft:flammable");
+    assert_eq!(flammable.get("burn_odds"), Some(&Value::Int(5)));
+    assert_eq!(flammable.get("flame_odds"), Some(&Value::Int(20)));
     // Every definition round-trips through the codec.
     let packet = Packet::StartGame(Box::new(crate::protocol::packet::StartGame {
         blocks,
@@ -470,12 +475,13 @@ fn start_game_blocks_carry_dragonflys_components() {
     );
 }
 
-/// The default creative inventory with nothing registered: PMMP's without the Education items.
+/// The default creative inventory with nothing registered: the vanilla one without the Education
+/// items.
 fn vanilla_content() -> crate::protocol::packet::CreativeContent {
     creative::Resolved::vanilla().content().clone()
 }
 
-/// The group index PMMP's rule gives the next entry of `category` without a group after
+/// The group index the grouping rule gives the next entry of `category` without a group after
 /// `content`: the category's anonymous group if no named group of that category came after its
 /// last anonymous entry, else a new group.
 fn next_anonymous(content: &crate::protocol::packet::CreativeContent, category: u8) -> u32 {
@@ -494,14 +500,13 @@ fn next_anonymous(content: &crate::protocol::packet::CreativeContent, category: 
 
 // api: CreativeCategory, CreativeInventoryCache::buildPacket
 #[test]
-fn the_creative_inventory_lists_custom_entries_after_pmmps() {
+fn the_creative_inventory_lists_custom_entries_after_the_vanilla_ones() {
     let r = registry();
     let vanilla = vanilla_content();
     let content = r.creative_content();
     let n = vanilla.items.len();
-    // The ruby and the apple share their group (same name and icon, PMMP: the same group
-    // object) though the ore comes between them; the ore joins the anonymous nature group
-    // PMMP's rule leaves open.
+    // The ruby and the apple share their group (same name and icon) though the ore comes
+    // between them; the ore joins the anonymous nature group the grouping rule leaves open.
     assert_eq!(content.items.len(), n + 3);
     assert_eq!(content.items[..n], vanilla.items[..]);
     assert_eq!(content.groups[..vanilla.groups.len()], vanilla.groups[..]);
@@ -526,7 +531,7 @@ fn the_creative_inventory_lists_custom_entries_after_pmmps() {
         item::GROUP_WORKAROUND.to_owned(),
         Value::Int(i32::try_from(ruby.group_index).unwrap()),
     );
-    assert_eq!(named.icon, icon, "the first item, with PMMP's group index");
+    assert_eq!(named.icon, icon, "the first item, with its group index");
     let anonymous = &content.groups[usize::try_from(ore.group_index).unwrap()];
     assert_eq!(
         (anonymous.category, anonymous.name.as_str()),
@@ -595,7 +600,7 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
             .creative_inventory(
                 CreativeInventory::vanilla()
                     .remove(ItemRef::Item(planks))
-                    // No entry has this damage (PMMP compares it, not the NBT).
+                    // No entry has this damage, so nothing is removed.
                     .remove(damaged),
             )
             .alternative_creative_inventory(
@@ -611,11 +616,11 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
             ),
     )
     .unwrap();
-    let pmmp = vanilla_content();
-    // The default: PMMP's without its first oak planks, then the ruby's place.
+    let base = vanilla_content();
+    // The default: the vanilla list without its first oak planks, then the ruby's place.
     let default = r.creative_content();
     let planks_id = i32::from(planks.runtime_id());
-    let mut want = listed(&pmmp);
+    let mut want = listed(&base);
     let at = want.iter().position(|id| *id == planks_id).unwrap();
     want.remove(at);
     want.push(i32::from(r.item_type(&RUBY).unwrap().runtime_id()));
@@ -793,7 +798,7 @@ fn finish(build: impl FnOnce(&mut Registry)) -> Result<()> {
 
 #[test]
 fn a_state_with_the_network_id_of_any_vanilla_state_refuses_the_build() {
-    for block in [&AS_INERT, &AS_ALIAS] {
+    for block in [&AS_STATE, &AS_ALIAS] {
         assert_eq!(
             finish(|r| r.add_block(block)),
             Err(Error::HashCollision {
@@ -907,15 +912,15 @@ fn the_creative_inventory_leaves_the_education_items_out() {
     };
     let mut r = Registry::default();
     r.finish().unwrap();
-    let pmmp = item::creative_content();
+    let full = item::creative_content();
     assert!(
-        education(&pmmp) > 100,
+        education(&full) > 100,
         "elements, compounds, hardened glass"
     );
     assert_eq!(education(&r.creative_content()), 0);
     assert_eq!(
         r.creative_content().items.len(),
-        pmmp.items.len() - education(&pmmp)
+        full.items.len() - education(&full)
     );
 }
 

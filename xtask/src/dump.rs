@@ -80,13 +80,10 @@ const PMMP_FILES: &[&str] = &[
     PMMP_DESERIALIZED,
     PMMP_ITEMS,
     PMMP_CREATIVE,
-    PMMP_RECIPES,
     PMMP_TABLES,
 ];
 /// The dumped items.
 pub(crate) const PMMP_ITEMS: &str = "items.json";
-/// The dumped recipes.
-pub(crate) const PMMP_RECIPES: &str = "recipes.json";
 /// The dumped tables of the other registries.
 pub(crate) const PMMP_TABLES: &str = "tables.json";
 /// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).

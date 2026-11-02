@@ -15,7 +15,6 @@ pub(super) mod breaking;
 mod custom;
 mod decor;
 pub(super) mod drops;
-mod inert;
 pub(super) mod place;
 pub(super) mod props;
 mod rail;
@@ -52,7 +51,7 @@ use crate::protocol::{
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tile::check_lines;
-use crate::world::{BlockPos, Entry, Particle, Sound};
+use crate::world::{BlockPos, Particle, Sound};
 
 /// Food exhaustion per broken block.
 const BREAK_EXHAUSTION: f64 = 0.005;
@@ -229,7 +228,7 @@ struct Target {
     /// The face being hit (punch particles).
     face: Face,
     /// The block when breaking started.
-    block: Hit,
+    block: block::State,
     /// The server tick breaking started.
     start: u64,
     /// Client input ticks counted since the start.
@@ -252,56 +251,6 @@ super::checkpoint::fields!(Target {
     progress,
     speed,
     fx,
-});
-
-/// A block a player can hit: an Anchor state, or an inert one ([`block::Inert`]).
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Hit {
-    Block(block::State),
-    Inert(block::Inert),
-}
-
-impl Hit {
-    /// Reads the block at `pos` of `world`, if its chunk is loaded and players can hit it.
-    fn at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<Self> {
-        match state.worlds.get(world)?.entry(pos)? {
-            Entry::Known(s) => Some(Self::Block(s)),
-            Entry::Inert(s, _) => Some(Self::Inert(s)),
-            Entry::Unknown(_) => None,
-        }
-    }
-
-    /// The network ID clients know it by.
-    #[cfg(test)]
-    fn network_id(self) -> u32 {
-        match self {
-            Self::Block(s) => s.network_id(),
-            Self::Inert(s) => s.network_id(),
-        }
-    }
-
-    /// How it breaks.
-    fn break_info(self) -> block::BreakInfo {
-        match self {
-            Self::Block(s) => s.break_info(),
-            Self::Inert(s) => s.break_info(),
-        }
-    }
-
-    /// Whether `other` is the same block in any state (breaking goes on through a state change
-    /// made by code).
-    fn same_block(self, other: Self) -> bool {
-        match (self, other) {
-            (Self::Block(a), Self::Block(b)) => a.kind() == b.kind(),
-            (Self::Inert(a), Self::Inert(b)) => a.name() == b.name(),
-            _ => false,
-        }
-    }
-}
-
-super::checkpoint::variants!(Hit {
-    0 => Block(state),
-    1 => Inert(state),
 });
 
 /// What makes two block clicks the same: face, positions and click position.
@@ -769,21 +718,12 @@ pub(super) fn tick(state: &mut State) {
             level_event(state, target.world, at, Event::UpdateBlockCracking, data);
         }
         if punch {
-            match target.block {
-                Hit::Block(b) => {
-                    emit::particle(
-                        state,
-                        target.world,
-                        at,
-                        Particle::BlockPunch(b, target.face),
-                    );
-                }
-                // No particle event: `Particle` names Anchor states only.
-                Hit::Inert(s) => {
-                    let data = crate::world::punch_data(s.network_id(), target.face);
-                    level_event(state, target.world, at, Event::ParticlesCrackBlock, data);
-                }
-            }
+            emit::particle(
+                state,
+                target.world,
+                at,
+                Particle::BlockPunch(target.block, target.face),
+            );
         }
     }
 }
@@ -867,12 +807,8 @@ fn conditions(state: &State, player: &Player) -> breaking::Conditions {
 }
 
 /// The share of `block` the player breaks per tick now.
-fn speed(state: &State, player: &Player, block: Hit) -> f64 {
-    let (tool, conditions) = (player.inventory.held(), conditions(state, player));
-    match block {
-        Hit::Block(b) => breaking::progress_per_tick(b, tool, conditions),
-        Hit::Inert(s) => breaking::inert_progress_per_tick(s, tool, conditions),
-    }
+fn speed(state: &State, player: &Player, block: block::State) -> f64 {
+    breaking::progress_per_tick(block, player.inventory.held(), conditions(state, player))
 }
 
 /// Counts one client tick of breaking in progress: the target's progress grows by its speed,
@@ -1056,8 +992,7 @@ fn breaks_at(target: &Target, world: WorldIndex, pos: BlockPos) -> bool {
     target.world == world && target.pos == pos
 }
 
-/// Applies a left click on a block: after [`PlayerInteract`] it starts breaking the block. A click
-/// on an inert block raises no event: the event names Anchor states only.
+/// Applies a left click on a block: after [`PlayerInteract`] it starts breaking the block.
 fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face) -> bool {
     let Some(mut actor) = actor(state, session) else {
         return false;
@@ -1066,15 +1001,13 @@ fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face
         return false;
     };
     let mut event = None;
-    if let Hit::Block(block) = target
-        && dispatch::heard::<PlayerInteract>(state)
-    {
+    if dispatch::heard::<PlayerInteract>(state) {
         let world = crate::world::Id::of(actor.world);
         let mut e = PlayerInteract {
             player: crate::player::Id::new(session),
             world,
             pos,
-            block,
+            block: target,
             face,
             item: held(state, session),
             touch_vector: Vec3::ZERO,
@@ -1108,13 +1041,13 @@ fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face
 
 /// Checks a left click: the block is near (100 blocks) and loaded, and the player is not a
 /// spectator. The block if so.
-fn left_click(state: &State, actor: &Actor, pos: BlockPos) -> Option<Hit> {
+fn left_click(state: &State, actor: &Actor, pos: BlockPos) -> Option<block::State> {
     if center(pos).distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED
         || actor.mode == GameMode::Spectator
     {
         return None;
     }
-    Hit::at(state, actor.world, pos)
+    state.worlds.get(actor.world)?.block(pos)
 }
 
 /// The held item of `session` (empty if it is not a player).
@@ -1128,7 +1061,13 @@ fn held(state: &State, session: SessionId) -> Stack {
 
 /// Applies the left click on `target` at `pos` after [`PlayerInteract`]: a survival or adventure
 /// player starts breaking it. A creative player's break comes as a predicted destroy.
-fn attack(state: &mut State, actor: &Actor, pos: BlockPos, face: Face, target: Hit) -> bool {
+fn attack(
+    state: &mut State,
+    actor: &Actor,
+    pos: BlockPos,
+    face: Face,
+    target: block::State,
+) -> bool {
     let session = actor.session;
     if actor.mode == GameMode::Creative {
         return true;
@@ -1171,7 +1110,7 @@ fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -
     let Some(player) = state.players.get(&session) else {
         return false;
     };
-    let Some(block) = Hit::at(state, actor.world, pos) else {
+    let Some(block) = state.worlds.get(actor.world).and_then(|w| w.block(pos)) else {
         return false;
     };
     if block.break_info().breaks_instantly() || speed(state, player, block) >= 1.0 {
@@ -1180,9 +1119,15 @@ fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -
     player.breaking.target.as_ref().is_some_and(|t| {
         t.world == actor.world
             && t.pos == pos
-            && t.block.same_block(block)
+            && is_same_block(t.block, block)
             && t.progress + t.speed >= 1.0 - 1e-9
     })
+}
+
+/// Whether `a` and `b` are the same block in any state (breaking goes on through a state change
+/// made by code); states without a dump type are the same block when their names are.
+fn is_same_block(a: block::State, b: block::State) -> bool {
+    a.kind() == b.kind() && (a.kind() != block::Kind::InfoUpdate || a.name() == b.name())
 }
 
 /// Breaks the block at `pos` that the client says it broke. False (the caller resyncs) when the
@@ -1203,9 +1148,6 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     let counted = timing == Timing::Counted
         && actor.has_finite_resources()
         && state.settings.break_time_check;
-    if let Some(Hit::Inert(block)) = Hit::at(state, actor.world, pos) {
-        return inert::break_block(state, actor, pos, block, counted);
-    }
     // Before the event and the plan: a break before its time costs no drops worked out (a
     // shulker box's whole contents) and raises nothing.
     if counted && !break_done(state, session, &actor, pos) {
@@ -1271,31 +1213,13 @@ fn finish_break(
     tool: &Stack,
     plan: Option<BreakPlan>,
 ) -> bool {
-    let applied = finish_break_with(state, actor, pos, |state| {
-        plan.and_then(|plan| use_break_on(state, actor, pos, tool, plan))
-    });
-    let Some(affected) = applied else {
-        return false;
-    };
-    destroyed(state, actor.world, Some(actor.session), affected, true);
-    true
-}
-
-/// Runs [`finish_break`] with `apply` breaking the block (`None`: refused), up to the food:
-/// what `apply` returns once applied.
-fn finish_break_with<T>(
-    state: &mut State,
-    actor: &Actor,
-    pos: BlockPos,
-    apply: impl FnOnce(&mut State) -> Option<T>,
-) -> Option<T> {
     let session = actor.session;
     let target = state.players.get_mut(&session).and_then(|p| {
         p.breaking
             .target
             .take_if(|t| breaks_at(t, actor.world, pos))
     });
-    let Some(applied) = apply(state) else {
+    let Some(affected) = plan.and_then(|plan| use_break_on(state, actor, pos, tool, plan)) else {
         // The break handler stays gone; the client starts again.
         if target.is_some() {
             level_event(
@@ -1306,10 +1230,11 @@ fn finish_break_with<T>(
                 0,
             );
         }
-        return None;
+        return false;
     };
     survival::exhaust_by(state, session, BREAK_EXHAUSTION, ExhaustCause::Mining);
-    Some(applied)
+    destroyed(state, actor.world, Some(session), affected, true);
+    true
 }
 
 /// Works out a player's break: not air and [`player_may_break`], and the drops the break gives.
@@ -1492,7 +1417,7 @@ fn return_items(
 
 /// Finds the other half of the bed `bed` at `pos`: the head lies one block along the bed's facing
 /// from the foot; `None` unless a bed half of the other kind facing the same way is there.
-pub(super) fn bed_other_half(
+fn bed_other_half(
     world: &crate::world::World,
     pos: BlockPos,
     bed: block::State,

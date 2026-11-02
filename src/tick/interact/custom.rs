@@ -46,7 +46,7 @@ pub(super) fn drops_of(state: &State, block: block::State, tool: &Stack) -> Vec<
     let Some(def) = block.custom_block() else {
         return Vec::new();
     };
-    if !is_compatible(block, tool) {
+    if !block.break_info().is_tool_compatible(tool) {
         return Vec::new();
     }
     let own = || match block.item() {
@@ -62,15 +62,6 @@ pub(super) fn drops_of(state: &State, block: block::State, tool: &Stack) -> Vec<
             .collect(),
         Drops::Itself | Drops::Nothing | Drops::Items(_) => own(),
     }
-}
-
-/// Whether `tool` is a compatible tool for `block` (its break information's tool type and
-/// harvest level).
-fn is_compatible(block: block::State, tool: &Stack) -> bool {
-    let (tool_type, level) = tool.item().map_or((block::ToolType::NONE, 0), |t| {
-        (t.block_tool_type(), t.block_tool_harvest_level())
-    });
-    block.break_info().is_tool_compatible(tool_type, level)
 }
 
 /// Runs `on_use` of the custom block `block` at `pos`, used by `session`: whether it did

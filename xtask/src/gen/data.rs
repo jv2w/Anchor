@@ -1,8 +1,9 @@
-//! Block and item data: reads the committed PMMP dump (`xtask/data/dump/`),
-//! the reference lists (`xtask/data/reference/`) and the block upgrade schemas that add
-//! properties after the dump's data version (`upgrade::ADDING`), checks them against each other,
-//! and builds the block state and item type lists, with their gameplay data, and the tables the
-//! data generators emit. The index of a state or item type in these lists is its number in the
+//! Block and item data: reads the committed dump (`xtask/data/dump/`), the reference lists
+//! (`xtask/data/reference/`) and the block upgrade schemas that add properties after the dump's
+//! data version (`upgrade::ADDING`), checks them against each other, and builds the block state
+//! and item type lists, with their gameplay data, and the tables the data generators emit. A
+//! reference state the dump does not have is a block state too, with the physics of
+//! `block_physics.json`. The index of a state or item type in these lists is its number in the
 //! generated tables, so every generator agrees on it.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,34 +13,41 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use crate::dump::{
-    DUMP_DIR, PMMP_BLOCKS, PMMP_DESERIALIZED, PMMP_ITEMS, PMMP_TABLES, REFERENCE_BLOCKS,
-    REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
+    BLOCK_PHYSICS, DUMP_DIR, PMMP_BLOCKS, PMMP_DESERIALIZED, PMMP_ITEMS, PMMP_TABLES,
+    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
 };
 
 use super::body::{int_lit, str_lit};
-use super::info::{Break, Identity, ItemData, Physics, Tables, exact, support_codes};
+use super::info::{Break, EVERY_TOOL, Identity, ItemData, Physics, Tables, exact, support_codes};
 use super::upgrade::{ADDING, block_schema};
 
-/// The drops of a state whose drops depend on its block entity (see [`SHARED`]).
-pub(crate) const BLOCK_ENTITY_DROPS: &str = "block_entity";
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
 pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
-/// PMMP classes whose collision box is inside out, with min above max (PMMP defect): a wall
+/// The block type of a state the dump does not have: the dump's type for blocks without a
+/// behaviour of their own, which custom blocks use too.
+const INFO_UPDATE_KIND: &str = "info_update";
+/// Classes whose collision box is inside out, with min above max (a defect of the dump): a wall
 /// hanging sign squashes its cross bar by 3/4 from each side where 3/8 was meant. The 3/8 bar is
-/// BDS's box (`CloudburstMC` `blocks.json` `collisionShape`, P6 `xtask/data/p6/facts.md`), so
-/// the box is rebuilt with 3/8 on the squashed axes.
+/// the official server's box (the reference `blocks.json` `collisionShape`, P6
+/// `xtask/data/p6/facts.md`), so the box is rebuilt with 3/8 on the squashed axes.
 const INSIDE_OUT_BOXES: [&str; 1] = ["WallHangingSign"];
 /// The ticks the client takes to drink a consumable it is sent without item data (potion, milk
 /// bucket, medicine): the client's own 1.6 s for them.
 const LEGACY_USE_TICKS: u16 = 32;
 /// The stack NBT `Type` of an ominous banner.
 const OMINOUS: Tag = Tag::Int(1);
+/// The factor from hardness to blast resistance of a state the dump does not have.
+const UNIMPLEMENTED_BLAST_FACTOR: f64 = 5.0;
+/// The friction of a state the dump does not have: that of air.
+const UNIMPLEMENTED_FRICTION: f64 = 0.6;
+/// The block-local unit cube: a shape of only this box is solid.
+const UNIT_CUBE: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 
-/// Bedrock states PMMP splits by data Anchor keeps in the block entity: the
-/// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
-/// states of these names may differ in PMMP type, class, block flags, item form or drops; where
-/// their item forms or drops differ, the Anchor state's are marked as depending on the block
-/// entity. Every other value must still agree, and every entry must be needed.
+/// Bedrock states the dump splits by data Anchor keeps in the block entity: the Bedrock name, the
+/// dump type Anchor's state takes and what it stands for. Only dump states of these names may
+/// differ in type, class, block flags or item form; where their item forms differ, the Anchor
+/// state's is marked as depending on the block entity. Every other value must still agree, and
+/// every entry must be needed.
 pub(crate) const SHARED: [(&str, &str, &str); 4] = [
     (
         "minecraft:bed",
@@ -49,7 +57,7 @@ pub(crate) const SHARED: [(&str, &str, &str); 4] = [
     (
         "minecraft:cauldron",
         "water_cauldron",
-        "a potion in place of water (cauldron block entity `PotionId`)",
+        "the fill of the cauldron, which Anchor does not keep",
     ),
     (
         "minecraft:standing_banner",
@@ -68,7 +76,7 @@ type R<T> = Result<T, String>;
 /// Where a state's item form comes from, before item types are known.
 #[derive(Debug, Clone, PartialEq)]
 enum ItemSource {
-    /// PMMP `asItem` is air.
+    /// The state has no item.
     None,
     /// The dumped Bedrock form.
     Form(Json),
@@ -76,10 +84,10 @@ enum ItemSource {
     BlockEntity,
 }
 
-/// A state's item form (PMMP `Block::asItem`).
+/// A state's item form (`Block::asItem` of the dump).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StateItem {
-    /// PMMP `asItem` is air.
+    /// The state has no item.
     None,
     /// The item type index.
     Item(u16),
@@ -104,39 +112,37 @@ pub(crate) struct StateKey {
     pub(crate) properties: Vec<(String, Prop)>,
 }
 
-/// An Anchor block state: a 1.26.60 Bedrock state with PMMP's values for it.
+/// A block state of the reference list, with the values of the dump, or, for a state the dump
+/// does not have, of `block_physics.json`.
 #[derive(Debug)]
 pub(crate) struct State {
     pub(crate) key: StateKey,
-    /// The network ID the reference list gives (`CloudburstMC` `network_id`).
+    /// The network ID the reference list gives.
     pub(crate) network_id: u32,
     pub(crate) light_emission: u8,
     pub(crate) light_filter: u8,
     pub(crate) blocks_direct_sky_light: bool,
-    pub(crate) ticks_randomly: bool,
-    /// The horizontal faces with full support (PMMP `getSupportType`), as [`FACES`] bits; a
-    /// stair's are those of its `minecraft:corner` shape.
+    /// The horizontal faces with full support (`getSupportType` of the dump), as [`FACES`] bits;
+    /// a stair's are those of its `minecraft:corner` shape.
     pub(crate) full_faces: u8,
-    /// How PMMP works the state out from its neighbours, if it does.
+    /// How the dump works the state out from its neighbours, if it does.
     pub(crate) connect: Option<Connect>,
     /// Physical values; a fence's, pane's or stair's support and boxes are those of the variant
     /// its neighbour properties name.
     pub(crate) physics: Physics,
-    /// The PMMP type, classes and traits.
+    /// The block type, classes and traits.
     pub(crate) identity: Identity,
     /// The item form.
     pub(crate) item: StateItem,
-    /// The dumped drops (`blocks.json` `drops`), or [`BLOCK_ENTITY_DROPS`].
-    pub(crate) drops: Json,
 }
 
-/// The dump's `connect` entry: what PMMP needs to work out a state from its neighbours.
+/// The dump's `connect` entry: what it takes to work out a state from its neighbours.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Connect {
     /// `fence`, `thin`, `wall`, `fence_gate`, `stair`, `tripwire` or `tripwire_hook`.
     pub(crate) kind: String,
-    /// A fence's PMMP class: fences connect to fences of their own class.
+    /// A fence's class: fences connect to fences of their own class.
     #[serde(default)]
     pub(crate) group: Option<String>,
     /// The horizontal facing of fence gates, stairs and tripwire hooks.
@@ -186,55 +192,53 @@ pub(crate) enum List {
     Compound(Vec<BTreeMap<String, Tag>>),
 }
 
-/// A PMMP item type in its Bedrock form.
+/// An item type in its Bedrock form.
 #[derive(Debug)]
 pub(crate) struct Item {
     pub(crate) name: String,
     pub(crate) meta: u16,
-    /// The block state index of a block item: the PMMP state it places.
+    /// The block state index of a block item: the state it places.
     pub(crate) block: Option<u16>,
     /// The network ID of the block state a block item is sent with (0 for other items).
     pub(crate) block_network_id: u32,
-    /// NBT that is part of the type (PMMP `serializeType` extra data), such as an ominous
+    /// NBT that is part of the type (`serializeType` extra data of the dump), such as an ominous
     /// banner's `Type`.
     pub(crate) nbt: Option<BTreeMap<String, Tag>>,
-    /// The 1.26.60 runtime ID of the name.
+    /// The runtime ID of the name in the reference list.
     pub(crate) runtime_id: i16,
-    /// Whether PMMP's `VanillaItems` gives this form (the default form of its kind).
+    /// Whether the dump's item registry gives this form (the default form of its kind).
     pub(crate) vanilla: bool,
-    /// PMMP's data for the type.
+    /// The dump's data for the type.
     pub(crate) data: ItemData,
-    /// The item type left after burning one as fuel (PMMP `getFuelResidue`).
-    pub(crate) fuel_residue: Option<u16>,
-    /// The item type left after consuming one (PMMP `ConsumableItem::getResidue`).
+    /// The item type left after consuming one (`ConsumableItem::getResidue` of the dump).
     pub(crate) consume_residue: Option<u16>,
     /// The ticks the client takes to eat or drink one ([`use_ticks`]); 0 for items not consumed.
     pub(crate) use_ticks: u16,
     /// The state index placing the item puts down, and the one against a side where that
-    /// differs (PMMP `Item::getBlock`).
+    /// differs (`Item::getBlock` of the dump).
     pub(crate) places: (Option<u16>, Option<u16>),
 }
 
-/// An item stack of the dumps (creative entries, recipe results): the item type index, the count
-/// and the stack NBT as PMMP serializes it (type NBT merged in).
+/// An item stack of the dumps (creative entries): the item type index, the count and the stack
+/// NBT as the dump serializes it (type NBT merged in).
 #[derive(Debug)]
 pub(crate) struct Stack {
     pub(crate) item: u16,
-    /// The stack's meta, which PMMP sends; it differs from the type's meta where PMMP reads
-    /// meta as stack state.
+    /// The stack's meta, which the dump sends; it differs from the type's meta where the dump
+    /// reads meta as stack state.
     pub(crate) meta: u16,
     pub(crate) count: u16,
     pub(crate) nbt: Option<BTreeMap<String, Tag>>,
 }
 
-/// A reference state that is not an Anchor state but that PMMP reads as one of its states
-/// (`deserialized.json`): PMMP ignores some vanilla properties and writes one value for them.
+/// A reference state that is not a dump state but that the dump reads as one of its states
+/// (`deserialized.json`): the dump ignores some vanilla properties and writes one value for them.
 #[derive(Debug)]
 pub(crate) struct Alias {
     pub(crate) key: StateKey,
     /// The reference list's network ID of `key`.
     pub(crate) network_id: u32,
-    /// The Anchor state index of the PMMP state it becomes.
+    /// The state index of the dump state it becomes.
     pub(crate) state: u16,
 }
 
@@ -245,24 +249,23 @@ pub(crate) struct Data {
     /// The aliases, sorted by key.
     pub(crate) aliases: Vec<Alias>,
     pub(crate) items: Vec<Item>,
-    /// The PMMP block types (`VanillaBlocks` names, lowercase, sorted): their identity and the
-    /// Anchor state of their default state.
+    /// The block types (names lowercase, sorted): their identity and the state index of their
+    /// default state.
     pub(crate) kinds: Vec<(Identity, u16)>,
-    /// The effect, potion, enchantment, tag, banner pattern and furnace tables.
+    /// The effect, potion, enchantment and banner pattern tables.
     pub(crate) tables: Tables,
-    /// Anchor state index of a PMMP (1.26.30) Bedrock state, upgraded with the default values.
-    pmmp_state_index: BTreeMap<StateKey, u16>,
-    /// PMMP's legacy recipe meta of a PMMP (1.26.30) Bedrock state.
-    recipe_meta: BTreeMap<StateKey, i32>,
+    /// State index of a dump state (in its Bedrock form of the dump's data version), upgraded with
+    /// the default values.
+    dump_state_index: BTreeMap<StateKey, u16>,
     /// Item type indices by (name, block index).
     item_index: BTreeMap<(String, Option<u16>), Vec<u16>>,
-    /// 1.26.60 runtime IDs by item name.
+    /// Runtime IDs by item name.
     runtime_ids: BTreeMap<String, i16>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PmmpBlock {
+struct DumpBlock {
     #[serde(rename = "type")]
     kind: String,
     bedrock: Json,
@@ -270,32 +273,36 @@ struct PmmpBlock {
     light_emission: u8,
     light_filter: u8,
     blocks_direct_sky_light: bool,
-    ticks_randomly: bool,
-    recipe_meta: i32,
     classes: Vec<String>,
     traits: Vec<String>,
     #[serde(rename = "break")]
     break_info: Break,
-    fire: (u8, u8, bool),
     flags: Vec<String>,
     friction: f64,
     tags: Vec<String>,
     support: Vec<String>,
     boxes: Vec<[f64; 6]>,
     item: Option<Json>,
-    drops: Json,
     #[serde(default)]
     connect: Option<Connect>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PmmpItem {
+struct DumpItem {
     bedrock: Json,
     data: ItemData,
     #[serde(rename = "names")]
     _names: Vec<String>,
     vanilla: bool,
+}
+
+/// `block_physics.json` (see `dump`).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BlockPhysics {
+    shapes: Vec<Vec<[f64; 6]>>,
+    states: Vec<PhysicsRow>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -308,15 +315,19 @@ struct ReferenceBlock {
     network_id: u32,
 }
 
-/// An entry of the PMMP `deserialized.json`: a reference state and the Bedrock form of the PMMP
-/// state PMMP reads it as, `None` where PMMP rejects it.
+/// An entry of the dump's `deserialized.json`: a reference state and the Bedrock form of the dump
+/// state the dump reads it as, `None` where the dump rejects it.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Deserialized {
     name: String,
     states: Json,
-    pmmp: Option<Json>,
+    read_as: Option<Json>,
 }
+
+/// How the dump reads each reference state it does not read as itself: the state it becomes, or
+/// `None` where it rejects the state.
+type DumpReading = BTreeMap<StateKey, Option<StateKey>>;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -353,46 +364,47 @@ struct Upgrade {
     added_properties: BTreeMap<String, BTreeMap<String, Json>>,
 }
 
-/// PMMP's per-state values. Overlapping PMMP states must agree on all but the identity, block
-/// flags, item and drops, which may differ only as [`SHARED`] allows.
+/// The per-state values. Overlapping dump states must agree on all but the identity, block flags
+/// and item, which may differ only as [`SHARED`] allows.
 #[derive(Debug, Clone, PartialEq)]
 struct Values {
     light_emission: u8,
     light_filter: u8,
     blocks_direct_sky_light: bool,
-    ticks_randomly: bool,
     connect: Option<Connect>,
     physics: Physics,
     identity: Identity,
     item: ItemSource,
-    drops: Json,
 }
 
 impl Values {
-    /// The values every overlapping PMMP state must agree on.
-    fn strict(&self) -> (u8, u8, bool, bool, &Option<Connect>, &Physics) {
+    /// The values every overlapping dump state must agree on.
+    fn strict(&self) -> (u8, u8, bool, &Option<Connect>, &Physics) {
         (
             self.light_emission,
             self.light_filter,
             self.blocks_direct_sky_light,
-            self.ticks_randomly,
             &self.connect,
             &self.physics,
         )
     }
 }
 
-/// The PMMP states by their 1.26.30 Bedrock form, merged, and the default state and identity of
-/// each PMMP block type by name.
-type PmmpStates = (
-    BTreeMap<StateKey, (Values, i32)>,
+/// The dump states by their Bedrock form of the dump's data version, merged, and the default
+/// state and identity of each block type by name.
+type DumpStates = (
+    BTreeMap<StateKey, Values>,
     BTreeMap<String, (StateKey, Identity)>,
 );
+
+/// A state of `block_physics.json`: network ID, hardness, light emission, light dampening and the
+/// index of its collision boxes.
+type PhysicsRow = (u32, f64, u8, u8, usize);
 
 /// The reference block list: network ID by state, and the states of each name.
 type Reference = (BTreeMap<StateKey, u32>, BTreeMap<String, Vec<StateKey>>);
 
-/// The upgraded states with their values, and the upgraded default form of each PMMP state.
+/// The upgraded states with their values, and the upgraded default form of each dump state.
 type Upgraded = (BTreeMap<StateKey, Values>, BTreeMap<StateKey, StateKey>);
 
 impl Data {
@@ -400,8 +412,14 @@ impl Data {
     pub(crate) fn load(root: &Path) -> R<Self> {
         let (network, reference_names) = read_reference(root)?;
         let added = read_upgrade(root)?;
-        let (pmmp_states, kind_defaults) = read_pmmp_states(root)?;
-        let (states, pmmp_default) = upgrade(&pmmp_states, &added, &network, &reference_names)?;
+        let reading = read_dump_reading(root, &network)?;
+        let (dump_states, kind_defaults) = read_dump_states(root)?;
+        let (mut states, dump_default) = upgrade(&dump_states, &added, &network, &reference_names)?;
+        let (_, info_update) = kind_defaults
+            .get(INFO_UPDATE_KIND)
+            .ok_or("the dump has no info_update block type")?;
+        let unimplemented = unimplemented_states(root, &network, &states, &reading, info_update)?;
+        states.extend(unimplemented);
 
         let mut list = Vec::with_capacity(states.len());
         let mut sources = Vec::with_capacity(states.len());
@@ -418,34 +436,28 @@ impl Data {
                 light_emission: values.light_emission,
                 light_filter: values.light_filter,
                 blocks_direct_sky_light: values.blocks_direct_sky_light,
-                ticks_randomly: values.ticks_randomly,
                 full_faces: physics.full_faces(),
                 connect: values.connect,
                 physics,
                 identity: values.identity,
                 item: StateItem::None,
-                drops: values.drops,
             });
         }
-        let mut pmmp_state_index = BTreeMap::new();
-        for (pmmp, default) in pmmp_default {
+        let mut dump_state_index = BTreeMap::new();
+        for (dump, default) in dump_default {
             let index = *state_index
                 .get(&default)
                 .ok_or("default state not listed")?;
-            pmmp_state_index.insert(pmmp, index);
+            dump_state_index.insert(dump, index);
         }
-        let aliases = read_aliases(root, &network, &state_index, &pmmp_state_index)?;
+        let aliases = aliases(&reading, &network, &state_index, &dump_state_index)?;
         let mut kinds = Vec::with_capacity(kind_defaults.len());
         for (kind, (key, identity)) in kind_defaults {
-            let index = *pmmp_state_index
+            let index = *dump_state_index
                 .get(&key)
-                .ok_or_else(|| format!("default state of {kind} is not a PMMP state"))?;
+                .ok_or_else(|| format!("default state of {kind} is not a dump state"))?;
             kinds.push((identity, index));
         }
-        let recipe_meta = pmmp_states
-            .into_iter()
-            .map(|(key, (_, meta))| (key, meta))
-            .collect();
 
         let mut data = Self {
             states: list,
@@ -453,12 +465,12 @@ impl Data {
             items: Vec::new(),
             kinds,
             tables: read_json(root, DUMP_DIR, PMMP_TABLES)?,
-            pmmp_state_index,
-            recipe_meta,
+            dump_state_index,
             item_index: BTreeMap::new(),
             runtime_ids: BTreeMap::new(),
         };
-        data.load_items(root, &network)?;
+        let vanilla: Vec<ItemBlock> = read_json(root, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS)?;
+        data.load_items(root, &network, &vanilla)?;
         for (i, source) in sources.iter().enumerate() {
             let item = match source {
                 ItemSource::None => StateItem::None,
@@ -469,11 +481,17 @@ impl Data {
                 state.item = item;
             }
         }
+        data.check_vanilla_item_states(&vanilla)?;
         Ok(data)
     }
 
-    /// Loads the PMMP item types and gives each its 1.26.60 runtime ID.
-    fn load_items(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
+    /// Loads the item types of the dump and gives each its runtime ID.
+    fn load_items(
+        &mut self,
+        root: &Path,
+        network: &BTreeMap<StateKey, u32>,
+        vanilla: &[ItemBlock],
+    ) -> R<()> {
         let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
         self.runtime_ids = reference
             .iter()
@@ -487,8 +505,8 @@ impl Data {
             .iter()
             .map(|i| (i.name.as_str(), &i.data))
             .collect();
-        let pmmp: Vec<PmmpItem> = read_json(root, DUMP_DIR, PMMP_ITEMS)?;
-        for (i, item) in pmmp.iter().enumerate() {
+        let dump: Vec<DumpItem> = read_json(root, DUMP_DIR, PMMP_ITEMS)?;
+        for (i, item) in dump.iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
             let form = self.item_form(&item.bedrock)?;
             let runtime_id = self.runtime_id(&form.0)?;
@@ -514,7 +532,6 @@ impl Data {
                 runtime_id,
                 vanilla: item.vanilla,
                 data: item.data.clone(),
-                fuel_residue: None,
                 consume_residue: None,
                 use_ticks,
                 places: (
@@ -526,9 +543,7 @@ impl Data {
         for i in 0..self.items.len() {
             let item = self.items.get(i).ok_or("item index")?;
             let data = &item.data;
-            let fuel = data.fuel.residue.as_ref();
             let consume = data.consumable.as_ref().and_then(|c| c.residue.as_ref());
-            let fuel = fuel.map(|j| self.item_type(j)).transpose()?;
             let consume = consume.map(|j| self.item_type(j)).transpose()?;
             for v in [data.tool.efficiency]
                 .into_iter()
@@ -538,32 +553,31 @@ impl Data {
                 exact(v)?;
             }
             if let Some(item) = self.items.get_mut(i) {
-                item.fuel_residue = fuel;
                 item.consume_residue = consume;
             }
         }
-        self.use_vanilla_item_blocks(root, network)
+        self.use_vanilla_item_blocks(network, vanilla)
     }
 
-    /// The Anchor state of a dumped block an item places.
+    /// The state of a dumped block an item places.
     fn placed(&self, json: Option<&Json>) -> R<Option<u16>> {
-        json.map(|j| self.pmmp_state(&bedrock_state(j)?))
+        json.map(|j| self.dump_state(&bedrock_state(j)?))
             .transpose()
     }
 
     /// Sets the block network ID block items are sent with: the vanilla creative state of
-    /// `item_blocks.json`, which BDS sends, where the item name has a single PMMP block item type
-    /// and a single vanilla state; PMMP's own default state otherwise. The vanilla
-    /// state may be one PMMP does not have (glazed terracotta facing down); it is only the network
-    /// form, and the item still places PMMP's state.
-    fn use_vanilla_item_blocks(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
-        let vanilla: Vec<ItemBlock> = read_json(root, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS)?;
-        let mut block_items: BTreeMap<&str, usize> = BTreeMap::new();
-        for item in self.items.iter().filter(|i| i.block.is_some()) {
-            *block_items.entry(item.name.as_str()).or_default() += 1;
-        }
+    /// `item_blocks.json`, which the official server sends, where the item name has a single dump
+    /// block item type and a single vanilla state; the dump's own default state otherwise. The
+    /// vanilla state may be one the dump does not have (glazed terracotta facing down); it is only
+    /// the network form, and the item still places the dump's state.
+    fn use_vanilla_item_blocks(
+        &mut self,
+        network: &BTreeMap<StateKey, u32>,
+        vanilla: &[ItemBlock],
+    ) -> R<()> {
+        let block_items = self.block_item_counts();
         let mut ids = BTreeMap::new();
-        for v in &vanilla {
+        for v in vanilla {
             if block_items.get(v.item.as_str()) == Some(&1) {
                 let key = state_key(&v.name, &v.states)?;
                 let id = *network
@@ -585,6 +599,57 @@ impl Data {
             };
         }
         Ok(())
+    }
+
+    /// Fails if the vanilla creative state of an item with a single dump block item type does
+    /// not read, as `State::read` reads it (the state itself, else its alias), as a block whose
+    /// item is that item: a stored block item is found by its block state through this reading.
+    fn check_vanilla_item_states(&self, vanilla: &[ItemBlock]) -> R<()> {
+        let block_items = self.block_item_counts();
+        for v in vanilla {
+            if block_items.get(v.item.as_str()) != Some(&1) {
+                continue;
+            }
+            let key = state_key(&v.name, &v.states)?;
+            let state = self.read_state(&key).ok_or_else(|| {
+                format!(
+                    "the vanilla state of item {} is neither a state nor an alias",
+                    v.item
+                )
+            })?;
+            let item = match state.item {
+                StateItem::Item(i) => self.items.get(usize::from(i)),
+                StateItem::None | StateItem::BlockEntity => None,
+            };
+            if item.is_none_or(|i| i.name != v.item) {
+                return Err(format!(
+                    "the vanilla state of item {} reads as a block with another item",
+                    v.item
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The number of block item types of each item name.
+    fn block_item_counts(&self) -> BTreeMap<&str, usize> {
+        let mut counts = BTreeMap::new();
+        for item in self.items.iter().filter(|i| i.block.is_some()) {
+            *counts.entry(item.name.as_str()).or_default() += 1;
+        }
+        counts
+    }
+
+    /// The state a reference state reads as: itself, else the state its alias names.
+    fn read_state(&self, key: &StateKey) -> Option<&State> {
+        let by_key = |s: &State| s.key.cmp(key);
+        if let Ok(at) = self.states.binary_search_by(by_key) {
+            return self.states.get(at);
+        }
+        let at = self.aliases.binary_search_by(|a| a.key.cmp(key)).ok()?;
+        self.aliases
+            .get(at)
+            .and_then(|a| self.states.get(usize::from(a.state)))
     }
 
     /// Reads an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`, and `count`
@@ -609,7 +674,7 @@ impl Data {
             .and_then(|m| u16::try_from(m).ok())
             .ok_or_else(|| format!("item {name} has no meta in range"))?;
         let block = match obj.get("block") {
-            Some(b) => Some(self.pmmp_state(&bedrock_state(b)?)?),
+            Some(b) => Some(self.dump_state(&bedrock_state(b)?)?),
             None => None,
         };
         let nbt = match obj.get("nbt") {
@@ -625,28 +690,20 @@ impl Data {
         Ok((name, meta, block, nbt))
     }
 
-    /// The Anchor state of a PMMP (1.26.30) Bedrock state: its upgraded default form.
-    pub(crate) fn pmmp_state(&self, key: &StateKey) -> R<u16> {
-        self.pmmp_state_index
+    /// The state index of a dump state in its Bedrock form of the dump's data version: its
+    /// upgraded default form.
+    pub(crate) fn dump_state(&self, key: &StateKey) -> R<u16> {
+        self.dump_state_index
             .get(key)
             .copied()
-            .ok_or_else(|| format!("{} {:?} is not a PMMP state", key.name, key.properties))
-    }
-
-    /// PMMP's legacy meta of a PMMP (1.26.30) Bedrock state, which it sends for an exact block
-    /// recipe ingredient.
-    pub(crate) fn recipe_meta(&self, key: &StateKey) -> R<i32> {
-        self.recipe_meta
-            .get(key)
-            .copied()
-            .ok_or_else(|| format!("{} {:?} is not a PMMP state", key.name, key.properties))
+            .ok_or_else(|| format!("{} {:?} is not a dump state", key.name, key.properties))
     }
 
     /// Reads an item stack of the dumps (`name`, `meta`, optional `block` and `nbt`, `count`)
     /// and finds its item type the way `item::Type::from_name` does at run time: among the types
     /// of the name and block, the one with the stack's meta; if several have it, the one with the
     /// most type NBT that is part of the stack NBT; if none has it and the name and block have a
-    /// single type, that type, as PMMP reads such a meta as stack state (a firework star's
+    /// single type, that type, as the dump reads such a meta as stack state (a firework star's
     /// colour). The stack keeps its own meta.
     pub(crate) fn stack(&self, json: &Json) -> R<Stack> {
         let (name, meta, block, nbt) = self.item_form(json)?;
@@ -708,8 +765,7 @@ impl Data {
         })
     }
 
-    /// The 1.26.60 runtime ID of an item name of the reference list. PMMP names some items it has
-    /// no type for, such as `minecraft:lodestone_compass` in a potion container recipe.
+    /// The runtime ID of an item name of the reference list.
     pub(crate) fn runtime_id(&self, name: &str) -> R<i16> {
         self.runtime_ids
             .get(name)
@@ -718,9 +774,10 @@ impl Data {
     }
 }
 
-/// The meta of an item form, corrected where PMMP sends a different one than BDS: PMMP's
-/// ominous banner (`Type` 1) has the black base colour, meta 0, where BDS sends it white, meta 15
-/// (P6). Every item read from the dumps passes here, so types and stacks agree.
+/// The meta of an item form, corrected where the dump sends a different one than the official
+/// server: the dump's ominous banner (`Type` 1) has the black base colour, meta 0, where the
+/// official server sends it white, meta 15 (P6). Every item read from the dumps passes here, so
+/// types and stacks agree.
 fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> u16 {
     let ominous = nbt.and_then(|n| n.get("Type")) == Some(&OMINOUS);
     if name == "minecraft:banner" && ominous && meta == 0 {
@@ -794,30 +851,17 @@ fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
     Ok(added)
 }
 
-/// Reads how PMMP reads the reference states (`deserialized.json`, which lists the states PMMP
-/// does not read as themselves) and gives the aliases: the reference states that are not Anchor
-/// states but that PMMP reads as one of its states, with that state's Anchor state. Fails if a
-/// listed state is not a reference state or is listed twice, if PMMP reads a state as itself
-/// that is not an Anchor state, if PMMP reads an Anchor state as another state, or if PMMP reads
-/// a state as one that has no Anchor state.
-fn read_aliases(
-    root: &Path,
-    network: &BTreeMap<StateKey, u32>,
-    state_index: &BTreeMap<StateKey, u16>,
-    pmmp_state_index: &BTreeMap<StateKey, u16>,
-) -> R<Vec<Alias>> {
+/// Reads how the dump reads the reference states (`deserialized.json`, which lists the states it
+/// does not read as themselves). Fails if a listed state is not a reference state or is listed
+/// twice.
+fn read_dump_reading(root: &Path, network: &BTreeMap<StateKey, u32>) -> R<DumpReading> {
     let list: Vec<Deserialized> = read_json(root, DUMP_DIR, PMMP_DESERIALIZED)?;
-    aliases(list, network, state_index, pmmp_state_index)
+    dump_reading(list, network)
 }
 
-/// The aliases of [`read_aliases`] from the read `deserialized.json`.
-fn aliases(
-    list: Vec<Deserialized>,
-    network: &BTreeMap<StateKey, u32>,
-    state_index: &BTreeMap<StateKey, u16>,
-    pmmp_state_index: &BTreeMap<StateKey, u16>,
-) -> R<Vec<Alias>> {
-    let mut read: BTreeMap<StateKey, Option<StateKey>> = BTreeMap::new();
+/// The reading of [`read_dump_reading`] from the read `deserialized.json`.
+fn dump_reading(list: Vec<Deserialized>, network: &BTreeMap<StateKey, u32>) -> R<DumpReading> {
+    let mut reading = DumpReading::new();
     for d in list {
         let key = state_key(&d.name, &d.states)?;
         if !network.contains_key(&key) {
@@ -826,35 +870,40 @@ fn aliases(
                 key.name, key.properties
             ));
         }
-        let pmmp = d.pmmp.as_ref().map(bedrock_state).transpose()?;
-        if read.insert(key, pmmp).is_some() {
+        let read_as = d.read_as.as_ref().map(bedrock_state).transpose()?;
+        if reading.insert(key, read_as).is_some() {
             return Err(format!("deserialized.json: {} is listed twice", d.name));
         }
     }
+    Ok(reading)
+}
+
+/// The aliases: the reference states that are not dump states but that the dump reads as one of
+/// its states, with that state's index. Fails if the dump reads a state as another state, or as
+/// one that has no state.
+fn aliases(
+    reading: &DumpReading,
+    network: &BTreeMap<StateKey, u32>,
+    state_index: &BTreeMap<StateKey, u16>,
+    dump_state_index: &BTreeMap<StateKey, u16>,
+) -> R<Vec<Alias>> {
     let mut aliases = Vec::new();
     for (key, &network_id) in network {
-        match read.get(key) {
-            None if !state_index.contains_key(key) => {
-                return Err(format!(
-                    "PMMP reads the reference state {} {:?} as itself, but it is not an Anchor \
-                     state",
-                    key.name, key.properties
-                ));
-            }
-            // Read as itself, or rejected: its own Anchor state if it has one, else unknown.
+        match reading.get(key) {
+            // Read as itself, or rejected: its own state.
             None | Some(None) => {}
             Some(Some(_)) if state_index.contains_key(key) => {
                 return Err(format!(
-                    "PMMP reads the Anchor state {} {:?} as another state",
+                    "the dump reads the state {} {:?} as another state",
                     key.name, key.properties
                 ));
             }
-            Some(Some(pmmp)) => {
-                let state = *pmmp_state_index.get(pmmp).ok_or_else(|| {
+            Some(Some(read_as)) => {
+                let state = *dump_state_index.get(read_as).ok_or_else(|| {
                     format!(
-                        "PMMP reads the reference state {} {:?} as {} {:?}, which has no Anchor \
+                        "the dump reads the reference state {} {:?} as {} {:?}, which has no \
                          state",
-                        key.name, key.properties, pmmp.name, pmmp.properties
+                        key.name, key.properties, read_as.name, read_as.properties
                     )
                 })?;
                 aliases.push(Alias {
@@ -868,20 +917,112 @@ fn aliases(
     Ok(aliases)
 }
 
-/// Reads the PMMP states by their 1.26.30 Bedrock form and merges overlapping ones (see
-/// [`merge`]); also the default state and identity of each PMMP block type, which all its
+/// The block states of the reference list that the dump does not have, with the physics of
+/// `block_physics.json`: the official server's light, hardness and collision boxes. A state whose
+/// only collision box is the whole cell is solid; the others can be stood in. The identity is
+/// the `info_update` type's, the dump's type of a block without a behaviour of its own, and
+/// the state has no item. Fails if a state has no physics.
+fn unimplemented_states(
+    root: &Path,
+    network: &BTreeMap<StateKey, u32>,
+    states: &BTreeMap<StateKey, Values>,
+    reading: &DumpReading,
+    info_update: &Identity,
+) -> R<Vec<(StateKey, Values)>> {
+    let physics: BlockPhysics = read_json(root, REFERENCE_DIR, BLOCK_PHYSICS)?;
+    let by_id: BTreeMap<u32, &PhysicsRow> = physics.states.iter().map(|s| (s.0, s)).collect();
+    let mut found = Vec::new();
+    for key in unimplemented_keys(network, states, reading)? {
+        let network_id = *network.get(key).ok_or("state lost its network ID")?;
+        let &&(_, hardness, light_emission, light_filter, shape) = by_id
+            .get(&network_id)
+            .ok_or_else(|| format!("{} ({network_id}) has no physics", key.name))?;
+        let boxes = physics
+            .shapes
+            .get(shape)
+            .ok_or_else(|| format!("{} ({network_id}) names a missing shape", key.name))?;
+        let values =
+            unimplemented_values((hardness, light_emission, light_filter), boxes, info_update)
+                .map_err(|e| format!("{} ({network_id}): {e}", key.name))?;
+        found.push((key.clone(), values));
+    }
+    Ok(found)
+}
+
+/// The values of a state the dump does not have, from its hardness, light emission, light
+/// dampening and collision boxes. Every tool counts as the right one at harvest level 0, so the
+/// break time the server allows is never longer than the client's.
+fn unimplemented_values(
+    (hardness, light_emission, light_filter): (f64, u8, u8),
+    boxes: &[[f64; 6]],
+    info_update: &Identity,
+) -> R<Values> {
+    let (flag, support) = if boxes == [UNIT_CUBE] {
+        ("solid", "full")
+    } else {
+        ("transparent", "none")
+    };
+    let break_info = Break {
+        hardness,
+        blast_resistance: hardness * UNIMPLEMENTED_BLAST_FACTOR,
+        tool_type: EVERY_TOOL,
+        harvest_level: 0,
+    };
+    let physics = Physics::new(
+        break_info,
+        &[flag.to_owned()],
+        UNIMPLEMENTED_FRICTION,
+        &[],
+        &[support; 6].map(str::to_owned),
+        boxes.to_vec(),
+    )?;
+    Ok(Values {
+        light_emission,
+        light_filter,
+        blocks_direct_sky_light: light_filter > 0,
+        connect: None,
+        physics,
+        identity: info_update.clone(),
+        item: ItemSource::None,
+    })
+}
+
+/// The reference states that are neither dump states nor aliases: the ones the dump rejects.
+/// Fails if the dump reads a reference state as itself but has no such state.
+fn unimplemented_keys<'a>(
+    network: &'a BTreeMap<StateKey, u32>,
+    states: &BTreeMap<StateKey, Values>,
+    reading: &DumpReading,
+) -> R<Vec<&'a StateKey>> {
+    let mut keys = Vec::new();
+    for key in network.keys().filter(|key| !states.contains_key(key)) {
+        match reading.get(key) {
+            None => {
+                return Err(format!(
+                    "the dump reads the reference state {} {:?} as itself, but has no such state",
+                    key.name, key.properties
+                ));
+            }
+            Some(None) => keys.push(key),
+            Some(Some(_)) => {}
+        }
+    }
+    Ok(keys)
+}
+
+/// Reads the dump states by their Bedrock form of the dump's data version and merges overlapping
+/// ones (see [`merge`]); also the default state and identity of each block type, which all its
 /// states must share.
-fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
-    let pmmp: Vec<PmmpBlock> = read_json(root, DUMP_DIR, PMMP_BLOCKS)?;
-    let mut groups: BTreeMap<StateKey, Vec<(Values, i32)>> = BTreeMap::new();
+fn read_dump_states(root: &Path) -> R<DumpStates> {
+    let dump: Vec<DumpBlock> = read_json(root, DUMP_DIR, PMMP_BLOCKS)?;
+    let mut groups: BTreeMap<StateKey, Vec<Values>> = BTreeMap::new();
     let mut defaults = BTreeMap::new();
     let mut kinds: BTreeMap<String, Identity> = BTreeMap::new();
-    for b in pmmp {
+    for b in dump {
         let key = bedrock_state(&b.bedrock)?;
         let boxes = valid_boxes(&key, &b.classes, b.boxes)?;
         let physics = Physics::new(
             b.break_info,
-            b.fire,
             &b.flags,
             b.friction,
             &b.tags,
@@ -912,14 +1053,12 @@ fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
             light_emission: b.light_emission,
             light_filter: b.light_filter,
             blocks_direct_sky_light: b.blocks_direct_sky_light,
-            ticks_randomly: b.ticks_randomly,
             connect: b.connect,
             physics,
             identity,
             item: b.item.map_or(ItemSource::None, ItemSource::Form),
-            drops: b.drops,
         };
-        groups.entry(key).or_default().push((values, b.recipe_meta));
+        groups.entry(key).or_default().push(values);
     }
     let mut kind_defaults = BTreeMap::new();
     for (kind, identity) in kinds {
@@ -941,7 +1080,7 @@ fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
 }
 
 /// The collision boxes of a dumped state with inside-out ones rebuilt, which only
-/// [`INSIDE_OUT_BOXES`] classes may have: on an axis where min is above max, PMMP trimmed
+/// [`INSIDE_OUT_BOXES`] classes may have: on an axis where min is above max, the dump trimmed
 /// `min` (= 3/4) from each side, and the box keeps half of that trim, `min / 2 ..= 1 - min / 2`.
 fn valid_boxes(key: &StateKey, classes: &[String], boxes: Vec<[f64; 6]>) -> R<Vec<[f64; 6]>> {
     let inside_out =
@@ -972,20 +1111,16 @@ fn valid_boxes(key: &StateKey, classes: &[String], boxes: Vec<[f64; 6]>) -> R<Ve
         .collect())
 }
 
-/// Merges the PMMP states of one Bedrock state. They must agree on every value and the recipe
-/// meta, except where [`SHARED`] names the Bedrock state. There a group of several PMMP types
-/// takes the values, classes and traits of the type `SHARED` names, and the types may differ in
-/// their block flags (a potion cauldron has no entity collision); an item form or drops that
-/// differ become block entity data. Adds the names it needed `SHARED` for to `used`.
-fn merge(
-    key: &StateKey,
-    group: &[(Values, i32)],
-    used: &mut BTreeSet<&'static str>,
-) -> R<(Values, i32)> {
+/// Merges the dump states of one Bedrock state. They must agree on every value, except where
+/// [`SHARED`] names the Bedrock state. There a group of several dump types takes the values,
+/// classes and traits of the type `SHARED` names, and the types may differ in their block flags
+/// (a potion cauldron has no entity collision); an item form that differs becomes block entity
+/// data. Adds the names it needed `SHARED` for to `used`.
+fn merge(key: &StateKey, group: &[Values], used: &mut BTreeSet<&'static str>) -> R<Values> {
     let shared = SHARED.iter().find(|(name, ..)| *name == key.name);
     let disagree = |what: &str| {
         format!(
-            "PMMP states of {} {:?} disagree on their {what}{}",
+            "dump states of {} {:?} disagree on their {what}{}",
             key.name,
             key.properties,
             if shared.is_some() {
@@ -995,17 +1130,14 @@ fn merge(
             }
         )
     };
-    let (first, meta) = group.first().ok_or("empty state group")?;
+    let first = group.first().ok_or("empty state group")?;
     // The state that speaks for the group: one of the type SHARED names, if the group has one.
     let chosen = shared
-        .and_then(|(_, kind, _)| group.iter().find(|(v, _)| v.identity.kind == *kind))
-        .map_or(first, |(v, _)| v);
+        .and_then(|(_, kind, _)| group.iter().find(|v| v.identity.kind == *kind))
+        .unwrap_or(first);
     let mut merged = chosen.clone();
     let mut needed = false;
-    for (values, m) in group {
-        if m != meta {
-            return Err(disagree("recipe meta"));
-        }
+    for values in group {
         if values.identity.kind == chosen.identity.kind {
             if values.strict() != chosen.strict() || values.identity != chosen.identity {
                 return Err(disagree("values"));
@@ -1014,36 +1146,35 @@ fn merge(
             let mut flagless = values.clone();
             flagless.physics.flags = chosen.physics.flags;
             if shared.is_none() || flagless.strict() != chosen.strict() {
-                return Err(disagree("PMMP type or values"));
+                return Err(disagree("type or values"));
             }
             needed = true;
         }
-        if values.item != chosen.item || values.drops != chosen.drops {
+        if values.item != chosen.item {
             if shared.is_none() {
-                return Err(disagree("item form or drops"));
+                return Err(disagree("item form"));
             }
             needed = true;
             merged.item = ItemSource::BlockEntity;
-            merged.drops = Json::String(BLOCK_ENTITY_DROPS.to_owned());
         }
     }
     if let Some((name, kind, _)) = shared
         && needed
     {
         if merged.identity.kind != *kind {
-            return Err(format!("{} has no PMMP state of type {kind}", key.name));
+            return Err(format!("{} has no dump state of type {kind}", key.name));
         }
         used.insert(*name);
     }
-    Ok((merged, *meta))
+    Ok(merged)
 }
 
-/// Upgrades the PMMP states to 1.26.60: adds the new properties' defaults, then takes every value
-/// the reference list has for them. Every state must end up in the reference list, and an upgrade
-/// entry for a block PMMP lacks must still name a reference block (the schemas cover all of
-/// 1.26.60, PMMP part of it).
+/// Upgrades the dump states to the reference list's version: adds the new properties' defaults,
+/// then takes every value the reference list has for them. Every state must end up in the
+/// reference list, and an upgrade entry for a block the dump lacks must still name a reference
+/// block (the schemas cover the whole reference list, the dump part of it).
 fn upgrade(
-    pmmp: &BTreeMap<StateKey, (Values, i32)>,
+    dump: &BTreeMap<StateKey, Values>,
     added: &BTreeMap<String, Vec<(String, Prop)>>,
     network: &BTreeMap<StateKey, u32>,
     reference_names: &BTreeMap<String, Vec<StateKey>>,
@@ -1051,7 +1182,7 @@ fn upgrade(
     let mut used = BTreeSet::new();
     let mut states = BTreeMap::new();
     let mut defaults = BTreeMap::new();
-    for (key, (values, _)) in pmmp {
+    for (key, values) in dump {
         let Some(new) = added.get(&key.name) else {
             if !network.contains_key(key) {
                 return Err(format!(
@@ -1104,13 +1235,13 @@ fn upgrade(
         .keys()
         .find(|name| !used.contains(*name) && !reference_names.contains_key(*name))
     {
-        return Err(format!("{ADDING:?}: {name} is not a 1.26.60 block"));
+        return Err(format!("{ADDING:?}: {name} is not a reference block"));
     }
     Ok((states, defaults))
 }
 
 /// The physical values of an upgraded state. A fence's, pane's or stair's support and collision
-/// boxes come from the dumped variant whose client properties the state has: PMMP works the
+/// boxes come from the dumped variant whose client properties the state has: the dump works the
 /// connections and stair shape out from the neighbours, so the dumped state (unconnected,
 /// straight) does not have them.
 fn variant_physics(key: &StateKey, values: &Values) -> R<Physics> {
@@ -1369,8 +1500,8 @@ mod tests {
 
     use crate::r#gen::names::upper_camel;
 
-    /// A PMMP state's values: `kind`, its light emission, flags and item name.
-    fn values(kind: &str, light: u8, flags: &[&str], item: &str) -> (Values, i32) {
+    /// A dump state's values: `kind`, its light emission, flags and item name.
+    fn values(kind: &str, light: u8, flags: &[&str], item: &str) -> Values {
         let flags: Vec<String> = flags.iter().map(|f| (*f).to_owned()).collect();
         let physics = Physics::new(
             Break {
@@ -1378,22 +1509,18 @@ mod tests {
                 blast_resistance: 5.0,
                 tool_type: 0,
                 harvest_level: 0,
-                explosion_harvestable: false,
             },
-            (0, 0, false),
             &flags,
             0.6,
             &[],
             &["full"; 6].map(str::to_owned),
-            vec![[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]],
+            vec![UNIT_CUBE],
         )
         .unwrap();
-        let form = serde_json::json!({ "name": item, "meta": 0 });
-        let values = Values {
+        Values {
             light_emission: light,
             light_filter: 15,
             blocks_direct_sky_light: true,
-            ticks_randomly: false,
             connect: None,
             physics,
             identity: Identity {
@@ -1401,10 +1528,8 @@ mod tests {
                 classes: vec![upper_camel(kind), "Block".to_owned()],
                 traits: Vec::new(),
             },
-            item: ItemSource::Form(form.clone()),
-            drops: serde_json::json!({ "hand": { "items": [form] } }),
-        };
-        (values, 0)
+            item: ItemSource::Form(serde_json::json!({ "name": item, "meta": 0 })),
+        }
     }
 
     fn key(name: &str) -> StateKey {
@@ -1414,9 +1539,9 @@ mod tests {
         }
     }
 
-    /// The value check of overlapping PMMP states: any difference fails
-    /// generation unless `SHARED` names the Bedrock state, and there only the PMMP type, block
-    /// flags, item form and drops may differ.
+    /// The value check of overlapping dump states: any difference fails generation unless
+    /// `SHARED` names the Bedrock state, and there only the type, block flags and item form may
+    /// differ.
     #[test]
     fn overlapping_states_must_agree() {
         let mut used = BTreeSet::new();
@@ -1428,7 +1553,6 @@ mod tests {
             values("stone", 0, &["solid"], "a"),
             values("stone", 0, &[], "b"),
             values("granite", 0, &[], "a"),
-            (values("stone", 0, &[], "a").0, 1),
         ] {
             let group = vec![values("stone", 0, &[], "a"), other];
             let err = merge(&stone, &group, &mut used).unwrap_err();
@@ -1436,22 +1560,21 @@ mod tests {
         }
         assert!(used.is_empty());
 
-        // A bed's colour: the item forms differ, so the item and drops come from the block entity.
+        // A bed's colour: the item forms differ, so the item comes from the block entity.
         let bed = key("minecraft:bed");
         let group = vec![values("bed", 0, &[], "red"), values("bed", 0, &[], "blue")];
-        let (merged, _) = merge(&bed, &group, &mut used).unwrap();
+        let merged = merge(&bed, &group, &mut used).unwrap();
         assert_eq!(merged.item, ItemSource::BlockEntity);
-        assert_eq!(merged.drops, Json::String(BLOCK_ENTITY_DROPS.to_owned()));
         assert!(used.contains("minecraft:bed"));
         // A cauldron takes the water cauldron's type and flags whichever state comes first; the
         // potion cauldron may differ in flags but not in other values.
         let cauldron = key("minecraft:cauldron");
         let water = values("water_cauldron", 0, &["entity_collision"], "c");
         let group = vec![values("potion_cauldron", 0, &[], "c"), water.clone()];
-        let (merged, _) = merge(&cauldron, &group, &mut used).unwrap();
+        let merged = merge(&cauldron, &group, &mut used).unwrap();
         assert_eq!(merged.identity.kind, "water_cauldron");
-        assert_eq!(merged.physics, water.0.physics);
-        assert_eq!(merged.item, water.0.item);
+        assert_eq!(merged.physics, water.physics);
+        assert_eq!(merged.item, water.item);
         let group = vec![values("potion_cauldron", 3, &[], "c"), water];
         assert!(merge(&cauldron, &group, &mut used).is_err());
         let group = vec![
@@ -1461,8 +1584,8 @@ mod tests {
         assert!(merge(&cauldron, &group, &mut used).is_err());
     }
 
-    /// A wall hanging sign's inside-out bar becomes BDS's bar (`CloudburstMC` `blocks.json`
-    /// `collisionShape`, taken from BDS: facing north or south `[0, 0.875, 0.375, 1, 1, 0.625]`,
+    /// A wall hanging sign's inside-out bar becomes the official server's bar (the reference
+    /// `blocks.json` `collisionShape`: facing north or south `[0, 0.875, 0.375, 1, 1, 0.625]`,
     /// east or west `[0.375, 0.875, 0, 0.625, 1, 1]`); another class may not have one.
     #[test]
     fn only_known_classes_may_have_inside_out_boxes() {
@@ -1482,11 +1605,10 @@ mod tests {
         assert!(valid_boxes(&key("minecraft:stone"), &stone, north).is_err());
     }
 
-    /// A reference state PMMP reads as another becomes an alias of that state's Anchor state;
-    /// gen fails where PMMP reads a state as one with no Anchor state, reads an Anchor state as
-    /// another, or reads a state that is not an Anchor state as itself.
+    /// A reference state the dump reads as another becomes an alias of that state; gen fails
+    /// where the dump reads a state as one with no state, or reads a state as another.
     #[test]
-    fn aliases_need_an_anchor_state_for_what_pmmp_reads() {
+    fn aliases_need_a_state_for_what_the_dump_reads() {
         let facing = |f: &str| StateKey {
             name: "minecraft:pumpkin".to_owned(),
             properties: vec![(
@@ -1494,10 +1616,10 @@ mod tests {
                 Prop::String(f.to_owned()),
             )],
         };
-        let entry = |f: &str, pmmp: Option<&str>| Deserialized {
+        let entry = |f: &str, read_as: Option<&str>| Deserialized {
             name: "minecraft:pumpkin".to_owned(),
             states: serde_json::json!({ "minecraft:cardinal_direction": { "string": f } }),
-            pmmp: pmmp.map(|p| {
+            read_as: read_as.map(|p| {
                 serde_json::json!({
                     "name": "minecraft:pumpkin",
                     "states": { "minecraft:cardinal_direction": { "string": p } },
@@ -1505,35 +1627,81 @@ mod tests {
             }),
         };
         let network = BTreeMap::from([(facing("east"), 1), (facing("south"), 2)]);
-        let anchor = BTreeMap::from([(facing("south"), 7)]);
-        let pmmp = BTreeMap::from([(facing("south"), 7)]);
+        let states = BTreeMap::from([(facing("south"), 7)]);
+        let dump = BTreeMap::from([(facing("south"), 7)]);
+        let reading = |list: Vec<Deserialized>| dump_reading(list, &network).unwrap();
 
-        let aliases =
-            aliases(vec![entry("east", Some("south"))], &network, &anchor, &pmmp).unwrap();
-        assert_eq!(aliases.len(), 1);
+        let reading_east = reading(vec![entry("east", Some("south"))]);
+        let found = aliases(&reading_east, &network, &states, &dump).unwrap();
+        assert_eq!(found.len(), 1);
         assert_eq!(
-            (&aliases[0].key, aliases[0].network_id, aliases[0].state),
+            (&found[0].key, found[0].network_id, found[0].state),
             (&facing("east"), 1, 7)
         );
-        // Rejected: not an alias, and no Anchor state either (an unknown block).
+        // Rejected: not an alias.
+        let rejected = reading(vec![entry("east", None)]);
         assert!(
-            super::aliases(vec![entry("east", None)], &network, &anchor, &pmmp)
+            aliases(&rejected, &network, &states, &dump)
                 .unwrap()
                 .is_empty()
         );
-        // PMMP's state has no Anchor state.
-        let none = BTreeMap::new();
-        assert!(
-            super::aliases(vec![entry("east", Some("south"))], &network, &anchor, &none).is_err()
-        );
-        // An Anchor state read as another.
+        // The dump's state has no state.
+        assert!(aliases(&reading_east, &network, &states, &BTreeMap::new()).is_err());
+        // A state read as another.
         let both = BTreeMap::from([(facing("east"), 6), (facing("south"), 7)]);
-        assert!(
-            super::aliases(vec![entry("east", Some("south"))], &network, &both, &pmmp).is_err()
-        );
-        // Read as itself (not listed) but not an Anchor state.
-        assert!(super::aliases(Vec::new(), &network, &anchor, &pmmp).is_err());
+        assert!(aliases(&reading_east, &network, &both, &dump).is_err());
         // Not a reference state.
-        assert!(super::aliases(vec![entry("up", None)], &network, &anchor, &pmmp).is_err());
+        assert!(dump_reading(vec![entry("up", None)], &network).is_err());
+    }
+
+    /// The reference states the dump rejects are the unimplemented ones; gen fails where the dump
+    /// reads a state as itself but has no such state.
+    #[test]
+    fn unimplemented_keys_are_the_states_the_dump_rejects() {
+        let state = |name: &str| StateKey {
+            name: name.to_owned(),
+            properties: Vec::new(),
+        };
+        let network = BTreeMap::from([
+            (state("minecraft:a"), 1),
+            (state("minecraft:b"), 2),
+            (state("minecraft:c"), 3),
+        ]);
+        let states = BTreeMap::from([(state("minecraft:a"), values("a", 0, &[], "a"))]);
+        let reading = DumpReading::from([
+            (state("minecraft:b"), None),
+            (state("minecraft:c"), Some(state("minecraft:a"))),
+        ]);
+        assert_eq!(
+            unimplemented_keys(&network, &states, &reading).unwrap(),
+            [&state("minecraft:b")]
+        );
+        assert!(unimplemented_keys(&network, &states, &DumpReading::new()).is_err());
+    }
+
+    /// A state the dump does not have is solid when its only box is the whole cell, and is broken
+    /// by any tool in its hardness times the blast factor.
+    #[test]
+    fn unimplemented_values_follow_the_collision_boxes() {
+        let info_update = values("info_update", 0, &[], "a").identity;
+        let solid = unimplemented_values((2.0, 3, 15), &[UNIT_CUBE], &info_update).unwrap();
+        assert_eq!(solid.physics.flags, 0b1);
+        assert_eq!(solid.physics.full_faces(), 0b1111);
+        assert_eq!(solid.physics.break_info.blast_resistance, 10.0);
+        assert_eq!(solid.physics.break_info.tool_type, EVERY_TOOL);
+        assert_eq!(
+            (
+                solid.light_emission,
+                solid.light_filter,
+                solid.blocks_direct_sky_light
+            ),
+            (3, 15, true)
+        );
+        assert_eq!(solid.item, ItemSource::None);
+        let slab = [[0.0, 0.0, 0.0, 1.0, 0.5, 1.0]];
+        let open = unimplemented_values((0.5, 0, 0), &slab, &info_update).unwrap();
+        assert_eq!(open.physics.flags, 0b10);
+        assert_eq!(open.physics.full_faces(), 0);
+        assert!(!open.blocks_direct_sky_light);
     }
 }

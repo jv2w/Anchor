@@ -4,7 +4,7 @@
 //! with [`ServerBuilder::monitor`](crate::ServerBuilder::monitor), each put in its calling place
 //! as it is registered, and called only in the tick's serial step. Every listener sees
 //! the event, cancelled or not; one that should not act on a cancelled event checks
-//! `is_cancelled` (PMMP calls a listener on a cancelled event only with `@handleCancelled`).
+//! `is_cancelled`.
 //!
 //! How Anchor raises an event: it checks that the action may happen, builds the event, calls the
 //! listeners, checks again, applies the outcome and then calls the monitors. A listener gets a
@@ -13,12 +13,12 @@
 //! Monitors see the applied outcome through a shared [`Context`] and cannot change anything.
 //! Without listeners and monitors the event is never built.
 //!
-//! The events mirror PMMP's namespaces (`block`, `entity`, `inventory`, `player`, `server`,
-//! `world`) and are all reachable here, without the `Event` suffix of their PMMP names.
+//! The events are grouped by what they concern (`block`, `entity`, `inventory`, `player`,
+//! `server`, `world`) and are all reachable here.
 
 /// Writes `cancel`, `uncancel` and `is_cancelled` for each listed event, which has a
-/// `cancelled: bool` field. The three attributes after a name, when given, are the PMMP aliases of
-/// the three methods in that order.
+/// `cancelled: bool` field. The three attributes after a name, when given, are the API-table
+/// aliases of the three methods in that order.
 macro_rules! cancellable {
     ($($event:ident $(#[$cancel:meta] #[$uncancel:meta] #[$is:meta])?;)*) => {$(
         impl $event {
@@ -44,7 +44,7 @@ macro_rules! cancellable {
 }
 
 /// Writes getters that return the field of the same name: a reference when the type is written
-/// `&T`, a copy otherwise. The attributes (docs, PMMP aliases) go on the getter.
+/// `&T`, a copy otherwise. The attributes (docs, API-table aliases) go on the getter.
 macro_rules! getters {
     ($event:ident { $($items:tt)* }) => {
         impl $event {
@@ -70,8 +70,8 @@ macro_rules! getters {
     };
 }
 
-/// Writes setters that replace a field: `set_x => x: T`. The attributes (docs, PMMP aliases) go
-/// on the setter.
+/// Writes setters that replace a field: `set_x => x: T`. The attributes (docs, API-table aliases)
+/// go on the setter.
 macro_rules! setters {
     ($event:ident { $($(#[$attr:meta])* $setter:ident => $field:ident: $ty:ty,)* }) => {
         impl $event {
@@ -198,25 +198,11 @@ mod sealed {
     listeners! {
         area_effect_cloud_apply: super::AreaEffectCloudApply,
         block_break: super::BlockBreak,
-        block_burn: super::BlockBurn,
-        block_death: super::BlockDeath,
-        block_explode: super::BlockExplode,
-        block_form: super::BlockForm,
-        block_grow: super::BlockGrow,
-        block_melt: super::BlockMelt,
         block_place: super::BlockPlace,
-        block_pre_explode: super::BlockPreExplode,
-        block_spread: super::BlockSpread,
-        block_teleport: super::BlockTeleport,
-        block_update: super::BlockUpdate,
-        brew_item: super::BrewItem,
-        brewing_fuel_use: super::BrewingFuelUse,
-        campfire_cook: super::CampfireCook,
         chest_pair: super::ChestPair,
         chunk_load: super::ChunkLoad,
         chunk_unload: super::ChunkUnload,
         command: super::Command,
-        craft_item: super::CraftItem,
         entity_block_change: super::EntityBlockChange,
         entity_combust: super::EntityCombust,
         entity_damage: super::EntityDamage,
@@ -226,7 +212,6 @@ mod sealed {
         entity_effect_remove: super::EntityEffectRemove,
         entity_explode: super::EntityExplode,
         entity_extinguish: super::EntityExtinguish,
-        entity_frost_walker: super::EntityFrostWalker,
         entity_item_pickup: super::EntityItemPickup,
         entity_motion: super::EntityMotion,
         entity_pre_explode: super::EntityPreExplode,
@@ -234,22 +219,13 @@ mod sealed {
         entity_shoot_bow: super::EntityShootBow,
         entity_spawn: super::EntitySpawn,
         entity_teleport: super::EntityTeleport,
-        entity_trample_farmland: super::EntityTrampleFarmland,
-        farmland_hydration_change: super::FarmlandHydrationChange,
-        furnace_burn: super::FurnaceBurn,
-        furnace_smelt: super::FurnaceSmelt,
         inventory_close: super::InventoryClose,
         inventory_open: super::InventoryOpen,
         inventory_transaction: super::InventoryTransaction,
         item_despawn: super::ItemDespawn,
         item_merge: super::ItemMerge,
         item_spawn: super::ItemSpawn,
-        leaves_decay: super::LeavesDecay,
-        player_bed_enter: super::PlayerBedEnter,
-        player_bed_leave: super::PlayerBedLeave,
         player_block_pick: super::PlayerBlockPick,
-        player_bucket_empty: super::PlayerBucketEmpty,
-        player_bucket_fill: super::PlayerBucketFill,
         player_change_skin: super::PlayerChangeSkin,
         player_chat: super::PlayerChat,
         player_data_save: super::PlayerDataSave,
@@ -258,14 +234,12 @@ mod sealed {
         player_duplicate_login: super::PlayerDuplicateLogin,
         player_edit_book: super::PlayerEditBook,
         player_emote: super::PlayerEmote,
-        player_enchanting_options_request: super::PlayerEnchantingOptionsRequest,
         player_entity_interact: super::PlayerEntityInteract,
         player_entity_pick: super::PlayerEntityPick,
         player_exhaust: super::PlayerExhaust,
         player_game_mode_change: super::PlayerGameModeChange,
         player_interact: super::PlayerInteract,
         player_item_consume: super::PlayerItemConsume,
-        player_item_enchant: super::PlayerItemEnchant,
         player_item_held: super::PlayerItemHeld,
         player_item_use: super::PlayerItemUse,
         player_join: super::PlayerJoin,
@@ -277,7 +251,6 @@ mod sealed {
         player_post_chunk_send: super::PlayerPostChunkSend,
         player_quit: super::PlayerQuit,
         player_respawn: super::PlayerRespawn,
-        player_respawn_anchor_use: super::PlayerRespawnAnchorUse,
         player_toggle_flight: super::PlayerToggleFlight,
         player_toggle_glide: super::PlayerToggleGlide,
         player_toggle_sneak: super::PlayerToggleSneak,
@@ -291,7 +264,6 @@ mod sealed {
         projectile_launch: super::ProjectileLaunch,
         server_start: super::ServerStart,
         sign_change: super::SignChange,
-        structure_grow: super::StructureGrow,
         trade: super::Trade,
         trade_open: super::TradeOpen,
         world_init: super::WorldInit,
@@ -428,37 +400,30 @@ mod sealed {
 mod server;
 mod world;
 
-pub use block::{
-    BlockBreak, BlockBurn, BlockDeath, BlockExplode, BlockForm, BlockGrow, BlockMelt, BlockPlace,
-    BlockPreExplode, BlockSpread, BlockTeleport, BlockUpdate, BrewItem, BrewingFuelUse,
-    CampfireCook, ChestPair, FarmlandHydrationChange, LeavesDecay, SignChange, StructureGrow,
-};
+pub use block::{BlockBreak, BlockPlace, ChestPair, SignChange};
 pub(crate) use entity::Modifiers;
 pub use entity::{
     AreaEffectCloudApply, CombustSource, DamageCause, DamageModifier, DamageSource,
     EntityBlockChange, EntityCombust, EntityDamage, EntityDeath, EntityDespawn, EntityEffectAdd,
-    EntityEffectRemove, EntityExplode, EntityExtinguish, EntityFrostWalker, EntityItemPickup,
-    EntityMotion, EntityPreExplode, EntityRegainHealth, EntityShootBow, EntitySpawn,
-    EntityTeleport, EntityTrampleFarmland, ExtinguishCause, ItemDespawn, ItemMerge, ItemSpawn,
-    MAX_DAMAGE, MAX_FROST_WALKER_RADIUS, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
-    RegainReason, TeleportCause,
+    EntityEffectRemove, EntityExplode, EntityExtinguish, EntityItemPickup, EntityMotion,
+    EntityPreExplode, EntityRegainHealth, EntityShootBow, EntitySpawn, EntityTeleport,
+    ExtinguishCause, ItemDespawn, ItemMerge, ItemSpawn, MAX_DAMAGE, ProjectileHitBlock,
+    ProjectileHitEntity, ProjectileLaunch, RegainReason, TeleportCause,
 };
 pub use inventory::{
-    CraftItem, FurnaceBurn, FurnaceSmelt, Inventory, InventoryClose, InventoryOpen,
-    InventoryTransaction, SlotChange, Trade, TradeOpen, Window,
+    Inventory, InventoryClose, InventoryOpen, InventoryTransaction, SlotChange, Trade, TradeOpen,
+    Window,
 };
 pub(crate) use player::DuplicateOutcome;
 pub use player::{
-    BookAction, EnchantOption, ExhaustCause, InteractAction, KickFlag, PlayerBedEnter,
-    PlayerBedLeave, PlayerBlockPick, PlayerBucketEmpty, PlayerBucketFill, PlayerChangeSkin,
+    BookAction, ExhaustCause, InteractAction, KickFlag, PlayerBlockPick, PlayerChangeSkin,
     PlayerChat, PlayerDataSave, PlayerDeath, PlayerDropItem, PlayerDuplicateLogin, PlayerEditBook,
-    PlayerEmote, PlayerEnchantingOptionsRequest, PlayerEntityInteract, PlayerEntityPick,
-    PlayerExhaust, PlayerGameModeChange, PlayerInfo, PlayerInteract, PlayerItemConsume,
-    PlayerItemEnchant, PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerJump, PlayerKick,
-    PlayerLogin, PlayerMissSwing, PlayerMove, PlayerPostChunkSend, PlayerQuit, PlayerRespawn,
-    PlayerRespawnAnchorUse, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak,
+    PlayerEmote, PlayerEntityInteract, PlayerEntityPick, PlayerExhaust, PlayerGameModeChange,
+    PlayerInfo, PlayerInteract, PlayerItemConsume, PlayerItemHeld, PlayerItemUse, PlayerJoin,
+    PlayerJump, PlayerKick, PlayerLogin, PlayerMissSwing, PlayerMove, PlayerPostChunkSend,
+    PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak,
     PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerViewDistanceChange, PlayerXpChange,
-    RespawnAnchorAction,
+    QuitReason,
 };
 pub(crate) use sealed::Listeners;
 pub use server::{Command, ServerStart};
@@ -471,17 +436,13 @@ use std::fmt;
 use crate::math;
 use crate::tick::Context;
 
-/// PMMP `Explosion::DEFAULT_FIRE_CHANCE`: the share of destroyed blocks an incendiary explosion
-/// sets on fire, which [`EntityPreExplode::set_incendiary`],
-/// [`BlockPreExplode::set_incendiary`] and the explosion rules use.
+/// The share of destroyed blocks an incendiary explosion sets on fire, which
+/// [`EntityPreExplode::set_incendiary`] and the explosion rules use.
 pub(crate) const DEFAULT_FIRE_CHANCE: f64 = 1.0 / 3.0;
 /// The largest radius, in blocks, of an explosion: a listener's larger radius is cut to it.
 pub(crate) const MAX_EXPLOSION_RADIUS: f64 = 8.0;
-/// The longest fuel time a furnace or brewing stand keeps across a save, which writes it as a
-/// short: a listener's longer time is cut to it, so the live and the saved stand agree.
-const MAX_SAVED_FUEL_TIME: u32 = 32_767;
 
-/// A player or another entity: what PMMP calls an entity, which includes players.
+/// A player or another entity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Actor {
     /// A player.
@@ -494,7 +455,7 @@ pub enum Actor {
 /// [`Lowest`](Self::Lowest) to [`Highest`](Self::Highest), so a higher priority has the last say;
 /// listeners of equal priority run in registration order.
 ///
-/// PMMP's `MONITOR` is not a priority here: a monitor is registered with
+/// Monitoring is not a priority here: a monitor is registered with
 /// [`ServerBuilder::monitor`](crate::ServerBuilder::monitor), runs after the outcome is applied
 /// and gets only shared access, so it cannot change what it watches.
 #[doc(alias = "EventPriority")]

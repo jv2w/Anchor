@@ -2,21 +2,20 @@
 //!
 //! An explosion casts 1,352 rays from its centre; each ray starts with the size × 0.7 to 1.3
 //! (engine randomness) and loses force per 0.3-block step and per block by the block's blast
-//! resistance; the blocks it still has force for are destroyed through `interact::destroy_deferring_hooks`
-//! (drops with 1 / size chance, containers spill; TNT drops its own item like any block, so
-//! explosions never light more TNT). Entities and players within twice the size are hurt and
+//! resistance; the blocks it still has force for are destroyed through
+//! `interact::destroy_deferring_hooks` (drops with 1 / size chance, containers spill; TNT drops its
+//! own item like any block, so explosions never light more TNT). Entities and players within twice the size are hurt and
 //! pushed by their exposure (the share of rays from the centre to points of their box no block
 //! stops). With `fire`, a third of the destroyed blocks become fire where the block under them is
 //! a full top; that fire is a plain block, which never spreads or burns out.
 //!
-//! Bounds: the size is at most [`MAX_EXPLOSION_RADIUS`], so the block rays of one explosion look at no more
-//! than 1,352 × 47 cells (the exposure rays to each entity and player hit come on top); primed TNT
-//! and end crystals that died explode while the tick has done fewer than
+//! Bounds: the size is at most [`MAX_EXPLOSION_RADIUS`], so the block rays of one explosion look
+//! at no more than 1,352 × 47 cells (the exposure rays to each entity and player hit come on top);
+//! primed TNT and end crystals that died explode while the tick has done fewer than
 //! [`MAX_EXPLOSIONS_PER_TICK`] explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`] blocks,
 //! and wait otherwise (TNT with an empty fuse). A ray stops at a chunk that is not loaded and at a
-//! block clients do not know either, so an explosion never reaches past the loaded border; a
-//! block only clients know (inert) weakens a ray by its blast resistance and is never destroyed
-//! (`.claude/docs/data.md`). Clouds are not hurt by explosions (their box can be 128 blocks wide).
+//! state Anchor does not know, so an explosion never reaches past the loaded border. Clouds are
+//! not hurt by explosions (their box can be 128 blocks wide).
 //!
 //! The custom blocks an explosion destroys run their `on_break` hooks as one step after the
 //! explosion is over (its sound and monitors included), so a hook sees the whole explosion
@@ -240,10 +239,10 @@ fn has_budget(budget: &Budget) -> bool {
 }
 
 /// The explosive entity `id` explodes with `size` and goes, counted in the tick's `budget`:
-/// `EntityPreExplode` first, whose
-/// listeners may cancel it or change the radius, the fire chance and whether blocks break. It
-/// explodes where it is after the listeners: primed TNT half its height above its position, an
-/// end crystal at its position. A listener that takes it away cancels the explosion.
+/// `EntityPreExplode` first, whose listeners may cancel it or change the radius, the fire chance
+/// and whether blocks break. It explodes where it is after the listeners: primed TNT half its
+/// height above its position, an end crystal at its position. A listener that takes it away
+/// cancels the explosion.
 fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hooks) {
     budget.explosions += 1;
     let mut blast = Blast::new(size, false);
@@ -449,33 +448,27 @@ fn affected(
                 // cell is read, and tried for the list, only at the first: a straight ray never
                 // comes back to a cell it left, and it goes past that first step only with force
                 // left, so the cell was already tried there.
-                let mut cell: Option<(BlockPos, f64, bool)> = None;
+                let mut cell: Option<(BlockPos, f64)> = None;
                 while force > 0.0 {
                     let pos = BlockPos::containing(pointer);
                     pointer += shift;
                     if (MIN_Y..=MAX_Y).contains(&pos.y) {
-                        let repeat = cell.filter(|&(at, _, _)| at == pos);
-                        let (resistance, breaks) = if let Some((_, resistance, breaks)) = repeat {
-                            (resistance, breaks)
+                        let repeat = cell.filter(|&(at, _)| at == pos);
+                        let resistance = if let Some((_, resistance)) = repeat {
+                            resistance
                         } else {
-                            let read = match w.entry(pos) {
-                                Some(Entry::Known(block)) => {
-                                    (block.break_info().blast_resistance(), true)
-                                }
-                                // Only clients know it: it weakens the ray but never breaks.
-                                Some(Entry::Inert(block, _)) => {
-                                    (block.break_info().blast_resistance(), false)
-                                }
-                                // Clients do not know it either, or the chunk is not loaded:
+                            let resistance = match w.entry(pos) {
+                                Some(Entry::Known(block)) => block.break_info().blast_resistance(),
+                                // A state Anchor does not know, or a chunk that is not loaded:
                                 // the ray stops there, as physics walls such a cell.
                                 Some(Entry::Unknown(_)) | None => break,
                             };
-                            cell = Some((pos, read.0, read.1));
-                            read
+                            cell = Some((pos, resistance));
+                            resistance
                         };
                         if resistance >= 0.0 {
                             force -= (resistance / 5.0 + 0.3) * STEP;
-                            if breaks && force > 0.0 && repeat.is_none() && seen.insert(pos) {
+                            if force > 0.0 && repeat.is_none() && seen.insert(pos) {
                                 blocks.push(pos);
                                 if fire_chance > 0.0 && random.unit() <= fire_chance {
                                     ignitions.push(pos);
@@ -1140,33 +1133,23 @@ mod tests {
         assert!(lit > 0, "some fire ({} air)", burning.len());
     }
 
-    /// A wall of a block only clients know (moss carpet), as high and wide as the rays reach,
-    /// weakens the rays and stays, and the rays break what is behind it.
+    /// An explosion breaks a block without a dump type (moss) into air like any block, and it
+    /// drops nothing, as the block has no item.
     #[test]
-    fn rays_pass_inert_blocks_without_breaking_them() {
+    fn explosions_break_blocks_without_a_dump_type_and_drop_nothing() {
         let mut h = Harness::new(1);
-        let carpet = crate::nbt::Compound::from([(
-            "name".to_owned(),
-            crate::nbt::Value::String("minecraft:moss_carpet".to_owned()),
-        )]);
-        let is_wall =
-            |p: BlockPos| p.x == 1 && (-61..=-50).contains(&p.y) && (-6..=6).contains(&p.z);
-        for y in -61..=-50 {
-            for z in -6..=6 {
-                let entry = h.state.worlds[0]
-                    .put_unknown(BlockPos::new(1, y, z), carpet.clone())
-                    .unwrap();
-                assert!(matches!(entry, Entry::Inert(..)));
-            }
-        }
-        let mut r = Random::new(0, 0, 1);
-        let center = Vec3::new(0.5, -55.5, 0.5);
-        let (blocks, _) = affected(&h.state.worlds[0], center, 4.0, 0.0, &mut r);
+        h.spawn(1, standing(20.0, 20.0));
+        let (from, to) = (BlockPos::new(-2, -55, -2), BlockPos::new(2, -50, 2));
+        fill(&mut h, from, to, "minecraft:moss_block");
+        let center = Vec3::new(0.5, -52.5, 0.5);
+        size_four(&mut h, center);
+        let gone = air(&h, from, to);
         assert!(
-            blocks.iter().any(|p| p.x >= 2),
-            "the rays go on behind the wall"
+            gone.contains(&BlockPos::new(0, -53, 0)),
+            "the cell of the blast"
         );
-        assert!(!blocks.iter().any(|&p| is_wall(p)), "the inert blocks stay");
+        assert!(gone.contains(&BlockPos::new(1, -53, 0)), "a neighbour");
+        assert_eq!(h.ground(), 0, "no drops");
     }
 
     thread_local! {

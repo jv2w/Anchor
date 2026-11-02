@@ -30,7 +30,7 @@ use crate::custom;
 use crate::entity::MAX_SKIN_BYTES;
 use crate::event::{
     DuplicateOutcome, KickFlag, PlayerDuplicateLogin, PlayerInfo, PlayerJoin, PlayerLogin,
-    PlayerViewDistanceChange,
+    PlayerViewDistanceChange, QuitReason,
 };
 use crate::item::{self, SHIELD_RUNTIME_ID};
 use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
@@ -948,9 +948,8 @@ fn replace(
     }
     state.send_off(
         existing,
-        reason,
+        QuitReason::Replaced(reason.to_owned()),
         super::player::LEFT.to_owned(),
-        super::player::QuitCause::Disconnect,
         packet,
         output,
     );
@@ -1718,7 +1717,7 @@ mod tests {
         fn a_plugin_kick_flag_refuses_the_join_and_changes_nothing() {
             let refuse = |e: &mut PlayerLogin, _: &mut Context<'_>| {
                 e.set_kick_flag(
-                    KickFlag::Plugin,
+                    KickFlag::Listener,
                     "closed",
                     Some("Come back later".to_owned()),
                 );
@@ -1934,7 +1933,7 @@ mod tests {
                 listeners.push(
                     Priority::Normal,
                     |e: &mut PlayerQuit, _: &mut Context<'_>| {
-                        log(e.quit_reason().to_owned());
+                        log(e.reason().to_string());
                     },
                 );
                 let mut state = state(|_| {}, listeners);
@@ -1943,7 +1942,7 @@ mod tests {
                 run(&mut state, Vec::new());
                 let (b, _rx2) = join_as(2, identity("alex", None));
                 run(&mut state, vec![b]);
-                assert_eq!(logged(), ["moved"], "{screen:?}");
+                assert_eq!(logged(), ["replaced: moved"], "{screen:?}");
                 let (_, close, _) = received(&mut rx1);
                 assert!(
                     matches!(close, Some(Packet::Disconnect(d)) if d.message == shown),
@@ -1975,7 +1974,7 @@ mod tests {
         #[test]
         fn a_login_refusal_message_is_cut_to_the_text_limit() {
             let listeners = on(|e: &mut PlayerLogin, _: &mut Context<'_>| {
-                e.set_kick_flag(KickFlag::Plugin, "x".repeat(MAX_TEXT + 1), None);
+                e.set_kick_flag(KickFlag::Listener, "x".repeat(MAX_TEXT + 1), None);
             });
             let mut state = state(|_| {}, listeners);
             let (a, mut rx) = join_as(1, identity("Alex", None));

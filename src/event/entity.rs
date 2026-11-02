@@ -1,10 +1,9 @@
-//! Entity events (PMMP `pocketmine\event\entity`): damage, death, spawning, explosions and the
-//! other things that happen to entities.
+//! Entity events: damage, death, spawning, explosions and the other things that happen to
+//! entities.
 //!
-//! PMMP's entities include players, so most of these events name an [`Actor`]. PMMP's subclass
-//! trees are one event here with an enum for the subclass: [`EntityDamage`] has a
-//! [`DamageSource`] (PMMP `EntityDamageByEntityEvent` and the others), [`EntityCombust`] a
-//! [`CombustSource`].
+//! Players count as entities, so most of these events name an [`Actor`]. A family of related
+//! events is one event with an enum for the variant: [`EntityDamage`] has a [`DamageSource`],
+//! [`EntityCombust`] a [`CombustSource`].
 
 use super::{Actor, fire_chance_after, set_clamped, set_radius};
 use crate::block::State;
@@ -20,9 +19,6 @@ use crate::world::{self, BlockPos};
 /// keeps every sum of a hit (Strength up to level 256, armour, eleven modifiers) far below 2^53,
 /// where `f64` would round a totem's health − 1 away and the totem would not save its holder.
 pub const MAX_DAMAGE: f64 = 16_777_216.0;
-/// The largest radius [`EntityFrostWalker::set_radius`] takes: a square of 33 × 33 blocks (PMMP
-/// has no limit; Frost Walker II freezes a radius of 4).
-pub const MAX_FROST_WALKER_RADIUS: u32 = 16;
 /// The most a listener may set a hit's knockback force or its upward limit to, either way, in
 /// blocks per tick: the client applies the motion as sent, and a packet carries `f32`.
 const MAX_KNOCKBACK: f64 = 16.0;
@@ -113,7 +109,7 @@ getters!(EntityCombust {
 });
 
 setters!(EntityCombust {
-    /// Sets how long it burns, in seconds.
+    /// Sets how long it burns, in seconds. 0 burns nothing, as a cancel does.
     #[doc(alias = "EntityCombustEvent::setDuration")]
     set_duration_secs => duration_secs: u32,
 });
@@ -125,7 +121,7 @@ cancellable! {
         #[doc(alias = "EntityCombustEvent::isCancelled")];
 }
 
-/// What sets something on fire (PMMP `EntityCombustByBlockEvent`, `EntityCombustByEntityEvent`).
+/// What sets something on fire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CombustSource {
     /// A block: fire, lava or a lava cauldron at this position.
@@ -284,8 +280,9 @@ cancellable! {
         #[doc(alias = "EntityDamageEvent::isCancelled")];
 }
 
-/// Why a player or an entity takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
+/// Why a player or an entity takes damage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DamageCause {
     /// Touching a block that hurts: cactus, a sweet berry bush past its first stage (with or
     /// without berries).
@@ -315,7 +312,7 @@ pub enum DamageCause {
     /// Under water without air.
     #[doc(alias = "EntityDamageEvent::CAUSE_DROWNING")]
     Drowning,
-    /// An exploding block.
+    /// An explosion no entity caused, as [`Context::explode`](crate::Context::explode) makes.
     #[doc(alias = "EntityDamageEvent::CAUSE_BLOCK_EXPLOSION")]
     BlockExplosion,
     /// An exploding entity (TNT).
@@ -343,8 +340,7 @@ pub enum DamageCause {
 }
 
 impl DamageCause {
-    /// Whether armour reduces damage of this cause (PMMP
-    /// `EntityDamageEvent::canBeReducedByArmor`): the one rule for listeners and the tick.
+    /// Whether armour reduces damage of this cause: the one rule for listeners and the tick.
     pub(crate) fn is_reduced_by_armor(self) -> bool {
         !matches!(
             self,
@@ -360,13 +356,12 @@ impl DamageCause {
     }
 }
 
-/// What deals damage (PMMP `EntityDamageByBlockEvent`, `EntityDamageByEntityEvent`,
-/// `EntityDamageByChildEntityEvent`).
+/// What deals damage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageSource {
     /// Nothing in particular: a fall, drowning, food, an effect.
     None,
-    /// The block at this position: a cactus, magma, a campfire.
+    /// The block at this position: a cactus, magma, a lit campfire.
     Block(BlockPos),
     /// A player's or an entity's hit, or an exploding entity.
     Entity(Actor),
@@ -379,8 +374,8 @@ pub enum DamageSource {
     },
 }
 
-/// A change to damage on top of the base damage (PMMP `EntityDamageEvent::MODIFIER_*`). The final
-/// damage is the base damage plus every applicable modifier, so a reduction is negative.
+/// A change to damage on top of the base damage. The final damage is the base damage plus every
+/// applicable modifier, so a reduction is negative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DamageModifier {
     /// Armour points.
@@ -638,8 +633,9 @@ getters!(EntityExtinguish {
     cause: ExtinguishCause,
 });
 
-/// Why a fire went out (PMMP `EntityExtinguishEvent::CAUSE_*`).
+/// Why a fire went out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ExtinguishCause {
     /// Water.
     #[doc(alias = "EntityExtinguishEvent::CAUSE_WATER")]
@@ -658,68 +654,8 @@ pub enum ExtinguishCause {
     Ticking,
 }
 
-/// Raised when a player wearing Frost Walker boots moves, before the water around its feet
-/// freezes. Cancelling freezes nothing.
-#[doc(alias = "EntityFrostWalkerEvent")]
-#[derive(Debug)]
-pub struct EntityFrostWalker {
-    pub(crate) entity: Actor,
-    pub(crate) world: world::Id,
-    pub(crate) radius: u32,
-    pub(crate) liquid: State,
-    pub(crate) target_block: State,
-    pub(crate) cancelled: bool,
-}
-
-getters!(EntityFrostWalker {
-    /// Who walks.
-    entity: Actor,
-    /// The world it walks in.
-    world: world::Id,
-    /// How far from the block under its feet the water freezes, in blocks along each axis.
-    #[doc(alias = "EntityFrostWalkerEvent::getRadius")]
-    radius: u32,
-    /// The liquid that freezes: a water source.
-    #[doc(alias = "EntityFrostWalkerEvent::getLiquid")]
-    liquid: State,
-    /// What the liquid becomes: frosted ice.
-    #[doc(alias = "EntityFrostWalkerEvent::getTargetBlock")]
-    target_block: State,
-});
-
-impl EntityFrostWalker {
-    /// Sets the liquid that freezes: any state of water or lava. Another block is ignored.
-    #[doc(alias = "EntityFrostWalkerEvent::setLiquid")]
-    pub fn set_liquid(&mut self, liquid: State) {
-        if liquid.is(crate::block::Class::Liquid) {
-            self.liquid = liquid;
-        }
-    }
-
-    /// Sets the radius. One above [`MAX_FROST_WALKER_RADIUS`] is ignored.
-    #[doc(alias = "EntityFrostWalkerEvent::setRadius")]
-    pub fn set_radius(&mut self, radius: u32) {
-        if radius <= MAX_FROST_WALKER_RADIUS {
-            self.radius = radius;
-        }
-    }
-}
-
-setters!(EntityFrostWalker {
-    /// Sets what the liquid becomes.
-    #[doc(alias = "EntityFrostWalkerEvent::setTargetBlock")]
-    set_target_block => target_block: State,
-});
-
-cancellable! {
-    EntityFrostWalker
-        #[doc(alias = "EntityFrostWalkerEvent::cancel")]
-        #[doc(alias = "EntityFrostWalkerEvent::uncancel")]
-        #[doc(alias = "EntityFrostWalkerEvent::isCancelled")];
-}
-
 /// Raised when a player picks up a dropped item, an arrow or a thrown trident (not an XP
-/// orb, as in PMMP). Cancelling leaves it where it is.
+/// orb). Cancelling leaves it where it is.
 #[doc(alias = "EntityItemPickupEvent")]
 #[derive(Debug)]
 pub struct EntityItemPickup {
@@ -898,8 +834,9 @@ cancellable! {
         #[doc(alias = "EntityRegainHealthEvent::isCancelled")];
 }
 
-/// Why a player or an entity heals (PMMP `EntityRegainHealthEvent::CAUSE_*`).
+/// Why a player or an entity heals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum RegainReason {
     /// The Regeneration effect.
     #[doc(alias = "EntityRegainHealthEvent::CAUSE_REGEN")]
@@ -1022,6 +959,7 @@ cancellable! {
 
 /// Why a player teleports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TeleportCause {
     /// Its ender pearl landed.
     EnderPearl,
@@ -1029,37 +967,6 @@ pub enum TeleportCause {
     Command,
     /// An [`action::Teleport`](crate::action::Teleport).
     Action,
-}
-
-/// Raised when a player or an entity lands on farmland hard enough to trample it to dirt.
-/// Cancelling keeps the farmland.
-#[doc(alias = "EntityTrampleFarmlandEvent")]
-#[derive(Debug)]
-pub struct EntityTrampleFarmland {
-    pub(crate) entity: Actor,
-    pub(crate) world: world::Id,
-    pub(crate) pos: BlockPos,
-    pub(crate) block: State,
-    pub(crate) cancelled: bool,
-}
-
-getters!(EntityTrampleFarmland {
-    /// Who lands.
-    entity: Actor,
-    /// The world of the farmland.
-    world: world::Id,
-    /// Where the farmland is.
-    pos: BlockPos,
-    /// The farmland.
-    #[doc(alias = "EntityTrampleFarmlandEvent::getBlock")]
-    block: State,
-});
-
-cancellable! {
-    EntityTrampleFarmland
-        #[doc(alias = "EntityTrampleFarmlandEvent::cancel")]
-        #[doc(alias = "EntityTrampleFarmlandEvent::uncancel")]
-        #[doc(alias = "EntityTrampleFarmlandEvent::isCancelled")];
 }
 
 /// Raised when a dropped item is about to vanish after its time on the ground. Cancelling gives
@@ -1390,7 +1297,7 @@ mod tests {
     // api: EntityDamageEvent::CAUSE_MAGIC, EntityDamageEvent::CAUSE_CUSTOM,
     // api: EntityDamageEvent::CAUSE_STARVATION, EntityDamageEvent::CAUSE_FALLING_BLOCK
     #[test]
-    fn armor_reduces_the_causes_pmmp_lets_it_reduce() {
+    fn armor_reduces_only_the_causes_it_can() {
         use DamageCause::*;
         let reduced = [
             Contact,
@@ -1760,26 +1667,6 @@ mod tests {
         e.set_target(WORLD, Vec3::new(9.0, 9.0, 9.0));
         e.set_target(WORLD, Vec3::new(f64::NAN, 0.0, 0.0));
         assert_eq!(e.target(), Vec3::new(9.0, 9.0, 9.0));
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
-    // api: EntityTrampleFarmlandEvent, EntityTrampleFarmlandEvent::getBlock,
-    // api: EntityTrampleFarmlandEvent::cancel, EntityTrampleFarmlandEvent::uncancel,
-    // api: EntityTrampleFarmlandEvent::isCancelled
-    #[test]
-    fn entity_trample_farmland_names_the_farmland() {
-        let mut e = EntityTrampleFarmland {
-            entity: Actor::Player(player(1)),
-            world: WORLD,
-            pos: POS,
-            block: DIRT,
-            cancelled: false,
-        };
-        assert_eq!(e.entity(), Actor::Player(player(1)));
-        assert_eq!((e.world(), e.pos(), e.block()), (WORLD, POS, DIRT));
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();

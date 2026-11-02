@@ -3,11 +3,11 @@
 //! so the tick runs them on the CPU pool and applies the results in entity order.
 //! Only `crate::math` arithmetic is used, so the bits do not depend on the platform or the thread.
 //!
-//! Blocks of chunks that are not loaded, and states neither Anchor nor clients know, are full
-//! cubes; a block only clients know (an inert block) uses its collision boxes. A move stops at the
-//! border of a chunk that is not loaded even when the box already reaches into it: an entity
-//! never moves into a chunk that is not loaded (a projectile sticks at its border). Positions of
-//! loaded chunks above or below the world height are air, so entities fall out of the world.
+//! Blocks of chunks that are not loaded, and states Anchor does not know, are full cubes. A move
+//! stops at the border of a chunk that is not loaded even when the box already reaches into it:
+//! an entity never moves into a chunk that is not loaded (a projectile sticks at its border).
+//! Positions of loaded chunks above or below the world height are air, so entities fall out of
+//! the world.
 //!
 //! Projectiles move along a ray that stops at the first block it meets; the entities on the ray
 //! are found in the serial phase, where the other entities' places are final.
@@ -286,9 +286,7 @@ enum Cell {
     Outside,
     /// A known block.
     Block(block::State),
-    /// A block only clients know: its collision boxes, nothing else (no liquid flows into it).
-    Inert(block::Inert),
-    /// A chunk that is not loaded or a state neither Anchor nor clients know: a full cube.
+    /// A chunk that is not loaded or a state Anchor does not know: a full cube.
     Wall,
 }
 
@@ -298,7 +296,6 @@ impl Cell {
         match self {
             Self::Outside | Self::Wall => None,
             Self::Block(state) => Some(state.collision_boxes()),
-            Self::Inert(state) => Some(state.collision_boxes()),
         }
     }
 }
@@ -370,7 +367,7 @@ fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &m
         let p = body.position;
         let below = BlockPos::containing(Vec3::new(p.x, p.y - 1.0, p.z));
         let below = match cell(world, below.x, below.y, below.z) {
-            Cell::Outside | Cell::Inert(_) | Cell::Wall => block::AIR.friction_factor(),
+            Cell::Outside | Cell::Wall => block::AIR.friction_factor(),
             Cell::Block(state) => state.friction_factor(),
         };
         friction *= below;
@@ -635,7 +632,7 @@ fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
             let flowable = match side {
                 Cell::Outside => true,
                 Cell::Block(state) => state.can_be_flowed_into(),
-                Cell::Inert(_) | Cell::Wall => false,
+                Cell::Wall => false,
             };
             if !flowable {
                 continue;
@@ -687,7 +684,7 @@ fn can_flow_into(cell: Cell) -> bool {
                     !falling && decay == 0
                 })
         }
-        Cell::Inert(_) | Cell::Wall => false,
+        Cell::Wall => false,
     }
 }
 
@@ -768,7 +765,6 @@ pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
     match cell(world, x, y, z) {
         Cell::Outside => false,
         Cell::Block(state) => state.is_solid(),
-        Cell::Inert(state) => state.is_solid(),
         Cell::Wall => true,
     }
 }
@@ -992,7 +988,6 @@ fn cell(world: &World, x: i32, y: i32, z: i32) -> Cell {
     match world.entry(BlockPos::new(x, y, z)) {
         Some(Entry::Known(state)) => Cell::Block(state),
         Some(Entry::Unknown(_)) | None => Cell::Wall,
-        Some(Entry::Inert(state, _)) => Cell::Inert(state),
     }
 }
 
@@ -1180,17 +1175,13 @@ pub(super) mod tests {
         }
     }
 
-    /// A block only clients know (inert) has its collision boxes: an item comes to rest on moss
-    /// carpet (1/16 high), not on a full cube.
+    /// A block without a dump type has its collision boxes: an item comes to rest on moss carpet
+    /// (1/16 high), not on a full cube.
     #[test]
-    fn an_item_rests_on_the_collision_box_of_an_inert_block() {
+    fn an_item_rests_on_the_collision_box_of_a_block_without_a_dump_type() {
         let mut w = flat();
-        let carpet = crate::nbt::Compound::from([(
-            "name".to_owned(),
-            crate::nbt::Value::String("minecraft:moss_carpet".to_owned()),
-        )]);
-        let entry = w.put_unknown(BlockPos::new(0, -60, 0), carpet).unwrap();
-        assert!(matches!(entry, Entry::Inert(..)));
+        w.set_block(BlockPos::new(0, -60, 0), named("minecraft:moss_carpet"))
+            .unwrap();
         let start = Body {
             position: Vec3::new(0.5, -58.0, 0.5),
             ..Body::default()

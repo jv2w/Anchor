@@ -172,7 +172,7 @@ fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
     let past = BlockPos::new(world::BORDER, -60, 0);
     assert_eq!(
         cx.create_world("x", &arena(1).with_spawn(past)),
-        Err(world::Error::OutOfRange)
+        Err(world::Error::InvalidSettings)
     );
     assert_eq!(
         cx.load_world("nowhere", &Options::new()),

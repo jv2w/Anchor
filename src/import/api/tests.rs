@@ -1,10 +1,9 @@
 //! The import's run on chunks given directly: conversion, the report, steps, threads, failures,
-//! the spawn height and the BDS fixture's blocks.
+//! the spawn height and the fixture's blocks.
 
 use std::sync::Arc;
 
 use super::*;
-use crate::block::Inert;
 use crate::import::chunk::Section;
 use crate::import::tests::FIXTURE;
 use crate::nbt::List;
@@ -12,7 +11,7 @@ use crate::storage::codec::ExtraRecord;
 use crate::storage::seal::unseal;
 use crate::storage::tests::{Disk, Fault, memory};
 use crate::storage::{ChunkId, ChunkKey, ChunkPart, StartBackup};
-use crate::world::{Flat, Generator, Kind, Void};
+use crate::world::{Entry, Flat, Generator, Kind, Void};
 
 /// The name of the world the tests import.
 const NAME: &str = "imported";
@@ -258,11 +257,11 @@ fn known(nbt: &Compound) -> crate::block::State {
 }
 
 /// Kelp and seagrass in water (layer 1) and a block no client knows: the import keeps both
-/// layers and their NBT; read back from the world file, kelp and seagrass are inert (sent as
-/// the reference list's IDs, which BDS sends) over their water, and the report counts them apart
-/// from the update! block.
+/// layers; read back from the world file, kelp and seagrass are states of the table (with the
+/// reference list's IDs) over their water, and only the update! block is unknown, kept with its
+/// NBT and counted in the report.
 #[test]
-fn blocks_only_clients_know_import_inert_over_their_water_and_are_counted_apart() {
+fn table_blocks_import_over_their_water_and_only_unknown_blocks_are_counted() {
     let mut storage = memory(&Disk::default());
     let kelp = state("minecraft:kelp", &[("kelp_age", Value::Int(3))]);
     let seagrass = state("minecraft:seagrass", &[("sea_grass_type", s("default"))]);
@@ -303,32 +302,31 @@ fn blocks_only_clients_know_import_inert_over_their_water_and_are_counted_apart(
         &BTreeMap::from([((0, 0), raw)]),
         [0, 70, 0],
     );
-    assert_eq!((report.inert_blocks(), report.placeholder_blocks()), (3, 1));
+    assert_eq!(
+        report.unknown_blocks(),
+        &BTreeMap::from([("anchor:nope".to_owned(), 1)])
+    );
     let (chunk, _) = read_chunk(&mut storage, 0, 0, 0);
     let layers = chunk.sub_chunk(0).unwrap().layers();
     let at = |layer: usize, x, y, z| layers[layer].get(offset(x, y, z));
-    // The reference list's (and BDS's) IDs of `kelp_age` 3 and default seagrass.
+    // The reference list's IDs of `kelp_age` 3 and default seagrass.
     assert_eq!(at(0, 0, 0, 0).network_id(), 3_718_566_417);
     assert_eq!(at(0, 0, 1, 0).network_id(), 3_718_566_417);
-    assert!(matches!(at(0, 1, 0, 0), Entry::Inert(..)));
-    assert_eq!(
-        at(0, 1, 0, 0).network_id(),
-        Inert::from_nbt(&seagrass).unwrap().network_id()
-    );
+    assert_eq!(at(0, 1, 0, 0), Entry::Known(known(&seagrass)));
     assert_eq!(
         at(0, 2, 0, 0).network_id(),
         crate::block::INFO_UPDATE.network_id()
     );
     let water = Entry::Known(known(&water));
     assert_eq!([at(1, 0, 0, 0), at(1, 0, 1, 0), at(1, 1, 0, 0)], [water; 3]);
-    // The NBT is kept (upgraded), so a save writes it back.
-    let kept = |c: &Compound| {
+    // The unknown block's NBT is kept, so a save writes it back.
+    let nope = state("anchor:nope", &[]);
+    assert!(
         chunk
             .unknown()
             .iter()
-            .any(|k| k.get("name") == c.get("name") && k.get("states") == c.get("states"))
-    };
-    assert!(kept(&kelp) && kept(&seagrass));
+            .any(|k| k.get("name") == nope.get("name") && k.get("states") == nope.get("states"))
+    );
 }
 
 #[test]
@@ -409,8 +407,6 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
             ("legacy:1:15".to_owned(), 1),
         ]),
         unlisted_unknown_blocks: 0,
-        inert_blocks: 0,
-        placeholder_blocks: 2,
         spawn: BlockPos::new(10, 70, -20),
     };
     assert_eq!(report, expected);
@@ -493,10 +489,10 @@ fn the_report_lists_unknown_names_only_up_to_its_count_and_byte_caps_and_counts_
     }
 }
 
-/// PMMP ignores a pumpkin's facing (a dummy property) and reads every facing as its pumpkin, which
-/// faces south; a state PMMP rejects stays an unknown block.
+/// A pumpkin's facing is a dummy property: every facing reads as the one pumpkin, which faces
+/// south; a state outside the table stays an unknown block.
 #[test]
-fn a_pumpkin_of_any_facing_imports_as_pmmp_pumpkin_and_a_state_pmmp_rejects_stays_unknown() {
+fn a_pumpkin_of_any_facing_imports_as_the_pumpkin_and_a_state_outside_the_table_stays_unknown() {
     let disk = Disk::default();
     let mut storage = memory(&disk);
     let saved = |mut c: Compound| {
@@ -512,10 +508,7 @@ fn a_pumpkin_of_any_facing_imports_as_pmmp_pumpkin_and_a_state_pmmp_rejects_stay
             &[("minecraft:cardinal_direction", s(facing))],
         ))
     };
-    let column = saved(state(
-        "minecraft:bubble_column",
-        &[("drag_down", Value::Byte(0))],
-    ));
+    let column = saved(state("anchor:nope", &[]));
     let facings = ["north", "east", "south", "west"];
     let raw = Raw {
         sections: vec![
@@ -571,7 +564,7 @@ fn a_pumpkin_of_any_facing_imports_as_pmmp_pumpkin_and_a_state_pmmp_rejects_stay
     );
     assert_eq!(
         report.unknown_blocks(),
-        &BTreeMap::from([("minecraft:bubble_column".to_owned(), 1)])
+        &BTreeMap::from([("anchor:nope".to_owned(), 1)])
     );
 }
 
@@ -1058,7 +1051,7 @@ fn measure_100k_chunk_import() {
 }
 
 #[test]
-fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
+fn the_official_server_fixture_imports_with_every_block_known_and_in_place() {
     let dir = crate::save::tests::TempDir::new("import-fixture");
     let data = dir.0.join("data");
     let report = run(
@@ -1098,7 +1091,7 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
                 .unwrap();
             for (layer, stored) in section.layers.iter().zip(sub.layers()) {
                 let Layer::Paletted(layer) = layer else {
-                    panic!("BDS writes paletted layers");
+                    panic!("the official server writes paletted layers");
                 };
                 let indices: Vec<u16> = (0..u16::try_from(layer.palette.len()).unwrap()).collect();
                 let cube = Paletted::from_parts(layer.bits, &layer.words, &indices).unwrap();
@@ -1155,7 +1148,8 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
     for (x, z) in [(-198, 8), (-5, -44)] {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
         let (chunk, [block_entities, entities]) = read_chunk(&mut storage, record.number, x, z);
-        // Every compound whole (the signs' text, the pot's plant, the furnace's state), upgraded.
+        // Every compound whole (the signs' text, the pot's plant, the kinds Anchor keeps as they
+        // came), upgraded.
         let mut expected = raw.block_entities.clone();
         for c in &mut expected {
             upgrade::nbt(c);
@@ -1180,10 +1174,7 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
                     Some(known) => assert_eq!(stored, Entry::Known(known), "({x}, {z}) {offset}"),
                     None => assert_eq!(
                         stored.unknown_index().map(|_| stored.network_id()),
-                        Some(match Inert::from_nbt(&state) {
-                            Some(inert) => inert.network_id(),
-                            None => crate::block::INFO_UPDATE.network_id(),
-                        }),
+                        Some(crate::block::INFO_UPDATE.network_id()),
                         "({x}, {z}) {offset}"
                     ),
                 }

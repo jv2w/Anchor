@@ -332,10 +332,10 @@ impl Context<'_> {
     /// runs a world of that name or `data/worlds/` held one it could read at start
     /// ([`is_world_generated`](Self::is_world_generated)), also in another letter case,
     /// [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
-    /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value of
+    /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value or the spawn of
     /// [`Options::settings`](world::Options::settings) out of its range,
-    /// [`OutOfRange`](world::Error::OutOfRange) for a spawn (the options' or the generator's)
-    /// where a player would stand outside the world border, and [`Full`](world::Error::Full) past
+    /// [`OutOfRange`](world::Error::OutOfRange) for a generator's spawn where a player would
+    /// stand outside the world border, and [`Full`](world::Error::Full) past
     /// the most worlds a run names, or, for a persistent world, past as many world files: those of
     /// the run's persistent worlds and those `data/worlds/` held at start, damaged ones too. A
     /// file put there while the server runs (an import) is not counted: past the most, the save

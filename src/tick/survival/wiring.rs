@@ -16,7 +16,7 @@ use crate::event::{
     PlayerExhaust, PlayerGameModeChange, PlayerItemConsume, PlayerJump, PlayerKick,
     PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide,
     PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerXpChange,
-    Priority, TeleportCause,
+    Priority, QuitReason, TeleportCause,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -1408,12 +1408,8 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
     listeners.push(
         Priority::Normal,
         move |e: &mut PlayerQuit, _: &mut Context<'_>| {
-            tx.try_send((
-                e.player(),
-                e.quit_reason().to_owned(),
-                e.quit_message().to_owned(),
-            ))
-            .unwrap();
+            tx.try_send((e.player(), e.reason().clone(), e.quit_message().to_owned()))
+                .unwrap();
         },
     );
     let mut game = Game::new(2, listeners);
@@ -1426,7 +1422,11 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
     assert_eq!(texts(&game.take(2)), ["player1 was kicked"]);
     assert_eq!(
         drain(&mut seen),
-        [(pid(1), "rules".to_owned(), "player1 was kicked".to_owned())]
+        [(
+            pid(1),
+            QuitReason::Kicked("rules".to_owned()),
+            "player1 was kicked".to_owned()
+        )]
     );
     // A direct kick raises no `PlayerKick`, but its leaving raises `PlayerQuit`.
     game.player_mut(2).kick("direct").unwrap();
@@ -1435,7 +1435,7 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
         drain(&mut seen),
         [(
             pid(2),
-            "direct".to_owned(),
+            QuitReason::Kicked("direct".to_owned()),
             crate::tick::player::LEFT.to_owned()
         )]
     );

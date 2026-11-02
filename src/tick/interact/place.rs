@@ -165,7 +165,7 @@ pub(super) fn placement(
     click: Vec3,
     placer: Option<&Placer>,
 ) -> Option<Blocks> {
-    let clicked_state = placed_on(world, clicked)?;
+    let clicked_state = world.block(clicked)?;
     if clicked_state == block::AIR {
         return None;
     }
@@ -186,7 +186,7 @@ pub(super) fn placement(
         return Some(blocks);
     }
     let replace = clicked.step(face)?;
-    placed_on(world, replace)?;
+    world.block(replace)?;
     let next = attempt(replace, face);
     if !takes(&next) {
         return None;
@@ -684,21 +684,14 @@ fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
 }
 
 /// The block at `pos`, air where there is none (an unloaded chunk, outside the world), so the
-/// rules never load a chunk. An inert block reads as its stand-in ([`block::Inert::stand_in`])
-/// and an unknown state as bedrock (solid and full), neither of which a placement replaces.
+/// rules never load a chunk. An unknown state reads as bedrock (solid and full), which a
+/// placement does not replace.
 pub(crate) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
     match pos.and_then(|p| world.entry(p)) {
         Some(Entry::Known(s)) => s,
-        Some(Entry::Inert(s, _)) => s.stand_in(),
         Some(Entry::Unknown(_)) => block::BEDROCK,
         None => block::AIR,
     }
-}
-
-/// The block at `pos` as placements see it: an inert block as its stand-in; `None` if the chunk
-/// is not loaded, `pos` is outside the world height or the state is unknown.
-pub(super) fn placed_on(world: &World, pos: BlockPos) -> Option<State> {
-    world.entry(pos)?.stand_in()
 }
 
 #[cfg(test)]

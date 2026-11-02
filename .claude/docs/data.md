@@ -8,8 +8,8 @@ The data is what the dump source's own registries hold when its dump PHP runs th
 
 | Source | Pin | License | Used for |
 |---|---|---|---|
-| pmmp/PocketMine-MP | commit `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb` (after 5.44.3, Bedrock 1.26.30 data) | LGPL-3.0, archived | The dump source: block and item kinds and behavior, recipes, the creative inventory, effect and enchantment tables, goldens |
-| pocketmine/bedrock-data | 6.7.0+bedrock-1.26.30 (the dump source's `composer.lock`) | CC0 | Recipes and the other data the dump source reads |
+| pmmp/PocketMine-MP | commit `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb` (Bedrock 1.26.30 data) | LGPL-3.0 | The dump source: block and item kinds and data, the creative inventory, effect and enchantment tables |
+| pocketmine/bedrock-data | 6.7.0+bedrock-1.26.30 (the dump source's `composer.lock`) | CC0 | The data the dump source reads |
 | pmmp/PHP-Binaries | php-build-524, PHP 8.4 PM5 Windows x64 (zip SHA-256 `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`) | PHP License | The dump PHP (development tool) |
 | df-mc/dragonfly | head `d86aefd9ff9b6a357d6dfadab2093af811545256` of the unmerged PR #1481 (fork HashimTheArab/dragonfly, branch `update/1.26.60-upstream`, gophertunnel v1.63.0, 1.26.60) | MIT | Reference list source A: block states, items, creative item states |
 | CloudburstMC/Data | `293c848098cc636a2758937fb6610b8bed1f12c5` (26.60) | Apache-2.0 | Reference list source B: block network IDs, cross-checks, biomes, the official server's block physics, files sent as they are |
@@ -43,22 +43,19 @@ Before it starts, `dump` checks the pinned commits and that `.cache/dump/vendor`
 
 | Script | Run by | Output |
 |---|---|---|
-| `xtask/php/dump.php` | `dump` | `blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `recipes.json`, `tables.json` in `xtask/data/dump/` |
+| `xtask/php/dump.php` | `dump` | `blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `tables.json` in `xtask/data/dump/` |
 | `xtask/php/upgrade.php` | `dump` | The three files of `xtask/data/upgrade/golden/` |
-| `xtask/php/place.php` | hand: `php place.php <output file>` | `xtask/data/dump/place.json`: placement goldens, which the tests of `src/tick/interact/place.rs` compare with |
-| `xtask/php/liquid.php` | hand: `php liquid.php > liquid.txt` | `xtask/data/dump/liquid.txt`: liquid flow scene goldens, which the tests of `src/tick/update.rs` compare with |
 | `xtask/php/api.php` | hand: `php api.php <output file>` | `xtask/data/dump/api.json`: the dump source's public API inventory, from which `cargo xtask table` builds the API table |
 
 NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit patterns.
 
 ### Dump contents
 
-- `blocks.json`: per dump state, its Bedrock serialization, light emission and filter, direct sky light blocking, random ticking, the legacy meta the dump source sends for it as an exact recipe ingredient, its class, parent classes and traits, break info, fire values, physical flags, friction, type tags, the support of each face, collision boxes, item form, the drops and XP for an empty hand, the lowest-tier compatible tool and that tool with Silk Touch, and, for blocks whose state follows from their neighbours (fences, panes, walls, fence gates, stairs, tripwire and its hooks), the values of each variant.
+- `blocks.json`: per dump state, its Bedrock serialization, light emission and filter, direct sky light blocking, its class, parent classes and traits, break info, physical flags, friction, type tags, the support of each face, collision boxes, item form, and, for blocks whose state follows from their neighbours (fences, panes, walls, fence gates, stairs, tripwire and its hooks), the values of each variant.
 - `deserialized.json`: per reference state the dump source does not read as itself, the state it reads (null where it rejects the state). The dump source ignores some vanilla properties (a pumpkin's facing, a hanging sign's unused facing) and writes one value for them.
-- `items.json`: per dump item type, its Bedrock serialization, the dump source's names, and its data (class, stack size, durability, tool, armor, food, fuel, enchanting, cooldown).
+- `items.json`: per dump item type, its Bedrock serialization, the dump source's names, and its data (class, stack size, durability, tool, armor, food, cooldown).
 - `creative.json`: the creative inventory in order, with its categories and groups.
-- `recipes.json`: the recipes the dump source loads from bedrock-data, plus the smithing recipes it leaves out, read with its own item reader. Recipes naming an item the dump source lacks are left out, as the dump source does.
-- `tables.json`: status effects, potion types, enchantments with the enchanting power range of each level, item enchantment tags, item tags, banner patterns, furnace types, tool tiers.
+- `tables.json`: status effects, potion types, enchantments (name and ID), banner patterns.
 
 ### Dump source defects the dump and `gen` correct
 
@@ -74,7 +71,7 @@ NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit
 | `blocks.json` | Source A `block_states.nbt`, with source B `block_palette.nbt` `network_id` | 23,960 block states with their network IDs |
 | `items.json` | Source A `vanilla_items.nbt`, checked against source B `runtime_item_states.json` | 2,080 items in runtime ID order, with component data: the whole ItemRegistry |
 | `item_blocks.json` | Source B `creative_items.json`, checked against source A `creative_items.nbt` and the block list | The vanilla creative state of every block item that has exactly one: the network form of block items |
-| `block_physics.json` | Source B `blocks.json` (the official server's per-state dump), with the rules under block physics | Hardness, light, and collision boxes of inert blocks |
+| `block_physics.json` | Source B `blocks.json` (the official server's per-state dump), with the rules under block physics | Hardness, light, and collision boxes of the states the dump has no type for |
 | `biomes.json` | Source B `stripped_biome_definitions.json` | BiomeDefinitionList (89 biomes) |
 | `entity_identifiers.dat`, `voxel_shapes.json` | Source B, byte for byte | AvailableActorIdentifiers, VoxelShapes |
 | `jigsaw_structure_data.dat`, `entity_properties.dat` | Source B `.nbt` files converted to network NBT | Data sent at spawn |
@@ -84,8 +81,7 @@ NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit
 - Block network IDs are hashes: FNV-1a 32 over the little-endian NBT of the name and the states sorted by name. The official server uses hash IDs too. A golden test in `src/block/hash.rs` checks the Rust hash against every reference state.
 - Block physics: source B's `blocks.json` at the pinned commit predates 1.26.60, so `dump` has two temporary rules (`reference_physics` in `xtask/src/dump.rs`; a unit test fixes how many states each covers):
   - Connections: the 1,872 states with the connection properties 1.26.60 added (fire 512, redstone wire 1,296, chorus plant 64) take the physics of the same state without them, the state block schema `0361` upgrades to them.
-  - Borrowing: the 30 states of blocks new in 1.26.60 take the physics of a similar block: `icicle` (20) from `pointed_dripstone`, `ice_crystal` (6) from `amethyst_cluster`, `disc_press` (4) from `stone`. Each takes the one lender state whose shared properties (direction, thickness) have the same values; another number of matches fails `dump`. These blocks have no behavior (inert blocks).
-  - Any other state without physics fails `dump`.
+  - Borrowing: the 30 states of blocks new in 1.26.60 take the physics of a similar block: `icicle` (20) from `pointed_dripstone`, `ice_crystal` (6) from `amethyst_cluster`, `disc_press` (4) from `stone`. Each takes the one lender state whose shared properties (direction, thickness) have the same values; another number of matches fails `dump`.  - Any other state without physics fails `dump`.
 - `dump` fails on a biome with an ID, chunk generation data, or a nonzero density: the packet carries none of them.
 - The 11,420 dump states have 9,532 Bedrock serializations. 76 of these take several dump states (cave vines, farmland, beds, standing banners, wall banners, cauldrons). Those must agree in every value, except the `SHARED` names: bed, cauldron (as the water cauldron), standing banner, wall banner.
 - The official server's light dampening differs from the dump's light filter for some blocks: oak leaves 1 against 0, glowstone 15 against 0.
@@ -95,13 +91,10 @@ NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit
 
 | Generated file | Input | Holds |
 |---|---|---|
-| `src/block/table.rs` | The dump, block schemas `0351` and `0361`, the reference list | 14,307 Anchor states and 4,884 aliases |
-| `src/block/inert/table.rs` | The reference list, `block_physics.json` | 4,769 inert states (264 names) with their physics |
-| `src/block/drops.rs` | The dump | Drop goldens |
-| `src/item/table.rs` | The dump (`items.json`, `tables.json`), the reference list | 1,613 dump item types; enchantments, item tags, tool tiers |
+| `src/block/table.rs` | The dump, block schemas `0351` and `0361`, the reference list, `block_physics.json` | 19,076 states (14,307 with a dump type and 4,769 without) and 4,884 aliases |
+| `src/item/table.rs` | The dump (`items.json`, `tables.json`), the reference list | 1,613 dump item types; enchantment IDs |
 | `src/item/registry.rs` | The reference list | ItemRegistry, 2,080 entries |
 | `src/item/creative.rs` | The dump | The creative inventory: 107 groups, 1,633 items |
-| `src/crafting/table.rs` | The dump | Shaped, shapeless, furnace, brewing, and smithing recipes |
 | `src/effect/table.rs` | `tables.json` | 27 status effects, 43 potion types |
 | `src/world/biome/table.rs` | `biomes.json` | Biome definitions |
 | `src/import/upgrade/table.rs` | `xtask/data/upgrade/` | The import's upgrade tables |
@@ -110,21 +103,18 @@ The tables are `static`, so they cost nothing at startup and never allocate.
 
 An Anchor block state is a dump state's Bedrock serialization (deduplicated) with the properties of the newest block schemas added, together with every other value of those properties. The newest schemas are all those after the dump source's data (1.26.30): `0351` and `0361`. 1.26.50 added properties to 115 dump block names (`minecraft:connection_*` of fences, panes, bars, and tripwire; `minecraft:corner` of stairs); the official server works them out from the neighbours. States are ordered by name, then by their (property name, value) pairs in property name order; values order by type (byte, int, string), then by value. `block::State` is the index in that order, and `gen` checks the order.
 
-The 23,960 reference states are the 14,307 Anchor states, the 4,884 aliases, and the 4,769 inert states.
+The 23,960 reference states are the 19,076 table states (14,307 with a dump type, 4,769 without) and the 4,884 aliases.
 
 An alias is a reference state the dump source reads as another state (a pumpkin facing east is the pumpkin facing south). `State::read` looks up the exact state first, then the alias table, so imported worlds, disk palettes, and item block NBT become the state the dump source makes of them.
 
 `gen` fails on data errors so that a data error never becomes a silent misbehavior at run time.
 
-## Unknown and inert blocks
+## Unknown blocks and states without a dump type
 
-- A state Anchor does not know is inert when the hash of its `{name, states}` is a reference state that is neither an Anchor state nor an alias, and its name is that state's name. An inert block shows the original block; it does not implement it.
-- The lookup is a binary search of the inert table. The storage format is unchanged, so an already imported world also shows its original blocks without a new import.
-- The server knows only the official server's collision boxes, light (emission and filter; a filter above 0 also blocks sky light), and hardness. It has no behavior: no flow, growth, or random ticks.
-- The data does not name the right tool.
-- Because of the placement stand-in, a block placed on an inert block goes into the cell next to the clicked face. The data does not say whether seagrass and kelp are replaced, so keeping the original was chosen.
-- Remaining limits: an explosion neither breaks an inert block nor passes it (the ray stops there), and entities do not treat seagrass and kelp cells as water.
-- A flower pot plant Anchor does not know that is not inert shows as an empty pot. Players cannot take it out or swap it, and it has no drops. The dump source fails to read such a block entity, and drops banner pattern IDs it does not know.
+- A reference state the dump source has no type for is an ordinary table state of kind `InfoUpdate`: the official server's collision boxes, light (emission and filter; a filter above 0 also blocks sky light), and hardness, and no behavior. The data does not name the right tool, so every tool counts as the right one.
+- Because Anchor has no liquids, a seagrass or kelp cell is an ordinary block, and entities do not treat it as water.
+- A state outside the table is `Entry::Unknown`: its NBT is kept as stored and clients get `minecraft:info_update`.
+- A flower pot plant Anchor does not know shows as an empty pot. Players cannot take it out or swap it, and it has no drops. The dump source fails to read such a block entity, and drops banner pattern IDs it does not know.
 - Imported worlds hold vanilla items the dump lacks, so dropping one from a block entity is logged at info, not warn.
 
 ## Upgrade schemas and old data (`xtask/data/upgrade/`)
@@ -156,9 +146,9 @@ Defects of the schema repositories and the dump source's upgrader:
 
 | Folder | Origin | Pin | Read by |
 |---|---|---|---|
-| `pmmp` | `https://github.com/pmmp/PocketMine-MP.git` | The sources table's commit + `vendor/` (`composer.lock`) | `dump`, every PHP script |
+| `dump` | `https://github.com/pmmp/PocketMine-MP.git` | The sources table's commit + `vendor/` (`composer.lock`) | `dump`, every PHP script |
 | `dragonfly` | `https://github.com/HashimTheArab/dragonfly.git` (the fork of PR #1481) | The sources table's commit | `dump` |
-| `cloudburst-data` | `https://github.com/CloudburstMC/Data.git` | The sources table's commit | `dump`, `p6` (biome and jigsaw comparison), `xtask/tests/spawn.rs`, the physics unit test of `xtask/src/dump.rs` |
+| `reference-data` | `https://github.com/CloudburstMC/Data.git` | The sources table's commit | `dump`, `p6` (biome and jigsaw comparison), `xtask/tests/spawn.rs`, the physics unit test of `xtask/src/dump.rs` |
 | `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | The commit of the pinned-version table of `.claude/docs/protocol.md` | `dump` (field limits) |
 | `block-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockBlockUpgradeSchema.git` | The sources table's commit | `dump` |
 | `item-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockItemUpgradeSchema.git` | The sources table's commit | `dump` |

@@ -58,7 +58,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::clock;
 use crate::config::{Config, CriticalHits, Difficulty, GameMode, Lighting, ViewLimits};
-use crate::event::Listeners;
+use crate::event::{Listeners, QuitReason};
 use crate::math::Vec3;
 use crate::pool::Pool;
 use crate::protocol::Uuid;
@@ -526,49 +526,36 @@ impl State {
                 message: reason.clone(),
                 filtered_message: String::new(),
             });
-            self.send_off(
-                session,
-                &reason,
-                String::new(),
-                player::QuitCause::Shutdown,
-                packet,
-                output,
-            );
+            self.send_off(session, QuitReason::Shutdown, String::new(), packet, output);
         }
         dispatch::run_deferred(self, &mut 0);
     }
 
     /// The player of `session`, if any, is sent off: [`player::quit`] for `reason` with
-    /// `quit_message` and `cause`, then it is forgotten and its session closes with `packet` last
+    /// `quit_message`, then it is forgotten and its session closes with `packet` last
     /// ([`Self::close`]).
     fn send_off(
         &mut self,
         session: SessionId,
-        reason: &str,
+        reason: QuitReason,
         quit_message: String,
-        cause: player::QuitCause,
         packet: Packet,
         output: &mut Output,
     ) {
-        player::quit(self, session, reason, quit_message, cause);
+        player::quit(self, session, reason, quit_message);
         if let Some(player) = self.remove(session) {
             self.close(player, packet, output);
         }
     }
 
-    /// The player of `session`, if any, leaves for `reason` (PMMP `Player::disconnect` without a
-    /// message to the client): [`player::quit`] with BDS's left line, then it is forgotten and its
+    /// The player of `session`, if any, leaves for `reason` without a message to the client:
+    /// [`player::quit`] with the official server's left line, then it is forgotten and its
     /// outbound queue closes.
-    fn leave(&mut self, session: SessionId, reason: &str) {
-        player::quit(
-            self,
-            session,
-            reason,
-            player::LEFT.to_owned(),
-            player::QuitCause::Disconnect,
-        );
+    fn leave(&mut self, session: SessionId, reason: QuitReason) {
+        let reason_text = reason.to_string();
+        player::quit(self, session, reason, player::LEFT.to_owned());
         if let Some(p) = self.remove(session) {
-            info!(session = session.get(), player = %p.identity.name, reason, "player left");
+            info!(session = session.get(), player = %p.identity.name, reason = %reason_text, "player left");
         }
     }
 
@@ -1295,7 +1282,7 @@ fn step_marked(
                     apply_packet(state, session, &packet);
                 }
             }
-            EntryKind::Leave => state.leave(session, "client disconnect"),
+            EntryKind::Leave => state.leave(session, QuitReason::Left),
             EntryKind::Console(line) => command::console(state, line),
             EntryKind::Job(outcome) => task::finish(state, seq, outcome),
             EntryKind::Measure(measure) => network::apply(state, session, *measure),
@@ -1483,9 +1470,8 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
         });
         state.send_off(
             session,
-            "too many packets",
+            QuitReason::TooManyPackets,
             String::new(),
-            player::QuitCause::Disconnect,
             disconnect,
             output,
         );
@@ -1525,7 +1511,7 @@ fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
 /// as on a disconnect, and `log` records it, so a replay drops it at the same point.
 fn dropped(state: &mut State, log: &mut InputLog, session: SessionId) {
     log.dropped(session);
-    state.leave(session, "connection lost");
+    state.leave(session, QuitReason::ConnectionLost);
 }
 
 /// The tick boundary after a step and its delivery: the callbacks that the quits of the sessions
@@ -2891,7 +2877,7 @@ mod tests {
         listeners.push(Priority::Normal, move |e: &mut PlayerLogin, _| {
             logins += 1;
             if logins == 2 {
-                e.set_kick_flag(KickFlag::Plugin, "one Alex is enough", None);
+                e.set_kick_flag(KickFlag::Listener, "one Alex is enough", None);
             }
         });
         let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));

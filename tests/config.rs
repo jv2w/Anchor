@@ -18,6 +18,94 @@ use anchor::protocol::compression::Compression;
 use anchor::world::{BlockPos, Flat, Kind};
 use anchor::{Config, Server};
 
+/// A file that sets every key to a value other than its default.
+const CUSTOM_FILE: &str = r#"[general]
+motd = "Lobby"
+server-ip = "127.0.0.1"
+server-ipv6 = "::1"
+enable-ipv6 = false
+server-port = 19140
+public-ip = "203.0.113.7"
+max-players = 100
+xbox-auth = false
+white-list = true
+gamemode = "creative"
+force-gamemode = true
+difficulty = "hard"
+hardcore = true
+pvp = false
+food = false
+xp = false
+xp-orbs = false
+fall-damage = false
+drowning = false
+armor = false
+durability = false
+daylight-cycle = false
+item-despawn-ticks = 1200
+critical-hits = "always"
+break-time-check = false
+movement-check = false
+show-coordinates = true
+locator-bar = false
+immediate-respawn = true
+show-death-messages = true
+level-name = "lobby"
+level-type = "void"
+level-seed = "-42"
+view-distance = 8
+save-player-data = false
+backups = false
+shutdown-message = "Bye"
+resource-packs = ["a.mcpack", "lobby/b.zip"]
+force-resources = true
+log-level = "debug"
+
+[developer]
+compression = "zlib"
+compression-threshold = 512
+compression-level = 9
+max-batch-bytes = 8388608
+enable-encryption = false
+raknet = false
+max-mtu-size = 1200
+nethernet-tls-cert = "cert.pem"
+nethernet-tls-key = "key.pem"
+network-threads = 2
+cpu-threads = 3
+chunks-per-tick = 8
+spawn-radius = 6
+tick-radius = 5
+slow-empty-worlds = true
+lighting = "on-load"
+fixed-light-level = 7
+item-pickup-interval = 4
+hook-movement-packets = false
+hook-player-input = false
+save-interval-minutes = 5
+integrity-check = "never"
+console-input = false
+
+[worlds.lobby]
+view-distance = 6
+chunks-per-tick = 2
+spawn-radius = 3
+tick-radius = 2
+spawn = [-30000000, -60, 29999999]
+
+[worlds.arena]
+tick-radius = 1
+"#;
+
+/// The number of keys in the default file; the one place that pins it.
+const DEFAULT_KEY_COUNT: usize = 63;
+
+/// The bytes of one mebibyte.
+const MIB: usize = 1024 * 1024;
+
+/// How far a world's spawn may be from the middle on an axis, in blocks.
+const WORLD_BORDER: i32 = 30_000_000;
+
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
@@ -129,10 +217,7 @@ fn custom() -> Config {
     g.drowning = false;
     g.armor = false;
     g.durability = false;
-    g.beds = false;
     g.daylight_cycle = false;
-    g.recipe_book = false;
-    g.vanilla_recipes = false;
     g.item_despawn_ticks = 1200;
     g.critical_hits = CriticalHits::Always;
     g.break_time_check = false;
@@ -166,8 +251,6 @@ fn custom() -> Config {
     d.chunks_per_tick = 8;
     d.spawn_radius = 6;
     d.tick_radius = 5;
-    d.random_tick_speed = 0;
-    d.disable_block_ticking = vec!["minecraft:grass_block".to_owned()];
     d.slow_empty_worlds = true;
     d.lighting = Lighting::OnLoad;
     d.fixed_light_level = 7;
@@ -182,7 +265,7 @@ fn custom() -> Config {
         chunks_per_tick: Some(2),
         spawn_radius: Some(3),
         tick_radius: Some(2),
-        spawn: Some(BlockPos::new(i32::MIN, -60, i32::MAX)),
+        spawn: Some(BlockPos::new(-WORLD_BORDER, -60, WORLD_BORDER - 1)),
     };
     let arena = WorldSettings {
         tick_radius: Some(1),
@@ -205,102 +288,12 @@ fn missing_file_reads_like_the_file_it_writes() {
     assert_eq!(again, first);
 }
 
-/// A file that sets every key to a value other than its default.
-const CUSTOM_FILE: &str = r#"[general]
-motd = "Lobby"
-server-ip = "127.0.0.1"
-server-ipv6 = "::1"
-enable-ipv6 = false
-server-port = 19140
-public-ip = "203.0.113.7"
-max-players = 100
-xbox-auth = false
-white-list = true
-gamemode = "creative"
-force-gamemode = true
-difficulty = "hard"
-hardcore = true
-pvp = false
-food = false
-xp = false
-xp-orbs = false
-fall-damage = false
-drowning = false
-armor = false
-durability = false
-beds = false
-daylight-cycle = false
-recipe-book = false
-vanilla-recipes = false
-item-despawn-ticks = 1200
-critical-hits = "always"
-break-time-check = false
-movement-check = false
-show-coordinates = true
-locator-bar = false
-immediate-respawn = true
-show-death-messages = true
-level-name = "lobby"
-level-type = "void"
-level-seed = "-42"
-view-distance = 8
-save-player-data = false
-backups = false
-shutdown-message = "Bye"
-resource-packs = ["a.mcpack", "lobby/b.zip"]
-force-resources = true
-log-level = "debug"
-
-[developer]
-compression = "zlib"
-compression-threshold = 512
-compression-level = 9
-max-batch-bytes = 8388608
-enable-encryption = false
-raknet = false
-max-mtu-size = 1200
-nethernet-tls-cert = "cert.pem"
-nethernet-tls-key = "key.pem"
-network-threads = 2
-cpu-threads = 3
-chunks-per-tick = 8
-spawn-radius = 6
-tick-radius = 5
-random-tick-speed = 0
-disable-block-ticking = ["minecraft:grass_block"]
-slow-empty-worlds = true
-lighting = "on-load"
-fixed-light-level = 7
-item-pickup-interval = 4
-hook-movement-packets = false
-hook-player-input = false
-save-interval-minutes = 5
-integrity-check = "never"
-console-input = false
-
-[worlds.lobby]
-view-distance = 6
-chunks-per-tick = 2
-spawn-radius = 3
-tick-radius = 2
-spawn = [-2147483648, -60, 2147483647]
-
-[worlds.arena]
-tick-radius = 1
-"#;
-
 // api: GameMode
 #[test]
 fn every_key_reaches_its_field() {
     let file = File::new("every_key_reaches_its_field");
     assert_eq!(file.load(CUSTOM_FILE).expect("loads"), custom());
 }
-
-/// The number of keys in the default file; the one place that pins it.
-const DEFAULT_KEY_COUNT: usize = 68;
-
-/// The bytes of one mebibyte.
-const MIB: usize = 1024 * 1024;
 
 /// The `(table, key, value)` of every key line of a settings file.
 fn key_lines(text: &str) -> Vec<(String, String, String)> {
@@ -366,10 +359,7 @@ fn every_key_rejects_a_wrong_type_by_name() {
     let file = File::new("every_key_wrong_type");
     for (table, key, value) in key_lines(&documented_default_file()) {
         let path = format!("{table}.{key}");
-        // `lighting` also takes the `true` and `false` of older files.
-        let typed = if path == "developer.lighting" {
-            "1"
-        } else if value.starts_with('"') {
+        let typed = if value.starts_with('"') {
             "false"
         } else {
             "\"x\""
@@ -467,10 +457,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.drowning", bools(), Vec::new()),
         ("general.armor", bools(), Vec::new()),
         ("general.durability", bools(), Vec::new()),
-        ("general.beds", bools(), Vec::new()),
         ("general.daylight-cycle", bools(), Vec::new()),
-        ("general.recipe-book", bools(), Vec::new()),
-        ("general.vanilla-recipes", bools(), Vec::new()),
         (
             "general.item-despawn-ticks",
             s(&["1", "72000"]),
@@ -600,39 +587,11 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         ("developer.spawn-radius", s(&["1", "64"]), s(&["0", "65"])),
         ("developer.tick-radius", s(&["1", "64"]), s(&["0", "65"])),
-        (
-            "developer.random-tick-speed",
-            s(&["0", "4096"]),
-            s(&["-1", "4097"]),
-        ),
-        (
-            "developer.disable-block-ticking",
-            s(&[
-                "[]",
-                r#"["minecraft:grass_block"]"#,
-                r#"["my-pack.v2:deco/lamp_1"]"#,
-            ]),
-            s(&[
-                r#"["grass_block"]"#,
-                r#"["minecraft:"]"#,
-                r#"[":grass"]"#,
-                r#"["Minecraft:grass"]"#,
-                r#"["a:b:c"]"#,
-                r#"["minecraft:grass block"]"#,
-            ]),
-        ),
         ("developer.slow-empty-worlds", bools(), Vec::new()),
-        // `true` and `false` are the values of older files; see `old_lighting_switch_still_loads`.
         (
             "developer.lighting",
-            s(&[
-                r#""dynamic""#,
-                r#""on-load""#,
-                r#""fixed""#,
-                "true",
-                "false",
-            ]),
-            s(&[r#""Dynamic""#, r#""onload""#, r#""""#, "1"]),
+            s(&[r#""dynamic""#, r#""on-load""#, r#""fixed""#]),
+            s(&[r#""Dynamic""#, r#""onload""#, r#""""#, "1", "true", "false"]),
         ),
         (
             "developer.fixed-light-level",
@@ -722,10 +681,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
         g.fall_damage,
         g.drowning,
         g.armor,
-        g.beds,
         g.daylight_cycle,
-        g.recipe_book,
-        g.vanilla_recipes,
         g.break_time_check,
         g.movement_check,
         g.locator_bar,
@@ -752,20 +708,8 @@ fn new_keys_default_to_the_behaviour_before_them() {
 }
 
 #[test]
-fn old_lighting_switch_still_loads() {
-    let file = File::new("old_lighting");
-    let on = file
-        .load(one_key("developer.lighting", "true"))
-        .expect("true");
-    assert_eq!(on.developer.lighting, Lighting::Dynamic);
-    let off = file
-        .load(one_key("developer.lighting", "false"))
-        .expect("false");
-    assert_eq!(off.developer.lighting, Lighting::Fixed);
-    assert_eq!(
-        off.developer.fixed_light_level, 15,
-        "the old switch lit at 15"
-    );
+fn lighting_takes_only_its_names() {
+    let file = File::new("lighting_names");
     let error = file.load(one_key("developer.lighting", "\"bright\""));
     assert_eq!(
         error.expect_err("bright").to_string(),
@@ -850,6 +794,14 @@ fn world_tables_reject_bad_values_by_key() {
             "[worlds.lobby]\nspawn = [0, 2147483648, 0]\n",
             "worlds.lobby.spawn",
         ),
+        (
+            "[worlds.lobby]\nspawn = [30000000, 64, 0]\n",
+            "worlds.lobby.spawn",
+        ),
+        (
+            "[worlds.lobby]\nspawn = [0, 64, -30000001]\n",
+            "worlds.lobby.spawn",
+        ),
         ("[worlds]\nlobby = 5\n", "worlds.lobby"),
         ("worlds = 5\n", "worlds"),
     ] {
@@ -876,6 +828,19 @@ fn world_tables_reject_bad_values_by_key() {
         .build()
         .expect_err("set in code");
     assert!(chain(&error).contains("`worlds.lobby.spawn-radius` = 65 is outside 1..=64"));
+    let mut code = Config::default();
+    code.worlds.insert(
+        "lobby".to_owned(),
+        WorldSettings {
+            spawn: Some(BlockPos::new(WORLD_BORDER, 64, 0)),
+            ..WorldSettings::default()
+        },
+    );
+    let error = Server::builder()
+        .config(code)
+        .build()
+        .expect_err("a spawn outside the border, set in code");
+    assert!(chain(&error).contains("`worlds.lobby.spawn` must be [x, y, z]"));
 }
 
 #[test]
@@ -1200,18 +1165,18 @@ fn update_adds_missing_tables_at_the_end() {
 fn update_keeps_the_rest_of_the_file_byte_for_byte() {
     let file = File::new("update_keeps");
     // A byte order mark, CRLF line endings, comments after values and headers, a multi-line
-    // string with a line like a header, a multi-line array, a world table, an unknown table
-    // and no line ending at the end.
+    // string with a line like a header, a world table, an unknown table and no line ending at
+    // the end.
     let text = "\u{feff}# my server\r\n[general]\r\nmotd = \"Lobby\" # shown in the list\r\n\
                 shutdown-message = \"\"\"\r\n[bye]\r\n\"\"\"\r\n\r\n[developer] # tuning\r\n\
-                disable-block-ticking = [\r\n    \"minecraft:grass_block\",\r\n]\r\n\r\n\
+                raknet = false\r\n\r\n\
                 [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
     let (update, updated) = write_and_update(&file, text);
     assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 3);
     for kept in [
         "general.motd",
         "general.shutdown-message",
-        "developer.disable-block-ticking",
+        "developer.raknet",
     ] {
         assert!(!update.added().iter().any(|p| p == kept), "{kept}");
     }
@@ -1228,6 +1193,15 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
     // A key goes after the key before it in the default file, not into the string.
     assert!(updated.contains("\"\"\"\r\n[bye]\r\n\"\"\"\r\n# Resource pack files"));
     assert!(updated.contains("[developer] # tuning\r\n# Network compression"));
+
+    // A key goes after the last line of a multi-line array.
+    let text = "[general]\r\nresource-packs = [\r\n    \"a.mcpack\",\r\n]\r\n\
+                log-level = \"warn\"\r\n";
+    let (_, updated) = write_and_update(&file, text);
+    assert!(updated.contains(
+        "]\r\n# true: players must accept the resource packs to join.\r\n\
+         force-resources = false\r\nlog-level = \"warn\"\r\n"
+    ));
 }
 
 #[test]

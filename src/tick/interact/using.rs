@@ -24,7 +24,7 @@ use crate::save::WorldIndex;
 use crate::tick::{
     SessionId, State, block_entity, dispatch, emit, entity, inventory, survival, trade,
 };
-use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Sound};
+use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
 /// The result of an item's own use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,8 +113,7 @@ fn get(state: &State, world: WorldIndex, pos: Option<BlockPos>) -> BlockState {
 }
 
 /// Uses the held item on a block: the clicked block's interaction, the item's own use, then
-/// placement. False when nothing happened (the caller resyncs). An inert block reaches
-/// [`PlayerInteract`] as `minecraft:info_update`; a left click on one raises nothing.
+/// placement. False when nothing happened (the caller resyncs).
 pub(super) fn use_item_on(
     state: &mut State,
     actor: &Actor,
@@ -138,17 +137,12 @@ pub(super) fn use_item_on(
     let mut actor = *actor;
     let mut event = None;
     if dispatch::heard::<PlayerInteract>(state) {
-        let inert = state
-            .worlds
-            .get(actor.world)
-            .and_then(|w| w.entry(pos))
-            .is_some_and(|e| matches!(e, Entry::Inert(..)));
         let world = crate::world::Id::of(actor.world);
         let mut e = PlayerInteract {
             player: player::Id::new(actor.session),
             world,
             pos,
-            block: if inert { block::INFO_UPDATE } else { clicked },
+            block: clicked,
             face,
             item: held.clone(),
             touch_vector: click,
@@ -213,8 +207,7 @@ pub(super) fn use_item_on(
 }
 
 /// Checks a right click: the clicked block (not air) and the one next to its face are loaded and
-/// in the world, and the player is not a spectator. The clicked block (an inert one as its
-/// stand-in, [`place::placed_on`]) and the held item if so.
+/// in the world, and the player is not a spectator. The clicked block and the held item if so.
 fn right_click(
     state: &State,
     actor: &Actor,
@@ -222,12 +215,9 @@ fn right_click(
     face: Face,
 ) -> Option<(BlockState, Stack)> {
     let w = state.worlds.get(actor.world)?;
-    let clicked = place::placed_on(w, pos)?;
+    let clicked = w.block(pos)?;
     let replace = pos.step(face).filter(|p| (MIN_Y..=MAX_Y).contains(&p.y))?;
-    if place::placed_on(w, replace).is_none()
-        || clicked == block::AIR
-        || actor.mode == GameMode::Spectator
-    {
+    if w.block(replace).is_none() || clicked == block::AIR || actor.mode == GameMode::Spectator {
         return None;
     }
     let held = state.players.get(&actor.session)?.inventory.held().clone();
@@ -356,13 +346,8 @@ fn placement(
     let world = actor.world;
     let item = held.item()?;
     let w = state.worlds.get(world)?;
-    // `CanPlaceOn` names the clicked block, an inert one by its own name.
-    let clicked = match w.entry(pos)? {
-        Entry::Known(s) => s.name(),
-        Entry::Inert(s, _) => s.name(),
-        Entry::Unknown(_) => return None,
-    };
-    if actor.mode == GameMode::Adventure && !adventure_allows(held, "CanPlaceOn", clicked) {
+    let clicked = w.block(pos)?;
+    if actor.mode == GameMode::Adventure && !adventure_allows(held, "CanPlaceOn", clicked.name()) {
         return None;
     }
     let blocks = place::placement(w, item, pos, face, click, Some(&actor.placer()))?;
@@ -381,7 +366,7 @@ fn open_window(state: &mut State, u: &Use) {
 }
 
 /// Uses the clicked block: true when the block did something. A custom block has its own use;
-/// of the vanilla blocks only the storage blocks, doors, trapdoors, fence gates and signs answer.
+/// of the other blocks only the storage blocks, doors, trapdoors, fence gates and signs answer.
 fn interact(state: &mut State, u: &mut Use) -> bool {
     let block = u.block;
     if block.custom_block().is_some() {

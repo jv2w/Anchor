@@ -291,7 +291,7 @@ fn block_id(b: block::State) -> i32 {
 
 /// The data of a block punch level event (`ParticlesCrackBlock`): the block's network ID with
 /// the face hit in the top byte.
-pub(crate) fn punch_data(network_id: u32, face: Face) -> i32 {
+fn punch_data(network_id: u32, face: Face) -> i32 {
     network_id.cast_signed() | (i32::from(face.index()) << 24)
 }
 
