@@ -90,7 +90,7 @@ crate::tick::checkpoint::fields!(Shown { input, options });
 /// What a request's station actions need from outside the inventory.
 #[derive(Debug, Default)]
 pub(super) struct Outside {
-    /// The player's experience level, 0 with `experience = false`.
+    /// The player's xp level, 0 with `xp = false`.
     /// A survival player then takes no enchanting option or anvil work, which all cost levels.
     level: u32,
     /// The request's filter strings (an anvil's new name).
@@ -208,7 +208,7 @@ pub(super) fn outside(state: &State, session: SessionId, request: &ItemStackRequ
         Vec::new()
     };
     Outside {
-        level: if state.settings.experience {
+        level: if state.settings.xp {
             survival::xp_level(player)
         } else {
             0

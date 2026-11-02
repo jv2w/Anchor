@@ -1138,8 +1138,8 @@ pub(super) mod tests {
         (state, [rx1, rx2])
     }
 
-    // pmmp: Player::getName, Player::getDisplayName, Player::setDisplayName, Player::getXuid
-    // pmmp: Player::isAuthenticated, Player::getUniqueId, Human::getSkin
+    // api: Player::getName, Player::getDisplayName, Player::setDisplayName, Player::getXuid
+    // api: Player::isAuthenticated, Player::getUniqueId, Human::getSkin
     #[test]
     fn the_identity_reads_the_login_and_the_display_name_changes_alone() {
         let (mut state, _rx) = two();
@@ -1163,8 +1163,8 @@ pub(super) mod tests {
         assert_ne!(state.hash(), before);
     }
 
-    // pmmp: Player::teleport, Entity::teleport, Entity::getPosition, Entity::getLocation
-    // pmmp: Entity::getEyePos, Entity::getWorld
+    // api: Player::teleport, Entity::teleport, Entity::getPosition, Entity::getLocation
+    // api: Entity::getEyePos, Entity::getWorld
     #[test]
     fn a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -1219,7 +1219,7 @@ pub(super) mod tests {
         assert!(p.marks.teleport.is_none());
     }
 
-    // pmmp: Entity::getPosition
+    // api: Entity::getPosition
     /// The feet of a player standing on a block are on it: its client sends the eyes as floats,
     /// a hair below 1.62 above the block, and the feet are rounded as the survival rules round
     /// them.
@@ -1235,10 +1235,10 @@ pub(super) mod tests {
         }
     }
 
-    // pmmp: Player::sendMessage, Player::sendTip, Player::sendPopup, Player::sendJukeboxPopup
-    // pmmp: Player::sendActionBarMessage, Player::sendTitle, Player::sendSubTitle
-    // pmmp: Player::removeTitles, Player::resetTitles, Player::setTitleDuration
-    // pmmp: Player::sendToastNotification, NetworkSession::sendDataPacket
+    // api: Player::sendMessage, Player::sendTip, Player::sendPopup, Player::sendJukeboxPopup
+    // api: Player::sendActionBarMessage, Player::sendTitle, Player::sendSubTitle
+    // api: Player::removeTitles, Player::resetTitles, Player::setTitleDuration
+    // api: Player::sendToastNotification, NetworkSession::sendDataPacket
     #[test]
     fn messages_reach_only_their_player_after_the_tick() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -1294,7 +1294,7 @@ pub(super) mod tests {
         )));
     }
 
-    // pmmp: Player::kick, Player::disconnect, Player::isOnline, Player::isConnected
+    // api: Player::kick, Player::disconnect, Player::isOnline, Player::isConnected
     #[test]
     fn a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -1328,7 +1328,7 @@ pub(super) mod tests {
         assert!(state.players.is_empty());
     }
 
-    // pmmp: PlayerQuitEvent
+    // api: PlayerQuitEvent
     #[test]
     fn the_others_see_bds_left_line_unless_a_listener_changes_it() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -1378,7 +1378,7 @@ pub(super) mod tests {
         }
     }
 
-    // pmmp: Player::setDisplayName
+    // api: Player::setDisplayName
     /// The left line names the player by its display name, as the join line and chat do.
     #[test]
     fn the_left_line_names_the_player_by_its_display_name() {
@@ -1394,7 +1394,7 @@ pub(super) mod tests {
         assert_eq!(left, Some(vec!["§cBoss".to_owned()]));
     }
 
-    // pmmp: PlayerQuitEvent
+    // api: PlayerQuitEvent
     /// What a [`PlayerQuit`] listener does to the quitting player takes effect before it is
     /// saved, as PMMP saves after the event: a teleport is the saved position, and a kill drops
     /// what the player carries with [`crate::event::PlayerDeath`].
@@ -1563,7 +1563,7 @@ pub(super) mod tests {
         assert!(sounds(received(&mut rx2).0).is_empty(), "the other player");
     }
 
-    // pmmp: Player::kick
+    // api: Player::kick
     /// What a player is sent in the step that removes it, before the kick or by a quit listener
     /// (the stop's included), reaches it before the final `Disconnect`, as PMMP flushes the
     /// queued packets ahead of the disconnect packet.
@@ -1622,8 +1622,8 @@ pub(super) mod tests {
         assert!(matches!(close, Some(Packet::Disconnect(_))));
     }
 
-    // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight
-    // pmmp: Player::setScreenLineHeight, Player
+    // api: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight
+    // api: Player::setScreenLineHeight, Player
     #[test]
     fn the_address_view_distance_and_line_height_read_the_session() {
         let (mut state, _rx) = two();
@@ -1685,8 +1685,8 @@ pub(super) mod tests {
         }
     }
 
-    // pmmp: Player::getLocale, PlayerInfo::getLocale, PlayerInfo::getExtraData
-    // pmmp: NetworkSession::getPort, NetworkSession::getPing
+    // api: Player::getLocale, PlayerInfo::getLocale, PlayerInfo::getExtraData
+    // api: NetworkSession::getPort, NetworkSession::getPing
     /// What the login and the connection tell reaches the player's getters, and the logged join
     /// and pings replay to the same state at every tick.
     #[test]
@@ -1757,8 +1757,8 @@ pub(super) mod tests {
         assert!(pool.shutdown());
     }
 
-    // pmmp: Player::hasPlayedBefore, Player::getFirstPlayed, Player::getLastPlayed
-    // pmmp: IPlayer::hasPlayedBefore, IPlayer::getFirstPlayed, IPlayer::getLastPlayed
+    // api: Player::hasPlayedBefore, Player::getFirstPlayed, Player::getLastPlayed
+    // api: IPlayer::hasPlayedBefore, IPlayer::getFirstPlayed, IPlayer::getLastPlayed
     /// A new player's first and last play are its join; the saved data keeps the first join and
     /// the time of the save under PMMP's keys, and the next run's join reads them back: the
     /// player has played before.
@@ -1815,7 +1815,7 @@ pub(super) mod tests {
         assert!(p.has_played_before());
     }
 
-    // pmmp: Player::getLastPlayed
+    // api: Player::getLastPlayed
     /// Leaving dates the play history, so a player who changed nothing else is still saved
     /// when it leaves (PMMP saves every player that quits): its next join has played before.
     #[test]
@@ -1851,7 +1851,7 @@ pub(super) mod tests {
         assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 1000)));
     }
 
-    // pmmp: Player::transfer
+    // api: Player::transfer
     #[test]
     fn a_transfer_sends_the_address_and_leaves() {
         let (mut state, [mut rx1, _rx2]) = two();

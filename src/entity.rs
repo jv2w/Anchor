@@ -51,11 +51,11 @@ pub enum Type {
     /// A dropped item stack.
     #[doc(alias = "ItemEntity")]
     Item,
-    /// An experience orb.
-    // pmmp-class: ExperienceOrb
-    ExperienceOrb,
+    /// An XP orb.
+    #[doc(alias = "ExperienceOrb")]
+    XpOrb,
     /// A falling block: sand, gravel, an anvil...
-    // pmmp-class: FallingBlock
+    // api-class: FallingBlock
     FallingBlock,
     /// Primed TNT.
     #[doc(alias = "PrimedTNT")]
@@ -77,24 +77,24 @@ pub enum Type {
     SplashPotion,
     /// A thrown bottle o' enchanting.
     #[doc(alias = "entity\\projectile\\ExperienceBottle")]
-    ExperienceBottle,
+    XpBottle,
     /// A lingering potion's cloud.
-    // pmmp-class: AreaEffectCloud
+    // api-class: AreaEffectCloud
     AreaEffectCloud,
     /// A villager-type NPC that trades (no AI).
-    // pmmp-class: Villager
+    // api-class: Villager
     Villager,
     /// A player-shaped NPC (no AI).
-    // pmmp-class: Human
+    // api-class: Human
     Human,
     /// A zombie without AI (PMMP's has none either): it stands, falls, burns, takes hits and
     /// drops rotten flesh.
-    // pmmp-class: Zombie
+    // api-class: Zombie
     Zombie,
     /// An entity of a [`Custom`] type ([`Entity::custom_type`] names it).
     Custom,
     /// A painting on a wall.
-    // pmmp-class: Painting
+    // api-class: Painting
     Painting,
     /// An end crystal: it explodes when hurt.
     #[doc(alias = "entity\\object\\EndCrystal")]
@@ -163,7 +163,7 @@ pub enum Projectile {
     /// A lingering potion of the type: it leaves a cloud.
     LingeringPotion(crate::effect::Potion),
     /// A bottle o' enchanting.
-    ExperienceBottle,
+    XpBottle,
     /// An ice bomb.
     IceBomb,
 }

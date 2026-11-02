@@ -84,7 +84,7 @@ pub(crate) type Handler = Box<dyn FnMut(&mut Context<'_>, &Sender, &Args) -> Res
 
 /// A command: its name, description, aliases, permission and overloads.
 #[doc(alias = "ClosureCommand")]
-// pmmp-class: Command
+// api-class: Command
 pub struct Command {
     pub(crate) name: String,
     pub(crate) description: String,

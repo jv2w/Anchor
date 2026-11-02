@@ -451,7 +451,7 @@ mod tests {
     fn an_included_data_file_runs_the_tests_of_its_includers_and_enters_the_stamp() {
         let p = plan(&[
             "src/crypto/testdata/encryption.json",
-            "xtask/data/reference/bds_camera.json",
+            "xtask/data/reference/camera.json",
             "xtask/data/p6/intended.txt",
         ]);
         assert!(p.code && !p.all_lib);
@@ -472,7 +472,7 @@ mod tests {
             ]
         );
         let includes = includes(&root()).unwrap();
-        assert!(is_read("xtask/data/reference/bds_camera.json", &includes));
+        assert!(is_read("xtask/data/reference/camera.json", &includes));
         assert!(!is_read(".claude/docs/data.md", &includes));
     }
 

@@ -1,13 +1,16 @@
-//! `cargo xtask table [--check]`: the PMMP mapping table. Rows are the
-//! non-`@internal` class-likes of `xtask/data/pmmp/api.json` and the non-`@internal` public
+//! `cargo xtask table [--check]`: the API table. Rows are the
+//! non-`@internal` class-likes of `xtask/data/dump/api.json` and the non-`@internal` public
 //! methods each declares. A row is implemented when an item in `src/` carries its
-//! `#[doc(alias)]` (or, for a type named like its PMMP class, a `// pmmp-class: Name` line: see
+//! `#[doc(alias)]` (or, for a type named like its API class, a `// api-class: Name` line: see
 //! [`scan`]); the status file gives the others a status and implemented rows a reason they
-//! differ; `// pmmp:` comments above tests name the aliases each test covers. The table goes to
-//! `xtask/data/pmmp/table.md`; `--check` compares instead of writing.
+//! differ; `// api:` comments above tests name the aliases each test covers. The table goes to
+//! `xtask/data/dump/table.md`; `--check` compares instead of writing.
 //!
-//! Alias spelling: `Class` or `Class::member`, `Class` being the PMMP short name, or its path
-//! after `pocketmine\` (`block\tile\Chest::getPair`) when the short name is ambiguous among
+//! The names of the rows have no namespace root: the tool drops the leading `pocketmine\` of the
+//! dump file when it reads it.
+//!
+//! Alias spelling: `Class` or `Class::member`, `Class` being the API short name, or its
+//! namespace path (`block\tile\Chest::getPair`) when the short name is ambiguous among
 //! non-`@internal` class-likes. The member is a method the class itself declares (a row) or one
 //! of its constants or enum cases (valid, but not a row).
 
@@ -28,15 +31,17 @@ use status::{Kind, Rule};
 
 /// Where items carry aliases.
 const ALIAS_DIRS: &[&str] = &["src"];
-/// The PMMP API inventory, relative to the repository root.
-const API_PATH: &str = "xtask/data/pmmp/api.json";
-/// The namespace every PMMP class-like is in.
+/// The API inventory, relative to the repository root.
+const API_PATH: &str = "xtask/data/dump/api.json";
+/// The namespace root every class-like of the inventory is in; the tool drops it.
 const ROOT: &str = "pocketmine\\";
+/// The section of the class-likes that have no namespace below the root.
+const ROOT_SECTION: &str = "root";
 /// The status file.
-const STATUS_PATH: &str = "xtask/data/pmmp/status.txt";
+const STATUS_PATH: &str = "xtask/data/dump/status.txt";
 /// The generated table.
-const TABLE_PATH: &str = "xtask/data/pmmp/table.md";
-/// Where tests carry `// pmmp:` comments.
+const TABLE_PATH: &str = "xtask/data/dump/table.md";
+/// Where tests carry `// api:` comments.
 const TEST_DIRS: &[&str] = &["src", "tests", "xtask/tests", "examples"];
 
 /// What a run found.
@@ -146,7 +151,7 @@ struct Row {
     alias: String,
 }
 
-/// The PMMP class-likes by name.
+/// The class-likes by name.
 struct Index<'a> {
     by_fqn: BTreeMap<&'a str, &'a Class>,
     /// Non-`@internal` class-likes by short name.
@@ -191,17 +196,13 @@ impl<'a> Index<'a> {
     fn class_alias(&self, class: &Class) -> String {
         let short = short(&class.name);
         if self.by_short.get(short).is_some_and(|c| c.len() > 1) {
-            class
-                .name
-                .strip_prefix(ROOT)
-                .unwrap_or(&class.name)
-                .to_owned()
+            class.name.clone()
         } else {
             short.to_owned()
         }
     }
 
-    /// Checks that `alias` is spelled as the table expects and names a PMMP API item.
+    /// Checks that `alias` is spelled as the table expects and names an API item.
     fn check(&self, alias: &str) -> Result<(), String> {
         let (class_name, member) = match alias.split_once("::") {
             Some((class, member)) => (class, Some(member)),
@@ -247,13 +248,12 @@ impl<'a> Index<'a> {
     /// The class-like an alias's class part names.
     fn class(&self, name: &str) -> Result<&'a Class, String> {
         if name.contains('\\') {
-            let fqn = format!("{ROOT}{name}");
             let class = self
                 .by_fqn
-                .get(fqn.as_str())
-                .ok_or_else(|| format!("no PMMP class-like `{fqn}`"))?;
+                .get(name)
+                .ok_or_else(|| format!("no class-like `{name}`"))?;
             if class.internal {
-                return Err(format!("`{fqn}` is @internal"));
+                return Err(format!("`{name}` is @internal"));
             }
             let short = short(name);
             if self.by_short.get(short).is_some_and(|c| c.len() == 1) {
@@ -276,7 +276,7 @@ impl<'a> Index<'a> {
             None if self.api.iter().any(|c| short(&c.name) == name) => {
                 Err(format!("`{name}` is @internal"))
             }
-            None => Err(format!("no PMMP class-like `{name}`")),
+            None => Err(format!("no class-like `{name}`")),
         }
     }
 }
@@ -315,8 +315,13 @@ impl Section {
 /// Runs `table`; in check mode, compares instead of writing.
 pub(crate) fn run(root: &Path, mode: Mode) -> Result<Report, String> {
     let api_path = root.join(API_PATH);
-    let api: Vec<Class> =
+    let mut api: Vec<Class> =
         serde_json::from_slice(&read(&api_path)?).map_err(|e| format!("{API_PATH}: {e}"))?;
+    for class in &mut api {
+        class.name = without_root(&class.name);
+        class.parent = class.parent.as_deref().map(without_root);
+        class.interfaces = class.interfaces.iter().map(|n| without_root(n)).collect();
+    }
     let index = Index::new(&api);
     let mut report = Report::default();
 
@@ -431,15 +436,18 @@ fn short(name: &str) -> &str {
     name.rsplit('\\').next().unwrap_or(name)
 }
 
-/// The section of a row: the namespace below `pocketmine\` (`pocketmine\block`), or
-/// `pocketmine` for its own class-likes.
+/// A dump name without its namespace root.
+fn without_root(name: &str) -> String {
+    name.strip_prefix(ROOT).unwrap_or(name).to_owned()
+}
+
+/// The section of a row: its first namespace (`block`), or [`ROOT_SECTION`] for a class-like
+/// with none.
 fn namespace(fqn: &str) -> &str {
     let class = fqn.split("::").next().unwrap_or(fqn);
-    let rest = class.strip_prefix(ROOT).unwrap_or(class);
-    match rest.find('\\') {
-        Some(end) => class.get(..ROOT.len() + end).unwrap_or(class),
-        None => "pocketmine",
-    }
+    class
+        .split_once('\\')
+        .map_or(ROOT_SECTION, |(first, _)| first)
 }
 
 /// Decides a row's status: its alias in code makes it implemented (or differs, by the first
@@ -505,9 +513,9 @@ fn judge(
     let (status, note) = if covering.is_empty() {
         let was = status.name();
         let note = if note.is_empty() {
-            format!("no `// pmmp:` test ({was})")
+            format!("no `// api:` test ({was})")
         } else {
-            format!("no `// pmmp:` test ({was}: {note})")
+            format!("no `// api:` test ({was}: {note})")
         };
         (Status::Blank, note)
     } else {
@@ -530,12 +538,12 @@ fn render(counts: Counts, sections: &BTreeMap<&str, Section>) -> Result<String, 
     let mut out = String::with_capacity(2 << 20);
     out.push_str(
         "<!-- @generated by cargo xtask table; do not edit. -->\n\
-         # PMMP API mapping\n\n\
-         Rows: the non-`@internal` class-likes of `xtask/data/pmmp/api.json` and the public \
+         # API table\n\n\
+         Rows: the non-`@internal` class-likes of `xtask/data/dump/api.json` and the public \
          non-`@internal` methods each declares. Status: `implemented` (an item in `src/` has the \
          row's `#[doc(alias)]`), `differs` (alias plus a reason in `status.txt`), `merged` (done \
          by the item of another alias, from `status.txt`), `skipped` (reason in `status.txt`), \
-         `blank` (none of these, a known gap marked `open` in `status.txt`, or no `// pmmp:` test \
+         `blank` (none of these, a known gap marked `open` in `status.txt`, or no `// api:` test \
          covers the alias).\n\n\
          | status | rows |\n|---|---:|\n",
     );
@@ -552,7 +560,7 @@ fn render(counts: Counts, sections: &BTreeMap<&str, Section>) -> Result<String, 
     for (name, section) in sections {
         write!(
             out,
-            "\n## `{name}`\n\n{}\n\n| PMMP | status | Anchor | tests | target / reason |\n\
+            "\n## `{name}`\n\n{}\n\n| API | status | Anchor | tests | target / reason |\n\
              |---|---|---|---|---|\n",
             section.counts
         )
@@ -627,18 +635,15 @@ mod tests {
     }
 
     fn api() -> Vec<Class> {
-        let mut player = class(
-            r"pocketmine\player\Player",
-            &[("getName", false), ("secret", true)],
-        );
-        player.parent = Some(r"pocketmine\entity\Human".to_owned());
+        let mut player = class(r"player\Player", &[("getName", false), ("secret", true)]);
+        player.parent = Some(r"entity\Human".to_owned());
         vec![
-            class(r"pocketmine\entity\Human", &[("getSkin", false)]),
+            class(r"entity\Human", &[("getSkin", false)]),
             player,
-            class(r"pocketmine\block\Chest", &[("getPair", false)]),
-            class(r"pocketmine\block\tile\Chest", &[("getPair", false)]),
-            internal_class(r"pocketmine\block\tile\Hidden"),
-            internal_class(r"pocketmine\block\Hidden"),
+            class(r"block\Chest", &[("getPair", false)]),
+            class(r"block\tile\Chest", &[("getPair", false)]),
+            internal_class(r"block\tile\Hidden"),
+            internal_class(r"block\Hidden"),
         ]
     }
 
@@ -669,10 +674,7 @@ mod tests {
         }
         assert_eq!(
             index.check("Player::getSkin"),
-            Err(
-                "`getSkin` is declared in `pocketmine\\entity\\Human`: write `Human::getSkin`"
-                    .to_owned()
-            )
+            Err("`getSkin` is declared in `entity\\Human`: write `Human::getSkin`".to_owned())
         );
     }
 
@@ -685,17 +687,14 @@ mod tests {
             .map(|r| (r.fqn, r.alias))
             .collect();
         let expected = [
-            (r"pocketmine\block\Chest", r"block\Chest"),
-            (r"pocketmine\block\Chest::getPair", r"block\Chest::getPair"),
-            (r"pocketmine\block\tile\Chest", r"block\tile\Chest"),
-            (
-                r"pocketmine\block\tile\Chest::getPair",
-                r"block\tile\Chest::getPair",
-            ),
-            (r"pocketmine\entity\Human", "Human"),
-            (r"pocketmine\entity\Human::getSkin", "Human::getSkin"),
-            (r"pocketmine\player\Player", "Player"),
-            (r"pocketmine\player\Player::getName", "Player::getName"),
+            (r"block\Chest", r"block\Chest"),
+            (r"block\Chest::getPair", r"block\Chest::getPair"),
+            (r"block\tile\Chest", r"block\tile\Chest"),
+            (r"block\tile\Chest::getPair", r"block\tile\Chest::getPair"),
+            (r"entity\Human", "Human"),
+            (r"entity\Human::getSkin", "Human::getSkin"),
+            (r"player\Player", "Player"),
+            (r"player\Player::getName", "Player::getName"),
         ];
         let expected: Vec<_> = expected
             .iter()
@@ -711,12 +710,12 @@ mod tests {
             alias: alias.to_owned(),
         };
         let (rules, errors) = status::parse(
-            "pocketmine\\a\\X::b differs rounds down\n\
-             pocketmine\\a\\** skipped not here\n\
-             pocketmine\\b\\Y::c merged X::b\n\
-             pocketmine\\b\\Y::d merged X::gone\n\
-             pocketmine\\c\\Z::o open no API yet\n\
-             pocketmine\\b\\** differs never reached by code rows\n",
+            "a\\X::b differs rounds down\n\
+             a\\** skipped not here\n\
+             b\\Y::c merged X::b\n\
+             b\\Y::d merged X::gone\n\
+             c\\Z::o open no API yet\n\
+             b\\** differs never reached by code rows\n",
         );
         assert!(errors.is_empty());
         let location = || Location {
@@ -740,40 +739,40 @@ mod tests {
             (j.status, j.note)
         };
         assert_eq!(
-            judged(r"pocketmine\a\X::b", "X::b"),
+            judged(r"a\X::b", "X::b"),
             (Status::Differs, "rounds down".to_owned())
         );
         assert_eq!(
-            judged(r"pocketmine\a\X::e", "X::e"),
-            (Status::Blank, "no `// pmmp:` test (implemented)".to_owned())
+            judged(r"a\X::e", "X::e"),
+            (Status::Blank, "no `// api:` test (implemented)".to_owned())
         );
         assert_eq!(
-            judged(r"pocketmine\a\X::f", "X::f"),
+            judged(r"a\X::f", "X::f"),
             (Status::Skipped, "not here".to_owned())
         );
         assert_eq!(
-            judged(r"pocketmine\b\Y::c", "Y::c"),
+            judged(r"b\Y::c", "Y::c"),
             (Status::Merged, "into `X::b`".to_owned())
         );
-        assert_eq!(judged(r"pocketmine\b\Y::d", "Y::d").0, Status::Blank);
+        assert_eq!(judged(r"b\Y::d", "Y::d").0, Status::Blank);
+        assert_eq!(judged(r"c\Z", "Z"), (Status::Blank, String::new()));
         assert_eq!(
-            judged(r"pocketmine\c\Z", "Z"),
-            (Status::Blank, String::new())
-        );
-        assert_eq!(
-            judged(r"pocketmine\c\Z::o", "Z::o"),
+            judged(r"c\Z::o", "Z::o"),
             (Status::Blank, "open: no API yet".to_owned())
         );
         assert_eq!(used, [true, true, true, true, true, false]);
     }
 
     #[test]
-    fn namespaces_group_rows_below_pocketmine() {
-        assert_eq!(
-            namespace(r"pocketmine\block\tile\Chest::getPair"),
-            r"pocketmine\block"
-        );
-        assert_eq!(namespace(r"pocketmine\Server::getName"), "pocketmine");
-        assert_eq!(namespace(r"pocketmine\Server"), "pocketmine");
+    fn namespaces_group_rows_by_their_first_namespace() {
+        assert_eq!(namespace(r"block\tile\Chest::getPair"), "block");
+        assert_eq!(namespace(r"Server::getName"), ROOT_SECTION);
+        assert_eq!(namespace(r"Server"), ROOT_SECTION);
+    }
+
+    #[test]
+    fn the_namespace_root_of_the_dump_is_dropped() {
+        assert_eq!(without_root(r"pocketmine\block\Chest"), r"block\Chest");
+        assert_eq!(without_root(r"block\Chest"), r"block\Chest");
     }
 }

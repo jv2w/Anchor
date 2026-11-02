@@ -18,24 +18,24 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
-// cloudburstCommand compares the world packets of a capture with CloudburstMC's data:
+// worlddataCommand compares the world packets of a capture with CloudburstMC's data:
 //
-//	bot cloudburst -world CAPTURE.world.jsonl -data DIR
+//	bot worlddata -world CAPTURE.world.jsonl -data DIR
 //
 // The first BiomeDefinitionList must hold the biomes of DIR/stripped_biome_definitions.json (the definitions
 // without chunk generation data), compared by biome name with string indexes resolved, so neither the biome
 // order nor the string list order matters. The first JigsawStructureData must equal DIR/jigsaw_structure_data.nbt
 // (gzip, big-endian NBT) value for value, with its top-level definition lists in identifier order
 // (sortByIdentifier). It prints one line per difference, then SAME or DIFFERENT, and reports whether both matched.
-func cloudburstCommand(args []string, out io.Writer) (bool, error) {
-	fs := flag.NewFlagSet("bot cloudburst", flag.ContinueOnError)
+func worlddataCommand(args []string, out io.Writer) (bool, error) {
+	fs := flag.NewFlagSet("bot worlddata",flag.ContinueOnError)
 	world := fs.String("world", "", "the capture's .world.jsonl file")
 	data := fs.String("data", "", "the CloudburstMC Data checkout")
 	if err := fs.Parse(args); err != nil {
 		return false, err
 	}
 	if fs.NArg() != 0 || *world == "" || *data == "" {
-		return false, errors.New("usage: bot cloudburst -world FILE -data DIR")
+		return false, errors.New("usage: bot worlddata -world FILE -data DIR")
 	}
 	packets, err := firstPackets(*world, "BiomeDefinitionList", "JigsawStructureData")
 	if err != nil {
@@ -187,9 +187,9 @@ func packetBiomes(fields any) (map[string]biome, error) {
 	return out, nil
 }
 
-// cloudburstBiomes reads CloudburstMC's biome definition file. Its density fields have no packet field; a
+// worlddataBiomes reads CloudburstMC's biome definition file. Its density fields have no packet field; a
 // non-zero one is reported.
-func cloudburstBiomes(path string) (map[string]biome, error) {
+func worlddataBiomes(path string) (map[string]biome, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -249,7 +249,7 @@ func compareBiomes(fields any, path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("BiomeDefinitionList: %w", err)
 	}
-	want, err := cloudburstBiomes(path)
+	want, err := worlddataBiomes(path)
 	if err != nil {
 		return nil, err
 	}

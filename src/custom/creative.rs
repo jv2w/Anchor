@@ -53,7 +53,7 @@ const MAX_NAME_BYTES: usize = 128;
 ///     .add(ItemRef::Item(Kind::Apple.default_type()), Category::Items, None);
 /// ```
 #[derive(Debug, Clone)]
-// pmmp-class: CreativeInventory
+// api-class: CreativeInventory
 pub struct CreativeInventory {
     vanilla: bool,
     changes: Vec<Change>,
@@ -217,7 +217,7 @@ enum Change {
 /// The name is a translation key such as `itemGroup.name.sword` or plain text; it must not be
 /// empty (checked when the server is built).
 #[derive(Debug, Clone)]
-// pmmp-class: CreativeGroup
+// api-class: CreativeGroup
 pub struct CreativeGroup {
     name: &'static str,
     icon: CreativeItem,

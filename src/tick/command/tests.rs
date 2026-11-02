@@ -349,11 +349,11 @@ fn syntax_errors_name_the_word_where_the_line_stops_fitting() {
     }
 }
 
-// pmmp: Permissible::hasPermission, Player::hasPermission, Command::testPermissionSilent
-// pmmp: Permissible::isPermissionSet, Player::isPermissionSet
-// pmmp: PermissionAttachment::setPermission, PermissionAttachment::unsetPermission
-// pmmp: Command::setPermission, Server::addOp, Server::removeOp, Server::isOp, Server::getOps
-// pmmp: CommandSender, ConsoleCommandSender
+// api: Permissible::hasPermission, Player::hasPermission, Command::testPermissionSilent
+// api: Permissible::isPermissionSet, Player::isPermissionSet
+// api: PermissionAttachment::setPermission, PermissionAttachment::unsetPermission
+// api: Command::setPermission, Server::addOp, Server::removeOp, Server::isOp, Server::getOps
+// api: CommandSender, ConsoleCommandSender
 #[test]
 fn permissions_follow_defaults_operators_and_grants() {
     let fly = Command::new("fly", "flies")
@@ -408,8 +408,8 @@ fn permissions_follow_defaults_operators_and_grants() {
     assert!(state.commands.grants.is_empty());
 }
 
-// pmmp: PermissionAttachment::getPermissions, PermissionAttachment::clearPermissions
-// pmmp: Permissible::getEffectivePermissions, Player::getEffectivePermissions
+// api: PermissionAttachment::getPermissions, PermissionAttachment::clearPermissions
+// api: Permissible::getEffectivePermissions, Player::getEffectivePermissions
 #[test]
 fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
     let fly = Command::new("fly", "flies")
@@ -522,12 +522,12 @@ fn a_default_for_a_permission_nothing_registered_fails_the_build() {
     );
 }
 
-// pmmp: CommandMap::register, SimpleCommandMap::register, SimpleCommandMap::unregister
-// pmmp: PermissionManager::addPermission, PermissionManager::getPermission
-// pmmp: PermissionManager::getPermissions, CommandMap::getCommand
-// pmmp: SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName
-// pmmp: Command::getDescription, Command::getAliases, Command::setAliases
-// pmmp: Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
+// api: CommandMap::register, SimpleCommandMap::register, SimpleCommandMap::unregister
+// api: PermissionManager::addPermission, PermissionManager::getPermission
+// api: PermissionManager::getPermissions, CommandMap::getCommand
+// api: SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName
+// api: Command::getDescription, Command::getAliases, Command::setAliases
+// api: Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
 #[test]
 fn registration_keeps_user_commands_first_and_checks_the_rules() {
     let ok = |c: Command| c.overload(&[], |_, _, _| Ok(Output::new()));
@@ -901,7 +901,7 @@ fn a_permission_change_resends_the_command_list_after_the_spawn_window() {
     assert_eq!(count(&mut rx[0]), 0, "sent once");
 }
 
-// pmmp: Server::addOp, Server::removeOp
+// api: Server::addOp, Server::removeOp
 #[test]
 fn op_and_deop_send_the_abilities_bds_sends() {
     use crate::protocol::consts::Ability;
@@ -976,7 +976,7 @@ fn mark() -> Command {
     })
 }
 
-// pmmp: CommandEvent
+// api: CommandEvent
 #[test]
 fn command_listeners_see_typed_lines_and_cancel_or_change_them() {
     use crate::event::{Command as CommandEvent, Priority};
@@ -1081,7 +1081,7 @@ fn command_listeners_see_typed_lines_and_cancel_or_change_them() {
     assert_eq!(name(&state, 1), "p1");
 }
 
-// pmmp: Server::dispatchCommand, CommandMap::dispatch, SimpleCommandMap::dispatch
+// api: Server::dispatchCommand, CommandMap::dispatch, SimpleCommandMap::dispatch
 #[test]
 fn a_command_request_answers_with_command_output() {
     let hello = Command::new("hello", "").overload(&[Param::target("who")], |cx, sender, args| {
@@ -1262,7 +1262,7 @@ fn run_logged(state: &mut State, ticks: Vec<Vec<Input>>) -> (InputLog, Vec<u64>)
     (log, hashes)
 }
 
-// pmmp: ConsoleCommandSender
+// api: ConsoleCommandSender
 #[test]
 fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
     let ticks = || {
@@ -1346,10 +1346,10 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
     assert_eq!(run_logged(&mut replay, inputs).1, hashes);
 }
 
-// pmmp: BanList::addBan, BanList::add, Server::getNameBans, Server::getIPBans, BanList::remove
-// pmmp: BanList::isBanned, BanList::getEntry, BanList::getEntries, Server::addWhitelist
-// pmmp: Server::removeWhitelist, Server::isWhitelisted, Server::getWhitelisted
-// pmmp: Server::hasWhitelist
+// api: BanList::addBan, BanList::add, Server::getNameBans, Server::getIPBans, BanList::remove
+// api: BanList::isBanned, BanList::getEntry, BanList::getEntries, Server::addWhitelist
+// api: Server::removeWhitelist, Server::isWhitelisted, Server::getWhitelisted
+// api: Server::hasWhitelist
 #[test]
 fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     let ip = IpAddr::from([10, 1, 2, 3]);

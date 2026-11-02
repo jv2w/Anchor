@@ -438,7 +438,7 @@ mod tests {
             .collect()
     }
 
-    // pmmp: DataPacketReceiveEvent, DataPacketDecodeEvent
+    // api: DataPacketReceiveEvent, DataPacketDecodeEvent
     #[test]
     fn receive_hooks_change_or_drop_a_players_packets() {
         let builder = Server::builder()
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(passed, [Some((true, logged)), Some((false, changed))]);
     }
 
-    // pmmp: DataPacketSendEvent
+    // api: DataPacketSendEvent
     #[test]
     fn send_hooks_change_or_drop_what_a_player_is_sent() {
         let builder = Server::builder().on_send(|player, packet| match packet.get() {

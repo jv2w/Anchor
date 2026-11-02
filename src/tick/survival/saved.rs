@@ -5,7 +5,7 @@
 //!
 //! The extra comes from the server file, so every value is checked on load: a wrong type or a
 //! value out of range keeps the default, except that the health is cut to the maximum health, the
-//! air to [`MIN_AIR_TICKS`]..=[`MAX_AIR_TICKS`], the experience level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
+//! air to [`MIN_AIR_TICKS`]..=[`MAX_AIR_TICKS`], the xp level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
 //! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
 
 use tracing::warn;
@@ -73,13 +73,13 @@ const SLEEPING: &str = "SleepingPos";
 const SPAWN: [&str; 3] = ["SpawnX", "SpawnY", "SpawnZ"];
 /// The key of the spawn position's world.
 const SPAWN_WORLD: &str = "SpawnLevel";
-/// The key of the experience level.
+/// The key of the xp level.
 const XP_LEVEL: &str = "XpLevel";
-/// The key of the progress to the next experience level.
+/// The key of the progress to the next xp level.
 const XP_PROGRESS: &str = "XpP";
-/// The key of the experience seed.
+/// The key of the xp seed.
 const XP_SEED: &str = "XpSeed";
-/// The key of the total experience.
+/// The key of the total xp.
 const XP_TOTAL: &str = "XpTotal";
 
 /// The protocol's game type of a game mode as the packets carry it (`UpdatePlayerGameType`,
@@ -280,9 +280,9 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     put(FOOD_TIMER, Some(Value::Int(food_timer)));
     #[expect(
         clippy::expect_used,
-        reason = "invariant: the experience level is at most `player::MAX_LEVEL`"
+        reason = "invariant: the xp level is at most `player::MAX_LEVEL`"
     )]
-    let xp_level = i32::try_from(s.xp_level).expect("the experience level fits an int");
+    let xp_level = i32::try_from(s.xp_level).expect("the xp level fits an int");
     put(XP_LEVEL, Some(Value::Int(xp_level)));
     put(XP_PROGRESS, Some(Value::Float(to_f32(s.xp_progress))));
     put(

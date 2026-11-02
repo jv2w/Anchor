@@ -1,23 +1,23 @@
 //! Reads Rust sources for the mapping table: the `#[doc(alias = "..")]` attributes and
-//! `// pmmp-class: Name` comments on items, and the `// pmmp: A::b, C::d` comments above test
+//! `// api-class: Name` comments on items, and the `// api: A::b, C::d` comments above test
 //! functions.
 //!
 //! rustdoc rejects an alias equal to the item's own name, so a type named like its PMMP class
-//! (`pub struct Permission` for `Permission`) carries the class alias as a `// pmmp-class: Name`
+//! (`pub struct Permission` for `Permission`) carries the class alias as a `// api-class: Name`
 //! line above the item instead (its doc comments, attributes and other comments may be in
 //! between, blank lines may not). The name must be the item's name; any other alias is a
 //! `#[doc(alias)]`.
 //!
-//! A `// pmmp:` comment is above the test's attributes (`#[test]` first or not); doc comments,
+//! A `// api:` comment is above the test's attributes (`#[test]` first or not); doc comments,
 //! other comments and attributes (one or more lines each) may be between it and the `fn`, blank
 //! lines may not.
 
 /// The attribute that starts an alias; `doc(...)` may list other entries too.
 const ATTRIBUTE: &str = "#[doc(";
 /// The comment that gives the item below it the class alias equal to its name.
-const CLASS_COMMENT: &str = "// pmmp-class:";
+const CLASS_COMMENT: &str = "// api-class:";
 /// The comment that lists the aliases a test covers.
-const COMMENT: &str = "// pmmp:";
+const COMMENT: &str = "// api:";
 
 /// One alias attribute entry on an item.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub(crate) struct Alias {
     pub(crate) item: String,
 }
 
-/// One `// pmmp:` comment and the test it is above.
+/// One `// api:` comment and the test it is above.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Covered {
     /// The aliases the comment lists.
@@ -123,7 +123,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// The aliases of `text` (alias attributes and `// pmmp-class:` comments, by line), or the
+/// The aliases of `text` (alias attributes and `// api-class:` comments, by line), or the
 /// errors (`line: message`) of malformed ones.
 pub(crate) fn aliases(text: &str) -> (Vec<Alias>, Vec<(usize, String)>) {
     let (mut found, mut errors) = attribute_aliases(text);
@@ -135,7 +135,7 @@ pub(crate) fn aliases(text: &str) -> (Vec<Alias>, Vec<(usize, String)>) {
     (found, errors)
 }
 
-/// The `// pmmp-class: Name` comments of `text`.
+/// The `// api-class: Name` comments of `text`.
 fn class_aliases(text: &str) -> (Vec<Alias>, Vec<(usize, String)>) {
     let mut found = Vec::new();
     let mut errors = Vec::new();
@@ -154,12 +154,12 @@ fn class_aliases(text: &str) -> (Vec<Alias>, Vec<(usize, String)>) {
         if name.is_empty() || name.contains(|c: char| !is_ident(c)) {
             errors.push((
                 line,
-                "`// pmmp-class:` names one class (no namespace, no member)".to_owned(),
+                "`// api-class:` names one class (no namespace, no member)".to_owned(),
             ));
         } else if !skip_to_item(&mut cursor, |_| {}) {
             errors.push((
                 line,
-                "`// pmmp-class:` is not directly above an item".to_owned(),
+                "`// api-class:` is not directly above an item".to_owned(),
             ));
         } else {
             let item = item_name(cursor.rest());
@@ -173,7 +173,7 @@ fn class_aliases(text: &str) -> (Vec<Alias>, Vec<(usize, String)>) {
                 errors.push((
                     line,
                     format!(
-                        "`// pmmp-class: {name}` is on `{item}`: it is for an item named \
+                        "`// api-class: {name}` is on `{item}`: it is for an item named \
                          `{name}`; write `#[doc(alias = \"{name}\")]`"
                     ),
                 ));
@@ -221,7 +221,7 @@ fn attribute_aliases(text: &str) -> (Vec<Alias>, Vec<(usize, String)>) {
     (found, errors)
 }
 
-/// The `// pmmp:` comments of `text` and their tests, or the errors (`line: message`) of
+/// The `// api:` comments of `text` and their tests, or the errors (`line: message`) of
 /// comments that are empty or not directly above a test function.
 pub(crate) fn covered(text: &str) -> (Vec<Covered>, Vec<(usize, String)>) {
     let mut found = Vec::new();
@@ -265,7 +265,7 @@ pub(crate) fn covered(text: &str) -> (Vec<Covered>, Vec<(usize, String)>) {
         });
         let function = direct.then(|| fn_name(cursor.rest())).flatten();
         match function {
-            _ if aliases.is_empty() => errors.push((line, "`// pmmp:` lists no alias".to_owned())),
+            _ if aliases.is_empty() => errors.push((line, "`// api:` lists no alias".to_owned())),
             Some(function) if is_test => found.push(Covered {
                 aliases,
                 line,
@@ -273,11 +273,11 @@ pub(crate) fn covered(text: &str) -> (Vec<Covered>, Vec<(usize, String)>) {
             }),
             _ if below_test => errors.push((
                 line,
-                "`// pmmp:` is below `#[test]`: put it above the test's attributes".to_owned(),
+                "`// api:` is below `#[test]`: put it above the test's attributes".to_owned(),
             )),
             _ => errors.push((
                 line,
-                "`// pmmp:` is not directly above a `#[test]` function".to_owned(),
+                "`// api:` is not directly above a `#[test]` function".to_owned(),
             )),
         }
     }
@@ -500,17 +500,17 @@ impl Foo for Bar {}
     fn covered_attributes_comments_to_the_test_below() {
         let text = "
 mod tests {
-    // pmmp: A::b, C::d
-    // pmmp: E
+    // api: A::b, C::d
+    // api: E
     #[test]
     #[ignore = \"slow\"]
     fn works() {}
 
-    // pmmp: F
+    // api: F
     #[tokio::test(flavor = \"current_thread\")]
     async fn later() {}
 
-    // pmmp: G
+    // api: G
     /// Docs.
     #[cfg_attr(
         miri,
@@ -540,9 +540,9 @@ mod tests {
 
     #[test]
     fn covered_rejects_comments_away_from_tests() {
-        let text = "// pmmp: A::b\nfn helper() {}\n// pmmp: A::b\n\n#[test]\nfn t() {}\n\
-                    // pmmp:\n#[test]\nfn u() {}\n#[test]\n// pmmp: A::b\nfn v() {}\n\
-                    // pmmp: A::b\n/// Docs.\n\n#[test]\nfn w() {}\n";
+        let text = "// api: A::b\nfn helper() {}\n// api: A::b\n\n#[test]\nfn t() {}\n\
+                    // api:\n#[test]\nfn u() {}\n#[test]\n// api: A::b\nfn v() {}\n\
+                    // api: A::b\n/// Docs.\n\n#[test]\nfn w() {}\n";
         let (found, errors) = covered(text);
         assert!(found.is_empty());
         let lines: Vec<usize> = errors.iter().map(|(line, _)| *line).collect();
@@ -558,16 +558,16 @@ mod tests {
     #[test]
     fn class_comments_name_the_item_below_them() {
         let text = r"
-// pmmp-class: Permission
+// api-class: Permission
 /// Docs.
 #[derive(Debug)]
 pub struct Permission;
-// pmmp-class: Skin
+// api-class: Skin
 pub struct Other;
-// pmmp-class: Form
+// api-class: Form
 
 pub enum Form {}
-// pmmp-class: block\Chest
+// api-class: block\Chest
 pub struct Chest;
 ";
         let (found, errors) = aliases(text);

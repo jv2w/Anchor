@@ -18,7 +18,7 @@ use crate::world::BlockPos;
 /// it, a block that cannot be broken, a break before its time when `counted`, or a [`BlockBreak`]
 /// listener that cancels it. The event names [`block::INFO_UPDATE`] in its place (the block
 /// Anchor stands in for states it does not implement) and starts with no drops; drops and
-/// experience a listener gives are dropped.
+/// xp a listener gives are dropped.
 pub(super) fn break_block(
     state: &mut State,
     mut actor: Actor,

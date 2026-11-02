@@ -1631,7 +1631,7 @@ mod tests {
             format!("{:?}", e.kick_flags().collect::<Vec<_>>())
         }
 
-        // pmmp: PlayerLoginEvent, PlayerPreLoginEvent
+        // api: PlayerLoginEvent, PlayerPreLoginEvent
         #[test]
         fn login_listeners_get_every_refusal_and_decide_the_join() {
             let listener = |e: &mut PlayerLogin, _: &mut Context<'_>| {
@@ -1676,7 +1676,7 @@ mod tests {
             assert_eq!(state.players.len(), 2);
         }
 
-        // pmmp: PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort
+        // api: PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort
         #[test]
         fn the_login_event_has_the_address_and_port_the_client_connected_from() {
             let listener = |e: &mut PlayerLogin, _: &mut Context<'_>| {
@@ -1690,7 +1690,7 @@ mod tests {
             assert_eq!(logged(), ["192.0.2.7 19133"]);
         }
 
-        // pmmp: PlayerPreLoginEvent
+        // api: PlayerPreLoginEvent
         #[test]
         fn anchors_own_refusal_left_set_ends_as_without_listeners() {
             for listeners in [
@@ -1711,7 +1711,7 @@ mod tests {
             }
         }
 
-        // pmmp: PlayerPreLoginEvent
+        // api: PlayerPreLoginEvent
         #[test]
         fn a_plugin_kick_flag_refuses_the_join_and_changes_nothing() {
             let refuse = |e: &mut PlayerLogin, _: &mut Context<'_>| {
@@ -1734,7 +1734,7 @@ mod tests {
             assert!(refused.players.is_empty());
         }
 
-        // pmmp: PlayerPreLoginEvent
+        // api: PlayerPreLoginEvent
         #[test]
         fn a_login_listener_that_bans_the_player_refuses_it() {
             let ban = |e: &mut PlayerLogin, cx: &mut Context<'_>| {
@@ -1808,7 +1808,7 @@ mod tests {
             assert!(received(&mut rx).1.is_none(), "the player stays");
         }
 
-        // pmmp: PlayerPreLoginEvent
+        // api: PlayerPreLoginEvent
         #[test]
         fn login_monitors_see_the_joined_player() {
             let mut listeners = Listeners::default();
@@ -1838,7 +1838,7 @@ mod tests {
                 .collect()
         }
 
-        // pmmp: PlayerJoinEvent
+        // api: PlayerJoinEvent
         #[test]
         fn the_join_message_goes_to_the_others_as_bds_sends_it() {
             let noop = on(|_: &mut PlayerJoin, _: &mut Context<'_>| {});
@@ -1860,7 +1860,7 @@ mod tests {
             }
         }
 
-        // pmmp: PlayerJoinEvent
+        // api: PlayerJoinEvent
         #[test]
         fn join_listeners_change_or_clear_the_message() {
             for (set, expected) in [
@@ -1904,7 +1904,7 @@ mod tests {
             }
         }
 
-        // pmmp: PlayerDuplicateLoginEvent
+        // api: PlayerDuplicateLoginEvent
         #[test]
         fn duplicate_login_monitors_see_the_outcome_applied() {
             let mut listeners = Listeners::default();
@@ -1921,7 +1921,7 @@ mod tests {
             assert_eq!(state.players.len(), 1);
         }
 
-        // pmmp: PlayerDuplicateLoginEvent::setDisconnectReason, PlayerQuitEvent::getQuitReason
+        // api: PlayerDuplicateLoginEvent::setDisconnectReason, PlayerQuitEvent::getQuitReason
         #[test]
         fn the_replaced_player_quits_with_the_reason_a_listener_gave() {
             for (screen, shown) in [(None, "moved"), (Some("bye"), "bye")] {
@@ -1950,7 +1950,7 @@ mod tests {
             }
         }
 
-        // pmmp: PlayerDuplicateLoginEvent::setDisconnectScreenMessage
+        // api: PlayerDuplicateLoginEvent::setDisconnectScreenMessage
         #[test]
         fn a_duplicate_login_message_is_cut_to_the_text_limit() {
             let listeners = on(|e: &mut PlayerDuplicateLogin, _: &mut Context<'_>| {
@@ -1969,7 +1969,7 @@ mod tests {
             assert_eq!(d.message.len(), MAX_TEXT);
         }
 
-        // pmmp: PlayerPreLoginEvent::setKickFlag
+        // api: PlayerPreLoginEvent::setKickFlag
         #[test]
         fn a_login_refusal_message_is_cut_to_the_text_limit() {
             let listeners = on(|e: &mut PlayerLogin, _: &mut Context<'_>| {
@@ -1985,7 +1985,7 @@ mod tests {
             assert_eq!(d.message.len(), MAX_TEXT);
         }
 
-        // pmmp: PlayerViewDistanceChangeEvent
+        // api: PlayerViewDistanceChangeEvent
         #[test]
         fn a_view_distance_change_is_raised_once_per_change() {
             let mut listeners = on(|e: &mut PlayerViewDistanceChange, _: &mut Context<'_>| {
@@ -2013,7 +2013,7 @@ mod tests {
             );
         }
 
-        // pmmp: Player::setViewDistance
+        // api: Player::setViewDistance
         #[test]
         fn the_api_sets_the_view_distance_within_the_setting_and_tells_the_client() {
             let listeners = on(|e: &mut PlayerViewDistanceChange, _: &mut Context<'_>| {
@@ -2066,7 +2066,7 @@ mod tests {
     /// Reads the `CloudburstMC` data copy, when the external sources are there (`.cache`).
     fn cache(name: &str) -> Option<Vec<u8>> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(".cache/cloudburst-data")
+            .join(".cache/reference-data")
             .join(name);
         #[expect(
             clippy::disallowed_methods,

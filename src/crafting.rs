@@ -520,7 +520,7 @@ impl ShapelessType {
 /// of its own type, so a recipe that should cook in several blocks is added once for each (the
 /// vanilla food recipes exist for the furnace, the smoker, the campfire and the soul campfire).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pmmp-class: FurnaceType
+// api-class: FurnaceType
 pub enum FurnaceType {
     /// A furnace.
     Furnace,
@@ -775,10 +775,10 @@ pub(crate) fn consumed_matches<'a>(
     u64::from(max_flow(&mut capacity, sink)) == need
 }
 
-/// The experience one smelted item of `result` gives (dragonfly `SmeltInfo.Experience`; PMMP has
+/// The xp one smelted item of `result` gives (dragonfly `SmeltInfo.Experience`; PMMP has
 /// none, BDS and dragonfly drop it as orbs when the output is taken). Results dragonfly does not
 /// name give none.
-pub(crate) fn smelt_experience(result: Type) -> f64 {
+pub(crate) fn smelt_xp(result: Type) -> f64 {
     let name = result.name().strip_prefix("minecraft:").unwrap_or_default();
     match name {
         "netherite_scrap" => 2.0,
@@ -1026,7 +1026,7 @@ mod tests {
 
     /// The PMMP recipe dump the tables come from.
     fn dump() -> Json {
-        let text = include_str!("../xtask/data/pmmp/recipes.json");
+        let text = include_str!("../xtask/data/dump/recipes.json");
         serde_json::from_str(text).unwrap()
     }
 
@@ -1370,7 +1370,7 @@ mod tests {
         assert!(recipe(u32::MAX).is_none());
     }
 
-    // pmmp: FurnaceType, FurnaceType::getCookDurationTicks
+    // api: FurnaceType, FurnaceType::getCookDurationTicks
     #[test]
     fn furnace_cook_times_are_pmmp_values() {
         // PMMP `FurnaceType`: furnace 200 ticks, blast furnace and smoker 100, campfires 600.
@@ -1564,7 +1564,7 @@ mod tests {
         for (id, _, name) in TRIM_MATERIAL_TABLE {
             assert_eq!(trim_material(named(name)), Some(id));
         }
-        assert!((smelt_experience(named("minecraft:iron_ingot")) - 0.7).abs() < 1e-12);
-        assert!(smelt_experience(named("minecraft:stick")).abs() < 1e-12);
+        assert!((smelt_xp(named("minecraft:iron_ingot")) - 0.7).abs() < 1e-12);
+        assert!(smelt_xp(named("minecraft:stick")).abs() < 1e-12);
     }
 }

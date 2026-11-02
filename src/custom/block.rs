@@ -55,7 +55,7 @@ pub struct Block {
     light_filter: Option<u8>,
     info: block::Info,
     drops: Drops,
-    experience: (u16, u16),
+    xp: (u16, u16),
     creative: Option<Creative>,
     behaviour: Option<&'static dyn Behaviour>,
     random_ticks: bool,
@@ -121,7 +121,7 @@ impl Block {
                 block::SUPPORT_FULL,
             ),
             drops: Drops::Itself,
-            experience: (0, 0),
+            xp: (0, 0),
             creative: None,
             behaviour: None,
             random_ticks: false,
@@ -215,14 +215,6 @@ impl Block {
         self.drops = drops;
         let silk = !matches!(drops, Drops::Itself);
         self.info = self.info.with_flag(block::flag::SILK_TOUCH, silk);
-        self
-    }
-
-    /// The same block dropping `min` to `max` experience when broken with a compatible tool and
-    /// without Silk Touch.
-    #[must_use]
-    pub const fn with_experience(mut self, min: u16, max: u16) -> Self {
-        self.experience = (min, max);
         self
     }
 
@@ -324,6 +316,14 @@ impl Block {
         self
     }
 
+    /// The same block dropping `min` to `max` xp when broken with a compatible tool and
+    /// without Silk Touch.
+    #[must_use]
+    pub const fn with_xp(mut self, min: u16, max: u16) -> Self {
+        self.xp = (min, max);
+        self
+    }
+
     /// Its behaviour.
     pub(crate) fn behaviour_hooks(&self) -> Option<&'static dyn Behaviour> {
         self.behaviour
@@ -399,8 +399,8 @@ impl Block {
         if b.harvest_level() > Self::MAX_HARVEST_LEVEL {
             return Some("a harvest level above 6 (netherite)");
         }
-        if self.experience.0 > self.experience.1 {
-            return Some("the least experience is above the most");
+        if self.xp.0 > self.xp.1 {
+            return Some("the least xp is above the most");
         }
         // The count of a drop within its item's stack size is checked once the items are numbered.
         if let Drops::Items(items) = self.drops
@@ -465,11 +465,6 @@ impl Block {
             out.insert("properties".to_owned(), Value::List(List::Compound(list)));
         }
         out
-    }
-
-    /// The experience range of a break with a compatible tool.
-    pub(crate) fn experience_range(&self) -> (u16, u16) {
-        self.experience
     }
 
     /// The light filter.
@@ -543,6 +538,11 @@ impl Block {
             .iter()
             .try_fold(1_u32, |n, p| n.checked_mul(p.count()))
             .unwrap_or(u32::MAX)
+    }
+
+    /// The xp range of a break with a compatible tool.
+    pub(crate) fn xp_range(&self) -> (u16, u16) {
+        self.xp
     }
 
     /// Whether it takes random ticks.
@@ -684,7 +684,7 @@ impl fmt::Debug for Block {
             .field("light_filter", &self.light_filter)
             .field("info", &self.info)
             .field("drops", &self.drops)
-            .field("experience", &self.experience)
+            .field("xp", &self.xp)
             .field("creative", &self.creative)
             .field("behaviour", &self.behaviour.is_some())
             .field("random_ticks", &self.random_ticks)

@@ -109,7 +109,7 @@ fn harness_with(edit: impl FnOnce(&mut Config)) -> (Harness, Arc<Registry>) {
     (h, r)
 }
 
-// pmmp: Item::nbtSerialize, Item::nbtDeserialize
+// api: Item::nbtSerialize, Item::nbtDeserialize
 /// A stack's disk form reads back through the context, which knows the server's custom items
 /// and blocks; what is no item stack reads as nothing.
 #[test]
@@ -221,7 +221,7 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     );
 }
 
-/// The drops of the custom ore at the target with `tool`: (stacks, experience).
+/// The drops of the custom ore at the target with `tool`: (stacks, xp).
 fn ore_drops(h: &mut Harness, tool: Stack) -> (Vec<Stack>, u32) {
     let ore = h.state.custom.block_state(&ORE).unwrap();
     h.set(TARGET, ore);
@@ -284,12 +284,12 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
         .expect("a villager spawns");
     assert_eq!(cx.trade_offers(id), Some(Vec::new()));
     let first = Offer::new(wheat.clone(), emerald.clone(), 16)
-        .with_trader_experience(2)
+        .with_trader_xp(2)
         .with_any_damage();
     let second = Offer::new(emerald.clone(), bread.clone(), 8)
         .with_second_payment(wheat.clone())
         .with_tier(1)
-        .without_reward_experience()
+        .without_reward_xp()
         .with_price_multipliers(0.2, 0.1)
         .with_demand(-3);
     cx.set_trade_offers(id, &[first.clone(), second.clone()])
@@ -299,7 +299,7 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
         Some(vec![first.clone(), second.clone()])
     );
     assert_eq!(second.second_payment(), &wheat);
-    assert!(first.takes_any_damage() && !second.rewards_experience());
+    assert!(first.takes_any_damage() && !second.rewards_xp());
     // Refused changes change nothing.
     let free = Offer::new(Stack::EMPTY, bread.clone(), 1);
     let refused = cx.add_trade_offer(id, &free).unwrap_err();
@@ -320,26 +320,25 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
     assert_eq!(cx.trade_offers(id).unwrap()[0].uses(), 4);
     cx.reset_trade_uses(id).unwrap();
     assert_eq!(cx.trade_offers(id).unwrap()[0].uses(), 0);
-    assert_eq!(cx.trade_tier_experience(id), Some([0, 10, 70, 150, 250]));
-    assert_eq!(cx.trade_experience(id), Some(0));
-    cx.set_trade_tier_experience(id, [0, 5, 20, 40, 80])
-        .unwrap();
+    assert_eq!(cx.trade_tier_xp(id), Some([0, 10, 70, 150, 250]));
+    assert_eq!(cx.trade_xp(id), Some(0));
+    cx.set_trade_tier_xp(id, [0, 5, 20, 40, 80]).unwrap();
     cx.set_trade_tier(id, 3).unwrap();
     assert_eq!(cx.trade_tier(id), Some(3));
-    assert_eq!(cx.trade_tier_experience(id), Some([0, 5, 20, 40, 80]));
-    assert_eq!(cx.trade_experience(id), Some(40), "the tier's requirement");
-    cx.set_trade_experience(id, 7).unwrap();
-    assert_eq!(cx.trade_experience(id), Some(7));
+    assert_eq!(cx.trade_tier_xp(id), Some([0, 5, 20, 40, 80]));
+    assert_eq!(cx.trade_xp(id), Some(40), "the tier's requirement");
+    cx.set_trade_xp(id, 7).unwrap();
+    assert_eq!(cx.trade_xp(id), Some(7));
     assert_eq!(cx.trade_tier(id), Some(3), "the tier stays");
-    assert!(cx.set_trade_experience(id, u32::MAX).is_err());
-    assert_eq!(cx.trade_experience(id), Some(7));
+    assert!(cx.set_trade_xp(id, u32::MAX).is_err());
+    assert_eq!(cx.trade_xp(id), Some(7));
     cx.add_trade_offer(id, &second).unwrap();
     assert_eq!(cx.trade_offers(id).map(|o| o.len()), Some(2));
     // Not a villager.
     let gone = crate::entity::Id::new(4_000_000, 7);
     assert_eq!(cx.trade_offers(gone), None);
-    assert_eq!(cx.trade_experience(gone), None);
-    assert_eq!(cx.trade_tier_experience(gone), None);
+    assert_eq!(cx.trade_xp(gone), None);
+    assert_eq!(cx.trade_tier_xp(gone), None);
     assert_eq!(
         cx.set_trade_offers(gone, &[]),
         Err(crate::custom::Error::NotVillager)

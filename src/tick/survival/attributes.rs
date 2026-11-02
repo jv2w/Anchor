@@ -32,7 +32,7 @@ pub(super) const ABSORPTION: u16 = 1 << 6;
 pub(super) const ADVENTURE: u16 = 1 << 11;
 /// Every attribute.
 pub(super) const ALL: u16 =
-    HEALTH | HUNGER | SATURATION | EXHAUSTION | LEVEL | EXPERIENCE | ABSORPTION | MOVEMENT;
+    HEALTH | FOOD | SATURATION | EXHAUSTION | LEVEL | XP | ABSORPTION | MOVEMENT;
 /// The base movement speed (BDS and PMMP `Attribute::MOVEMENT_SPEED` default).
 pub(super) const BASE_SPEED: f64 = 0.1;
 /// Entity data the API set changed (flags, fire): the end of the tick compares it.
@@ -45,7 +45,7 @@ const DEFS: [Def; 17] = [
         0.0,
         to_f32(MAX_FOOD),
         to_f32(MAX_FOOD),
-        HUNGER,
+        FOOD,
     ),
     Def::new(
         "minecraft:player.saturation",
@@ -68,7 +68,7 @@ const DEFS: [Def; 17] = [
         0.0,
         LEVEL,
     ),
-    Def::new("minecraft:player.experience", 0.0, 1.0, 0.0, EXPERIENCE),
+    Def::new("minecraft:player.experience", 0.0, 1.0, 0.0, XP),
     Def::new(
         HEALTH_ATTRIBUTE,
         0.0,
@@ -98,15 +98,13 @@ const DEFS: [Def; 17] = [
 pub(super) const DYING_SIZE: [f32; 2] = [0.2, 0.2];
 /// Exhaustion changed.
 pub(super) const EXHAUSTION: u16 = 1 << 3;
-/// Experience progress changed.
-pub(super) const EXPERIENCE: u16 = 1 << 5;
+/// Food level changed.
+pub(super) const FOOD: u16 = 1 << 1;
 /// Health changed.
 pub(super) const HEALTH: u16 = 1;
 /// The name of the health attribute.
 pub(crate) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
-/// Food level changed.
-pub(super) const HUNGER: u16 = 1 << 1;
-/// Experience level changed.
+/// Xp level changed.
 pub(super) const LEVEL: u16 = 1 << 4;
 /// The absorption maximum BDS sends; more absorption raises it.
 const MAX_ABSORPTION: f32 = 16.0;
@@ -122,6 +120,8 @@ pub(super) const SATURATION: u16 = 1 << 2;
 const SNEAKING_HEIGHT: f32 = 1.49;
 /// The name tag or the score tag changed.
 pub(super) const TAGS: u16 = 1 << 9;
+/// Xp progress changed.
+pub(super) const XP: u16 = 1 << 5;
 
 /// An attribute's name, range and default, and the dirty bit that marks it changed (0 for one
 /// that never changes).
@@ -294,16 +294,16 @@ pub(super) fn spawned(player: &mut Player) {
 }
 
 /// Every attribute of the player (spawn and respawn) but those of a system the settings turn off
-/// (`hunger`, `experience`): the client shows their defaults, and the server never changes them.
+/// (`food`, `xp`): the client shows their defaults, and the server never changes them.
 pub(in crate::tick) fn all_attributes(player: &Player) -> Packet {
     let on = player.survival.switches;
-    let hunger = if on.hunger {
+    let food = if on.food {
         0
     } else {
-        HUNGER | SATURATION | EXHAUSTION
+        FOOD | SATURATION | EXHAUSTION
     };
-    let experience = if on.experience { 0 } else { LEVEL | EXPERIENCE };
-    attributes_of(player, |d| d.bit & (hunger | experience) == 0)
+    let xp = if on.xp { 0 } else { LEVEL | XP };
+    attributes_of(player, |d| d.bit & (food | xp) == 0)
 }
 
 /// The player's health for those who see it, as BDS tells them at a hit, a death and a respawn
@@ -605,11 +605,11 @@ fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
 /// One attribute with its current value.
 fn attribute(def: &Def, s: &Survival) -> Attribute {
     let (value, max) = match def.bit {
-        HUNGER => (to_f32(s.food), def.max),
+        FOOD => (to_f32(s.food), def.max),
         SATURATION => (to_f32(s.saturation), def.max),
         EXHAUSTION => (to_f32(s.exhaustion), def.max),
         LEVEL => (to_f32(f64::from(s.xp_level)), def.max),
-        EXPERIENCE => (to_f32(s.xp_progress), def.max),
+        XP => (to_f32(s.xp_progress), def.max),
         HEALTH => (to_f32(s.health.ceil()), to_f32(s.max_health())),
         MOVEMENT => (to_f32(movement_speed(s)), def.max),
         ABSORPTION => {

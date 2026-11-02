@@ -7,7 +7,7 @@
 //	    [-signaling-addr HOST:PORT] [-token-key key.pem -kid K -iss ISS] [-name N] [-timeout 30s] [-stay 2s] [-login-size BYTES]
 //	    [-segment-size BYTES] [-first-send-delay D] [-script FILE]
 //	bot issuer -dir DIR -kid K -iss ISS
-//	bot cloudburst -world CAPTURE.world.jsonl -data DIR   (cloudburst.go)
+//	bot worlddata -world CAPTURE.world.jsonl -data DIR   (worlddata.go)
 //
 // Transports (-addr is the RakNet address; -signaling-addr is the NetherNet signaling address, -addr when not
 // given: a server started on port 0 binds its signaling TCP port apart from its RakNet UDP port):
@@ -274,8 +274,8 @@ func worldPath(out string) string {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "cloudburst" {
-		same, err := cloudburstCommand(os.Args[2:], os.Stdout)
+	if len(os.Args) > 1 && os.Args[1] == "worlddata" {
+		same, err := worlddataCommand(os.Args[2:], os.Stdout)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "bot:", err)
 			os.Exit(2)

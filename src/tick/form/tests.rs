@@ -102,7 +102,7 @@ fn menu() -> Menu {
         .button("b")
 }
 
-// pmmp: Player::sendForm
+// api: Player::sendForm
 #[test]
 fn a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase() {
     let (mut state, mut rx) = server();
@@ -141,7 +141,7 @@ fn answer(session: u64, seq: u64, form_id: u32, data: Option<&[u8]>, cancel: Opt
     input(session, seq, packet(Packet::ModalFormResponse(p)))
 }
 
-// pmmp: Form::handleResponse
+// api: Form::handleResponse
 #[test]
 fn a_valid_answer_calls_the_handler_once_with_the_typed_response() {
     let (mut state, _rx) = server();
@@ -344,7 +344,7 @@ fn a_handler_may_send_the_next_form() {
     assert_eq!(c.try_recv().ok(), Some(Response::Modal(true)));
 }
 
-// pmmp: Player::closeAllForms
+// api: Player::closeAllForms
 #[test]
 fn closing_forms_sends_the_close_and_forgets_them() {
     let (mut state, mut rx) = server();

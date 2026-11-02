@@ -56,8 +56,8 @@ pub(super) struct Motion {
     pub(super) gliding: bool,
     pub(super) flying: bool,
     pub(super) on_ground: bool,
-    /// Whether hunger runs for the player (settings and game mode), set each tick.
-    pub(super) hunger: bool,
+    /// Whether food runs for the player (settings and game mode), set each tick.
+    pub(super) food: bool,
     /// Yaw and pitch in degrees ([`turn`]): the yaw in [0, 360), the pitch above -360 and below
     /// 360.
     pub(super) yaw: f64,
@@ -103,7 +103,7 @@ impl Motion {
             gliding,
             flying,
             on_ground,
-            hunger,
+            food,
             yaw,
             pitch,
             last_rotation,
@@ -126,7 +126,7 @@ impl Motion {
             gliding,
             flying,
             on_ground,
-            hunger,
+            food,
             force_sync,
             intersected,
             in_bed,
@@ -176,7 +176,7 @@ impl Default for Motion {
             gliding: false,
             flying: false,
             on_ground: false,
-            hunger: false,
+            food: false,
             yaw: 0.0,
             pitch: 0.0,
             last_rotation: [0; 2],
@@ -202,7 +202,7 @@ crate::tick::checkpoint::fields!(Motion {
     gliding,
     flying,
     on_ground,
-    hunger,
+    food,
     yaw,
     pitch,
     last_rotation,
@@ -1464,7 +1464,7 @@ mod tests {
         out
     }
 
-    // pmmp: Living::getFrostWalkerLevel
+    // api: Living::getFrostWalkerLevel
     #[test]
     fn frost_walker_freezes_the_water_sources_around_the_feet_with_air_above_and_nobody_in() {
         let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
@@ -1566,10 +1566,10 @@ mod tests {
         assert_eq!(frozen(&state), want);
     }
 
-    // pmmp: EntityFrostWalkerEvent, EntityFrostWalkerEvent::getRadius,
-    // pmmp: EntityFrostWalkerEvent::getLiquid, EntityFrostWalkerEvent::getTargetBlock,
-    // pmmp: EntityFrostWalkerEvent::setRadius, EntityFrostWalkerEvent::setTargetBlock,
-    // pmmp: EntityFrostWalkerEvent::cancel
+    // api: EntityFrostWalkerEvent, EntityFrostWalkerEvent::getRadius,
+    // api: EntityFrostWalkerEvent::getLiquid, EntityFrostWalkerEvent::getTargetBlock,
+    // api: EntityFrostWalkerEvent::setRadius, EntityFrostWalkerEvent::setTargetBlock,
+    // api: EntityFrostWalkerEvent::cancel
     #[test]
     fn a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it() {
         let mut l = crate::event::Listeners::default();
@@ -1644,8 +1644,8 @@ mod tests {
         assert!(frozen(&state).is_empty());
     }
 
-    // pmmp: EntityFrostWalkerEvent::setLiquid, EntityFrostWalkerEvent::uncancel,
-    // pmmp: EntityFrostWalkerEvent::isCancelled
+    // api: EntityFrostWalkerEvent::setLiquid, EntityFrostWalkerEvent::uncancel,
+    // api: EntityFrostWalkerEvent::isCancelled
     #[test]
     fn frost_walker_values_stay_in_range() {
         let mut e = EntityFrostWalker {

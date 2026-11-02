@@ -279,7 +279,7 @@ impl Item {
                 "minecraft:food".to_owned(),
                 Value::Compound(Compound::from([(
                     "can_always_eat".to_owned(),
-                    Value::Byte(u8::from(!food.requires_hunger())),
+                    Value::Byte(u8::from(!food.requires_food())),
                 )])),
             );
         }

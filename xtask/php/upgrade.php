@@ -2,7 +2,7 @@
 
 /*
  * PMMP block upgrade golden run. Run by `cargo xtask dump` with the PMMP PHP
- * binary, from the pinned PocketMine-MP checkout (`.cache/pmmp`) as the working directory:
+ * binary, from the pinned PocketMine-MP checkout (`.cache/dump`) as the working directory:
  *
  *     php upgrade.php <upgrade dir> <1.12.0.bin> <1.9.0.bin> <reference blocks.json>
  *

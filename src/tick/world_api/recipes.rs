@@ -152,7 +152,7 @@ mod tests {
         Stack::new(t, 1)
     }
 
-    // pmmp: CraftingManager::matchRecipe
+    // api: CraftingManager::matchRecipe
     #[test]
     fn crafting_grids_make_what_their_recipe_makes() {
         let mut state = state();
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(made(&[]), None);
     }
 
-    // pmmp: FurnaceRecipeManager::match
+    // api: FurnaceRecipeManager::match
     #[test]
     fn furnaces_cook_by_their_kind_and_the_servers_own_recipes() {
         let mut state = state();
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(cx.furnace_result(FurnaceType::Furnace, &ore), None);
     }
 
-    // pmmp: CraftingManager::matchBrewingRecipe
+    // api: CraftingManager::matchBrewingRecipe
     #[test]
     fn brewing_makes_what_the_reagent_makes_of_the_potion() {
         let mut state = state();

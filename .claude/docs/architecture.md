@@ -187,37 +187,40 @@ Phases:
 
 ## API table
 
-- The rows are the public, non-`@internal` API of the dump source commit pinned in the source table of `data.md`, without what is out of scope. `xtask/php/api.php` reflects it into `xtask/data/pmmp/api.json` (the class-likes and the public methods each declares).
-- `xtask/data/pmmp/status.txt` gives the rows Anchor does not implement a status; its header defines the line format, the patterns, and the statuses.
-- `cargo xtask table [--check]` writes `xtask/data/pmmp/table.md` (each row's FQN, status, location `file:line`, tests, reason). `verify` checks that it is current and has no blank row. The row counts per status are at the head of `table.md`.
+- The rows are the public, non-`@internal` API of the dump source commit pinned in the source table of `data.md`, without what is out of scope. `xtask/php/api.php` reflects it into `xtask/data/dump/api.json` (the class-likes and the public methods each declares).
+- `xtask/data/dump/status.txt` gives the rows Anchor does not implement a status; its header defines the line format, the patterns, and the statuses.
+- `cargo xtask table [--check]` writes `xtask/data/dump/table.md` (each row's FQN, status, location `file:line`, tests, reason). `verify` checks that it is current and has no blank row. The row counts per status are at the head of `table.md`.
 - The broadcast channels are merged into `broadcast` and `send`.
-- Defects of the API table's source fixed instead of carried over (main ones): global singletons, a mutable shared `Vector3`, getters that copy and NBT serialized again, string keys, an object allocated per event, AsyncTask serialization, raw packet events, hidden O(n) lookups, re-entrant dispatch, a MONITOR priority enforced only by comments, no second check of the state listeners changed, the wall clock and global randomness in game logic, non-atomic saves, IDs that change with load order, light updates (no bound, no spreading across chunk borders), scheduled updates not saved, an unload that leaves no default world, a furnace that loses results by overwriting, shaped recipes matched without their shape.
+- Defects of the API table's source fixed instead of carried over (main ones): global singletons, a mutable shared `Vector3`, getters that copy and NBT serialized again, string keys, an object allocated per event, AsyncTask serialization, raw packet events, hidden O(n) lookups, re-entrant dispatch, a MONITOR priority enforced only by comments, no second check of the state listeners changed, the wall clock and global randomness in game logic, non-atomic saves, IDs that change with load order, light updates (no bound, no spreading across chunk borders), an unload that leaves no default world.
 
 ## Game scope
 
-Scope = the behaviour of the dump and of the API table ∪ survival systems built from other implementations (anvil, smithing table, loom, beacon payment, copper oxidation, furnace experience) − what is out of scope (`CLAUDE.md`).
+Anchor removes what vanilla does on its own and vanilla's reactions to player actions; the developer functions beneath them stay (a removed command keeps the API it called). Settings that switch a feature on and off stay.
 
-Implemented:
-- Survival: health, hunger, air and drowning, experience, status effects, damage, combat and knockback, death and respawn, game modes, movement checks, server-authoritative break times.
-- Blocks: liquids and buckets, falling blocks, explosions, fire, farming (crops, stems, sugar cane, cactus, cocoa, nether wart, bamboo, vines, berries, farmland, saplings into trees), the random tick kinds (leaf decay, fire and grass spread, ice and snow melting, copper oxidation), neighbour connection properties.
-- Workstations: crafting (smithing included), furnaces and campfires, brewing stands, enchanting tables, anvils, smithing tables, stonecutters, looms, beacons, bone meal.
-- Entities: dropped items, experience orbs, falling blocks, TNT, projectiles, area effect clouds, paintings, end crystals, fireworks, tridents, NPCs without AI (villager-like, human-like, zombie), custom entities.
-- Beds and sleep, server light (never sent to clients; `lighting = "fixed"` calculates none), villager trading by code.
-- Weather: each world has a state (clear, rain or snow, thunder) and lightning, changed only through the API (`Context::set_weather`, `strike_lightning`). A cycle is built with a repeating task and `server_data`.
-- The built-in command `status` shows the uptime, TPS and tick time, memory, threads, players, and each world's chunk, entity, and block entity counts, in Anchor's own wording.
+Kept:
+- Survival: health, food, air and drowning, xp, status effects, enchantment effects, damage (fall, void, environment), melee combat, critical hits, knockback, armor, durability, death drops, death and respawn, game modes, dropped items, movement checks, server-authoritative break times (`break-time-check`), `difficulty`, `hardcore`.
+- Right-click items: bow, crossbow and arrows, snowball, egg, ender pearl, shield, armor equipping, splash and lingering potions, drinkable potions, trident, firework rocket, totem of undying, food, bottle o' enchanting, book and quill.
+- Blocks change only by a player's placing and breaking, the kept block clicks, the developer API and custom block hooks (`on_break`, `on_place`, `on_random_tick`, `on_use`), and code explosions. A broken block drops its own item (the pick-block mapping; a block without an item form drops nothing), changeable by the event.
+- Building is complete: placement state rules (facing, half, axis, stacking slabs, candles, and snow layers), two-block blocks placed and broken together, and connecting shapes (`world::connect`) on place and break. The placing position is not checked.
+- Kept block clicks: chests, barrels, and shulker boxes (open, store, chest pairing), ender chests, doors, trapdoors, and fence gates, sign editing. Every other click still fires the click event, and the client is sent the clicked block again.
+- Block entity data: sign text, banner patterns, skulls, flower pot plants, bed colors, and the items of the kept containers. A generator that places a block needing a block entity gets an empty one.
+- Server light (never sent to clients; `lighting = "fixed"` calculates none) and the light query API. Random ticks only for custom blocks.
+- Entities: dropped items, xp orbs, projectiles, area effect clouds, fireworks, tridents, lightning (visual and damage, no fire), code explosions, NPCs without AI (villager-like, human-like, zombie), custom entities, villager trading by code.
+- Weather: each world has a state (clear, rain or snow, thunder) and lightning, changed only through the API (`Context::set_weather`, `strike_lightning`). A cycle is built with a repeating task and `server_data`. Time and `daylight-cycle`.
+- The creative inventory and its developer changes, sounds and particles by code, map import and export.
+- Built-in commands: `clear`, `give`, `gamemode`, `kill`, `tp`, `stop`, `ban`, `ban-ip`, `unban`, `unban-ip`, `kick`, `whitelist`, `op`, `deop`, `save-on`, `save-off`, `save-all`, `list`, `banlist`, `status`, `version`, `check`, `backup`. `status` shows the uptime, TPS and tick time, memory, threads, players, and each world's chunk, entity, and block entity counts, in Anchor's own wording.
 
-- The vanilla villager economy that is out of scope means the default trade templates.
-- Blocks the dump lacks include the composter, kelp, and the grindstone. In an imported world they are inert blocks that only look as they did: no behaviour, item, placing, or generation (`data.md`).
+Removed: random ticks of vanilla blocks, scheduled and neighbour updates (except connections), liquid flow, fire, growth, falling blocks, blocks breaking without support, block entity ticks (furnaces, brewing stands, campfires, beacons), every other block click (beds and sleep, crafting tables and every workstation, buttons, levers, cakes, flower pot filling, note blocks, bells), block-changing item uses (flint and steel, bone meal, hoes, shovels, axes, buckets), painting and end crystal placing, crafting (recipes, the 2×2 grid, furnace recipes, recipe registration; the client gets an empty recipe list), and the vanilla villager economy (the default trade templates).
 
 ## Villager trading
 
 The API table has no counterpart. The server sets the trade lists of villager NPCs without AI.
 
 - Spawning: `Context::spawn_villager(world, pos, profession, &[Offer]) -> Result<entity::Id, custom::Error>`. A villager spawned by a spawn egg, a command, or the entity API has an empty list.
-- List API: `trade_offers`, `set_trade_offers`, `add_trade_offer`, `replace_trade_offer`, `remove_trade_offer`, `trade_tier`, `trade_experience`, `trade_tier_experience`, `set_trade_tier`, `set_trade_experience`, `set_trade_tier_experience`, `reset_trade_uses`. `custom::check_offers` checks a list in advance by the rules of spawning (at most `custom::MAX_OFFERS` offers). An offer is a typed `custom::Offer` instead of NBT (`new(buy, sell, max_uses)`, `with_second_payment`, `with_any_damage`, `with_tier`, `with_price_multipliers`, `with_demand`, and others).
+- List API: `trade_offers`, `set_trade_offers`, `add_trade_offer`, `replace_trade_offer`, `remove_trade_offer`, `trade_tier`, `trade_xp`, `trade_tier_xp`, `set_trade_tier`, `set_trade_xp`, `set_trade_tier_xp`, `reset_trade_uses`. `custom::check_offers` checks a list in advance by the rules of spawning (at most `custom::MAX_OFFERS` offers). An offer is a typed `custom::Offer` instead of NBT (`new(buy, sell, max_uses)`, `with_second_payment`, `with_any_damage`, `with_tier`, `with_price_multipliers`, `with_demand`, and others).
 - Events: `TradeOpen` (the window opens), `Trade` (one trade).
 - Bound: a villager's offers take at most 2 MiB in saved form.
-- Protocol values (compared with the official server): window type 15 with no `ContainerOpen`; offer NBT keys are the official server's (`Recipes`, `netId`, and others); payment slots 4 and 5 and output 50 (in ItemStackRequest the payment containers 47 and 48, the result from the created output 60:50). `netId`s come from a server counter that starts after the last `CraftingData` recipe; reopening an unchanged list shows the same IDs, and every change of the list gives new ones. After a trade no `UpdateTrade` is sent, not even when the tier rises (as the official server does); every change of the list through the API sends it. Each rewarded trade drops 3 to 6 experience. `Damage` 32767 on a payment means any damage.
+- Protocol values (compared with the official server): window type 15 with no `ContainerOpen`; offer NBT keys are the official server's (`Recipes`, `netId`, and others); payment slots 4 and 5 and output 50 (in ItemStackRequest the payment containers 47 and 48, the result from the created output 60:50). `netId`s come from a server counter that starts after the last `CraftingData` recipe; reopening an unchanged list shows the same IDs, and every change of the list gives new ones. After a trade no `UpdateTrade` is sent, not even when the tier rises (as the official server does); every change of the list through the API sends it. Each rewarded trade drops 3 to 6 XP. `Damage` 32767 on a payment means any damage.
 - Trade data goes into the same commit as the entity.
 
 ## Multiple worlds

@@ -380,8 +380,8 @@ mod tests {
         move |cx| seen.note(cx, &name)
     }
 
-    // pmmp: TaskScheduler::scheduleTask, TaskScheduler::scheduleDelayedTask, ClosureTask
-    // pmmp: TaskHandler
+    // api: TaskScheduler::scheduleTask, TaskScheduler::scheduleDelayedTask, ClosureTask
+    // api: TaskHandler
     #[test]
     fn delayed_tasks_run_once_by_due_tick_then_in_scheduling_order() {
         let mut state = state();
@@ -403,7 +403,7 @@ mod tests {
         assert!(state.tasks.queue.is_empty());
     }
 
-    // pmmp: TaskHandler::getNextRun, TaskHandler::getPeriod, TaskHandler::isRepeating
+    // api: TaskHandler::getNextRun, TaskHandler::getPeriod, TaskHandler::isRepeating
     #[test]
     fn a_handle_tells_the_next_run_and_the_period_while_scheduled() {
         let mut state = state();
@@ -446,8 +446,8 @@ mod tests {
         );
     }
 
-    // pmmp: TaskScheduler::scheduleRepeatingTask, TaskScheduler::scheduleDelayedRepeatingTask
-    // pmmp: TaskHandler::cancel, Task::getHandler, TaskScheduler::isQueued
+    // api: TaskScheduler::scheduleRepeatingTask, TaskScheduler::scheduleDelayedRepeatingTask
+    // api: TaskHandler::cancel, Task::getHandler, TaskScheduler::isQueued
     #[test]
     fn repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves() {
         let mut state = state();
@@ -557,7 +557,7 @@ mod tests {
         assert_eq!(state.tasks.queue.len(), 1, "forever waits for tick 2");
     }
 
-    // pmmp: TaskScheduler::cancelAllTasks
+    // api: TaskScheduler::cancelAllTasks
     #[test]
     fn scheduling_past_the_limit_fails_and_cancel_all_empties_the_queue() {
         fn cancel_all(cx: &mut Context<'_>) {

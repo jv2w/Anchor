@@ -102,7 +102,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[doc(alias = "BaseInventory")]
 #[doc(alias = "SimpleInventory")]
 #[derive(Clone, Copy)]
-// pmmp-class: Inventory
+// api-class: Inventory
 pub struct Inventory<'a> {
     halves: [&'a [Stack]; 2],
     max: u8,
@@ -384,14 +384,14 @@ mod tests {
         Stack::new(kind.default_type(), count)
     }
 
-    // pmmp: BaseInventory, SimpleInventory, Inventory::getSize, SimpleInventory::getSize,
-    // pmmp: DoubleChestInventory::getSize, Inventory::getItem, SimpleInventory::getItem,
-    // pmmp: DoubleChestInventory::getItem, Inventory::slotExists, BaseInventory::slotExists,
-    // pmmp: Inventory::isSlotEmpty, BaseInventory::isSlotEmpty, SimpleInventory::isSlotEmpty,
-    // pmmp: DoubleChestInventory::isSlotEmpty, Inventory::getContents,
-    // pmmp: SimpleInventory::getContents, DoubleChestInventory::getContents,
-    // pmmp: Inventory::getMaxStackSize, BaseInventory::getMaxStackSize,
-    // pmmp: CampfireInventory::getMaxStackSize, Inventory
+    // api: BaseInventory, SimpleInventory, Inventory::getSize, SimpleInventory::getSize,
+    // api: DoubleChestInventory::getSize, Inventory::getItem, SimpleInventory::getItem,
+    // api: DoubleChestInventory::getItem, Inventory::slotExists, BaseInventory::slotExists,
+    // api: Inventory::isSlotEmpty, BaseInventory::isSlotEmpty, SimpleInventory::isSlotEmpty,
+    // api: DoubleChestInventory::isSlotEmpty, Inventory::getContents,
+    // api: SimpleInventory::getContents, DoubleChestInventory::getContents,
+    // api: Inventory::getMaxStackSize, BaseInventory::getMaxStackSize,
+    // api: CampfireInventory::getMaxStackSize, Inventory
     #[test]
     fn a_view_reads_both_halves_in_order() {
         let left = [stack(ItemKind::Stick, 3), Stack::EMPTY];
@@ -406,11 +406,11 @@ mod tests {
         assert_eq!(format!("{inv:?}").matches("Stack").count(), 3);
     }
 
-    // pmmp: Inventory::contains, BaseInventory::contains, Inventory::first,
-    // pmmp: BaseInventory::first, Inventory::firstEmpty, BaseInventory::firstEmpty,
-    // pmmp: Inventory::all, BaseInventory::all, Inventory::getAddableItemQuantity,
-    // pmmp: BaseInventory::getAddableItemQuantity, Inventory::canAddItem,
-    // pmmp: BaseInventory::canAddItem
+    // api: Inventory::contains, BaseInventory::contains, Inventory::first,
+    // api: BaseInventory::first, Inventory::firstEmpty, BaseInventory::firstEmpty,
+    // api: Inventory::all, BaseInventory::all, Inventory::getAddableItemQuantity,
+    // api: BaseInventory::getAddableItemQuantity, Inventory::canAddItem,
+    // api: BaseInventory::canAddItem
     #[test]
     fn finding_and_room_follow_pmmp() {
         let named = stack(ItemKind::Stick, 1)
@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(Error::TooLong.to_string(), "more stacks than slots");
     }
 
-    // pmmp: ShulkerBoxInventory::canAddItem
+    // api: ShulkerBoxInventory::canAddItem
     #[test]
     fn a_shulker_box_takes_no_shulker_box() {
         let crate::block::ItemForm::Item(shulker) =
@@ -491,7 +491,7 @@ mod tests {
         assert!(box_slots.can_add(&stack(ItemKind::Coal, 64)));
     }
 
-    // pmmp: PlayerInventory::getHotbarSize
+    // api: PlayerInventory::getHotbarSize
     #[test]
     fn the_hotbar_is_the_first_nine_main_slots() {
         assert_eq!(HOTBAR_SIZE, 9);

@@ -16,7 +16,7 @@ use crate::protocol::{
 
 /// BDS's `CameraPresets` and `CameraAimAssistPresets` from a P6 capture (the file names its
 /// source); no pinned data source holds them.
-const CAMERA: &str = include_str!("../../../xtask/data/reference/bds_camera.json");
+const CAMERA: &str = include_str!("../../../xtask/data/reference/camera.json");
 
 /// `CloudburstMC`'s `entity_properties.nbt` as network NBT (`cargo xtask dump`): one root per
 /// entity type in the file's order, the order and `PropertyData` of BDS's 13 `SyncActorProperty`
@@ -28,12 +28,12 @@ const ENTITY_PROPERTIES: &[u8] =
 const ENTITY_PROPERTY_TYPES: usize = 13;
 
 /// `CloudburstMC`'s `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
-/// is; BDS 1.26.52 sent its version of that `StructureData` (P6 `bot cloudburst`). Without it the
+/// is; BDS 1.26.52 sent its version of that `StructureData` (P6 `bot worlddata`). Without it the
 /// official client leaves the join with "disconnectionScreen.missingStructureData".
 const JIGSAW_STRUCTURE_DATA: &[u8] =
     include_bytes!("../../../xtask/data/reference/jigsaw_structure_data.dat");
 
-/// `bds_camera.json`; its `source` is for readers only.
+/// `camera.json`; its `source` is for readers only.
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct CameraFile {
@@ -163,7 +163,7 @@ pub(super) fn camera() -> [Packet; 3] {
         clippy::expect_used,
         reason = "invariant: the committed file parses (the camera test reads it)"
     )]
-    let file: CameraFile = serde_json::from_str(CAMERA).expect("bds_camera.json parses");
+    let file: CameraFile = serde_json::from_str(CAMERA).expect("camera.json parses");
     let presets = file
         .camera_presets
         .presets

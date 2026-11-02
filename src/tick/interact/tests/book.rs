@@ -290,9 +290,9 @@ fn listener(then: fn(&mut PlayerEditBook, &mut Context<'_>)) -> Listeners {
     l
 }
 
-// pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction, PlayerEditBookEvent::getOldBook
-// pmmp: PlayerEditBookEvent::getNewBook, PlayerEditBookEvent::getModifiedPages
-// pmmp: PlayerEditBookEvent::setNewBook
+// api: PlayerEditBookEvent, PlayerEditBookEvent::getAction, PlayerEditBookEvent::getOldBook
+// api: PlayerEditBookEvent::getNewBook, PlayerEditBookEvent::getModifiedPages
+// api: PlayerEditBookEvent::setNewBook
 #[test]
 fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
     let l = listener(|e, _| {
@@ -338,8 +338,8 @@ fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
     assert_eq!(pages(&h), ["", ""]);
 }
 
-// pmmp: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel
-// pmmp: PlayerEditBookEvent::isCancelled
+// api: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel
+// api: PlayerEditBookEvent::isCancelled
 #[test]
 fn a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit() {
     let l = listener(|e, _| {

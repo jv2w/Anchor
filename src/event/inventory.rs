@@ -209,7 +209,7 @@ pub enum Window {
 /// changes its slots all together or not at all; cancelling keeps them all.
 #[doc(alias = "InventoryTransactionEvent")]
 #[derive(Debug)]
-// pmmp-class: InventoryTransaction
+// api-class: InventoryTransaction
 pub struct InventoryTransaction {
     pub(crate) player: player::Id,
     pub(crate) changes: Vec<SlotChange>,
@@ -335,9 +335,9 @@ mod tests {
 
     const WORLD: world::Id = world::Id::DEFAULT;
 
-    // pmmp: CraftItemEvent, CraftItemEvent::getPlayer, CraftItemEvent::getInputs,
-    // pmmp: CraftItemEvent::getOutputs, CraftItemEvent::getRepetitions, CraftItemEvent::cancel,
-    // pmmp: CraftItemEvent::uncancel, CraftItemEvent::isCancelled
+    // api: CraftItemEvent, CraftItemEvent::getPlayer, CraftItemEvent::getInputs,
+    // api: CraftItemEvent::getOutputs, CraftItemEvent::getRepetitions, CraftItemEvent::cancel,
+    // api: CraftItemEvent::uncancel, CraftItemEvent::isCancelled
     #[test]
     fn craft_item_lists_inputs_and_outputs() {
         let mut e = CraftItem {
@@ -358,10 +358,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: FurnaceBurnEvent, FurnaceBurnEvent::getFurnace, FurnaceBurnEvent::getFuel,
-    // pmmp: FurnaceBurnEvent::getBurnTime, FurnaceBurnEvent::setBurnTime,
-    // pmmp: FurnaceBurnEvent::isBurning, FurnaceBurnEvent::setBurning, FurnaceBurnEvent::cancel,
-    // pmmp: FurnaceBurnEvent::uncancel, FurnaceBurnEvent::isCancelled
+    // api: FurnaceBurnEvent, FurnaceBurnEvent::getFurnace, FurnaceBurnEvent::getFuel,
+    // api: FurnaceBurnEvent::getBurnTime, FurnaceBurnEvent::setBurnTime,
+    // api: FurnaceBurnEvent::isBurning, FurnaceBurnEvent::setBurning, FurnaceBurnEvent::cancel,
+    // api: FurnaceBurnEvent::uncancel, FurnaceBurnEvent::isCancelled
     #[test]
     fn furnace_burn_time_and_use_can_change() {
         let mut e = FurnaceBurn {
@@ -392,10 +392,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: FurnaceSmeltEvent, FurnaceSmeltEvent::getFurnace, FurnaceSmeltEvent::getSource,
-    // pmmp: FurnaceSmeltEvent::getResult, FurnaceSmeltEvent::setResult,
-    // pmmp: FurnaceSmeltEvent::cancel, FurnaceSmeltEvent::uncancel,
-    // pmmp: FurnaceSmeltEvent::isCancelled
+    // api: FurnaceSmeltEvent, FurnaceSmeltEvent::getFurnace, FurnaceSmeltEvent::getSource,
+    // api: FurnaceSmeltEvent::getResult, FurnaceSmeltEvent::setResult,
+    // api: FurnaceSmeltEvent::cancel, FurnaceSmeltEvent::uncancel,
+    // api: FurnaceSmeltEvent::isCancelled
     #[test]
     fn furnace_smelt_result_can_change() {
         let mut e = FurnaceSmelt {
@@ -416,10 +416,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: InventoryOpenEvent, InventoryCloseEvent, InventoryOpenEvent::getPlayer,
-    // pmmp: InventoryEvent::getInventory, InventoryOpenEvent::cancel,
-    // pmmp: InventoryOpenEvent::uncancel, InventoryOpenEvent::isCancelled,
-    // pmmp: InventoryCloseEvent::getPlayer
+    // api: InventoryOpenEvent, InventoryCloseEvent, InventoryOpenEvent::getPlayer,
+    // api: InventoryEvent::getInventory, InventoryOpenEvent::cancel,
+    // api: InventoryOpenEvent::uncancel, InventoryOpenEvent::isCancelled,
+    // api: InventoryCloseEvent::getPlayer
     #[test]
     fn inventory_open_and_close_name_the_window() {
         let window = Window::Block {
@@ -446,12 +446,12 @@ mod tests {
         );
     }
 
-    // pmmp: InventoryTransactionEvent, InventoryTransaction::getSource,
-    // pmmp: InventoryTransactionEvent::getTransaction, InventoryTransaction::getActions,
-    // pmmp: SlotChangeAction::getInventory, SlotChangeAction::getSlot,
-    // pmmp: InventoryAction::getSourceItem, InventoryAction::getTargetItem,
-    // pmmp: InventoryTransactionEvent::cancel, InventoryTransactionEvent::uncancel,
-    // pmmp: InventoryTransactionEvent::isCancelled, InventoryTransaction
+    // api: InventoryTransactionEvent, InventoryTransaction::getSource,
+    // api: InventoryTransactionEvent::getTransaction, InventoryTransaction::getActions,
+    // api: SlotChangeAction::getInventory, SlotChangeAction::getSlot,
+    // api: InventoryAction::getSourceItem, InventoryAction::getTargetItem,
+    // api: InventoryTransactionEvent::cancel, InventoryTransactionEvent::uncancel,
+    // api: InventoryTransactionEvent::isCancelled, InventoryTransaction
     #[test]
     fn inventory_transaction_lists_every_slot_change() {
         let change = SlotChange {

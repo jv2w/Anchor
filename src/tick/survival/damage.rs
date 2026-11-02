@@ -1382,8 +1382,8 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
 }
 
 /// The player died (PMMP `Player::onDeath`): its window closes, its breaking and item use stop,
-/// the [`PlayerDeath`] listeners may change what drops, the experience dropped and the messages,
-/// it drops what it carries and its experience, every player sees the chat death message
+/// the [`PlayerDeath`] listeners may change what drops, the xp dropped and the messages,
+/// it drops what it carries and its xp, every player sees the chat death message
 /// ([`broadcast_death_message`]), viewers see it die and it sees the death screen with `message`
 /// (a translation key) naming the player and its `attacker`.
 ///
@@ -1522,9 +1522,9 @@ fn broadcast_death_message(
     }
 }
 
-/// Drops what a dead player carries and its experience at `place` (PMMP `Player::onDeath`), as
+/// Drops what a dead player carries and its xp at `place` (PMMP `Player::onDeath`), as
 /// the [`PlayerDeath`] listeners left the `event` (with the drops it started with) if one was
-/// raised: kept inventory, replaced drops, kept or changed experience.
+/// raised: kept inventory, replaced drops, kept or changed xp.
 fn drop_death(
     state: &mut State,
     session: SessionId,
@@ -1580,7 +1580,7 @@ fn drop_death(
         player.survival.held_back.extend(left);
     }
     if xp > 0 {
-        entity::drop_experience(state, world, at, xp);
+        entity::drop_xp(state, world, at, xp);
     }
 }
 

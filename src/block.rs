@@ -1062,7 +1062,7 @@ impl BreakInfo {
 
 /// The support a face of a block gives to blocks that need it (PMMP `SupportType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: SupportType
+// api-class: SupportType
 pub enum SupportType {
     /// The whole face.
     Full,
@@ -1484,7 +1484,7 @@ impl Alias {
 /// A copper block's oxidation stage, from new to oxidized (PMMP `CopperOxidation`). A block's
 /// stage is the prefix of its name (`minecraft:weathered_cut_copper`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pmmp-class: CopperOxidation
+// api-class: CopperOxidation
 pub enum CopperOxidation {
     /// New copper.
     None,
@@ -1545,7 +1545,7 @@ pub(crate) enum Waxing {
 /// A bottle slot of a brewing stand, named by where the block shows its bottle (PMMP
 /// `BrewingStandSlot`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: BrewingStandSlot
+// api-class: BrewingStandSlot
 pub enum BrewingStandSlot {
     /// The east bottle: the left slot.
     East,
@@ -1574,7 +1574,7 @@ impl BrewingStandSlot {
 /// A book slot of a chiseled bookshelf, seen from its front (PMMP `ChiseledBookshelfSlot`):
 /// three on the top shelf, then three on the bottom one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: ChiseledBookshelfSlot
+// api-class: ChiseledBookshelfSlot
 pub enum ChiseledBookshelfSlot {
     /// Slot 0.
     TopLeft,
@@ -2092,7 +2092,7 @@ mod tests {
         State::all().find(|s| s.kind() == kind).unwrap()
     }
 
-    // pmmp: BlockBreakInfo::getBreakTime
+    // api: BlockBreakInfo::getBreakTime
     /// Break times equal PMMP's `BlockBreakInfo::getBreakTime` run on the pinned checkout
     /// (6a7cc02): swords break every block half again as fast, Efficiency counts only with the
     /// right tool type, and leaves, bamboo and wool have their own rules.
@@ -2146,7 +2146,7 @@ mod tests {
         }
     }
 
-    // pmmp: BlockBreakInfo::getBreakTime, BlockBreakInfo::isBreakable
+    // api: BlockBreakInfo::getBreakTime, BlockBreakInfo::isBreakable
     /// A block that cannot be broken has no break time, with a hand or a tool.
     #[test]
     fn an_unbreakable_block_has_no_break_time() {
@@ -2177,16 +2177,16 @@ mod tests {
         State::find(name, properties).unwrap()
     }
 
-    // pmmp: Block, Block::getTypeId, Block::getBreakInfo, BlockBreakInfo,
-    // pmmp: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,BlockBreakInfo::getToolType,
-    // pmmp: BlockBreakInfo::getToolHarvestLevel, BlockBreakInfo::isExplosionHarvestable,
-    // pmmp: BlockBreakInfo::isToolCompatible, BlockBreakInfo::getBreakTime,
-    // pmmp: BlockBreakInfo::isBreakable, BlockBreakInfo::breaksInstantly, Block::isSolid,
-    // pmmp: Block::isTransparent, Block::canBeReplaced, Block::isAffectedBySilkTouch,
-    // pmmp: Block::getFrictionFactor, Block::ticksRandomly, Block::getFlammability,
-    // pmmp: Block::getFlameEncouragement, Block::isFlammable, Block::burnsForever, Block::canClimb,
-    // pmmp: Block::canBeFlowedInto, Block::hasEntityCollision, Block::getModelPositionOffset,
-    // pmmp: Block::hasTypeTag
+    // api: Block, Block::getTypeId, Block::getBreakInfo, BlockBreakInfo,
+    // api: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,BlockBreakInfo::getToolType,
+    // api: BlockBreakInfo::getToolHarvestLevel, BlockBreakInfo::isExplosionHarvestable,
+    // api: BlockBreakInfo::isToolCompatible, BlockBreakInfo::getBreakTime,
+    // api: BlockBreakInfo::isBreakable, BlockBreakInfo::breaksInstantly, Block::isSolid,
+    // api: Block::isTransparent, Block::canBeReplaced, Block::isAffectedBySilkTouch,
+    // api: Block::getFrictionFactor, Block::ticksRandomly, Block::getFlammability,
+    // api: Block::getFlameEncouragement, Block::isFlammable, Block::burnsForever, Block::canClimb,
+    // api: Block::canBeFlowedInto, Block::hasEntityCollision, Block::getModelPositionOffset,
+    // api: Block::hasTypeTag
     /// PMMP values of well-known blocks (PMMP `VanillaBlocks`, `BlockBreakInfo`, `ToolTier`).
     #[test]
     fn gameplay_data_are_pmmp_values() {
@@ -2255,8 +2255,8 @@ mod tests {
         );
     }
 
-    // pmmp: SupportType, Block::getSupportType, Block::getCollisionBoxes,
-    // pmmp: SupportType::hasEdgeSupport, SupportType::hasCenterSupport
+    // api: SupportType, Block::getSupportType, Block::getCollisionBoxes,
+    // api: SupportType::hasEdgeSupport, SupportType::hasCenterSupport
     #[test]
     fn support_and_boxes_follow_the_state() {
         let stone = state("minecraft:stone", &[]);
@@ -2309,7 +2309,7 @@ mod tests {
         }
     }
 
-    // pmmp: Block::getAllSides, Block::getHorizontalSides
+    // api: Block::getAllSides, Block::getHorizontalSides
     #[test]
     fn sides_step_to_the_six_and_the_four_neighbours() {
         let at = crate::world::BlockPos::new(5, 64, -3);
@@ -2328,7 +2328,7 @@ mod tests {
         );
     }
 
-    // pmmp: Block
+    // api: Block
     #[test]
     fn with_steps_one_property() {
         let wheat = state("minecraft:wheat", &[("growth", PropertyValue::Int(0))]);
@@ -2348,8 +2348,8 @@ mod tests {
         }
     }
 
-    // pmmp: VanillaBlocks, Block::asItem, BlockStateDictionary::getStates,
-    // pmmp: BannerPatternTypeIdMap::fromId, BannerPatternTypeIdMap::toId
+    // api: VanillaBlocks, Block::asItem, BlockStateDictionary::getStates,
+    // api: BannerPatternTypeIdMap::fromId, BannerPatternTypeIdMap::toId
     #[test]
     fn every_kind_and_state_has_its_data() {
         // PMMP 5.44.3: 799 VanillaBlocks entries, 9 type tags, 42 banner patterns.
@@ -2487,7 +2487,7 @@ mod tests {
         assert_eq!(coal.xp, (0, 2));
     }
 
-    // pmmp: BlockStateDictionary::lookupStateIdFromData
+    // api: BlockStateDictionary::lookupStateIdFromData
     #[test]
     fn named_states_are_the_states_of_their_names() {
         assert_eq!(State::find("minecraft:air", &[]), Some(AIR));
@@ -2552,7 +2552,7 @@ mod tests {
         let reference: Vec<serde_json::Value> =
             serde_json::from_str(include_str!("../xtask/data/reference/blocks.json")).unwrap();
         let listed: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("../xtask/data/pmmp/deserialized.json")).unwrap();
+            serde_json::from_str(include_str!("../xtask/data/dump/deserialized.json")).unwrap();
         let key = |json: &serde_json::Value| format!("{}{}", json["name"], json["states"]);
         let listed: std::collections::BTreeMap<String, &serde_json::Value> =
             listed.iter().map(|d| (key(d), &d["pmmp"])).collect();
@@ -2638,7 +2638,7 @@ mod tests {
         }
     }
 
-    // pmmp: CopperOxidation, CopperOxidation::getNext, CopperOxidation::getPrevious
+    // api: CopperOxidation, CopperOxidation::getNext, CopperOxidation::getPrevious
     #[test]
     fn copper_oxidation_steps_one_stage_at_a_time() {
         use CopperOxidation as O;
@@ -2681,7 +2681,7 @@ mod tests {
         }
     }
 
-    // pmmp: BrewingStandSlot, BrewingStandSlot::getSlotNumber
+    // api: BrewingStandSlot, BrewingStandSlot::getSlotNumber
     #[test]
     fn brewing_stand_slots_are_pmmps_inventory_slots() {
         // PMMP `BrewingStandInventory::SLOT_BOTTLE_LEFT`, `_MIDDLE`, `_RIGHT`.
@@ -2689,7 +2689,7 @@ mod tests {
         assert_eq!(slots, [1, 2, 3]);
     }
 
-    // pmmp: ChiseledBookshelfSlot, ChiseledBookshelfSlot::fromBlockFaceCoordinates
+    // api: ChiseledBookshelfSlot, ChiseledBookshelfSlot::fromBlockFaceCoordinates
     #[test]
     fn chiseled_bookshelf_slots_follow_pmmps_pixel_grid() {
         use ChiseledBookshelfSlot as S;

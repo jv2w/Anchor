@@ -34,7 +34,7 @@ pub(crate) const PLAYER_ENTITY_TYPE: &str = "minecraft:player";
 
 /// A sound.
 #[derive(Debug, Clone, Copy, PartialEq)]
-// pmmp-class: Sound
+// api-class: Sound
 pub enum Sound {
     /// An amethyst block chiming.
     #[doc(alias = "AmethystBlockChimeSound")]
@@ -373,10 +373,10 @@ pub enum Sound {
         /// The volume, 0 to 1.
         volume: f32,
     },
-    /// An experience orb being collected.
+    /// An XP orb being collected.
     #[doc(alias = "XpCollectSound")]
     XpCollect,
-    /// A player reaching experience level `level`.
+    /// A player reaching XP level `level`.
     #[doc(alias = "XpLevelUpSound")]
     XpLevelUp {
         /// The level reached.
@@ -559,7 +559,7 @@ impl Sound {
 
 /// The instrument of a [`Sound::Note`], by the block under a note block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: NoteInstrument
+// api-class: NoteInstrument
 pub enum NoteInstrument {
     /// The default: harp and piano.
     Piano,
@@ -701,34 +701,34 @@ mod tests {
         }
     }
 
-    // pmmp: AmethystBlockChimeSound, AnvilBreakSound, AnvilFallSound, AnvilUseSound,
-    // pmmp: ArmorEquipChainSound, ArmorEquipCopperSound, ArmorEquipDiamondSound,
-    // pmmp: ArmorEquipGenericSound, ArmorEquipGoldSound, ArmorEquipIronSound,
-    // pmmp: ArmorEquipLeatherSound, ArmorEquipNetheriteSound, ArrowHitSound, BarrelCloseSound,
-    // pmmp: BarrelOpenSound, BellRingSound, BlastFurnaceSound, BlazeShootSound,
-    // pmmp: BlockBreakSound, BlockPlaceSound, BlockPunchSound, BottleEmptySound, BowShootSound,
-    // pmmp: BucketEmptyLavaSound, BucketEmptyWaterSound, BucketFillLavaSound,
-    // pmmp: BucketFillWaterSound, BurpSound, CampfireSound, CauldronAddDyeSound,
-    // pmmp: CauldronCleanItemSound, CauldronDyeItemSound, CauldronEmptyLavaSound,
-    // pmmp: CauldronEmptyPotionSound, CauldronEmptyPowderSnowSound, CauldronEmptyWaterSound,
-    // pmmp: CauldronFillLavaSound, CauldronFillPotionSound, CauldronFillPowderSnowSound,
-    // pmmp: CauldronFillWaterSound, ChestCloseSound, ChestOpenSound, ChorusFlowerDieSound,
-    // pmmp: ChorusFlowerGrowSound, ClickSound, CopperWaxApplySound, CopperWaxRemoveSound,
-    // pmmp: DoorBumpSound, DoorCrashSound, DoorSound, DripleafTiltDownSound,
-    // pmmp: DripleafTiltUpSound, DyeUseSound, EnderChestCloseSound, EnderChestOpenSound,
-    // pmmp: EndermanTeleportSound, EntityAttackSound, EntityAttackNoDamageSound, ExplodeSound,
-    // pmmp: FireExtinguishSound, FireworkCrackleSound, FireworkExplosionSound,
-    // pmmp: FireworkLargeExplosionSound, FireworkLaunchSound, FizzSound, FlintSteelSound,
-    // pmmp: FurnaceSound, GhastShootSound, GhastSound, GlowBerriesPickSound, IceBombHitSound,
-    // pmmp: IgniteSound, InkSacUseSound, ItemBreakSound, ItemFrameAddItemSound,
-    // pmmp: ItemFrameRemoveItemSound, ItemFrameRotateItemSound, ItemUseOnBlockSound,
-    // pmmp: LaunchSound, LecternPlaceBookSound, PaintingPlaceSound, PopSound,
-    // pmmp: PotionFinishBrewingSound, PotionSplashSound, RecordStopSound,
-    // pmmp: RespawnAnchorChargeSound, RespawnAnchorDepleteSound, RespawnAnchorSetSpawnSound,
-    // pmmp: ScrapeSound, ShulkerBoxCloseSound, ShulkerBoxOpenSound, SmokerSound,
-    // pmmp: SweetBerriesPickSound, ThrowSound, TotemUseSound, TridentHitBlockSound,
-    // pmmp: TridentHitEntitySound, TridentThrowSound, WaterSplashSound, XpCollectSound,
-    // pmmp: XpLevelUpSound, Sound
+    // api: AmethystBlockChimeSound, AnvilBreakSound, AnvilFallSound, AnvilUseSound,
+    // api: ArmorEquipChainSound, ArmorEquipCopperSound, ArmorEquipDiamondSound,
+    // api: ArmorEquipGenericSound, ArmorEquipGoldSound, ArmorEquipIronSound,
+    // api: ArmorEquipLeatherSound, ArmorEquipNetheriteSound, ArrowHitSound, BarrelCloseSound,
+    // api: BarrelOpenSound, BellRingSound, BlastFurnaceSound, BlazeShootSound,
+    // api: BlockBreakSound, BlockPlaceSound, BlockPunchSound, BottleEmptySound, BowShootSound,
+    // api: BucketEmptyLavaSound, BucketEmptyWaterSound, BucketFillLavaSound,
+    // api: BucketFillWaterSound, BurpSound, CampfireSound, CauldronAddDyeSound,
+    // api: CauldronCleanItemSound, CauldronDyeItemSound, CauldronEmptyLavaSound,
+    // api: CauldronEmptyPotionSound, CauldronEmptyPowderSnowSound, CauldronEmptyWaterSound,
+    // api: CauldronFillLavaSound, CauldronFillPotionSound, CauldronFillPowderSnowSound,
+    // api: CauldronFillWaterSound, ChestCloseSound, ChestOpenSound, ChorusFlowerDieSound,
+    // api: ChorusFlowerGrowSound, ClickSound, CopperWaxApplySound, CopperWaxRemoveSound,
+    // api: DoorBumpSound, DoorCrashSound, DoorSound, DripleafTiltDownSound,
+    // api: DripleafTiltUpSound, DyeUseSound, EnderChestCloseSound, EnderChestOpenSound,
+    // api: EndermanTeleportSound, EntityAttackSound, EntityAttackNoDamageSound, ExplodeSound,
+    // api: FireExtinguishSound, FireworkCrackleSound, FireworkExplosionSound,
+    // api: FireworkLargeExplosionSound, FireworkLaunchSound, FizzSound, FlintSteelSound,
+    // api: FurnaceSound, GhastShootSound, GhastSound, GlowBerriesPickSound, IceBombHitSound,
+    // api: IgniteSound, InkSacUseSound, ItemBreakSound, ItemFrameAddItemSound,
+    // api: ItemFrameRemoveItemSound, ItemFrameRotateItemSound, ItemUseOnBlockSound,
+    // api: LaunchSound, LecternPlaceBookSound, PaintingPlaceSound, PopSound,
+    // api: PotionFinishBrewingSound, PotionSplashSound, RecordStopSound,
+    // api: RespawnAnchorChargeSound, RespawnAnchorDepleteSound, RespawnAnchorSetSpawnSound,
+    // api: ScrapeSound, ShulkerBoxCloseSound, ShulkerBoxOpenSound, SmokerSound,
+    // api: SweetBerriesPickSound, ThrowSound, TotemUseSound, TridentHitBlockSound,
+    // api: TridentHitEntitySound, TridentThrowSound, WaterSplashSound, XpCollectSound,
+    // api: XpLevelUpSound, Sound
     #[test]
     fn sounds_send_pmmps_packets_with_gophertunnel_names() {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();
@@ -796,7 +796,7 @@ mod tests {
         }
     }
 
-    // pmmp: RedstonePowerOnSound, RedstonePowerOffSound
+    // api: RedstonePowerOnSound, RedstonePowerOffSound
     #[test]
     fn levers_and_buttons_sound_as_pmmps_redstone_power() {
         assert_eq!(
@@ -809,7 +809,7 @@ mod tests {
         );
     }
 
-    // pmmp: NoteSound, NoteInstrument, RecordSound, GoatHornSound
+    // api: NoteSound, NoteInstrument, RecordSound, GoatHornSound
     #[test]
     fn notes_discs_and_horns_send_pmmps_sound_events() {
         let none = crate::nbt::Compound::new();

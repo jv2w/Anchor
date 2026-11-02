@@ -36,7 +36,7 @@ pub(crate) const SUB_CHUNKS: usize = 24;
 ///
 /// A clone shares the blocks and biomes and has no light: light is never saved, and a copy is
 /// lit again where it is loaded.
-// pmmp-class: Chunk
+// api-class: Chunk
 pub struct Chunk {
     sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS],
     biomes: [Arc<Paletted<u32>>; SUB_CHUNKS],
@@ -732,8 +732,8 @@ pub(crate) mod tests {
         }
     }
 
-    // pmmp: Chunk::getBlockStateId, Chunk::setBlockStateId, Chunk::getBiomeId,
-    // pmmp: Chunk::setBiomeId, Chunk::getHighestBlockAt, Chunk
+    // api: Chunk::getBlockStateId, Chunk::setBlockStateId, Chunk::getBiomeId,
+    // api: Chunk::setBiomeId, Chunk::getHighestBlockAt, Chunk
     #[test]
     fn a_clone_keeps_its_contents_while_the_original_changes() {
         let mut chunk = Chunk::generate(&Flat, 1, ChunkPos::new(0, 0));
@@ -875,7 +875,7 @@ pub(crate) mod tests {
         assert_eq!(void.to_level_chunk_payload(), empty);
     }
 
-    // pmmp: Generator::generateChunk, Generator, Flat
+    // api: Generator::generateChunk, Generator, Flat
     #[test]
     fn generators_give_the_same_bytes_for_the_same_seed_and_position() {
         for pos in [ChunkPos::new(0, 0), ChunkPos::new(-7, 12)] {

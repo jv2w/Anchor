@@ -1,4 +1,4 @@
-//! Block and item data: reads the committed PMMP dump (`xtask/data/pmmp/`),
+//! Block and item data: reads the committed PMMP dump (`xtask/data/dump/`),
 //! the reference lists (`xtask/data/reference/`) and the block upgrade schemas that add
 //! properties after the dump's data version (`upgrade::ADDING`), checks them against each other,
 //! and builds the block state and item type lists, with their gameplay data, and the tables the
@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use crate::dump::{
-    PMMP_BLOCKS, PMMP_DESERIALIZED, PMMP_DIR, PMMP_ITEMS, PMMP_TABLES, REFERENCE_BLOCKS,
+    DUMP_DIR, PMMP_BLOCKS, PMMP_DESERIALIZED, PMMP_ITEMS, PMMP_TABLES, REFERENCE_BLOCKS,
     REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
 };
 
@@ -452,7 +452,7 @@ impl Data {
             aliases,
             items: Vec::new(),
             kinds,
-            tables: read_json(root, PMMP_DIR, PMMP_TABLES)?,
+            tables: read_json(root, DUMP_DIR, PMMP_TABLES)?,
             pmmp_state_index,
             recipe_meta,
             item_index: BTreeMap::new(),
@@ -487,7 +487,7 @@ impl Data {
             .iter()
             .map(|i| (i.name.as_str(), &i.data))
             .collect();
-        let pmmp: Vec<PmmpItem> = read_json(root, PMMP_DIR, PMMP_ITEMS)?;
+        let pmmp: Vec<PmmpItem> = read_json(root, DUMP_DIR, PMMP_ITEMS)?;
         for (i, item) in pmmp.iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
             let form = self.item_form(&item.bedrock)?;
@@ -806,7 +806,7 @@ fn read_aliases(
     state_index: &BTreeMap<StateKey, u16>,
     pmmp_state_index: &BTreeMap<StateKey, u16>,
 ) -> R<Vec<Alias>> {
-    let list: Vec<Deserialized> = read_json(root, PMMP_DIR, PMMP_DESERIALIZED)?;
+    let list: Vec<Deserialized> = read_json(root, DUMP_DIR, PMMP_DESERIALIZED)?;
     aliases(list, network, state_index, pmmp_state_index)
 }
 
@@ -872,7 +872,7 @@ fn aliases(
 /// [`merge`]); also the default state and identity of each PMMP block type, which all its
 /// states must share.
 fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
-    let pmmp: Vec<PmmpBlock> = read_json(root, PMMP_DIR, PMMP_BLOCKS)?;
+    let pmmp: Vec<PmmpBlock> = read_json(root, DUMP_DIR, PMMP_BLOCKS)?;
     let mut groups: BTreeMap<StateKey, Vec<(Values, i32)>> = BTreeMap::new();
     let mut defaults = BTreeMap::new();
     let mut kinds: BTreeMap<String, Identity> = BTreeMap::new();

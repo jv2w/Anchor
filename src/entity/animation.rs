@@ -8,7 +8,7 @@ use crate::protocol::packet::{self, Packet};
 /// An animation (one PMMP animation class per variant). The client plays it on the actor it is
 /// sent for; one that does not fit the actor (a totem on a dropped item) shows nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pmmp-class: Animation
+// api-class: Animation
 pub enum Animation {
     /// The arm swings.
     #[doc(alias = "ArmSwingAnimation")]

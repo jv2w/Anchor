@@ -243,7 +243,7 @@ fn hit(h: &mut Harness, id: Id) {
     transaction(h, InventoryTransactionData::UseItemOnEntity(Box::new(data)));
 }
 
-// pmmp: Painting::__construct, Painting::canFit
+// api: Painting::__construct, Painting::canFit
 #[test]
 fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
     let mut h = harness();
@@ -331,7 +331,7 @@ fn flags_of(m: &crate::protocol::EntityMetadata) -> FlagSet<EntityDataFlag> {
     set
 }
 
-// pmmp: entity\object\EndCrystal::setShowBase, entity\object\EndCrystal::setBeamTarget
+// api: entity\object\EndCrystal::setShowBase, entity\object\EndCrystal::setBeamTarget
 #[test]
 fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
     let mut h = harness();
@@ -460,8 +460,8 @@ fn target(h: &mut Harness, pos: Vec3) -> Id {
     id
 }
 
-// pmmp: entity\object\FireworkRocket::__construct, entity\object\FireworkRocket::setExplosions,
-// pmmp: entity\object\FireworkRocket::setMaxFlightTimeTicks
+// api: entity\object\FireworkRocket::__construct, entity\object\FireworkRocket::setExplosions,
+// api: entity\object\FireworkRocket::setMaxFlightTimeTicks
 #[test]
 fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
     let mut h = harness();
@@ -823,7 +823,7 @@ fn a_trident_hurts_by_eight_bounces_back_and_a_creative_one_gives_nothing() {
     );
 }
 
-// pmmp: entity\projectile\Trident::__construct, entity\projectile\Trident::setItem
+// api: entity\projectile\Trident::__construct, entity\projectile\Trident::setItem
 #[test]
 fn tridents_save_their_item_and_show_its_glint() {
     let mut h = harness();

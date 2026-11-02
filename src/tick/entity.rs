@@ -1,5 +1,5 @@
 //! Entities on the tick: the store of every world, physics, tracking and the per-kind rules
-//! (dropped items, experience orbs, falling blocks, primed TNT and explosions, projectiles, potion
+//! (dropped items, xp orbs, falling blocks, primed TNT and explosions, projectiles, potion
 //! clouds, NPCs, custom entities ([`custom`]), paintings, end crystals and firework rockets
 //! ([`object`])) (PMMP `Entity`, `ItemEntity`, `ExperienceOrb`, `FallingBlock`, `PrimedTNT`,
 //! `Explosion`, `Projectile` and its kinds, `AreaEffectCloud`, `Living`, `Human`, `Villager`,
@@ -28,7 +28,7 @@
 //!    player on its ray, else the block the ray met), the blocks they are inside, burning, the
 //!    void, then the kind's rules: items count down their pickup delay, merge with equal stacks
 //!    around them and despawn after `item-despawn-ticks`; orbs follow the nearest player within 8 blocks
-//!    and give it their experience; falling blocks land as blocks or drop their item; primed TNT
+//!    and give it their xp; falling blocks land as blocks or drop their item; primed TNT
 //!    burns down and explodes ([`explosion`], within a per-tick budget); stuck arrows go after a
 //!    minute; clouds shrink and give their effects; NPCs count down their hit cooldown and die;
 //!    end crystals that died explode (within the same budget); firework rockets speed up and
@@ -153,7 +153,7 @@ pub(super) const FIRE_DAMAGE_TICKS: u8 = 20;
 const HOOKS: Hooks = Hooks {
     give: inventory::give,
     room,
-    pickup_experience: survival::pickup_experience,
+    pickup_xp: survival::pickup_xp,
     damage: survival::damage_by,
     has_attack_cooldown: survival::has_attack_cooldown,
     add_effect: survival::add_effect,
@@ -205,7 +205,7 @@ const MERGE_CHECK_PERIOD_TICKS: i32 = 2;
 const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 /// Ticks between an orb's searches for a player (PMMP `lookForTargetTime`).
 const ORB_LOOK_PERIOD_TICKS: u8 = 20;
-/// The orb sizes a drop of experience splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
+/// The orb sizes a drop of xp splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
 const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
 /// How far an orb looks for a player to follow (PMMP `MAX_TARGET_DISTANCE`).
 const ORB_TARGET_DISTANCE: f64 = 8.0;
@@ -227,7 +227,7 @@ const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 pub(super) const VOID_DAMAGE: f64 = 10.0;
 /// At or below this feet height the void hurts: 16 under the lowest block.
 pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
-/// The experience a zombie drops (PMMP `Zombie::getXpDropAmount`).
+/// The xp a zombie drops (PMMP `Zombie::getXpDropAmount`).
 const ZOMBIE_XP: u32 = 5;
 
 /// The state players were last sent of an entity's movement and flags (PMMP `lastLocation`,
@@ -385,7 +385,7 @@ pub(super) enum Audience {
 /// An entity, as a [`Context`](crate::Context) lends it (PMMP `Entity`): what it is and where;
 /// [`Mut`] changes it.
 #[derive(Debug, Clone)]
-// pmmp-class: Entity
+// api-class: Entity
 pub struct Entity {
     /// 0 until the tick gives it one (loaded entities).
     runtime_id: u64,
@@ -685,7 +685,7 @@ impl Entity {
                 h.bytes(owner.as_bytes());
                 h.bytes(thrower.as_bytes());
             }
-            Kind::ExperienceOrb(Orb {
+            Kind::XpOrb(Orb {
                 value,
                 despawn_delay,
                 look_for_target,
@@ -989,9 +989,9 @@ pub(super) struct Entities {
     bolts: VecDeque<lightning::Bolt>,
     /// The custom entity types, fixed at start.
     custom: Customs,
-    /// Whether experience exists (`experience`, fixed at start): without it a load drops saved
+    /// Whether xp exists (`xp`, fixed at start): without it a load drops saved
     /// orbs.
-    experience: bool,
+    xp: bool,
 }
 
 impl Entities {
@@ -1207,13 +1207,13 @@ impl Entities {
 
     /// Takes whether orbs exist ([`super::Settings::has_orbs`]; at start, before any chunk
     /// loads).
-    pub(super) fn set_experience(&mut self, on: bool) {
-        self.experience = on;
+    pub(super) fn set_xp(&mut self, on: bool) {
+        self.xp = on;
     }
 
     /// A chunk's saved list arrived ([`mod@super::rules`]), `saved` read from `list` off the
     /// tick ([`read`]): its entities enter the store, waiting for runtime IDs; compounds that are
-    /// not entities here, and entities over the cap, are kept as saved. Without experience, saved
+    /// not entities here, and entities over the cap, are kept as saved. Without xp, saved
     /// orbs are dropped and the chunk is saved without them.
     pub(super) fn load(&mut self, key: Key, saved: Vec<Saved>, list: &[Compound]) {
         let mut kept = Vec::new();
@@ -1227,7 +1227,7 @@ impl Entities {
                     continue;
                 }
             };
-            if !self.experience && matches!(l.kind, Kind::ExperienceOrb(_)) {
+            if !self.xp && matches!(l.kind, Kind::XpOrb(_)) {
                 dropped = true;
                 continue;
             }
@@ -1414,7 +1414,7 @@ impl Entities {
             // Fixed at start (definitions and code); entities hash their type index.
             custom: _,
             // A setting, fixed at start.
-            experience: _,
+            xp: _,
         } = self;
         h.usize(slots.len());
         for s in slots {
@@ -1509,7 +1509,7 @@ impl Entities {
         }
     }
 
-    /// Writes every field but the custom types and the experience setting, which are fixed at
+    /// Writes every field but the custom types and the xp setting, which are fixed at
     /// start.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
@@ -1538,7 +1538,7 @@ impl Entities {
             despawn_heard,
             bolts,
             custom: _,
-            experience: _,
+            xp: _,
         } = self;
         slots.encode(w);
         free.encode(w);
@@ -1562,7 +1562,7 @@ impl Entities {
         bolts.encode(w);
     }
 
-    /// Reads what [`Self::checkpoint`] wrote; the custom types and the experience setting stay.
+    /// Reads what [`Self::checkpoint`] wrote; the custom types and the xp setting stay.
     pub(super) fn restore(
         &mut self,
         r: &mut super::checkpoint::Reader<'_>,
@@ -1592,7 +1592,7 @@ impl Entities {
             despawn_heard: Codec::decode(r)?,
             bolts: Codec::decode(r)?,
             custom: std::mem::take(&mut self.custom),
-            experience: self.experience,
+            xp: self.xp,
         };
         Ok(())
     }
@@ -1622,9 +1622,9 @@ struct Hooks {
     give: fn(&mut Player, Stack) -> Stack,
     /// How much of a stack a player's inventory takes now ([`room`]).
     room: fn(&Player, &Stack) -> u8,
-    /// A player picks up an orb's experience points (mending first); false, and the orb stays,
+    /// A player picks up an orb's xp points (mending first); false, and the orb stays,
     /// while its pickup cooldown runs.
-    pickup_experience: fn(&mut State, SessionId, u32) -> bool,
+    pickup_xp: fn(&mut State, SessionId, u32) -> bool,
     /// Hurts a player, from a source the event names; `None` if no damage was taken, otherwise
     /// the knockback force and vertical limit the damage listeners left.
     damage: fn(&mut State, SessionId, f64, survival::Damage, DamageSource) -> Option<Knockback>,
@@ -1989,18 +1989,18 @@ fn max_delay(d: i16) -> i16 {
     d.max(NEVER)
 }
 
-/// Drops `amount` experience as orbs at `pos` (PMMP `World::dropExperience`: split into the orb
+/// Drops `amount` xp as orbs at `pos` (PMMP `World::dropExperience`: split into the orb
 /// sizes, each with a random motion). At the world's entity limit the rest is not dropped:
-/// experience is not an item a caller can keep. Without orbs ([`Settings::has_orbs`]) nothing
-/// drops: every rule that gives experience (blocks, mobs, furnaces, trades, bottles, deaths)
+/// xp is not an item a caller can keep. Without orbs ([`Settings::has_orbs`]) nothing
+/// drops: every rule that gives xp (blocks, mobs, furnaces, trades, bottles, deaths)
 /// comes here.
 ///
 /// [`Settings::has_orbs`]: super::Settings::has_orbs
-pub(super) fn drop_experience(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) {
+pub(super) fn drop_xp(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) {
     drop_orbs(state, world, pos, amount);
 }
 
-/// [`drop_experience`], returning the points dropped.
+/// [`drop_xp`], returning the points dropped.
 fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u32 {
     if !state.settings.has_orbs() {
         return 0;
@@ -2017,7 +2017,7 @@ fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u3
             look_for_target: 0,
             target: None,
         };
-        let made = create(state, world, pos, Kind::ExperienceOrb(orb), |r| {
+        let made = create(state, world, pos, Kind::XpOrb(orb), |r| {
             let yaw = random_yaw(r);
             let x = (r.unit() * 0.2 - 0.1) * 2.0;
             let y = r.unit() * 0.4;
@@ -2650,8 +2650,8 @@ fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
 }
 
 /// The NPC `id` died at `at` (PMMP `Living::onDeath`), seen at its first tick after the death,
-/// whatever killed it (a hit, the API): it drops its kind's drops and experience (a zombie's;
-/// other NPCs drop nothing; no experience with `experience = false`), as [`EntityDeath`]'s
+/// whatever killed it (a hit, the API): it drops its kind's drops and xp (a zombie's;
+/// other NPCs drop nothing; no xp with `xp = false`), as [`EntityDeath`]'s
 /// listeners leave them. Drops the world cannot take (the entity limit) are lost: they never
 /// existed outside the rule.
 fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
@@ -2693,7 +2693,7 @@ fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
             debug!(world, "a death drop did not fit the world");
         }
     }
-    drop_experience(state, world, at, xp);
+    drop_xp(state, world, at, xp);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
@@ -2996,7 +2996,7 @@ fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
 fn rule_of(kind: &Kind) -> Rule {
     match kind {
         Kind::Item(_) => Rule::Item,
-        Kind::ExperienceOrb(_) => Rule::Orb,
+        Kind::XpOrb(_) => Rule::Orb,
         Kind::FallingBlock(_) => Rule::Falling,
         Kind::Tnt(_) => Rule::Tnt,
         Kind::Projectile(_) => Rule::Projectile,
@@ -3345,12 +3345,12 @@ fn is_targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks
 }
 
 /// An orb's tick (PMMP `ExperienceOrb::entityBaseTick`): despawning, following the nearest
-/// player within 8 blocks, and giving it the experience on touch.
+/// player within 8 blocks, and giving it the xp on touch.
 fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
     };
-    let Kind::ExperienceOrb(orb) = &e.kind else {
+    let Kind::XpOrb(orb) = &e.kind else {
         return;
     };
     let (world, position, bounds) = (e.world, e.body.position, e.bounding_box());
@@ -3361,7 +3361,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
         if despawn <= 0 {
             if let Some(e) = state.rules.entities.get_mut(id) {
                 e.flagged = true;
-                if let Kind::ExperienceOrb(orb) = &mut e.kind {
+                if let Kind::XpOrb(orb) = &mut e.kind {
                     orb.despawn_delay = despawn;
                 }
             }
@@ -3415,7 +3415,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
         return;
     };
     e.body.motion = physics::bounded(e.body.motion + pull);
-    let Kind::ExperienceOrb(orb) = &mut e.kind else {
+    let Kind::XpOrb(orb) = &mut e.kind else {
         return;
     };
     orb.despawn_delay = despawn;
@@ -3424,7 +3424,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let value = orb.value;
     // PMMP: the orb goes only when the player can pick it up (`ExperienceManager::canPickupXp`).
     if let Some(s) = picker
-        && (hooks.pickup_experience)(state, s, u32::from(value))
+        && (hooks.pickup_xp)(state, s, u32::from(value))
         && let Some(e) = state.rules.entities.get_mut(id)
     {
         e.flagged = true;
@@ -4266,8 +4266,8 @@ pub(super) fn left(state: &mut State, session: SessionId) {
 }
 
 /// Throws the projectile of `item` from `session`'s eyes along its look (snowball, egg, ender
-/// pearl, splash or lingering potion, experience bottle; PMMP `ProjectileItem::onClickAir`).
-/// False if `item` throws nothing (a bottle o' enchanting with `experience-orbs = false`), the
+/// pearl, splash or lingering potion, xp bottle; PMMP `ProjectileItem::onClickAir`).
+/// False if `item` throws nothing (a bottle o' enchanting with `xp-orbs = false`), the
 /// player cannot (not spawned, dead, spectator) or the entity limit is reached (the caller keeps
 /// the item; it takes one away on true, and keeps the ender pearl cooldown).
 #[doc(alias = "ProjectileItem::onClickAir")]
@@ -4522,7 +4522,7 @@ pub(super) fn villager(
     }
 }
 
-/// The trade tier or experience of the villager NPC `id` changed from `before` (a trade, a
+/// The trade tier or xp of the villager NPC `id` changed from `before` (a trade, a
 /// change of its offers): its viewers get the changed keys (BDS, P6 `trade`).
 pub(super) fn villager_traded(state: &mut State, id: Id, before: (u8, u32)) {
     let State { players, rules, .. } = state;
@@ -4588,7 +4588,7 @@ fn hash_projectile(h: &mut super::Fnv, p: &Projectile) {
             h.u64(u64::from(potion.id()));
             h.u64(u64::from(*linger));
         }
-        Shot::ExperienceBottle => h.u64(5),
+        Shot::XpBottle => h.u64(5),
         Shot::Trident(kind::Trident {
             item,
             creative,
@@ -4766,8 +4766,8 @@ mod tests {
         static ROOM: Cell<u32> = const { Cell::new(0) };
         /// Items the test inventories took.
         static TAKEN: Cell<u64> = const { Cell::new(0) };
-        /// Experience the test players got.
-        static EXPERIENCE: Cell<u64> = const { Cell::new(0) };
+        /// XP the test players got.
+        static XP: Cell<u64> = const { Cell::new(0) };
         /// Entities the tracking pass compared with the players of their chunk.
         static TRACKED: Cell<usize> = const { Cell::new(0) };
         /// The calls the stand-ins saw.
@@ -4778,7 +4778,7 @@ mod tests {
     pub(super) const TEST_HOOKS: Hooks = Hooks {
         give,
         room: test_room,
-        pickup_experience,
+        pickup_xp,
         damage,
         has_attack_cooldown,
         add_effect,
@@ -5010,7 +5010,7 @@ mod tests {
             calls(|c| *c = Calls::default());
             room(0);
             TAKEN.with(|t| t.set(0));
-            EXPERIENCE.with(|x| x.set(0));
+            XP.with(|x| x.set(0));
         }
     }
 
@@ -5046,11 +5046,11 @@ mod tests {
     }
 
     /// A stand-in pickup: counts the points, refused for players in `Calls::xp_cooldown`.
-    fn pickup_experience(_: &mut State, session: SessionId, amount: u32) -> bool {
+    fn pickup_xp(_: &mut State, session: SessionId, amount: u32) -> bool {
         if calls(|c| c.xp_cooldown.contains(&session.get())) {
             return false;
         }
-        EXPERIENCE.with(|x| x.set(x.get() + u64::from(amount)));
+        XP.with(|x| x.set(x.get() + u64::from(amount)));
         true
     }
 
@@ -5161,7 +5161,7 @@ mod tests {
                     let (x, z) = (f64::from(xi), f64::from(zi));
                     let s = stack("minecraft:stick", u8::try_from(rng.below(64) + 1).unwrap());
                     assert!(drop_item(&mut h.state, 0, at(x + 0.5, -55.0, z + 0.5), s));
-                    drop_experience(&mut h.state, 0, at(z, -59.0, x), 40);
+                    drop_xp(&mut h.state, 0, at(z, -59.0, x), 40);
                     let pos = BlockPos::new(xi, -50, zi);
                     assert!(fall(&mut h.state, 0, pos, named("minecraft:sand")));
                 }
@@ -5652,7 +5652,7 @@ mod tests {
         assert_eq!(h.state.worlds[0].block(pos), Some(lit(true)));
     }
 
-    // pmmp: FallingBlock
+    // api: FallingBlock
     #[test]
     fn falling_blocks_land_as_blocks_or_drop_their_item() {
         let mut h = Harness::new(1);
@@ -5693,17 +5693,17 @@ mod tests {
         );
     }
 
-    // pmmp: ExperienceOrb
+    // api: ExperienceOrb
     #[test]
-    fn orbs_follow_the_nearest_player_and_give_it_their_experience() {
+    fn orbs_follow_the_nearest_player_and_give_it_their_xp() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
-        drop_experience(&mut h.state, 0, at(2.5, -59.0, 0.5), 100);
+        drop_xp(&mut h.state, 0, at(2.5, -59.0, 0.5), 100);
         let values: Vec<u16> = h
             .live()
             .iter()
             .filter_map(|e| match &e.kind {
-                Kind::ExperienceOrb(o) => Some(o.value),
+                Kind::XpOrb(o) => Some(o.value),
                 _ => None,
             })
             .collect();
@@ -5713,36 +5713,26 @@ mod tests {
             h.entities();
         }
         assert!(h.live().is_empty());
-        assert_eq!(EXPERIENCE.with(Cell::get), 100);
+        assert_eq!(XP.with(Cell::get), 100);
     }
 
-    /// `experience = false` or `experience-orbs = false`: neither the rules nor the API make
+    /// `xp = false` or `xp-orbs = false`: neither the rules nor the API make
     /// orbs.
     #[test]
-    fn without_experience_or_orbs_no_orbs_are_made() {
-        let off: [fn(&mut crate::config::Config); 2] = [
-            |c| c.general.experience = false,
-            |c| c.general.experience_orbs = false,
-        ];
+    fn without_xp_or_orbs_no_orbs_are_made() {
+        let off: [fn(&mut crate::config::Config); 2] =
+            [|c| c.general.xp = false, |c| c.general.xp_orbs = false];
         for (i, edit) in off.into_iter().enumerate() {
             let mut h = Harness::with_config(1, Listeners::default(), edit);
             h.spawn(1, standing(0.0, 0.0));
             let next = h.state.next_runtime_id;
-            drop_experience(&mut h.state, 0, at(2.5, -59.0, 0.5), 100);
+            drop_xp(&mut h.state, 0, at(2.5, -59.0, 0.5), 100);
             let mut cx = crate::tick::Context {
                 state: &mut h.state,
             };
             let world = crate::world::Id::DEFAULT;
-            assert_eq!(
-                cx.drop_experience(world, at(2.5, -59.0, 0.5), 100),
-                0,
-                "{i}"
-            );
-            assert_eq!(
-                cx.spawn_experience_orb(world, at(2.5, -59.0, 0.5), 5),
-                None,
-                "{i}"
-            );
+            assert_eq!(cx.drop_xp(world, at(2.5, -59.0, 0.5), 100), 0, "{i}");
+            assert_eq!(cx.spawn_xp_orb(world, at(2.5, -59.0, 0.5), 5), None, "{i}");
             assert!(h.live().is_empty(), "{i}");
             assert_eq!(h.state.next_runtime_id, next, "no runtime ID is used ({i})");
         }
@@ -5761,16 +5751,16 @@ mod tests {
             .collect()
     }
 
-    /// `experience = false` or `experience-orbs = false`: the orbs of a saved chunk are dropped
+    /// `xp = false` or `xp-orbs = false`: the orbs of a saved chunk are dropped
     /// as it loads, out of the tick radius too (no runtime ID, never sent), and the chunk is
     /// saved without them; with both they stay.
     #[test]
-    fn without_experience_or_orbs_saved_orbs_are_dropped_as_their_chunk_loads() {
+    fn without_xp_or_orbs_saved_orbs_are_dropped_as_their_chunk_loads() {
         let key = (0, ChunkPos::new(5, 0));
         let list = {
             let mut h = Harness::new(1);
             h.spawn(1, standing(80.0, 0.0));
-            drop_experience(&mut h.state, 0, at(80.5, -59.0, 0.5), 3);
+            drop_xp(&mut h.state, 0, at(80.5, -59.0, 0.5), 3);
             let item = stack("minecraft:stick", 3);
             assert!(drop_item(&mut h.state, 0, at(81.5, -59.0, 1.5), item));
             h.state.rules.entities.unload(key).unwrap()
@@ -5781,10 +5771,10 @@ mod tests {
         // The stand-in save thread's markers come with them, kept as saved.
         let without: Vec<Compound> = list.iter().filter(|c| !is_orb(c)).cloned().collect();
         assert_eq!(list.len() - without.len(), 1, "one orb: {list:?}");
-        for (experience, orbs) in [(false, true), (true, false), (true, true)] {
+        for (xp, orbs) in [(false, true), (true, false), (true, true)] {
             let mut h = Harness::with_config(1, Listeners::default(), |c| {
-                c.general.experience = experience;
-                c.general.experience_orbs = orbs;
+                c.general.xp = xp;
+                c.general.xp_orbs = orbs;
                 c.developer.tick_radius = 2;
             });
             let (j, rx) = join(1, 0);
@@ -5801,14 +5791,10 @@ mod tests {
             for _ in 0..3 {
                 h.step(Vec::new());
             }
-            let both = experience && orbs;
+            let both = xp && orbs;
             let kept = if both { 2 } else { 1 };
-            assert_eq!(h.live().len(), kept, "experience {experience}, orbs {orbs}");
-            assert_eq!(
-                adds(&h.take(1)).len(),
-                kept,
-                "experience {experience}, orbs {orbs}"
-            );
+            assert_eq!(h.live().len(), kept, "xp {xp}, orbs {orbs}");
+            assert_eq!(adds(&h.take(1)).len(), kept, "xp {xp}, orbs {orbs}");
             let saved = h.state.rules.entities.unload(key);
             if both {
                 assert_eq!(saved, None, "nothing changed");
@@ -5908,18 +5894,18 @@ mod tests {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         calls(|c| c.xp_cooldown.insert(1));
-        drop_experience(&mut h.state, 0, at(0.5, -60.0, 0.5), 3);
+        drop_xp(&mut h.state, 0, at(0.5, -60.0, 0.5), 3);
         for _ in 0..100 {
             h.entities();
         }
         assert_eq!(h.live().len(), 1, "the orb waits");
-        assert_eq!(EXPERIENCE.with(Cell::get), 0);
+        assert_eq!(XP.with(Cell::get), 0);
         calls(|c| c.xp_cooldown.clear());
         for _ in 0..100 {
             h.entities();
         }
         assert!(h.live().is_empty());
-        assert_eq!(EXPERIENCE.with(Cell::get), 3);
+        assert_eq!(XP.with(Cell::get), 3);
     }
 
     /// An orb measures its distance to a player from the player's feet rounded as PMMP keeps
@@ -5929,7 +5915,7 @@ mod tests {
     fn an_orb_finds_a_player_from_its_rounded_feet() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
-        drop_experience(&mut h.state, 0, at(0.5, -52.000_000_5, 0.5), 1);
+        drop_xp(&mut h.state, 0, at(0.5, -52.000_000_5, 0.5), 1);
         let id = h.state.rules.entities.ids().last().unwrap();
         with(&mut h.state, id, |e| {
             e.gravity = false;
@@ -5939,7 +5925,7 @@ mod tests {
             h.entities();
         }
         let target = h.state.rules.entities.get(id).and_then(|e| match &e.kind {
-            Kind::ExperienceOrb(o) => o.target,
+            Kind::XpOrb(o) => o.target,
             _ => None,
         });
         assert_eq!(target, Some(SessionId::new(1)));
@@ -5971,7 +5957,7 @@ mod tests {
             .unwrap();
         assert!(!fall(&mut h.state, 0, pos, named("minecraft:sand")));
         assert_eq!(h.state.worlds[0].block(pos), Some(named("minecraft:sand")));
-        drop_experience(&mut h.state, 0, at(0.5, -59.0, 0.5), 10);
+        drop_xp(&mut h.state, 0, at(0.5, -59.0, 0.5), 10);
         assert_eq!(h.state.rules.entities.count(0), MAX_ENTITIES_PER_WORLD);
         assert_eq!(h.state.next_runtime_id, next, "no runtime ID is used");
         // Saved entities over the cap stay as saved.
@@ -6050,7 +6036,7 @@ mod tests {
                     pos,
                     stack("minecraft:diamond_sword", 1)
                 )),
-                1 => drop_experience(&mut h.state, 0, pos, 1),
+                1 => drop_xp(&mut h.state, 0, pos, 1),
                 _ => {
                     let b = BlockPos::new(xi, -40, zi);
                     h.state.worlds[0]
@@ -6097,7 +6083,7 @@ mod tests {
             despawn_heard: _,
             bolts,
             custom: _,
-            experience: _,
+            xp: _,
         } = &h.state.rules.entities;
         assert!(players.is_empty() && !players_fresh);
         assert!(slots.is_empty() && free.is_empty() && counts.is_empty() && bolts.is_empty());
@@ -6553,7 +6539,7 @@ mod tests {
         );
     }
 
-    // pmmp: Entity, ExperienceOrb, FallingBlock, AreaEffectCloud, Villager, Human
+    // api: Entity, ExperienceOrb, FallingBlock, AreaEffectCloud, Villager, Human
     #[test]
     fn every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start() {
         let mut h = Harness::new(1);
@@ -6566,7 +6552,7 @@ mod tests {
             .into_iter()
             .map(|k| match k {
                 Kind::Tnt(t) => Kind::Tnt(Tnt { fuse: 100, ..t }),
-                Kind::ExperienceOrb(o) => Kind::ExperienceOrb(Orb {
+                Kind::XpOrb(o) => Kind::XpOrb(Orb {
                     despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
                     ..o
                 }),

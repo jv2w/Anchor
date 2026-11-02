@@ -3,7 +3,7 @@
 
 /// A kind of tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pmmp-class: TreeType
+// api-class: TreeType
 pub enum TreeType {
     /// Oak.
     #[doc(alias = "TreeType::OAK")]
@@ -56,7 +56,7 @@ impl TreeType {
 mod tests {
     use super::*;
 
-    // pmmp: TreeType, TreeType::getDisplayName
+    // api: TreeType, TreeType::getDisplayName
     #[test]
     fn tree_types_have_pmmps_display_names() {
         assert_eq!(TreeType::Oak.display_name(), "Oak");

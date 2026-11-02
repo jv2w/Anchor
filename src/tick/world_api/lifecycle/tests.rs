@@ -107,13 +107,13 @@ fn arena(seed: i64) -> Options {
     Options::new().with_kind(Kind::Temporary).with_seed(seed)
 }
 
-// pmmp: WorldManager::generateWorld, WorldInitEvent, WorldLoadEvent
-// pmmp: WorldManager::isWorldGenerated, WorldManager::isWorldLoaded, World::isLoaded
-// pmmp: WorldCreationOptions, WorldCreationOptions::create, WorldCreationOptions::getSeed
-// pmmp: WorldCreationOptions::setSeed, WorldCreationOptions::getSpawnPosition
-// pmmp: WorldCreationOptions::setSpawnPosition, WorldCreationOptions::getGeneratorClass
-// pmmp: WorldCreationOptions::setGeneratorClass, WorldCreationOptions::getDifficulty
-// pmmp: WorldCreationOptions::setDifficulty, GeneratorManager::addGenerator
+// api: WorldManager::generateWorld, WorldInitEvent, WorldLoadEvent
+// api: WorldManager::isWorldGenerated, WorldManager::isWorldLoaded, World::isLoaded
+// api: WorldCreationOptions, WorldCreationOptions::create, WorldCreationOptions::getSeed
+// api: WorldCreationOptions::setSeed, WorldCreationOptions::getSpawnPosition
+// api: WorldCreationOptions::setSpawnPosition, WorldCreationOptions::getGeneratorClass
+// api: WorldCreationOptions::setGeneratorClass, WorldCreationOptions::getDifficulty
+// api: WorldCreationOptions::setDifficulty, GeneratorManager::addGenerator
 #[test]
 fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
     let (mut state, mut output, _rx) = server(world_listeners());
@@ -191,10 +191,10 @@ fn on_spawn(state: &State, w: WorldIndex) -> Vec3 {
     )
 }
 
-// pmmp: WorldManager::unloadWorld, WorldUnloadEvent, WorldUnloadEvent::cancel
-// pmmp: WorldUnloadEvent::uncancel, WorldUnloadEvent::isCancelled, World::addOnUnloadCallback
-// pmmp: World::removeOnUnloadCallback, WorldManager::getDefaultWorld
-// pmmp: WorldManager::setDefaultWorld, WorldManager::getWorldByName
+// api: WorldManager::unloadWorld, WorldUnloadEvent, WorldUnloadEvent::cancel
+// api: WorldUnloadEvent::uncancel, WorldUnloadEvent::isCancelled, World::addOnUnloadCallback
+// api: World::removeOnUnloadCallback, WorldManager::getDefaultWorld
+// api: WorldManager::setDefaultWorld, WorldManager::getWorldByName
 #[test]
 fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world() {
     let (mut state, mut output, mut rx) = server(world_listeners());
@@ -281,7 +281,7 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     );
 }
 
-// pmmp: Player::teleport
+// api: Player::teleport
 /// A teleport into a world that is not loaded fails at once, and one an unload listener marks
 /// into the unloading world sends the player where the world's players go: no teleport that
 /// succeeded is dropped.
@@ -342,7 +342,7 @@ fn a_listener_that_makes_the_world_the_default_one_keeps_it() {
     assert_eq!(cx.default_world().id(), id);
 }
 
-// pmmp: World::stopTime, World::startTime
+// api: World::stopTime, World::startTime
 #[test]
 fn a_stopped_time_stands_still_for_the_world_and_its_players() {
     let (mut state, mut output, mut rx) = server(Listeners::default());
@@ -419,7 +419,7 @@ fn a_made_world_uses_the_view_values_of_its_options() {
     assert_eq!(arena(1).with_settings(own).settings(), own);
 }
 
-// pmmp: World::getDifficulty, World::setDifficulty
+// api: World::getDifficulty, World::setDifficulty
 #[test]
 fn a_world_follows_the_server_difficulty_until_it_has_its_own() {
     let (mut state, mut output, mut rx) = server(Listeners::default());
@@ -467,9 +467,9 @@ fn a_world_follows_the_server_difficulty_until_it_has_its_own() {
     );
 }
 
-// pmmp: World::registerChunkLoader, World::unregisterChunkLoader, World::getChunkLoaders
-// pmmp: World::isChunkInUse, World::loadChunk, World::requestChunkPopulation
-// pmmp: World::orderChunkPopulation, ChunkLoader
+// api: World::registerChunkLoader, World::unregisterChunkLoader, World::getChunkLoaders
+// api: World::isChunkInUse, World::loadChunk, World::requestChunkPopulation
+// api: World::orderChunkPopulation, ChunkLoader
 #[test]
 fn a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released() {
     let loads = on(|e: &mut ChunkLoad, _: &mut Context<'_>| {
@@ -638,7 +638,7 @@ fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
     assert!(state.chunks.is_idle());
 }
 
-// pmmp: WorldManager::generateWorld, WorldManager::loadWorld, World::getDifficulty
+// api: WorldManager::generateWorld, WorldManager::loadWorld, World::getDifficulty
 #[test]
 fn a_hardcore_server_plays_every_world_on_hard() {
     let hardcore = settings(|c| {
@@ -699,7 +699,7 @@ fn a_hardcore_server_plays_every_world_on_hard() {
     }
 }
 
-// pmmp: WorldManager::unloadWorld, WorldManager::loadWorld
+// api: WorldManager::unloadWorld, WorldManager::loadWorld
 #[test]
 fn a_load_after_an_unload_in_the_same_call_keeps_the_world() {
     let (mut state, mut output, _rx) = server(world_listeners());
@@ -754,7 +754,7 @@ fn in_spawn_window() -> (State, Output, mpsc::Receiver<Outbound>) {
     (state, output, rx)
 }
 
-// pmmp: World::stopTime, World::setTime, World::setDifficulty
+// api: World::stopTime, World::setTime, World::setDifficulty
 #[test]
 fn a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes() {
     let (mut state, mut output, mut rx) = in_spawn_window();
@@ -1041,8 +1041,8 @@ fn finish(
     handle.join().unwrap().unwrap();
 }
 
-// pmmp: WorldManager::loadWorld, WorldManager::isWorldGenerated, World::stopTime
-// pmmp: World::setDifficulty, World::getDifficulty
+// api: WorldManager::loadWorld, WorldManager::isWorldGenerated, World::stopTime
+// api: World::setDifficulty, World::getDifficulty
 #[test]
 fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let dir = crate::save::tests::TempDir::new("world-lifecycle");

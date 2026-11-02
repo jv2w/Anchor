@@ -19,8 +19,8 @@ fn context(state: &mut State) -> Context<'_> {
     Context { state }
 }
 
-// pmmp: WorldManager::getWorld, WorldManager::isWorldLoaded, Position::isValid
-// pmmp: WorldManager::getWorlds, World::getId, World::getFolderName, World::getDisplayName
+// api: WorldManager::getWorld, WorldManager::isWorldLoaded, Position::isValid
+// api: WorldManager::getWorlds, World::getId, World::getFolderName, World::getDisplayName
 #[test]
 fn worlds_are_found_by_their_id_in_list_order() {
     let config = Config::default();
@@ -55,7 +55,7 @@ fn worlds_are_found_by_their_id_in_list_order() {
     assert_eq!(cx.worlds().count(), 2);
 }
 
-// pmmp: World::setSpawnLocation, World::getSpawnLocation, World::isSpawnChunk
+// api: World::setSpawnLocation, World::getSpawnLocation, World::isSpawnChunk
 #[test]
 fn moving_the_spawn_moves_the_held_spawn_chunks() {
     let mut state = new_state(settings(|_| {}), Listeners::default());
@@ -124,7 +124,7 @@ fn level_events(rx: &mut mpsc::Receiver<Outbound>) -> Vec<LevelEventPacket> {
         .collect()
 }
 
-// pmmp: World::addSound, World::addParticle, World::broadcastPacketToViewers
+// api: World::addSound, World::addParticle, World::broadcastPacketToViewers
 #[test]
 fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     let (mut state, [mut rx1, mut rx2]) = state();
@@ -168,7 +168,7 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     assert!(state.players.contains_key(&SessionId::new(1)));
 }
 
-// pmmp: World::setTime, World::getTime, World::getPlayers
+// api: World::setTime, World::getTime, World::getPlayers
 #[test]
 fn setting_the_time_tells_the_players_of_the_world_at_once() {
     let (mut state, [mut rx1, mut rx2]) = state();
@@ -206,7 +206,7 @@ fn setting_the_time_tells_the_players_of_the_world_at_once() {
     );
 }
 
-// pmmp: World::getChunkPlayers, World::getViewersForPosition
+// api: World::getChunkPlayers, World::getViewersForPosition
 #[test]
 fn chunk_viewers_are_the_players_sent_the_chunk() {
     let (mut state, _rx) = state();
@@ -223,7 +223,7 @@ fn chunk_viewers_are_the_players_sent_the_chunk() {
     assert_eq!(cx.chunk_viewers(world::Id::of(1), spawn).count(), 0);
 }
 
-// pmmp: World::getSafeSpawn
+// api: World::getSafeSpawn
 #[test]
 fn the_safe_spawn_is_the_first_two_free_blocks_up_the_column() {
     let (mut state, _rx) = state();
@@ -281,7 +281,7 @@ fn the_safe_spawn_finds_solid_the_blocks_anchor_does_not_know() {
     assert_eq!(world.safe_spawn(column(-61)), column(-57));
 }
 
-// pmmp: World::getBlockCollisionBoxes
+// api: World::getBlockCollisionBoxes
 #[test]
 fn collision_boxes_are_the_blocks_boxes_in_the_world() {
     let (state, _rx) = state();
@@ -319,7 +319,7 @@ fn collision_boxes_are_the_blocks_boxes_in_the_world() {
     assert_eq!(world.collision_boxes(outside), None);
 }
 
-// pmmp: Explosion::__construct, Explosion::explodeA, Explosion::explodeB, Explosion::setFireChance
+// api: Explosion::__construct, Explosion::explodeA, Explosion::explodeB, Explosion::setFireChance
 #[test]
 fn explosions_break_blocks_and_refuse_what_cannot_explode() {
     let (mut state, _rx) = state();

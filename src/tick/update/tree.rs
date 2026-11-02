@@ -671,7 +671,7 @@ mod tests {
             .count()
     }
 
-    // pmmp: TreeFactory, TreeFactory::get
+    // api: TreeFactory, TreeFactory::get
     #[test]
     fn the_api_grows_pmmps_trees_where_they_fit_without_an_event() {
         let world = world::Id::DEFAULT;

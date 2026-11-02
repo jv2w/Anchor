@@ -38,7 +38,7 @@ pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
 /// A skin: an ID, an RGBA image of an accepted size, an optional cape and the geometry it is drawn
 /// on (a vanilla geometry name, or a custom one with its JSON).
 #[derive(Clone, PartialEq, Eq, Hash)]
-// pmmp-class: Skin
+// api-class: Skin
 pub struct Skin {
     id: String,
     data: Vec<u8>,
@@ -178,8 +178,8 @@ fn dimensions(len: usize) -> Option<(usize, u32, u32)> {
 mod tests {
     use super::*;
 
-    // pmmp: Skin::__construct, Skin::getSkinId, Skin::getSkinData, Skin::getCapeData,
-    // pmmp: Skin::getGeometryName, Skin::getGeometryData, Skin
+    // api: Skin::__construct, Skin::getSkinId, Skin::getSkinData, Skin::getCapeData,
+    // api: Skin::getGeometryName, Skin::getGeometryData, Skin
     #[test]
     fn skins_take_only_accepted_sizes_and_safe_geometry_names() {
         for (size, w, h) in SKIN_SIZES {

@@ -65,27 +65,27 @@ fn object_reads(e: &Entity, kind: &Kind) {
     }
 }
 
-// pmmp: Entity::getId, Entity::getNetworkTypeId, Entity::getWorld, Position::getWorld,
-// pmmp: Entity::getPosition, Entity::getLocation, Location::getYaw, Location::getPitch,
-// pmmp: Entity::getMotion, Entity::getBoundingBox, Entity::getEyeHeight, Entity::getEyePos,
-// pmmp: Entity::getDirectionVector, Entity::getHealth, Entity::getMaxHealth,
-// pmmp: Living::getMaxHealth, Entity::isAlive, Entity::isOnGround, Entity::getFallDistance,
-// pmmp: Entity::isFireProof, Entity::canBeCollidedWith, ItemEntity, PrimedTNT, Painting,
-// pmmp: entity\object\EndCrystal, entity\object\FireworkRocket, entity\projectile\Trident,
-// pmmp: entity\projectile\IceBomb, Painting::getMotive, Painting::getFacing,
-// pmmp: entity\object\EndCrystal::showBase, entity\object\EndCrystal::getBeamTarget,
-// pmmp: entity\object\FireworkRocket::getExplosions,
-// pmmp: entity\object\FireworkRocket::getMaxFlightTimeTicks, entity\projectile\Trident::getItem,
-// pmmp: entity\projectile\Arrow, entity\projectile\Snowball, entity\projectile\Egg,
-// pmmp: entity\projectile\EnderPearl, entity\projectile\SplashPotion,
-// pmmp: entity\projectile\ExperienceBottle, ItemEntity::getItem, ItemEntity::getPickupDelay,
-// pmmp: ItemEntity::getDespawnDelay, ExperienceOrb::getDespawnDelay, ItemEntity::getOwner,
-// pmmp: ItemEntity::getThrower, ExperienceOrb::getXpValue, FallingBlock::getBlock,
-// pmmp: PrimedTNT::getFuse, PrimedTNT::worksUnderwater, Projectile::getBaseDamage,
-// pmmp: entity\projectile\Arrow::isCritical, entity\projectile\Arrow::getPickupMode,
-// pmmp: entity\projectile\Arrow::getPunchKnockback,
-// pmmp: entity\projectile\SplashPotion::getPotionType, entity\projectile\SplashPotion::willLinger,
-// pmmp: AreaEffectCloud::getRadius, Villager::getProfession
+// api: Entity::getId, Entity::getNetworkTypeId, Entity::getWorld, Position::getWorld,
+// api: Entity::getPosition, Entity::getLocation, Location::getYaw, Location::getPitch,
+// api: Entity::getMotion, Entity::getBoundingBox, Entity::getEyeHeight, Entity::getEyePos,
+// api: Entity::getDirectionVector, Entity::getHealth, Entity::getMaxHealth,
+// api: Living::getMaxHealth, Entity::isAlive, Entity::isOnGround, Entity::getFallDistance,
+// api: Entity::isFireProof, Entity::canBeCollidedWith, ItemEntity, PrimedTNT, Painting,
+// api: entity\object\EndCrystal, entity\object\FireworkRocket, entity\projectile\Trident,
+// api: entity\projectile\IceBomb, Painting::getMotive, Painting::getFacing,
+// api: entity\object\EndCrystal::showBase, entity\object\EndCrystal::getBeamTarget,
+// api: entity\object\FireworkRocket::getExplosions,
+// api: entity\object\FireworkRocket::getMaxFlightTimeTicks, entity\projectile\Trident::getItem,
+// api: entity\projectile\Arrow, entity\projectile\Snowball, entity\projectile\Egg,
+// api: entity\projectile\EnderPearl, entity\projectile\SplashPotion,
+// api: entity\projectile\ExperienceBottle, ItemEntity::getItem, ItemEntity::getPickupDelay,
+// api: ItemEntity::getDespawnDelay, ExperienceOrb::getDespawnDelay, ItemEntity::getOwner,
+// api: ItemEntity::getThrower, ExperienceOrb::getXpValue, FallingBlock::getBlock,
+// api: PrimedTNT::getFuse, PrimedTNT::worksUnderwater, Projectile::getBaseDamage,
+// api: entity\projectile\Arrow::isCritical, entity\projectile\Arrow::getPickupMode,
+// api: entity\projectile\Arrow::getPunchKnockback,
+// api: entity\projectile\SplashPotion::getPotionType, entity\projectile\SplashPotion::willLinger,
+// api: AreaEffectCloud::getRadius, Villager::getProfession
 #[test]
 fn every_kind_reads_as_what_it_is() {
     let mut h = harness();
@@ -125,7 +125,7 @@ fn every_kind_reads_as_what_it_is() {
                 assert_eq!(e.thrower(), Some(item.thrower.as_str()));
                 assert_eq!(e.entity_type(), Type::Item);
             }
-            Kind::ExperienceOrb(orb) => {
+            Kind::XpOrb(orb) => {
                 assert_eq!(e.xp_value(), Some(orb.value));
                 assert_eq!(e.despawn_delay_ticks(), Some(orb.despawn_delay));
             }
@@ -170,10 +170,10 @@ fn every_kind_reads_as_what_it_is() {
         Type::Egg,
         Type::EnderPearl,
         Type::SplashPotion,
-        Type::ExperienceBottle,
+        Type::XpBottle,
         Type::AreaEffectCloud,
         Type::FallingBlock,
-        Type::ExperienceOrb,
+        Type::XpOrb,
         Type::Painting,
         Type::EndCrystal,
         Type::FireworkRocket,
@@ -192,8 +192,8 @@ fn every_kind_reads_as_what_it_is() {
     assert!(e.firework_explosions().is_none() && e.max_flight_time_ticks().is_none());
 }
 
-// pmmp: Entity::getOwningEntity, Entity::getOwningEntityId, ExperienceOrb::getTargetPlayer,
-// pmmp: ExperienceOrb::hasTargetPlayer, Entity::getViewers
+// api: Entity::getOwningEntity, Entity::getOwningEntityId, ExperienceOrb::getTargetPlayer,
+// api: ExperienceOrb::hasTargetPlayer, Entity::getViewers
 #[test]
 fn owners_targets_and_viewers_are_players() {
     let mut h = harness();
@@ -205,7 +205,7 @@ fn owners_targets_and_viewers_are_players() {
         owner: Some(me),
         owner_runtime_id: h.runtime_id(1),
     });
-    let orb = Kind::ExperienceOrb(Orb {
+    let orb = Kind::XpOrb(Orb {
         value: 3,
         despawn_delay: 6000,
         look_for_target: 0,
@@ -244,10 +244,10 @@ fn data_of(packets: &[Packet], runtime_id: u64) -> Vec<EntityMetadata> {
         .collect()
 }
 
-// pmmp: Entity::setNameTag, Entity::getNameTag, Entity::setNameTagVisible,
-// pmmp: Entity::isNameTagVisible, Entity::setNameTagAlwaysVisible,
-// pmmp: Entity::isNameTagAlwaysVisible, Entity::setScale, Entity::getScale,
-// pmmp: Entity::setInvisible, Entity::isInvisible, Entity::setHasGravity, Entity::hasGravity
+// api: Entity::setNameTag, Entity::getNameTag, Entity::setNameTagVisible,
+// api: Entity::isNameTagVisible, Entity::setNameTagAlwaysVisible,
+// api: Entity::isNameTagAlwaysVisible, Entity::setScale, Entity::getScale,
+// api: Entity::setInvisible, Entity::isInvisible, Entity::setHasGravity, Entity::hasGravity
 #[test]
 fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     let mut h = harness();
@@ -321,7 +321,7 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     assert_eq!(e.position().y, -60.0);
 }
 
-// pmmp: Entity::setMotion, Entity::addMotion, Entity::setRotation, Living::lookAt, Entity::teleport
+// api: Entity::setMotion, Entity::addMotion, Entity::setRotation, Living::lookAt, Entity::teleport
 #[test]
 fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     let mut h = harness();
@@ -365,9 +365,9 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     assert_eq!(cx.chunk_entities(WORLD, ChunkPos::new(0, 0)).count(), 0);
 }
 
-// pmmp: Entity::setHealth, Living::setHealth, Entity::heal, Entity::attack, Living::attack,
-// pmmp: Entity::kill, Entity::setOnFire, Living::setOnFire, Entity::setFireTicks,
-// pmmp: Entity::getFireTicks, Entity::isOnFire, Entity::extinguish, Living::knockBack
+// api: Entity::setHealth, Living::setHealth, Entity::heal, Entity::attack, Living::attack,
+// api: Entity::kill, Entity::setOnFire, Living::setOnFire, Entity::setFireTicks,
+// api: Entity::getFireTicks, Entity::isOnFire, Entity::extinguish, Living::knockBack
 #[test]
 fn health_fire_damage_and_death_follow_pmmp_without_events() {
     let mut h = harness();
@@ -426,12 +426,12 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
     assert!(h.state.rules.entities.get(human).is_none(), "the NPC died");
 }
 
-// pmmp: ItemEntity::setPickupDelay, ItemEntity::setDespawnDelay, ExperienceOrb::setDespawnDelay,
-// pmmp: ItemEntity::setOwner, ItemEntity::setThrower, ExperienceOrb::setXpValue,
-// pmmp: PrimedTNT::setFuse, PrimedTNT::setWorksUnderwater, Projectile::setBaseDamage,
-// pmmp: entity\projectile\Arrow::setCritical, entity\projectile\Arrow::setPickupMode,
-// pmmp: entity\projectile\Arrow::setPunchKnockback, entity\projectile\SplashPotion::setLinger,
-// pmmp: Villager::setProfession
+// api: ItemEntity::setPickupDelay, ItemEntity::setDespawnDelay, ExperienceOrb::setDespawnDelay,
+// api: ItemEntity::setOwner, ItemEntity::setThrower, ExperienceOrb::setXpValue,
+// api: PrimedTNT::setFuse, PrimedTNT::setWorksUnderwater, Projectile::setBaseDamage,
+// api: entity\projectile\Arrow::setCritical, entity\projectile\Arrow::setPickupMode,
+// api: entity\projectile\Arrow::setPunchKnockback, entity\projectile\SplashPotion::setLinger,
+// api: Villager::setProfession
 #[test]
 fn kind_setters_change_their_kind_only() {
     let mut h = harness();
@@ -442,7 +442,7 @@ fn kind_setters_change_their_kind_only() {
         let is = |t: Type| e.entity_type() == t;
         let (item, orb, tnt, arrow) = (
             is(Type::Item),
-            is(Type::ExperienceOrb),
+            is(Type::XpOrb),
             is(Type::PrimedTnt),
             is(Type::Arrow),
         );
@@ -518,7 +518,7 @@ fn a_dropped_item_takes_the_despawn_delay_its_getter_returns() {
     assert!(!e.set_despawn_delay_ticks(50_001));
 }
 
-// pmmp: Entity::setCanSaveWithChunk, Entity::canSaveWithChunk
+// api: Entity::setCanSaveWithChunk, Entity::canSaveWithChunk
 #[test]
 fn entities_not_saved_with_their_chunk_are_left_out_and_go_with_it() {
     let mut h = harness();
@@ -556,9 +556,9 @@ fn a_firework_rocket_is_never_saved_with_its_chunk() {
     assert!(e.set_can_save_with_chunk(false));
 }
 
-// pmmp: Entity::flagForDespawn, Entity::close, World::dropItem, World::dropExperience,
-// pmmp: ExperienceOrb::__construct, FallingBlock::__construct, Projectile::__construct,
-// pmmp: Human::__construct
+// api: Entity::flagForDespawn, Entity::close, World::dropItem, World::dropExperience,
+// api: ExperienceOrb::__construct, FallingBlock::__construct, Projectile::__construct,
+// api: Human::__construct
 #[test]
 fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
     let mut h = harness();
@@ -577,7 +577,7 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
         let mut ids = vec![
             cx.drop_item(WORLD, p, stack("minecraft:stick", 1), Some(Vec3::ZERO))
                 .unwrap(),
-            cx.spawn_experience_orb(WORLD, p, 5).unwrap(),
+            cx.spawn_xp_orb(WORLD, p, 5).unwrap(),
             cx.spawn_falling_block(WORLD, p, sand).unwrap(),
             cx.spawn_tnt(WORLD, p, 500).unwrap(),
             cx.spawn_projectile(WORLD, p, Projectile::Snowball, Vec3::ZERO)
@@ -591,7 +591,7 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
             .unwrap(),
             cx.spawn_human(WORLD, p, "npc", Some(skin.clone())).unwrap(),
         ];
-        assert_eq!(cx.drop_experience(WORLD, p, 10), 10);
+        assert_eq!(cx.drop_xp(WORLD, p, 10), 10);
         ids.extend(cx.entities(WORLD).map(|(id, _)| id));
         ids.sort_unstable();
         ids.dedup();
@@ -628,8 +628,8 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
     assert_eq!(adds(&packets).len(), removes(&packets).len());
 }
 
-// pmmp: World::getNearbyEntities, World::getCollidingEntities, World::getNearestEntity,
-// pmmp: World::getEntities, World::getChunkEntities, WorldManager::findEntity, World::getEntity
+// api: World::getNearbyEntities, World::getCollidingEntities, World::getNearestEntity,
+// api: World::getEntities, World::getChunkEntities, WorldManager::findEntity, World::getEntity
 #[test]
 fn queries_go_through_the_chunk_index_whatever_the_area() {
     let mut h = harness();
@@ -725,14 +725,14 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
         ),
         Err(stick.clone())
     );
-    assert_eq!(cx.drop_experience(WORLD, far, 50), 0);
-    assert_eq!(cx.drop_experience(world::Id::of(9), ok, 50), 0);
-    assert!(cx.spawn_experience_orb(WORLD, ok, 0).is_none());
+    assert_eq!(cx.drop_xp(WORLD, far, 50), 0);
+    assert_eq!(cx.drop_xp(world::Id::of(9), ok, 50), 0);
+    assert!(cx.spawn_xp_orb(WORLD, ok, 0).is_none());
     assert!(cx.spawn_tnt(WORLD, ok, 40_000).is_none());
     let high = at(0.5, 30_000_001.0, 0.5);
     assert!(cx.spawn_tnt(WORLD, high, 10).is_none());
     assert!(cx.spawn_human(WORLD, high, "up", None).is_none());
-    assert_eq!(cx.drop_experience(WORLD, high, 5), 0);
+    assert_eq!(cx.drop_xp(WORLD, high, 5), 0);
     assert_eq!(
         cx.drop_item(WORLD, high, stick.clone(), None),
         Err(stick.clone())
@@ -824,15 +824,15 @@ fn player_of(s: u64) -> player::Id {
     player::Id::new(crate::tick::SessionId::new(s))
 }
 
-// pmmp: Entity::broadcastAnimation, Player::broadcastAnimation, Animation, ArmSwingAnimation,
-// pmmp: ArmSwingAnimation::__construct, ArrowShakeAnimation, ArrowShakeAnimation::__construct,
-// pmmp: ConsumingItemAnimation, ConsumingItemAnimation::__construct, CriticalHitAnimation,
-// pmmp: CriticalHitAnimation::__construct, DeathAnimation, DeathAnimation::__construct,
-// pmmp: FireworkParticlesAnimation, FireworkParticlesAnimation::__construct, HurtAnimation,
-// pmmp: HurtAnimation::__construct, ItemEntityStackSizeChangeAnimation,
-// pmmp: ItemEntityStackSizeChangeAnimation::__construct, MagicHitAnimation,
-// pmmp: MagicHitAnimation::__construct, RespawnAnimation, RespawnAnimation::__construct,
-// pmmp: TotemUseAnimation, TotemUseAnimation::__construct
+// api: Entity::broadcastAnimation, Player::broadcastAnimation, Animation, ArmSwingAnimation,
+// api: ArmSwingAnimation::__construct, ArrowShakeAnimation, ArrowShakeAnimation::__construct,
+// api: ConsumingItemAnimation, ConsumingItemAnimation::__construct, CriticalHitAnimation,
+// api: CriticalHitAnimation::__construct, DeathAnimation, DeathAnimation::__construct,
+// api: FireworkParticlesAnimation, FireworkParticlesAnimation::__construct, HurtAnimation,
+// api: HurtAnimation::__construct, ItemEntityStackSizeChangeAnimation,
+// api: ItemEntityStackSizeChangeAnimation::__construct, MagicHitAnimation,
+// api: MagicHitAnimation::__construct, RespawnAnimation, RespawnAnimation::__construct,
+// api: TotemUseAnimation, TotemUseAnimation::__construct
 #[test]
 fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
     let mut h = harness();
@@ -877,7 +877,7 @@ fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
     assert_eq!(animations_of(&h.take(1), own), vec![(2, 0.0)]);
 }
 
-// pmmp: Player::hidePlayer, Player::showPlayer, Player::canSee
+// api: Player::hidePlayer, Player::showPlayer, Player::canSee
 #[test]
 fn hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone() {
     let mut h = harness();
@@ -959,14 +959,14 @@ fn a_player_hides_at_most_its_bound() {
     assert!(cx.hide_player(player_of(2), player_of(1)));
 }
 
-// pmmp: AreaEffectCloud::__construct, AreaEffectCloud::getEffects, AreaEffectCloud::getAge,
-// pmmp: AreaEffectCloud::getMaxAge, AreaEffectCloud::getMaxAgeChangeOnUse,
-// pmmp: AreaEffectCloud::getReapplicationDelay, AreaEffectCloud::getInitialRadius,
-// pmmp: AreaEffectCloud::getRadiusChangeOnPickup, AreaEffectCloud::getRadiusChangeOnUse,
-// pmmp: AreaEffectCloud::getRadiusChangePerTick, AreaEffectCloud::setMaxAge,
-// pmmp: AreaEffectCloud::setMaxAgeChangeOnUse, AreaEffectCloud::setReapplicationDelay,
-// pmmp: AreaEffectCloud::setRadiusChangeOnPickup, AreaEffectCloud::setRadiusChangeOnUse,
-// pmmp: AreaEffectCloud::setRadiusChangePerTick
+// api: AreaEffectCloud::__construct, AreaEffectCloud::getEffects, AreaEffectCloud::getAge,
+// api: AreaEffectCloud::getMaxAge, AreaEffectCloud::getMaxAgeChangeOnUse,
+// api: AreaEffectCloud::getReapplicationDelay, AreaEffectCloud::getInitialRadius,
+// api: AreaEffectCloud::getRadiusChangeOnPickup, AreaEffectCloud::getRadiusChangeOnUse,
+// api: AreaEffectCloud::getRadiusChangePerTick, AreaEffectCloud::setMaxAge,
+// api: AreaEffectCloud::setMaxAgeChangeOnUse, AreaEffectCloud::setReapplicationDelay,
+// api: AreaEffectCloud::setRadiusChangeOnPickup, AreaEffectCloud::setRadiusChangeOnUse,
+// api: AreaEffectCloud::setRadiusChangePerTick
 #[test]
 fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     let mut h = harness();
@@ -1085,10 +1085,10 @@ fn a_rocket_shows_the_flight_multiplier_of_a_changed_flight_time() {
     assert_eq!(flight, Some(Value::Byte(4)));
 }
 
-// pmmp: Entity::setOwningEntity, ExperienceOrb::setTargetPlayer, ItemEntity::setStackSize,
-// pmmp: entity\projectile\SplashPotion::setPotionType,
-// pmmp: entity\projectile\SplashPotion::getPotionEffects, Entity::getGravity,
-// pmmp: Entity::getStepHeight, Villager::getName
+// api: Entity::setOwningEntity, ExperienceOrb::setTargetPlayer, ItemEntity::setStackSize,
+// api: entity\projectile\SplashPotion::setPotionType,
+// api: entity\projectile\SplashPotion::getPotionEffects, Entity::getGravity,
+// api: Entity::getStepHeight, Villager::getName
 #[test]
 fn owners_targets_counts_potions_and_names_change_their_kind_only() {
     let mut h = harness();
@@ -1106,7 +1106,7 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
         assert_eq!(e.owning_player(), projectile.then_some(me));
         assert_eq!(e.set_owning_player(None), projectile);
         assert!(e.owning_player().is_none());
-        let orb = t == Type::ExperienceOrb;
+        let orb = t == Type::XpOrb;
         assert_eq!(e.set_target_player(Some(me)), orb);
         assert!(!e.set_target_player(Some(gone)));
         assert_eq!(e.target_player(), orb.then_some(me));

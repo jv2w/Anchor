@@ -275,7 +275,7 @@ fn every_builtin_registers_and_users_replace_or_drop_them() {
     ));
 }
 
-// pmmp: Command::setPermissions, Command::getPermissions
+// api: Command::setPermissions, Command::getPermissions
 #[test]
 fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() {
     let (mut state, _rx) = server(Vec::new());
@@ -408,8 +408,8 @@ fn op_and_deop_change_the_list_tell_the_player_and_copy_operators() {
     );
 }
 
-// pmmp: CommandSender::getName, ConsoleCommandSender::getName, CommandSender::sendMessage
-// pmmp: ConsoleCommandSender::sendMessage, Command::broadcastCommandMessage
+// api: CommandSender::getName, ConsoleCommandSender::getName, CommandSender::sendMessage
+// api: ConsoleCommandSender::sendMessage, Command::broadcastCommandMessage
 #[test]
 fn senders_have_names_get_messages_and_operators_get_copies() {
     let (mut state, mut rx) = with_op();
@@ -588,7 +588,7 @@ fn player(state: &State, session: u64) -> &crate::player::Player {
     &state.players[&SessionId::new(session)]
 }
 
-// pmmp: Player::kick, Player::setGamemode, Entity::teleport, Player::transfer
+// api: Player::kick, Player::setGamemode, Entity::teleport, Player::transfer
 #[test]
 fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
     let mut listeners = Listeners::default();
@@ -906,7 +906,7 @@ fn effect_gives_takes_and_clears_with_pmmp_bounds() {
     assert!(jump.is_infinite() && jump.is_visible());
 }
 
-// pmmp: EffectManager::add, EffectManager::remove
+// api: EffectManager::add, EffectManager::remove
 /// PMMP `EffectCommand` goes through `EffectManager`, so its listeners decide: a cancelled add
 /// gives nothing and a cancelled removal keeps the effect, `clear` included.
 #[test]
@@ -1035,11 +1035,11 @@ fn xp_adds_points_and_levels_and_takes_levels() {
     assert!(is_usage(&run(&mut state, Sender::Console, "xp 1")));
 }
 
-/// `experience = false`: `/xp` fails and changes nothing.
+/// `xp = false`: `/xp` fails and changes nothing.
 #[test]
-fn xp_fails_without_experience() {
+fn xp_fails_without_xp() {
     let (mut state, _rx) = with_op();
-    state.settings.experience = false;
+    state.settings.xp = false;
     let off = crate::player::Error::Disabled.to_string();
     assert_eq!(fails(&mut state, id(1), "xp 5L"), off);
     assert_eq!(fails(&mut state, Sender::Console, "xp 7 player2"), off);
@@ -1877,7 +1877,7 @@ fn difficulty_names_and_numbers_come_from_one_table() {
     }
 }
 
-// pmmp: Server::shutdown
+// api: Server::shutdown
 #[test]
 fn stop_asks_the_tick_loop_to_end() {
     let (mut state, _rx) = with_op();
@@ -1890,7 +1890,7 @@ fn stop_asks_the_tick_loop_to_end() {
     assert!(state.commands.stop_requested());
 }
 
-// pmmp: WorldManager::setAutoSave, WorldManager::getAutoSave
+// api: WorldManager::setAutoSave, WorldManager::getAutoSave
 #[test]
 fn save_off_skips_the_periodic_save_but_not_save_all() {
     let (mut state, _rx) = with_op();

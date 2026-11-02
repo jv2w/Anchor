@@ -18,6 +18,8 @@ Every kind of code has exactly one form, written here. Two forms for one kind is
 - Modules are `foo.rs` and `foo/bar.rs`; `mod.rs` is forbidden. Module placement is in `.claude/rules/architecture.md`.
 - The first line of every module is a `//!` comment stating its responsibility.
 - Visibility is the narrowest that covers the item's users: private, `pub(super)` (the parent module and its children), `pub(in crate::<module>)` (one subtree), `pub(crate)` (the crate), `pub` only for API reachable from the crate root. Every public item has `///` documentation and a `Debug` implementation.
+- An item is `pub` only when a server developer has a use for it; protocol internals (wire structs, paletted storage, item network IDs) stay inside the crate.
+- A public enum that can grow (a set the game or Anchor may extend) is `#[non_exhaustive]`; a closed set (directions, a protocol tag fixed by its format) is not. Structs never are; their fields are private instead.
 - Re-exports of any visibility (`pub use`, `pub(crate) use`, `pub(super) use`) form one block in rustfmt's path order. No `use` path starts with `self::` (`pub use stack::Stack;`, `use stack::Slot;`).
 - Paths: `super::` names only the parent module and what it holds (`super::Item`, `super::sibling::Item`, and `use super::*;` in tests). Every other crate item is named from `crate::`; never `super::super::`.
 
@@ -49,7 +51,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 
 ## Signatures
 - Parameter order: receiver, context (`cx`, `&Server`), the subject acted on (or its ID), the value, options and limits, an output buffer (`&mut Vec<_>`) last. Functions with the same verb take the same parameters in the same order.
-- Getters have no `get_` and return `&T` or a `Copy` value; a lookup by key in a collection type, and the one value of a wrapper or ID type, is `get`/`get_mut`, as in std. Immutable updates that validate return `Result<Self>` or `Option<Self>`. A mutator other than a setter that may do nothing as a normal outcome returns whether it did (`bool`). Mutable access is `_mut`. Setters are `set_x(&mut self, value)` returning `()` or `Result<()>`. Immutable updates are `with_<field>(self, value) -> Self`. Queries are `is_`/`has_`/`can_`. Conversions are `as_`/`to_`/`into_`/`from_`.
+- Getters have no `get_` and return `&T` or a `Copy` value; a lookup by key in a collection type, and the one value of a wrapper or ID type, is `get`/`get_mut`, as in std. Immutable updates that validate return `Result<Self>` or `Option<Self>`. A mutator other than a setter that may do nothing as a normal outcome returns whether it did (`bool`). Mutable access is `_mut`. Setters are `set_x(&mut self, value)` returning `()` or `Result<()>`, never `bool`. Immutable updates are `with_<field>(self, value) -> Self`. Queries are `is_`/`has_`/`can_`, or a verb that reads as a question as in std (`contains`, `starts_with`). Conversions are `as_`/`to_`/`into_`/`from_`.
 - Absence is `Option`, failure is `Result`; never a sentinel (`-1`, `0`, empty string). Never a `bool` flag argument; use an enum or a separate method.
 - Chained methods taking `self` and returning `Self`: one that sets a field is `with_<field>` (above); one that adds an element to a list is named after the element (`button`, `line`, `alias`); one that turns on a switch is named after the state (`optional`, `temporary`), and one that turns off a switch that is on by default is `without_<state>`. A method that lends a value to a closure is named after what it lends, never `with_`. A builder type (`<Thing>Builder`, finished by `build()`) is the one exception: its setters drop `with_` (`ServerBuilder::data_dir`).
 - Paths and strings: internal functions take `&Path` and `&str`. Public functions take `impl AsRef<Path>` or `&str` for a value they only read, and `impl Into<PathBuf>` or `impl Into<String>` for one they keep.
@@ -70,10 +72,10 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Names
 - Rust API Guidelines: types and variants UpperCamelCase; functions, fields, modules, files snake_case; constants SCREAMING_SNAKE_CASE; packages and configuration keys kebab-case.
 - Acronyms are one word (`Raknet`, `Nethernet`, `Xuid`, `Uuid`, `Id`, `Nbt`, `Json`, `Http`, `Udp`, `Aabb`); prose keeps the original spelling (RakNet).
-- A module name is not repeated in its types (`event::PlayerJoin`). API-table event names drop their `Event` suffix.
+- A module name is not repeated in its types (`event::PlayerJoin`). The one exception is the module's main type, which may be the module name itself (`command::Command`, as std's `process::Command`). API-table event names drop their `Event` suffix.
 - Units are a type (`Duration`, `Tick`) or a suffix (`_ticks`, `_ms`, `_bytes`). Upper bounds are `MAX_<THING>`, lower bounds `MIN_<THING>`, an inclusive range of allowed values `<THING>_RANGE`.
 - A `Context` value is named `cx`, and `cx` names nothing else; other context-like values take a name of their own (`attempt`, `settings`).
-- One concept has one word across the crate, and one word means one concept.
+- One concept has one word across the crate, and one word means one concept. Where a concept has two words, the shorter wins everywhere (types, functions, events, fields, configuration keys, documents): `xp`, never `experience`; `food`, never `hunger` (the status effect named Hunger keeps its game name).
 - API-table conversion: `getX/setX/isX` → `x/set_x/is_x`; singleton → a `&Server` or `Context` argument; `null`, exceptions, `-1` → `Option` or `Result`; constant groups → an enum; mutable `Vector3` → a `Copy` value; twin methods → one.
 
 ## Literals and values
@@ -90,18 +92,21 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Comments and documentation
 - Comments say only what the code cannot: reasons, ordering, the trap avoided, the invariant kept. Never restate the code; never write history, work process, previous states, authors, or schedules.
 - A wrong comment is worse than none; changing code changes its comments in the same change.
-- A `// pmmp-class: Name` line sits after the item's attributes, directly above the item.
+- A `// api-class: Name` line sits after the item's attributes, directly above the item.
+- A public function that returns `Result` has a `# Errors` section, and one that can panic a `# Panics` section (Rust API Guidelines C-FAILURE). A public item's example uses `?`, never `unwrap` (C-QUESTION-MARK).
+- Where code departs from the Rust API Guidelines or std's naming and shape, the reason (safety, determinism, a protocol fact) is one comment line at that spot.
 - Outside explanation points to `.claude/docs/<file>.md` by file name only, never by section.
 - The first line of every rustdoc is one sentence ending with a period. Functions start with a third-person verb ("Reads", "Sets"); types, fields, variants, constants, constructors, getters, `_mut` lenders, and queries (methods and free functions that only read) with a noun phrase ("A new empty chunk.", "The chunks written.", "The chunk, to change it.", "Whether the file is new."). A test's rustdoc states the behavior it checks, never "Checks that".
 
 ## Language and names in documents
 - Identifiers, comments, rustdoc, logs, `CLAUDE.md`, and everything under `.claude/` are English. Reports to the user are Korean (`CLAUDE.md`).
-- Documents never name external servers. Use "the official server" (the server program Mojang distributes), "the dump" or "the dump source" (data source), "the API table" (API parity), "the reference list source". Names stay only where unavoidable: the pinned-source and `.cache/` tables in `.claude/docs/data.md`, the configuration migration table in `.claude/docs/config.md`, literal paths, commands, and markers (`xtask/data/pmmp/`, `.cache/bds`, `p6 bds`, `// pmmp:`), and Go library names (gophertunnel, go-raknet, go-nethernet). This rule covers documents (`CLAUDE.md`, `README.md`, `.claude/`, `xtask/data/p6/facts.md`) only; code comments, tool data (`intended.txt`, `deferred.txt`, `fields.txt`), and generated files are outside it.
+- Nothing in the repository names another server program or says Anchor copies one: code, comments, rustdoc, test names, log and error text, generated file headers, generators, xtask command names, data folder and file names, `.clippy.toml`, `CLAUDE.md`, `.claude/`, `README.md`, and the text of `xtask/data`. Use "the official server" (the server program Mojang distributes), "the dump" (the data source), "the API table" (API parity), "the reference list". A reason that needs a source says "the dump" or "the API table".
+- Kept: `#[doc(alias)]` values and the API table tool (`cargo xtask table`); `THIRD-PARTY-NOTICES.md`, which the licenses require; the source URLs and pinned revisions the tools download, as data without prose; the Go protocol libraries gophertunnel, go-raknet, and go-nethernet; identifiers a tool must use to work (a dump script's namespaces).
 
 ## Tests
 - Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. A test module's own `mod` declarations come before `use super::*;`, and its constants and statics directly after its imports. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`, which follow the file layout too, a helper directly above its first user.
 - In a test module, a helper sits directly above the first test or helper that uses it.
-- Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// pmmp:` line comes before its `///` documentation; a line past 100 columns is split into several lines, each starting with `// pmmp:`.
+- Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// api:` line comes before its `///` documentation; a line past 100 columns is split into several lines, each starting with `// api:`.
 
 ## Lints and formatting
 - The canonical sources are `[workspace.lints]` in Cargo.toml, `.clippy.toml`, and `.rustfmt.toml`. Formatting is rustfmt only. Exceptions follow `CLAUDE.md`.

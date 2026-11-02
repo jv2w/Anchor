@@ -85,7 +85,7 @@ use crate::tile;
 
 /// A particle effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pmmp-class: Particle
+// api-class: Particle
 pub enum Particle {
     /// An angry villager's cloud (`VILLAGER_ANGRY`, 40).
     #[doc(alias = "AngryVillagerParticle")]
@@ -321,16 +321,16 @@ mod tests {
 
     // PMMP's particle numbers (`ParticleIds`) are BDS's: 14 and 15 in BDS's snowball and egg hits
     // (P6), 35 in BDS's potion cloud (P6); gophertunnel's are smaller from 9 on.
-    // pmmp: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle,
-    // pmmp: BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle,
-    // pmmp: DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle,
-    // pmmp: EntityFlameParticle, ExplodeParticle, FlameParticle, HappyVillagerParticle,
-    // pmmp: HeartParticle, HugeExplodeParticle, HugeExplodeSeedParticle, InkParticle,
-    // pmmp: InstantEnchantParticle, ItemBreakParticle, LavaDripParticle, LavaParticle,
-    // pmmp: MobSpawnParticle, PortalParticle, PotionSplashParticle, RainSplashParticle,
-    // pmmp: RedstoneParticle, SmokeParticle, SnowballPoofParticle, SonicExplosionParticle,
-    // pmmp: SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle,
-    // pmmp: Particle
+    // api: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle,
+    // api: BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle,
+    // api: DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle,
+    // api: EntityFlameParticle, ExplodeParticle, FlameParticle, HappyVillagerParticle,
+    // api: HeartParticle, HugeExplodeParticle, HugeExplodeSeedParticle, InkParticle,
+    // api: InstantEnchantParticle, ItemBreakParticle, LavaDripParticle, LavaParticle,
+    // api: MobSpawnParticle, PortalParticle, PotionSplashParticle, RainSplashParticle,
+    // api: RedstoneParticle, SmokeParticle, SnowballPoofParticle, SonicExplosionParticle,
+    // api: SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle,
+    // api: Particle
     #[test]
     fn particles_send_pmmps_events_with_pmmps_numbers() {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();

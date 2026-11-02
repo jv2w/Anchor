@@ -529,7 +529,7 @@ mod tests {
         }
     }
 
-    // pmmp: Server::getOfflinePlayerData, Server::saveOfflinePlayerData
+    // api: Server::getOfflinePlayerData, Server::saveOfflinePlayerData
     #[test]
     fn an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot() {
         let mut state = state();

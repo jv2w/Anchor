@@ -521,7 +521,7 @@ impl Context<'_> {
 
     /// Gives `world` its own difficulty, or `None` to follow the server's
     /// ([`difficulty`](Self::difficulty)), and tells its players (PMMP `World::setDifficulty`). Its
-    /// rules (hunger, fire) use it until the server stops: it is not saved, and a restart takes the
+    /// rules (food, fire) use it until the server stops: it is not saved, and a restart takes the
     /// difficulty of the settings again. False, changing nothing, for a world that is not loaded,
     /// or a difficulty other than hard on a `hardcore` server.
     #[doc(alias = "World::setDifficulty")]

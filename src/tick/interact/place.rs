@@ -891,7 +891,7 @@ mod tests {
     use crate::world::{Chunk, ChunkPos, Kind as WorldKind};
 
     /// The PMMP placement golden table (`xtask/php/place.php`).
-    const GOLDEN: &str = include_str!("../../../xtask/data/pmmp/place.json");
+    const GOLDEN: &str = include_str!("../../../xtask/data/dump/place.json");
 
     /// A property value of the golden table.
     fn value(v: &Value) -> PropertyValue<'_> {

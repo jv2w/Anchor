@@ -29,8 +29,8 @@ paths:
   - "xtask/src/dump/**"
   - "xtask/php/**"
   - "xtask/go/reference/**"
-  - "xtask/data/pmmp/*.json"
-  - "xtask/data/pmmp/liquid.txt"
+  - "xtask/data/dump/*.json"
+  - "xtask/data/dump/liquid.txt"
   - "xtask/data/reference/**"
   - "xtask/data/upgrade/**"
 ---
@@ -44,7 +44,7 @@ paths:
 
 ## Dump and PHP scripts
 - `dump` writes the reference list (`xtask/go/reference`) before it runs the dump source, which reads every reference state.
-- Run the PHP scripts (`xtask/php/`) with the dump PHP of the sources table, never plain PHP, with `.cache/pmmp` as the working directory.
+- Run the PHP scripts (`xtask/php/`) with the dump PHP of the sources table, never plain PHP, with `.cache/dump` as the working directory.
 - PHP script output sorts every list and writes one entry per line, so the same checkout writes the same bytes.
 
 ## Dump source defects
@@ -107,9 +107,9 @@ paths:
 - Builds, tests, and `verify` run on committed data alone, except the dimpl copy's tests, which need Perl.
 - Rebuild `.cache/` from the repository root in this order. `<origin>` and the SHA-256 values are in the `.cache/` table of `.claude/docs/data.md`; `<commit>` and the official server version are in its sources table (bedrock-protocol-docs: the pinned-version table of `.claude/docs/protocol.md`).
   1. The six git checkouts, each: `git init .cache/<folder>`, `git -C .cache/<folder> remote add origin <origin>`, `git -C .cache/<folder> fetch --depth 1 origin <commit>`, `git -C .cache/<folder> checkout --detach FETCH_HEAD`.
-  2. The dump PHP: download the release zip, check its SHA-256, and unpack it into `.cache/php-pm5/` so that `bin/php/php.exe` and `bin/php/php.ini` are there.
-  3. The dump source's dependencies: in `.cache/pmmp`, run composer with the dump PHP: `composer install --no-dev --ignore-platform-reqs`. This puts the dump source's `composer.lock` versions into `.cache/pmmp/vendor`.
-  4. The official server: download the zip for the OS, check its SHA-256, and unpack it into `.cache/bds/<version>/` (on Linux as `.claude/docs/testing.md` says).
+  2. The dump PHP: download the release zip, check its SHA-256, and unpack it into `.cache/dump-php/` so that `bin/php/php.exe` and `bin/php/php.ini` are there.
+  3. The dump source's dependencies: in `.cache/dump`, run composer with the dump PHP: `composer install --no-dev --ignore-platform-reqs`. This puts the dump source's `composer.lock` versions into `.cache/dump/vendor`.
+  4. The official server: download the zip for the OS, check its SHA-256, and unpack it into `.cache/official/<version>/` (on Linux as `.claude/docs/testing.md` says).
   5. Perl: on Windows, download the Strawberry Perl portable zip, check its SHA-256, and unpack it into `.cache/tools/strawberry-perl-5.42.3.1/`. On Linux, install the system packages `.claude/docs/testing.md` lists.
   6. The str0m captures: `cargo xtask vendor-test str0m` downloads them.
   7. Confirm that `cargo xtask dump --check` passes.

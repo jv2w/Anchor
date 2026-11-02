@@ -18,7 +18,7 @@ The data is what the dump source's own registries hold when its dump PHP runs th
 | CloudburstMC/Protocol | branch `3.0`, codec `v2225`, commit `17a89ac156ff874fc8773e42a96bbc0635be9eed` | Apache-2.0 | The codec library: judging gophertunnel defects only (`protocol.md`) |
 | opencollab-incubator/BedrockBlockUpgradeSchema | 5.4.1, `1077ee640ed39f60266f7a7c8ab331ef76d7931e` | CC0 | Old block state upgrades |
 | opencollab-incubator/BedrockItemUpgradeSchema | 1.19.0, `dfc12b388be886ba6980d9a3b67cb1b432b563e2` | CC0 | Old item name upgrades |
-| The official server (Mojang) | 1.26.60.6 (protocol 2225) | Minecraft EULA | Comparison runs only. The camera and aim assist presets come from a spawn capture of 1.26.52.3 (protocol 2193; `bds_camera.json`) |
+| The official server (Mojang) | 1.26.60.6 (protocol 2225) | Minecraft EULA | Comparison runs only. The camera and aim assist presets come from a spawn capture of 1.26.52.3 (protocol 2193; `camera.json`) |
 
 - `cargo xtask dump` first checks that the `HEAD` of each of its six checkouts is the pinned commit, and fails otherwise.
 - The block schemas are 5.4.1, not the 5.2.0 of the dump source's `composer.lock`: 5.2.0 lacks the changes from 1.26.30 on.
@@ -27,9 +27,9 @@ The data is what the dump source's own registries hold when its dump PHP runs th
 
 ## Dump (`cargo xtask dump`)
 
-Before it starts, `dump` checks the pinned commits and that `.cache/pmmp/vendor` exists; without it, it stops and prints the composer command. Then:
+Before it starts, `dump` checks the pinned commits and that `.cache/dump/vendor` exists; without it, it stops and prints the composer command. Then:
 1. `xtask/go/reference` reads reference list sources A and B and writes `blocks.json`, `items.json`, `item_blocks.json`, `jigsaw_structure_data.dat`, and `entity_properties.dat` into `xtask/data/reference/`. It runs first because step 2 reads every reference state with the dump source's deserializer.
-2. The dump PHP runs `xtask/php/dump.php` with `.cache/pmmp` as the working directory and writes `xtask/data/pmmp/`.
+2. The dump PHP runs `xtask/php/dump.php` with `.cache/dump` as the working directory and writes `xtask/data/dump/`.
 3. It copies source B's biome definitions, entity identifiers, and block shapes into `xtask/data/reference/`.
 4. It writes the field limits (`protocol_limits.json`) from Mojang's protocol schemas (`.claude/docs/protocol.md`).
 5. It copies the upgrade schemas into `xtask/data/upgrade/` and makes the goldens with the dump source's upgrader (see the upgrade section). It fails when `xtask/data/upgrade/{blocks,items}` holds a file the sources do not make.
@@ -37,23 +37,23 @@ Before it starts, `dump` checks the pinned commits and that `.cache/pmmp/vendor`
 
 `--check` does the same into `target/xtask-dump/` and fails where a committed file differs. `verify` does not run `dump`: it needs the checkouts, the dump PHP, and Go, and its pinned inputs never change. `verify`'s `gen --check` checks the code made from the committed data instead.
 
-`dump` needs Go on `PATH`. It runs only on Windows: the dump PHP is the Windows x64 build at `.cache/php-pm5/bin/php/php.exe`. Plain PHP lacks the extensions the dump source's registries load.
+`dump` needs Go on `PATH`. It runs only on Windows: the dump PHP is the Windows x64 build at `.cache/dump-php/bin/php/php.exe`. Plain PHP lacks the extensions the dump source's registries load.
 
 ### PHP scripts
 
 | Script | Run by | Output |
 |---|---|---|
-| `xtask/php/dump.php` | `dump` | `blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `recipes.json`, `tables.json` in `xtask/data/pmmp/` |
+| `xtask/php/dump.php` | `dump` | `blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `recipes.json`, `tables.json` in `xtask/data/dump/` |
 | `xtask/php/upgrade.php` | `dump` | The three files of `xtask/data/upgrade/golden/` |
-| `xtask/php/place.php` | hand: `php place.php <output file>` | `xtask/data/pmmp/place.json`: placement goldens, which the tests of `src/tick/interact/place.rs` compare with |
-| `xtask/php/liquid.php` | hand: `php liquid.php > liquid.txt` | `xtask/data/pmmp/liquid.txt`: liquid flow scene goldens, which the tests of `src/tick/update.rs` compare with |
-| `xtask/php/api.php` | hand: `php api.php <output file>` | `xtask/data/pmmp/api.json`: the dump source's public API inventory, from which `cargo xtask table` builds the API table |
+| `xtask/php/place.php` | hand: `php place.php <output file>` | `xtask/data/dump/place.json`: placement goldens, which the tests of `src/tick/interact/place.rs` compare with |
+| `xtask/php/liquid.php` | hand: `php liquid.php > liquid.txt` | `xtask/data/dump/liquid.txt`: liquid flow scene goldens, which the tests of `src/tick/update.rs` compare with |
+| `xtask/php/api.php` | hand: `php api.php <output file>` | `xtask/data/dump/api.json`: the dump source's public API inventory, from which `cargo xtask table` builds the API table |
 
 NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit patterns.
 
 ### Dump contents
 
-- `blocks.json`: per dump state, its Bedrock serialization, light emission and filter, direct sky light blocking, random ticking, the legacy meta the dump source sends for it as an exact recipe ingredient, its class, parent classes and traits, break info, fire values, physical flags, friction, type tags, the support of each face, collision boxes, item form, the drops and experience for an empty hand, the lowest-tier compatible tool and that tool with Silk Touch, and, for blocks whose state follows from their neighbours (fences, panes, walls, fence gates, stairs, tripwire and its hooks), the values of each variant.
+- `blocks.json`: per dump state, its Bedrock serialization, light emission and filter, direct sky light blocking, random ticking, the legacy meta the dump source sends for it as an exact recipe ingredient, its class, parent classes and traits, break info, fire values, physical flags, friction, type tags, the support of each face, collision boxes, item form, the drops and XP for an empty hand, the lowest-tier compatible tool and that tool with Silk Touch, and, for blocks whose state follows from their neighbours (fences, panes, walls, fence gates, stairs, tripwire and its hooks), the values of each variant.
 - `deserialized.json`: per reference state the dump source does not read as itself, the state it reads (null where it rejects the state). The dump source ignores some vanilla properties (a pumpkin's facing, a hanging sign's unused facing) and writes one value for them.
 - `items.json`: per dump item type, its Bedrock serialization, the dump source's names, and its data (class, stack size, durability, tool, armor, food, fuel, enchanting, cooldown).
 - `creative.json`: the creative inventory in order, with its categories and groups.
@@ -79,7 +79,7 @@ NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit
 | `entity_identifiers.dat`, `voxel_shapes.json` | Source B, byte for byte | AvailableActorIdentifiers, VoxelShapes |
 | `jigsaw_structure_data.dat`, `entity_properties.dat` | Source B `.nbt` files converted to network NBT | Data sent at spawn |
 | `protocol_limits.json` | Mojang's protocol schemas | Decoder field limits |
-| `bds_camera.json` | A spawn capture of the official server 1.26.52.3 | Camera and aim assist presets |
+| `camera.json` | A spawn capture of the official server 1.26.52.3 | Camera and aim assist presets |
 
 - Block network IDs are hashes: FNV-1a 32 over the little-endian NBT of the name and the states sorted by name. The official server uses hash IDs too. A golden test in `src/block/hash.rs` checks the Rust hash against every reference state.
 - Block physics: source B's `blocks.json` at the pinned commit predates 1.26.60, so `dump` has two temporary rules (`reference_physics` in `xtask/src/dump.rs`; a unit test fixes how many states each covers):
@@ -162,9 +162,9 @@ Defects of the schema repositories and the dump source's upgrader:
 | `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | The commit of the pinned-version table of `.claude/docs/protocol.md` | `dump` (field limits) |
 | `block-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockBlockUpgradeSchema.git` | The sources table's commit | `dump` |
 | `item-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockItemUpgradeSchema.git` | The sources table's commit | `dump` |
-| `php-pm5/bin/php/php.exe` | pmmp/PHP-Binaries release php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4` (sources table), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c` (PHP 8.4.16 ZTS) | `dump`, every PHP script |
-| `bds/1.26.60.6/` | minecraft.net Bedrock Dedicated Server, Windows 1.26.60.6 (`bedrock-server-1.26.60.6.zip`) | zip `21620db4f80d0fe206f21cb08f52f4e5f14252ce865ec49ccfbe0d9f93ce88b0`, `bedrock_server.exe` `d7b26d6c5e8f3e910f66e8cbf7e1dfde06e570032349bf7abdd070deb6e9d884` | `p6 bds`, `p6 game bds`, `p6 api bds`, `p6 import` |
-| `bds/1.26.60.6/` (Linux checkout) | minecraft.net Bedrock Dedicated Server, Linux 1.26.60.6 (`bin-linux/bedrock-server-1.26.60.6.zip`) | Not pinned yet: no SHA-256 recorded | Every `p6` command on Linux |
+| `dump-php/bin/php/php.exe` | pmmp/PHP-Binaries release php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4` (sources table), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c` (PHP 8.4.16 ZTS) | `dump`, every PHP script |
+| `official/1.26.60.6/` | minecraft.net Bedrock Dedicated Server, Windows 1.26.60.6 (`bedrock-server-1.26.60.6.zip`) | zip `21620db4f80d0fe206f21cb08f52f4e5f14252ce865ec49ccfbe0d9f93ce88b0`, `bedrock_server.exe` `d7b26d6c5e8f3e910f66e8cbf7e1dfde06e570032349bf7abdd070deb6e9d884` | `p6 official`, `p6 game official`, `p6 api official`, `p6 import` |
+| `official/1.26.60.6/` (Linux checkout) | minecraft.net Bedrock Dedicated Server, Linux 1.26.60.6 (`bin-linux/bedrock-server-1.26.60.6.zip`) | Not pinned yet: no SHA-256 recorded | Every `p6` command on Linux |
 | `tools/strawberry-perl-5.42.3.1/` | StrawberryPerl GitHub release SP_54231_64bit, portable zip | zip `6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690`, `perl/bin/perl.exe` `d4fa3a6ebe78f5f60e185cf7d7809a7dd8c541739ca4a7bc8687c75548473f42` | The dimpl copy's tests in `verify` (OpenSSL source build) |
 | `str0m-test-data/` | `https://raw.githubusercontent.com/algesten/str0m/<commit>/tests/data/<file>` | The commit in `vendor/str0m/.cargo_vcs_info.json`; per file, `xtask/data/vendor/str0m-test-data.sha256` | `vendor-test str0m` (downloads what is missing) |
 

@@ -13,10 +13,10 @@ use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
     EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, EntityTeleport,
     ExtinguishCause, Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin,
-    PlayerChat, PlayerDeath, PlayerEmote, PlayerExhaust, PlayerExperienceChange,
-    PlayerGameModeChange, PlayerItemConsume, PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove,
-    PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak,
-    PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, Priority, TeleportCause,
+    PlayerChat, PlayerDeath, PlayerEmote, PlayerExhaust, PlayerGameModeChange, PlayerItemConsume,
+    PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn,
+    PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
+    PlayerTransfer, PlayerXpChange, Priority, TeleportCause,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -27,16 +27,16 @@ use crate::tick::tests::{initialised, input, join, new_state, packet, radius, re
 use crate::tick::{Output, inventory};
 use crate::world;
 
-/// The attributes an experience change sends.
-const EXPERIENCE_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
-/// The attributes a hunger change sends.
-const HUNGER_ATTRIBUTES: [&str; 3] = [
+/// The attributes a food change sends.
+const FOOD_ATTRIBUTES: [&str; 3] = [
     "minecraft:player.hunger",
     "minecraft:player.saturation",
     "minecraft:player.exhaustion",
 ];
 /// The seconds of skin changes the skin budget is checked over.
 const SECONDS: usize = 60;
+/// The attributes an xp change sends.
+const XP_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
 
 /// Players 1..=n spawned with `listeners`; session k has runtime ID k.
 struct Game {
@@ -186,7 +186,7 @@ fn dropped(packets: &[Packet]) -> u32 {
         .sum()
 }
 
-// pmmp: EntityDamageEvent, EntityDamageByEntityEvent
+// api: EntityDamageEvent, EntityDamageByEntityEvent
 #[test]
 fn damage_listeners_see_the_hit_and_cancel_or_change_it() {
     let (tx, mut seen) = record();
@@ -239,7 +239,7 @@ fn damage_listeners_see_the_hit_and_cancel_or_change_it() {
     assert!(calls[2].3 < 0.0, "armour reduces the hit");
 }
 
-// pmmp: EntityDamageByEntityEvent, EntityDamageEvent
+// api: EntityDamageByEntityEvent, EntityDamageEvent
 #[test]
 fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
     let (tx, mut seen) = record();
@@ -281,7 +281,7 @@ fn melee_knockback(game: &mut Game) -> Option<[f32; 3]> {
     })
 }
 
-// pmmp: EntityMotionEvent, Living::knockBack
+// api: EntityMotionEvent, Living::knockBack
 /// A melee hit pushes a player as everything else does: through `EntityMotion`, whose
 /// cancelling sends no motion.
 #[test]
@@ -322,7 +322,7 @@ fn a_melee_knockback_on_a_player_is_bounded() {
     assert!(motion.iter().all(|c| c.abs() <= 10.0), "{motion:?}");
 }
 
-// pmmp: Player::attackEntity, Player::hasFiniteResources
+// api: Player::attackEntity, Player::hasFiniteResources
 /// The weapon wears after the hit for an attacker with finite resources: a listener that makes
 /// the attacker a spectator does not spare it.
 #[test]
@@ -366,7 +366,7 @@ fn many_attacks_in_one_tick_leave_the_target_connected() {
     assert_eq!(game.closed(2).1, None);
 }
 
-// pmmp: EntityDamageEvent
+// api: EntityDamageEvent
 #[test]
 fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     let listeners = on(|e: &mut EntityDamage, cx: &mut Context<'_>| {
@@ -413,7 +413,7 @@ fn a_totem_a_listener_takes_out_of_hand_saves_no_one() {
     assert!(game.survival_mut(1).is_dead());
 }
 
-// pmmp: EntityRegainHealthEvent
+// api: EntityRegainHealthEvent
 #[test]
 fn regain_listeners_change_or_cancel_the_healing() {
     let (tx, mut seen) = record();
@@ -511,9 +511,9 @@ fn a_creative_player_that_dies_loses_its_inventory_and_drops_nothing() {
     assert_eq!(dropped(&game.take(1)), 0);
 }
 
-// pmmp: PlayerDeathEvent
+// api: PlayerDeathEvent
 #[test]
-fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
+fn death_listeners_choose_the_drops_the_xp_and_the_messages() {
     let listeners = on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
         assert_eq!(e.drops().len(), 2);
         assert_eq!(e.xp_drop_amount(), 70);
@@ -529,7 +529,7 @@ fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
     game.survival_mut(1).xp_level = 10;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     assert_eq!(carried(game.player(1)), 0, "the replaced stacks are gone");
-    assert_eq!(game.survival_mut(1).xp_level, 10, "the experience is kept");
+    assert_eq!(game.survival_mut(1).xp_level, 10, "the xp is kept");
     game.idle(1);
     let own = game.take(1);
     assert_eq!(dropped(&own), 3, "only the listener's drops fall");
@@ -543,21 +543,21 @@ fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
     )));
 }
 
-/// `experience-orbs = false`: the death offers no experience to drop, but the level is lost.
+/// `xp-orbs = false`: the death offers no xp to drop, but the level is lost.
 #[test]
-fn without_orbs_a_death_offers_no_experience_to_drop() {
+fn without_orbs_a_death_offers_no_xp_to_drop() {
     let (tx, mut seen) = record();
     let listeners = on(move |e: &mut PlayerDeath, _: &mut Context<'_>| {
         tx.try_send(e.xp_drop_amount()).unwrap();
     });
-    let mut game = Game::with(1, listeners, |c| c.general.experience_orbs = false);
+    let mut game = Game::with(1, listeners, |c| c.general.xp_orbs = false);
     game.survival_mut(1).xp_level = 10;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     assert_eq!(drain(&mut seen), [0]);
     assert_eq!(game.survival_mut(1).xp_level, 0);
 }
 
-// pmmp: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage
+// api: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage
 /// With `show-death-messages` every player sees the death's message, which the client translates
 /// with the dead player's name as on the death screen; a listener's own message replaces it and an
 /// empty one hides it. Without, only a listener's own message shows.
@@ -600,7 +600,7 @@ fn show_death_messages_broadcasts_the_translated_death_message() {
     assert_eq!(deaths(false, own()), raw);
 }
 
-// pmmp: PlayerDeathEvent
+// api: PlayerDeathEvent
 #[test]
 fn deaths_with_random_listeners_neither_duplicate_nor_lose_items() {
     let mut r = crate::random::Random::new(7, 0, 1);
@@ -683,7 +683,7 @@ fn reordered_death_drops_keep_the_cursor_and_the_grid_dropping() {
     assert_eq!(dropped(&game.take(1)), 5 + 3 + 2);
 }
 
-// pmmp: PlayerRespawnEvent, PlayerGameModeChangeEvent
+// api: PlayerRespawnEvent, PlayerGameModeChangeEvent
 #[test]
 fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
     let target = Vec3::new(4.5, -60.0, 4.5);
@@ -778,7 +778,7 @@ fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
     assert_eq!(game.player(1).position, spawn);
 }
 
-// pmmp: PlayerRespawnEvent
+// api: PlayerRespawnEvent
 /// The monitors see where the player respawns, not a place a listener chose that was ignored.
 #[test]
 fn respawn_monitors_see_the_place_used_not_an_ignored_one() {
@@ -813,7 +813,7 @@ fn a_respawn_point_outside_the_border_respawns_at_the_world_spawn() {
     assert_eq!(game.player(1).position, spawn);
 }
 
-// pmmp: PlayerGameModeChangeEvent, Player::setGamemode
+// api: PlayerGameModeChangeEvent, Player::setGamemode
 #[test]
 fn the_game_mode_action_asks_and_the_direct_call_does_not() {
     let (tx, mut seen) = record();
@@ -836,7 +836,7 @@ fn the_game_mode_action_asks_and_the_direct_call_does_not() {
     );
 }
 
-// pmmp: PlayerMoveEvent
+// api: PlayerMoveEvent
 #[test]
 fn move_listeners_send_the_player_back_or_elsewhere() {
     let elsewhere = Vec3::new(2.5, -60.0, 2.5);
@@ -881,7 +881,7 @@ fn move_listeners_send_the_player_back_or_elsewhere() {
     assert_eq!(drain(&mut watched), [elsewhere]);
 }
 
-// pmmp: PlayerMoveEvent::setTo
+// api: PlayerMoveEvent::setTo
 /// A move a listener sends past the world border sends the player back, as a cancel does: the
 /// monitors hear nothing, and the next move is the one asked about.
 #[test]
@@ -991,8 +991,8 @@ fn a_client_flight_toggle_forgets_the_fall() {
     assert!(game.survival_mut(1).fall_distance < 0.001);
 }
 
-// pmmp: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent,
-// pmmp: PlayerToggleGlideEvent, PlayerToggleFlightEvent, PlayerJumpEvent, PlayerMissSwingEvent
+// api: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent,
+// api: PlayerToggleGlideEvent, PlayerToggleFlightEvent, PlayerJumpEvent, PlayerMissSwingEvent
 #[test]
 fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
     let (tx, mut seen) = record();
@@ -1150,7 +1150,7 @@ fn a_dead_players_box_stays_the_dying_box() {
     assert_eq!(heights, [MetadataValue::Float32(0.2)]);
 }
 
-// pmmp: PlayerExhaustEvent
+// api: PlayerExhaustEvent
 #[test]
 fn exhaust_listeners_change_or_cancel_the_exhaustion() {
     let (tx, mut seen) = record();
@@ -1178,11 +1178,11 @@ fn exhaust_listeners_change_or_cancel_the_exhaustion() {
     assert_eq!(calls[1], (pid(1), ExhaustCause::Mining, 3.0));
 }
 
-// pmmp: PlayerExperienceChangeEvent
+// api: PlayerExperienceChangeEvent
 #[test]
-fn experience_listeners_choose_the_level_or_cancel_the_gain() {
+fn xp_listeners_choose_the_level_or_cancel_the_gain() {
     let (tx, mut seen) = record();
-    let listeners = on(move |e: &mut PlayerExperienceChange, _: &mut Context<'_>| {
+    let listeners = on(move |e: &mut PlayerXpChange, _: &mut Context<'_>| {
         tx.try_send((e.old_level(), e.new_level())).unwrap();
         if e.new_level() == Some(0) {
             e.cancel();
@@ -1192,10 +1192,10 @@ fn experience_listeners_choose_the_level_or_cancel_the_gain() {
         }
     });
     let mut game = Game::new(1, listeners);
-    assert!(pickup_experience(&mut game.state, sid(1), 3));
+    assert!(pickup_xp(&mut game.state, sid(1), 3));
     assert_eq!(game.survival_mut(1).xp_lifetime, 0, "cancelled");
     game.idle(3);
-    assert!(pickup_experience(&mut game.state, sid(1), 20));
+    assert!(pickup_xp(&mut game.state, sid(1), 20));
     let s = game.survival_mut(1);
     assert_eq!(s.xp_level, 30);
     assert!(s.xp_progress < 1.0);
@@ -1203,7 +1203,7 @@ fn experience_listeners_choose_the_level_or_cancel_the_gain() {
     assert_eq!(drain(&mut seen), [(0, Some(0)), (0, Some(2))]);
 }
 
-// pmmp: PlayerItemConsumeEvent
+// api: PlayerItemConsumeEvent
 #[test]
 fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
     let mut calls = 0;
@@ -1255,7 +1255,7 @@ fn bed(head: bool) -> block::State {
     .unwrap()
 }
 
-// pmmp: PlayerBedEnterEvent, PlayerBedLeaveEvent
+// api: PlayerBedEnterEvent, PlayerBedLeaveEvent
 #[test]
 fn bed_listeners_keep_a_player_up_and_hear_it_leave() {
     let (tx, mut seen) = record();
@@ -1298,7 +1298,7 @@ fn bed_listeners_keep_a_player_up_and_hear_it_leave() {
     );
 }
 
-// pmmp: EntityEffectAddEvent, EntityEffectRemoveEvent
+// api: EntityEffectAddEvent, EntityEffectRemoveEvent
 #[test]
 fn effect_listeners_refuse_or_keep_effects_but_not_expired_ones() {
     let mut listeners = on(|e: &mut EntityEffectAdd, _: &mut Context<'_>| {
@@ -1327,7 +1327,7 @@ fn effect_listeners_refuse_or_keep_effects_but_not_expired_ones() {
     assert_eq!(drain(&mut seen), [2, 0]);
 }
 
-// pmmp: EntityEffectRemoveEvent
+// api: EntityEffectRemoveEvent
 #[test]
 fn an_effect_a_listener_gives_in_place_of_a_removed_one_stays() {
     let listeners = on(|_: &mut EntityEffectRemove, cx: &mut Context<'_>| {
@@ -1353,7 +1353,7 @@ fn an_effect_a_listener_gives_in_place_of_a_removed_one_stays() {
     assert_eq!(kept.map(|a| (a.duration, a.amplifier)), Some((200, 1)));
 }
 
-// pmmp: EntityCombustEvent, EntityCombustByEntityEvent, EntityExtinguishEvent
+// api: EntityCombustEvent, EntityCombustByEntityEvent, EntityExtinguishEvent
 #[test]
 fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
     let mut listeners = on(
@@ -1418,7 +1418,7 @@ fn texts(packets: &[Packet]) -> Vec<String> {
         .collect()
 }
 
-// pmmp: PlayerChatEvent, Player::chat
+// api: PlayerChatEvent, Player::chat
 #[test]
 fn chat_listeners_change_the_line_its_format_and_recipients() {
     let listeners = on(|e: &mut PlayerChat, _: &mut Context<'_>| {
@@ -1451,7 +1451,7 @@ fn chat_listeners_change_the_line_its_format_and_recipients() {
     assert_eq!(own, ["commands.generic.unknown"]);
 }
 
-// pmmp: PlayerKickEvent, PlayerQuitEvent, Player::kick
+// api: PlayerKickEvent, PlayerQuitEvent, Player::kick
 #[test]
 fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
     let mut listeners = on(|e: &mut PlayerKick, _: &mut Context<'_>| {
@@ -1499,7 +1499,7 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
     );
 }
 
-// pmmp: InventoryCloseEvent
+// api: InventoryCloseEvent
 /// A menu an `InventoryClose` listener opens while a teleport to another world closes the
 /// player's window does not follow the player: its blocks stand in the old world, so it closes
 /// without another event before the player leaves.
@@ -1545,7 +1545,7 @@ fn the_teleport_action_names_its_cause_to_the_listeners() {
     assert_eq!(game.player(1).position(), Vec3::new(3.0, -60.0, 3.0));
 }
 
-// pmmp: PlayerTransferEvent, Player::transfer
+// api: PlayerTransferEvent, Player::transfer
 #[test]
 fn transfer_listeners_keep_the_player_or_send_it_elsewhere() {
     let listeners = on(|e: &mut PlayerTransfer, _: &mut Context<'_>| {
@@ -1568,7 +1568,7 @@ fn transfer_listeners_keep_the_player_or_send_it_elsewhere() {
     ));
 }
 
-// pmmp: Entity::attack, Living::attack, Player::attack, EntityDamageEvent, PlayerDeathEvent
+// api: Entity::attack, Living::attack, Player::attack, EntityDamageEvent, PlayerDeathEvent
 #[test]
 fn the_damage_action_hurts_through_the_rules() {
     let (tx, mut seen) = record();
@@ -1673,7 +1673,7 @@ fn emotes(packets: &[Packet]) -> Vec<String> {
         .collect()
 }
 
-// pmmp: PlayerEmoteEvent
+// api: PlayerEmoteEvent
 #[test]
 fn emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow() {
     let listeners = on(
@@ -1732,7 +1732,7 @@ fn skins(packets: &[Packet]) -> Vec<String> {
         .collect()
 }
 
-// pmmp: PlayerChangeSkinEvent
+// api: PlayerChangeSkinEvent
 #[test]
 fn skin_changes_reach_everyone_or_go_back_to_the_player() {
     let listeners = on(|e: &mut PlayerChangeSkin, _: &mut Context<'_>| {
@@ -1771,7 +1771,7 @@ fn skin_changes_reach_everyone_or_go_back_to_the_player() {
     assert_eq!(game.player(1).skin().full_id, "new");
 }
 
-// pmmp: PlayerChangeSkinEvent
+// api: PlayerChangeSkinEvent
 #[test]
 fn a_skin_a_listener_sets_through_the_api_is_not_overwritten_by_the_change() {
     let listeners = on(|_: &mut PlayerChangeSkin, cx: &mut Context<'_>| {
@@ -1967,8 +1967,8 @@ fn named_events(tx: &mpsc::Sender<&'static str>) -> Listeners {
     let t = tx.clone();
     l.push(
         Priority::Normal,
-        move |_: &mut PlayerExperienceChange, _: &mut Context<'_>| {
-            t.try_send("experience").unwrap();
+        move |_: &mut PlayerXpChange, _: &mut Context<'_>| {
+            t.try_send("xp").unwrap();
         },
     );
     let t = tx.clone();
@@ -1976,7 +1976,7 @@ fn named_events(tx: &mpsc::Sender<&'static str>) -> Listeners {
         Priority::Normal,
         move |e: &mut PlayerDeath, _: &mut Context<'_>| {
             if e.xp_drop_amount() > 0 {
-                t.try_send("experience drop").unwrap();
+                t.try_send("xp drop").unwrap();
             }
         },
     );
@@ -2004,17 +2004,17 @@ fn named_events(tx: &mpsc::Sender<&'static str>) -> Listeners {
 }
 
 #[test]
-fn hunger_off_spends_and_gains_no_food_raises_no_event_and_sends_no_hunger_attribute() {
-    let window = attribute_names(&spawn_window(|c| c.general.hunger = false));
+fn food_off_spends_and_gains_no_food_raises_no_event_and_sends_no_food_attribute() {
+    let window = attribute_names(&spawn_window(|c| c.general.food = false));
     assert!(window.iter().any(|n| n == "minecraft:health"));
     assert!(
         window
             .iter()
-            .all(|n| !HUNGER_ATTRIBUTES.contains(&n.as_str())),
+            .all(|n| !FOOD_ATTRIBUTES.contains(&n.as_str())),
         "{window:?}"
     );
     let (tx, mut seen) = record();
-    let mut game = Game::with(1, named_events(&tx), |c| c.general.hunger = false);
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.food = false);
     let p = game.player_mut(1);
     let off = Err(crate::player::Error::Disabled);
     assert_eq!(p.set_food(5.0), off);
@@ -2046,25 +2046,22 @@ fn hunger_off_spends_and_gains_no_food_raises_no_event_and_sends_no_hunger_attri
     assert_eq!(drain(&mut seen), ["damage"]);
     let sent = attribute_names(&game.take(1));
     assert!(
-        sent.iter()
-            .all(|n| !HUNGER_ATTRIBUTES.contains(&n.as_str())),
+        sent.iter().all(|n| !FOOD_ATTRIBUTES.contains(&n.as_str())),
         "{sent:?}"
     );
 }
 
 #[test]
-fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
-    let window = attribute_names(&spawn_window(|c| c.general.experience = false));
+fn xp_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
+    let window = attribute_names(&spawn_window(|c| c.general.xp = false));
     assert!(window.iter().any(|n| n == "minecraft:health"));
     assert!(
-        window
-            .iter()
-            .all(|n| !EXPERIENCE_ATTRIBUTES.contains(&n.as_str())),
+        window.iter().all(|n| !XP_ATTRIBUTES.contains(&n.as_str())),
         "{window:?}"
     );
     let (tx, mut seen) = record();
-    let mut game = Game::with(1, named_events(&tx), |c| c.general.experience = false);
-    // A level saved while experience was on stays as it is.
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.xp = false);
+    // A level saved while xp was on stays as it is.
     game.survival_mut(1).xp_level = 10;
     let p = game.player_mut(1);
     let off = Err(crate::player::Error::Disabled);
@@ -2078,7 +2075,7 @@ fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
     p.subtract_xp_levels(3);
     // What an enchanting table or an anvil takes.
     subtract_levels(game.player_mut(1), 2);
-    // A death drops no experience and keeps the level.
+    // A death drops no xp and keeps the level.
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(2);
     let s = game.survival_mut(1);
@@ -2090,9 +2087,7 @@ fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
     let sent = game.take(1);
     let names = attribute_names(&sent);
     assert!(
-        names
-            .iter()
-            .all(|n| !EXPERIENCE_ATTRIBUTES.contains(&n.as_str())),
+        names.iter().all(|n| !XP_ATTRIBUTES.contains(&n.as_str())),
         "{names:?}"
     );
     assert!(

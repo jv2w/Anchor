@@ -1033,7 +1033,7 @@ mod tests {
         }
     }
 
-    // pmmp: Durable::setDamage
+    // api: Durable::setDamage
     #[test]
     fn a_damage_set_through_the_api_reads_back_from_disk() {
         for i in 0..u16::try_from(crate::item::table::ITEMS.len()).unwrap() {
@@ -1084,9 +1084,9 @@ mod tests {
         }
     }
 
-    // pmmp: Item, Item::getCount, Item::setCount, Item::isNull, Item::canStackWith,
-    // pmmp: Durable::getDamage, Durable::setDamage, Item::getCustomName, Item::getLore,
-    // pmmp: Item::getEnchantments, Item::getNamedTag
+    // api: Item, Item::getCount, Item::setCount, Item::isNull, Item::canStackWith,
+    // api: Durable::getDamage, Durable::setDamage, Item::getCustomName, Item::getLore,
+    // api: Item::getEnchantments, Item::getNamedTag
     /// A stack's getters read what its `with_*` methods set, and a change makes a new value: the
     /// count is kept to the type's stack size and 0 empties the stack (PMMP `Item::setCount`,
     /// `Item::isNull`), the damage and extra data are kept apart (PMMP `Durable`, the item tag).

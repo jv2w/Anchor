@@ -15,12 +15,12 @@ pub const MAX_OFFERS: usize = 128;
 
 /// The largest trade counter, as an NBT `TAG_Int` saves it: an offer's
 /// [`max_uses`](Offer::max_uses), [`uses`](Offer::uses) and
-/// [`trader_experience`](Offer::trader_experience), a villager's trade experience
-/// ([`Context::set_trade_experience`]), each tier's need ([`Context::set_trade_tier_experience`])
+/// [`trader_xp`](Offer::trader_xp), a villager's trade xp
+/// ([`Context::set_trade_xp`]), each tier's need ([`Context::set_trade_tier_xp`])
 /// and the network IDs the server gives offers (sent as `netId`).
 ///
-/// [`Context::set_trade_experience`]: crate::Context::set_trade_experience
-/// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience
+/// [`Context::set_trade_xp`]: crate::Context::set_trade_xp
+/// [`Context::set_trade_tier_xp`]: crate::Context::set_trade_tier_xp
 pub const MAX_TRADE_COUNTER: u32 = i32::MAX.cast_unsigned();
 
 /// The highest villager tier, master (BDS `MaxTradeTier`); tiers start at 0, novice.
@@ -51,7 +51,7 @@ pub struct Offer {
 
 impl Offer {
     /// An offer of `sell` for `buy` at most `max_uses` times, with BDS's defaults: no second
-    /// payment, tier 0 (novice), no villager experience, reward orbs for the player, price
+    /// payment, tier 0 (novice), no villager xp, reward orbs for the player, price
     /// multipliers 0.05, demand 0.
     pub fn new(buy: Stack, sell: Stack, max_uses: u32) -> Self {
         Self {
@@ -106,10 +106,10 @@ impl Offer {
         self
     }
 
-    /// The same offer giving the villager `experience` per trade (towards its next tier).
+    /// The same offer giving the villager `xp` per trade (towards its next tier).
     #[must_use]
-    pub fn with_trader_experience(mut self, experience: u32) -> Self {
-        self.trader_exp = experience;
+    pub fn with_trader_xp(mut self, xp: u32) -> Self {
+        self.trader_exp = xp;
         self
     }
 
@@ -120,9 +120,9 @@ impl Offer {
         self
     }
 
-    /// The same offer dropping no experience orbs for the player.
+    /// The same offer dropping no xp orbs for the player.
     #[must_use]
-    pub fn without_reward_experience(mut self) -> Self {
+    pub fn without_reward_xp(mut self) -> Self {
         self.reward_exp = false;
         self
     }
@@ -147,8 +147,8 @@ impl Offer {
         self.price_multipliers
     }
 
-    /// Whether each trade drops experience orbs for the player.
-    pub fn rewards_experience(&self) -> bool {
+    /// Whether each trade drops xp orbs for the player.
+    pub fn rewards_xp(&self) -> bool {
         self.reward_exp
     }
 
@@ -172,8 +172,8 @@ impl Offer {
         self.tier
     }
 
-    /// The villager experience per trade.
-    pub fn trader_experience(&self) -> u32 {
+    /// The villager xp per trade.
+    pub fn trader_xp(&self) -> u32 {
         self.trader_exp
     }
 
@@ -189,11 +189,11 @@ pub fn is_price_multiplier(multiplier: f32) -> bool {
     multiplier.is_finite()
 }
 
-/// Whether `tiers` is the trade experience each tier needs as
-/// [`Context::set_trade_tier_experience`] takes it: never going down, each at most
+/// Whether `tiers` is the trade xp each tier needs as
+/// [`Context::set_trade_tier_xp`] takes it: never going down, each at most
 /// [`MAX_TRADE_COUNTER`].
 ///
-/// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience
-pub fn is_tier_experience(tiers: [u32; TRADE_TIERS]) -> bool {
+/// [`Context::set_trade_tier_xp`]: crate::Context::set_trade_tier_xp
+pub fn is_tier_xp(tiers: [u32; TRADE_TIERS]) -> bool {
     tiers.windows(2).all(|w| w.first() <= w.get(1)) && tiers.iter().all(|&x| x <= MAX_TRADE_COUNTER)
 }

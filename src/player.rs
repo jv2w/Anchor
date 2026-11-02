@@ -20,7 +20,7 @@ use crate::tick::queue::SessionId;
 
 /// The height of a standing player's box in blocks (PMMP `Human` size); a human NPC's too.
 pub const HEIGHT: f64 = 1.8;
-/// The highest experience level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
+/// The highest XP level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
 pub(crate) const MAX_LEVEL: u32 = 24_791;
 /// The most parameters of a translated message a client decodes.
 const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
@@ -89,7 +89,7 @@ pub enum Error {
     Leaving,
     /// A transfer address is empty or longer than 253 bytes (the longest host name).
     InvalidAddress,
-    /// A server setting turns the system off (`hunger`, `experience` or `drowning` false, or
+    /// A server setting turns the system off (`food`, `xp` or `drowning` false, or
     /// `save-player-data` false for an offline player).
     Disabled,
     /// A sound has no full-volume form: the client plays it from a level event.
@@ -357,7 +357,7 @@ pub fn level_from_xp(xp: u64) -> (u32, f64) {
     (lo, progress)
 }
 
-/// The experience points from `level` to the next (PMMP
+/// The XP points from `level` to the next (PMMP
 /// `ExperienceUtils::getXpToCompleteLevel`).
 #[doc(alias = "ExperienceUtils::getXpToCompleteLevel")]
 pub fn xp_to_complete_level(level: u32) -> u64 {
@@ -371,7 +371,7 @@ pub fn xp_to_complete_level(level: u32) -> u64 {
     }
 }
 
-/// The experience points that reach `level` from none (PMMP
+/// The XP points that reach `level` from none (PMMP
 /// `ExperienceUtils::getXpToReachLevel`), saturating at `u64::MAX`.
 #[doc(alias = "ExperienceUtils")]
 #[doc(alias = "ExperienceUtils::getXpToReachLevel")]
@@ -436,8 +436,8 @@ mod tests {
             .collect()
     }
 
-    // pmmp: ExperienceUtils, ExperienceUtils::getXpToReachLevel,
-    // pmmp: ExperienceUtils::getXpToCompleteLevel, ExperienceUtils::getLevelFromXp
+    // api: ExperienceUtils, ExperienceUtils::getXpToReachLevel,
+    // api: ExperienceUtils::getXpToCompleteLevel, ExperienceUtils::getLevelFromXp
     #[test]
     fn level_thresholds_follow_pmmp() {
         // PMMP ExperienceUtils at the three formula boundaries.

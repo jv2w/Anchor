@@ -38,7 +38,7 @@ const UNKNOWN_SOURCE: &str = "(Unknown)";
 /// const FLY: Permission = Permission::new("lobby.fly", Default::Op);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pmmp-class: Permission
+// api-class: Permission
 pub struct Permission {
     name: &'static str,
     default: Default,
@@ -113,7 +113,7 @@ impl Default {
 /// game state never reads the wall clock, so a ban that ends 72,000 ticks after the current tick
 /// lasts an hour of server running time, and the time the server is down does not count.
 #[derive(Debug, Clone, PartialEq, Eq)]
-// pmmp-class: BanEntry
+// api-class: BanEntry
 pub struct BanEntry {
     /// The name in ASCII lowercase, or the IP address as text.
     name: String,
@@ -408,9 +408,9 @@ builtin! {
     COMMAND_WHITELIST_LIST = "anchor.command.whitelist.list", Op;
     /// Remove players from the whitelist (`/whitelist remove`).
     COMMAND_WHITELIST_REMOVE = "anchor.command.whitelist.remove", Op;
-    /// Give experience to another player (`/xp`).
+    /// Give XP to another player (`/xp`).
     COMMAND_XP_OTHER = "anchor.command.xp.other", Op;
-    /// Give experience to oneself (`/xp`).
+    /// Give XP to oneself (`/xp`).
     COMMAND_XP_SELF = "anchor.command.xp.self", Op;
 }
 
@@ -435,7 +435,7 @@ pub(crate) fn check_name(name: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    // pmmp: PermissionParser::defaultFromString, PermissionParser, Permission::__construct
+    // api: PermissionParser::defaultFromString, PermissionParser, Permission::__construct
     #[test]
     fn defaults_parse_pmmp_spellings_and_decide_by_operator_status() {
         assert_eq!(Default::from_name("IsOp"), Some(Default::Op));
@@ -455,7 +455,7 @@ mod tests {
         }
     }
 
-    // pmmp: Permission::getName, DefaultPermissionNames, Permission
+    // api: Permission::getName, DefaultPermissionNames, Permission
     #[test]
     fn builtin_names_are_unique_and_follow_pmmp_under_anchor() {
         let mut names: Vec<&str> = BUILTIN.iter().map(|p| p.name()).collect();
@@ -467,9 +467,9 @@ mod tests {
         assert_eq!(COMMAND_ME.default(), Default::True);
     }
 
-    // pmmp: BanEntry::getName, BanEntry::getReason, BanEntry::setReason, BanEntry::getSource,
-    // pmmp: BanEntry::setSource, BanEntry::getCreated, BanEntry::getExpires,
-    // pmmp: BanEntry::setExpires, BanEntry::hasExpired, BanEntry
+    // api: BanEntry::getName, BanEntry::getReason, BanEntry::setReason, BanEntry::getSource,
+    // api: BanEntry::setSource, BanEntry::getCreated, BanEntry::getExpires,
+    // api: BanEntry::setExpires, BanEntry::hasExpired, BanEntry
     #[test]
     fn ban_entries_keep_their_fields_and_expire_at_their_tick() {
         let entry = BanEntry::new("Steve")

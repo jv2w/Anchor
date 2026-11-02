@@ -272,7 +272,7 @@ mod tests {
         move |cx, result| seen.lock().unwrap().push((cx.tick(), result))
     }
 
-    // pmmp: AsyncPool::submitTask, AsyncTask, AsyncTask::onRun, AsyncTask::onCompletion
+    // api: AsyncPool::submitTask, AsyncTask, AsyncTask::onRun, AsyncTask::onCompletion
     #[test]
     fn blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick() {
         let runtime = runtime();

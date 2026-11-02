@@ -3,7 +3,7 @@
 //! PMMP public API inventory: reflects every class-like in PMMP's src/ and generated/ into sorted JSON.
 
 /*
- * Run with the PMMP PHP binary from the pinned PocketMine-MP checkout (`.cache/pmmp`) as the
+ * Run with the PMMP PHP binary from the pinned PocketMine-MP checkout (`.cache/dump`) as the
  * working directory:
  *
  *     php api.php <output file>

@@ -683,9 +683,9 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
 
 /// Gives the players points, or levels with `L` (BDS's suffixed number, any case); negative
 /// levels take levels away, negative points are refused (`/xp <amount>[L] [player]`, PMMP
-/// `XpCommand`). Fails with `experience = false`.
+/// `XpCommand`). Fails with `xp = false`.
 fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Output> {
-    if !cx.state.settings.experience {
+    if !cx.state.settings.xp {
         return Err(Error::failed(player::Error::Disabled.to_string()));
     }
     let own = (permission::COMMAND_XP_SELF, permission::COMMAND_XP_OTHER);

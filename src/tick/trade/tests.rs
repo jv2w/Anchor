@@ -22,7 +22,7 @@ const TEST_HOOKS: Hooks = Hooks {
     open_window,
     close_window,
     close_window_without_event,
-    drop_experience,
+    drop_xp,
     villager_traded,
 };
 
@@ -50,7 +50,7 @@ pub(super) struct Fixtures {
     closed_without_event: Vec<SessionId>,
     /// The orbs dropped: world, position, amount.
     drops: Vec<(WorldIndex, Vec3, u32)>,
-    /// The villagers told of a trade, with their tier and experience before it.
+    /// The villagers told of a trade, with their tier and xp before it.
     traded: Vec<(Id, (u8, u32))>,
 }
 
@@ -239,7 +239,7 @@ fn close_window_without_event(state: &mut State, session: SessionId) {
     closed(state, session);
 }
 
-fn drop_experience(state: &mut State, world: WorldIndex, at: Vec3, amount: u32) {
+fn drop_xp(state: &mut State, world: WorldIndex, at: Vec3, amount: u32) {
     state.trades.fixtures.drops.push((world, at, amount));
 }
 
@@ -467,7 +467,7 @@ fn trades_reward_orbs_and_raise_the_tier() {
     assert!(server.open(2, v));
     let ids = server.net_ids(1);
     server.screens(2);
-    // Wheat gives 2 experience per trade: five trades reach tier 1 (10).
+    // Wheat gives 2 xp per trade: five trades reach tier 1 (10).
     server.traded(1, ids[0], 4);
     assert!(server.screens(1).is_empty());
     let drops = std::mem::take(&mut server.state.trades.fixtures.drops);
@@ -480,7 +480,7 @@ fn trades_reward_orbs_and_raise_the_tier() {
     assert_eq!(
         server.state.trades.fixtures.traded,
         [(v, (0, 0)), (v, (0, 8))],
-        "each trade tells the villager's viewers of its tier and experience"
+        "each trade tells the villager's viewers of its tier and xp"
     );
     for s in [1, 2] {
         // BDS sends no UpdateTrade at a new tier (P6 `tradeup`): the traders learn it from the
@@ -799,7 +799,7 @@ fn offers_with_counters_survive_saving_through_the_entity() {
     let back = Offers::from_nbt(&saved, &crate::custom::Registry::default());
     assert_eq!(back.recipes(), server.offers(v).recipes());
     assert_eq!(back.recipes()[0].uses, 5);
-    assert_eq!((back.tier(), back.experience()), (1, 10));
+    assert_eq!((back.tier(), back.xp()), (1, 10));
     assert_eq!(back.to_nbt(), saved);
 }
 

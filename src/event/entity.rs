@@ -364,7 +364,7 @@ impl DamageCause {
 /// `EntityDamageByChildEntityEvent`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageSource {
-    /// Nothing in particular: a fall, drowning, hunger, an effect.
+    /// Nothing in particular: a fall, drowning, food, an effect.
     None,
     /// The block at this position: a cactus, magma, a campfire.
     Block(BlockPos),
@@ -455,7 +455,7 @@ getters!(EntityDeath {
     /// What it drops.
     #[doc(alias = "EntityDeathEvent::getDrops")]
     drops: &[Stack],
-    /// The experience it drops.
+    /// The XP it drops.
     #[doc(alias = "EntityDeathEvent::getXpDropAmount")]
     xp_drop_amount: u32,
 });
@@ -464,7 +464,7 @@ setters!(EntityDeath {
     /// Replaces what it drops.
     #[doc(alias = "EntityDeathEvent::setDrops")]
     set_drops => drops: Vec<Stack>,
-    /// Replaces the experience it drops.
+    /// Replaces the XP it drops.
     #[doc(alias = "EntityDeathEvent::setXpDropAmount")]
     set_xp_drop_amount => xp_drop_amount: u32,
 });
@@ -718,7 +718,7 @@ cancellable! {
         #[doc(alias = "EntityFrostWalkerEvent::isCancelled")];
 }
 
-/// Raised when a player picks up a dropped item, an arrow or a thrown trident (not an experience
+/// Raised when a player picks up a dropped item, an arrow or a thrown trident (not an XP
 /// orb, as in PMMP). Cancelling leaves it where it is.
 #[doc(alias = "EntityItemPickupEvent")]
 #[derive(Debug)]
@@ -1219,10 +1219,10 @@ mod tests {
     const WORLD: world::Id = world::Id::DEFAULT;
     const AT: Vec3 = Vec3::new(1.5, 2.0, -3.25);
 
-    // pmmp: AreaEffectCloudApplyEvent, AreaEffectCloudApplyEvent::getEntity,
-    // pmmp: AreaEffectCloudApplyEvent::getAffectedEntities,
-    // pmmp: AreaEffectCloudApplyEvent::cancel, AreaEffectCloudApplyEvent::uncancel,
-    // pmmp: AreaEffectCloudApplyEvent::isCancelled
+    // api: AreaEffectCloudApplyEvent, AreaEffectCloudApplyEvent::getEntity,
+    // api: AreaEffectCloudApplyEvent::getAffectedEntities,
+    // api: AreaEffectCloudApplyEvent::cancel, AreaEffectCloudApplyEvent::uncancel,
+    // api: AreaEffectCloudApplyEvent::isCancelled
     #[test]
     fn area_effect_cloud_apply_lists_who_is_affected() {
         let affected = vec![Actor::Player(player(1)), Actor::Entity(entity(2))];
@@ -1239,9 +1239,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityBlockChangeEvent, EntityBlockChangeEvent::getBlock,
-    // pmmp: EntityBlockChangeEvent::getTo, EntityBlockChangeEvent::cancel,
-    // pmmp: EntityBlockChangeEvent::uncancel, EntityBlockChangeEvent::isCancelled
+    // api: EntityBlockChangeEvent, EntityBlockChangeEvent::getBlock,
+    // api: EntityBlockChangeEvent::getTo, EntityBlockChangeEvent::cancel,
+    // api: EntityBlockChangeEvent::uncancel, EntityBlockChangeEvent::isCancelled
     #[test]
     fn entity_block_change_names_both_states() {
         let mut e = EntityBlockChange {
@@ -1262,11 +1262,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityCombustEvent, EntityCombustByBlockEvent, EntityCombustByEntityEvent,
-    // pmmp: EntityCombustEvent::getDuration, EntityCombustEvent::setDuration,
-    // pmmp: EntityCombustByBlockEvent::getCombuster,
-    // pmmp: EntityCombustByEntityEvent::getCombuster, EntityCombustEvent::cancel,
-    // pmmp: EntityCombustEvent::uncancel, EntityCombustEvent::isCancelled
+    // api: EntityCombustEvent, EntityCombustByBlockEvent, EntityCombustByEntityEvent,
+    // api: EntityCombustEvent::getDuration, EntityCombustEvent::setDuration,
+    // api: EntityCombustByBlockEvent::getCombuster,
+    // api: EntityCombustByEntityEvent::getCombuster, EntityCombustEvent::cancel,
+    // api: EntityCombustEvent::uncancel, EntityCombustEvent::isCancelled
     #[test]
     fn entity_combust_duration_can_change() {
         let mut e = EntityCombust {
@@ -1290,20 +1290,20 @@ mod tests {
         [None; DamageModifier::ALL.len()]
     }
 
-    // pmmp: EntityDamageEvent, EntityDamageByEntityEvent, EntityDamageByBlockEvent,
-    // pmmp: EntityDamageByChildEntityEvent, EntityEvent::getEntity, EntityDamageEvent::getCause,
-    // pmmp: EntityDamageByEntityEvent::getDamager, EntityDamageByBlockEvent::getDamager,
-    // pmmp: EntityDamageByChildEntityEvent::getChild, EntityDamageEvent::getBaseDamage,
-    // pmmp: EntityDamageEvent::setBaseDamage, EntityDamageEvent::getOriginalBaseDamage,
-    // pmmp: EntityDamageEvent::getModifier, EntityDamageEvent::setModifier,
-    // pmmp: EntityDamageEvent::isApplicable, EntityDamageEvent::getModifiers,
-    // pmmp: EntityDamageEvent::getOriginalModifier, EntityDamageEvent::getOriginalModifiers,
-    // pmmp: EntityDamageEvent::getFinalDamage, EntityDamageEvent::canBeReducedByArmor,
-    // pmmp: EntityDamageEvent::getAttackCooldown, EntityDamageEvent::setAttackCooldown,
-    // pmmp: EntityDamageByEntityEvent::getKnockBack, EntityDamageByEntityEvent::setKnockBack,
-    // pmmp: EntityDamageByEntityEvent::getVerticalKnockBackLimit,
-    // pmmp: EntityDamageByEntityEvent::setVerticalKnockBackLimit, EntityDamageEvent::cancel,
-    // pmmp: EntityDamageEvent::uncancel, EntityDamageEvent::isCancelled
+    // api: EntityDamageEvent, EntityDamageByEntityEvent, EntityDamageByBlockEvent,
+    // api: EntityDamageByChildEntityEvent, EntityEvent::getEntity, EntityDamageEvent::getCause,
+    // api: EntityDamageByEntityEvent::getDamager, EntityDamageByBlockEvent::getDamager,
+    // api: EntityDamageByChildEntityEvent::getChild, EntityDamageEvent::getBaseDamage,
+    // api: EntityDamageEvent::setBaseDamage, EntityDamageEvent::getOriginalBaseDamage,
+    // api: EntityDamageEvent::getModifier, EntityDamageEvent::setModifier,
+    // api: EntityDamageEvent::isApplicable, EntityDamageEvent::getModifiers,
+    // api: EntityDamageEvent::getOriginalModifier, EntityDamageEvent::getOriginalModifiers,
+    // api: EntityDamageEvent::getFinalDamage, EntityDamageEvent::canBeReducedByArmor,
+    // api: EntityDamageEvent::getAttackCooldown, EntityDamageEvent::setAttackCooldown,
+    // api: EntityDamageByEntityEvent::getKnockBack, EntityDamageByEntityEvent::setKnockBack,
+    // api: EntityDamageByEntityEvent::getVerticalKnockBackLimit,
+    // api: EntityDamageByEntityEvent::setVerticalKnockBackLimit, EntityDamageEvent::cancel,
+    // api: EntityDamageEvent::uncancel, EntityDamageEvent::isCancelled
     #[test]
     fn entity_damage_sums_base_and_modifiers() {
         let mut modifiers = none();
@@ -1380,15 +1380,15 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityDamageEvent, EntityDamageEvent::CAUSE_CONTACT,
-    // pmmp: EntityDamageEvent::CAUSE_ENTITY_ATTACK, EntityDamageEvent::CAUSE_PROJECTILE,
-    // pmmp: EntityDamageEvent::CAUSE_SUFFOCATION, EntityDamageEvent::CAUSE_FALL,
-    // pmmp: EntityDamageEvent::CAUSE_FIRE, EntityDamageEvent::CAUSE_FIRE_TICK,
-    // pmmp: EntityDamageEvent::CAUSE_LAVA, EntityDamageEvent::CAUSE_DROWNING,
-    // pmmp: EntityDamageEvent::CAUSE_BLOCK_EXPLOSION, EntityDamageEvent::CAUSE_ENTITY_EXPLOSION,
-    // pmmp: EntityDamageEvent::CAUSE_VOID, EntityDamageEvent::CAUSE_SUICIDE,
-    // pmmp: EntityDamageEvent::CAUSE_MAGIC, EntityDamageEvent::CAUSE_CUSTOM,
-    // pmmp: EntityDamageEvent::CAUSE_STARVATION, EntityDamageEvent::CAUSE_FALLING_BLOCK
+    // api: EntityDamageEvent, EntityDamageEvent::CAUSE_CONTACT,
+    // api: EntityDamageEvent::CAUSE_ENTITY_ATTACK, EntityDamageEvent::CAUSE_PROJECTILE,
+    // api: EntityDamageEvent::CAUSE_SUFFOCATION, EntityDamageEvent::CAUSE_FALL,
+    // api: EntityDamageEvent::CAUSE_FIRE, EntityDamageEvent::CAUSE_FIRE_TICK,
+    // api: EntityDamageEvent::CAUSE_LAVA, EntityDamageEvent::CAUSE_DROWNING,
+    // api: EntityDamageEvent::CAUSE_BLOCK_EXPLOSION, EntityDamageEvent::CAUSE_ENTITY_EXPLOSION,
+    // api: EntityDamageEvent::CAUSE_VOID, EntityDamageEvent::CAUSE_SUICIDE,
+    // api: EntityDamageEvent::CAUSE_MAGIC, EntityDamageEvent::CAUSE_CUSTOM,
+    // api: EntityDamageEvent::CAUSE_STARVATION, EntityDamageEvent::CAUSE_FALLING_BLOCK
     #[test]
     fn armor_reduces_the_causes_pmmp_lets_it_reduce() {
         use DamageCause::*;
@@ -1435,13 +1435,13 @@ mod tests {
         }
     }
 
-    // pmmp: EntityDamageEvent, EntityDamageEvent::MODIFIER_ARMOR,
-    // pmmp: EntityDamageEvent::MODIFIER_STRENGTH, EntityDamageEvent::MODIFIER_WEAKNESS,
-    // pmmp: EntityDamageEvent::MODIFIER_RESISTANCE, EntityDamageEvent::MODIFIER_ABSORPTION,
-    // pmmp: EntityDamageEvent::MODIFIER_ARMOR_ENCHANTMENTS, EntityDamageEvent::MODIFIER_CRITICAL,
-    // pmmp: EntityDamageEvent::MODIFIER_TOTEM, EntityDamageEvent::MODIFIER_WEAPON_ENCHANTMENTS,
-    // pmmp: EntityDamageEvent::MODIFIER_PREVIOUS_DAMAGE_COOLDOWN,
-    // pmmp: EntityDamageEvent::MODIFIER_ARMOR_HELMET
+    // api: EntityDamageEvent, EntityDamageEvent::MODIFIER_ARMOR,
+    // api: EntityDamageEvent::MODIFIER_STRENGTH, EntityDamageEvent::MODIFIER_WEAKNESS,
+    // api: EntityDamageEvent::MODIFIER_RESISTANCE, EntityDamageEvent::MODIFIER_ABSORPTION,
+    // api: EntityDamageEvent::MODIFIER_ARMOR_ENCHANTMENTS, EntityDamageEvent::MODIFIER_CRITICAL,
+    // api: EntityDamageEvent::MODIFIER_TOTEM, EntityDamageEvent::MODIFIER_WEAPON_ENCHANTMENTS,
+    // api: EntityDamageEvent::MODIFIER_PREVIOUS_DAMAGE_COOLDOWN,
+    // api: EntityDamageEvent::MODIFIER_ARMOR_HELMET
     #[test]
     fn every_modifier_has_its_own_slot() {
         let mut e = EntityDamage {
@@ -1465,9 +1465,9 @@ mod tests {
         assert_eq!(e.final_damage(), 11.0);
     }
 
-    // pmmp: EntityDeathEvent, EntityDeathEvent::getEntity, EntityDeathEvent::getDrops,
-    // pmmp: EntityDeathEvent::setDrops, EntityDeathEvent::getXpDropAmount,
-    // pmmp: EntityDeathEvent::setXpDropAmount
+    // api: EntityDeathEvent, EntityDeathEvent::getEntity, EntityDeathEvent::getDrops,
+    // api: EntityDeathEvent::setDrops, EntityDeathEvent::getXpDropAmount,
+    // api: EntityDeathEvent::setXpDropAmount
     #[test]
     fn entity_death_drops_can_change() {
         let mut e = EntityDeath {
@@ -1485,18 +1485,18 @@ mod tests {
         );
     }
 
-    // pmmp: EntitySpawnEvent, EntityDespawnEvent
+    // api: EntitySpawnEvent, EntityDespawnEvent
     #[test]
     fn entities_spawn_and_despawn() {
         assert_eq!(EntitySpawn { entity: entity(4) }.entity(), entity(4));
         assert_eq!(EntityDespawn { entity: entity(5) }.entity(), entity(5));
     }
 
-    // pmmp: EntityEffectEvent, EntityEffectAddEvent, EntityEffectRemoveEvent,
-    // pmmp: EntityEffectEvent::getEffect, EntityEffectAddEvent::getOldEffect,
-    // pmmp: EntityEffectAddEvent::hasOldEffect, EntityEffectAddEvent::willModify,
-    // pmmp: EntityEffectEvent::cancel, EntityEffectEvent::uncancel,
-    // pmmp: EntityEffectEvent::isCancelled, EntityEffectRemoveEvent::cancel
+    // api: EntityEffectEvent, EntityEffectAddEvent, EntityEffectRemoveEvent,
+    // api: EntityEffectEvent::getEffect, EntityEffectAddEvent::getOldEffect,
+    // api: EntityEffectAddEvent::hasOldEffect, EntityEffectAddEvent::willModify,
+    // api: EntityEffectEvent::cancel, EntityEffectEvent::uncancel,
+    // api: EntityEffectEvent::isCancelled, EntityEffectRemoveEvent::cancel
     #[test]
     fn effect_events_name_the_effects_and_keep_expired_ones_removed() {
         let new = Instance::new(Type::Speed, 200, 1, true, false);
@@ -1535,12 +1535,12 @@ mod tests {
         assert!(remove.is_cancelled(), "an infinite effect never runs out");
     }
 
-    // pmmp: EntityExplodeEvent, EntityExplodeEvent::getPosition,
-    // pmmp: EntityExplodeEvent::getBlockList, EntityExplodeEvent::setBlockList,
-    // pmmp: EntityExplodeEvent::getYield, EntityExplodeEvent::setYield,
-    // pmmp: EntityExplodeEvent::getIgnitions, EntityExplodeEvent::setIgnitions,
-    // pmmp: EntityExplodeEvent::cancel, EntityExplodeEvent::uncancel,
-    // pmmp: EntityExplodeEvent::isCancelled
+    // api: EntityExplodeEvent, EntityExplodeEvent::getPosition,
+    // api: EntityExplodeEvent::getBlockList, EntityExplodeEvent::setBlockList,
+    // api: EntityExplodeEvent::getYield, EntityExplodeEvent::setYield,
+    // api: EntityExplodeEvent::getIgnitions, EntityExplodeEvent::setIgnitions,
+    // api: EntityExplodeEvent::cancel, EntityExplodeEvent::uncancel,
+    // api: EntityExplodeEvent::isCancelled
     #[test]
     fn entity_explode_blocks_and_yield_can_change() {
         let mut e = EntityExplode {
@@ -1578,10 +1578,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityExtinguishEvent, EntityExtinguishEvent::getCause,
-    // pmmp: EntityExtinguishEvent::CAUSE_WATER, EntityExtinguishEvent::CAUSE_WATER_CAULDRON,
-    // pmmp: EntityExtinguishEvent::CAUSE_RESPAWN, EntityExtinguishEvent::CAUSE_FIRE_PROOF,
-    // pmmp: EntityExtinguishEvent::CAUSE_TICKING
+    // api: EntityExtinguishEvent, EntityExtinguishEvent::getCause,
+    // api: EntityExtinguishEvent::CAUSE_WATER, EntityExtinguishEvent::CAUSE_WATER_CAULDRON,
+    // api: EntityExtinguishEvent::CAUSE_RESPAWN, EntityExtinguishEvent::CAUSE_FIRE_PROOF,
+    // api: EntityExtinguishEvent::CAUSE_TICKING
     #[test]
     fn entity_extinguish_names_the_cause() {
         use ExtinguishCause::*;
@@ -1594,10 +1594,10 @@ mod tests {
         }
     }
 
-    // pmmp: EntityItemPickupEvent, EntityItemPickupEvent::getOrigin,
-    // pmmp: EntityItemPickupEvent::getItem, EntityItemPickupEvent::setItem,
-    // pmmp: EntityItemPickupEvent::cancel, EntityItemPickupEvent::uncancel,
-    // pmmp: EntityItemPickupEvent::isCancelled
+    // api: EntityItemPickupEvent, EntityItemPickupEvent::getOrigin,
+    // api: EntityItemPickupEvent::getItem, EntityItemPickupEvent::setItem,
+    // api: EntityItemPickupEvent::cancel, EntityItemPickupEvent::uncancel,
+    // api: EntityItemPickupEvent::isCancelled
     #[test]
     fn entity_item_pickup_item_can_change() {
         let mut e = EntityItemPickup {
@@ -1619,8 +1619,8 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityMotionEvent, EntityMotionEvent::getVector, EntityMotionEvent::cancel,
-    // pmmp: EntityMotionEvent::uncancel, EntityMotionEvent::isCancelled
+    // api: EntityMotionEvent, EntityMotionEvent::getVector, EntityMotionEvent::cancel,
+    // api: EntityMotionEvent::uncancel, EntityMotionEvent::isCancelled
     #[test]
     fn entity_motion_names_the_motion() {
         let mut e = EntityMotion {
@@ -1635,12 +1635,12 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityPreExplodeEvent, EntityPreExplodeEvent::getRadius,
-    // pmmp: EntityPreExplodeEvent::setRadius, EntityPreExplodeEvent::getFireChance,
-    // pmmp: EntityPreExplodeEvent::setFireChance, EntityPreExplodeEvent::isIncendiary,
-    // pmmp: EntityPreExplodeEvent::setIncendiary, EntityPreExplodeEvent::isBlockBreaking,
-    // pmmp: EntityPreExplodeEvent::setBlockBreaking, EntityPreExplodeEvent::cancel,
-    // pmmp: EntityPreExplodeEvent::uncancel, EntityPreExplodeEvent::isCancelled
+    // api: EntityPreExplodeEvent, EntityPreExplodeEvent::getRadius,
+    // api: EntityPreExplodeEvent::setRadius, EntityPreExplodeEvent::getFireChance,
+    // api: EntityPreExplodeEvent::setFireChance, EntityPreExplodeEvent::isIncendiary,
+    // api: EntityPreExplodeEvent::setIncendiary, EntityPreExplodeEvent::isBlockBreaking,
+    // api: EntityPreExplodeEvent::setBlockBreaking, EntityPreExplodeEvent::cancel,
+    // api: EntityPreExplodeEvent::uncancel, EntityPreExplodeEvent::isCancelled
     #[test]
     fn entity_pre_explode_keeps_its_values_in_range() {
         let mut e = EntityPreExplode {
@@ -1685,11 +1685,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityRegainHealthEvent, EntityRegainHealthEvent::getAmount,
-    // pmmp: EntityRegainHealthEvent::setAmount, EntityRegainHealthEvent::getRegainReason,
-    // pmmp: EntityRegainHealthEvent::CAUSE_REGEN, EntityRegainHealthEvent::CAUSE_MAGIC,
-    // pmmp: EntityRegainHealthEvent::CAUSE_SATURATION, EntityRegainHealthEvent::cancel,
-    // pmmp: EntityRegainHealthEvent::uncancel, EntityRegainHealthEvent::isCancelled
+    // api: EntityRegainHealthEvent, EntityRegainHealthEvent::getAmount,
+    // api: EntityRegainHealthEvent::setAmount, EntityRegainHealthEvent::getRegainReason,
+    // api: EntityRegainHealthEvent::CAUSE_REGEN, EntityRegainHealthEvent::CAUSE_MAGIC,
+    // api: EntityRegainHealthEvent::CAUSE_SATURATION, EntityRegainHealthEvent::cancel,
+    // api: EntityRegainHealthEvent::uncancel, EntityRegainHealthEvent::isCancelled
     #[test]
     fn entity_regain_health_amount_can_change() {
         use RegainReason::*;
@@ -1712,10 +1712,10 @@ mod tests {
         }
     }
 
-    // pmmp: EntityShootBowEvent, EntityShootBowEvent::getEntity, EntityShootBowEvent::getBow,
-    // pmmp: EntityShootBowEvent::getProjectile, EntityShootBowEvent::getForce,
-    // pmmp: EntityShootBowEvent::setForce, EntityShootBowEvent::cancel,
-    // pmmp: EntityShootBowEvent::uncancel, EntityShootBowEvent::isCancelled
+    // api: EntityShootBowEvent, EntityShootBowEvent::getEntity, EntityShootBowEvent::getBow,
+    // api: EntityShootBowEvent::getProjectile, EntityShootBowEvent::getForce,
+    // api: EntityShootBowEvent::setForce, EntityShootBowEvent::cancel,
+    // api: EntityShootBowEvent::uncancel, EntityShootBowEvent::isCancelled
     #[test]
     fn entity_shoot_bow_force_can_change() {
         let mut e = EntityShootBow {
@@ -1739,9 +1739,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityTeleportEvent, EntityTeleportEvent::getFrom, EntityTeleportEvent::getTo,
-    // pmmp: EntityTeleportEvent::setTo, EntityTeleportEvent::cancel,
-    // pmmp: EntityTeleportEvent::uncancel, EntityTeleportEvent::isCancelled
+    // api: EntityTeleportEvent, EntityTeleportEvent::getFrom, EntityTeleportEvent::getTo,
+    // api: EntityTeleportEvent::setTo, EntityTeleportEvent::cancel,
+    // api: EntityTeleportEvent::uncancel, EntityTeleportEvent::isCancelled
     #[test]
     fn entity_teleport_target_can_change() {
         let mut e = EntityTeleport {
@@ -1766,9 +1766,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityTrampleFarmlandEvent, EntityTrampleFarmlandEvent::getBlock,
-    // pmmp: EntityTrampleFarmlandEvent::cancel, EntityTrampleFarmlandEvent::uncancel,
-    // pmmp: EntityTrampleFarmlandEvent::isCancelled
+    // api: EntityTrampleFarmlandEvent, EntityTrampleFarmlandEvent::getBlock,
+    // api: EntityTrampleFarmlandEvent::cancel, EntityTrampleFarmlandEvent::uncancel,
+    // api: EntityTrampleFarmlandEvent::isCancelled
     #[test]
     fn entity_trample_farmland_names_the_farmland() {
         let mut e = EntityTrampleFarmland {
@@ -1786,10 +1786,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: ItemDespawnEvent, ItemMergeEvent, ItemSpawnEvent, ItemDespawnEvent::getEntity,
-    // pmmp: ItemDespawnEvent::cancel, ItemDespawnEvent::uncancel,
-    // pmmp: ItemDespawnEvent::isCancelled, ItemMergeEvent::getTarget, ItemMergeEvent::cancel,
-    // pmmp: ItemMergeEvent::uncancel, ItemMergeEvent::isCancelled, ItemSpawnEvent::getEntity
+    // api: ItemDespawnEvent, ItemMergeEvent, ItemSpawnEvent, ItemDespawnEvent::getEntity,
+    // api: ItemDespawnEvent::cancel, ItemDespawnEvent::uncancel,
+    // api: ItemDespawnEvent::isCancelled, ItemMergeEvent::getTarget, ItemMergeEvent::cancel,
+    // api: ItemMergeEvent::uncancel, ItemMergeEvent::isCancelled, ItemSpawnEvent::getEntity
     #[test]
     fn dropped_item_events_name_the_items() {
         let mut despawn = ItemDespawn {
@@ -1814,12 +1814,12 @@ mod tests {
         assert_eq!(ItemSpawn { entity: entity(3) }.entity(), entity(3));
     }
 
-    // pmmp: ProjectileHitEvent, ProjectileHitBlockEvent, ProjectileHitEntityEvent,
-    // pmmp: ProjectileLaunchEvent, ProjectileHitEvent::getEntity,
-    // pmmp: ProjectileHitBlockEvent::getBlockHit, ProjectileHitEvent::getRayTraceResult,
-    // pmmp: ProjectileHitEntityEvent::getEntityHit, ProjectileLaunchEvent::getEntity,
-    // pmmp: ProjectileLaunchEvent::cancel, ProjectileLaunchEvent::uncancel,
-    // pmmp: ProjectileLaunchEvent::isCancelled
+    // api: ProjectileHitEvent, ProjectileHitBlockEvent, ProjectileHitEntityEvent,
+    // api: ProjectileLaunchEvent, ProjectileHitEvent::getEntity,
+    // api: ProjectileHitBlockEvent::getBlockHit, ProjectileHitEvent::getRayTraceResult,
+    // api: ProjectileHitEntityEvent::getEntityHit, ProjectileLaunchEvent::getEntity,
+    // api: ProjectileLaunchEvent::cancel, ProjectileLaunchEvent::uncancel,
+    // api: ProjectileLaunchEvent::isCancelled
     #[test]
     fn projectile_events_name_what_was_hit() {
         let block = ProjectileHitBlock {

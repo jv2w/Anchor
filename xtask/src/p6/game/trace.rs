@@ -17,14 +17,14 @@
 //!   blocks around a clicked block after every placement (P6, `xtask/data/p6/facts.md`); a resend that changes nothing is shown only;
 //! - entities by type (`AddActor`, `AddItemActor` item, `RemoveActor`, `TakeItemActor` taker);
 //! - `UpdateTrade` window type, size, tier and flags, the key and tag types of the offers;
-//! - the number of `PlayerEnchantOptions` and the player's last experience level of a step when
+//! - the number of `PlayerEnchantOptions` and the player's last XP level of a step when
 //!   it differs from the level before the step (BDS resends every attribute after a placement);
 //! - the bot's `check` lines named in `FIXED_CHECKS`, the shape of the `offers` checks, every
 //!   `Disconnect`, and every packet that failed to decode. Any other `check` line is shown only:
 //!   a game scenario's check compares nothing until its name is in `FIXED_CHECKS`.
 //!
 //! Shown only, because they vary per run or by design: random values (enchantment options,
-//! offers, a villager's profession and name, experience orbs and points), timing
+//! offers, a villager's profession and name, XP orbs and points), timing
 //! (`ContainerSetData` values and counts, entity motion), sounds, chat, recipe unlocks,
 //! `SetActorData`, positions of dropped items, and `Event` types: the only one BDS sends in the
 //! scenarios is `EntityInteract` when trading opens, which feeds the client's statistics and
@@ -96,11 +96,11 @@ const FLAT: [(i64, &str); 4] = [
     (-62, "minecraft:dirt[]"),
     (-61, "minecraft:grass_block[]"),
 ];
-/// Entities whose appearance is random: experience orbs (their number and values).
+/// Entities whose appearance is random: XP orbs (their number and values).
 const RANDOM_ENTITIES: [&str; 1] = ["minecraft:xp_orb"];
-/// Level events that follow random entities: an experience orb picked up.
+/// Level events that follow random entities: an XP orb picked up.
 const RANDOM_LEVEL_EVENTS: [i64; 1] = [1051];
-/// A new player's experience level.
+/// A new player's XP level.
 const START_LEVEL: &str = "0";
 
 /// One step of a trace.
@@ -146,7 +146,7 @@ struct Tracer<'a> {
     /// positions updated before it; others hold the flat world's block ([`flat`]).
     known: BTreeMap<String, String>,
     level: Option<String>,
-    /// The player's experience level at the start of the current step.
+    /// The player's XP level at the start of the current step.
     known_level: String,
     state: Option<String>,
     /// Counted packets of the current step.
@@ -601,7 +601,7 @@ impl Tracer<'_> {
     }
 
     /// The player's attributes: the level is fixed (commands and enchanting change it by fixed
-    /// amounts), experience points and the exhaustion of actions vary.
+    /// amounts), XP points and the exhaustion of actions vary.
     fn attributes(&mut self, f: &Value) {
         let mut values = Vec::new();
         for a in field(f, "Attributes").as_array().into_iter().flatten() {

@@ -95,7 +95,7 @@ fn newest(h: &Harness) -> Id {
     h.state.rules.entities.ids().last().unwrap()
 }
 
-// pmmp: EntitySpawnEvent, ItemSpawnEvent, EntityDespawnEvent
+// api: EntitySpawnEvent, ItemSpawnEvent, EntityDespawnEvent
 #[test]
 fn spawns_and_despawns_are_announced_once_by_the_entity_tick() {
     let seen: Log<(&'static str, Id, bool)> = log();
@@ -139,7 +139,7 @@ fn spawns_and_despawns_are_announced_once_by_the_entity_tick() {
         stack("minecraft:stick", 1)
     ));
     let item = newest(&h);
-    drop_experience(&mut h.state, 0, at(12.5, -59.0, 12.5), 3);
+    drop_xp(&mut h.state, 0, at(12.5, -59.0, 12.5), 3);
     let orb = newest(&h);
     assert!(got(&seen).is_empty(), "the entity tick announces");
     h.entities();
@@ -186,7 +186,7 @@ fn set(m: Mode, v: u8) {
     });
 }
 
-// pmmp: ItemDespawnEvent
+// api: ItemDespawnEvent
 #[test]
 fn a_cancelled_item_despawn_gives_the_whole_time_again() {
     let switch = Mode::new();
@@ -294,7 +294,7 @@ fn an_item_set_to_despawn_now_goes_with_or_without_a_listener() {
     assert_eq!(run(cancelling).0, Some(DEFAULT_DESPAWN_DELAY_TICKS));
 }
 
-// pmmp: ItemMergeEvent
+// api: ItemMergeEvent
 #[test]
 fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
     let switch = Mode::new();
@@ -377,7 +377,7 @@ fn player_id(n: u64) -> crate::player::Id {
     crate::player::Id::new(session(n))
 }
 
-// pmmp: EntityItemPickupEvent
+// api: EntityItemPickupEvent
 #[test]
 fn a_pickup_offers_what_fits_and_listeners_decide_what_moves() {
     let switch = Mode::new();
@@ -465,7 +465,7 @@ fn roll(n: usize) -> usize {
     v
 }
 
-// pmmp: EntityItemPickupEvent, ItemMergeEvent
+// api: EntityItemPickupEvent, ItemMergeEvent
 #[test]
 fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items() {
     DICE.with(|d| d.set(0xe8_b401));
@@ -552,7 +552,7 @@ fn hit(h: &mut Harness, target: Id) {
     npc::attack_with(&mut h.state, session(1), target, TEST_HOOKS);
 }
 
-// pmmp: EntityDamageEvent, EntityDamageByEntityEvent
+// api: EntityDamageEvent, EntityDamageByEntityEvent
 #[test]
 fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     let switch = Mode::new();
@@ -616,7 +616,7 @@ fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     assert_eq!(health(&h, other), 20.0, "removed by the listener: not hurt");
 }
 
-// pmmp: EntityDeathEvent
+// api: EntityDeathEvent
 #[test]
 fn a_dying_npc_drops_what_its_death_listeners_give_it() {
     let watched: Log<usize> = log();
@@ -652,7 +652,7 @@ fn a_dying_npc_drops_what_its_death_listeners_give_it() {
         .live()
         .iter()
         .filter_map(|e| match &e.kind {
-            Kind::ExperienceOrb(o) => Some(o.value),
+            Kind::XpOrb(o) => Some(o.value),
             _ => None,
         })
         .sum();
@@ -660,7 +660,7 @@ fn a_dying_npc_drops_what_its_death_listeners_give_it() {
     assert_eq!(got(&watched), [2]);
 }
 
-// pmmp: EntityMotionEvent
+// api: EntityMotionEvent
 #[test]
 fn a_cancelled_motion_keeps_the_npc_still() {
     let switch = Mode::new();
@@ -729,7 +729,7 @@ fn a_motion_listener_replaces_an_npc_s_push() {
     assert_eq!(got(&seen), [push]);
 }
 
-// pmmp: EntityCombustEvent, EntityCombustByBlockEvent, EntityExtinguishEvent
+// api: EntityCombustEvent, EntityCombustByBlockEvent, EntityExtinguishEvent
 #[test]
 fn fire_sets_entities_burning_through_combust_and_water_puts_them_out() {
     let switch = Mode::new();
@@ -806,7 +806,7 @@ fn block(h: &Harness, pos: BlockPos) -> block::State {
     h.state.worlds[0].block(pos).unwrap()
 }
 
-// pmmp: EntityPreExplodeEvent, EntityExplodeEvent
+// api: EntityPreExplodeEvent, EntityExplodeEvent
 #[test]
 fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     let pre = Mode::new();
@@ -954,7 +954,7 @@ fn projectile_count(h: &Harness) -> usize {
         .count()
 }
 
-// pmmp: ProjectileLaunchEvent, EntityShootBowEvent
+// api: ProjectileLaunchEvent, EntityShootBowEvent
 #[test]
 fn launches_and_bow_shots_ask_their_listeners() {
     let switch = Mode::new();
@@ -1042,7 +1042,7 @@ fn launches_and_bow_shots_ask_their_listeners() {
     assert!((speed - 1.0).abs() < 1e-9, "the listener's force: {speed}");
 }
 
-// pmmp: ProjectileHitBlockEvent, ProjectileHitEntityEvent
+// api: ProjectileHitBlockEvent, ProjectileHitEntityEvent
 #[test]
 fn projectile_hits_name_what_they_hit() {
     let blocks: Log<(Id, BlockPos, block::State, Vec3)> = log();
@@ -1104,7 +1104,7 @@ fn projectile_hits_name_what_they_hit() {
     assert_eq!(health(&h, npc), 20.0);
 }
 
-// pmmp: EntityTeleportEvent
+// api: EntityTeleportEvent
 /// An ender pearl's landing asks the teleport listeners: a cancel, or a place no teleport may
 /// go, keeps the thrower where it is and unhurt; another place takes it there.
 #[test]
@@ -1176,7 +1176,7 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
     assert_eq!(calls(|c| c.damage.len()), 1);
 }
 
-// pmmp: AreaEffectCloudApplyEvent
+// api: AreaEffectCloudApplyEvent
 #[test]
 fn a_cancelled_cloud_application_gives_no_effects() {
     let switch = Mode::new();
@@ -1227,7 +1227,7 @@ fn a_cancelled_cloud_application_gives_no_effects() {
     assert!(calls(|c| !c.effects.is_empty()));
 }
 
-// pmmp: EntityBlockChangeEvent
+// api: EntityBlockChangeEvent
 #[test]
 fn a_landing_falling_block_asks_before_it_becomes_a_block() {
     let switch = Mode::new();
@@ -1281,7 +1281,7 @@ fn a_landing_falling_block_asks_before_it_becomes_a_block() {
     assert_eq!(h.ground(), 0, "nothing dropped");
 }
 
-// pmmp: EntityRegainHealthEvent
+// api: EntityRegainHealthEvent
 #[test]
 fn healing_an_npc_asks_its_listeners() {
     let switch = Mode::new();
@@ -1438,7 +1438,7 @@ fn ticks_with_listeners_are_the_same_on_one_or_many_threads() {
     assert_eq!(hashes[0], hashes[1]);
 }
 
-// pmmp: Player::attackEntity, Explosion::explodeA, Explosion::explodeB, Explosion::setFireChance
+// api: Player::attackEntity, Explosion::explodeA, Explosion::explodeB, Explosion::setFireChance
 #[test]
 fn actions_raise_the_events_that_direct_calls_do_not() {
     let causes: Log<DamageCause> = log();

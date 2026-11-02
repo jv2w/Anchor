@@ -1,7 +1,7 @@
 # P6 fixed fields: fields that must be equal between BDS and Anchor captures, by
 # packet name and gophertunnel field path. Same-named packets are paired in order. Values that
 # differ per world or run (seed, positions, entity IDs, time, level ID, names, salts, checksums)
-# are not listed. BDS runs with Anchor's default settings (`cargo xtask p6 bds`).
+# are not listed. BDS runs with Anchor's default settings (`cargo xtask p6 official`).
 # <packet> <field>[.<field>...]
 
 NetworkSettings CompressionThreshold
@@ -75,9 +75,9 @@ StartGame ServerJoinInformation
 ChunkRadiusUpdated ChunkRadius
 
 # The vanilla data of the spawn window: entity property definitions (CloudburstMC, paired by
-# entity type) and the camera presets (BDS's, xtask/data/reference/bds_camera.json; aim assist
+# entity type) and the camera presets (BDS's, xtask/data/reference/camera.json; aim assist
 # categories and their priority lists by name). The key order is `in_key_order` in compare.rs.
-# JigsawStructureData and BiomeDefinitionList are checked against CloudburstMC by `bot cloudburst`;
+# JigsawStructureData and BiomeDefinitionList are checked against CloudburstMC by `bot worlddata`;
 # CurrentStructureFeature is not listed: BDS repeats it ("") outside the window.
 SyncActorProperty PropertyData
 CameraPresets Presets

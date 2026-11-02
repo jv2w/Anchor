@@ -581,7 +581,7 @@ mod tests {
         (state, [rx1, rx2])
     }
 
-    // pmmp: Server::getPlayerExact
+    // api: Server::getPlayerExact
     #[test]
     fn players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox() {
         let (mut state, _rx) = state();
@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(cx.player_exact(""), None);
     }
 
-    // pmmp: Server::getOnlinePlayers
+    // api: Server::getOnlinePlayers
     #[test]
     fn players_are_lent_in_id_order_while_in_the_game() {
         let (mut state, _rx) = state();
@@ -617,7 +617,7 @@ mod tests {
         assert!(cx.player_mut(ids[0]).is_some());
     }
 
-    // pmmp: Server::getPlayerByUUID
+    // api: Server::getPlayerByUUID
     #[test]
     fn players_are_found_by_uuid_while_in_the_game() {
         let (mut state, _rx) = state();
@@ -630,7 +630,7 @@ mod tests {
         assert_eq!(cx.player_by_uuid(Uuid::from_bytes([9; 16])), None);
     }
 
-    // pmmp: Server::getPlayerByPrefix
+    // api: Server::getPlayerByPrefix
     #[test]
     fn the_shortest_name_with_the_prefix_wins() {
         let (mut state, _rx) = state();
@@ -645,10 +645,10 @@ mod tests {
         assert_eq!(cx.player_by_prefix(""), first);
     }
 
-    // pmmp: Server::getTick, Server::getName, Server::getVersion, Server::getPocketMineVersion
-    // pmmp: Server::getMotd, Server::getMaxPlayers, Server::getDifficulty, Server::getGamemode
-    // pmmp: Server::getForceGamemode, Server::isHardcore, Server::getViewDistance
-    // pmmp: Server::shouldSavePlayerData
+    // api: Server::getTick, Server::getName, Server::getVersion, Server::getPocketMineVersion
+    // api: Server::getMotd, Server::getMaxPlayers, Server::getDifficulty, Server::getGamemode
+    // api: Server::getForceGamemode, Server::isHardcore, Server::getViewDistance
+    // api: Server::shouldSavePlayerData
     #[test]
     fn the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins() {
         let (mut state, _rx) = state();
@@ -673,8 +673,8 @@ mod tests {
         assert_eq!(state.players.len(), 2);
     }
 
-    // pmmp: Server::broadcastMessage, Server::broadcastTip, Server::broadcastPopup
-    // pmmp: Server::broadcastTitle
+    // api: Server::broadcastMessage, Server::broadcastTip, Server::broadcastPopup
+    // api: Server::broadcastTitle
     #[test]
     fn broadcasts_reach_every_player_in_the_game_once() {
         let (mut state, mut rx) = state();
@@ -767,7 +767,7 @@ mod tests {
         assert_eq!(rules(&mut rx2), spawned);
     }
 
-    // pmmp: World::save, WorldManager::getDefaultWorld, WorldManager::getWorldByName
+    // api: World::save, WorldManager::getDefaultWorld, WorldManager::getWorldByName
     #[test]
     fn save_marks_the_tick_for_a_commit_and_the_context_reads_the_state() {
         let (mut state, _rx) = state();

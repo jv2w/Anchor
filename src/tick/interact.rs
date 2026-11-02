@@ -352,7 +352,7 @@ enum Source {
     Action,
 }
 
-/// Why a block is destroyed: decides drops, experience and effects.
+/// Why a block is destroyed: decides drops, xp and effects.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Destroy {
     /// A player broke it with `tool` (drops follow the tool, PMMP `Block::getDrops`).
@@ -443,7 +443,7 @@ struct BreakPlan {
 type Affected = [Option<(BlockPos, block::State)>; 2];
 
 /// What destroying a block does, worked out before anything changes: the blocks that go
-/// together, then the drops (the block entity's contents included) and the experience.
+/// together, then the drops (the block entity's contents included) and the xp.
 #[derive(Debug, Clone, PartialEq)]
 struct Destruction {
     affected: Affected,
@@ -710,7 +710,7 @@ fn sign_edit_check(
 }
 
 /// Destroys the block at `pos` for `cause`: sets air (or the liquid it held), removes its block
-/// entity, spawns drops and experience, then plays the break effect and runs the custom blocks'
+/// entity, spawns drops and xp, then plays the break effect and runs the custom blocks'
 /// `on_break`. Both halves of a bed, door or double plant go together, so a block group breaks
 /// and drops once. An explosion plays no per-block break effect (PMMP `Explosion::explodeB`
 /// shows one explosion particle; a large explosion would otherwise fill the viewers' outboxes).
@@ -1316,7 +1316,7 @@ fn finish_break(
     true
 }
 
-/// Runs [`finish_break`] with `apply` breaking the block (`None`: refused), up to the hunger:
+/// Runs [`finish_break`] with `apply` breaking the block (`None`: refused), up to the food:
 /// what `apply` returns once applied.
 fn finish_break_with<T>(
     state: &mut State,
@@ -1347,7 +1347,7 @@ fn finish_break_with<T>(
     Some(applied)
 }
 
-/// Works out a player's break: not air and [`player_may_break`], and the drops and experience the
+/// Works out a player's break: not air and [`player_may_break`], and the drops and xp the
 /// break gives.
 fn break_plan(state: &State, actor: &Actor, pos: BlockPos, tool: &Stack) -> Option<BreakPlan> {
     let target = state.worlds.get(actor.world)?.block(pos)?;
@@ -1619,7 +1619,7 @@ fn plan_destruction(
 
 /// Applies a destruction (PMMP `World::useBreakOn` after its checks, `destroyBlockInternal`,
 /// `Block::onBreak`): the windows on the affected blocks close, every affected block is removed
-/// with its block entity, then the drops and experience fall. A close listener may change what
+/// with its block entity, then the drops and xp fall. A close listener may change what
 /// the drops copy: a player's break then changes nothing, another cause drops what is there now.
 /// A player's break whose drops find no room for entities changes nothing (the world's entity
 /// limit); drops of other causes that find none wait as a spill. The blocks removed, or `None`
@@ -1745,12 +1745,12 @@ fn spawn_drops(state: &mut State, world: WorldIndex, pos: BlockPos, items: Vec<S
         state.rules.block_entities.spill(world, pos, left);
     }
     if xp > 0 {
-        entity::drop_experience(state, world, at, xp);
+        entity::drop_xp(state, world, at, xp);
     }
 }
 
-/// Works out the drops and experience of a destruction (PMMP: only players with finite resources
-/// get drops and experience, the experience only with `experience` and `experience-orbs`; a block
+/// Works out the drops and xp of a destruction (PMMP: only players with finite resources
+/// get drops and xp, the xp only with `xp` and `xp-orbs`; a block
 /// lost by the rules drops as by hand; an explosion drops with chance `1 / size`).
 fn drops_of(
     state: &State,
@@ -1776,19 +1776,19 @@ fn drops_of(
                 .get(session)
                 .is_some_and(|p| survival::has_finite_resources(survival::game_mode(state, p)));
             if finite {
-                let experience = state.settings.has_orbs();
+                let orbs = state.settings.has_orbs();
                 for (p, s) in affected.iter().flatten() {
                     if s.custom_block().is_some() {
                         let (items, x) = custom::drops_of(state, *s, tool, rng);
                         add(custom_drops(items), *p, rng);
-                        if experience {
+                        if orbs {
                             xp = xp.saturating_add(x);
                         }
                         continue;
                     }
                     add(drops::drops(*s, tool, rng), *p, rng);
-                    if experience {
-                        xp = xp.saturating_add(drops::experience(*s, tool, rng));
+                    if orbs {
+                        xp = xp.saturating_add(drops::block_xp(*s, tool, rng));
                     }
                 }
             }

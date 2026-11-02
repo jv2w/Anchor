@@ -505,11 +505,11 @@ fn the_bot_spawns_with_snappy_and_with_zlib() {
 }
 
 /// The jigsaw structure data and biome definitions Anchor sends equal `CloudburstMC`'s data, as
-/// BDS's do, checked on the wire by `bot cloudburst` when the pinned checkout is in
+/// BDS's do, checked on the wire by `bot worlddata` when the pinned checkout is in
 /// `.cache` (`cargo xtask dump` needs it too).
 #[test]
 fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {
-    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.cache/cloudburst-data");
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.cache/reference-data");
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: test tooling outside the server"
@@ -518,12 +518,12 @@ fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {
     if !present {
         return;
     }
-    let name = "cloudburst";
+    let name = "worlddata";
     let server = Running::start(name, config(Compression::Snappy), &data_dir(name));
     play(&server, "spawn", name, &[]);
     server.stop();
     let output = Command::new(bot::binary(&work_dir()))
-        .arg("cloudburst")
+        .arg("worlddata")
         .arg("-world")
         .arg(work_dir().join(format!("{name}.world.jsonl")))
         .arg("-data")
@@ -532,7 +532,7 @@ fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {
         .expect("the bot starts");
     assert!(
         output.status.success(),
-        "bot cloudburst: {}{}",
+        "bot worlddata:{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

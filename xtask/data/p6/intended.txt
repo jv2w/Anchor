@@ -30,8 +30,8 @@ commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilit
 # `cargo xtask p6 import`: `import | block <name> | <reason>`. Where Anchor sends
 # `info_update` for an imported block it keeps as an unknown block (with its NBT, so nothing is
 # lost), BDS's block of a listed name is an intended difference. PMMP does not have these blocks
-# (xtask/data/pmmp/blocks.json). A block Anchor sends as the state PMMP reads it as (a pumpkin
-# facing south for any facing: xtask/data/pmmp/deserialized.json) needs no line.
+# (xtask/data/dump/blocks.json). A block Anchor sends as the state PMMP reads it as (a pumpkin
+# facing south for any facing: xtask/data/dump/deserialized.json) needs no line.
 import | block minecraft:bubble_column | PMMP has no bubble column; kept as an unknown block, sent as stored without server behaviour
 import | block minecraft:bush | PMMP has no bush; kept as an unknown block, sent as stored without server behaviour
 import | block minecraft:cinnabar | PMMP has no cinnabar; kept as an unknown block, sent as stored without server behaviour

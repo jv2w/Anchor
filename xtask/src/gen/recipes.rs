@@ -1,5 +1,5 @@
 //! `src/crafting/table.rs`: the recipe tables from the PMMP recipe dump
-//! (`xtask/data/pmmp/recipes.json`). Every item must resolve to an Anchor item type or a known
+//! (`xtask/data/dump/recipes.json`). Every item must resolve to an Anchor item type or a known
 //! item name, or generation fails.
 
 use std::collections::BTreeMap;
@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-use crate::dump::{PMMP_DIR, PMMP_RECIPES};
+use crate::dump::{DUMP_DIR, PMMP_RECIPES};
 
 use super::body::str_lit;
 use super::data::{Data, Tag, bedrock_state, read_json, static_compound};
@@ -114,7 +114,7 @@ struct SmithingTrimJson {
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
-    let recipes: Recipes = read_json(root, PMMP_DIR, PMMP_RECIPES)?;
+    let recipes: Recipes = read_json(root, DUMP_DIR, PMMP_RECIPES)?;
     let mut out = String::new();
     put!(
         out,

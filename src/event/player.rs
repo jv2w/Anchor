@@ -368,7 +368,7 @@ getters!(PlayerDeath {
     /// vanish or stay on death, or empty for a creative player. Ignored when the player keeps the
     /// inventory or earlier death drops still wait for room (then it starts empty too).
     drops: &[Stack],
-    /// The experience the player drops.
+    /// The XP the player drops.
     xp_drop_amount: u32,
     /// The message every player sees in chat. With `show-death-messages` it starts as the
     /// death's translation key, which, left so, the client translates with the dead player's and
@@ -383,7 +383,7 @@ getters!(PlayerDeath {
     /// Whether the player keeps the inventory.
     #[doc(alias = "PlayerDeathEvent::getKeepInventory")]
     keep_inventory: bool,
-    /// Whether the player keeps the experience.
+    /// Whether the player keeps the XP.
     #[doc(alias = "PlayerDeathEvent::getKeepXp")]
     keep_xp: bool,
 });
@@ -394,7 +394,7 @@ setters!(PlayerDeath {
     /// event showed and these leave out is gone; every other stack it carries drops or stays as
     /// without a listener.
     set_drops => drops: Vec<Stack>,
-    /// Replaces the experience the player drops.
+    /// Replaces the XP the player drops.
     set_xp_drop_amount => xp_drop_amount: u32,
     /// Replaces the chat message; one longer than 65,536 bytes shows nothing.
     #[doc(alias = "PlayerDeathEvent::setDeathMessage")]
@@ -406,7 +406,7 @@ setters!(PlayerDeath {
     /// Sets whether the player keeps the inventory.
     #[doc(alias = "PlayerDeathEvent::setKeepInventory")]
     set_keep_inventory => keep_inventory: bool,
-    /// Sets whether the player keeps the experience.
+    /// Sets whether the player keeps the XP.
     #[doc(alias = "PlayerDeathEvent::setKeepXp")]
     set_keep_xp => keep_xp: bool,
 });
@@ -846,12 +846,12 @@ pub enum ExhaustCause {
     SprintJumping,
 }
 
-/// Raised when a player picks up experience orbs, before the points are added to the level and
+/// Raised when a player picks up XP orbs, before the points are added to the level and
 /// progress. Cancelling keeps both. Levels the game takes (enchanting, anvils, death) and the
 /// points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
 #[doc(alias = "PlayerExperienceChangeEvent")]
 #[derive(Debug)]
-pub struct PlayerExperienceChange {
+pub struct PlayerXpChange {
     pub(crate) player: player::Id,
     pub(crate) old_level: u32,
     pub(crate) old_progress: f64,
@@ -860,7 +860,7 @@ pub struct PlayerExperienceChange {
     pub(crate) cancelled: bool,
 }
 
-getters!(PlayerExperienceChange {
+getters!(PlayerXpChange {
     /// The player.
     player: player::Id,
     /// The level before.
@@ -877,7 +877,7 @@ getters!(PlayerExperienceChange {
     new_progress: Option<f64>,
 });
 
-impl PlayerExperienceChange {
+impl PlayerXpChange {
     /// Sets the level after, limited to the highest level (24,791); `None` keeps the level.
     #[doc(alias = "PlayerExperienceChangeEvent::setNewLevel")]
     pub fn set_new_level(&mut self, level: Option<u32>) {
@@ -897,7 +897,7 @@ impl PlayerExperienceChange {
 }
 
 cancellable! {
-    PlayerExperienceChange
+    PlayerXpChange
         #[doc(alias = "PlayerExperienceChangeEvent::cancel")]
         #[doc(alias = "PlayerExperienceChangeEvent::uncancel")]
         #[doc(alias = "PlayerExperienceChangeEvent::isCancelled")];
@@ -1137,7 +1137,7 @@ impl EnchantOption {
 }
 
 getters!(EnchantOption {
-    /// The experience level the option needs (it costs 1 to 3 levels, by its place).
+    /// The XP level the option needs (it costs 1 to 3 levels, by its place).
     #[doc(alias = "EnchantingOption::getRequiredXpLevel")]
     required_level: u8,
     /// The name shown in the enchanting alphabet.
@@ -1476,7 +1476,7 @@ pub(crate) struct Kick {
 
 /// Who a player is, from the verified login.
 #[derive(Debug, Clone, PartialEq, Eq)]
-// pmmp-class: PlayerInfo
+// api-class: PlayerInfo
 pub struct PlayerInfo(pub(crate) Identity);
 
 impl PlayerInfo {
@@ -1966,8 +1966,8 @@ mod tests {
         }
     }
 
-    // pmmp: PlayerInfo::getUsername, XboxLivePlayerInfo::getXuid, PlayerInfo::getUuid,
-    // pmmp: PlayerInfo
+    // api: PlayerInfo::getUsername, XboxLivePlayerInfo::getXuid, PlayerInfo::getUuid,
+    // api: PlayerInfo
     #[test]
     fn player_info_reads_the_identity() {
         let mut id = identity("Steve");
@@ -1979,9 +1979,9 @@ mod tests {
         );
     }
 
-    // pmmp: PlayerBedEnterEvent, PlayerBedLeaveEvent, PlayerBedEnterEvent::getBed,
-    // pmmp: PlayerBedEnterEvent::cancel, PlayerBedEnterEvent::uncancel,
-    // pmmp: PlayerBedEnterEvent::isCancelled, PlayerBedLeaveEvent::getBed
+    // api: PlayerBedEnterEvent, PlayerBedLeaveEvent, PlayerBedEnterEvent::getBed,
+    // api: PlayerBedEnterEvent::cancel, PlayerBedEnterEvent::uncancel,
+    // api: PlayerBedEnterEvent::isCancelled, PlayerBedLeaveEvent::getBed
     #[test]
     fn bed_events_name_the_bed() {
         let mut enter = PlayerBedEnter {
@@ -2009,9 +2009,9 @@ mod tests {
         );
     }
 
-    // pmmp: PlayerBlockPickEvent, PlayerBlockPickEvent::getBlock,
-    // pmmp: PlayerBlockPickEvent::getResultItem, PlayerBlockPickEvent::cancel,
-    // pmmp: PlayerBlockPickEvent::uncancel, PlayerBlockPickEvent::isCancelled
+    // api: PlayerBlockPickEvent, PlayerBlockPickEvent::getBlock,
+    // api: PlayerBlockPickEvent::getResultItem, PlayerBlockPickEvent::cancel,
+    // api: PlayerBlockPickEvent::uncancel, PlayerBlockPickEvent::isCancelled
     #[test]
     fn block_pick_names_the_item() {
         let mut e = PlayerBlockPick {
@@ -2033,11 +2033,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerBucketEmptyEvent, PlayerBucketFillEvent, PlayerBucketEvent,
-    // pmmp: PlayerBucketEvent::getBlockClicked, PlayerBucketEvent::getBlockFace,
-    // pmmp: PlayerBucketEvent::getBucket, PlayerBucketEvent::getItem,
-    // pmmp: PlayerBucketEvent::setItem, PlayerBucketEvent::cancel,
-    // pmmp: PlayerBucketEvent::uncancel, PlayerBucketEvent::isCancelled
+    // api: PlayerBucketEmptyEvent, PlayerBucketFillEvent, PlayerBucketEvent,
+    // api: PlayerBucketEvent::getBlockClicked, PlayerBucketEvent::getBlockFace,
+    // api: PlayerBucketEvent::getBucket, PlayerBucketEvent::getItem,
+    // api: PlayerBucketEvent::setItem, PlayerBucketEvent::cancel,
+    // api: PlayerBucketEvent::uncancel, PlayerBucketEvent::isCancelled
     #[test]
     fn bucket_events_item_can_change() {
         let mut empty = PlayerBucketEmpty {
@@ -2092,10 +2092,10 @@ mod tests {
         assert!(!fill.is_cancelled());
     }
 
-    // pmmp: PlayerChangeSkinEvent, PlayerChangeSkinEvent::getOldSkin,
-    // pmmp: PlayerChangeSkinEvent::getNewSkin, PlayerChangeSkinEvent::setNewSkin,
-    // pmmp: PlayerChangeSkinEvent::cancel, PlayerChangeSkinEvent::uncancel,
-    // pmmp: PlayerChangeSkinEvent::isCancelled
+    // api: PlayerChangeSkinEvent, PlayerChangeSkinEvent::getOldSkin,
+    // api: PlayerChangeSkinEvent::getNewSkin, PlayerChangeSkinEvent::setNewSkin,
+    // api: PlayerChangeSkinEvent::cancel, PlayerChangeSkinEvent::uncancel,
+    // api: PlayerChangeSkinEvent::isCancelled
     #[test]
     fn change_skin_new_skin_can_change() {
         let mut e = PlayerChangeSkin {
@@ -2119,11 +2119,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerChatEvent, PlayerChatEvent::getMessage, PlayerChatEvent::setMessage,
-    // pmmp: PlayerChatEvent::setPlayer, PlayerChatEvent::getRecipients,
-    // pmmp: PlayerChatEvent::setRecipients, PlayerChatEvent::getFormatter,
-    // pmmp: PlayerChatEvent::setFormatter, PlayerChatEvent::cancel,
-    // pmmp: PlayerChatEvent::uncancel, PlayerChatEvent::isCancelled
+    // api: PlayerChatEvent, PlayerChatEvent::getMessage, PlayerChatEvent::setMessage,
+    // api: PlayerChatEvent::setPlayer, PlayerChatEvent::getRecipients,
+    // api: PlayerChatEvent::setRecipients, PlayerChatEvent::getFormatter,
+    // api: PlayerChatEvent::setFormatter, PlayerChatEvent::cancel,
+    // api: PlayerChatEvent::uncancel, PlayerChatEvent::isCancelled
     #[test]
     fn chat_message_speaker_recipients_and_format_can_change() {
         let mut e = PlayerChat {
@@ -2151,9 +2151,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerDataSaveEvent, PlayerDataSaveEvent::getPlayer,
-    // pmmp: PlayerDataSaveEvent::getPlayerName, PlayerDataSaveEvent::cancel,
-    // pmmp: PlayerDataSaveEvent::uncancel, PlayerDataSaveEvent::isCancelled
+    // api: PlayerDataSaveEvent, PlayerDataSaveEvent::getPlayer,
+    // api: PlayerDataSaveEvent::getPlayerName, PlayerDataSaveEvent::cancel,
+    // api: PlayerDataSaveEvent::uncancel, PlayerDataSaveEvent::isCancelled
     #[test]
     fn data_save_names_the_record() {
         let mut e = PlayerDataSave {
@@ -2168,11 +2168,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerDeathEvent, PlayerDeathEvent::getPlayer, PlayerDeathEvent::getEntity,
-    // pmmp: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage,
-    // pmmp: PlayerDeathEvent::getDeathScreenMessage, PlayerDeathEvent::setDeathScreenMessage,
-    // pmmp: PlayerDeathEvent::getKeepInventory, PlayerDeathEvent::setKeepInventory,
-    // pmmp: PlayerDeathEvent::getKeepXp, PlayerDeathEvent::setKeepXp
+    // api: PlayerDeathEvent, PlayerDeathEvent::getPlayer, PlayerDeathEvent::getEntity,
+    // api: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage,
+    // api: PlayerDeathEvent::getDeathScreenMessage, PlayerDeathEvent::setDeathScreenMessage,
+    // api: PlayerDeathEvent::getKeepInventory, PlayerDeathEvent::setKeepInventory,
+    // api: PlayerDeathEvent::getKeepXp, PlayerDeathEvent::setKeepXp
     #[test]
     fn death_drops_messages_and_keeping_can_change() {
         let mut e = PlayerDeath {
@@ -2205,8 +2205,8 @@ mod tests {
         assert!(e.keep_inventory() && e.keep_xp());
     }
 
-    // pmmp: PlayerDropItemEvent, PlayerDropItemEvent::getItem, PlayerDropItemEvent::cancel,
-    // pmmp: PlayerDropItemEvent::uncancel, PlayerDropItemEvent::isCancelled
+    // api: PlayerDropItemEvent, PlayerDropItemEvent::getItem, PlayerDropItemEvent::cancel,
+    // api: PlayerDropItemEvent::uncancel, PlayerDropItemEvent::isCancelled
     #[test]
     fn drop_item_names_the_item() {
         let mut e = PlayerDropItem {
@@ -2221,16 +2221,16 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerDuplicateLoginEvent, PlayerDuplicateLoginEvent::getConnectingSession,
-    // pmmp: PlayerDuplicateLoginEvent::getExistingSession,
-    // pmmp: PlayerDuplicateLoginEvent::getDisconnectReason,
-    // pmmp: PlayerDuplicateLoginEvent::setDisconnectReason,
-    // pmmp: PlayerDuplicateLoginEvent::getDisconnectScreenMessage,
-    // pmmp: PlayerDuplicateLoginEvent::setDisconnectScreenMessage,
-    // pmmp: PlayerDuplicateLoginEvent::cancel, PlayerDuplicateLoginEvent::uncancel,
-    // pmmp: PlayerDuplicateLoginEvent::isCancelled, CancellableTrait::cancel,
-    // pmmp: CancellableTrait::uncancel, CancellableTrait::isCancelled,
-    // pmmp: Cancellable::isCancelled
+    // api: PlayerDuplicateLoginEvent, PlayerDuplicateLoginEvent::getConnectingSession,
+    // api: PlayerDuplicateLoginEvent::getExistingSession,
+    // api: PlayerDuplicateLoginEvent::getDisconnectReason,
+    // api: PlayerDuplicateLoginEvent::setDisconnectReason,
+    // api: PlayerDuplicateLoginEvent::getDisconnectScreenMessage,
+    // api: PlayerDuplicateLoginEvent::setDisconnectScreenMessage,
+    // api: PlayerDuplicateLoginEvent::cancel, PlayerDuplicateLoginEvent::uncancel,
+    // api: PlayerDuplicateLoginEvent::isCancelled, CancellableTrait::cancel,
+    // api: CancellableTrait::uncancel, CancellableTrait::isCancelled,
+    // api: Cancellable::isCancelled
     #[test]
     fn the_outcome_uses_the_screen_message_before_the_reason() {
         let event = PlayerDuplicateLogin::new(identity("a"), identity("A"));
@@ -2258,8 +2258,8 @@ mod tests {
         assert_eq!(outcome.message, "screen");
     }
 
-    // pmmp: PlayerEmoteEvent, PlayerEmoteEvent::getEmoteId, PlayerEmoteEvent::setEmoteId,
-    // pmmp: PlayerEmoteEvent::cancel, PlayerEmoteEvent::uncancel, PlayerEmoteEvent::isCancelled
+    // api: PlayerEmoteEvent, PlayerEmoteEvent::getEmoteId, PlayerEmoteEvent::setEmoteId,
+    // api: PlayerEmoteEvent::cancel, PlayerEmoteEvent::uncancel, PlayerEmoteEvent::isCancelled
     #[test]
     fn emote_can_change() {
         let mut e = PlayerEmote {
@@ -2276,15 +2276,15 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EnchantingOption, PlayerEnchantingOptionsRequestEvent,
-    // pmmp: EnchantingOption::getRequiredXpLevel, EnchantingOption::getDisplayName,
-    // pmmp: EnchantingOption::getEnchantments,
-    // pmmp: PlayerEnchantingOptionsRequestEvent::getInventory,
-    // pmmp: PlayerEnchantingOptionsRequestEvent::getOptions,
-    // pmmp: PlayerEnchantingOptionsRequestEvent::setOptions,
-    // pmmp: PlayerEnchantingOptionsRequestEvent::cancel,
-    // pmmp: PlayerEnchantingOptionsRequestEvent::uncancel,
-    // pmmp: PlayerEnchantingOptionsRequestEvent::isCancelled
+    // api: EnchantingOption, PlayerEnchantingOptionsRequestEvent,
+    // api: EnchantingOption::getRequiredXpLevel, EnchantingOption::getDisplayName,
+    // api: EnchantingOption::getEnchantments,
+    // api: PlayerEnchantingOptionsRequestEvent::getInventory,
+    // api: PlayerEnchantingOptionsRequestEvent::getOptions,
+    // api: PlayerEnchantingOptionsRequestEvent::setOptions,
+    // api: PlayerEnchantingOptionsRequestEvent::cancel,
+    // api: PlayerEnchantingOptionsRequestEvent::uncancel,
+    // api: PlayerEnchantingOptionsRequestEvent::isCancelled
     #[test]
     fn enchanting_options_are_at_most_three() {
         let option = EnchantOption::new(5, "abc".to_owned(), vec![(Enchantment::Efficiency, 2)]);
@@ -2313,9 +2313,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerEntityInteractEvent, PlayerEntityInteractEvent::getEntity,
-    // pmmp: PlayerEntityInteractEvent::getClickPosition, PlayerEntityInteractEvent::cancel,
-    // pmmp: PlayerEntityInteractEvent::uncancel, PlayerEntityInteractEvent::isCancelled
+    // api: PlayerEntityInteractEvent, PlayerEntityInteractEvent::getEntity,
+    // api: PlayerEntityInteractEvent::getClickPosition, PlayerEntityInteractEvent::cancel,
+    // api: PlayerEntityInteractEvent::uncancel, PlayerEntityInteractEvent::isCancelled
     #[test]
     fn entity_interact_names_the_entity() {
         let mut e = PlayerEntityInteract {
@@ -2334,14 +2334,14 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerExhaustEvent, PlayerExhaustEvent::getPlayer, PlayerExhaustEvent::getAmount,
-    // pmmp: PlayerExhaustEvent::setAmount, PlayerExhaustEvent::getCause,
-    // pmmp: PlayerExhaustEvent::CAUSE_ATTACK, PlayerExhaustEvent::CAUSE_DAMAGE,
-    // pmmp: PlayerExhaustEvent::CAUSE_MINING, PlayerExhaustEvent::CAUSE_HEALTH_REGEN,
-    // pmmp: PlayerExhaustEvent::CAUSE_POTION, PlayerExhaustEvent::CAUSE_WALKING,
-    // pmmp: PlayerExhaustEvent::CAUSE_SPRINTING, PlayerExhaustEvent::CAUSE_JUMPING,
-    // pmmp: PlayerExhaustEvent::CAUSE_SPRINT_JUMPING, PlayerExhaustEvent::cancel,
-    // pmmp: PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
+    // api: PlayerExhaustEvent, PlayerExhaustEvent::getPlayer, PlayerExhaustEvent::getAmount,
+    // api: PlayerExhaustEvent::setAmount, PlayerExhaustEvent::getCause,
+    // api: PlayerExhaustEvent::CAUSE_ATTACK, PlayerExhaustEvent::CAUSE_DAMAGE,
+    // api: PlayerExhaustEvent::CAUSE_MINING, PlayerExhaustEvent::CAUSE_HEALTH_REGEN,
+    // api: PlayerExhaustEvent::CAUSE_POTION, PlayerExhaustEvent::CAUSE_WALKING,
+    // api: PlayerExhaustEvent::CAUSE_SPRINTING, PlayerExhaustEvent::CAUSE_JUMPING,
+    // api: PlayerExhaustEvent::CAUSE_SPRINT_JUMPING, PlayerExhaustEvent::cancel,
+    // api: PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
     #[test]
     fn exhaust_amount_can_change() {
         use ExhaustCause as C;
@@ -2376,16 +2376,16 @@ mod tests {
         }
     }
 
-    // pmmp: PlayerExperienceChangeEvent, PlayerExperienceChangeEvent::getOldLevel,
-    // pmmp: PlayerExperienceChangeEvent::getOldProgress,
-    // pmmp: PlayerExperienceChangeEvent::getNewLevel,
-    // pmmp: PlayerExperienceChangeEvent::getNewProgress,
-    // pmmp: PlayerExperienceChangeEvent::setNewLevel,
-    // pmmp: PlayerExperienceChangeEvent::setNewProgress, PlayerExperienceChangeEvent::cancel,
-    // pmmp: PlayerExperienceChangeEvent::uncancel, PlayerExperienceChangeEvent::isCancelled
+    // api: PlayerExperienceChangeEvent, PlayerExperienceChangeEvent::getOldLevel,
+    // api: PlayerExperienceChangeEvent::getOldProgress,
+    // api: PlayerExperienceChangeEvent::getNewLevel,
+    // api: PlayerExperienceChangeEvent::getNewProgress,
+    // api: PlayerExperienceChangeEvent::setNewLevel,
+    // api: PlayerExperienceChangeEvent::setNewProgress, PlayerExperienceChangeEvent::cancel,
+    // api: PlayerExperienceChangeEvent::uncancel, PlayerExperienceChangeEvent::isCancelled
     #[test]
-    fn experience_change_keeps_progress_in_range() {
-        let mut e = PlayerExperienceChange {
+    fn xp_change_keeps_progress_in_range() {
+        let mut e = PlayerXpChange {
             player: player(1),
             old_level: 3,
             old_progress: 0.5,
@@ -2417,9 +2417,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerGameModeChangeEvent, PlayerGameModeChangeEvent::getNewGamemode,
-    // pmmp: PlayerGameModeChangeEvent::cancel, PlayerGameModeChangeEvent::uncancel,
-    // pmmp: PlayerGameModeChangeEvent::isCancelled
+    // api: PlayerGameModeChangeEvent, PlayerGameModeChangeEvent::getNewGamemode,
+    // api: PlayerGameModeChangeEvent::cancel, PlayerGameModeChangeEvent::uncancel,
+    // api: PlayerGameModeChangeEvent::isCancelled
     #[test]
     fn game_mode_change_names_the_new_mode() {
         let mut e = PlayerGameModeChange {
@@ -2437,13 +2437,13 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerInteractEvent, PlayerInteractEvent::getBlock, PlayerInteractEvent::getFace,
-    // pmmp: PlayerInteractEvent::getItem, PlayerInteractEvent::getTouchVector,
-    // pmmp: PlayerInteractEvent::getAction, PlayerInteractEvent::useItem,
-    // pmmp: PlayerInteractEvent::useBlock, PlayerInteractEvent::setUseItem,
-    // pmmp: PlayerInteractEvent::setUseBlock, PlayerInteractEvent::LEFT_CLICK_BLOCK,
-    // pmmp: PlayerInteractEvent::RIGHT_CLICK_BLOCK, PlayerInteractEvent::cancel,
-    // pmmp: PlayerInteractEvent::uncancel, PlayerInteractEvent::isCancelled
+    // api: PlayerInteractEvent, PlayerInteractEvent::getBlock, PlayerInteractEvent::getFace,
+    // api: PlayerInteractEvent::getItem, PlayerInteractEvent::getTouchVector,
+    // api: PlayerInteractEvent::getAction, PlayerInteractEvent::useItem,
+    // api: PlayerInteractEvent::useBlock, PlayerInteractEvent::setUseItem,
+    // api: PlayerInteractEvent::setUseBlock, PlayerInteractEvent::LEFT_CLICK_BLOCK,
+    // api: PlayerInteractEvent::RIGHT_CLICK_BLOCK, PlayerInteractEvent::cancel,
+    // api: PlayerInteractEvent::uncancel, PlayerInteractEvent::isCancelled
     #[test]
     fn interact_can_stop_the_item_or_the_block() {
         for action in [
@@ -2483,10 +2483,10 @@ mod tests {
         }
     }
 
-    // pmmp: PlayerItemConsumeEvent, PlayerItemConsumeEvent::getItem,
-    // pmmp: PlayerItemConsumeEvent::getResidue, PlayerItemConsumeEvent::setResidue,
-    // pmmp: PlayerItemConsumeEvent::cancel, PlayerItemConsumeEvent::uncancel,
-    // pmmp: PlayerItemConsumeEvent::isCancelled
+    // api: PlayerItemConsumeEvent, PlayerItemConsumeEvent::getItem,
+    // api: PlayerItemConsumeEvent::getResidue, PlayerItemConsumeEvent::setResidue,
+    // api: PlayerItemConsumeEvent::cancel, PlayerItemConsumeEvent::uncancel,
+    // api: PlayerItemConsumeEvent::isCancelled
     #[test]
     fn item_consume_residue_can_change() {
         let mut e = PlayerItemConsume {
@@ -2505,10 +2505,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerItemEnchantEvent, PlayerItemEnchantEvent::getOption,
-    // pmmp: PlayerItemEnchantEvent::getInputItem, PlayerItemEnchantEvent::getOutputItem,
-    // pmmp: PlayerItemEnchantEvent::getCost, PlayerItemEnchantEvent::cancel,
-    // pmmp: PlayerItemEnchantEvent::uncancel, PlayerItemEnchantEvent::isCancelled
+    // api: PlayerItemEnchantEvent, PlayerItemEnchantEvent::getOption,
+    // api: PlayerItemEnchantEvent::getInputItem, PlayerItemEnchantEvent::getOutputItem,
+    // api: PlayerItemEnchantEvent::getCost, PlayerItemEnchantEvent::cancel,
+    // api: PlayerItemEnchantEvent::uncancel, PlayerItemEnchantEvent::isCancelled
     #[test]
     fn item_enchant_names_the_option_and_items() {
         let option = EnchantOption::new(1, "x".to_owned(), Vec::new());
@@ -2531,12 +2531,12 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerItemHeldEvent, PlayerItemUseEvent, PlayerItemHeldEvent::getItem,
-    // pmmp: PlayerItemHeldEvent::getSlot, PlayerItemHeldEvent::cancel,
-    // pmmp: PlayerItemHeldEvent::uncancel, PlayerItemHeldEvent::isCancelled,
-    // pmmp: PlayerItemUseEvent::getItem, PlayerItemUseEvent::getDirectionVector,
-    // pmmp: PlayerItemUseEvent::cancel, PlayerItemUseEvent::uncancel,
-    // pmmp: PlayerItemUseEvent::isCancelled
+    // api: PlayerItemHeldEvent, PlayerItemUseEvent, PlayerItemHeldEvent::getItem,
+    // api: PlayerItemHeldEvent::getSlot, PlayerItemHeldEvent::cancel,
+    // api: PlayerItemHeldEvent::uncancel, PlayerItemHeldEvent::isCancelled,
+    // api: PlayerItemUseEvent::getItem, PlayerItemUseEvent::getDirectionVector,
+    // api: PlayerItemUseEvent::cancel, PlayerItemUseEvent::uncancel,
+    // api: PlayerItemUseEvent::isCancelled
     #[test]
     fn item_held_and_use_name_the_item() {
         let mut held = PlayerItemHeld {
@@ -2569,10 +2569,10 @@ mod tests {
         assert!(!used.is_cancelled());
     }
 
-    // pmmp: PlayerJumpEvent, PlayerJoinEvent, PlayerQuitEvent, PlayerEvent::getPlayer,
-    // pmmp: PlayerJoinEvent::getJoinMessage, PlayerJoinEvent::setJoinMessage,
-    // pmmp: PlayerQuitEvent::getQuitMessage, PlayerQuitEvent::setQuitMessage,
-    // pmmp: PlayerQuitEvent::getQuitReason
+    // api: PlayerJumpEvent, PlayerJoinEvent, PlayerQuitEvent, PlayerEvent::getPlayer,
+    // api: PlayerJoinEvent::getJoinMessage, PlayerJoinEvent::setJoinMessage,
+    // api: PlayerQuitEvent::getQuitMessage, PlayerQuitEvent::setQuitMessage,
+    // api: PlayerQuitEvent::getQuitReason
     #[test]
     fn join_and_quit_messages_can_change() {
         let mut join = PlayerJoin {
@@ -2597,16 +2597,16 @@ mod tests {
         assert_eq!(PlayerJump { player: player(2) }.player(), player(2));
     }
 
-    // pmmp: PlayerKickEvent, PlayerKickEvent::getDisconnectReason,
-    // pmmp: PlayerDisconnectEventTrait::getDisconnectReason,
-    // pmmp: PlayerKickEvent::setDisconnectReason,
-    // pmmp: PlayerDisconnectEventTrait::setDisconnectReason,
-    // pmmp: PlayerKickEvent::getDisconnectScreenMessage,
-    // pmmp: PlayerDisconnectEventTrait::getDisconnectScreenMessage,
-    // pmmp: PlayerKickEvent::setDisconnectScreenMessage,
-    // pmmp: PlayerDisconnectEventTrait::setDisconnectScreenMessage,
-    // pmmp: PlayerKickEvent::getQuitMessage, PlayerKickEvent::setQuitMessage,
-    // pmmp: PlayerKickEvent::cancel, PlayerKickEvent::uncancel, PlayerKickEvent::isCancelled
+    // api: PlayerKickEvent, PlayerKickEvent::getDisconnectReason,
+    // api: PlayerDisconnectEventTrait::getDisconnectReason,
+    // api: PlayerKickEvent::setDisconnectReason,
+    // api: PlayerDisconnectEventTrait::setDisconnectReason,
+    // api: PlayerKickEvent::getDisconnectScreenMessage,
+    // api: PlayerDisconnectEventTrait::getDisconnectScreenMessage,
+    // api: PlayerKickEvent::setDisconnectScreenMessage,
+    // api: PlayerDisconnectEventTrait::setDisconnectScreenMessage,
+    // api: PlayerKickEvent::getQuitMessage, PlayerKickEvent::setQuitMessage,
+    // api: PlayerKickEvent::cancel, PlayerKickEvent::uncancel, PlayerKickEvent::isCancelled
     #[test]
     fn kick_screen_message_falls_back_to_the_reason() {
         let mut e = PlayerKick {
@@ -2635,19 +2635,19 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerLoginEvent, PlayerPreLoginEvent, PlayerPreLoginEvent::getPlayerInfo,
-    // pmmp: PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort,
-    // pmmp: PlayerPreLoginEvent::getKickFlags, PlayerPreLoginEvent::isKickFlagSet,
-    // pmmp: PlayerPreLoginEvent::setKickFlag, PlayerPreLoginEvent::clearKickFlag,
-    // pmmp: PlayerPreLoginEvent::clearAllKickFlags, PlayerPreLoginEvent::isAllowed,
-    // pmmp: PlayerPreLoginEvent::getDisconnectReason,
-    // pmmp: PlayerPreLoginEvent::getDisconnectScreenMessage,
-    // pmmp: PlayerPreLoginEvent::getFinalDisconnectReason,
-    // pmmp: PlayerPreLoginEvent::getFinalDisconnectScreenMessage,
-    // pmmp: PlayerPreLoginEvent::KICK_FLAG_PRIORITY, PlayerPreLoginEvent::KICK_FLAG_PLUGIN,
-    // pmmp: PlayerPreLoginEvent::KICK_FLAG_SERVER_FULL,
-    // pmmp: PlayerPreLoginEvent::KICK_FLAG_SERVER_WHITELISTED,
-    // pmmp: PlayerPreLoginEvent::KICK_FLAG_BANNED
+    // api: PlayerLoginEvent, PlayerPreLoginEvent, PlayerPreLoginEvent::getPlayerInfo,
+    // api: PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort,
+    // api: PlayerPreLoginEvent::getKickFlags, PlayerPreLoginEvent::isKickFlagSet,
+    // api: PlayerPreLoginEvent::setKickFlag, PlayerPreLoginEvent::clearKickFlag,
+    // api: PlayerPreLoginEvent::clearAllKickFlags, PlayerPreLoginEvent::isAllowed,
+    // api: PlayerPreLoginEvent::getDisconnectReason,
+    // api: PlayerPreLoginEvent::getDisconnectScreenMessage,
+    // api: PlayerPreLoginEvent::getFinalDisconnectReason,
+    // api: PlayerPreLoginEvent::getFinalDisconnectScreenMessage,
+    // api: PlayerPreLoginEvent::KICK_FLAG_PRIORITY, PlayerPreLoginEvent::KICK_FLAG_PLUGIN,
+    // api: PlayerPreLoginEvent::KICK_FLAG_SERVER_FULL,
+    // api: PlayerPreLoginEvent::KICK_FLAG_SERVER_WHITELISTED,
+    // api: PlayerPreLoginEvent::KICK_FLAG_BANNED
     #[test]
     fn login_refuses_with_the_first_kick_flag() {
         let address: SocketAddr = "192.0.2.1:19132".parse().expect("address");
@@ -2697,10 +2697,10 @@ mod tests {
         assert_eq!(sorted, KickFlag::ALL);
     }
 
-    // pmmp: PlayerMissSwingEvent, PlayerMoveEvent, PlayerMissSwingEvent::cancel,
-    // pmmp: PlayerMissSwingEvent::uncancel, PlayerMissSwingEvent::isCancelled,
-    // pmmp: PlayerMoveEvent::getFrom, PlayerMoveEvent::getTo, PlayerMoveEvent::setTo,
-    // pmmp: PlayerMoveEvent::cancel, PlayerMoveEvent::uncancel, PlayerMoveEvent::isCancelled
+    // api: PlayerMissSwingEvent, PlayerMoveEvent, PlayerMissSwingEvent::cancel,
+    // api: PlayerMissSwingEvent::uncancel, PlayerMissSwingEvent::isCancelled,
+    // api: PlayerMoveEvent::getFrom, PlayerMoveEvent::getTo, PlayerMoveEvent::setTo,
+    // api: PlayerMoveEvent::cancel, PlayerMoveEvent::uncancel, PlayerMoveEvent::isCancelled
     #[test]
     fn move_target_can_change() {
         let mut swing = PlayerMissSwing {
@@ -2731,10 +2731,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerPostChunkSendEvent, PlayerViewDistanceChangeEvent,
-    // pmmp: PlayerPostChunkSendEvent::getChunkX, PlayerPostChunkSendEvent::getChunkZ,
-    // pmmp: PlayerViewDistanceChangeEvent::getOldDistance,
-    // pmmp: PlayerViewDistanceChangeEvent::getNewDistance
+    // api: PlayerPostChunkSendEvent, PlayerViewDistanceChangeEvent,
+    // api: PlayerPostChunkSendEvent::getChunkX, PlayerPostChunkSendEvent::getChunkZ,
+    // api: PlayerViewDistanceChangeEvent::getOldDistance,
+    // api: PlayerViewDistanceChangeEvent::getNewDistance
     #[test]
     fn chunk_send_and_view_distance_name_their_values() {
         let sent = PlayerPostChunkSend {
@@ -2756,8 +2756,8 @@ mod tests {
         );
     }
 
-    // pmmp: PlayerRespawnEvent, PlayerRespawnEvent::getRespawnPosition,
-    // pmmp: PlayerRespawnEvent::setRespawnPosition
+    // api: PlayerRespawnEvent, PlayerRespawnEvent::getRespawnPosition,
+    // api: PlayerRespawnEvent::setRespawnPosition
     #[test]
     fn respawn_position_can_change() {
         let mut e = PlayerRespawn {
@@ -2774,18 +2774,18 @@ mod tests {
         assert_eq!(e.position(), Vec3::ZERO);
     }
 
-    // pmmp: PlayerToggleFlightEvent, PlayerToggleGlideEvent, PlayerToggleSneakEvent,
-    // pmmp: PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleFlightEvent::isFlying,
-    // pmmp: PlayerToggleFlightEvent::cancel, PlayerToggleFlightEvent::uncancel,
-    // pmmp: PlayerToggleFlightEvent::isCancelled, PlayerToggleGlideEvent::isGliding,
-    // pmmp: PlayerToggleGlideEvent::cancel, PlayerToggleGlideEvent::uncancel,
-    // pmmp: PlayerToggleGlideEvent::isCancelled, PlayerToggleSneakEvent::isSneaking,
-    // pmmp: PlayerToggleSneakEvent::isSneakPressed, PlayerToggleSneakEvent::cancel,
-    // pmmp: PlayerToggleSneakEvent::uncancel, PlayerToggleSneakEvent::isCancelled,
-    // pmmp: PlayerToggleSprintEvent::isSprinting, PlayerToggleSprintEvent::cancel,
-    // pmmp: PlayerToggleSprintEvent::uncancel, PlayerToggleSprintEvent::isCancelled,
-    // pmmp: PlayerToggleSwimEvent::isSwimming, PlayerToggleSwimEvent::cancel,
-    // pmmp: PlayerToggleSwimEvent::uncancel, PlayerToggleSwimEvent::isCancelled
+    // api: PlayerToggleFlightEvent, PlayerToggleGlideEvent, PlayerToggleSneakEvent,
+    // api: PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleFlightEvent::isFlying,
+    // api: PlayerToggleFlightEvent::cancel, PlayerToggleFlightEvent::uncancel,
+    // api: PlayerToggleFlightEvent::isCancelled, PlayerToggleGlideEvent::isGliding,
+    // api: PlayerToggleGlideEvent::cancel, PlayerToggleGlideEvent::uncancel,
+    // api: PlayerToggleGlideEvent::isCancelled, PlayerToggleSneakEvent::isSneaking,
+    // api: PlayerToggleSneakEvent::isSneakPressed, PlayerToggleSneakEvent::cancel,
+    // api: PlayerToggleSneakEvent::uncancel, PlayerToggleSneakEvent::isCancelled,
+    // api: PlayerToggleSprintEvent::isSprinting, PlayerToggleSprintEvent::cancel,
+    // api: PlayerToggleSprintEvent::uncancel, PlayerToggleSprintEvent::isCancelled,
+    // api: PlayerToggleSwimEvent::isSwimming, PlayerToggleSwimEvent::cancel,
+    // api: PlayerToggleSwimEvent::uncancel, PlayerToggleSwimEvent::isCancelled
     #[test]
     fn toggles_name_the_new_state() {
         let mut flight = PlayerToggleFlight {
@@ -2848,11 +2848,11 @@ mod tests {
         assert!(!swim.is_cancelled());
     }
 
-    // pmmp: PlayerTransferEvent, PlayerTransferEvent::getAddress,
-    // pmmp: PlayerTransferEvent::setAddress, PlayerTransferEvent::getPort,
-    // pmmp: PlayerTransferEvent::setPort, PlayerTransferEvent::getMessage,
-    // pmmp: PlayerTransferEvent::setMessage, PlayerTransferEvent::cancel,
-    // pmmp: PlayerTransferEvent::uncancel, PlayerTransferEvent::isCancelled
+    // api: PlayerTransferEvent, PlayerTransferEvent::getAddress,
+    // api: PlayerTransferEvent::setAddress, PlayerTransferEvent::getPort,
+    // api: PlayerTransferEvent::setPort, PlayerTransferEvent::getMessage,
+    // api: PlayerTransferEvent::setMessage, PlayerTransferEvent::cancel,
+    // api: PlayerTransferEvent::uncancel, PlayerTransferEvent::isCancelled
     #[test]
     fn transfer_target_can_change() {
         let mut e = PlayerTransfer {
@@ -2879,10 +2879,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock,
-    // pmmp: PlayerRespawnAnchorUseEvent::getAction, PlayerRespawnAnchorUseEvent::setAction,
-    // pmmp: PlayerRespawnAnchorUseEvent::cancel, PlayerRespawnAnchorUseEvent::uncancel,
-    // pmmp: PlayerRespawnAnchorUseEvent::isCancelled
+    // api: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock,
+    // api: PlayerRespawnAnchorUseEvent::getAction, PlayerRespawnAnchorUseEvent::setAction,
+    // api: PlayerRespawnAnchorUseEvent::cancel, PlayerRespawnAnchorUseEvent::uncancel,
+    // api: PlayerRespawnAnchorUseEvent::isCancelled
     #[test]
     fn respawn_anchor_use_names_the_anchor_and_its_action() {
         let mut e = PlayerRespawnAnchorUse {
@@ -2906,11 +2906,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction,
-    // pmmp: PlayerEditBookEvent::getOldBook, PlayerEditBookEvent::getNewBook,
-    // pmmp: PlayerEditBookEvent::setNewBook, PlayerEditBookEvent::getModifiedPages,
-    // pmmp: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel,
-    // pmmp: PlayerEditBookEvent::isCancelled
+    // api: PlayerEditBookEvent, PlayerEditBookEvent::getAction,
+    // api: PlayerEditBookEvent::getOldBook, PlayerEditBookEvent::getNewBook,
+    // api: PlayerEditBookEvent::setNewBook, PlayerEditBookEvent::getModifiedPages,
+    // api: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel,
+    // api: PlayerEditBookEvent::isCancelled
     #[test]
     fn edit_book_takes_only_books() {
         let book = |kind: crate::item::Kind| Stack::new(kind.default_type(), 1);
@@ -2942,9 +2942,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity,
-    // pmmp: PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel,
-    // pmmp: PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
+    // api: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity,
+    // api: PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel,
+    // api: PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
     #[test]
     fn entity_pick_names_the_entity_and_its_item() {
         let mut e = PlayerEntityPick {

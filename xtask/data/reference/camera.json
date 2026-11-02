@@ -1,5 +1,5 @@
 {
-  "source": "BDS 1.26.52.3 (protocol 2193): the CameraPresets and CameraAimAssistPresets of its spawn window, the same in every `cargo xtask p6 bds` capture (target/p6/bds-*/spawn.jsonl, 2026-10-04), as the P6 bot records the fields (gophertunnel names), null fields left out.",
+  "source": "BDS 1.26.52.3 (protocol 2193): the CameraPresets and CameraAimAssistPresets of its spawn window, the same in every `cargo xtask p6 official` capture (target/p6/official-*/spawn.jsonl, 2026-10-04), as the P6 bot records the fields (gophertunnel names), null fields left out.",
   "CameraPresets": {
     "Presets": [
       {

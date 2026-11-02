@@ -1935,7 +1935,7 @@ mod tests {
         w
     }
 
-    // pmmp: World::getBlockLightAt
+    // api: World::getBlockLightAt
     #[test]
     fn block_light_follows_pmmp_rules() {
         let torch = find("minecraft:torch");
@@ -1994,7 +1994,7 @@ mod tests {
         assert_matches_reference(&w);
     }
 
-    // pmmp: World::getPotentialBlockSkyLightAt
+    // api: World::getPotentialBlockSkyLightAt
     #[test]
     fn sky_light_follows_pmmp_rules() {
         let leaves = find("minecraft:oak_leaves");
@@ -2157,7 +2157,7 @@ mod tests {
         assert_eq!(w.loaded_chunks().count(), 0);
     }
 
-    // pmmp: World::getRealBlockSkyLightAt, World::getFullLightAt
+    // api: World::getRealBlockSkyLightAt, World::getFullLightAt
     #[test]
     fn lighting_off_sees_an_open_sky_everywhere() {
         let torch = find("minecraft:torch");

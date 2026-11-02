@@ -2,7 +2,7 @@
 
 /*
  * PMMP data dump. Run by `cargo xtask dump` with the PMMP PHP binary, from the
- * pinned PocketMine-MP checkout (`.cache/pmmp`) as the working directory:
+ * pinned PocketMine-MP checkout (`.cache/dump`) as the working directory:
  *
  *     php dump.php <output directory> <reference blocks.json>
  *

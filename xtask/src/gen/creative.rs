@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value as Json;
 
-use crate::dump::{PMMP_CREATIVE, PMMP_DIR};
+use crate::dump::{DUMP_DIR, PMMP_CREATIVE};
 
 use super::body::str_lit;
 use super::data::{Data, Tag, read_json, static_compound};
@@ -19,7 +19,7 @@ type Stack = (usize, u16, Option<BTreeMap<String, Tag>>);
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, String> {
-    let entries: Vec<Json> = read_json(root, PMMP_DIR, PMMP_CREATIVE)?;
+    let entries: Vec<Json> = read_json(root, DUMP_DIR, PMMP_CREATIVE)?;
 
     // PMMP `CreativeInventoryCache::buildCacheEntry`: a group gets an index the first time it is
     // seen in a category. A PMMP group object is one group of a creative data file, whose entries

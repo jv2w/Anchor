@@ -108,7 +108,7 @@ fn real(w: &World, pos: BlockPos) -> u32 {
     w.state.worlds[0].block(pos).unwrap().network_id()
 }
 
-// pmmp: World::createBlockUpdatePackets
+// api: World::createBlockUpdatePackets
 #[test]
 fn a_fake_block_reaches_its_player_only_and_clearing_shows_the_real_block() {
     let mut w = World::new(GameMode::Survival);
@@ -239,7 +239,7 @@ fn sword() -> Stack {
     Stack::new(item(it::Kind::DiamondSword), 1)
 }
 
-// pmmp: Player::setCurrentWindow
+// api: Player::setCurrentWindow
 #[test]
 fn a_menu_opens_on_fake_blocks_with_its_title_then_its_window() {
     let mut w = World::new(GameMode::Survival);
@@ -861,7 +861,7 @@ fn a_refused_change_puts_every_slot_back() {
     assert_eq!(cx(&mut w).menu_items(id(s)).unwrap(), items);
 }
 
-// pmmp: PlayerDropItemEvent
+// api: PlayerDropItemEvent
 #[test]
 fn a_drop_from_an_editable_slot_is_a_change_thrown_once_kept() {
     let mut w = World::new(GameMode::Survival);

@@ -237,9 +237,9 @@ mod tests {
     const WORLD: world::Id = world::Id::DEFAULT;
     const CHUNK: ChunkPos = ChunkPos::new(-3, 4);
 
-    // pmmp: ChunkPopulateEvent, ChunkLoadEvent, ChunkUnloadEvent, ChunkEvent::getChunkX,
-    // pmmp: ChunkEvent::getChunkZ, ChunkLoadEvent::isNewChunk, ChunkUnloadEvent::cancel,
-    // pmmp: ChunkUnloadEvent::uncancel, ChunkUnloadEvent::isCancelled
+    // api: ChunkPopulateEvent, ChunkLoadEvent, ChunkUnloadEvent, ChunkEvent::getChunkX,
+    // api: ChunkEvent::getChunkZ, ChunkLoadEvent::isNewChunk, ChunkUnloadEvent::cancel,
+    // api: ChunkUnloadEvent::uncancel, ChunkUnloadEvent::isCancelled
     #[test]
     fn chunk_events_name_the_chunk() {
         let load = ChunkLoad {
@@ -261,16 +261,16 @@ mod tests {
         assert!(!unload.is_cancelled());
     }
 
-    // pmmp: WorldSaveEvent, WorldEvent::getWorld
+    // api: WorldSaveEvent, WorldEvent::getWorld
     #[test]
     fn a_world_save_names_its_world() {
         assert_eq!(WorldSave { world: WORLD }.world(), WORLD);
     }
 
-    // pmmp: WorldSoundEvent::setSound, WorldSoundEvent::setRecipients, WorldSoundEvent::uncancel,
-    // pmmp: WorldSoundEvent::isCancelled, WorldParticleEvent::setParticle,
-    // pmmp: WorldParticleEvent::setRecipients, WorldParticleEvent::uncancel,
-    // pmmp: WorldParticleEvent::isCancelled
+    // api: WorldSoundEvent::setSound, WorldSoundEvent::setRecipients, WorldSoundEvent::uncancel,
+    // api: WorldSoundEvent::isCancelled, WorldParticleEvent::setParticle,
+    // api: WorldParticleEvent::setRecipients, WorldParticleEvent::uncancel,
+    // api: WorldParticleEvent::isCancelled
     #[test]
     fn sound_and_particle_events_change_what_plays_and_who_hears_it() {
         let at = Vec3::new(1.0, 2.0, 3.0);

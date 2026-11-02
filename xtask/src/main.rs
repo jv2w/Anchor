@@ -269,10 +269,10 @@ fn table_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
     if report.stale {
         say(
             out,
-            "out of date: xtask/data/pmmp/table.md (run `cargo xtask table`)",
+            "out of date: xtask/data/dump/table.md (run `cargo xtask table`)",
         )?;
     }
-    say(out, &format!("pmmp table: {}", report.counts))?;
+    say(out, &format!("api table:{}", report.counts))?;
     let failed_check = mode == Mode::Check && (report.stale || report.counts.blank > 0);
     Ok(report.errors.is_empty() && !failed_check)
 }

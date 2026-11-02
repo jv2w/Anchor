@@ -155,7 +155,7 @@ fn open(_: &mut State, _: SessionId, _: Id) -> bool {
     true
 }
 
-// pmmp: Player::interactEntity
+// api: Player::interactEntity
 #[test]
 fn interacting_with_a_villager_in_reach_opens_trading() {
     let mut h = Harness::new(1);
@@ -204,7 +204,7 @@ fn e_runtime(h: &Harness, id: Id) -> u64 {
     h.state.rules.entities.get(id).unwrap().runtime_id
 }
 
-// pmmp: Player::attackEntity
+// api: Player::attackEntity
 #[test]
 fn hits_on_npcs_follow_pmmps_living_rules() {
     let mut h = Harness::new(1);
@@ -284,7 +284,7 @@ fn hits_on_npcs_follow_pmmps_living_rules() {
     assert_eq!(health(&h, id), 5.0);
 }
 
-// pmmp: EntityDamageEvent
+// api: EntityDamageEvent
 /// A player's hit on an invulnerable NPC raises [`crate::event::EntityDamage`] already cancelled.
 /// The event names the attacker (PMMP raises the event of a hit that does not land cancelled);
 /// the NPC takes nothing, whatever the listeners do. A hit by nothing, such as a fall, raises
@@ -442,7 +442,7 @@ fn a_listener_sets_an_npcs_hit_cooldown_beyond_255_ticks() {
     assert_eq!(cooldown, 300);
 }
 
-// pmmp: Zombie, Zombie::getName, Zombie::getNetworkTypeId
+// api: Zombie, Zombie::getName, Zombie::getNetworkTypeId
 #[test]
 fn a_zombie_is_an_ai_less_living_mob_that_takes_damage() {
     let mut h = Harness::new(1);
@@ -479,7 +479,7 @@ fn a_zombie_is_an_ai_less_living_mob_that_takes_damage() {
     assert_eq!(health(&h, z), 15.0);
 }
 
-/// The rotten flesh, rare items and experience on the ground.
+/// The rotten flesh, rare items and xp on the ground.
 fn loot(h: &Harness) -> (u32, u32, u32) {
     let (mut flesh, mut rare, mut xp) = (0, 0, 0);
     for e in h.live() {
@@ -496,7 +496,7 @@ fn loot(h: &Harness) -> (u32, u32, u32) {
                     other => panic!("{other:?}"),
                 }
             }
-            Kind::ExperienceOrb(o) => xp += u32::from(o.value),
+            Kind::XpOrb(o) => xp += u32::from(o.value),
             _ => {}
         }
     }
@@ -504,7 +504,7 @@ fn loot(h: &Harness) -> (u32, u32, u32) {
 }
 
 #[test]
-fn dead_zombies_drop_rotten_flesh_sometimes_a_rare_item_and_five_experience() {
+fn dead_zombies_drop_rotten_flesh_sometimes_a_rare_item_and_five_xp() {
     let mut h = Harness::new(1);
     h.spawn(1, standing(0.0, 0.0));
     let count = 400;
@@ -534,7 +534,7 @@ fn dead_zombies_drop_rotten_flesh_sometimes_a_rare_item_and_five_experience() {
     assert_eq!(loot(&h).2, 5 * count, "once");
 }
 
-// pmmp: EntityDeathEvent::getDrops, EntityDeathEvent::setDrops, EntityDeathEvent::getXpDropAmount
+// api: EntityDeathEvent::getDrops, EntityDeathEvent::setDrops, EntityDeathEvent::getXpDropAmount
 #[test]
 fn a_death_listener_sees_and_changes_a_zombies_drops() {
     let mut l = crate::event::Listeners::default();
@@ -560,9 +560,9 @@ fn a_death_listener_sees_and_changes_a_zombies_drops() {
     assert_eq!(loot(&h), (0, 0, 0));
 }
 
-/// `experience = false`: a zombie's death names no experience and drops none.
+/// `xp = false`: a zombie's death names no xp and drops none.
 #[test]
-fn without_experience_a_zombie_death_names_and_drops_no_experience() {
+fn without_xp_a_zombie_death_names_and_drops_no_xp() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let mut l = crate::event::Listeners::default();
     l.push(
@@ -572,7 +572,7 @@ fn without_experience_a_zombie_death_names_and_drops_no_experience() {
         },
     );
     let mut h = Harness::with_listeners(1, l);
-    h.state.settings.experience = false;
+    h.state.settings.xp = false;
     h.spawn(1, standing(0.0, 0.0));
     let z = zombie(&mut h, at(2.5, -60.0, 0.5));
     crate::tick::Context {
@@ -592,7 +592,7 @@ fn shown_baby(h: &Harness, id: Id) -> bool {
     flags & (1 << crate::protocol::consts::EntityDataFlag::Baby as u32) != 0
 }
 
-// pmmp: entity\Ageable, entity\Ageable::isBaby, Villager::isBaby
+// api: entity\Ageable, entity\Ageable::isBaby, Villager::isBaby
 #[test]
 fn villagers_and_zombies_can_be_babies_and_viewers_see_it() {
     let mut h = Harness::new(1);
@@ -758,7 +758,7 @@ fn npcs_are_shown_as_their_actor_and_humans_through_the_player_list() {
     });
     let actor = actor.unwrap();
     assert_eq!(actor.entity_type, "minecraft:villager_v2");
-    // BDS `villager_v2` (P6 `trade`): the variant, tier 0 of 4, no experience, skin 0.
+    // BDS `villager_v2` (P6 `trade`): the variant, tier 0 of 4, no xp, skin 0.
     for (key, value) in [
         (K::Variant, 4),
         (K::TradeTier, 0),
@@ -988,7 +988,7 @@ fn a_berry_bush_and_magma_hurt_a_vulnerable_npc_inside_them() {
     assert!(health(&h, burnt) < 20.0, "fire damage");
 }
 
-// pmmp: Entity::isInsideOfSolid
+// api: Entity::isInsideOfSolid
 /// A zombie twice its size suffocates in a block at its scaled eye height.
 #[test]
 fn a_scaled_zombie_suffocates_at_its_scaled_eyes() {
@@ -1006,7 +1006,7 @@ fn a_scaled_zombie_suffocates_at_its_scaled_eyes() {
     assert_eq!(health(&h, z), 19.0);
 }
 
-// pmmp: Entity::getEyeHeight
+// api: Entity::getEyeHeight
 /// The scale multiplies the whole eye height, the 0.1 above half the height included.
 #[test]
 fn a_scaled_zombie_has_its_whole_eye_height_scaled() {

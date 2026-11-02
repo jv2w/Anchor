@@ -4,9 +4,9 @@
 // World::actuallyDoTick, scheduleDelayedBlockUpdate and internalNotifyNeighbourBlockUpdate. The
 // ground is the flat world: bedrock at y -64, dirt -63 and -62, grass -61. The Anchor test
 // `tick::update::tests::liquid_scenes_match_pmmp` runs the same scenes. From the pinned checkout
-// (.cache/pmmp) as the working directory, with the PMMP PHP binary:
+// (.cache/dump) as the working directory, with the PMMP PHP binary:
 //
-//     php <anchor>/xtask/php/liquid.php > <anchor>/xtask/data/pmmp/liquid.txt
+//     php <anchor>/xtask/php/liquid.php > <anchor>/xtask/data/dump/liquid.txt
 declare(strict_types=1);
 require 'vendor/autoload.php';
 

@@ -248,9 +248,9 @@ mod tests {
         state.hash()
     }
 
-    // pmmp: Server::getTicksPerSecond, Server::getTicksPerSecondAverage, Server::getTickUsage
-    // pmmp: Server::getTickUsageAverage, World::getTickRateTime, Network::getConnectionCount
-    // pmmp: Network::getValidConnectionCount
+    // api: Server::getTicksPerSecond, Server::getTicksPerSecondAverage, Server::getTickUsage
+    // api: Server::getTickUsageAverage, World::getTickRateTime, Network::getConnectionCount
+    // api: Network::getValidConnectionCount
     /// The tick times and connection counts come in as logged inputs: the API reads them by
     /// PMMP's formulas, and a replay of the written log reads the same at every tick.
     #[test]
@@ -322,8 +322,8 @@ mod tests {
         assert!(pool.shutdown());
     }
 
-    // pmmp: Server::getMotd, Network::getName, Network::setName, Network::updateName
-    // pmmp: Network::blockAddress, Network::unblockAddress
+    // api: Server::getMotd, Network::getName, Network::setName, Network::updateName
+    // api: Network::blockAddress, Network::unblockAddress
     /// The network controls change the motd the tick reads at once and reach the networking in
     /// order after the tick; a name the `motd` setting refuses, and controls past the tick's
     /// bound, change nothing.

@@ -66,7 +66,7 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
-// pmmp: FormatConverter::execute
+// api: FormatConverter::execute
 #[test]
 #[expect(
     clippy::disallowed_types,

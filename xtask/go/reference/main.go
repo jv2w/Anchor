@@ -1,7 +1,7 @@
 // Command reference converts the reference lists into the committed JSON files that
 // `cargo xtask gen` and the tests read:
 //
-//	go run ./reference -dragonfly DIR -cloudburst DIR -out DIR
+//	go run ./reference -dragonfly DIR -refdata DIR -out DIR
 //
 // DIR are checkouts of df-mc/dragonfly and CloudburstMC/Data at the pinned commits (`cargo xtask dump`
 // checks the commits). It writes:
@@ -41,17 +41,17 @@ import (
 
 func main() {
 	dragonfly := flag.String("dragonfly", "", "df-mc/dragonfly checkout")
-	cloudburst := flag.String("cloudburst", "", "CloudburstMC/Data checkout")
+	refdata := flag.String("refdata", "", "CloudburstMC/Data checkout")
 	out := flag.String("out", "", "output directory")
 	flag.Parse()
-	if *dragonfly == "" || *cloudburst == "" || *out == "" {
-		fail(errors.New("usage: reference -dragonfly DIR -cloudburst DIR -out DIR"))
+	if *dragonfly == "" || *refdata == "" || *out == "" {
+		fail(errors.New("usage: reference -dragonfly DIR -refdata DIR -out DIR"))
 	}
-	blocks, err := blockList(*dragonfly, *cloudburst)
+	blocks, err := blockList(*dragonfly, *refdata)
 	if err != nil {
 		fail(err)
 	}
-	items, err := itemList(*dragonfly, *cloudburst)
+	items, err := itemList(*dragonfly, *refdata)
 	if err != nil {
 		fail(err)
 	}
@@ -61,14 +61,14 @@ func main() {
 	if err := writeLines(filepath.Join(*out, "items.json"), items); err != nil {
 		fail(err)
 	}
-	itemBlocks, err := itemBlockList(*dragonfly, *cloudburst, blocks)
+	itemBlocks, err := itemBlockList(*dragonfly, *refdata, blocks)
 	if err != nil {
 		fail(err)
 	}
 	if err := writeLines(filepath.Join(*out, "item_blocks.json"), itemBlocks); err != nil {
 		fail(err)
 	}
-	if err := writeNetworkCopies(*cloudburst, *out); err != nil {
+	if err := writeNetworkCopies(*refdata, *out); err != nil {
 		fail(err)
 	}
 	fmt.Printf("reference: %d block states, %d items, %d item block states\n", len(blocks), len(items), len(itemBlocks))
@@ -89,7 +89,7 @@ type block struct {
 
 // blockList reads both block lists, checks they hold the same states and returns them sorted by name and
 // then by the JSON form of their states.
-func blockList(dragonfly, cloudburst string) ([]block, error) {
+func blockList(dragonfly, refdata string) ([]block, error) {
 	raw, err := os.ReadFile(filepath.Join(dragonfly, "server", "world", "block_states.nbt"))
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func blockList(dragonfly, cloudburst string) ([]block, error) {
 		order = append(order, k)
 	}
 
-	gz, err := os.ReadFile(filepath.Join(cloudburst, "block_palette.nbt"))
+	gz, err := os.ReadFile(filepath.Join(refdata, "block_palette.nbt"))
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ type item struct {
 
 // itemList reads dragonfly's item list, checks it against CloudburstMC's and returns it sorted by runtime
 // ID.
-func itemList(dragonfly, cloudburst string) ([]item, error) {
+func itemList(dragonfly, refdata string) ([]item, error) {
 	raw, err := os.ReadFile(filepath.Join(dragonfly, "server", "world", "vanilla_items.nbt"))
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func itemList(dragonfly, cloudburst string) ([]item, error) {
 		}
 	}
 
-	js, err := os.ReadFile(filepath.Join(cloudburst, "runtime_item_states.json"))
+	js, err := os.ReadFile(filepath.Join(refdata, "runtime_item_states.json"))
 	if err != nil {
 		return nil, err
 	}

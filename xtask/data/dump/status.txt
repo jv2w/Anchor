@@ -1,0 +1,1422 @@
+# Status of API table rows, read by `cargo xtask table`.
+#
+# One rule per line: `<pattern> <status> <target or reason>`. The pattern and the status each end
+# at the first whitespace; the rest of the line is the target or reason. `#` lines and blank
+# lines are comments.
+#
+# Pattern: a row FQN (`player\Player::getName`, a class row `player\Player`)
+# where `*` matches any text without `\` or `:` and `**` matches any text, so
+# `plugin\**` is a namespace with every class and method in it and
+# `block\**::get*` every getter below `block`.
+#
+# Status:
+#   differs <reason>   Anchor has the row's alias but behaves differently, for this reason.
+#   merged <alias>     Anchor does the row's work in the item carrying <alias> (an alias in src/);
+#                      the row takes that item's location and tests.
+#   skipped <reason>   Anchor does not have it, for this reason.
+#   open <note>        Anchor does not have it yet and has not decided against it: the row stays
+#                      blank with this note (what is missing), and rules below do not decide it.
+#
+# A row whose alias is on an item in src/ is implemented whatever its first matching rule says;
+# only the first `differs` rule matching it applies. Any other row takes the status of the first
+# rule matching it. A rule that decides no row is an error, so put narrow rules above broad ones.
+#
+# Rows no rule decides, and `open` rows, stay blank: they are the API Anchor still lacks or has
+# not decided on. A missing feature is never written as skipped without a reason grounded in the
+# project scope (CLAUDE.md, .claude/docs/).
+
+# ===== Out of scope for good =====
+
+# Library API, not a plugin host.
+plugin\** skipped no plugins: Anchor is a library used from the user's binary
+event\plugin\** skipped no plugins: Anchor is a library used from the user's binary
+Server::enablePlugins skipped no plugins: Anchor is a library used from the user's binary
+Server::getPlugin* skipped no plugins: Anchor is a library used from the user's binary
+Server::getApiVersion skipped no plugins: Anchor is a library used from the user's binary
+Server::getLoader skipped PHP class loader
+event\RegisteredListener::getPlugin skipped no plugins: Anchor is a library used from the user's binary
+scheduler\TaskHandler::getOwnerName skipped no plugins: Anchor is a library used from the user's binary
+permission\PermissionAttachment::getPlugin skipped no plugins: Anchor is a library used from the user's binary
+
+# PHP runtime and operations tooling.
+GarbageCollectorManager** skipped PHP garbage collector control
+MemoryDump** skipped PHP memory dump tooling
+MemoryManager** skipped PHP memory management
+thread\** skipped PHP threads: Anchor's runtime and CPU pool are internal
+timings\** skipped PHP timings profiler
+updater\** skipped PMMP update checker
+stats\** skipped PMMP usage statistics reporting
+wizard\** skipped PMMP setup wizard: Anchor writes a default anchor.toml
+crash\** skipped PMMP crash dumps: Anchor keeps the input log instead
+network\query\** skipped GameSpy query protocol: Anchor opens no other protocol
+network\upnp\** skipped UPnP port forwarding: Anchor opens no other protocol
+event\server\LowMemoryEvent** skipped PHP memory management
+event\server\NetworkInterface* skipped PMMP network interfaces: Anchor's transports are internal
+event\server\NetworkInterface*::* skipped PMMP network interfaces: Anchor's transports are internal
+event\server\QueryRegenerateEvent** skipped GameSpy query protocol: Anchor opens no other protocol
+event\server\UpdateNotifyEvent** skipped PMMP update checker
+scheduler\DumpWorkerMemoryTask** skipped PHP memory dump tooling
+scheduler\GarbageCollectionTask** skipped PHP garbage collector control
+scheduler\Timings*Task** skipped PHP timings profiler
+scheduler\AsyncWorker** skipped PHP worker threads: Anchor's blocking pool is internal
+scheduler\BulkCurl** skipped PHP curl helper: Anchor has no HTTP client API; `spawn_blocking` runs the user's own
+Server::getMemoryManager skipped PHP memory management
+Server::getUpdater skipped PMMP update checker
+Server::sendUsage skipped PMMP usage statistics reporting
+Server::getServerUniqueId skipped PMMP usage statistics reporting
+Server::getQueryInformation skipped GameSpy query protocol: Anchor opens no other protocol
+Server::crashDump skipped PMMP crash dumps: Anchor keeps the input log instead
+Server::exceptionHandler skipped PMMP crash dumps: Anchor keeps the input log instead
+Server::getTickSleeper skipped PHP thread wake-ups: Anchor's tick loop is internal
+utils\Process** skipped PHP process tooling
+utils\ServerKiller** skipped PHP watchdog thread
+utils\SignalHandler** skipped PHP signal handling: the user's binary owns signals (Anchor is a library)
+utils\MainLogger** skipped PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace
+utils\BroadcastLoggerForwarder** skipped PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace
+utils\Terminal** skipped PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber
+utils\Timezone** skipped PHP time zone setup: game logic has no wall clock
+utils\Git** skipped PMMP build metadata
+utils\Internet** skipped PHP HTTP helpers: Anchor has no HTTP client API; `spawn_blocking` runs the user's own
+utils\Filesystem** skipped PHP file helpers: Rust std covers them; Anchor's files are anchor.toml and data/
+utils\AssumptionFailedError skipped PHP assertion error: Anchor uses `expect` only for invariants
+utils\NotCloneable** skipped PHP magic method guard: Rust types are not Clone unless they derive it
+utils\NotSerializable** skipped PHP magic method guard: Rust types are not serialisable unless they derive it
+utils\DestructorCallbackTrait** skipped PHP destructor hooks: Rust has Drop and Anchor states each resource's release
+utils\ObjectSet** skipped PHP collection helper: Rust std collections
+utils\ReversePriorityQueue** skipped PHP collection helper: Rust std collections
+utils\VersionString** skipped PMMP version parsing
+VersionInfo** skipped PMMP build metadata: `Server::getVersion` and `getPocketMineVersion` give Anchor's versions
+console\ConsoleReader** skipped PHP stdin subprocess: Anchor reads stdin on its console thread
+utils\Utils** skipped PHP runtime helpers: Rust std, the type system and Anchor's input checks cover them
+utils\ServerException skipped PHP exception: Anchor returns `Result` with module `Error` enums
+utils\ConfigLoadException** skipped PHP exception: Anchor returns `Result` with module `Error` enums
+utils\Config** skipped PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config`
+ServerConfigGroup** skipped PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start
+Server::getConfigGroup skipped PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start
+Server::getDataPath skipped a library has no install paths: the server folder is anchor.toml and data/
+Server::getFilePath skipped a library has no install paths: the server folder is anchor.toml and data/
+Server::getResourcePath skipped a library has no install paths: the server folder is anchor.toml and data/
+Server::getLogger skipped Anchor logs with `tracing`
+world\World::getLogger skipped Anchor logs with `tracing`
+network\mcpe\NetworkSession::getLogger skipped Anchor logs with `tracing`
+
+# World formats: Anchor stores worlds in redb; importing Bedrock worlds is a separate tool.
+world\format\io\** skipped Bedrock LevelDB and region formats: Anchor stores worlds in redb
+world\WorldManager::getProviderManager skipped Bedrock LevelDB and region formats: Anchor stores worlds in redb
+world\World::getProvider skipped Bedrock LevelDB and region formats: Anchor stores worlds in redb
+player\DatFilePlayerDataProvider** skipped PMMP player .dat files: Anchor keeps players in redb
+player\PlayerDataProvider** skipped PMMP player .dat files: Anchor keeps players in redb
+
+# Vanilla terrain generation. Generator, GeneratorManager, Flat and the tree
+# objects saplings grow stay.
+world\generator\Gaussian** skipped vanilla terrain generation
+world\generator\normal\** skipped vanilla terrain generation
+world\generator\hell\** skipped vanilla terrain generation and other dimensions
+world\generator\noise\** skipped vanilla terrain generation
+world\generator\biome\** skipped vanilla terrain generation
+world\generator\populator\** skipped vanilla terrain generation
+world\generator\executor\** skipped PHP generator threads: Anchor generates on its CPU pool
+world\generator\object\Ore** skipped vanilla terrain generation
+world\generator\object\TallGrass** skipped vanilla terrain generation
+world\generator\Generator::populateChunk skipped vanilla terrain generation: Anchor's generators fill a chunk in one step
+world\generator\Flat::populateChunk skipped vanilla terrain generation: Anchor's generators fill a chunk in one step
+world\biome\** skipped vanilla biome generation: Anchor stores biome IDs (`World::getBiomeId`)
+
+# Redstone signals. Blocks keep their own states (a lever's `open_bit`); what the
+# signal does is out.
+block\utils\AnalogRedstoneSignalEmitter** skipped redstone
+block\utils\PoweredByRedstone** skipped redstone
+block\utils\RailPoweredByRedstoneTrait** skipped redstone
+event\block\PressurePlateUpdateEvent** skipped redstone
+block\tile\Comparator** skipped redstone
+block\tile\DaylightSensor** skipped redstone
+block\*::isPowered skipped redstone
+block\*::setPowered skipped redstone
+block\*::getOutputSignalStrength skipped redstone
+block\*::setOutputSignalStrength skipped redstone
+block\CopperBulb::togglePowered skipped redstone
+block\Lectern::isProducingSignal skipped redstone
+block\Lectern::setProducingSignal skipped redstone
+world\sound\PressurePlate*Sound** skipped redstone
+
+# Mob AI: Anchor's entities are items, orbs, falling blocks, TNT, projectiles,
+# clouds, AI-less NPCs and PMMP's zombie, which has no AI either. PMMP's squid
+# swims about on its own.
+entity\Squid** skipped mob AI: PMMP's squid swims on its own
+entity\WaterAnimal** skipped mob AI: PMMP's water animals are its swimming squid
+entity\animation\SquidInkCloudAnimation** skipped mob AI: PMMP's squid swims on its own
+
+# Fishing.
+item\FishingRod** skipped fishing
+
+# Forms, commands, events.
+form\FormValidationException merged Form::handleResponse
+player\Player::onFormSubmit merged Form::handleResponse
+command\defaults\DumpMemoryCommand** skipped PHP memory dump tooling
+command\defaults\GarbageCollectorCommand** skipped PHP garbage collector control
+command\defaults\PluginsCommand** skipped no plugins: Anchor is a library used from the user's binary
+command\defaults\TimingsCommand** skipped PHP timings profiler
+command\defaults\** merged SimpleCommandMap::register
+
+# ===== Shared PHP and PMMP plumbing (every namespace) =====
+
+# Singletons: Anchor has no global state; registries are fixed at `build()`.
+**::getInstance skipped global singleton: Anchor has no global state; registries are fixed at `build()`
+**::setInstance skipped global singleton: Anchor has no global state; registries are fixed at `build()`
+utils\SingletonTrait** skipped global singleton: Anchor has no global state; registries are fixed at `build()`
+utils\RegistryTrait** skipped PHP registry plumbing: Anchor's registries are generated enums and tables
+utils\CloningRegistryTrait** skipped PHP registry plumbing: Anchor's registries are generated enums and tables
+utils\RegistrySource** skipped PHP registry plumbing: Anchor's registries are generated enums and tables
+utils\EnumTrait** skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+utils\LegacyEnumShimTrait** skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+utils\TextFormat** skipped PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest
+utils\Random** skipped PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate
+utils\StringToTParser** skipped PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`)
+
+# ===== Events: flat structs built by the rule code =====
+
+event\block\BlockItemPickupEvent** skipped PMMP never raises it
+event\block\BlockBreakEvent::setInstaBreak skipped a break before its time is refused before the event (PMMP never reads the value back either)
+event\player\PlayerDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events
+event\world\WorldDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events
+event\player\PlayerCreationEvent** skipped PHP player class choice: the player is Anchor's `Player`
+event\world\WorldDifficultyChangeEvent** skipped only direct API calls change the difficulty, and direct calls raise no events
+event\world\SpawnChangeEvent** skipped only direct API calls move the spawn, and direct calls raise no events
+event\server\DataPacketDecodeEvent::* merged DataPacketDecodeEvent
+event\server\DataPacketReceiveEvent::* merged DataPacketReceiveEvent
+event\server\DataPacketSendEvent::* merged DataPacketSendEvent
+event\**::__construct skipped events are built by the rule code (fields `pub(crate)`); listeners get them
+event\Event::call skipped only the rule code raises events; direct API calls raise none
+event\Event::hasHandlers skipped only the rule code raises events, and builds one only when a listener hears it
+event\Event::getEventName skipped an event is its Rust type
+event\EventPriority::fromString skipped priorities are a Rust enum chosen in code
+event\HandlerList::register merged PluginManager::registerEvent
+event\HandlerList::registerAll merged PluginManager::registerEvent
+event\HandlerList** skipped listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()`
+event\RegisteredListener** skipped listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()`
+event\Listener merged PluginManager::registerEvent
+event\ListenerMethodTags skipped PHP docblock tags: a listener's priority is an argument of `ServerBuilder::on`
+event\Cancellable merged Cancellable::isCancelled
+event\CancellableTrait merged CancellableTrait::cancel
+event\block\BlockEvent merged BlockEvent::getBlock
+event\entity\EntityEvent merged EntityEvent::getEntity
+event\inventory\InventoryEvent merged InventoryEvent::getInventory
+event\player\PlayerEvent merged PlayerEvent::getPlayer
+event\world\WorldEvent merged WorldEvent::getWorld
+event\world\ChunkEvent merged ChunkEvent::getChunkX
+event\player\PlayerDisconnectEventTrait merged PlayerDisconnectEventTrait::getDisconnectReason
+event\server\ServerEvent merged Event
+event\**::isCancelled merged Cancellable::isCancelled
+
+# ===== Network: the protocol is internal =====
+# Sessions, handlers, codecs, compression, encryption and caches are internal; the extension
+# points are the packet hooks and `Player::send_packet`, the protocol types are `anchor::protocol`.
+
+network\mcpe\NetworkSession::disconnect merged Player::disconnect
+network\mcpe\NetworkSession::disconnectWithError merged Player::disconnect
+network\mcpe\NetworkSession::transfer merged Player::transfer
+network\mcpe\NetworkSession::isConnected merged Player::isConnected
+network\mcpe\NetworkSession::getDisplayName merged Player::getDisplayName
+network\mcpe\NetworkSession::onChatMessage merged Player::sendMessage
+network\mcpe\NetworkSession::onTitle merged Player::sendTitle
+network\mcpe\NetworkSession::onSubTitle merged Player::sendSubTitle
+network\mcpe\NetworkSession::onActionBar merged Player::sendActionBarMessage
+network\mcpe\NetworkSession::onPopup merged Player::sendPopup
+network\mcpe\NetworkSession::onTip merged Player::sendTip
+network\mcpe\NetworkSession::onJukeboxPopup merged Player::sendJukeboxPopup
+network\mcpe\NetworkSession::onToastNotification merged Player::sendToastNotification
+network\mcpe\NetworkSession::onClearTitle merged Player::removeTitles
+network\mcpe\NetworkSession::onResetTitleOptions merged Player::resetTitles
+network\mcpe\NetworkSession::onTitleDuration merged Player::setTitleDuration
+network\mcpe\NetworkSession::onCloseAllForms merged Player::closeAllForms
+network\mcpe\NetworkSession::onFormSent merged Player::sendForm
+network\mcpe\NetworkSession::getPlayer skipped the session is the player: `Context::player`
+network\mcpe\NetworkSession::getPlayerInfo merged PlayerInfo::getUsername
+network\mcpe\NetworkSession::sendDataPacketWithReceipt skipped transport acknowledgements are internal to RakNet and NetherNet
+network\mcpe\NetworkSession::getPing differs the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured
+network\Network::blockAddress differs the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; PMMP: a timeout of 0 or less); a new block replaces the old end (PMMP keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; at most 4,096 addresses at once
+network\Network::getConnectionCount differs the networking reports the count to the tick every second when it changed, as a logged input
+network\Network::getValidConnectionCount differs the networking reports the count to the tick every second when it changed, as a logged input
+network\Network skipped the network object: its server name, blocks and connection counts are `Context` methods (`set_motd`, `block_address`, `connection_count`); interfaces, bandwidth and raw packets are internal
+network\mcpe\** skipped protocol internals: the extension points are packet hooks and `Player::send_packet`
+network\** skipped protocol internals: the extension points are packet hooks and `Player::send_packet`
+
+# ===== Data: block, item and save formats are generated or internal =====
+
+data\bedrock\block\BlockStateData merged Block
+data\bedrock\block\BlockStateData::getName merged Block
+data\bedrock\block\BlockStateData::getState merged Block
+data\bedrock\block\BlockStateData::getStates merged Block
+data\bedrock\block\BlockStateData::current merged BlockStateDictionary::lookupStateIdFromData
+data\bedrock\block\BlockStateData::equals merged Block
+data\bedrock\EffectIdMap merged EffectIdMap::fromId
+data\bedrock\EnchantmentIdMap merged EnchantmentIdMap::fromId
+data\bedrock\PotionTypeIdMap merged PotionTypeIdMap::fromId
+data\bedrock\BannerPatternTypeIdMap merged BannerPatternTypeIdMap::fromId
+data\bedrock\EffectIdMap::register skipped no custom effects (the client cannot show them)
+data\bedrock\EnchantmentIdMap::register skipped no custom enchantments (the client cannot show them)
+data\bedrock\*IdMap::register skipped save ID maps are generated and fixed
+data\bedrock\**::reset skipped global singleton: Anchor has no global state; registries are fixed at `build()`
+data\bedrock\EffectIds merged EffectIdMap::fromId
+data\bedrock\EnchantmentIds merged EnchantmentIdMap::fromId
+data\bedrock\PotionTypeIds merged PotionTypeIdMap::fromId
+data\bedrock\item\ItemDeserializer merged ItemDeserializer::deserializeType
+data\SavedDataLoadingException skipped PHP exception: a corrupt record keeps its original and reports through `Result`
+data\runtime\** skipped PMMP's runtime state bit packing: Anchor's block states are a generated table
+data\bedrock\block\upgrade\** skipped save upgrades are generated from PMMP's schemas at build time
+data\bedrock\item\upgrade\** skipped save upgrades are generated from PMMP's schemas at build time
+data\bedrock\block\** skipped Bedrock block (de)serialisation is generated from the PMMP dump
+data\bedrock\item\** skipped Bedrock item (de)serialisation is generated from the PMMP dump
+data\bedrock\Legacy** skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs
+data\bedrock\** skipped save ID tables are generated from the PMMP dump
+data\java\** skipped Java Edition IDs: Anchor is Bedrock only
+
+# ===== Blocks: `block::Kind` is a kind, `block::State` a Bedrock block state =====
+# A PMMP block object is a kind plus a state: per-class property getters and setters are the
+# state's properties (`State::name`, `value`, `with`, `find`); behaviour hooks are tick rules
+# that listeners change through events and custom blocks through
+# behaviour traits.
+
+block\VanillaBlocks::* merged VanillaBlocks
+
+# Block entity storage objects: their NBT, spawn data and lifetime are internal.
+block\tile\**::readSaveData skipped block entity NBT is internal to the chunk store
+block\tile\**::addAdditionalSpawnData skipped block entity NBT is internal to the chunk store
+block\tile\**::addNameSpawnData skipped block entity NBT is internal to the chunk store
+block\tile\**::copyDataFromItem skipped block entity NBT is internal to the chunk store
+block\tile\**::getCleanedNBT skipped block entity NBT is internal to the chunk store
+block\tile\**::saveNBT skipped block entity NBT is internal to the chunk store
+block\tile\**::getRenderUpdateBugWorkaroundStateProperties skipped block entity NBT is internal to the chunk store
+block\tile\**::createFakeUpdatePacket skipped protocol internals
+block\tile\Spawnable** skipped block entity NBT is internal to the chunk store
+block\tile\TileFactory** skipped block entity kinds are generated
+block\tile\**::__construct skipped block entities are made by the block rules with their block
+block\tile\**::__destruct skipped block entities are made by the block rules with their block
+block\tile\**::close skipped block entities are made by the block rules with their block
+block\tile\Tile::isClosed skipped block entities are made by the block rules with their block
+block\tile\Tile::onBlockDestroyed skipped block entities are made by the block rules with their block
+block\tile\**::onUpdate skipped block rule code
+block\tile\*Furnace::getFurnaceType merged Block
+block\tile\Smoker::getFurnaceType merged Block
+block\tile\**::getInventory merged InventoryHolder::getInventory
+block\tile\**::getRealInventory merged Container::getRealInventory
+
+# Block inventories: `Context::block_inventory` reads a container block's slots by position.
+block\inventory\AnvilInventory merged Player::getCurrentWindow
+block\inventory\CartographyTableInventory merged Player::getCurrentWindow
+block\inventory\CraftingTableInventory merged Player::getCurrentWindow
+block\inventory\EnchantInventory merged Player::getCurrentWindow
+block\inventory\LoomInventory merged Player::getCurrentWindow
+block\inventory\SmithingTableInventory merged Player::getCurrentWindow
+block\inventory\StonecutterInventory merged Player::getCurrentWindow
+block\inventory\EnderChestInventory merged Human::getEnderInventory
+block\inventory\*Inventory merged Container::getRealInventory
+block\inventory\**::__construct skipped block inventories are made with their block by the rules
+block\inventory\**::getHolder skipped a block inventory is found by its position (`Context::block_inventory`)
+block\inventory\**::onOpen skipped block rule code: lid animation and viewers
+block\inventory\**::onClose skipped block rule code: lid animation and viewers
+block\inventory\**::animatedBlockInventoryTrait_onClose skipped block rule code: lid animation and viewers
+block\inventory\**::getViewerCount merged Inventory::getViewers
+block\inventory\**::getViewers merged Inventory::getViewers
+block\inventory\ChestInventory::animateBlock skipped block rule code: lid animation and viewers
+block\inventory\AnimatedBlockInventoryTrait skipped block rule code: lid animation and viewers
+block\inventory\BlockInventoryTrait skipped a block inventory is found by its position (`Context::block_inventory`)
+block\inventory\DoubleChestInventory::getLeftSide skipped a double chest is one inventory at either half's position, left half first (`Context::block_inventory`)
+block\inventory\DoubleChestInventory::getRightSide skipped a double chest is one inventory at either half's position, left half first (`Context::block_inventory`)
+block\inventory\EnderChestInventory::getEnderInventory merged Human::getEnderInventory
+block\inventory\EnchantInventory::getOption merged PlayerEnchantingOptionsRequestEvent::getOptions
+block\inventory\EnchantInventory::getOutput merged PlayerItemEnchantEvent::getOutputItem
+block\inventory\FurnaceInventory::getFurnaceType merged Block
+block\inventory\FurnaceInventory::* merged Container::getRealInventory
+
+# Block type registration: kinds, break info and type tags are generated.
+block\BlockBreakInfo::* skipped break info is generated from the PMMP dump; custom blocks give theirs in the definition
+block\BlockIdentifier::getTileClass skipped block entity kinds are generated
+block\BlockIdentifier::getBlockTypeId merged Block::getTypeId
+block\BlockIdentifier** skipped kinds are generated from the PMMP dump
+block\BlockTypeIds** skipped kinds are generated from the PMMP dump
+block\BlockTypeInfo::getBreakInfo merged Block::getBreakInfo
+block\BlockTypeInfo::getTypeTags merged Block::hasTypeTag
+block\BlockTypeInfo::hasTypeTag merged Block::hasTypeTag
+block\BlockTypeInfo** skipped kinds are generated from the PMMP dump
+block\Block::getIdInfo merged Block::getTypeId
+block\Block::hasSameTypeId merged Block::getTypeId
+block\Block::getTypeTags merged Block::hasTypeTag
+block\Block::isSameState merged Block
+block\Block::generateStatePermutations merged BlockStateDictionary::getStates
+block\**::getFuelTime merged Item::getFuelTime
+block\**::getMaxStackSize merged Item::getMaxStackSize
+block\Block::isFireProofAsItem merged Item::isFireProof
+block\**::collidesWithBB merged Block::getCollisionBoxes
+block\**::isFullCube merged Block::getCollisionBoxes
+block\Fence::getThickness merged Block::getCollisionBoxes
+block\**::describeBlockItemState skipped PMMP's runtime state bit packing: Anchor's block states are a generated table
+block\**::describeBlockOnlyState skipped PMMP's runtime state bit packing: Anchor's block states are a generated table
+block\**::__construct skipped kinds are generated from the PMMP dump; users do not make block objects
+block\Block::getPosition skipped a `block::State` is a value without a position: the caller has the `BlockPos`
+block\Block::getName skipped English block names are client-side translations (Anchor sends translation keys); `Kind::name` is the registry name
+item\Item::getName skipped English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name
+item\Item::getVanillaName skipped English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name
+
+# Data-driven values: overrides of implemented `Block` methods.
+block\**::asItem merged Block::asItem
+block\**::blocksDirectSkyLight merged Block::blocksDirectSkyLight
+block\**::burnsForever merged Block::burnsForever
+block\**::canBeFlowedInto merged Block::canBeFlowedInto
+block\**::canBeReplaced merged Block::canBeReplaced
+block\**::canClimb merged Block::canClimb
+block\**::getFlameEncouragement merged Block::getFlameEncouragement
+block\**::getFlammability merged Block::getFlammability
+block\**::getFrictionFactor merged Block::getFrictionFactor
+block\**::getLightFilter merged Block::getLightFilter
+block\**::getLightLevel merged Block::getLightLevel
+block\Candle::getBaseLightLevel merged Block::getLightLevel
+block\**::getModelPositionOffset merged Block::getModelPositionOffset
+block\**::getSupportType merged Block::getSupportType
+block\**::hasEntityCollision merged Block::hasEntityCollision
+block\**::isAffectedBySilkTouch merged Block::isAffectedBySilkTouch
+block\**::isSolid merged Block::isSolid
+block\**::isTransparent merged Block::isTransparent
+block\**::ticksRandomly merged Block::ticksRandomly
+block\BaseCake::getFoodRestore skipped cake is eaten by the block rule
+block\BaseCake::getSaturationRestore skipped cake is eaten by the block rule
+block\BaseCake::requiresHunger skipped cake is eaten by the block rule
+block\BaseCake::getAdditionalEffects skipped cake is eaten by the block rule
+block\*Cake*::getResidue skipped cake is eaten by the block rule
+block\*Cake*::onConsume skipped cake is eaten by the block rule
+
+# Behaviour hooks: tick rules, not public API.
+block\**::onNearbyBlockChange skipped block rule code: listeners see BlockUpdate
+block\**::onInteract skipped block rule code: listeners see PlayerInteract
+block\**::onInteractCandle skipped block rule code: listeners see PlayerInteract
+block\**::onInteractCopper skipped block rule code: listeners see PlayerInteract
+block\**::onAttack skipped block rule code: listeners see PlayerInteract
+block\**::onBreak skipped block rule code: listeners see BlockBreak
+block\**::getDrops skipped block rule code: listeners see and change the drops in BlockBreak
+block\**::getDropsForCompatibleTool skipped block rule code: listeners see and change the drops in BlockBreak
+block\**::getDropsForIncompatibleTool skipped block rule code: listeners see and change the drops in BlockBreak
+block\**::traitGetDropsForIncompatibleTool skipped block rule code: listeners see and change the drops in BlockBreak
+block\**::getSilkTouchDrops skipped block rule code: listeners see and change the drops in BlockBreak
+block\**::getXpDropForTool skipped block rule code: listeners see and change the experience in BlockBreak
+block\**::getXpDropAmount skipped block rule code: listeners see and change the experience in BlockBreak
+block\SweetBerryBush::getBerryDropAmount skipped block rule code
+block\**::place skipped block rule code: listeners see BlockPlace
+block\**::onPostPlace skipped block rule code: listeners see BlockPlace
+block\**::canBePlaced skipped block rule code: listeners see BlockPlace
+block\**::canBePlacedAt skipped block rule code: listeners see BlockPlace
+block\**::supportedWhenPlacedAt skipped block rule code
+block\**::canBeSupportedBy skipped block rule code
+block\**::onSupportBlockChange skipped block rule code
+block\**::isValidHalfPlant skipped block rule code
+block\**::getAffectedBlocks skipped block rule code
+block\**::onRandomTick skipped block rule code: listeners see BlockGrow, BlockSpread and the other update events
+block\**::onScheduledUpdate skipped block rule code: listeners see BlockUpdate
+block\**::onEntityInside skipped block rule code
+block\**::onEntityLand skipped block rule code
+block\**::onProjectileHit skipped block rule code: listeners see ProjectileHitBlock
+block\**::onIncinerate skipped block rule code: listeners see BlockBurn
+block\**::addVelocityToEntity skipped block rule code: liquid currents
+block\**::readStateFromWorld skipped Anchor computes neighbour-dependent properties in the rules and stores the result
+block\**::writeStateToWorld skipped Anchor computes neighbour-dependent properties in the rules and stores the result
+block\**::getPickedItem skipped block rule code: listeners see PlayerBlockPick
+block\Block::calculateIntercept skipped block rule code: ray tests of the interaction and projectile rules
+block\Bed::getOtherHalf skipped block rule code
+block\Bell::ring skipped block rule code
+block\DragonEgg::teleport skipped block rule code: listeners see BlockTeleport
+block\Jukebox::ejectRecord skipped block rule code
+block\Jukebox::insertRecord skipped block rule code
+block\Jukebox::startSound skipped block rule code
+block\Jukebox::stopSound skipped block rule code
+block\Lectern::onPageTurn skipped block rule code
+block\FlowerPot::canAddPlant skipped block rule code
+block\**::getEmptySound skipped block rule code
+block\**::getFillSound skipped block rule code
+block\**::getBucketEmptySound skipped block rule code
+block\**::getBucketFillSound skipped block rule code
+block\Liquid::getFlowVector skipped liquid rule code
+block\*::getFlowDecayPerBlock skipped liquid rule code
+block\*::getMinAdjacentSourcesToFormSource skipped liquid rule code
+block\Liquid::getFluidHeightPercent skipped liquid rule code
+block\*::tickRate skipped liquid rule code
+block\Liquid::getStillForm merged Block
+block\Campfire::getInventory merged InventoryHolder::getInventory
+block\Note::*etPitch skipped Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came
+block\Liquid::getFlowingForm merged Block
+block\utils\Fallable** skipped falling block rule code
+block\**::getFallDamagePerBlock skipped falling block rule code
+block\**::getLandSound skipped falling block rule code
+block\**::getMaxFallDamage skipped falling block rule code
+block\**::onHitGround skipped falling block rule code
+block\**::tickFalling skipped falling block rule code
+block\utils\BlockEventHelper** skipped block rule code: the rules raise the grow, spread, form, melt and death events
+block\utils\CropGrowthHelper** skipped farming rule code
+block\utils\FortuneDropHelper** skipped drop rule code
+block\utils\MinimumCostFlowCalculator** skipped liquid rule code
+block\utils\RailConnectionInfo skipped rail shape rule code
+block\utils\StaticSupportTrait** skipped block rule code
+block\utils\AmethystTrait** skipped block rule code
+
+# Property getters and setters: values of the state (`State::name`, `value`, `with`, `find`).
+# Block-entity data (sign text, banner patterns, frame and pot contents, records, books, skull
+# rotation, note pitch, cauldron potion and colour, campfire cooking times) is not a state
+# value: those accessors are `open` rules above.
+block\*::getStage merged Block
+block\*::setStage merged Block
+block\Anvil::getDamage merged Block
+block\Anvil::setDamage merged Block
+block\*::getLeafSize merged Block
+block\*::setLeafSize merged Block
+block\*::isReady merged Block
+block\*::setReady merged Block
+block\*::isThick merged Block
+block\*::setThick merged Block
+block\*::isOpen merged Block
+block\*::setOpen merged Block
+block\*::isHeadPart merged Block
+block\*::setHead merged Block
+block\*::isHead merged Block
+block\*::isOccupied merged Block
+block\*::setOccupied merged Block
+block\Bedrock::setBurnsForever merged Block
+block\*::getAttachmentType merged Block
+block\*::setAttachmentType merged Block
+block\*::getLeafState merged Block
+block\*::setLeafState merged Block
+block\*::isPressed merged Block
+block\*::setPressed merged Block
+block\*::getBites merged Block
+block\*::setBites merged Block
+block\*::getCount merged Block
+block\*::setCount merged Block
+block\*::hasBerries merged Block
+block\*::setBerries merged Block
+block\*::isInverted merged Block
+block\*::setInverted merged Block
+block\*::isActivated merged Block
+block\*::setActivated merged Block
+block\*::getDirtType merged Block
+block\*::setDirtType merged Block
+block\*::isHingeRight merged Block
+block\*::setHingeRight merged Block
+block\*::isTop merged Block
+block\*::setTop merged Block
+block\*::hasEye merged Block
+block\*::setEye merged Block
+block\*::getWetness merged Block
+block\*::setWetness merged Block
+block\*::isInWall merged Block
+block\*::setInWall merged Block
+block\*::getFillLevel merged Block
+block\*::setFillLevel merged Block
+block\**::getAxis merged Block
+block\**::setAxis merged Block
+block\*::getFroglightType merged Block
+block\*::setFroglightType merged Block
+block\*::getFurnaceType merged Block
+block\*::getFacing merged Block
+block\*::setFacing merged Block
+block\utils\*Facing*::getFacing merged Block
+block\utils\*Facing*::setFacing merged Block
+block\*::isHanging merged Block
+block\*::setHanging merged Block
+block\*::getLeavesType merged Block
+block\*::isCheckDecay merged Block
+block\*::setCheckDecay merged Block
+block\*::isNoDecay merged Block
+block\*::setNoDecay merged Block
+block\Light::setLightLevel merged Block
+block\*::getDecay merged Block
+block\*::setDecay merged Block
+block\*::isFalling merged Block
+block\*::setFalling merged Block
+block\*::isStill merged Block
+block\*::setStill merged Block
+block\*::isSource merged Block
+block\*::getMobHeadType merged Block
+block\*::setMobHeadType merged Block
+block\CeilingCenterHangingSign::*etRotation merged Block
+block\FloorBanner::*etRotation merged Block
+block\FloorSign::*etRotation merged Block
+block\OminousFloorBanner::*etRotation merged Block
+block\utils\SignLikeRotation*::*etRotation merged Block
+block\utils\FacesOppositePlacingPlayerTrait::*etFacing merged Block
+block\*::getShape merged Block
+block\*::setShape merged Block
+block\*::getMushroomBlockType merged Block
+block\*::setMushroomBlockType merged Block
+block\*::isSubtractMode merged Block
+block\*::setSubtractMode merged Block
+block\*::getDelay merged Block
+block\*::setDelay merged Block
+block\*::getCharges merged Block
+block\*::setCharges merged Block
+block\*::isUnderwater merged Block
+block\*::setUnderwater merged Block
+block\*::getSlabType merged Block
+block\*::setSlabType merged Block
+block\*::getLayers merged Block
+block\*::setLayers merged Block
+block\*::isWet merged Block
+block\*::setWet merged Block
+block\*::isUpsideDown merged Block
+block\*::setUpsideDown merged Block
+block\*::isUnstable merged Block
+block\*::setUnstable merged Block
+block\TNT::worksUnderwater merged Block
+block\TNT::setWorksUnderwater merged Block
+block\*::isConnected merged Block
+block\*::setConnected merged Block
+block\*::isDisarmed merged Block
+block\*::setDisarmed merged Block
+block\*::isSuspended merged Block
+block\*::setSuspended merged Block
+block\*::isTriggered merged Block
+block\*::setTriggered merged Block
+block\**::getFaces merged Block
+block\**::hasFace merged Block
+block\**::setFace merged Block
+block\**::setFaces merged Block
+block\*::getConnection merged Block
+block\*::getConnections merged Block
+block\*::isPost merged Block
+block\*::setConnection merged Block
+block\*::setConnections merged Block
+block\*::setPost merged Block
+block\*::isStripped merged Block
+block\*::setStripped merged Block
+block\*::getSlots merged Block
+block\*::hasSlot merged Block
+block\*::setSlot merged Block
+block\*::setSlots merged Block
+block\**::getAge merged Block
+block\**::setAge merged Block
+block\**::getMaxAge merged Block
+block\*::getColor merged Block
+block\*::setColor merged Block
+block\utils\Colored*::getColor merged Block
+block\utils\Colored*::setColor merged Block
+block\**::getWoodType merged Block
+block\**::getOxidation merged Block
+block\**::setOxidation merged Block
+block\Copper*::isWaxed merged Block
+block\Copper*::setWaxed merged Block
+block\LightningRod::isWaxed merged Block
+block\LightningRod::setWaxed merged Block
+block\utils\Copper*::isWaxed merged Block
+block\utils\Copper*::setWaxed merged Block
+block\**::getCoralType merged Block
+block\**::setCoralType merged Block
+block\**::isDead merged Block
+block\**::setDead merged Block
+block\**::isLit merged Block
+block\**::setLit merged Block
+block\CakeWithCandle::getCandle merged Block
+block\ItemFrame::hasMap merged Block
+block\ItemFrame::setHasMap merged Block
+block\InfestedStone::getImitatedBlock merged Block
+
+# Value sets of state properties (colours, wood types, shapes...): the state's property values.
+block\utils\**::getDisplayName skipped English names are client-side translations (Anchor sends translation keys)
+block\utils\**::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::from skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::tryFrom skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\**::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+block\utils\RecordType::getSoundId skipped deprecated in PMMP and always 0: a disc plays as `world::Sound::Record`
+block\utils\RecordType::get*Name skipped a disc's names are client-side translations (Anchor sends translation keys)
+block\utils\WoodType::isFlammable merged Block::isFlammable
+block\utils\WoodType::get*LogSuffix skipped PMMP's block naming: Anchor's block names are the generated Bedrock names
+block\utils\DripleafState::getScheduledUpdateDelayTicks skipped block rule code
+block\utils\SaplingType::getTreeType skipped block rule code
+block\utils\* merged Block
+
+# Every other block class is a set of kinds: its blocks are `block::State`s (`State::is(Class)`).
+block\* merged Block
+
+# ===== Items: `item::Type` is a type, `item::Stack` an immutable stack =====
+
+item\VanillaItems::* merged VanillaItems
+item\**::getAdditionalEffects merged Consumable::getAdditionalEffects
+item\**::getResidue merged ConsumableItem::getResidue
+item\**::getFoodRestore merged FoodSource::getFoodRestore
+item\**::getSaturationRestore merged FoodSource::getSaturationRestore
+item\**::requiresHunger merged FoodSource::requiresHunger
+item\**::getMaxDurability merged Durable::getMaxDurability
+item\**::getAttackPoints merged Item::getAttackPoints
+item\**::getBlock merged Item::getBlock
+item\**::getBlockToolHarvestLevel merged Item::getBlockToolHarvestLevel
+item\**::getBlockToolType merged Item::getBlockToolType
+item\**::getCooldownTag merged Item::getCooldownTag
+item\**::getCooldownTicks merged Item::getCooldownTicks
+item\Armor::getDefensePoints merged Item::getDefensePoints
+item\ArmorTypeInfo::getDefensePoints merged Item::getDefensePoints
+item\**::getEnchantability merged Item::getEnchantability
+item\**::getFuelResidue merged Item::getFuelResidue
+item\**::getFuelTime merged Item::getFuelTime
+item\**::getMaxStackSize merged Item::getMaxStackSize
+item\**::getMiningEfficiency merged Item::getMiningEfficiency
+item\**::isFireProof merged Item::isFireProof
+item\**::getThrowForce merged ProjectileItem::getThrowForce
+item\ArmorTypeInfo::getArmorSlot merged Armor::getArmorSlot
+item\ItemTypeIds** skipped item types are generated from the PMMP dump
+item\ItemIdentifier** skipped item types are generated from the PMMP dump
+item\LegacyStringToItemParser** skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs
+item\**::onInteractBlock skipped item rule code: listeners see PlayerInteract
+item\**::onInteractEntity skipped item rule code: listeners see PlayerEntityInteract
+item\**::onClickAir skipped item rule code: listeners see PlayerItemUse
+item\**::onReleaseUsing skipped item rule code: listeners see EntityShootBow
+item\**::onAttackEntity skipped item rule code: listeners see EntityDamage
+item\**::onDestroyBlock skipped item rule code: listeners see BlockBreak
+item\**::onTickWorn skipped item rule code
+item\**::onConsume skipped item rule code: listeners see PlayerItemConsume
+item\**::canStartUsingItem skipped item rule code
+item\**::getPlacementTransaction skipped item rule code: listeners see BlockPlace
+item\**::describeBlockItemState skipped PMMP's runtime state bit packing: Anchor's item types are a generated table
+item\CoralFan::encodeCoralType skipped PMMP's runtime state bit packing: Anchor's item types are a generated table
+item\Item::safeNbtDeserialize merged Item::nbtDeserialize
+item\Item::jsonSerialize skipped PMMP's JSON item format (crafting data files): Anchor's recipe data is generated
+item\Item::legacyJsonDeserialize skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs
+item\Item::getStateId skipped PMMP's runtime state bit packing: Anchor's item types are a generated table
+item\*::__construct skipped item types are generated from the PMMP dump; a stack is made with `item::Stack::new`
+item\ItemUseResult** skipped item rule code
+item\*Type::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\*Type::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\*Type::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\*Type::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\*Type::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\*Type::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\ToolTier::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+item\**::getDisplayName skipped English names are client-side translations (Anchor sends translation keys)
+item\enchantment\Enchantment::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+item\enchantment\Enchantment::__serialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+item\enchantment\Enchantment::__unserialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+item\enchantment\*Enchantment::__construct skipped enchantments are a generated table; no custom enchantments (the client cannot show them)
+item\enchantment\*Enchantment::getDamageBonus skipped enchantment rule code
+item\enchantment\*Enchantment::isApplicableTo skipped enchantment rule code
+item\enchantment\*Enchantment::onPostAttack skipped enchantment rule code
+item\enchantment\ProtectionEnchantment::* skipped enchantment rule code
+item\enchantment\EnchantingHelper** skipped enchanting table rule code: listeners see PlayerEnchantingOptionsRequest and PlayerItemEnchant
+item\enchantment\VanillaEnchantments::* merged VanillaEnchantments
+item\enchantment\*Enchantment merged Enchantment
+item\enchantment\EnchantmentInstance** merged Item::getEnchantments
+item\enchantment\EnchantingOption::__construct skipped enchanting options are made by the enchanting table rule
+item\enchantment\IncompatibleEnchantmentRegistry::areCompatible merged Enchantment::isCompatibleWith
+item\enchantment\IncompatibleEnchantmentRegistry** skipped enchantment tables are generated and fixed
+item\enchantment\IncompatibleEnchantmentGroups merged Enchantment::isCompatibleWith
+item\enchantment\AvailableEnchantmentRegistry::isAvailableForItem merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+item\enchantment\AvailableEnchantmentRegistry** skipped enchantment tables are generated and fixed
+item\enchantment\ItemEnchantmentTagRegistry** skipped item tags are a generated table
+item\enchantment\StringToEnchantmentParser** skipped PMMP's string-keyed lookups: Anchor looks things up by typed names
+item\enchantment\Rarity merged Enchantment::getRarity
+item\enchantment\ItemFlags skipped legacy item flags: Anchor uses the item tags
+item\enchantment\Enchantment::getPrimaryItemFlags skipped legacy item flags: Anchor uses the item tags
+item\enchantment\Enchantment::getSecondaryItemFlags skipped legacy item flags: Anchor uses the item tags
+item\enchantment\Enchantment::hasPrimaryItemType skipped legacy item flags: Anchor uses the item tags
+item\enchantment\Enchantment::hasSecondaryItemType skipped legacy item flags: Anchor uses the item tags
+item\VanillaArmorMaterials** skipped armour materials are a generated table
+item\ArmorMaterial** skipped armour materials are a generated table
+item\Armor::getMaterial skipped armour materials are a generated table
+item\ArmorTypeInfo::getMaterial skipped armour materials are a generated table
+item\Armor::getEnchantmentProtectionFactor skipped enchantment rule code
+item\StringToItemParser** skipped PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`)
+item\ItemCooldownTags merged Item::getCooldownTag
+
+# Stack data: count, damage and the extra data (custom name, lore, enchantments, raw NBT) of an
+# immutable `item::Stack`; PMMP setters become `with_*` copies.
+item\Item::pop merged Item::setCount
+item\ItemBlock::isNull merged Item::isNull
+item\Item::equals merged Item
+item\Item::equalsExact merged Item
+item\Item::canBePlaced merged Item::getBlock
+item\Item::*CustomName merged Item::getCustomName
+item\Item::setLore merged Item::getLore
+item\Item::getEnchantmentTags merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+item\Item::*Enchantment* merged Item::getEnchantments
+item\ItemEnchantmentHandlingTrait** merged Item::getEnchantments
+item\Item::*NamedTag merged Item::getNamedTag
+item\Item::*CustomBlockData merged Item::getNamedTag
+item\Item::*CanDestroy merged Item::getNamedTag
+item\Item::*CanPlaceOn merged Item::getNamedTag
+item\Item::*KeepOnDeath merged Item::getNamedTag
+item\Item::keepOnDeath merged Item::getNamedTag
+item\Durable::applyDamage merged Durable::setDamage
+item\Durable::isBroken merged Durable::getDamage
+item\Durable::*Unbreakable merged Item::getNamedTag
+item\Armor::*CustomColor merged Item::getNamedTag
+item\Banner::*Patterns merged Item::getNamedTag
+item\FireworkRocket::* merged Item::getNamedTag
+item\FireworkStar::* merged Item::getNamedTag
+item\FireworkRocketExplosion** merged Item::getNamedTag
+item\WritableBookBase::* merged Item::getNamedTag
+item\WritableBookPage** merged Item::getNamedTag
+item\WrittenBook::* merged Item::getNamedTag
+item\FireworkRocketType::getExplosionSound skipped entity rule code: the burst sound is played by the firework rocket entity (`entity::Type::FireworkRocket`)
+
+# Variants carried by the item type (its meta): `item::Type` names each one.
+item\Banner::*etColor merged Item::getTypeId
+item\Boat::getType merged Item::getTypeId
+item\BoatType::getWoodType merged Item::getTypeId
+item\CoralFan::* merged Item::getTypeId
+item\Dye::setColor merged Item::getTypeId
+item\GoatHorn::*etHornType merged Item::getTypeId
+item\Medicine::*etType merged Item::getTypeId
+item\Potion::setType merged Item::getTypeId
+item\SplashPotion::*etType merged Item::getTypeId
+item\SplashPotion::willLinger merged Item::getTypeId
+item\SuspiciousStew::*etType merged Item::getTypeId
+item\SuspiciousStewType::getEffects merged Consumable::getAdditionalEffects
+item\MedicineType::getCuredEffect skipped item rule code
+item\Record::getRecordType merged Item::getTypeId
+item\LiquidBucket::getLiquid merged Item::getTypeId
+item\*Type merged Item::getTypeId
+
+# Every other item class is a set of item types: its items are `item::Stack`s of an `item::Type`.
+item\* merged Item
+
+# Crafting data is generated from PMMP's bedrock-data.
+crafting\json\** skipped PMMP's JSON recipe files: Anchor's recipe data is generated
+crafting\CraftingManagerFromDataHelper** skipped PMMP's JSON recipe files: Anchor's recipe data is generated
+crafting\*Type::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+crafting\*Type::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+crafting\*Type::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+crafting\*Type::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+crafting\*Type::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+crafting\*Type::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+crafting\FurnaceType::getCookSound skipped furnace rule code
+crafting\CraftingManager::getDestructorCallbacks skipped PHP destructor hooks: Rust has Drop and Anchor states each resource's release
+crafting\CraftingManager::getRecipeRegisteredCallbacks skipped recipes are fixed at `build()`
+crafting\FurnaceRecipeManager::getRecipeRegisteredCallbacks skipped recipes are fixed at `build()`
+inventory\CreativeInventory::getItem merged CreativeInventory::getAll
+inventory\CreativeInventory::getItemIndex merged CreativeInventory::getAll
+inventory\CreativeInventory::contains merged CreativeInventory::getAll
+inventory\CreativeInventory::getEntry skipped an entry's category and group only go to the client: the server reads the items (`Context::creative_items`)
+inventory\CreativeInventory::getAllEntries skipped an entry's category and group only go to the client: the server reads the items (`Context::creative_items`)
+inventory\CreativeInventory::getContentChangedCallbacks skipped creative inventories are fixed at build, so they never change while the server runs
+inventory\CreativeInventory::*estruct* skipped PHP destructor hooks: Rust has Drop and Anchor states each resource's release
+inventory\CreativeInventory::reset skipped global singleton: Anchor has no global state; registries are fixed at `build()`
+inventory\CreativeInventoryEntry** merged CreativeInventory::add
+
+# ===== Entities: `Entity`, `entity::Mut`, `entity::Type` =====
+
+entity\**::getNetworkTypeId merged Entity::getNetworkTypeId
+entity\**::canBeCollidedWith merged Entity::canBeCollidedWith
+entity\object\ItemEntity::canSaveWithChunk merged Entity::canSaveWithChunk
+entity\object\*::isFireProof merged Entity::isFireProof
+entity\object\FallingBlock::attack merged Entity::attack
+entity\object\PrimedTNT::attack merged Entity::attack
+entity\projectile\Projectile::attack merged Entity::attack
+entity\projectile\Arrow::__construct merged Projectile::__construct
+entity\projectile\SplashPotion::__construct merged Projectile::__construct
+entity\projectile\Throwable merged Projectile::__construct
+entity\object\ItemEntity::__construct merged World::dropItem
+entity\animation\**::encode merged Entity::broadcastAnimation
+entity\**::onCollideWithPlayer skipped entity rule code: listeners see EntityItemPickup
+entity\**::onNearbyBlockChange skipped entity rule code
+entity\**::onRandomUpdate skipped entity rule code
+entity\**::hasMovementUpdate skipped entity rule code
+entity\**::canCollideWith skipped entity rule code
+entity\**::canBeMovedByCurrents skipped entity rule code
+entity\**::getOffsetPosition skipped protocol internals: the network position offset
+entity\**::saveNBT skipped entity NBT is internal to the chunk store
+entity\**::parseBlockNBT skipped entity NBT is internal to the chunk store
+entity\Human::parseSkinNBT skipped entity NBT is internal to the chunk store
+entity\EntityDataHelper** skipped entity NBT is internal to the chunk store
+entity\EntityFactory** skipped entity types are a closed enum made with `Context::spawn_*`
+entity\NeverSavedWithChunkEntity merged Entity::canSaveWithChunk
+entity\Entity::addMotion differs `Mut::set_motion` replaces the motion; it does not add to it
+entity\**::getResultDamage skipped projectile rule code: listeners see EntityDamage
+entity\**::onHit skipped projectile rule code: listeners see ProjectileHitBlock and ProjectileHitEntity
+entity\**::getDrops skipped entity rule code: listeners see and change the drops in EntityDeath
+entity\**::getXpDropAmount skipped entity rule code: listeners see and change the experience in EntityDeath
+entity\object\PrimedTNT::explode merged Explosion::explodeA
+entity\Explosive merged Explosion::explodeA
+entity\object\ItemEntity::tryMergeInto skipped entity rule code: listeners see ItemMerge
+entity\object\ItemEntity::isMergeable skipped entity rule code: listeners see ItemMerge
+entity\object\ExperienceOrb::splitIntoOrbSizes skipped entity rule code
+entity\object\ExperienceOrb::getMaxOrbSize skipped entity rule code
+entity\effect\*Effect::add skipped effect rule code: listeners see EntityEffectAdd
+entity\effect\*Effect::remove skipped effect rule code: listeners see EntityEffectRemove
+entity\effect\*Effect::applyEffect skipped effect rule code
+entity\effect\*Effect::getApplyInterval skipped effect rule code
+entity\effect\*Effect::canTick skipped effect rule code
+entity\effect\*Effect::__construct skipped effect kinds are a generated table; no custom effects (the client cannot show them)
+entity\effect\Effect::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+entity\effect\Effect::__serialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+entity\effect\Effect::__unserialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+entity\effect\EffectManager::tick skipped effect rule code
+entity\effect\EffectManager::__construct skipped every player and living entity has its effects
+entity\effect\EffectCollection::__construct skipped every player and living entity has its effects
+entity\effect\EffectCollection::getEffectAddHooks skipped effect hooks are events: EntityEffectAdd and EntityEffectRemove
+entity\effect\EffectCollection::getEffectRemoveHooks skipped effect hooks are events: EntityEffectAdd and EntityEffectRemove
+entity\effect\StringToEffectParser** skipped PMMP's string-keyed lookups: Anchor looks effects up by typed name
+entity\effect\*Effect merged Effect
+entity\effect\VanillaEffects::* merged VanillaEffects
+entity\effect\EffectManager merged EffectManager::add
+entity\EntitySizeInfo::getEyeHeight merged Entity::getEyeHeight
+entity\ExperienceManager merged ExperienceManager::getXpLevel
+entity\HungerManager merged HungerManager::getFood
+entity\Living merged Living::getEffects
+entity\Location merged Location::getYaw
+entity\effect\EffectCollection merged EffectCollection::add
+entity\projectile\Projectile merged Projectile::__construct
+entity\projectile\ProjectileSource merged Entity::getOwningEntity
+permission\BanList merged BanList::addBan
+permission\Permissible merged Permissible::hasPermission
+permission\PermissibleBase merged Permissible::hasPermission
+permission\PermissibleDelegateTrait merged Permissible::hasPermission
+permission\PermissionAttachment merged PermissionAttachment::setPermission
+resourcepacks\ResourcePackManager merged ResourcePackManager::setResourceStack
+scheduler\Task merged Task::getHandler
+world\Position merged Position::getWorld
+world\WorldManager merged WorldManager::getWorld
+entity\EntitySizeInfo::scale merged Entity::setScale
+entity\EntitySizeInfo::__construct skipped entity sizes are fixed per type
+entity\EntitySizeInfo** merged Entity::getBoundingBox
+entity\Entity::getSize merged Entity::getBoundingBox
+entity\Entity::getDirectionPlane merged Entity::getDirectionVector
+entity\**::canBeRenamed skipped name tag item rule code
+entity\**::getSneakOffset skipped protocol internals: the network position offset
+entity\**::jump skipped movement rule code: listeners see PlayerJump
+entity\Living::getJumpVelocity skipped movement rule code
+entity\Living::getHighestArmorEnchantmentLevel skipped damage rule code
+entity\Living::canBreathe skipped breathing rule code
+entity\Human::canEat skipped hunger rule code
+entity\Human::sendSkin skipped protocol internals: skin changes are sent by the engine
+entity\Human::getHungerManager merged HungerManager::getFood
+entity\Human::getXpManager merged ExperienceManager::getXpLevel
+entity\HungerManager::getMaxFood merged HungerManager::getFood
+entity\ExperienceManager::setXpAndProgress merged ExperienceManager::setXpLevel
+world\sound\EntityLandSound** skipped the entity rules play it
+world\sound\EntityLongFallSound** skipped the entity rules play it
+world\sound\EntityShortFallSound** skipped the entity rules play it
+entity\HungerManager::tick skipped hunger rule code
+entity\HungerManager::__construct skipped every player has its hunger
+entity\HungerManager::getFoodTickTimer skipped hunger rule code
+entity\HungerManager::setFoodTickTimer skipped hunger rule code
+entity\ExperienceManager::tick skipped experience rule code
+entity\ExperienceManager::__construct skipped every player has its experience
+entity\ExperienceManager::onPickupXp skipped experience rule code: listeners see PlayerExperienceChange
+entity\ExperienceManager::resetXpCooldown skipped experience rule code
+entity\AttributeFactory** skipped attributes are a fixed set; each is a typed getter and setter
+entity\AttributeMap** skipped attributes are a fixed set; each is a typed getter and setter
+entity\Attribute** skipped attributes are a fixed set; each is a typed getter and setter
+entity\Entity::getAttributeMap skipped attributes are a fixed set; each is a typed getter and setter
+entity\Entity::nextRuntimeId skipped runtime IDs are assigned by the engine
+entity\Entity::getNetworkProperties skipped protocol internals: entity metadata is sent by the engine
+entity\Entity::sendData skipped protocol internals: entity metadata is sent by the engine
+entity\**::spawnTo skipped viewers follow the chunks each player sees
+entity\Entity::respawnToAll skipped viewers follow the chunks each player sees
+entity\Entity::despawnFrom skipped viewers follow the chunks each player sees
+entity\Entity::despawnFromAll skipped viewers follow the chunks each player sees
+entity\Entity::scheduleUpdate skipped entity rule code
+entity\Entity::setForceMovementUpdate skipped entity rule code
+entity\Entity::isClosed skipped a removed entity's Id finds nothing (`Context::entity` is `None`)
+entity\Entity::__construct skipped entities are made with `Context::spawn_*`
+entity\Entity::broadcastSound merged World::addSound
+entity\Living::consumeObject skipped item rule code: listeners see PlayerItemConsume
+entity\Human::consumeObject skipped item rule code: listeners see PlayerItemConsume
+entity\Living::applyDamageModifiers skipped damage rule code: listeners change the modifiers in EntityDamage
+entity\Human::applyDamageModifiers skipped damage rule code: listeners change the modifiers in EntityDamage
+entity\Living::damageArmor skipped damage rule code
+entity\Living::onAirExpired skipped damage rule code
+entity\Consumable::onConsume skipped item rule code: listeners see PlayerItemConsume
+entity\FoodSource merged FoodSource::getFoodRestore
+entity\InvalidSkinException merged Skin::__construct
+entity\**::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+entity\**::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+
+# ===== Inventories: `inventory::Inventory` reads, `inventory::Editor` writes =====
+
+inventory\transaction\** skipped transactions are the rule code's: listeners see InventoryTransaction with the changed slots
+inventory\DelegateInventory** skipped no inventory wrappers: `inventory::Inventory` reads every inventory
+inventory\**::getHolder skipped an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`)
+inventory\**::getListeners skipped inventory change hooks are events: InventoryTransaction
+inventory\InventoryListener** skipped inventory change hooks are events: InventoryTransaction
+inventory\CallbackInventoryListener** skipped inventory change hooks are events: InventoryTransaction
+inventory\**::getSlotValidators skipped slot rules are the rule code's
+inventory\SlotValidatedInventory skipped slot rules are the rule code's
+inventory\**::onOpen skipped window rule code: listeners see InventoryOpen
+inventory\**::onClose skipped window rule code: listeners see InventoryClose
+inventory\BaseInventory::removeAllViewers skipped window rule code
+inventory\**::setMaxStackSize skipped stack limits are per item type (`Item::getMaxStackSize`) and per slot rule
+inventory\**::__construct skipped inventories belong to players and blocks; the engine makes them
+inventory\InventoryHolder merged InventoryHolder::getInventory
+inventory\TemporaryInventory skipped window rule code
+inventory\PlayerInventory::getHeldItemIndexChangeListeners skipped held slot changes are an event: PlayerItemHeld
+inventory\json\** skipped PMMP's JSON data files: Anchor's creative list is generated
+inventory\CreativeCategory::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+
+# ===== Scheduler: `Context::schedule*`, `task::Handle`, `spawn_blocking` =====
+
+scheduler\TaskScheduler::mainThreadHeartbeat skipped the tick loop runs scheduled work
+scheduler\TaskScheduler::shutdown skipped the tick loop runs scheduled work
+scheduler\TaskScheduler::setEnabled skipped the tick loop runs scheduled work
+scheduler\TaskScheduler::__construct skipped the tick loop runs scheduled work
+scheduler\AsyncPool::submitTaskToWorker merged AsyncPool::submitTask
+scheduler\AsyncPool** skipped the blocking pool is internal and bounded
+scheduler\AsyncTask::publishProgress skipped async work reports once: its result is the next tick's input
+scheduler\AsyncTask::onProgressUpdate skipped async work reports once: its result is the next tick's input
+scheduler\AsyncTask::run skipped PHP thread plumbing: `spawn_blocking` runs the work
+scheduler\AsyncTask::setSubmitted skipped PHP thread plumbing: `spawn_blocking` runs the work
+scheduler\AsyncTask::isSubmitted skipped PHP thread plumbing: `spawn_blocking` runs the work
+scheduler\AsyncTask::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+scheduler\AsyncTask::getResult merged AsyncTask::onCompletion
+scheduler\AsyncTask::setResult merged AsyncTask::onRun
+scheduler\AsyncTask::hasResult merged AsyncTask::onCompletion
+scheduler\AsyncTask::isCrashed merged AsyncTask::onCompletion
+scheduler\AsyncTask::onError merged AsyncTask::onCompletion
+scheduler\ClosureTask::onRun merged ClosureTask
+scheduler\ClosureTask::__construct merged ClosureTask
+scheduler\ClosureTask::getName skipped a scheduled closure has no name
+scheduler\Task::getName skipped a scheduled closure has no name
+scheduler\Task::onRun merged ClosureTask
+scheduler\Task::setHandler merged Task::getHandler
+scheduler\TaskHandler::getTask skipped a scheduled closure is owned by the scheduler; its `task::Handle` names it
+scheduler\TaskHandler::getTaskName skipped a scheduled closure has no name
+scheduler\TaskHandler::__construct skipped handles are made by `Context::schedule*`
+scheduler\CancelTaskException skipped PHP exception: a repeating closure cancels itself with `Context::cancel_task(cx.current_task())`
+
+# ===== Commands and permissions =====
+
+command\Command::__construct merged ClosureCommand
+command\ClosureCommand::__construct merged ClosureCommand
+command\ClosureCommand::execute merged ClosureCommand
+command\Command::execute merged ClosureCommand
+command\CommandExecutor** merged ClosureCommand
+command\Command::register skipped commands are fixed at `build()`
+command\Command::unregister skipped commands are fixed at `build()`
+command\Command::isRegistered skipped commands are fixed at `build()`
+command\*CommandMap::clearCommands skipped commands are fixed at `build()`
+command\*CommandMap::registerAll merged SimpleCommandMap::register
+command\SimpleCommandMap::registerServerAliases skipped PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`)
+command\SimpleCommandMap::__construct skipped the command table is built by `ServerBuilder::command`
+command\utils\CommandStringHelper** skipped command line parsing is the engine's; handlers get typed `Args`
+command\utils\InvalidCommandSyntaxException merged CommandMap::dispatch
+command\utils\CommandException merged CommandMap::dispatch
+Server::getCommandMap merged SimpleCommandMap::getCommand
+Server::getCommandAliases skipped PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`)
+permission\PermissionManager::removePermission skipped permissions are fixed at `build()`
+permission\PermissionManager::clearPermissions skipped permissions are fixed at `build()`
+command\CommandMap merged CommandMap::register
+command\SimpleCommandMap merged SimpleCommandMap::register
+command\Command::testPermission merged Command::testPermissionSilent
+command\Command::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+command\CommandSender::getServer skipped global singleton: callbacks get `&mut Context`
+command\CommandSender::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates
+console\ConsoleCommandSender::__construct skipped the console sender is `command::Sender`'s console case
+console\ConsoleCommandSender::getServer skipped global singleton: callbacks get `&mut Context`
+console\ConsoleCommandSender::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates
+console\ConsoleCommandSender::getPermissionRecalculationCallbacks skipped permissions are fixed at `build()`
+console\ConsoleCommandSender::recalculatePermissions skipped permission checks read the current table each time; nothing to recalculate
+console\ConsoleCommandSender::hasPermission merged Permissible::hasPermission
+console\ConsoleCommandSender::isPermissionSet merged Permissible::isPermissionSet
+console\ConsoleCommandSender::addAttachment merged PermissionAttachment::setPermission
+console\ConsoleCommandSender::removeAttachment merged PermissionAttachment::unsetPermission
+permission\Permissible::addAttachment merged PermissionAttachment::setPermission
+permission\Permissible::removeAttachment merged PermissionAttachment::unsetPermission
+permission\PermissibleBase::__construct skipped permission holders are players and the console (`command::Sender`)
+permission\Permissible*::hasPermission merged Permissible::hasPermission
+permission\Permissible*::isPermissionSet merged Permissible::isPermissionSet
+permission\Permissible*::addAttachment merged PermissionAttachment::setPermission
+permission\Permissible*::removeAttachment merged PermissionAttachment::unsetPermission
+permission\PermissionManager merged PermissionManager::addPermission
+scheduler\TaskScheduler merged TaskScheduler::scheduleTask
+permission\Permission::recalculatePermissibles skipped permissions are fixed at `build()`
+permission\Permission::addChild skipped permissions are fixed at `build()`
+permission\Permission::removeChild skipped permissions are fixed at `build()`
+permission\**::getPermissionRecalculationCallbacks skipped permissions are fixed at `build()`
+permission\**::recalculatePermissions skipped permission checks read the current table each time; nothing to recalculate
+permission\DefaultPermissions::registerCorePermissions skipped the default permissions are registered by `build()`
+permission\DefaultPermissions::registerPermission merged PermissionManager::addPermission
+permission\DefaultPermissions merged DefaultPermissionNames
+permission\PermissionParser::loadPermissions skipped PMMP's plugin.yml permissions: permissions are given in code (`Permission::new`)
+permission\PermissionParserException merged PermissionParser::defaultFromString
+permission\BanList::load skipped bans live in redb and commit with the world
+permission\BanList::save skipped bans live in redb and commit with the world
+permission\BanList::__construct skipped bans live in redb and commit with the world
+permission\BanEntry::fromString skipped PMMP's banned-players.txt line format: bans live in redb
+permission\BanEntry::getString skipped PMMP's banned-players.txt line format: bans live in redb
+permission\BanEntry::__construct merged BanList::addBan
+
+# ===== Server, players and worlds =====
+
+Server::__construct skipped the server is made by `Server::builder()`
+Server::isRunning skipped a `Context` exists only while the server runs
+Server::forceShutdown merged Server::shutdown
+Server::getTickUsage* differs a `Duration` (milliseconds per tick) instead of the percentage of 50 ms; the tick loop measures each tick off the game logic and the next tick reads it as a logged input
+Server::getStartTime skipped game logic has no wall clock
+Server::addOnlinePlayer skipped players join through the login flow
+Server::removeOnlinePlayer skipped players join through the login flow
+Server::createPlayer skipped players join through the login flow
+Server::getNetwork skipped protocol internals
+Server::getAsyncPool merged AsyncPool::submitTask
+Server::getWorldManager merged WorldManager::getWorld
+Server::getResourcePackManager merged ResourcePackManager::setResourceStack
+Server::getAllowedViewDistance merged Server::getViewDistance
+Server::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates
+Server::isLanguageForced skipped server-side translation: Anchor sends translation keys and the client translates
+Server::__* skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+player\Player::__construct skipped players join through the login flow
+player\Player::__* skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+player\Player::getServer skipped global singleton: callbacks get `&mut Context`
+player\Player::getNetworkSession skipped protocol internals: `Player::send_packet` sends packets
+player\Player::getLastPlayed differs a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock)
+player\IPlayer::getLastPlayed differs a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock)
+player\Player::getFirstPlayed differs a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick
+player\IPlayer::getFirstPlayed differs a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick
+player\Player::getPlayerInfo merged PlayerInfo::getUsername
+player\XboxLivePlayerInfo merged XboxLivePlayerInfo::getXuid
+player\Player::canBeCollidedWith skipped player rule code
+player\Player::sendSkin skipped protocol internals: skin changes are sent by the engine
+player\Player::setSneakPressed skipped the client's input sets it
+player\Player::setUsingItem skipped the client's input sets it
+player\Player::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates
+player\Player::canSaveWithChunk skipped players are saved in player records, never with chunks
+player\Player::setCanSaveWithChunk skipped players are saved in player records, never with chunks
+player\Player::doChunkRequests skipped chunk sending is the engine's
+player\Player::doFirstSpawn skipped the spawn flow is the engine's
+player\Player::onChunk* skipped chunk sending is the engine's
+player\Player::onBlockChanged skipped chunk sending is the engine's
+player\Player::getUsedChunks skipped chunk sending is the engine's
+player\Player::getUsedChunkStatus skipped chunk sending is the engine's
+player\Player::hasReceivedChunk skipped chunk sending is the engine's
+player\Player::isUsingChunk skipped chunk sending is the engine's
+player\UsedChunkStatus** skipped chunk sending is the engine's
+player\ChunkSelector** skipped chunk sending is the engine's
+player\Player::handleMovement skipped movement rule code: listeners see PlayerMove
+player\Player::onUpdate skipped player rule code
+player\Player::sendData skipped protocol internals: entity metadata is sent by the engine
+player\Player::spawnTo skipped viewers follow the chunks each player sees
+player\Player::getSaveData skipped player records are internal and commit with the world; user values are `Player::data`
+player\Player::save skipped player records commit with the world
+player\Player::getDrops skipped player rule code: listeners see and change the drops in PlayerDeath
+player\Player::getXpDropAmount skipped player rule code: listeners see and change the experience in PlayerDeath
+player\Player::canBeMovedByCurrents skipped player rule code
+player\Player::canCollideWith skipped player rule code
+player\Player::continueBreakBlock skipped block breaking rule code: listeners see BlockBreak
+player\Player::stopBreakBlock skipped block breaking rule code: listeners see BlockBreak
+player\SurvivalBlockBreakHandler** skipped block breaking rule code: listeners see BlockBreak
+player\Player::pickEntity skipped player rule code: listeners see PlayerEntityPick
+player\Player::isValidUserName skipped login checks the name
+player\Player::toggle* skipped movement rule code: listeners see PlayerToggle*
+player\Player::missSwing skipped player rule code: listeners see PlayerMissSwing
+player\Player::jump skipped player rule code: listeners see PlayerJump
+player\Player::emote skipped player rule code: listeners see PlayerEmote
+player\Player::pickBlock skipped player rule code: listeners see PlayerBlockPick
+player\Player::selectHotbarSlot merged PlayerInventory::setHeldItemIndex
+player\Player::consumeHeldItem skipped item rule code: listeners see PlayerItemConsume
+player\Player::releaseHeldItem merged Player::useHeldItem
+player\Player::canEat skipped hunger rule code
+player\Player::canBreathe skipped player rule code
+player\Player::canBeRenamed skipped player rule code
+player\Player::getPermissionRecalculationCallbacks skipped permissions are fixed at `build()`
+player\Player::recalculatePermissions skipped permission checks read the current table each time; nothing to recalculate
+player\Player::addAttachment merged PermissionAttachment::setPermission
+player\Player::removeAttachment merged PermissionAttachment::unsetPermission
+player\Player::broadcastSound merged World::addSound
+player\PlayerInfo::__construct skipped login makes it
+player\XboxLivePlayerInfo::__construct skipped login makes it
+player\XboxLivePlayerInfo::withoutXboxData skipped login makes it
+player\PlayerDataLoadException skipped a corrupt record keeps its original and reports through `Result`
+player\PlayerDataSaveException skipped player records commit with the world
+player\GameMode::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+player\GameMode::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+player\GameMode::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+player\GameMode::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+player\GameMode::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+player\GameMode::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+player\GameMode::getEnglishName skipped English names are client-side translations (Anchor sends translation keys)
+player\GameMode::getTranslatableName skipped English names are client-side translations (Anchor sends translation keys)
+player\chat\** skipped PMMP chat formatters: listeners change the format in PlayerChat
+
+world\World::__construct merged WorldManager::generateWorld
+world\World::__debugInfo skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+world\World::getServer skipped global singleton: callbacks get `&mut Context`
+world\World::getDifficultyFromString skipped settings are typed `Config` fields
+world\World::getAutoSave merged WorldManager::getAutoSave
+world\World::setAutoSave merged WorldManager::setAutoSave
+world\World::useBreakOn merged Player::breakBlock
+world\World::useItemOn merged Player::interactBlock
+world\World::*ChunkListener* skipped chunk listeners: world changes are events
+world\World::*TickingChunk* skipped chunk ticking is the engine's
+world\World::getChunkTickRadius skipped chunk ticking is the engine's
+world\World::setChunkTickRadius skipped chunk ticking is the engine's
+world\World::getTickRateTime differs `Context::mspt` is the whole tick's time: worlds tick together in one tick, measured off the game logic and read as a logged input
+world\World::isDoingTick skipped callbacks run only in the tick's serial step
+world\World::*RandomTickedBlock* skipped which states tick randomly is fixed by the block table (`State::ticks_randomly`)
+world\World::blockHash skipped chunk store internals
+world\World::chunkHash skipped chunk store internals
+world\World::chunkBlockHash skipped chunk store internals
+world\World::getBlockXYZ skipped chunk store internals
+world\World::getXZ skipped chunk store internals
+world\World::clearCache skipped chunk store internals
+world\World::doChunkGarbageCollection skipped chunk store internals
+world\World::unloadChunks skipped chunk loading is the engine's
+world\World::unloadChunk skipped chunk loading is the engine's
+world\World::unloadChunkRequest skipped chunk loading is the engine's
+world\World::cancelUnloadChunkRequest skipped chunk loading is the engine's
+world\World::loadChunk differs a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk)
+world\World::lockChunk skipped chunk loading is the engine's
+world\World::unlockChunk skipped chunk loading is the engine's
+world\World::isChunkLocked skipped chunk loading is the engine's
+world\World::isChunkInUse differs `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too
+world\World::isChunkGenerated skipped chunk loading is the engine's
+world\World::isChunkPopulated skipped chunk loading is the engine's
+world\World::*ChunkPopulation differs a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise
+world\World::saveChunks skipped saving commits the whole state at the save interval
+world\World::isInLoadedTerrain merged World::isChunkLoaded
+world\World::checkSleep skipped sleep rule code
+world\World::setSleepTicks skipped sleep rule code
+world\World::computeSkyLightReduction skipped light rule code
+world\World::getSkyLightReduction skipped light rule code
+world\World::updateAllLight skipped light rule code
+world\World::getHighestAdjacent* skipped light rule code
+world\World::getFullLight merged World::getFullLightAt
+world\World::computeSunAnglePercentage skipped sky light rule code
+world\World::getSunAngle* skipped sky light rule code
+world\World::addEntity skipped an entity joins its world when made with `Context::spawn_*`
+world\World::removeEntity merged Entity::flagForDespawn
+world\WorldManager::__construct skipped the server keeps its world list; callbacks reach it through `Context`
+world\WorldManager::tick skipped the tick loop ticks every world
+world\WorldManager::getAutoSaveInterval skipped the save interval is the `save-interval` setting
+world\WorldManager::setAutoSaveInterval skipped the save interval is the `save-interval` setting
+world\WorldCreationOptions::__construct merged WorldCreationOptions::create
+world\WorldCreationOptions::*etGeneratorOptions skipped a generator is a Rust value configured in code, not an options string
+world\WorldTimings** skipped PHP timings profiler
+world\WorldException skipped PHP exception: Anchor returns `Result` with module `Error` enums
+world\ChunkListener** skipped chunk listeners: world changes are events
+world\ChunkTicker skipped chunk ticking is the engine's
+world\ChunkLockId** skipped chunk loading is the engine's
+world\light\** skipped light rule code on the CPU pool
+world\utils\** skipped chunk store internals
+world\format\SubChunk** skipped chunk store internals: `Chunk` reads and writes blocks and biomes
+world\format\HeightArray** skipped chunk store internals: `Chunk::getHighestBlockAt`
+world\format\Chunk::*HeightMap* merged Chunk::getHighestBlockAt
+world\format\Chunk::* skipped chunk store internals: `Chunk` reads and writes blocks and biomes
+world\format\ChunkException skipped PHP exception: Anchor returns `Result` with module `Error` enums
+world\generator\GeneratorManager merged GeneratorManager::addGenerator
+world\generator\GeneratorManager::addAlias skipped a generator has one name, its `Generator::name`
+world\generator\GeneratorManager::* skipped the registry is internal and fixed at build; a world names its generator in `world::Options`
+world\generator\GeneratorManagerEntry** skipped the registry is internal and fixed at build; a world names its generator in `world::Options`
+world\generator\InvalidGeneratorOptionsException skipped a generator is a Rust value configured in code, not an options string
+world\generator\Generator::__construct skipped generators are Rust types implementing `Generator`
+world\generator\Flat::__construct skipped generators are Rust types implementing `Generator`
+world\generator\Generator::convertSeed skipped a world seed is an `i64` setting
+world\generator\Flat::generateChunk merged Generator::generateChunk
+world\generator\object\TreeType::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+world\generator\object\*Tree merged TreeFactory::get
+world\generator\object\*Tree::* merged TreeFactory::get
+world\BlockTransaction** skipped multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list
+world\SimpleChunkManager** skipped generator plumbing: a generator fills a `Chunk`
+world\ChunkManager** skipped generator plumbing: a generator fills a `Chunk`
+world\Explosion merged Explosion::explodeA
+world\Position::__construct skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value
+world\Position::asPosition skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value
+world\Position::fromObject skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value
+world\Position::equals skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value
+world\Position::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+entity\Location::__construct skipped a location is a `Vec3` plus yaw and pitch values
+entity\Location::asLocation skipped a location is a `Vec3` plus yaw and pitch values
+entity\Location::fromObject skipped a location is a `Vec3` plus yaw and pitch values
+entity\Location::equals skipped a location is a `Vec3` plus yaw and pitch values
+
+# Sounds and particles: `world::Sound` and `world::Particle` values for `Context::add_sound`
+# and `add_particle`.
+world\sound\**::encode merged World::addSound
+world\sound\**::__construct merged World::addSound
+world\sound\**::getPitch merged World::addSound
+world\sound\**::getBlock merged World::addSound
+world\sound\**::getXpLevel merged World::addSound
+world\sound\NoteInstrument::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums
+world\particle\FloatingTextParticle** skipped floating text is a name-tag NPC (`Context::spawn_human`)
+world\particle\**::encode merged World::addParticle
+world\particle\**::__construct merged World::addParticle
+world\particle\**::getColor merged World::addParticle
+world\particle\PotionSplashParticle::DEFAULT_COLOR merged World::addParticle
+
+# Translations: Anchor sends translation keys and the client translates.
+lang\Language** skipped server-side translation: Anchor sends translation keys and the client translates
+lang\Translatable** merged Player::sendMessage
+
+# Promises: callbacks run in the tick; async results are the next tick's input.
+promise\** skipped PHP promises: async results are the next tick's input and run the done callback (`Context::spawn_blocking`)
+
+# Resource pack manifests: read by `pack::Pack`.
+resourcepacks\json\** merged ResourcePack::getPackId
+resourcepacks\ZippedResourcePack::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+resourcepacks\**::getPath skipped a pack is read once at build; Anchor keeps no path
+
+# ===== Last: PHP magic methods and enum plumbing left anywhere =====
+**::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+**::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+**::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+
+# Player-side rows (Player, Human, Living, Entity for players, NetworkSession, permission,
+# player\**).
+entity\Human::getName merged Player::getName
+entity\Human::getUniqueId merged Player::getUniqueId
+entity\Living::getName merged Player::getName
+entity\Living::getDisplayName merged Player::getDisplayName
+player\IPlayer::getName merged Player::getName
+player\Player::changeSkin merged Human::setSkin
+player\Player::getLeaveMessage merged PlayerQuitEvent::getQuitMessage
+player\PlayerInfo::getSkin merged Human::getSkin
+player\PlayerInfo::getExtraData differs typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept
+player\IPlayer skipped PMMP's interface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`)
+player\OfflinePlayer** skipped no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before`
+player\GameMode::getAliases skipped the settings take one name per game mode
+entity\Entity::*TargetEntity* skipped mob AI targets and fishing hooks are out of scope
+permission\BanEntry::setCreated skipped a ban's creation time is the engine tick `Context::ban` adds it at
+permission\BanList::isEnabled skipped bans always apply: nothing in PMMP turns a ban list off either
+permission\BanList::setEnabled skipped bans always apply: nothing in PMMP turns a ban list off either
+permission\BanList::removeExpired skipped ended bans never apply, and `Context::ban` drops them
+permission\Permissible*::getEffectivePermissions merged Permissible::getEffectivePermissions
+permission\Permissible*::setBasePermission merged PermissionAttachment::setPermission
+permission\Permissible*::unsetBasePermission merged PermissionAttachment::unsetPermission
+player\Player::setBasePermission merged PermissionAttachment::setPermission
+player\Player::unsetBasePermission merged PermissionAttachment::unsetPermission
+permission\PermissionAttachment::__construct merged PermissionAttachment::setPermission
+permission\PermissionAttachment::setPermissions merged PermissionAttachment::setPermission
+permission\PermissionAttachment::unsetPermissions merged PermissionAttachment::unsetPermission
+permission\PermissionAttachment::getSubscribers skipped permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders
+permission\PermissionManager::*ubscri* skipped permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders
+permission\Permission::getPermissibles skipped permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders
+permission\Permission::getChildren skipped no child permissions: a command takes any of up to 16 permissions
+permission\Permission::*etDescription skipped a permission is a name and a default, fixed at `build()`
+permission\PermissionAttachmentInfo::getAttachment skipped grants are entries of a per-player table, not attachment objects
+permission\PermissionAttachmentInfo::getGroupPermissionInfo skipped no permission groups or child permissions
+permission\PermissionAttachmentInfo** merged Permissible::getEffectivePermissions
+
+# World and crafting rows.
+world\World::getCollisionBlocks merged World::getBlockCollisionBoxes
+world\World::getCollisionBoxes merged World::getBlockCollisionBoxes
+world\World::getOrLoadChunkAtPosition skipped chunks load off the tick and arrive as a later tick's input: a block of a chunk that is not loaded reads as `None`
+world\World::getPotentialLight* merged World::getFullLightAt
+world\World::notifyNeighbourBlockUpdate merged World::setBlock
+world\World::requestSafeSpawn merged World::getSafeSpawn
+world\World::setChunk skipped the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow; blocks change through `World::set_block`
+world\World::setDisplayName skipped a world's name is its storage key and the reference of players' spawn points, so it never changes
+Server::getCraftingManager merged CraftingManager::matchRecipe
+crafting\CraftingManager merged CraftingManager::matchRecipe
+crafting\CraftingManager::getFurnaceRecipeManager merged FurnaceRecipeManager::match
+crafting\FurnaceRecipeManager merged FurnaceRecipeManager::match
+crafting\*Manager::__construct skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe`
+crafting\CraftingManager::sort skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe`
+crafting\CraftingManager::getCraftingRecipeIndex skipped recipe network IDs are internal numbers; the public lookup is Context::crafting_result
+crafting\CraftingManager::getCraftingRecipeFromIndex skipped recipe network IDs are internal numbers; the public lookup is Context::crafting_result
+crafting\CraftingRecipe merged CraftingManager::matchRecipe
+crafting\*Recipe::getResultsFor merged CraftingManager::matchRecipe
+crafting\*Recipe::matchesCraftingGrid merged CraftingManager::matchRecipe
+crafting\*RecipeIngredient::accepts merged CraftingManager::matchRecipe
+crafting\FurnaceRecipe::getResult merged FurnaceRecipeManager::match
+crafting\BrewingRecipe merged CraftingManager::matchBrewingRecipe
+crafting\*Recipe::getResultFor merged CraftingManager::matchBrewingRecipe
+crafting\CraftingGrid merged Player::getCraftingGrid
+crafting\CraftingGrid::__construct skipped the engine makes each player's crafting grid
+crafting\CraftingGrid::getGridWidth merged Inventory::getSize
+crafting\CraftingGrid::getIngredient merged Inventory::getItem
+crafting\CraftingGrid::getRecipe* merged CraftingManager::matchRecipe
+crafting\ShapedRecipe merged ShapedRecipe::__construct
+crafting\ShapelessRecipe merged ShapelessRecipe::__construct
+crafting\FurnaceRecipe merged FurnaceRecipe::__construct
+crafting\*RecipeIngredient merged ExactRecipeIngredient::__construct
+crafting\PotionTypeRecipe merged PotionTypeRecipe::__construct
+crafting\PotionContainerChangeRecipe merged PotionContainerChangeRecipe::__construct
+crafting\** skipped recipe objects are internal: PMMP's recipes are generated static tables and a server's own are `custom::Recipe` values fixed at build; the lookups answer by items (`Context::crafting_result`, `furnace_result`, `brewing_result`)
+
+# Block entities: `Context::block_entity` lends a `Tile` to read and
+# `block_entity_mut` a `tile::Mut` to change; the classes are one type with a getter per kind.
+block\tile\Bell** skipped Anchor keeps no bell block entity: a ring is an effect sent to clients with nothing to store
+block\tile\Note** skipped Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came
+block\tile\MonsterSpawner skipped spawners spawn mobs: no mob AI
+block\tile\SporeBlossom skipped a block entity without data: Anchor keeps a saved one as it came
+block\tile\*::getName merged Nameable::getName
+block\tile\*::hasName merged Nameable::getName
+block\tile\*::setName merged Nameable::setName
+block\tile\*::getDefaultName skipped the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either)
+block\tile\*::canOpenWith merged Container::canOpenWith
+block\tile\Chest::isPaired merged block\tile\Chest::getPair
+block\tile\EnderChest::setViewerCount skipped the engine counts the windows open on a block
+block\tile\Campfire::getCookingTimes merged block\Campfire::getCookingTime
+block\tile\Campfire::setCookingTimes merged block\Campfire::setCookingTime
+block\tile\ItemFrame::hasItem merged block\tile\ItemFrame::getItem
+block\tile\MobHead::*etMobHeadType merged Block
+block\tile\Sign::*EditorEntityRuntimeId skipped Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS)
+block\tile\Sign::fixTextBlob skipped deprecated PMMP helper: `SignText::from_blob` reads a text blob
+block\tile\* merged Tile
+block\BaseSign::*EditorEntityRuntimeId skipped Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS)
+block\BaseSign::update*Text skipped a player's edit goes through the sign rules and raises SignChange; direct writes raise no events
+
+# Entity, effect, animation and server rows.
+Server::getPlayerByRawUUID merged Server::getPlayerByUUID
+Server::hasOfflinePlayerData merged Server::getOfflinePlayerData
+Server::saveOfflinePlayerData differs raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game
+Server::*OfflinePlayer* skipped PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players`
+Server::*BroadcastChannel* skipped PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged
+entity\Entity::setGravity skipped an entity kind's physics are PMMP's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off
+entity\Entity::setStepHeight skipped an entity kind's physics are PMMP's constants per kind: `Entity::step_height` reads them
+entity\Entity::isFlaggedForDespawn skipped a flagged entity is gone from the API at once: `Context::entity` is `None`
+entity\Explosive::explode merged Explosion::explodeA
+entity\effect\EffectInstance::decreaseDuration merged EffectInstance::setDuration
+entity\effect\EffectInstance::*etColor skipped an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved
+entity\effect\EffectCollection::setEffectFilterForBubbles skipped bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_colour`); no filter callbacks
+
+# World, chunk and block side rows.
+world\World::getAdjacentChunks merged World::getChunk
+event\world\ChunkEvent::getChunk merged World::getChunk
+block\Block::getSide merged Position::getSide
+
+# Other rows that are not entities.
+block\Block::getEnchantmentTags merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+block\CakeWithDyedCandle::getCandle merged Block
+block\Element::* skipped Education Edition chemistry values (symbol, atomic weight, group) are not in the PMMP dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`)
+block\inventory\DoubleChestInventory::getInventory merged InventoryHolder::getInventory
+command\Command::getLabel merged Command::getName
+command\Command::setLabel merged ClosureCommand
+command\Command::setDescription merged ClosureCommand
+command\Command::*etPermissionMessage skipped a refused sender gets the client's `commands.generic.error.permissions` text, as BDS sends it; a handler that wants its own text checks `Context::has_permission` and fails with it
+command\CommandSender::getScreenLineHeight merged Player::getScreenLineHeight
+command\CommandSender::setScreenLineHeight merged Player::setScreenLineHeight
+console\ConsoleCommandSender::*etScreenLineHeight skipped the console's output goes to the log, which pages nothing
+console\ConsoleCommandSender::getEffectivePermissions merged Permissible::getEffectivePermissions
+console\ConsoleCommandSender::*etBasePermission skipped the console counts as an operator: its permissions are the operators' defaults
+event\block\BrewItemEvent::getRecipe skipped recipe objects are not public: the event gives the input and the result, and `Context::brewing_result` asks by item
+event\inventory\CraftItemEvent::getRecipe skipped recipe objects are not public: the event gives the inputs and the outputs, and `Context::crafting_result` asks by item
+event\inventory\CraftItemEvent::getTransaction merged InventoryTransactionEvent::getTransaction
+event\player\PlayerItemEnchantEvent::getTransaction merged InventoryTransactionEvent::getTransaction
+event\inventory\InventoryEvent::getViewers merged Player::getCurrentWindow
+event\entity\EntityItemPickupEvent::*etInventory skipped the pickup rule puts the item into the picker's inventory; a listener changes the item (`set_item`), or cancels and gives it elsewhere through `Player::inventory_mut`
+event\entity\EntityShootBowEvent::setProjectile skipped the arrow is an entity the rule has made: a listener changes it through `Context::entity_mut`, or cancels and spawns another with `Context::spawn_projectile`
+event\player\PlayerDataSaveEvent::*ancel* differs cancelling is recorded but the data is saved anyway: one commit holds the whole state of a tick boundary; `save-player-data` turns player data off
+event\player\PlayerDataSaveEvent::*etSaveData skipped the saved record is Anchor's own format, written whole in one commit; a user's values ride it through `ServerBuilder::player_data`
+event\player\PlayerDeathEvent::deriveMessage skipped Anchor sends translation keys and the client translates: the death screen shows the key of the cause, and listeners set their own texts (`set_death_message`, `set_death_screen_message`)
+event\player\PlayerLoginEvent::cancel merged PlayerPreLoginEvent::setKickFlag
+event\player\PlayerLoginEvent::uncancel merged PlayerPreLoginEvent::clearAllKickFlags
+event\player\PlayerLoginEvent::getKickMessage merged PlayerPreLoginEvent::getFinalDisconnectScreenMessage
+event\player\PlayerLoginEvent::setKickMessage merged PlayerPreLoginEvent::setKickFlag
+event\player\PlayerPreLoginEvent::*AuthRequired skipped Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`)
+event\player\PlayerResourcePackOfferEvent::getEncryptionKeys merged ResourcePackManager::getPackEncryptionKey
+event\player\PlayerResourcePackOfferEvent::*ustAccept merged ResourcePackManager::resourcePacksRequired
+event\player\PlayerResourcePackOfferEvent** merged ResourcePackManager::setResourceStack
+inventory\PlayerInventory::isHotbarSlot merged PlayerInventory::getHotbarSize
+inventory\PlayerInventory::setItemInHand merged Inventory::setItem
+item\enchantment\ItemEnchantmentTags skipped item tags are a generated table
+resourcepacks\ResourcePackManager::get* skipped the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`)
+scheduler\AsyncTask::cancelRun skipped blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does
+scheduler\AsyncTask::hasCancelledRun skipped blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does
+scheduler\AsyncTask::isFinished merged AsyncTask::onCompletion
+scheduler\Task::onCancel skipped a scheduled closure has no cancel hook: the code that cancels it (`Context::cancel_task`) does what follows
+scheduler\TaskHandler::getDelay merged TaskHandler::getNextRun
+scheduler\TaskHandler::isDelayed merged TaskHandler::getNextRun
+scheduler\TaskHandler::isCancelled merged TaskScheduler::isQueued
+
+# Paintings, end crystals, firework rockets, thrown tridents and ice bombs.
+entity\object\EndCrystal::attack merged Entity::attack
+entity\object\EndCrystal::explode merged Explosion::explodeA
+entity\object\FireworkRocket::explode skipped entity rule code: a rocket bursts when its flight time is up, and `Mut::set_max_flight_time_ticks` with an age it reached bursts it at its next tick
+entity\object\PaintingMotive::__construct skipped the motives are the closed set Bedrock clients draw (`PaintingMotive`): a new name needs client resources
+entity\object\PaintingMotive::registerMotive skipped the motives are the closed set Bedrock clients draw (`PaintingMotive`): a new name needs client resources
+entity\object\PaintingMotive::init skipped PHP lazy setup of the motive table: `PaintingMotive` is an enum

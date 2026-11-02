@@ -62,7 +62,7 @@ const EXPECTED_READS: [Reads; 2] = [
 ];
 /// The chunk the file holds only extras for: it is generated.
 const GENERATED: ChunkPos = ChunkPos::new(41, 40);
-/// The two runs (custom content, experience): vanilla with orbs, and with the custom item and
+/// The two runs (custom content, xp): vanilla with orbs, and with the custom item and
 /// entity type without orbs.
 const RUNS: [(bool, bool); 2] = [(false, true), (true, false)];
 /// The height of the fixture's blocks: the first air above the flat ground.
@@ -285,8 +285,8 @@ fn fixture(custom: Option<&Registry>) -> Snapshot {
 }
 
 /// A server holding the two fixture chunks, with the custom item and entity type when
-/// `custom`, and orbs when `experience`.
-fn server(custom: bool, experience: bool) -> (State, Arc<Registry>) {
+/// `custom`, and orbs when `xp`.
+fn server(custom: bool, xp: bool) -> (State, Arc<Registry>) {
     let mut state = new_state(settings(|_| {}), Listeners::default());
     let registry = if custom {
         let r = Arc::new(crate::custom::tests::registry());
@@ -302,7 +302,7 @@ fn server(custom: bool, experience: bool) -> (State, Arc<Registry>) {
     } else {
         Arc::clone(state.custom())
     };
-    state.rules.entities.set_experience(experience);
+    state.rules.entities.set_xp(xp);
     let id = state.worlds[0].id();
     let mut cx = Context { state: &mut state };
     for pos in [DISK, GENERATED] {
@@ -347,8 +347,8 @@ fn outcome(state: &mut State) -> [u64; 4] {
 /// Loads the fixture through the save thread's load and the tick's answer handling; returns
 /// what reading the answers' extras again on this thread counts (what the load did off the
 /// tick), what the tick read while it took the answers, and the outcome.
-fn load(custom: bool, experience: bool) -> (Reads, Reads, [u64; 4]) {
-    let (mut state, registry) = server(custom, experience);
+fn load(custom: bool, xp: bool) -> (Reads, Reads, [u64; 4]) {
+    let (mut state, registry) = server(custom, xp);
     let snapshot = fixture(custom.then_some(&*registry));
     let types = Arc::clone(state.entity_types());
     let keys = [(0, DISK), (0, GENERATED)];
@@ -399,16 +399,16 @@ fn load(custom: bool, experience: bool) -> (Reads, Reads, [u64; 4]) {
 
 #[test]
 fn extras_read_on_the_save_thread_load_the_recorded_state() {
-    for (i, (custom, experience)) in RUNS.into_iter().enumerate() {
-        let (_, _, outcome) = load(custom, experience);
+    for (i, (custom, xp)) in RUNS.into_iter().enumerate() {
+        let (_, _, outcome) = load(custom, xp);
         assert_eq!(outcome, EXPECTED_OUTCOME[i], "custom {custom}");
     }
 }
 
 #[test]
 fn a_chunk_load_reads_no_extras_on_the_tick() {
-    for (i, (custom, experience)) in RUNS.into_iter().enumerate() {
-        let (off_tick, on_tick, _) = load(custom, experience);
+    for (i, (custom, xp)) in RUNS.into_iter().enumerate() {
+        let (off_tick, on_tick, _) = load(custom, xp);
         assert_eq!(
             off_tick, EXPECTED_READS[i],
             "the load reads the extras, custom {custom}"

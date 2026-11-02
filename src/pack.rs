@@ -548,12 +548,12 @@ pub(crate) mod tests {
         ])
     }
 
-    // pmmp: ResourcePack::getPackId, ZippedResourcePack::getPackId, ResourcePack::getPackName,
-    // pmmp: ZippedResourcePack::getPackName, ResourcePack::getPackVersion,
-    // pmmp: ZippedResourcePack::getPackVersion, ResourcePack::getPackSize,
-    // pmmp: ZippedResourcePack::getPackSize, ResourcePack::getSha256,
-    // pmmp: ZippedResourcePack::getSha256, ResourcePack::getPackChunk,
-    // pmmp: ZippedResourcePack::getPackChunk, ResourcePack, ZippedResourcePack
+    // api: ResourcePack::getPackId, ZippedResourcePack::getPackId, ResourcePack::getPackName,
+    // api: ZippedResourcePack::getPackName, ResourcePack::getPackVersion,
+    // api: ZippedResourcePack::getPackVersion, ResourcePack::getPackSize,
+    // api: ZippedResourcePack::getPackSize, ResourcePack::getSha256,
+    // api: ZippedResourcePack::getSha256, ResourcePack::getPackChunk,
+    // api: ZippedResourcePack::getPackChunk, ResourcePack, ZippedResourcePack
     #[test]
     fn a_pack_reads_its_manifest_and_hashes_its_bytes() {
         let bytes = pack_bytes(UUID, "1.2.3", 100);
@@ -610,8 +610,8 @@ pub(crate) mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
-    // pmmp: ZippedResourcePack::__construct, ResourcePackManager::setPackEncryptionKey,
-    // pmmp: ResourcePackManager::getPackEncryptionKey, ResourcePackException
+    // api: ZippedResourcePack::__construct, ResourcePackManager::setPackEncryptionKey,
+    // api: ResourcePackManager::getPackEncryptionKey, ResourcePackException
     #[test]
     fn a_pack_file_loads_with_its_key_file() {
         let dir = TempDir::new("key");
@@ -686,7 +686,7 @@ pub(crate) mod tests {
         assert_eq!(offer.find("nonsense"), None);
     }
 
-    // pmmp: ResourcePackManager::setResourceStack
+    // api: ResourcePackManager::setResourceStack
     #[test]
     fn packs_given_in_code_follow_the_configured_files() {
         let other = "11111111-2222-3333-4444-555555555555";

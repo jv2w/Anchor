@@ -262,7 +262,6 @@ mod sealed {
         player_entity_interact: super::PlayerEntityInteract,
         player_entity_pick: super::PlayerEntityPick,
         player_exhaust: super::PlayerExhaust,
-        player_experience_change: super::PlayerExperienceChange,
         player_game_mode_change: super::PlayerGameModeChange,
         player_interact: super::PlayerInteract,
         player_item_consume: super::PlayerItemConsume,
@@ -286,6 +285,7 @@ mod sealed {
         player_toggle_swim: super::PlayerToggleSwim,
         player_transfer: super::PlayerTransfer,
         player_view_distance_change: super::PlayerViewDistanceChange,
+        player_xp_change: super::PlayerXpChange,
         projectile_hit_block: super::ProjectileHitBlock,
         projectile_hit_entity: super::ProjectileHitEntity,
         projectile_launch: super::ProjectileLaunch,
@@ -453,12 +453,12 @@ pub use player::{
     PlayerBedLeave, PlayerBlockPick, PlayerBucketEmpty, PlayerBucketFill, PlayerChangeSkin,
     PlayerChat, PlayerDataSave, PlayerDeath, PlayerDropItem, PlayerDuplicateLogin, PlayerEditBook,
     PlayerEmote, PlayerEnchantingOptionsRequest, PlayerEntityInteract, PlayerEntityPick,
-    PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange, PlayerInfo, PlayerInteract,
-    PlayerItemConsume, PlayerItemEnchant, PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerJump,
-    PlayerKick, PlayerLogin, PlayerMissSwing, PlayerMove, PlayerPostChunkSend, PlayerQuit,
-    PlayerRespawn, PlayerRespawnAnchorUse, PlayerToggleFlight, PlayerToggleGlide,
-    PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer,
-    PlayerViewDistanceChange, RespawnAnchorAction,
+    PlayerExhaust, PlayerGameModeChange, PlayerInfo, PlayerInteract, PlayerItemConsume,
+    PlayerItemEnchant, PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerJump, PlayerKick,
+    PlayerLogin, PlayerMissSwing, PlayerMove, PlayerPostChunkSend, PlayerQuit, PlayerRespawn,
+    PlayerRespawnAnchorUse, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak,
+    PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerViewDistanceChange, PlayerXpChange,
+    RespawnAnchorAction,
 };
 pub(crate) use sealed::Listeners;
 pub use server::{Command, ServerStart};
@@ -518,7 +518,7 @@ pub enum Priority {
 }
 
 /// An event Anchor raises. Only Anchor's own events implement it.
-// pmmp-class: Event
+// api-class: Event
 pub trait Event: sealed::Sealed + Send + 'static {}
 
 /// A listener: an extension point, so a boxed closure.

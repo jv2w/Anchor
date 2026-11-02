@@ -528,7 +528,7 @@ pub struct Lightning {
 ///
 /// Only the tick thread changes it. The engine loads and unloads chunks; a block
 /// of a chunk that is not loaded reads as `None` and cannot be set.
-// pmmp-class: World
+// api-class: World
 pub struct World {
     /// Its place in the server's world list (the tick numbers the worlds when it starts).
     id: Id,
@@ -684,7 +684,7 @@ impl World {
 
     /// The world's own difficulty, or `None` while it follows the server's
     /// ([`Context::difficulty`](crate::Context::difficulty)), as a new world does unless it is
-    /// made or loaded with one. The rules of the world use it (hunger, fire), but on a `hardcore`
+    /// made or loaded with one. The rules of the world use it (food, fire), but on a `hardcore`
     /// server they use hard whatever it says. Not saved: it comes from the options of every load.
     #[doc(alias = "World::getDifficulty")]
     pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
@@ -1451,7 +1451,7 @@ mod tests {
         assert_eq!(at(-0.5, 0.0, 0.0).chunk(), ChunkPos::new(-1, 0));
     }
 
-    // pmmp: World::getBlock, World::getBlockAt, World::setBlock, World::setBlockAt, World
+    // api: World::getBlock, World::getBlockAt, World::setBlock, World::setBlockAt, World
     #[test]
     fn random_sets_over_chunks_match_an_array() {
         let states = plain_states();
@@ -1499,7 +1499,7 @@ mod tests {
         assert!(w.take_changes().is_empty());
     }
 
-    // pmmp: World::getChunk, Position::getSide
+    // api: World::getChunk, Position::getSide
     #[test]
     fn loaded_chunks_read_through_the_world_and_sides_are_one_block_away() {
         let w = world(&Flat, 0);
@@ -1526,7 +1526,7 @@ mod tests {
         assert_eq!(BlockPos::new(0, i32::MIN, 0).step(Face::Down), None);
     }
 
-    // pmmp: World::getSeed, World::getTime, World::getTimeOfDay
+    // api: World::getSeed, World::getTime, World::getTimeOfDay
     #[test]
     fn the_seed_and_the_day_cycle_are_the_worlds() {
         let mut w = world(&Flat, 0);
@@ -1538,9 +1538,9 @@ mod tests {
         assert_eq!(w.time_of_day(), 23_999);
     }
 
-    // pmmp: World::isInWorld, World::getMinY, World::getMaxY, World::getLoadedChunks,
-    // pmmp: World::getBiomeId, World::getBiome, World::setBiomeId, World::getHighestBlockAt,
-    // pmmp: World::isChunkLoaded
+    // api: World::isInWorld, World::getMinY, World::getMaxY, World::getLoadedChunks,
+    // api: World::getBiomeId, World::getBiome, World::setBiomeId, World::getHighestBlockAt,
+    // api: World::isChunkLoaded
     #[test]
     fn heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only() {
         assert!(World::is_in_world(BlockPos::new(i32::MAX, MIN_Y, i32::MIN)));

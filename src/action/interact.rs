@@ -34,7 +34,7 @@ impl Action for AttackBlock {}
 /// ([`BlockBreak`](crate::event::BlockBreak) starts with `insta_break` set). The position is in
 /// the world the player is in when the action runs, and the player's open window closes first, as
 /// for the player's own break. The block must be within reach: 7 blocks of the player's eyes (13
-/// in creative) and in front of where the player looks, or nothing happens; drops, experience and
+/// in creative) and in front of where the player looks, or nothing happens; drops, XP and
 /// tool wear are the player's own break's.
 #[doc(alias = "Player::breakBlock")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

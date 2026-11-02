@@ -83,7 +83,7 @@ pub(super) fn picked_item(kind: &Kind) -> Option<Stack> {
     };
     match kind {
         Kind::Item(_)
-        | Kind::ExperienceOrb(_)
+        | Kind::XpOrb(_)
         | Kind::Projectile(_)
         | Kind::Cloud(_)
         | Kind::Firework(_) => None,
@@ -143,9 +143,9 @@ mod tests {
         h.state.rules.entities.get(id).unwrap().picked_item()
     }
 
-    // pmmp: Entity::getPickedItem, entity\object\EndCrystal::getPickedItem,
-    // pmmp: FallingBlock::getPickedItem, Painting::getPickedItem, PrimedTNT::getPickedItem,
-    // pmmp: Villager::getPickedItem, Zombie::getPickedItem
+    // api: Entity::getPickedItem, entity\object\EndCrystal::getPickedItem,
+    // api: FallingBlock::getPickedItem, Painting::getPickedItem, PrimedTNT::getPickedItem,
+    // api: Villager::getPickedItem, Zombie::getPickedItem
     #[test]
     fn each_kind_gives_pmmps_picked_item() {
         let mut h = Harness::new(1);
@@ -223,7 +223,7 @@ mod tests {
         Stack::new(item::Kind::ZombieSpawnEgg.default_type(), 1)
     }
 
-    // pmmp: PlayerEntityPickEvent
+    // api: PlayerEntityPickEvent
     #[test]
     fn creative_players_get_the_entity_item_and_others_only_select_one_they_carry() {
         let mut h = Harness::new(1);
@@ -282,9 +282,9 @@ mod tests {
         NOTES.with(std::cell::Cell::take)
     }
 
-    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity,
-    // pmmp: PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel,
-    // pmmp: PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
+    // api: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity,
+    // api: PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel,
+    // api: PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
     #[test]
     fn an_entity_pick_listener_sees_the_pick_and_may_cancel_it() {
         let mut l = Listeners::default();

@@ -25,8 +25,8 @@ const (
 //   - jigsaw_structure_data.dat: jigsaw_structure_data.nbt, the StructureData of JigsawStructureData.
 //   - entity_properties.dat: each compound of entity_properties.nbt as one root, in the file's order (BDS's
 //     order), the PropertyData of one SyncActorProperty each.
-func writeNetworkCopies(cloudburst, out string) error {
-	r, err := gzipBigEndian(filepath.Join(cloudburst, jigsawSource))
+func writeNetworkCopies(refdata, out string) error {
+	r, err := gzipBigEndian(filepath.Join(refdata, jigsawSource))
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func writeNetworkCopies(cloudburst, out string) error {
 		return err
 	}
 
-	r, err = gzipBigEndian(filepath.Join(cloudburst, propertiesSource))
+	r, err = gzipBigEndian(filepath.Join(refdata, propertiesSource))
 	if err != nil {
 		return err
 	}

@@ -31,7 +31,7 @@ pub use item::Item;
 pub(crate) use offer::DEFAULT_PRICE_MULTIPLIER;
 pub use offer::{
     MAX_OFFERS, MAX_TRADE_COUNTER, MAX_TRADE_TIER, Offer, TRADE_TIERS, is_price_multiplier,
-    is_tier_experience,
+    is_tier_xp,
 };
 pub use recipe::{Ingredient, Recipe};
 pub(crate) use registry::{Registry, is_identifier};

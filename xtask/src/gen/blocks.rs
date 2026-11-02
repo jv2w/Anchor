@@ -169,12 +169,12 @@ fn interned<'a>(out: &mut String, data: &'a Data) -> Interned<'a> {
 
 /// A generated enum: doc, name, variants (Rust name, documented name) and the derives.
 pub(crate) fn enumeration(out: &mut String, doc: &str, name: &str, variants: &[(String, String)]) {
-    pmmp_enumeration(out, doc, "", name, variants);
+    api_enumeration(out, doc, "", name, variants);
 }
 
-/// [`enumeration`] with the PMMP mapping lines (`// pmmp-class:` comments and `#[doc(alias)]`
+/// [`enumeration`] with the PMMP mapping lines (`// api-class:` comments and `#[doc(alias)]`
 /// attributes, each ending in a newline) between the doc and the derives.
-pub(crate) fn pmmp_enumeration(
+pub(crate) fn api_enumeration(
     out: &mut String,
     doc: &str,
     pmmp: &str,
@@ -366,7 +366,7 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
         .iter()
         .map(|t| t.strip_prefix("pocketmine:").unwrap_or(t))
         .collect();
-    pmmp_enumeration(
+    api_enumeration(
         out,
         "A PMMP block type tag (`BlockTypeTags`); [`State::has_type_tag`] tells a state's.",
         "#[doc(alias = \"BlockTypeTags\")]
@@ -506,7 +506,7 @@ fn banner_patterns(out: &mut String, data: &Data) {
         .iter()
         .map(|n| (upper_camel(n), (*n).to_owned()))
         .collect();
-    pmmp_enumeration(
+    api_enumeration(
         out,
         "A banner pattern (PMMP `BannerPatternType`).",
         "#[doc(alias = \"BannerPatternType\")]

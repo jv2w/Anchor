@@ -1,4 +1,4 @@
-//! What a broken block drops and the experience it gives (PMMP `Block::getDrops`,
+//! What a broken block drops and the xp it gives (PMMP `Block::getDrops`,
 //! `getDropsForCompatibleTool`, `getDropsForIncompatibleTool`, `getSilkTouchDrops`,
 //! `getXpDropForTool` and every class override, `FortuneDropHelper`, `Explosion::explodeB`).
 //!
@@ -121,9 +121,9 @@ pub(super) fn drops(state: State, tool: &Stack, rng: &mut Random) -> Drops {
     out
 }
 
-/// Works out the experience of the state broken with `tool` (PMMP `getXpDropForTool`): nothing
+/// Works out the xp of the state broken with `tool` (PMMP `getXpDropForTool`): nothing
 /// with Silk Touch or an incompatible tool, else the class's `getXpDropAmount`.
-pub(super) fn experience(state: State, tool: &Stack, rng: &mut Random) -> u32 {
+pub(super) fn block_xp(state: State, tool: &Stack, rng: &mut Random) -> u32 {
     if level(tool, Enchantment::SilkTouch) > 0 || !is_compatible(state, tool) {
         return 0;
     }
@@ -668,7 +668,7 @@ mod tests {
         for seed in 0..64 {
             let mut rng = Random::new(seed, 7, 11);
             let got = drops(state, tool, &mut rng);
-            let xp = experience(state, tool, &mut rng);
+            let xp = block_xp(state, tool, &mut rng);
             assert!(
                 (u32::from(golden.xp.0)..=u32::from(golden.xp.1)).contains(&xp),
                 "{state:?} {tool:?} xp {xp} not in {:?}",
@@ -780,7 +780,7 @@ mod tests {
             assert!((1..=6).contains(&count(&d, item::Kind::Carrot)));
             let d = drops(state(Kind::CopperOre), &Stack::new(pickaxe, 1), &mut rng);
             assert!((2..=5).contains(&count(&d, item::Kind::RawCopper)));
-            let xp = experience(state(Kind::DiamondOre), &Stack::new(pickaxe, 1), &mut rng);
+            let xp = block_xp(state(Kind::DiamondOre), &Stack::new(pickaxe, 1), &mut rng);
             assert!((3..=7).contains(&xp));
         }
     }

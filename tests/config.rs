@@ -122,9 +122,9 @@ fn custom() -> Config {
     g.difficulty = Difficulty::Hard;
     g.hardcore = true;
     g.pvp = false;
-    g.hunger = false;
-    g.experience = false;
-    g.experience_orbs = false;
+    g.food = false;
+    g.xp = false;
+    g.xp_orbs = false;
     g.fall_damage = false;
     g.drowning = false;
     g.armor = false;
@@ -221,9 +221,9 @@ force-gamemode = true
 difficulty = "hard"
 hardcore = true
 pvp = false
-hunger = false
-experience = false
-experience-orbs = false
+food = false
+xp = false
+xp-orbs = false
 fall-damage = false
 drowning = false
 armor = false
@@ -289,7 +289,7 @@ spawn = [-2147483648, -60, 2147483647]
 tick-radius = 1
 "#;
 
-// pmmp: GameMode
+// api: GameMode
 #[test]
 fn every_key_reaches_its_field() {
     let file = File::new("every_key_reaches_its_field");
@@ -460,9 +460,9 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         // `true` needs `difficulty = "hard"`; see `hardcore_needs_hard_difficulty`.
         ("general.hardcore", s(&["false"]), s(&["true"])),
         ("general.pvp", bools(), Vec::new()),
-        ("general.hunger", bools(), Vec::new()),
-        ("general.experience", bools(), Vec::new()),
-        ("general.experience-orbs", bools(), Vec::new()),
+        ("general.food", bools(), Vec::new()),
+        ("general.xp", bools(), Vec::new()),
+        ("general.xp-orbs", bools(), Vec::new()),
         ("general.fall-damage", bools(), Vec::new()),
         ("general.drowning", bools(), Vec::new()),
         ("general.armor", bools(), Vec::new()),
@@ -716,8 +716,8 @@ fn new_keys_default_to_the_behaviour_before_them() {
     let config = Config::default();
     let (g, d) = (&config.general, &config.developer);
     for on in [
-        g.experience,
-        g.experience_orbs,
+        g.xp,
+        g.xp_orbs,
         g.durability,
         g.fall_damage,
         g.drowning,

@@ -52,12 +52,12 @@ pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
 static MINECRAFT: Item = Item::new("minecraft:ruby", "Ruby", "ruby");
 /// An item whose identifier has no namespace.
 static NO_NAMESPACE: Item = Item::new("ruby", "Ruby", "ruby");
-/// A block that drops two rubies and some experience.
+/// A block that drops two rubies and some xp.
 pub(crate) static ORE: Block = Block::new("test:ruby_ore", "test_ruby_ore")
     .with_hardness(3.0)
     .with_tool(ToolType::PICKAXE, 2)
     .with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 2)]))
-    .with_experience(1, 3)
+    .with_xp(1, 3)
     .with_creative(Creative::new(Category::Nature));
 /// A block that drops an item nothing registers.
 static ORPHAN_DROP: Block =
@@ -222,7 +222,7 @@ fn custom_types_answer_the_rules_from_their_definition() {
     let apple = r.item_type(&APPLE).unwrap();
     let food = apple.food().unwrap();
     assert_eq!((food.food_restore(), food.saturation_restore()), (4, 9.6));
-    assert!(!food.requires_hunger());
+    assert!(!food.requires_food());
     assert!(apple.consumable().is_some() && apple.is(item::Class::Food));
     assert!(apple.has_trait(item::Trait::Releasable));
     let ruby = r.item_type(&RUBY).unwrap();
@@ -495,7 +495,7 @@ fn next_anonymous(content: &crate::protocol::packet::CreativeContent, category: 
     }
 }
 
-// pmmp: CreativeCategory, CreativeInventoryCache::buildPacket
+// api: CreativeCategory, CreativeInventoryCache::buildPacket
 #[test]
 fn the_creative_inventory_lists_custom_entries_after_pmmps() {
     let r = registry();
@@ -566,9 +566,9 @@ fn vanilla(kind: item::Kind) -> ItemRef {
     ItemRef::Item(kind.default_type())
 }
 
-// pmmp: CreativeInventory, CreativeInventory::add, CreativeInventory::remove,
-// pmmp: CreativeInventory::clear, CreativeInventoryEntry::matchesItem, CreativeGroup,
-// pmmp: CreativeGroup::__construct, CreativeGroup::getName, CreativeGroup::getIcon
+// api: CreativeInventory, CreativeInventory::add, CreativeInventory::remove,
+// api: CreativeInventory::clear, CreativeInventoryEntry::matchesItem, CreativeGroup,
+// api: CreativeGroup::__construct, CreativeGroup::getName, CreativeGroup::getIcon
 #[test]
 fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
     let planks = Registry::default()
@@ -1035,10 +1035,10 @@ fn recipes() -> Registry {
     r
 }
 
-// pmmp: CraftingManager::registerShapedRecipe, CraftingManager::registerShapelessRecipe,
-// pmmp: FurnaceRecipeManager::register, ShapedRecipe::__construct,
-// pmmp: ShapelessRecipe::__construct, FurnaceRecipe::__construct,
-// pmmp: ExactRecipeIngredient::__construct
+// api: CraftingManager::registerShapedRecipe, CraftingManager::registerShapelessRecipe,
+// api: FurnaceRecipeManager::register, ShapedRecipe::__construct,
+// api: ShapelessRecipe::__construct, FurnaceRecipe::__construct,
+// api: ExactRecipeIngredient::__construct
 #[test]
 fn custom_recipes_are_numbered_after_pmmps_and_judged_by_shape() {
     let r = recipes();
@@ -1137,7 +1137,7 @@ fn station_and_brewing() -> Registry {
     .unwrap()
 }
 
-// pmmp: ShapelessRecipe::getType, ShapelessRecipeType
+// api: ShapelessRecipe::getType, ShapelessRecipeType
 #[test]
 fn stonecutter_and_smithing_recipes_are_numbered_and_sent_after_pmmps() {
     let ruby = ItemRef::Custom(&RUBY);
@@ -1179,9 +1179,9 @@ fn stonecutter_and_smithing_recipes_are_numbered_and_sent_after_pmmps() {
     );
 }
 
-// pmmp: CraftingManager::registerPotionTypeRecipe,
-// pmmp: CraftingManager::registerPotionContainerChangeRecipe, PotionTypeRecipe::__construct,
-// pmmp: PotionContainerChangeRecipe::__construct, CraftingManager::matchBrewingRecipe
+// api: CraftingManager::registerPotionTypeRecipe,
+// api: CraftingManager::registerPotionContainerChangeRecipe, PotionTypeRecipe::__construct,
+// api: PotionContainerChangeRecipe::__construct, CraftingManager::matchBrewingRecipe
 #[test]
 fn brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind() {
     let r = station_and_brewing();

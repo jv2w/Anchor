@@ -2397,7 +2397,7 @@ mod tests {
         state.worlds[key.0].is_chunk_loaded(key.1)
     }
 
-    // pmmp: ChunkLoadEvent, ChunkPopulateEvent
+    // api: ChunkLoadEvent, ChunkPopulateEvent
     #[test]
     fn chunk_loads_name_new_and_restored_chunks_once() {
         let mut listeners = on(|e: &mut ChunkLoad, cx: &mut Context<'_>| {
@@ -2454,7 +2454,7 @@ mod tests {
         l
     }
 
-    // pmmp: ChunkUnloadEvent
+    // api: ChunkUnloadEvent
     #[test]
     fn a_cancelled_unload_keeps_the_chunk_until_it_is_asked_again() {
         let mut state = state(keeping());
@@ -2476,7 +2476,7 @@ mod tests {
         assert!(state.chunks.kept.is_empty() && state.chunks.unloading.is_empty());
     }
 
-    // pmmp: ChunkUnloadEvent
+    // api: ChunkUnloadEvent
     #[test]
     fn a_chunk_held_again_before_the_view_phase_is_not_asked_about() {
         let mut state = state(keeping());
@@ -2488,7 +2488,7 @@ mod tests {
         assert!(is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
     }
 
-    // pmmp: ChunkUnloadEvent
+    // api: ChunkUnloadEvent
     /// A listener that holds a chunk it is asked about with a ticket keeps it loaded, and the
     /// monitors see that as a cancel.
     #[test]
@@ -2508,7 +2508,7 @@ mod tests {
         assert!(is_loaded(&state, FAR) && state.chunks.kept.is_empty());
     }
 
-    // pmmp: ChunkUnloadEvent
+    // api: ChunkUnloadEvent
     /// Past the bound a cancel is ignored and the chunk unloads, and the monitors see no cancel.
     #[test]
     fn listeners_keep_at_most_the_bound_of_chunks() {
@@ -2545,7 +2545,7 @@ mod tests {
         assert!(!is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
     }
 
-    // pmmp: ChunkUnloadEvent, PlayerPostChunkSendEvent, ChunkLoadEvent
+    // api: ChunkUnloadEvent, PlayerPostChunkSendEvent, ChunkLoadEvent
     #[test]
     fn join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start() {
         let mut listeners = keeping();
@@ -2581,8 +2581,8 @@ mod tests {
         assert!(logged().iter().any(|l| l == "monitor false"));
     }
 
-    // pmmp: PlayerPostChunkSendEvent, PlayerPostChunkSendEvent::getChunkX
-    // pmmp: PlayerPostChunkSendEvent::getChunkZ
+    // api: PlayerPostChunkSendEvent, PlayerPostChunkSendEvent::getChunkX
+    // api: PlayerPostChunkSendEvent::getChunkZ
     #[test]
     fn post_chunk_send_names_each_chunk_sent_once_and_comes_after_it() {
         let mut listeners = on(|e: &mut PlayerPostChunkSend, cx: &mut Context<'_>| {

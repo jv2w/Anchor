@@ -7,7 +7,7 @@
 //! The flat world has no trees, stone, ore, grass seeds or villagers, so a task (the public
 //! `Context`) sets up what the stages need: it sets each oak log, stone block and the enchanting
 //! table, gives coal ×1, raw iron ×2, wheat seeds ×1, bone meal ×8, lapis lazuli ×3, emeralds ×4
-//! and 300 experience points, and spawns the villager. After every stage the player's items, as
+//! and 300 xp points, and spawns the villager. After every stage the player's items, as
 //! a commit would save them, are exactly the expected ones and nothing lies on the ground, so no
 //! item was duplicated or lost.
 
@@ -604,7 +604,7 @@ fn empty_main(slot: u8) -> StackRequestSlotInfo {
     client::slot_info(C::CombinedHotBarAndInventory as u8, slot, 0)
 }
 
-/// The item entities and experience orbs of the loaded chunks, as a save writes them.
+/// The item entities and xp orbs of the loaded chunks, as a save writes them.
 fn loose(state: &mut State) -> usize {
     state.rules.flush(&mut state.chunks.extras);
     let mut n = 0;
@@ -740,7 +740,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         client::slot_info(C::FurnaceIngredient as u8, FURNACE_INPUT, 0),
     );
     s.idle(2 * 200 + 5);
-    let xp_before = survival::lifetime_experience(s.player());
+    let xp_before = survival::lifetime_xp(s.player());
     let dest = s.empty_slot();
     // The output slot, as the window's slot updates told the client.
     let output = client::slot_info(
@@ -752,8 +752,8 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     s.close(window);
     s.pick_up();
     assert!(
-        survival::lifetime_experience(s.player()) > xp_before,
-        "the smelting experience"
+        survival::lifetime_xp(s.player()) > xp_before,
+        "the smelting xp"
     );
     s.assert_contents(
         "smelting",

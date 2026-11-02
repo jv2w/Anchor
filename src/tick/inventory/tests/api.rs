@@ -44,18 +44,18 @@ fn slots(packets: &[Packet]) -> Vec<(u32, u32, u16, i32)> {
         .collect()
 }
 
-// pmmp: Human::getInventory, Living::getArmorInventory, Human::getOffHandInventory
-// pmmp: Player::getCursorInventory, Player::getCraftingGrid, Human::getEnderInventory
-// pmmp: PlayerInventory, ArmorInventory, PlayerOffHandInventory, PlayerCursorInventory
-// pmmp: PlayerCraftingInventory, PlayerEnderInventory, Inventory::setItem
-// pmmp: BaseInventory::setItem, CraftingGrid::setItem, Inventory::clear, BaseInventory::clear
-// pmmp: ArmorInventory::setHelmet, ArmorInventory::setChestplate, ArmorInventory::setLeggings
-// pmmp: ArmorInventory::setBoots, ArmorInventory::getHelmet, ArmorInventory::getChestplate
-// pmmp: ArmorInventory::getLeggings, ArmorInventory::getBoots, PlayerInventory::getHotbarSlotItem
-// pmmp: Inventory::addItem, BaseInventory::addItem, Inventory::removeItem
-// pmmp: BaseInventory::removeItem, Inventory::remove, BaseInventory::remove, Inventory::swap
-// pmmp: BaseInventory::swap, Inventory::clearAll, BaseInventory::clearAll
-// pmmp: Inventory::setContents, BaseInventory::setContents
+// api: Human::getInventory, Living::getArmorInventory, Human::getOffHandInventory
+// api: Player::getCursorInventory, Player::getCraftingGrid, Human::getEnderInventory
+// api: PlayerInventory, ArmorInventory, PlayerOffHandInventory, PlayerCursorInventory
+// api: PlayerCraftingInventory, PlayerEnderInventory, Inventory::setItem
+// api: BaseInventory::setItem, CraftingGrid::setItem, Inventory::clear, BaseInventory::clear
+// api: ArmorInventory::setHelmet, ArmorInventory::setChestplate, ArmorInventory::setLeggings
+// api: ArmorInventory::setBoots, ArmorInventory::getHelmet, ArmorInventory::getChestplate
+// api: ArmorInventory::getLeggings, ArmorInventory::getBoots, PlayerInventory::getHotbarSlotItem
+// api: Inventory::addItem, BaseInventory::addItem, Inventory::removeItem
+// api: BaseInventory::removeItem, Inventory::remove, BaseInventory::remove, Inventory::swap
+// api: BaseInventory::swap, Inventory::clearAll, BaseInventory::clearAll
+// api: Inventory::setContents, BaseInventory::setContents
 #[test]
 fn player_writes_reach_the_client_with_new_stack_ids() {
     let mut w = World::new(GameMode::Survival);
@@ -173,8 +173,8 @@ fn set_contents_on_the_grid_checks_the_held_stacks_it_ends_with() {
     assert!(grid.view().is_slot_empty(1));
 }
 
-// pmmp: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex
-// pmmp: PlayerInventory::getItemInHand, Player::getCurrentWindow, Player::removeCurrentWindow
+// api: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex
+// api: PlayerInventory::getItemInHand, Player::getCurrentWindow, Player::removeCurrentWindow
 #[test]
 fn the_hotbar_selection_and_the_window_are_the_players() {
     let mut w = World::new(GameMode::Survival);
@@ -207,7 +207,7 @@ fn the_hotbar_selection_and_the_window_are_the_players() {
     assert_eq!(w.inv(s).main.stack(0), &coal(2), "the cursor went back");
 }
 
-// pmmp: Container::getRealInventory, InventoryHolder::getInventory
+// api: Container::getRealInventory, InventoryHolder::getInventory
 #[test]
 fn container_blocks_read_both_chest_halves_and_tell_every_viewer() {
     let mut w = World::new(GameMode::Survival);
@@ -524,7 +524,7 @@ fn a_chest_of_full_shulker_boxes_of_the_largest_items_commits_and_reads_back() {
     assert_eq!(refused, Err(it::Error::TooLarge));
 }
 
-// pmmp: Inventory::getViewers, BaseInventory::getViewers
+// api: Inventory::getViewers, BaseInventory::getViewers
 #[test]
 fn block_inventory_viewers_are_the_players_with_its_window_open() {
     let mut w = World::new(GameMode::Survival);
@@ -563,7 +563,7 @@ fn block_inventory_viewers_are_the_players_with_its_window_open() {
     );
 }
 
-// pmmp: Player::setCreativeInventory, Player::getCreativeInventory, CreativeInventory::getAll
+// api: Player::setCreativeInventory, Player::getCreativeInventory, CreativeInventory::getAll
 #[test]
 fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it() {
     use crate::custom::{Category, CreativeInventory, ItemRef};

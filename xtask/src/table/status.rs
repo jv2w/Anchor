@@ -1,4 +1,4 @@
-//! The status file `xtask/data/pmmp/status.txt`: rules that give rows without an Anchor alias a
+//! The status file `xtask/data/dump/status.txt`: rules that give rows without an Anchor alias a
 //! status (merged, skipped), rows with one a reason they differ, and known gaps a note (open).
 
 /// What a rule says about the rows its pattern matches.
@@ -110,38 +110,18 @@ mod tests {
     #[test]
     fn globs_match_within_and_across_segments() {
         let cases = [
-            (
-                r"pocketmine\plugin\**",
-                r"pocketmine\plugin\PluginBase",
-                true,
-            ),
-            (
-                r"pocketmine\plugin\**",
-                r"pocketmine\plugin\PluginBase::onEnable",
-                true,
-            ),
-            (r"pocketmine\plugin\**", r"pocketmine\pluginx\A", false),
-            (
-                r"pocketmine\block\**::get*",
-                r"pocketmine\block\tile\Chest::getPair",
-                true,
-            ),
-            (
-                r"pocketmine\block\**::get*",
-                r"pocketmine\block\Chest",
-                false,
-            ),
-            (r"*::get*", r"pocketmine\Server::getName", false),
-            (r"**::get*", r"pocketmine\Server::getName", true),
-            (r"pocketmine\block\*", r"pocketmine\block\Chest", true),
-            (r"pocketmine\block\*", r"pocketmine\block\tile\Chest", false),
-            (
-                r"pocketmine\block\*",
-                r"pocketmine\block\Chest::getPair",
-                false,
-            ),
-            (r"pocketmine\Server", r"pocketmine\Server", true),
-            (r"pocketmine\Server", r"pocketmine\ServerX", false),
+            (r"plugin\**", r"plugin\PluginBase", true),
+            (r"plugin\**", r"plugin\PluginBase::onEnable", true),
+            (r"plugin\**", r"pluginx\A", false),
+            (r"block\**::get*", r"block\tile\Chest::getPair", true),
+            (r"block\**::get*", r"block\Chest", false),
+            (r"*::get*", r"block\Server::getName", false),
+            (r"**::get*", r"Server::getName", true),
+            (r"block\*", r"block\Chest", true),
+            (r"block\*", r"block\tile\Chest", false),
+            (r"block\*", r"block\Chest::getPair", false),
+            (r"Server", r"Server", true),
+            (r"Server", r"ServerX", false),
         ];
         for (pattern, fqn, expected) in cases {
             assert_eq!(matches(pattern, fqn), expected, "{pattern} {fqn}");
@@ -150,7 +130,7 @@ mod tests {
 
     #[test]
     fn parse_reads_rules_and_reports_bad_lines() {
-        let text = "# comment\n\npocketmine\\plugin\\** skipped no plugins: a library\n\
+        let text = "# comment\n\nplugin\\** skipped no plugins: a library\n\
                     Player::sendTip merged Player::sendMessage\n\
                     a::b \t differs  rounds  down\nx bogus y\nlonely skipped\nm merged a b\n\
                     Player::getPing open the ping is not in tick state\n";
@@ -158,7 +138,7 @@ mod tests {
         let expected = [
             (
                 3,
-                r"pocketmine\plugin\**",
+                r"plugin\**",
                 Kind::Skipped("no plugins: a library".to_owned()),
             ),
             (

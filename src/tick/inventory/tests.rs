@@ -1554,7 +1554,7 @@ fn random_requests_keep_every_item_accounted_for() {
     run_model(GameMode::Creative, 2, 50_000, None);
 }
 
-// pmmp: InventoryTransactionEvent, CraftItemEvent, PlayerDropItemEvent
+// api: InventoryTransactionEvent, CraftItemEvent, PlayerDropItemEvent
 #[test]
 fn random_requests_with_random_listeners_keep_every_item_accounted_for() {
     // Listeners from a fixed seed cancel, change fields or move items themselves through the

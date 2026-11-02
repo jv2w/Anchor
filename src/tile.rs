@@ -33,7 +33,7 @@ pub const SIGN_LINES: usize = 4;
 /// A block entity to read ([`Context::block_entity`](crate::Context)): its position, its block
 /// and the data of its kind.
 #[derive(Clone, Copy)]
-// pmmp-class: Tile
+// api-class: Tile
 pub struct Tile<'a> {
     pub(crate) state: &'a State,
     pub(crate) world: WorldIndex,
@@ -106,7 +106,7 @@ pub enum Side {
 
 /// The text of one side of a sign: four lines, a colour and whether it glows.
 #[derive(Debug, Clone, PartialEq, Eq)]
-// pmmp-class: SignText
+// api-class: SignText
 pub struct SignText {
     pub(crate) lines: [String; SIGN_LINES],
     /// Signed ARGB, as saved.
@@ -340,8 +340,8 @@ pub(crate) fn to_argb(c: Rgba) -> i32 {
 mod tests {
     use super::*;
 
-    // pmmp: SignText, SignText::fromBlob, SignText::getLines, SignText::getLine,
-    // pmmp: SignText::getBaseColor, SignText::isGlowing
+    // api: SignText, SignText::fromBlob, SignText::getLines, SignText::getLine,
+    // api: SignText::getBaseColor, SignText::isGlowing
     #[test]
     fn sign_text_checks_its_lines_and_keeps_its_colour() {
         let colour = Rgba {
@@ -390,7 +390,7 @@ e",
         assert_eq!(SignText::default().colour(), black);
     }
 
-    // pmmp: BannerPatternLayer, BannerPatternLayer::getType, BannerPatternLayer::getColor
+    // api: BannerPatternLayer, BannerPatternLayer::getType, BannerPatternLayer::getColor
     #[test]
     fn banner_colours_count_the_other_way() {
         let layer = BannerPattern::new(crate::block::BannerPattern::Border, DyeColour::Red);
@@ -407,7 +407,7 @@ e",
         assert_eq!(DyeColour::from_banner_id(-1), None);
     }
 
-    // pmmp: DyeColor, DyeColor::getRgbValue
+    // api: DyeColor, DyeColor::getRgbValue
     #[test]
     fn dye_colours_have_pmmps_rgb_values() {
         // PMMP `DyeColor::getMetadata`, white to black.

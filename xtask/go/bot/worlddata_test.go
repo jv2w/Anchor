@@ -20,8 +20,8 @@ const plainsJSON = `{"minecraft:plains": {"id": null, "temperature": 0.8, "downf
  "scale": 0.05, "mapWaterColor": {"a": 165, "r": 68, "g": 175, "b": 245}, "rain": true,
  "tags": ["animal", "plains"], "chunkGenData": null}}`
 
-// writeCloudburst writes a data directory holding plainsJSON and a jigsaw file with the given NBT.
-func writeCloudburst(t *testing.T, jigsaw map[string]any) string {
+// writeWorlddata writes a data directory holding plainsJSON and a jigsaw file with the given NBT.
+func writeWorlddata(t *testing.T, jigsaw map[string]any) string {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "stripped_biome_definitions.json"), []byte(plainsJSON), 0o644); err != nil {
 		t.Fatal(err)
@@ -66,12 +66,12 @@ func plains(tags ...uint16) *packet.BiomeDefinitionList {
 	}
 }
 
-func TestCloudburstCheckMatchesEqualContent(t *testing.T) {
+func TestWorlddataCheckMatchesEqualContent(t *testing.T) {
 	jigsaw := map[string]any{"jigsaws": []any{map[string]any{"weight": int32(3), "name": "a"}}}
-	data := writeCloudburst(t, jigsaw)
+	data := writeWorlddata(t, jigsaw)
 	var out bytes.Buffer
 	world := writeWorld(t, plains(2, 0), &packet.JigsawStructureData{StructureData: jigsaw})
-	same, err := cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	same, err := worlddataCommand([]string{"-world", world, "-data", data}, &out)
 	if err != nil || !same {
 		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
 	}
@@ -79,14 +79,14 @@ func TestCloudburstCheckMatchesEqualContent(t *testing.T) {
 	other := map[string]any{"jigsaws": []any{map[string]any{"weight": int32(4), "name": "a"}}}
 	world = writeWorld(t, plains(0, 2), &packet.JigsawStructureData{StructureData: other})
 	out.Reset()
-	same, err = cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	same, err = worlddataCommand([]string{"-world", world, "-data", data}, &out)
 	if err != nil || same || !strings.Contains(out.String(), "biome minecraft:plains") ||
 		!strings.Contains(out.String(), "JigsawStructureData differs") {
 		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
 	}
 }
 
-func TestCloudburstCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testing.T) {
+func TestWorlddataCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testing.T) {
 	pool := func(id string, elements ...string) map[string]any {
 		list := make([]any, len(elements))
 		for i, e := range elements {
@@ -94,12 +94,12 @@ func TestCloudburstCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testin
 		}
 		return map[string]any{"description": map[string]any{"identifier": id}, "elements": list}
 	}
-	data := writeCloudburst(t, map[string]any{"template_pools": []any{pool("a", "x", "y"), pool("b", "z")}})
+	data := writeWorlddata(t, map[string]any{"template_pools": []any{pool("a", "x", "y"), pool("b", "z")}})
 	var out bytes.Buffer
 	// The pools in another order, as BDS's Linux build sends them.
 	moved := map[string]any{"template_pools": []any{pool("b", "z"), pool("a", "x", "y")}}
 	world := writeWorld(t, plains(2, 0), &packet.JigsawStructureData{StructureData: moved})
-	same, err := cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	same, err := worlddataCommand([]string{"-world", world, "-data", data}, &out)
 	if err != nil || !same {
 		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
 	}
@@ -107,18 +107,18 @@ func TestCloudburstCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testin
 	inner := map[string]any{"template_pools": []any{pool("a", "y", "x"), pool("b", "z")}}
 	world = writeWorld(t, plains(2, 0), &packet.JigsawStructureData{StructureData: inner})
 	out.Reset()
-	same, err = cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	same, err = worlddataCommand([]string{"-world", world, "-data", data}, &out)
 	if err != nil || same || !strings.Contains(out.String(), "JigsawStructureData differs") {
 		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
 	}
 }
 
-func TestCloudburstCheckFailsWithoutJigsawStructureData(t *testing.T) {
-	data := writeCloudburst(t, map[string]any{"jigsaws": []any{}})
+func TestWorlddataCheckFailsWithoutJigsawStructureData(t *testing.T) {
+	data := writeWorlddata(t, map[string]any{"jigsaws": []any{}})
 	var out bytes.Buffer
 	// A capture with the biome definitions but no jigsaw data, as Anchor sent before it sent one.
 	world := writeWorld(t, plains(2, 0))
-	same, err := cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	same, err := worlddataCommand([]string{"-world", world, "-data", data}, &out)
 	if err != nil || same || !strings.Contains(out.String(), "no JigsawStructureData") {
 		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
 	}

@@ -24,7 +24,7 @@ paths:
 
 ## P6
 - Compare every client-visible change with the official server through P6. A bot scenario must first pass on the official server before it verifies Anchor.
-- Run the official server only from its copy in `.cache/bds/<version>/`, the version the harness pins. Never run the original download. Never analyze the executable.
+- Run the official server only from its copy in `.cache/official/<version>/`, the version the harness pins. Never run the original download. Never analyze the executable.
 - Compare with the official server only through the packets the bot receives.
 - For what only the official client shows, make Anchor send the values the official server sends, and give the user a checklist of what to look at in the client.
 - Keep the P6 test settings at Anchor's defaults, except the values that align the two servers (no Xbox login, world name, seed) and what the harness needs to run (ports, transport, compression, cheats for the API session).
@@ -38,7 +38,7 @@ paths:
 1. Write the scenario function in `xtask/go/bot/` and register it in `gameScenarios` with its own area in `gameAreas`, apart from every other scenario's area. Split it into steps (`step` records), write the world setup as `command` records (console commands), and record each fact to compare as a `check` line; for a game scenario, add the check's name to `FIXED_CHECKS` in `xtask/src/p6/game/trace.rs`.
 2. Add its name to the harness's `SCENARIOS` in `xtask/src/p6/game.rs` or `xtask/src/p6/api.rs`. An API scenario that only records facts also goes into `FACTS_ONLY`; one that compares only its check lines goes into `CHECKS_ONLY`.
 3. When Anchor must carry out a console command the scenario uses, translate it to the public API in `xtask/src/p6/game/console.rs`.
-4. Run `cargo xtask p6 game bds <name>` or `cargo xtask p6 api bds <name>` at least twice: it must pass on the official server with the same values. Leave out of the comparison every value that differs per run.
+4. Run `cargo xtask p6 game official <name>` or `cargo xtask p6 api official <name>` at least twice: it must pass on the official server with the same values. Leave out of the comparison every value that differs per run.
 5. Write the observed values and Anchor's decision for each into `facts.md`.
 6. Compare Anchor with `cargo xtask p6 game anchor <name>` or `cargo xtask p6 api anchor <name>`. Make each difference follow the official server, or, for an API scenario, list it in `intended.txt`.
 

@@ -46,7 +46,7 @@ fn world(stacks: &[Stack]) -> (World, SessionId) {
     for stack in stacks {
         w.give(s, stack.clone());
     }
-    survival::add_experience(w.player_mut(s), 100_000);
+    survival::add_xp(w.player_mut(s), 100_000);
     w.sent(s);
     (w, s)
 }
@@ -62,7 +62,7 @@ fn put(w: &mut World, s: SessionId, from: u8, count: u8, to: (C, u8)) {
 }
 
 #[test]
-fn a_furnace_window_cooks_with_bds_data_and_the_output_gives_its_experience() {
+fn a_furnace_window_cooks_with_bds_data_and_the_output_gives_its_xp() {
     let (mut w, s) = world(&[
         Stack::new(item(Kind::Coal), 1),
         Stack::new(named("minecraft:raw_iron"), 2),
@@ -105,19 +105,19 @@ fn a_furnace_window_cooks_with_bds_data_and_the_output_gives_its_experience() {
     let furnace = w.state.rules.block_entities.get(0, AT).unwrap();
     assert!(
         matches!(&furnace.kind, block_entity::Kind::Furnace(f) if f.xp == 0),
-        "taking the output takes the stored experience"
+        "taking the output takes the stored xp"
     );
     check_slots(&w.state);
 }
 
-/// `experience = false`: a furnace stores no experience for what it smelts.
+/// `xp = false`: a furnace stores no xp for what it smelts.
 #[test]
-fn without_experience_a_furnace_stores_no_experience() {
+fn without_xp_a_furnace_stores_no_xp() {
     let (mut w, s) = world(&[
         Stack::new(item(Kind::Coal), 1),
         Stack::new(named("minecraft:raw_iron"), 8),
     ]);
-    w.state.settings.experience = false;
+    w.state.settings.xp = false;
     w.place_block(AT, blk::Kind::Furnace.default_state());
     w.open_block(s, AT);
     put(&mut w, s, 0, 1, (C::FurnaceFuel, 1));
@@ -248,7 +248,7 @@ fn enchanting(lapis: u8) -> (World, SessionId, Vec<(u32, enchant::Choice)>) {
     (w, s, options)
 }
 
-// pmmp: EnchantInventory::getInput, EnchantInventory::getLapis
+// api: EnchantInventory::getInput, EnchantInventory::getLapis
 #[test]
 fn the_window_slots_read_the_enchanting_input_and_lapis() {
     let (w, s, _) = enchanting(3);
@@ -694,12 +694,12 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
     }
 }
 
-/// With `experience = false` the levels a player kept count as none.
+/// With `xp = false` the levels a player kept count as none.
 /// A survival player then takes no enchanting option and no anvil work, and keeps its levels.
 #[test]
-fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
+fn without_xp_enchanting_and_the_anvil_take_no_levels_and_refuse() {
     let (mut w, s, options) = enchanting(3);
-    w.state.settings.experience = false;
+    w.state.settings.xp = false;
     let level = survival::xp_level(w.player_mut(s));
     let id = w.next_id(s);
     let actions = enchant_request(&w, s, options[0].0, 0, id);
@@ -710,7 +710,7 @@ fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
         .with_damage(200)
         .unwrap();
     let (mut w, s) = world(&[pick.clone(), Stack::new(item(Kind::IronIngot), 5)]);
-    w.state.settings.experience = false;
+    w.state.settings.xp = false;
     w.place_block(AT, blk::Kind::Anvil.default_state());
     w.open_block(s, AT);
     put(&mut w, s, 0, 1, (C::AnvilInput, 1));

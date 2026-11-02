@@ -2,15 +2,15 @@
 //! `crops` and `trade`. The bot plays each one like the official client
 //! (`xtask/go/bot/game.go`) and writes the console commands it needs into its capture as `command`
 //! records; the harness runs
-//! each new command on the server's console while the bot runs (`run_scenario`). `p6 game bds` runs
-//! them against a fresh BDS world into `target/p6/bds-game/`: first the `spawn` scenario with
+//! each new command on the server's console while the bot runs (`run_scenario`). `p6 game official` runs
+//! them against a fresh BDS world into `target/p6/official-game/`: first the `spawn` scenario with
 //! untouched game rules (the spawn window of this world), then `SESSION_SETUP`, then each game
 //! scenario with its own player name. Each capture gets a report (`<scenario>.txt`, see `trace`),
 //! and `p6 game compare A B` compares the fixed parts of the traces of two capture folders.
 //! `p6 game anchor` runs the same session against Anchor, started in this process with the P6
 //! settings (RakNet, zlib, a fresh flat world, as `p6 anchor`), into `target/p6/anchor-game/`: its
 //! `console` carries out the commands through Anchor's public task API (`console`), and the
-//! session ends with `p6 game compare target/p6/bds-game target/p6/anchor-game` for the
+//! session ends with `p6 game compare target/p6/official-game target/p6/anchor-game` for the
 //! scenarios it ran, also written to `anchor-game/compare.txt`.
 
 pub(crate) mod console;
@@ -50,10 +50,10 @@ pub(crate) fn player(scenario: &str) -> String {
     name
 }
 
-/// `p6 game bds [scenario]...`: the game session of `session` alone.
-pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+/// `p6 game official [scenario]...`: the game session of `session` alone.
+pub(crate) fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
-    let exe = super::bds_exe(root)?;
+    let exe = super::official_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
     super::say(out, if passed { "PASS" } else { "FAIL" })?;
@@ -70,7 +70,7 @@ pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result
 }
 
 /// The game session against Anchor into `target/p6/anchor-game/`, then its comparison with the
-/// BDS session's captures (`p6 game bds` makes them). It passes when every bot and every console
+/// BDS session's captures (`p6 game official` makes them). It passes when every bot and every console
 /// command passed and the traces are the same.
 pub(crate) fn anchor_session(
     root: &Path,
@@ -103,15 +103,16 @@ pub(crate) fn anchor_session(
             Ok(passed)
         },
     )?;
-    let bds = root.join(super::OUT_DIR).join("bds-game");
-    let same = super::report_comparison(&dir, "compare bds-game anchor-game:", out, |report| {
-        compare_scenarios(root, &bds, &dir, scenarios, report)
-    })?;
+    let official = root.join(super::OUT_DIR).join("official-game");
+    let same =
+        super::report_comparison(&dir, "compare official-game anchor-game:", out, |report| {
+            compare_scenarios(root, &official, &dir, scenarios, report)
+        })?;
     Ok(played && same)
 }
 
 /// One BDS session (RakNet, zlib, a fresh world) that records the spawn window, runs
-/// `SESSION_SETUP` and the game scenarios into `target/p6/bds-game/`, each with its report.
+/// `SESSION_SETUP` and the game scenarios into `target/p6/official-game/`, each with its report.
 pub(crate) fn session(
     root: &Path,
     exe: &Path,
@@ -120,8 +121,8 @@ pub(crate) fn session(
     out: &mut impl Write,
 ) -> Result<bool, String> {
     let blocks = super::block_states(root)?;
-    let dir = root.join(super::OUT_DIR).join("bds-game");
-    super::bds_session(exe, &dir, "raknet", "zlib", out, |addr, server, out| {
+    let dir = root.join(super::OUT_DIR).join("official-game");
+    super::official_session(exe, &dir, "raknet", "zlib", out, |addr, server, out| {
         let mut passed = run_spawn(bot, addr, &dir, out)?;
         for line in SESSION_SETUP {
             server.command(line)?;

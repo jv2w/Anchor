@@ -4,14 +4,14 @@
 //! harness runs on the server's console. Each weather scenario after the first joins in the
 //! weather the one before it left; the script scenario runs the actions of `SCRIPT`.
 //!
-//! - `p6 api bds [scenario]...`: one BDS session (RakNet, zlib, a fresh flat world) with cheats
+//! - `p6 api official [scenario]...`: one BDS session (RakNet, zlib, a fresh flat world) with cheats
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
-//!   new world, into `target/p6/bds-api/`; the session first runs `game::SESSION_SETUP`.
+//!   new world, into `target/p6/official-api/`; the session first runs `game::SESSION_SETUP`.
 //! - `p6 api anchor [scenario]...`: the same against Anchor in this process (`game::console`
 //!   carries out `op`, `kick`, `kill <player>`, `scriptevent p6:<kind>`,
 //!   `summon ender_crystal|snowball|egg|lightning_bolt`, `weather` and `difficulty` through
 //!   Anchor's public API; player commands are Anchor's own), into `target/p6/anchor-api/`, then
-//!   compared with `bds-api/` (also written to `anchor-api/compare.txt`).
+//!   compared with `official-api/` (also written to `anchor-api/compare.txt`).
 //! - `p6 api compare A B`: compares the API captures of two folders; a missing one is a difference.
 //!
 //! Each capture gets a report (`<scenario>.txt`): per step of the bot, its output, check, form and
@@ -238,10 +238,10 @@ struct Step {
     records: Vec<Value>,
 }
 
-/// `p6 api bds [scenario]...`: [`session`] alone.
-pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+/// `p6 api official [scenario]...`: [`session`] alone.
+pub(crate) fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let scenarios = super::pick_scenarios(args, &SCENARIOS, "API")?;
-    let exe = super::bds_exe(root)?;
+    let exe = super::official_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
     super::say(out, if passed { "PASS" } else { "FAIL" })?;
@@ -257,7 +257,7 @@ pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result
     Ok(passed)
 }
 
-/// The BDS session of the API scenarios into `target/p6/bds-api/`, each with its report.
+/// The BDS session of the API scenarios into `target/p6/official-api/`, each with its report.
 pub(crate) fn session(
     root: &Path,
     exe: &Path,
@@ -265,15 +265,15 @@ pub(crate) fn session(
     scenarios: &[&str],
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let dir = root.join(super::OUT_DIR).join("bds-api");
-    let session = super::BdsSession {
+    let dir = root.join(super::OUT_DIR).join("official-api");
+    let session = super::OfficialSession {
         transport: "raknet",
         compression: "zlib",
         settings: BDS_SETTINGS,
     };
     let pack = root.join(FORMS_PACK);
-    let install = |bds: &Path| install_pack(&pack, bds);
-    super::bds_session_with(exe, &dir, &session, install, out, |addr, server, out| {
+    let install = |official: &Path| install_pack(&pack, official);
+    super::official_session_with(exe, &dir, &session, install, out, |addr, server, out| {
         for line in game::SESSION_SETUP {
             server.command(line)?;
         }
@@ -310,10 +310,12 @@ fn script_of(root: &Path, scenario: &str) -> Option<std::path::PathBuf> {
     (scenario == "script").then(|| root.join(SCRIPT))
 }
 
-/// Installs the forms pack into the BDS copy `bds` and turns it on for the world it creates
+/// Installs the forms pack into the BDS copy `official` and turns it on for the world it creates
 /// (`worlds/<level-name>/world_behavior_packs.json`).
-fn install_pack(pack: &Path, bds: &Path) -> Result<(), String> {
-    let target = bds.join("development_behavior_packs").join(FORMS_PACK_DIR);
+fn install_pack(pack: &Path, official: &Path) -> Result<(), String> {
+    let target = official
+        .join("development_behavior_packs")
+        .join(FORMS_PACK_DIR);
     super::remove_dir(&target)?;
     for file in FORMS_PACK_FILES {
         let to = target.join(file);
@@ -329,7 +331,7 @@ fn install_pack(pack: &Path, bds: &Path) -> Result<(), String> {
         "pack_id": field(header, "uuid"),
         "version": field(header, "version"),
     }]);
-    let world = bds.join("worlds").join(super::LEVEL_NAME);
+    let world = official.join("worlds").join(super::LEVEL_NAME);
     super::create_dir(&world)?;
     super::write(
         &world.join("world_behavior_packs.json"),
@@ -382,9 +384,9 @@ pub(crate) fn anchor_session(
             Ok(passed)
         },
     )?;
-    let bds = root.join(super::OUT_DIR).join("bds-api");
-    let same = super::report_comparison(&dir, "compare bds-api anchor-api:", out, |report| {
-        compare_scenarios(root, &bds, &dir, scenarios, report)
+    let official = root.join(super::OUT_DIR).join("official-api");
+    let same = super::report_comparison(&dir, "compare official-api anchor-api:", out, |report| {
+        compare_scenarios(root, &official, &dir, scenarios, report)
     })?;
     Ok(played && same)
 }

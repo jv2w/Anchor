@@ -29,7 +29,7 @@ The steps run in order, and every step runs even after a failure. Each step's li
 | Order | Step | What it checks |
 |---|---|---|
 | 1 | `cargo xtask gen --check` | The generated protocol and data code equals the generator's output |
-| 2 | `cargo xtask table --check` | The API table (`xtask/data/pmmp/table.md`) is current and has no blank row |
+| 2 | `cargo xtask table --check` | The API table (`xtask/data/dump/table.md`) is current and has no blank row |
 | 3 | lint reason tags | Every `#[expect]` reason in the repository's Rust sources (`src`, `tests`, `examples`, `xtask/src`, `xtask/tests`) starts with one of the tags in `CLAUDE.md` |
 | 4 | `cargo fmt --check` | Formatting |
 | 5 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints (`[workspace.lints]`, the `.clippy.toml` deny lists) |
@@ -76,13 +76,13 @@ The steps run in order, and every step runs even after a failure. Each step's li
 P6 runs the same bot scenarios against the official server and Anchor and compares the packets the bot receives.
 
 - The bot: `xtask/go/bot`, a Go client built on gophertunnel. Like the official client, it uses server-authoritative inventories, PlayerAuthInput, and block actions, and it records every received packet as a JSON line.
-- The official server: the version pinned as `BDS_DIR` in `xtask/src/p6.rs`, in the copy `.cache/bds/<version>/` (sources in `.claude/docs/data.md`). Before each run the harness writes the copy's `server.properties` and deletes its `worlds` folder; it starts the server and ends it with `stop`.
+- The official server: the version pinned as `OFFICIAL_DIR` in `xtask/src/p6.rs`, in the copy `.cache/official/<version>/` (sources in `.claude/docs/data.md`). Before each run the harness writes the copy's `server.properties` and deletes its `worlds` folder; it starts the server and ends it with `stop`.
 - Test settings: both servers run without Xbox login (`online-mode=false`, Anchor `xbox-auth = false`), with a flat world named `p6` and seed 1. Game mode, difficulty, maximum players, view distance, and compression threshold are Anchor's defaults, so fields that depend on settings compare equal. The API session adds `allow-cheats=true` on the official server.
-- Captures: all under `target/p6/`: `bds-<compression>/`, `bds-nethernet-<compression>/`, `bds-fallback/`, `bds-bind-mismatch/`, `bds-duplicate/`, `bds-game/`, `bds-api/`, the matching `anchor-*` folders, and `import-*` and `export-*` for `p6 import`. The game and API comparisons are also written to `anchor-game/compare.txt` and `anchor-api/compare.txt`.
+- Captures: all under `target/p6/`: `official-<compression>/`, `official-nethernet-<compression>/`, `official-fallback/`, `official-bind-mismatch/`, `official-duplicate/`, `official-game/`, `official-api/`, the matching `anchor-*` folders, and `import-*` and `export-*` for `p6 import`. The game and API comparisons are also written to `anchor-game/compare.txt` and `anchor-api/compare.txt`.
 
 ### Running on Linux
 
-- The official server for Linux is its Linux build (source in `.claude/docs/data.md`), unpacked into `.cache/bds/<version>/` of the Linux checkout. The folder name is the same as on Windows; each OS keeps its own `.cache`. Unpacking with `unzip` keeps the execute permission of `bedrock_server`.
+- The official server for Linux is its Linux build (source in `.claude/docs/data.md`), unpacked into `.cache/official/<version>/` of the Linux checkout. The folder name is the same as on Windows; each OS keeps its own `.cache`. Unpacking with `unzip` keeps the execute permission of `bedrock_server`.
 - The harness runs the executable of its OS (`bedrock_server.exe` on Windows, `bedrock_server` on Linux) with `LD_LIBRARY_PATH` set to the server folder, as the official server's `bedrock_server_how_to.html` starts it.
 - Needs Go on `PATH` and `unzip`. The official server's how-to supports Ubuntu 18 or later only.
 - On a Windows PC, copy the work tree, without `target/` and `.cache/`, into WSL2 Ubuntu's Linux file system (ext4), and build and test there. Never run from `/mnt/c`: its file system behavior and fsync differ from real Linux, so nothing is verified there. Edit only the Windows repository; the copy is only for testing.
@@ -92,24 +92,24 @@ P6 runs the same bot scenarios against the official server and Anchor and compar
 
 | Command | What it does |
 |---|---|
-| `cargo xtask p6 bds [zlib\|snappy]...` | For each compression (default both, zlib first), starts the official server once over RakNet and once over NetherNet. RakNet: `spawn`, `big-skin`, and `blocks`. NetherNet: `spawn` and `big-skin`, plus `big-skin` sent in 65,535-byte segments. Once, in the first compression's runs: the `auto` fallback, an offer identity mismatch, and a duplicate-name login. Last, the game session and the API session once each |
+| `cargo xtask p6 official [zlib\|snappy]...` | For each compression (default both, zlib first), starts the official server once over RakNet and once over NetherNet. RakNet: `spawn`, `big-skin`, and `blocks`. NetherNet: `spawn` and `big-skin`, plus `big-skin` sent in 65,535-byte segments. Once, in the first compression's runs: the `auto` fallback, an offer identity mismatch, and a duplicate-name login. Last, the game session and the API session once each |
 | `cargo xtask p6 anchor [zlib\|snappy]...` | Runs the same scenarios against Anchor in this process and compares each capture with its official server capture; the fallback run advertises an unreachable IPv6 address and uses the first compression. Then runs and compares the game and API sessions |
-| `cargo xtask p6 game bds\|anchor [scenario]...` | The game session alone (RakNet, zlib, a fresh flat world) |
-| `cargo xtask p6 api bds\|anchor [scenario]...` | The API session alone (RakNet, zlib, a fresh flat world; on the official server `allow-cheats=true` and the forms script pack) |
+| `cargo xtask p6 game official\|anchor [scenario]...` | The game session alone (RakNet, zlib, a fresh flat world) |
+| `cargo xtask p6 api official\|anchor [scenario]...` | The API session alone (RakNet, zlib, a fresh flat world; on the official server `allow-cheats=true` and the forms script pack) |
 | `cargo xtask p6 import` | Imports a world the official server made into Anchor and compares the blocks both servers send, block by block. Then exports that world, opens the export on the official server, and compares its blocks with the original world's |
 | `cargo xtask p6 run --addr HOST:PORT --out DIR [--transport raknet\|nethernet\|auto] [--token-key PEM --kid KID --iss ISS]` | Runs the scenarios against a server already running; the token options add the online scenario |
 | `cargo xtask p6 compare A B`, `p6 game compare DIR_A DIR_B`, `p6 api compare DIR_A DIR_B` | Compares two captures |
 
-`p6 anchor` compares its fallback capture with `bds-fallback/`, which `p6 bds` records in its `FALLBACK_COMPRESSION` (zlib) run; `p6 bds snappy` alone records none, and `p6 anchor` then fails with "no capture".
+`p6 anchor` compares its fallback capture with `official-fallback/`, which `p6 official` records in its `FALLBACK_COMPRESSION` (zlib) run; `p6 official snappy` alone records none, and `p6 anchor` then fails with "no capture".
 
 ### Scenarios
 
-- Spawn (`p6 bds`, `p6 anchor`):
+- Spawn (`p6 official`, `p6 anchor`):
   - `spawn`: the spawn window from login to PlayStatus(PlayerSpawn). Compares the packet order and kinds, the fixed fields of `fields.txt`, the full item packets, and the chunk and sub-chunk answers.
   - `big-skin`: a large Login request.
   - `blocks` (RakNet runs only): console commands place fences, glass panes, iron and copper bars, walls, a fence gate, stairs, and tripwire next to each other and remove some again; the block update states of each step are compared.
-  - The `auto` fallback, the offer identity mismatch (`bind-mismatch`), and the duplicate-name login. NetherNet runs also compare the answer SDP structure, and print each capture's segment facts. `bot cloudburst` checks each spawn capture's biome definitions and jigsaw data against the reference list source's data.
-- Game (`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. Per bot step it compares the commands, request statuses, ItemStackResponse slots (stack IDs numbered in order of appearance), the items the client sees at the end of the step, the last block state of each position, window opens and closes, block entity keys, LevelEvent types, entities by type, the trade window shape and offer keys, and the enchant option count and level changes. Random values (enchant options, offers, experience orbs), timing, sounds, chat, recipe unlocks, and `Event` types are only shown. A `setup` step compares only its commands; a run of `random` steps compares only the shapes of its lines, with names and counts blanked. Changes farther than `AREA_REACH` (4 blocks) from the scenario's area are only shown (`xtask/src/p6/game/trace.rs`). The bot's `check` lines are compared only when their name is in `FIXED_CHECKS` (the `offers` checks by shape), and every `Disconnect` and every packet that failed to decode is compared.
+  - The `auto` fallback, the offer identity mismatch (`bind-mismatch`), and the duplicate-name login. NetherNet runs also compare the answer SDP structure, and print each capture's segment facts. `bot worlddata` checks each spawn capture's biome definitions and jigsaw data against the reference list source's data.
+- Game (`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. Per bot step it compares the commands, request statuses, ItemStackResponse slots (stack IDs numbered in order of appearance), the items the client sees at the end of the step, the last block state of each position, window opens and closes, block entity keys, LevelEvent types, entities by type, the trade window shape and offer keys, and the enchant option count and level changes. Random values (enchant options, offers, XP orbs), timing, sounds, chat, recipe unlocks, and `Event` types are only shown. A `setup` step compares only its commands; a run of `random` steps compares only the shapes of its lines, with names and counts blanked. Changes farther than `AREA_REACH` (4 blocks) from the scenario's area are only shown (`xtask/src/p6/game/trace.rs`). The bot's `check` lines are compared only when their name is in `FIXED_CHECKS` (the `offers` checks by shape), and every `Disconnect` and every packet that failed to decode is compared.
 - API (`p6 api`):
   - `commands` (player commands and their output, op), `particles`, `kick`, `forms`, `script` (a self-test of the bot's `-script` actions, `script.txt`).
   - `weather`, `joinrain`, `joinstorm` (weather changes, joining during rain or thunder), `boltpeaceful`, `bolteasy`, `bolthard` (lightning by difficulty).
@@ -117,7 +117,7 @@ P6 runs the same bot scenarios against the official server and Anchor and compar
   - `clocks` (every form of `/time`: the world clock and its time markers, the answers and the clock times sent).
   - `villagers` (profession numbers), `numbers` (numbers only the official server uses, and telemetry), `rules`, `rulesjoin` (game rules), `line<bytes>`, `lineunknown600`, `linekorean<bytes>` (command line lengths; the official server ends the connection from 508 bytes), `limits`, `limitchat` (string limits).
   - In every step that is not a setup step, it compares the number and fixed fields of the packets `fields.txt` names, and the bot's output, check, and form lines. Command lists are compared only for the commands both servers have, and only as notes. Facts-only scenarios are in `FACTS_ONLY`, and scenarios that compare check lines without fixed fields are in `CHECKS_ONLY` (`xtask/src/p6/api.rs`).
-- Import (`p6 import`): in a world with the official server's own terrain, every block of every sub-chunk both servers send, in every layer, must have the same network ID, and a sub-chunk answered all-air holds air. A block the dump lacks, which Anchor keeps as an unknown block, passes through an `import | block <name> | <reason>` line of `intended.txt`, as does a block whose stored state Anchor sends where the official server updated it after loading. The export writes Anchor's imported world with `Server::export_world` (`target/p6/export-world/`); the official server opens it with the same game rules, and the blocks it sends (`export-bds/`) are compared with those it sent of the original world, by the same rules.
+- Import (`p6 import`): in a world with the official server's own terrain, every block of every sub-chunk both servers send, in every layer, must have the same network ID, and a sub-chunk answered all-air holds air. A block the dump lacks, which Anchor keeps as an unknown block, passes through an `import | block <name> | <reason>` line of `intended.txt`, as does a block whose stored state Anchor sends where the official server updated it after loading. The export writes Anchor's imported world with `Server::export_world` (`target/p6/export-world/`); the official server opens it with the same game rules, and the blocks it sends (`export-official/`) are compared with those it sent of the original world, by the same rules.
 
 ### Data files (`xtask/data/p6/`)
 

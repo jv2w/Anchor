@@ -49,7 +49,7 @@ fn ghost() -> Definition {
         .summonable()
 }
 
-// pmmp: EntityFactory, EntityFactory::register
+// api: EntityFactory, EntityFactory::register
 #[test]
 fn registration_refuses_bad_identifiers_duplicates_and_values() {
     let refused = |types: Vec<Definition>| {
@@ -194,7 +194,7 @@ fn spawn(h: &mut Harness, identifier: &str, pos: Vec3) -> Id {
         .expect("spawned")
 }
 
-// pmmp: Entity::spawnToAll
+// api: Entity::spawnToAll
 #[test]
 fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() {
     let mut h = harness(1, vec![ghost()]);
@@ -321,7 +321,7 @@ fn no_trade(_: &mut State, _: SessionId, _: Id) -> bool {
     false
 }
 
-// pmmp: Entity::onUpdate, Entity::onInteract
+// api: Entity::onUpdate, Entity::onInteract
 #[test]
 fn behaviours_tick_every_period_in_id_order_and_answer_interactions() {
     let (tx, mut rx) = mpsc::channel(4096);
@@ -672,7 +672,7 @@ fn custom_entities_tick_the_same_on_one_or_many_threads() {
     assert_eq!(hashes[0], hashes[1]);
 }
 
-// pmmp: Entity::isInsideOfSolid
+// api: Entity::isInsideOfSolid
 /// A custom entity suffocates when its eyes, not its feet, are in a solid block.
 #[test]
 fn a_custom_entity_suffocates_with_its_eyes_in_a_solid_block() {

@@ -49,11 +49,11 @@ difficulty = "normal"
 hardcore = false
 pvp = true
 # Each switch below turns a game system off completely when false: its rules stop running.
-hunger = true
-# Gaining experience points and levels. false also means no experience orbs.
-experience = true
-# Experience orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
-experience-orbs = true
+food = true
+# Gaining XP points and levels. false also means no XP orbs.
+xp = true
+# XP orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
+xp-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
@@ -215,9 +215,9 @@ console-input = true
 | `difficulty` | string | `"normal"` | `peaceful`, `easy`, `normal`, `hard` | Difficulty |
 | `hardcore` | bool | `false` | `true` only with `difficulty = "hard"` | Hardcore |
 | `pvp` | bool | `true` | | Whether players can hurt each other |
-| `hunger` | bool | `true` | | Hunger |
-| `experience` | bool | `true` | | Gaining experience points and levels. `false` also means no experience orbs, and enchanting tables and anvils count the player's level as 0, refusing anything that costs levels |
-| `experience-orbs` | bool | `true` | | Experience orbs and throwing bottles o' enchanting. `false` computes no dropped experience, makes and reads no orbs (the orbs of loading chunks are deleted), and refuses throwing bottles; no experience is given directly in their place. Points, levels, and `/xp` follow `experience` only |
+| `food` | bool | `true` | | Food |
+| `xp` | bool | `true` | | Gaining XP points and levels. `false` also means no XP orbs, and enchanting tables and anvils count the player's level as 0, refusing anything that costs levels |
+| `xp-orbs` | bool | `true` | | XP orbs and throwing bottles o' enchanting. `false` computes no dropped XP, makes and reads no orbs (the orbs of loading chunks are deleted), and refuses throwing bottles; no XP is given directly in their place. Points, levels, and `/xp` follow `xp` only |
 | `fall-damage` | bool | `true` | | Fall damage |
 | `drowning` | bool | `true` | | Air supply under water, drowning damage, and suffocation damage |
 | `armor` | bool | `true` | | Armor protection, armor wear, and thorns; `false` removes all three |
@@ -327,4 +327,4 @@ Running the server program as `<program> update-config` updates a file written b
 
 ## Feature switches
 
-The feature switches that `.claude/rules/config.md` covers are the bool keys of `[general]` from `hunger` to `movement-check`, `locator-bar`, and `backups`.
+The feature switches that `.claude/rules/config.md` covers are the bool keys of `[general]` from `food` to `movement-check`, `locator-bar`, and `backups`.

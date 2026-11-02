@@ -571,7 +571,7 @@ func playTrade(g *game) error {
 	if err := g.hold(8); err != nil {
 		return err
 	}
-	// A villager's offers and experience orbs are random: the trade steps compare by their shape.
+	// A villager's offers and XP orbs are random: the trade steps compare by their shape.
 	g.random = true
 	villager, offer, err := g.trader(at, farmerSummon, true)
 	if err != nil {
@@ -728,7 +728,7 @@ type offer struct {
 
 // firstOffer is the first offer unlocked at the villager's tier (UpdateTrade TradeTier), without a second
 // payment, whose first payment the inventory holds. The client cannot take a locked offer; BDS 1.26.52
-// accepts one anyway, and its trader experience raises the villager's tier.
+// accepts one anyway, and its trader XP raises the villager's tier.
 func (g *game) firstOffer(offers map[string]any, tier int32) (offer, error) {
 	recipes, _ := offers["Recipes"].([]any)
 	for _, r := range recipes {

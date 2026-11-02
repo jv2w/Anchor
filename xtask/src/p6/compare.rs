@@ -1580,7 +1580,7 @@ mod tests {
             include_str!("../../data/p6/deferred.txt"),
             include_str!("../../data/p6/fields.txt"),
         );
-        // `bot cloudburst` compares these on both servers' captures and fails on any
+        // `bot worlddata` compares these on both servers' captures and fails on any
         // difference; nothing may hide them from the window either.
         for name in ["BiomeDefinitionList", "JigsawStructureData"] {
             assert!(!deferred.contains(name), "{name} is deferred");

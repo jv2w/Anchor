@@ -953,7 +953,7 @@ mod tests {
         assert!(air(&h, walls[2].0, walls[2].1).contains(&BlockPos::new(0, -50, -2)));
     }
 
-    // pmmp: TNT::ignite
+    // api: TNT::ignite
     #[test]
     fn tnt_lights_the_tnt_it_reaches_with_ten_to_thirty_ticks() {
         let mut h = Harness::new(1);

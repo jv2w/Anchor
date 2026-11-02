@@ -1164,7 +1164,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
                 .and_then(|e| e.items.get_mut(j))
             {
                 // dragonfly `collectRewards`: taking from a furnace's output gives its stored
-                // experience.
+                // xp.
                 let furnace = matches!(
                     kind,
                     Some(WindowKind::Container {
@@ -1217,7 +1217,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
         }
     }
     if let Some((world, pos)) = furnace_taken {
-        drop_furnace_experience(state, session, world, pos);
+        drop_furnace_xp(state, session, world, pos);
     }
     station::apply(state, session, request, plan.effects);
     if enchant_input {
@@ -1225,20 +1225,20 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
     }
 }
 
-/// Drops the experience stored in the furnace at `pos` at the feet of the player who took its
+/// Drops the xp stored in the furnace at `pos` at the feet of the player who took its
 /// output.
-fn drop_furnace_experience(
+fn drop_furnace_xp(
     state: &mut State,
     session: SessionId,
     world: crate::save::WorldIndex,
     pos: crate::world::BlockPos,
 ) {
-    let xp = block_entity::take_experience(state, world, pos);
+    let xp = block_entity::take_xp(state, world, pos);
     if let Some(player) = state.players.get(&session)
         && xp > 0
     {
         let (world, at) = (player.world, player.position);
-        entity::drop_experience(state, world, at, xp);
+        entity::drop_xp(state, world, at, xp);
     }
 }
 

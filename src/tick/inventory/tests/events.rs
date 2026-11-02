@@ -59,7 +59,7 @@ fn world_with(listeners: Listeners, stacks: &[Stack]) -> (World, SessionId) {
     for stack in stacks {
         w.give(s, stack.clone());
     }
-    survival::add_experience(w.player_mut(s), 100_000);
+    survival::add_xp(w.player_mut(s), 100_000);
     w.sent(s);
     (w, s)
 }
@@ -79,7 +79,7 @@ fn sticks(count: u8) -> Stack {
     Stack::new(item(it::Kind::Stick), count)
 }
 
-// pmmp: InventoryTransactionEvent
+// api: InventoryTransactionEvent
 #[test]
 fn a_request_is_one_transaction_with_its_slot_changes_and_monitors_see_it_applied() {
     let mut l = on(|e: &mut InventoryTransaction, _: &mut Context<'_>| {
@@ -145,7 +145,7 @@ fn accepted(packets: &[Packet]) -> bool {
     })
 }
 
-// pmmp: InventoryTransactionEvent
+// api: InventoryTransactionEvent
 #[test]
 fn a_cancelled_transaction_changes_nothing_and_resends_the_inventory() {
     let (mut w, s) = world_with(
@@ -171,7 +171,7 @@ fn a_cancelled_transaction_changes_nothing_and_resends_the_inventory() {
     assert_eq!(snapshot(&w.state), snap);
 }
 
-// pmmp: InventoryTransactionEvent
+// api: InventoryTransactionEvent
 #[test]
 fn a_listener_that_moves_a_slot_the_request_reads_refuses_it() {
     let (mut w, s) = world_with(
@@ -221,7 +221,7 @@ fn log_in_grid(w: &mut World, s: SessionId) -> (u32, i32) {
     (planks, w.id(s, C::CraftingInput, 28))
 }
 
-// pmmp: CraftItemEvent
+// api: CraftItemEvent
 #[test]
 fn crafting_raises_craft_item_and_cancelling_keeps_the_grid() {
     let l = on(|e: &mut CraftItem, _: &mut Context<'_>| {
@@ -270,7 +270,7 @@ fn crafting_raises_craft_item_and_cancelling_keeps_the_grid() {
     assert_eq!(w.inv(s).grid.stack(0).count(), 1);
 }
 
-// pmmp: PlayerDropItemEvent
+// api: PlayerDropItemEvent
 #[test]
 fn drops_raise_player_drop_item_and_cancelling_keeps_the_item() {
     let (mut w, s) = world_with(
@@ -348,7 +348,7 @@ fn enchant_with(w: &mut World, s: SessionId, index: usize) -> ItemStackResponse 
     w.request_as(s, id, actions)
 }
 
-// pmmp: PlayerEnchantingOptionsRequestEvent, PlayerItemEnchantEvent
+// api: PlayerEnchantingOptionsRequestEvent, PlayerItemEnchantEvent
 #[test]
 fn enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result() {
     let mut l = on(
@@ -440,7 +440,7 @@ fn enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result() {
     );
 }
 
-// pmmp: PlayerEnchantingOptionsRequestEvent
+// api: PlayerEnchantingOptionsRequestEvent
 /// A listener gives options for an item the table offers none for, and they enchant it.
 #[test]
 fn a_listener_gives_options_for_an_item_the_table_offers_none() {
@@ -660,7 +660,7 @@ fn a_chest_removed_by_the_world_closes_windows_without_close_events() {
     assert_eq!(logged(), Vec::<String>::new());
 }
 
-// pmmp: InventoryOpenEvent, InventoryCloseEvent
+// api: InventoryOpenEvent, InventoryCloseEvent
 #[test]
 fn windows_raise_open_and_close_and_a_cancelled_or_broken_open_stays_closed() {
     let mut l =
@@ -737,7 +737,7 @@ fn menu_on_close() -> Listeners {
     l
 }
 
-// pmmp: InventoryCloseEvent
+// api: InventoryCloseEvent
 #[test]
 fn a_menu_a_close_listener_opens_stays_open_in_place_of_the_closed_window() {
     let barrel = Shown::Block {
@@ -783,7 +783,7 @@ fn a_menu_a_close_listener_opens_stays_open_in_place_of_the_closed_window() {
     assert_eq!(w.state.menus.len(), 0);
 }
 
-// pmmp: PlayerItemHeldEvent
+// api: PlayerItemHeldEvent
 #[test]
 fn hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot() {
     let equip = |slot: u8| MobEquipment {
@@ -865,7 +865,7 @@ fn a_listener_selecting_another_hotbar_slot_keeps_its_selection() {
     );
 }
 
-// pmmp: PlayerBlockPickEvent
+// api: PlayerBlockPickEvent
 #[test]
 fn pick_block_raises_block_pick_and_cancelling_gives_nothing() {
     let pick = |cancel: bool| {
@@ -951,7 +951,7 @@ fn a_furnace_whose_fuel_a_listener_swaps_burns_it_the_next_tick() {
     assert!(fuel.is_empty(), "the charcoal burns: {fuel:?}");
 }
 
-// pmmp: FurnaceBurnEvent, FurnaceSmeltEvent
+// api: FurnaceBurnEvent, FurnaceSmeltEvent
 #[test]
 fn furnace_events_change_the_burn_and_the_result_and_cancelling_keeps_the_items() {
     let coal = Stack::new(item(it::Kind::Coal), 1);
@@ -1011,7 +1011,7 @@ fn furnace_events_change_the_burn_and_the_result_and_cancelling_keeps_the_items(
     assert_eq!(items[0].count(), 2);
 }
 
-// pmmp: BrewingFuelUseEvent, BrewItemEvent
+// api: BrewingFuelUseEvent, BrewItemEvent
 #[test]
 fn brewing_events_change_the_fuel_and_each_bottle() {
     let water = Stack::new(item(it::Kind::Potion), 1);
@@ -1053,7 +1053,7 @@ fn brewing_events_change_the_fuel_and_each_bottle() {
     assert_eq!(logged(), ["fuel 20", "fuel 20", "brew 1", "brew 3"]);
 }
 
-// pmmp: CampfireCookEvent
+// api: CampfireCookEvent
 #[test]
 fn campfire_cook_changes_what_drops_and_cancelling_keeps_the_item() {
     let cook = |cancel: bool| {
@@ -1099,7 +1099,7 @@ fn campfire_cook_changes_what_drops_and_cancelling_keeps_the_item() {
     assert!(drops.is_empty());
 }
 
-// pmmp: ChestPairEvent
+// api: ChestPairEvent
 #[test]
 fn chest_pair_names_the_halves_and_cancelling_keeps_them_single() {
     let pair = |cancel: bool| {

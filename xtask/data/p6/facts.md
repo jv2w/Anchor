@@ -3,10 +3,10 @@
 공식 서버 1.26.60.6(프로토콜 2225)이 봇에게 보내는 값과, Anchor가 각 값에 대해 하는 일이다. 값은 같은 시나리오를 두 번 이상 돌려 같게 나온 것만 적는다. 1.26.52.3(프로토콜 2193)에서 처음 적은 값은 1.26.60.6 캡처로 다시 대조했고, 판에 따라 다른 값은 그 판을 적는다. 실행마다 다른 값은 "무작위"라고 적는다. 시나리오와 비교 방법은 `.claude/docs/testing.md`에 있다.
 
 ## 캡처 조건
-- 게임 시나리오: `cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]...` → `target/p6/bds-game/`. RakNet, zlib, 새 평지 월드.
-- API 시나리오: `cargo xtask p6 api bds [시나리오]...` → `target/p6/bds-api/`(시나리오마다 `<시나리오>.txt` 보고). 같은 조건에 `allow-cheats=true`와 폼 스크립트 팩(`xtask/data/p6/forms-pack`)을 더한다.
-- 스폰 창: `cargo xtask p6 bds` → `target/p6/bds-<압축>/`.
-- 블록 시나리오(`p6 bds`·`p6 anchor`의 RakNet 실행, `blocks.txt`): 봇이 스폰한 뒤 첫 단계 전에 콘솔 `gamerule randomtickspeed 0`으로 랜덤 틱을 끈다(Anchor는 단계 작업이 `Context::set_random_tick_speed(0)`). 켜 두면 놓은 블록이 단계 사이에 스스로 바뀐다: Anchor(기본 3)에서 구리 창살이 `exposed_copper_bars`로 산화해 그 단계 상태가 공식 서버 캡처와 달랐다. 공식 서버도 기본 1로 랜덤 틱이 돌아 같은 일이 날 수 있다.
+- 게임 시나리오: `cargo xtask p6 game official [craft|furnace|enchant|crops|trade]...` → `target/p6/official-game/`. RakNet, zlib, 새 평지 월드.
+- API 시나리오: `cargo xtask p6 api official [시나리오]...` → `target/p6/official-api/`(시나리오마다 `<시나리오>.txt` 보고). 같은 조건에 `allow-cheats=true`와 폼 스크립트 팩(`xtask/data/p6/forms-pack`)을 더한다.
+- 스폰 창: `cargo xtask p6 official` → `target/p6/official-<압축>/`.
+- 블록 시나리오(`p6 official`·`p6 anchor`의 RakNet 실행, `blocks.txt`): 봇이 스폰한 뒤 첫 단계 전에 콘솔 `gamerule randomtickspeed 0`으로 랜덤 틱을 끈다(Anchor는 단계 작업이 `Context::set_random_tick_speed(0)`). 켜 두면 놓은 블록이 단계 사이에 스스로 바뀐다: Anchor(기본 3)에서 구리 창살이 `exposed_copper_bars`로 산화해 그 단계 상태가 공식 서버 캡처와 달랐다. 공식 서버도 기본 1로 랜덤 틱이 돌아 같은 일이 날 수 있다.
 - 세션 시작 때 콘솔: `gamerule domobspawning false`, `gamerule randomtickspeed 0`, `gamerule dodaylightcycle false`, `gamerule doweathercycle false`, `kill @e[type=!player]`. 난이도는 normal.
 - 시나리오마다 새 플레이어(`P6Craft` 등)가 자기 구역으로 `tp`한 뒤 논다. 좌표가 절대값이라 두 서버의 같은 평지를 그대로 비교한다.
 - 월드 준비는 콘솔 명령이다: `tp`, `give`, `setblock`, `fill`, `xp`, `summon villager`, `effect`, `kill`. Anchor 쪽은 하네스(`xtask/src/p6/game/console.rs`)가 같은 명령을 공개 API로 옮긴다.
@@ -95,7 +95,7 @@
 - SyncActorProperty 13개: zombie_nautilus, wolf, sulfur_cube, chicken, creaking, pig, cat, egg, armadillo, happy_ghast, copper_golem, bee, cow의 속성 정의. Windows판 공식 서버의 순서와 내용이 기준 목록 `entity_properties.dat`와 같다. Anchor는 그 파일로 보낸다.
 - AvailableActorIdentifiers: 8,907바이트, 기준 목록 `entity_identifiers.dat`과 바이트가 같다. Anchor는 그 파일을 그대로 보낸다.
 - JigsawStructureData: 없으면 공식 클라이언트가 `disconnectionScreen.missingStructureData`로 끊는다. Anchor는 기준 목록 `jigsaw_structure_data.dat` 내용을 공식 서버와 같은 자리에 보낸다.
-- CameraPresets(프리셋 6개: first_person, fixed_boom, follow_orbit, free, third_person, third_person_front), CameraAimAssistPresets(범주 bucket·empty_hand·default, 프리셋 하나), CameraSpline(빈 목록): Anchor는 Windows판 공식 서버 내용(`xtask/data/reference/bds_camera.json`)을 같은 자리에 보낸다.
+- CameraPresets(프리셋 6개: first_person, fixed_boom, follow_orbit, free, third_person, third_person_front), CameraAimAssistPresets(범주 bucket·empty_hand·default, 프리셋 하나), CameraSpline(빈 목록): Anchor는 Windows판 공식 서버 내용(`xtask/data/reference/camera.json`)을 같은 자리에 보낸다.
 - Windows판과 Linux판 공식 서버(둘 다 1.26.52.3)는 같은 내용을 보내지만 아래 목록의 순서가 다르다. 판마다 몇 번 돌려도 순서는 같다. 모두 클라이언트가 이름으로 찾는 목록이라 순서에 뜻이 없고, P6는 키 순서로 바꿔 비교한다(`xtask/src/p6/compare.rs`의 `in_key_order`, `bot cloudburst`의 `sortByIdentifier`).
   - SyncActorProperty 패킷의 엔티티 종류 순서(Linux: sulfur_cube, wolf, armadillo, pig, happy_ghast, cat, creaking, zombie_nautilus, chicken, bee, egg, cow, copper_golem). 엔티티 하나의 `properties` 목록 순서는 두 판이 같고 뜻이 있다: AddActor의 EntityProperties가 그 목록의 번호(`Index`)로 속성을 가리킨다(공식 서버 닭 AddActor `IntegerProperties` Index 0·1, gophertunnel `IntegerEntityProperty`). 그래서 이 목록은 순서대로 비교한다.
   - CameraAimAssistPresets 범주 순서(Linux: empty_hand, default, bucket)와 범주마다 `Blocks` 우선순위 목록 순서(예 bucket: Windows cauldron·lava·water, Linux cauldron·water·lava). 프리셋은 범주를 이름(`ItemSettings.Category`, `DefaultItemSettings`, `HandSettings`)으로 가리키고, 우선순위는 블록 이름마다 하나다.
@@ -186,7 +186,7 @@
 - Anchor: 입자 API와 투사체 입자는 공식 서버 번호를 쓴다. 구리 Event는 보내지 않는다.
 
 ## 날씨와 번개
-- 재현: `cargo xtask p6 api bds weather joinrain joinstorm`, 난이도별 번개는 `boltpeaceful bolteasy bolthard`.
+- 재현: `cargo xtask p6 api official weather joinrain joinstorm`, 난이도별 번개는 `boltpeaceful bolteasy bolthard`.
 - 날씨 이벤트는 LevelEvent(위치 0,0,0)다: 비 시작 3001, 천둥 시작 3002, 비 멈춤 3003, 천둥 멈춤 3004. 시작의 데이터는 65535, 멈춤은 0. GameRulesChanged나 다른 패킷은 없다.
 - 공식 서버는 비·번개 수준을 약 5초에 걸쳐 올리고 내리며, 명령이 보내는 이벤트는 그때 수준에 따른다(수준이 다 오르기 전 `weather thunder`는 3001을 다시 보내고, 천둥 수준이 남은 동안 `weather clear`는 3004도 보낸다).
 - 수준이 자리 잡은 뒤(단계마다 7초)는 바뀐 것만 보낸다: 맑음→비 3001, 비→비 없음, 비→천둥 3002, 천둥→천둥 없음, 천둥→비 3004, 비→맑음 3003, 맑음→천둥 3001·3002, 천둥→맑음 3003·3004, 맑음→맑음 없음. Anchor는 수준 변화가 없어 이 표를 쓴다(`src/tick/weather.rs`).
@@ -226,7 +226,7 @@
 - SetActorMotion: 1.26.60은 플레이어(넉백)에게만 보낸다. 화살·삼지창·눈덩이·물약·폭죽·경험치 구슬 같은 엔티티의 속도는 AddActor `Velocity`뿐이고, 그 뒤는 MoveActorDelta 위치만 보낸다(1.26.52는 엔티티에도 보냈다). Anchor도 같다.
 
 ## 아이템 사용
-- 재현: `cargo xtask p6 api bds itemuse`(봇 `xtask/go/bot/itemuse.go`). Anchor 쪽은 확인 줄만 비교한다.
+- 재현: `cargo xtask p6 api official itemuse`(봇 `xtask/go/bot/itemuse.go`). Anchor 쪽은 확인 줄만 비교한다.
 - 공식 클라이언트 순서(bedrock-protocol-docs changelog 776 `StartUsingItem`, gophertunnel `InputFlagStartUsingItem`): 사용 동작이 있는 아이템은 InventoryTransaction UseItem ClickAir와 같은 틱 PlayerAuthInput의 `StartUsingItem` 플래그로 시작한다. 서버는 동의하면 SetActorData 플래그 UsingItem(4)을 켜고, 아니면 끈다. 클라이언트는 이 답으로 동작을 잇거나 멈춘다. 활과 삼지창은 InventoryTransaction ReleaseItem으로 끝난다. 던지는 아이템은 ClickAir뿐이다.
 - 공식 서버: 활·삼지창을 당기는 동안 UsingItem을 켜고 놓으면 끈다. 물약을 마시는 동안 켜고, 마시기는 공식 서버 자기 시계로 끝낸다(CompletedUsingItem).
   - Anchor: 먹기, 마시기, 활, 삼지창, 염소 뿔, 망원경에 UsingItem을 켠다. 마시기는 사용 시간이 지난 뒤의 두 번째 ClickAir로 끝낸다(효과와 병은 같음).
@@ -244,7 +244,7 @@
 - 비행: 같은 겨냥에서 공식 서버 투척 물약은 3.5블록 벽 높이 1.6에 맞고 Anchor는 땅에 맞는다(던지는 각도·힘 차이로 보임). 삼지창은 1초 당겨 수평으로 공식 서버 약 24블록, Anchor 약 12블록이다. 범위 밖의 차이로 둔다.
 
 ## 웅크리기
-- 재현: `cargo xtask p6 api bds sneak`(봇 `xtask/go/bot/sneak.go`). 확인 줄만 비교한다.
+- 재현: `cargo xtask p6 api official sneak`(봇 `xtask/go/bot/sneak.go`). 확인 줄만 비교한다.
 - 공식 서버: PlayerAuthInput의 `StartSneaking`·`StopSneaking`마다 본인에게 SetActorData{0 플래그(Sneaking), 54 높이 1.49·1.8}와 SetActorData{92 플래그}를 보내고, 두 패킷의 `Tick`은 그 토글을 실은 입력의 `Tick`이다(다음 틱에 멈춰도 답이 둘). 서버가 스스로 바꾼 값(예 Breathing)은 `Tick` 0이다. 클라이언트는 `Tick`이 있는 답을 그 입력의 프레임으로 되감아 적용한다(bedrock-protocol-docs `PlayerMovementOverview`). `Tick` 0이면 받은 때 바로 적용해, 이미 멈춘 웅크리기를 늦게 온 답이 다시 켠다.
   - Anchor: 입력의 토글(받든 거절하든)에 답하는 본인 SetActorData에 그 틱의 마지막 토글 입력의 `Tick`을 싣고, 보는 플레이어에게는 0이다. 높이는 공식 서버처럼 54로 보내고 130(충돌 상자)은 스폰 때의 서 있는 상자 [0.6, 1.8, 0] 그대로 둔다. 웅크린 높이를 130으로 보내던 때에는 실제 클라이언트가 천장 밑 점프에서 쉬프트 없이 저절로 웅크렸고, 54로 바꾸자 사라졌다(사용자 확인). 플래그 두 단어는 한 패킷에 싣는다. 공식 서버는 웅크리면 92 단어의 Blocking(72)도 켠다. Anchor는 켜지 않는다.
 

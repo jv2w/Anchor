@@ -60,7 +60,7 @@ pub(crate) enum Command {
     /// `give <player> <item> [count]`, split into stacks of the item's stack size.
     Give { player: String, stacks: Vec<Stack> },
     /// `xp <points> <player>` or `xp <levels>L <player>`.
-    Experience { player: String, amount: Xp },
+    Xp { player: String, amount: Xp },
     /// `setblock` and `fill`: every block of the box, corners included.
     Fill {
         from: BlockPos,
@@ -109,7 +109,7 @@ pub(crate) enum Command {
 /// The amount of an `xp` command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Xp {
-    /// Experience points.
+    /// XP points.
     Points(u32),
     /// Levels added to the player's level, keeping the progress.
     Levels(u32),
@@ -320,9 +320,9 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
             "Anchor's item table has no wind charge: the numbers scenario records BDS's only",
         )),
         ["give", player, item, rest @ ..] => give(player, item, rest),
-        ["xp", amount, player] => Ok(Command::Experience {
+        ["xp", amount, player] => Ok(Command::Xp {
             player: (*player).to_owned(),
-            amount: experience(amount)?,
+            amount: xp(amount)?,
         }),
         ["setblock", x, y, z, ..] => {
             let at = block_pos(x, y, z)?;
@@ -552,8 +552,8 @@ fn stacks(item: Type, count: u32) -> Vec<Stack> {
 }
 
 /// An `xp` amount: points, or `<n>L` levels.
-fn experience(amount: &str) -> Result<Xp, String> {
-    let bad = |_| format!("bad experience amount {amount:?}");
+fn xp(amount: &str) -> Result<Xp, String> {
+    let bad = |_| format!("bad xp amount {amount:?}");
     match amount.strip_suffix(['L', 'l']) {
         Some(levels) => levels.parse().map(Xp::Levels).map_err(bad),
         None => amount.parse().map(Xp::Points).map_err(bad),
@@ -574,12 +574,12 @@ fn effect_type(name: &str) -> Result<effect::Type, String> {
 /// `xtask/data/p6/facts.md`: payments of any damage, price multipliers 0.05 and 0; the trade module numbers
 /// them, `netId`).
 fn farmer_offers() -> Result<Vec<Offer>, String> {
-    let offer = |buy: (&str, u8), sell: (&str, u8), trader_exp: u32| {
+    let offer = |buy: (&str, u8), sell: (&str, u8), trader_xp: u32| {
         let buy = Stack::new(item_type(buy.0)?, buy.1);
         let sell = Stack::new(item_type(sell.0)?, sell.1);
         Ok(Offer::new(buy, sell, 16)
             .with_any_damage()
-            .with_trader_experience(trader_exp)
+            .with_trader_xp(trader_xp)
             .with_price_multipliers(0.05, 0.0))
     };
     [
@@ -622,7 +622,7 @@ fn execute(
             let left: u32 = stacks.iter().map(|s| u32::from(main.add(s).count())).sum();
             Outcome::Done((left > 0).then(|| format!("{left} did not fit")))
         }
-        Command::Experience { player, amount } => {
+        Command::Xp { player, amount } => {
             let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
@@ -766,12 +766,12 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
                 .ok_or_else(|| "a hardcore server keeps hard".to_owned()),
         ),
         Command::Lightning { pos } => {
-            let bds = world::Lightning {
+            let official = world::Lightning {
                 damage: true,
                 fire: true,
             };
             done(
-                cx.strike_lightning(world::Id::DEFAULT, *pos, bds)
+                cx.strike_lightning(world::Id::DEFAULT, *pos, official)
                     .then_some(())
                     .ok_or_else(|| "no bolt was struck".to_owned()),
             )
@@ -848,7 +848,7 @@ mod tests {
 
     use crate::p6::game;
 
-    /// Every command line of the BDS game session (`target/p6/bds-game/*.jsonl`) and its setup.
+    /// Every command line of the BDS game session (`target/p6/official-game/*.jsonl`) and its setup.
     const SCENARIO_COMMANDS: &[&str] = &[
         "tp P6Craft -11.5 -60 -11.5",
         "give P6Craft oak_log 4",
@@ -983,14 +983,14 @@ mod tests {
     }
 
     #[test]
-    fn experience_amounts_are_points_or_levels() {
+    fn xp_amounts_are_points_or_levels() {
         for (amount, expected) in [
             ("7", Xp::Points(7)),
             ("30L", Xp::Levels(30)),
             ("30l", Xp::Levels(30)),
             ("30000L", Xp::Levels(30_000)),
         ] {
-            assert_eq!(experience(amount), Ok(expected), "{amount}");
+            assert_eq!(xp(amount), Ok(expected), "{amount}");
         }
     }
 
@@ -1037,7 +1037,7 @@ mod tests {
     }
 
     #[test]
-    fn the_villager_offers_are_the_bds_farmer_trades() {
+    fn the_villager_offers_are_the_official_farmer_trades() {
         let offers = farmer_offers().expect("every item exists");
         let trades: Vec<(&str, u8, &str, u8, u32)> = offers
             .iter()
@@ -1047,7 +1047,7 @@ mod tests {
                     o.buy().count(),
                     o.sell().item().map_or("", |t| t.name()),
                     o.sell().count(),
-                    o.trader_experience(),
+                    o.trader_xp(),
                 )
             })
             .collect();
@@ -1062,7 +1062,7 @@ mod tests {
             ]
         );
         for o in &offers {
-            assert!(o.takes_any_damage() && o.rewards_experience());
+            assert!(o.takes_any_damage() && o.rewards_xp());
             assert!(o.second_payment().is_empty());
             assert_eq!(
                 (o.max_uses(), o.uses(), o.tier(), o.demand()),

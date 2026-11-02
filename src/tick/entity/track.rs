@@ -343,7 +343,7 @@ fn metadata(entity: &Entity) -> EntityMetadata {
             form: Form::Zombie { .. } | Form::Human { .. } | Form::Custom(_),
             ..
         }) => {}
-        Kind::ExperienceOrb(orb) => {
+        Kind::XpOrb(orb) => {
             put(
                 EntityDataKey::Value,
                 MetadataValue::Int32(i32::from(orb.value)),
@@ -374,14 +374,14 @@ fn metadata(entity: &Entity) -> EntityMetadata {
                 EntityDataKey::Variant,
                 MetadataValue::Int32(i32::from(*profession)),
             );
-            // BDS `villager_v2` (P6 `trade`): the tier, the top tier, the trade experience and a
+            // BDS `villager_v2` (P6 `trade`): the tier, the top tier, the trade xp and a
             // skin (BDS picks one of a few at random; Anchor shows the first).
             put(EntityDataKey::TradeTier, trade_tier(offers));
             put(
                 EntityDataKey::MaxTradeTier,
                 MetadataValue::Int32(i32::from(MAX_TRADE_TIER)),
             );
-            put(EntityDataKey::TradeExperience, trade_experience(offers));
+            put(EntityDataKey::TradeExperience, trade_xp(offers));
             put(EntityDataKey::SkinId, MetadataValue::Int32(0));
         }
         Kind::EndCrystal(_) | Kind::Firework(_) => object_metadata(&entity.kind, &mut put),
@@ -478,18 +478,15 @@ fn argb([r, g, b, a]: [u8; 4]) -> i32 {
     crate::tile::to_argb(crate::protocol::Rgba { r, g, b, a })
 }
 
-/// The `SetActorData` of a villager whose tier or trade experience changed from `before`: only
+/// The `SetActorData` of a villager whose tier or trade xp changed from `before`: only
 /// the changed keys, as BDS sends after a trade (P6 `trade`); `None` if neither changed.
 pub(super) fn trade_data(runtime_id: u64, offers: &Offers, before: (u8, u32)) -> Option<Packet> {
     let mut m = EntityMetadata::new();
     if offers.tier() != before.0 {
         m.insert(EntityDataKey::TradeTier as u32, trade_tier(offers));
     }
-    if offers.experience() != before.1 {
-        m.insert(
-            EntityDataKey::TradeExperience as u32,
-            trade_experience(offers),
-        );
+    if offers.xp() != before.1 {
+        m.insert(EntityDataKey::TradeExperience as u32, trade_xp(offers));
     }
     (!m.is_empty()).then(|| {
         Packet::SetActorData(SetActorData {
@@ -506,8 +503,8 @@ fn trade_tier(offers: &Offers) -> MetadataValue {
 }
 
 /// A villager's `TradeExperience` (kept at most `i32::MAX`).
-fn trade_experience(offers: &Offers) -> MetadataValue {
-    MetadataValue::Int32(i32::try_from(offers.experience()).unwrap_or(i32::MAX))
+fn trade_xp(offers: &Offers) -> MetadataValue {
+    MetadataValue::Int32(i32::try_from(offers.xp()).unwrap_or(i32::MAX))
 }
 
 /// The movement of an entity since `sent` as BDS sends it: only the axes and angles that

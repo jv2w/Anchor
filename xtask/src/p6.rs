@@ -1,31 +1,31 @@
 //! `cargo xtask p6`: the reference server comparison. It builds the Go
 //! bot (`xtask/go/bot`), runs its scenarios against BDS or any running server, and compares
-//! captures. It needs Go and, for `bds`, the BDS copy in `.cache/bds/`, so `verify` does not run it.
+//! captures. It needs Go and, for `official`, the BDS copy in `.cache/official/`, so `verify` does not run it.
 //!
-//! - `p6 bds [zlib|snappy]...`: for each compression (default both), writes the test settings into
+//! - `p6 official [zlib|snappy]...`: for each compression (default both), writes the test settings into
 //!   the copy's `server.properties`, deletes its `worlds` folder, starts `bedrock_server` in the
 //!   copy and stops it with `stop` after each run. With `transport=raknet` it runs the scenarios
-//!   into `target/p6/bds-<compression>/`; with `transport=nethernet` (signaling on `server-port`)
-//!   into `target/p6/bds-nethernet-<compression>/`, plus big-skin with the bot sending 65,535-byte
+//!   into `target/p6/official-<compression>/`; with `transport=nethernet` (signaling on `server-port`)
+//!   into `target/p6/official-nethernet-<compression>/`, plus big-skin with the bot sending 65,535-byte
 //!   segments (`big-skin-65535.jsonl`, recorded). NetherNet runs print the segment facts of each
 //!   capture (what the server sent per data channel message). In the run of
-//!   `FALLBACK_COMPRESSION` it also runs the `auto` bot against the RakNet BDS (`bds-fallback/`,
+//!   `FALLBACK_COMPRESSION` it also runs the `auto` bot against the RakNet BDS (`official-fallback/`,
 //!   it must fall back to RakNet and spawn). Once, in the first compression's runs, it records,
-//!   against the NetherNet BDS, what a mismatched offer identity (`bds-bind-mismatch/`) and a
-//!   second login with the same name (`bds-duplicate/`) do. The duplicate login is a check only if BDS kicks
+//!   against the NetherNet BDS, what a mismatched offer identity (`official-bind-mismatch/`) and a
+//!   second login with the same name (`official-duplicate/`) do. The duplicate login is a check only if BDS kicks
 //!   the first player as PMMP does. Each RakNet run also runs the `blocks` scenario
-//!   (`bds-<compression>/blocks.jsonl`): while the bot stays spawned, BDS console commands place
+//!   (`official-<compression>/blocks.jsonl`): while the bot stays spawned, BDS console commands place
 //!   fences, panes, bars, walls, a gate, stairs and tripwire next to each other near the player
 //!   and remove some again; a marker block set after each step delimits the steps (`MARKER`), and
 //!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
 //!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
-//!   data (`cloudburst`). Last, it runs the game session once (`game`, every game scenario into
-//!   `target/p6/bds-game/`) and the API session once (`api`, every API scenario into
-//!   `target/p6/bds-api/`).
-//! - `p6 api bds|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
+//!   data (`worlddata`). Last, it runs the game session once (`game`, every game scenario into
+//!   `target/p6/official-game/`) and the API session once (`api`, every API scenario into
+//!   `target/p6/official-api/`).
+//! - `p6 api official|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
 //! - `p6 import`: a world BDS made, imported into Anchor, sends the same blocks (see `import`).
-//! - `p6 game bds [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
-//!   same session against Anchor into `target/p6/anchor-game/`, compared with `bds-game/`;
+//! - `p6 game official [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
+//!   same session against Anchor into `target/p6/anchor-game/`, compared with `official-game/`;
 //!   `p6 game compare A B` compares the game traces of two capture folders (see `game`).
 //! - `p6 anchor [zlib|snappy]...`: starts Anchor in this process with the same settings and runs
 //!   the same RakNet and NetherNet scenarios into `target/p6/anchor-<compression>/` and
@@ -33,8 +33,8 @@
 //!   unreachable NetherNet address into `anchor-fallback/`; each capture is compared with its BDS
 //!   capture. Last, it runs
 //!   the game session against Anchor (`p6 game anchor`, into `anchor-game/`, compared with
-//!   `bds-game/`) and the API session (`p6 api anchor`, into `anchor-api/`, compared with
-//!   `bds-api/`).
+//!   `official-game/`) and the API session (`p6 api anchor`, into `anchor-api/`, compared with
+//!   `official-api/`).
 //! - `p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]`:
 //!   runs the scenarios against a running server; the token flags add the online scenario.
 //! - `p6 compare A B`: compares the spawn windows of two captures, their answer SDP structures
@@ -56,12 +56,12 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::dump::{CLOUDBURST, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, is_file, write};
+use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir, is_file, write};
 use crate::say;
 use compare::field;
 
 /// The BDS copy, relative to the repository root. The original download is never run.
-const BDS_DIR: &str = ".cache/bds/1.26.60.6";
+const OFFICIAL_DIR: &str = ".cache/official/1.26.60.6";
 /// Test settings written into the copy's `server.properties`, besides the transport, ports,
 /// compression and seed of each run and the lines of [`default_settings`]. The login (offline),
 /// the world name ([`LEVEL_NAME`]) and the flat generator are fixed for the comparison, and
@@ -167,7 +167,7 @@ const BLOCKS_Y: i32 = -60;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
 const END_MARKER: &str = "diamond_block";
-/// The compression of the `auto` fallback runs, which `p6 bds` records and `p6 anchor` compares
+/// The compression of the `auto` fallback runs, which `p6 official` records and `p6 anchor` compares
 /// whatever compressions their arguments name.
 const FALLBACK_COMPRESSION: &str = "zlib";
 /// How long a NetherNet bot waits after the data channels open before its first packet, so the
@@ -204,7 +204,7 @@ const RAKNET_MAGIC: [u8; 16] = [
 /// Scenarios every server must pass, over each transport.
 const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 /// A segment payload smaller than go-nethernet's 262,143 (the bot's default): what a sender
-/// limited to 64 KiB SCTP messages uses. `p6 bds` sends big-skin in it to record whether BDS
+/// limited to 64 KiB SCTP messages uses. `p6 official` sends big-skin in it to record whether BDS
 /// accepts it; Anchor accepts both.
 const SMALL_SEGMENT: &str = "65535";
 /// How long BDS may take to start.
@@ -225,20 +225,20 @@ const TWIN_STAY: &str = "20s";
 /// peer-reflexive candidate. An IPv6 address needs `enable-ipv6`.
 const UNREACHABLE: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
 /// The command forms, for the usage text.
-pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtask p6 anchor \
+pub(crate) const USAGE: &str = "cargo xtask p6 official [zlib|snappy]... | cargo xtask p6 anchor \
                                 [zlib|snappy]... | cargo xtask p6 run \
                                 --addr HOST:PORT --out DIR [--transport raknet|nethernet|auto] \
                                 [--token-key PEM --kid KID --iss ISS] | cargo xtask p6 compare A B \
-                                | cargo xtask p6 game bds [scenario]... \
+                                | cargo xtask p6 game official [scenario]... \
                                 | cargo xtask p6 game anchor [scenario]... \
                                 | cargo xtask p6 game compare DIR_A DIR_B \
-                                | cargo xtask p6 api bds [scenario]... \
+                                | cargo xtask p6 api official [scenario]... \
                                 | cargo xtask p6 api anchor [scenario]... \
                                 | cargo xtask p6 api compare DIR_A DIR_B \
                                 | cargo xtask p6 import";
 
 /// What a BDS session runs with besides the test settings.
-struct BdsSession<'a> {
+struct OfficialSession<'a> {
     transport: &'a str,
     compression: &'a str,
     /// Settings that override the test settings.
@@ -334,7 +334,7 @@ impl tracing::field::Visit for LogLine {
 /// What changes the blocks of the blocks scenario on a server.
 enum Placer<'a> {
     /// BDS console commands.
-    Bds(&'a mut Bds),
+    Official(&'a mut Official),
     /// Anchor's scheduled task from [`anchor_steps`], started by sending it the base position.
     Anchor(std::sync::mpsc::SyncSender<[i32; 3]>),
 }
@@ -359,13 +359,13 @@ impl Outcome {
 
 /// A running BDS process. Its output goes to a log file, which is polled for the start line.
 #[derive(Debug)]
-struct Bds {
+struct Official {
     child: Child,
     stdin: Option<ChildStdin>,
     log: PathBuf,
 }
 
-impl Bds {
+impl Official {
     fn start(exe: &Path, dir: &Path, log: &Path) -> Result<Self, String> {
         let file = create_file(log)?;
         let stderr = file.try_clone().map_err(|e| e.to_string())?;
@@ -492,15 +492,15 @@ impl Bds {
 /// Runs `cargo xtask p6 <args>`.
 pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     match args {
-        ["bds", rest @ ..] => bds(root, rest, out),
+        ["official", rest @ ..] => official(root, rest, out),
         ["import"] => import::command(root, out),
         ["anchor", rest @ ..] => anchor(root, rest, out),
         ["run", rest @ ..] => run(root, rest, out),
         ["compare", a, b] => compare_files(root, Path::new(a), Path::new(b), out),
-        ["game", "bds", rest @ ..] => game::bds(root, rest, out),
+        ["game", "official", rest @ ..] => game::official(root, rest, out),
         ["game", "anchor", rest @ ..] => game::anchor(root, rest, out),
         ["game", "compare", a, b] => game::compare(root, Path::new(a), Path::new(b), out),
-        ["api", "bds", rest @ ..] => api::bds(root, rest, out),
+        ["api", "official", rest @ ..] => api::official(root, rest, out),
         ["api", "anchor", rest @ ..] => api::anchor(root, rest, out),
         ["api", "compare", a, b] => api::compare(root, Path::new(a), Path::new(b), out),
         _ => Err(format!("usage: {USAGE}")),
@@ -582,16 +582,16 @@ fn report_written(
 
 /// The BDS executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
 /// on Linux), or an error saying where to copy BDS when it is missing.
-fn bds_exe(root: &Path) -> Result<PathBuf, String> {
+fn official_exe(root: &Path) -> Result<PathBuf, String> {
     let exe = root
-        .join(BDS_DIR)
+        .join(OFFICIAL_DIR)
         .join(format!("bedrock_server{}", std::env::consts::EXE_SUFFIX));
     if is_file(&exe) {
         return Ok(exe);
     }
-    let version = BDS_DIR.rsplit('/').next().unwrap_or(BDS_DIR);
+    let version = OFFICIAL_DIR.rsplit('/').next().unwrap_or(OFFICIAL_DIR);
     Err(format!(
-        "{} is missing: copy BDS {version} for this OS into {BDS_DIR} (never run the original)",
+        "{} is missing: copy BDS {version} for this OS into {OFFICIAL_DIR} (never run the original)",
         exe.display()
     ))
 }
@@ -623,10 +623,10 @@ fn default_settings() -> [(&'static str, String); 5] {
     ]
 }
 
-/// `p6 bds`: runs the scenarios against BDS once per compression and transport.
-fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+/// `p6 official`: runs the scenarios against BDS once per compression and transport.
+fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let compressions = compressions(args)?;
-    let exe = bds_exe(root)?;
+    let exe = official_exe(root)?;
     let bot = build_bot(root)?;
     let deferred = load_deferred(root)?;
     let states = block_states(root)?;
@@ -634,8 +634,8 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
     let mut passed = true;
     for (i, compression) in compressions.iter().enumerate() {
         let once = i == 0;
-        let raknet = dir(&format!("bds-{compression}"));
-        passed &= bds_session(
+        let raknet = dir(&format!("official-{compression}"));
+        passed &= official_session(
             &exe,
             &raknet,
             "raknet",
@@ -644,19 +644,19 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             |addr, server, out| {
                 let mut ok = run_scenarios(&bot, addr, addr, &raknet, "raknet", None, out)?;
                 report_window(&raknet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= cloudburst(root, &bot, &raknet, out)?;
+                ok &= worlddata(root, &bot, &raknet, out)?;
                 // The fallback capture is compared with Anchor's, so it runs before the blocks
                 // scenario changes the world.
                 if *compression == FALLBACK_COMPRESSION {
                     wait_until_empty(addr)?;
-                    ok &= fallback(&bot, addr, addr, &dir("bds-fallback"), out)?;
+                    ok &= fallback(&bot, addr, addr, &dir("official-fallback"), out)?;
                 }
-                ok &= blocks(&bot, addr, Placer::Bds(server), &raknet, &states, out)?;
+                ok &= blocks(&bot, addr, Placer::Official(server), &raknet, &states, out)?;
                 Ok(ok)
             },
         )?;
-        let nethernet = dir(&format!("bds-nethernet-{compression}"));
-        passed &= bds_session(
+        let nethernet = dir(&format!("official-nethernet-{compression}"));
+        passed &= official_session(
             &exe,
             &nethernet,
             "nethernet",
@@ -665,12 +665,12 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             |addr, _, out| {
                 let mut ok = run_scenarios(&bot, addr, addr, &nethernet, "nethernet", None, out)?;
                 report_window(&nethernet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= cloudburst(root, &bot, &nethernet, out)?;
+                ok &= worlddata(root, &bot, &nethernet, out)?;
                 report_nethernet(&nethernet.join("spawn.jsonl"), out)?;
                 record_segment_size(&bot, addr, &nethernet, SMALL_SEGMENT, out)?;
                 if once {
-                    record_bind_mismatch(&bot, addr, &dir("bds-bind-mismatch"), out)?;
-                    ok &= duplicate_login(&bot, addr, &dir("bds-duplicate"), out)?;
+                    record_bind_mismatch(&bot, addr, &dir("official-bind-mismatch"), out)?;
+                    ok &= duplicate_login(&bot, addr, &dir("official-duplicate"), out)?;
                 }
                 Ok(ok)
             },
@@ -683,15 +683,15 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
 }
 
 /// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
-/// `CloudburstMC`'s data with the bot (`bot cloudburst`) and prints the result. Any
+/// `CloudburstMC`'s data with the bot (`bot worlddata`) and prints the result. Any
 /// difference, or either packet missing, fails, on BDS's captures and on Anchor's alike.
-fn cloudburst(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
+fn worlddata(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
     let output = Command::new(bot)
-        .arg("cloudburst")
+        .arg("worlddata")
         .arg("-world")
         .arg(dir.join("spawn.world.jsonl"))
         .arg("-data")
-        .arg(root.join(CLOUDBURST.0))
+        .arg(root.join(REFERENCE_SOURCE.0))
         .output()
         .map_err(|e| format!("cannot run the bot: {e}"))?;
     let same = match output.status.code() {
@@ -699,7 +699,7 @@ fn cloudburst(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Resu
         Some(1) => false,
         _ => {
             return Err(format!(
-                "bot cloudburst failed ({}): {}",
+                "bot worlddata failed ({}): {}",
                 output.status,
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
@@ -713,34 +713,34 @@ fn cloudburst(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Resu
 
 /// Starts BDS with the test settings, the transport and the compression, calls `run` with its
 /// address and the process (for console commands) and stops it. The BDS log goes to
-/// `<out_dir>/bds.log`.
-fn bds_session<W: Write>(
+/// `<out_dir>/official.log`.
+fn official_session<W: Write>(
     exe: &Path,
     out_dir: &Path,
     transport: &str,
     compression: &str,
     out: &mut W,
-    run: impl FnOnce(&str, &mut Bds, &mut W) -> Result<bool, String>,
+    run: impl FnOnce(&str, &mut Official, &mut W) -> Result<bool, String>,
 ) -> Result<bool, String> {
-    let session = BdsSession {
+    let session = OfficialSession {
         transport,
         compression,
         settings: &[],
     };
-    bds_session_with(exe, out_dir, &session, |_| Ok(()), out, run)
+    official_session_with(exe, out_dir, &session, |_| Ok(()), out, run)
 }
 
-/// [`bds_session`] with more settings, and `prepare` called with the copy's folder once its
+/// [`official_session`] with more settings, and `prepare` called with the copy's folder once its
 /// `worlds` folder is gone, before BDS starts (to install a pack into the new world).
-fn bds_session_with<W: Write>(
+fn official_session_with<W: Write>(
     exe: &Path,
     out_dir: &Path,
-    session: &BdsSession<'_>,
+    session: &OfficialSession<'_>,
     prepare: impl FnOnce(&Path) -> Result<(), String>,
     out: &mut W,
-    run: impl FnOnce(&str, &mut Bds, &mut W) -> Result<bool, String>,
+    run: impl FnOnce(&str, &mut Official, &mut W) -> Result<bool, String>,
 ) -> Result<bool, String> {
-    let BdsSession {
+    let OfficialSession {
         transport,
         compression,
         settings: extra,
@@ -773,7 +773,7 @@ fn bds_session_with<W: Write>(
             name(out_dir)
         ),
     )?;
-    let mut server = Bds::start(exe, dir, &out_dir.join("bds.log"))?;
+    let mut server = Official::start(exe, dir, &out_dir.join("official.log"))?;
     let result = server
         .wait_started()
         .and_then(|()| run(&format!("127.0.0.1:{port}"), &mut server, out));
@@ -784,7 +784,7 @@ fn bds_session_with<W: Write>(
 }
 
 /// `p6 anchor`: runs the scenarios against Anchor, started in this process with the settings
-/// `p6 bds` gives BDS, and compares each capture with the BDS capture of the same run.
+/// `p6 official` gives BDS, and compares each capture with the BDS capture of the same run.
 fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let compressions = compressions(args)?;
     let bot = build_bot(root)?;
@@ -811,12 +811,13 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
                     let mut ok =
                         run_scenarios(&bot, addr, signaling, &out_dir, transport, None, out)?;
                     report_window(&out_dir.join("spawn.jsonl"), &deferred, out)?;
-                    ok &= cloudburst(root, &bot, &out_dir, out)?;
+                    ok &= worlddata(root, &bot, &out_dir, out)?;
                     if transport == "raknet" {
                         wait_until_empty(addr)?;
                         ok &= blocks(&bot, addr, Placer::Anchor(bases), &out_dir, &states, out)?;
                     }
-                    let same = compare_with_bds(root, &format!("bds-{name}"), &out_dir, out)?;
+                    let same =
+                        compare_with_official(root, &format!("official-{name}"), &out_dir, out)?;
                     Ok(ok && same)
                 },
             )?;
@@ -834,7 +835,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
         out,
         |addr, signaling, out| {
             let ok = fallback(&bot, addr, signaling, &out_dir, out)?;
-            let same = compare_with_bds(root, "bds-fallback", &out_dir, out)?;
+            let same = compare_with_official(root, "official-fallback", &out_dir, out)?;
             Ok(ok && same)
         },
     )?;
@@ -1097,7 +1098,7 @@ fn anchor_steps(
 /// each sent once BDS ran the one before, on Anchor with the task of [`anchor_steps`]. Reports
 /// the block changes of each step with their states (also into `<dir>/blocks.txt`). It passes if
 /// the bot passed, every step ended and every step changed a block; the comparison with BDS is
-/// `compare_with_bds`.
+/// `compare_with_official`.
 fn blocks(
     bot: &Path,
     addr: &str,
@@ -1123,7 +1124,7 @@ fn blocks(
             pause();
         }
         let server = match changer {
-            Placer::Bds(server) => server,
+            Placer::Official(server) => server,
             Placer::Anchor(bases) => {
                 return bases
                     .send(base)
@@ -1353,24 +1354,27 @@ fn state_text(name: &str, properties: &str) -> String {
     format!("{name}[{properties}]")
 }
 
-/// Compares `<out_dir>/spawn.jsonl` with the spawn capture of the BDS run `bds_name`.
-fn compare_with_bds(
+/// Compares `<out_dir>/spawn.jsonl` with the spawn capture of the BDS run `official_name`.
+fn compare_with_official(
     root: &Path,
-    bds_name: &str,
+    official_name: &str,
     out_dir: &Path,
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let bds = root.join(OUT_DIR).join(bds_name).join("spawn.jsonl");
-    if !is_file(&bds) {
+    let official = root.join(OUT_DIR).join(official_name).join("spawn.jsonl");
+    if !is_file(&official) {
         say(
             out,
-            &format!("no BDS capture at {}; run `p6 bds` first", bds.display()),
+            &format!(
+                "no BDS capture at {}; run `p6 official` first",
+                official.display()
+            ),
         )?;
         return Ok(false);
     }
-    say(out, &format!("compare {bds_name} {}:", name(out_dir)))?;
+    say(out, &format!("compare {official_name} {}:", name(out_dir)))?;
     // A capture without a spawn window fails the comparison; the other runs still go on.
-    compare_files(root, &bds, &out_dir.join("spawn.jsonl"), out).or_else(|e| {
+    compare_files(root, &official, &out_dir.join("spawn.jsonl"), out).or_else(|e| {
         say(out, &format!("DIFFERENT: {e}"))?;
         Ok(false)
     })
@@ -1754,7 +1758,7 @@ fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Resul
     }
     let mut same = differences.is_empty();
     say(out, if same { "SAME" } else { "DIFFERENT" })?;
-    // The blocks captures next to both spawn captures (`p6 bds` writes them for RakNet runs).
+    // The blocks captures next to both spawn captures (`p6 official` writes them for RakNet runs).
     let (blocks_a, blocks_b) = (
         a.with_file_name("blocks.jsonl"),
         b.with_file_name("blocks.jsonl"),
@@ -2003,7 +2007,7 @@ fn set_properties(path: &Path, settings: &[(&str, &str)]) -> Result<(), String> 
 /// Two distinct UDP ports that are free on all IPv4 interfaces right now, for BDS, which takes
 /// its ports from `server.properties` (Anchor binds port 0 instead, [`anchor_config`]). Another
 /// process may take one before BDS binds it; BDS then cannot bind it, says so in its log and never
-/// logs "Server started.", so [`Bds::wait_started`] fails the run instead of a bot meeting another
+/// logs "Server started.", so [`Official::wait_started`] fails the run instead of a bot meeting another
 /// server.
 #[expect(
     clippy::disallowed_types,

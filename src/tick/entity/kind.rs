@@ -173,8 +173,8 @@ const ZOMBIE: Physics = VILLAGER;
 pub(super) enum Kind {
     /// A dropped item stack (PMMP `ItemEntity`).
     Item(Item),
-    /// An experience orb (PMMP `ExperienceOrb`).
-    ExperienceOrb(Orb),
+    /// An xp orb (PMMP `ExperienceOrb`).
+    XpOrb(Orb),
     /// A falling block: sand, gravel, an anvil… (PMMP `FallingBlock`).
     FallingBlock(Falling),
     /// Primed TNT (PMMP `PrimedTNT`).
@@ -199,7 +199,7 @@ impl Kind {
     pub(super) fn entity_type(&self) -> Type {
         match self {
             Self::Item(_) => Type::Item,
-            Self::ExperienceOrb(_) => Type::ExperienceOrb,
+            Self::XpOrb(_) => Type::XpOrb,
             Self::FallingBlock(_) => Type::FallingBlock,
             Self::Tnt(_) => Type::PrimedTnt,
             Self::Projectile(p) => match p.shot {
@@ -208,7 +208,7 @@ impl Kind {
                 Shot::Egg => Type::Egg,
                 Shot::EnderPearl => Type::EnderPearl,
                 Shot::Potion { .. } => Type::SplashPotion,
-                Shot::ExperienceBottle => Type::ExperienceBottle,
+                Shot::XpBottle => Type::XpBottle,
                 Shot::Trident(_) => Type::Trident,
                 Shot::IceBomb => Type::IceBomb,
             },
@@ -241,14 +241,14 @@ impl Kind {
     pub(super) fn physics(&self) -> &Physics {
         match self {
             Self::Item(_) => &ITEM,
-            Self::ExperienceOrb(_) => &ORB,
+            Self::XpOrb(_) => &ORB,
             Self::FallingBlock(_) => &FALLING,
             Self::Tnt(_) => &TNT,
             Self::Projectile(p) => match p.shot {
                 Shot::Arrow(_) => &ARROW,
                 Shot::Snowball | Shot::Egg | Shot::EnderPearl => &THROWN,
                 Shot::Potion { .. } => &POTION,
-                Shot::ExperienceBottle => &BOTTLE,
+                Shot::XpBottle => &BOTTLE,
                 Shot::Trident(_) => &TRIDENT,
                 Shot::IceBomb => &ICE_BOMB,
             },
@@ -281,7 +281,7 @@ impl Kind {
     pub(super) fn identifier(&self) -> &str {
         match self {
             Self::Item(_) => "minecraft:item",
-            Self::ExperienceOrb(_) => "minecraft:xp_orb",
+            Self::XpOrb(_) => "minecraft:xp_orb",
             Self::FallingBlock(_) => "minecraft:falling_block",
             Self::Tnt(_) => "minecraft:tnt",
             Self::Projectile(p) => match p.shot {
@@ -290,7 +290,7 @@ impl Kind {
                 Shot::Egg => "minecraft:egg",
                 Shot::EnderPearl => "minecraft:ender_pearl",
                 Shot::Potion { .. } => "minecraft:splash_potion",
-                Shot::ExperienceBottle => "minecraft:xp_bottle",
+                Shot::XpBottle => "minecraft:xp_bottle",
                 Shot::Trident(_) => "minecraft:thrown_trident",
                 Shot::IceBomb => "minecraft:ice_bomb",
             },
@@ -329,7 +329,7 @@ impl Kind {
     pub(super) fn network_offset(&self) -> f64 {
         match self {
             Self::Item(_) => 0.125,
-            Self::ExperienceOrb(_)
+            Self::XpOrb(_)
             | Self::Projectile(_)
             | Self::Cloud(_)
             | Self::Painting(_)
@@ -349,7 +349,7 @@ impl Kind {
     pub(super) fn max_health(&self) -> f64 {
         match self {
             Self::Item(_) => 5.0,
-            Self::ExperienceOrb(_)
+            Self::XpOrb(_)
             | Self::FallingBlock(_)
             | Self::Tnt(_)
             | Self::Cloud(_)
@@ -370,7 +370,7 @@ impl Kind {
                 .stack
                 .item()
                 .is_some_and(crate::item::Type::is_fire_proof),
-            Self::ExperienceOrb(_)
+            Self::XpOrb(_)
             | Self::FallingBlock(_)
             | Self::Tnt(_)
             | Self::Projectile(_)
@@ -387,7 +387,7 @@ impl Kind {
     pub(super) fn takes(&self, cause: Cause) -> bool {
         let only_void = match self {
             Self::Item(_)
-            | Self::ExperienceOrb(_)
+            | Self::XpOrb(_)
             | Self::Cloud(_)
             | Self::Painting(_)
             | Self::EndCrystal(_)
@@ -409,7 +409,7 @@ impl Kind {
     pub(super) fn is_obstacle(&self) -> bool {
         match self {
             Self::Item(_)
-            | Self::ExperienceOrb(_)
+            | Self::XpOrb(_)
             | Self::Projectile(_)
             | Self::Cloud(_)
             | Self::Painting(_)
@@ -467,7 +467,7 @@ impl Kind {
 
 variants!(Kind {
     0 => Item(item),
-    1 => ExperienceOrb(orb),
+    1 => XpOrb(orb),
     2 => FallingBlock(falling),
     3 => Tnt(tnt),
     4 => Projectile(projectile),
@@ -502,10 +502,10 @@ fields!(Item {
     thrower,
 });
 
-/// An experience orb (PMMP `ExperienceOrb`).
+/// An xp orb (PMMP `ExperienceOrb`).
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Orb {
-    /// The experience points it gives, 1 to [`Self::MAX_VALUE`].
+    /// The xp points it gives, 1 to [`Self::MAX_VALUE`].
     pub(super) value: u16,
     /// The ticks until it disappears; [`NEVER`] never, otherwise 0 to [`MAX_DESPAWN_DELAY_TICKS`].
     pub(super) despawn_delay: i32,
@@ -595,7 +595,7 @@ pub(super) enum Shot {
         linger: bool,
     },
     /// PMMP `ExperienceBottle`.
-    ExperienceBottle,
+    XpBottle,
     /// PMMP `Trident`.
     Trident(Trident),
     /// PMMP `IceBomb`.
@@ -608,7 +608,7 @@ variants!(Shot {
     2 => Egg,
     3 => EnderPearl,
     4 => Potion { potion, linger },
-    5 => ExperienceBottle,
+    5 => XpBottle,
     6 => Trident(trident),
     7 => IceBomb,
 });

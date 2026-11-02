@@ -2,7 +2,7 @@
 
 /*
  * PMMP placement golden table. Run with the PMMP PHP binary from the pinned
- * PocketMine-MP checkout (`.cache/pmmp`) as the working directory:
+ * PocketMine-MP checkout (`.cache/dump`) as the working directory:
  *
  *     php place.php <output file>
  *

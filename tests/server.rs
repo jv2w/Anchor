@@ -66,7 +66,7 @@ fn local_config() -> Config {
     config
 }
 
-// pmmp: Server, PluginManager::registerEvent, Event, EventPriority
+// api: Server, PluginManager::registerEvent, Event, EventPriority
 #[test]
 fn listeners_of_every_priority_build_and_run() {
     let mut seen = 0_u32;
@@ -96,7 +96,7 @@ fn listeners_of_every_priority_build_and_run() {
     server.run().unwrap();
 }
 
-// pmmp: EventPriority
+// api: EventPriority
 #[test]
 fn priorities_order_from_lowest_to_highest() {
     use Priority::{High, Highest, Low, Lowest, Normal};
@@ -105,7 +105,7 @@ fn priorities_order_from_lowest_to_highest() {
     assert_eq!(all, [Lowest, Low, Normal, High, Highest]);
 }
 
-// pmmp: WorldManager::generateWorld
+// api: WorldManager::generateWorld
 #[test]
 fn extra_worlds_need_names_of_their_own() {
     let built = Server::builder()
@@ -125,7 +125,7 @@ fn extra_worlds_need_names_of_their_own() {
     assert!(matches!(default, Err(Error::DuplicateWorld { name }) if name == "world"));
 }
 
-// pmmp: WorldManager::generateWorld
+// api: WorldManager::generateWorld
 #[test]
 fn an_extra_world_runs_beside_the_default_one() {
     let data = TempPath::new("worlds");
@@ -146,7 +146,7 @@ fn an_extra_world_runs_beside_the_default_one() {
     server.run().unwrap();
 }
 
-// pmmp: Command
+// api: Command
 #[test]
 fn a_server_builds_with_a_command_of_the_users() {
     let kit = Command::new("Kit", "Gives a kit")

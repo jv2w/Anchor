@@ -56,9 +56,9 @@ mod tests {
 
     use crate::event::fixtures::player;
 
-    // pmmp: CommandEvent, CommandEvent::getSender, CommandEvent::getCommand,
-    // pmmp: CommandEvent::setCommand, CommandEvent::cancel, CommandEvent::uncancel,
-    // pmmp: CommandEvent::isCancelled
+    // api: CommandEvent, CommandEvent::getSender, CommandEvent::getCommand,
+    // api: CommandEvent::setCommand, CommandEvent::cancel, CommandEvent::uncancel,
+    // api: CommandEvent::isCancelled
     #[test]
     fn command_line_can_change() {
         let mut e = Command {

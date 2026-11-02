@@ -7,7 +7,7 @@ use crate::{entity, player, world};
 
 /// A player hits an entity in melee as its client's hit would (PMMP `Player::attackEntity`):
 /// reach, the damage of the held item with Strength, Weakness, Sharpness and a critical hit,
-/// knockback, Knockback and Fire Aspect, wear and hunger, with the events of each
+/// knockback, Knockback and Fire Aspect, wear and food, with the events of each
 /// ([`EntityDamage`](crate::event::EntityDamage), [`EntityMotion`](crate::event::EntityMotion),
 /// [`EntityCombust`](crate::event::EntityCombust), [`EntityDeath`](crate::event::EntityDeath)).
 /// A painting or an end crystal is hit too; nothing happens for any other target that is not a

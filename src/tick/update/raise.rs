@@ -297,7 +297,7 @@ mod tests {
         Replace,
     }
 
-    // pmmp: BlockGrowEvent
+    // api: BlockGrowEvent
     #[test]
     fn bone_meal_raises_block_grow_naming_the_player() {
         let at = BlockPos::new(5, -60, 5);
@@ -356,7 +356,7 @@ mod tests {
         assert!(seen.is_empty());
     }
 
-    // pmmp: BlockGrowEvent
+    // api: BlockGrowEvent
     /// A stem whose `BlockGrow` listener replaces it while its fruit grows keeps the listener's
     /// block, and no fruit grows.
     #[test]
@@ -391,7 +391,7 @@ mod tests {
         }
     }
 
-    // pmmp: BlockGrowEvent
+    // api: BlockGrowEvent
     /// Sugar cane whose `BlockGrow` listener replaces its bottom block keeps the listener's
     /// block, and no cane grows.
     #[test]
@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(get(&state, above), block::AIR);
     }
 
-    // pmmp: StructureGrowEvent
+    // api: StructureGrowEvent
     /// Ready bamboo whose `StructureGrow` listener replaces it keeps the listener's block.
     #[test]
     fn bamboo_a_structure_listener_replaced_stays_replaced() {
@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(get(&state, at), stone(), "the listener's block stays");
     }
 
-    // pmmp: StructureGrowEvent
+    // api: StructureGrowEvent
     #[test]
     fn saplings_raise_structure_grow_with_every_block() {
         let at = BlockPos::new(20, -60, 20);
@@ -502,7 +502,7 @@ mod tests {
         }
     }
 
-    // pmmp: BlockSpreadEvent
+    // api: BlockSpreadEvent
     #[test]
     fn liquid_flow_raises_block_spread_and_cancelling_stops_it() {
         let source = BlockPos::new(8, -60, 8);
@@ -551,7 +551,7 @@ mod tests {
         assert!(!calls.is_empty());
     }
 
-    // pmmp: BlockBurnEvent
+    // api: BlockBurnEvent
     #[test]
     fn fire_raises_block_burn_and_cancelling_keeps_the_fuel() {
         let planks = Kind::OakPlanks.default_state();
@@ -597,7 +597,7 @@ mod tests {
         assert!(left < 25 && !calls.is_empty());
     }
 
-    // pmmp: BlockBurnEvent
+    // api: BlockBurnEvent
     /// A fire that a `BlockBurn` listener puts out sets nothing else alight in that update.
     #[test]
     fn a_fire_a_burn_listener_put_out_spreads_no_further() {
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(lit_after, 0, "a fire put out by a listener spread");
     }
 
-    // pmmp: BlockFormEvent
+    // api: BlockFormEvent
     #[test]
     fn concrete_and_lava_raise_block_form_naming_the_cause() {
         let powder = named("minecraft:red_concrete_powder");
@@ -682,7 +682,7 @@ mod tests {
         assert_eq!(kept, (powder, lava));
     }
 
-    // pmmp: BlockMeltEvent, BlockDeathEvent
+    // api: BlockMeltEvent, BlockDeathEvent
     #[test]
     fn ice_melts_and_coral_dies_through_their_events() {
         let ice = find("minecraft:frosted_ice", &[("age", PropertyValue::Int(3))]);
@@ -733,7 +733,7 @@ mod tests {
         assert_eq!((melted.len(), died.len()), (1, 1));
     }
 
-    // pmmp: LeavesDecayEvent
+    // api: LeavesDecayEvent
     #[test]
     fn leaves_decay_through_their_event_and_cancelled_leaves_stop_checking() {
         let leaves = find(
@@ -778,7 +778,7 @@ mod tests {
         assert_eq!(replaced, stone());
     }
 
-    // pmmp: FarmlandHydrationChangeEvent
+    // api: FarmlandHydrationChangeEvent
     #[test]
     fn farmland_hydration_change_sets_the_wetness() {
         let at = BlockPos::new(6, -61, 6);
@@ -810,7 +810,7 @@ mod tests {
         assert_eq!(run(0, None, false), (block::DIRT, Vec::new()));
     }
 
-    // pmmp: BlockUpdateEvent
+    // api: BlockUpdateEvent
     #[test]
     fn cancelled_block_updates_skip_the_reaction() {
         let torch = find(
@@ -849,7 +849,7 @@ mod tests {
         assert!(effects.is_empty());
     }
 
-    // pmmp: EntityTrampleFarmlandEvent
+    // api: EntityTrampleFarmlandEvent
     #[test]
     fn trampling_raises_entity_trample_farmland() {
         let at = BlockPos::new(2, -61, 2);

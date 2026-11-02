@@ -3,7 +3,7 @@ paths:
   - "src/**/*.rs"
   - "tests/**/*.rs"
   - "xtask/src/**/*.rs"
-  - "xtask/data/pmmp/status.txt"
+  - "xtask/data/dump/status.txt"
   - "Cargo.toml"
   - "xtask/Cargo.toml"
   - ".clippy.toml"
@@ -102,8 +102,8 @@ paths:
 
 ## API table
 - When an alias's short class name is ambiguous, write its namespace path instead (`block\tile\Chest::getPair`).
-- When rustdoc rejects an alias equal to the item's own name, cover the class row with a `// pmmp-class: Name` comment above the item.
-- Cover the aliases a test checks with a `// pmmp: A::b, C::d` comment above the test function.
+- When rustdoc rejects an alias equal to the item's own name, cover the class row with a `// api-class: Name` comment above the item.
+- Cover the aliases a test checks with a `// api: A::b, C::d` comment above the test function.
 
 ## Villager trading
 - Send prices as the real counts. Never rely on the client's price formula.

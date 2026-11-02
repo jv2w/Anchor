@@ -1,17 +1,17 @@
 //! The offer list of one villager NPC and its two NBT forms (P6).
 //!
 //! An offer list holds the offers ([`Recipe`], BDS `Recipes`) in the order the trade screen
-//! shows them, the villager's tier and trade experience, and the experience each tier needs (BDS
+//! shows them, the villager's tier and trade xp, and the xp each tier needs (BDS
 //! `TierExpRequirements`). Code sets and changes it ([`Offers::set`], [`Offers::add`],
-//! [`Offers::remove`], [`Offers::replace`], [`Offers::set_tier`], [`Offers::set_experience`],
-//! [`Offers::set_tier_experience`], [`Offers::reset_uses`]); trades change only the counters
+//! [`Offers::remove`], [`Offers::replace`], [`Offers::set_tier`], [`Offers::set_xp`],
+//! [`Offers::set_tier_xp`], [`Offers::reset_uses`]); trades change only the counters
 //! ([`Offers::apply`]). There is no vanilla economy: prices are the counts of the payment stacks,
 //! and demand and price multipliers are data the client is sent as they are.
 //!
 //! Both NBT forms come from one writer:
 //!
 //! - saved ([`Offers::to_nbt`]): the entity's `Offers` compound, `{Recipes, TierExpRequirements,
-//!   TradeTier, TradeExperience}` plus every unknown key. BDS keeps the tier and experience on
+//!   TradeTier, TradeExperience}` plus every unknown key. BDS keeps the tier and xp on
 //!   the entity; here they travel with the offers so the entity module stores one value.
 //! - wire ([`Offers::wire_nbt`]): `UpdateTrade.SerialisedOffers`, the BDS shape `{Recipes,
 //!   TierExpRequirements}` (the packet carries the tier), each recipe with its `netId`.
@@ -30,7 +30,7 @@ use tracing::warn;
 
 use crate::custom::{
     MAX_OFFERS, MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS, is_price_multiplier,
-    is_tier_experience,
+    is_tier_xp,
 };
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
@@ -48,8 +48,8 @@ const BUY_COUNT_A: &str = "buyCountA";
 const BUY_COUNT_B: &str = "buyCountB";
 /// An item compound's damage (meta).
 const DAMAGE: &str = "Damage";
-/// The experience each tier needs, as BDS sends it (P6).
-const DEFAULT_TIER_EXPERIENCE: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
+/// The xp each tier needs, as BDS sends it (P6).
+const DEFAULT_TIER_XP: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
 /// A recipe's demand.
 const DEMAND: &str = "demand";
 /// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
@@ -87,18 +87,18 @@ const RECIPES: &str = "Recipes";
 /// Whether a recipe's trades drop orbs (a byte flag).
 const REWARD_EXP: &str = "rewardExp";
 /// Every key the root compound reads; the others are kept as unknown.
-const ROOT_KEYS: [&str; 4] = [RECIPES, TIER_EXPERIENCE, TRADE_TIER, TRADE_EXPERIENCE];
+const ROOT_KEYS: [&str; 4] = [RECIPES, TIER_XP, TRADE_TIER, TRADE_XP];
 /// What a recipe sells.
 const SELL: &str = "sell";
 /// The tier that unlocks a recipe.
 const TIER: &str = "tier";
-/// The experience each tier needs (both forms).
-const TIER_EXPERIENCE: &str = "TierExpRequirements";
-/// The villager's trade experience (saved form only).
-const TRADE_EXPERIENCE: &str = "TradeExperience";
+/// The xp each tier needs (both forms).
+const TIER_XP: &str = "TierExpRequirements";
 /// The villager's tier (saved form only; `UpdateTrade` carries it).
 const TRADE_TIER: &str = "TradeTier";
-/// The villager experience per trade of a recipe.
+/// The villager's trade xp (saved form only).
+const TRADE_XP: &str = "TradeExperience";
+/// The villager xp per trade of a recipe.
 const TRADER_EXP: &str = "traderExp";
 /// A recipe's uses so far.
 const USES: &str = "uses";
@@ -110,10 +110,10 @@ pub(in crate::tick) struct Offers {
     recipes: Vec<Recipe>,
     /// The villager's tier (0 to [`MAX_TRADE_TIER`]): offers of higher tiers are locked.
     tier: u8,
-    /// The villager's trade experience, at most [`MAX_TRADE_COUNTER`].
-    experience: u32,
-    /// The experience each tier needs, never going down.
-    tier_experience: [u32; TRADE_TIERS],
+    /// The villager's trade xp, at most [`MAX_TRADE_COUNTER`].
+    xp: u32,
+    /// The xp each tier needs, never going down.
+    tier_xp: [u32; TRADE_TIERS],
     /// Unknown root keys, written back as they came.
     unknown: Compound,
     /// Saved recipes Anchor cannot use, written back after the others.
@@ -126,7 +126,7 @@ pub(in crate::tick) struct Offers {
 
 impl Offers {
     /// Reads the offers of a saved entity (its `Offers` compound). Recipes Anchor cannot use are
-    /// skipped with a warning and kept to be written back; a bad tier, experience or tier
+    /// skipped with a warning and kept to be written back; a bad tier, xp or tier
     /// requirement list falls back to its default with a warning. Custom items are read
     /// through `custom`, the server's custom content.
     pub(in crate::tick) fn from_nbt(saved: &Compound, custom: &Registry) -> Self {
@@ -153,8 +153,8 @@ impl Offers {
             Some(Value::List(List::End)) | None => {}
             Some(_) => warn!("saved villager offers are not a compound list; none read"),
         }
-        match saved.get(TIER_EXPERIENCE).map(tier_experience) {
-            Some(Some(t)) => offers.tier_experience = t,
+        match saved.get(TIER_XP).map(tier_xp) {
+            Some(Some(t)) => offers.tier_xp = t,
             Some(None) => warn!("saved villager tier requirements are invalid; defaults used"),
             None => {}
         }
@@ -167,13 +167,13 @@ impl Offers {
             Some(None) => warn!("saved villager tier is invalid; tier 0 used"),
             None => {}
         }
-        let experience = saved.get(TRADE_EXPERIENCE).map(|v| match v {
+        let xp = saved.get(TRADE_XP).map(|v| match v {
             Value::Int(x) => u32::try_from(*x).ok(),
             _ => None,
         });
-        match experience {
-            Some(Some(x)) => offers.experience = x,
-            Some(None) => warn!("saved villager experience is invalid; 0 used"),
+        match xp {
+            Some(Some(x)) => offers.xp = x,
+            Some(None) => warn!("saved villager xp is invalid; 0 used"),
             None => {}
         }
         offers
@@ -194,14 +194,14 @@ impl Offers {
         self.tier
     }
 
-    /// The villager's trade experience.
-    pub(in crate::tick) fn experience(&self) -> u32 {
-        self.experience
+    /// The villager's trade xp.
+    pub(in crate::tick) fn xp(&self) -> u32 {
+        self.xp
     }
 
-    /// The experience each tier needs.
-    pub(in crate::tick) fn tier_experience(&self) -> [u32; TRADE_TIERS] {
-        self.tier_experience
+    /// The xp each tier needs.
+    pub(in crate::tick) fn tier_xp(&self) -> [u32; TRADE_TIERS] {
+        self.tier_xp
     }
 
     /// The index of the offer the client knows as `net_id`, if the list still has that ID.
@@ -266,46 +266,43 @@ impl Offers {
         })
     }
 
-    /// Sets the villager's tier; its experience moves to at least the tier's need and below the
-    /// next higher need, so only experience a trade gives raises the tier again (a later tier
+    /// Sets the villager's tier; its xp moves to at least the tier's need and below the
+    /// next higher need, so only xp a trade gives raises the tier again (a later tier
     /// that needs no more than this one is reached by the next trade). Offers keep their network
     /// IDs.
     pub(in crate::tick) fn set_tier(&mut self, tier: u8) -> Result<()> {
-        let need = *self
-            .tier_experience
-            .get(usize::from(tier))
-            .ok_or(Error::Tier)?;
+        let need = *self.tier_xp.get(usize::from(tier)).ok_or(Error::Tier)?;
         let higher = self
-            .tier_experience
+            .tier_xp
             .iter()
             .skip(usize::from(tier) + 1)
             .find(|&&next| next > need);
         self.tier = tier;
-        self.experience = match higher {
-            Some(&next) => self.experience.clamp(need, next - 1),
-            None => self.experience.max(need),
+        self.xp = match higher {
+            Some(&next) => self.xp.clamp(need, next - 1),
+            None => self.xp.max(need),
         };
         Ok(())
     }
 
-    /// Sets the villager's trade experience (at most [`MAX_TRADE_COUNTER`]) and raises its tier
-    /// to the highest one the experience reaches; a lower experience keeps the tier.
-    pub(in crate::tick) fn set_experience(&mut self, experience: u32) -> Result<()> {
-        if experience > MAX_TRADE_COUNTER {
-            return Err(Error::Experience);
+    /// Sets the villager's trade xp (at most [`MAX_TRADE_COUNTER`]) and raises its tier
+    /// to the highest one the xp reaches; a lower xp keeps the tier.
+    pub(in crate::tick) fn set_xp(&mut self, xp: u32) -> Result<()> {
+        if xp > MAX_TRADE_COUNTER {
+            return Err(Error::Xp);
         }
-        self.experience = experience;
+        self.xp = xp;
         self.raise_tier();
         Ok(())
     }
 
-    /// Sets the experience each tier needs ([`is_tier_experience`]) and raises the tier to the
-    /// highest one the experience reaches; higher needs keep the tier.
-    pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TRADE_TIERS]) -> Result<()> {
-        if !is_tier_experience(tiers) {
-            return Err(Error::TierExperience);
+    /// Sets the xp each tier needs ([`is_tier_xp`]) and raises the tier to the
+    /// highest one the xp reaches; higher needs keep the tier.
+    pub(in crate::tick) fn set_tier_xp(&mut self, tiers: [u32; TRADE_TIERS]) -> Result<()> {
+        if !is_tier_xp(tiers) {
+            return Err(Error::TierXp);
         }
-        self.tier_experience = tiers;
+        self.tier_xp = tiers;
         self.raise_tier();
         Ok(())
     }
@@ -338,8 +335,8 @@ impl Offers {
         self.first_net_id = Some(start);
     }
 
-    /// Counts `times` trades of the offer at `index`: its uses, the villager's experience and
-    /// tier (raised to the highest tier the experience reaches, several at once if enough). At
+    /// Counts `times` trades of the offer at `index`: its uses, the villager's xp and
+    /// tier (raised to the highest tier the xp reaches, several at once if enough). At
     /// most the uses left are counted. `None` if there is no such offer.
     pub(in crate::tick) fn apply(&mut self, index: usize, times: u32) -> Option<Applied> {
         let recipe = self.recipes.get_mut(index)?;
@@ -347,10 +344,7 @@ impl Offers {
         recipe.uses = recipe.uses.saturating_add(times);
         let gained = recipe.trader_exp.saturating_mul(times);
         let reward_exp = recipe.reward_exp;
-        self.experience = self
-            .experience
-            .saturating_add(gained)
-            .min(MAX_TRADE_COUNTER);
+        self.xp = self.xp.saturating_add(gained).min(MAX_TRADE_COUNTER);
         self.raise_tier();
         Some(Applied { times, reward_exp })
     }
@@ -359,7 +353,7 @@ impl Offers {
     pub(in crate::tick) fn to_nbt(&self) -> Compound {
         let mut c = self.nbt(Form::Saved);
         c.insert(TRADE_TIER.to_owned(), Value::Int(i32::from(self.tier)));
-        c.insert(TRADE_EXPERIENCE.to_owned(), int(self.experience));
+        c.insert(TRADE_XP.to_owned(), int(self.xp));
         c
     }
 
@@ -387,13 +381,10 @@ impl Offers {
         recipes.extend(skipped.iter().cloned());
         c.insert(RECIPES.to_owned(), Value::List(List::Compound(recipes)));
         let tiers = (0..TRADE_TIERS)
-            .zip(self.tier_experience)
+            .zip(self.tier_xp)
             .map(|(i, x)| Compound::from([(i.to_string(), int(x))]))
             .collect();
-        c.insert(
-            TIER_EXPERIENCE.to_owned(),
-            Value::List(List::Compound(tiers)),
-        );
+        c.insert(TIER_XP.to_owned(), Value::List(List::Compound(tiers)));
         c
     }
 
@@ -412,13 +403,13 @@ impl Offers {
         Ok(())
     }
 
-    /// Raises the tier to the highest one the experience reaches; experience never lowers it.
+    /// Raises the tier to the highest one the xp reaches; xp never lowers it.
     fn raise_tier(&mut self) {
         while self.tier < MAX_TRADE_TIER
             && self
-                .tier_experience
+                .tier_xp
                 .get(usize::from(self.tier) + 1)
-                .is_some_and(|&need| self.experience >= need)
+                .is_some_and(|&need| self.xp >= need)
         {
             self.tier += 1;
         }
@@ -434,8 +425,8 @@ impl Offers {
         let Self {
             recipes,
             tier,
-            experience,
-            tier_experience,
+            xp,
+            tier_xp,
             unknown,
             skipped,
             first_net_id,
@@ -445,8 +436,8 @@ impl Offers {
             r.hash_into(h);
         }
         h.u64(u64::from(*tier));
-        h.u64(u64::from(*experience));
-        for x in tier_experience {
+        h.u64(u64::from(*xp));
+        for x in tier_xp {
             h.u64(u64::from(*x));
         }
         crate::tick::extra::hash_nbt(h, unknown);
@@ -463,8 +454,8 @@ impl Default for Offers {
         Self {
             recipes: Vec::new(),
             tier: 0,
-            experience: 0,
-            tier_experience: DEFAULT_TIER_EXPERIENCE,
+            xp: 0,
+            tier_xp: DEFAULT_TIER_XP,
             unknown: Compound::new(),
             skipped: Vec::new(),
             first_net_id: None,
@@ -475,8 +466,8 @@ impl Default for Offers {
 crate::tick::checkpoint::fields!(Offers {
     recipes,
     tier,
-    experience,
-    tier_experience,
+    xp,
+    tier_xp,
     unknown,
     skipped,
     first_net_id,
@@ -504,9 +495,9 @@ pub(in crate::tick) struct Recipe {
     pub(in crate::tick) uses: u32,
     /// The villager tier that unlocks it (0 to [`MAX_TRADE_TIER`]).
     pub(in crate::tick) tier: u8,
-    /// Experience the villager gets per trade.
+    /// Xp the villager gets per trade.
     pub(in crate::tick) trader_exp: u32,
-    /// Whether each trade drops experience orbs for the player.
+    /// Whether each trade drops xp orbs for the player.
     pub(in crate::tick) reward_exp: bool,
     /// Sent as `priceMultiplierA`; Anchor's price does not depend on it.
     pub(in crate::tick) price_multiplier_a: f32,
@@ -739,7 +730,7 @@ crate::tick::checkpoint::variants!(Damage {
 pub(in crate::tick) struct Applied {
     /// Trades counted.
     pub(in crate::tick) times: u32,
-    /// Whether the offer drops experience orbs per trade.
+    /// Whether the offer drops xp orbs per trade.
     pub(in crate::tick) reward_exp: bool,
 }
 
@@ -765,10 +756,10 @@ pub(in crate::tick) enum Error {
     Tier,
     /// A price multiplier that is NaN or infinite.
     Multiplier,
-    /// Tier experience requirements that go down or exceed `TAG_Int`.
-    TierExperience,
-    /// Trade experience above `TAG_Int`.
-    Experience,
+    /// Tier xp requirements that go down or exceed `TAG_Int`.
+    TierXp,
+    /// Trade xp above `TAG_Int`.
+    Xp,
     /// The list would hold more than [`MAX_OFFERS`].
     Full,
     /// The saved offers would take more than [`MAX_SAVED_BYTES`].
@@ -789,8 +780,8 @@ impl Error {
             Self::Uses => "uses above the maximum or a counter above i32::MAX",
             Self::Tier => "a tier above 4",
             Self::Multiplier => "a price multiplier that is not finite",
-            Self::TierExperience => "tier experience that goes down or is above i32::MAX",
-            Self::Experience => "trade experience above i32::MAX",
+            Self::TierXp => "tier xp that goes down or is above i32::MAX",
+            Self::Xp => "trade xp above i32::MAX",
             Self::Full => "more than 128 offers",
             Self::TooLarge => "offers whose saved form is over 2 MiB",
             Self::NoOffer => "no offer at that index",
@@ -891,9 +882,9 @@ fn float(c: &Compound, key: &str) -> Result<f32, &'static str> {
 }
 
 /// Reads the tier requirements of a `TierExpRequirements` list: exactly one compound per tier,
-/// the `i`-th holding only the int key `"i"`, as [`is_tier_experience`] takes them; `None`
+/// the `i`-th holding only the int key `"i"`, as [`is_tier_xp`] takes them; `None`
 /// otherwise.
-fn tier_experience(value: &Value) -> Option<[u32; TRADE_TIERS]> {
+fn tier_xp(value: &Value) -> Option<[u32; TRADE_TIERS]> {
     let Value::List(List::Compound(list)) = value else {
         return None;
     };
@@ -911,7 +902,7 @@ fn tier_experience(value: &Value) -> Option<[u32; TRADE_TIERS]> {
         }
         *slot = u32::try_from(*x).ok()?;
     }
-    is_tier_experience(out).then_some(out)
+    is_tier_xp(out).then_some(out)
 }
 
 /// Copies the entries of `c` whose keys are not in `known`, to be written back as they came.
@@ -1023,11 +1014,11 @@ pub(in crate::tick) mod tests {
         let wire = offers.wire_nbt().unwrap();
         assert_eq!(
             wire.keys().collect::<Vec<_>>(),
-            [RECIPES, TIER_EXPERIENCE],
+            [RECIPES, TIER_XP],
             "the BDS root keys"
         );
         assert_eq!(
-            wire.get(TIER_EXPERIENCE),
+            wire.get(TIER_XP),
             Some(&Value::List(List::Compound(
                 [0, 10, 70, 150, 250]
                     .iter()
@@ -1142,23 +1133,20 @@ pub(in crate::tick) mod tests {
         let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
         assert_eq!(little_endian_bytes(&back.to_nbt()), saved);
         assert_eq!(back.recipes, offers.recipes);
-        assert_eq!(
-            (back.tier, back.experience),
-            (offers.tier, offers.experience)
-        );
+        assert_eq!((back.tier, back.xp), (offers.tier, offers.xp));
         assert_eq!(back.first_net_id, None, "network IDs are not saved");
     }
 
     #[test]
     fn counters_survive_saving() {
         let mut offers = sample();
-        offers.set_tier_experience([0, 5, 20, 40, 80]).unwrap();
+        offers.set_tier_xp([0, 5, 20, 40, 80]).unwrap();
         offers.apply(0, 16).unwrap();
         let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
         assert_eq!(back.recipes[0].uses, 16);
-        assert_eq!(back.experience, 32);
+        assert_eq!(back.xp, 32);
         assert_eq!(back.tier, 2);
-        assert_eq!(back.tier_experience, [0, 5, 20, 40, 80]);
+        assert_eq!(back.tier_xp, [0, 5, 20, 40, 80]);
         assert_eq!(
             back,
             Offers {
@@ -1248,13 +1236,13 @@ pub(in crate::tick) mod tests {
         let saved = Compound::from([
             (RECIPES.to_owned(), Value::List(List::Compound(list))),
             (TRADE_TIER.to_owned(), Value::Int(9)),
-            (TIER_EXPERIENCE.to_owned(), Value::Int(3)),
+            (TIER_XP.to_owned(), Value::Int(3)),
         ]);
         let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
         assert_eq!(offers.recipes.len(), 1);
         assert_eq!(offers.skipped.len(), bad.len());
         assert_eq!(offers.tier, 0, "a bad tier falls back to 0");
-        assert_eq!(offers.tier_experience, DEFAULT_TIER_EXPERIENCE);
+        assert_eq!(offers.tier_xp, DEFAULT_TIER_XP);
         let written = offers.to_nbt();
         // Compared as bytes: one of them holds a NaN.
         let list = |l: &[Compound]| {
@@ -1299,10 +1287,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(offers.add(bad.clone()), Err(Error::Multiplier));
         assert_eq!(offers.remove(3), Err(Error::NoOffer));
         assert_eq!(offers.set_tier(5), Err(Error::Tier));
-        assert_eq!(
-            offers.set_tier_experience([0, 10, 5, 20, 30]),
-            Err(Error::TierExperience)
-        );
+        assert_eq!(offers.set_tier_xp([0, 10, 5, 20, 30]), Err(Error::TierXp));
         assert_eq!(
             offers.index_of(12),
             Some(2),
@@ -1311,7 +1296,7 @@ pub(in crate::tick) mod tests {
 
         offers.reset_uses();
         offers.set_tier(3).unwrap();
-        assert_eq!(offers.experience, 150, "the experience meets the set tier");
+        assert_eq!(offers.xp, 150, "the xp meets the set tier");
         assert_eq!(offers.index_of(12), Some(2), "tier and uses keep the IDs");
 
         offers.remove(0).unwrap();
@@ -1368,9 +1353,9 @@ pub(in crate::tick) mod tests {
                 reward_exp: true,
             }
         );
-        assert_eq!((offers.experience, offers.tier), (8, 0));
+        assert_eq!((offers.xp, offers.tier), (8, 0));
         offers.apply(0, 1).unwrap();
-        assert_eq!(offers.tier, 1, "10 experience reaches tier 1");
+        assert_eq!(offers.tier, 1, "10 xp reaches tier 1");
         assert!(offers.tradable(1).is_some());
         // Uses run out; more than the uses left are never counted.
         let applied = offers.apply(0, 100).unwrap();
@@ -1378,52 +1363,52 @@ pub(in crate::tick) mod tests {
         assert_eq!(offers.recipes[0].uses, 16);
         assert!(offers.tradable(0).is_none());
         assert_eq!(offers.apply(0, 1).unwrap().times, 0);
-        // Enough experience at once passes several tiers, up to 4.
+        // Enough xp at once passes several tiers, up to 4.
         offers.recipes[1].trader_exp = MAX_TRADE_COUNTER;
         offers.apply(1, 2).unwrap();
-        assert_eq!((offers.tier, offers.experience), (4, MAX_TRADE_COUNTER));
+        assert_eq!((offers.tier, offers.xp), (4, MAX_TRADE_COUNTER));
         assert_eq!(offers.apply(9, 1), None);
     }
 
-    /// A tier set lower stays through a trade that gives no experience: its experience moves
+    /// A tier set lower stays through a trade that gives no xp: its xp moves
     /// below the next higher need.
     #[test]
     fn a_lowered_tier_stays_through_the_next_trade() {
         let mut offers = sample();
         offers.recipes[0].trader_exp = 0;
         offers.set_tier(2).unwrap();
-        assert_eq!(offers.experience, 70);
+        assert_eq!(offers.xp, 70);
         offers.set_tier(0).unwrap();
-        assert_eq!(offers.experience, 9, "below tier 1's need");
+        assert_eq!(offers.xp, 9, "below tier 1's need");
         offers.apply(0, 1).unwrap();
-        assert_eq!((offers.tier, offers.experience), (0, 9));
+        assert_eq!((offers.tier, offers.xp), (0, 9));
         offers.set_tier(MAX_TRADE_TIER).unwrap();
-        assert_eq!(offers.experience, 250, "the top tier has no upper bound");
+        assert_eq!(offers.xp, 250, "the top tier has no upper bound");
         // Tier 2 needs no more than tier 1: a trade reaches it.
         let mut same = sample();
         same.recipes[0].trader_exp = 0;
-        same.set_tier_experience([0, 10, 10, 70, 250]).unwrap();
-        same.set_experience(80).unwrap();
+        same.set_tier_xp([0, 10, 10, 70, 250]).unwrap();
+        same.set_xp(80).unwrap();
         same.set_tier(1).unwrap();
-        assert_eq!(same.experience, 69, "below the next higher need");
+        assert_eq!(same.xp, 69, "below the next higher need");
         same.apply(0, 1).unwrap();
         assert_eq!(same.tier, 2);
     }
 
-    /// New tier needs or a new experience raise the tier at once to the highest one the
-    /// experience reaches, so its offers unlock without a trade; higher needs or a lower
-    /// experience keep the tier.
+    /// New tier needs or a new xp raise the tier at once to the highest one the
+    /// xp reaches, so its offers unlock without a trade; higher needs or a lower
+    /// xp keep the tier.
     #[test]
-    fn changed_needs_or_experience_raise_the_tier_at_once() {
+    fn changed_needs_or_xp_raise_the_tier_at_once() {
         let mut offers = sample();
-        offers.set_tier_experience([0; TRADE_TIERS]).unwrap();
+        offers.set_tier_xp([0; TRADE_TIERS]).unwrap();
         assert_eq!(offers.tier, MAX_TRADE_TIER);
         let mut offers = sample();
-        offers.set_experience(70).unwrap();
+        offers.set_xp(70).unwrap();
         assert_eq!(offers.tier, 2);
         assert!(offers.tradable(2).is_some(), "the tier 2 offer unlocks");
-        offers.set_experience(0).unwrap();
-        offers.set_tier_experience([0, 100, 200, 300, 400]).unwrap();
+        offers.set_xp(0).unwrap();
+        offers.set_tier_xp([0, 100, 200, 300, 400]).unwrap();
         assert_eq!(offers.tier, 2, "tiers never go down");
     }
 

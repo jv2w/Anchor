@@ -1098,9 +1098,9 @@ mod tests {
         out
     }
 
-    /// The golden lines of a scene (`xtask/data/pmmp/liquid.txt`, from PMMP's own classes).
+    /// The golden lines of a scene (`xtask/data/dump/liquid.txt`, from PMMP's own classes).
     fn golden(scene: &str) -> Vec<String> {
-        include_str!("../../xtask/data/pmmp/liquid.txt")
+        include_str!("../../xtask/data/dump/liquid.txt")
             .lines()
             .filter(|l| l.split(' ').next() == Some(scene))
             .map(str::to_owned)
@@ -1186,7 +1186,7 @@ mod tests {
         block::State::find(name, props).unwrap()
     }
 
-    // pmmp: World::scheduleDelayedBlockUpdate
+    // api: World::scheduleDelayedBlockUpdate
     #[test]
     fn the_api_schedules_one_update_per_position_and_it_runs_when_due() {
         let mut state = server();
@@ -1527,7 +1527,7 @@ mod tests {
         (listeners, rx)
     }
 
-    // pmmp: BlockGrowEvent
+    // api: BlockGrowEvent
     /// A field of wheat on wet farmland around a player: random ticks grow it, the same way
     /// with one pool thread or four, in a second run, and with listeners that change nothing.
     #[test]
@@ -2106,7 +2106,7 @@ mod tests {
         }
     }
 
-    // pmmp: BlockBurnEvent
+    // api: BlockBurnEvent
     /// Fire that cannot prime TNT at the world's entity limit leaves the TNT, and no monitor
     /// hears of a burn.
     #[test]

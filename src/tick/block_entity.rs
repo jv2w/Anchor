@@ -71,7 +71,7 @@ const SPILL_DROPS_PER_TICK: usize = 64;
 pub(crate) const SPILL_ID: &str = "AnchorSpill";
 /// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
 const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
-/// The random stream purpose of block entity ticks (smelting experience).
+/// The random stream purpose of block entity ticks (smelting xp).
 const TICK: u64 = random::tag("block-entity-tick");
 
 /// The block entities of the loaded chunks.
@@ -629,7 +629,7 @@ impl Parsed {
     /// A block entity whose block does not take it (an older Anchor, a world edited outside) is
     /// removed with a warning, as PMMP drops a tile without its block on load; what it held
     /// waits as a spill and drops in the next ticks (PMMP drops nothing: fixed, no item is
-    /// lost). A furnace's stored experience goes with it. With the chunk's spills full it is kept
+    /// lost). A furnace's stored xp goes with it. With the chunk's spills full it is kept
     /// as it is. A shulker box's stacks its slots do not take (an Anchor before the limit saved
     /// them) wait as a spill too, so the box with its items is always one stack ([`spill_unfit`]).
     ///
@@ -1534,7 +1534,7 @@ fn discard(state: &mut State, world: WorldIndex, pos: BlockPos) {
 
 /// The block at `pos` is gone (broken, replaced, burnt, exploded): removes its block entity,
 /// closes the windows on it and drops what it held as items (PMMP `Container::onBlockDestroyed`);
-/// a furnace's stored experience drops as orbs.
+/// a furnace's stored xp drops as orbs.
 ///
 /// A shulker box keeps its contents: they leave in the dropped box's NBT, which the breaking
 /// code takes from [`with_block_data`] before calling this. A paired chest's other half becomes
@@ -1569,7 +1569,7 @@ pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
     if let Kind::Furnace(f) = &entity.kind
         && f.xp > 0
     {
-        entity::drop_experience(state, world, center(pos), u32::from(f.xp));
+        entity::drop_xp(state, world, center(pos), u32::from(f.xp));
     }
     if matches!(entity.kind, Kind::ShulkerBox { .. }) {
         return;
@@ -1804,9 +1804,9 @@ pub(super) fn set_slot(
     Ok(true)
 }
 
-/// Takes a furnace's stored experience (when its output is taken); 0 for other blocks. Taking
+/// Takes a furnace's stored xp (when its output is taken); 0 for other blocks. Taking
 /// none leaves the chunk unchanged.
-pub(super) fn take_experience(state: &mut State, world: WorldIndex, pos: BlockPos) -> u32 {
+pub(super) fn take_xp(state: &mut State, world: WorldIndex, pos: BlockPos) -> u32 {
     state
         .rules
         .block_entities
@@ -2080,12 +2080,12 @@ fn furnace_smelt(
         made = (!e.cancelled && !changed).then(|| e.result.clone());
         event = Some(e);
     }
-    let experience = state.settings.has_orbs().then_some(rng);
+    let xp = state.settings.has_orbs().then_some(rng);
     let (f, items, _) = furnace_mut(state, world, pos)?;
     if let Some(made) = made
         && furnace::Furnace::fits(items, &made)
     {
-        f.smelt(items, &made, experience, t);
+        f.smelt(items, &made, xp, t);
         *smelted = event;
     }
     Some(())
@@ -3704,7 +3704,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(interact::props::with_lit(lit, false), Some(furnace));
     }
 
-    /// Taking a furnace's experience when it has none, and a slot write the block entity refuses,
+    /// Taking a furnace's xp when it has none, and a slot write the block entity refuses,
     /// leave its chunk unchanged, so the next save writes nothing again.
     #[test]
     fn calls_that_change_nothing_leave_the_chunk_unchanged() {
@@ -3713,7 +3713,7 @@ pub(in crate::tick) mod tests {
         let pos = state.worlds[0].spawn();
         furnace(&mut state, 0, pos);
         assert_eq!(state.rules.block_entities.take_changed().len(), 1);
-        assert_eq!(take_experience(&mut state, 0, pos), 0);
+        assert_eq!(take_xp(&mut state, 0, pos), 0);
         assert!(matches!(
             set_slot(&mut state, 0, pos, furnace::SLOTS, Stack::EMPTY),
             Err(crate::inventory::Error::NoSlot)

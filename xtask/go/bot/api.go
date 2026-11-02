@@ -35,7 +35,7 @@ import (
 // arrive, and records one {"type":"output"} line: the command line, the CommandOutput in full (null when
 // none came), whether its origin UUID is the request's, the names of the packets received meanwhile and the
 // client state the command changed ("state": stone count, the first move of the player, level and
-// experience, and for a time command the first world time sent). An AvailableCommands is recorded as
+// XP, and for a time command the first world time sent). An AvailableCommands is recorded as
 // {"type":"available"} with each command's name, aliases, flags, permission level and overloads (parameter
 // types by name, paramType). Each answered form is a {"type":"form"} line with its JSON and the answer.
 

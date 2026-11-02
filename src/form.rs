@@ -66,7 +66,7 @@ const STEP_TOLERANCE: f64 = 1e-3;
 
 /// A form to send to a player: one of the three kinds Bedrock shows.
 #[derive(Debug, Clone, PartialEq)]
-// pmmp-class: Form
+// api-class: Form
 pub enum Form {
     /// A question with two buttons.
     Modal(Modal),
@@ -773,7 +773,7 @@ mod tests {
         form.into().prepare().unwrap().1
     }
 
-    // pmmp: Form
+    // api: Form
     #[test]
     fn forms_serialize_to_the_json_bds_sends_with_escaping() {
         assert_eq!(

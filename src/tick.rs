@@ -236,10 +236,7 @@ impl State {
             awake: Vec::new(),
         };
         state.rules.entities.set_customs(custom_entities);
-        state
-            .rules
-            .entities
-            .set_experience(state.settings.has_orbs());
+        state.rules.entities.set_xp(state.settings.has_orbs());
         view::hold_spawns(&mut state);
         state
     }
@@ -340,9 +337,9 @@ impl State {
             lighting: _,
             fixed_light_level: _,
             pvp: _,
-            hunger: _,
-            experience: _,
-            experience_orbs: _,
+            food: _,
+            xp: _,
+            xp_orbs: _,
             fall_damage: _,
             drowning: _,
             armor: _,
@@ -719,13 +716,13 @@ pub(crate) struct Settings {
     fixed_light_level: u8,
     /// Whether players can hurt each other (`pvp`).
     pvp: bool,
-    /// Whether players get hungry (`hunger`).
-    hunger: bool,
-    /// Whether players gain experience (`experience`).
-    experience: bool,
-    /// Whether experience orbs exist and bottles o' enchanting can be thrown (`experience-orbs`);
-    /// the rules ask [`Settings::has_orbs`], which also needs `experience`.
-    experience_orbs: bool,
+    /// Whether players get hungry (`food`).
+    food: bool,
+    /// Whether players gain XP (`xp`).
+    xp: bool,
+    /// Whether XP orbs exist and bottles o' enchanting can be thrown (`xp-orbs`);
+    /// the rules ask [`Settings::has_orbs`], which also needs `xp`.
+    xp_orbs: bool,
     /// Whether falling hurts (`fall-damage`).
     fall_damage: bool,
     /// Whether air, drowning and suffocation exist (`drowning`).
@@ -799,9 +796,9 @@ impl Settings {
             lighting: developer.lighting,
             fixed_light_level: developer.fixed_light_level,
             pvp: general.pvp,
-            hunger: general.hunger,
-            experience: general.experience,
-            experience_orbs: general.experience_orbs,
+            food: general.food,
+            xp: general.xp,
+            xp_orbs: general.xp_orbs,
             fall_damage: general.fall_damage,
             drowning: general.drowning,
             armor: general.armor,
@@ -839,11 +836,11 @@ impl Settings {
         self.world_views.get(world).copied().unwrap_or(self.view)
     }
 
-    /// Whether experience orbs exist: `experience-orbs` with `experience`, as no experience means
-    /// no orbs. Off, no rule works out experience to drop, no orb is made or loaded and no bottle
-    /// o' enchanting is thrown; points and levels follow `experience` alone.
+    /// Whether XP orbs exist: `xp-orbs` with `xp`, as no XP means
+    /// no orbs. Off, no rule works out XP to drop, no orb is made or loaded and no bottle
+    /// o' enchanting is thrown; points and levels follow `xp` alone.
     fn has_orbs(&self) -> bool {
-        self.experience && self.experience_orbs
+        self.xp && self.xp_orbs
     }
 }
 
@@ -904,7 +901,7 @@ impl PlayerKey {
 /// A joined player, as a [`Context`] lends it. Its getters show what the player is and has; its
 /// setters change it and tell its client and the players who see it by the end of the tick.
 #[derive(Debug)]
-// pmmp-class: Player
+// api-class: Player
 pub struct Player {
     /// The player's session: its [`crate::player::Id`].
     session: SessionId,
@@ -934,7 +931,7 @@ pub struct Player {
     extra: extra::Player,
     /// Slots, cursor, crafting grids and open windows.
     inventory: inventory::Inventory,
-    /// Health, hunger, experience, effects, and game mode.
+    /// Health, food, XP, effects, and game mode.
     survival: survival::Survival,
     /// Block breaking in progress.
     breaking: interact::Breaking,

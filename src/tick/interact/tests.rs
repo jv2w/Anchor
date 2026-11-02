@@ -1245,7 +1245,7 @@ fn signs_keep_their_text_and_take_dye_glow_and_wax() {
     assert_eq!(sign_at(&h).0[0], "hello");
 }
 
-// pmmp: Player::openSignEditor
+// api: Player::openSignEditor
 #[test]
 fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
     let mut h = Harness::new(|_| {});
@@ -1280,7 +1280,7 @@ fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
     assert_eq!(sign_at(&h).0[0], "second");
 }
 
-// pmmp: Player::openSignEditor
+// api: Player::openSignEditor
 /// A sign set by code, which the block updates gave its block entity, takes the edit of an
 /// editor the API opens; a dead player, who could send no edit, gets no editor.
 #[test]
@@ -1580,11 +1580,11 @@ fn breaking_a_bed_or_banner_drops_its_block_entity_item() {
     );
 }
 
-/// `experience = false`: a broken ore gives no experience (the break event names none).
+/// `xp = false`: a broken ore gives no xp (the break event names none).
 #[test]
-fn without_experience_breaking_an_ore_gives_none() {
-    let xp = |experience: bool| {
-        let mut h = Harness::new(|c| c.general.experience = experience);
+fn without_xp_breaking_an_ore_gives_none() {
+    let xp = |enabled: bool| {
+        let mut h = Harness::new(|c| c.general.xp = enabled);
         h.set(TARGET, Kind::DiamondOre.default_state());
         let cause = Destroy::Player {
             session: SessionId::new(1),

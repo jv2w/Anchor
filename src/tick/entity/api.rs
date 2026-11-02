@@ -368,8 +368,7 @@ impl Mut<'_> {
             return false;
         }
         match &mut self.entity_mut().kind {
-            Kind::Item(Item { despawn_delay, .. })
-            | Kind::ExperienceOrb(Orb { despawn_delay, .. }) => {
+            Kind::Item(Item { despawn_delay, .. }) | Kind::XpOrb(Orb { despawn_delay, .. }) => {
                 *despawn_delay = ticks;
                 true
             }
@@ -407,14 +406,14 @@ impl Mut<'_> {
         }
     }
 
-    /// Sets an orb's experience points, 1 to 32,767 (the saved short).
+    /// Sets an orb's xp points, 1 to 32,767 (the saved short).
     #[doc(alias = "ExperienceOrb::setXpValue")]
     pub fn set_xp_value(&mut self, value: u16) -> bool {
         if value == 0 || value > Orb::MAX_VALUE {
             return false;
         }
         match &mut self.shown_mut().kind {
-            Kind::ExperienceOrb(orb) => {
+            Kind::XpOrb(orb) => {
                 orb.value = value;
                 true
             }
@@ -452,7 +451,7 @@ impl Mut<'_> {
     /// Sets a projectile's base damage, from 0 to the most an arrow of a strong bow deals.
     /// That is an arrow shot from a bow of Power
     /// [`MAX_ENCHANTMENT_LEVEL`](crate::item::MAX_ENCHANTMENT_LEVEL). False for another kind or a
-    /// damage outside that range. A potion, an experience bottle and an ice bomb deal no damage,
+    /// damage outside that range. A potion, an xp bottle and an ice bomb deal no damage,
     /// so it changes nothing for them.
     #[doc(alias = "Projectile::setBaseDamage")]
     pub fn set_base_damage(&mut self, damage: f64) -> bool {
@@ -571,7 +570,7 @@ impl Mut<'_> {
             return false;
         }
         match &mut self.entity_mut().kind {
-            Kind::ExperienceOrb(orb) => {
+            Kind::XpOrb(orb) => {
                 orb.target = target.map(player::Id::session);
                 true
             }
@@ -1051,7 +1050,7 @@ impl Entity {
     pub fn despawn_delay_ticks(&self) -> Option<i32> {
         match &self.kind {
             Kind::Item(item) => Some(item.despawn_delay),
-            Kind::ExperienceOrb(orb) => Some(orb.despawn_delay),
+            Kind::XpOrb(orb) => Some(orb.despawn_delay),
             _ => None,
         }
     }
@@ -1074,11 +1073,11 @@ impl Entity {
         }
     }
 
-    /// An orb's experience points.
+    /// An orb's xp points.
     #[doc(alias = "ExperienceOrb::getXpValue")]
     pub fn xp_value(&self) -> Option<u16> {
         match &self.kind {
-            Kind::ExperienceOrb(orb) => Some(orb.value),
+            Kind::XpOrb(orb) => Some(orb.value),
             _ => None,
         }
     }
@@ -1088,7 +1087,7 @@ impl Entity {
     #[doc(alias = "ExperienceOrb::hasTargetPlayer")]
     pub fn target_player(&self) -> Option<player::Id> {
         match &self.kind {
-            Kind::ExperienceOrb(orb) => orb.target.map(player::Id::new),
+            Kind::XpOrb(orb) => orb.target.map(player::Id::new),
             _ => None,
         }
     }
@@ -1553,24 +1552,24 @@ impl Context<'_> {
         drop_stack(self.state, w, pos, stack, motion, delay, String::new()).ok_or(back)
     }
 
-    /// Drops `amount` experience points as orbs at `pos` in `world`.
+    /// Drops `amount` xp points as orbs at `pos` in `world`.
     /// This is PMMP `World::dropExperience`: the points split into the orb sizes, each with a
     /// random motion. It returns the points dropped: fewer at the world's entity limit, none for
-    /// a world the server does not have, a `pos` that is not loaded, or with `experience = false`
-    /// or `experience-orbs = false`.
+    /// a world the server does not have, a `pos` that is not loaded, or with `xp = false`
+    /// or `xp-orbs = false`.
     #[doc(alias = "World::dropExperience")]
-    pub fn drop_experience(&mut self, world: world::Id, pos: Vec3, amount: u32) -> u32 {
+    pub fn drop_xp(&mut self, world: world::Id, pos: Vec3, amount: u32) -> u32 {
         match index(self.state, world) {
             Some(w) if is_valid_position(pos) => super::drop_orbs(self.state, w, pos, amount),
             _ => 0,
         }
     }
 
-    /// Spawns one experience orb of `value` points (1 to 32,767) at `pos` in `world`, at rest.
-    /// `None` for another value, where [`Self::drop_item`] fails, or with `experience = false` or
-    /// `experience-orbs = false`.
+    /// Spawns one xp orb of `value` points (1 to 32,767) at `pos` in `world`, at rest.
+    /// `None` for another value, where [`Self::drop_item`] fails, or with `xp = false` or
+    /// `xp-orbs = false`.
     #[doc(alias = "ExperienceOrb::__construct")]
-    pub fn spawn_experience_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Option<Id> {
+    pub fn spawn_xp_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Option<Id> {
         if !self.state.settings.has_orbs() || value == 0 || value > Orb::MAX_VALUE {
             return None;
         }
@@ -1580,7 +1579,7 @@ impl Context<'_> {
             look_for_target: 0,
             target: None,
         };
-        self.spawn(world, pos, Kind::ExperienceOrb(orb), Vec3::ZERO)
+        self.spawn(world, pos, Kind::XpOrb(orb), Vec3::ZERO)
     }
 
     /// Spawns a falling block of `block` at `pos` in `world`.
@@ -1652,7 +1651,7 @@ impl Context<'_> {
                 },
                 0.0,
             ),
-            P::ExperienceBottle => (Shot::ExperienceBottle, 0.0),
+            P::XpBottle => (Shot::XpBottle, 0.0),
             P::IceBomb => (Shot::IceBomb, 0.0),
         };
         let kind = Kind::Projectile(Projectile {
@@ -1688,7 +1687,7 @@ impl Context<'_> {
 
     /// Spawns a zombie at `pos` (its feet) in `world` (PMMP `Zombie`, which has no AI either).
     /// It stands where it is put, falls, burns, takes damage and at its death drops rotten flesh
-    /// and sometimes an iron ingot, a carrot or a potato, and 5 experience. `None` where
+    /// and sometimes an iron ingot, a carrot or a potato, and 5 xp. `None` where
     /// [`Self::drop_item`] fails.
     pub fn spawn_zombie(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
         let w = index(self.state, world)?;

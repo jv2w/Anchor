@@ -135,15 +135,15 @@ impl Context<'_> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier())
     }
 
-    /// The trade experience of the villager NPC `villager`; `None` if it is not one or is dying.
-    pub fn trade_experience(&self, villager: Id) -> Option<u32> {
-        (HOOKS.villager)(self.state, villager).map(|v| v.offers.experience())
+    /// The trade xp of the villager NPC `villager`; `None` if it is not one or is dying.
+    pub fn trade_xp(&self, villager: Id) -> Option<u32> {
+        (HOOKS.villager)(self.state, villager).map(|v| v.offers.xp())
     }
 
-    /// The trade experience each tier of the villager NPC `villager` needs; `None` if it is not
+    /// The trade xp each tier of the villager NPC `villager` needs; `None` if it is not
     /// one or is dying.
-    pub fn trade_tier_experience(&self, villager: Id) -> Option<[u32; custom::TRADE_TIERS]> {
-        (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
+    pub fn trade_tier_xp(&self, villager: Id) -> Option<[u32; custom::TRADE_TIERS]> {
+        (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_xp())
     }
 
     /// Replaces the offers of the villager NPC `villager`; players trading with it see the new list
@@ -193,8 +193,8 @@ impl Context<'_> {
         change(self.state, villager, |o| o.remove(index)).map(|r| to_offer(&r))
     }
 
-    /// Sets the villager's tier (0 to [`custom::MAX_TRADE_TIER`]); its trade experience moves to
-    /// at least the tier's need and below the next higher need, so only experience a trade gives
+    /// Sets the villager's tier (0 to [`custom::MAX_TRADE_TIER`]); its trade xp moves to
+    /// at least the tier's need and below the next higher need, so only xp a trade gives
     /// raises the tier again (a later tier that needs no more than this one is reached by the
     /// next trade). Fails, changing nothing, with [`custom::Error::Offer`] for a higher tier, or
     /// with [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] does.
@@ -202,30 +202,26 @@ impl Context<'_> {
         change(self.state, villager, |o| o.set_tier(tier))
     }
 
-    /// Sets the villager's trade experience (at most [`custom::MAX_TRADE_COUNTER`]) and raises
-    /// its tier to the highest one the experience reaches; a lower experience keeps the tier.
+    /// Sets the villager's trade xp (at most [`custom::MAX_TRADE_COUNTER`]) and raises
+    /// its tier to the highest one the xp reaches; a lower xp keeps the tier.
     /// Players who see it are shown the new values. Fails, changing nothing, with
-    /// [`custom::Error::Offer`] for a higher experience, or with [`custom::Error::NotVillager`] as
+    /// [`custom::Error::Offer`] for a higher xp, or with [`custom::Error::NotVillager`] as
     /// [`Self::set_trade_offers`] does.
-    pub fn set_trade_experience(
-        &mut self,
-        villager: Id,
-        experience: u32,
-    ) -> Result<(), custom::Error> {
-        change(self.state, villager, |o| o.set_experience(experience))
+    pub fn set_trade_xp(&mut self, villager: Id, xp: u32) -> Result<(), custom::Error> {
+        change(self.state, villager, |o| o.set_xp(xp))
     }
 
-    /// Sets the trade experience each tier needs ([`custom::is_tier_experience`]; BDS's are 0,
-    /// 10, 70, 150 and 250) and raises the tier to the highest one the experience reaches; higher
+    /// Sets the trade xp each tier needs ([`custom::is_tier_xp`]; BDS's are 0,
+    /// 10, 70, 150 and 250) and raises the tier to the highest one the xp reaches; higher
     /// needs keep the tier. Fails, changing nothing, with [`custom::Error::Offer`] for needs
-    /// [`custom::is_tier_experience`] refuses, or with [`custom::Error::NotVillager`] as
+    /// [`custom::is_tier_xp`] refuses, or with [`custom::Error::NotVillager`] as
     /// [`Self::set_trade_offers`] does.
-    pub fn set_trade_tier_experience(
+    pub fn set_trade_tier_xp(
         &mut self,
         villager: Id,
         tiers: [u32; custom::TRADE_TIERS],
     ) -> Result<(), custom::Error> {
-        change(self.state, villager, |o| o.set_tier_experience(tiers))
+        change(self.state, villager, |o| o.set_tier_xp(tiers))
     }
 
     /// Sets the uses of every offer of the villager back to 0 (a restock). Fails, changing

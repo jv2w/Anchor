@@ -43,7 +43,7 @@ impl Context<'_> {
 
 /// Works out what a broken custom block drops (PMMP `Block::getDrops` with the definition's
 /// drops): with a compatible tool its drops, or itself with Silk Touch where its drops are not
-/// itself; nothing with an incompatible tool. The experience is the definition's range, with a
+/// itself; nothing with an incompatible tool. The xp is the definition's range, with a
 /// compatible tool and without Silk Touch.
 pub(super) fn drops_of(
     state: &State,
@@ -70,7 +70,7 @@ pub(super) fn drops_of(
             .collect(),
         Drops::Itself | Drops::Nothing | Drops::Items(_) => own(),
     };
-    let (min, max) = def.experience_range();
+    let (min, max) = def.xp_range();
     let xp = if silk || max == 0 {
         0
     } else {

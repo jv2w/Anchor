@@ -22,13 +22,13 @@ type itemBlock struct {
 // checks them against dragonfly's creative_items.nbt (same properties per item name) and against the
 // reference block list (same network ID). It returns the items whose creative entries all have one
 // state, sorted by item name; items with several states (one name for several blocks) are left out.
-func itemBlockList(dragonfly, cloudburst string, blocks []block) ([]itemBlock, error) {
+func itemBlockList(dragonfly, refdata string, blocks []block) ([]itemBlock, error) {
 	network := map[string]uint32{}
 	for _, b := range blocks {
 		network[b.Name+canonical(b.States)] = b.NetworkID
 	}
 
-	js, err := os.ReadFile(filepath.Join(cloudburst, "creative_items.json"))
+	js, err := os.ReadFile(filepath.Join(refdata, "creative_items.json"))
 	if err != nil {
 		return nil, err
 	}

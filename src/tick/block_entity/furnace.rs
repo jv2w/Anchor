@@ -1,6 +1,6 @@
 //! Furnaces, blast furnaces and smokers (PMMP `tile\Furnace::onUpdate`): fuel burns down one tick
 //! at a time, the input cooks while there is fuel and room for the result, and the block is lit
-//! while fuel burns. Each smelted item adds its experience to the furnace (dragonfly `smelter`:
+//! while fuel burns. Each smelted item adds its xp to the furnace (dragonfly `smelter`:
 //! the whole part, and the fraction as a chance); taking from the output drops it as orbs.
 
 use crate::crafting::{self, FurnaceType};
@@ -15,13 +15,13 @@ pub(in crate::tick) const DATA_COOK: i32 = 0;
 pub(in crate::tick) const DATA_BURN: i32 = 1;
 /// The `ContainerSetData` key of the burn time of the fuel burning.
 pub(in crate::tick) const DATA_MAX_BURN: i32 = 2;
-/// The `ContainerSetData` key of the stored experience.
+/// The `ContainerSetData` key of the stored xp.
 pub(in crate::tick) const DATA_XP: i32 = 3;
 /// The fuel slot.
 pub(in crate::tick) const FUEL: usize = 1;
 /// The input slot.
 pub(in crate::tick) const INPUT: usize = 0;
-/// The most experience a furnace stores: what its saved `Short` holds, so the save and the
+/// The most xp a furnace stores: what its saved `Short` holds, so the save and the
 /// checkpoint read back what the furnace has.
 const MAX_XP: u16 = i16::MAX.cast_unsigned();
 /// The output slot.
@@ -29,7 +29,7 @@ pub(in crate::tick) const OUTPUT: usize = 2;
 /// The slots of a furnace.
 pub(in crate::tick) const SLOTS: usize = 3;
 
-/// A furnace-like block entity's timers and stored experience.
+/// A furnace-like block entity's timers and stored xp.
 #[derive(Debug, Clone)]
 pub(in crate::tick) struct Furnace {
     /// Furnace, blast furnace or smoker.
@@ -40,7 +40,7 @@ pub(in crate::tick) struct Furnace {
     pub(in crate::tick) max_burn: u16,
     /// Ticks the input has cooked (PMMP `CookTime`).
     pub(in crate::tick) cook: u16,
-    /// Experience of the smelted items not yet taken (BDS `StoredXPInt`), at most [`MAX_XP`].
+    /// Xp of the smelted items not yet taken (BDS `StoredXPInt`), at most [`MAX_XP`].
     pub(in crate::tick) xp: u16,
     /// The input last looked up and what one smelt of it makes: derived, so neither saved,
     /// hashed nor compared.
@@ -204,14 +204,14 @@ impl Furnace {
         due
     }
 
-    /// Smelts one input into `result` (which [`fits`](Self::fits)) and stores its experience,
-    /// drawn from `experience` (`None` with `experience = false`: nothing is stored), up to
+    /// Smelts one input into `result` (which [`fits`](Self::fits)) and stores its xp,
+    /// drawn from `xp` (`None` with `xp = false`: nothing is stored), up to
     /// [`MAX_XP`].
     pub(in crate::tick) fn smelt(
         &mut self,
         items: &mut [Stack],
         result: &Stack,
-        experience: Option<&mut Random>,
+        xp: Option<&mut Random>,
         t: &mut Tick,
     ) {
         let raw = items.get(INPUT).cloned().unwrap_or_default();
@@ -224,7 +224,7 @@ impl Furnace {
             raw.with_count(raw.count().saturating_sub(1)),
             &mut t.out,
         );
-        if let Some(rng) = experience {
+        if let Some(rng) = xp {
             self.xp = self.xp.saturating_add(earned(result, rng)).min(MAX_XP);
         }
     }
@@ -327,20 +327,20 @@ pub(in crate::tick) fn use_fuel(items: &mut [Stack], t: &mut Tick) {
     set(items, FUEL, residue, &mut t.out);
 }
 
-/// The experience one smelted `result` earns: the whole part, plus one with the chance of the
+/// The xp one smelted `result` earns: the whole part, plus one with the chance of the
 /// fraction (dragonfly `smelter.tickSmelting`).
 fn earned(result: &Stack, rng: &mut Random) -> u16 {
     let Some(item) = result.item() else {
         return 0;
     };
-    let xp = crafting::smelt_experience(item) * f64::from(result.count());
+    let xp = crafting::smelt_xp(item) * f64::from(result.count());
     let whole = xp.floor();
     let extra = u16::from(xp - whole > 0.0 && rng.unit() < xp - whole);
     // The table's values are at most 2 per item and a result is one stack.
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "safety: the experience is finite, positive and at most 2 * 64"
+        reason = "safety: the xp is finite, positive and at most 2 * 64"
     )]
     let whole = whole as u16;
     whole.saturating_add(extra)
@@ -423,7 +423,7 @@ mod tests {
         assert_eq!(steps[0].lit, Some(false));
         assert!(!steps[0].active);
         assert_eq!((f.burn, f.cook, f.max_burn), (0, 0, 0));
-        // Iron is 0.7 each: 8 smelts store between 0 and 8 experience.
+        // Iron is 0.7 each: 8 smelts store between 0 and 8 xp.
         assert!(f.xp <= 8);
     }
 
@@ -483,10 +483,10 @@ mod tests {
         assert_eq!(Furnace::read(&mut nbt, FurnaceType::Smoker), f);
     }
 
-    /// Stored experience stops at what its saved `Short` holds, so the save reads back the
-    /// experience the furnace has.
+    /// Stored xp stops at what its saved `Short` holds, so the save reads back the
+    /// xp the furnace has.
     #[test]
-    fn stored_experience_stops_at_what_a_save_holds() {
+    fn stored_xp_stops_at_what_a_save_holds() {
         let mut f = Furnace::new(FurnaceType::Furnace);
         f.xp = MAX_XP;
         let mut items = vec![stack(Kind::RawGold, 1), Stack::EMPTY, Stack::EMPTY];

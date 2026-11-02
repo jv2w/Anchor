@@ -65,11 +65,11 @@ difficulty = "normal"
 hardcore = false
 pvp = true
 # Each switch below turns a game system off completely when false: its rules stop running.
-hunger = true
-# Gaining experience points and levels. false also means no experience orbs.
-experience = true
-# Experience orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
-experience-orbs = true
+food = true
+# Gaining XP points and levels. false also means no XP orbs.
+xp = true
+# XP orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
+xp-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
@@ -621,13 +621,13 @@ pub struct General {
     pub hardcore: bool,
     /// `pvp`: whether players can hurt each other.
     pub pvp: bool,
-    /// `hunger`: whether players get hungry.
-    pub hunger: bool,
-    /// `experience`: whether players gain experience points and levels.
-    pub experience: bool,
-    /// `experience-orbs`: whether experience orbs exist and bottles o' enchanting can be thrown;
+    /// `food`: whether players get hungry.
+    pub food: bool,
+    /// `xp`: whether players gain XP points and levels.
+    pub xp: bool,
+    /// `xp-orbs`: whether XP orbs exist and bottles o' enchanting can be thrown;
     /// `false` deletes the orbs of chunks that load.
-    pub experience_orbs: bool,
+    pub xp_orbs: bool,
     /// `fall-damage`: whether falling hurts.
     pub fall_damage: bool,
     /// `drowning`: whether air runs out under water and drowning and suffocation hurt.
@@ -715,9 +715,9 @@ impl General {
                 "difficulty" => self.difficulty = choice(value, key, &Difficulty::NAMES)?,
                 "hardcore" => self.hardcore = boolean(value, key)?,
                 "pvp" => self.pvp = boolean(value, key)?,
-                "hunger" => self.hunger = boolean(value, key)?,
-                "experience" => self.experience = boolean(value, key)?,
-                "experience-orbs" => self.experience_orbs = boolean(value, key)?,
+                "food" => self.food = boolean(value, key)?,
+                "xp" => self.xp = boolean(value, key)?,
+                "xp-orbs" => self.xp_orbs = boolean(value, key)?,
                 "fall-damage" => self.fall_damage = boolean(value, key)?,
                 "drowning" => self.drowning = boolean(value, key)?,
                 "armor" => self.armor = boolean(value, key)?,
@@ -774,9 +774,9 @@ impl Default for General {
             difficulty: Difficulty::Normal,
             hardcore: false,
             pvp: true,
-            hunger: true,
-            experience: true,
-            experience_orbs: true,
+            food: true,
+            xp: true,
+            xp_orbs: true,
             fall_damage: true,
             drowning: true,
             armor: true,
@@ -1145,7 +1145,7 @@ impl LogLevel {
 
 /// A player game mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pmmp-class: GameMode
+// api-class: GameMode
 pub enum GameMode {
     /// `"survival"`.
     Survival,
@@ -1722,8 +1722,8 @@ mod tests {
         assert!(inline.validate().is_err());
     }
 
-    // pmmp: Server::getIp, Server::getIpV6, Server::getPort, Server::getPortV6
-    // pmmp: Server::getOnlineMode, Server::requiresAuthentication
+    // api: Server::getIp, Server::getIpV6, Server::getPort, Server::getPortV6
+    // api: Server::getOnlineMode, Server::requiresAuthentication
     #[test]
     fn addresses_port_and_sign_in_come_from_the_general_table() {
         let config = apply(
@@ -1804,7 +1804,7 @@ mod tests {
         }
     }
 
-    // pmmp: ResourcePackManager::__construct
+    // api: ResourcePackManager::__construct
     #[test]
     fn pack_paths_resolve_against_the_data_pack_folder() {
         let mut config = Config::default();
@@ -1816,8 +1816,8 @@ mod tests {
         assert_eq!(paths[1], Path::new("/abs/b.mcpack"));
     }
 
-    // pmmp: ResourcePackManager::resourcePacksRequired
-    // pmmp: ResourcePackManager::setResourcePacksRequired
+    // api: ResourcePackManager::resourcePacksRequired
+    // api: ResourcePackManager::setResourcePacksRequired
     #[test]
     fn force_resources_reaches_the_pack_offer() {
         let mut config = Config::default();
@@ -1928,7 +1928,7 @@ old-key = false
         assert_error::<Error>();
     }
 
-    // pmmp: GameMode::fromString, GameMode
+    // api: GameMode::fromString, GameMode
     #[test]
     fn game_modes_parse_pmmps_names_letters_and_numbers() {
         assert_eq!(GameMode::from_name("Survival"), Some(GameMode::Survival));

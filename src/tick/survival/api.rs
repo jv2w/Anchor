@@ -1,5 +1,5 @@
 //! The public [`Player`] methods on its survival state (PMMP `Player`, `Human`, `Living`, `Entity`,
-//! `HungerManager`, `ExperienceManager`, `EffectManager`): game mode, health, hunger, experience,
+//! `HungerManager`, `ExperienceManager`, `EffectManager`): game mode, health, food, xp,
 //! effects, fire, flight, the spawn point and the entity data the viewers see.
 //!
 //! Each setter changes the value at once. What the client and the viewers must learn is marked
@@ -8,8 +8,8 @@
 //! leaving a bed) waits for the player to be spawned. No call raises an event.
 
 use super::attributes::{
-    self, ABILITIES, ABSORPTION, ADVENTURE, DATA, EXHAUSTION, EXPERIENCE, HEALTH, LEVEL, MOVEMENT,
-    SATURATION, TAGS,
+    self, ABILITIES, ABSORPTION, ADVENTURE, DATA, EXHAUSTION, HEALTH, LEVEL, MOVEMENT, SATURATION,
+    TAGS, XP,
 };
 use super::effects::{self, Active};
 use super::{
@@ -72,10 +72,10 @@ pub(super) struct Custom {
     pub(super) can_climb: bool,
     /// May the player climb any wall (PMMP `canClimbWalls`, the `WallClimbing` flag).
     pub(super) can_climb_walls: bool,
-    /// Does hunger run for the player (PMMP `HungerManager::$enabled`), on top of the `hunger`
+    /// Does food run for the player (PMMP `HungerManager::$enabled`), on top of the `food`
     /// setting and the game mode.
-    pub(super) hunger: bool,
-    /// Do experience orbs fly to the player (PMMP `ExperienceManager::$canAttractXpOrbs`).
+    pub(super) food: bool,
+    /// Do xp orbs fly to the player (PMMP `ExperienceManager::$canAttractXpOrbs`).
     pub(super) attracts_orbs: bool,
     /// The movement speed before sprinting and effects (PMMP's movement attribute), finite and
     /// not negative.
@@ -118,7 +118,7 @@ impl Custom {
             operator,
             can_climb,
             can_climb_walls,
-            hunger,
+            food,
             attracts_orbs,
             movement_speed,
             max_air,
@@ -148,7 +148,7 @@ impl Custom {
                 | u64::from(*operator) << 7
                 | u64::from(*can_climb) << 8
                 | u64::from(*can_climb_walls) << 9
-                | u64::from(*hunger) << 10
+                | u64::from(*food) << 10
                 | u64::from(*attracts_orbs) << 11
                 | u64::from(*auto_jump) << 12
                 | u64::from(*skin) << 13
@@ -191,7 +191,7 @@ impl Default for Custom {
             operator: false,
             can_climb: true,
             can_climb_walls: false,
-            hunger: true,
+            food: true,
             attracts_orbs: true,
             movement_speed: attributes::BASE_SPEED,
             max_air: MAX_AIR_TICKS,
@@ -221,7 +221,7 @@ crate::tick::checkpoint::fields!(Custom {
     operator,
     can_climb,
     can_climb_walls,
-    hunger,
+    food,
     attracts_orbs,
     movement_speed,
     max_air,
@@ -336,13 +336,13 @@ impl Player {
         self.survival.food
     }
 
-    /// Whether hunger runs for the player while the `hunger` setting and its game mode let it.
+    /// Whether food runs for the player while the `food` setting and its game mode let it.
     #[doc(alias = "HungerManager::isEnabled")]
-    pub fn hunger_enabled(&self) -> bool {
-        self.survival.custom.hunger
+    pub fn food_enabled(&self) -> bool {
+        self.survival.custom.food
     }
 
-    /// Whether the player's food is below 20. Food that needs hunger is also eaten at 20 in
+    /// Whether the player's food is below 20. Food that needs food is also eaten at 20 in
     /// peaceful and creative.
     #[doc(alias = "HungerManager::isHungry")]
     pub fn is_hungry(&self) -> bool {
@@ -361,7 +361,7 @@ impl Player {
         self.survival.exhaustion
     }
 
-    /// The experience level, 0 to 24,791.
+    /// The xp level, 0 to 24,791.
     #[doc(alias = "ExperienceManager::getXpLevel")]
     pub fn xp_level(&self) -> u32 {
         super::xp_level(self)
@@ -373,32 +373,32 @@ impl Player {
         self.survival.xp_progress
     }
 
-    /// The experience points the level and progress hold, at most those of the highest level.
+    /// The xp points the level and progress hold, at most those of the highest level.
     #[doc(alias = "ExperienceManager::getCurrentTotalXp")]
     pub fn current_total_xp(&self) -> u64 {
         food::current_xp(&self.survival)
     }
 
-    /// The experience points collected since the last death.
+    /// The xp points collected since the last death.
     #[doc(alias = "ExperienceManager::getLifetimeTotalXp")]
     pub fn lifetime_total_xp(&self) -> u32 {
         self.survival.xp_lifetime
     }
 
-    /// The experience points collected into the current level.
+    /// The xp points collected into the current level.
     #[doc(alias = "ExperienceManager::getRemainderXp")]
     pub fn remainder_xp(&self) -> u64 {
         let s = &self.survival;
         food::current_xp(s).saturating_sub(crate::player::xp_to_reach_level(s.xp_level))
     }
 
-    /// Whether the player may pick up an experience orb now: 2 ticks pass between pickups.
+    /// Whether the player may pick up an xp orb now: 2 ticks pass between pickups.
     #[doc(alias = "ExperienceManager::canPickupXp")]
     pub fn can_pickup_xp(&self) -> bool {
         self.survival.xp_cooldown == 0
     }
 
-    /// Whether experience orbs fly to the player.
+    /// Whether xp orbs fly to the player.
     #[doc(alias = "ExperienceManager::canAttractXpOrbs")]
     pub fn can_attract_xp_orbs(&self) -> bool {
         self.survival.custom.attracts_orbs
@@ -817,10 +817,10 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the food level. Fails outside 0 to 20, and with `hunger = false`.
+    /// Sets the food level. Fails outside 0 to 20, and with `food = false`.
     #[doc(alias = "HungerManager::setFood")]
     pub fn set_food(&mut self, food: f64) -> Result<()> {
-        enabled(self.survival.switches.hunger)?;
+        enabled(self.survival.switches.food)?;
         within(food, 0.0..=MAX_FOOD)?;
         food::set_food(&mut self.survival, food);
         self.survival.touch(0);
@@ -829,10 +829,10 @@ impl Player {
     }
 
     /// Adds food up to 20. Fails for a value that is negative or not finite, and with
-    /// `hunger = false`.
+    /// `food = false`.
     #[doc(alias = "HungerManager::addFood")]
     pub fn add_food(&mut self, food: f64) -> Result<()> {
-        enabled(self.survival.switches.hunger)?;
+        enabled(self.survival.switches.food)?;
         within(food, 0.0..=f64::MAX)?;
         food::add_food(&mut self.survival, food, 0.0);
         self.survival.touch(0);
@@ -840,18 +840,18 @@ impl Player {
         Ok(())
     }
 
-    /// Turns hunger on or off for the player: off, its food and saturation stay as they are.
+    /// Turns food on or off for the player: off, its food and saturation stay as they are.
     /// Not saved, as in PMMP.
     #[doc(alias = "HungerManager::setEnabled")]
-    pub fn set_hunger_enabled(&mut self, enabled: bool) {
-        self.survival.custom.hunger = enabled;
-        self.survival.motion.hunger &= enabled;
+    pub fn set_food_enabled(&mut self, enabled: bool) {
+        self.survival.custom.food = enabled;
+        self.survival.motion.food &= enabled;
     }
 
-    /// Sets the saturation. Fails outside 0 to 20, and with `hunger = false`.
+    /// Sets the saturation. Fails outside 0 to 20, and with `food = false`.
     #[doc(alias = "HungerManager::setSaturation")]
     pub fn set_saturation(&mut self, saturation: f64) -> Result<()> {
-        enabled(self.survival.switches.hunger)?;
+        enabled(self.survival.switches.food)?;
         within(saturation, 0.0..=MAX_SATURATION)?;
         self.survival.saturation = saturation;
         self.survival.touch(SATURATION);
@@ -860,10 +860,10 @@ impl Player {
     }
 
     /// Adds saturation up to 20. Fails for a value that is negative or not finite, and with
-    /// `hunger = false`.
+    /// `food = false`.
     #[doc(alias = "HungerManager::addSaturation")]
     pub fn add_saturation(&mut self, saturation: f64) -> Result<()> {
-        enabled(self.survival.switches.hunger)?;
+        enabled(self.survival.switches.food)?;
         within(saturation, 0.0..=f64::MAX)?;
         food::add_food(&mut self.survival, 0.0, saturation);
         self.survival.touch(0);
@@ -872,10 +872,10 @@ impl Player {
     }
 
     /// Sets the exhaustion; what is over 4 is spent at the next exhaustion. Fails outside 0 to
-    /// 20, and with `hunger = false`.
+    /// 20, and with `food = false`.
     #[doc(alias = "HungerManager::setExhaustion")]
     pub fn set_exhaustion(&mut self, exhaustion: f64) -> Result<()> {
-        enabled(self.survival.switches.hunger)?;
+        enabled(self.survival.switches.food)?;
         within(exhaustion, 0.0..=MAX_EXHAUSTION)?;
         self.survival.exhaustion = exhaustion;
         self.survival.touch(EXHAUSTION);
@@ -884,11 +884,11 @@ impl Player {
     }
 
     /// Adds exhaustion, spending saturation, then food, for every 4; nothing while the player
-    /// does not get hungry (creative, spectator, [`set_hunger_enabled`](Self::set_hunger_enabled)).
-    /// Fails for a value that is negative or not finite, and with `hunger = false`.
+    /// does not get hungry (creative, spectator, [`set_food_enabled`](Self::set_food_enabled)).
+    /// Fails for a value that is negative or not finite, and with `food = false`.
     #[doc(alias = "HungerManager::exhaust")]
     pub fn exhaust(&mut self, amount: f64) -> Result<()> {
-        enabled(self.survival.switches.hunger)?;
+        enabled(self.survival.switches.food)?;
         within(amount, 0.0..=f64::MAX)?;
         food::exhaust(&mut self.survival, amount);
         self.survival.touch(0);
@@ -896,11 +896,11 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the experience level, keeping the progress. Fails above 24,791, and with
-    /// `experience = false`.
+    /// Sets the xp level, keeping the progress. Fails above 24,791, and with
+    /// `xp = false`.
     #[doc(alias = "ExperienceManager::setXpLevel")]
     pub fn set_xp_level(&mut self, level: u32) -> Result<()> {
-        enabled(self.survival.switches.experience)?;
+        enabled(self.survival.switches.xp)?;
         if level > crate::player::MAX_LEVEL {
             return Err(Error::OutOfRange);
         }
@@ -911,16 +911,16 @@ impl Player {
         Ok(())
     }
 
-    /// Adds experience levels, keeping the progress. Fails if the level would pass 24,791, and
-    /// with `experience = false`.
+    /// Adds xp levels, keeping the progress. Fails if the level would pass 24,791, and
+    /// with `xp = false`.
     #[doc(alias = "ExperienceManager::addXpLevels")]
     pub fn add_xp_levels(&mut self, levels: u32) -> Result<()> {
         let level = self.survival.xp_level.saturating_add(levels);
         self.set_xp_level(level)
     }
 
-    /// Takes experience levels, keeping the progress; not below 0. Nothing with
-    /// `experience = false`.
+    /// Takes xp levels, keeping the progress; not below 0. Nothing with
+    /// `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXpLevels")]
     pub fn subtract_xp_levels(&mut self, levels: u32) {
         super::subtract_levels(self, levels);
@@ -928,36 +928,36 @@ impl Player {
     }
 
     /// Sets the progress through the level. Fails outside 0 to below 1 (a full bar is the next
-    /// level), and with `experience = false`.
+    /// level), and with `xp = false`.
     #[doc(alias = "ExperienceManager::setXpProgress")]
     pub fn set_xp_progress(&mut self, progress: f64) -> Result<()> {
-        enabled(self.survival.switches.experience)?;
+        enabled(self.survival.switches.xp)?;
         if !(progress.is_finite() && (0.0..1.0).contains(&progress)) {
             return Err(Error::OutOfRange);
         }
         let s = &mut self.survival;
         s.xp_progress = progress;
-        s.touch(EXPERIENCE);
+        s.touch(XP);
         self.data_dirty = true;
         Ok(())
     }
 
-    /// Adds experience points, raising the level as they fill it (without PMMP's sound); the
-    /// points ever collected stay below 2^31. Nothing with `experience = false`.
+    /// Adds xp points, raising the level as they fill it (without PMMP's sound); the
+    /// points ever collected stay below 2^31. Nothing with `xp = false`.
     #[doc(alias = "ExperienceManager::addXp")]
     pub fn add_xp(&mut self, points: u32) {
-        if !self.survival.switches.experience {
+        if !self.survival.switches.xp {
             return;
         }
-        food::add_experience(self, points);
+        food::add_xp(self, points);
         self.survival.touch(0);
     }
 
-    /// Takes experience points, lowering the level; not below 0. Nothing with
-    /// `experience = false`.
+    /// Takes xp points, lowering the level; not below 0. Nothing with
+    /// `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXp")]
     pub fn subtract_xp(&mut self, points: u32) {
-        if !self.survival.switches.experience {
+        if !self.survival.switches.xp {
             return;
         }
         let s = &mut self.survival;
@@ -967,11 +967,11 @@ impl Player {
         self.data_dirty = true;
     }
 
-    /// Sets the level and progress from experience points. Fails above the points of the highest
-    /// level, 24,791 (2,761,645,247), and with `experience = false`.
+    /// Sets the level and progress from xp points. Fails above the points of the highest
+    /// level, 24,791 (2,761,645,247), and with `xp = false`.
     #[doc(alias = "ExperienceManager::setCurrentTotalXp")]
     pub fn set_current_total_xp(&mut self, points: u32) -> Result<()> {
-        enabled(self.survival.switches.experience)?;
+        enabled(self.survival.switches.xp)?;
         if u64::from(points) > crate::player::xp_to_reach_level(crate::player::MAX_LEVEL) {
             return Err(Error::OutOfRange);
         }
@@ -981,11 +981,11 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the experience points collected since the last death. Fails above 2^31 - 1, and
-    /// with `experience = false`.
+    /// Sets the xp points collected since the last death. Fails above 2^31 - 1, and
+    /// with `xp = false`.
     #[doc(alias = "ExperienceManager::setLifetimeTotalXp")]
     pub fn set_lifetime_total_xp(&mut self, points: u32) -> Result<()> {
-        enabled(self.survival.switches.experience)?;
+        enabled(self.survival.switches.xp)?;
         if points > i32::MAX.cast_unsigned() {
             return Err(Error::OutOfRange);
         }
@@ -994,7 +994,7 @@ impl Player {
         Ok(())
     }
 
-    /// Lets experience orbs fly to the player, or not. Not saved, as in PMMP.
+    /// Lets xp orbs fly to the player, or not. Not saved, as in PMMP.
     #[doc(alias = "ExperienceManager::setCanAttractXpOrbs")]
     pub fn set_can_attract_xp_orbs(&mut self, attracts: bool) {
         self.survival.custom.attracts_orbs = attracts;
@@ -1723,8 +1723,8 @@ mod tests {
         })
     }
 
-    // pmmp: Player::getGamemode, Player::setGamemode, Player::isSurvival, Player::isCreative,
-    // pmmp: Player::isAdventure, Player::isSpectator, Player::hasFiniteResources
+    // api: Player::getGamemode, Player::setGamemode, Player::isSurvival, Player::isCreative,
+    // api: Player::isAdventure, Player::isSpectator, Player::hasFiniteResources
     #[test]
     fn game_mode_changes_tell_the_client_its_mode_and_abilities() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -1801,9 +1801,9 @@ mod tests {
         })
     }
 
-    // pmmp: Entity::getHealth, Entity::setHealth, Living::setHealth, Entity::getMaxHealth,
-    // pmmp: Living::getMaxHealth, Entity::setMaxHealth, Living::setMaxHealth, Entity::heal,
-    // pmmp: Living::getAbsorption, Living::setAbsorption
+    // api: Entity::getHealth, Entity::setHealth, Living::setHealth, Entity::getMaxHealth,
+    // api: Living::getMaxHealth, Entity::setMaxHealth, Living::setMaxHealth, Entity::heal,
+    // api: Living::getAbsorption, Living::setAbsorption
     #[test]
     fn health_stays_within_its_maximum_and_the_client_hears_it() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -1833,7 +1833,7 @@ mod tests {
         assert_eq!(attribute(&got, "minecraft:absorption"), Some((4.0, 16.0)));
     }
 
-    // pmmp: Entity::kill, Entity::isAlive, Player::respawn
+    // api: Entity::kill, Entity::isAlive, Player::respawn
     #[test]
     fn a_respawn_waits_for_the_api_death_to_run() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -1861,7 +1861,7 @@ mod tests {
         assert!(player_mut(&mut state, 1).is_alive());
     }
 
-    // pmmp: Entity::setRotation
+    // api: Entity::setRotation
     /// A rotation reads at once and reaches the client and the viewer by the end of the tick, in
     /// the tick's one teleport packet when there is one.
     #[test]
@@ -1948,12 +1948,12 @@ mod tests {
         );
     }
 
-    // pmmp: HungerManager::getFood, HungerManager::setFood, HungerManager::addFood,
-    // pmmp: HungerManager::isHungry, HungerManager::getSaturation, HungerManager::setSaturation,
-    // pmmp: HungerManager::addSaturation, HungerManager::getExhaustion,
-    // pmmp: HungerManager::setExhaustion, HungerManager::exhaust
+    // api: HungerManager::getFood, HungerManager::setFood, HungerManager::addFood,
+    // api: HungerManager::isHungry, HungerManager::getSaturation, HungerManager::setSaturation,
+    // api: HungerManager::addSaturation, HungerManager::getExhaustion,
+    // api: HungerManager::setExhaustion, HungerManager::exhaust
     #[test]
-    fn hunger_values_are_set_within_their_bounds() {
+    fn food_values_are_set_within_their_bounds() {
         let (mut state, [mut rx1, _rx2]) = two();
         run(&mut state, Vec::new());
         let p = player_mut(&mut state, 1);
@@ -1975,7 +1975,7 @@ mod tests {
         assert_eq!(p.saturation(), 3.5);
         p.set_exhaustion(3.0).unwrap();
         assert_eq!(p.exhaustion(), 3.0);
-        // Hunger runs for a survival player: 4 exhaustion cost a saturation point.
+        // Food runs for a survival player: 4 exhaustion cost a saturation point.
         p.exhaust(1.5).unwrap();
         assert_eq!((p.saturation(), p.exhaustion()), (2.5, 0.5));
         assert_eq!(p.exhaust(-1.0), Err(Error::OutOfRange));
@@ -2007,15 +2007,15 @@ mod tests {
         assert_eq!(loaded.exhaustion, 10.0);
     }
 
-    // pmmp: ExperienceManager::getXpLevel, ExperienceManager::setXpLevel,
-    // pmmp: ExperienceManager::addXpLevels, ExperienceManager::subtractXpLevels,
-    // pmmp: ExperienceManager::getXpProgress, ExperienceManager::setXpProgress,
-    // pmmp: ExperienceManager::addXp, ExperienceManager::subtractXp,
-    // pmmp: ExperienceManager::getCurrentTotalXp, ExperienceManager::setCurrentTotalXp,
-    // pmmp: ExperienceManager::getLifetimeTotalXp, Human::getEnchantmentSeed,
-    // pmmp: Human::setEnchantmentSeed, Human::regenerateEnchantmentSeed
+    // api: ExperienceManager::getXpLevel, ExperienceManager::setXpLevel,
+    // api: ExperienceManager::addXpLevels, ExperienceManager::subtractXpLevels,
+    // api: ExperienceManager::getXpProgress, ExperienceManager::setXpProgress,
+    // api: ExperienceManager::addXp, ExperienceManager::subtractXp,
+    // api: ExperienceManager::getCurrentTotalXp, ExperienceManager::setCurrentTotalXp,
+    // api: ExperienceManager::getLifetimeTotalXp, Human::getEnchantmentSeed,
+    // api: Human::setEnchantmentSeed, Human::regenerateEnchantmentSeed
     #[test]
-    fn experience_and_the_enchanting_seed_follow_pmmp() {
+    fn xp_and_the_enchanting_seed_follow_pmmp() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
         p.add_xp(1395);
@@ -2065,9 +2065,9 @@ mod tests {
         );
     }
 
-    // pmmp: Living::getEffects, EffectCollection::all, EffectCollection::get,
-    // pmmp: EffectCollection::has, EffectManager::add, EffectCollection::add,
-    // pmmp: EffectManager::remove, EffectCollection::remove, EffectCollection::clear
+    // api: Living::getEffects, EffectCollection::all, EffectCollection::get,
+    // api: EffectCollection::has, EffectManager::add, EffectCollection::add,
+    // api: EffectManager::remove, EffectCollection::remove, EffectCollection::clear
     #[test]
     fn effects_are_added_read_and_removed_as_pmmp() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2107,7 +2107,7 @@ mod tests {
         })
     }
 
-    // pmmp: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite
+    // api: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite
     /// An instance's particles, faint particles and endless duration reach the player as BDS
     /// sends `/effect <player> resistance 600 255 true` (P6 `potions`: `MobEffect` with
     /// `Particles` false, key 131 still 0) and as PMMP packs the visible effects.
@@ -2162,10 +2162,10 @@ mod tests {
         assert!(speed.is_infinite() && speed.is_ambient() && speed.is_visible());
     }
 
-    // pmmp: Entity::isOnFire, Entity::getFireTicks, Entity::setFireTicks, Entity::setOnFire,
-    // pmmp: Living::setOnFire, Entity::extinguish, Living::getAirSupplyTicks,
-    // pmmp: Living::getMaxAirSupplyTicks, Living::isBreathing, Entity::getFallDistance,
-    // pmmp: Entity::setFallDistance, Entity::resetFallDistance, Player::resetFallDistance
+    // api: Entity::isOnFire, Entity::getFireTicks, Entity::setFireTicks, Entity::setOnFire,
+    // api: Living::setOnFire, Entity::extinguish, Living::getAirSupplyTicks,
+    // api: Living::getMaxAirSupplyTicks, Living::isBreathing, Entity::getFallDistance,
+    // api: Entity::setFallDistance, Entity::resetFallDistance, Player::resetFallDistance
     #[test]
     fn fire_air_and_falls_read_and_change() {
         let (mut state, [_rx1, mut rx2]) = two();
@@ -2218,8 +2218,8 @@ mod tests {
         assert!(marked(p), "the breathing flag is sent");
     }
 
-    // pmmp: Entity::isOnGround, Living::isSneaking, Player::isSneakPressed, Living::isSprinting,
-    // pmmp: Living::isSwimming, Living::isGliding, Player::isUsingItem, Entity::getDirectionVector
+    // api: Entity::isOnGround, Living::isSneaking, Player::isSneakPressed, Living::isSprinting,
+    // api: Living::isSwimming, Living::isGliding, Player::isUsingItem, Entity::getDirectionVector
     #[test]
     fn movement_state_reads_what_the_client_reported() {
         let (mut state, _rx) = two();
@@ -2241,9 +2241,9 @@ mod tests {
         assert!(p.direction().x < -0.99, "90 looks west");
     }
 
-    // pmmp: Player::isFlying, Player::setFlying, Player::getAllowFlight, Player::setAllowFlight,
-    // pmmp: Player::getFlightSpeedMultiplier, Player::setFlightSpeedMultiplier,
-    // pmmp: Player::hasBlockCollision, Player::setHasBlockCollision
+    // api: Player::isFlying, Player::setFlying, Player::getAllowFlight, Player::setAllowFlight,
+    // api: Player::getFlightSpeedMultiplier, Player::setFlightSpeedMultiplier,
+    // api: Player::hasBlockCollision, Player::setHasBlockCollision
     #[test]
     fn flight_and_block_collision_reach_the_ability_layers() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2276,8 +2276,8 @@ mod tests {
         assert_eq!(layers, 1);
     }
 
-    // pmmp: Player::getSpawn, Player::hasValidCustomSpawn, Player::setSpawn,
-    // pmmp: Player::getDeathPosition
+    // api: Player::getSpawn, Player::hasValidCustomSpawn, Player::setSpawn,
+    // api: Player::getDeathPosition
     #[test]
     fn a_set_spawn_point_is_where_the_player_respawns() {
         let (mut state, _rx) = two();
@@ -2304,9 +2304,9 @@ mod tests {
         assert_eq!(p.spawn(), None);
     }
 
-    // pmmp: Entity::getNameTag, Entity::setNameTag, Entity::getScoreTag, Entity::setScoreTag,
-    // pmmp: Entity::isInvisible, Entity::setInvisible, Entity::isSilent, Entity::setSilent,
-    // pmmp: Entity::hasNoClientPredictions, Entity::setNoClientPredictions
+    // api: Entity::getNameTag, Entity::setNameTag, Entity::getScoreTag, Entity::setScoreTag,
+    // api: Entity::isInvisible, Entity::setInvisible, Entity::isSilent, Entity::setSilent,
+    // api: Entity::hasNoClientPredictions, Entity::setNoClientPredictions
     #[test]
     fn tags_and_flags_reach_the_player_and_its_viewers() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2367,8 +2367,8 @@ mod tests {
         );
     }
 
-    // pmmp: Living::setAirSupplyTicks, Living::getMaxAirSupplyTicks, Living::setMaxAirSupplyTicks,
-    // pmmp: Living::setBreathing
+    // api: Living::setAirSupplyTicks, Living::getMaxAirSupplyTicks, Living::setMaxAirSupplyTicks,
+    // api: Living::setBreathing
     #[test]
     fn the_air_supply_is_set_within_its_maximum_and_refills_to_it() {
         let (mut state, [_rx1, mut rx2]) = two();
@@ -2408,8 +2408,8 @@ mod tests {
         FlagSet::from_words(&[w.cast_unsigned()]).unwrap()
     }
 
-    // pmmp: Living::setSneaking, Living::setSprinting, Living::setSwimming, Living::setGliding,
-    // pmmp: Living::getMovementSpeed, Living::setMovementSpeed
+    // api: Living::setSneaking, Living::setSprinting, Living::setSwimming, Living::setGliding,
+    // api: Living::getMovementSpeed, Living::setMovementSpeed
     #[test]
     fn movement_flags_and_speed_reach_the_client_and_viewers() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2440,11 +2440,11 @@ mod tests {
         assert_eq!(player_mut(&mut state, 1).movement_speed(), 0.2);
     }
 
-    // pmmp: ExperienceManager::setLifetimeTotalXp, ExperienceManager::getRemainderXp,
-    // pmmp: ExperienceManager::canPickupXp, ExperienceManager::canAttractXpOrbs,
-    // pmmp: ExperienceManager::setCanAttractXpOrbs
+    // api: ExperienceManager::setLifetimeTotalXp, ExperienceManager::getRemainderXp,
+    // api: ExperienceManager::canPickupXp, ExperienceManager::canAttractXpOrbs,
+    // api: ExperienceManager::setCanAttractXpOrbs
     #[test]
-    fn experience_remainder_lifetime_and_orb_settings() {
+    fn xp_remainder_lifetime_and_orb_settings() {
         let (mut state, _rx) = two();
         let p = player_mut(&mut state, 1);
         p.add_xp(10);
@@ -2464,31 +2464,31 @@ mod tests {
         assert!(!p.can_attract_xp_orbs());
     }
 
-    // pmmp: HungerManager::isEnabled, HungerManager::setEnabled
+    // api: HungerManager::isEnabled, HungerManager::setEnabled
     #[test]
-    fn hunger_turned_off_for_one_player_spends_nothing() {
+    fn food_turned_off_for_one_player_spends_nothing() {
         let (mut state, _rx) = two();
         run(&mut state, Vec::new());
         let p = player_mut(&mut state, 1);
-        assert!(p.hunger_enabled());
-        p.set_hunger_enabled(false);
-        assert!(!p.hunger_enabled());
+        assert!(p.food_enabled());
+        p.set_food_enabled(false);
+        assert!(!p.food_enabled());
         p.exhaust(8.0).unwrap();
         assert_eq!((p.saturation(), p.exhaustion()), (5.0, 0.0));
         run(&mut state, Vec::new());
         let p = player_mut(&mut state, 1);
         p.exhaust(8.0).unwrap();
         assert_eq!(p.saturation(), 5.0, "still off after a tick");
-        p.set_hunger_enabled(true);
+        p.set_food_enabled(true);
         run(&mut state, Vec::new());
         let p = player_mut(&mut state, 1);
         p.exhaust(8.0).unwrap();
         assert_eq!(p.saturation(), 3.0);
         // The other player was never touched.
-        assert!(player_mut(&mut state, 2).hunger_enabled());
+        assert!(player_mut(&mut state, 2).food_enabled());
     }
 
-    // pmmp: Living::getArmorPoints, Entity::getLastDamageCause, Entity::setLastDamageCause
+    // api: Living::getArmorPoints, Entity::getLastDamageCause, Entity::setLastDamageCause
     #[test]
     fn armour_points_and_the_last_damage_cause() {
         let (mut state, _rx) = two();
@@ -2519,8 +2519,8 @@ mod tests {
         assert_eq!(p.last_damage_cause(), None);
     }
 
-    // pmmp: Entity::canClimb, Entity::setCanClimb, Entity::canClimbWalls, Entity::setCanClimbWalls,
-    // pmmp: Player::hasAutoJump, Player::setAutoJump, Player::setMotion
+    // api: Entity::canClimb, Entity::setCanClimb, Entity::canClimbWalls, Entity::setCanClimbWalls,
+    // api: Player::hasAutoJump, Player::setAutoJump, Player::setMotion
     #[test]
     fn climbing_auto_jump_and_motion_reach_the_client() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2594,7 +2594,7 @@ mod tests {
         assert_eq!(p.set_skin(skin), Err(Error::OutOfRange));
     }
 
-    // pmmp: Human::emote, Human::setSkin
+    // api: Human::emote, Human::setSkin
     #[test]
     fn emotes_reach_the_viewers_and_skins_everyone() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2621,8 +2621,8 @@ mod tests {
         }
     }
 
-    // pmmp: Player::setDeathPosition, Player::getInAirTicks, Entity::getHorizontalFacing,
-    // pmmp: Player::canInteract
+    // api: Player::setDeathPosition, Player::getInAirTicks, Entity::getHorizontalFacing,
+    // api: Player::canInteract
     #[test]
     fn death_position_air_ticks_facing_and_reach() {
         let (mut state, [_rx1, mut rx2]) = two();
@@ -2685,8 +2685,8 @@ mod tests {
         assert!(!p.can_interact(eye, f64::INFINITY));
     }
 
-    // pmmp: Player::hasItemCooldown, Player::getItemCooldownExpiry, Player::resetItemCooldown,
-    // pmmp: Player::getItemUseDuration
+    // api: Player::hasItemCooldown, Player::getItemCooldownExpiry, Player::resetItemCooldown,
+    // api: Player::getItemUseDuration
     #[test]
     fn item_cooldowns_and_the_use_time_count_engine_ticks() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2732,8 +2732,8 @@ mod tests {
         assert_eq!(started, 2);
     }
 
-    // pmmp: Player::dropItem, Living::getLineOfSight, Living::getTargetBlock, Entity::isUnderwater,
-    // pmmp: Entity::isInsideOfSolid
+    // api: Player::dropItem, Living::getLineOfSight, Living::getTargetBlock, Entity::isUnderwater,
+    // api: Entity::isInsideOfSolid
     #[test]
     fn a_player_drops_items_and_sees_the_ground_below() {
         let (mut state, _rx) = two();
@@ -2791,7 +2791,7 @@ mod tests {
         }
     }
 
-    // pmmp: Player::attack
+    // api: Player::attack
     /// An API hit follows the hit cooldown and shows the viewers only the hit that starts it.
     #[test]
     fn an_api_hit_on_a_player_follows_the_hit_cooldown() {

@@ -8,12 +8,14 @@
 
 ## 2. What Anchor is
 - A Minecraft: Bedrock Edition server **library** in Rust. Users depend on `anchor` and build their server in their own binary with `Server::builder()`. No plugin folder, no dynamic loading, no scripting language.
-- A broad API in Rust idiom. Every public item with a counterpart in the API table (`xtask/data/pmmp/`) carries that name as `#[doc(alias = "Player::getName")]`. Defects of the counterpart API are fixed, never copied.
+- A broad API in Rust idiom. Every public item with a counterpart in the API table (`xtask/data/dump/`) carries that name as `#[doc(alias = "Player::getName")]`. Defects of the counterpart API are fixed, never copied.
 - Exactly one protocol version at a time; the ground truth is the pinned gophertunnel, go-raknet, and go-nethernet (`.claude/docs/protocol.md`).
 - NetherNet (preferred) and RakNet (fallback, can be turned off) together. The only TCP is NetherNet HTTP signaling; all game data is UDP.
 - Multi-world without other dimensions: every world is a separate world inside the overworld dimension.
-- Targets minigames, PvP, lobbies, and custom servers. Out of scope: redstone, mob AI, vanilla terrain generation, other dimensions, the vanilla villager economy, the weather cycle, fishing, and design for other servers or proxies. Ask before removing any further costly vanilla feature such servers do not need. Setting villager trade lists is in scope.
-- Block and item behavior exists only for what the data dump (`xtask/data/pmmp/`) contains, following the dump's source implementation; other implementations are consulted only where it lacks the behavior or is defective. Unknown vanilla blocks are sent as the original block with no behavior.
+- Targets minigames, PvP, lobbies, and custom servers. Out of scope: redstone, mob AI, vanilla terrain generation, other dimensions, the vanilla villager economy, the weather cycle, fishing, crafting, block updates, and design for other servers or proxies. Setting villager trade lists is in scope. Changing this scope is the user's decision.
+- What Anchor removes is what vanilla does on its own and vanilla's reactions to player actions; the developer functions beneath them stay. The kept and removed behavior is listed in `.claude/docs/architecture.md`.
+- Blocks are like stone: only a player's placing and breaking, the kept block clicks, the developer API and custom block hooks, and code explosions change them. Building is complete: placement state rules, two-block blocks, and connecting shapes stay. Every block of the protocol's block list is known and sent; behavior follows the dump (`xtask/data/dump/`) only for what stays.
+- Players keep every survival feature (health, damage, food, xp, effects, enchantment effects, right-click items).
 - Windows and Linux. The server's run folder holds only `anchor.toml` and `data/`.
 
 ## 3. Goals and priorities
@@ -47,18 +49,18 @@ The final goal is **completeness**: a complete server library no player and no d
 5. A panic in a connection task disconnects only that connection. A panic in the tick or save thread writes the input log (`data/crash/`) and exits without a DB commit (no `catch_unwind`), so `panic = "unwind"` is required and `src/lib.rs` enforces it.
 6. Time, randomness, and IDs come from the engine (engine ticks, counter-based randomness of `random`, engine counters). Tick code never reads the wall clock or OS randomness; measurements arrive as logged input.
 7. No `unsafe` (`unsafe_code = "forbid"`); where needed, delegate to a dependency admitted under `.claude/rules/dependencies.md`.
-8. No forks: users build almost everything without modifying Anchor. Anything that requires modifying Anchor is a defect, fixed with an extension point (event, registry, trait, setting, packet hook). Internal entry points are never public; the public API follows semver.
+8. No forks: users build almost everything without modifying Anchor. Anything that requires modifying Anchor is a defect, fixed with an extension point (event, registry, trait, setting, packet hook). Internal entry points are never public; until the first release the public API changes without compatibility layers.
 
 ## 5. Lint exceptions
 The only exception mechanism is `#[expect(<lint>, reason = "<tag>: <reason>")]` on the narrowest item. The tags are `safety`, `performance`, `consistency`, `invariant`, and `off-tick`. `#[allow]` is forbidden.
 
 ## 6. Workflow
-- Adding a feature: check the API-table counterpart and add its alias → decide the public API and event points (no re-entry, direct calls fire no events, open as extension points) → write the tick rules (§4) → write tests (regression, plus idempotency, determinism, resource return where they apply) → compare client-visible behavior with the official server through P6 → update `xtask/data/pmmp/status.txt` and run `cargo xtask table` → update rules, docs, and rustdoc → `cargo xtask check`.
+- Adding a feature: check the API-table counterpart and add its alias → decide the public API and event points (no re-entry, direct calls fire no events, open as extension points) → write the tick rules (§4) → write tests (regression, plus idempotency, determinism, resource return where they apply) → compare client-visible behavior with the official server through P6 → update `xtask/data/dump/status.txt` and run `cargo xtask table` → update rules, docs, and rustdoc → `cargo xtask check`.
 - A task is done only when `cargo xtask check` passes. Run it yourself after changing code or build files; not for a task that changed no code. Run `cargo xtask verify` only when the user orders `/verify`, never on your own. If cargo is not on PATH, add `%USERPROFILE%\.cargo\bin` (Windows) or `$HOME/.cargo/bin` (Linux).
 - Every behavior change has a test that fails before the fix and passes after it. A change with the same behavior records its evidence.
 - Fix only the root cause; never cover a symptom with more defensive code.
 - Do not fix failures in files another session is changing; report that your change did not cause them. Report every failure you cannot fix: what fails and why.
-- When blocked, ask instead of guessing. Ask first about hard-to-reverse decisions, requests that conflict with this file, and any reduction of features, formats, or supported scope. Otherwise choose, proceed, and report the reason.
+- When blocked, ask instead of guessing. Ask first about hard-to-reverse decisions, requests that conflict with this file, and any change of features, formats, or supported scope the user has not decided. Otherwise choose, proceed, and report the reason.
 - Kill only processes you started, by their PID. Never change the user's PATH or global git configuration.
 
 ## 7. Commits and reports

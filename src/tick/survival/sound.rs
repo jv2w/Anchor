@@ -1,11 +1,11 @@
 //! The sounds of survival events, as PMMP plays them (`Entity::broadcastSound`,
 //! `Player::broadcastSound`: the player and every player that sees it hear the sound at its
-//! feet): experience pickup and level-up, the totem, burping after food, landing and falling,
+//! feet): xp pickup and level-up, the totem, burping after food, landing and falling,
 //! items breaking, and melee hits. All but the landing and falling sounds of the player (which
 //! name the player, and `world::Sound` leaves out) go through `tick::emit` with their
 //! [`WorldSound`](crate::event::WorldSound).
 //!
-//! BDS was seen sending the experience pickup sound (`LevelEvent` 1051); the other sounds follow
+//! BDS was seen sending the xp pickup sound (`LevelEvent` 1051); the other sounds follow
 //! PMMP's packets.
 
 use super::{broadcast_from, feet};

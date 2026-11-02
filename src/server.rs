@@ -41,7 +41,7 @@ const PROCESS_PERIOD: Duration = Duration::from_secs(1);
 /// A Minecraft: Bedrock Edition server. Make one with [`Server::builder`], then call
 /// [`Server::run`].
 #[derive(Debug)]
-// pmmp-class: Server
+// api-class: Server
 pub struct Server {
     config: Arc<Config>,
     data_dir: PathBuf,

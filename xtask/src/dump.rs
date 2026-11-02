@@ -2,7 +2,7 @@
 //! the pinned external checkouts in `.cache/`. It converts the reference lists of dragonfly and
 //! `CloudburstMC` with `xtask/go/reference` into `xtask/data/reference/` first, as the PMMP run
 //! reads every reference block state with PMMP's deserializer; then it runs PMMP's own
-//! registries through `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/pmmp/`. It
+//! registries through `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/dump/`. It
 //! also copies `CloudburstMC`'s biome definitions, entity types and block shapes into
 //! `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and entity
 //! property definitions as network NBT and this command writes the per-field decode limits from
@@ -37,7 +37,7 @@ use crate::r#gen::upgrade::SCHEMA_1_26_60;
 /// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends.
 /// `biome_definitions.json` holds generation data BDS does not send.
 const BIOMES: &str = "stripped_biome_definitions.json";
-/// The block physics this command writes from [`CLOUDBURST_BLOCKS`].
+/// The block physics this command writes from [`REFERENCE_SOURCE_BLOCKS`].
 pub(crate) const BLOCK_PHYSICS: &str = "block_physics.json";
 /// Blocks new in 1.26.60 that `CloudburstMC`'s per-state data lacks, with the block whose
 /// physics they take: the closest block of the same shape.
@@ -47,12 +47,12 @@ const BORROWED_1_26_60: [(&str, &str); 3] = [
     ("minecraft:disc_press", "minecraft:stone"),
 ];
 /// The pinned `CloudburstMC` checkout, relative to the repository root, and its commit.
-pub(crate) const CLOUDBURST: (&str, &str) = (
-    ".cache/cloudburst-data",
+pub(crate) const REFERENCE_SOURCE: (&str, &str) = (
+    ".cache/reference-data",
     "293c848098cc636a2758937fb6610b8bed1f12c5",
 );
 /// `CloudburstMC`'s per-state block data, which BDS dumps.
-const CLOUDBURST_BLOCKS: &str = "blocks.json";
+const REFERENCE_SOURCE_BLOCKS: &str = "blocks.json";
 /// The pinned dragonfly checkout, relative to the repository root, and its commit.
 const DRAGONFLY: (&str, &str) = (
     ".cache/dragonfly",
@@ -63,9 +63,9 @@ const DRAGONFLY: (&str, &str) = (
 const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
 /// The PMMP PHP binary (pmmp/PHP-Binaries php-build-524, PHP 8.4 PM5 for Windows): plain PHP
 /// lacks the extensions PMMP's registries load.
-const PHP: &str = ".cache/php-pm5/bin/php/php.exe";
+const PHP: &str = ".cache/dump-php/bin/php/php.exe";
 /// The pinned dump source checkout, relative to the repository root, and its commit.
-const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
+const DUMP_SOURCE: (&str, &str) = (".cache/dump", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
 /// The dumped blocks.
 pub(crate) const PMMP_BLOCKS: &str = "blocks.json";
 /// The dumped creative inventory.
@@ -73,8 +73,8 @@ pub(crate) const PMMP_CREATIVE: &str = "creative.json";
 /// The dump source's reading of every reference block state.
 pub(crate) const PMMP_DESERIALIZED: &str = "deserialized.json";
 /// The dump output directory, relative to the repository root.
-pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
-/// The files of [`PMMP_DIR`] this command writes.
+pub(crate) const DUMP_DIR: &str = "xtask/data/dump";
+/// The files of [`DUMP_DIR`] this command writes.
 const PMMP_FILES: &[&str] = &[
     PMMP_BLOCKS,
     PMMP_DESERIALIZED,
@@ -122,27 +122,27 @@ const VOXEL_SHAPES: &str = "voxel_shapes.json";
 /// failed check.
 pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     for (dir, commit) in [
-        PMMP,
+        DUMP_SOURCE,
         DRAGONFLY,
-        CLOUDBURST,
+        REFERENCE_SOURCE,
         PROTOCOL_DOCS,
         upgrade::BLOCKS,
         upgrade::ITEMS,
     ] {
         pinned(root, dir, commit)?;
     }
-    if !is_dir(&root.join(PMMP.0).join("vendor")) {
+    if !is_dir(&root.join(DUMP_SOURCE.0).join("vendor")) {
         return Err(format!(
             "{}/vendor is missing; run `composer install --no-dev --ignore-platform-reqs` there",
-            PMMP.0
+            DUMP_SOURCE.0
         ));
     }
     let (pmmp_out, reference_out, upgrade_out) = if mode == Mode::Check {
         let dir = root.join("target").join("xtask-dump");
-        (dir.join("pmmp"), dir.join("reference"), dir.join("upgrade"))
+        (dir.join("dump"), dir.join("reference"), dir.join("upgrade"))
     } else {
         (
-            root.join(PMMP_DIR),
+            root.join(DUMP_DIR),
             root.join(REFERENCE_DIR),
             root.join(upgrade::OUT),
         )
@@ -154,8 +154,8 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     let status = Command::new("go")
         .args(["run", "./reference", "-dragonfly"])
         .arg(root.join(DRAGONFLY.0))
-        .arg("-cloudburst")
-        .arg(root.join(CLOUDBURST.0))
+        .arg("-refdata")
+        .arg(root.join(REFERENCE_SOURCE.0))
         .arg("-out")
         .arg(&reference_out)
         .current_dir(root.join("xtask").join("go"))
@@ -169,7 +169,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
         .arg(root.join("xtask").join("php").join("dump.php"))
         .arg(&pmmp_out)
         .arg(reference_out.join(REFERENCE_BLOCKS))
-        .current_dir(root.join(PMMP.0))
+        .current_dir(root.join(DUMP_SOURCE.0))
         .status()
         .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
     if !status.success() {
@@ -177,7 +177,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     }
     copy_biomes(root, &reference_out)?;
     for file in [ENTITY_IDENTIFIERS, VOXEL_SHAPES] {
-        let bytes = read(&root.join(CLOUDBURST.0).join(file))?;
+        let bytes = read(&root.join(REFERENCE_SOURCE.0).join(file))?;
         write(&reference_out.join(file), &bytes)?;
     }
     let limits = limits::generate(&root.join(PROTOCOL_DOCS.0).join("json"))?;
@@ -196,7 +196,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
             }
         }
         for (committed, made, files) in [
-            (PMMP_DIR, &pmmp_out, PMMP_FILES),
+            (DUMP_DIR, &pmmp_out, PMMP_FILES),
             (REFERENCE_DIR, &reference_out, REFERENCE_FILES),
         ] {
             for file in files {
@@ -234,7 +234,7 @@ struct CloudburstBiome {
 /// name order. Fails on a field the packet has no place for that is not null or zero: BDS sends no
 /// ID (-1) and no chunk generation data, and the densities have no packet field.
 fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
-    let path = root.join(CLOUDBURST.0).join(BIOMES);
+    let path = root.join(REFERENCE_SOURCE.0).join(BIOMES);
     let all: BTreeMap<String, CloudburstBiome> =
         serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut text = "[\n".to_owned();
@@ -308,9 +308,9 @@ fn copy_block_physics(root: &Path, reference_out: &Path, upgrade_out: &Path) -> 
             .join(upgrade::BLOCK_SCHEMAS)
             .join(SCHEMA_1_26_60),
     )?;
-    let bds: Vec<CloudburstBlock> =
-        read_json_file(&root.join(CLOUDBURST.0).join(CLOUDBURST_BLOCKS))?;
-    let physics = reference_physics(&reference, &schema.added_properties, &bds)?;
+    let official: Vec<CloudburstBlock> =
+        read_json_file(&root.join(REFERENCE_SOURCE.0).join(REFERENCE_SOURCE_BLOCKS))?;
+    let physics = reference_physics(&reference, &schema.added_properties, &official)?;
     let mut shapes: Vec<&[[f64; 6]]> = Vec::new();
     let mut rows = Vec::with_capacity(physics.by_id.len());
     for (id, b) in physics.by_id {
@@ -361,14 +361,14 @@ struct ReferencePhysics<'a> {
 fn reference_physics<'a>(
     reference: &[ReferenceState],
     connections: &BTreeMap<String, BTreeMap<String, Json>>,
-    bds: &'a [CloudburstBlock],
+    official: &'a [CloudburstBlock],
 ) -> Result<ReferencePhysics<'a>, String> {
-    let mut bds_by_id = BTreeMap::new();
-    for b in bds {
+    let mut official_by_id = BTreeMap::new();
+    for b in official {
         let id = u32::try_from(b.block_state_hash & 0xffff_ffff)
-            .map_err(|e| format!("{CLOUDBURST_BLOCKS}: {e}"))?;
-        if bds_by_id.insert(id, b).is_some() {
-            return Err(format!("{CLOUDBURST_BLOCKS}: network ID {id} twice"));
+            .map_err(|e| format!("{REFERENCE_SOURCE_BLOCKS}: {e}"))?;
+        if official_by_id.insert(id, b).is_some() {
+            return Err(format!("{REFERENCE_SOURCE_BLOCKS}: network ID {id} twice"));
         }
     }
     let mut by_name: BTreeMap<&str, Vec<&ReferenceState>> = BTreeMap::new();
@@ -383,14 +383,16 @@ fn reference_physics<'a>(
     let mut missing: BTreeMap<&str, usize> = BTreeMap::new();
     for state in reference {
         let found = match (
-            bds_by_id.get(&state.network_id),
+            official_by_id.get(&state.network_id),
             connections.get(&state.name),
         ) {
             (Some(b), _) => Some(*b),
             (None, Some(added)) => {
                 let mut old = state.states.clone();
                 old.retain(|p, _| !added.contains_key(p));
-                let b = bds_by_id.get(&network_hash(&state.name, &old)?).copied();
+                let b = official_by_id
+                    .get(&network_hash(&state.name, &old)?)
+                    .copied();
                 physics.connected += usize::from(b.is_some());
                 b
             }
@@ -413,7 +415,7 @@ fn reference_physics<'a>(
                     });
                 match lenders.as_deref() {
                     Some([lender]) => {
-                        let b = bds_by_id.get(&lender.network_id).copied();
+                        let b = official_by_id.get(&lender.network_id).copied();
                         physics.borrowed += usize::from(b.is_some());
                         b
                     }
@@ -437,7 +439,7 @@ fn reference_physics<'a>(
     }
     if !missing.is_empty() {
         return Err(format!(
-            "{CLOUDBURST_BLOCKS} has no physics for these reference states (name: count): \
+            "{REFERENCE_SOURCE_BLOCKS} has no physics for these reference states (name: count): \
              {missing:?}"
         ));
     }
@@ -621,10 +623,10 @@ mod tests {
     /// Runs on the committed reference list and 1.26.60 block schema with the pinned
     /// `CloudburstMC` checkout in `.cache` (`cargo xtask dump` needs it too).
     #[test]
-    fn the_1_26_60_states_without_bds_physics_take_them_by_the_rules() {
+    fn the_1_26_60_states_without_official_physics_take_them_by_the_rules() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let bds_path = root.join(CLOUDBURST.0).join(CLOUDBURST_BLOCKS);
-        if !is_file(&bds_path) {
+        let official_path = root.join(REFERENCE_SOURCE.0).join(REFERENCE_SOURCE_BLOCKS);
+        if !is_file(&official_path) {
             return;
         }
         let reference: Vec<ReferenceState> =
@@ -636,8 +638,8 @@ mod tests {
                 .join(SCHEMA_1_26_60),
         )
         .unwrap();
-        let bds: Vec<CloudburstBlock> = read_json_file(&bds_path).unwrap();
-        let physics = reference_physics(&reference, &schema.added_properties, &bds).unwrap();
+        let official: Vec<CloudburstBlock> = read_json_file(&official_path).unwrap();
+        let physics = reference_physics(&reference, &schema.added_properties, &official).unwrap();
         assert_eq!(physics.connected, CONNECTED_1_26_60);
         assert_eq!(physics.borrowed, BORROWED_STATES_1_26_60);
         assert_eq!(physics.by_id.len(), reference.len());

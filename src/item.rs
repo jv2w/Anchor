@@ -857,15 +857,15 @@ impl Armor {
 pub struct Food {
     points: u8,
     saturation: f64,
-    requires_hunger: bool,
+    only_below_full: bool,
 }
 
 impl Food {
-    pub(crate) const fn new(points: u8, saturation: f64, requires_hunger: bool) -> Self {
+    pub(crate) const fn new(points: u8, saturation: f64, only_below_full: bool) -> Self {
         Self {
             points,
             saturation,
-            requires_hunger,
+            only_below_full,
         }
     }
 
@@ -883,14 +883,14 @@ impl Food {
 
     /// Whether the player must be hungry to eat it.
     #[doc(alias = "FoodSource::requiresHunger")]
-    pub fn requires_hunger(self) -> bool {
-        self.requires_hunger
+    pub fn requires_food(self) -> bool {
+        self.only_below_full
     }
 }
 
 /// What consuming an item leaves and does (PMMP `ConsumableItem`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pmmp-class: Consumable
+// api-class: Consumable
 pub struct Consumable {
     residue: Option<Type>,
     /// The first of the effects in [`table::CONSUME_EFFECTS`] and their count; `None` if PMMP
@@ -1523,7 +1523,7 @@ mod tests {
     use crate::protocol::packet::Packet;
 
     /// The dump's creative inventory.
-    const CREATIVE: &str = include_str!("../xtask/data/pmmp/creative.json");
+    const CREATIVE: &str = include_str!("../xtask/data/dump/creative.json");
     /// The reference list's items.
     const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
 
@@ -1704,7 +1704,7 @@ mod tests {
         }
     }
 
-    // pmmp: CreativeInventoryCache::buildPacket
+    // api: CreativeInventoryCache::buildPacket
     #[test]
     fn creative_content_is_the_pmmp_inventory() {
         let ids = reference_ids();
@@ -1799,7 +1799,7 @@ mod tests {
         }
     }
 
-    // pmmp: ItemDeserializer::deserializeType, ItemTranslator::fromNetworkId
+    // api: ItemDeserializer::deserializeType, ItemTranslator::fromNetworkId
     #[test]
     fn lookups_round_trip_for_every_type() {
         for t in all() {
@@ -1905,15 +1905,15 @@ mod tests {
         Type::from_name(name, 0, None, &empty).unwrap_or_else(|| panic!("no item {name}"))
     }
 
-    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability,
-    // pmmp: Item::getAttackPoints, TieredTool::getTier, Item::getBlockToolType,
-    // pmmp: Item::getEnchantability, ToolTier,
-    // pmmp: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
-    // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem,
-    // pmmp: Item::getBlockToolHarvestLevel, Item::getMiningEfficiency, Item::getFuelTime,
-    // pmmp: ToolTier::getHarvestLevel, ToolTier::getMaxDurability,
-    // pmmp: ToolTier::getBaseAttackPoints, ToolTier::getBaseEfficiency,
-    // pmmp: ToolTier::getEnchantability
+    // api: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability,
+    // api: Item::getAttackPoints, TieredTool::getTier, Item::getBlockToolType,
+    // api: Item::getEnchantability, ToolTier,
+    // api: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
+    // api: AvailableEnchantmentRegistry::getAllEnchantmentsForItem,
+    // api: Item::getBlockToolHarvestLevel, Item::getMiningEfficiency, Item::getFuelTime,
+    // api: ToolTier::getHarvestLevel, ToolTier::getMaxDurability,
+    // api: ToolTier::getBaseAttackPoints, ToolTier::getBaseEfficiency,
+    // api: ToolTier::getEnchantability
     /// PMMP values of well-known items (PMMP `VanillaItems`, `ToolTier`, `Steak`, `Coal`).
     #[test]
     fn item_data_are_pmmp_values() {
@@ -1952,12 +1952,12 @@ mod tests {
         assert_eq!(ToolTier::Gold.enchantability(), 22);
     }
 
-    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore,
-    // pmmp: FoodSource::requiresHunger, Consumable, ConsumableItem::getResidue,
-    // pmmp: Consumable::getAdditionalEffects, Item::getFuelTime, Item::getFuelResidue,
-    // pmmp: Armor::getArmorSlot, ArmorTypeInfo::getToughness, Item::getDefensePoints,
-    // pmmp: Item::isFireProof, Item::getCooldownTicks, Item::getCooldownTag,
-    // pmmp: ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
+    // api: FoodSource::getFoodRestore, FoodSource::getSaturationRestore,
+    // api: FoodSource::requiresHunger, Consumable, ConsumableItem::getResidue,
+    // api: Consumable::getAdditionalEffects, Item::getFuelTime, Item::getFuelResidue,
+    // api: Armor::getArmorSlot, ArmorTypeInfo::getToughness, Item::getDefensePoints,
+    // api: Item::isFireProof, Item::getCooldownTicks, Item::getCooldownTag,
+    // api: ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
     /// PMMP values of food, fuel, armour and other item data.
     #[test]
     fn food_fuel_and_armour_are_pmmp_values() {
@@ -1966,7 +1966,7 @@ mod tests {
         assert_eq!(steak.kind(), Some(Kind::Steak));
         let food = steak.food().unwrap();
         assert_eq!((food.food_restore(), food.saturation_restore()), (8, 12.8));
-        assert!(food.requires_hunger());
+        assert!(food.requires_food());
         assert!(steak.has_trait(Trait::Releasable) && steak.is(Class::Food));
         let consumable = steak.consumable().unwrap();
         assert_eq!(consumable.residue(), None);
@@ -1991,7 +1991,7 @@ mod tests {
             !by_name("minecraft:golden_apple")
                 .food()
                 .unwrap()
-                .requires_hunger()
+                .requires_food()
         );
         // Coal burns 1,600 ticks; a lava bucket 20,000 and leaves a bucket.
         assert_eq!(by_name("minecraft:coal").fuel_time_ticks(), 1600);
@@ -2054,10 +2054,10 @@ mod tests {
         assert_eq!(by_name("minecraft:stick").placed_block(None), None);
     }
 
-    // pmmp: Enchantment, VanillaEnchantments, Enchantment::getMaxLevel, Enchantment::getRarity,
-    // pmmp: Enchantment::getName, AvailableEnchantmentRegistry::isRegistered,
-    // pmmp: Enchantment::getMinEnchantingPower, Enchantment::getMaxEnchantingPower,
-    // pmmp: Enchantment::isCompatibleWith, EnchantmentIdMap::fromId, EnchantmentIdMap::toId
+    // api: Enchantment, VanillaEnchantments, Enchantment::getMaxLevel, Enchantment::getRarity,
+    // api: Enchantment::getName, AvailableEnchantmentRegistry::isRegistered,
+    // api: Enchantment::getMinEnchantingPower, Enchantment::getMaxEnchantingPower,
+    // api: Enchantment::isCompatibleWith, EnchantmentIdMap::fromId, EnchantmentIdMap::toId
     #[test]
     fn enchantments_are_pmmp_values() {
         assert_eq!(Enchantment::all().len(), 23);
@@ -2093,7 +2093,7 @@ mod tests {
         assert_eq!(Enchantment::from_id(1000), None);
     }
 
-    // pmmp: VanillaItems
+    // api: VanillaItems
     #[test]
     fn every_type_has_its_data_and_tags_resolve() {
         // PMMP 5.44.3: the item kinds are VanillaItems without air.
@@ -2140,12 +2140,12 @@ mod tests {
 
     /// The PMMP item dump (`items.json`), one entry per item type in table order.
     fn item_dump() -> Vec<Json> {
-        serde_json::from_str(include_str!("../xtask/data/pmmp/items.json")).unwrap()
+        serde_json::from_str(include_str!("../xtask/data/dump/items.json")).unwrap()
     }
 
     /// The PMMP dump's tables (`tables.json`).
     fn dump_tables() -> Json {
-        serde_json::from_str(include_str!("../xtask/data/pmmp/tables.json")).unwrap()
+        serde_json::from_str(include_str!("../xtask/data/dump/tables.json")).unwrap()
     }
 
     /// The index of the entry named `name` in the dump table `list` (effects, enchantments,
@@ -2174,10 +2174,10 @@ mod tests {
         json.as_u64().unwrap()
     }
 
-    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability,
-    // pmmp: Item::isFireProof, Item::getAttackPoints, Item::getDefensePoints,
-    // pmmp: Item::getBlockToolType, Item::getBlockToolHarvestLevel, Item::getMiningEfficiency,
-    // pmmp: TieredTool::getTier, Armor::getArmorSlot, ArmorTypeInfo::getToughness
+    // api: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability,
+    // api: Item::isFireProof, Item::getAttackPoints, Item::getDefensePoints,
+    // api: Item::getBlockToolType, Item::getBlockToolHarvestLevel, Item::getMiningEfficiency,
+    // api: TieredTool::getTier, Armor::getArmorSlot, ArmorTypeInfo::getToughness
     /// Every item type has the identity, stack, tool and armour data of its PMMP dump entry.
     #[test]
     fn every_type_has_its_pmmp_tool_and_armour_data() {
@@ -2223,9 +2223,9 @@ mod tests {
         }
     }
 
-    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore,
-    // pmmp: FoodSource::requiresHunger, ConsumableItem::getResidue,
-    // pmmp: Consumable::getAdditionalEffects, Item::getFuelTime, Item::getFuelResidue
+    // api: FoodSource::getFoodRestore, FoodSource::getSaturationRestore,
+    // api: FoodSource::requiresHunger, ConsumableItem::getResidue,
+    // api: Consumable::getAdditionalEffects, Item::getFuelTime, Item::getFuelResidue
     /// Every item type has the food, consumable and fuel data of its PMMP dump entry.
     #[test]
     fn every_type_has_its_pmmp_food_and_fuel_data() {
@@ -2237,7 +2237,7 @@ mod tests {
                 (Some(f), want) => {
                     assert_eq!(u64::from(f.food_restore()), int(&want["food"]), "{t:?}");
                     assert_eq!(Some(f.saturation_restore()), want["saturation"].as_f64());
-                    assert_eq!(Some(f.requires_hunger()), want["requires_hunger"].as_bool());
+                    assert_eq!(Some(f.requires_food()), want["requires_hunger"].as_bool());
                 }
                 (None, want) => panic!("{t:?} is no food, PMMP {want}"),
             }
@@ -2267,10 +2267,10 @@ mod tests {
         }
     }
 
-    // pmmp: Item::getEnchantability,
-    // pmmp: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
-    // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem, Item::getCooldownTicks,
-    // pmmp: Item::getCooldownTag, ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
+    // api: Item::getEnchantability,
+    // api: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
+    // api: AvailableEnchantmentRegistry::getAllEnchantmentsForItem, Item::getCooldownTicks,
+    // api: Item::getCooldownTag, ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
     /// Every item type has the enchanting, cooldown, throwing, potion and placing data of its
     /// PMMP dump entry.
     #[test]
@@ -2314,7 +2314,7 @@ mod tests {
         }
     }
 
-    // pmmp: Dye::getColor
+    // api: Dye::getColor
     /// Dye items have PMMP `DyeColorIdMap` IDs (white 0 … black 15) and PMMP's RGB values.
     #[test]
     fn dyes_have_pmmp_colour_ids() {

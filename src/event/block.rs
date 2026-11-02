@@ -50,7 +50,7 @@ getters!(BlockBreak {
     /// What the block drops. Starts as its drops for the item.
     #[doc(alias = "BlockBreakEvent::getDrops")]
     drops: &[Stack],
-    /// The experience the block drops.
+    /// The XP the block drops.
     #[doc(alias = "BlockBreakEvent::getXpDropAmount")]
     xp_drop_amount: u32,
 });
@@ -60,7 +60,7 @@ setters!(BlockBreak {
     #[doc(alias = "BlockBreakEvent::setDrops")]
     #[doc(alias = "BlockBreakEvent::setDropsVariadic")]
     set_drops => drops: Vec<Stack>,
-    /// Replaces the experience the block drops.
+    /// Replaces the XP the block drops.
     #[doc(alias = "BlockBreakEvent::setXpDropAmount")]
     set_xp_drop_amount => xp_drop_amount: u32,
 });
@@ -834,11 +834,11 @@ mod tests {
     const WORLD: world::Id = world::Id::DEFAULT;
     const OTHER: BlockPos = BlockPos::new(5, 6, 7);
 
-    // pmmp: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock,
-    // pmmp: BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops,
-    // pmmp: BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setDrops,
-    // pmmp: BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount,
-    // pmmp: BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
+    // api: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock,
+    // api: BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops,
+    // api: BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setDrops,
+    // api: BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount,
+    // api: BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
     #[test]
     fn block_break_reads_and_changes_its_fields() {
         let mut e = BlockBreak {
@@ -871,8 +871,8 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockBurnEvent, BlockBurnEvent::getCausingBlock, BlockBurnEvent::cancel,
-    // pmmp: BlockBurnEvent::uncancel, BlockBurnEvent::isCancelled
+    // api: BlockBurnEvent, BlockBurnEvent::getCausingBlock, BlockBurnEvent::cancel,
+    // api: BlockBurnEvent::uncancel, BlockBurnEvent::isCancelled
     #[test]
     fn block_burn_names_the_fire() {
         let mut e = BlockBurn {
@@ -890,7 +890,7 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockDeathEvent, BlockMeltEvent
+    // api: BlockDeathEvent, BlockMeltEvent
     #[test]
     fn block_changes_name_the_old_and_new_state() {
         let mut death = BlockDeath {
@@ -925,8 +925,8 @@ mod tests {
         assert!(melt.is_cancelled());
     }
 
-    // pmmp: BlockFormEvent, BlockGrowEvent, BlockSpreadEvent, BlockFormEvent::getCausingBlock,
-    // pmmp: BlockGrowEvent::getPlayer, BlockSpreadEvent::getSource
+    // api: BlockFormEvent, BlockGrowEvent, BlockSpreadEvent, BlockFormEvent::getCausingBlock,
+    // api: BlockGrowEvent::getPlayer, BlockSpreadEvent::getSource
     #[test]
     fn block_form_grow_and_spread_name_their_cause() {
         let mut form = BlockForm {
@@ -987,9 +987,9 @@ mod tests {
         assert!(!spread.is_cancelled());
     }
 
-    // pmmp: BlockPlaceEvent, BlockPlaceEvent::getPlayer, BlockPlaceEvent::getTransaction,
-    // pmmp: BlockPlaceEvent::getBlockAgainst, BlockPlaceEvent::getItem, BlockPlaceEvent::cancel,
-    // pmmp: BlockPlaceEvent::uncancel, BlockPlaceEvent::isCancelled
+    // api: BlockPlaceEvent, BlockPlaceEvent::getPlayer, BlockPlaceEvent::getTransaction,
+    // api: BlockPlaceEvent::getBlockAgainst, BlockPlaceEvent::getItem, BlockPlaceEvent::cancel,
+    // api: BlockPlaceEvent::uncancel, BlockPlaceEvent::isCancelled
     #[test]
     fn block_place_lists_every_block_it_sets() {
         let mut e = BlockPlace {
@@ -1010,9 +1010,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockTeleportEvent, BlockTeleportEvent::getTo, BlockTeleportEvent::setTo,
-    // pmmp: BlockTeleportEvent::cancel, BlockTeleportEvent::uncancel,
-    // pmmp: BlockTeleportEvent::isCancelled
+    // api: BlockTeleportEvent, BlockTeleportEvent::getTo, BlockTeleportEvent::setTo,
+    // api: BlockTeleportEvent::cancel, BlockTeleportEvent::uncancel,
+    // api: BlockTeleportEvent::isCancelled
     #[test]
     fn block_teleport_target_can_change() {
         let mut e = BlockTeleport {
@@ -1034,9 +1034,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockUpdateEvent, LeavesDecayEvent, BlockUpdateEvent::cancel,
-    // pmmp: BlockUpdateEvent::uncancel, BlockUpdateEvent::isCancelled, LeavesDecayEvent::cancel,
-    // pmmp: LeavesDecayEvent::uncancel, LeavesDecayEvent::isCancelled
+    // api: BlockUpdateEvent, LeavesDecayEvent, BlockUpdateEvent::cancel,
+    // api: BlockUpdateEvent::uncancel, BlockUpdateEvent::isCancelled, LeavesDecayEvent::cancel,
+    // api: LeavesDecayEvent::uncancel, LeavesDecayEvent::isCancelled
     #[test]
     fn block_update_and_leaves_decay_can_be_cancelled() {
         let mut update = BlockUpdate {
@@ -1069,9 +1069,9 @@ mod tests {
         assert!(!decay.is_cancelled());
     }
 
-    // pmmp: BrewItemEvent, BrewItemEvent::getBrewingStand, BrewItemEvent::getSlot,
-    // pmmp: BrewItemEvent::getInput, BrewItemEvent::getResult, BrewItemEvent::setResult,
-    // pmmp: BrewItemEvent::cancel, BrewItemEvent::uncancel, BrewItemEvent::isCancelled
+    // api: BrewItemEvent, BrewItemEvent::getBrewingStand, BrewItemEvent::getSlot,
+    // api: BrewItemEvent::getInput, BrewItemEvent::getResult, BrewItemEvent::setResult,
+    // api: BrewItemEvent::cancel, BrewItemEvent::uncancel, BrewItemEvent::isCancelled
     #[test]
     fn brew_item_result_can_change() {
         let mut e = BrewItem {
@@ -1096,10 +1096,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BrewingFuelUseEvent, BrewingFuelUseEvent::getBrewingStand,
-    // pmmp: BrewingFuelUseEvent::getFuelTime, BrewingFuelUseEvent::setFuelTime,
-    // pmmp: BrewingFuelUseEvent::cancel, BrewingFuelUseEvent::uncancel,
-    // pmmp: BrewingFuelUseEvent::isCancelled
+    // api: BrewingFuelUseEvent, BrewingFuelUseEvent::getBrewingStand,
+    // api: BrewingFuelUseEvent::getFuelTime, BrewingFuelUseEvent::setFuelTime,
+    // api: BrewingFuelUseEvent::cancel, BrewingFuelUseEvent::uncancel,
+    // api: BrewingFuelUseEvent::isCancelled
     #[test]
     fn brewing_fuel_lasts_at_least_one_brew() {
         let mut e = BrewingFuelUse {
@@ -1129,10 +1129,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: CampfireCookEvent, CampfireCookEvent::getCampfire, CampfireCookEvent::getSlot,
-    // pmmp: CampfireCookEvent::getInput, CampfireCookEvent::getResult,
-    // pmmp: CampfireCookEvent::setResult, CampfireCookEvent::cancel,
-    // pmmp: CampfireCookEvent::uncancel, CampfireCookEvent::isCancelled
+    // api: CampfireCookEvent, CampfireCookEvent::getCampfire, CampfireCookEvent::getSlot,
+    // api: CampfireCookEvent::getInput, CampfireCookEvent::getResult,
+    // api: CampfireCookEvent::setResult, CampfireCookEvent::cancel,
+    // api: CampfireCookEvent::uncancel, CampfireCookEvent::isCancelled
     #[test]
     fn campfire_cook_result_can_change() {
         let mut e = CampfireCook {
@@ -1157,8 +1157,8 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: ChestPairEvent, ChestPairEvent::getLeft, ChestPairEvent::getRight,
-    // pmmp: ChestPairEvent::cancel, ChestPairEvent::uncancel, ChestPairEvent::isCancelled
+    // api: ChestPairEvent, ChestPairEvent::getLeft, ChestPairEvent::getRight,
+    // api: ChestPairEvent::cancel, ChestPairEvent::uncancel, ChestPairEvent::isCancelled
     #[test]
     fn chest_pair_names_both_halves() {
         let mut e = ChestPair {
@@ -1174,11 +1174,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: FarmlandHydrationChangeEvent, FarmlandHydrationChangeEvent::getOldHydration,
-    // pmmp: FarmlandHydrationChangeEvent::getNewHydration,
-    // pmmp: FarmlandHydrationChangeEvent::setNewHydration,
-    // pmmp: FarmlandHydrationChangeEvent::cancel, FarmlandHydrationChangeEvent::uncancel,
-    // pmmp: FarmlandHydrationChangeEvent::isCancelled
+    // api: FarmlandHydrationChangeEvent, FarmlandHydrationChangeEvent::getOldHydration,
+    // api: FarmlandHydrationChangeEvent::getNewHydration,
+    // api: FarmlandHydrationChangeEvent::setNewHydration,
+    // api: FarmlandHydrationChangeEvent::cancel, FarmlandHydrationChangeEvent::uncancel,
+    // api: FarmlandHydrationChangeEvent::isCancelled
     #[test]
     fn farmland_hydration_stays_in_range() {
         let mut e = FarmlandHydrationChange {
@@ -1201,10 +1201,10 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: SignChangeEvent, SignChangeEvent::getPlayer, SignChangeEvent::getSign,
-    // pmmp: SignChangeEvent::getOldText, SignChangeEvent::getNewText,
-    // pmmp: SignChangeEvent::isFrontFace, SignChangeEvent::setNewText, SignChangeEvent::cancel,
-    // pmmp: SignChangeEvent::uncancel, SignChangeEvent::isCancelled
+    // api: SignChangeEvent, SignChangeEvent::getPlayer, SignChangeEvent::getSign,
+    // api: SignChangeEvent::getOldText, SignChangeEvent::getNewText,
+    // api: SignChangeEvent::isFrontFace, SignChangeEvent::setNewText, SignChangeEvent::cancel,
+    // api: SignChangeEvent::uncancel, SignChangeEvent::isCancelled
     #[test]
     fn sign_change_names_its_side_and_its_text_can_change() {
         let lines = |s: &str| [s.to_owned(), String::new(), String::new(), String::new()];
@@ -1232,9 +1232,9 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: StructureGrowEvent, StructureGrowEvent::getTransaction,
-    // pmmp: StructureGrowEvent::getPlayer, StructureGrowEvent::cancel,
-    // pmmp: StructureGrowEvent::uncancel, StructureGrowEvent::isCancelled
+    // api: StructureGrowEvent, StructureGrowEvent::getTransaction,
+    // api: StructureGrowEvent::getPlayer, StructureGrowEvent::cancel,
+    // api: StructureGrowEvent::uncancel, StructureGrowEvent::isCancelled
     #[test]
     fn structure_grow_lists_every_block_it_sets() {
         let mut e = StructureGrow {
@@ -1254,13 +1254,13 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius,
-    // pmmp: BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::getFireChance,
-    // pmmp: BlockPreExplodeEvent::setFireChance, BlockPreExplodeEvent::isIncendiary,
-    // pmmp: BlockPreExplodeEvent::setIncendiary, BlockPreExplodeEvent::isBlockBreaking,
-    // pmmp: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::getPlayer,
-    // pmmp: BlockPreExplodeEvent::cancel, BlockPreExplodeEvent::uncancel,
-    // pmmp: BlockPreExplodeEvent::isCancelled
+    // api: BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius,
+    // api: BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::getFireChance,
+    // api: BlockPreExplodeEvent::setFireChance, BlockPreExplodeEvent::isIncendiary,
+    // api: BlockPreExplodeEvent::setIncendiary, BlockPreExplodeEvent::isBlockBreaking,
+    // api: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::getPlayer,
+    // api: BlockPreExplodeEvent::cancel, BlockPreExplodeEvent::uncancel,
+    // api: BlockPreExplodeEvent::isCancelled
     #[test]
     fn block_pre_explode_keeps_its_values_in_range() {
         let mut e = BlockPreExplode {
@@ -1302,12 +1302,12 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: BlockExplodeEvent, BlockExplodeEvent::getPosition,
-    // pmmp: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::setAffectedBlocks,
-    // pmmp: BlockExplodeEvent::getIgnitions, BlockExplodeEvent::setIgnitions,
-    // pmmp: BlockExplodeEvent::getYield, BlockExplodeEvent::setYield,
-    // pmmp: BlockExplodeEvent::cancel, BlockExplodeEvent::uncancel,
-    // pmmp: BlockExplodeEvent::isCancelled
+    // api: BlockExplodeEvent, BlockExplodeEvent::getPosition,
+    // api: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::setAffectedBlocks,
+    // api: BlockExplodeEvent::getIgnitions, BlockExplodeEvent::setIgnitions,
+    // api: BlockExplodeEvent::getYield, BlockExplodeEvent::setYield,
+    // api: BlockExplodeEvent::cancel, BlockExplodeEvent::uncancel,
+    // api: BlockExplodeEvent::isCancelled
     #[test]
     fn block_explode_blocks_and_yield_can_change() {
         let centre = Vec3::new(1.5, 64.5, -1.5);

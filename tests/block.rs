@@ -131,7 +131,7 @@ fn reference() -> Vec<(Key, u32)> {
         .collect()
 }
 
-// pmmp: BlockStateDictionary::getStates
+// api: BlockStateDictionary::getStates
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
     let reference: BTreeMap<Key, u32> = reference().into_iter().collect();
@@ -153,7 +153,7 @@ fn borrowed(properties: &[(String, Owned)]) -> Vec<(&str, PropertyValue<'_>)> {
         .collect()
 }
 
-// pmmp: BlockStateDictionary::generateDataFromStateId, BlockStateDictionary::lookupStateIdFromData
+// api: BlockStateDictionary::generateDataFromStateId, BlockStateDictionary::lookupStateIdFromData
 #[test]
 fn every_state_is_found_by_its_network_id_and_properties() {
     let mut rng = Rng(1);
@@ -256,15 +256,15 @@ fn check_physics(state: State, block: &Json) {
     assert_eq!(state.collision_boxes().len(), boxes, "{state:?}");
 }
 
-// pmmp: Block, VanillaBlocks, Block::getTypeId, Block::getLightLevel, Block::getLightFilter,
-// pmmp: Block::blocksDirectSkyLight, Block::ticksRandomly, Block::getBreakInfo,
-// pmmp: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,
-// pmmp: BlockBreakInfo::getToolType, BlockBreakInfo::getToolHarvestLevel,
-// pmmp: BlockBreakInfo::isExplosionHarvestable, Block::getFlammability,
-// pmmp: Block::getFlameEncouragement, Block::burnsForever, Block::isSolid, Block::isTransparent,
-// pmmp: Block::canBeReplaced, Block::canBeFlowedInto, Block::canClimb, Block::hasEntityCollision,
-// pmmp: Block::isAffectedBySilkTouch, Block::getModelPositionOffset, Block::getFrictionFactor,
-// pmmp: Block::getSupportType, Block::getCollisionBoxes
+// api: Block, VanillaBlocks, Block::getTypeId, Block::getLightLevel, Block::getLightFilter,
+// api: Block::blocksDirectSkyLight, Block::ticksRandomly, Block::getBreakInfo,
+// api: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,
+// api: BlockBreakInfo::getToolType, BlockBreakInfo::getToolHarvestLevel,
+// api: BlockBreakInfo::isExplosionHarvestable, Block::getFlammability,
+// api: Block::getFlameEncouragement, Block::burnsForever, Block::isSolid, Block::isTransparent,
+// api: Block::canBeReplaced, Block::canBeFlowedInto, Block::canClimb, Block::hasEntityCollision,
+// api: Block::isAffectedBySilkTouch, Block::getModelPositionOffset, Block::getFrictionFactor,
+// api: Block::getSupportType, Block::getCollisionBoxes
 /// Every state of the PMMP dump has PMMP's values: light, random ticks, the default state of its
 /// type, break info, fire, flags, friction, support and its number of collision boxes.
 #[test]
@@ -274,7 +274,7 @@ fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
         read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json"),
         read_json("xtask/data/upgrade/blocks/0361_1.26.50_to_1.26.60.json"),
     ];
-    let dump = read_json("xtask/data/pmmp/blocks.json");
+    let dump = read_json("xtask/data/dump/blocks.json");
     let dump = dump.as_array().expect("dump is an array");
     assert_eq!(dump.len(), 11_420);
     for block in dump {

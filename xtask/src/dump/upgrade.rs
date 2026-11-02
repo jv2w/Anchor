@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{PHP, PMMP, create_dir, file_names, read, write};
+use super::{DUMP_SOURCE, PHP, create_dir, file_names, read, write};
 
 /// The legacy block ID map, in the source and inside [`OUT`].
 pub(crate) const BLOCK_LEGACY_IDS: &str = "block_legacy_id_map.json";
@@ -309,7 +309,7 @@ pub(super) fn run(root: &Path, reference_blocks: &Path, out: &Path) -> Result<Ve
         .arg(blocks.join(LEGACY_BIN))
         .arg(blocks.join(LEGACY_BIN_1_9))
         .arg(reference_blocks)
-        .current_dir(root.join(PMMP.0))
+        .current_dir(root.join(DUMP_SOURCE.0))
         .status()
         .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
     if !status.success() {

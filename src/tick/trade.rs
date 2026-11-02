@@ -15,7 +15,7 @@
 //! - The inventory executor checks a trade with [`offer`] and counts it with [`traded`] after
 //!   its item changes committed (a check/apply pair; `traded` cannot fail after `offer`
 //!   succeeded in the same request). A trade counts uses (at most 256 per request), gives the
-//!   villager experience and tiers, and drops reward orbs at the villager. Like BDS, no
+//!   villager xp and tiers, and drops reward orbs at the villager. Like BDS, no
 //!   `UpdateTrade` follows a trade, not even one that reaches a new tier (P6 `tradeup`).
 //! - [`closed`]: the inventory module's report that the trade window closed (it returns the
 //!   payment slots). [`tick`] closes the window of every player whose villager is gone or in
@@ -75,12 +75,12 @@ const HOOKS: Hooks = Hooks {
     open_window: inventory::open_trade,
     close_window: inventory::close_window,
     close_window_without_event: inventory::close_window_without_event,
-    drop_experience: entity::drop_experience,
+    drop_xp: entity::drop_xp,
     villager_traded: entity::villager_traded,
 };
 /// The most trades one request may repeat.
 pub(super) const MAX_REPEAT: u32 = 256;
-/// Experience per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; BDS drops a
+/// Xp per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; BDS drops a
 /// random amount).
 const REWARD_BASE: u32 = 3;
 /// The height above the villager's feet where reward orbs appear (Java
@@ -238,9 +238,9 @@ struct Hooks {
     /// What closes the player's window for a direct API call, which raises no `InventoryClose`
     /// (`inventory::close_window_without_event`).
     close_window_without_event: fn(&mut State, SessionId),
-    /// What drops experience orbs (`entity::drop_experience`).
-    drop_experience: fn(&mut State, WorldIndex, Vec3, u32),
-    /// What tells a villager's viewers its tier and experience changed from the given ones
+    /// What drops xp orbs (`entity::drop_xp`).
+    drop_xp: fn(&mut State, WorldIndex, Vec3, u32),
+    /// What tells a villager's viewers its tier and xp changed from the given ones
     /// (`entity::villager_traded`).
     villager_traded: fn(&mut State, Id, (u8, u32)),
 }
@@ -396,7 +396,7 @@ pub(super) fn is_payment(want: &Stack, damage: Damage, given: &Stack) -> bool {
 }
 
 /// Counts the `times` trades of `net_id` the executor completed for `session` (after [`offer`]
-/// allowed them and the items moved): the uses, the villager's experience (and tier) and the
+/// allowed them and the items moved): the uses, the villager's xp (and tier) and the
 /// reward orbs. It cannot fail after `offer` succeeded in the same request; called otherwise, it
 /// counts at most what `offer` would allow and logs the executor's error.
 pub(super) fn traded(state: &mut State, session: SessionId, request: i32, net_id: u32, times: u32) {
@@ -434,7 +434,7 @@ fn traded_with(
         return;
     };
     let allowed = v.offers.tradable(index).map_or(0, times_allowed);
-    let before = (v.offers.tier(), v.offers.experience());
+    let before = (v.offers.tier(), v.offers.xp());
     if times > allowed {
         error!(
             session = session.get(),
@@ -467,7 +467,7 @@ fn traded_with(
             sum.saturating_add(REWARD_BASE + r.below(REWARD_SPREAD))
         });
         let at = Vec3::new(position.x, position.y + REWARD_HEIGHT, position.z);
-        (hooks.drop_experience)(state, world, at, amount);
+        (hooks.drop_xp)(state, world, at, amount);
     }
     // A new tier reaches the traders through the villager's entity data alone: BDS sends no
     // UpdateTrade then (P6 `tradeup`).
@@ -505,8 +505,8 @@ fn tick_with(state: &mut State, hooks: Hooks) {
 }
 
 /// Changes the offers of the villager NPC `villager` with `change` (one of the [`Offers`]
-/// methods: `set`, `add`, `remove`, `replace`, `set_tier`, `set_experience`,
-/// `set_tier_experience`, `reset_uses`) and shows the result to every player trading with it.
+/// methods: `set`, `add`, `remove`, `replace`, `set_tier`, `set_xp`,
+/// `set_tier_xp`, `reset_uses`) and shows the result to every player trading with it.
 /// The trade API wraps it. Nothing changes if `change` fails.
 pub(super) fn change_offers<T>(
     state: &mut State,
@@ -523,7 +523,7 @@ fn change_offers_with<T>(
     hooks: Hooks,
 ) -> Result<T> {
     let offers = (hooks.offers_mut)(state, villager).ok_or(Error::NotVillager)?;
-    let before = (offers.tier(), offers.experience());
+    let before = (offers.tier(), offers.xp());
     let out = change(offers)?;
     (hooks.villager_traded)(state, villager, before);
     refresh(state, villager, hooks);

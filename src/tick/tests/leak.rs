@@ -332,7 +332,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
     run(state, output, &mut s, vec![shut]);
     assert!(entity::remove(state, villager));
 
-    // Entities: items on the ground, a thrown snowball, experience orbs.
+    // Entities: items on the ground, a thrown snowball, xp orbs.
     let stick = Stack::new(crate::item::Kind::Stick.default_type(), 3);
     assert!(entity::drop_item(
         state,
@@ -340,7 +340,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
         Vec3::new(0.5, -60.0, 9.5),
         stick.clone()
     ));
-    entity::drop_experience(state, 0, Vec3::new(0.5, -60.0, 2.5), 30);
+    entity::drop_xp(state, 0, Vec3::new(0.5, -60.0, 2.5), 30);
     let snowball = Stack::new(crate::item::Kind::Snowball.default_type(), 1);
     assert!(entity::throw(state, SessionId::new(n), &snowball));
     // Block updates: sand over air falls as an entity and lands; a scheduled update of dirt.

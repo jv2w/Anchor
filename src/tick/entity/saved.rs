@@ -175,7 +175,7 @@ pub(super) fn save(entity: &Entity) -> Compound {
             put("Owner", Value::String(item.owner.clone()));
             put("Thrower", Value::String(item.thrower.clone()));
         }
-        Kind::ExperienceOrb(orb) => {
+        Kind::XpOrb(orb) => {
             put("Age", Value::Short(age_ticks(orb.despawn_delay)));
             #[expect(
                 clippy::expect_used,
@@ -298,7 +298,7 @@ fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
             put("Trident", Value::Compound(t.item.to_nbt()));
             put("isCreative", Value::Byte(u8::from(t.creative)));
         }
-        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::ExperienceBottle | Shot::IceBomb => {}
+        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::XpBottle | Shot::IceBomb => {}
     }
 }
 
@@ -446,7 +446,7 @@ fn load_kind(
 ) -> Option<Kind> {
     Some(match identifier {
         "minecraft:item" | "Item" => Kind::Item(load_item(c, content)?),
-        "minecraft:xp_orb" | "XPOrb" => Kind::ExperienceOrb(load_orb(c)),
+        "minecraft:xp_orb" | "XPOrb" => Kind::XpOrb(load_orb(c)),
         "minecraft:falling_block" | "FallingSand" => {
             let Some(Value::Compound(block)) = c.get("FallingBlock") else {
                 return None;
@@ -466,7 +466,7 @@ fn load_kind(
         "minecraft:snowball" | "Snowball" => load_projectile(c, Shot::Snowball)?,
         "minecraft:egg" | "Egg" => load_projectile(c, Shot::Egg)?,
         "minecraft:ender_pearl" | "ThrownEnderpearl" => load_projectile(c, Shot::EnderPearl)?,
-        "minecraft:xp_bottle" | "ThrownExpBottle" => load_projectile(c, Shot::ExperienceBottle)?,
+        "minecraft:xp_bottle" | "ThrownExpBottle" => load_projectile(c, Shot::XpBottle)?,
         "minecraft:ice_bomb" => load_projectile(c, Shot::IceBomb)?,
         "minecraft:thrown_trident" | "minecraft:trident" | "Trident" | "ThrownTrident" => {
             load_projectile(c, Shot::Trident(load_trident(c, content)?))?
@@ -987,7 +987,7 @@ pub(super) mod tests {
                 owner: String::new(),
                 thrower: String::new(),
             }),
-            Kind::ExperienceOrb(Orb {
+            Kind::XpOrb(Orb {
                 value: 2477,
                 despawn_delay: 1,
                 look_for_target: 0,
@@ -1028,7 +1028,7 @@ pub(super) mod tests {
             projectile(Shot::Snowball, 0.0, None),
             projectile(Shot::Egg, 0.0, None),
             projectile(Shot::EnderPearl, 0.0, None),
-            projectile(Shot::ExperienceBottle, 0.0, None),
+            projectile(Shot::XpBottle, 0.0, None),
             projectile(
                 Shot::Potion {
                     potion: potion("Harming"),
@@ -1261,7 +1261,7 @@ pub(super) mod tests {
         assert!(vanilla_load(&save(&past), ChunkPos::new(0, -1)).is_none());
     }
 
-    // pmmp: Entity::setHealth
+    // api: Entity::setHealth
     #[test]
     fn an_npc_saved_without_health_loads_dying() {
         let mut dying = entity(
@@ -1286,13 +1286,13 @@ pub(super) mod tests {
         assert_eq!(c.dead_ticks, Some(1), "past the tick that drops");
     }
 
-    /// The items by count and the experience on the ground.
+    /// The items by count and the xp on the ground.
     fn drops(h: &Harness) -> (u32, u32) {
         let (mut items, mut xp) = (0, 0);
         for e in h.live() {
             match &e.kind {
                 Kind::Item(i) => items += u32::from(i.stack.count()),
-                Kind::ExperienceOrb(o) => xp += u32::from(o.value),
+                Kind::XpOrb(o) => xp += u32::from(o.value),
                 _ => {}
             }
         }

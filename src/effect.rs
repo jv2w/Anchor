@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(turtle(5, 3), Some([0x8d, 0x85, 0xe6, 255]));
     }
 
-    // pmmp: EffectIdMap::fromId, EffectIdMap::toId, PotionTypeIdMap::fromId, PotionTypeIdMap::toId
+    // api: EffectIdMap::fromId, EffectIdMap::toId, PotionTypeIdMap::fromId, PotionTypeIdMap::toId
     #[test]
     fn ids_round_trip() {
         for t in Type::all() {
@@ -500,11 +500,11 @@ mod tests {
         assert_eq!(Potion::from_id(1000), None);
     }
 
-    // pmmp: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
-    // pmmp: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance,
-    // pmmp: EffectInstance::getType, EffectInstance::getDuration, EffectInstance::getAmplifier,
-    // pmmp: EffectInstance::isVisible, EffectInstance::isAmbient, PotionType::getEffects,
-    // pmmp: PotionType::getDisplayName
+    // api: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
+    // api: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance,
+    // api: EffectInstance::getType, EffectInstance::getDuration, EffectInstance::getAmplifier,
+    // api: EffectInstance::isVisible, EffectInstance::isAmbient, PotionType::getEffects,
+    // api: PotionType::getDisplayName
     /// PMMP `VanillaEffects`, `PotionType` and `EffectIdMap` values.
     #[test]
     fn effect_and_potion_data_are_pmmp_values() {
@@ -541,9 +541,9 @@ mod tests {
         assert_eq!(Potion::NightVision.text(), "Night Vision");
     }
 
-    // pmmp: EffectInstance::__construct, EffectInstance::setDuration, EffectInstance::setAmplifier,
-    // pmmp: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite,
-    // pmmp: EffectInstance::getEffectLevel, EffectInstance::hasExpired, EffectInstance::getColor
+    // api: EffectInstance::__construct, EffectInstance::setDuration, EffectInstance::setAmplifier,
+    // api: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite,
+    // api: EffectInstance::getEffectLevel, EffectInstance::hasExpired, EffectInstance::getColor
     #[test]
     fn instances_start_with_pmmp_defaults_and_change_by_copy() {
         let speed = Type::Speed.instance();
@@ -569,8 +569,8 @@ mod tests {
         );
     }
 
-    // pmmp: EffectCollection::canAdd, EffectCollection::getBubbleColor,
-    // pmmp: EffectCollection::hasOnlyAmbientEffects
+    // api: EffectCollection::canAdd, EffectCollection::getBubbleColor,
+    // api: EffectCollection::hasOnlyAmbientEffects
     #[test]
     fn collections_replace_and_colour_as_pmmp() {
         let weak = Type::Speed.instance().with_duration_ticks(100);
@@ -613,16 +613,16 @@ mod tests {
         assert_eq!(Instance::from_nbt(&long.to_nbt()), Some(long));
     }
 
-    // pmmp: Effect, VanillaEffects, EffectIdMap::toId, Effect::getName, Effect::getColor,
-    // pmmp: Effect::isBad, Effect::getDefaultDuration, Effect::hasBubbles, PotionTypeIdMap::toId,
-    // pmmp: PotionType::getDisplayName, PotionType::getEffects, EffectInstance::getType,
-    // pmmp: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
-    // pmmp: EffectInstance::isAmbient
+    // api: Effect, VanillaEffects, EffectIdMap::toId, Effect::getName, Effect::getColor,
+    // api: Effect::isBad, Effect::getDefaultDuration, Effect::hasBubbles, PotionTypeIdMap::toId,
+    // api: PotionType::getDisplayName, PotionType::getEffects, EffectInstance::getType,
+    // api: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
+    // api: EffectInstance::isAmbient
     /// Every effect and potion type has the values of the PMMP dump (`tables.json`).
     #[test]
     fn every_effect_and_potion_has_the_pmmp_dump_values() {
         let dump: serde_json::Value =
-            serde_json::from_str(include_str!("../xtask/data/pmmp/tables.json")).unwrap();
+            serde_json::from_str(include_str!("../xtask/data/dump/tables.json")).unwrap();
         let effects = dump["effects"].as_array().unwrap();
         assert_eq!(effects.len(), Type::all().len());
         let by_name = |name: &str| {

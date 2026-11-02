@@ -78,7 +78,7 @@ fn set_hand(cx: &mut Context<'_>, stack: Stack) {
 }
 
 /// Takes every entity out of the chunks around the spawn: the count of `item` on the ground and
-/// the experience of the orbs.
+/// the xp of the orbs.
 fn ground(h: &mut Harness, item: crate::item::Type) -> (u32, u32) {
     let (mut items, mut xp) = (0, 0);
     for x in -2..=2 {
@@ -165,9 +165,9 @@ fn main_counts(packets: &[Packet], slot: u8) -> Vec<u16> {
         .collect()
 }
 
-// pmmp: BlockBreakEvent
+// api: BlockBreakEvent
 #[test]
-fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_experience() {
+fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_xp() {
     let mut l = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
         note(
             SEEN,
@@ -232,7 +232,7 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_experience() {
     );
 }
 
-// pmmp: BlockBreakEvent
+// api: BlockBreakEvent
 #[test]
 fn a_cancelled_break_changes_nothing_and_resyncs_the_block() {
     let run = |listeners: Listeners, kind: PlayerAction| {
@@ -300,7 +300,7 @@ fn a_block_break_listener_sees_an_inert_block_as_info_update_and_can_keep_it() {
     assert_eq!(apples, 1);
 }
 
-// pmmp: BlockBreakEvent
+// api: BlockBreakEvent
 #[test]
 fn a_listener_that_changes_the_block_or_takes_the_tool_cancels_the_break() {
     let replace = listen(|e: &mut BlockBreak, cx: &mut Context<'_>| {
@@ -326,7 +326,7 @@ fn a_listener_that_changes_the_block_or_takes_the_tool_cancels_the_break() {
     }
 }
 
-// pmmp: BlockBreakEvent::getInstaBreak
+// api: BlockBreakEvent::getInstaBreak
 #[test]
 fn a_break_before_its_time_raises_no_block_break() {
     let l = listen(|e: &mut BlockBreak, _: &mut Context<'_>| note(SEEN, e.pos()));
@@ -346,7 +346,7 @@ fn a_break_before_its_time_raises_no_block_break() {
     assert_eq!(h.block(TARGET), full_box);
 }
 
-// pmmp: BlockPlaceEvent
+// api: BlockPlaceEvent
 #[test]
 fn a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door() {
     let mut l = listen(move |e: &mut BlockPlace, _: &mut Context<'_>| {
@@ -391,7 +391,7 @@ fn a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door() {
     assert_eq!(notes(WATCHED), [dbg((true, 1))]);
 }
 
-// pmmp: BlockPlaceEvent
+// api: BlockPlaceEvent
 #[test]
 fn a_cancelled_placement_changes_nothing_and_resyncs() {
     let run = |listeners: Listeners, refused: bool| {
@@ -419,7 +419,7 @@ fn a_cancelled_placement_changes_nothing_and_resyncs() {
     assert_eq!(cancelled, twin);
 }
 
-// pmmp: BlockPlaceEvent
+// api: BlockPlaceEvent
 /// The client takes the item away as it sends a placement; a cancelled one sends the inventory
 /// back, so the client's next click names the server's count and places, and a right prediction
 /// is not sent again.
@@ -454,7 +454,7 @@ fn a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places(
     assert_eq!(main_counts(&h.packets(), slot), [4]);
 }
 
-// pmmp: PlayerItemUseEvent
+// api: PlayerItemUseEvent
 /// Wearing armour by a click in the air: the client predicts the hand empty and the armour worn.
 /// A cancelled use sends the inventory back when the click, from either packet, carried that
 /// prediction, and nothing when it carried none.
@@ -495,7 +495,7 @@ fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
     assert_eq!(run(true, true), [1]);
 }
 
-// pmmp: BlockPlaceEvent
+// api: BlockPlaceEvent
 #[test]
 fn a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement() {
     let fill = listen(|e: &mut BlockPlace, cx: &mut Context<'_>| {
@@ -535,7 +535,7 @@ fn door_open(h: &Harness) -> bool {
     props::flag(h.block(TARGET), "open_bit") == Some(true)
 }
 
-// pmmp: PlayerInteractEvent
+// api: PlayerInteractEvent
 #[test]
 fn a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting() {
     let l = listen(move |e: &mut PlayerInteract, _: &mut Context<'_>| {
@@ -584,7 +584,7 @@ fn a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting() 
     assert!(door_open(&h), "without listeners the door opens");
 }
 
-// pmmp: PlayerInteractEvent
+// api: PlayerInteractEvent
 #[test]
 fn a_cancelled_right_click_uses_neither_the_block_nor_the_item() {
     let run = |listeners: Listeners, refused: bool| {
@@ -653,7 +653,7 @@ fn only_the_first_right_click_of_a_held_press_is_first() {
     );
 }
 
-// pmmp: PlayerInteractEvent
+// api: PlayerInteractEvent
 #[test]
 fn a_cancelled_left_click_starts_no_breaking_and_keeps_the_dragon_egg() {
     let l = listen(move |e: &mut PlayerInteract, _: &mut Context<'_>| {
@@ -716,7 +716,7 @@ fn starting_to_eat_asks_the_item_use_listeners() {
     assert_eq!(notes(SEEN).len(), 1, "asked at the start only");
 }
 
-// pmmp: PlayerItemUseEvent
+// api: PlayerItemUseEvent
 #[test]
 fn an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armour_in_hand() {
     let helmet = stack(ItemKind::IronHelmet);
@@ -770,7 +770,7 @@ fn water_source() -> block::State {
     .unwrap()
 }
 
-// pmmp: PlayerBucketFillEvent, PlayerBucketEvent::setItem, PlayerBucketEmptyEvent
+// api: PlayerBucketFillEvent, PlayerBucketEvent::setItem, PlayerBucketEmptyEvent
 #[test]
 fn bucket_listeners_see_the_bucket_and_may_cancel_or_change_what_the_player_gets() {
     let lava = stack(ItemKind::LavaBucket);
@@ -840,7 +840,7 @@ fn take_hand<E: crate::event::Event>() -> Listeners {
     listen(|_: &mut E, cx: &mut Context<'_>| set_hand(cx, stack(ItemKind::Stick)))
 }
 
-// pmmp: PlayerBucketFillEvent, PlayerBucketEmptyEvent, SignChangeEvent
+// api: PlayerBucketFillEvent, PlayerBucketEmptyEvent, SignChangeEvent
 #[test]
 fn a_listener_that_takes_the_bucket_or_the_dye_cancels_the_use() {
     let stick = stack(ItemKind::Stick);
@@ -872,7 +872,7 @@ fn front_lines(h: &Harness) -> Vec<String> {
         .to_vec()
 }
 
-// pmmp: SignChangeEvent
+// api: SignChangeEvent
 #[test]
 fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
     let l = listen(move |e: &mut SignChange, _: &mut Context<'_>| {
@@ -941,7 +941,7 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
     assert_eq!(cancels(), 1);
 }
 
-// pmmp: SignChangeEvent
+// api: SignChangeEvent
 #[test]
 fn a_cancelled_sign_dye_keeps_the_dye_and_opens_the_editor() {
     let mut h = Harness::with(|_| {}, cancel(SignChange::cancel));
@@ -1049,7 +1049,7 @@ fn a_client_opens_trading_at_most_once_a_tick() {
     assert_eq!(trades_opened(&mut h), 3, "the API is not limited");
 }
 
-// pmmp: PlayerEntityInteractEvent
+// api: PlayerEntityInteractEvent
 #[test]
 fn an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade() {
     let mut l = listen(move |e: &mut PlayerEntityInteract, _: &mut Context<'_>| {
@@ -1075,7 +1075,7 @@ fn an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade()
     assert_eq!(cancels(), 1);
 }
 
-// pmmp: BlockTeleportEvent, BlockTeleportEvent::setTo
+// api: BlockTeleportEvent, BlockTeleportEvent::setTo
 #[test]
 fn a_dragon_egg_teleport_listener_may_send_it_elsewhere_or_keep_it() {
     let egg = Kind::DragonEgg.default_state();
@@ -1113,8 +1113,8 @@ fn perform(h: &mut Harness, a: impl crate::action::Action) {
     crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
-// pmmp: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::attackBlock
-// pmmp: Player::interactEntity
+// api: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::attackBlock
+// api: Player::interactEntity
 #[test]
 fn actions_do_what_the_player_would_with_events() {
     let l = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
@@ -1348,7 +1348,7 @@ fn flowers(h: &mut Harness, chaos: Chaos) -> u32 {
     carried + chaos.vault + placed + ground(h, flower).0
 }
 
-// pmmp: BlockBreakEvent, BlockPlaceEvent, PlayerInteractEvent
+// api: BlockBreakEvent, BlockPlaceEvent, PlayerInteractEvent
 #[test]
 fn listeners_that_meddle_at_random_neither_make_nor_lose_items() {
     for seed in [1, 0x9e37_79b9, 0xdead_beef] {
@@ -1409,7 +1409,7 @@ fn listeners_that_meddle_at_random_neither_make_nor_lose_items() {
     }
 }
 
-// pmmp: SignChangeEvent::setNewText
+// api: SignChangeEvent::setNewText
 /// A listener's text goes on the sign as it is (PMMP cleans the player's text only) and the
 /// monitors see what went on; text over a sign's 1,000 bytes in all is refused.
 #[test]
@@ -1458,7 +1458,7 @@ fn hear(what: &str) {
     });
 }
 
-// pmmp: BlockBreakEvent, Player::breakBlock
+// api: BlockBreakEvent, Player::breakBlock
 #[test]
 fn direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it() {
     let mut l = Listeners::default();
@@ -1534,7 +1534,7 @@ fn direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs
     assert!(h.player().health() < health, "the explosion hurt");
 }
 
-// pmmp: Explosion::explodeB, PlayerDeathEvent
+// api: Explosion::explodeB, PlayerDeathEvent
 #[test]
 fn a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick() {
     let mut l = Listeners::default();
@@ -1601,7 +1601,7 @@ fn every_diamond(h: &mut Harness) -> u32 {
     held + ground + kept
 }
 
-// pmmp: InventoryCloseEvent
+// api: InventoryCloseEvent
 #[test]
 fn breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total() {
     for cause in [
@@ -1664,7 +1664,7 @@ fn a_quiet_explosion_closes_windows_without_inventory_close() {
     }
 }
 
-// pmmp: PlayerExhaustEvent, Player::breakBlock
+// api: PlayerExhaustEvent, Player::breakBlock
 #[test]
 fn mining_raises_player_exhaust_with_the_mining_cause() {
     let l = listen(|e: &mut crate::event::PlayerExhaust, _: &mut Context<'_>| {
@@ -1708,7 +1708,7 @@ fn use_charged_anchor(h: &mut Harness) {
     use_on(h, TARGET, Face::West);
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
+// api: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
 #[test]
 fn glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world() {
     let mut h = Harness::new(|_| {});
@@ -1730,7 +1730,7 @@ fn glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world() 
     assert!(!h.player().is_alive(), "two blocks from a size 5 explosion");
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
+// api: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
 #[test]
 fn an_anchor_explosion_is_the_same_on_every_run() {
     let run = || {
@@ -1742,12 +1742,12 @@ fn an_anchor_explosion_is_the_same_on_every_run() {
     assert_eq!(run(), run());
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock
-// pmmp: PlayerRespawnAnchorUseEvent::getAction, BlockPreExplodeEvent
-// pmmp: BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::getFireChance
-// pmmp: BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::isBlockBreaking
-// pmmp: BlockExplodeEvent, BlockExplodeEvent::getPosition
-// pmmp: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::getYield
+// api: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock
+// api: PlayerRespawnAnchorUseEvent::getAction, BlockPreExplodeEvent
+// api: BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::getFireChance
+// api: BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::isBlockBreaking
+// api: BlockExplodeEvent, BlockExplodeEvent::getPosition
+// api: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::getYield
 #[test]
 fn anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome() {
     let mut l = Listeners::default();
@@ -1822,8 +1822,8 @@ fn anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors
     );
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent::cancel, BlockPreExplodeEvent::cancel
-// pmmp: BlockExplodeEvent::cancel
+// api: PlayerRespawnAnchorUseEvent::cancel, BlockPreExplodeEvent::cancel
+// api: BlockExplodeEvent::cancel
 #[test]
 fn cancelling_an_anchor_event_stops_what_it_announces() {
     let grass = block::GRASS_BLOCK;
@@ -1845,7 +1845,7 @@ fn cancelling_an_anchor_event_stops_what_it_announces() {
     assert_eq!(cancels(), 3);
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent::setAction, Player::setSpawn
+// api: PlayerRespawnAnchorUseEvent::setAction, Player::setSpawn
 #[test]
 fn a_listener_may_make_the_anchor_set_the_spawn_once() {
     let set = listen(|e: &mut PlayerRespawnAnchorUse, _: &mut Context<'_>| {
@@ -1876,8 +1876,8 @@ fn a_listener_may_make_the_anchor_set_the_spawn_once() {
     );
 }
 
-// pmmp: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::setRadius
-// pmmp: BlockPreExplodeEvent::setIncendiary
+// api: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::setRadius
+// api: BlockPreExplodeEvent::setIncendiary
 #[test]
 fn a_pre_explode_listener_may_keep_the_blocks_and_shrink_the_blast() {
     let calm = listen(|e: &mut BlockPreExplode, _: &mut Context<'_>| {
@@ -1892,8 +1892,8 @@ fn a_pre_explode_listener_may_keep_the_blocks_and_shrink_the_blast() {
     assert!(h.player().is_alive(), "a radius 0.5 blast does not reach");
 }
 
-// pmmp: BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::setIgnitions
-// pmmp: BlockExplodeEvent::setYield
+// api: BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::setIgnitions
+// api: BlockExplodeEvent::setYield
 #[test]
 fn an_explode_listener_chooses_the_blocks() {
     let only_ground = listen(|e: &mut BlockExplode, _: &mut Context<'_>| {
@@ -1940,8 +1940,8 @@ fn door_sounds(packets: &[Packet]) -> usize {
         .count()
 }
 
-// pmmp: WorldSoundEvent, WorldSoundEvent::getSound, WorldSoundEvent::getPosition
-// pmmp: WorldSoundEvent::getRecipients, World::addSound
+// api: WorldSoundEvent, WorldSoundEvent::getSound, WorldSoundEvent::getPosition
+// api: WorldSoundEvent::getRecipients, World::addSound
 #[test]
 fn a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played() {
     let mut l = listen(|e: &mut crate::event::WorldSound, _: &mut Context<'_>| {
@@ -1968,7 +1968,7 @@ fn a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played()
     assert_eq!(door_sounds(&h.packets()), 1);
 }
 
-// pmmp: WorldSoundEvent::cancel, WorldSoundEvent::setSound, WorldSoundEvent::setRecipients
+// api: WorldSoundEvent::cancel, WorldSoundEvent::setSound, WorldSoundEvent::setRecipients
 #[test]
 fn a_world_sound_listener_may_silence_replace_or_keep_the_sound_from_players() {
     // Cancelled: the trapdoor opens without a sound.
@@ -2016,8 +2016,8 @@ fn a_world_sound_listener_may_silence_replace_or_keep_the_sound_from_players() {
     assert_eq!(door_sounds(&h.packets()), 1, "once, though named twice");
 }
 
-// pmmp: WorldParticleEvent, WorldParticleEvent::getParticle, WorldParticleEvent::getPosition
-// pmmp: WorldParticleEvent::getRecipients, WorldParticleEvent::cancel, World::addParticle
+// api: WorldParticleEvent, WorldParticleEvent::getParticle, WorldParticleEvent::getPosition
+// api: WorldParticleEvent::getRecipients, WorldParticleEvent::cancel, World::addParticle
 #[test]
 fn a_world_particle_listener_sees_a_broken_block_and_may_hide_it() {
     let pieces = |packets: &[Packet]| {
@@ -2087,7 +2087,7 @@ fn worn_out(kind: ItemKind) -> Stack {
     tool.with_damage(max - 1).unwrap()
 }
 
-// pmmp: WorldSoundEvent, WorldParticleEvent, Player::breakBlock
+// api: WorldSoundEvent, WorldParticleEvent, Player::breakBlock
 /// The listeners of a break's sound and particle hear them once the break is applied: the worn
 /// out tool is gone from the hand and the block from the world.
 #[test]
@@ -2126,7 +2126,7 @@ fn a_breaks_sound_and_particle_listeners_see_it_applied() {
     );
 }
 
-// pmmp: WorldSoundEvent, Player::interactBlock
+// api: WorldSoundEvent, Player::interactBlock
 /// The listeners of a use's sound hear it once the held item is applied: a placed block and a
 /// framed item are already gone from the hand.
 #[test]
@@ -2158,7 +2158,7 @@ fn a_uses_sound_listeners_hear_it_once_the_held_item_is_applied() {
     assert_eq!(notes(SEEN), [dbg((framed, 2))]);
 }
 
-// pmmp: BlockPlaceEvent, Player::returnItemsFromAction
+// api: BlockPlaceEvent
 /// A place listener that ends creative mode has the block paid for: the item is taken by the mode
 /// the player has once the listeners ran.
 #[test]
@@ -2175,7 +2175,7 @@ fn a_place_listener_that_ends_creative_mode_has_the_block_paid_for() {
     assert_eq!(h.held().count(), 4);
 }
 
-// pmmp: BlockPlaceEvent
+// api: BlockPlaceEvent
 /// A place listener that moves the player out of reach cancels the placement, as a right click
 /// listener's does.
 #[test]
@@ -2192,7 +2192,7 @@ fn a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement() {
     assert_eq!(h.held().count(), 5);
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent::cancel
+// api: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent::cancel
 /// The monitors of an anchor's use see only a use that was applied: a cancelled explosion keeps
 /// the anchor and tells them nothing.
 #[test]
@@ -2208,7 +2208,7 @@ fn an_anchor_use_monitor_sees_only_an_applied_use() {
     assert!(notes(WATCHED).is_empty());
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent::cancel
+// api: PlayerRespawnAnchorUseEvent::cancel
 /// An anchor listener that changes the held item and cancels the use keeps the block once held
 /// from being placed: the click goes on only as it was.
 #[test]

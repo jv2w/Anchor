@@ -584,7 +584,7 @@ mod tests {
         assert_eq!(std::str::from_utf8(&json).unwrap(), expected);
     }
 
-    // pmmp: Network::blockAddress, Network::unblockAddress
+    // api: Network::blockAddress, Network::unblockAddress
     /// A block ends after its duration or when lifted, an endless one stays, an IPv4-mapped
     /// address is its IPv4 address, a new block replaces the old end, and past the bound only
     /// ended blocks make room.
@@ -654,8 +654,8 @@ mod tests {
         response.split("\r\n\r\n").nth(1).unwrap().to_owned()
     }
 
-    // pmmp: Network::setName, Network::blockAddress, Network::unblockAddress
-    // pmmp: Network::getConnectionCount, Network::getValidConnectionCount
+    // api: Network::setName, Network::blockAddress, Network::unblockAddress
+    // api: Network::getConnectionCount, Network::getValidConnectionCount
     /// The tick's controls reach the networking: a new name shows in the RakNet pong and in
     /// `GET /v1/join`, a blocked address is refused at connect until it is unblocked, and the
     /// connection counts reach the tick as logged inputs.

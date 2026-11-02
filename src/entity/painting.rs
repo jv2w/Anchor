@@ -9,7 +9,7 @@ macro_rules! motives {
         /// how many blocks the painting covers. The set is closed: a client draws only the
         /// pictures its resources hold (PMMP's `registerMotive` adds names no client knows).
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        // pmmp-class: PaintingMotive
+        // api-class: PaintingMotive
         pub enum PaintingMotive {
             $(
                 #[doc = concat!("`", $name, "`, ", stringify!($width), " × ", stringify!($height),
@@ -119,8 +119,8 @@ motives! {
 mod tests {
     use super::*;
 
-    // pmmp: PaintingMotive, PaintingMotive::getAll, PaintingMotive::getName,
-    // pmmp: PaintingMotive::getWidth, PaintingMotive::getHeight, PaintingMotive::getMotiveByName
+    // api: PaintingMotive, PaintingMotive::getAll, PaintingMotive::getName,
+    // api: PaintingMotive::getWidth, PaintingMotive::getHeight, PaintingMotive::getMotiveByName
     #[test]
     fn motives_are_pmmps_fifty_with_their_sizes() {
         let all = PaintingMotive::all();

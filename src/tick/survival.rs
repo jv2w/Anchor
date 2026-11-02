@@ -1,4 +1,4 @@
-//! Survival rules of players: movement, health, hunger, experience, effects, damage, death and
+//! Survival rules of players: movement, health, food, xp, effects, damage, death and
 //! respawn, game modes and abilities, attributes, combat, sleeping and the world clock (PMMP
 //! `Player`, `Human`, `Living`, `HungerManager`, `ExperienceManager`, `EffectManager`).
 //!
@@ -117,11 +117,11 @@ pub(super) struct Survival {
     exhaustion: f64,
     /// Ticks of the food cycle, 0 to 79 (PMMP `HungerManager::$foodTickTimer`).
     food_timer: u32,
-    /// Experience level, 0 to 24,791.
+    /// Xp level, 0 to 24,791.
     xp_level: u32,
     /// Progress through the level, 0 to below 1.
     xp_progress: f64,
-    /// Experience collected since the last death (PMMP `XpTotal`), at most `i32::MAX`.
+    /// Xp collected since the last death (PMMP `XpTotal`), at most `i32::MAX`.
     xp_lifetime: u32,
     /// Ticks until the next orb pickup, 0 to 2 (PMMP `ExperienceManager::$xpCooldown`).
     xp_cooldown: u8,
@@ -179,10 +179,10 @@ pub(super) struct Survival {
 /// public API, which has only the player, refuses to change a system that is off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Switches {
-    /// `hunger`: food, saturation and exhaustion.
-    hunger: bool,
-    /// `experience`: points, levels and orbs.
-    experience: bool,
+    /// `food`: food, saturation and exhaustion.
+    food: bool,
+    /// `xp`: points, levels and orbs.
+    xp: bool,
     /// `drowning`: air, drowning and suffocation.
     drowning: bool,
 }
@@ -190,8 +190,8 @@ struct Switches {
 impl Switches {
     /// Every system on, as the default settings have them.
     const ALL: Self = Self {
-        hunger: true,
-        experience: true,
+        food: true,
+        xp: true,
         drowning: true,
     };
 }
@@ -208,8 +208,8 @@ impl Survival {
     pub(super) fn new(settings: &Settings) -> Self {
         Self {
             switches: Switches {
-                hunger: settings.hunger,
-                experience: settings.experience,
+                food: settings.food,
+                xp: settings.xp,
                 drowning: settings.drowning,
             },
             // Without air the player always breathes.
@@ -341,11 +341,11 @@ impl Survival {
         ));
         h.u64(u64::from(*forced_mode));
         let Switches {
-            hunger,
-            experience,
+            food: food_on,
+            xp: xp_on,
             drowning,
         } = switches;
-        h.u64(u64::from(*hunger) | u64::from(*experience) << 1 | u64::from(*drowning) << 2);
+        h.u64(u64::from(*food_on) | u64::from(*xp_on) << 1 | u64::from(*drowning) << 2);
         for v in [
             health,
             absorption,
@@ -455,11 +455,7 @@ checkpoint::fields!(Survival {
     appearance,
 });
 checkpoint::fields!(Point { world, pos });
-checkpoint::fields!(Switches {
-    hunger,
-    experience,
-    drowning
-});
+checkpoint::fields!(Switches { food, xp, drowning });
 
 /// An action [`ask`] refused: a listener cancelled it, or the game the listeners left no longer
 /// allows it.
@@ -709,9 +705,8 @@ fn player_tick(state: &mut State, session: SessionId) {
     if player.phase != Phase::Spawned {
         return;
     }
-    let hunger =
-        settings.hunger && player.survival.custom.hunger && is_survival(player.survival.mode());
-    player.survival.motion.hunger = hunger;
+    let food = settings.food && player.survival.custom.food && is_survival(player.survival.mode());
+    player.survival.motion.food = food;
     if player.survival.xp_seed.is_none() {
         let seed = state.worlds.get(player.world).map_or(0, World::seed);
         draw_enchantment_seed(seed, tick, player);
@@ -741,12 +736,12 @@ fn player_tick(state: &mut State, session: SessionId) {
     damage::base_tick(state, session);
     effects::tick(state, session);
     if let Some(player) = state.players.get_mut(&session)
-        && player.survival.switches.experience
+        && player.survival.switches.xp
     {
         food::xp_tick(&mut player.survival);
     }
     damage::living_tick(state, session);
-    if hunger {
+    if food {
         food::tick(state, session);
     }
     food::using_tick(state, session);
@@ -880,8 +875,8 @@ pub(super) fn damage_by(
     damage::damage_by(state, session, amount, cause, source)
 }
 
-/// Adds food exhaustion (PMMP `HungerManager::exhaust`) without an event; nothing while hunger is
-/// off for the player (`hunger = false`, creative, spectator). Rules raise
+/// Adds food exhaustion (PMMP `HungerManager::exhaust`) without an event; nothing while food is
+/// off for the player (`food = false`, creative, spectator). Rules raise
 /// [`PlayerExhaust`](crate::event::PlayerExhaust) with [`exhaust_by`] instead.
 #[cfg(test)]
 pub(super) fn exhaust(player: &mut Player, amount: f64) {
@@ -894,11 +889,11 @@ pub(super) fn exhaust_by(state: &mut State, session: SessionId, amount: f64, cau
     food::exhaust_as(state, session, amount, cause);
 }
 
-/// Adds experience points (orbs, furnaces, trades, breaking ores); the API has
+/// Adds xp points (orbs, furnaces, trades, breaking ores); the API has
 /// [`Player::add_xp`].
 #[cfg(test)]
-pub(super) fn add_experience(player: &mut Player, amount: u32) {
-    food::add_experience(player, amount);
+pub(super) fn add_xp(player: &mut Player, amount: u32) {
+    food::add_xp(player, amount);
 }
 
 /// The enchanting seed of the player (PMMP `Human::getEnchantmentSeed`), 0 until its first tick.
@@ -916,21 +911,21 @@ pub(super) fn regenerate_enchantment_seed(state: &mut State, session: SessionId)
     }
 }
 
-/// The experience level (PMMP `ExperienceManager::getXpLevel`).
+/// The xp level (PMMP `ExperienceManager::getXpLevel`).
 pub(super) fn xp_level(player: &Player) -> u32 {
     player.survival.xp_level
 }
 
-/// The experience points the player ever gained (PMMP `ExperienceManager::getLifetimeTotalXp`).
+/// The xp points the player ever gained (PMMP `ExperienceManager::getLifetimeTotalXp`).
 #[cfg(test)]
-pub(super) fn lifetime_experience(player: &Player) -> u32 {
+pub(super) fn lifetime_xp(player: &Player) -> u32 {
     player.survival.xp_lifetime
 }
 
-/// Takes `levels` experience levels, keeping the progress (PMMP `subtractXpLevels`); not below 0.
-/// Nothing with `experience = false`.
+/// Takes `levels` xp levels, keeping the progress (PMMP `subtractXpLevels`); not below 0.
+/// Nothing with `xp = false`.
 pub(super) fn subtract_levels(player: &mut Player, levels: u32) {
-    if levels == 0 || !player.survival.switches.experience {
+    if levels == 0 || !player.survival.switches.xp {
         return;
     }
     let s = &mut player.survival;
@@ -1251,12 +1246,12 @@ pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
     food::eat_cake(state, session)
 }
 
-/// The player picks up an experience orb worth `amount` points (PMMP
+/// The player picks up an xp orb worth `amount` points (PMMP
 /// `ExperienceManager::onPickupXp`): false, and the orb stays, while the pickup cooldown of 2
 /// ticks runs. Mending on a damaged held, off-hand or worn item (one picked at random) repairs 2
-/// durability per point first; the rest becomes experience, with the collect or level-up sound.
-pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u32) -> bool {
-    food::pickup_experience(state, session, amount)
+/// durability per point first; the rest becomes xp, with the collect or level-up sound.
+pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> bool {
+    food::pickup_xp(state, session, amount)
 }
 
 /// What an instant health or damage effect of `amplifier` heals or hurts at full potency, for
@@ -2267,8 +2262,8 @@ mod tests {
     }
 
     #[test]
-    fn hunger_off_freezes_food_and_exhaustion() {
-        let mut server = Server::new(1, |c| c.general.hunger = false);
+    fn food_off_freezes_food_and_exhaustion() {
+        let mut server = Server::new(1, |c| c.general.food = false);
         server.survival_mut(1).food = 10.0;
         server.idle(200);
         exhaust(server.player_mut(1), 40.0);
@@ -2467,11 +2462,11 @@ mod tests {
     }
 
     #[test]
-    fn experience_levels_follow_the_pmmp_formula() {
+    fn xp_levels_follow_the_pmmp_formula() {
         let mut server = Server::new(1, |_| {});
-        add_experience(server.player_mut(1), 7);
+        add_xp(server.player_mut(1), 7);
         assert_eq!(server.survival_mut(1).xp_level, 1);
-        add_experience(server.player_mut(1), 345);
+        add_xp(server.player_mut(1), 345);
         assert_eq!(server.survival_mut(1).xp_level, 16);
         assert_eq!(server.survival_mut(1).xp_lifetime, 352);
         server.idle(1);
@@ -2608,7 +2603,7 @@ mod tests {
     #[test]
     fn death_and_respawn_follow_the_pmmp_sequence() {
         let mut server = Server::new(1, |_| {});
-        add_experience(server.player_mut(1), 100);
+        add_xp(server.player_mut(1), 100);
         server.idle(1);
         server.take(1);
         assert!(server.hurt(1, 100.0, Damage::Magic));
@@ -3012,7 +3007,7 @@ mod tests {
         assert_eq!(spawn_point, Some(head));
     }
 
-    // pmmp: Player::isSleeping, Player::stopSleep
+    // api: Player::isSleeping, Player::stopSleep
     #[test]
     fn stop_sleep_frees_the_bed_by_the_end_of_the_tick() {
         let mut server = Server::new(1, |_| {});
@@ -3039,7 +3034,7 @@ mod tests {
         );
     }
 
-    // pmmp: Player::sleepOn
+    // api: Player::sleepOn
     #[test]
     fn sleep_on_lies_down_by_day_and_from_afar_without_an_event() {
         let mut server = Server::new(2, |_| {});
@@ -3501,7 +3496,7 @@ mod tests {
     }
 
     #[test]
-    fn cake_feeds_two_and_needs_hunger() {
+    fn cake_feeds_two_and_needs_food() {
         let mut server = Server::new(1, |_| {});
         server.take(1);
         assert!(!eat_cake(&mut server.state, sid(1)), "full");
@@ -3613,7 +3608,7 @@ mod tests {
     }
 
     #[test]
-    fn orb_pickups_mend_first_then_add_experience_as_pmmp() {
+    fn orb_pickups_mend_first_then_add_xp_as_pmmp() {
         let mut server = Server::new(1, |_| {});
         let pick = enchanted(ItemKind::DiamondPickaxe, &[(Enchantment::Mending, 1)])
             .with_damage(10)
@@ -3622,16 +3617,16 @@ mod tests {
         server.idle(1);
         server.take(1);
         // 3 points repair 6 durability and are used up.
-        assert!(pickup_experience(&mut server.state, sid(1), 3));
+        assert!(pickup_xp(&mut server.state, sid(1), 3));
         assert_eq!(server.player(1).inventory.held().damage(), 4);
         assert_eq!(food::current_xp(server.survival_mut(1)), 0);
         assert!(
-            !pickup_experience(&mut server.state, sid(1), 3),
+            !pickup_xp(&mut server.state, sid(1), 3),
             "the pickup cooldown"
         );
         server.idle(2);
-        // 5 points: 4 durability left to repair takes 2 points; 3 are experience.
-        assert!(pickup_experience(&mut server.state, sid(1), 5));
+        // 5 points: 4 durability left to repair takes 2 points; 3 are xp.
+        assert!(pickup_xp(&mut server.state, sid(1), 5));
         assert_eq!(server.player(1).inventory.held().damage(), 0);
         assert_eq!(food::current_xp(server.survival_mut(1)), 3);
         server.idle(1);
@@ -3643,11 +3638,11 @@ mod tests {
             .unwrap();
         inventory::set_held(server.player_mut(1), Stack::EMPTY);
         inventory::set_armor(server.player_mut(1), 0, helmet);
-        add_experience(server.player_mut(1), 38);
+        add_xp(server.player_mut(1), 38);
         assert_eq!(server.survival_mut(1).xp_level, 4);
         server.idle(3);
         server.take(1);
-        assert!(pickup_experience(&mut server.state, sid(1), 20));
+        assert!(pickup_xp(&mut server.state, sid(1), 20));
         assert_eq!(server.player(1).inventory.armor()[0].damage(), 0);
         assert_eq!(server.survival_mut(1).xp_level, 5);
         server.idle(1);
@@ -3655,7 +3650,7 @@ mod tests {
         // Dead players pick nothing up.
         server.hurt(1, 100.0, Damage::Magic);
         server.idle(3);
-        assert!(!pickup_experience(&mut server.state, sid(1), 5));
+        assert!(!pickup_xp(&mut server.state, sid(1), 5));
     }
 
     #[test]
@@ -3988,7 +3983,7 @@ mod tests {
         assert_eq!(server.state.chunks.held(), held);
     }
 
-    // pmmp: Player::teleport
+    // api: Player::teleport
     #[test]
     fn a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty() {
         let mut state = new_state(

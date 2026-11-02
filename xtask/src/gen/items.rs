@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value as Json;
 
-use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
+use super::blocks::{api_enumeration, by_id, enumeration, strings, variants};
 use super::body::{int_lit, str_lit};
 use super::data::{Data, hex_lit, static_compound};
 use super::emit::HEADER;
@@ -140,10 +140,10 @@ fn enchantments(data: &Data, out: &mut String) -> R<()> {
     let list = &data.tables.enchantments;
     let names: Vec<&str> = list.iter().map(|e| e.name.as_str()).collect();
     let variants = variants(&names)?;
-    pmmp_enumeration(
+    api_enumeration(
         out,
         "An enchantment (PMMP `VanillaEnchantments`).",
-        "// pmmp-class: Enchantment
+        "// api-class: Enchantment
 #[doc(alias = \"VanillaEnchantments\")]
 ",
         "Enchantment",
@@ -234,10 +234,10 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
     let mut tiers: Vec<_> = data.tables.tool_tiers.iter().collect();
     tiers.sort_by_key(|t| (t.harvest_level, t.name.as_str()));
     let tier_names: Vec<&str> = tiers.iter().map(|t| t.name.as_str()).collect();
-    pmmp_enumeration(
+    api_enumeration(
         out,
         "A tool tier (PMMP `ToolTier`), in harvest level order.",
-        "// pmmp-class: ToolTier
+        "// api-class: ToolTier
 ",
         "ToolTier",
         &variants(&tier_names)?,

@@ -654,7 +654,7 @@ mod tests {
             .collect()
     }
 
-    // pmmp: PlayerDataSaveEvent
+    // api: PlayerDataSaveEvent
     #[test]
     fn player_data_save_runs_before_the_snapshot_so_listener_changes_are_in_it() {
         let mut listeners = on(|e: &mut PlayerDataSave, cx: &mut Context<'_>| {
@@ -687,7 +687,7 @@ mod tests {
         assert!(logged().is_empty());
     }
 
-    // pmmp: PlayerDataSaveEvent
+    // api: PlayerDataSaveEvent
     #[test]
     fn a_cancelled_player_data_save_is_saved_all_the_same() {
         let cancel = on(|e: &mut PlayerDataSave, _: &mut Context<'_>| e.cancel());
@@ -840,7 +840,7 @@ mod tests {
         assert_eq!(logged(), ["0"]);
     }
 
-    // pmmp: WorldSaveEvent, WorldEvent::getWorld
+    // api: WorldSaveEvent, WorldEvent::getWorld
     #[test]
     fn world_save_follows_each_commit() {
         let mut listeners = on(|e: &mut WorldSave, cx: &mut Context<'_>| {

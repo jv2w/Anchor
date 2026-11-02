@@ -5,7 +5,7 @@
 //! A projectile flies along a ray each tick ([`super::physics`]); the serial phase then looks for
 //! the nearest player, NPC or end crystal on the ray (not the shooter in its first 5 ticks, never
 //! for a trident) and resolves the hit: the kind's effect (an arrow's or trident's damage and
-//! knockback, an ender pearl's teleport, a potion's splash or cloud, a bottle's experience, an ice
+//! knockback, an ender pearl's teleport, a potion's splash or cloud, a bottle's xp, an ice
 //! bomb's frost), then a block hit sticks an arrow or a trident and ends a thrown item, an entity
 //! hit ends any projectile but a trident, which bounces back and hits nothing more until it meets a
 //! block. Eggs hatch nothing (mobs are out of scope). A stuck trident is picked up whole by the
@@ -53,10 +53,10 @@ use crate::world::particle_id;
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
 /// The shake data of an arrow that hits a block (PMMP `ArrowShakeAnimation`).
 const ARROW_SHAKE: i32 = 7;
-/// The experience a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
-const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
-/// The random stream of a bottle's experience.
+/// The random stream of a bottle's xp.
 const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
+/// The xp a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
+const BOTTLE_XP: (i32, i32) = (3, 11);
 /// The random stream of a bow's wear.
 const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
 /// A cloud's life, in ticks (PMMP `AreaEffectCloud::DEFAULT_DURATION`).
@@ -184,11 +184,11 @@ pub(super) fn throw_with(
     } else if t.is(Class::EnderPearl) {
         Shot::EnderPearl
     } else if t.is(Class::ExperienceBottle) {
-        // Without orbs (`experience-orbs` or `experience` false) the throw is refused.
+        // Without orbs (`xp-orbs` or `xp` false) the throw is refused.
         if !state.settings.has_orbs() {
             return false;
         }
-        Shot::ExperienceBottle
+        Shot::XpBottle
     } else if t.is(Class::IceBomb) {
         Shot::IceBomb
     } else if t.is(Class::SplashPotion) {
@@ -602,7 +602,7 @@ fn result_damage(state: &State, id: Id, p: &Projectile, motion: Vec3) -> Option<
             Some(base + f64::from(r.range(0, half)))
         }
         Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::Trident(_) => Some(p.damage.ceil()),
-        Shot::Potion { .. } | Shot::ExperienceBottle | Shot::IceBomb => None,
+        Shot::Potion { .. } | Shot::XpBottle | Shot::IceBomb => None,
     }
 }
 
@@ -713,12 +713,12 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
             hit_particles(state, world, at, (egg << 16) | particle_id::ITEM_BREAK);
         }
         Shot::EnderPearl => pearl(state, world, at, p.owner, hooks),
-        Shot::ExperienceBottle => {
+        Shot::XpBottle => {
             splash_effect(state, world, at, super::track::DEFAULT_POTION_COLOUR);
             let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
             let mut r = Random::new(seed, state.tick, random::key(BOTTLE_RANDOM, &[runtime_id]));
-            let amount = r.range(BOTTLE_EXPERIENCE.0, BOTTLE_EXPERIENCE.1);
-            super::drop_experience(state, world, at, amount.unsigned_abs());
+            let amount = r.range(BOTTLE_XP.0, BOTTLE_XP.1);
+            super::drop_xp(state, world, at, amount.unsigned_abs());
         }
         Shot::Potion { potion, linger } => {
             potion_hit(state, id, world, at, *potion, *linger, struck, hooks);
@@ -798,11 +798,7 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit) {
             state.rules.entities.doom(id);
             freeze(state, world, b.pos);
         }
-        Shot::Snowball
-        | Shot::Egg
-        | Shot::EnderPearl
-        | Shot::Potion { .. }
-        | Shot::ExperienceBottle => {
+        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::Potion { .. } | Shot::XpBottle => {
             state.rules.entities.doom(id);
         }
     }
@@ -1688,7 +1684,7 @@ mod tests {
         })
     }
 
-    // pmmp: ProjectileItem::onClickAir
+    // api: ProjectileItem::onClickAir
     #[test]
     fn a_snowball_flies_with_pmmps_constants() {
         let mut h = Harness::new(1);
@@ -1814,7 +1810,7 @@ mod tests {
         assert_eq!(one, volley(1), "a second run (a replay) is the same");
     }
 
-    // pmmp: Bow::onReleaseUsing
+    // api: Bow::onReleaseUsing
     #[test]
     fn a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back() {
         let mut h = Harness::new(1);
@@ -2239,15 +2235,15 @@ mod tests {
         );
     }
 
-    /// `experience-orbs = false` or `experience = false`: a bottle o' enchanting is not thrown
+    /// `xp-orbs = false` or `xp = false`: a bottle o' enchanting is not thrown
     /// (the caller keeps it); other projectiles still are.
     #[test]
-    fn experience_orbs_off_refuses_the_bottle_throw() {
-        for experience in [true, false] {
+    fn xp_orbs_off_refuses_the_bottle_throw() {
+        for xp in [true, false] {
             let mut h = Harness::new(1);
             h.spawn(1, standing(0.0, 0.0));
-            h.state.settings.experience = experience;
-            h.state.settings.experience_orbs = !experience;
+            h.state.settings.xp = xp;
+            h.state.settings.xp_orbs = !xp;
             let bottle = stack("minecraft:experience_bottle", 1);
             assert!(!throw_with(&mut h.state, session(1), &bottle, TEST_HOOKS));
             assert!(h.live().is_empty());
@@ -2258,14 +2254,14 @@ mod tests {
     }
 
     #[test]
-    fn an_experience_bottle_drops_three_to_eleven_points() {
+    fn an_xp_bottle_drops_three_to_eleven_points() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         h.teleport(1, standing(20.0, 0.0));
         calls(|c| c.look = (0.0, 0.0));
         let at = h.state.players[&session(1)].position;
         let kind = Kind::Projectile(Projectile {
-            shot: Shot::ExperienceBottle,
+            shot: Shot::XpBottle,
             damage: 0.0,
             stuck: None,
             owner: None,
@@ -2287,7 +2283,7 @@ mod tests {
             .live()
             .iter()
             .filter_map(|e| match &e.kind {
-                Kind::ExperienceOrb(o) => Some(u32::from(o.value)),
+                Kind::XpOrb(o) => Some(u32::from(o.value)),
                 _ => None,
             })
             .sum();
