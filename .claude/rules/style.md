@@ -30,14 +30,14 @@ Every `.rs` file has exactly this order:
 3. `pub use` re-exports.
 4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::` and child modules (`use kind::Kind;`). Macros of an external crate are imported (`use tracing::warn;`, `use serde::Deserialize;`), never written with their crate path.
 5. Constants and statics.
-6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro counts as a trait `impl`, called through the imported module as `checkpoint::fields!(…)` and `checkpoint::variants!(…)`, its list ending with a trailing comma when it spans lines. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type; a checkpoint macro for another module's type follows that type's block, or stands in its place by the type's name.
+6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro counts as a trait `impl`, called through the imported module as `checkpoint::fields!(…)` and `checkpoint::variants!(…)`, its list ending with a trailing comma when it spans lines. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type; a checkpoint macro for another module's type follows that type's block, or stands in its place by the type's name. An event type's blocks come in the order `getters!`, `setters!`, the inherent `impl`, `cancellable!`.
 7. Free functions.
 8. `#[cfg(test)] mod tests` as the last item.
 
 Items are ordered top-down: the module's main item first, every caller above the items it calls.
 
 ## Inside an `impl`
-- Order: associated constants → constructors (`new`, `with_*`, `from_*`) → queries (getters, `is_*`, `has_*`, `can_*`) → mutators (`set_*`, `*_mut`, other `&mut self` methods) → conversions (`as_*`, `to_*`, `into_*`) → private helpers. Private helpers are every private method, in the same kind order. Within one kind, a caller comes above the methods it calls; methods without that relation are alphabetical.
+- Order: associated constants → constructors (`new`, `with_*`, `from_*`) → queries (getters, `is_*`, `has_*`, `can_*`) → mutators (`set_*`, `*_mut`, other `&mut self` methods) → conversions (`as_*`, `to_*`, `into_*`) → private helpers. Private helpers are every private method, in the same kind order. Within one kind, a caller comes above the methods it calls; methods without that relation are alphabetical. A builder method (`self -> Self`) stands after the queries, in the mutators' place.
 - Trait implementations of one type: `Default`, `Debug`, `Display`, `std::error::Error`, `From`, `TryFrom`, operator traits, then all other traits alphabetically.
 
 ## Derives
@@ -47,7 +47,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - An enum's declaration order is canonical: every `match`, table, doc list, serialization, and configuration listing of its variants follows it. An arm of several variants takes the place of its first; `Option` and `Result` arms put `Some` and `Ok` first.
 - A struct's field declaration order is canonical: every struct literal, destructuring pattern, manual `Debug`, state hash and checkpoint destructuring, doc table, and serialization follows it.
 - The key order of `DEFAULT_FILE` is the key order of `.claude/docs/config.md` and of the configuration struct.
-- Module constants and statics are alphabetical, each with its own `///` line, except the tag bytes and bit flags of a written format (`<GROUP>_<VARIANT>`), which follow their values. Where no order carries meaning, the order is alphabetical, comparing names word by word with a shorter word first (`QUEUE_CAPACITY` before `QUEUED_WORDS`).
+- Module constants and statics are alphabetical, each with its own `///` line, except the tag bytes and bit flags of a written format (`<GROUP>_<VARIANT>`) and the protocol numbers of one module (`world::particle::id`, bare names), which follow their values. Where no order carries meaning, the order is alphabetical, comparing names word by word with a shorter word first (`QUEUE_CAPACITY` before `QUEUED_WORDS`).
 
 ## Signatures
 - Parameter order: receiver, context (`cx`, `&Server`), the subject acted on (or its ID), the value, options and limits, an output buffer (`&mut Vec<_>`) last. Functions with the same verb take the same parameters in the same order.
@@ -106,6 +106,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Tests
 - Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. A test module's own `mod` declarations come before `use super::*;`, and its constants and statics directly after its imports. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`, which follow the file layout too, a helper directly above its first user.
 - In a test module, a helper sits directly above the first test or helper that uses it.
+- A helper shared by several test files is `tests/support/<name>.rs`, brought in with `#[path = "support/<name>.rs"] mod <name>;`.
 - Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// api:` line comes before its `///` documentation; a line past 100 columns is split into several lines, each starting with `// api:`.
 
 ## Lints and formatting

@@ -5,25 +5,25 @@ Rules are in `.claude/rules/protocol.md`.
 This document holds the sources of truth and pinned versions, the pipeline from the IR to the generated code, the decode limits, the gophertunnel defects, and tests P1 to P5. Transport, login, encryption, and compression are in `network.md`; the official-server comparison (P6) in `testing.md`; block and item data in `data.md`; dependency review in `dependencies.md`.
 
 ## One version at a time
-- Supported: protocol 2225, game version 1.26.60 (`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`). Authentication discovery builds its URL from `GAME_VERSION` (`src/auth/fetch.rs`).
+- Supported: the protocol number and game version of the pinned gophertunnel (`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`, generated from the IR's `source`). Authentication discovery builds its URL from `GAME_VERSION` (`src/auth/fetch.rs`).
 - Why only one: every further version multiplies the codecs, the block tables, and the tests, costing consistency and simplicity.
 - A client of another protocol number gets PlayStatus on RequestNetworkSettings or Login (`LoginFailedServer` when the client is newer, `LoginFailedClient` when it is older) and is disconnected (`src/session/connection.rs`).
 
 ## Sources and pinned versions
 - The IR's `source` records the gophertunnel version and commit of `xtask/go/go.mod`. The extractor pins both (`version` and `commit` in `xtask/go/extract/main.go`) and fails when go.mod loads another version.
 
-| Module | Pinned |
+| Module | Where it is pinned |
 |---|---|
-| github.com/sandertv/gophertunnel | `v1.63.0` (tag, commit `8c30047d86617a56e1f1871e3a1d47ec4f670d99`, protocol 2225, 1.26.60) |
-| github.com/sandertv/go-raknet | `v1.15.2-0.20260705184311-0d1fd09e2cf6` (the version in gophertunnel's go.mod) |
-| github.com/df-mc/go-nethernet | `v1.0.26` (the release that fixes v1.0.25 of gophertunnel's go.mod; `dependencies.md`) |
-| Mojang bedrock-protocol-docs (field limits) | commit `0879ab5c4c70be1bd520e32a8c49ea4a155616d6` (v1.26.60 release, protocol 2225) |
+| github.com/sandertv/gophertunnel | `xtask/go/go.mod`; `version` and `commit` in `xtask/go/extract/main.go` (a release tag, never a preview branch) |
+| github.com/sandertv/go-raknet | `xtask/go/go.mod`: the version in gophertunnel's go.mod |
+| github.com/df-mc/go-nethernet | `xtask/go/go.mod`: a release that fixes the defect of gophertunnel's version (`dependencies.md`) |
+| Mojang bedrock-protocol-docs (field limits) | `PROTOCOL_DOCS` in `xtask/src/dump.rs`: the release commit of the supported game version |
 
 Two comparison sources serve only to judge gophertunnel defects and never enter the code. Their repositories and pins are in the pinned-source table of `data.md`.
 - **The schema source**: a published protocol schema built from reverse-engineered official-server headers and a cereal schema dump, the public source closest to the official server. It has no golden bytes for shapes after protocol 2193.
-- **The codec library**: an independent protocol codec library, at its codec for protocol 2225.
+- **The codec library**: an independent protocol codec library, at its codec for the supported protocol.
 
-- When v1.63.0 was pinned, gophertunnel master after the tag had no codec-format fix, so the tag is pinned. The tag holds the format fixes after v1.62.0: ClientBoundDebugRenderer (`98c3d1f`), the NBT fixed-length array check (`398154f`), and string `ReadFull` (`a705cae`).
+- The pinned tag was chosen because gophertunnel master after it had no codec-format fix. The tag holds the format fixes after the previous release: ClientBoundDebugRenderer (`98c3d1f`), the NBT fixed-length array check (`398154f`), and string `ReadFull` (`a705cae`).
 - The official server version used for comparison is in the pinned-source table of `data.md`.
 - Passing P3 means only agreement with gophertunnel, not correctness.
 
@@ -80,7 +80,7 @@ Login's connection-request envelope (`login.rs`) and the network sub-chunk paylo
 - NBT: depth at most 512, the root included; one root at most 4 MiB on the wire.
 - Lists nest at most 64 deep, a packet's own lists included (`MAX_LIST_DEPTH`). The decoder of the self-containing type `DataStorePropertyValue` recurses on the thread stack once per list; without the bound, one packet overflows the stack and ends the process.
 - Per-field limits:
-  - `cargo xtask dump` reads the schemas at the pinned commit and writes `xtask/data/reference/protocol_limits.json` (125 entries) through the table in `xtask/src/dump/limits.rs` that joins each schema limit to the gophertunnel fields it limits. Strings and byte slices count bytes, lists count elements; a key ending in `[]` limits each element of its list.
+  - `cargo xtask dump` reads the schemas at the pinned commit and writes `xtask/data/reference/protocol_limits.json` through the table in `xtask/src/dump/limits.rs` that joins each schema limit to the gophertunnel fields it limits. Strings and byte slices count bytes, lists count elements; a key ending in `[]` limits each element of its list.
   - A schema limit without a table row, or a row without a schema limit, fails `dump`; a limit that no decoder applies fails `gen`. A version change therefore shows every limit that came or went.
   - Decoding a list applies min(field limit, 1024). The encoder fails at the field limit, so Anchor never sends a packet past the schema. 1024 is a receiving limit only and is not applied when encoding: the server sends lists of more than 1024 entries, such as ItemRegistry and CreativeContent.
 - The sub-chunk payload decodes strictly: only bit widths 0, 1, 2, 3, 4, 5, 6, 8, and 16; the persistent palette form and the header 0x7f are refused; a palette is not empty and holds at most 2^bits entries; every index points into the palette.
@@ -93,10 +93,10 @@ Defects found in the pinned gophertunnel, with what Anchor does about each:
 - No bound on the EntityMetadata count, a leak in the NBT depth count, partial reads accepted, ItemInstance and Login lengths truncated silently.
 - Snappy decompression is `s2.Decode`, so it also accepts the S2 extension.
 - Skin tint piece names: the codec removes only `persona_` from the login names and so sends `facial_hair`, `face_accessory`, `left_leg`, `right_leg`, `left_arm`, `right_arm`, and `classic_skin`. Mojang's documents (the `PieceTintColors` keys of `SerializedSkin` are `persona::PieceType` names) and the codec library (`512ea21d9c`) use lowercase names without underscores (`facialhair` and so on). The generated codec stays as gophertunnel's; the login conversion (`TINT_PROTOCOL_NAMES` in `src/login/client_data.rs`) puts in the value from which the codec writes that name. Not yet confirmed against official-server bytes (P6).
-- `PieceType` lacks `CoCo` (28), added in 1.26.60; gophertunnel has `Unsupported` at 28. The schema source (`COCO = 28`, `UNSUPPORTED` 29), the codec library, and Mojang's documents agree. Corrected: `CoCo` is 28 and `Unsupported` 29, and the login maps `persona_coco` to 28.
+- `PieceType` lacks `CoCo` (28), which the supported game version added; gophertunnel has `Unsupported` at 28. The schema source (`COCO = 28`, `UNSUPPORTED` 29), the codec library, and Mojang's documents agree. Corrected: `CoCo` is 28 and `Unsupported` 29, and the login maps `persona_coco` to 28.
 - ClientboundUpdateSoundData's `SoundDataUpdate`: gophertunnel writes only the type byte. The schema source (the variant selector is a uvarint32 variant index, and the variant writes its uint8 type again), the codec library (the same shape, checking that both are equal), and Mojang's documents (`oneOf` with a control uint32, `Type` first in each variant) all put the variant index first. Corrected: the variant index (equal to the type) as uvarint32, then the type as u8; a mismatch is a decode error.
 - EntityDataKey 139 to 143: gophertunnel has `ArrowShooterID` 139, `FireworkDirection` 140, `FireworkShooterID` 141, `Reserved139` 142, and `NameplateRenderDistanceMax` 143 (the name `Reserved139` on 142 already contradicts itself). The schema source (`RESERVED_139` 139, `NAMEPLATE_RENDER_DISTANCE_MAX` 140) and the codec library (v975: 139 Long, 140 Float, the arrow and firework shooter keys at 17 and 18) agree. The official server sends players key 140 as Float 64.0 (the name tag distance) and key 141 as Byte 0, a key without a public name, and does not send 139 (P6, `xtask/data/p6/facts.md`). Corrected: 139 `Reserved139`, 140 `NameplateRenderDistanceMax`, 141 `Reserved141`; `ArrowShooterID` and `FireworkDirection` are aliases of 17 and `FireworkShooterID` of 18.
-- Login `ServerAddress`: v1.63.0's `ClientData.Validate` accepts a NetherNet address only as `http(s)://host:port:port`. 1.26.60 clients send `https://host:port`, and master after the tag (`531fd12d9a`) accepts both. Anchor follows master (`is_server_address` in `src/login/client_data.rs`).
+- Login `ServerAddress`: the pinned tag's `ClientData.Validate` accepts a NetherNet address only as `http(s)://host:port:port`. Clients of the supported version send `https://host:port`, and master after the tag (`531fd12d9a`) accepts both. Anchor follows master (`is_server_address` in `src/login/client_data.rs`).
 - Empty skin geometry: the login `Validate` and the codec accept and send an empty `SkinGeometry`. The protocol requires the geometry and the resource patch to be depth-bounded JSON (Mojang's documents). Anchor turns an empty login geometry into `{}` (`NO_CUSTOM_GEOMETRY`), and the skin check (`Skin::is_acceptable` in `src/tick/queue.rs`) requires both fields to be JSON nested at most 64 deep.
 - Skin sizes: `Skin.validate` multiplies the image height and width as `uint32`, so a product past 2^32 wraps and a size that does not match its data passes. Corrected in `xtask/go/fix`: the check compares in `uint64`.
 - No login deadline, no bound on the deferred packet queue, no bound on raw 0xff payloads: Anchor's session has all three (`network.md`).

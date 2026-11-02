@@ -8,16 +8,16 @@ The data is what the dump source's own registries hold when its dump PHP runs th
 
 | Source | Pin | License | Used for |
 |---|---|---|---|
-| pmmp/PocketMine-MP | commit `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb` (Bedrock 1.26.30 data) | LGPL-3.0 | The dump source: block and item kinds and data, the creative inventory, effect and enchantment tables |
-| pocketmine/bedrock-data | 6.7.0+bedrock-1.26.30 (the dump source's `composer.lock`) | CC0 | The data the dump source reads |
-| pmmp/PHP-Binaries | php-build-524, PHP 8.4 PM5 Windows x64 (zip SHA-256 `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`) | PHP License | The dump PHP (development tool) |
-| df-mc/dragonfly | head `d86aefd9ff9b6a357d6dfadab2093af811545256` of the unmerged PR #1481 (fork HashimTheArab/dragonfly, branch `update/1.26.60-upstream`, gophertunnel v1.63.0, 1.26.60) | MIT | Reference list source A: block states, items, creative item states |
-| CloudburstMC/Data | `293c848098cc636a2758937fb6610b8bed1f12c5` (26.60) | Apache-2.0 | Reference list source B: block network IDs, cross-checks, biomes, the official server's block physics, files sent as they are |
-| Mojang/bedrock-protocol-docs | the pinned-version table of `.claude/docs/protocol.md` | Minecraft EULA | Field length limits (numbers only) |
-| EndstoneMC/bedrock-protocol | v0.4.4, commit `0fb448a6a9940f197e199dcea488fc4129755d48` | MIT | The schema source: judging gophertunnel defects only (`protocol.md`) |
-| CloudburstMC/Protocol | branch `3.0`, codec `v2225`, commit `17a89ac156ff874fc8773e42a96bbc0635be9eed` | Apache-2.0 | The codec library: judging gophertunnel defects only (`protocol.md`) |
-| opencollab-incubator/BedrockBlockUpgradeSchema | 5.4.1, `1077ee640ed39f60266f7a7c8ab331ef76d7931e` | CC0 | Old block state upgrades |
-| opencollab-incubator/BedrockItemUpgradeSchema | 1.19.0, `dfc12b388be886ba6980d9a3b67cb1b432b563e2` | CC0 | Old item name upgrades |
+| The dump source | commit `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb` (Bedrock 1.26.30 data) | LGPL-3.0 | Block and item kinds and data, the creative inventory, effect and enchantment tables |
+| The dump source's data package | 6.7.0+bedrock-1.26.30 (the dump source's `composer.lock`) | CC0 | The data the dump source reads |
+| The dump PHP | the release in the `.cache/` table | PHP License | The PHP the dump scripts run with (development tool) |
+| Reference list source A | head `d86aefd9ff9b6a357d6dfadab2093af811545256` of an unmerged pull request (branch `update/1.26.60-upstream`, gophertunnel v1.63.0, 1.26.60) | MIT | Block states, items, creative item states |
+| Reference list source B | `293c848098cc636a2758937fb6610b8bed1f12c5` (26.60) | Apache-2.0 | Block network IDs, cross-checks, biomes, the official server's block physics, files sent as they are |
+| Protocol documents | `PROTOCOL_DOCS` in `xtask/src/dump.rs` | Minecraft EULA | Field length limits (numbers only) |
+| The schema source | `https://github.com/EndstoneMC/bedrock-protocol` v0.4.4, commit `0fb448a6a9940f197e199dcea488fc4129755d48` | MIT | Judging gophertunnel defects only (`protocol.md`) |
+| The codec library | `https://github.com/CloudburstMC/Protocol` branch `3.0`, codec `v2225`, commit `17a89ac156ff874fc8773e42a96bbc0635be9eed` | Apache-2.0 | Judging gophertunnel defects only (`protocol.md`) |
+| The block upgrade schemas | 5.4.1, `1077ee640ed39f60266f7a7c8ab331ef76d7931e` | CC0 | Old block state upgrades |
+| The item upgrade schemas | 1.19.0, `dfc12b388be886ba6980d9a3b67cb1b432b563e2` | CC0 | Old item name upgrades |
 | The official server (Mojang) | 1.26.60.6 (protocol 2225) | Minecraft EULA | Comparison runs only. The camera and aim assist presets come from a spawn capture of 1.26.52.3 (protocol 2193; `camera.json`) |
 
 - `cargo xtask dump` first checks that the `HEAD` of each of its six checkouts is the pinned commit, and fails otherwise.
@@ -81,7 +81,8 @@ NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit
 - Block network IDs are hashes: FNV-1a 32 over the little-endian NBT of the name and the states sorted by name. The official server uses hash IDs too. A golden test in `src/block/hash.rs` checks the Rust hash against every reference state.
 - Block physics: source B's `blocks.json` at the pinned commit predates 1.26.60, so `dump` has two temporary rules (`reference_physics` in `xtask/src/dump.rs`; a unit test fixes how many states each covers):
   - Connections: the 1,872 states with the connection properties 1.26.60 added (fire 512, redstone wire 1,296, chorus plant 64) take the physics of the same state without them, the state block schema `0361` upgrades to them.
-  - Borrowing: the 30 states of blocks new in 1.26.60 take the physics of a similar block: `icicle` (20) from `pointed_dripstone`, `ice_crystal` (6) from `amethyst_cluster`, `disc_press` (4) from `stone`. Each takes the one lender state whose shared properties (direction, thickness) have the same values; another number of matches fails `dump`.  - Any other state without physics fails `dump`.
+  - Borrowing: the 30 states of blocks new in 1.26.60 take the physics of a similar block: `icicle` (20) from `pointed_dripstone`, `ice_crystal` (6) from `amethyst_cluster`, `disc_press` (4) from `stone`. Each takes the one lender state whose shared properties (direction, thickness) have the same values; another number of matches fails `dump`.
+  - Any other state without physics fails `dump`.
 - `dump` fails on a biome with an ID, chunk generation data, or a nonzero density: the packet carries none of them.
 - The 11,420 dump states have 9,532 Bedrock serializations. 76 of these take several dump states (cave vines, farmland, beds, standing banners, wall banners, cauldrons). Those must agree in every value, except the `SHARED` names: bed, cauldron (as the water cauldron), standing banner, wall banner.
 - The official server's light dampening differs from the dump's light filter for some blocks: oak leaves 1 against 0, glowstone 15 against 0.
@@ -114,7 +115,7 @@ An alias is a reference state the dump source reads as another state (a pumpkin 
 - A reference state the dump source has no type for is an ordinary table state of kind `InfoUpdate`: the official server's collision boxes, light (emission and filter; a filter above 0 also blocks sky light), and hardness, and no behavior. The data does not name the right tool, so every tool counts as the right one.
 - Because Anchor has no liquids, a seagrass or kelp cell is an ordinary block, and entities do not treat it as water.
 - A state outside the table is `Entry::Unknown`: its NBT is kept as stored and clients get `minecraft:info_update`.
-- A flower pot plant Anchor does not know shows as an empty pot. Players cannot take it out or swap it, and it has no drops. The dump source fails to read such a block entity, and drops banner pattern IDs it does not know.
+- A flower pot plant Anchor does not know stays as stored and shows as an empty pot. The dump source fails to read such a block entity, and drops banner pattern IDs it does not know.
 - Imported worlds hold vanilla items the dump lacks, so dropping one from a block entity is logged at info, not warn.
 
 ## Upgrade schemas and old data (`xtask/data/upgrade/`)
@@ -147,14 +148,14 @@ Defects of the schema repositories and the dump source's upgrader:
 | Folder | Origin | Pin | Read by |
 |---|---|---|---|
 | `dump` | `https://github.com/pmmp/PocketMine-MP.git` | The sources table's commit + `vendor/` (`composer.lock`) | `dump`, every PHP script |
-| `reference-a` | `https://github.com/HashimTheArab/dragonfly.git` (the fork of PR #1481) | The sources table's commit | `dump` |
+| `reference-a` | `https://github.com/HashimTheArab/dragonfly.git` | The sources table's commit | `dump` |
 | `reference-data` | `https://github.com/CloudburstMC/Data.git` | The sources table's commit | `dump`, `p6` (biome and jigsaw comparison), `xtask/tests/spawn.rs`, the physics unit test of `xtask/src/dump.rs` |
-| `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | The commit of the pinned-version table of `.claude/docs/protocol.md` | `dump` (field limits) |
+| `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | The commit of `PROTOCOL_DOCS` in `xtask/src/dump.rs` | `dump` (field limits) |
 | `block-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockBlockUpgradeSchema.git` | The sources table's commit | `dump` |
 | `item-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockItemUpgradeSchema.git` | The sources table's commit | `dump` |
-| `dump-php/bin/php/php.exe` | pmmp/PHP-Binaries release php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4` (sources table), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c` (PHP 8.4.16 ZTS) | `dump`, every PHP script |
+| `dump-php/bin/php/php.exe` | `https://github.com/pmmp/PHP-Binaries` release `php-build-524`, PHP 8.4 PM5 Windows x64 | zip `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`, `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c` (PHP 8.4.16 ZTS) | `dump`, every PHP script |
 | `official/1.26.60.6/` | minecraft.net official server, Windows 1.26.60.6 (`bedrock-server-1.26.60.6.zip`) | zip `21620db4f80d0fe206f21cb08f52f4e5f14252ce865ec49ccfbe0d9f93ce88b0`, `bedrock_server.exe` `d7b26d6c5e8f3e910f66e8cbf7e1dfde06e570032349bf7abdd070deb6e9d884` | `p6 official`, `p6 game official`, `p6 api official`, `p6 import` |
-| `official/1.26.60.6/` (Linux checkout) | minecraft.net official server, Linux 1.26.60.6 (`bin-linux/bedrock-server-1.26.60.6.zip`) | Not pinned yet: no SHA-256 recorded | Every `p6` command on Linux |
+| `official/1.26.60.6/` (Linux checkout) | minecraft.net official server, Linux 1.26.60.6 (`bin-linux/bedrock-server-1.26.60.6.zip`) | Not pinned: no SHA-256 recorded | Every `p6` command on Linux |
 | `tools/strawberry-perl-5.42.3.1/` | StrawberryPerl GitHub release SP_54231_64bit, portable zip | zip `6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690`, `perl/bin/perl.exe` `d4fa3a6ebe78f5f60e185cf7d7809a7dd8c541739ca4a7bc8687c75548473f42` | The dimpl copy's tests in `verify` (OpenSSL source build) |
 | `str0m-test-data/` | `https://raw.githubusercontent.com/algesten/str0m/<commit>/tests/data/<file>` | The commit in `vendor/str0m/.cargo_vcs_info.json`; per file, `xtask/data/vendor/str0m-test-data.sha256` | `vendor-test str0m` (downloads what is missing) |
 

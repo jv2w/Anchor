@@ -93,7 +93,7 @@ vendor/                     patched dependency copies (dependencies.md)
 ## Tick
 
 - The tick rate is fixed (`Context::TICKS_PER_SECOND`; a tick lasts `tick::TICK`) on the engine clock. A tick that ends late starts the next one at once, which catches up; when the schedule falls a whole period or more behind, the missed ticks are dropped with a warning (`clock::Pacer`).
-- On Windows, Rust's `sleep` (toolchain 1.98.1) uses a high-resolution waitable timer (Windows 10 1803 and later), which measured a real tick interval p99 of about 50.5 ms. Waiting in steps of the default 15.625 ms timer jitters between 46.9 and 62.5 ms, and the movement of other players stutters. tokio's `sleep_until` is coarser, and spin waiting burns a CPU.
+- On Windows, Rust's `sleep` uses a high-resolution waitable timer (Windows 10 1803 and later), which measured a real tick interval p99 of about 50.5 ms. Waiting in steps of the default 15.625 ms timer jitters between 46.9 and 62.5 ms, and the movement of other players stutters. tokio's `sleep_until` is coarser, and spin waiting burns a CPU.
 - The tick function is `step(state, inputs, responses, pool, output, log)`, followed by the delivery and `boundary`.
 
 Phases:
@@ -161,7 +161,7 @@ Phases:
   - `cx.perform(action)`: defers an action that goes through the game rules, events included. Actions are the sealed `action::Action` implementations (`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode`, and others).
 - Why the entity tick raises EntitySpawn and ItemSpawn: listeners never run in the middle of another rule or of a direct API call.
 - Why user code that is no event of an action runs only after the action is applied: a listener that changes the hand or the block in between would duplicate or lose items.
-- There are 104 events, in `event/{block,entity,inventory,player,server,world}.rs`, all public flat as `anchor::event::*`. The API table's events out of scope (plugins, PHP and operations internals, redstone) are left out; the raw packet events (DataPacketReceive, DataPacketSend, DataPacketDecode) are the packet hooks; PlayerPreLogin is merged into PlayerLogin. `TradeOpen` and `Trade` have no API-table counterpart.
+- The events are in `event/{block,entity,inventory,player,server,world}.rs`, all public flat as `anchor::event::*`. The API table's events out of scope (plugins, operations internals, redstone) are left out; the raw packet events (DataPacketReceive, DataPacketSend, DataPacketDecode) are the packet hooks; PlayerPreLogin is merged into PlayerLogin. `TradeOpen` and `Trade` have no API-table counterpart.
 - Why a PlayerDataSave cancel is ignored: it keeps the save atomic.
 
 ## Extension points

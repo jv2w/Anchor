@@ -83,6 +83,6 @@ Do these steps in order. Start a step only after the one before it passes.
 6. Test: `cargo xtask verify`, P1 to P5 included, must PASS. It runs only when the user orders `/verify` (`CLAUDE.md`).
 7. Data: move the dump source and the reference list sources in the pinned-source table of `.claude/docs/data.md` to the same version, and align the state comparison and the upgrade schemas (`.claude/rules/data.md`).
 8. Compare with the official server: run all of P6 against a copy of the new official server in `.cache/official/<version>/`, and follow the official server wherever they differ (`.claude/rules/testing.md`).
-9. Publish: update the supported version and the pinned-version table in `.claude/docs/protocol.md`.
+9. Publish: align the sentences of `.claude/docs/protocol.md` that depend on the version (the gophertunnel defect list, the pinned-source table).
 
 Background and detailed facts are in `.claude/docs/protocol.md`.

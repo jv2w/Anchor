@@ -95,7 +95,7 @@ paths:
 
 ## Rebuilding `.cache/`
 - Builds, tests, and `verify` run on committed data alone, except the dimpl copy's tests, which need Perl.
-- Rebuild `.cache/` from the repository root in this order. `<origin>` and the SHA-256 values are in the `.cache/` table of `.claude/docs/data.md`; `<commit>` and the official server version are in its sources table (bedrock-protocol-docs: the pinned-version table of `.claude/docs/protocol.md`).
+- Rebuild `.cache/` from the repository root in this order. `<origin>` and the SHA-256 values are in the `.cache/` table of `.claude/docs/data.md`; `<commit>` and the official server version are in its sources table (bedrock-protocol-docs: `PROTOCOL_DOCS` in `xtask/src/dump.rs`).
   1. The six git checkouts, each: `git init .cache/<folder>`, `git -C .cache/<folder> remote add origin <origin>`, `git -C .cache/<folder> fetch --depth 1 origin <commit>`, `git -C .cache/<folder> checkout --detach FETCH_HEAD`.
   2. The dump PHP: download the release zip, check its SHA-256, and unpack it into `.cache/dump-php/` so that `bin/php/php.exe` and `bin/php/php.ini` are there.
   3. The dump source's dependencies: in `.cache/dump`, run composer with the dump PHP: `composer install --no-dev --ignore-platform-reqs`. This puts the dump source's `composer.lock` versions into `.cache/dump/vendor`.

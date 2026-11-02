@@ -48,7 +48,7 @@ paths:
 - Keep the floats of tick state as `f64`; convert to `f32` only at the protocol boundary.
 - In `math`, use only the operations whose results IEEE 754 fixes: the four arithmetic operations, `sqrt`, `floor`, `ceil`, `round`, `abs`.
 - Use the `min`, `max`, `clamp`, and trigonometric functions of `math`, never std's (`.clippy.toml` forbids std's).
-- Check that every coordinate a client sends is finite and inside the world border (`world::BORDER`, 30,000,000).
+- Check that every coordinate a client sends is finite and inside the world border (`world::BORDER`).
 - An event's float setter ignores a value that is not finite and keeps the field inside its valid range.
 - Keep every iteration order deterministic (`BTreeMap`, `Id` order).
 - Keep the input sort key, (session, sequence number), unique per input.

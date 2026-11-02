@@ -52,7 +52,7 @@ paths:
 - Test online login with a test issuer (an OpenID configuration and JWKS from its own RSA key) placed in `auth.json`. Never add a test-only entry point to the engine.
 
 ## NetherNet
-- Match the pinned df-mc/go-nethernet (version in `.claude/docs/protocol.md`) as the ground truth, with Mojang's NetherNet onboarding guide as secondary evidence.
+- Match the pinned df-mc/go-nethernet (version in `xtask/go/go.mod`) as the ground truth, with Mojang's NetherNet onboarding guide as secondary evidence.
 - Signaling (`nethernet/signaling.rs`) only routes and enforces limits; it never interprets the offer.
 - Refuse a signaling request that carries both `Content-Length` and `Transfer-Encoding: chunked` with 400.
 - Refuse to start when the `nethernet-tls-cert` or `nethernet-tls-key` PEM is invalid.

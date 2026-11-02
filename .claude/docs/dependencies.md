@@ -6,26 +6,26 @@ The sources of block and item data (the dump source, the reference list, the upg
 
 ## Runtime dependencies
 
-Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `Cargo.lock`. Every "denied" entry point is in the deny lists of `.clippy.toml`.
+Versions and features are the `=` pins in `Cargo.toml` and the locked versions in `Cargo.lock`. Every "denied" entry point is in the deny lists of `.clippy.toml`.
 
-| Crate | Pin | Use | Defects and measures |
-|---|---|---|---|
-| tokio (MIT) | =1.53.1 | Async runtime, bounded queues, UDP, signaling TCP, signals | Unbounded channels, `blocking_*` send and receive, unbounded io-util reads (`read_to_end`, `read_line`, `lines` and the like), `tokio::sync::Mutex` and `RwLock`, `block_on`, runtime builders, and its clock: denied |
-| rayon (MIT/Apache-2.0) | =1.12.0 (locked rayon-core 1.13.0, crossbeam-epoch 0.9.21) | CPU pool | Entry points that silently start the global pool (`join`, `scope`, `spawn`, parallel iterators and the like): denied. Dropping a pool does not wait for its threads → each thread reports its end through `exit_handler`, and `Pool::shutdown` waits for all of them (`src/runtime.rs`, `src/pool.rs`). A panic in a `spawn` job without a panic handler aborts the process → jobs run only through `Pool::map` (a parallel iterator inside `install`) and `Pool::map_in_turns` (`Scope::spawn` inside `in_place_scope`), where a panic reaches the caller (`a_panic_in_a_job_reaches_the_caller`, `src/pool.rs`) |
-| aws-lc-rs (ISC AND (Apache-2.0 OR ISC)) | =1.18.1, default features off (`aws-lc-sys`, `alloc`) | ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, randomness | The ECDSA public key parser also takes a bare SEC1 point and ignores bytes after the SPKI → `PublicKey::from_base64_spki` first requires exactly one DER SEQUENCE (`src/crypto.rs`). Its CTR encryption draws a random IV and restarts on every call → denied; `src/crypto/encryption.rs` keeps its own counter keystream. Signing and agreement keys are separate types → the key pair passes through PKCS#8, and `ServerKey::from_pkcs8` checks that both public keys are equal. Randomness and key generation entry points and `SystemRandom`: denied outside the crypto module |
-| rustls (Apache-2.0/ISC/MIT), webpki-roots (CDLA-Permissive-2.0) | =0.23.45 (`aws_lc_rs`, `std`, `tls12`), locked 1.0.9 | TLS of the auth fetch (through ureq), of signaling (server configuration), and the PEM reading of operator files | Panics when no provider is given and no process default is set → every builder takes the aws-lc-rs provider explicitly; the process-global provider entry points and `ServerConfig::builder`: denied. Why ring is in `Cargo.lock`: `.clippy.toml` |
-| tokio-rustls (MIT/Apache-2.0) | =0.26.6, `aws_lc_rs` and `tls12` only | TLS signaling | 0.26.6 avoids the 0.26.5 regression (tokio-rustls #204). It has no deadline of its own → used only inside the 10 s request deadline (`REQUEST_DEADLINE`, `src/nethernet/signaling.rs`). One request per connection → TLS 1.3 tickets and the session cache are off (`load_tls`) |
-| ureq (MIT/Apache-2.0) | =3.4.2, `rustls-no-provider`, `rustls-webpki-roots` | Fetching the auth documents, on the blocking pool | With a timeout, its default resolver starts a detached thread per DNS lookup → `InlineResolver` calls it without one, and the OS bounds DNS (`src/auth/fetch.rs`). The body limit also rejects a body of exactly the limit, so the largest accepted document is `MAX_DOCUMENT` (1 MiB) minus one byte. Blocking calls and unbounded body reads: denied |
-| libdeflater (Apache-2.0) | =1.26.1 (libdeflate 1.26), default features | zlib compression (measured 2 to 4 times faster than miniz_oxide at level 6) | The `use_rust_alloc` feature (also enabled by `freestanding`) writes through a null pointer when out of memory → default features only. `Decompressor` panics on an unknown libdeflate error → denied; miniz_oxide inflates. `Compressor::new` panics only when allocation fails, at creation, independent of external input |
-| miniz_oxide (MIT/Zlib/Apache-2.0) | =0.9.1 | zlib inflation | `decompress_to_vec*` has no size limit → denied; Anchor's own loop grows the output only up to the limit. `compress_to_vec*`: denied, so libdeflate is the only compressor |
-| serde, serde_json, toml (MIT/Apache-2.0) | =1.0.229, =1.0.151 (`float_roundtrip`), =1.1.6 (`std`, `serde`, `parse`) | Configuration and its in-place update (key and value spans of `toml::de::DeTable`, `src/config/update.rs`); JSON of the auth cache, JWTs, login, forms, pack manifests, and user data | toml stops at nesting depth 80 (its `unbounded` feature stays off). toml's error `Display` contains an `expect` → Anchor reads only `message()` and `span()`. `serde_json::from_reader` reads without a limit → denied. serde_json's default float parsing reads some written `f64` back as a different value (measured: about 43% of a million random bit patterns, about 6% of physics-like sequences), so user values reread from a checkpoint would differ and replay would diverge → `float_roundtrip` (no new crate; only float parsing is slower; `a_float_survives_a_checkpoint_round_trip`, `src/tick/task/data.rs`) |
-| tracing (MIT) | =0.1.44, `std` only | Logging | Anchor leaves `attributes` off. Why syn 2 is still built: `.clippy.toml` |
-| socket2 (MIT/Apache-2.0) | =0.6.5 | IPv6-only sockets, socket buffer sizes and the TCP signaling listener (`SO_REUSEADDR` on Unix, backlog) (`src/udp.rs`, `src/nethernet/signaling.rs`) | Blocking I/O entry points: denied. The one exception is the 503 `send` on a non-blocking socket (`refuse`, `src/nethernet/signaling.rs`) |
-| memory-stats (MIT/Apache-2.0) | =1.2.0, `always_use_statm` | Resident memory for `/status` (Anchor has no `unsafe`, so it leaves the OS call to this crate) | The default Linux path reads the whole of `/proc/self/smaps` → `always_use_statm`. It reads a file → denied; called only on a blocking thread. Its windows-sys 0.52 is an allowed duplicate (reason in `.clippy.toml`) |
-| redb (MIT/Apache-2.0) | =4.3.0, copy `vendor/redb` | Server data storage | Vendor copies below |
-| str0m (MIT/Apache-2.0) | =0.24.1, default features off plus `aws-lc-rs`, copy `vendor/str0m` | NetherNet WebRTC | Vendor copies below |
-| dimpl, sctp-proto (MIT/Apache-2.0) | 0.7.5, 0.10.5, copies | DTLS 1.2 and SCTP under str0m | Vendor copies below |
-| str0m-proto, str0m-aws-lc-rs, is (MIT/Apache-2.0) | 0.7.0, 0.6.0, 0.11.1, unchanged copies | Between str0m and dimpl | Vendor copies below |
+| Crate | Use | Defects and measures |
+|---|---|---|
+| tokio (MIT) | Async runtime, bounded queues, UDP, signaling TCP, signals | Unbounded channels, `blocking_*` send and receive, unbounded io-util reads (`read_to_end`, `read_line`, `lines` and the like), `tokio::sync::Mutex` and `RwLock`, `block_on`, runtime builders, and its clock: denied |
+| rayon (MIT/Apache-2.0) | CPU pool | Entry points that silently start the global pool (`join`, `scope`, `spawn`, parallel iterators and the like): denied. Dropping a pool does not wait for its threads → each thread reports its end through `exit_handler`, and `Pool::shutdown` waits for all of them (`src/runtime.rs`, `src/pool.rs`). A panic in a `spawn` job without a panic handler aborts the process → jobs run only through `Pool::map` (a parallel iterator inside `install`) and `Pool::map_in_turns` (`Scope::spawn` inside `in_place_scope`), where a panic reaches the caller (`a_panic_in_a_job_reaches_the_caller`, `src/pool.rs`) |
+| aws-lc-rs (ISC AND (Apache-2.0 OR ISC)) | ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, randomness | The ECDSA public key parser also takes a bare SEC1 point and ignores bytes after the SPKI → `PublicKey::from_base64_spki` first requires exactly one DER SEQUENCE (`src/crypto.rs`). Its CTR encryption draws a random IV and restarts on every call → denied; `src/crypto/encryption.rs` keeps its own counter keystream. Signing and agreement keys are separate types → the key pair passes through PKCS#8, and `ServerKey::from_pkcs8` checks that both public keys are equal. Randomness and key generation entry points and `SystemRandom`: denied outside the crypto module |
+| rustls (Apache-2.0/ISC/MIT), webpki-roots (CDLA-Permissive-2.0) | TLS of the auth fetch (through ureq), of signaling (server configuration), and the PEM reading of operator files | Panics when no provider is given and no process default is set → every builder takes the aws-lc-rs provider explicitly; the process-global provider entry points and `ServerConfig::builder`: denied. Why ring is in `Cargo.lock`: `.clippy.toml` |
+| tokio-rustls (MIT/Apache-2.0) | TLS signaling | The pinned release avoids the 0.26.5 regression (tokio-rustls #204). It has no deadline of its own → used only inside the 10 s request deadline (`REQUEST_DEADLINE`, `src/nethernet/signaling.rs`). One request per connection → TLS 1.3 tickets and the session cache are off (`load_tls`) |
+| ureq (MIT/Apache-2.0) | Fetching the auth documents, on the blocking pool | With a timeout, its default resolver starts a detached thread per DNS lookup → `InlineResolver` calls it without one, and the OS bounds DNS (`src/auth/fetch.rs`). The body limit also rejects a body of exactly the limit, so the largest accepted document is `MAX_DOCUMENT` (1 MiB) minus one byte. Blocking calls and unbounded body reads: denied |
+| libdeflater (Apache-2.0) | zlib compression (measured 2 to 4 times faster than miniz_oxide at level 6) | The `use_rust_alloc` feature (also enabled by `freestanding`) writes through a null pointer when out of memory → default features only. `Decompressor` panics on an unknown libdeflate error → denied; miniz_oxide inflates. `Compressor::new` panics only when allocation fails, at creation, independent of external input |
+| miniz_oxide (MIT/Zlib/Apache-2.0) | zlib inflation | `decompress_to_vec*` has no size limit → denied; Anchor's own loop grows the output only up to the limit. `compress_to_vec*`: denied, so libdeflate is the only compressor |
+| serde, serde_json, toml (MIT/Apache-2.0) | Configuration and its in-place update (key and value spans of `toml::de::DeTable`, `src/config/update.rs`); JSON of the auth cache, JWTs, login, forms, pack manifests, and user data | toml stops at nesting depth 80 (its `unbounded` feature stays off). toml's error `Display` contains an `expect` → Anchor reads only `message()` and `span()`. `serde_json::from_reader` reads without a limit → denied. serde_json's default float parsing reads some written `f64` back as a different value (measured: about 43% of a million random bit patterns, about 6% of physics-like sequences), so user values reread from a checkpoint would differ and replay would diverge → `float_roundtrip` (no new crate; only float parsing is slower; `a_float_survives_a_checkpoint_round_trip`, `src/tick/task/data.rs`) |
+| tracing (MIT) | Logging | Anchor leaves `attributes` off. Why syn 2 is still built: `.clippy.toml` |
+| socket2 (MIT/Apache-2.0) | IPv6-only sockets, socket buffer sizes and the TCP signaling listener (`SO_REUSEADDR` on Unix, backlog) (`src/udp.rs`, `src/nethernet/signaling.rs`) | Blocking I/O entry points: denied. The one exception is the 503 `send` on a non-blocking socket (`refuse`, `src/nethernet/signaling.rs`) |
+| memory-stats (MIT/Apache-2.0) | Resident memory for `/status` (Anchor has no `unsafe`, so it leaves the OS call to this crate) | The default Linux path reads the whole of `/proc/self/smaps` → `always_use_statm`. It reads a file → denied; called only on a blocking thread. Its windows-sys 0.52 is an allowed duplicate (reason in `.clippy.toml`) |
+| redb (MIT/Apache-2.0) | Server data storage (copy `vendor/redb`) | Vendor copies below |
+| str0m (MIT/Apache-2.0) | NetherNet WebRTC (copy `vendor/str0m`) | Vendor copies below |
+| dimpl, sctp-proto (MIT/Apache-2.0) | DTLS 1.2 and SCTP under str0m (copies) | Vendor copies below |
+| str0m-proto, str0m-aws-lc-rs, is (MIT/Apache-2.0) | Between str0m and dimpl (unchanged copies) | Vendor copies below |
 
 ## Implemented directly
 
@@ -47,7 +47,7 @@ Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `C
 - `verify` runs each copy's own tests (`.claude/docs/testing.md`; `CHECKS` in `xtask/src/main.rs`). The dimpl run passes `/ignore:4099` to rust-lld, which ignores only that one linker warning. dimpl's tests build OpenSSL from source; on Windows that run gets Strawberry Perl as `OPENSSL_SRC_PERL` (`data.md`). dimpl's wolfssl tests run only outside Windows (a `cfg(not(windows))` dev-dependency).
 - str0m's integration tests need seven capture files the published crate leaves out. `cargo xtask vendor-test str0m` downloads them from the copy's upstream commit, checks them against `xtask/data/vendor/str0m-test-data.sha256`, and runs every str0m test (`xtask/src/vendor.rs`).
 
-### redb 4.3.0
+### redb
 
 | Fix | Defect | Reproduction test |
 |---|---|---|
@@ -57,10 +57,10 @@ Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `C
 
 - The copy also corrects the one upstream test expectation that fix 2 contradicts (`tests/check_integrity_failure.rs`), and its `.gitignore` keeps the published `Cargo.lock`.
 - Remaining risks: a crafted file whose slot checksums also match allocates up to 4 GiB (#1503; random damage does not reach it). Page damage that appears while the server runs can panic a read (#1334): the save thread panics, the server exits, and the next start refuses the file.
-- Outside tests, redb starts no threads and reads no clock or randomness. Anchor lowers its cache to 64 MiB (`CACHE_BYTES`, `src/storage.rs`). Its open, transaction, integrity check, compact, and commit entry points are denied outside the storage module.
+- Outside tests, redb starts no threads and reads no clock or randomness. Anchor lowers its cache (`CACHE_BYTES`, `src/storage.rs`). Its open, transaction, integrity check, compact, and commit entry points are denied outside the storage module.
 - redb has no integrity check that leaves the file untouched (the open and `check_integrity` write the header; a repair also writes the allocator state); the start check works around it (`storage.md`).
 
-### str0m 0.24.1
+### str0m
 
 | Fix | Defect | Reproduction test |
 |---|---|---|
@@ -75,7 +75,7 @@ Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `C
 - Any panic left inside str0m and the crates under it is caught per peer with `catch_unwind` and closes only that peer.
 - The `pii` feature is off. `is` logs the local and remote ICE credentials (ufrag and password) at debug through `Pii`, which redacts only with `pii` on (`vendor/is/src/agent.rs`), so they appear unredacted in debug logs.
 
-### dimpl 0.7.5
+### dimpl
 
 | Fix | Defect |
 |---|---|
@@ -85,9 +85,9 @@ Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `C
 
 - Reproduction tests: `xtask/tests/dimpl_repro.rs`; each fails on the published crate.
 - Upstream has a release `assert!` on returning a buffer from outside the pool; no path returns one.
-- When the records inside one datagram arrive reordered, 0.7.5 drops that datagram and recovers by retransmission.
+- When the records inside one datagram arrive reordered, the copy drops that datagram and recovers by retransmission.
 
-### sctp-proto 0.10.5
+### sctp-proto
 
 | Fix | Defect |
 |---|---|
@@ -111,14 +111,14 @@ Copies with unchanged code. Without them the registry releases come along, dimpl
 
 Not part of Anchor's build. `xtask/go/go.mod` pins the versions.
 
-| Module | Pin | Use | Defects and measures |
-|---|---|---|---|
-| sandertv/gophertunnel (MIT) | Pinned-version table in `protocol.md` | Protocol ground truth, extractor, bot | Comments disagree with code. NBT maps are written in random order → the test tools write them sorted. Login checks are loose (unanchored regular expressions, blocking DNS, random offline UUIDs, loose base64) → Anchor implements them strictly (`protocol.md`, `network.md`) |
-| sandertv/go-raknet, df-mc/go-nethernet | The version gophertunnel's `go.mod` sets, or a release that fixes a defect in it (pinned-version table in `protocol.md`) | Bot only | go-nethernet prefixes candidate lines twice and sends before the channel-open acknowledgement (how Anchor accepts both: `network.md`). go-nethernet v1.0.25's `SelfSignedIdentity` writes `cpk` as a JWK, and the official server 1.26.60 rejects that client offer with 37 (`ErrorCodeIdentityNotAllowed`) → v1.0.26 (base64 SPKI) |
-| go-jose, go-oidc | `go.mod` | Bot tokens | Development tool |
-| go-gl/mathgl, google/uuid, pion/webrtc | `go.mod` | Bot | Development tool |
-| df-mc/goleveldb (BSD-2-Clause) | v1.1.9 | Cross-check of the import reader (`xtask/go/leveldbdump`) | Has no block compression type 2 (zlib with header), and writes into the folder when it opens a database → it opens a copy |
-| golang.org/x/tools (BSD-3-Clause) | v0.42.0 | Type information for the extractor | A version that does not change gophertunnel's dependency versions |
+| Module | Use | Defects and measures |
+|---|---|---|
+| sandertv/gophertunnel (MIT) | Protocol ground truth, extractor, bot | Comments disagree with code. NBT maps are written in random order → the test tools write them sorted. Login checks are loose (unanchored regular expressions, blocking DNS, random offline UUIDs, loose base64) → Anchor implements them strictly (`protocol.md`, `network.md`) |
+| sandertv/go-raknet, df-mc/go-nethernet | Bot only | go-nethernet prefixes candidate lines twice and sends before the channel-open acknowledgement (how Anchor accepts both: `network.md`). go-nethernet v1.0.25's `SelfSignedIdentity` writes `cpk` as a JWK, and the official server rejects that client offer with 37 (`ErrorCodeIdentityNotAllowed`) → the pinned later release (base64 SPKI) |
+| go-jose, go-oidc | Bot tokens | Development tool |
+| go-gl/mathgl, google/uuid, pion/webrtc | Bot | Development tool |
+| df-mc/goleveldb (BSD-2-Clause) | Cross-check of the import reader (`xtask/go/leveldbdump`) | Has no block compression type 2 (zlib with header), and writes into the folder when it opens a database → it opens a copy |
+| golang.org/x/tools (BSD-3-Clause) | Type information for the extractor | A version that does not change gophertunnel's dependency versions |
 
 The sources and SHA-256 of binary tools (the dump PHP, Strawberry Perl, the official server) are in `data.md`.
 
