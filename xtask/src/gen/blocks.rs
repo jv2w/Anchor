@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::body::{int_lit, str_lit};
 use super::data::{Connect, Data, FACES, Prop, StateItem, StateKey, hex_lit};
 use super::emit::HEADER;
-use super::info::{camel, f64_lit};
+use super::info::{bit_set, camel, f64_lit};
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/table.rs";
@@ -305,7 +305,7 @@ fn kinds(out: &mut String, data: &Data) -> Result<(), String> {
             rows,
             "KindData::new(State::from_index({state}), {start}, {}, {}),",
             identity.classes.len(),
-            hex_lit(bits(&identity.traits, &traits)?, 16)
+            hex_lit(bit_set(&identity.traits, &traits, "trait")?, 16)
         );
     }
     put!(
@@ -329,20 +329,6 @@ fn type_tags(data: &Data) -> Vec<&str> {
     set.into_iter().collect()
 }
 
-/// Bits of `list` in the sorted `names`.
-fn bits(list: &[String], names: &[&str]) -> Result<u64, String> {
-    let mut out = 0u64;
-    for item in list {
-        let at = names
-            .binary_search(&item.as_str())
-            .map_err(|_| format!("unknown name {item}"))?;
-        out |= 1u64
-            .checked_shl(u32::try_from(at).map_err(|_| "bit")?)
-            .ok_or("more than 64 names")?;
-    }
-    Ok(out)
-}
-
 /// The state item sentinels of `STATE_ITEMS` (see `src/block.rs`).
 const NO_ITEM: u16 = 0xffff;
 const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
@@ -362,9 +348,11 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
         .iter()
         .map(|t| t.strip_prefix("pocketmine:").unwrap_or(t))
         .collect();
-    enumeration(
+    pmmp_enumeration(
         out,
         "A PMMP block type tag (`BlockTypeTags`); [`State::has_type_tag`] tells a state's.",
+        "#[doc(alias = \"BlockTypeTags\")]
+",
         "TypeTag",
         &variants(&tag_names)?,
     );
@@ -417,7 +405,7 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
             p.encouragement,
             hex_lit(u64::from(flags), 4),
             f64_lit(p.friction),
-            bits(&p.tags, &tags)?,
+            bit_set(&p.tags, &tags, "type tag")?,
             hex_lit(u64::from(support), 4),
             start,
             p.boxes.len(),
@@ -498,9 +486,11 @@ fn banner_patterns(out: &mut String, data: &Data) {
     let names: Vec<&str> = list.iter().map(|b| b.name.as_str()).collect();
     let variants: Vec<(String, String)> =
         names.iter().map(|n| (camel(n), (*n).to_owned())).collect();
-    enumeration(
+    pmmp_enumeration(
         out,
         "A banner pattern (PMMP `BannerPatternType`).",
+        "#[doc(alias = \"BannerPatternType\")]
+",
         "BannerPattern",
         &variants,
     );
@@ -642,12 +632,12 @@ fn header(connect: &Connect, groups: &BTreeMap<String, u8>) -> Result<u32, Strin
         }
     };
     let upside_down = u32::from(connect.upside_down.unwrap_or(false));
-    let group = connect
-        .group
-        .as_ref()
-        .and_then(|g| groups.get(g))
-        .copied()
-        .unwrap_or(0);
+    let group = match &connect.group {
+        None => 0,
+        Some(g) => *groups
+            .get(g)
+            .ok_or_else(|| format!("unknown fence group {g}"))?,
+    };
     Ok(kind | facing << 8 | upside_down << 11 | u32::from(group) << 12)
 }
 

@@ -1,7 +1,6 @@
 //! The trace of a game scenario capture: the packets after the scenario starts, grouped by the
 //! bot's steps, each turned into a line. A line is *fixed* (compared between servers) or *shown*
-//! (in the report only). What is fixed (response status, changed slots, block
-//! states, window types, offer shape):
+//! (in the report only). What is fixed:
 //!
 //! - the bot's commands and request statuses, and `ItemStackResponse` slots (container, slot,
 //!   count, durability, name; stack network IDs as `#n`, numbered in order of appearance);
@@ -19,7 +18,10 @@
 //! - entities by type (`AddActor`, `AddItemActor` item, `RemoveActor`, `TakeItemActor` taker);
 //! - `UpdateTrade` window type, size, tier and flags, the key and tag types of the offers;
 //! - the number of `PlayerEnchantOptions` and the player's last experience level of a step when
-//!   it differs from the level before the step (BDS resends every attribute after a placement).
+//!   it differs from the level before the step (BDS resends every attribute after a placement);
+//! - the bot's `check` lines named in `FIXED_CHECKS`, the shape of the `offers` checks, every
+//!   `Disconnect`, and every packet that failed to decode. Any other `check` line is shown only:
+//!   a game scenario's check compares nothing until its name is in `FIXED_CHECKS`.
 //!
 //! Shown only, because they vary per run or by design: random values (enchantment options,
 //! offers, a villager's profession and name, experience orbs and points), timing
@@ -45,7 +47,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use super::super::compare::field;
+use crate::p6::compare::field;
 
 /// The flat world's blocks by height (BDS's and Anchor's default flat world), as the bot assumes
 /// them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.

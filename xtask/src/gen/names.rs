@@ -8,10 +8,6 @@
 //! before them (`Vec3`, `Int64`, `V1`). The words are then joined as `snake_case`,
 //! `UpperCamelCase` (only the first letter of a word upper) or `SCREAMING_SNAKE_CASE`.
 
-/// Names written together that the case rule would split, and plurals of acronyms that it would
-/// split before the `s`.
-const TERMS: &[&str] = &["PlayFab", "MoLang", "UUIDs", "XUIDs", "IDs"];
-
 /// Go names, qualified with their package, whose Rust name the rules do not give. Constant groups
 /// (`consts`) are named by their Go prefix: `protocol.Container` holds the container IDs
 /// (`ContainerAnvilInput`), which the bare name would confuse with containers; gophertunnel
@@ -25,10 +21,6 @@ const EXCEPTIONS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Method names of the extra results of union lookups (Go names them only by position): the
-/// lookup function, the result index after the ID, and the method name.
-const UNION_EXTRAS: &[(&str, usize, &str)] = &[("protocol.itemDescriptorType", 0, "type_name")];
-
 /// Rust keywords that may be used as raw identifiers.
 const KEYWORDS: &[&str] = &[
     "as", "async", "await", "break", "const", "continue", "dyn", "else", "enum", "extern", "false",
@@ -41,7 +33,93 @@ const KEYWORDS: &[&str] = &[
 /// Keywords that cannot be raw identifiers.
 const RESERVED: &[&str] = &["self", "Self", "super", "crate", "_"];
 
-/// Splits a Go identifier into words.
+/// Names written together that the case rule would split, and plurals of acronyms that it would
+/// split before the `s`.
+const TERMS: &[&str] = &["PlayFab", "MoLang", "IDs"];
+
+/// Method names of the extra results of union lookups (Go names them only by position): the
+/// lookup function, the result index after the ID, and the method name.
+const UNION_EXTRAS: &[(&str, usize, &str)] = &[("protocol.itemDescriptorType", 0, "type_name")];
+
+/// The Rust field, local or function name of a Go name. `qualified` is the name the
+/// exception table uses (for example `protocol.Skin.SkinID`).
+pub(crate) fn snake(go: &str, qualified: &str) -> Result<String, String> {
+    if let Some(rust) = exception(qualified) {
+        return Ok(rust.to_owned());
+    }
+    identifier(snake_of(&words(go)), qualified)
+}
+
+/// The Rust variant name of a Go name: `UpperCamelCase` without the module-word rule of
+/// [`type_name`]. `qualified` is the name the exception table uses.
+pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
+    if let Some(rust) = exception(qualified) {
+        return Ok(rust.to_owned());
+    }
+    identifier(camel_of(&words(go)), qualified)
+}
+
+/// The Rust constant name of a Go name (`SCREAMING_SNAKE_CASE`). `qualified` is the name the
+/// exception table uses.
+pub(crate) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
+    if let Some(rust) = exception(qualified) {
+        return Ok(rust.to_owned());
+    }
+    identifier(screaming_of(&words(go)), qualified)
+}
+
+/// The Rust type name of the Go type `qualified` (`package.Name`). Packet types drop a leading
+/// or trailing `Packet` word, which would repeat the module name.
+pub(crate) fn type_name(qualified: &str) -> Result<String, String> {
+    if let Some(rust) = exception(qualified) {
+        return Ok(rust.to_owned());
+    }
+    let (package, go) = qualified.split_once('.').unwrap_or(("", qualified));
+    let mut w = words(go);
+    if package == "packet" && w.len() > 1 {
+        if w.first().is_some_and(|f| f == "Packet") {
+            w.remove(0);
+        } else if w.last().is_some_and(|l| l == "Packet") {
+            w.pop();
+        }
+    }
+    identifier(camel_of(&w), qualified)
+}
+
+/// The method name of extra result `k` of the union lookup `union`.
+pub(crate) fn union_extra(union: &str, k: usize) -> Result<&'static str, String> {
+    UNION_EXTRAS
+        .iter()
+        .find(|(u, i, _)| *u == union && *i == k)
+        .map(|(_, _, name)| *name)
+        .ok_or_else(|| format!("{union}: extra result {k} has no method name in UNION_EXTRAS"))
+}
+
+/// The variant names of a union: each variant type's words without the words all variants end
+/// with (`TakeStackRequestAction` → `Take`). A variant left without words keeps its full name.
+pub(crate) fn variants(types: &[&str]) -> Vec<String> {
+    let lists: Vec<Vec<String>> = types.iter().map(|t| words(t)).collect();
+    let mut common = 0;
+    'grow: loop {
+        let mut word: Option<&String> = None;
+        for list in &lists {
+            let Some(w) = list.len().checked_sub(common + 1).and_then(|i| list.get(i)) else {
+                break 'grow;
+            };
+            if list.len() == common + 1 || word.is_some_and(|x| x != w) {
+                break 'grow;
+            }
+            word = Some(w);
+        }
+        common += 1;
+    }
+    lists
+        .iter()
+        .map(|list| camel_of(list.get(..list.len() - common).unwrap_or(list)))
+        .collect()
+}
+
+/// The words of a Go identifier.
 pub(crate) fn words(name: &str) -> Vec<String> {
     let chars: Vec<char> = name.chars().collect();
     let mut words = Vec::new();
@@ -149,7 +227,7 @@ fn exception(qualified: &str) -> Option<&'static str> {
         .map(|(_, rust)| *rust)
 }
 
-/// Checks that a converted name is a valid identifier, making a keyword raw.
+/// The converted name as an identifier, a keyword made raw; an error for a name that is none.
 fn identifier(name: String, go: &str) -> Result<String, String> {
     let valid = name
         .chars()
@@ -165,84 +243,6 @@ fn identifier(name: String, go: &str) -> Result<String, String> {
         return Ok(format!("r#{name}"));
     }
     Ok(name)
-}
-
-/// The Rust field, local or function name of a Go name. `qualified` is the name the
-/// exception table uses (for example `protocol.Skin.SkinID`).
-pub(crate) fn snake(go: &str, qualified: &str) -> Result<String, String> {
-    if let Some(rust) = exception(qualified) {
-        return Ok(rust.to_owned());
-    }
-    identifier(snake_of(&words(go)), qualified)
-}
-
-/// The Rust variant name of a Go name: `UpperCamelCase` without the module-word rule of
-/// [`type_name`]. `qualified` is the name the exception table uses.
-pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
-    if let Some(rust) = exception(qualified) {
-        return Ok(rust.to_owned());
-    }
-    identifier(camel_of(&words(go)), qualified)
-}
-
-/// The Rust constant name of a Go name (`SCREAMING_SNAKE_CASE`). `qualified` is the name the
-/// exception table uses.
-pub(crate) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
-    if let Some(rust) = exception(qualified) {
-        return Ok(rust.to_owned());
-    }
-    identifier(screaming_of(&words(go)), qualified)
-}
-
-/// The Rust type name of the Go type `qualified` (`package.Name`). Packet types drop a leading
-/// or trailing `Packet` word, which would repeat the module name.
-pub(crate) fn type_name(qualified: &str) -> Result<String, String> {
-    if let Some(rust) = exception(qualified) {
-        return Ok(rust.to_owned());
-    }
-    let (package, go) = qualified.split_once('.').unwrap_or(("", qualified));
-    let mut w = words(go);
-    if package == "packet" && w.len() > 1 {
-        if w.first().is_some_and(|f| f == "Packet") {
-            w.remove(0);
-        } else if w.last().is_some_and(|l| l == "Packet") {
-            w.pop();
-        }
-    }
-    identifier(camel_of(&w), qualified)
-}
-
-/// The method name of extra result `k` of the union lookup `union`.
-pub(crate) fn union_extra(union: &str, k: usize) -> Result<&'static str, String> {
-    UNION_EXTRAS
-        .iter()
-        .find(|(u, i, _)| *u == union && *i == k)
-        .map(|(_, _, name)| *name)
-        .ok_or_else(|| format!("{union}: extra result {k} has no method name in UNION_EXTRAS"))
-}
-
-/// The variant names of a union: each variant type's words without the words all variants end
-/// with (`TakeStackRequestAction` → `Take`). A variant left without words keeps its full name.
-pub(crate) fn variants(types: &[&str]) -> Vec<String> {
-    let lists: Vec<Vec<String>> = types.iter().map(|t| words(t)).collect();
-    let mut common = 0;
-    'grow: loop {
-        let mut word: Option<&String> = None;
-        for list in &lists {
-            let Some(w) = list.len().checked_sub(common + 1).and_then(|i| list.get(i)) else {
-                break 'grow;
-            };
-            if list.len() == common + 1 || word.is_some_and(|x| x != w) {
-                break 'grow;
-            }
-            word = Some(w);
-        }
-        common += 1;
-    }
-    lists
-        .iter()
-        .map(|list| camel_of(list.get(..list.len() - common).unwrap_or(list)))
-        .collect()
 }
 
 #[cfg(test)]

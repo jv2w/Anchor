@@ -1,7 +1,6 @@
-//! Anchor's console for the game scenarios (`p6 game anchor`): the commands the bot asks for
-//! (`tp`, `give`, `setblock`, `fill`, `xp`, `summon villager`, `effect`, `kill`, `gamerule`) carried
-//! out through Anchor's public task API ([`anchor::Context`]), so the scenarios need no test-only
-//! entry point.
+//! Anchor's console for the game and API scenarios (`p6 game anchor`, `p6 api anchor`): the
+//! commands the bot asks for (see [`Command`]) carried out through Anchor's public task API
+//! ([`anchor::Context`]), so the scenarios need no test-only entry point.
 //!
 //! The harness parses each command line ([`parse`]) and hands it to a task that Anchor runs every
 //! tick (`ServerBuilder::every(1, ..)`, [`console`]). The task runs the commands in order in the
@@ -10,9 +9,11 @@
 //! back, which [`Console::settle`] prints after each scenario.
 //!
 //! Where Anchor has no counterpart, the command is accepted with a note: villager NPCs have no AI
-//! (`effect` on them changes nothing), and Anchor spawns no mobs and its weather has no cycle
-//! (`domobspawning`, `doweathercycle`). `dodaylightcycle` is accepted with a note too: Anchor
-//! takes it from its settings, which the API session turns off and the game session leaves on.
+//! (`effect` on them changes nothing), Anchor spawns no mobs and its weather has no cycle
+//! (`domobspawning`, `doweathercycle`), and a wind charge is not in its item table. The day
+//! cycle and the fall and drowning damage (`dodaylightcycle`, `falldamage`, `drowningdamage`) are
+//! accepted with a note too: Anchor takes them from its settings, and the API session turns the day
+//! cycle off through its settings while the game session leaves it on.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -28,11 +29,14 @@ use anchor::form::{Button, Custom, Form, Image, Menu, Modal};
 use anchor::item::{Stack, Type};
 use anchor::math::Vec3;
 use anchor::nbt::Compound;
+use anchor::player::Player;
 use anchor::world::{self, BlockPos};
 use anchor::{Context, effect, inventory};
 
+use crate::p6;
+
 /// The task's period: every tick.
-pub(in crate::p6) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
+pub(crate) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
 /// Commands waiting in the task at most; the harness's send blocks beyond it.
 const MAX_PENDING: usize = 256;
 /// How long a command may wait for its player or chunk: 10 seconds.
@@ -50,13 +54,13 @@ const NON_PLAYERS: &str = "@e[type=!player]";
 
 /// A parsed console command.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Command {
+pub(crate) enum Command {
     /// `tp <player> <x> <y> <z>`: the feet position.
     Teleport { player: String, feet: Vec3 },
     /// `give <player> <item> [count]`, split into stacks of the item's stack size.
     Give { player: String, stacks: Vec<Stack> },
-    /// `xp <points> <player>` or `xp <levels>L <player>`, as points.
-    Experience { player: String, points: u32 },
+    /// `xp <points> <player>` or `xp <levels>L <player>`.
+    Experience { player: String, amount: Xp },
     /// `setblock` and `fill`: every block of the box, corners included.
     Fill {
         from: BlockPos,
@@ -85,7 +89,7 @@ pub(super) enum Command {
     Kick { player: String, reason: String },
     /// `scriptevent p6:<kind>`: the forms scenario's form of that kind to every player, as the
     /// BDS script pack shows it (`xtask/data/p6/forms-pack`, [`p6_form`]).
-    Form(&'static str),
+    Form(FormKind),
     /// `summon snowball|egg <x> <y> <z>`: the projectile, dropped without motion.
     Projectile {
         projectile: anchor::entity::Projectile,
@@ -102,13 +106,54 @@ pub(super) enum Command {
     Accepted(&'static str),
 }
 
+/// The amount of an `xp` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Xp {
+    /// Experience points.
+    Points(u32),
+    /// Levels added to the player's level, keeping the progress.
+    Levels(u32),
+}
+
+/// A kind of form the forms scenario asks for (`scriptevent p6:<kind>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FormKind {
+    Modal,
+    Menu,
+    Custom,
+    Closed,
+}
+
+impl FormKind {
+    /// The kind a command names, if it is one.
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "modal" => Some(Self::Modal),
+            "menu" => Some(Self::Menu),
+            "custom" => Some(Self::Custom),
+            "closed" => Some(Self::Closed),
+            _ => None,
+        }
+    }
+
+    /// The name in the command.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Modal => "modal",
+            Self::Menu => "menu",
+            Self::Custom => "custom",
+            Self::Closed => "closed",
+        }
+    }
+}
+
 /// What became of one command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Report {
+pub(crate) struct Report {
     /// The command line.
-    pub(super) line: String,
+    pub(crate) line: String,
     /// Done with an optional note, or failed with the reason.
-    pub(super) result: Result<Option<String>, String>,
+    pub(crate) result: Result<Option<String>, String>,
 }
 
 /// What running a command once did.
@@ -122,11 +167,14 @@ enum Outcome {
 
 /// The harness side of the console.
 #[derive(Debug)]
-pub(in crate::p6) struct Console {
+pub(crate) struct Console {
     commands: SyncSender<(String, Command)>,
     reports: Receiver<Report>,
     /// Commands sent and not reported yet.
     outstanding: usize,
+    /// Reports of earlier scenarios' commands that a [`Console::settle`] gave up waiting for and
+    /// that are still to arrive, before any report of a command sent since.
+    owed: usize,
     /// Lines that did not parse, reported by the next [`Console::settle`].
     refused: Vec<Report>,
     /// What the players answered to the forms of `scriptevent` commands, as notes.
@@ -134,7 +182,7 @@ pub(in crate::p6) struct Console {
 }
 
 /// The console and the task for `ServerBuilder::every(EVERY_TICK, ..)`.
-pub(in crate::p6) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
+pub(crate) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
     let (commands, received) = channel(MAX_PENDING);
     let (reported, reports) = channel(MAX_PENDING);
     let (answered, answers) = channel(MAX_PENDING);
@@ -173,6 +221,7 @@ pub(in crate::p6) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send 
         commands,
         reports,
         outstanding: 0,
+        owed: 0,
         refused: Vec::new(),
         answers,
     };
@@ -181,7 +230,7 @@ pub(in crate::p6) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send 
 
 impl Console {
     /// Hands `line` to Anchor's task, or keeps the reason it does not parse for [`Self::settle`].
-    pub(in crate::p6) fn send(&mut self, line: &str) -> Result<(), String> {
+    pub(crate) fn send(&mut self, line: &str) -> Result<(), String> {
         match parse(line) {
             Ok(command) => {
                 self.commands
@@ -199,18 +248,24 @@ impl Console {
 
     /// Waits for the reports of every command sent, prints the notes and failures, and returns
     /// whether every command ran.
-    pub(in crate::p6) fn settle(&mut self, out: &mut impl Write) -> Result<bool, String> {
+    pub(crate) fn settle(&mut self, out: &mut impl Write) -> Result<bool, String> {
         let mut reports = std::mem::take(&mut self.refused);
-        let deadline = super::super::now() + SETTLE_TIMEOUT;
+        let mut late = Vec::new();
+        let deadline = p6::now() + SETTLE_TIMEOUT;
         while self.outstanding > 0 {
             match self.reports.try_recv() {
+                Ok(report) if self.owed > 0 => {
+                    self.owed -= 1;
+                    late.push(report);
+                }
                 Ok(report) => {
                     reports.push(report);
                     self.outstanding -= 1;
                 }
-                Err(_) if super::super::now() < deadline => super::super::pause(),
+                Err(_) if p6::now() < deadline => p6::pause(),
                 Err(_) => {
                     let missing = std::mem::take(&mut self.outstanding);
+                    self.owed += missing;
                     reports.push(Report {
                         line: format!("({missing} commands)"),
                         result: Err(format!("no report within {SETTLE_TIMEOUT:?}")),
@@ -219,7 +274,14 @@ impl Console {
             }
         }
         while let Ok(answer) = self.answers.try_recv() {
-            super::super::say(out, &format!("note anchor form: {answer}"))?;
+            p6::say(out, &format!("note anchor form: {answer}"))?;
+        }
+        for Report { line, result } in &late {
+            let text = format!(
+                "note anchor console `{line}` answered after an earlier scenario gave up on it: \
+                 {result:?}"
+            );
+            p6::say(out, &text)?;
         }
         let mut ran = true;
         for Report { line, result } in &reports {
@@ -231,7 +293,7 @@ impl Console {
                     format!("FAIL anchor console `{line}`: {why}")
                 }
             };
-            super::super::say(out, &text)?;
+            p6::say(out, &text)?;
         }
         Ok(ran)
     }
@@ -247,7 +309,7 @@ fn channel<T>(bound: usize) -> (SyncSender<T>, Receiver<T>) {
 }
 
 /// Parses a console command line in the form the bot writes (BDS syntax, absolute coordinates).
-pub(super) fn parse(line: &str) -> Result<Command, String> {
+pub(crate) fn parse(line: &str) -> Result<Command, String> {
     let words: Vec<&str> = line.split_whitespace().collect();
     match words.as_slice() {
         ["tp", player, x, y, z] => Ok(Command::Teleport {
@@ -255,12 +317,12 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             feet: Vec3::new(number(x)?, number(y)?, number(z)?),
         }),
         ["give", _, "wind_charge", ..] => Ok(Command::Accepted(
-            "PMMP has no wind charge: the numbers scenario records BDS's only",
+            "Anchor's item table has no wind charge: the numbers scenario records BDS's only",
         )),
         ["give", player, item, rest @ ..] => give(player, item, rest),
         ["xp", amount, player] => Ok(Command::Experience {
             player: (*player).to_owned(),
-            points: experience(amount)?,
+            amount: experience(amount)?,
         }),
         ["setblock", x, y, z, ..] => {
             let at = block_pos(x, y, z)?;
@@ -374,8 +436,8 @@ fn parse_api(words: &[&str]) -> Result<Command, String> {
         }),
         ["scriptevent", id] => id
             .strip_prefix("p6:")
-            .and_then(|kind| FORM_KINDS.iter().find(|k| **k == kind))
-            .map(|kind| Command::Form(kind))
+            .and_then(FormKind::from_name)
+            .map(Command::Form)
             .ok_or_else(|| format!("no P6 form {id}")),
         ["kill", player] if !player.starts_with('@') => Ok(Command::Kill((*player).to_owned())),
         [
@@ -454,7 +516,7 @@ fn block_spec(words: &[&str]) -> Result<State, String> {
         }
         _ => words,
     };
-    super::super::step_state(&words.join(" "))
+    p6::step_state(&words.join(" "))
 }
 
 /// The item type of a `give` name: an item, else the item of the block's default state.
@@ -467,7 +529,7 @@ fn item_type_with(name: &str, meta: u16) -> Result<Type, String> {
     let full = format!("minecraft:{name}");
     Type::from_name(&full, meta, None, &Compound::new())
         .or_else(|| {
-            let state = super::super::step_state(name).ok()?;
+            let state = p6::step_state(name).ok()?;
             match state.item() {
                 anchor::block::ItemForm::Item(t) => Some(t),
                 _ => None,
@@ -489,23 +551,13 @@ fn stacks(item: Type, count: u32) -> Vec<Stack> {
     out
 }
 
-/// The points of an `xp` amount: points, or `<n>L` levels. The harness adds points only, so levels
-/// become the points that reach them from level 0, where every scenario player starts (PMMP
-/// `ExperienceUtils::getXpToReachLevel`).
-fn experience(amount: &str) -> Result<u32, String> {
-    let bad = || format!("bad experience amount {amount:?}");
-    let Some(levels) = amount.strip_suffix(['L', 'l']) else {
-        return amount.parse().map_err(|_| bad());
-    };
-    let l: u64 = levels.parse().map_err(|_| bad())?;
-    // The formula's halves are whole: 5l² − 81l and 9l² − 325l are even for every l.
-    let points = match l {
-        0..=16 => l * l + 6 * l,
-        17..=31 => (5 * l * l + 720 - 81 * l) / 2,
-        32..=24_791 => (9 * l * l + 4440 - 325 * l) / 2,
-        _ => return Err(bad()),
-    };
-    u32::try_from(points).map_err(|_| bad())
+/// An `xp` amount: points, or `<n>L` levels.
+fn experience(amount: &str) -> Result<Xp, String> {
+    let bad = |_| format!("bad experience amount {amount:?}");
+    match amount.strip_suffix(['L', 'l']) {
+        Some(levels) => levels.parse().map(Xp::Levels).map_err(bad),
+        None => amount.parse().map(Xp::Points).map_err(bad),
+    }
 }
 
 /// The effect type of a BDS effect name (`slowness`, `instant_health`).
@@ -549,7 +601,6 @@ fn execute(
     villagers: &mut Vec<Id>,
     answers: &SyncSender<String>,
 ) -> Outcome {
-    let not_joined = |player: &str| Outcome::Wait(format!("{player} has not joined"));
     match command {
         Command::Teleport { player, feet } => {
             let Some((id, world)) = ctx
@@ -564,22 +615,27 @@ fn execute(
             }
         }
         Command::Give { player, stacks } => {
-            let Some(p) = ctx.player_exact(player) else {
-                return not_joined(player);
-            };
-            let Some(p) = ctx.player_mut(p) else {
+            let Some(p) = joined(ctx, player) else {
                 return not_joined(player);
             };
             let mut main = p.inventory_mut(inventory::Kind::Main);
             let left: u32 = stacks.iter().map(|s| u32::from(main.add(s).count())).sum();
             Outcome::Done((left > 0).then(|| format!("{left} did not fit")))
         }
-        Command::Experience { player, points } => {
-            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
+        Command::Experience { player, amount } => {
+            let Some(p) = joined(ctx, player) else {
                 return not_joined(player);
             };
-            p.add_xp(*points);
-            Outcome::Done(None)
+            match *amount {
+                Xp::Points(points) => {
+                    p.add_xp(points);
+                    Outcome::Done(None)
+                }
+                Xp::Levels(levels) => match p.add_xp_levels(levels) {
+                    Ok(()) => Outcome::Done(None),
+                    Err(e) => Outcome::Failed(e.to_string()),
+                },
+            }
         }
         Command::Fill { from, to, state } => fill(ctx, *from, *to, *state),
         Command::Villager { pos } => {
@@ -608,7 +664,7 @@ fn execute(
             }
         }
         Command::Effect { player, effect } => {
-            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
+            let Some(p) = joined(ctx, player) else {
                 return not_joined(player);
             };
             // As on BDS, 0 seconds takes the effect away.
@@ -657,18 +713,18 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
     match command {
         Command::Op(player) => done(ctx.op(player).map_err(|e| e.to_string())),
         Command::Kick { player, reason } => {
-            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
-                return Outcome::Wait(format!("{player} has not joined"));
+            let Some(p) = joined(ctx, player) else {
+                return not_joined(player);
             };
             done(p.kick(reason.as_str()).map_err(|e| e.to_string()))
         }
         Command::Form(kind) => {
-            let kind: &'static str = kind;
-            let players: Vec<_> = ctx.players().map(anchor::player::Player::id).collect();
+            let kind = *kind;
+            let players: Vec<_> = ctx.players().map(Player::id).collect();
             for player in players {
                 let answers = answers.clone();
                 let sent = ctx.send_form(player, p6_form(kind), move |_, _, response| {
-                    match answers.try_send(format!("{kind} answered {response:?}")) {
+                    match answers.try_send(format!("{} answered {response:?}", kind.name())) {
                         // A full or closed queue loses the note only.
                         Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {}
                     }
@@ -680,8 +736,8 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
             Outcome::Done(None)
         }
         Command::Kill(player) => {
-            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
-                return Outcome::Wait(format!("{player} has not joined"));
+            let Some(p) = joined(ctx, player) else {
+                return not_joined(player);
             };
             if p.kill() {
                 Outcome::Done(None)
@@ -724,14 +780,23 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
     }
 }
 
-/// The kinds of form the forms scenario asks for (`scriptevent p6:<kind>`).
-const FORM_KINDS: [&str; 4] = ["modal", "menu", "custom", "closed"];
+/// The player named `name` who has joined, to change.
+fn joined<'c>(ctx: &'c mut Context<'_>, name: &str) -> Option<&'c mut Player> {
+    let id = ctx.player_exact(name)?;
+    ctx.player_mut(id)
+}
+
+/// The outcome of a command whose player has not joined yet.
+fn not_joined(player: &str) -> Outcome {
+    Outcome::Wait(format!("{player} has not joined"))
+}
 
 /// The forms scenario's form of `kind`, the same as the BDS script pack's
 /// (`xtask/data/p6/forms-pack/scripts/main.js`); keep the two the same.
-fn p6_form(kind: &str) -> Form {
+fn p6_form(kind: FormKind) -> Form {
     match kind {
-        "menu" => Menu::new("P6 menu")
+        FormKind::Modal => Modal::new("P6 modal", "Modal body", "Yes", "No").into(),
+        FormKind::Menu => Menu::new("P6 menu")
             .with_content("Menu body")
             .button("First")
             .header("Menu header")
@@ -741,7 +806,7 @@ fn p6_form(kind: &str) -> Form {
                 Button::new("Second").with_image(Image::Path("textures/items/apple".to_owned())),
             )
             .into(),
-        "custom" => Custom::new("P6 custom")
+        FormKind::Custom => Custom::new("P6 custom")
             .header("A header")
             .label("A label")
             .divider()
@@ -750,8 +815,7 @@ fn p6_form(kind: &str) -> Form {
             .slider("Slider", 0.0, 10.0, 1.0, 3.0)
             .dropdown("Dropdown", ["a", "b", "c"], 0)
             .into(),
-        "closed" => Modal::new("P6 closed", "Closed body", "Yes", "No").into(),
-        _ => Modal::new("P6 modal", "Modal body", "Yes", "No").into(),
+        FormKind::Closed => Modal::new("P6 closed", "Closed body", "Yes", "No").into(),
     }
 }
 
@@ -781,6 +845,8 @@ fn fill(ctx: &mut Context<'_>, from: BlockPos, to: BlockPos, state: State) -> Ou
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::p6::game;
 
     /// Every command line of the BDS game session (`target/p6/bds-game/*.jsonl`) and its setup.
     const SCENARIO_COMMANDS: &[&str] = &[
@@ -822,7 +888,7 @@ mod tests {
 
     #[test]
     fn every_command_the_scenarios_send_parses() {
-        for line in SCENARIO_COMMANDS.iter().chain(super::super::SESSION_SETUP) {
+        for line in SCENARIO_COMMANDS.iter().chain(game::SESSION_SETUP) {
             if let Err(e) = parse(line) {
                 panic!("{line}: {e}");
             }
@@ -904,7 +970,6 @@ mod tests {
             "setblock 0 0 0 stone keep",
             "setblock 0 0 0 no_such_block",
             "xp 30Q P6Enchant",
-            "xp 30000L P6Enchant",
             "summon zombie 0 0 0",
             "kill @a",
             "gamerule pvp false",
@@ -918,19 +983,57 @@ mod tests {
     }
 
     #[test]
-    fn levels_become_the_points_that_reach_them_from_zero() {
-        // PMMP ExperienceUtils::getXpToReachLevel at the formula's borders.
-        for (amount, points) in [
-            ("0L", 0),
-            ("16L", 352),
-            ("17L", 394),
-            ("30L", 1395),
-            ("31L", 1507),
-            ("32L", 1628),
-            ("7", 7),
+    fn experience_amounts_are_points_or_levels() {
+        for (amount, expected) in [
+            ("7", Xp::Points(7)),
+            ("30L", Xp::Levels(30)),
+            ("30l", Xp::Levels(30)),
+            ("30000L", Xp::Levels(30_000)),
         ] {
-            assert_eq!(experience(amount), Ok(points), "{amount}");
+            assert_eq!(experience(amount), Ok(expected), "{amount}");
         }
+    }
+
+    #[test]
+    fn a_report_that_came_late_is_not_the_next_scenarios() {
+        let (commands, _received) = channel(1);
+        let (reported, reports) = channel(2);
+        let (_answered, answers) = channel(1);
+        let mut console = Console {
+            commands,
+            reports,
+            outstanding: 1,
+            owed: 1,
+            refused: Vec::new(),
+            answers,
+        };
+        for (line, result) in [("late", Err("no player".to_owned())), ("current", Ok(None))] {
+            let report = Report {
+                line: line.to_owned(),
+                result,
+            };
+            reported.try_send(report).expect("room for the report");
+        }
+        let mut out = Vec::new();
+        assert_eq!(console.settle(&mut out), Ok(true));
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("`late` answered after"), "{text}");
+    }
+
+    #[test]
+    fn scriptevent_names_the_form_kind() {
+        for kind in [
+            FormKind::Modal,
+            FormKind::Menu,
+            FormKind::Custom,
+            FormKind::Closed,
+        ] {
+            assert_eq!(
+                parse(&format!("scriptevent p6:{}", kind.name())),
+                Ok(Command::Form(kind))
+            );
+        }
+        assert!(parse("scriptevent p6:toast").is_err());
     }
 
     #[test]

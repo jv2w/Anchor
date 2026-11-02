@@ -8,11 +8,15 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/rng.rs"]
+mod rng;
+
 use std::io;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
 use redb::{Builder, ReadableDatabase, ReadableTable, StorageBackend, TableDefinition};
+use rng::Rng;
 
 const TABLE: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("chunks");
 const PAGE: usize = 4096;
@@ -61,23 +65,6 @@ impl StorageBackend for Memory {
             .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?
             .copy_from_slice(data);
         Ok(())
-    }
-}
-
-/// `SplitMix64`, for a fixed sequence of damaged bytes.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-
-    fn below(&mut self, n: usize) -> usize {
-        usize::try_from(self.next() % u64::try_from(n).unwrap()).unwrap()
     }
 }
 
@@ -170,7 +157,7 @@ fn a_small_commit_after_a_compaction_grows_the_file_by_a_step_not_double() {
             let mut table = txn.open_table(TABLE).unwrap();
             for key in 0..512_u32 {
                 let len = 200 + rng.below(1500);
-                let value: Vec<u8> = (0..len).map(|_| rng.next().to_le_bytes()[0]).collect();
+                let value: Vec<u8> = (0..len).map(|_| rng.byte()).collect();
                 table
                     .insert(&(round * 512 + key).to_be_bytes()[..], value.as_slice())
                     .unwrap();

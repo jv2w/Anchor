@@ -320,7 +320,12 @@ fn schema(model: &SchemaModel) -> R<Schema<'static>> {
 /// Reads the block schemas, sorted by (version, ID) as PMMP sorts them.
 fn read_schemas(root: &Path) -> R<Vec<Schema<'static>>> {
     let mut schemas = Vec::new();
+    let mut previous = None;
     for (id, name, bytes) in schema_files(&root.join(DIR).join(BLOCK_SCHEMAS))? {
+        if previous.is_some_and(|p| p >= id) {
+            return Err(format!("{BLOCK_SCHEMAS}/{name}: schema ID {id} twice"));
+        }
+        previous = Some(id);
         let model: SchemaModel =
             serde_json::from_slice(&bytes).map_err(|e| format!("{BLOCK_SCHEMAS}/{name}: {e}"))?;
         let schema = schema(&model).map_err(|e| format!("{BLOCK_SCHEMAS}/{name}: {e}"))?;

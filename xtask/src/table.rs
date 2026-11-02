@@ -14,13 +14,15 @@
 mod scan;
 mod status;
 
+pub(crate) use scan::is_ident;
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
 use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::dump::{read, write};
+use crate::dump::{file_names, is_dir, read, read_if_exists, write};
 use status::{Kind, Rule};
 
 /// The PMMP API inventory, relative to the repository root.
@@ -184,7 +186,9 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Report, String> {
         list.dedup();
     }
 
-    let (rules, errors) = status::parse(&String::from_utf8_lossy(&read(&root.join(STATUS_PATH))?));
+    let status_text = String::from_utf8(read(&root.join(STATUS_PATH))?)
+        .map_err(|e| format!("{STATUS_PATH}: {e}"))?;
+    let (rules, errors) = status::parse(&status_text);
     push_errors(&mut report.errors, STATUS_PATH, errors);
     // One error per missing target, at its first rule: a target the code has not got yet is one
     // thing to add however many rules name it.
@@ -234,7 +238,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Report, String> {
     let table = render(report.counts, &sections).map_err(|e| e.to_string())?;
     let table_path = root.join(TABLE_PATH);
     if check {
-        report.stale = read(&table_path).ok().as_deref() != Some(table.as_bytes());
+        report.stale = read_if_exists(&table_path)?.as_deref() != Some(table.as_bytes());
     } else {
         write(&table_path, table.as_bytes())?;
     }
@@ -442,9 +446,6 @@ fn judge(
         }
     } else {
         match first(false) {
-            None => (Status::Blank, None, String::new()),
-            Some(Kind::Skipped(reason)) => (Status::Skipped, None, reason.clone()),
-            Some(Kind::Open(note)) => (Status::Blank, None, format!("open: {note}")),
             Some(Kind::Differs(reason)) => (
                 Status::Blank,
                 None,
@@ -458,6 +459,9 @@ fn judge(
                 None,
                 format!("merge target `{target}` is not in src/"),
             ),
+            Some(Kind::Skipped(reason)) => (Status::Skipped, None, reason.clone()),
+            Some(Kind::Open(note)) => (Status::Blank, None, format!("open: {note}")),
+            None => (Status::Blank, None, String::new()),
         }
     };
     let Some(target) = target else {
@@ -574,25 +578,16 @@ pub(crate) fn sources(root: &Path, dirs: &[&str]) -> Result<Vec<(String, String)
         .collect()
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
 fn walk(root: &Path, dir: &str, out: &mut Vec<String>) -> Result<(), String> {
     let full = root.join(dir);
-    if !full.is_dir() {
+    if !is_dir(&full) {
         return Ok(());
     }
-    let entries = std::fs::read_dir(&full).map_err(|e| format!("{dir}: {e}"))?;
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("{dir}: {e}"))?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
+    for name in file_names(&full)? {
         let path = format!("{dir}/{name}");
-        let kind = entry.file_type().map_err(|e| format!("{path}: {e}"))?;
-        if kind.is_dir() {
+        if is_dir(&root.join(&path)) {
             walk(root, &path, out)?;
-        } else if name.ends_with(".rs") {
+        } else if Path::new(&name).extension().is_some_and(|ext| ext == "rs") {
             out.push(path);
         }
     }

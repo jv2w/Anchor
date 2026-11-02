@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{PHP, PMMP, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, pinned, read, write};
+use super::{PHP, PMMP, create_dir, file_names, read, write};
 
 /// The pinned checkouts, relative to the repository root, and their commits.
 pub(super) const BLOCKS: (&str, &str) = (
@@ -41,156 +41,6 @@ const ITEM_SCHEMA_DIR: &str = "id_meta_upgrade_schema";
 /// The legacy block tables: 1.12.0 is the one PMMP loads; 1.9.0 only feeds the golden run.
 const LEGACY_BIN: &str = "id_meta_to_nbt/1.12.0.bin";
 const LEGACY_BIN_1_9: &str = "id_meta_to_nbt/1.9.0.bin";
-
-/// Writes everything into `out` (the committed folder, or a scratch one for `--check`) and
-/// returns the files written, relative to `out`.
-pub(super) fn run(root: &Path, out: &Path) -> Result<Vec<String>, String> {
-    for (dir, commit) in [BLOCKS, ITEMS] {
-        pinned(root, dir, commit)?;
-    }
-    let blocks = root.join(BLOCKS.0);
-    let items = root.join(ITEMS.0);
-    for dir in [
-        out.to_path_buf(),
-        out.join(BLOCK_SCHEMAS),
-        out.join(ITEM_SCHEMAS),
-        out.join(GOLDEN),
-    ] {
-        create_dir(&dir)?;
-    }
-    // (source file, file written into `out`), the converted table aside.
-    let mut copies: Vec<(PathBuf, String, String)> = Vec::new();
-    for name in json_files(&blocks.join(BLOCK_SCHEMA_DIR))? {
-        copies.push((
-            blocks.clone(),
-            format!("{BLOCK_SCHEMA_DIR}/{name}"),
-            format!("{BLOCK_SCHEMAS}/{name}"),
-        ));
-    }
-    copies.push((
-        blocks.clone(),
-        BLOCK_LEGACY_IDS.to_owned(),
-        BLOCK_LEGACY_IDS.to_owned(),
-    ));
-    for name in json_files(&items.join(ITEM_SCHEMA_DIR))? {
-        copies.push((
-            items.clone(),
-            format!("{ITEM_SCHEMA_DIR}/{name}"),
-            format!("{ITEM_SCHEMAS}/{name}"),
-        ));
-    }
-    for file in [ITEM_LEGACY_IDS, ITEM_BLOCKS] {
-        copies.push((
-            items.clone(),
-            file.to_owned(),
-            format!("{ITEM_SCHEMAS}/{file}"),
-        ));
-    }
-
-    let mut sources = serde_json::Map::new();
-    sources.insert("block".to_owned(), BLOCKS.1.into());
-    sources.insert("item".to_owned(), ITEMS.1.into());
-    let mut written = Vec::with_capacity(copies.len() + 2 + GOLDEN_FILES.len());
-    let repo = |dir: &Path| if dir == blocks { "block" } else { "item" };
-    for (dir, source, to) in &copies {
-        let bytes = read(&dir.join(source))?;
-        sources.insert(
-            format!("{}/{source}", repo(dir)),
-            hex(&sha256(&bytes)).into(),
-        );
-        // The repository stores text with LF (`.gitattributes`); the item schemas come with CR LF.
-        let text = String::from_utf8(bytes).map_err(|e| format!("{source}: {e}"))?;
-        write(&out.join(to), text.replace("\r\n", "\n").as_bytes())?;
-        written.push(to.clone());
-    }
-    for bin in [LEGACY_BIN, LEGACY_BIN_1_9] {
-        let bytes = read(&blocks.join(bin))?;
-        sources.insert(format!("block/{bin}"), hex(&sha256(&bytes)).into());
-        if bin == LEGACY_BIN {
-            let lines = legacy_lines(&bytes).map_err(|e| format!("{bin}: {e}"))?;
-            write(&out.join(LEGACY_TABLE), lines.as_bytes())?;
-            written.push(LEGACY_TABLE.to_owned());
-        }
-    }
-    let mut text = serde_json::to_string_pretty(&sources).map_err(|e| format!("{SOURCES}: {e}"))?;
-    text.push('\n');
-    write(&out.join(SOURCES), text.as_bytes())?;
-    written.push(SOURCES.to_owned());
-
-    let status = Command::new(root.join(PHP))
-        .args(["-d", "memory_limit=2G"])
-        .arg(root.join("xtask").join("php").join("upgrade.php"))
-        .arg(out)
-        .arg(blocks.join(LEGACY_BIN))
-        .arg(blocks.join(LEGACY_BIN_1_9))
-        .arg(root.join(REFERENCE_DIR).join(REFERENCE_BLOCKS))
-        .current_dir(root.join(PMMP.0))
-        .status()
-        .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
-    if !status.success() {
-        return Err(format!("the PMMP upgrade golden run failed ({status})"));
-    }
-    written.extend(GOLDEN_FILES.iter().map(|f| format!("{GOLDEN}/{f}")));
-    Ok(written)
-}
-
-/// The `.json` files directly in `dir`, sorted.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn json_files(dir: &Path) -> Result<Vec<String>, String> {
-    let mut names = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if Path::new(&name).extension() == Some("json".as_ref()) {
-            names.push(name);
-        }
-    }
-    names.sort();
-    Ok(names)
-}
-
-/// The legacy table (PMMP `BlockIdMetaUpgrader::loadFromString` format: unsigned varint ID
-/// count; per ID its varint-length name and varint meta count; per meta the varint meta and a
-/// little-endian NBT state) as one JSON line per entry, in file order:
-/// `{"id":..,"meta":..,"state":{"name":..,"states":{..},"version":..}}`, values typed as in the
-/// schemas. Fails on trailing bytes, as PMMP does.
-fn legacy_lines(bin: &[u8]) -> Result<String, String> {
-    let mut r = Bin { bytes: bin, at: 0 };
-    let mut out = String::new();
-    let ids = r.varint()?;
-    for _ in 0..ids {
-        let len = r.varint()?;
-        let id = String::from_utf8(r.take(len)?.to_vec()).map_err(|e| e.to_string())?;
-        let metas = r.varint()?;
-        for _ in 0..metas {
-            let meta = r.varint()?;
-            let state = r.root()?;
-            out.push_str(
-                &serde_json::to_string(&serde_json::json!({
-                    "id": id,
-                    "meta": meta,
-                    "state": state,
-                }))
-                .map_err(|e| e.to_string())?,
-            );
-            out.push('\n');
-        }
-    }
-    if r.at != bin.len() {
-        return Err("trailing bytes after the last entry".to_owned());
-    }
-    Ok(out)
-}
-
-/// A reader of the legacy table's bytes.
-struct Bin<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
 /// NBT tag types a block state holds.
 const TAG_END: u8 = 0;
 const TAG_BYTE: u8 = 1;
@@ -198,96 +48,6 @@ const TAG_SHORT: u8 = 2;
 const TAG_INT: u8 = 3;
 const TAG_STRING: u8 = 8;
 const TAG_COMPOUND: u8 = 10;
-
-impl Bin<'_> {
-    fn take(&mut self, n: usize) -> Result<&[u8], String> {
-        let end = self.at.checked_add(n).ok_or("length overflows")?;
-        let bytes = self.bytes.get(self.at..end).ok_or("unexpected end")?;
-        self.at = end;
-        Ok(bytes)
-    }
-
-    fn byte(&mut self) -> Result<u8, String> {
-        Ok(self.take(1)?.first().copied().unwrap_or_default())
-    }
-
-    fn varint(&mut self) -> Result<usize, String> {
-        let mut value = 0usize;
-        for shift in (0..35).step_by(7) {
-            let b = self.byte()?;
-            value |= usize::from(b & 0x7f) << shift;
-            if b & 0x80 == 0 {
-                return Ok(value);
-            }
-        }
-        Err("varint too long".to_owned())
-    }
-
-    fn string(&mut self) -> Result<String, String> {
-        let len = u16::from_le_bytes(self.array()?);
-        String::from_utf8(self.take(usize::from(len))?.to_vec()).map_err(|e| e.to_string())
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], String> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| "short read".to_owned())
-    }
-
-    /// A root compound (type, empty name, body) as typed JSON: a compound becomes an object
-    /// whose values are `{"byte": ..}`, `{"short": ..}`, `{"int": ..}` or `{"string": ..}`, the
-    /// `states` compound nested the same way and `name`/`version` plain.
-    fn root(&mut self) -> Result<serde_json::Value, String> {
-        if self.byte()? != TAG_COMPOUND {
-            return Err("a state is not a compound".to_owned());
-        }
-        self.string()?;
-        let mut state = serde_json::Map::new();
-        loop {
-            let tag = self.byte()?;
-            if tag == TAG_END {
-                return Ok(serde_json::Value::Object(state));
-            }
-            let key = self.string()?;
-            let value = match (key.as_str(), tag) {
-                ("name", TAG_STRING) => serde_json::Value::String(self.string()?),
-                ("version", TAG_INT) => i32::from_le_bytes(self.array()?).into(),
-                ("states", TAG_COMPOUND) => self.states()?,
-                _ => return Err(format!("unexpected state key {key} of type {tag}")),
-            };
-            state.insert(key, value);
-        }
-    }
-
-    fn states(&mut self) -> Result<serde_json::Value, String> {
-        let mut states = serde_json::Map::new();
-        loop {
-            let tag = self.byte()?;
-            if tag == TAG_END {
-                return Ok(serde_json::Value::Object(states));
-            }
-            let key = self.string()?;
-            let value = match tag {
-                TAG_BYTE => serde_json::json!({ "byte": self.byte()? }),
-                TAG_SHORT => serde_json::json!({ "short": i16::from_le_bytes(self.array()?) }),
-                TAG_INT => serde_json::json!({ "int": i32::from_le_bytes(self.array()?) }),
-                TAG_STRING => serde_json::json!({ "string": self.string()? }),
-                _ => return Err(format!("unexpected property {key} of type {tag}")),
-            };
-            states.insert(key, value);
-        }
-    }
-}
-
-/// Lowercase hexadecimal.
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .flat_map(|b| [b >> 4, b & 15])
-        .filter_map(|n| char::from_digit(u32::from(n), 16))
-        .collect()
-}
-
 /// The SHA-256 round constants (FIPS 180-4 4.2.2).
 const K: [u32; 64] = [
     0x428a_2f98,
@@ -367,6 +127,260 @@ const H0: [u32; 8] = [
     0x5be0_cd19,
 ];
 
+/// A reader of the legacy table's bytes.
+struct Bin<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl Bin<'_> {
+    /// A root compound (type, empty name, body) as typed JSON: a compound becomes an object
+    /// whose values are `{"byte": ..}`, `{"short": ..}`, `{"int": ..}` or `{"string": ..}`, the
+    /// `states` compound nested the same way and `name`/`version` plain.
+    fn root(&mut self) -> Result<serde_json::Value, String> {
+        if self.byte()? != TAG_COMPOUND {
+            return Err("a state is not a compound".to_owned());
+        }
+        self.string()?;
+        let mut state = serde_json::Map::new();
+        loop {
+            let tag = self.byte()?;
+            if tag == TAG_END {
+                return Ok(serde_json::Value::Object(state));
+            }
+            let key = self.string()?;
+            let value = match (key.as_str(), tag) {
+                ("name", TAG_STRING) => serde_json::Value::String(self.string()?),
+                ("version", TAG_INT) => i32::from_le_bytes(self.array()?).into(),
+                ("states", TAG_COMPOUND) => self.states()?,
+                _ => return Err(format!("unexpected state key {key} of type {tag}")),
+            };
+            state.insert(key, value);
+        }
+    }
+
+    fn states(&mut self) -> Result<serde_json::Value, String> {
+        let mut states = serde_json::Map::new();
+        loop {
+            let tag = self.byte()?;
+            if tag == TAG_END {
+                return Ok(serde_json::Value::Object(states));
+            }
+            let key = self.string()?;
+            let value = match tag {
+                TAG_BYTE => serde_json::json!({ "byte": self.byte()? }),
+                TAG_SHORT => serde_json::json!({ "short": i16::from_le_bytes(self.array()?) }),
+                TAG_INT => serde_json::json!({ "int": i32::from_le_bytes(self.array()?) }),
+                TAG_STRING => serde_json::json!({ "string": self.string()? }),
+                _ => return Err(format!("unexpected property {key} of type {tag}")),
+            };
+            states.insert(key, value);
+        }
+    }
+
+    fn varint(&mut self) -> Result<usize, String> {
+        let mut value = 0_usize;
+        for shift in (0..35).step_by(7) {
+            let b = self.byte()?;
+            value |= usize::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Ok(value);
+            }
+        }
+        Err("varint too long".to_owned())
+    }
+
+    fn string(&mut self) -> Result<String, String> {
+        let len = u16::from_le_bytes(self.array()?);
+        String::from_utf8(self.take(usize::from(len))?.to_vec()).map_err(|e| e.to_string())
+    }
+
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], String> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| "short read".to_owned())
+    }
+
+    fn byte(&mut self) -> Result<u8, String> {
+        Ok(self.take(1)?.first().copied().unwrap_or_default())
+    }
+
+    fn take(&mut self, n: usize) -> Result<&[u8], String> {
+        let end = self.at.checked_add(n).ok_or("length overflows")?;
+        let bytes = self.bytes.get(self.at..end).ok_or("unexpected end")?;
+        self.at = end;
+        Ok(bytes)
+    }
+}
+
+/// Writes everything into `out` (the committed folder, or a scratch one for `--check`) and
+/// returns the files written, relative to `out`. The golden run reads the reference block list
+/// at `reference_blocks`, the one this run of `dump` made.
+pub(super) fn run(root: &Path, reference_blocks: &Path, out: &Path) -> Result<Vec<String>, String> {
+    let blocks = root.join(BLOCKS.0);
+    let items = root.join(ITEMS.0);
+    for dir in [
+        out.to_path_buf(),
+        out.join(BLOCK_SCHEMAS),
+        out.join(ITEM_SCHEMAS),
+        out.join(GOLDEN),
+    ] {
+        create_dir(&dir)?;
+    }
+    // (source file, file written into `out`), the converted table aside.
+    let mut copies: Vec<(PathBuf, String, String)> = Vec::new();
+    for name in json_files(&blocks.join(BLOCK_SCHEMA_DIR))? {
+        copies.push((
+            blocks.clone(),
+            format!("{BLOCK_SCHEMA_DIR}/{name}"),
+            format!("{BLOCK_SCHEMAS}/{name}"),
+        ));
+    }
+    copies.push((
+        blocks.clone(),
+        BLOCK_LEGACY_IDS.to_owned(),
+        BLOCK_LEGACY_IDS.to_owned(),
+    ));
+    for name in json_files(&items.join(ITEM_SCHEMA_DIR))? {
+        copies.push((
+            items.clone(),
+            format!("{ITEM_SCHEMA_DIR}/{name}"),
+            format!("{ITEM_SCHEMAS}/{name}"),
+        ));
+    }
+    for file in [ITEM_LEGACY_IDS, ITEM_BLOCKS] {
+        copies.push((
+            items.clone(),
+            file.to_owned(),
+            format!("{ITEM_SCHEMAS}/{file}"),
+        ));
+    }
+
+    let mut sources = serde_json::Map::new();
+    sources.insert("block".to_owned(), BLOCKS.1.into());
+    sources.insert("item".to_owned(), ITEMS.1.into());
+    let mut written = Vec::with_capacity(copies.len() + 2 + GOLDEN_FILES.len());
+    let repo = |dir: &Path| if dir == blocks { "block" } else { "item" };
+    for (dir, source, to) in &copies {
+        let bytes = read(&dir.join(source))?;
+        sources.insert(
+            format!("{}/{source}", repo(dir)),
+            hex(&sha256(&bytes)).into(),
+        );
+        // The repository stores text with LF (`.gitattributes`); the item schemas come with CR LF.
+        let text = String::from_utf8(bytes).map_err(|e| format!("{source}: {e}"))?;
+        write(&out.join(to), text.replace("\r\n", "\n").as_bytes())?;
+        written.push(to.clone());
+    }
+    for bin in [LEGACY_BIN, LEGACY_BIN_1_9] {
+        let bytes = read(&blocks.join(bin))?;
+        sources.insert(format!("block/{bin}"), hex(&sha256(&bytes)).into());
+        if bin == LEGACY_BIN {
+            let lines = legacy_lines(&bytes).map_err(|e| format!("{bin}: {e}"))?;
+            write(&out.join(LEGACY_TABLE), lines.as_bytes())?;
+            written.push(LEGACY_TABLE.to_owned());
+        }
+    }
+    let mut text = serde_json::to_string_pretty(&sources).map_err(|e| format!("{SOURCES}: {e}"))?;
+    text.push('\n');
+    write(&out.join(SOURCES), text.as_bytes())?;
+    written.push(SOURCES.to_owned());
+
+    let status = Command::new(root.join(PHP))
+        .args(["-d", "memory_limit=2G"])
+        .arg(root.join("xtask").join("php").join("upgrade.php"))
+        .arg(out)
+        .arg(blocks.join(LEGACY_BIN))
+        .arg(blocks.join(LEGACY_BIN_1_9))
+        .arg(reference_blocks)
+        .current_dir(root.join(PMMP.0))
+        .status()
+        .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
+    if !status.success() {
+        return Err(format!("the PMMP upgrade golden run failed ({status})"));
+    }
+    written.extend(GOLDEN_FILES.iter().map(|f| format!("{GOLDEN}/{f}")));
+    Ok(written)
+}
+
+/// Fails when the schema folders of `dir` hold a file that `written` (from [`run`]) lacks: a
+/// schema the sources dropped or renamed, which `gen` would otherwise apply with the new one.
+pub(super) fn check_no_leftovers(dir: &Path, written: &[String]) -> Result<(), String> {
+    let mut existing = Vec::new();
+    for schemas in [BLOCK_SCHEMAS, ITEM_SCHEMAS] {
+        for name in file_names(&dir.join(schemas))? {
+            existing.push(format!("{schemas}/{name}"));
+        }
+    }
+    let stale = leftovers(existing, written);
+    if stale.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} holds files the sources no longer make; delete them: {}",
+            dir.display(),
+            stale.join(", ")
+        ))
+    }
+}
+
+/// The files of `existing` that `written` lacks.
+fn leftovers(existing: Vec<String>, written: &[String]) -> Vec<String> {
+    existing
+        .into_iter()
+        .filter(|file| !written.contains(file))
+        .collect()
+}
+
+/// The `.json` files directly in `dir`, sorted.
+fn json_files(dir: &Path) -> Result<Vec<String>, String> {
+    let mut names = file_names(dir)?;
+    names.retain(|name| Path::new(name).extension() == Some("json".as_ref()));
+    Ok(names)
+}
+
+/// The legacy table (PMMP `BlockIdMetaUpgrader::loadFromString` format: unsigned varint ID
+/// count; per ID its varint-length name and varint meta count; per meta the varint meta and a
+/// little-endian NBT state) as one JSON line per entry, in file order:
+/// `{"id":..,"meta":..,"state":{"name":..,"states":{..},"version":..}}`, values typed as in the
+/// schemas. Fails on trailing bytes, as PMMP does.
+fn legacy_lines(bin: &[u8]) -> Result<String, String> {
+    let mut r = Bin { bytes: bin, at: 0 };
+    let mut out = String::new();
+    let ids = r.varint()?;
+    for _ in 0..ids {
+        let len = r.varint()?;
+        let id = String::from_utf8(r.take(len)?.to_vec()).map_err(|e| e.to_string())?;
+        let metas = r.varint()?;
+        for _ in 0..metas {
+            let meta = r.varint()?;
+            let state = r.root()?;
+            out.push_str(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": id,
+                    "meta": meta,
+                    "state": state,
+                }))
+                .map_err(|e| e.to_string())?,
+            );
+            out.push('\n');
+        }
+    }
+    if r.at != bin.len() {
+        return Err("trailing bytes after the last entry".to_owned());
+    }
+    Ok(out)
+}
+
+/// Lowercase hexadecimal.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .flat_map(|b| [b >> 4, b & 15])
+        .filter_map(|n| char::from_digit(u32::from(n), 16))
+        .collect()
+}
+
 /// SHA-256 (FIPS 180-4) of `data`: the dump records the hash of every source file and
 /// `vendor-test` checks its downloads, and the tool has no hashing dependency.
 #[expect(
@@ -390,7 +404,7 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     message.extend_from_slice(&bits.to_be_bytes());
     let (blocks, _) = message.as_chunks::<64>();
     for block in blocks {
-        let mut w = [0u32; 64];
+        let mut w = [0_u32; 64];
         let (words, _) = block.as_chunks::<4>();
         for (word, bytes) in w.iter_mut().zip(words) {
             *word = u32::from_be_bytes(*bytes);
@@ -460,6 +474,17 @@ mod tests {
     }
 
     #[test]
+    fn files_the_sources_no_longer_make_are_leftovers() {
+        let written = ["blocks/a.json".to_owned(), "items/b.json".to_owned()];
+        let existing = vec![
+            "blocks/a.json".to_owned(),
+            "blocks/old.json".to_owned(),
+            "items/b.json".to_owned(),
+        ];
+        assert_eq!(leftovers(existing, &written), ["blocks/old.json"]);
+    }
+
+    #[test]
     fn a_legacy_table_converts_to_typed_lines_and_trailing_bytes_fail() {
         // One ID ("a", 1 byte), one meta (3): {name: "a", states: {b: 1b, i: 2, s: "x"}, version: 7}.
         let mut bin = vec![1, 1, b'a', 1, 3, TAG_COMPOUND, 0, 0];
@@ -477,14 +502,14 @@ mod tests {
         bin.push(1);
         bin.push(TAG_INT);
         put_str(&mut bin, "i");
-        bin.extend_from_slice(&2i32.to_le_bytes());
+        bin.extend_from_slice(&2_i32.to_le_bytes());
         bin.push(TAG_STRING);
         put_str(&mut bin, "s");
         put_str(&mut bin, "x");
         bin.push(TAG_END);
         bin.push(TAG_INT);
         put_str(&mut bin, "version");
-        bin.extend_from_slice(&7i32.to_le_bytes());
+        bin.extend_from_slice(&7_i32.to_le_bytes());
         bin.push(TAG_END);
         assert_eq!(
             legacy_lines(&bin).unwrap(),

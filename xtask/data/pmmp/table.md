@@ -7,9 +7,9 @@ Rows: the non-`@internal` class-likes of `xtask/data/pmmp/api.json` and the publ
 |---|---:|
 | implemented | 1824 |
 | differs | 21 |
-| merged | 3568 |
+| merged | 3565 |
 | skipped | 4804 |
-| blank | 0 |
+| blank | 3 |
 | total | 10217 |
 
 ## `pocketmine`
@@ -54,7 +54,7 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::dispatchCommand` | implemented | src/tick/command.rs:1184 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `pocketmine\Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `pocketmine\Server::forceShutdown` | merged | src/server.rs:676 `shutdown`<br>src/tick/command.rs:1692 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `pocketmine\Server::forceShutdown` | merged | src/server.rs:683 `shutdown`<br>src/tick/command.rs:1692 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `pocketmine\Server::getAllowedViewDistance` | merged | src/tick/task.rs:159 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `pocketmine\Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getAsyncPool` | merged | src/tick/task/job.rs:172 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
@@ -126,7 +126,7 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `pocketmine\Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:315 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:165 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::shutdown` | implemented | src/server.rs:676 `shutdown`<br>src/tick/command.rs:1692 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `pocketmine\Server::shutdown` | implemented | src/server.rs:683 `shutdown`<br>src/tick/command.rs:1692 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `pocketmine\Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `pocketmine\Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `pocketmine\Server::unsubscribeFromBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -150,7 +150,7 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 
 ## `pocketmine\block`
 
-implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
+implemented 158, differs 0, merged 2062, skipped 1116, blank 2 (of 3338 rows)
 
 | PMMP | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -464,7 +464,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\BlockTypeInfo::getEnchantmentTags` | skipped |  |  | kinds are generated from the PMMP dump |
 | `pocketmine\block\BlockTypeInfo::getTypeTags` | merged | src/block.rs:482 `has_type_tag` | src/block.rs::gameplay_data_are_pmmp_values | into `Block::hasTypeTag` |
 | `pocketmine\block\BlockTypeInfo::hasTypeTag` | merged | src/block.rs:482 `has_type_tag` | src/block.rs::gameplay_data_are_pmmp_values | into `Block::hasTypeTag` |
-| `pocketmine\block\BlockTypeTags` | merged | src/block.rs:84 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
+| `pocketmine\block\BlockTypeTags` | blank | src/block/table.rs:65448 `TypeTag` |  | no `// pmmp:` test (implemented) |
 | `pocketmine\block\BlueIce` | merged | src/block.rs:84 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\BlueIce::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\BlueIce::getFrictionFactor` | merged | src/block.rs:475 `friction_factor` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::getFrictionFactor` |
@@ -3185,7 +3185,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\utils\BannerPatternLayer::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
 | `pocketmine\block\utils\BannerPatternLayer::getColor` | implemented | src/tile.rs:291 `colour` | src/tile.rs::banner_colours_count_the_other_way |  |
 | `pocketmine\block\utils\BannerPatternLayer::getType` | implemented | src/tile.rs:297 `pattern` | src/tile.rs::banner_colours_count_the_other_way |  |
-| `pocketmine\block\utils\BannerPatternType` | merged | src/block.rs:84 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
+| `pocketmine\block\utils\BannerPatternType` | blank | src/block/table.rs:77388 `BannerPattern` |  | no `// pmmp:` test (implemented) |
 | `pocketmine\block\utils\BannerPatternType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\block\utils\BannerPatternType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\block\utils\BannerPatternType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -5251,8 +5251,8 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\HandlerList::getListenerList` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\HandlerList::getListenersByPriority` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\HandlerList::getParent` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
-| `pocketmine\event\HandlerList::register` | merged | src/server.rs:525 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
-| `pocketmine\event\HandlerList::registerAll` | merged | src/server.rs:525 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `pocketmine\event\HandlerList::register` | merged | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `pocketmine\event\HandlerList::registerAll` | merged | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `pocketmine\event\HandlerList::unregister` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\HandlerListManager` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\HandlerListManager::getAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
@@ -5260,7 +5260,7 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\HandlerListManager::getListFor` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\HandlerListManager::global` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\HandlerListManager::unregisterAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
-| `pocketmine\event\Listener` | merged | src/server.rs:525 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `pocketmine\event\Listener` | merged | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `pocketmine\event\ListenerMethodTags` | skipped |  |  | PHP docblock tags: a listener's priority is an argument of `ServerBuilder::on` |
 | `pocketmine\event\RegisteredListener` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `pocketmine\event\RegisteredListener::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -6366,7 +6366,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 
 ## `pocketmine\item`
 
-implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
+implemented 61, differs 0, merged 805, skipped 228, blank 1 (of 1095 rows)
 
 | PMMP | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -6817,7 +6817,7 @@ implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 | `pocketmine\item\Potion::getType` | implemented | src/item.rs:449 `potion` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
 | `pocketmine\item\Potion::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `pocketmine\item\Potion::setType` | merged | src/item.rs:279 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
-| `pocketmine\item\PotionType` | merged | src/item.rs:279 `kind` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getTypeId` |
+| `pocketmine\item\PotionType` | blank | src/effect/table.rs:364 `Potion` |  | no `// pmmp:` test (implemented) |
 | `pocketmine\item\PotionType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\PotionType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\PotionType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -8727,7 +8727,7 @@ implemented 1, differs 0, merged 0, skipped 134, blank 0 (of 135 rows)
 | `pocketmine\plugin\PluginManager::getPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\plugin\PluginManager::isPluginEnabled` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\plugin\PluginManager::loadPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `pocketmine\plugin\PluginManager::registerEvent` | implemented | src/server.rs:525 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
+| `pocketmine\plugin\PluginManager::registerEvent` | implemented | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `pocketmine\plugin\PluginManager::registerEvents` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\plugin\PluginManager::registerInterface` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\plugin\PluginManager::tickSchedulers` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -9405,7 +9405,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\SimpleChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `pocketmine\world\SimpleChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `pocketmine\world\World` | implemented | src/world.rs:527 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `pocketmine\world\World::__construct` | merged | src/server.rs:565 `world`<br>src/tick/world_api/lifecycle.rs:331 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
+| `pocketmine\world\World::__construct` | merged | src/server.rs:572 `world`<br>src/tick/world_api/lifecycle.rs:331 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
 | `pocketmine\world\World::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\world\World::addEntity` | skipped |  |  | an entity joins its world when made with `Context::spawn_*` |
 | `pocketmine\world\World::addOnUnloadCallback` | implemented | src/event/world.rs:211 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9554,7 +9554,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\WorldManager` | merged | src/tick/world_api.rs:41 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `pocketmine\world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
 | `pocketmine\world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1404 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `pocketmine\world\WorldManager::generateWorld` | implemented | src/server.rs:565 `world`<br>src/tick/world_api/lifecycle.rs:331 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
+| `pocketmine\world\WorldManager::generateWorld` | implemented | src/server.rs:572 `world`<br>src/tick/world_api/lifecycle.rs:331 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
 | `pocketmine\world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:1714 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `pocketmine\world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `pocketmine\world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:238 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9900,10 +9900,10 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\generator\Generator::convertSeed` | skipped |  |  | a world seed is an `i64` setting |
 | `pocketmine\world\generator\Generator::generateChunk` | implemented | src/world/generator.rs:28 `generate` | src/world/chunk.rs::generators_give_the_same_bytes_for_the_same_seed_and_position |  |
 | `pocketmine\world\generator\Generator::populateChunk` | skipped |  |  | vanilla terrain generation: Anchor's generators fill a chunk in one step |
-| `pocketmine\world\generator\GeneratorManager` | merged | src/server.rs:500 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
+| `pocketmine\world\generator\GeneratorManager` | merged | src/server.rs:507 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
 | `pocketmine\world\generator\GeneratorManager::__construct` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `pocketmine\world\generator\GeneratorManager::addAlias` | skipped |  |  | a generator has one name, its `Generator::name` |
-| `pocketmine\world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:500 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `pocketmine\world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:507 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `pocketmine\world\generator\GeneratorManager::getGenerator` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `pocketmine\world\generator\GeneratorManager::getGeneratorList` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `pocketmine\world\generator\GeneratorManager::getGeneratorName` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |

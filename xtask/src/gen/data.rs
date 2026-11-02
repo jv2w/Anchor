@@ -28,9 +28,9 @@ const LEGACY_USE_TICKS: u16 = 32;
 
 /// Bedrock states PMMP splits by data Anchor keeps in the block entity: the
 /// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
-/// states of these names may differ in PMMP type, class, item form or drops; where their item
-/// forms or drops differ, the Anchor state's are marked as depending on the block entity. Every
-/// other value must still agree, and every entry must be needed.
+/// states of these names may differ in PMMP type, class, block flags, item form or drops; where
+/// their item forms or drops differ, the Anchor state's are marked as depending on the block
+/// entity. Every other value must still agree, and every entry must be needed.
 pub(crate) const SHARED: [(&str, &str, &str); 4] = [
     (
         "minecraft:bed",
@@ -348,8 +348,8 @@ struct Upgrade {
     added_properties: BTreeMap<String, BTreeMap<String, Json>>,
 }
 
-/// PMMP's per-state values. Overlapping PMMP states must agree on all but the identity, item and
-/// drops, which may differ only as [`SHARED`] allows.
+/// PMMP's per-state values. Overlapping PMMP states must agree on all but the identity, block
+/// flags, item and drops, which may differ only as [`SHARED`] allows.
 #[derive(Debug, Clone, PartialEq)]
 struct Values {
     light_emission: u8,

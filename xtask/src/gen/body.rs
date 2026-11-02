@@ -15,6 +15,9 @@ use super::ir::{Expr, Function, Param, Stmt, Type};
 use super::model::{self, Model, Module, Pass, Read};
 use super::names;
 
+/// The prefix of the helper entry that marks a decode limit (`Model::limits`) as applied.
+pub(crate) const LIMIT_USED: &str = "limit ";
+
 /// The direction a body is lowered for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Dir {
@@ -24,9 +27,6 @@ pub(crate) enum Dir {
 
 type Vars = BTreeSet<usize>;
 type R<T> = Result<T, String>;
-
-/// The prefix of the helper entry that marks a decode limit (`Model::limits`) as applied.
-pub(crate) const LIMIT_USED: &str = "limit ";
 
 /// A Rust expression and the tracked locals it reads.
 #[derive(Debug, Clone, Default)]
@@ -245,277 +245,6 @@ struct Lower<'m, 'a> {
     limit_vars: Vec<(String, Option<String>)>,
 }
 
-/// Lowers a `Marshal` body of the Go type `go` in one direction.
-pub(crate) fn marshal(
-    m: &Model<'_>,
-    sums: &Summaries,
-    dir: Dir,
-    module: Module,
-    go: &str,
-    receiver: &str,
-    stmts: &[Stmt],
-) -> R<Lowered> {
-    let mut l = Lower::new(m, sums, dir, module);
-    let t = named_ty(go);
-    // An unnamed receiver (`func (*T) Marshal(IO)`) is never referenced.
-    let receiver = if receiver.is_empty() || receiver == "_" {
-        "x"
-    } else {
-        receiver
-    };
-    // `Codec` methods always return `Result`.
-    l.fallible = true;
-    let mut out = Vec::new();
-    let mut init = Vars::new();
-    match dir {
-        Dir::Decode => {
-            let id = l.new_var(receiver, None)?;
-            let fields = m.struct_def(go).map_or(usize::MAX, |d| d.fields.len());
-            l.bind(
-                receiver,
-                Binding {
-                    code: l.name(id),
-                    ty: t,
-                    kind: BKind::Owned,
-                    var: Some(id),
-                    external: false,
-                    borrowed: false,
-                },
-            );
-            out.push(S::Let {
-                vars: vec![Some(id)],
-                init: Some(E::new("Self::default()")),
-                default_of: Some(("Self".to_owned(), fields)),
-            });
-            l.ret = Ret::Receiver(id);
-        }
-        Dir::Encode => {
-            l.bind(
-                receiver,
-                Binding {
-                    code: "self".to_owned(),
-                    ty: t,
-                    kind: BKind::Ref,
-                    var: None,
-                    external: true,
-                    borrowed: false,
-                },
-            );
-            l.add_shadows(stmts, &mut out)?;
-        }
-    }
-    l.stmts(stmts, &mut out)?;
-    if !ends(&out) {
-        out.push(l.return_stmt(&[])?);
-    }
-    live(&mut out, &Vars::new());
-    let (body, _) = l.print_block(&out, Ctx::Fn, &mut init);
-    Ok(Lowered {
-        params: String::new(),
-        body,
-        fallible: l.fallible,
-        helpers: l.helpers,
-    })
-}
-
-/// Lowers a function in one direction (pure functions use `Dir::Encode`: borrowed values).
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: parameters, body and signature in one place"
-)]
-pub(crate) fn function(
-    m: &Model<'_>,
-    sums: &Summaries,
-    dir: Dir,
-    f: &Function,
-    sum: &Summary,
-) -> R<Lowered> {
-    let module = model::module_of(&f.name);
-    let mut l = Lower::new(m, sums, dir, module);
-    let all: Vec<&Param> = f.receiver.iter().chain(&f.params).collect();
-    let mut params = Vec::new();
-    let mut in_out = Vec::new();
-    let mut init = Vars::new();
-    for (i, p) in all.iter().enumerate() {
-        if !sum.used.get(i).copied().unwrap_or(true) {
-            continue;
-        }
-        let copy = m.is_copy(&p.ty);
-        let name = param_name(&p.name)?;
-        if p.by_ref && !(dir == Dir::Encode && copy) {
-            let rust = l.rust_type(&p.ty)?;
-            let (code, kind, ty) = match dir {
-                Dir::Decode => (format!("*{name}"), BKind::RefMut, format!("&mut {rust}")),
-                Dir::Encode => (name.clone(), BKind::Ref, format!("&{rust}")),
-            };
-            params.push((None, format!("{name}: {ty}")));
-            l.bind(
-                &p.name,
-                Binding {
-                    code,
-                    ty: p.ty.clone(),
-                    kind,
-                    var: None,
-                    external: true,
-                    borrowed: false,
-                },
-            );
-        } else if !copy && !is_string(&p.ty) {
-            let rust = l.rust_type(&p.ty)?;
-            params.push((None, format!("{name}: &{rust}")));
-            l.bind(
-                &p.name,
-                Binding {
-                    code: name,
-                    ty: p.ty.clone(),
-                    kind: BKind::Ref,
-                    var: None,
-                    external: true,
-                    borrowed: false,
-                },
-            );
-        } else if is_string(&p.ty) {
-            params.push((None, format!("{name}: &str")));
-            l.bind(
-                &p.name,
-                Binding {
-                    code: name,
-                    ty: p.ty.clone(),
-                    kind: BKind::Ref,
-                    var: None,
-                    external: true,
-                    borrowed: false,
-                },
-            );
-        } else {
-            let id = l.new_var(&p.name, None)?;
-            if sum.in_out.contains(&i) {
-                in_out.push(id);
-            }
-            init.insert(id);
-            params.push((Some(id), format!(": {}", l.rust_type(&p.ty)?)));
-            l.bind(
-                &p.name,
-                Binding {
-                    code: l.name(id),
-                    ty: p.ty.clone(),
-                    kind: BKind::Owned,
-                    var: Some(id),
-                    external: false,
-                    borrowed: false,
-                },
-            );
-        }
-    }
-    let results = f
-        .results
-        .iter()
-        .map(|t| l.result_type(t, &sum.result))
-        .collect::<R<Vec<_>>>()?;
-    l.ret = Ret::Values { results, in_out };
-    let mut out = Vec::new();
-    if dir == Dir::Encode {
-        l.add_shadows(&f.body, &mut out)?;
-    }
-    l.stmts(&f.body, &mut out)?;
-    if !ends(&out) {
-        out.push(l.return_stmt(&[])?);
-    }
-    live(&mut out, &Vars::new());
-    let (body, muts) = l.print_block(&out, Ctx::Fn, &mut init);
-    let params = params
-        .into_iter()
-        .map(|(id, text)| match id {
-            Some(id) => {
-                let m = if muts.contains(&id) { "mut " } else { "" };
-                format!("{m}{}{text}", l.name(id))
-            }
-            None => text,
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    Ok(Lowered {
-        params,
-        body,
-        fallible: l.fallible,
-        helpers: l.helpers,
-    })
-}
-
-fn ends(out: &[S]) -> bool {
-    matches!(out.last(), Some(S::Return(_) | S::Fail(_)))
-}
-
-fn named_ty(go: &str) -> Type {
-    Type {
-        kind: "named".to_owned(),
-        name: go.to_owned(),
-        len: None,
-        key: None,
-        elem: None,
-        elems: Vec::new(),
-    }
-}
-
-fn basic_ty(name: &str) -> Type {
-    Type {
-        kind: "basic".to_owned(),
-        name: name.to_owned(),
-        len: None,
-        key: None,
-        elem: None,
-        elems: Vec::new(),
-    }
-}
-
-fn is_int(prim: Option<&str>) -> bool {
-    prim.is_some_and(|p| p.starts_with('u') || p.starts_with('i'))
-}
-
-fn bits(prim: &str) -> u32 {
-    match prim {
-        "u8" | "i8" => 8,
-        "u16" | "i16" => 16,
-        "u32" | "i32" => 32,
-        _ => 64,
-    }
-}
-
-/// A Rust integer literal from a decimal string, digits grouped by three when
-/// `clippy::unreadable_literal` calls it long (more than five digits).
-pub(crate) fn int_lit(value: &str) -> String {
-    let (sign, digits) = value.strip_prefix('-').map_or(("", value), |d| ("-", d));
-    if digits.len() <= 5 {
-        return value.to_owned();
-    }
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push('_');
-        }
-        out.push(c);
-    }
-    format!("{sign}{out}")
-}
-
-/// A Rust float literal from a Go `g` formatted value.
-fn float_lit(value: &str) -> R<String> {
-    let f: f64 = value
-        .parse()
-        .map_err(|_| format!("bad float constant {value}"))?;
-    let text = format!("{f:?}");
-    if text.contains('e') || text.contains("inf") || text.contains("NaN") {
-        return Err(format!("unsupported float constant {value}"));
-    }
-    let (int, frac) = text.split_once('.').unwrap_or((&text, "0"));
-    Ok(format!("{}.{frac}", int_lit(int)))
-}
-
-/// A Rust string literal.
-pub(crate) fn str_lit(value: &str) -> String {
-    format!("{value:?}")
-}
-
 impl<'m, 'a> Lower<'m, 'a> {
     fn new(m: &'m Model<'a>, sums: &'m Summaries, dir: Dir, module: Module) -> Self {
         Self {
@@ -567,10 +296,10 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
         Ok(match t.kind.as_str() {
             "basic" if is_string(t) => "&str".to_owned(),
-            "optional" => format!("Option<{}>", self.borrowed_type(elem(t)?)?),
+            "optional" => format!("Option<{}>", self.borrowed_type(model::elem(t)?)?),
             "array" => format!(
                 "[{}; {}]",
-                self.borrowed_type(elem(t)?)?,
+                self.borrowed_type(model::elem(t)?)?,
                 t.len.unwrap_or(0)
             ),
             "error" => "Option<&'static str>".to_owned(),
@@ -634,8 +363,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         self.fallible = true;
         "?"
     }
-
-    // ----- shadows -----
 
     /// Encode: declares shadow locals for external places the body assigns and reads after.
     fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> R<()> {
@@ -844,8 +571,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    // ----- statements -----
-
     fn stmts(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> R<()> {
         for s in stmts {
             self.stmt(s, out)?;
@@ -994,8 +719,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    // ----- IO -----
-
     fn io_args(s: &Stmt) -> R<Vec<String>> {
         let mut args = Vec::new();
         for a in &s.args {
@@ -1130,7 +853,10 @@ impl<'m, 'a> Lower<'m, 'a> {
                 Dir::Decode => {
                     let e =
                         v.e.clone()
-                            .code(format!("{recv}.decode_variant(r){q}"))
+                            .code(format!(
+                                "std::mem::take(&mut {}).decode_variant(r){q}",
+                                v.e.code
+                            ))
                             .effect();
                     self.store(place, e, out)
                 }
@@ -1252,7 +978,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             return Ok(value.clone().code(format!("|r| {code}")));
         }
         let (stmts, first) = self.elem_stmts(body, elem)?;
-        let (code, reads) = self.print_nested(stmts, first, Ctx::Closure);
+        let (code, reads) = self.print_nested(stmts, first, Ctx::Closure)?;
         let mut e = E::new(format!("|r| {{ {code} }}"));
         e.reads = reads;
         Ok(e)
@@ -1301,16 +1027,16 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok((out, first))
     }
 
-    /// Cleans and prints a nested body; returns its code and the outer locals it reads.
-    fn print_nested(&mut self, mut stmts: Vec<S>, first: usize, ctx: Ctx) -> (String, Vars) {
+    /// Cleans and prints a nested body; returns its code and the outer locals it reads. A body
+    /// that assigns a local outside it is an error.
+    fn print_nested(&mut self, mut stmts: Vec<S>, first: usize, ctx: Ctx) -> R<(String, Vars)> {
         if sets_before(&stmts, first) {
-            // Recorded as an error by the caller's checks below.
-            self.helpers.insert("#outer-set".to_owned());
+            return Err("a nested body assigns a local outside it".to_owned());
         }
         live(&mut stmts, &Vars::new());
         let reads = outer(&stmts, first);
         let (code, _) = self.print_block(&stmts, ctx, &mut Vars::new());
-        (code, reads)
+        Ok((code, reads))
     }
 
     /// Decode: `if r.bool()? { Some(..) } else { None }` of an optional statement. The value
@@ -1334,7 +1060,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             }
         } else {
             let (stmts, first) = self.elem_stmts(&s.body, elem)?;
-            let (code, reads) = self.print_nested(stmts, first, Ctx::Block);
+            let (code, reads) = self.print_nested(stmts, first, Ctx::Block)?;
             let mut e = E::new(format!("{{ {code} }}"));
             e.reads = reads;
             e
@@ -1422,10 +1148,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let result = self.stmts(body, &mut out);
         self.scopes.pop();
         result?;
-        if sets_before(&out, first) {
-            return Err("an element body assigns a local outside it".to_owned());
-        }
-        let (code, reads) = self.print_nested(out, first, Ctx::Loop);
+        let (code, reads) = self.print_nested(out, first, Ctx::Loop)?;
         let mut e = E::new(code);
         e.reads = reads;
         let pat = if copy && mentions_name(&e.code, &name) {
@@ -1500,7 +1223,10 @@ impl<'m, 'a> Lower<'m, 'a> {
                 // A value that does not fit a narrower wire type is an error, where
                 // gophertunnel truncates it (encoding never truncates).
                 let code = if bits(wire) < bits(prim) {
-                    let field = str_lit(&place.name);
+                    let owner = place.x.as_deref().and_then(|x| x.ty.as_ref());
+                    let field =
+                        field_rust_name(owner.map_or("", |t| t.name.as_str()), &place.name)?;
+                    let field = str_lit(field.trim_start_matches("r#"));
                     let q = self.q();
                     format!(
                         "{wire}::try_from({}).map_err(|_| Error::InvalidValue {{ field: {field}, reason: \"out of range for its wire type\" }}){q}",
@@ -1517,8 +1243,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             }
         }
     }
-
-    // ----- calls -----
 
     #[expect(
         clippy::too_many_lines,
@@ -1583,10 +1307,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                     codes.push(arg.code);
                 }
                 if !func.io {
-                    return Err(format!(
-                        "{}: arg_expr pure function as arg_expr statement",
-                        s.func
-                    ));
+                    return Err(format!("{}: a pure function as a statement", s.func));
                 }
                 let prefix = match self.dir {
                     Dir::Decode => "decode_",
@@ -1618,7 +1339,10 @@ impl<'m, 'a> Lower<'m, 'a> {
                     .iter()
                     .position(|param| param.name == en.output)
                     .ok_or_else(|| {
-                        format!("{}: call statement of arg_expr returning enum", s.func)
+                        format!(
+                            "{}: a call statement of an enum that returns its value",
+                            s.func
+                        )
                     })?;
                 let mut codes = Vec::new();
                 let mut call = E::default();
@@ -1661,8 +1385,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             },
         )
     }
-
-    // ----- assignments -----
 
     /// Assigns a value to a Go place.
     fn store(&mut self, place: &Expr, rhs: E, out: &mut Vec<S>) -> R<()> {
@@ -1821,8 +1543,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             _ => Err(format!("unsupported assignment {:?}", s.op)),
         }
     }
-
-    // ----- control flow -----
 
     fn if_stmt(&mut self, s: &Stmt) -> R<S> {
         let cond_expr = s.cond.as_ref().ok_or("if without condition")?;
@@ -2107,10 +1827,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let result = self.stmts(&s.body, &mut body);
         self.scopes.pop();
         result?;
-        if sets_before(&body, first) {
-            return Err("a loop body assigns a local outside it".to_owned());
-        }
-        let (printed, reads) = self.print_nested(body, first, Ctx::Loop);
+        let (printed, reads) = self.print_nested(body, first, Ctx::Loop)?;
         let used = |n: &Option<String>| n.as_ref().filter(|n| mentions_name(&printed, n)).cloned();
         let vpat = match used(&value_name) {
             Some(n) if copy => format!("&{n}"),
@@ -2188,10 +1905,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let result = self.stmts(&renamed, &mut stmts);
         self.scopes.pop();
         result?;
-        if sets_before(&stmts, first) {
-            return Err("a loop body assigns a local outside it".to_owned());
-        }
-        let (printed, reads) = self.print_nested(stmts, first, Ctx::Loop);
+        let (printed, reads) = self.print_nested(stmts, first, Ctx::Loop)?;
         let mut e =
             bv.e.clone()
                 .code(format!("for {pat} in {iter} {{ {printed} }}"));
@@ -2202,8 +1916,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         out.push(S::Expr(e.effect()));
         Ok(())
     }
-
-    // ----- expressions -----
 
     fn field_of(&self, t: &Type, go_field: &str) -> R<(String, Type)> {
         let def = self
@@ -2803,8 +2515,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    // ----- value forms -----
-
     /// A `Copy` value.
     fn copy_value(&mut self, v: Val) -> R<E> {
         match v.form {
@@ -2982,8 +2692,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             _ => format!("{}::default()", type_path(&self.rust_type(t)?)),
         }))
     }
-
-    // ----- printing -----
 
     /// Prints a cleaned statement list; `init` holds the locals initialized before it (by-value
     /// parameters). Returns the code and the locals that need `mut`.
@@ -3324,6 +3032,277 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 }
 
+/// Lowers a function in one direction (pure functions use `Dir::Encode`: borrowed values).
+#[expect(
+    clippy::too_many_lines,
+    reason = "consistency: parameters, body and signature in one place"
+)]
+pub(crate) fn function(
+    m: &Model<'_>,
+    sums: &Summaries,
+    dir: Dir,
+    f: &Function,
+    sum: &Summary,
+) -> R<Lowered> {
+    let module = model::module_of(&f.name);
+    let mut l = Lower::new(m, sums, dir, module);
+    let all: Vec<&Param> = f.receiver.iter().chain(&f.params).collect();
+    let mut params = Vec::new();
+    let mut in_out = Vec::new();
+    let mut init = Vars::new();
+    for (i, p) in all.iter().enumerate() {
+        if !sum.used.get(i).copied().unwrap_or(true) {
+            continue;
+        }
+        let copy = m.is_copy(&p.ty);
+        let name = param_name(&p.name)?;
+        if p.by_ref && !(dir == Dir::Encode && copy) {
+            let rust = l.rust_type(&p.ty)?;
+            let (code, kind, ty) = match dir {
+                Dir::Decode => (format!("*{name}"), BKind::RefMut, format!("&mut {rust}")),
+                Dir::Encode => (name.clone(), BKind::Ref, format!("&{rust}")),
+            };
+            params.push((None, format!("{name}: {ty}")));
+            l.bind(
+                &p.name,
+                Binding {
+                    code,
+                    ty: p.ty.clone(),
+                    kind,
+                    var: None,
+                    external: true,
+                    borrowed: false,
+                },
+            );
+        } else if !copy && !is_string(&p.ty) {
+            let rust = l.rust_type(&p.ty)?;
+            params.push((None, format!("{name}: &{rust}")));
+            l.bind(
+                &p.name,
+                Binding {
+                    code: name,
+                    ty: p.ty.clone(),
+                    kind: BKind::Ref,
+                    var: None,
+                    external: true,
+                    borrowed: false,
+                },
+            );
+        } else if is_string(&p.ty) {
+            params.push((None, format!("{name}: &str")));
+            l.bind(
+                &p.name,
+                Binding {
+                    code: name,
+                    ty: p.ty.clone(),
+                    kind: BKind::Ref,
+                    var: None,
+                    external: true,
+                    borrowed: false,
+                },
+            );
+        } else {
+            let id = l.new_var(&p.name, None)?;
+            if sum.in_out.contains(&i) {
+                in_out.push(id);
+            }
+            init.insert(id);
+            params.push((Some(id), format!(": {}", l.rust_type(&p.ty)?)));
+            l.bind(
+                &p.name,
+                Binding {
+                    code: l.name(id),
+                    ty: p.ty.clone(),
+                    kind: BKind::Owned,
+                    var: Some(id),
+                    external: false,
+                    borrowed: false,
+                },
+            );
+        }
+    }
+    let results = f
+        .results
+        .iter()
+        .map(|t| l.result_type(t, &sum.result))
+        .collect::<R<Vec<_>>>()?;
+    l.ret = Ret::Values { results, in_out };
+    let mut out = Vec::new();
+    if dir == Dir::Encode {
+        l.add_shadows(&f.body, &mut out)?;
+    }
+    l.stmts(&f.body, &mut out)?;
+    if !ends(&out) {
+        out.push(l.return_stmt(&[])?);
+    }
+    live(&mut out, &Vars::new());
+    let (body, muts) = l.print_block(&out, Ctx::Fn, &mut init);
+    let params = params
+        .into_iter()
+        .map(|(id, text)| match id {
+            Some(id) => {
+                let m = if muts.contains(&id) { "mut " } else { "" };
+                format!("{m}{}{text}", l.name(id))
+            }
+            None => text,
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(Lowered {
+        params,
+        body,
+        fallible: l.fallible,
+        helpers: l.helpers,
+    })
+}
+
+/// Lowers a `Marshal` body of the Go type `go` in one direction.
+pub(crate) fn marshal(
+    m: &Model<'_>,
+    sums: &Summaries,
+    dir: Dir,
+    module: Module,
+    go: &str,
+    receiver: &str,
+    stmts: &[Stmt],
+) -> R<Lowered> {
+    let mut l = Lower::new(m, sums, dir, module);
+    let t = named_ty(go);
+    // An unnamed receiver (`func (*T) Marshal(IO)`) is never referenced.
+    let receiver = if receiver.is_empty() || receiver == "_" {
+        "x"
+    } else {
+        receiver
+    };
+    // `Codec` methods always return `Result`.
+    l.fallible = true;
+    let mut out = Vec::new();
+    let mut init = Vars::new();
+    match dir {
+        Dir::Decode => {
+            let id = l.new_var(receiver, None)?;
+            let fields = m.struct_def(go).map_or(usize::MAX, |d| d.fields.len());
+            l.bind(
+                receiver,
+                Binding {
+                    code: l.name(id),
+                    ty: t,
+                    kind: BKind::Owned,
+                    var: Some(id),
+                    external: false,
+                    borrowed: false,
+                },
+            );
+            out.push(S::Let {
+                vars: vec![Some(id)],
+                init: Some(E::new("Self::default()")),
+                default_of: Some(("Self".to_owned(), fields)),
+            });
+            l.ret = Ret::Receiver(id);
+        }
+        Dir::Encode => {
+            l.bind(
+                receiver,
+                Binding {
+                    code: "self".to_owned(),
+                    ty: t,
+                    kind: BKind::Ref,
+                    var: None,
+                    external: true,
+                    borrowed: false,
+                },
+            );
+            l.add_shadows(stmts, &mut out)?;
+        }
+    }
+    l.stmts(stmts, &mut out)?;
+    if !ends(&out) {
+        out.push(l.return_stmt(&[])?);
+    }
+    live(&mut out, &Vars::new());
+    let (body, _) = l.print_block(&out, Ctx::Fn, &mut init);
+    Ok(Lowered {
+        params: String::new(),
+        body,
+        fallible: l.fallible,
+        helpers: l.helpers,
+    })
+}
+
+fn ends(out: &[S]) -> bool {
+    matches!(out.last(), Some(S::Return(_) | S::Fail(_)))
+}
+
+fn named_ty(go: &str) -> Type {
+    Type {
+        kind: "named".to_owned(),
+        name: go.to_owned(),
+        len: None,
+        key: None,
+        elem: None,
+        elems: Vec::new(),
+    }
+}
+
+fn basic_ty(name: &str) -> Type {
+    Type {
+        kind: "basic".to_owned(),
+        name: name.to_owned(),
+        len: None,
+        key: None,
+        elem: None,
+        elems: Vec::new(),
+    }
+}
+
+fn is_int(prim: Option<&str>) -> bool {
+    prim.is_some_and(|p| p.starts_with('u') || p.starts_with('i'))
+}
+
+/// The bit width of a Rust integer type; `usize` counts as 64.
+pub(crate) fn bits(prim: &str) -> u32 {
+    match prim {
+        "u8" | "i8" => 8,
+        "u16" | "i16" => 16,
+        "u32" | "i32" => 32,
+        _ => 64,
+    }
+}
+
+/// A Rust integer literal from a decimal string, digits grouped by three from five digits on.
+pub(crate) fn int_lit(value: &str) -> String {
+    let (sign, digits) = value.strip_prefix('-').map_or(("", value), |d| ("-", d));
+    if digits.len() < 5 {
+        return value.to_owned();
+    }
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push('_');
+        }
+        out.push(c);
+    }
+    format!("{sign}{out}")
+}
+
+/// A Rust float literal from a Go `g` formatted value.
+fn float_lit(value: &str) -> R<String> {
+    let f: f64 = value
+        .parse()
+        .map_err(|_| format!("bad float constant {value}"))?;
+    let text = format!("{f:?}");
+    if text.contains('e') || text.contains("inf") || text.contains("NaN") {
+        return Err(format!("unsupported float constant {value}"));
+    }
+    let (int, frac) = text.split_once('.').unwrap_or((&text, "0"));
+    Ok(format!("{}.{frac}", int_lit(int)))
+}
+
+/// A Rust string literal.
+pub(crate) fn str_lit(value: &str) -> String {
+    format!("{value:?}")
+}
+
 /// Folds the field stores that follow a default struct into its literal
 /// (`clippy::field_reassign_with_default`).
 fn fold(stmts: &[S]) -> Vec<S> {
@@ -3407,8 +3386,6 @@ fn fold_literal(t: &str, total: usize, id: usize, rest: &[S]) -> (String, usize)
     }
     (format!("{t} {{ {} }}", parts.join(", ")), used)
 }
-
-// ----- liveness and mutability -----
 
 /// Removes dead stores to locals, backwards from the locals live after the list; returns the
 /// locals live before it.
@@ -3759,8 +3736,6 @@ fn outer(stmts: &[S], first: usize) -> Vars {
     all.into_iter().filter(|v| *v < first).collect()
 }
 
-// ----- Go IR helpers -----
-
 /// The Go path (`x.A.B`) of a place made of a variable and fields.
 fn place_path(e: &Expr) -> Option<String> {
     match e.kind.as_str() {
@@ -3818,11 +3793,8 @@ fn collect_locals(stmts: &[Stmt], out: &mut BTreeSet<String>) {
         if let Some(e) = &s.elem {
             out.insert(e.name.clone());
         }
-        for list in [&s.body, &s.then, &s.els, &s.init, &s.post] {
-            collect_locals(list, out);
-        }
-        for c in &s.cases {
-            collect_locals(&c.body, out);
+        for block in s.blocks() {
+            collect_locals(block, out);
         }
     }
 }
@@ -4054,14 +4026,6 @@ fn replace_index(stmts: &[Stmt], var: &str, base: &Expr) -> Vec<Stmt> {
     out
 }
 
-// ----- names and small helpers -----
-
-fn elem(t: &Type) -> R<&Type> {
-    t.elem
-        .as_deref()
-        .ok_or_else(|| format!("{t:?} has no element type"))
-}
-
 pub(crate) fn is_string(t: &Type) -> bool {
     t.kind == "basic" && (t.name == "string" || t.name == "untyped string")
 }
@@ -4191,4 +4155,17 @@ pub(crate) fn fn_name(go: &str, prefix: &str) -> R<String> {
         .collect::<R<Vec<_>>>()?
         .join("_");
     Ok(format!("{prefix}{snake}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integer_literals_group_thousands_from_five_digits() {
+        assert_eq!(int_lit("4096"), "4096");
+        assert_eq!(int_lit("16384"), "16_384");
+        assert_eq!(int_lit("-12345"), "-12_345");
+        assert_eq!(int_lit("1234567"), "1_234_567");
+    }
 }

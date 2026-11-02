@@ -3565,7 +3565,7 @@ pub(super) static ITEMS: [CreativeItem; 1633] = [
                         ("FireworkType", crate::nbt::Static::Byte(0)),
                     ]),
                 ),
-                ("customColor", crate::nbt::Static::Int(-75715)),
+                ("customColor", crate::nbt::Static::Int(-75_715)),
             ]),
         ),
     ),

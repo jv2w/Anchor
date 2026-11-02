@@ -1,11 +1,16 @@
-//! Repository tasks. `cargo xtask gen [--check]` regenerates the protocol code (or checks it is
-//! current); `cargo xtask check` runs the format, clippy and the tests of what changed,
-//! the check every task ends with; `cargo xtask verify` runs every check and ends with PASS or
-//! FAIL, or with the I/O error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
-//! and the protocol field limits from the pinned PMMP, dragonfly, `CloudburstMC` and Mojang
-//! protocol docs checkouts; `cargo xtask p6 ...` runs the reference server comparison. Neither
-//! of the last two is part of `verify`: they need `.cache/` checkouts or BDS. `cargo xtask table [--check]` writes (or checks) the PMMP mapping table;
-//! `verify` runs its check.
+//! Repository tasks, run as `cargo xtask <command>`:
+//! - `gen [--check]` regenerates the protocol codecs and the data tables, or checks they are
+//!   current (`gen`).
+//! - `check` runs the format, clippy and the tests of what changed, the check every task ends
+//!   with (`check`).
+//! - `verify` runs every check and ends with `PASS` or `FAIL`.
+//! - `dump [--check]` rebuilds the committed block, item, upgrade and field limit data from the
+//!   pinned checkouts in `.cache/` (`dump`). It is not part of `verify`: it needs those
+//!   checkouts.
+//! - `table [--check]` writes or checks the API table (`table`); `verify` runs its check.
+//! - `vendor-test str0m` runs the str0m copy's full test suite (`vendor`).
+//! - `p6 ...` compares Anchor with the official server (`p6`). It is not part of `verify`: it
+//!   needs the official server.
 
 mod check;
 mod dump;
@@ -16,7 +21,7 @@ mod table;
 mod vendor;
 
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -45,6 +50,9 @@ const VERIFY_TARGET: &str = "verify";
 /// in one target directory each rebuilt the other's output on every run, even with nothing
 /// changed; it gets a target directory of its own.
 const PRIVATE_DOCS: &str = "--document-private-items";
+
+/// The build directory of the second documentation check under `target/`.
+const PRIVATE_DOCS_TARGET: &str = "verify-private-docs";
 
 /// The format check. No `--all`: it also formats path dependencies, the vendor copies.
 const FMT: &[&str] = &["fmt", "--check"];
@@ -95,9 +103,9 @@ const CHECKS: &[&[&str]] = &[
         STR0M_PROTO,
         "--quiet",
     ],
-    // The linker warns that OpenSSL's static library names debug info its build leaves out
-    // (LNK4099), and a warning fails the check. MSVC's link.exe also reports each test binary's
-    // import library as a linker message, so rust-lld is told to ignore just that one warning.
+    // The tests link OpenSSL's static library, which names debug info its build leaves out
+    // (LNK4099), and a warning fails the check. The workspace links with rust-lld, which is told
+    // to ignore just that one warning.
     &[
         "test",
         "--manifest-path",
@@ -117,21 +125,6 @@ fn main() -> io::Result<ExitCode> {
     run()
 }
 
-fn exit(passed: bool) -> ExitCode {
-    if passed {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
-}
-
-/// The repository root: the parent of this crate's directory.
-fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
@@ -145,7 +138,10 @@ fn run() -> io::Result<ExitCode> {
         .collect::<Vec<_>>()
         .as_slice()
     {
-        ["check"] => return check::command(&root()),
+        ["check"] => {
+            let result = check::command(&root(), &mut out);
+            report_passed(&mut out, result)
+        }
         ["gen"] => gen_command(&mut out, false),
         ["gen", "--check"] => gen_command(&mut out, true),
         ["verify"] => verify(&mut out),
@@ -153,20 +149,11 @@ fn run() -> io::Result<ExitCode> {
         ["dump", "--check"] => dump_command(&mut out, true),
         ["table"] => table_command(&mut out, false),
         ["table", "--check"] => table_command(&mut out, true),
-        ["vendor-test", "str0m"] => match vendor::str0m(&root()) {
-            Ok(passed) => Ok(passed),
-            Err(e) => {
-                writeln!(out, "error: {e}")?;
-                Ok(false)
-            }
-        },
-        ["p6", rest @ ..] => match p6::command(&root(), rest, &mut out) {
-            Ok(passed) => Ok(passed),
-            Err(e) => {
-                writeln!(out, "error: {e}")?;
-                Ok(false)
-            }
-        },
+        ["vendor-test", "str0m"] => report_passed(&mut out, vendor::str0m(&root())),
+        ["p6", rest @ ..] => {
+            let result = p6::command(&root(), rest, &mut out);
+            report_passed(&mut out, result)
+        }
         _ => {
             writeln!(
                 out,
@@ -181,40 +168,82 @@ fn run() -> io::Result<ExitCode> {
     Ok(exit(passed))
 }
 
-fn gen_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
-    match r#gen::run(&root(), check) {
-        Ok(differ) if differ.is_empty() => Ok(true),
-        Ok(differ) => {
-            for path in differ {
-                writeln!(out, "out of date: {path} (run `cargo xtask gen`)")?;
-            }
-            Ok(false)
-        }
-        Err(e) => {
-            writeln!(out, "error: {e}")?;
-            Ok(false)
-        }
+/// Runs every check in order, each one even after a failure, and writes `ok` or `FAIL` for each
+/// and `PASS` or `FAIL` for all.
+fn verify(out: &mut impl Write) -> io::Result<bool> {
+    let mut passed = true;
+    passed &= step(out, "cargo xtask gen --check", |out| gen_command(out, true))?;
+    passed &= step(out, "cargo xtask table --check", |out| {
+        table_command(out, true)
+    })?;
+    passed &= step(out, "lint reason tags", reasons_command)?;
+    for args in CHECKS {
+        let target = if args.contains(&PRIVATE_DOCS) {
+            PRIVATE_DOCS_TARGET
+        } else {
+            VERIFY_TARGET
+        };
+        passed &= cargo_step(out, args, target)?;
     }
+    writeln!(out, "{}", if passed { "PASS" } else { "FAIL" })?;
+    Ok(passed)
+}
+
+/// Runs `check`, which writes its findings to `out`, and then writes its `ok` or `FAIL` line.
+fn step<W: Write>(
+    out: &mut W,
+    name: &str,
+    check: impl FnOnce(&mut W) -> io::Result<bool>,
+) -> io::Result<bool> {
+    let ok = check(out)?;
+    writeln!(out, "{} {name}", status(ok))?;
+    Ok(ok)
+}
+
+/// Runs `cargo <args>` at the repository root with its builds in `target/<target>` and writes
+/// `ok` or `FAIL` with the command, after the output of a failure. It passes on a successful exit
+/// that printed no warning.
+fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> io::Result<bool> {
+    let mut command = Command::new(cargo());
+    if cfg!(windows) && args.contains(&DIMPL) {
+        command.env("OPENSSL_SRC_PERL", root().join(PERL));
+    }
+    let output = command
+        .args(args)
+        .current_dir(root())
+        // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
+        // shared target directory it would rebuild the running xtask.exe, which Windows cannot
+        // replace.
+        .env("CARGO_TARGET_DIR", target_dir(target))
+        .env("RUSTDOCFLAGS", "-D warnings")
+        .env("CARGO_TERM_COLOR", "never")
+        .output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Clippy reports an unresolved .clippy.toml path, and rustfmt an unstable option, only as a
+    // warning with a successful exit code.
+    let warned = stderr.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("warning") || line.starts_with("Warning")
+    });
+    let ok = output.status.success() && !warned;
+    if !ok {
+        out.write_all(&output.stdout)?;
+        out.write_all(&output.stderr)?;
+    }
+    writeln!(out, "{} cargo {}", status(ok), args.join(" "))?;
+    Ok(ok)
+}
+
+fn gen_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
+    report_files(out, r#gen::run(&root(), check), "out of date", "gen")
 }
 
 fn dump_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
-    match dump::run(&root(), check) {
-        Ok(differ) if differ.is_empty() => Ok(true),
-        Ok(differ) => {
-            for path in differ {
-                writeln!(out, "differs: {path} (run `cargo xtask dump`)")?;
-            }
-            Ok(false)
-        }
-        Err(e) => {
-            writeln!(out, "error: {e}")?;
-            Ok(false)
-        }
-    }
+    report_files(out, dump::run(&root(), check), "differs", "dump")
 }
 
-/// Writes (or with `check` compares) the PMMP mapping table and prints its counts. Passes
-/// without errors; a check also needs the committed table current and no blank row.
+/// Writes (or with `check` compares) the API table and prints its counts. Passes without errors;
+/// a check also needs the committed table current and no blank row.
 fn table_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
     let report = match table::run(&root(), check) {
         Ok(report) => report,
@@ -236,92 +265,85 @@ fn table_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
     Ok(report.errors.is_empty() && !(check && (report.stale || report.counts.blank > 0)))
 }
 
-fn verify(out: &mut impl Write) -> io::Result<bool> {
-    // `CARGO` is the cargo that launched this task, so every check uses the same toolchain.
-    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut passed = true;
-    let mut log = Vec::new();
-    let ok = gen_command(&mut log, true)?;
-    if !ok {
-        out.write_all(&log)?;
-    }
-    writeln!(
-        out,
-        "{} cargo xtask gen --check",
-        if ok { "ok  " } else { "FAIL" }
-    )?;
-    passed &= ok;
-    let mut log = Vec::new();
-    let ok = table_command(&mut log, true)?;
-    out.write_all(&log)?;
-    writeln!(
-        out,
-        "{} cargo xtask table --check",
-        if ok { "ok  " } else { "FAIL" }
-    )?;
-    passed &= ok;
-    let ok = match reasons::check(&root()) {
+fn reasons_command(out: &mut impl Write) -> io::Result<bool> {
+    match reasons::check(&root()) {
         Ok(errors) => {
             for error in &errors {
                 writeln!(out, "error: {error}")?;
             }
-            errors.is_empty()
+            Ok(errors.is_empty())
         }
         Err(e) => {
             writeln!(out, "error: {e}")?;
-            false
+            Ok(false)
         }
-    };
-    writeln!(out, "{} lint reason tags", if ok { "ok  " } else { "FAIL" })?;
-    passed &= ok;
-    for args in CHECKS {
-        let target = if args.contains(&PRIVATE_DOCS) {
-            "verify-private-docs"
-        } else {
-            VERIFY_TARGET
-        };
-        passed &= cargo_step(out, &cargo, args, target)?;
     }
-    writeln!(out, "{}", if passed { "PASS" } else { "FAIL" })?;
-    Ok(passed)
 }
 
-/// Runs `cargo <args>` at the repository root with its builds in `target/<target>` and writes
-/// `ok` or `FAIL` with the command, after the output of a failure. It passes on a successful exit
-/// that printed no warning.
-fn cargo_step(
+/// Writes one `<verb>: <file> (run `cargo xtask <command>`)` line for each file that `result`
+/// lists as differing, or its error. Passes when the list is empty.
+fn report_files(
     out: &mut impl Write,
-    cargo: &OsStr,
-    args: &[&str],
-    target: &str,
+    result: Result<Vec<String>, String>,
+    verb: &str,
+    command: &str,
 ) -> io::Result<bool> {
-    let mut command = Command::new(cargo);
-    if cfg!(windows) && args.contains(&DIMPL) {
-        command.env("OPENSSL_SRC_PERL", root().join(PERL));
+    match result {
+        Ok(differ) => {
+            for path in &differ {
+                writeln!(out, "{verb}: {path} (run `cargo xtask {command}`)")?;
+            }
+            Ok(differ.is_empty())
+        }
+        Err(e) => {
+            writeln!(out, "error: {e}")?;
+            Ok(false)
+        }
     }
-    let output = command
-        .args(args)
-        .current_dir(root())
-        // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
-        // shared target directory it would rebuild the running xtask.exe, which Windows cannot
-        // replace.
-        .env("CARGO_TARGET_DIR", root().join("target").join(target))
-        .env("RUSTDOCFLAGS", "-D warnings")
-        .env("CARGO_TERM_COLOR", "never")
-        .output()?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    // Clippy reports an unresolved .clippy.toml path, and rustfmt an unstable option, only as a
-    // warning with a successful exit code.
-    let warned = stderr.lines().any(|line| {
-        let line = line.trim_start();
-        line.starts_with("warning") || line.starts_with("Warning")
-    });
-    let ok = output.status.success() && !warned;
-    if !ok {
-        out.write_all(&output.stdout)?;
-        out.write_all(&output.stderr)?;
+}
+
+/// `passed` of a command that reports through `out` itself, or its error written to `out`.
+fn report_passed(out: &mut impl Write, result: Result<bool, String>) -> io::Result<bool> {
+    match result {
+        Ok(passed) => Ok(passed),
+        Err(e) => {
+            writeln!(out, "error: {e}")?;
+            Ok(false)
+        }
     }
-    let status = if ok { "ok  " } else { "FAIL" };
-    writeln!(out, "{status} cargo {}", args.join(" "))?;
-    Ok(ok)
+}
+
+fn exit(passed: bool) -> ExitCode {
+    if passed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// The status column of a step line.
+fn status(ok: bool) -> &'static str {
+    if ok { "ok  " } else { "FAIL" }
+}
+
+/// The cargo that launched this task, so every step uses the same toolchain.
+fn cargo() -> OsString {
+    env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
+}
+
+/// The build directory `target/<name>` under the repository root.
+fn target_dir(name: &str) -> PathBuf {
+    root().join("target").join(name)
+}
+
+/// The repository root: the parent of this crate's directory.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: this crate's directory is inside the repository"
+)]
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask is in the repository")
+        .to_path_buf()
 }

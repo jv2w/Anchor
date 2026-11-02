@@ -13,7 +13,7 @@
 //! session ends with `p6 game compare target/p6/bds-game target/p6/anchor-game` for the
 //! scenarios it ran, also written to `anchor-game/compare.txt`.
 
-pub(super) mod console;
+pub(crate) mod console;
 mod trace;
 
 use std::collections::BTreeMap;
@@ -50,25 +50,9 @@ pub(crate) fn player(scenario: &str) -> String {
     name
 }
 
-/// Picks the scenarios named in `args` (all when empty).
-pub(crate) fn scenarios<'a>(args: &[&'a str]) -> Result<Vec<&'a str>, String> {
-    if args.is_empty() {
-        return Ok(SCENARIOS.to_vec());
-    }
-    args.iter()
-        .map(|a| {
-            SCENARIOS
-                .iter()
-                .find(|s| *s == a)
-                .map(|_| *a)
-                .ok_or_else(|| format!("unknown game scenario `{a}` (want {SCENARIOS:?})"))
-        })
-        .collect()
-}
-
 /// `p6 game bds [scenario]...`: the game session of `session` alone.
 pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let scenarios = scenarios(args)?;
+    let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
     let exe = super::bds_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
@@ -78,7 +62,7 @@ pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bo
 
 /// `p6 game anchor [scenario]...`: [`anchor_session`] alone.
 pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let scenarios = scenarios(args)?;
+    let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
     let bot = super::build_bot(root)?;
     let passed = anchor_session(root, &bot, &scenarios, out)?;
     super::say(out, if passed { "PASS" } else { "FAIL" })?;
@@ -111,34 +95,18 @@ pub(crate) fn anchor_session(
             }
             passed &= console.settle(out)?;
             for scenario in scenarios {
-                passed &= run_scenario(
-                    bot,
-                    addr,
-                    &dir,
-                    scenario,
-                    None,
-                    |line| console.send(line),
-                    out,
-                )?;
+                passed &= run_scenario(bot, addr, &dir, scenario, |line| console.send(line), out)?;
                 passed &= console.settle(out)?;
-                write_report(&dir, scenario, &blocks)?;
+                let written = write_report(&dir, scenario, &blocks);
+                passed &= super::report_written(scenario, written, out)?;
             }
             Ok(passed)
         },
     )?;
     let bds = root.join(super::OUT_DIR).join("bds-game");
-    let mut report = Vec::new();
-    super::say(&mut report, "compare bds-game anchor-game:")?;
-    // Missing BDS captures fail the comparison, not the run.
-    let same = compare_scenarios(root, &bds, &dir, scenarios, &mut report).or_else(|e| {
-        super::say(
-            &mut report,
-            &format!("DIFFERENT: {e}; run `p6 game bds` first"),
-        )?;
-        Ok::<_, String>(false)
+    let same = super::report_comparison(&dir, "compare bds-game anchor-game:", out, |report| {
+        compare_scenarios(root, &bds, &dir, scenarios, report)
     })?;
-    super::write(&dir.join("compare.txt"), &report)?;
-    out.write_all(&report).map_err(|e| e.to_string())?;
     Ok(played && same)
 }
 
@@ -159,33 +127,21 @@ pub(crate) fn session(
             server.command(line)?;
         }
         for scenario in scenarios {
-            passed &= run_scenario(
-                bot,
-                addr,
-                &dir,
-                scenario,
-                None,
-                |line| server.command(line),
-                out,
-            )?;
-            write_report(&dir, scenario, &blocks)?;
+            passed &= run_scenario(bot, addr, &dir, scenario, |line| server.command(line), out)?;
+            let written = write_report(&dir, scenario, &blocks);
+            passed &= super::report_written(scenario, written, out)?;
         }
         Ok(passed)
     })
 }
 
-/// Writes `<dir>/<scenario>.txt`, the trace of the scenario's capture, and returns the trace.
-fn write_report(
-    dir: &Path,
-    scenario: &str,
-    blocks: &BTreeMap<u32, String>,
-) -> Result<Vec<trace::Step>, String> {
+/// Writes `<dir>/<scenario>.txt`, the trace of the scenario's capture.
+fn write_report(dir: &Path, scenario: &str, blocks: &BTreeMap<u32, String>) -> Result<(), String> {
     let steps = read_trace(dir, scenario, blocks)?;
     super::write(
         &dir.join(format!("{scenario}.txt")),
         trace::report(&steps).as_bytes(),
-    )?;
-    Ok(steps)
+    )
 }
 
 /// The trace of `<dir>/<scenario>.jsonl`, with the item names of its items file.
@@ -224,15 +180,7 @@ fn compare_scenarios(
     let blocks = super::block_states(root)?;
     let mut same = true;
     for scenario in scenarios {
-        let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
-        if let Some(dir) = [a, b].into_iter().find(|d| !super::is_file(&capture(d))) {
-            super::say(
-                out,
-                &format!(
-                    "DIFFERENT {scenario}: no capture in {}; run `p6 game bds {scenario}`",
-                    dir.display()
-                ),
-            )?;
+        if super::say_missing_capture(a, b, scenario, out)? {
             same = false;
             continue;
         }
@@ -276,18 +224,16 @@ fn run_spawn(bot: &Path, addr: &str, dir: &Path, out: &mut impl Write) -> Result
 }
 
 /// Runs one game scenario's bot into `<dir>/<scenario>.jsonl`, passing each command record to
-/// `console` as it appears, and returns whether the bot passed and its failure text. `script` is
-/// the action file of the `script` scenario.
-pub(crate) fn run_scenario(
+/// `console` as it appears, and returns whether the bot passed.
+fn run_scenario(
     bot: &Path,
     addr: &str,
     dir: &Path,
     scenario: &str,
-    script: Option<&Path>,
     console: impl FnMut(&str) -> Result<(), String>,
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    run_scenarios(bot, addr, dir, scenario, script, None, console, out)
+    run_scenarios(bot, addr, dir, scenario, None, None, console, out)
 }
 
 /// One bot of [`run_scenarios`]: its scenario, capture, process and the commands relayed.
@@ -341,9 +287,8 @@ impl Running {
             .try_wait()
             .map_err(|e| format!("bot: {e}"))?
             .is_some();
-        // The capture may not exist yet; a missing file has no commands.
-        let text = super::read_text(&self.capture).unwrap_or_default();
-        for line in commands(&text).iter().skip(self.relayed) {
+        let text = super::read_growing_text(&self.capture)?;
+        for line in commands(&text)?.iter().skip(self.relayed) {
             console(line)?;
             self.relayed += 1;
         }
@@ -351,8 +296,9 @@ impl Running {
     }
 
     /// Whether the bot has started its first step (it has joined and teleported).
-    fn stepped(&self) -> bool {
-        super::read_text(&self.capture).is_ok_and(|t| t.contains(r#""type":"step""#))
+    fn stepped(&self) -> Result<bool, String> {
+        let text = super::read_growing_text(&self.capture)?;
+        Ok(text.contains(r#""type":"step""#))
     }
 
     /// Waits for the bot, killing it first when `kill`, and reports its result.
@@ -406,10 +352,12 @@ pub(crate) fn run_scenarios(
     let mut second: Option<Running> = None;
     let deadline = super::now() + BOT_TIMEOUT + BOT_GRACE;
     let relay = loop {
-        if let (Some(c), None) = (companion, &second)
-            && main.stepped()
-        {
-            second = Some(Running::start(bot, addr, dir, c, None)?);
+        if let (Some(c), None) = (companion, &second) {
+            match main.stepped() {
+                Ok(true) => second = Some(Running::start(bot, addr, dir, c, None)?),
+                Ok(false) => {}
+                Err(e) => break Err(e),
+            }
         }
         let exited = match main.relay(&mut console) {
             Ok(e) => e,
@@ -438,23 +386,34 @@ pub(crate) fn run_scenarios(
     Ok(passed)
 }
 
-/// The command lines of a capture's complete `command` records, in order.
-fn commands(capture: &str) -> Vec<String> {
+/// The command lines of a capture's complete `command` records, in order. The last line is left
+/// out until its newline is written.
+fn commands(capture: &str) -> Result<Vec<String>, String> {
     let complete = capture
         .rfind('\n')
         .and_then(|end| capture.get(..end))
         .unwrap_or_default();
-    complete
-        .lines()
-        .filter(|line| line.contains(r#""type":"command""#))
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter_map(|v| v.get("line").and_then(|l| l.as_str()).map(str::to_owned))
-        .collect()
+    let mut lines = Vec::new();
+    for (n, line) in complete.lines().enumerate() {
+        if !line.contains(r#""type":"command""#) {
+            continue;
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", n + 1))?;
+        let command = value
+            .get("line")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("line {}: a command record without a line", n + 1))?;
+        lines.push(command.to_owned());
+    }
+    Ok(lines)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::p6;
 
     #[test]
     fn players_are_named_after_their_scenario() {
@@ -474,16 +433,28 @@ mod tests {
             r#"{"type":"command","line":"unfinished"#,
         );
         assert_eq!(
-            commands(capture),
+            commands(capture).expect("commands"),
             ["give P6Craft oak_log 4", "tp P6Craft 1 2 3"]
         );
     }
 
     #[test]
+    fn a_complete_command_record_that_is_not_json_is_an_error() {
+        let capture = concat!(
+            r#"{"type":"command","line":"tp"#,
+            "\n",
+            r#"{"type":"step"}"#,
+            "\n",
+        );
+        assert!(commands(capture).is_err());
+    }
+
+    #[test]
     fn unknown_scenarios_are_refused() {
-        assert_eq!(scenarios(&[]).expect("all"), SCENARIOS.to_vec());
-        assert_eq!(scenarios(&["trade"]).expect("one"), ["trade"]);
-        assert!(scenarios(&["fishing"]).is_err());
+        let pick = |args: &[&'static str]| p6::pick_scenarios(args, &SCENARIOS, "game");
+        assert_eq!(pick(&[]).expect("all"), SCENARIOS.to_vec());
+        assert_eq!(pick(&["trade"]).expect("one"), ["trade"]);
+        assert!(pick(&["fishing"]).is_err());
     }
 
     #[test]
@@ -492,13 +463,13 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         let items = br#"{"type":"packet","name":"ItemRegistry","fields":{"Items":[]}}"#;
         for (d, scenario) in [(&a, "craft"), (&b, "craft"), (&a, "furnace")] {
-            super::super::create_dir(d).expect("dir");
-            super::super::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
-            super::super::write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
+            p6::create_dir(d).expect("dir");
+            p6::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
+            p6::write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
         }
         let mut out = Vec::new();
         let same = compare_scenarios(&crate::root(), &a, &b, &["craft", "furnace"], &mut out);
-        super::super::remove_dir(&dir).expect("cleanup");
+        p6::remove_dir(&dir).expect("cleanup");
         assert_eq!(same, Ok(false));
         let report = String::from_utf8_lossy(&out);
         assert!(

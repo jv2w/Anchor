@@ -30,7 +30,9 @@ use anchor::protocol::{
 use oracle::Record;
 use rng::Rng;
 
-/// The shield's item network ID; the oracle uses the same value (`main.go` `ShieldID`).
+/// The shield's item network ID, the value the oracle uses (`main.go` `ShieldID`) and not the
+/// server's own: the codec takes it as an argument, and the oracle's value keeps the samples
+/// readable by both sides.
 const SHIELD_ID: i32 = 357;
 /// The allocation budget of one decode: 2 × the default 16 MiB `max-batch-bytes`.
 const BUDGET: usize = 2 * 16 * 1024 * 1024;
@@ -746,9 +748,9 @@ fn field_limit_cases() -> Vec<(&'static str, Packet, Packet, Vec<u8>)> {
         ),
         (
             "Text.FilteredMessage (optional string)",
-            text(0, 65536),
-            text(0, 65537),
-            text_payload(0, 65537),
+            text(0, 65_536),
+            text(0, 65_537),
+            text_payload(0, 65_537),
         ),
         (
             "PackSetting.Name (hand codec)",

@@ -5,23 +5,25 @@
 //! each changed integration test file.
 //!
 //! A changed file that a Rust source of the repository ([`SOURCE_DIRS`]) pulls in counts as a
-//! change of that source too, so it also runs that source's tests (in the source's own crate). A source pulls in the file of a `#[path = "…"]` module and
-//! the file of an `include_bytes!` or `include_str!` whose path is a string literal, both from the
-//! source's folder, or `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`, from the source's crate
-//! folder (`xtask/` for the files under it, else the repository root). Any other changed file that
-//! is neither a Rust source nor a build file runs nothing. `cargo xtask verify` runs everything,
-//! when the user asks for it (`/verify`).
+//! change of that source too, so it also runs that source's tests (in the source's own crate). A
+//! source pulls in the file of a `#[path = "…"]` module and the file of an `include_bytes!` or
+//! `include_str!` whose path is a string literal, both from the source's folder, or
+//! `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`, from the source's crate folder (`xtask/` for the
+//! files under it, else the repository root). A deleted integration test file has no test to run.
+//! Any other changed file that is neither a Rust source nor a build file runs nothing.
+//! `cargo xtask verify` runs everything, when the user asks for it (`/verify`).
 //!
 //! The builds go to `target/check`, so a check neither waits on a running `verify` nor rebuilds
 //! the running xtask.exe. A pass is remembered as a stamp of HEAD and the changed files the build
-//! reads, so an unchanged tree passes at once.
+//! reads, so an unchanged tree passes at once; the stamp is kept only when the tree is the same
+//! after the check as before it.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::env;
 use std::io::{self, Write};
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::Command;
 
+use crate::dump::{create_dir, is_file, read_if_exists, write};
 use crate::table::sources;
 use crate::{CLIPPY, FMT, SOURCE_DIRS, cargo_step};
 
@@ -48,25 +50,44 @@ const PASS: &str = "target/check/pass";
 /// paths.
 type Includes = BTreeMap<String, BTreeSet<String>>;
 
-/// Runs the check.
-pub(crate) fn command(root: &Path) -> io::Result<ExitCode> {
-    let files = changed(root)?;
-    let includes = includes(root)?;
-    let stamp = stamp(root, &files, &includes)?;
-    if read_stamp(root, PASS).as_deref() == Some(stamp.as_str()) {
-        return Ok(ExitCode::SUCCESS);
+/// Runs the check, writing its lines and `PASS` or `FAIL` to `out`, and returns whether it
+/// passed.
+pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
+    let before = Snapshot::take(root)?;
+    if read_stamp(root)?.as_deref() == Some(before.stamp.as_str()) {
+        writeln!(out, "unchanged since the last pass\nPASS").map_err(|e| e.to_string())?;
+        return Ok(true);
     }
-    let mut report = Vec::new();
-    let passed = check(root, &files, &includes, &mut report)?;
-    if passed {
-        write_stamp(root, PASS, &stamp)?;
+    let passed = check(root, &before.files, &before.includes, out).map_err(|e| e.to_string())?;
+    // A file that changed while the steps ran was seen in two states; the next check runs again.
+    if passed && Snapshot::take(root)?.stamp == before.stamp {
+        write_stamp(root, &before.stamp)?;
     }
-    stdout().write_all(&report)?;
-    Ok(if passed {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(passed)
+}
+
+/// What the check depends on at one moment.
+#[derive(Debug)]
+struct Snapshot {
+    /// The files that differ from HEAD.
+    files: Vec<String>,
+    /// The files the Rust sources pull in.
+    includes: Includes,
+    /// The stamp of HEAD and the changed files the build reads.
+    stamp: String,
+}
+
+impl Snapshot {
+    fn take(root: &Path) -> Result<Self, String> {
+        let files = changed(root)?;
+        let includes = includes(root)?;
+        let stamp = stamp(root, &files, &includes)?;
+        Ok(Self {
+            files,
+            includes,
+            stamp,
+        })
+    }
 }
 
 /// Runs the steps the changed `files` need, stopping at the first failure, and writes their
@@ -75,20 +96,18 @@ fn check(
     root: &Path,
     files: &[String],
     includes: &Includes,
-    out: &mut Vec<u8>,
+    out: &mut impl Write,
 ) -> io::Result<bool> {
     let plan = Plan::new(root, files, includes);
     if !plan.code {
         writeln!(out, "no code changed\nPASS")?;
         return Ok(true);
     }
-    // `CARGO` is the cargo that launched this task, so every step uses the same toolchain.
-    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut steps: Vec<Vec<String>> = vec![args(FMT), args(CLIPPY)];
     steps.extend(plan.tests());
     for step in &steps {
         let step: Vec<&str> = step.iter().map(String::as_str).collect();
-        if !cargo_step(out, &cargo, &step, TARGET)? {
+        if !cargo_step(out, &step, TARGET)? {
             writeln!(out, "FAIL")?;
             return Ok(false);
         }
@@ -135,11 +154,11 @@ impl Plan {
                     None => plan.all_lib = true,
                 }
             } else if let Some(rel) = file.strip_prefix("tests/") {
-                plan.anchor_tests.insert(test_name(rel));
+                plan.anchor_tests.extend(test_target(root, file, rel));
             } else if file.starts_with("xtask/src/") {
                 plan.xtask_unit = true;
             } else if let Some(rel) = file.strip_prefix("xtask/tests/") {
-                plan.xtask_tests.insert(test_name(rel));
+                plan.xtask_tests.extend(test_target(root, file, rel));
             }
             // Clippy builds `examples/` and the vendor copies Anchor uses; `verify` tests them.
         }
@@ -196,9 +215,9 @@ fn is_code(file: &str) -> bool {
 }
 
 /// The files the Rust sources under [`SOURCE_DIRS`] pull in.
-fn includes(root: &Path) -> io::Result<Includes> {
+fn includes(root: &Path) -> Result<Includes, String> {
     let mut includes = Includes::new();
-    for (file, text) in sources(root, SOURCE_DIRS).map_err(io::Error::other)? {
+    for (file, text) in sources(root, SOURCE_DIRS)? {
         for path in included(&file, &text) {
             includes.entry(path).or_default().insert(file.clone());
         }
@@ -312,17 +331,18 @@ fn module(root: &Path, rel: &str) -> Option<String> {
     Some(stem.replace('/', "::"))
 }
 
-/// The test target a changed file under a `tests/` directory belongs to: its name for a
-/// top-level file, `*` (every test) for a shared support file.
-fn test_name(rel: &str) -> String {
+/// The test target a changed `file` under a `tests/` directory (`rel` is its path in it) belongs
+/// to: its name for a top-level file, `*` (every test) for a shared support file, and none for a
+/// top-level file that is deleted, which has nothing to run.
+fn test_target(root: &Path, file: &str, rel: &str) -> Option<String> {
     match rel.strip_suffix(".rs") {
-        Some(name) if !name.contains('/') => name.to_owned(),
-        _ => "*".to_owned(),
+        Some(name) if !name.contains('/') => is_file(&root.join(file)).then(|| name.to_owned()),
+        _ => Some("*".to_owned()),
     }
 }
 
 /// The files that differ from HEAD (changed, staged, deleted or untracked), as repository paths.
-fn changed(root: &Path) -> io::Result<Vec<String>> {
+fn changed(root: &Path) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     for list in [
         git(root, &["diff", "--name-only", "-z", "HEAD"])?,
@@ -341,11 +361,7 @@ fn changed(root: &Path) -> io::Result<Vec<String>> {
 
 /// A stamp of HEAD and the changed files the build reads with their contents (FNV-1a): equal
 /// stamps mean the same code.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn stamp(root: &Path, files: &[String], includes: &Includes) -> io::Result<String> {
+fn stamp(root: &Path, files: &[String], includes: &Includes) -> Result<String, String> {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut add = |bytes: &[u8]| {
         for b in bytes {
@@ -355,70 +371,56 @@ fn stamp(root: &Path, files: &[String], includes: &Includes) -> io::Result<Strin
     add(&git(root, &["rev-parse", "HEAD"])?);
     for file in files.iter().filter(|f| is_read(f, includes)) {
         add(file.as_bytes());
-        match std::fs::read(root.join(file)) {
-            Ok(bytes) => {
+        match read_if_exists(&root.join(file))? {
+            Some(bytes) => {
                 add(&[1]);
                 add(&bytes);
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => add(&[0]),
-            Err(e) => return Err(e),
+            None => add(&[0]),
         }
     }
     Ok(format!("{hash:016x}"))
 }
 
 /// The output of `git <args>` at the repository root.
-fn git(root: &Path, args: &[&str]) -> io::Result<Vec<u8>> {
-    let output = Command::new("git").args(args).current_dir(root).output()?;
+fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("cannot run git: {e}"))?;
     if !output.status.success() {
-        return Err(io::Error::other(format!(
+        return Err(format!(
             "git {} failed: {}",
             args.join(" "),
             String::from_utf8_lossy(&output.stderr).trim()
-        )));
+        ));
     }
     Ok(output.stdout)
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read_stamp(root: &Path, path: &str) -> Option<String> {
-    std::fs::read_to_string(root.join(path)).ok()
+/// The stamp of the last pass, if there is one.
+fn read_stamp(root: &Path) -> Result<Option<String>, String> {
+    let bytes = read_if_exists(&root.join(PASS))?;
+    Ok(bytes.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn write_stamp(root: &Path, path: &str, stamp: &str) -> io::Result<()> {
-    let path = root.join(path);
+fn write_stamp(root: &Path, stamp: &str) -> Result<(), String> {
+    let path = root.join(PASS);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        create_dir(dir)?;
     }
-    std::fs::write(path, stamp)
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn stdout() -> io::StdoutLock<'static> {
-    io::stdout().lock()
+    write(&path, stamp.as_bytes())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn root() -> &'static Path {
-        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
-    }
+    use crate::root;
 
     fn plan(files: &[&str]) -> Plan {
         let files: Vec<String> = files.iter().map(|f| (*f).to_owned()).collect();
-        Plan::new(root(), &files, &includes(root()).unwrap())
+        Plan::new(&root(), &files, &includes(&root()).unwrap())
     }
 
     #[test]
@@ -468,7 +470,7 @@ mod tests {
                 args(&["test", "-p", "xtask", "--bin", "xtask", "--quiet"]),
             ]
         );
-        let includes = includes(root()).unwrap();
+        let includes = includes(&root()).unwrap();
         assert!(is_read("xtask/data/reference/bds_camera.json", &includes));
         assert!(!is_read(".claude/docs/data.md", &includes));
     }
@@ -540,5 +542,12 @@ mod tests {
             support.tests(),
             [args(&["test", "-p", "anchor", "--quiet", "--test", "*"])]
         );
+    }
+
+    #[test]
+    fn a_deleted_test_file_has_no_target_to_run() {
+        let p = plan(&["tests/gone_for_good.rs", "xtask/tests/gone_too.rs"]);
+        assert!(p.code);
+        assert!(p.tests().is_empty());
     }
 }

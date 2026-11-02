@@ -15,6 +15,17 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+/// The example's settings: loopback ports the system picks, offline, a small view, no console.
+const SETTINGS: &str = "[general]\n\
+    server-ip = \"127.0.0.1\"\n\
+    enable-ipv6 = false\n\
+    server-port = 0\n\
+    xbox-auth = false\n\
+    view-distance = 4\n\
+    \n\
+    [developer]\n\
+    console-input = false\n";
+
 /// The directory for this test binary's files.
 fn work_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join("examples")
@@ -169,17 +180,6 @@ impl Drop for Example {
     }
 }
 
-/// The example's settings: loopback ports the system picks, offline, a small view, no console.
-const SETTINGS: &str = "[general]\n\
-    server-ip = \"127.0.0.1\"\n\
-    enable-ipv6 = false\n\
-    server-port = 0\n\
-    xbox-auth = false\n\
-    view-distance = 4\n\
-    \n\
-    [developer]\n\
-    console-input = false\n";
-
 #[test]
 fn the_pvp_example_gives_the_kit_and_shows_the_scoreboard() {
     Example::start("pvp").play();
@@ -193,6 +193,11 @@ fn the_minigame_example_counts_down_plays_a_round_and_sums_it_up() {
 #[test]
 fn the_lobby_example_opens_the_menu_shop_and_arena() {
     Example::start("lobby").play();
+}
+
+#[test]
+fn the_custom_example_serves_its_pack_items_blocks_and_entities() {
+    Example::start("custom").play();
 }
 
 #[expect(
@@ -231,12 +236,17 @@ fn create_file(path: &Path) -> std::fs::File {
     std::fs::File::create(path).expect("create a test file")
 }
 
+/// The text of the file at `path`; empty while the example has not created it.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
 )]
 fn read(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
+    match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => panic!("read {}: {e}", path.display()),
+    }
 }
 
 #[expect(
@@ -245,9 +255,4 @@ fn read(path: &Path) -> String {
 )]
 fn pause() {
     std::thread::sleep(Duration::from_millis(100));
-}
-
-#[test]
-fn the_custom_example_serves_its_pack_items_blocks_and_entities() {
-    Example::start("custom").play();
 }

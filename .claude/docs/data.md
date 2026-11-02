@@ -32,7 +32,7 @@ Before it starts, `dump` checks the pinned commits and that `.cache/pmmp/vendor`
 2. The dump PHP runs `xtask/php/dump.php` with `.cache/pmmp` as the working directory and writes `xtask/data/pmmp/`.
 3. It copies source B's biome definitions, entity identifiers, and block shapes into `xtask/data/reference/`.
 4. It writes the field limits (`protocol_limits.json`) from Mojang's protocol schemas (`.claude/docs/protocol.md`).
-5. It copies the upgrade schemas into `xtask/data/upgrade/` and makes the goldens with the dump source's upgrader (see the upgrade section).
+5. It copies the upgrade schemas into `xtask/data/upgrade/` and makes the goldens with the dump source's upgrader (see the upgrade section). It fails when `xtask/data/upgrade/{blocks,items}` holds a file the sources do not make.
 6. It writes `block_physics.json`: the official server's block physics for every reference state (see block physics). It fails on a state without physics.
 
 `--check` does the same into `target/xtask-dump/` and fails where a committed file differs. `verify` does not run `dump`: it needs the checkouts, the dump PHP, and Go, and its pinned inputs never change. `verify`'s `gen --check` checks the code made from the committed data instead.

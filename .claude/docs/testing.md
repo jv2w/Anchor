@@ -19,7 +19,8 @@ It looks only at the files that differ from HEAD (changed, staged, deleted, or u
 
 - When no Rust source, build file, or pulled-in file changed, the check prints `no code changed` and passes. This includes changes to Go sources (`xtask/go/`) alone: their tests run in `verify` (`xtask/tests/go.rs` and the bot tests). A changed Rust file under `examples/` or `vendor/` runs only the format check and clippy; the vendor copies' tests run in `verify`.
 - The builds go to `target/check/`, so a check neither waits on a running `verify` nor rebuilds the running `xtask.exe`.
-- A pass writes a stamp of HEAD and of the changed files the build reads, with their contents, to `target/check/pass`. An unchanged tree then passes at once.
+- A pass writes a stamp of HEAD and of the changed files the build reads, with their contents, to `target/check/pass`, only when the tree after the checks equals the tree before them. An unchanged tree then prints `unchanged since the last pass` and `PASS` at once.
+- A deleted `tests/<name>.rs` or `xtask/tests/<name>.rs` has no test target, so it adds no test step.
 
 ## `cargo xtask verify`
 
@@ -99,7 +100,7 @@ P6 runs the same bot scenarios against the official server and Anchor and compar
 | `cargo xtask p6 run --addr HOST:PORT --out DIR [--transport raknet\|nethernet\|auto] [--token-key PEM --kid KID --iss ISS]` | Runs the scenarios against a server already running; the token options add the online scenario |
 | `cargo xtask p6 compare A B`, `p6 game compare DIR_A DIR_B`, `p6 api compare DIR_A DIR_B` | Compares two captures |
 
-`p6 anchor` compares its fallback capture with `bds-fallback/`, which `p6 bds` recorded with its first compression. With a different first compression, NetworkSettings differs there.
+`p6 anchor` compares its fallback capture with `bds-fallback/`, which `p6 bds` records in its `FALLBACK_COMPRESSION` (zlib) run; `p6 bds snappy` alone records none, and `p6 anchor` then fails with "no capture".
 
 ### Scenarios
 
@@ -108,7 +109,7 @@ P6 runs the same bot scenarios against the official server and Anchor and compar
   - `big-skin`: a large Login request.
   - `blocks` (RakNet runs only): console commands place fences, glass panes, iron and copper bars, walls, a fence gate, stairs, and tripwire next to each other and remove some again; the block update states of each step are compared.
   - The `auto` fallback, the offer identity mismatch (`bind-mismatch`), and the duplicate-name login. NetherNet runs also compare the answer SDP structure, and print each capture's segment facts. `bot cloudburst` checks each spawn capture's biome definitions and jigsaw data against the reference list source's data.
-- Game (`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. Per bot step it compares the commands, request statuses, ItemStackResponse slots (stack IDs numbered in order of appearance), the items the client sees at the end of the step, the last block state of each position, window opens and closes, block entity keys, LevelEvent types, entities by type, the trade window shape and offer keys, and the enchant option count and level changes. Random values (enchant options, offers, experience orbs), timing, sounds, chat, recipe unlocks, and `Event` types are only shown. A `setup` step compares only its commands; a run of `random` steps compares only the shapes of its lines, with names and counts blanked. Changes farther than `AREA_REACH` (4 blocks) from the scenario's area are only shown (`xtask/src/p6/game/trace.rs`).
+- Game (`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. Per bot step it compares the commands, request statuses, ItemStackResponse slots (stack IDs numbered in order of appearance), the items the client sees at the end of the step, the last block state of each position, window opens and closes, block entity keys, LevelEvent types, entities by type, the trade window shape and offer keys, and the enchant option count and level changes. Random values (enchant options, offers, experience orbs), timing, sounds, chat, recipe unlocks, and `Event` types are only shown. A `setup` step compares only its commands; a run of `random` steps compares only the shapes of its lines, with names and counts blanked. Changes farther than `AREA_REACH` (4 blocks) from the scenario's area are only shown (`xtask/src/p6/game/trace.rs`). The bot's `check` lines are compared only when their name is in `FIXED_CHECKS` (the `offers` checks by shape), and every `Disconnect` and every packet that failed to decode is compared.
 - API (`p6 api`):
   - `commands` (player commands and their output, op), `particles`, `kick`, `forms`, `script` (a self-test of the bot's `-script` actions, `script.txt`).
   - `weather`, `joinrain`, `joinstorm` (weather changes, joining during rain or thunder), `boltpeaceful`, `bolteasy`, `bolthard` (lightning by difficulty).
@@ -116,7 +117,7 @@ P6 runs the same bot scenarios against the official server and Anchor and compar
   - `clocks` (every form of `/time`: the world clock and its time markers, the answers and the clock times sent).
   - `villagers` (profession numbers), `numbers` (numbers only the official server uses, and telemetry), `rules`, `rulesjoin` (game rules), `line<bytes>`, `lineunknown600`, `linekorean<bytes>` (command line lengths; the official server ends the connection from 508 bytes), `limits`, `limitchat` (string limits).
   - In every step that is not a setup step, it compares the number and fixed fields of the packets `fields.txt` names, and the bot's output, check, and form lines. Command lists are compared only for the commands both servers have, and only as notes. Facts-only scenarios are in `FACTS_ONLY`, and scenarios that compare check lines without fixed fields are in `CHECKS_ONLY` (`xtask/src/p6/api.rs`).
-- Import (`p6 import`): in a world with the official server's own terrain, every block of every sub-chunk both servers send, in every layer, must have the same network ID. A block the dump lacks, which Anchor keeps as an unknown block, passes through an `import | block <name> | <reason>` line of `intended.txt`. The export writes Anchor's imported world with `Server::export_world` (`target/p6/export-world/`); the official server opens it with the same game rules, and the blocks it sends (`export-bds/`) are compared with those it sent of the original world, by the same rules.
+- Import (`p6 import`): in a world with the official server's own terrain, every block of every sub-chunk both servers send, in every layer, must have the same network ID, and a sub-chunk answered all-air holds air. A block the dump lacks, which Anchor keeps as an unknown block, passes through an `import | block <name> | <reason>` line of `intended.txt`, as does a block whose stored state Anchor sends where the official server updated it after loading. The export writes Anchor's imported world with `Server::export_world` (`target/p6/export-world/`); the official server opens it with the same game rules, and the blocks it sends (`export-bds/`) are compared with those it sent of the original world, by the same rules.
 
 ### Data files (`xtask/data/p6/`)
 

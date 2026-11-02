@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use crate::SOURCE_DIRS;
-use crate::table::sources;
+use crate::table::{is_ident, sources};
 
 /// The tags a reason starts with, each followed by `: `.
 const TAGS: &[&str] = &[
@@ -98,10 +98,6 @@ fn literal_len(before: &str, rest: &str) -> Option<usize> {
         return char_len(rest);
     }
     None
-}
-
-fn is_ident(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
 }
 
 /// The length of the block comment `rest` starts with; block comments nest.
@@ -211,6 +207,14 @@ let reason = "a variable";
         );
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: xtask is a development tool"
+    )]
+    fn remove_dir(path: &Path) {
+        std::fs::remove_dir_all(path).expect("cleanup");
+    }
+
     #[test]
     fn examples_and_xtask_tests_are_checked() {
         let root = std::env::temp_dir().join(format!("anchor-reasons-{}", std::process::id()));
@@ -229,14 +233,6 @@ let reason = "a variable";
         assert_eq!(errors.len(), 2, "{errors:?}");
         assert!(errors[0].starts_with("examples/a.rs:1: "), "{errors:?}");
         assert!(errors[1].starts_with("xtask/tests/a.rs:1: "), "{errors:?}");
-    }
-
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: xtask is a development tool"
-    )]
-    fn remove_dir(path: &Path) {
-        std::fs::remove_dir_all(path).expect("cleanup");
     }
 
     #[test]

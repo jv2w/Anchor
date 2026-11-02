@@ -5,8 +5,8 @@
 //! then imports that folder into Anchor's default world (a Void world of the same name) with
 //! `Server::import_world`, starts Anchor, lets the bot record the sub-chunks Anchor sends
 //! (`import-anchor/spawn.world.jsonl`), and compares them block by block: every block of every
-//! sub-chunk both servers sent, in every layer (a layer one side does not send is air), must have
-//! the same network ID.
+//! sub-chunk both servers answered (an all-air answer holds air), in every layer (a layer one side
+//! does not send is air), must have the same network ID.
 //!
 //! Anchor keeps a block PMMP does not have as an unknown block. It sends the stored state when the
 //! client knows it (an inert block, with no server behaviour) and `info_update` otherwise: a
@@ -27,24 +27,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 
+use anchor::protocol::consts::SubChunkResult;
 use serde_json::Value;
 
-use crate::r#gen::data::Data;
-
-use super::api::INTENDED;
+use super::api::{INTENDED, parse_intended};
 use super::{
     BdsSession, OUT_DIR, anchor_config, bds_exe, bds_session_with, block_states, build_bot,
-    create_dir, field, install_log, now, pause, read_text, remove_dir, run_anchor, run_bot, say,
+    create_dir, field, install_log, read_text, remove_dir, run_anchor, run_bot, say, state_text,
 };
+use crate::r#gen::data::Data;
 
 /// The scenario's name in `intended.txt`.
-pub(super) const SCENARIO: &str = "import";
+pub(crate) const SCENARIO: &str = "import";
 /// The seed of BDS's world.
 const SEED: &str = "20261004";
 /// The world's name, in BDS and in Anchor.
 const WORLD: &str = "p6-import";
-/// How long to wait for BDS to confirm the game rule.
-const RULE_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 /// Game rules set before the bot joins: the player spawns on the world spawn, as Anchor puts
 /// it, and nothing changes blocks between BDS sending them and saving them but what the
 /// world's own pending updates do (fire burned vines next to lava in an earlier run).
@@ -60,7 +58,8 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
     let exe = bds_exe(root)?;
     let bot = build_bot(root)?;
     let states = block_states(root)?;
-    let intended = intended(&read_text(&root.join(INTENDED))?)?;
+    let intended = parse_intended(&read_text(&root.join(INTENDED))?)
+        .map_err(|e| format!("{INTENDED}: {e}"))?;
     let aliases = aliases(root)?;
     let dir = |name: &str| root.join(OUT_DIR).join(name);
     let (bds_dir, world_dir, anchor_dir) =
@@ -85,7 +84,7 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
         &read(&bds_dir)?,
         &read(&anchor_dir)?,
         &states,
-        &intended,
+        intended.blocks(),
         &aliases,
         ["BDS", "Anchor"],
         out,
@@ -104,7 +103,7 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
         &read(&bds_dir)?,
         &read(&export_bds_dir)?,
         &states,
-        &intended,
+        intended.blocks(),
         &aliases,
         ["BDS", "BDS on the export"],
         out,
@@ -132,16 +131,8 @@ fn bds_run(
         ],
     };
     bds_session_with(exe, out_dir, &session, prepare, out, |addr, bds, out| {
-        let log = out_dir.join("bds.log");
         for (rule, value) in RULES {
-            bds.command(&format!("gamerule {rule} {value}"))?;
-            let deadline = now() + RULE_WAIT;
-            while !read_text(&log)?.contains(rule) {
-                if now() > deadline {
-                    return Err(format!("BDS did not confirm `gamerule {rule} {value}`"));
-                }
-                pause();
-            }
+            bds.set_game_rule(rule, value)?;
         }
         spawn_bot(bot, addr, out_dir, "BDS", out)
     })
@@ -257,9 +248,14 @@ fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
             .into_iter()
             .flatten()
         {
-            let Some(payload) = field(entry, "RawPayload").as_str() else {
+            // An answer without blocks (all air) has no payload; any other answer without one is
+            // an error answer and holds nothing to compare.
+            let payload = field(entry, "RawPayload").as_str();
+            let all_air = field(entry, "Result").as_u64()
+                == Some(u64::from(u8::from(SubChunkResult::SuccessAllAir)));
+            if payload.is_none() && !all_air {
                 continue;
-            };
+            }
             let offset = field(entry, "Offset");
             let mut position = [0i64; 3];
             for (k, slot) in position.iter_mut().enumerate() {
@@ -271,7 +267,12 @@ fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
                 };
                 *slot = c + o;
             }
-            let layers = layers(&base64(payload).map_err(|e| at(&e))?).map_err(|e| at(&e))?;
+            let layers = match payload {
+                Some(payload) => {
+                    layers(&base64(payload).map_err(|e| at(&e))?).map_err(|e| at(&e))?
+                }
+                None => Layers::new(),
+            };
             out.insert(position, layers);
         }
     }
@@ -360,26 +361,6 @@ fn layers(payload: &[u8]) -> Result<Layers, String> {
     Ok(layers)
 }
 
-/// The intended blocks of the scenario: `import | block <name> | <reason>` lines of
-/// `intended.txt`, by block name.
-fn intended(text: &str) -> Result<BTreeSet<String>, String> {
-    let mut names = BTreeSet::new();
-    for line in text.lines() {
-        let Some(rest) = line.strip_prefix(&format!("{SCENARIO} | ")) else {
-            continue;
-        };
-        let name = rest
-            .strip_prefix("block ")
-            .and_then(|r| r.split_once(" | "))
-            .map(|(name, _)| name)
-            .ok_or_else(|| {
-                format!("{INTENDED}: want `{SCENARIO} | block <name> | <reason>`: {line}")
-            })?;
-        names.insert(name.to_owned());
-    }
-    Ok(names)
-}
-
 /// A network ID's state as `name[properties]`.
 fn state_name(states: &BTreeMap<u32, String>, id: u32) -> String {
     states
@@ -411,7 +392,10 @@ fn compare(
             .map(|(id, _)| *id)
             .ok_or_else(|| format!("the reference list has no {name}"))
     };
-    let (air, unknown) = (id_of("minecraft:air[]")?, id_of("minecraft:info_update[]")?);
+    let (air, unknown) = (
+        id_of(&state_text("minecraft:air", ""))?,
+        id_of(&state_text("minecraft:info_update", ""))?,
+    );
     let name = |id: u32| {
         let state = state_name(states, id);
         state.split('[').next().unwrap_or_default().to_owned()
@@ -540,4 +524,62 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `SubChunk` packet line holding one entry at the centre.
+    fn world_line(result: u8, payload: &str) -> String {
+        format!(
+            r#"{{"name":"SubChunk","fields":{{"Position":[0,0,0],"SubChunkEntries":[{{"Offset":[0,0,0],"Result":{result},"RawPayload":{payload}}}]}}}}"#
+        )
+    }
+
+    /// A version 8 payload with one layer of a single block, network ID 2.
+    const STONE_PAYLOAD: &str = r#""CAEBBA==""#;
+
+    fn states() -> BTreeMap<u32, String> {
+        BTreeMap::from([
+            (0, "minecraft:air[]".to_owned()),
+            (1, "minecraft:info_update[]".to_owned()),
+            (2, "minecraft:stone[]".to_owned()),
+        ])
+    }
+
+    fn same(a: &str, b: &str) -> bool {
+        let (a, b) = (sub_chunks(a).expect("a"), sub_chunks(b).expect("b"));
+        compare(
+            &a,
+            &b,
+            &states(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            ["A", "B"],
+            &mut Vec::new(),
+        )
+        .expect("compare")
+    }
+
+    #[test]
+    fn an_all_air_answer_holds_no_layers() {
+        let all_air = sub_chunks(&world_line(6, "null")).expect("all air");
+        assert_eq!(all_air.get(&[0, 0, 0]), Some(&Layers::new()));
+    }
+
+    #[test]
+    fn an_all_air_answer_differs_from_a_sub_chunk_with_blocks() {
+        let stone = world_line(1, STONE_PAYLOAD);
+        let all_air = world_line(6, "null");
+        assert!(!same(&stone, &all_air));
+        assert!(same(&stone, &stone));
+        assert!(same(&all_air, &all_air));
+    }
+
+    #[test]
+    fn an_error_answer_is_not_compared() {
+        let error = sub_chunks(&world_line(2, "null")).expect("error answer");
+        assert!(error.is_empty());
+    }
 }

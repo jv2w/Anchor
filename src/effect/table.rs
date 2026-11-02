@@ -361,6 +361,7 @@ pub(super) static TYPES_BY_ID: [Option<Type>; 31] = [
 ];
 
 /// A potion type (PMMP `PotionType`): what a potion, splash potion, lingering potion or tipped arrow holds.
+#[doc(alias = "PotionType")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Potion {
     /// `awkward`.

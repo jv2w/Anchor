@@ -4,6 +4,7 @@
 # any other difference still fails. A line the comparison no longer finds is printed as a note:
 # remove it then. Review every line like a code change.
 # <scenario> | <difference, exactly as printed after `DIFFERENT <scenario>: `> | <reason>
+# import | block <name> | <reason>
 
 # `/say`: BDS sends no CommandOutput and everyone a Text 8 `[name] message`; Anchor keeps PMMP's
 # `SayCommand`: the `§d%chat.type.announcement` translation and an empty CommandOutput.

@@ -1,7 +1,7 @@
 //! `src/effect/table.rs`: the status effect and potion tables from the PMMP dump
 //! (`tables.json`).
 
-use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
+use super::blocks::{by_id, pmmp_enumeration, strings, variants};
 use super::body::{int_lit, str_lit};
 use super::data::Data;
 use super::emit::HEADER;
@@ -118,10 +118,12 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
     let potions = &data.tables.potions;
     let potion_names: Vec<&str> = potions.iter().map(|p| p.name.as_str()).collect();
     let potion_variants = variants(&potion_names)?;
-    enumeration(
+    pmmp_enumeration(
         out,
         "A potion type (PMMP `PotionType`): what a potion, splash potion, lingering potion or \
          tipped arrow holds.",
+        "#[doc(alias = \"PotionType\")]
+",
         "Potion",
         &potion_variants,
     );

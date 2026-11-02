@@ -16,10 +16,373 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::body::{int_lit, str_lit};
 use super::emit::{HEADER, doc};
 use super::ir::{DeclConst, Ir};
-use super::names;
+use super::{model, names};
+use Kind::{BitsOf, Enum, Excluded, Index, Mask, SameAs, UnionTag, Values};
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/protocol/consts.rs";
+
+/// Every constant group, in the order of the generated file. `repr` follows the packet field
+/// that carries the group (the one of the current packet when several do).
+const SPECS: &[Spec] = &[
+    // protocol
+    Spec::new("protocol.Ability", Mask).with_repr("u32").count(),
+    Spec::new("protocol.AbilityLayerType", Enum).with_repr("u16"),
+    Spec::new("protocol.AbilityBase", Values),
+    Spec::new("protocol.AttributeModifierOperation", Enum),
+    Spec::new("protocol.AttributeModifierOperand", Enum),
+    Spec::new("protocol.AttributeLayerPayloadType", Enum).with_repr("u32"),
+    Spec::new("protocol.EnvironmentAttributePayloadType", Enum).with_repr("u32"),
+    Spec::new("protocol.AttributeDataType", Enum).with_repr("u32"),
+    Spec::new("protocol.AttributeBoolOperation", Enum),
+    Spec::new("protocol.AttributeFloatOperation", Enum),
+    Spec::new("protocol.AttributeColourOperation", Enum),
+    Spec::new("protocol.NoiseAlignmentType", Enum).with_repr("u8"),
+    Spec::new("protocol.BiomeExpressionOp", Enum)
+        .with_prefixes(&["BiomeExpressionOp", "BiomeExpression"])
+        .count(),
+    Spec::new("protocol.BiomeCoordinateEvaluationOrder", Enum),
+    Spec::new("protocol.BiomeRandomDistributionType", Enum),
+    Spec::new("protocol.AimAssistTargetMode", Enum),
+    Spec::new("protocol.AudioListener", Enum).with_repr("u8"),
+    Spec::new("protocol.AudioContentPlaybackType", Enum),
+    Spec::new("protocol.EasingType", Enum),
+    Spec::new("protocol.SplineType", Enum),
+    Spec::new("protocol.ClockPayloadType", Enum).with_repr("u32"),
+    Spec::new("protocol.CommandPermissionLevel", Enum).with_repr("u8"),
+    Spec::new("protocol.CommandArg", Mask).with_repr("u32"),
+    Spec::new("protocol.CommandArgType", Enum).with_repr("u32"),
+    Spec::new("protocol.ParamOption", Mask).with_repr("u8"),
+    Spec::new("protocol.CommandEnumConstraint", Enum).with_repr("u8"),
+    Spec::new("protocol.CommandOrigin", Enum).with_repr("u32"),
+    Spec::new("protocol.Container", Enum).with_repr("u8"),
+    Spec::new("protocol.ContainerType", Enum).with_repr("u8"),
+    Spec::new("protocol.CreativeCategory", Enum).with_repr("u8"),
+    Spec::new("protocol.DataStoreChangeType", Enum).with_repr("u32"),
+    Spec::new("protocol.DataStoreControl", Enum).with_repr("u32"),
+    Spec::new("protocol.DataStorePropertyType", Enum),
+    Spec::new("protocol.EntityLink", Enum).with_repr("u8"),
+    Spec::new("protocol.PassengerOfBlockEmote", Enum).with_repr("u8"),
+    Spec::new("protocol.EntityDataKey", Enum).with_repr("u32"),
+    Spec::new("protocol.EntityDataFlag", Index)
+        .with_repr("u32")
+        .count(),
+    Spec::new("protocol.EntityDataType", Enum),
+    Spec::new("protocol.EventType", UnionTag),
+    Spec::new("protocol.CopperBlockID", Enum)
+        .with_prefixes(&["Wax", "UnWax"])
+        .whole(),
+    Spec::new("protocol.FurnaceLayout", Enum),
+    Spec::new("protocol.FurnaceLeftTab", Enum),
+    Spec::new("protocol.GraphicsOverrideParameterType", Enum),
+    Spec::new(
+        "protocol.Current",
+        Excluded("packet::PROTOCOL_VERSION and packet::GAME_VERSION"),
+    ),
+    Spec::new("protocol.InventoryActionSource", Enum).with_repr("u32"),
+    Spec::new("protocol.WindowID", Values).with_repr("u32"),
+    Spec::new("protocol.InventoryTransactionType", UnionTag),
+    Spec::new("protocol.UseItemAction", Enum).with_repr("u32"),
+    Spec::new("protocol.TriggerType", Enum).with_repr("u32"),
+    Spec::new("protocol.ClientPrediction", Enum).with_repr("u8"),
+    Spec::new("protocol.ClientCooldownState", Enum).with_repr("u8"),
+    Spec::new("protocol.HandSlot", Enum).with_repr("u8"),
+    Spec::new("protocol.UseItemOnEntityAction", Enum),
+    Spec::new("protocol.ReleaseItemAction", Enum),
+    Spec::new("protocol.ItemEntryVersion", Enum),
+    Spec::new("protocol.ItemDescriptor", UnionTag),
+    Spec::new("protocol.FilterCause", Enum),
+    Spec::new("protocol.ItemStackResponseStatus", Enum).with_repr("u8"),
+    Spec::new("protocol.StackRequestAction", UnionTag),
+    Spec::new("protocol.MapDecorationType", Enum).with_repr("u8"),
+    Spec::new("protocol.MapObjectType", Enum),
+    Spec::new("protocol.MemoryCategory", Enum).with_repr("u8"),
+    Spec::new("protocol.DeviceOS", Enum).with_prefixes(&["Device"]),
+    Spec::new("protocol.PlayerListAction", Enum).with_repr("u8"),
+    Spec::new("protocol.PlayerAction", Enum).count(),
+    Spec::new("protocol.RecipeUnlockContext", Enum),
+    Spec::new("protocol.PackSettingType", Enum).with_repr("u32"),
+    Spec::new("protocol.ScoreboardIdentity", Enum).with_repr("u8"),
+    Spec::new("protocol.ShapeData", UnionTag),
+    Spec::new("protocol.PrimitiveShape", Enum),
+    Spec::new("protocol.ArmSize", Enum).with_repr("u8"),
+    Spec::new("protocol.SkinAnimation", Enum).with_repr("u32"),
+    Spec::new("protocol.ExpressionType", Enum).with_repr("u32"),
+    Spec::new("protocol.PieceType", Enum).with_repr("u32"),
+    Spec::new("protocol.SoundDataUpdate", Enum),
+    Spec::new("protocol.StructureMirror", Enum).with_repr("u8"),
+    Spec::new("protocol.StructureRotation", Enum).with_repr("u8"),
+    Spec::new("protocol.AnimationMode", Enum).with_repr("u8"),
+    Spec::new("protocol.HeightMapData", Enum).with_repr("u8"),
+    Spec::new("protocol.SubChunkResult", Enum).with_repr("u8"),
+    Spec::new("protocol.WaypointAction", Enum).with_repr("u8"),
+    Spec::new("protocol.WaypointUpdateFlag", Mask).with_repr("u32"),
+    Spec::new("protocol.WaypointTexture", Enum),
+    Spec::new("protocol.Generator", Enum),
+    // packet
+    Spec::new("packet.ActorEvent", Enum).with_repr("u8"),
+    Spec::new("packet.AdventureFlag", Mask)
+        .with_repr("u32")
+        .with_prefixes(&["AdventureFlag", "AdventureSettingsFlags"]),
+    Spec::new("packet.ActionPermission", Mask).with_repr("u32"),
+    Spec::new("packet.PermissionLevel", Enum).with_repr("u8"),
+    Spec::new("packet.AgentActionType", Enum),
+    Spec::new("packet.AnimateAction", Enum).with_repr("u8"),
+    Spec::new("packet.AnimateSwingSource", Enum).with_repr("u8"),
+    Spec::new("packet.BlockEventType", Enum).with_prefixes(&["BlockEvent"]),
+    Spec::new("packet.BookAction", Enum).with_repr("u32"),
+    Spec::new("packet.BossEventType", Enum)
+        .with_repr("u8")
+        .with_prefixes(&["BossEvent"]),
+    Spec::new("packet.BossEventColour", Enum).with_repr("u8"),
+    Spec::new("packet.BossEventOverlay", Enum).with_repr("u8"),
+    Spec::new("packet.CameraAimAssistAction", Enum).with_repr("u8"),
+    Spec::new("packet.CameraAunAssistPresetOperation", Enum).with_repr("u8"),
+    Spec::new("packet.CameraShakeType", Enum),
+    Spec::new("packet.CameraShakeAction", Enum).with_repr("u8"),
+    Spec::new("packet.Dimension", Enum),
+    Spec::new("packet.ControlScheme", Enum).with_repr("u8"),
+    Spec::new("packet.ClientBoundDebugRendererType", Enum)
+        .with_repr("u32")
+        .with_prefixes(&["ClientBoundDebugRenderer"]),
+    Spec::new("packet.ClientCameraAimAssistAction", Enum).with_repr("u8"),
+    Spec::new("packet.TextureShiftAction", Enum).with_repr("u8"),
+    Spec::new("packet.CodeBuilderOperation", Enum).with_repr("u8"),
+    Spec::new("packet.CodeBuilderCategory", Enum).with_repr("u8"),
+    Spec::new("packet.CodeBuilderStatus", Enum).with_repr("u8"),
+    Spec::new("packet.CommandBlockMode", Enum)
+        .with_repr("u32")
+        .with_prefixes(&["CommandBlock"]),
+    Spec::new("packet.CommandOutputType", Enum).with_repr("u8"),
+    Spec::new("packet.UseItemMethod", Enum).with_prefixes(&["UseItem"]),
+    Spec::new("packet.CursorItemDrag", Enum).with_repr("u8"),
+    Spec::new("packet.ContainerDataFurnace", Enum),
+    Spec::new("packet.ContainerDataBrewingStand", Enum),
+    Spec::new("packet.PredictionType", Enum).with_repr("u8"),
+    Spec::new(
+        "packet.DefaultMaxDecompressedLen",
+        Excluded("the max-batch-bytes setting"),
+    ),
+    Spec::new("packet.DisconnectReason", Enum),
+    Spec::new("packet.EmoteFlag", Mask).with_repr("u8"),
+    Spec::new("packet.GameTestRequestRotation", Enum)
+        .with_repr("u8")
+        .with_prefixes(&["GameTestRequest"]),
+    Spec::new("packet.ID", Excluded("packet IDs: the Packet enum")),
+    Spec::new("packet.InteractAction", Enum).with_repr("u8"),
+    Spec::new(
+        "packet.InventoryTransactionType",
+        SameAs("protocol.InventoryTransactionType"),
+    ),
+    Spec::new("packet.LabTableAction", Enum).with_repr("u8"),
+    Spec::new("packet.LessonAction", Enum),
+    Spec::new("packet.MatchmakingState", Enum).with_repr("u8"),
+    Spec::new("packet.ParticleType", Enum),
+    Spec::new("packet.LevelEvent", Enum),
+    Spec::new("packet.SoundEvent", Enum),
+    Spec::new("packet.MobEffectOperation", Enum)
+        .with_repr("u8")
+        .with_prefixes(&["MobEffect"]),
+    Spec::new("packet.Effect", Enum),
+    Spec::new("packet.ModalFormCancelReason", Enum).with_repr("u8"),
+    Spec::new("packet.MoveFlag", Mask).with_repr("u8"),
+    Spec::new("packet.MoveMode", Enum).with_repr("u8"),
+    Spec::new("packet.TeleportCause", Enum),
+    Spec::new("packet.MovementEffectType", Enum),
+    Spec::new("packet.MultiPlayerSettingsAction", Enum)
+        .with_prefixes(&["EnableMultiPlayer", "DisableMultiPlayer", "RefreshJoinCode"])
+        .whole(),
+    Spec::new("packet.CompressionAlgorithm", Enum).with_repr("u16"),
+    Spec::new("packet.NPCDialogueAction", Enum),
+    Spec::new("packet.NPCRequestAction", Enum).with_repr("u8"),
+    Spec::new("packet.ViolationType", Enum),
+    Spec::new("packet.ViolationSeverity", Enum),
+    Spec::new("packet.PhotoType", Enum),
+    Spec::new("packet.PlayStatus", Enum),
+    Spec::new("packet.PlayerArmourDamageFlag", Index).with_repr("u8"),
+    Spec::new("packet.InputFlag", Index)
+        .with_repr("u32")
+        .count(),
+    Spec::new("packet.InputMode", Enum).with_repr("u32").count(),
+    Spec::new("packet.PlayMode", Enum)
+        .with_repr("u32")
+        .with_sentinels(&["NumModes"]),
+    Spec::new("packet.InteractionModel", Enum).count(),
+    Spec::new("packet.PlayerLocationType", Enum),
+    Spec::new("packet.PlayerUpdateEntityOverridesType", Enum).with_repr("u32"),
+    Spec::new("packet.PlayerVideoCaptureAction", Enum).with_repr("u8"),
+    Spec::new("packet.PositionTrackingDBRequestAction", Enum).with_repr("u8"),
+    Spec::new("packet.PositionTrackingDBBroadcastAction", Enum).with_repr("u8"),
+    Spec::new("packet.Ability", BitsOf("protocol.Ability")).count(),
+    Spec::new("packet.PackResponse", Enum).with_repr("u32"),
+    Spec::new("packet.ResourcePackType", Enum).with_repr("u8"),
+    Spec::new("packet.RespawnState", Enum).with_repr("u8"),
+    Spec::new("packet.PartyDestinationCookieIntent", Enum),
+    Spec::new("packet.LoadingScreenType", Enum),
+    Spec::new("packet.DataDrivenScreenCloseReason", Enum),
+    Spec::new("packet.ScoreboardSortOrder", Enum),
+    Spec::new("packet.ScoreboardSlot", Enum),
+    Spec::new("packet.HudElement", Enum),
+    Spec::new("packet.HudVisibility", Enum),
+    Spec::new("packet.FurnaceType", Enum).with_repr("u8"),
+    Spec::new("packet.GameType", Enum),
+    Spec::new("packet.InventoryLayout", Enum),
+    Spec::new("packet.InventoryLeftTab", Enum),
+    Spec::new("packet.InventoryRightTab", Enum),
+    Spec::new("packet.ScoreboardIdentityAction", Enum).with_repr("u8"),
+    Spec::new("packet.SpawnType", Enum),
+    Spec::new("packet.TitleAction", Enum),
+    Spec::new("packet.ShowCreditsStatus", Enum),
+    Spec::new("packet.StoreOfferType", Enum).with_repr("u8"),
+    Spec::new("packet.SimpleEvent", Enum).with_repr("u16"),
+    Spec::new("packet.SimulationType", Enum),
+    Spec::new("packet.SpawnBiomeType", Enum).with_repr("i16"),
+    Spec::new("packet.XBLBroadcastMode", Enum),
+    Spec::new("packet.ChatRestrictionLevel", Enum).with_repr("u8"),
+    Spec::new("packet.EditorWorldType", Enum),
+    Spec::new("packet.EditorLevelMigrationVersion", Enum).with_repr("i8"),
+    Spec::new("packet.StructureBlockType", Enum).with_prefixes(&["StructureBlock"]),
+    Spec::new("packet.StructureRedstoneSaveMode", Enum).with_repr("u8"),
+    Spec::new("packet.StructureTemplateRequestType", Enum)
+        .with_repr("u8")
+        .with_prefixes(&["StructureTemplateRequest"]),
+    Spec::new("packet.StructureTemplateResponseType", Enum)
+        .with_repr("u8")
+        .with_prefixes(&["StructureTemplateResponse"]),
+    Spec::new("packet.TextType", Enum).with_repr("u8"),
+    Spec::new("packet.TextCategory", Enum),
+    Spec::new("packet.UnlockedRecipesType", Enum).with_repr("u32"),
+    Spec::new("packet.BlockUpdateFlag", Mask)
+        .with_repr("u32")
+        .with_prefixes(&["BlockUpdate"]),
+    Spec::new("packet.BlockSyncedTransition", Enum)
+        .with_repr("u64")
+        .with_prefixes(&["BlockToEntityTransition", "EntityToBlockTransition"])
+        .whole(),
+    Spec::new("packet.ClientInputLock", Mask).with_repr("u32"),
+    Spec::new("packet.GraphicsMode", Enum).with_repr("u8"),
+    Spec::new("packet.SoftEnumAction", Enum).with_repr("u8"),
+];
+
+/// The test module: every Rust value against the IR, round trips and unknown values. The
+/// placeholders `@VALUES@`, `@EXCLUDED@` and `@CHECKS@` take the generated lines.
+const TESTS: &str = r#"#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fmt::Debug;
+
+    use crate::protocol::FlagSet;
+
+    /// The Go constants left out (their groups are in `xtask/src/gen/consts.rs`).
+    const EXCLUDED: &[&str] = &[
+@EXCLUDED@    ];
+
+    /// A constant's value as the Rust item gives it. Integers carry the bit width of their
+    /// unsigned Rust type (0 when signed): negative Go values wrap to it, as gophertunnel writes
+    /// them.
+    #[derive(Debug)]
+    enum Value {
+        Int(i128, u32),
+        Float(f32),
+        Str(&'static str),
+    }
+
+    /// The Rust value of every generated constant, by Go name.
+    fn values() -> Vec<(&'static str, Value)> {
+        let mut v = Vec::new();
+        @VALUES@
+        v
+    }
+
+    fn ints(out: &mut Vec<(&'static str, Value)>, names: &[&'static str], values: &[i128], bits: u32) {
+        assert_eq!(names.len(), values.len());
+        out.extend(names.iter().zip(values).map(|(&n, &x)| (n, Value::Int(x, bits))));
+    }
+
+    fn strs(out: &mut Vec<(&'static str, Value)>, names: &[&'static str], values: &[&'static str]) {
+        assert_eq!(names.len(), values.len());
+        out.extend(names.iter().zip(values).map(|(&n, &x)| (n, Value::Str(x))));
+    }
+
+    #[test]
+    fn every_gophertunnel_constant_has_its_value_or_is_excluded() {
+        let ir: serde_json::Value =
+            serde_json::from_str(include_str!("../../xtask/data/protocol.json")).unwrap();
+        let rust: BTreeMap<&str, Value> = values().into_iter().collect();
+        let excluded: BTreeSet<&str> = EXCLUDED.iter().copied().collect();
+        assert_eq!(rust.len(), values().len());
+        assert_eq!(excluded.len(), EXCLUDED.len());
+        let mut go_names = BTreeSet::new();
+        for decl in ir["const_decls"].as_array().unwrap() {
+            for c in decl["consts"].as_array().unwrap() {
+                let name = c["name"].as_str().unwrap();
+                let go = c["value"].as_str().unwrap();
+                assert!(go_names.insert(name), "{name} repeats");
+                if excluded.contains(name) {
+                    assert!(!rust.contains_key(name), "{name} is excluded and generated");
+                    continue;
+                }
+                match rust.get(name) {
+                    Some(Value::Int(rust, bits)) => {
+                        let go: i128 = go.parse().unwrap();
+                        let wire = if *bits > 0 { go.rem_euclid(1 << bits) } else { go };
+                        assert_eq!(*rust, wire, "{name}");
+                    }
+                    Some(Value::Float(rust)) => {
+                        assert_eq!(rust.to_bits(), go.parse::<f32>().unwrap().to_bits(), "{name}");
+                    }
+                    Some(Value::Str(rust)) => assert_eq!(*rust, go, "{name}"),
+                    None => panic!("{name} has no Rust item"),
+                }
+            }
+        }
+        let covered: BTreeSet<&str> = rust.keys().copied().chain(excluded).collect();
+        assert_eq!(covered, go_names);
+    }
+
+    fn int_enum<E, R>(all: &[E], unknown: Option<R>)
+    where
+        E: Copy + PartialEq + Debug + TryFrom<R, Error = Error>,
+        R: From<E> + Copy + Debug,
+    {
+        for &v in all {
+            assert_eq!(E::try_from(R::from(v)), Ok(v));
+        }
+        if let Some(u) = unknown {
+            assert!(matches!(E::try_from(u), Err(Error::UnknownEnum { .. })), "{u:?}");
+        }
+    }
+
+    fn str_enum<E>(all: &[E], as_str: fn(E) -> &'static str)
+    where
+        E: Copy + PartialEq + Debug + for<'a> TryFrom<&'a str, Error = Error>,
+    {
+        for &v in all {
+            assert_eq!(E::try_from(as_str(v)), Ok(v));
+        }
+        assert!(E::try_from("\u{0}").is_err());
+    }
+
+    fn flag<F: Flag + PartialEq + Debug>(all: &[F]) {
+        let mut bits = BTreeSet::new();
+        for &v in all {
+            assert!(v.bit() < F::COUNT);
+            assert!(bits.insert(v.bit()));
+            assert_eq!(F::from_bit(v.bit()), Some(v));
+        }
+        assert_eq!(F::from_bit(F::COUNT), None);
+        let set: FlagSet<F> = all.iter().copied().collect();
+        assert_eq!(set.iter().collect::<Vec<_>>().len(), all.len());
+    }
+
+    #[test]
+    fn every_enum_round_trips_and_rejects_unknown_values() {
+        @CHECKS@
+    }
+}
+"#;
 
 /// What a group becomes.
 #[derive(Debug, Clone, Copy)]
@@ -61,293 +424,43 @@ struct Spec {
     whole: bool,
 }
 
-const fn s(key: &'static str, kind: Kind) -> Spec {
-    Spec {
-        key,
-        kind,
-        repr: "",
-        prefixes: &[],
-        sentinels: &[],
-        whole: false,
-    }
-}
-
 impl Spec {
-    const fn repr(self, repr: &'static str) -> Self {
-        Self { repr, ..self }
+    const fn new(key: &'static str, kind: Kind) -> Self {
+        Self {
+            key,
+            kind,
+            repr: "",
+            prefixes: &[],
+            sentinels: &[],
+            whole: false,
+        }
     }
-    const fn prefixes(self, prefixes: &'static [&'static str]) -> Self {
+
+    const fn with_prefixes(self, prefixes: &'static [&'static str]) -> Self {
         Self { prefixes, ..self }
     }
+
+    const fn with_repr(self, repr: &'static str) -> Self {
+        Self { repr, ..self }
+    }
+
+    const fn with_sentinels(self, sentinels: &'static [&'static str]) -> Self {
+        Self { sentinels, ..self }
+    }
+
     const fn count(self) -> Self {
         Self {
             sentinels: &["Count"],
             ..self
         }
     }
-    const fn sentinels(self, sentinels: &'static [&'static str]) -> Self {
-        Self { sentinels, ..self }
-    }
+
     const fn whole(self) -> Self {
         Self {
             whole: true,
             ..self
         }
     }
-}
-
-use Kind::{BitsOf, Enum, Excluded, Index, Mask, SameAs, UnionTag, Values};
-
-/// Every constant group, in the order of the generated file. `repr` follows the packet field
-/// that carries the group (the one of the current packet when several do).
-const SPECS: &[Spec] = &[
-    // protocol
-    s("protocol.Ability", Mask).repr("u32").count(),
-    s("protocol.AbilityLayerType", Enum).repr("u16"),
-    s("protocol.AbilityBase", Values),
-    s("protocol.AttributeModifierOperation", Enum),
-    s("protocol.AttributeModifierOperand", Enum),
-    s("protocol.AttributeLayerPayloadType", Enum).repr("u32"),
-    s("protocol.EnvironmentAttributePayloadType", Enum).repr("u32"),
-    s("protocol.AttributeDataType", Enum).repr("u32"),
-    s("protocol.AttributeBoolOperation", Enum),
-    s("protocol.AttributeFloatOperation", Enum),
-    s("protocol.AttributeColourOperation", Enum),
-    s("protocol.NoiseAlignmentType", Enum).repr("u8"),
-    s("protocol.BiomeExpressionOp", Enum)
-        .prefixes(&["BiomeExpressionOp", "BiomeExpression"])
-        .count(),
-    s("protocol.BiomeCoordinateEvaluationOrder", Enum),
-    s("protocol.BiomeRandomDistributionType", Enum),
-    s("protocol.AimAssistTargetMode", Enum),
-    s("protocol.AudioListener", Enum).repr("u8"),
-    s("protocol.AudioContentPlaybackType", Enum),
-    s("protocol.EasingType", Enum),
-    s("protocol.SplineType", Enum),
-    s("protocol.ClockPayloadType", Enum).repr("u32"),
-    s("protocol.CommandPermissionLevel", Enum).repr("u8"),
-    s("protocol.CommandArg", Mask).repr("u32"),
-    s("protocol.CommandArgType", Enum).repr("u32"),
-    s("protocol.ParamOption", Mask).repr("u8"),
-    s("protocol.CommandEnumConstraint", Enum).repr("u8"),
-    s("protocol.CommandOrigin", Enum).repr("u32"),
-    s("protocol.Container", Enum).repr("u8"),
-    s("protocol.ContainerType", Enum).repr("u8"),
-    s("protocol.CreativeCategory", Enum).repr("u8"),
-    s("protocol.DataStoreChangeType", Enum).repr("u32"),
-    s("protocol.DataStoreControl", Enum).repr("u32"),
-    s("protocol.DataStorePropertyType", Enum),
-    s("protocol.EntityLink", Enum).repr("u8"),
-    s("protocol.PassengerOfBlockEmote", Enum).repr("u8"),
-    s("protocol.EntityDataKey", Enum).repr("u32"),
-    s("protocol.EntityDataFlag", Index).repr("u32").count(),
-    s("protocol.EntityDataType", Enum),
-    s("protocol.EventType", UnionTag),
-    s("protocol.CopperBlockID", Enum)
-        .prefixes(&["Wax", "UnWax"])
-        .whole(),
-    s("protocol.FurnaceLayout", Enum),
-    s("protocol.FurnaceLeftTab", Enum),
-    s("protocol.GraphicsOverrideParameterType", Enum),
-    s(
-        "protocol.Current",
-        Excluded("packet::PROTOCOL_VERSION and packet::GAME_VERSION"),
-    ),
-    s("protocol.InventoryActionSource", Enum).repr("u32"),
-    s("protocol.WindowID", Values).repr("u32"),
-    s("protocol.InventoryTransactionType", UnionTag),
-    s("protocol.UseItemAction", Enum).repr("u32"),
-    s("protocol.TriggerType", Enum).repr("u32"),
-    s("protocol.ClientPrediction", Enum).repr("u8"),
-    s("protocol.ClientCooldownState", Enum).repr("u8"),
-    s("protocol.HandSlot", Enum).repr("u8"),
-    s("protocol.UseItemOnEntityAction", Enum),
-    s("protocol.ReleaseItemAction", Enum),
-    s("protocol.ItemEntryVersion", Enum),
-    s("protocol.ItemDescriptor", UnionTag),
-    s("protocol.FilterCause", Enum),
-    s("protocol.ItemStackResponseStatus", Enum).repr("u8"),
-    s("protocol.StackRequestAction", UnionTag),
-    s("protocol.MapDecorationType", Enum).repr("u8"),
-    s("protocol.MapObjectType", Enum),
-    s("protocol.MemoryCategory", Enum).repr("u8"),
-    s("protocol.DeviceOS", Enum).prefixes(&["Device"]),
-    s("protocol.PlayerListAction", Enum).repr("u8"),
-    s("protocol.PlayerAction", Enum).count(),
-    s("protocol.RecipeUnlockContext", Enum),
-    s("protocol.PackSettingType", Enum).repr("u32"),
-    s("protocol.ScoreboardIdentity", Enum).repr("u8"),
-    s("protocol.ShapeData", UnionTag),
-    s("protocol.PrimitiveShape", Enum),
-    s("protocol.ArmSize", Enum).repr("u8"),
-    s("protocol.SkinAnimation", Enum).repr("u32"),
-    s("protocol.ExpressionType", Enum).repr("u32"),
-    s("protocol.PieceType", Enum).repr("u32"),
-    s("protocol.SoundDataUpdate", Enum),
-    s("protocol.StructureMirror", Enum).repr("u8"),
-    s("protocol.StructureRotation", Enum).repr("u8"),
-    s("protocol.AnimationMode", Enum).repr("u8"),
-    s("protocol.HeightMapData", Enum).repr("u8"),
-    s("protocol.SubChunkResult", Enum).repr("u8"),
-    s("protocol.WaypointAction", Enum).repr("u8"),
-    s("protocol.WaypointUpdateFlag", Mask).repr("u32"),
-    s("protocol.WaypointTexture", Enum),
-    s("protocol.Generator", Enum),
-    // packet
-    s("packet.ActorEvent", Enum).repr("u8"),
-    s("packet.AdventureFlag", Mask)
-        .repr("u32")
-        .prefixes(&["AdventureFlag", "AdventureSettingsFlags"]),
-    s("packet.ActionPermission", Mask).repr("u32"),
-    s("packet.PermissionLevel", Enum).repr("u8"),
-    s("packet.AgentActionType", Enum),
-    s("packet.AnimateAction", Enum).repr("u8"),
-    s("packet.AnimateSwingSource", Enum).repr("u8"),
-    s("packet.BlockEventType", Enum).prefixes(&["BlockEvent"]),
-    s("packet.BookAction", Enum).repr("u32"),
-    s("packet.BossEventType", Enum)
-        .repr("u8")
-        .prefixes(&["BossEvent"]),
-    s("packet.BossEventColour", Enum).repr("u8"),
-    s("packet.BossEventOverlay", Enum).repr("u8"),
-    s("packet.CameraAimAssistAction", Enum).repr("u8"),
-    s("packet.CameraAunAssistPresetOperation", Enum).repr("u8"),
-    s("packet.CameraShakeType", Enum),
-    s("packet.CameraShakeAction", Enum).repr("u8"),
-    s("packet.Dimension", Enum),
-    s("packet.ControlScheme", Enum).repr("u8"),
-    s("packet.ClientBoundDebugRendererType", Enum)
-        .repr("u32")
-        .prefixes(&["ClientBoundDebugRenderer"]),
-    s("packet.ClientCameraAimAssistAction", Enum).repr("u8"),
-    s("packet.TextureShiftAction", Enum).repr("u8"),
-    s("packet.CodeBuilderOperation", Enum).repr("u8"),
-    s("packet.CodeBuilderCategory", Enum).repr("u8"),
-    s("packet.CodeBuilderStatus", Enum).repr("u8"),
-    s("packet.CommandBlockMode", Enum)
-        .repr("u32")
-        .prefixes(&["CommandBlock"]),
-    s("packet.CommandOutputType", Enum).repr("u8"),
-    s("packet.UseItemMethod", Enum).prefixes(&["UseItem"]),
-    s("packet.CursorItemDrag", Enum).repr("u8"),
-    s("packet.ContainerDataFurnace", Enum),
-    s("packet.ContainerDataBrewingStand", Enum),
-    s("packet.PredictionType", Enum).repr("u8"),
-    s(
-        "packet.DefaultMaxDecompressedLen",
-        Excluded("the max-batch-bytes setting"),
-    ),
-    s("packet.DisconnectReason", Enum),
-    s("packet.EmoteFlag", Mask).repr("u8"),
-    s("packet.GameTestRequestRotation", Enum)
-        .repr("u8")
-        .prefixes(&["GameTestRequest"]),
-    s("packet.ID", Excluded("packet IDs: the Packet enum")),
-    s("packet.InteractAction", Enum).repr("u8"),
-    s(
-        "packet.InventoryTransactionType",
-        SameAs("protocol.InventoryTransactionType"),
-    ),
-    s("packet.LabTableAction", Enum).repr("u8"),
-    s("packet.LessonAction", Enum),
-    s("packet.MatchmakingState", Enum).repr("u8"),
-    s("packet.ParticleType", Enum),
-    s("packet.LevelEvent", Enum),
-    s("packet.SoundEvent", Enum),
-    s("packet.MobEffectOperation", Enum)
-        .repr("u8")
-        .prefixes(&["MobEffect"]),
-    s("packet.Effect", Enum),
-    s("packet.ModalFormCancelReason", Enum).repr("u8"),
-    s("packet.MoveFlag", Mask).repr("u8"),
-    s("packet.MoveMode", Enum).repr("u8"),
-    s("packet.TeleportCause", Enum),
-    s("packet.MovementEffectType", Enum),
-    s("packet.MultiPlayerSettingsAction", Enum)
-        .prefixes(&["EnableMultiPlayer", "DisableMultiPlayer", "RefreshJoinCode"])
-        .whole(),
-    s("packet.CompressionAlgorithm", Enum).repr("u16"),
-    s("packet.NPCDialogueAction", Enum),
-    s("packet.NPCRequestAction", Enum).repr("u8"),
-    s("packet.ViolationType", Enum),
-    s("packet.ViolationSeverity", Enum),
-    s("packet.PhotoType", Enum),
-    s("packet.PlayStatus", Enum),
-    s("packet.PlayerArmourDamageFlag", Index).repr("u8"),
-    s("packet.InputFlag", Index).repr("u32").count(),
-    s("packet.InputMode", Enum).repr("u32").count(),
-    s("packet.PlayMode", Enum)
-        .repr("u32")
-        .sentinels(&["NumModes"]),
-    s("packet.InteractionModel", Enum).count(),
-    s("packet.PlayerLocationType", Enum),
-    s("packet.PlayerUpdateEntityOverridesType", Enum).repr("u32"),
-    s("packet.PlayerVideoCaptureAction", Enum).repr("u8"),
-    s("packet.PositionTrackingDBRequestAction", Enum).repr("u8"),
-    s("packet.PositionTrackingDBBroadcastAction", Enum).repr("u8"),
-    s("packet.Ability", BitsOf("protocol.Ability")).count(),
-    s("packet.PackResponse", Enum).repr("u32"),
-    s("packet.ResourcePackType", Enum).repr("u8"),
-    s("packet.RespawnState", Enum).repr("u8"),
-    s("packet.PartyDestinationCookieIntent", Enum),
-    s("packet.LoadingScreenType", Enum),
-    s("packet.DataDrivenScreenCloseReason", Enum),
-    s("packet.ScoreboardSortOrder", Enum),
-    s("packet.ScoreboardSlot", Enum),
-    s("packet.HudElement", Enum),
-    s("packet.HudVisibility", Enum),
-    s("packet.FurnaceType", Enum).repr("u8"),
-    s("packet.GameType", Enum),
-    s("packet.InventoryLayout", Enum),
-    s("packet.InventoryLeftTab", Enum),
-    s("packet.InventoryRightTab", Enum),
-    s("packet.ScoreboardIdentityAction", Enum).repr("u8"),
-    s("packet.SpawnType", Enum),
-    s("packet.TitleAction", Enum),
-    s("packet.ShowCreditsStatus", Enum),
-    s("packet.StoreOfferType", Enum).repr("u8"),
-    s("packet.SimpleEvent", Enum).repr("u16"),
-    s("packet.SimulationType", Enum),
-    s("packet.SpawnBiomeType", Enum).repr("i16"),
-    s("packet.XBLBroadcastMode", Enum),
-    s("packet.ChatRestrictionLevel", Enum).repr("u8"),
-    s("packet.EditorWorldType", Enum),
-    s("packet.EditorLevelMigrationVersion", Enum).repr("i8"),
-    s("packet.StructureBlockType", Enum).prefixes(&["StructureBlock"]),
-    s("packet.StructureRedstoneSaveMode", Enum).repr("u8"),
-    s("packet.StructureTemplateRequestType", Enum)
-        .repr("u8")
-        .prefixes(&["StructureTemplateRequest"]),
-    s("packet.StructureTemplateResponseType", Enum)
-        .repr("u8")
-        .prefixes(&["StructureTemplateResponse"]),
-    s("packet.TextType", Enum).repr("u8"),
-    s("packet.TextCategory", Enum),
-    s("packet.UnlockedRecipesType", Enum).repr("u32"),
-    s("packet.BlockUpdateFlag", Mask)
-        .repr("u32")
-        .prefixes(&["BlockUpdate"]),
-    s("packet.BlockSyncedTransition", Enum)
-        .repr("u64")
-        .prefixes(&["BlockToEntityTransition", "EntityToBlockTransition"])
-        .whole(),
-    s("packet.ClientInputLock", Mask).repr("u32"),
-    s("packet.GraphicsMode", Enum).repr("u8"),
-    s("packet.SoftEnumAction", Enum).repr("u8"),
-];
-
-/// Every group key (`packet.TextType`) with the Rust name of its enum, or `None` for a group
-/// that is no enum or flag enum, for the field docs of the generated types.
-pub(crate) fn enum_names() -> Result<BTreeMap<&'static str, Option<String>>, String> {
-    SPECS
-        .iter()
-        .map(|s| {
-            let name = matches!(s.kind, Enum | Mask | Index)
-                .then(|| names::type_name(s.key))
-                .transpose()?;
-            Ok((s.key, name))
-        })
-        .collect()
 }
 
 /// A Rust integer type.
@@ -376,33 +489,22 @@ impl IntType {
 
     /// The Rust type of a Go basic integer type.
     fn of_go(basic: &str) -> Result<Self, String> {
-        let rust = match basic {
-            "uint8" => "u8",
-            "int8" => "i8",
-            "uint16" => "u16",
-            "int16" => "i16",
-            "uint32" => "u32",
-            "int32" => "i32",
-            "uint64" => "u64",
-            "int64" => "i64",
-            _ => return Err(format!("Go type `{basic}` has no fixed-size Rust type")),
-        };
-        Self::new(rust)
+        Self::new(model::basic(basic)?)
+    }
+
+    /// The bit width the test wraps Go values to: the width when unsigned, else 0.
+    fn unsigned_bits(self) -> u32 {
+        if self.signed { 0 } else { self.bits }
     }
 
     /// The wire value of a Go value: negative values of unsigned types wrap, as gophertunnel
     /// writes them (`byte(ContainerTypeInventory)` is 255). Fails if it does not fit.
     fn wire(self, value: i128) -> Result<i128, String> {
-        let span = 1_i128 << self.bits;
+        let (min, max) = self.range();
         let value = if !self.signed && value < 0 {
-            value + span
+            value + max + 1
         } else {
             value
-        };
-        let (min, max) = if self.signed {
-            (-(span / 2), span / 2 - 1)
-        } else {
-            (0, span - 1)
         };
         if value < min || value > max {
             return Err(format!("{value} does not fit {}", self.name));
@@ -410,9 +512,14 @@ impl IntType {
         Ok(value)
     }
 
-    /// The bit width the test wraps Go values to: the width when unsigned, else 0.
-    fn unsigned_bits(self) -> u32 {
-        if self.signed { 0 } else { self.bits }
+    /// The smallest and the largest value of the type.
+    fn range(self) -> (i128, i128) {
+        let span = 1_i128 << self.bits;
+        if self.signed {
+            (-(span / 2), span / 2 - 1)
+        } else {
+            (0, span - 1)
+        }
     }
 }
 
@@ -439,6 +546,54 @@ struct Member<'a> {
 struct Group<'a> {
     spec: &'static Spec,
     members: Vec<Member<'a>>,
+}
+
+/// The generated items and test lines.
+#[derive(Debug, Default)]
+struct Output {
+    items: String,
+    /// The statements of the test's `values` function: every emitted constant by Go name.
+    values: String,
+    /// The lines of the test's list of Go names left out.
+    excluded: String,
+    /// Round-trip test calls.
+    checks: Vec<String>,
+}
+
+/// A member resolved for emission.
+#[derive(Debug)]
+struct Resolved<'a> {
+    m: &'a Member<'a>,
+    role: Role,
+    /// The integer value on the wire (ints only).
+    value: i128,
+}
+
+/// What a member becomes.
+#[derive(Debug)]
+enum Role {
+    Variant(String),
+    /// An associated constant naming the variant it is defined as.
+    Alias {
+        name: String,
+        of: String,
+    },
+    /// A count marker.
+    Sentinel(String),
+}
+
+/// Every group key (`packet.TextType`) with the Rust name of its enum, or `None` for a group
+/// that is no enum or flag enum, for the field docs of the generated types.
+pub(crate) fn enum_names() -> Result<BTreeMap<&'static str, Option<String>>, String> {
+    SPECS
+        .iter()
+        .map(|s| {
+            let name = matches!(s.kind, Enum | Mask | Index)
+                .then(|| names::type_name(s.key))
+                .transpose()?;
+            Ok((s.key, name))
+        })
+        .collect()
 }
 
 /// Generates the file text (unformatted).
@@ -472,18 +627,6 @@ pub(crate) fn generate(ir: &Ir) -> Result<String, String> {
     );
     tests(&mut text, &out);
     Ok(text)
-}
-
-/// The generated items and test lines.
-#[derive(Debug, Default)]
-struct Output {
-    items: String,
-    /// The statements of the test's `values` function: every emitted constant by Go name.
-    values: String,
-    /// The lines of the test's list of Go names left out.
-    excluded: String,
-    /// Round-trip test calls.
-    checks: Vec<String>,
 }
 
 /// Assigns every exported constant to its group and checks the table covers the IR exactly.
@@ -619,28 +762,6 @@ fn int_type(g: &Group<'_>) -> Result<IntType, String> {
     }
 }
 
-/// A member resolved for emission.
-#[derive(Debug)]
-struct Resolved<'a> {
-    m: &'a Member<'a>,
-    role: Role,
-    /// The integer value on the wire (ints only).
-    value: i128,
-}
-
-/// What a member becomes.
-#[derive(Debug)]
-enum Role {
-    Variant(String),
-    /// An associated constant naming the variant it is defined as.
-    Alias {
-        name: String,
-        of: String,
-    },
-    /// A count marker.
-    Sentinel(String),
-}
-
 /// Emits one group.
 fn group_items(
     g: &Group<'_>,
@@ -756,7 +877,7 @@ fn variant_names_expectation(all: &[String]) -> &'static str {
     }
 }
 
-/// A Rust integer literal, grouped as `clippy::unreadable_literal` wants.
+/// A Rust integer literal of `value`.
 fn lit(value: i128) -> String {
     int_lit(&value.to_string())
 }
@@ -771,8 +892,12 @@ fn label(name: &str) -> String {
 }
 
 /// The doc of a group.
-fn group_doc(g: &Group<'_>) -> String {
-    let (package, name) = g.spec.key.split_once('.').unwrap_or_default();
+fn group_doc(g: &Group<'_>) -> Result<String, String> {
+    let (package, name) = g
+        .spec
+        .key
+        .split_once('.')
+        .ok_or("group key without a package")?;
     let own = [name];
     let prefixes: &[&str] = if g.spec.prefixes.is_empty() {
         &own
@@ -783,10 +908,10 @@ fn group_doc(g: &Group<'_>) -> String {
         .iter()
         .map(|p| format!("`{package}.{p}*`"))
         .collect();
-    doc(
+    Ok(doc(
         &format!("The gophertunnel {} constants.", names.join(", ")),
         "",
-    )
+    ))
 }
 
 /// The doc of a member: its Go name.
@@ -876,7 +1001,11 @@ fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
             continue;
         };
         members.insert(x.value);
-        let go: i128 = x.m.c.value.parse().unwrap_or(x.value);
+        let go: i128 =
+            x.m.c
+                .value
+                .parse()
+                .map_err(|e| format!("{}: {e}", x.m.c.name))?;
         let extra = if go == x.value {
             String::new()
         } else {
@@ -901,7 +1030,7 @@ fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
         ty.unsigned_bits()
     );
     let assoc = associated(g, name, ty, &resolved, &members, count, out)?;
-    out.items.push_str(&group_doc(g));
+    out.items.push_str(&group_doc(g)?);
     put!(
         out.items,
         "{}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n#[repr({r})]\npub enum {name} {{\n{variants}}}\n\n",
@@ -1004,12 +1133,7 @@ fn associated(
 /// A value of `ty` outside `members` for the unknown-value test: past either end, else the
 /// first gap (at most one step per member); `None` when the set fills the type.
 fn unknown_value(ty: IntType, members: &BTreeSet<i128>) -> Option<i128> {
-    let span = 1_i128 << ty.bits;
-    let (lo, hi) = if ty.signed {
-        (-(span / 2), span / 2 - 1)
-    } else {
-        (0, span - 1)
-    };
+    let (lo, hi) = ty.range();
     let gaps = (0..=members.len()).filter_map(|i| i128::try_from(i).ok().map(|i| lo + i));
     [
         members.last().map(|m| m + 1),
@@ -1064,7 +1188,7 @@ fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
         .map(|(s, v)| format!("({}, Self::{v})", str_lit(s)))
         .collect();
     let n = all.len();
-    out.items.push_str(&group_doc(g));
+    out.items.push_str(&group_doc(g)?);
     put!(
         out.items,
         "{}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{\n{variants}}}\n\n",
@@ -1133,124 +1257,6 @@ fn values(g: &Group<'_>, ty: Option<IntType>, out: &mut Output) -> Result<(), St
     out.items.push('\n');
     Ok(())
 }
-
-/// The test module: every Rust value against the IR, round trips and unknown values. The
-/// placeholders `@VALUES@`, `@EXCLUDED@` and `@CHECKS@` take the generated lines.
-const TESTS: &str = r#"#[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::fmt::Debug;
-
-    use super::*;
-
-    /// A constant's value as the Rust item gives it. Integers carry the bit width of their
-    /// unsigned Rust type (0 when signed): negative Go values wrap to it, as gophertunnel writes
-    /// them.
-    #[derive(Debug)]
-    enum Value {
-        Int(i128, u32),
-        Float(f32),
-        Str(&'static str),
-    }
-
-    /// The Rust value of every generated constant, by Go name.
-    fn values() -> Vec<(&'static str, Value)> {
-        let mut v = Vec::new();
-        @VALUES@
-        v
-    }
-
-    fn ints(out: &mut Vec<(&'static str, Value)>, names: &[&'static str], values: &[i128], bits: u32) {
-        assert_eq!(names.len(), values.len());
-        out.extend(names.iter().zip(values).map(|(&n, &x)| (n, Value::Int(x, bits))));
-    }
-
-    fn strs(out: &mut Vec<(&'static str, Value)>, names: &[&'static str], values: &[&'static str]) {
-        assert_eq!(names.len(), values.len());
-        out.extend(names.iter().zip(values).map(|(&n, &x)| (n, Value::Str(x))));
-    }
-
-    /// The Go constants left out (their groups are in `xtask/src/gen/consts.rs`).
-    const EXCLUDED: &[&str] = &[
-@EXCLUDED@    ];
-
-    #[test]
-    fn every_gophertunnel_constant_has_its_value_or_is_excluded() {
-        let ir: serde_json::Value =
-            serde_json::from_str(include_str!("../../xtask/data/protocol.json")).unwrap();
-        let rust: BTreeMap<&str, Value> = values().into_iter().collect();
-        let excluded: BTreeSet<&str> = EXCLUDED.iter().copied().collect();
-        assert_eq!(rust.len(), values().len());
-        assert_eq!(excluded.len(), EXCLUDED.len());
-        let mut go_names = BTreeSet::new();
-        for decl in ir["const_decls"].as_array().unwrap() {
-            for c in decl["consts"].as_array().unwrap() {
-                let name = c["name"].as_str().unwrap();
-                let go = c["value"].as_str().unwrap();
-                assert!(go_names.insert(name), "{name} repeats");
-                if excluded.contains(name) {
-                    assert!(!rust.contains_key(name), "{name} is excluded and generated");
-                    continue;
-                }
-                match rust.get(name) {
-                    Some(Value::Int(rust, bits)) => {
-                        let go: i128 = go.parse().unwrap();
-                        let wire = if *bits > 0 { go.rem_euclid(1 << bits) } else { go };
-                        assert_eq!(*rust, wire, "{name}");
-                    }
-                    Some(Value::Float(rust)) => {
-                        assert_eq!(rust.to_bits(), go.parse::<f32>().unwrap().to_bits(), "{name}");
-                    }
-                    Some(Value::Str(rust)) => assert_eq!(*rust, go, "{name}"),
-                    None => panic!("{name} has no Rust item"),
-                }
-            }
-        }
-        let covered: BTreeSet<&str> = rust.keys().copied().chain(excluded).collect();
-        assert_eq!(covered, go_names);
-    }
-
-    fn int_enum<E, R>(all: &[E], unknown: Option<R>)
-    where
-        E: Copy + PartialEq + Debug + TryFrom<R, Error = Error>,
-        R: From<E> + Copy + Debug,
-    {
-        for &v in all {
-            assert_eq!(E::try_from(R::from(v)), Ok(v));
-        }
-        if let Some(u) = unknown {
-            assert!(matches!(E::try_from(u), Err(Error::UnknownEnum { .. })), "{u:?}");
-        }
-    }
-
-    fn str_enum<E>(all: &[E], as_str: fn(E) -> &'static str)
-    where
-        E: Copy + PartialEq + Debug + for<'a> TryFrom<&'a str, Error = Error>,
-    {
-        for &v in all {
-            assert_eq!(E::try_from(as_str(v)), Ok(v));
-        }
-        assert!(E::try_from("\u{0}").is_err());
-    }
-
-    fn flag<F: Flag + PartialEq + Debug>(all: &[F]) {
-        let mut bits = BTreeSet::new();
-        for &v in all {
-            assert!(v.bit() < F::COUNT);
-            assert!(bits.insert(v.bit()));
-            assert_eq!(F::from_bit(v.bit()), Some(v));
-        }
-        assert_eq!(F::from_bit(F::COUNT), None);
-        let set: super::super::FlagSet<F> = all.iter().copied().collect();
-        assert_eq!(set.iter().collect::<Vec<_>>().len(), all.len());
-    }
-
-    #[test]
-    fn every_enum_round_trips_and_rejects_unknown_values() {
-        @CHECKS@
-    }
-}
-"#;
 
 /// Appends the test module.
 fn tests(text: &mut String, out: &Output) {

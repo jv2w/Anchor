@@ -1,11 +1,12 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
-//! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs` and
-//! `src/protocol/packet.rs` from it, and the block, item and recipe tables (see
-//! `data`; with the reference states Anchor shows but does not implement, see `inert`), the biome
-//! table and the import's upgrade tables (see `upgrade`) from the committed data in
-//! `xtask/data/`. With `--check` it does the same in `target/` and fails if the committed IR or a
-//! generated file differs. The protocol decoders also apply the per-field limits in
-//! `xtask/data/reference/protocol_limits.json`.
+//! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs`,
+//! `src/protocol/packet.rs` and `src/protocol/consts.rs` from it, and the block, item and recipe
+//! tables (see `data`; with the reference states Anchor shows but does not implement, see
+//! `inert`), the biome table and the import's upgrade tables (see `upgrade`) from the committed
+//! data in `xtask/data/`. It extracts the IR into `target/` and writes the committed IR and the
+//! generated files only after all of them are made. With `--check` it writes nothing and fails
+//! if the committed IR or a generated file differs. The protocol decoders also apply the
+//! per-field limits in `xtask/data/reference/protocol_limits.json`.
 
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
 macro_rules! put {
@@ -37,27 +38,25 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::dump::{REFERENCE_DIR, create_dir, limits, read, write};
+use crate::dump::{REFERENCE_DIR, create_dir, limits, read, read_if_exists, write};
 
 /// The IR, relative to the repository root.
 const IR_PATH: &str = "xtask/data/protocol.json";
-/// The generated files, relative to the repository root.
-const TYPES_PATH: &str = "src/protocol/types.rs";
+/// The generated packets, relative to the repository root.
 const PACKET_PATH: &str = "src/protocol/packet.rs";
 /// Functions longer than this many lines need a `clippy::too_many_lines` expectation.
 const TOO_MANY_LINES: usize = 100;
+/// The generated protocol types, relative to the repository root.
+const TYPES_PATH: &str = "src/protocol/types.rs";
 
-/// Runs `gen`; with `check`, compares instead of writing. Returns the differing files on a
-/// failed check.
+/// Runs `gen`: extracts the IR, then writes it and every generated file once all of them are
+/// made; with `check`, compares instead of writing. Returns the differing files on a failed
+/// check.
 pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     let ir_path = root.join(IR_PATH);
-    let extracted = if check {
-        let dir = root.join("target").join("xtask-gen");
-        create_dir(&dir)?;
-        dir.join("protocol.json")
-    } else {
-        ir_path.clone()
-    };
+    let dir = root.join("target").join("xtask-gen");
+    create_dir(&dir)?;
+    let extracted = dir.join("protocol.json");
     extract(root, &extracted)?;
     let ir_bytes = read(&extracted)?;
     let ir: ir::Ir =
@@ -89,15 +88,16 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     ];
     let mut differ = Vec::new();
     if check {
-        if read(&ir_path).ok().as_deref() != Some(ir_bytes.as_slice()) {
+        if read_if_exists(&ir_path)?.as_deref() != Some(ir_bytes.as_slice()) {
             differ.push(IR_PATH.to_owned());
         }
         for (path, text) in &files {
-            if read(&root.join(path)).ok().as_deref() != Some(text.as_bytes()) {
+            if read_if_exists(&root.join(path))?.as_deref() != Some(text.as_bytes()) {
                 differ.push((*path).to_owned());
             }
         }
     } else {
+        write(&ir_path, &ir_bytes)?;
         for (path, text) in &files {
             write(&root.join(path), text.as_bytes())?;
         }

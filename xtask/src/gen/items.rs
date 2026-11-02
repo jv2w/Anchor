@@ -20,8 +20,8 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Item types generated from the PMMP dump and the 1.26.60 reference list \
-        : {} types.\n\n\
+        "{HEADER}\n//! Item types generated from the PMMP dump and the 1.26.60 reference list: \
+         {} types.\n\n\
          use super::{{Armor, Consumable, Cooldown, Data, EnchantmentData, EnchantmentSet, Food, \
          Info, Type}};\nuse crate::block::{{State, ToolType}};\nuse crate::effect;\n\n\
          /// Every PMMP item type in Bedrock form, in dump order: (name, meta, block, block \
@@ -186,10 +186,7 @@ fn enchantments(data: &Data, out: &mut String) -> R<()> {
             e.rarity,
             e.max_level,
             e.available,
-            hex_lit(
-                u64::from(bit_set(&e.incompatible, &names, "enchantment")?),
-                8
-            ),
+            hex_lit(bit_set(&e.incompatible, &names, "enchantment")?, 8),
             power.join(",")
         );
     }
@@ -357,15 +354,11 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
             opt(item.fuel_residue.map(|r| format!("Type::from_index({r})"))),
             d.enchantability,
             hex_lit(
-                u64::from(bit_set(
-                    &d.enchantments.primary,
-                    &enchantments,
-                    "enchantment"
-                )?),
+                bit_set(&d.enchantments.primary, &enchantments, "enchantment")?,
                 8
             ),
             hex_lit(
-                u64::from(bit_set(&d.enchantments.all, &enchantments, "enchantment")?),
+                bit_set(&d.enchantments.all, &enchantments, "enchantment")?,
                 8
             ),
             opt(d.cooldown.as_ref().map(|c| format!(

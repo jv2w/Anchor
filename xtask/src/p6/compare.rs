@@ -18,6 +18,8 @@ pub(crate) const FIELDS_PATH: &str = "xtask/data/p6/fields.txt";
 
 /// The client packet whose sending ends the spawn window.
 const WINDOW_END: &str = "SetLocalPlayerAsInitialised";
+/// The largest coordinate of a position in a capture: the world border.
+const MAX_COORDINATE: u32 = 30_000_000;
 
 /// One received packet of a capture.
 #[derive(Debug, PartialEq)]
@@ -257,19 +259,9 @@ pub(crate) fn compare(
     }
     for (name, paths) in &fields.0 {
         let (pick_a, pick_b) = (in_key_order(&a, name), in_key_order(&b, name));
-        for (n, (x, y)) in pick_a.iter().zip(&pick_b).enumerate() {
-            for path in paths {
-                let (vx, vy) = (lookup(x, path), lookup(y, path));
-                if vx != vy {
-                    differences.push(format!(
-                        "{name}#{n}.{}: A {} != B {}",
-                        path.join("."),
-                        show(vx),
-                        show(vy)
-                    ));
-                }
-            }
-        }
+        let (refs_a, refs_b): (Vec<&Value>, Vec<&Value>) =
+            (pick_a.iter().collect(), pick_b.iter().collect());
+        differences.extend(compare_pairs(name, paths, &refs_a, &refs_b));
     }
     differences
 }
@@ -324,30 +316,37 @@ fn sort_by_key(values: &mut [Value], key: &str) {
 pub(crate) fn compare_listed(a: &[Received], b: &[Received], fields: &Fields) -> Vec<String> {
     let mut differences = Vec::new();
     for (name, paths) in &fields.0 {
-        let pick_a: Vec<&Value> = a
-            .iter()
-            .filter(|p| &p.name == name)
-            .map(|p| &p.fields)
-            .collect();
-        let pick_b: Vec<&Value> = b
-            .iter()
-            .filter(|p| &p.name == name)
-            .map(|p| &p.fields)
-            .collect();
+        let (pick_a, pick_b) = (fields_of(a, name), fields_of(b, name));
         if pick_a.len() != pick_b.len() {
             differences.push(format!("{name}: A {} != B {}", pick_a.len(), pick_b.len()));
         }
-        for (n, (x, y)) in pick_a.iter().zip(&pick_b).enumerate() {
-            for path in paths {
-                let (vx, vy) = (lookup(x, path), lookup(y, path));
-                if vx != vy {
-                    differences.push(format!(
-                        "{name}#{n}.{}: A {} != B {}",
-                        path.join("."),
-                        show(vx),
-                        show(vy)
-                    ));
-                }
+        differences.extend(compare_pairs(name, paths, &pick_a, &pick_b));
+    }
+    differences
+}
+
+/// The fields of the packets of one name, in order.
+fn fields_of<'a>(list: &'a [Received], name: &str) -> Vec<&'a Value> {
+    list.iter()
+        .filter(|p| p.name == name)
+        .map(|p| &p.fields)
+        .collect()
+}
+
+/// The differences in the fixed fields `paths` between the packets `a` and `b` of one name, paired
+/// in order. The text is the key `intended.txt` matches.
+fn compare_pairs(name: &str, paths: &[Vec<String>], a: &[&Value], b: &[&Value]) -> Vec<String> {
+    let mut differences = Vec::new();
+    for (n, (x, y)) in a.iter().zip(b).enumerate() {
+        for path in paths {
+            let (vx, vy) = (lookup(x, path), lookup(y, path));
+            if vx != vy {
+                differences.push(format!(
+                    "{name}#{n}.{}: A {} != B {}",
+                    path.join("."),
+                    show(vx),
+                    show(vy)
+                ));
             }
         }
     }
@@ -936,23 +935,10 @@ impl ChunkReader {
         }
         match name {
             "StartGame" => {
-                let position = field(fields, "PlayerPosition");
-                let block = |i: usize| {
-                    position
-                        .get(i)
-                        .and_then(Value::as_f64)
-                        .map(f64::floor)
-                        .filter(|v| v.abs() < 1e9)
-                        .ok_or_else(|| format!("StartGame PlayerPosition {position}"))
-                };
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "safety: whole numbers below 1e9 in size"
-                )]
-                let column = [block(0)? as i64, block(2)? as i64];
+                let column = block_column(fields)?.map(i64::from);
                 self.origin = Some((column.map(|c| c.div_euclid(16)), column));
             }
-            "LevelChunk" | "SubChunk" | "NetworkChunkPublisherUpdate" => {
+            name if CHUNK_PACKETS.contains(&name) => {
                 let (chunk, column) = self
                     .origin
                     .ok_or_else(|| format!("{name} before StartGame"))?;
@@ -982,12 +968,13 @@ impl ChunkReader {
                             entries: sub_chunk_entries(fields),
                         });
                     }
-                    _ => self.out.publisher.push((
+                    "NetworkChunkPublisherUpdate" => self.out.publisher.push((
                         [at(position, 0)? - column[0], at(position, 2)? - column[1]],
                         field(fields, "Radius").as_u64().unwrap_or(u64::MAX),
                         array(fields, "SavedChunks").len(),
                         self.out.radius.is_some(),
                     )),
+                    _ => return Err(format!("{name} is in CHUNK_PACKETS but is not read")),
                 }
             }
             "ChunkRadiusUpdated" => {
@@ -1041,11 +1028,32 @@ impl ChunkReader {
     }
 }
 
-/// Coordinate `i` of a JSON position.
+/// The block column (x, z) of the player's position in the fields of a `StartGame` packet.
+pub(crate) fn block_column(start_game: &Value) -> Result<[i32; 2], String> {
+    let position = field(start_game, "PlayerPosition");
+    let block = |i: usize| {
+        position
+            .get(i)
+            .and_then(Value::as_f64)
+            .map(f64::floor)
+            .filter(|v| v.abs() <= f64::from(MAX_COORDINATE))
+            .ok_or_else(|| format!("StartGame PlayerPosition {position}"))
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "safety: whole numbers within the world border"
+    )]
+    let column = [block(0)? as i32, block(2)? as i32];
+    Ok(column)
+}
+
+/// Coordinate `i` of a JSON position, within the world border, so the differences the comparison
+/// takes of two coordinates cannot overflow.
 fn at(position: &Value, i: usize) -> Result<i64, String> {
     position
         .get(i)
         .and_then(Value::as_i64)
+        .filter(|v| v.unsigned_abs() <= u64::from(MAX_COORDINATE))
         .ok_or_else(|| format!("{position} is not a position"))
 }
 

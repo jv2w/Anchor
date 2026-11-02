@@ -403,18 +403,18 @@ pub(crate) struct FurnaceJson {
     pub(crate) cook_ticks: u16,
 }
 
-/// The names of `list` as indices into the sorted `names`, as a bit set; fails on an unknown
-/// name or more than 32 names.
-pub(crate) fn bit_set(list: &[String], names: &[&str], what: &str) -> R<u32> {
-    let mut bits = 0u32;
+/// The names of `list` as indices into `names`, as a bit set; fails on an unknown name or more
+/// than 64 names.
+pub(crate) fn bit_set(list: &[String], names: &[&str], what: &str) -> R<u64> {
+    let mut bits = 0u64;
     for name in list {
         let at = names
             .iter()
             .position(|n| n == name)
             .ok_or_else(|| format!("unknown {what} {name}"))?;
-        bits |= 1u32
+        bits |= 1u64
             .checked_shl(u32::try_from(at).map_err(|_| "bit index")?)
-            .ok_or_else(|| format!("more than 32 {what}s"))?;
+            .ok_or_else(|| format!("more than 64 {what}s"))?;
     }
     Ok(bits)
 }

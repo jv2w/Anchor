@@ -43,11 +43,30 @@ const MAGIC: [u8; 16] = [
 /// The issuer the test issuer signs with; the bot puts it in its tokens.
 const ISSUER: &str = "https://issuer.invalid/";
 const KID: &str = "p5-key";
-
-/// The directory for this test binary's files.
-fn work_dir() -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join("p5")
-}
+/// The lines [`LOG`] keeps; older ones are dropped.
+const LOG_LINES: usize = 50_000;
+/// The last lines of the log a failed test shows.
+const SHOWN_LINES: usize = 300;
+/// The bot flags that choose NetherNet.
+const NETHERNET: &[&str] = &["-transport", "nethernet"];
+/// The name both bots of a duplicate-login test use.
+const TWIN: &str = "Twin";
+/// A NetherNet offer without an identity, which offline servers accept.
+const OFFER: &str = "v=0\r\n\
+    o=- 1 2 IN IP4 127.0.0.1\r\n\
+    s=-\r\n\
+    t=0 0\r\n\
+    a=group:BUNDLE 0\r\n\
+    m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n\
+    c=IN IP4 0.0.0.0\r\n\
+    a=candidate:1 1 udp 2130706431 127.0.0.1 9 typ host\r\n\
+    a=ice-ufrag:abcd\r\n\
+    a=ice-pwd:abcdefghijklmnopqrstuvwx\r\n\
+    a=fingerprint:sha-256 8A:74:FB:69:94:62:1E:0C:53:90:18:B6:DC:D4:3C:FC:75:64:24:E1:42:F3:95:55:FB:F9:52:2D:E5:EE:63:F2\r\n\
+    a=setup:actpass\r\n\
+    a=mid:0\r\n\
+    a=sctp-port:5000\r\n\
+    a=max-message-size:262144\r\n";
 
 /// The addresses the starting server logs, one line per opened address (`listening …
 /// addr=…`). The servers of this process run without Anchor's console log, so their events reach
@@ -73,10 +92,6 @@ static LOG: std::sync::Mutex<Log> = std::sync::Mutex::new(Log {
     next: 0,
     lines: VecDeque::new(),
 });
-/// The lines [`LOG`] keeps; older ones are dropped.
-const LOG_LINES: usize = 50_000;
-/// The last lines of the log a failed test shows.
-const SHOWN_LINES: usize = 300;
 
 /// The last [`LOG_LINES`] lines of the server log and the number of the next one.
 struct Log {
@@ -168,15 +183,6 @@ impl Visit for Line {
     }
 }
 
-/// Locks `mutex`; a test that failed while holding it left nothing half done.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn lock<T>(mutex: &std::sync::Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 /// An Anchor server on a thread of this process.
 struct Running {
     /// The RakNet (and server list ping) port.
@@ -207,7 +213,7 @@ impl Running {
         SUBSCRIBER.get_or_init(|| {
             tracing::subscriber::set_global_default(Recorder).expect("the only global subscriber");
         });
-        config.general.enable_ipv6 = false;
+        config.general.enable_ipv6 = config.general.public_ip.is_some_and(|ip| ip.is_ipv6());
         config.general.level_name = name.to_owned();
         config.general.server_port = 0;
         let server = edit(Server::builder().config(config).data_dir(data_dir))
@@ -387,6 +393,20 @@ impl Drop for Running {
             eprintln!("{text}");
         }
     }
+}
+
+/// Locks `mutex`; a test that failed while holding it left nothing half done.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn lock<T>(mutex: &std::sync::Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The directory for this test binary's files.
+fn work_dir() -> PathBuf {
+    Path::new(env!("CARGO_TARGET_TMPDIR")).join("p5")
 }
 
 /// Settings for P5: offline unless a test says otherwise, small view distance.
@@ -620,8 +640,6 @@ fn one_ip_gets_four_connections_before_login() {
     server.stop();
 }
 
-const NETHERNET: &[&str] = &["-transport", "nethernet"];
-
 #[test]
 fn the_bot_spawns_over_nethernet_with_snappy_and_with_zlib() {
     for (compression, name) in [
@@ -684,7 +702,8 @@ fn raknet_and_nethernet_players_join_at_once() {
 #[test]
 fn a_failed_nethernet_negotiation_falls_back_to_raknet() {
     let mut config = config(Compression::Snappy);
-    // No IPv6 socket serves this advertised address, so every offer is answered with code 11.
+    // Nothing answers at this advertised address, so the client's ICE start fails. The refusal
+    // for an address family without a socket (code 11) is tested in `nethernet.rs`.
     config.general.public_ip = Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)));
     let server = Running::start("fallback", config, &data_dir("fallback"));
     let lines = play(&server, "spawn", "fallback", &["-transport", "auto"]);
@@ -693,7 +712,7 @@ fn a_failed_nethernet_negotiation_falls_back_to_raknet() {
     assert!(
         result["nethernet_error"]
             .as_str()
-            .is_some_and(|e| e.ends_with("error code: 11")),
+            .is_some_and(|e| e.ends_with("start ICE: context canceled")),
         "{result}"
     );
     server.stop();
@@ -785,9 +804,6 @@ fn nethernet_sessions_end_cleanly_and_the_join_status_counts_no_one_after_they_l
     assert_eq!(counted, 0, "players still counted");
     server.stop();
 }
-
-/// The name both bots of a duplicate-login test use.
-const TWIN: &str = "Twin";
 
 #[test]
 fn a_duplicate_login_replaces_the_player_already_online() {
@@ -918,23 +934,6 @@ fn wait_for(name: &str, text: &str) {
     panic!("{name} never wrote {text}");
 }
 
-/// A NetherNet offer without an identity, which offline servers accept.
-const OFFER: &str = "v=0\r\n\
-    o=- 1 2 IN IP4 127.0.0.1\r\n\
-    s=-\r\n\
-    t=0 0\r\n\
-    a=group:BUNDLE 0\r\n\
-    m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n\
-    c=IN IP4 0.0.0.0\r\n\
-    a=candidate:1 1 udp 2130706431 127.0.0.1 9 typ host\r\n\
-    a=ice-ufrag:abcd\r\n\
-    a=ice-pwd:abcdefghijklmnopqrstuvwx\r\n\
-    a=fingerprint:sha-256 8A:74:FB:69:94:62:1E:0C:53:90:18:B6:DC:D4:3C:FC:75:64:24:E1:42:F3:95:55:FB:F9:52:2D:E5:EE:63:F2\r\n\
-    a=setup:actpass\r\n\
-    a=mid:0\r\n\
-    a=sctp-port:5000\r\n\
-    a=max-message-size:262144\r\n";
-
 fn post_offer(port: u16) -> (u16, String) {
     let request = format!(
         "POST /v1/join/1234 HTTP/1.1\r\nHost: x\r\nContent-Type: application/sdp\r\n\
@@ -1015,12 +1014,17 @@ fn remove_file(path: &Path) {
     }
 }
 
+/// The text of the file at `path`; empty while the bot has not created it.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
 )]
 fn read(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
+    match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => panic!("read {}: {e}", path.display()),
+    }
 }
 
 #[expect(
@@ -1034,7 +1038,7 @@ fn pause() {
 /// A stored (uncompressed) zip archive of `files`, the smallest a pack can be.
 fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
     fn crc32(bytes: &[u8]) -> u32 {
-        let mut crc = !0u32;
+        let mut crc = !0_u32;
         for &byte in bytes {
             crc ^= u32::from(byte);
             for _ in 0..8 {

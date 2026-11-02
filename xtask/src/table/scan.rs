@@ -255,7 +255,8 @@ fn fn_name(line: &str) -> Option<&str> {
     }
 }
 
-fn is_ident(c: char) -> bool {
+/// Whether `c` can be in an identifier.
+pub(crate) fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 

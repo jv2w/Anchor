@@ -267,6 +267,17 @@ pub(crate) struct Stmt {
     pub(crate) enum_name: Option<Expr>,
 }
 
+impl Stmt {
+    /// The statement lists nested in the statement: its bodies, branches, loop parts and case
+    /// bodies.
+    pub(crate) fn blocks(&self) -> impl Iterator<Item = &[Stmt]> {
+        [&self.body, &self.then, &self.els, &self.init, &self.post]
+            .into_iter()
+            .map(Vec::as_slice)
+            .chain(self.cases.iter().map(|c| c.body.as_slice()))
+    }
+}
+
 /// One switch or type switch case.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

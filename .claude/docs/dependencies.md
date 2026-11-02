@@ -44,7 +44,7 @@ Pins are the `=` versions in `Cargo.toml`; versions marked "locked" come from `C
 
 - Each copy's `.cargo_vcs_info.json`, written by cargo when it packaged the crate, records the upstream commit.
 - Why copies are `path` dependencies rather than `[patch]`, and not workspace members: the comment at `exclude` in `Cargo.toml`. `xtask/tests/downstream.rs` resolves a new project outside the repository and checks that every crate in `vendor/`, and every crate that names one in its API, resolves to the copy.
-- `verify` runs each copy's own tests: sctp-proto `--lib`, redb `--tests`, str0m `--lib` with Anchor's features, dimpl `--tests` (`CHECKS` in `xtask/src/main.rs`, whose comments explain the link flag the dimpl run needs). dimpl's tests build OpenSSL from source; on Windows that run gets Strawberry Perl as `OPENSSL_SRC_PERL` (`data.md`). dimpl's wolfssl tests run only outside Windows (a `cfg(not(windows))` dev-dependency).
+- `verify` runs each copy's own tests (`.claude/docs/testing.md`; `CHECKS` in `xtask/src/main.rs`). The dimpl run passes `/ignore:4099` to rust-lld, which ignores only that one linker warning. dimpl's tests build OpenSSL from source; on Windows that run gets Strawberry Perl as `OPENSSL_SRC_PERL` (`data.md`). dimpl's wolfssl tests run only outside Windows (a `cfg(not(windows))` dev-dependency).
 - str0m's integration tests need seven capture files the published crate leaves out. `cargo xtask vendor-test str0m` downloads them from the copy's upstream commit, checks them against `xtask/data/vendor/str0m-test-data.sha256`, and runs every str0m test (`xtask/src/vendor.rs`).
 
 ### redb 4.3.0

@@ -82,7 +82,12 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
             strings.len()
         ));
     }
-    let at = |s: &str| index.get(s).copied().unwrap_or_default();
+    let at = |s: &str| {
+        index
+            .get(s)
+            .copied()
+            .ok_or_else(|| format!("string {s} not interned"))
+    };
 
     let mut out = String::new();
     put!(
@@ -109,12 +114,15 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
         let float = |v: f64| single(v).map_err(|e| format!("{}: {e}", b.name));
         let c = &b.map_water_colour;
         let argb = u32::from_be_bytes([c.a, c.r, c.g, c.b]);
-        let tags: Vec<String> = b.tags.iter().map(|t| at(t).to_string()).collect();
+        let mut tags = Vec::with_capacity(b.tags.len());
+        for t in &b.tags {
+            tags.push(at(t)?.to_string());
+        }
         put!(
             out,
             "Definition {{ name: {}, temperature: {:?}, downfall: {:?}, foliage_snow: {:?}, \
              depth: {:?}, scale: {:?}, map_water_colour: {}, rain: {}, tags: &[{}] }},",
-            at(&b.name),
+            at(&b.name)?,
             float(b.temperature)?,
             float(b.downfall)?,
             float(b.foliage_snow)?,

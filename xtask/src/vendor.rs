@@ -5,20 +5,20 @@
 //! list in `xtask/data/vendor/`, copied into the copy's `tests/data/` for the run and removed
 //! after it.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Deserialize;
 
 use crate::dump::upgrade::{hex, sha256};
-use crate::dump::{create_dir, is_file, read, write};
-use crate::{STR0M, STR0M_DIMPL, STR0M_PROTO, VERIFY_TARGET};
+use crate::dump::{create_dir, is_file, read, remove_file, rename, write};
+use crate::{STR0M, STR0M_DIMPL, STR0M_PROTO, VERIFY_TARGET, cargo, target_dir};
 
 /// `<sha256>  <file name>` per line, the `sha256sum` format.
 const LIST: &str = "xtask/data/vendor/str0m-test-data.sha256";
 /// The download cache, git-ignored.
 const CACHE: &str = ".cache/str0m-test-data";
-/// Where the tests read the captures (`include_bytes!("data/<name>")`).
+/// Where the tests read the captures, with `include_bytes!` and a path relative to their file.
 const DATA: &str = "vendor/str0m/tests/data";
 /// The upstream commit of the copy, which cargo recorded when it packaged the crate.
 const VCS_INFO: &str = "vendor/str0m/.cargo_vcs_info.json";
@@ -69,9 +69,9 @@ pub(crate) fn str0m(root: &Path) -> Result<bool, String> {
     let passed = files
         .iter()
         .try_for_each(|(path, bytes)| {
-            write(path, bytes)?;
+            // Listed first, so a write that fails halfway is removed too.
             copied.push(path);
-            Ok(())
+            write(path, bytes)
         })
         .and_then(|()| test(root));
     let removed = copied.into_iter().try_for_each(|path| remove_file(path));
@@ -84,9 +84,7 @@ pub(crate) fn str0m(root: &Path) -> Result<bool, String> {
 /// internals the integration tests use; the patches keep str0m's registry dev-dependencies on
 /// the copies, as in `verify`.
 fn test(root: &Path) -> Result<bool, String> {
-    // `CARGO` is the cargo that launched this task, so the tests use the same toolchain.
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    Command::new(cargo)
+    Command::new(cargo())
         .args([
             "test",
             "--manifest-path",
@@ -103,14 +101,19 @@ fn test(root: &Path) -> Result<bool, String> {
         ])
         .current_dir(root)
         // `verify`'s target directory, which already holds the copy's dependencies.
-        .env("CARGO_TARGET_DIR", root.join("target").join(VERIFY_TARGET))
+        .env("CARGO_TARGET_DIR", target_dir(VERIFY_TARGET))
         .status()
         .map(|status| status.success())
         .map_err(|e| format!("cannot run cargo: {e}"))
 }
 
-/// Downloads `url` to `path` with curl (in Windows 10 and later, and in Git for Windows).
+/// Downloads `url` to `path` with curl (in Windows 10 and later, and in Git for Windows). The
+/// file gets its name only when the download is whole, so a cut one is never taken for a cached
+/// file.
 fn download(url: &str, path: &Path) -> Result<(), String> {
+    let mut part = path.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
     let status = Command::new("curl")
         .args([
             "--fail",
@@ -119,21 +122,12 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
             "--location",
             "--output",
         ])
-        .arg(path)
+        .arg(&part)
         .arg(url)
         .status()
         .map_err(|e| format!("cannot run curl ({e}); install curl and put it on PATH"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("downloading {url} failed ({status})"))
+    if !status.success() {
+        return Err(format!("downloading {url} failed ({status})"));
     }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn remove_file(path: &Path) -> Result<(), String> {
-    std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))
+    rename(&part, path)
 }

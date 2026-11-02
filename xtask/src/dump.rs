@@ -13,6 +13,10 @@
 //! `target/` and fails if a committed file differs. `verify` does not run it: it needs the
 //! checkouts, the PHP binary and Go, and its inputs never change (`gen --check` checks the code
 //! made from the committed data instead).
+//!
+//! It is also xtask's file layer: [`read`], [`read_if_exists`], [`write`], [`create_dir`] and
+//! [`is_file`] give every command the same path-carrying errors, and `upgrade::sha256` is the one
+//! hash.
 
 pub(crate) mod upgrade;
 
@@ -93,7 +97,14 @@ pub(crate) const BLOCK_PHYSICS: &str = "block_physics.json";
 /// Runs `dump`; with `check`, compares instead of writing. Returns the differing files on a
 /// failed check.
 pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
-    for (dir, commit) in [PMMP, DRAGONFLY, CLOUDBURST, PROTOCOL_DOCS] {
+    for (dir, commit) in [
+        PMMP,
+        DRAGONFLY,
+        CLOUDBURST,
+        PROTOCOL_DOCS,
+        upgrade::BLOCKS,
+        upgrade::ITEMS,
+    ] {
         pinned(root, dir, commit)?;
     }
     if !is_dir(&root.join(PMMP.0).join("vendor")) {
@@ -148,14 +159,15 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     let limits = limits::generate(&root.join(PROTOCOL_DOCS.0).join("json"))?;
     write(&reference_out.join(limits::FILE), limits.as_bytes())?;
 
-    let upgrade_files = upgrade::run(root, &upgrade_out)?;
+    let upgrade_files = upgrade::run(root, &reference_out.join(REFERENCE_BLOCKS), &upgrade_out)?;
+    upgrade::check_no_leftovers(&root.join(upgrade::OUT), &upgrade_files)?;
     copy_block_physics(root, &reference_out, &upgrade_out)?;
 
     let mut differ = Vec::new();
     if check {
         for file in &upgrade_files {
             let committed = root.join(upgrade::OUT).join(file);
-            if read(&committed).ok() != Some(read(&upgrade_out.join(file))?) {
+            if read_if_exists(&committed)? != Some(read(&upgrade_out.join(file))?) {
                 differ.push(format!("{}/{file}", upgrade::OUT));
             }
         }
@@ -164,7 +176,8 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
             (REFERENCE_DIR, &reference_out, REFERENCE_FILES),
         ] {
             for file in files {
-                if read(&root.join(committed).join(file)).ok() != Some(read(&made.join(file))?) {
+                let have = read_if_exists(&root.join(committed).join(file))?;
+                if have != Some(read(&made.join(file))?) {
                     differ.push(format!("{committed}/{file}"));
                 }
             }
@@ -200,7 +213,7 @@ fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
     let path = root.join(CLOUDBURST.0).join(BIOMES);
     let all: BTreeMap<String, CloudburstBiome> =
         serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut text = String::from("[\n");
+    let mut text = "[\n".to_owned();
     for (i, (name, b)) in all.into_iter().enumerate() {
         let densities = [
             b.red_spore_density,
@@ -465,7 +478,7 @@ fn nbt_string(nbt: &mut Vec<u8>, s: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Reads a JSON file.
+/// The value in the JSON file at `path`.
 fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
     serde_json::from_slice(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -491,7 +504,7 @@ fn pinned(root: &Path, dir: &str, commit: &str) -> Result<(), String> {
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn is_dir(path: &Path) -> bool {
+pub(crate) fn is_dir(path: &Path) -> bool {
     path.is_dir()
 }
 
@@ -501,6 +514,15 @@ fn is_dir(path: &Path) -> bool {
 )]
 pub(crate) fn is_file(path: &Path) -> bool {
     path.is_file()
+}
+
+/// The names of the entries directly in `dir`, sorted.
+pub(crate) fn file_names(dir: &Path) -> Result<Vec<String>, String> {
+    Ok(read_dir(dir)?
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .collect())
 }
 
 /// The files in a directory, sorted.
@@ -526,6 +548,20 @@ pub(crate) fn read(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The bytes of the file at `path`, or none when there is no such file; any other failure is an
+/// error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+pub(crate) fn read_if_exists(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
@@ -540,6 +576,27 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 )]
 pub(crate) fn create_dir(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+pub(crate) fn rename(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::rename(from, to).map_err(|e| format!("{}: {e}", from.display()))
+}
+
+/// Removes the file at `path`; a file that is already gone is not an error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+pub(crate) fn remove_file(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
 }
 
 #[cfg(test)]

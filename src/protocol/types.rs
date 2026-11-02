@@ -90,8 +90,12 @@ pub(crate) fn go_u32_to_u8(x: u32) -> u8 {
 }
 
 /// Go's `int(len)`: lengths are below `isize::MAX`.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a length is at most isize::MAX"
+)]
 pub(crate) fn go_usize_to_i64(x: usize) -> i64 {
-    i64::try_from(x).unwrap_or(i64::MAX)
+    i64::try_from(x).expect("a length fits an i64")
 }
 
 /// Go's `u32(x)` for a `usize` `x`, which keeps the low bits.
@@ -670,17 +674,17 @@ impl Codec for AudioContentRegistrationEntry {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             audio_content_id: r.string_max(36)?,
-            shared_metadata: r.string_max(32768)?,
-            server_content: r.string_max(32768)?,
-            playback_content: r.string_max(32768)?,
+            shared_metadata: r.string_max(32_768)?,
+            server_content: r.string_max(32_768)?,
+            playback_content: r.string_max(32_768)?,
         })
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.string_max(&self.audio_content_id, 36)?;
-        w.string_max(&self.shared_metadata, 32768)?;
-        w.string_max(&self.server_content, 32768)?;
-        w.string_max(&self.playback_content, 32768)?;
+        w.string_max(&self.shared_metadata, 32_768)?;
+        w.string_max(&self.server_content, 32_768)?;
+        w.string_max(&self.playback_content, 32_768)?;
         Ok(())
     }
 }
@@ -4409,7 +4413,7 @@ impl Event {
     }
 
     /// Reads the body of the same variant.
-    pub(crate) fn decode_variant(&self, r: &mut Reader<'_>) -> Result<Self> {
+    pub(crate) fn decode_variant(self, r: &mut Reader<'_>) -> Result<Self> {
         Ok(match self {
             Self::AchievementAwarded(_) => {
                 Self::AchievementAwarded(AchievementAwardedEvent::decode(r)?)
@@ -4945,16 +4949,21 @@ impl InventoryTransactionData {
     }
 
     /// Reads the body of the same variant.
-    pub(crate) fn decode_variant(&self, r: &mut Reader<'_>) -> Result<Self> {
+    pub(crate) fn decode_variant(self, r: &mut Reader<'_>) -> Result<Self> {
         Ok(match self {
             Self::Normal(_) => Self::Normal(NormalTransactionData::decode(r)?),
             Self::Mismatch(_) => Self::Mismatch(MismatchTransactionData::decode(r)?),
-            Self::UseItem(_) => Self::UseItem(Box::new(UseItemTransactionData::decode(r)?)),
-            Self::UseItemOnEntity(_) => {
-                Self::UseItemOnEntity(Box::new(UseItemOnEntityTransactionData::decode(r)?))
+            Self::UseItem(mut x) => {
+                *x = UseItemTransactionData::decode(r)?;
+                Self::UseItem(x)
             }
-            Self::ReleaseItem(_) => {
-                Self::ReleaseItem(Box::new(ReleaseItemTransactionData::decode(r)?))
+            Self::UseItemOnEntity(mut x) => {
+                *x = UseItemOnEntityTransactionData::decode(r)?;
+                Self::UseItemOnEntity(x)
+            }
+            Self::ReleaseItem(mut x) => {
+                *x = ReleaseItemTransactionData::decode(r)?;
+                Self::ReleaseItem(x)
             }
         })
     }
@@ -5023,7 +5032,7 @@ impl ItemDescriptor {
     }
 
     /// Reads the body of the same variant.
-    pub(crate) fn decode_variant(&self, r: &mut Reader<'_>) -> Result<Self> {
+    pub(crate) fn decode_variant(self, r: &mut Reader<'_>) -> Result<Self> {
         Ok(match self {
             Self::Invalid(_) => Self::Invalid(InvalidItemDescriptor::decode(r)?),
             Self::Default(_) => Self::Default(DefaultItemDescriptor::decode(r)?),
@@ -6797,7 +6806,7 @@ impl ShapeData {
     }
 
     /// Reads the body of the same variant.
-    pub(crate) fn decode_variant(&self, r: &mut Reader<'_>) -> Result<Self> {
+    pub(crate) fn decode_variant(self, r: &mut Reader<'_>) -> Result<Self> {
         Ok(match self {
             Self::Last(_) => Self::Last(LastShape::decode(r)?),
             Self::Arrow(_) => Self::Arrow(ArrowShape::decode(r)?),
@@ -7472,7 +7481,7 @@ impl StackRequestAction {
     }
 
     /// Reads the body of the same variant.
-    pub(crate) fn decode_variant(&self, r: &mut Reader<'_>) -> Result<Self> {
+    pub(crate) fn decode_variant(self, r: &mut Reader<'_>) -> Result<Self> {
         Ok(match self {
             Self::Take(_) => Self::Take(TakeStackRequestAction::decode(r)?),
             Self::Place(_) => Self::Place(PlaceStackRequestAction::decode(r)?),
@@ -7642,7 +7651,7 @@ impl Codec for StackResponseSlotInfo {
         x.custom_name = r.string()?;
         x.filtered_custom_name = if r.bool()? { Some(r.string()?) } else { None };
         x.durability_correction = r.varint32()?;
-        if (x.durability_correction < (-32768)) || (x.durability_correction > 32767) {
+        if (x.durability_correction < (-32_768)) || (x.durability_correction > 32_767) {
             return Err(Error::InvalidValue {
                 field: "durability correction",
                 reason: "must fit in an int16",
@@ -7669,7 +7678,7 @@ impl Codec for StackResponseSlotInfo {
             w.string(v)?;
         }
         w.varint32(self.durability_correction);
-        if (self.durability_correction < (-32768)) || (self.durability_correction > 32767) {
+        if (self.durability_correction < (-32_768)) || (self.durability_correction > 32_767) {
             return Err(Error::InvalidValue {
                 field: "durability correction",
                 reason: "must fit in an int16",
@@ -8345,14 +8354,14 @@ impl Codec for UseItemTransactionData {
         w.varint32(self.action_type.cast_signed());
         w.uint8(
             u8::try_from(self.trigger_type).map_err(|_| Error::InvalidValue {
-                field: "TriggerType",
+                field: "trigger_type",
                 reason: "out of range for its wire type",
             })?,
         );
         w.block_pos(self.block_position);
         w.uint8(
             u8::try_from(self.block_face).map_err(|_| Error::InvalidValue {
-                field: "BlockFace",
+                field: "block_face",
                 reason: "out of range for its wire type",
             })?,
         );
@@ -9324,7 +9333,7 @@ pub(crate) const PLAYER_LIST_ENTRIES_MAX_LEN: usize = 1000;
 pub(crate) const SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN: usize = 8192;
 
 /// The most bytes or elements of gophertunnel `packet.Text.Message` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65536;
+pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65_536;
 
 /// The most bytes or elements of gophertunnel `packet.Text.Parameters` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
 pub(crate) const TEXT_PARAMETERS_MAX_LEN: usize = 4;

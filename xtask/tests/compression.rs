@@ -33,7 +33,7 @@ fn header(compression: Compression) -> u8 {
 
 /// Random bytes, or runs and repeated phrases when `repetitive`.
 fn data(len: usize, repetitive: bool) -> Vec<u8> {
-    let mut rng = Rng(0x0dd_ba11 + u64::try_from(len).expect("fits u64"));
+    let mut rng = Rng(0x00dd_ba11 + u64::try_from(len).expect("fits u64"));
     let mut out = Vec::with_capacity(len + 64);
     while out.len() < len {
         if repetitive {

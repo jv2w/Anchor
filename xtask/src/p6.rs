@@ -8,10 +8,11 @@
 //!   into `target/p6/bds-<compression>/`; with `transport=nethernet` (signaling on `server-port`)
 //!   into `target/p6/bds-nethernet-<compression>/`, plus big-skin with the bot sending 65,535-byte
 //!   segments (`big-skin-65535.jsonl`, recorded). NetherNet runs print the segment facts of each
-//!   capture (what the server sent per data channel message). Once, it also runs the `auto` bot
-//!   against the RakNet BDS (`bds-fallback/`, it must fall back to RakNet and spawn) and records, against the
-//!   NetherNet BDS, what a mismatched offer identity (`bds-bind-mismatch/`) and a second login
-//!   with the same name (`bds-duplicate/`) do. The duplicate login is a check only if BDS kicks
+//!   capture (what the server sent per data channel message). In the run of
+//!   `FALLBACK_COMPRESSION` it also runs the `auto` bot against the RakNet BDS (`bds-fallback/`,
+//!   it must fall back to RakNet and spawn). Once, in the first compression's runs, it records,
+//!   against the NetherNet BDS, what a mismatched offer identity (`bds-bind-mismatch/`) and a
+//!   second login with the same name (`bds-duplicate/`) do. The duplicate login is a check only if BDS kicks
 //!   the first player as PMMP does. Each RakNet run also runs the `blocks` scenario
 //!   (`bds-<compression>/blocks.jsonl`): while the bot stays spawned, BDS console commands place
 //!   fences, panes, bars, walls, a gate, stairs and tripwire next to each other near the player
@@ -28,8 +29,9 @@
 //!   `p6 game compare A B` compares the game traces of two capture folders (see `game`).
 //! - `p6 anchor [zlib|snappy]...`: starts Anchor in this process with the same settings and runs
 //!   the same RakNet and NetherNet scenarios into `target/p6/anchor-<compression>/` and
-//!   `anchor-nethernet-<compression>/`, and the `auto` bot against an unreachable NetherNet
-//!   address into `anchor-fallback/`; each capture is compared with its BDS capture. Last, it runs
+//!   `anchor-nethernet-<compression>/`, and the `auto` bot, with `FALLBACK_COMPRESSION`, against an
+//!   unreachable NetherNet address into `anchor-fallback/`; each capture is compared with its BDS
+//!   capture. Last, it runs
 //!   the game session against Anchor (`p6 game anchor`, into `anchor-game/`, compared with
 //!   `bds-game/`) and the API session (`p6 api anchor`, into `anchor-api/`, compared with
 //!   `bds-api/`).
@@ -45,18 +47,17 @@ mod compare;
 mod game;
 mod import;
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use std::collections::BTreeMap;
-
-use compare::field;
 use serde_json::Value;
 
 use crate::dump::{CLOUDBURST, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, is_file, write};
+use compare::field;
 
 /// The BDS copy, relative to the repository root. The original download is never run.
 const BDS_DIR: &str = ".cache/bds/1.26.60.6";
@@ -64,22 +65,27 @@ const BDS_DIR: &str = ".cache/bds/1.26.60.6";
 const OUT_DIR: &str = "target/p6";
 /// Scenarios every server must pass, over each transport.
 const SCENARIOS: &[&str] = &["spawn", "big-skin"];
-/// Test settings written into the copy's `server.properties`, besides the transport, ports and
-/// compression of each run and the lines of [`default_settings`]. The login (offline) and the
-/// world (named `p6`, seed 1) are fixed for the comparison, and [`anchor_config`] and
-/// [`anchor_session`] give Anchor the same; the other values here are Anchor's defaults, so
-/// config-dependent fields compare equal. LAN visibility is on because BDS answers RakNet pings
-/// with empty data without it; it also binds UDP 19132 and 19133.
+/// The name of the world both servers run, fixed for the comparison.
+const LEVEL_NAME: &str = "p6";
+/// The seed of the world both servers run, fixed for the comparison.
+const LEVEL_SEED: i64 = 1;
+/// The compression of the `auto` fallback runs, which `p6 bds` records and `p6 anchor` compares
+/// whatever compressions their arguments name.
+const FALLBACK_COMPRESSION: &str = "zlib";
+/// Test settings written into the copy's `server.properties`, besides the transport, ports,
+/// compression and seed of each run and the lines of [`default_settings`]. The login (offline),
+/// the world name ([`LEVEL_NAME`]) and the flat generator are fixed for the comparison, and
+/// [`anchor_config`] and [`anchor_session`] give Anchor the same; the lines of
+/// [`default_settings`] are Anchor's defaults, so config-dependent fields compare equal. LAN
+/// visibility is on because BDS answers RakNet pings with empty data without it; it also binds
+/// UDP 19132 and 19133.
 const BDS_SETTINGS: &[(&str, &str)] = &[
     ("online-mode", "false"),
     ("allow-list", "false"),
     ("allow-cheats", "false"),
     ("enable-lan-visibility", "true"),
-    ("level-name", "p6"),
+    ("level-name", LEVEL_NAME),
     ("level-type", "FLAT"),
-    ("level-seed", "1"),
-    ("gamemode", "survival"),
-    ("difficulty", "normal"),
 ];
 /// The `y` of the blocks scenario: the first air layer of BDS's default flat world (bedrock at
 /// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
@@ -171,13 +177,6 @@ const MARKER: (i32, i32) = (-4, 0);
 const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
 /// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
 const END_MARKER: &str = "diamond_block";
-/// The console command that turns random ticks off before the first step of the blocks scenario
-/// on BDS (Anchor's steps task does the same through `Context::set_random_tick_speed`): with them
-/// on, a placed block can change on its own between steps (copper bars oxidize), so a step's states
-/// would differ between runs and servers (`xtask/data/p6/facts.md`).
-const RANDOM_TICKS_OFF: &str = "gamerule randomtickspeed 0";
-/// The BDS log line that says `RANDOM_TICKS_OFF` ran.
-const RANDOM_TICKS_OFF_DONE: &str = "Game rule randomtickspeed has been updated to 0";
 /// The BDS log line of a `setblock` that ran.
 const BLOCK_PLACED: &str = "Block placed";
 /// How long BDS may take to run one console command of the blocks scenario.
@@ -185,9 +184,9 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the blocks bot may stay spawned; it leaves on the end marker.
 const BLOCKS_STAY: &str = "90s";
 /// The address Anchor advertises in the fallback run: an IPv6 documentation address (RFC 3849)
-/// while Anchor has no IPv6 socket, so the NetherNet negotiation fails with code 11. An
+/// that nothing answers, so the NetherNet negotiation fails in the client's ICE start. An
 /// unreachable IPv4 address does not fail: Anchor's own ICE checks give the client a
-/// peer-reflexive candidate.
+/// peer-reflexive candidate. An IPv6 address needs `enable-ipv6`.
 const UNREACHABLE: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
 /// The player name of both bots of the duplicate-login run.
 const TWIN: &str = "P6Twin";
@@ -203,6 +202,22 @@ const SMALL_SEGMENT: &str = "65535";
 const START_TIMEOUT: Duration = Duration::from_mins(2);
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(200);
+/// The magic bytes of RakNet's unconnected messages.
+const RAKNET_MAGIC: [u8; 16] = [
+    0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
+];
+/// Where the text of a RakNet pong starts: ID, time (8), server GUID (8), magic (16), text length
+/// (2).
+const PONG_TEXT_OFFSET: usize = 35;
+/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
+const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
+/// The addresses the Anchor server of this process logged while starting (`listening … addr=…`),
+/// kept by [`AnchorLog`].
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the log of the server's threads hands the harness its addresses"
+)]
+static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
 /// The command forms, for the usage text.
 pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtask p6 anchor \
                                 [zlib|snappy]... | cargo xtask p6 run \
@@ -238,6 +253,79 @@ fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
     writeln!(out, "{text}").map_err(|e| e.to_string())
 }
 
+/// The scenarios named in `args` out of `all` (all when `args` is empty); `session` names the
+/// session in the error.
+fn pick_scenarios<'a>(
+    args: &[&'a str],
+    all: &[&'a str],
+    session: &str,
+) -> Result<Vec<&'a str>, String> {
+    if args.is_empty() {
+        return Ok(all.to_vec());
+    }
+    args.iter()
+        .map(|a| {
+            all.iter()
+                .find(|s| *s == a)
+                .map(|_| *a)
+                .ok_or_else(|| format!("unknown {session} scenario `{a}` (want {all:?})"))
+        })
+        .collect()
+}
+
+/// Says so and returns true when `scenario` has no capture in the folder `a` or `b`.
+fn say_missing_capture(
+    a: &Path,
+    b: &Path,
+    scenario: &str,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
+    let Some(dir) = [a, b].into_iter().find(|d| !is_file(&capture(d))) else {
+        return Ok(false);
+    };
+    say(
+        out,
+        &format!("DIFFERENT {scenario}: no capture in {}", dir.display()),
+    )?;
+    Ok(true)
+}
+
+/// Writes the report `compare` makes under `title` to `<dir>/compare.txt` and `out`, and returns
+/// whether the captures are the same. An error of the comparison is a difference in the report.
+fn report_comparison<W: Write>(
+    dir: &Path,
+    title: &str,
+    out: &mut W,
+    compare: impl FnOnce(&mut Vec<u8>) -> Result<bool, String>,
+) -> Result<bool, String> {
+    let mut report = Vec::new();
+    say(&mut report, title)?;
+    let same = compare(&mut report).or_else(|e| {
+        say(&mut report, &format!("DIFFERENT: {e}"))?;
+        Ok::<_, String>(false)
+    })?;
+    write(&dir.join("compare.txt"), &report)?;
+    out.write_all(&report).map_err(|e| e.to_string())?;
+    Ok(same)
+}
+
+/// Whether the report of `scenario` was written; a failure is said as a failed scenario, so one
+/// broken capture does not end the session.
+fn report_written(
+    scenario: &str,
+    written: Result<(), String>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    match written {
+        Ok(()) => Ok(true),
+        Err(e) => {
+            say(out, &format!("FAIL {scenario} report: {e}"))?;
+            Ok(false)
+        }
+    }
+}
+
 /// The BDS executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
 /// on Linux), or an error saying where to copy BDS when it is missing.
 fn bds_exe(root: &Path) -> Result<PathBuf, String> {
@@ -255,8 +343,20 @@ fn bds_exe(root: &Path) -> Result<PathBuf, String> {
 }
 
 /// The `server.properties` lines whose values are Anchor's defaults, taken from them.
-fn default_settings() -> [(&'static str, String); 3] {
+fn default_settings() -> [(&'static str, String); 5] {
     let config = anchor::Config::default();
+    let gamemode = match config.general.gamemode {
+        anchor::config::GameMode::Survival => "survival",
+        anchor::config::GameMode::Creative => "creative",
+        anchor::config::GameMode::Adventure => "adventure",
+        anchor::config::GameMode::Spectator => "spectator",
+    };
+    let difficulty = match config.general.difficulty {
+        anchor::config::Difficulty::Peaceful => "peaceful",
+        anchor::config::Difficulty::Easy => "easy",
+        anchor::config::Difficulty::Normal => "normal",
+        anchor::config::Difficulty::Hard => "hard",
+    };
     [
         ("max-players", config.general.max_players.to_string()),
         ("view-distance", config.general.view_distance.to_string()),
@@ -264,6 +364,8 @@ fn default_settings() -> [(&'static str, String); 3] {
             "compression-threshold",
             config.developer.compression_threshold.to_string(),
         ),
+        ("gamemode", gamemode.to_owned()),
+        ("difficulty", difficulty.to_owned()),
     ]
 }
 
@@ -291,7 +393,7 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
                 ok &= cloudburst(root, &bot, &raknet, out)?;
                 // The fallback capture is compared with Anchor's, so it runs before the blocks
                 // scenario changes the world.
-                if once {
+                if *compression == FALLBACK_COMPRESSION {
                     wait_until_empty(addr)?;
                     ok &= fallback(&bot, addr, addr, &dir("bds-fallback"), out)?;
                 }
@@ -403,10 +505,12 @@ fn bds_session_with<W: Write>(
     create_dir(out_dir)?;
     let (port, port_v6) = free_ports()?;
     let (port_text, port_v6_text) = (port.to_string(), port_v6.to_string());
+    let seed_text = LEVEL_SEED.to_string();
     let defaults = default_settings();
     let mut settings = BDS_SETTINGS.to_vec();
     settings.extend(defaults.iter().map(|(key, value)| (*key, value.as_str())));
     settings.extend([
+        ("level-seed", seed_text.as_str()),
         ("transport", transport),
         ("server-port", port_text.as_str()),
         ("server-portv6", port_v6_text.as_str()),
@@ -472,12 +576,14 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             )?;
         }
     }
-    let first = compressions.first().copied().unwrap_or("snappy");
     let out_dir = dir("anchor-fallback");
     passed &= anchor_session(
         &out_dir,
-        first,
-        |c| c.general.public_ip = Some(UNREACHABLE),
+        FALLBACK_COMPRESSION,
+        |c| {
+            c.general.enable_ipv6 = true;
+            c.general.public_ip = Some(UNREACHABLE);
+        },
         |b| b,
         out,
         |addr, signaling, out| {
@@ -507,8 +613,8 @@ fn anchor_session<W: Write>(
     remove_dir(&data_dir)?;
     create_dir(&data_dir)?;
     let mut config = anchor_config();
-    "p6".clone_into(&mut config.general.level_name);
-    config.general.level_seed = Some(1);
+    LEVEL_NAME.clone_into(&mut config.general.level_name);
+    config.general.level_seed = Some(LEVEL_SEED);
     config.developer.compression = match compression {
         "zlib" => anchor::protocol::compression::Compression::Zlib,
         _ => anchor::protocol::compression::Compression::Snappy,
@@ -547,6 +653,7 @@ fn anchor_config() -> anchor::Config {
     let mut config = anchor::Config::default();
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
+    config.general.level_type = anchor::config::LevelType::Flat;
     config.general.server_port = 0;
     config
 }
@@ -620,14 +727,6 @@ fn opened_ports(thread: &std::thread::JoinHandle<anchor::Result<()>>) -> Result<
         "Anchor did not open its addresses within {START_TIMEOUT:?}"
     ))
 }
-
-/// The addresses the Anchor server of this process logged while starting (`listening … addr=…`),
-/// kept by [`AnchorLog`].
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the log of the server's threads hands the harness its addresses"
-)]
-static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
 
 /// Locks `mutex`; a thread that panicked while holding it left nothing half done.
 #[expect(
@@ -737,9 +836,6 @@ fn channel() -> (
     std::sync::mpsc::sync_channel(1)
 }
 
-/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
-const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
-
 /// The block state a step names: `name` or `name ["key"=value,...]` (BDS `setblock` syntax), with
 /// the properties it leaves out at their first value in Anchor's table, as `setblock` takes the
 /// default state (connection properties are worked out by `set_block` anyway).
@@ -800,17 +896,16 @@ fn anchor_steps(
         };
         steps.push(([dx, dy, dz], state));
     }
-    let markers = STEP_MARKERS.map(step_state);
-    let [first, second] = markers;
-    let markers = [first?, second?];
+    let [even, odd] = STEP_MARKERS.map(step_state);
+    let (even_marker, odd_marker) = (even?, odd?);
     let end = step_state(END_MARKER)?;
     let mut base: Option<[i32; 3]> = None;
     // Even actions place a step's block, odd ones its marker; past the steps, the end marker.
     let mut action = 0_usize;
     let task = move |ctx: &mut anchor::Context<'_>| {
         if base.is_none() {
-            // Random ticks go off before the first step, as on BDS (`RANDOM_TICKS_OFF`). Speed 0
-            // is within the limit; were it refused, no step would run and the bot would fail.
+            // Random ticks go off before the first step, as on BDS (`blocks`). Speed 0 is within
+            // the limit; were it refused, no step would run and the bot would fail.
             base = bases
                 .try_recv()
                 .ok()
@@ -823,9 +918,14 @@ fn anchor_steps(
         let (step, marker) = (action / 2, action % 2 == 1);
         let change = match steps.get(step) {
             Some(&(offset, state)) if !marker => Some((at(offset), state)),
-            Some(_) => markers
-                .get(step % 2)
-                .map(|&m| (at([MARKER.0, 0, MARKER.1]), m)),
+            Some(_) => {
+                let state = if step % 2 == 0 {
+                    even_marker
+                } else {
+                    odd_marker
+                };
+                Some((at([MARKER.0, 0, MARKER.1]), state))
+            }
             None if step == steps.len() && !marker => Some((at([MARKER.0, 0, MARKER.1]), end)),
             None => None,
         };
@@ -840,8 +940,9 @@ fn anchor_steps(
 }
 
 /// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, turns random ticks
-/// off (`RANDOM_TICKS_OFF`), changes each block of `BLOCK_STEPS` and ends the step by setting the
-/// marker (`MARKER`, `STEP_MARKERS`), then places the end marker: on BDS with console commands,
+/// off (with them on, a placed block can change on its own between steps, as copper bars oxidize,
+/// so a step's states would differ between runs and servers: `xtask/data/p6/facts.md`), changes
+/// each block of `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places the end marker: on BDS with console commands,
 /// each sent once BDS ran the one before, on Anchor with the task of [`anchor_steps`]. Reports
 /// the block changes of each step with their states (also into `<dir>/blocks.txt`). It passes if
 /// the bot passed, every step ended and every step changed a block; the comparison with BDS is
@@ -878,7 +979,7 @@ fn blocks(
                     .map_err(|_| "the steps task is gone".to_owned());
             }
         };
-        server.command_done(RANDOM_TICKS_OFF, RANDOM_TICKS_OFF_DONE)?;
+        server.set_game_rule("randomtickspeed", "0")?;
         let [mx, my, mz] = [base[0] + MARKER.0, base[1], base[2] + MARKER.1];
         for (n, (dx, dy, dz, block)) in BLOCK_STEPS.iter().enumerate() {
             let (bx, by, bz) = (base[0] + dx, base[1] + dy, base[2] + dz);
@@ -887,7 +988,8 @@ fn blocks(
                 &format!("setblock {bx} {by} {bz} {block} {mode}"),
                 BLOCK_PLACED,
             )?;
-            let marker = STEP_MARKERS.get(n % 2).copied().unwrap_or_default();
+            let [even, odd] = STEP_MARKERS;
+            let marker = if n % 2 == 0 { even } else { odd };
             server.command_done(
                 &format!("setblock {mx} {my} {mz} {marker} replace"),
                 BLOCK_PLACED,
@@ -925,13 +1027,13 @@ fn blocks(
 /// The base position of the blocks scenario in a capture: `BLOCKS_OFFSET` from the spawn column
 /// at `BLOCKS_Y`.
 fn blocks_base(capture: &str) -> Result<[i32; 3], String> {
-    let (x, z) = spawn_column(capture)?;
+    let [x, z] = spawn_column(capture)?;
     Ok([x + BLOCKS_OFFSET, BLOCKS_Y, z + BLOCKS_OFFSET])
 }
 
 /// The marker of the blocks scenario with the reference list's state names.
 fn markers() -> compare::Markers {
-    let state = |name: &str| format!("minecraft:{name}[]");
+    let state = |name: &str| state_text(&format!("minecraft:{name}"), "");
     let mut near = std::collections::BTreeSet::new();
     for (dx, dy, dz, _) in BLOCK_STEPS {
         for (x, z) in [-1, 0, 1]
@@ -1054,27 +1156,12 @@ fn compare_blocks(
 }
 
 /// The block column (`x`, `z`) of the player's position in the capture's `StartGame`.
-fn spawn_column(capture: &str) -> Result<(i32, i32), String> {
+fn spawn_column(capture: &str) -> Result<[i32; 2], String> {
     for line in capture.lines() {
         let value: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
-        if field(&value, "name").as_str() != Some("StartGame") {
-            continue;
+        if field(&value, "name").as_str() == Some("StartGame") {
+            return compare::block_column(field(&value, "fields"));
         }
-        let position = field(field(&value, "fields"), "PlayerPosition");
-        let coordinate = |i: usize| {
-            position
-                .get(i)
-                .and_then(Value::as_f64)
-                .map(f64::floor)
-                .filter(|v| v.abs() < 1e6)
-                .ok_or_else(|| format!("StartGame PlayerPosition {position} is not a position"))
-        };
-        let (x, z) = (coordinate(0)?, coordinate(2)?);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "safety: whole numbers below 1e6 in size"
-        )]
-        return Ok((x as i32, z as i32));
     }
     Err("the capture has no StartGame".to_owned())
 }
@@ -1105,9 +1192,14 @@ fn block_states(root: &Path) -> Result<BTreeMap<u32, String>, String> {
                 format!("{}={value}", key.trim_start_matches("minecraft:"))
             })
             .collect();
-        map.insert(id, format!("{name}[{}]", properties.join(",")));
+        map.insert(id, state_text(name, &properties.join(",")));
     }
     Ok(map)
+}
+
+/// The text of a block state: `name[key=value,...]`, the form of [`block_states`].
+fn state_text(name: &str, properties: &str) -> String {
+    format!("{name}[{properties}]")
 }
 
 /// Compares `<out_dir>/spawn.jsonl` with the spawn capture of the BDS run `bds_name`.
@@ -1312,19 +1404,17 @@ fn wait_for_spawn(child: &mut Child, capture: &Path) -> Result<(), String> {
             return Ok(());
         }
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            return Err(format!("the first bot exited ({status}) before spawning"));
+            return Err(format!("the bot exited ({status}) before spawning"));
         }
         pause();
     }
-    Err(format!(
-        "the first bot did not spawn within {START_TIMEOUT:?}"
-    ))
+    Err(format!("the bot did not spawn within {START_TIMEOUT:?}"))
 }
 
 /// Prints the signaling facts of a NetherNet capture: the /v1/join answer, the answer SDP line
 /// structure and whether the server sent a handshake.
 fn report_nethernet(capture: &Path, out: &mut impl Write) -> Result<(), String> {
-    let Ok(text) = read_text(capture) else {
+    let Some(text) = readable_capture(capture, out)? else {
         return Ok(());
     };
     let result = compare::result(&text)?;
@@ -1376,19 +1466,13 @@ fn wait_until_empty(addr: &str) -> Result<(), String> {
     reason = "off-tick: xtask is a development tool"
 )]
 fn wait_for_pong_where(port: u16, accept: impl Fn(&str) -> bool, what: &str) -> Result<(), String> {
-    const MAGIC: [u8; 16] = [
-        0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56,
-        0x78,
-    ];
-    // Pong: ID, time (8), server GUID (8), magic (16), text length (2), text.
-    const TEXT: usize = 35;
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     socket
         .set_read_timeout(Some(POLL))
         .map_err(|e| e.to_string())?;
     let mut ping = vec![0x01];
     ping.extend_from_slice(&0_i64.to_be_bytes());
-    ping.extend_from_slice(&MAGIC);
+    ping.extend_from_slice(&RAKNET_MAGIC);
     ping.extend_from_slice(&1_i64.to_be_bytes());
     let deadline = now() + START_TIMEOUT;
     let mut buf = [0; 1500];
@@ -1399,7 +1483,7 @@ fn wait_for_pong_where(port: u16, accept: impl Fn(&str) -> bool, what: &str) -> 
         if let Ok((n, _)) = socket.recv_from(&mut buf)
             && buf.get(..n).and_then(|b| b.first()) == Some(&0x1c)
             && accept(&String::from_utf8_lossy(
-                buf.get(TEXT..n).unwrap_or_default(),
+                buf.get(PONG_TEXT_OFFSET..n).unwrap_or_default(),
             ))
         {
             return Ok(());
@@ -1540,14 +1624,35 @@ fn load_deferred(root: &Path) -> Result<compare::Deferred, String> {
     compare::parse_deferred(&read_text(&root.join(compare::DEFERRED_PATH))?)
 }
 
+/// The text of a capture to report, or `None` after a note saying why it cannot be read: a bot
+/// that failed early leaves no capture, and its failure is reported by the run.
+fn readable_capture(capture: &Path, out: &mut impl Write) -> Result<Option<String>, String> {
+    match read_text(capture) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) => {
+            say(out, &format!("no capture to report: {e}"))?;
+            Ok(None)
+        }
+    }
+}
+
 /// Prints the spawn window of a capture without deferred packets.
 fn report_window(
     capture: &Path,
     deferred: &compare::Deferred,
     out: &mut impl Write,
 ) -> Result<(), String> {
-    let Ok(window) = read_text(capture).and_then(|text| compare::window(&text)) else {
+    let Some(text) = readable_capture(capture, out)? else {
         return Ok(());
+    };
+    let window = match compare::window(&text) {
+        Ok(window) => window,
+        Err(e) => {
+            return say(
+                out,
+                &format!("no spawn window in {}: {e}", capture.display()),
+            );
+        }
     };
     say(
         out,
@@ -1574,8 +1679,7 @@ fn build_bot(root: &Path) -> Result<PathBuf, String> {
         .map_err(|e| format!("cannot run `go` ({e}); install Go and put it on PATH"))?;
     if !output.status.success() {
         return Err(format!(
-            "go run ./fixmod failed:
-{}",
+            "go run ./fixmod failed:\n{}",
             String::from_utf8_lossy(&output.stderr)
         ));
     }
@@ -1722,7 +1826,7 @@ fn record_segment_size(
 /// segment payload, segmented messages and their non-final segment sizes, messages on the
 /// unreliable channel, anything sent before the bot's first packet) and what the bot sent.
 fn report_segments(capture: &Path, out: &mut impl Write) -> Result<(), String> {
-    let Ok(text) = read_text(capture) else {
+    let Some(text) = readable_capture(capture, out)? else {
         return Ok(());
     };
     let result = compare::result(&text)?;
@@ -1833,26 +1937,48 @@ impl Bds {
         Ok(())
     }
 
-    /// Sends `stop` and waits for the exit; kills BDS if it does not stop in time.
+    /// Sets the game rule and waits until BDS confirms it.
+    fn set_game_rule(&mut self, rule: &str, value: &str) -> Result<(), String> {
+        self.command_done(
+            &format!("gamerule {rule} {value}"),
+            &format!("Game rule {rule} has been updated to {value}"),
+        )
+    }
+
+    /// Sends `stop` and waits for the exit; kills BDS, and says why, if `stop` could not be sent
+    /// or did not end it in time.
     fn stop(mut self) -> Result<(), String> {
         let sent = self
             .stdin
             .take()
             .map(|mut stdin| stdin.write_all(b"stop\n").and_then(|()| stdin.flush()));
-        let deadline = now() + STOP_TIMEOUT;
-        while matches!(sent, Some(Ok(()))) && now() < deadline {
-            if self.child.try_wait().map_err(|e| e.to_string())?.is_some() {
-                return Ok(());
+        let reason = match sent {
+            Some(Ok(())) => {
+                let deadline = now() + STOP_TIMEOUT;
+                loop {
+                    if self.child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                        return Ok(());
+                    }
+                    if now() >= deadline {
+                        break format!("BDS did not stop on `stop` within {STOP_TIMEOUT:?}");
+                    }
+                    pause();
+                }
             }
-            pause();
+            Some(Err(e)) => format!("BDS console: {e}"),
+            None => "BDS has no console input".to_owned(),
+        };
+        if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!(
+                "{reason}; BDS had exited ({status}); see {}",
+                self.log.display()
+            ));
         }
         self.child.kill().map_err(|e| format!("kill BDS: {e}"))?;
         self.child
             .wait()
             .map_err(|e| format!("wait for BDS: {e}"))?;
-        Err(format!(
-            "BDS did not stop on `stop` within {STOP_TIMEOUT:?}; killed it"
-        ))
+        Err(format!("{reason}; killed it"))
     }
 }
 
@@ -1916,6 +2042,18 @@ fn pause() {
 )]
 fn read_text(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The text of a file the bot is still writing: empty while the file does not exist yet.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+fn read_growing_text(path: &Path) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        text => text.map_err(|e| format!("{}: {e}", path.display())),
+    }
 }
 
 /// Removes a directory tree; a missing directory is fine.

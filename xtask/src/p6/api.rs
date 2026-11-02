@@ -8,17 +8,18 @@
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
 //!   new world, into `target/p6/bds-api/`; the session first runs `game::SESSION_SETUP`.
 //! - `p6 api anchor [scenario]...`: the same against Anchor in this process (`game::console`
-//!   carries out `op`, `kick`, `scriptevent p6:<kind>`, `summon snowball|egg`, `weather`, `difficulty` and
-//!   `summon lightning_bolt` through Anchor's public API; player commands are Anchor's own), into
-//!   `target/p6/anchor-api/`, then compared with `bds-api/` (also written to
-//!   `anchor-api/compare.txt`).
+//!   carries out `op`, `kick`, `kill <player>`, `scriptevent p6:<kind>`,
+//!   `summon ender_crystal|snowball|egg|lightning_bolt`, `weather` and `difficulty` through
+//!   Anchor's public API; player commands are Anchor's own), into `target/p6/anchor-api/`, then
+//!   compared with `bds-api/` (also written to `anchor-api/compare.txt`).
 //! - `p6 api compare A B`: compares the API captures of two folders; a missing one is a difference.
 //!
 //! Each capture gets a report (`<scenario>.txt`): per step of the bot, its output, check, form and
 //! command list lines and the packets of `REPORTED` with their fields. The comparison pairs the
 //! steps of two captures in order. In each step that is not a setup step, the packets the
 //! fixed-field list (`xtask/data/p6/fields.txt`) names must come in the same numbers with the same
-//! fixed fields, the bot's output lines must have the same `uuid_echoed` and `state`, its form
+//! fixed fields; in a setup step only the packets of `SETUP_COMPARED` are compared. In every step
+//! the bot's output lines must have the same `uuid_echoed` and `state`, its form
 //! lines the same form JSON (numbers compared as numbers) and its check lines the same values. The
 //! command lists (`available` lines) are compared only for the commands both servers have and only
 //! as notes: BDS has vanilla's commands, Anchor PMMP's. The scenarios of `FACTS_ONLY` are facts
@@ -30,6 +31,7 @@
 //! difference does. A listed difference the comparison no longer finds is a note, so the file can
 //! be trimmed.
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
@@ -126,7 +128,7 @@ const FACTS_ONLY: [&str; 27] = [
 ];
 /// The verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
-/// limits, item use, the input tick of a sneak's answer), and the other packets differ for
+/// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets differ for
 /// reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death message, its
 /// projectiles fly otherwise, it sends a sneak's two flag words in one packet).
 const CHECKS_ONLY: &[&str] = &[
@@ -144,7 +146,7 @@ const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
 /// The action file of the script scenario, relative to the repository root.
 const SCRIPT: &str = "xtask/data/p6/script.txt";
 /// The intended-difference file, relative to the repository root; `import` reads it too.
-pub(super) const INTENDED: &str = "xtask/data/p6/intended.txt";
+pub(crate) const INTENDED: &str = "xtask/data/p6/intended.txt";
 /// Settings of the BDS session besides the test settings: players may run cheat commands.
 const BDS_SETTINGS: &[(&str, &str)] = &[("allow-cheats", "true")];
 /// The forms script pack, relative to the repository root, and its files.
@@ -187,25 +189,9 @@ const SETUP_COMPARED: &[&str] = &["UpdateAbilities"];
 /// How many characters of a packet's fields a report line shows.
 const REPORT_WIDTH: usize = 600;
 
-/// Picks the scenarios named in `args` (all when empty).
-fn scenarios<'a>(args: &[&'a str]) -> Result<Vec<&'a str>, String> {
-    if args.is_empty() {
-        return Ok(SCENARIOS.to_vec());
-    }
-    args.iter()
-        .map(|a| {
-            SCENARIOS
-                .iter()
-                .find(|s| *s == a)
-                .map(|_| *a)
-                .ok_or_else(|| format!("unknown API scenario `{a}` (want {SCENARIOS:?})"))
-        })
-        .collect()
-}
-
 /// `p6 api bds [scenario]...`: [`session`] alone.
 pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let scenarios = scenarios(args)?;
+    let scenarios = super::pick_scenarios(args, &SCENARIOS, "API")?;
     let exe = super::bds_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
@@ -215,7 +201,7 @@ pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bo
 
 /// `p6 api anchor [scenario]...`: [`anchor_session`] alone.
 pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let scenarios = scenarios(args)?;
+    let scenarios = super::pick_scenarios(args, &SCENARIOS, "API")?;
     let bot = super::build_bot(root)?;
     let passed = anchor_session(root, &bot, &scenarios, out)?;
     super::say(out, if passed { "PASS" } else { "FAIL" })?;
@@ -256,10 +242,7 @@ pub(crate) fn session(
                 console,
                 out,
             )?;
-            write_report(&dir, scenario)?;
-            if let Some(c) = companion(scenario) {
-                write_report(&dir, c)?;
-            }
+            passed &= write_reports(&dir, scenario, out)?;
         }
         Ok(passed)
     })
@@ -297,11 +280,7 @@ fn install_pack(pack: &Path, bds: &Path) -> Result<(), String> {
         "pack_id": field(header, "uuid"),
         "version": field(header, "version"),
     }]);
-    let level = super::BDS_SETTINGS
-        .iter()
-        .find(|(key, _)| *key == "level-name")
-        .map_or("p6", |(_, value)| value);
-    let world = bds.join("worlds").join(level);
+    let world = bds.join("worlds").join(super::LEVEL_NAME);
     super::create_dir(&world)?;
     super::write(
         &world.join("world_behavior_packs.json"),
@@ -349,26 +328,15 @@ pub(crate) fn anchor_session(
                     out,
                 )?;
                 passed &= console.settle(out)?;
-                write_report(&dir, scenario)?;
-                if let Some(c) = companion(scenario) {
-                    write_report(&dir, c)?;
-                }
+                passed &= write_reports(&dir, scenario, out)?;
             }
             Ok(passed)
         },
     )?;
-    let mut report = Vec::new();
-    super::say(&mut report, "compare bds-api anchor-api:")?;
     let bds = root.join(super::OUT_DIR).join("bds-api");
-    let same = compare_scenarios(root, &bds, &dir, scenarios, &mut report).or_else(|e| {
-        super::say(
-            &mut report,
-            &format!("DIFFERENT: {e}; run `p6 api bds` first"),
-        )?;
-        Ok::<_, String>(false)
+    let same = super::report_comparison(&dir, "compare bds-api anchor-api:", out, |report| {
+        compare_scenarios(root, &bds, &dir, scenarios, report)
     })?;
-    super::write(&dir.join("compare.txt"), &report)?;
-    out.write_all(&report).map_err(|e| e.to_string())?;
     Ok(played && same)
 }
 
@@ -405,18 +373,11 @@ fn compare_scenarios(
         .flat_map(|s| std::iter::once(*s).chain(companion(s)));
     for scenario in with_companions {
         let scenario = &scenario;
-        let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
-        if let Some(dir) = [a, b].into_iter().find(|d| !super::is_file(&capture(d))) {
-            super::say(
-                out,
-                &format!(
-                    "DIFFERENT {scenario}: no capture in {}; run `p6 api bds {scenario}`",
-                    dir.display()
-                ),
-            )?;
+        if super::say_missing_capture(a, b, scenario, out)? {
             same = false;
             continue;
         }
+        let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
         let read = |dir: &Path| {
             steps(&super::read_text(&capture(dir))?)
                 .map_err(|e| format!("{}: {e}", capture(dir).display()))
@@ -466,15 +427,23 @@ fn compare_scenarios(
     Ok(same)
 }
 
-/// The intended differences (`INTENDED`): per scenario, the exact difference texts with their
-/// reasons.
+/// The intended differences (`INTENDED`): per API scenario, the exact difference texts with their
+/// reasons, and the block names of the import scenario.
 #[derive(Debug, Default, PartialEq)]
-struct Intended(Vec<(String, String, String)>);
+pub(crate) struct Intended {
+    differences: Vec<(String, String, String)>,
+    blocks: BTreeSet<String>,
+}
 
 impl Intended {
+    /// The block names `p6 import` accepts as intended differences.
+    pub(crate) fn blocks(&self) -> &BTreeSet<String> {
+        &self.blocks
+    }
+
     /// The reason `difference` of `scenario` is intended, if it is listed.
     fn reason(&self, scenario: &str, difference: &str) -> Option<&str> {
-        self.0
+        self.differences
             .iter()
             .find(|(s, d, _)| s == scenario && d == difference)
             .map(|(_, _, reason)| reason.as_str())
@@ -486,7 +455,7 @@ impl Intended {
         scenario: &'a str,
         found: &'a [String],
     ) -> impl Iterator<Item = &'a str> {
-        self.0
+        self.differences
             .iter()
             .filter(move |(s, d, _)| s == scenario && !found.contains(d))
             .map(|(_, d, _)| d.as_str())
@@ -496,8 +465,9 @@ impl Intended {
 /// Parses the intended-difference file: `#` comments, blank lines, and lines
 /// `<scenario> | <difference> | <reason>`, the difference exactly as the comparison prints it
 /// after `DIFFERENT <scenario>: ` (it may hold ` | `; the reason may not). A scenario must be an API
-/// scenario, the reason must not be empty, and a difference is listed once.
-fn parse_intended(text: &str) -> Result<Intended, String> {
+/// scenario or the import scenario, whose difference is `block <name>`; the reason must not be
+/// empty, and a difference is listed once.
+pub(crate) fn parse_intended(text: &str) -> Result<Intended, String> {
     let mut list = Intended::default();
     for (n, line) in text.lines().enumerate() {
         let line = line.trim_end();
@@ -513,20 +483,25 @@ fn parse_intended(text: &str) -> Result<Intended, String> {
         let Some((difference, _)) = rest.rsplit_once(" | ") else {
             return Err(at("want `<scenario> | <difference> | <reason>`"));
         };
-        // `p6 import` reads its own lines (`super::import`).
+        if difference.is_empty() || reason.trim().is_empty() {
+            return Err(at("the difference and its reason must not be empty"));
+        }
         if scenario == super::import::SCENARIO {
+            let Some(block) = difference.strip_prefix("block ") else {
+                return Err(at("want `import | block <name> | <reason>`"));
+            };
+            if !list.blocks.insert(block.to_owned()) {
+                return Err(at("the block is listed twice"));
+            }
             continue;
         }
         if !SCENARIOS.contains(&scenario) && !COMPANIONS.iter().any(|(_, c)| *c == scenario) {
             return Err(at(&format!("unknown API scenario `{scenario}`")));
         }
-        if difference.is_empty() || reason.trim().is_empty() {
-            return Err(at("the difference and its reason must not be empty"));
-        }
         if list.reason(scenario, difference).is_some() {
             return Err(at("the difference is listed twice"));
         }
-        list.0.push((
+        list.differences.push((
             scenario.to_owned(),
             difference.to_owned(),
             reason.trim().to_owned(),
@@ -581,6 +556,16 @@ fn steps(capture: &str) -> Result<Vec<Step>, String> {
         }
     }
     Ok(steps)
+}
+
+/// Writes the reports of `scenario` and of its companion; false, after saying why, when one
+/// cannot be written.
+fn write_reports(dir: &Path, scenario: &str, out: &mut impl Write) -> Result<bool, String> {
+    let mut written = true;
+    for name in std::iter::once(scenario).chain(companion(scenario)) {
+        written &= super::report_written(name, write_report(dir, name), out)?;
+    }
+    Ok(written)
 }
 
 /// Writes `<dir>/<scenario>.txt`, the report of the scenario's capture.
@@ -894,6 +879,8 @@ fn overloads(command: &Value) -> Vec<String> {
 mod tests {
     use super::*;
 
+    use crate::p6;
+
     const CAPTURE: &str = concat!(
         r#"{"type":"packet","name":"StartGame","fields":{}}"#,
         "\n",
@@ -1004,22 +991,37 @@ mod tests {
             "trade | a | b",
             "commands | a |  ",
             "commands | a | b\ncommands | a | c",
+            "import | foo | why",
+            "import | block minecraft:x |  ",
+            "import | block minecraft:x | a\nimport | block minecraft:x | b",
         ] {
             assert!(parse_intended(bad).is_err(), "{bad}");
         }
     }
 
     #[test]
+    fn import_lines_name_blocks() {
+        let intended =
+            parse_intended("import | block minecraft:vault | kept as stored\n").expect("intended");
+        assert_eq!(
+            intended.blocks().iter().collect::<Vec<_>>(),
+            ["minecraft:vault"]
+        );
+    }
+
+    #[test]
     fn the_intended_difference_file_parses() {
         let text = include_str!("../../data/p6/intended.txt");
         let intended = parse_intended(text).expect("intended");
-        assert!(!intended.0.is_empty());
+        assert!(!intended.differences.is_empty());
+        assert!(!intended.blocks().is_empty());
     }
 
     #[test]
     fn unknown_api_scenarios_are_refused() {
-        assert_eq!(scenarios(&[]).expect("all"), SCENARIOS.to_vec());
-        assert!(scenarios(&["trade"]).is_err());
+        let pick = |args: &[&'static str]| p6::pick_scenarios(args, &SCENARIOS, "API");
+        assert_eq!(pick(&[]).expect("all"), SCENARIOS.to_vec());
+        assert!(pick(&["trade"]).is_err());
     }
 
     #[test]
@@ -1027,12 +1029,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("anchor-p6-api-{}", std::process::id()));
         let (a, b) = (dir.join("a"), dir.join("b"));
         for (d, scenario) in [(&a, "commands"), (&b, "commands"), (&a, "kick")] {
-            super::super::create_dir(d).expect("dir");
-            super::super::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
+            p6::create_dir(d).expect("dir");
+            p6::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
         }
         let mut out = Vec::new();
         let same = compare_scenarios(&crate::root(), &a, &b, &["commands", "kick"], &mut out);
-        super::super::remove_dir(&dir).expect("cleanup");
+        p6::remove_dir(&dir).expect("cleanup");
         assert_eq!(same, Ok(false));
         let report = String::from_utf8_lossy(&out);
         assert!(report.contains("DIFFERENT kick: no capture in"), "{report}");

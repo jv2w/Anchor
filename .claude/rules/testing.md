@@ -32,10 +32,10 @@ paths:
 - Review `intended.txt` like a code change.
 - Never put a value that differs per world or per run into `fields.txt`.
 - Keep `facts.md` grouped by topic, with the open questions and the real-client checks at the end.
-- Give `p6 anchor` the same compressions, in the same order, as the `p6 bds` run it compares with.
+- Run the `auto` fallback of both servers with `FALLBACK_COMPRESSION` (`xtask/src/p6.rs`).
 
 ## Adding a P6 scenario
-1. Write the scenario function in `xtask/go/bot/` and register it in `gameScenarios` with its own area in `gameAreas`, apart from every other scenario's area. Split it into steps (`step` records), write the world setup as `command` records (console commands), and record each fact to compare as a `check` line.
+1. Write the scenario function in `xtask/go/bot/` and register it in `gameScenarios` with its own area in `gameAreas`, apart from every other scenario's area. Split it into steps (`step` records), write the world setup as `command` records (console commands), and record each fact to compare as a `check` line; for a game scenario, add the check's name to `FIXED_CHECKS` in `xtask/src/p6/game/trace.rs`.
 2. Add its name to the harness's `SCENARIOS` in `xtask/src/p6/game.rs` or `xtask/src/p6/api.rs`. An API scenario that only records facts also goes into `FACTS_ONLY`; one that compares only its check lines goes into `CHECKS_ONLY`.
 3. When Anchor must carry out a console command the scenario uses, translate it to the public API in `xtask/src/p6/game/console.rs`.
 4. Run `cargo xtask p6 game bds <name>` or `cargo xtask p6 api bds <name>` at least twice: it must pass on the official server with the same values. Leave out of the comparison every value that differs per run.

@@ -6,6 +6,36 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::ir::{Enum, Field, Function, Ir, Stmt, Type, TypeDef, Union};
 use super::names;
 
+/// Union variants and packets larger than this many bytes (estimated) are boxed, so the enums
+/// stay small to move and `clippy::large_enum_variant` holds.
+const BOX_OVER: u64 = 128;
+
+/// External Go types: Go name, Rust type, `Copy`.
+const EXTERNAL_TYPES: &[(&str, &str, bool)] = &[
+    ("mgl32.Vec3", "[f32; 3]", true),
+    ("mgl32.Vec2", "[f32; 2]", true),
+    ("uuid.UUID", "Uuid", true),
+    ("color.RGBA", "Rgba", true),
+];
+
+/// Hand types that implement `Codec`, so a `marshal` statement may name them.
+const HAND_CODECS: &[&str] = &[
+    "protocol.ItemInstance",
+    "protocol.StackRequestItem",
+    "protocol.MaterialReducer",
+    "protocol.MaterialReducerOutput",
+    "protocol.GameRule",
+    "protocol.PackSetting",
+];
+
+/// Functions written by hand in `src/protocol/union_frame.rs` as `Reader`/`Writer` methods,
+/// with the method name. A Go union value is a pointer, so a body that copies one into a local
+/// and changes it through the copy has no value-type translation.
+const HAND_FUNCTIONS: &[(&str, &str)] = &[(
+    "protocol.StackRequestItemDescriptorCount",
+    "stack_request_item_descriptor_count",
+)];
+
 /// Go types with a hand-written Rust type (`src/protocol/*.rs`): Go name, Rust name, and
 /// whether the Rust type is `Copy`.
 const HAND_TYPES: &[(&str, &str, bool)] = &[
@@ -28,79 +58,9 @@ const HAND_TYPES: &[(&str, &str, bool)] = &[
     ("protocol.PackSetting", "PackSetting", false),
 ];
 
-/// Hand types that implement `Codec`, so a `marshal` statement may name them.
-const HAND_CODECS: &[&str] = &[
-    "protocol.ItemInstance",
-    "protocol.StackRequestItem",
-    "protocol.MaterialReducer",
-    "protocol.MaterialReducerOutput",
-    "protocol.GameRule",
-    "protocol.PackSetting",
-];
-
-/// External Go types: Go name, Rust type, `Copy`.
-const EXTERNAL_TYPES: &[(&str, &str, bool)] = &[
-    ("mgl32.Vec3", "[f32; 3]", true),
-    ("mgl32.Vec2", "[f32; 2]", true),
-    ("uuid.UUID", "Uuid", true),
-    ("color.RGBA", "Rgba", true),
-];
-
-/// Struct fields (`<Go type>.<field>`) held as `Arc<T>`: the server sends one value of them
-/// to many players (a skin of up to 4 MiB in the player list and skin broadcasts), so every
-/// packet shares it instead of copying it.
-const SHARED_FIELDS: &[&str] = &["protocol.PlayerListEntry.Skin", "packet.PlayerSkin.Skin"];
-
-/// Functions written by hand in `src/protocol/union_frame.rs` as `Reader`/`Writer` methods,
-/// with the method name. A Go union value is a pointer, so a body that copies one into a local
-/// and changes it through the copy has no value-type translation.
-const HAND_FUNCTIONS: &[(&str, &str)] = &[(
-    "protocol.StackRequestItemDescriptorCount",
-    "stack_request_item_descriptor_count",
-)];
-
-/// How a writer takes an IO method's value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Pass {
-    /// By value (`Copy` values).
-    Value,
-    /// By reference.
-    Ref,
-}
-
-/// How a reader produces an IO method's value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Read {
-    /// `r.method(args)?` returns the value.
-    Returns,
-    /// `r.method(&place)?` checks the current value and returns nothing.
-    Checks,
-}
-
-/// One `protocol.IO` method in Rust.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct IoSpec {
-    /// The Rust method name on `Reader` and `Writer`.
-    pub(crate) rust: &'static str,
-    /// How the writer takes the value.
-    pub(crate) pass: Pass,
-    /// Whether the writer returns `Result`.
-    pub(crate) write_fails: bool,
-    /// How the reader produces the value.
-    pub(crate) read: Read,
-}
-
-const fn io(rust: &'static str, pass: Pass, write_fails: bool) -> IoSpec {
-    IoSpec {
-        rust,
-        pass,
-        write_fails,
-        read: Read::Returns,
-    }
-}
-
-/// The `protocol.IO` methods and their Rust form (`src/protocol/io.rs` names them; the writer
-/// signatures decide `pass` and `write_fails`).
+/// The `protocol.IO` methods and their Rust form (the `Reader` and `Writer` methods in
+/// `src/protocol/` and `src/nbt.rs` name them; the writer signatures decide `pass` and
+/// `write_fails`).
 const IO_METHODS: &[(&str, IoSpec)] = &[
     ("AbilityValue", io("ability_value", Pass::Value, false)),
     ("ActorRuntimeID", io("actor_runtime_id", Pass::Value, false)),
@@ -203,6 +163,42 @@ const IO_NON_STATEMENTS: &[&str] = &["ShieldID", "InvalidValue", "UnknownEnumOpt
 /// IO methods that no `Marshal` calls, so they have no Rust form; a call fails generation.
 const IO_UNUSED: &[&str] = &["NBTList"];
 
+/// Struct fields (`<Go type>.<field>`) held as `Arc<T>`: the server sends one value of them
+/// to many players (a skin of up to 4 MiB in the player list and skin broadcasts), so every
+/// packet shares it instead of copying it.
+const SHARED_FIELDS: &[&str] = &["protocol.PlayerListEntry.Skin", "packet.PlayerSkin.Skin"];
+
+/// How a writer takes an IO method's value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pass {
+    /// By value (`Copy` values).
+    Value,
+    /// By reference.
+    Ref,
+}
+
+/// How a reader produces an IO method's value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Read {
+    /// `r.method(args)?` returns the value.
+    Returns,
+    /// `r.method(&place)?` checks the current value and returns nothing.
+    Checks,
+}
+
+/// One `protocol.IO` method in Rust.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IoSpec {
+    /// The Rust method name on `Reader` and `Writer`.
+    pub(crate) rust: &'static str,
+    /// How the writer takes the value.
+    pub(crate) pass: Pass,
+    /// Whether the writer returns `Result`.
+    pub(crate) write_fails: bool,
+    /// How the reader produces the value.
+    pub(crate) read: Read,
+}
+
 /// The Rust module a generated item lives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Module {
@@ -248,25 +244,6 @@ pub(crate) struct Model<'a> {
     pub(crate) limits: BTreeMap<String, usize>,
 }
 
-/// The package of a qualified Go name.
-pub(crate) fn package(name: &str) -> &str {
-    name.split_once('.').map_or("", |(p, _)| p)
-}
-
-/// The module a Go name's items go to.
-pub(crate) fn module_of(go: &str) -> Module {
-    if package(go) == "packet" {
-        Module::Packet
-    } else {
-        Module::Types
-    }
-}
-
-/// The unqualified part of a Go name.
-pub(crate) fn local(name: &str) -> &str {
-    name.rsplit_once('.').map_or(name, |(_, n)| n)
-}
-
 impl<'a> Model<'a> {
     pub(crate) fn new(ir: &'a Ir, limits: BTreeMap<String, usize>) -> Result<Self, String> {
         let names: Vec<&str> = ir.io_methods.iter().map(|m| m.name.as_str()).collect();
@@ -278,10 +255,15 @@ impl<'a> Model<'a> {
                 return Err(format!("IO method {name} has no Rust form in IO_METHODS"));
             }
         }
-        for (name, _) in IO_METHODS {
+        let listed = IO_METHODS
+            .iter()
+            .map(|(name, _)| name)
+            .chain(IO_NON_STATEMENTS)
+            .chain(IO_UNUSED);
+        for name in listed {
             if !names.contains(name) {
                 return Err(format!(
-                    "IO_METHODS lists {name}, which the IR does not have"
+                    "{name} is listed as an IO method, which the IR does not have"
                 ));
             }
         }
@@ -322,6 +304,134 @@ impl<'a> Model<'a> {
             }
         }
         Ok(model)
+    }
+
+    /// The hand method of a function, if it is hand-written.
+    pub(crate) fn hand_function(go: &str) -> Option<&'static str> {
+        HAND_FUNCTIONS
+            .iter()
+            .find(|(g, _)| *g == go)
+            .map(|(_, r)| *r)
+    }
+
+    /// Whether a `marshal` statement may name this type.
+    pub(crate) fn has_codec(&self, go: &str) -> bool {
+        if hand_type(go).is_some() {
+            return HAND_CODECS.contains(&go);
+        }
+        self.types.get(go).is_some_and(|t| t.marshal.is_some())
+    }
+
+    /// Whether the Rust type of a Go type is `Copy`.
+    pub(crate) fn is_copy(&self, t: &Type) -> bool {
+        match t.kind.as_str() {
+            "basic" => t.name != "string",
+            "named" => {
+                if let Some((_, copy)) = hand_type(&t.name) {
+                    return copy;
+                }
+                self.types.get(t.name.as_str()).is_some_and(|d| {
+                    d.kind == "array" && d.underlying.as_ref().is_some_and(|u| self.is_copy(u))
+                })
+            }
+            "external" => EXTERNAL_TYPES
+                .iter()
+                .any(|(g, _, copy)| *g == t.name && *copy),
+            "array" | "optional" => t.elem.as_deref().is_some_and(|e| self.is_copy(e)),
+            "any" => true,
+            _ => false,
+        }
+    }
+
+    /// Whether a union variant or packet type is boxed: its estimated size is past
+    /// [`BOX_OVER`].
+    pub(crate) fn is_boxed(&self, go: &str) -> bool {
+        self.types
+            .get(go)
+            .is_some_and(|d| self.struct_bytes(d) > BOX_OVER)
+    }
+
+    /// The Rust type of a Go type, written from `from`.
+    pub(crate) fn rust_type(&self, t: &Type, from: Module) -> Result<String, String> {
+        Ok(match t.kind.as_str() {
+            "basic" => basic(&t.name)?.to_owned(),
+            "named" => self.named(&t.name, from)?,
+            "external" => EXTERNAL_TYPES
+                .iter()
+                .find(|(g, _, _)| *g == t.name)
+                .map(|(_, r, _)| (*r).to_owned())
+                .ok_or_else(|| format!("unknown external type {}", t.name))?,
+            "slice" => {
+                let elem = elem(t)?;
+                if elem.kind == "any" {
+                    return Err(format!("unsupported slice of any {t:?}"));
+                }
+                format!("Vec<{}>", self.rust_type(elem, from)?)
+            }
+            "array" => format!(
+                "[{}; {}]",
+                self.rust_type(elem(t)?, from)?,
+                t.len.ok_or("array without length")?
+            ),
+            "map" => {
+                let key = t.key.as_deref().ok_or("map without key")?;
+                if key.kind == "basic" && key.name == "string" && elem(t)?.kind == "any" {
+                    "nbt::Compound".to_owned()
+                } else {
+                    return Err(format!("unsupported map type {t:?}"));
+                }
+            }
+            "optional" => format!("Option<{}>", self.rust_type(elem(t)?, from)?),
+            "any" => "AbilityValue".to_owned(),
+            _ => return Err(format!("unsupported type {t:?}")),
+        })
+    }
+
+    /// The Rust name of a named Go type, written from `from`.
+    pub(crate) fn named(&self, go: &str, from: Module) -> Result<String, String> {
+        if let Some((rust, _)) = hand_type(go) {
+            return Ok(self.qualify(rust, Module::Types, from));
+        }
+        if let Some(info) = self.interfaces.get(go) {
+            return Ok(self.qualify(&info.rust, Module::Types, from));
+        }
+        let (rust, module) = self
+            .rust_names
+            .get(go)
+            .ok_or_else(|| format!("unknown type {go}"))?;
+        Ok(self.qualify(rust, *module, from))
+    }
+
+    /// The fields of a named struct type.
+    pub(crate) fn struct_def(&self, go: &str) -> Option<&'a TypeDef> {
+        self.types.get(go).copied().filter(|t| t.kind == "struct")
+    }
+
+    fn collect_names(&mut self) -> Result<(), String> {
+        let hand: BTreeSet<&str> = HAND_TYPES.iter().map(|(_, r, _)| *r).collect();
+        let mut seen: BTreeMap<(Module, String), String> = BTreeMap::new();
+        for t in &self.ir.types {
+            if hand_type(&t.name).is_some() {
+                continue;
+            }
+            let module = if self.packets.contains(t.name.as_str()) || package(&t.name) == "packet" {
+                Module::Packet
+            } else {
+                Module::Types
+            };
+            let rust = names::type_name(&t.name)?;
+            if module == Module::Types && hand.contains(rust.as_str()) {
+                return Err(format!(
+                    "{} converts to {rust}, the name of a hand type",
+                    t.name
+                ));
+            }
+            if let Some(other) = seen.insert((module, rust.clone()), t.name.clone()) {
+                return Err(format!("{other} and {} both convert to {rust}", t.name));
+            }
+            self.rust_names.insert(t.name.clone(), (rust, module));
+        }
+        Ok(())
     }
 
     fn collect_unions(&mut self) -> Result<(), String> {
@@ -374,48 +484,6 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
-    fn collect_names(&mut self) -> Result<(), String> {
-        let hand: BTreeSet<&str> = HAND_TYPES.iter().map(|(_, r, _)| *r).collect();
-        let mut seen: BTreeMap<(Module, String), String> = BTreeMap::new();
-        for t in &self.ir.types {
-            if hand_type(&t.name).is_some() {
-                continue;
-            }
-            let module = if self.packets.contains(t.name.as_str()) || package(&t.name) == "packet" {
-                Module::Packet
-            } else {
-                Module::Types
-            };
-            let rust = names::type_name(&t.name)?;
-            if module == Module::Types && hand.contains(rust.as_str()) {
-                return Err(format!(
-                    "{} converts to {rust}, the name of a hand type",
-                    t.name
-                ));
-            }
-            if let Some(other) = seen.insert((module, rust.clone()), t.name.clone()) {
-                return Err(format!("{other} and {} both convert to {rust}", t.name));
-            }
-            self.rust_names.insert(t.name.clone(), (rust, module));
-        }
-        Ok(())
-    }
-
-    /// The Rust name of a named Go type, written from `from`.
-    pub(crate) fn named(&self, go: &str, from: Module) -> Result<String, String> {
-        if let Some((rust, _)) = hand_type(go) {
-            return Ok(self.qualify(rust, Module::Types, from));
-        }
-        if let Some(info) = self.interfaces.get(go) {
-            return Ok(self.qualify(&info.rust, Module::Types, from));
-        }
-        let (rust, module) = self
-            .rust_names
-            .get(go)
-            .ok_or_else(|| format!("unknown type {go}"))?;
-        Ok(self.qualify(rust, *module, from))
-    }
-
     /// `name` as written from `from`: a protocol type that a packet item shadows is written
     /// with `super::`.
     fn qualify(&self, name: &str, module: Module, from: Module) -> String {
@@ -432,86 +500,8 @@ impl<'a> Model<'a> {
         }
     }
 
-    /// The Rust type of a Go type, written from `from`.
-    pub(crate) fn rust_type(&self, t: &Type, from: Module) -> Result<String, String> {
-        Ok(match t.kind.as_str() {
-            "basic" => basic(&t.name)?.to_owned(),
-            "named" => self.named(&t.name, from)?,
-            "external" => EXTERNAL_TYPES
-                .iter()
-                .find(|(g, _, _)| *g == t.name)
-                .map(|(_, r, _)| (*r).to_owned())
-                .ok_or_else(|| format!("unknown external type {}", t.name))?,
-            "slice" => {
-                let elem = elem(t)?;
-                if elem.kind == "any" {
-                    return Err(format!("unsupported slice of any {t:?}"));
-                }
-                format!("Vec<{}>", self.rust_type(elem, from)?)
-            }
-            "array" => format!(
-                "[{}; {}]",
-                self.rust_type(elem(t)?, from)?,
-                t.len.ok_or("array without length")?
-            ),
-            "map" => {
-                let key = t.key.as_deref().ok_or("map without key")?;
-                if key.kind == "basic" && key.name == "string" && elem(t)?.kind == "any" {
-                    "nbt::Compound".to_owned()
-                } else {
-                    return Err(format!("unsupported map type {t:?}"));
-                }
-            }
-            "optional" => format!("Option<{}>", self.rust_type(elem(t)?, from)?),
-            "any" => "AbilityValue".to_owned(),
-            _ => return Err(format!("unsupported type {t:?}")),
-        })
-    }
-
-    /// Whether the Rust type of a Go type is `Copy`.
-    pub(crate) fn is_copy(&self, t: &Type) -> bool {
-        match t.kind.as_str() {
-            "basic" => t.name != "string",
-            "named" => {
-                if let Some((_, copy)) = hand_type(&t.name) {
-                    return copy;
-                }
-                self.types.get(t.name.as_str()).is_some_and(|d| {
-                    d.kind == "array" && d.underlying.as_ref().is_some_and(|u| self.is_copy(u))
-                })
-            }
-            "external" => EXTERNAL_TYPES
-                .iter()
-                .any(|(g, _, copy)| *g == t.name && *copy),
-            "array" | "optional" => t.elem.as_deref().is_some_and(|e| self.is_copy(e)),
-            "any" => true,
-            _ => false,
-        }
-    }
-
-    /// Whether a `marshal` statement may name this type.
-    pub(crate) fn has_codec(&self, go: &str) -> bool {
-        if hand_type(go).is_some() {
-            return HAND_CODECS.contains(&go);
-        }
-        self.types.get(go).is_some_and(|t| t.marshal.is_some())
-    }
-
-    /// The hand method of a function, if it is hand-written.
-    pub(crate) fn hand_function(go: &str) -> Option<&'static str> {
-        HAND_FUNCTIONS
-            .iter()
-            .find(|(g, _)| *g == go)
-            .map(|(_, r)| *r)
-    }
-
-    /// The fields of a named struct type.
-    pub(crate) fn struct_def(&self, go: &str) -> Option<&'a TypeDef> {
-        self.types.get(go).copied().filter(|t| t.kind == "struct")
-    }
-
     /// An estimate of the size in bytes of the Rust form of a Go type, for boxing decisions.
-    pub(crate) fn size(&self, t: &Type) -> u64 {
+    fn size(&self, t: &Type) -> u64 {
         match t.kind.as_str() {
             "basic" => match t.name.as_str() {
                 "bool" | "uint8" | "int8" => 1,
@@ -575,53 +565,30 @@ impl<'a> Model<'a> {
     }
 
     /// The size estimate of a union variant as stored in its enum (boxed past the limit).
-    pub(crate) fn variant_size(&self, go: &str) -> u64 {
-        let size = self.types.get(go).map_or(0, |d| self.struct_size(d));
-        if size > BOX_OVER { 8 } else { size }
+    fn variant_size(&self, go: &str) -> u64 {
+        if self.is_boxed(go) {
+            return 8;
+        }
+        self.types.get(go).map_or(0, |d| self.struct_size(d))
     }
 
     fn struct_size(&self, d: &TypeDef) -> u64 {
-        let sum: u64 = d.fields.iter().map(|f| self.field_size(d, f)).sum();
-        sum.div_ceil(8) * 8
+        self.struct_bytes(d).div_ceil(8) * 8
+    }
+
+    /// The summed size estimates of the fields of `d`, before alignment.
+    fn struct_bytes(&self, d: &TypeDef) -> u64 {
+        d.fields.iter().map(|f| self.field_size(d, f)).sum()
     }
 
     /// The size estimate of a field of `d`: a pointer for a shared field.
-    pub(crate) fn field_size(&self, d: &TypeDef, f: &Field) -> u64 {
+    fn field_size(&self, d: &TypeDef, f: &Field) -> u64 {
         if is_shared(&d.name, &f.name) {
             8
         } else {
             self.size(&f.ty)
         }
     }
-}
-
-/// Union variants and packets larger than this many bytes (estimated) are boxed, so the enums
-/// stay small to move and `clippy::large_enum_variant` holds.
-pub(crate) const BOX_OVER: u64 = 128;
-
-/// Whether field `field` of Go type `go` is held as `Arc<T>` ([`SHARED_FIELDS`]).
-pub(crate) fn is_shared(go: &str, field: &str) -> bool {
-    SHARED_FIELDS
-        .iter()
-        .any(|k| k.strip_prefix(go).and_then(|f| f.strip_prefix('.')) == Some(field))
-}
-
-/// The Rust names of the hand-written types.
-pub(crate) fn hand_names() -> impl Iterator<Item = &'static str> {
-    HAND_TYPES.iter().map(|(_, r, _)| *r)
-}
-
-/// The hand type of a Go type.
-pub(crate) fn hand_type(go: &str) -> Option<(&'static str, bool)> {
-    HAND_TYPES
-        .iter()
-        .find(|(g, _, _)| *g == go)
-        .map(|(_, r, c)| (*r, *c))
-}
-
-/// The Rust form of an IO method.
-pub(crate) fn io_spec(go: &str) -> Option<IoSpec> {
-    IO_METHODS.iter().find(|(g, _)| *g == go).map(|(_, s)| *s)
 }
 
 /// The Rust primitive of a Go basic type.
@@ -643,12 +610,6 @@ pub(crate) fn basic(name: &str) -> Result<&'static str, String> {
     })
 }
 
-fn elem(t: &Type) -> Result<&Type, String> {
-    t.elem
-        .as_deref()
-        .ok_or_else(|| format!("{t:?} has no element type"))
-}
-
 /// Records the struct fields read or written with `io.AbilityValue`.
 fn collect_ability_fields(
     ty: &str,
@@ -668,11 +629,70 @@ fn collect_ability_fields(
         {
             out.insert((ty.to_owned(), place.name.clone()));
         }
-        for list in [&s.body, &s.then, &s.els, &s.init, &s.post] {
-            collect_ability_fields(ty, receiver, list, out);
-        }
-        for c in &s.cases {
-            collect_ability_fields(ty, receiver, &c.body, out);
+        for block in s.blocks() {
+            collect_ability_fields(ty, receiver, block, out);
         }
     }
+}
+
+/// The element type of a slice, array, map or optional type.
+pub(crate) fn elem(t: &Type) -> Result<&Type, String> {
+    t.elem
+        .as_deref()
+        .ok_or_else(|| format!("{t:?} has no element type"))
+}
+
+/// The Rust names of the hand-written types.
+pub(crate) fn hand_names() -> impl Iterator<Item = &'static str> {
+    HAND_TYPES.iter().map(|(_, r, _)| *r)
+}
+
+/// The hand type of a Go type.
+pub(crate) fn hand_type(go: &str) -> Option<(&'static str, bool)> {
+    HAND_TYPES
+        .iter()
+        .find(|(g, _, _)| *g == go)
+        .map(|(_, r, c)| (*r, *c))
+}
+
+/// The IO method with the writer taking its value by `pass` and failing when `write_fails`;
+/// its reader returns the value.
+const fn io(rust: &'static str, pass: Pass, write_fails: bool) -> IoSpec {
+    IoSpec {
+        rust,
+        pass,
+        write_fails,
+        read: Read::Returns,
+    }
+}
+
+/// The Rust form of an IO method.
+pub(crate) fn io_spec(go: &str) -> Option<IoSpec> {
+    IO_METHODS.iter().find(|(g, _)| *g == go).map(|(_, s)| *s)
+}
+
+/// Whether field `field` of Go type `go` is held as `Arc<T>` ([`SHARED_FIELDS`]).
+pub(crate) fn is_shared(go: &str, field: &str) -> bool {
+    SHARED_FIELDS
+        .iter()
+        .any(|k| k.strip_prefix(go).and_then(|f| f.strip_prefix('.')) == Some(field))
+}
+
+/// The unqualified part of a Go name.
+pub(crate) fn local(name: &str) -> &str {
+    name.rsplit_once('.').map_or(name, |(_, n)| n)
+}
+
+/// The module a Go name's items go to.
+pub(crate) fn module_of(go: &str) -> Module {
+    if package(go) == "packet" {
+        Module::Packet
+    } else {
+        Module::Types
+    }
+}
+
+/// The package of a qualified Go name.
+fn package(name: &str) -> &str {
+    name.split_once('.').map_or("", |(p, _)| p)
 }
