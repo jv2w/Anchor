@@ -40,6 +40,97 @@ use serde_json::Value;
 use super::compare::{self, Received, field};
 use super::game;
 
+/// Settings of the BDS session besides the test settings: players may run cheat commands.
+const BDS_SETTINGS: &[(&str, &str)] = &[("allow-cheats", "true")];
+/// The verification scenarios that compare their checks only, not the fixed-field packets of
+/// their steps: what each checks is its item (potion colours and cloud, another player, chat
+/// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets differ for
+/// reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death message, its
+/// projectiles fly otherwise, it sends a sneak's two flag words in one packet).
+const CHECKS_ONLY: &[&str] = &[
+    "potions",
+    "others",
+    "mover",
+    "limits",
+    "limitchat",
+    "tradeup",
+    "itemuse",
+    "sneak",
+];
+/// Scenarios with a second bot (`game::run_scenarios`): the others scenario watches the mover.
+const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
+/// The scenarios whose comparison is facts only: the particles scenario records what each server
+/// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the verification
+/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (BDS-only items
+/// and telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a
+/// command) and the command line lengths (BDS ends the connection from 508 bytes, Anchor answers)
+/// record BDS facts for `xtask/data/p6/facts.md`.
+const FACTS_ONLY: [&str; 27] = [
+    "particles",
+    "script",
+    "villagers",
+    "numbers",
+    "rules",
+    "rulesjoin",
+    "line256",
+    "line257",
+    "line384",
+    "line448",
+    "line480",
+    "line484",
+    "line488",
+    "line492",
+    "line496",
+    "line500",
+    "line504",
+    "line505",
+    "line506",
+    "line507",
+    "line508",
+    "line511",
+    "lineunknown600",
+    "line512",
+    "line1000",
+    "linekorean387",
+    "linekorean519",
+];
+/// The forms script pack, relative to the repository root, and its files.
+const FORMS_PACK: &str = "xtask/data/p6/forms-pack";
+/// The pack's folder in the BDS copy's `development_behavior_packs`.
+const FORMS_PACK_DIR: &str = "p6_forms";
+const FORMS_PACK_FILES: [&str; 2] = ["manifest.json", "scripts/main.js"];
+/// The intended-difference file, relative to the repository root; `import` reads it too.
+pub(crate) const INTENDED: &str = "xtask/data/p6/intended.txt";
+/// The bot's checks whose differences are notes: BDS sends every command to every player and
+/// leaves hiding them to the client's permission level, so it does not resend the list after
+/// `op`; Anchor sends only the commands the player may use (PMMP) and resends the list.
+const NOTE_CHECKS: [&str; 1] = ["op resends AvailableCommands"];
+/// How many characters of a packet's fields a report line shows.
+const REPORT_WIDTH: usize = 600;
+/// The packets each step's report shows with their fields; others are only counted.
+const REPORTED: &[&str] = &[
+    "ActorEvent",
+    "AddActor",
+    "CommandOutput",
+    "Disconnect",
+    "LevelEvent",
+    "LevelEventGeneric",
+    "LevelSoundEvent",
+    "MobEffect",
+    "ModalFormRequest",
+    "MovePlayer",
+    "RemoveActor",
+    "SetCommandsEnabled",
+    "SetPlayerGameType",
+    "SetTime",
+    "SetTitle",
+    "SpawnParticleEffect",
+    "SyncWorldClocks",
+    "Text",
+    "ToastRequest",
+    "UpdateAbilities",
+    "UpdatePlayerGameType",
+];
 /// The API scenarios, in run order.
 pub(crate) const SCENARIOS: [&str; 48] = [
     "commands",
@@ -91,103 +182,12 @@ pub(crate) const SCENARIOS: [&str; 48] = [
     "itemuse",
     "sneak",
 ];
-/// The scenarios whose comparison is facts only: the particles scenario records what each server
-/// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the verification
-/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (BDS-only items
-/// and telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a
-/// command) and the command line lengths (BDS ends the connection from 508 bytes, Anchor answers)
-/// record BDS facts for `xtask/data/p6/facts.md`.
-const FACTS_ONLY: [&str; 27] = [
-    "particles",
-    "script",
-    "villagers",
-    "numbers",
-    "rules",
-    "rulesjoin",
-    "line256",
-    "line257",
-    "line384",
-    "line448",
-    "line480",
-    "line484",
-    "line488",
-    "line492",
-    "line496",
-    "line500",
-    "line504",
-    "line505",
-    "line506",
-    "line507",
-    "line508",
-    "line511",
-    "lineunknown600",
-    "line512",
-    "line1000",
-    "linekorean387",
-    "linekorean519",
-];
-/// The verification scenarios that compare their checks only, not the fixed-field packets of
-/// their steps: what each checks is its item (potion colours and cloud, another player, chat
-/// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets differ for
-/// reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death message, its
-/// projectiles fly otherwise, it sends a sneak's two flag words in one packet).
-const CHECKS_ONLY: &[&str] = &[
-    "potions",
-    "others",
-    "mover",
-    "limits",
-    "limitchat",
-    "tradeup",
-    "itemuse",
-    "sneak",
-];
-/// Scenarios with a second bot (`game::run_scenarios`): the others scenario watches the mover.
-const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
 /// The action file of the script scenario, relative to the repository root.
 const SCRIPT: &str = "xtask/data/p6/script.txt";
-/// The intended-difference file, relative to the repository root; `import` reads it too.
-pub(crate) const INTENDED: &str = "xtask/data/p6/intended.txt";
-/// Settings of the BDS session besides the test settings: players may run cheat commands.
-const BDS_SETTINGS: &[(&str, &str)] = &[("allow-cheats", "true")];
-/// The forms script pack, relative to the repository root, and its files.
-const FORMS_PACK: &str = "xtask/data/p6/forms-pack";
-const FORMS_PACK_FILES: [&str; 2] = ["manifest.json", "scripts/main.js"];
-/// The pack's folder in the BDS copy's `development_behavior_packs`.
-const FORMS_PACK_DIR: &str = "p6_forms";
-/// The packets each step's report shows with their fields; others are only counted.
-const REPORTED: &[&str] = &[
-    "ActorEvent",
-    "AddActor",
-    "CommandOutput",
-    "Disconnect",
-    "LevelEvent",
-    "LevelEventGeneric",
-    "LevelSoundEvent",
-    "MobEffect",
-    "ModalFormRequest",
-    "MovePlayer",
-    "RemoveActor",
-    "SetCommandsEnabled",
-    "SetPlayerGameType",
-    "SetTime",
-    "SetTitle",
-    "SpawnParticleEffect",
-    "SyncWorldClocks",
-    "Text",
-    "ToastRequest",
-    "UpdateAbilities",
-    "UpdatePlayerGameType",
-];
-/// The bot's checks whose differences are notes: BDS sends every command to every player and
-/// leaves hiding them to the client's permission level, so it does not resend the list after
-/// `op`; Anchor sends only the commands the player may use (PMMP) and resends the list.
-const NOTE_CHECKS: [&str; 1] = ["op resends AvailableCommands"];
 /// The packets compared in setup steps too: the console runs a setup step's commands on BDS and
 /// the harness calls Anchor's API for them, so their messages differ, but the player's new
 /// permissions after `op` must reach the client the same way.
 const SETUP_COMPARED: &[&str] = &["UpdateAbilities"];
-/// How many characters of a packet's fields a report line shows.
-const REPORT_WIDTH: usize = 600;
 
 /// `p6 api bds [scenario]...`: [`session`] alone.
 pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {

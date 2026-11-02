@@ -34,11 +34,11 @@ use chunk::Entries;
 use level_dat::WorldData;
 use leveldb::Stamp;
 
-/// The largest `level.dat`: its header and the 4 MiB NBT limit.
-const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
 /// The most overworld chunks a world may have: a square of 2,048 by 2,048 chunks (32,768 blocks
 /// across). A list of positions this long takes 32 MiB. The export lists at most as many.
 pub(crate) const MAX_CHUNKS: usize = 1 << 22;
+/// The largest `level.dat`: its header and the 4 MiB NBT limit.
+const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
 
 /// A failure to read the world being imported.
 #[derive(Debug)]

@@ -14,12 +14,12 @@ use anchor::protocol::compression::{self, Compression};
 use oracle::Record;
 use rng::Rng;
 
-const MIB: usize = 1024 * 1024;
-/// The default `max-batch-bytes`.
-const MAX_BATCH_BYTES: usize = 16 * MIB;
-const SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, MIB];
 const ALGORITHMS: [(Compression, &str); 2] =
     [(Compression::Zlib, "zlib"), (Compression::Snappy, "snappy")];
+/// The default `max-batch-bytes`.
+const MAX_BATCH_BYTES: usize = 16 * MIB;
+const MIB: usize = 1024 * 1024;
+const SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, MIB];
 
 /// Settings that compress every non-empty payload: threshold 1, the smallest allowed.
 fn settings(compression: Compression) -> Settings {

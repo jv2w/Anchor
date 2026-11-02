@@ -25,14 +25,14 @@ use crate::tick::queue::{self, InputKind, InputSender, Measure, SessionId, Sessi
 use crate::tick::{self, Context, Setup};
 use crate::world::{Flat, Generator, Kind, Void};
 
-/// How often [`measure_process`] measures.
-const PROCESS_PERIOD: Duration = Duration::from_secs(1);
+/// How long the exit after a second stop signal waits for the console log to write its lines.
+const EXIT_LOG_WAIT: Duration = Duration::from_millis(500);
 
 /// The exit status after a second stop signal: 128 + SIGINT, what shells report for Ctrl+C.
 const INTERRUPTED_EXIT: i32 = 130;
 
-/// How long the exit after a second stop signal waits for the console log to write its lines.
-const EXIT_LOG_WAIT: Duration = Duration::from_millis(500);
+/// How often [`measure_process`] measures.
+const PROCESS_PERIOD: Duration = Duration::from_secs(1);
 
 /// The most bytes `/proc/self/status` is read up to: it holds a few dozen short lines.
 #[cfg(unix)]
@@ -758,7 +758,10 @@ fn write_crash(data_dir: &Path, log: &tick::InputLog) {
             truncated = log.is_truncated(),
             "input log written"
         ),
-        Err(e) => error!(error = %e, "input log not written"),
+        Err(e) => error!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "input log not written"
+        ),
     }
 }
 
@@ -793,7 +796,11 @@ macro_rules! forward {
                     }
                 });
             }
-            Err(e) => warn!(signal = $name, error = %e, "cannot listen for the signal"),
+            Err(e) => warn!(
+                signal = $name,
+                error = &e as &(dyn std::error::Error + 'static),
+                "cannot listen for the signal"
+            ),
         }
     };
 }
@@ -808,7 +815,10 @@ macro_rules! forward {
 fn listen(received: &mpsc::Sender<&'static str>) {
     use tokio::signal::unix::{SignalKind, signal};
     let hangup_ignored = hangup_ignored().unwrap_or_else(|e| {
-        warn!(error = %e, "cannot tell whether SIGHUP is ignored; SIGHUP stops the server");
+        warn!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "cannot tell whether SIGHUP is ignored; SIGHUP stops the server"
+        );
         false
     });
     forward!(received, "SIGINT", signal(SignalKind::interrupt()));
@@ -897,7 +907,10 @@ async fn measure_process(mut inputs: SessionInputs, started: Instant) {
         let memory = match tokio::task::spawn_blocking(resident_memory).await {
             Ok(memory) => memory,
             Err(e) => {
-                debug!(error = %e, "process measures stopped");
+                debug!(
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "process measures stopped"
+                );
                 return;
             }
         };

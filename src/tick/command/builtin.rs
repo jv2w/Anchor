@@ -22,8 +22,6 @@ mod check;
 mod lists;
 mod players;
 mod server;
-#[cfg(test)]
-mod tests;
 
 pub(super) use server::WORLD_CLOCKS;
 
@@ -43,15 +41,6 @@ use crate::tick::Context;
 use crate::tick::dispatch::MAX_DEFERRED;
 use crate::world::{self, MAX_Y, MIN_Y};
 
-/// The cap PMMP's commands put on counts and amounts (PMMP `VanillaCommand::MAX_COORD`); the
-/// positions they take stop at the world border instead ([`in_world`]).
-const MAX_COORD: i32 = 30_000_000;
-/// `commands.generic.num.tooBig`: a number above its bound.
-const NUM_TOO_BIG: Msg = Msg::client("commands.generic.num.tooBig");
-/// `commands.generic.num.tooSmall`: a number below its bound.
-const NUM_TOO_SMALL: Msg = Msg::client("commands.generic.num.tooSmall");
-/// A syntax only a player may use, run by the console: the client's "invalid origin" text.
-const PLAYER_USER_ONLY: Msg = Msg::client("commands.generic.invalidOrigin");
 /// BDS's `GameMode` enum (P6): the names, their letters and `default` (`d`), the server's default
 /// game mode.
 const GAME_MODE_NAMES: [&str; 9] = [
@@ -65,6 +54,15 @@ const GAME_MODE_NAMES: [&str; 9] = [
     "s",
     "a",
 ];
+/// The cap PMMP's commands put on counts and amounts (PMMP `VanillaCommand::MAX_COORD`); the
+/// positions they take stop at the world border instead ([`in_world`]).
+const MAX_COORD: i32 = 30_000_000;
+/// `commands.generic.num.tooBig`: a number above its bound.
+const NUM_TOO_BIG: Msg = Msg::client("commands.generic.num.tooBig");
+/// `commands.generic.num.tooSmall`: a number below its bound.
+const NUM_TOO_SMALL: Msg = Msg::client("commands.generic.num.tooSmall");
+/// A syntax only a player may use, run by the console: the client's "invalid origin" text.
+const PLAYER_USER_ONLY: Msg = Msg::client("commands.generic.invalidOrigin");
 
 /// A command message: a key the client translates, or Anchor's own text.
 #[derive(Debug, Clone, Copy)]
@@ -416,3 +414,6 @@ fn game_mode_name(mode: GameMode) -> &'static str {
         GameMode::Spectator => "%createWorldScreen.gameMode.spectator",
     }
 }
+
+#[cfg(test)]
+mod tests;

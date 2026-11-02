@@ -16,14 +16,14 @@ use crate::protocol::consts::{ArmSize, PieceType};
 use crate::protocol::{self, Rgba};
 use crate::tick::queue::Skin;
 
-/// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
-pub(super) const MAX_PIECES: usize = 128;
 /// Most skin animations read. The client sends a few at most.
 const MAX_ANIMATIONS: usize = 32;
-/// Longest language code read (BCP 47 tags in practice are under 20 characters).
-const MAX_LANGUAGE_CODE_BYTES: usize = 64;
 /// Longest host name in a server address (DNS limit).
 const MAX_HOST_BYTES: usize = 253;
+/// Longest language code read (BCP 47 tags in practice are under 20 characters).
+const MAX_LANGUAGE_CODE_BYTES: usize = 64;
+/// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
+pub(super) const MAX_PIECES: usize = 128;
 /// The persona piece type names of the login data and their protocol types; any other name is
 /// [`PieceType::Unknown`].
 const PIECE_TYPES: [(&str, PieceType); 28] = [
@@ -381,7 +381,7 @@ pub(crate) struct SkinAnimation {
     pub(crate) animation_expression: i64,
 }
 
-/// Returns the protocol's number of a login persona piece type (the login data says
+/// The protocol's number of a login persona piece type (the login data says
 /// `persona_hand`, the wire `hands`); 0 (unknown) for any other name.
 fn piece_type(name: &str) -> u32 {
     let name = if name == "persona_hands" {
@@ -396,7 +396,7 @@ fn piece_type(name: &str) -> u32 {
     u32::from(piece_type)
 }
 
-/// Returns the protocol value of a login tint piece type: the codec sends the value without
+/// The protocol value of a login tint piece type: the codec sends the value without
 /// `persona_` (and `persona_hand` as `hands`), so the types whose protocol name differs
 /// ([`TINT_PROTOCOL_NAMES`]) take the value the codec reads from that name.
 fn tint_piece_type(name: &str) -> String {
@@ -409,7 +409,7 @@ fn tint_piece_type(name: &str) -> String {
         )
 }
 
-/// Returns the arm size the login data names: slim, or wide for anything else.
+/// The arm size the login data names: slim, or wide for anything else.
 fn arm_size(name: &str) -> ArmSize {
     if name == "slim" {
         ArmSize::Slim

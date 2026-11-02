@@ -126,89 +126,30 @@ use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind, N
 use kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
 use physics::{Body, Inside, Step};
 
-/// The most entities one world holds. `tick_cost` measures the tick of 10,000 falling items at a
-/// few milliseconds, and 16,384 keeps the store's memory near 6 MiB; PMMP and dragonfly have no
-/// cap. At the cap, actions that would create an entity are refused and the caller keeps its
-/// items.
-pub const MAX_ENTITIES_PER_WORLD: usize = 16_384;
-/// The most players one player hides (`Context::hide_player`).
-pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
-/// Entities and players one player is shown or has taken away per tick, whatever packets each
-/// takes; the rest wait (a view entering a chunk full of items, or a crowd teleported together,
-/// fills in over ticks instead of overflowing the outbox).
-const MAX_SPAWNS_PER_PLAYER: u32 = 512;
-/// The most chunk columns a lookup of the players in an area asks the players' index about
-/// ([`each_player_in`]): a larger area (a wide cloud) passes over every player instead, which
-/// costs no more than that many index searches.
-const MAX_PLAYER_COLUMNS: usize = 16;
-/// Entities whose movement is sent per tick (each up to four packets per viewer); the others
-/// keep their last sent state and are sent in a later tick, in turn.
-const MAX_MOVEMENTS_PER_TICK: usize = 256;
-/// Item merges per tick; later candidates check again two ticks on.
-const MAX_MERGES_PER_TICK: usize = 256;
-/// Entities removed per tick (despawned, picked up, burnt, merged); the rest are removed in the
-/// next ticks and are ignored meanwhile.
-const MAX_REMOVALS_PER_TICK: usize = 512;
-/// The most chunks a "what is near" query looks up one by one; a larger area walks the chunk
-/// index instead ([`Entities::nearby`]).
-const MAX_CHUNK_LOOKUPS: u64 = 64;
-/// Items one player picks up per tick.
-const MAX_PICKUPS_PER_PLAYER: usize = 32;
-/// The pickup delay of a dropped item, in ticks (PMMP `World::dropItem`).
-const DROP_PICKUP_DELAY: i16 = 10;
-/// Ticks between an item's merge checks (PMMP `MERGE_CHECK_PERIOD`).
-const MERGE_CHECK_PERIOD: i32 = 2;
-/// How far an orb looks for a player to follow (PMMP `MAX_TARGET_DISTANCE`).
-const ORB_TARGET_DISTANCE: f64 = 8.0;
-/// Ticks between an orb's searches for a player (PMMP `lookForTargetTime`).
-const ORB_LOOK_PERIOD: u8 = 20;
-/// The orb sizes a drop of experience splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
-const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
-/// How far around a player's box it picks items up (PMMP `checkNearEntities`).
-const PICKUP_REACH: Vec3 = Vec3::new(1.0, 0.5, 1.0);
-/// How far around an item's box it looks for stacks to merge with.
-const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
-/// The overlap two boxes need to touch (PMMP `intersectsWith`).
-pub(super) const EPSILON: f64 = 0.000_01;
 /// The fall damage of an anvil per block fallen and at most (PMMP `Anvil`).
 const ANVIL_DAMAGE_PER_BLOCK: f64 = 2.0;
 const ANVIL_MAX_DAMAGE: f64 = 40.0;
+/// The random stream (`crate::random`) of an anvil's landing.
+const ANVIL_RANDOM: u64 = random::tag("entity-anvil-land");
 /// The anvil blocks from whole to most damaged; one more hit on the last breaks it.
 const ANVILS: [&str; 3] = [
     "minecraft:anvil",
     "minecraft:chipped_anvil",
     "minecraft:damaged_anvil",
 ];
-/// Random streams (`crate::random`), one per purpose.
-const DROP_RANDOM: u64 = random::tag("entity-drop");
-const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
-const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
-const ANVIL_RANDOM: u64 = random::tag("entity-anvil-land");
-/// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
-pub(super) const KNOCKBACK: f64 = 0.4;
-/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
-pub(super) const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
 /// Ticks within which a weaker hit on an entity or a player does nothing (PMMP
 /// `EntityDamageEvent::$attackCooldown`).
 pub(super) const ATTACK_COOLDOWN: u8 = 10;
-/// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
-pub(super) const VOID_DAMAGE: f64 = 10.0;
-/// At or below this feet height the void hurts: 16 under the lowest block.
-pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
+/// The random stream (`crate::random`) of a death's drops.
+const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
+/// The pickup delay of a dropped item, in ticks (PMMP `World::dropItem`).
+const DROP_PICKUP_DELAY: i16 = 10;
+/// The random stream (`crate::random`) of a drop.
+const DROP_RANDOM: u64 = random::tag("entity-drop");
+/// The overlap two boxes need to touch (PMMP `intersectsWith`).
+pub(super) const EPSILON: f64 = 0.000_01;
 /// Ticks between the damage of burning (PMMP `Entity::doOnFireTick`).
 pub(super) const FIRE_DAMAGE_TICKS: u8 = 20;
-/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
-pub(super) const SAFE_FALL: f64 = 3.0;
-/// Damage of a tick with the eyes inside a solid block (PMMP `Living::entityBaseTick`).
-pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
-/// The experience a zombie drops (PMMP `Zombie::getXpDropAmount`).
-const ZOMBIE_XP: u32 = 5;
-/// The change of a cloud's radius that is sent (PMMP sends each tick's; a twentieth of a block
-/// is too small to see and saves nine of ten packets).
-const RADIUS_STEP: f64 = 0.05;
-/// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
-/// without one (PMMP `PrimedTNT::initEntity`).
-pub(super) const TNT_FUSE: u16 = 80;
 /// The hooks of the running server.
 const HOOKS: Hooks = Hooks {
     give: inventory::give,
@@ -225,6 +166,68 @@ const HOOKS: Hooks = Hooks {
     has_arrow: inventory::has_arrow,
     take_arrow: inventory::take_arrow,
 };
+/// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
+pub(super) const KNOCKBACK: f64 = 0.4;
+/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
+pub(super) const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
+/// The most chunks a "what is near" query looks up one by one; a larger area walks the chunk
+/// index instead ([`Entities::nearby`]).
+const MAX_CHUNK_LOOKUPS: u64 = 64;
+/// The most entities one world holds. `tick_cost` measures the tick of 10,000 falling items at a
+/// few milliseconds, and 16,384 keeps the store's memory near 6 MiB; PMMP and dragonfly have no
+/// cap. At the cap, actions that would create an entity are refused and the caller keeps its
+/// items.
+pub const MAX_ENTITIES_PER_WORLD: usize = 16_384;
+/// The most players one player hides (`Context::hide_player`).
+pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
+/// Item merges per tick; later candidates check again two ticks on.
+const MAX_MERGES_PER_TICK: usize = 256;
+/// Entities whose movement is sent per tick (each up to four packets per viewer); the others
+/// keep their last sent state and are sent in a later tick, in turn.
+const MAX_MOVEMENTS_PER_TICK: usize = 256;
+/// Items one player picks up per tick.
+const MAX_PICKUPS_PER_PLAYER: usize = 32;
+/// The most chunk columns a lookup of the players in an area asks the players' index about
+/// ([`each_player_in`]): a larger area (a wide cloud) passes over every player instead, which
+/// costs no more than that many index searches.
+const MAX_PLAYER_COLUMNS: usize = 16;
+/// Entities removed per tick (despawned, picked up, burnt, merged); the rest are removed in the
+/// next ticks and are ignored meanwhile.
+const MAX_REMOVALS_PER_TICK: usize = 512;
+/// Entities and players one player is shown or has taken away per tick, whatever packets each
+/// takes; the rest wait (a view entering a chunk full of items, or a crowd teleported together,
+/// fills in over ticks instead of overflowing the outbox).
+const MAX_SPAWNS_PER_PLAYER: u32 = 512;
+/// Ticks between an item's merge checks (PMMP `MERGE_CHECK_PERIOD`).
+const MERGE_CHECK_PERIOD: i32 = 2;
+/// How far around an item's box it looks for stacks to merge with.
+const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+/// Ticks between an orb's searches for a player (PMMP `lookForTargetTime`).
+const ORB_LOOK_PERIOD: u8 = 20;
+/// The orb sizes a drop of experience splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
+const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
+/// How far an orb looks for a player to follow (PMMP `MAX_TARGET_DISTANCE`).
+const ORB_TARGET_DISTANCE: f64 = 8.0;
+/// How far around a player's box it picks items up (PMMP `checkNearEntities`).
+const PICKUP_REACH: Vec3 = Vec3::new(1.0, 0.5, 1.0);
+/// The change of a cloud's radius that is sent (PMMP sends each tick's; a twentieth of a block
+/// is too small to see and saves nine of ten packets).
+const RADIUS_STEP: f64 = 0.05;
+/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
+pub(super) const SAFE_FALL: f64 = 3.0;
+/// Damage of a tick with the eyes inside a solid block (PMMP `Living::entityBaseTick`).
+pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
+/// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
+/// without one (PMMP `PrimedTNT::initEntity`).
+pub(super) const TNT_FUSE: u16 = 80;
+/// The random stream (`crate::random`) of unsticking.
+const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
+/// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
+pub(super) const VOID_DAMAGE: f64 = 10.0;
+/// At or below this feet height the void hurts: 16 under the lowest block.
+pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
+/// The experience a zombie drops (PMMP `Zombie::getXpDropAmount`).
+const ZOMBIE_XP: u32 = 5;
 
 /// The state players were last sent of an entity's movement and flags (PMMP `lastLocation`,
 /// `lastMotion`).
@@ -1025,7 +1028,7 @@ impl Entities {
     /// The live entities in `Id` order.
     #[cfg(test)]
     fn ids(&self) -> impl Iterator<Item = Id> + '_ {
-        (0u32..)
+        (0_u32..)
             .zip(&self.slots)
             .filter(|(_, s)| s.entity.is_some())
             .map(|(i, s)| Id::new(i, s.generation))
@@ -1214,7 +1217,7 @@ impl Entities {
     /// orbs are dropped and the chunk is saved without them.
     pub(super) fn load(&mut self, key: Key, saved: Vec<Saved>, list: &[Compound]) {
         let mut kept = Vec::new();
-        let mut over = 0usize;
+        let mut over = 0_usize;
         let mut dropped = false;
         for (Saved(read), c) in saved.into_iter().zip(list) {
             let l = match read {
@@ -4740,13 +4743,14 @@ fn hash_id(h: &mut super::Fnv, id: Id) {
 mod tests {
     mod events;
 
+    use super::*;
+
     use std::cell::Cell;
 
     use tokio::sync::mpsc;
 
     use super::physics::tests::named;
     use super::saved::tests::stack;
-    use super::*;
     use crate::event::Listeners;
     use crate::protocol::Rng;
     use crate::protocol::consts::MoveFlag;
@@ -5245,7 +5249,7 @@ mod tests {
             "minecraft:ender_pearl",
             "minecraft:diamond_sword",
         ];
-        let mut dropped = 0u64;
+        let mut dropped = 0_u64;
         for tick in 0..400 {
             if tick < 200 && tick % 2 == 0 {
                 for _ in 0..3 {
@@ -6059,7 +6063,7 @@ mod tests {
             h.entities();
         }
         ids.extend(h.state.rules.entities.ids());
-        assert!(ids.len() > 9_000);
+        assert!(ids.len() > 9000);
         let numbers: Vec<u64> = h.live().iter().map(|e| e.runtime_id).collect();
         for &id in &ids {
             assert!(remove(&mut h.state, id));
@@ -6340,7 +6344,7 @@ mod tests {
     #[test]
     fn a_view_full_of_entities_is_sent_within_the_per_tick_bound() {
         let mut h = Harness::new(1);
-        for i in 0..1200u32 {
+        for i in 0..1200_u32 {
             let x = f64::from(i % 40) * 0.25;
             let z = f64::from(i / 40) * 0.25;
             let sword = stack("minecraft:diamond_sword", 1);
@@ -6424,7 +6428,7 @@ mod tests {
                 String::new()
             ));
         };
-        for i in 0..100u32 {
+        for i in 0..100_u32 {
             drop_sword(
                 &mut h,
                 f64::from(i % 10) * 0.5 + 0.5,
@@ -6568,10 +6572,10 @@ mod tests {
                 other => other,
             })
             .collect();
-        let mut spawned = 0usize;
-        for round in 0..1000u32 {
+        let mut spawned = 0_usize;
+        for round in 0..1000_u32 {
             let mut ids = Vec::new();
-            for (i, kind) in (0u32..).zip(&kinds) {
+            for (i, kind) in (0_u32..).zip(&kinds) {
                 let x = f64::from((round * 7 + i * 3) % 40) - 20.0;
                 let z = f64::from((round * 3 + i * 5) % 40) - 20.0;
                 let made = create(&mut h.state, 0, at(x, -30.0, z), kind.clone(), |_| {
@@ -6981,7 +6985,7 @@ mod tests {
         let most = crate::runtime::logical_cpus().max(4);
         for (threads, count) in [1, most]
             .into_iter()
-            .flat_map(|t| [(t, 1_000u32), (t, 10_000)])
+            .flat_map(|t| [(t, 1000_u32), (t, 10_000)])
         {
             for falling in [false, true] {
                 let mut h = Harness::new(threads);
@@ -7009,7 +7013,7 @@ mod tests {
                     h.entities();
                     h.seen.clear();
                 }
-                let ticks = 40u32;
+                let ticks = 40_u32;
                 let mut phases = [std::time::Duration::ZERO; 5];
                 for _ in 0..ticks {
                     let state = &mut h.state;

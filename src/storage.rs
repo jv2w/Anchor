@@ -67,43 +67,15 @@ pub(crate) use check::{Checked, verify};
 use codec::Meta;
 use seal::{FORMAT_VERSION, unseal};
 
-/// The file of the save's tick and commit identity, the operators, bans and whitelist, and the
-/// user's server data, committed last of a save.
-pub(crate) const MAIN_FILE: &str = "main";
-/// The file of the players' data.
-pub(crate) const PLAYERS_FILE: &str = "players";
-/// The folder of the world files in the data folder.
-pub(crate) const WORLD_DIR: &str = "worlds";
-/// The extension of every data file.
-pub(crate) const EXTENSION: &str = "redb";
+const ACCESS: Table = TableDefinition::new("access");
 /// The backup folder in the data folder.
 pub(crate) const BACKUP_DIR: &str = "backups";
-/// Most bytes of a world name that is a file name: `<name>.redb` fits the 255 bytes of a file
-/// name on Linux and the 255 UTF-16 units on Windows.
-pub(crate) const MAX_FILE_NAME: usize = 250;
-/// Failed commits retried before [`Storage::commit`] gives up.
-pub(crate) const RETRIES: usize = 3;
 /// redb's page cache. Loaded chunks live in the world, and the OS caches the file, so this only
 /// spares a system call for pages read again; redb's default of 1 GiB would mostly hold copies.
 const CACHE_BYTES: usize = 64 << 20;
-/// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
-/// `save::new_place` gives no place for a new one past them).
-pub(crate) const MAX_WORLDS: usize = 1024;
-/// Most `access` values [`Storage::access`] returns: every list full.
-const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
-
-type Table = TableDefinition<'static, &'static [u8], &'static [u8]>;
-const META: Table = TableDefinition::new("meta");
-const WORLDS: Table = TableDefinition::new("worlds");
+/// The bytes a chunk's keys start with ([`ChunkId`]); the rest tell its [`ChunkPart`].
+pub(crate) const CHUNK_PREFIX: usize = 12;
 const CHUNKS: Table = TableDefinition::new("chunks");
-const PLAYERS: Table = TableDefinition::new("players");
-const ACCESS: Table = TableDefinition::new("access");
-/// The user's server data: one value per registered name.
-const USER: Table = TableDefinition::new("user");
-/// The key of the `meta` value.
-const META_KEY: &[u8] = b"meta";
-/// The key of a world file's record in its `worlds` table: the file's name is the world's.
-const WORLD_KEY: &[u8] = b"world";
 /// The mark of a normal stop, in the `meta` table with an empty value: the last commit of
 /// [`Storage::close`] writes it and the first commit of a start removes it, so it is there only
 /// while the file is closed after a normal stop (`integrity-check = "after-unclean-shutdown"`).
@@ -111,6 +83,42 @@ const CLOSED_KEY: &[u8] = b"closed";
 /// What the keys of the deletion marks ([`Key::Deleted`]) in the `meta` table start with, before
 /// the world's name.
 const DELETED_PREFIX: &[u8] = b"deleted:";
+/// The extension of every data file.
+pub(crate) const EXTENSION: &str = "redb";
+/// The characters a world name that is a file name never holds.
+const FORBIDDEN: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+/// The file of the save's tick and commit identity, the operators, bans and whitelist, and the
+/// user's server data, committed last of a save.
+pub(crate) const MAIN_FILE: &str = "main";
+/// Most `access` values [`Storage::access`] returns: every list full.
+const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
+/// Most bytes of a world name that is a file name: `<name>.redb` fits the 255 bytes of a file
+/// name on Linux and the 255 UTF-16 units on Windows.
+pub(crate) const MAX_FILE_NAME: usize = 250;
+/// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
+/// `save::new_place` gives no place for a new one past them).
+pub(crate) const MAX_WORLDS: usize = 1024;
+const META: Table = TableDefinition::new("meta");
+/// The key of the `meta` value.
+const META_KEY: &[u8] = b"meta";
+const PLAYERS: Table = TableDefinition::new("players");
+/// The file of the players' data.
+pub(crate) const PLAYERS_FILE: &str = "players";
+/// Failed commits retried before [`Storage::commit`] gives up.
+pub(crate) const RETRIES: usize = 3;
+/// The kind byte of the sub-chunk values: `0x20 | index`.
+const SUB_CHUNK_KIND: u8 = 0x20;
+/// The tables in [`Key::pick`] order.
+const TABLES: [Table; 6] = [META, WORLDS, CHUNKS, PLAYERS, ACCESS, USER];
+/// The user's server data: one value per registered name.
+const USER: Table = TableDefinition::new("user");
+/// The folder of the world files in the data folder.
+pub(crate) const WORLD_DIR: &str = "worlds";
+/// The key of a world file's record in its `worlds` table: the file's name is the world's.
+const WORLD_KEY: &[u8] = b"world";
+const WORLDS: Table = TableDefinition::new("worlds");
+
+type Table = TableDefinition<'static, &'static [u8], &'static [u8]>;
 
 /// A data file and the folder of its backups: `data/<name>.redb` and `data/backups/<name>/` for
 /// the server's files, `data/worlds/<world>.redb` and `data/backups/worlds/<world>/` for a world.
@@ -148,7 +156,6 @@ impl Place {
 /// superscript digit). Names that differ only in letter case name one file on Windows, so they
 /// are one world on every system ([`world_name_key`]).
 pub(crate) fn is_world_file_name(name: &str) -> bool {
-    const FORBIDDEN: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     if name.is_empty()
         || name.len() > MAX_FILE_NAME
         || name.starts_with(' ')
@@ -374,12 +381,6 @@ impl ChunkKind {
     pub(crate) const EXTRAS: [Self; 3] =
         [Self::BlockEntities, Self::Entities, Self::ScheduledUpdates];
 }
-
-/// The bytes a chunk's keys start with ([`ChunkId`]); the rest tell its [`ChunkPart`].
-pub(crate) const CHUNK_PREFIX: usize = 12;
-
-/// The kind byte of the sub-chunk values: `0x20 | index`.
-const SUB_CHUNK_KIND: u8 = 0x20;
 
 /// A chunk column of a persistent world: the start its `chunks` keys share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -807,9 +808,6 @@ impl fmt::Debug for Replica {
     }
 }
 
-/// The tables in [`Key::pick`] order.
-const TABLES: [Table; 6] = [META, WORLDS, CHUNKS, PLAYERS, ACCESS, USER];
-
 impl Replica {
     /// Reads `keys` as [`Storage::read`] does, committed values first.
     #[expect(
@@ -1055,7 +1053,11 @@ impl Storage {
         // backup folder that fails costs only backups, as at run time: a stale name left is
         // skipped by the next backup.
         if let Err(e) = backup::remove_stale(backups) {
-            error!(%file, error = %e, "incomplete backups were not removed");
+            error!(
+                %file,
+                error = &e as &(dyn std::error::Error + 'static),
+                "incomplete backups were not removed"
+            );
         }
         if !existed {
             // Its first commit flushed the file, not its name in the folder.
@@ -1065,7 +1067,11 @@ impl Storage {
             match storage.begin_backup(backups) {
                 Ok(_) => debug!(%file, "data file opened; its start backup began"),
                 Err(e) => {
-                    error!(%file, error = %e, "start backup failed; no backup file is left");
+                    error!(
+                        %file,
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "start backup failed; no backup file is left"
+                    );
                 }
             }
         } else {
@@ -1354,7 +1360,11 @@ impl Storage {
                 Ok(value) => return Ok(value),
                 Err(e) if failures < RETRIES => {
                     failures += 1;
-                    warn!(error = %e, retry = failures, "a data file call failed; reopening the file");
+                    warn!(
+                        error = &e as &(dyn std::error::Error + 'static),
+                        retry = failures,
+                        "a data file call failed; reopening the file"
+                    );
                     if let Some(backup) = self.backup.take() {
                         error!(?backup, "backup stopped: a data file is reopened");
                     }
@@ -1856,6 +1866,8 @@ fn apply(txn: &WriteTransaction, batch: &Batch) -> Result<()> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::*;
+
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -1867,7 +1879,6 @@ pub(crate) mod tests {
         WorldRecord,
     };
     use super::seal::seal;
-    use super::*;
     use crate::clock;
     use crate::protocol::Rng;
 
@@ -2429,7 +2440,7 @@ pub(crate) mod tests {
         drop(
             txn.open_table(CHUNKS)
                 .unwrap()
-                .insert(key, &[1u8][..])
+                .insert(key, &[1_u8][..])
                 .unwrap(),
         );
         txn.commit().unwrap();
@@ -2607,7 +2618,7 @@ pub(crate) mod tests {
     fn a_crash_at_any_point_of_a_commit_keeps_one_whole_commit() {
         let mut rng = Rng(0x00c0_ffee);
         let (mut old, mut new) = (0, 0);
-        for run in 0..1_000 {
+        for run in 0..1000 {
             let disk = Disk::default();
             let mut storage = memory(&disk);
             let mut model = BTreeMap::new();
@@ -3139,7 +3150,7 @@ pub(crate) mod tests {
             settle(&dir.place().file, &Meta::at(3)).unwrap(),
             Settled::Kept
         );
-        assert!(dir.world() == bytes, "a second start changes nothing");
+        assert_eq!(dir.world(), bytes, "a second start changes nothing");
         let mut storage = start_whole(&dir, StartBackup::Skip);
         assert_eq!(contents(&mut storage, &all_keys()), saved);
         // A normal stop deletes the savepoint.
@@ -3166,7 +3177,7 @@ pub(crate) mod tests {
             settle(&dir.place().file, &Meta::at(1)).unwrap(),
             Settled::Kept
         );
-        assert!(dir.world() == bytes, "a file not later is left as it was");
+        assert_eq!(dir.world(), bytes, "a file not later is left as it was");
         assert_eq!(
             settle(&dir.place().file, &Meta::at(0)).unwrap(),
             Settled::Removed
@@ -3187,7 +3198,7 @@ pub(crate) mod tests {
                 settle(&dir.place().file, &Meta::at(1)),
                 Err(Error::NoRollback)
             ));
-            assert!(dir.world() == bytes, "a refused file is left as it was");
+            assert_eq!(dir.world(), bytes, "a refused file is left as it was");
         }
     }
 
@@ -3414,7 +3425,7 @@ pub(crate) mod tests {
             committed.keys().collect::<Vec<_>>()
         );
         for (name, entries) in &committed {
-            assert!(copied[name] == *entries, "table {name} differs");
+            assert_eq!(copied[name], *entries, "table {name} differs");
         }
         drop(backup);
         assert_eq!(crate::save::committed_meta(&path).unwrap().tick, 1);
@@ -3647,7 +3658,7 @@ pub(crate) mod tests {
             bytes / chunks.len()
         );
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
-        for count in [1_000, 10_000] {
+        for count in [1000, 10_000] {
             let mut batch = Batch::with_capacity(count);
             for (key, value) in &chunks[..count] {
                 batch.put(key.clone(), value.clone());
@@ -3668,8 +3679,8 @@ pub(crate) mod tests {
         println!("file after the first commits: {} bytes", dir.world_len());
         let mut sizes = Vec::new();
         for round in 0..50 {
-            let mut batch = Batch::with_capacity(1_000);
-            for (key, value) in &chunks[(round % 10) * 1_000..][..1_000] {
+            let mut batch = Batch::with_capacity(1000);
+            for (key, value) in &chunks[(round % 10) * 1000..][..1000] {
                 batch.put(key.clone(), value.clone());
             }
             storage.commit(&batch).unwrap();
@@ -3702,17 +3713,17 @@ pub(crate) mod tests {
         records: &[ChunkRecord],
         target: u64,
     ) -> u32 {
-        let mut chunks = 0u32;
+        let mut chunks = 0_u32;
         while dir.world_len() < target {
-            let mut batch = Batch::with_capacity(2_000 * 24 + 1);
-            for _ in 0..2_000 {
+            let mut batch = Batch::with_capacity(2000 * 24 + 1);
+            for _ in 0..2000 {
                 let id = ChunkId {
                     world: 0,
                     x: i32::try_from(chunks % 2048).unwrap(),
                     z: i32::try_from(chunks / 2048).unwrap(),
                 };
                 let record = &records[usize::try_from(chunks).unwrap() % records.len()];
-                for (index, sub_chunk) in (0u8..).zip(record.sub_chunks.iter()) {
+                for (index, sub_chunk) in (0_u8..).zip(record.sub_chunks.iter()) {
                     let key = id.key(ChunkPart::SubChunk(index));
                     batch.put(key.clone(), seal(&key.to_bytes(), sub_chunk).unwrap());
                 }
@@ -3740,7 +3751,7 @@ pub(crate) mod tests {
     fn measure_start_cost() {
         let mut rng = Rng(0x5747_0001);
         let records: Vec<ChunkRecord> = (0..64).map(|_| terrain_chunk(&mut rng)).collect();
-        for target in [256u64 << 20, 1 << 30, 4 << 30] {
+        for target in [256_u64 << 20, 1 << 30, 4 << 30] {
             let dir = TempDir::new(&format!("start-cost-{target}"));
             let world = dir.place().file;
             let mut storage =

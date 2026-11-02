@@ -7,6 +7,8 @@
 //! (2 moves a tick, 200 in reserve), and then sends the player back (`MovePlayer` reset). PMMP's
 //! checks are safety checks, not an anti-cheat.
 
+use tracing::debug;
+
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
@@ -29,19 +31,19 @@ use crate::tick::{
 };
 use crate::world::{BlockPos, Entry, World};
 
-/// Moves the reserve gains each tick (PMMP `Player::MOVES_PER_TICK`).
-const MOVES_PER_TICK: i32 = 2;
+/// Fall damage above which landing makes the long fall sound (PMMP `Living::onHitGround`).
+const LONG_FALL_DAMAGE: f64 = 4.0;
+/// The furthest one move may go, squared: 15 blocks (PMMP `actuallyHandleMovement`).
+const MAX_MOVE_SQUARED: f64 = 225.0;
 /// The most moves in reserve: 100 ticks (PMMP `Player::MOVE_BACKLOG_SIZE`).
 const MOVE_BACKLOG: i32 = 100 * MOVES_PER_TICK;
 /// The reserve of a new player (PMMP `Player::$moveRateLimit`).
 const MOVE_START: i32 = 10 * MOVES_PER_TICK;
-/// The furthest one move may go, squared: 15 blocks (PMMP `actuallyHandleMovement`).
-const MAX_MOVE_SQUARED: f64 = 225.0;
+/// Moves the reserve gains each tick (PMMP `Player::MOVES_PER_TICK`).
+const MOVES_PER_TICK: i32 = 2;
 /// How far a move after a teleport may be from the teleport target, squared (PMMP
 /// `forceMoveSync`).
 const SYNC_TOLERANCE_SQUARED: f64 = 1.0;
-/// Fall damage above which landing makes the long fall sound (PMMP `Living::onHitGround`).
-const LONG_FALL_DAMAGE: f64 = 4.0;
 
 /// A player's movement and input state.
 #[derive(Debug, Clone, PartialEq)]
@@ -143,11 +145,19 @@ impl Motion {
             h.u64(w);
         }
         match last_position {
-            Some(p) => p.iter().for_each(|c| h.u64(u64::from(*c))),
+            Some(p) => {
+                for c in p {
+                    h.u64(u64::from(*c));
+                }
+            }
             None => h.u64(u64::MAX),
         }
         match processed {
-            Some(p) => [p.x, p.y, p.z].iter().for_each(|c| h.u64(c.to_bits())),
+            Some(p) => {
+                for c in [p.x, p.y, p.z] {
+                    h.u64(c.to_bits());
+                }
+            }
             None => h.u64(u64::MAX),
         }
         h.u64(u64::from(budget.cast_unsigned()));
@@ -672,7 +682,11 @@ fn frost_walker(state: &mut State, session: SessionId) {
             if let Some(w) = state.worlds.get_mut(world)
                 && let Err(e) = w.set_block(pos, target)
             {
-                tracing::debug!(?pos, %e, "frost walker could not freeze water");
+                debug!(
+                    ?pos,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "frost walker could not freeze water"
+                );
             }
         }
     }
@@ -1114,6 +1128,7 @@ pub(super) fn is_inside_solid(state: &State, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::PropertyValue;
 
     thread_local! {
@@ -1182,7 +1197,7 @@ mod tests {
         state.worlds[0]
             .set_block(BlockPos::new(0, -60, 0), water)
             .unwrap();
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.position = eye(-45.0);
         player.survival.motion.processed = Some(Vec3::new(0.5, -45.0, 0.5));
@@ -1210,7 +1225,7 @@ mod tests {
         state.worlds[0].set_block(pos, level(6)).unwrap();
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
-        player.position = Vec3::new(0.5, -60.0 + super::super::EYE_HEIGHT, 0.5);
+        player.position = Vec3::new(0.5, -60.0 + crate::tick::survival::EYE_HEIGHT, 0.5);
         player.survival.fire_ticks = 100;
         crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
         assert_eq!(state.players[&session].survival.fire_ticks, 0);
@@ -1235,7 +1250,7 @@ mod tests {
         state.worlds[0].set_block(pos, lit(false)).unwrap();
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
-        player.position = Vec3::new(0.5, -60.0 + super::super::EYE_HEIGHT, 0.5);
+        player.position = Vec3::new(0.5, -60.0 + crate::tick::survival::EYE_HEIGHT, 0.5);
         crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
         assert_eq!(state.worlds[0].block(pos), Some(lit(false)));
         let player = state.players.get_mut(&session).unwrap();
@@ -1249,7 +1264,7 @@ mod tests {
     #[test]
     fn a_player_without_block_collision_never_lands() {
         let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.set_block_collision(false);
         player.position = eye(-50.0);
@@ -1267,7 +1282,7 @@ mod tests {
     #[test]
     fn a_fall_without_block_collision_does_not_hurt_once_collision_is_back() {
         let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
         player.set_block_collision(false);
@@ -1317,7 +1332,7 @@ mod tests {
         state.worlds[0]
             .set_block(BlockPos::new(0, -61, 0), ground)
             .unwrap();
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.position = eye(-58.0);
         player.survival.motion.processed = Some(Vec3::new(0.5, -58.0, 0.5));
@@ -1391,7 +1406,7 @@ mod tests {
             .unwrap();
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
-        player.position = Vec3::new(0.5, -60.0 + super::super::EYE_HEIGHT, 0.5);
+        player.position = Vec3::new(0.5, -60.0 + crate::tick::survival::EYE_HEIGHT, 0.5);
         player.survival.motion.on_ground = false;
         for _ in 0..3 {
             crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
@@ -1430,7 +1445,7 @@ mod tests {
 
     /// Session 1 walks to the feet position `x, -60, z`.
     fn walk(state: &mut State, output: &mut crate::tick::Output, x: f64, z: f64) {
-        let eye = Vec3::new(x, -60.0 + super::super::EYE_HEIGHT, z).to_f32();
+        let eye = Vec3::new(x, -60.0 + crate::tick::survival::EYE_HEIGHT, z).to_f32();
         let input = crate::tick::tests::moved_to(1, 10, eye);
         crate::tick::tests::tick(state, &mut vec![input], output);
     }
@@ -1528,8 +1543,8 @@ mod tests {
                 Phase::Spawned
             };
             p.position = match session {
-                2 => Vec3::new(8.5, -60.5 + super::super::EYE_HEIGHT, -2.5),
-                3 => Vec3::new(2.5, -60.5 + super::super::EYE_HEIGHT, 3.5),
+                2 => Vec3::new(8.5, -60.5 + crate::tick::survival::EYE_HEIGHT, -2.5),
+                3 => Vec3::new(2.5, -60.5 + crate::tick::survival::EYE_HEIGHT, 3.5),
                 _ => Vec3::new(
                     f64::from(u32::try_from(session).unwrap()) * 3.0,
                     -40.0,
@@ -1551,7 +1566,10 @@ mod tests {
         assert_eq!(frozen(&state), want);
     }
 
-    // pmmp: EntityFrostWalkerEvent, EntityFrostWalkerEvent::getRadius, EntityFrostWalkerEvent::getLiquid, EntityFrostWalkerEvent::getTargetBlock, EntityFrostWalkerEvent::setRadius, EntityFrostWalkerEvent::setTargetBlock, EntityFrostWalkerEvent::cancel
+    // pmmp: EntityFrostWalkerEvent, EntityFrostWalkerEvent::getRadius,
+    // pmmp: EntityFrostWalkerEvent::getLiquid, EntityFrostWalkerEvent::getTargetBlock,
+    // pmmp: EntityFrostWalkerEvent::setRadius, EntityFrostWalkerEvent::setTargetBlock,
+    // pmmp: EntityFrostWalkerEvent::cancel
     #[test]
     fn a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it() {
         let mut l = crate::event::Listeners::default();
@@ -1583,7 +1601,7 @@ mod tests {
         assert_eq!(
             notes(),
             [
-                format!("{:?}", (player, 3u32, water, ice)),
+                format!("{:?}", (player, 3_u32, water, ice)),
                 format!("{:?}", Some(stone)),
             ]
         );
@@ -1626,7 +1644,8 @@ mod tests {
         assert!(frozen(&state).is_empty());
     }
 
-    // pmmp: EntityFrostWalkerEvent::setLiquid, EntityFrostWalkerEvent::uncancel, EntityFrostWalkerEvent::isCancelled
+    // pmmp: EntityFrostWalkerEvent::setLiquid, EntityFrostWalkerEvent::uncancel,
+    // pmmp: EntityFrostWalkerEvent::isCancelled
     #[test]
     fn frost_walker_values_stay_in_range() {
         let mut e = EntityFrostWalker {

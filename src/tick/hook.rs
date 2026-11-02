@@ -92,7 +92,7 @@ impl SentPacket<'_> {
         }
     }
 
-    /// Returns the packet to change. A packet the input log holds or one shared with other
+    /// The packet, to change it. A packet the input log holds or one shared with other
     /// players is copied for this player first, once: later calls and later hooks change the
     /// copy.
     pub fn get_mut(&mut self) -> &mut Packet {
@@ -313,6 +313,7 @@ pub(super) fn start_game(hooks: &[StartHook], packet: StartGame) -> StartGame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::Server;
     use crate::event::Listeners;
     use crate::protocol::ExperimentData;
@@ -321,6 +322,12 @@ mod tests {
     };
     use crate::tick::Output;
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
+
+    thread_local! {
+        /// The `PlayerAuthInput` and `RequestChunkRadius` packets the receive hooks saw (they
+        /// run on the tick's thread).
+        static RECEIVED: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+    }
 
     /// Makes the state of a server built with `builder`'s hooks and the settings `edit` makes.
     fn configured(builder: ServerBuilder, edit: impl FnOnce(&mut crate::Config)) -> State {
@@ -361,12 +368,6 @@ mod tests {
     fn movement_packets_skip_the_send_hooks_when_not_hooked() {
         assert_eq!(movement_sent(true), 0);
         assert_eq!(movement_sent(false), 4);
-    }
-
-    thread_local! {
-        /// The `PlayerAuthInput` and `RequestChunkRadius` packets the receive hooks saw (they
-        /// run on the tick's thread).
-        static RECEIVED: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
     }
 
     /// `hook-player-input = false`: `PlayerAuthInput` skips the receive hooks; other packets

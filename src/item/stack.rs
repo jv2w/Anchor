@@ -40,19 +40,43 @@ use crate::tile::MAX_NAME_BYTES;
 /// The highest enchantment level a stack keeps: the most its saved `lvl`, a `TAG_Short`, holds.
 pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
 
-/// The tag key of a custom name and lore.
-const TAG_DISPLAY: &str = "display";
-/// The custom name in [`TAG_DISPLAY`].
-const TAG_DISPLAY_NAME: &str = "Name";
-/// The lore in [`TAG_DISPLAY`].
-const TAG_DISPLAY_LORE: &str = "Lore";
-/// The enchantment list: compounds of `id` and `lvl`, both `TAG_Short`.
-const TAG_ENCH: &str = "ench";
+/// The most a stack's saved form may take from a reader's allocation budget to read back: four
+/// times its bytes, so `MAX_SAVED_STACKS` of them read within the 64 MiB a record's reader may allocate. Only
+/// NBT of many small compounds comes near it: each takes a tree node (an enchantment takes about
+/// 56 times its 16 bytes).
+const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
+/// The most bytes a stack's saved form may take: its Bedrock item compound with the `Slot` byte
+/// an item list adds, at the largest damage, as little-endian NBT. With `MAX_SAVED_STACKS` (`tick::inventory`) such stacks and its user
+/// data (16 values of 64 KiB) a player's record stays under 15 MiB, and a container's 27 under
+/// 2.6 MiB (one NBT root takes at most 4 MiB).
+pub const MAX_NBT_BYTES: usize = 96 << 10;
+/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
+/// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
+/// The largest vanilla items fit (a firework rocket of seven stars of eight colours, 12.9 KB;
+/// armour of nine enchantments with the longest name, 12.4 KB; a custom block item of the
+/// longest state, about 7.5 KB); a stack of more enchantments than survival gives (a book of
+/// all 18 that go together, 20.4 KB) does not.
+const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 28;
+/// The most bytes a stack a shulker box holds may take, saved as [`MAX_NBT_BYTES`] counts: 3 KiB,
+/// so 27 of them, a 1,024-byte name and the box's own keys (82.4 KiB) make one stack. The largest
+/// vanilla items (a firework rocket of seven stars, about 0.9 KB; a custom block item of the
+/// longest state, about 2.5 KB) fit.
+pub(crate) const MAX_STORED_BYTES: usize = MAX_NBT_BYTES / 32;
+
+/// Block entity data of a block item; the client never reads it (PMMP strips it).
+const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 /// The durability used by an item that wears (`TAG_Int`, written only when above 0).
 const TAG_DAMAGE: &str = "Damage";
-/// The key in [`Extra::nbt`] that keeps an item that wears from wearing: a `TAG_Byte` other than
-/// 0 (PMMP `Durable::setUnbreakable`).
-pub const TAG_UNBREAKABLE: &str = "Unbreakable";
+/// The tag key of a custom name and lore.
+const TAG_DISPLAY: &str = "display";
+/// The lore in [`TAG_DISPLAY`].
+const TAG_DISPLAY_LORE: &str = "Lore";
+/// The custom name in [`TAG_DISPLAY`].
+const TAG_DISPLAY_NAME: &str = "Name";
+/// The enchantment list: compounds of `id` and `lvl`, both `TAG_Short`.
+const TAG_ENCH: &str = "ench";
+/// The items a container block item holds (a shulker box).
+const TAG_ITEMS: &str = "Items";
 /// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1 (PMMP
 /// `Item::setKeepOnDeath`).
 pub const TAG_KEEP_ON_DEATH: &str = "minecraft:keep_on_death";
@@ -65,33 +89,9 @@ pub const TAG_TRIM_MATERIAL: &str = "Material";
 /// The trim's pattern in [`TAG_TRIM`]: a `TAG_String`, one of
 /// [`TRIM_PATTERNS`](super::TRIM_PATTERNS).
 pub const TAG_TRIM_PATTERN: &str = "Pattern";
-/// Block entity data of a block item; the client never reads it (PMMP strips it).
-const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
-/// The items a container block item holds (a shulker box).
-const TAG_ITEMS: &str = "Items";
-
-/// The most bytes a stack's saved form may take: its Bedrock item compound with the `Slot` byte
-/// an item list adds, at the largest damage, as little-endian NBT. With `MAX_SAVED_STACKS` (`tick::inventory`) such stacks and its user
-/// data (16 values of 64 KiB) a player's record stays under 15 MiB, and a container's 27 under
-/// 2.6 MiB (one NBT root takes at most 4 MiB).
-pub const MAX_NBT_BYTES: usize = 96 << 10;
-/// The most a stack's saved form may take from a reader's allocation budget to read back: four
-/// times its bytes, so `MAX_SAVED_STACKS` of them read within the 64 MiB a record's reader may allocate. Only
-/// NBT of many small compounds comes near it: each takes a tree node (an enchantment takes about
-/// 56 times its 16 bytes).
-const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
-/// The most bytes a stack a shulker box holds may take, saved as [`MAX_NBT_BYTES`] counts: 3 KiB,
-/// so 27 of them, a 1,024-byte name and the box's own keys (82.4 KiB) make one stack. The largest
-/// vanilla items (a firework rocket of seven stars, about 0.9 KB; a custom block item of the
-/// longest state, about 2.5 KB) fit.
-pub(crate) const MAX_STORED_BYTES: usize = MAX_NBT_BYTES / 32;
-/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
-/// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
-/// The largest vanilla items fit (a firework rocket of seven stars of eight colours, 12.9 KB;
-/// armour of nine enchantments with the longest name, 12.4 KB; a custom block item of the
-/// longest state, about 7.5 KB); a stack of more enchantments than survival gives (a book of
-/// all 18 that go together, 20.4 KB) does not.
-const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 28;
+/// The key in [`Extra::nbt`] that keeps an item that wears from wearing: a `TAG_Byte` other than
+/// 0 (PMMP `Durable::setUnbreakable`).
+pub const TAG_UNBREAKABLE: &str = "Unbreakable";
 
 /// A stack of items, or nothing (an empty slot).
 #[doc(alias = "Item")]
@@ -781,7 +781,10 @@ fn visible_only(stored: &Compound) -> Compound {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::item::Kind;
+
+    const LOOTING: i16 = 14;
 
     fn kind(k: Kind) -> Type {
         k.default_type()
@@ -946,7 +949,6 @@ mod tests {
     /// keeps the unknown entry after it.
     #[test]
     fn unknown_enchantment_entries_stay_and_known_ones_count() {
-        const LOOTING: i16 = 14;
         assert_eq!(Enchantment::from_id(LOOTING), None, "looting is not known");
         let entry = |id: i16, level: i16| {
             Compound::from([
@@ -1060,7 +1062,7 @@ mod tests {
             (kind(Kind::Potion), 100),
             (kind(Kind::Potion), 5),
             (kind(Kind::Stick), 40_000),
-            (kind(Kind::DiamondSword), 5_000),
+            (kind(Kind::DiamondSword), 5000),
         ];
         for (item, damage) in refused {
             assert_eq!(
@@ -1071,7 +1073,7 @@ mod tests {
         }
         let kept = [
             (kind(Kind::Stick), 32_767),
-            (kind(Kind::DiamondSword), 1_561),
+            (kind(Kind::DiamondSword), 1561),
             (kind(Kind::Potion), 0),
         ];
         for (item, damage) in kept {
@@ -1235,7 +1237,7 @@ mod tests {
         };
         let table = Stack::new(table, 1);
         let mut net = table.to_network();
-        net.block_runtime_id = 12345;
+        net.block_runtime_id = 12_345;
         assert_eq!(Stack::from_network(&net), Some(table));
     }
 
@@ -1407,7 +1409,7 @@ mod tests {
         let heaviest = small(lo);
         assert!(heaviest.stored_cost(MAX_STORED_BYTES, usize::MAX).is_some());
         for most in [most, heaviest] {
-            let items = (0u8..27)
+            let items = (0_u8..27)
                 .map(|slot| {
                     let mut nbt = most.to_nbt();
                     nbt.insert("Slot".to_owned(), Value::Byte(slot));

@@ -28,6 +28,12 @@ use crate::protocol::packet::{Disconnect, Packet, PlaySound, SpawnParticleEffect
 use crate::save::WorldIndex;
 use crate::world;
 
+/// The lines a player's screen shows at once unless set (PMMP `Player::getScreenLineHeight`).
+const DEFAULT_LINE_HEIGHT: u32 = 7;
+/// The default quit message: BDS's yellow "left the game" line, which the client translates with
+/// the player's display name (PMMP `Player::getLeaveMessage`). A [`PlayerQuit`] message left at it is sent
+/// so; any other is sent as it is.
+pub(super) const LEFT: &str = "§e%multiplayer.player.left";
 /// The longest transfer address: the longest host name.
 const MAX_ADDRESS: usize = 253;
 /// The client's "disconnected" text, for a kick without a reason (PMMP
@@ -35,12 +41,6 @@ const MAX_ADDRESS: usize = 253;
 const NO_REASON: &str = "disconnectionScreen.noReason";
 /// The log message of a transfer unless one is given.
 const TRANSFERRED: &str = "Moved to another server";
-/// The default quit message: BDS's yellow "left the game" line, which the client translates with
-/// the player's display name (PMMP `Player::getLeaveMessage`). A [`PlayerQuit`] message left at it is sent
-/// so; any other is sent as it is.
-pub(super) const LEFT: &str = "§e%multiplayer.player.left";
-/// The lines a player's screen shows at once unless set (PMMP `Player::getScreenLineHeight`).
-const DEFAULT_LINE_HEIGHT: u32 = 7;
 
 impl Player {
     /// The handle to keep beyond the tick.
@@ -1006,9 +1006,10 @@ fn unix_time(millis: i64) -> SystemTime {
 
 #[cfg(test)]
 pub(super) mod tests {
+    use super::*;
+
     use tokio::sync::mpsc;
 
-    use super::*;
     use crate::event::Listeners;
     use crate::nbt::Value;
     use crate::player::{MAX_TEXT, TitleTimes};
@@ -1016,6 +1017,8 @@ pub(super) mod tests {
     use crate::tick::log::{EntryKind, InputLog};
     use crate::tick::queue::{Client, Identity, Input, InputKind, Measure, Outbound, SessionId};
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
+
+    const PLAYERS: u64 = 48;
 
     /// Players 1 to `n` spawned, their queues emptied.
     fn many(n: u64) -> (State, Vec<mpsc::Receiver<Outbound>>) {
@@ -1056,8 +1059,7 @@ pub(super) mod tests {
 
     #[test]
     fn a_skin_broadcast_is_one_shared_copy_within_the_skin_budget() {
-        const N: u64 = 48;
-        let (mut state, mut receivers) = many(N);
+        let (mut state, mut receivers) = many(PLAYERS);
         // Two skins of 3 MiB: together over the budget's one skin of 4 MiB.
         for s in [1, 2] {
             let p = player_mut(&mut state, s);
@@ -1080,7 +1082,7 @@ pub(super) mod tests {
         // One copy held by every receiver (and this test): no copy per receiver.
         assert_eq!(
             std::sync::Arc::strong_count(&first[0]),
-            usize::try_from(N).unwrap() + 1
+            usize::try_from(PLAYERS).unwrap() + 1
         );
         drop(first);
         assert!(survival::marked(&state.players[&SessionId::new(2)]));
@@ -1135,7 +1137,8 @@ pub(super) mod tests {
         (state, [rx1, rx2])
     }
 
-    // pmmp: Player::getName, Player::getDisplayName, Player::setDisplayName, Player::getXuid, Player::isAuthenticated, Player::getUniqueId, Human::getSkin
+    // pmmp: Player::getName, Player::getDisplayName, Player::setDisplayName, Player::getXuid
+    // pmmp: Player::isAuthenticated, Player::getUniqueId, Human::getSkin
     #[test]
     fn the_identity_reads_the_login_and_the_display_name_changes_alone() {
         let (mut state, _rx) = two();
@@ -1159,7 +1162,8 @@ pub(super) mod tests {
         assert_ne!(state.hash(), before);
     }
 
-    // pmmp: Player::teleport, Entity::teleport, Entity::getPosition, Entity::getLocation, Entity::getEyePos, Entity::getWorld
+    // pmmp: Player::teleport, Entity::teleport, Entity::getPosition, Entity::getLocation
+    // pmmp: Entity::getEyePos, Entity::getWorld
     #[test]
     fn a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -1230,7 +1234,10 @@ pub(super) mod tests {
         }
     }
 
-    // pmmp: Player::sendMessage, Player::sendTip, Player::sendPopup, Player::sendJukeboxPopup, Player::sendActionBarMessage, Player::sendTitle, Player::sendSubTitle, Player::removeTitles, Player::resetTitles, Player::setTitleDuration, Player::sendToastNotification, NetworkSession::sendDataPacket
+    // pmmp: Player::sendMessage, Player::sendTip, Player::sendPopup, Player::sendJukeboxPopup
+    // pmmp: Player::sendActionBarMessage, Player::sendTitle, Player::sendSubTitle
+    // pmmp: Player::removeTitles, Player::resetTitles, Player::setTitleDuration
+    // pmmp: Player::sendToastNotification, NetworkSession::sendDataPacket
     #[test]
     fn messages_reach_only_their_player_after_the_tick() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -1614,7 +1621,8 @@ pub(super) mod tests {
         assert!(matches!(close, Some(Packet::Disconnect(_))));
     }
 
-    // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight, Player::setScreenLineHeight, Player
+    // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight
+    // pmmp: Player::setScreenLineHeight, Player
     #[test]
     fn the_address_view_distance_and_line_height_read_the_session() {
         let (mut state, _rx) = two();
@@ -1886,7 +1894,7 @@ pub(super) mod tests {
         let id = Id::new(SessionId::new(1));
         let mut ctx = Context { state: &mut state };
         ctx.kick_player(id, "x".repeat(MAX_TEXT + 1), None, None);
-        ctx.transfer_player(id, String::new(), 19132, None);
+        ctx.transfer_player(id, String::new(), 19_132, None);
         let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
         ctx.teleport_player(id, world::Id::DEFAULT, nowhere, TeleportCause::Action);
         let unloaded = world::Id::of(7);

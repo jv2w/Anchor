@@ -18,31 +18,32 @@ use crate::protocol::packet::{Packet, PlayStatus};
 use crate::protocol::{self, Uuid};
 use crate::task::MAX_JOBS;
 
+/// The same as [`SKIN_FIXED_BYTES`] for one animation: 2 image sizes (4 each), the data's length
+/// prefix and 2 varints (at most 5 each) and the frame count (4).
+const ANIMATION_FIXED_BYTES: usize = 27;
+/// The sessions of the engine that queue inputs besides the connections: the console, the
+/// networking's reports and the process measures.
+const ENGINE_SESSIONS: usize = 3;
+/// [`Control`]s one tick may ask for; a call past it changes nothing.
+pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
 /// Inputs of one session the tick queue holds before the tick takes them: a session past its
 /// share disconnects, and the queue keeps a share for every session, so one session filling the
 /// queue never ends another. A client sends a `PlayerAuthInput` on each of its 20 ticks a second
 /// and a few packets per action; the share holds more than a full batch
 /// ([`MAX_PACKETS`](crate::protocol::batch::MAX_PACKETS)).
 pub(crate) const MAX_SESSION_INPUTS: usize = 1024;
-/// The sessions of the engine that queue inputs besides the connections: the console, the
-/// networking's reports and the process measures.
-const ENGINE_SESSIONS: usize = 3;
 /// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
 /// of waiting.
 const OUTBOUND_CAPACITY: usize = 1024;
-/// [`Control`]s one tick may ask for; a call past it changes nothing.
-pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
+/// The same as [`SKIN_FIXED_BYTES`] for one persona piece: 2 length prefixes (at most 5 each), the
+/// type (4), the pack UUID (16) and a bool.
+const PIECE_FIXED_BYTES: usize = 31;
 /// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 11 length
 /// prefixes of texts and byte fields and 3 of lists (at most 5 bytes each), 4 image sizes (4
 /// each), the arm size (1), the colour (4), 5 bools and the trust text (`"false"`, 5).
 const SKIN_FIXED_BYTES: usize = 101;
-/// The same for one animation: 2 image sizes (4 each), the data's length prefix and 2 varints
-/// (at most 5 each) and the frame count (4).
-const ANIMATION_FIXED_BYTES: usize = 27;
-/// The same for one persona piece: 2 length prefixes (at most 5 each), the type (4), the pack
-/// UUID (16) and a bool.
-const PIECE_FIXED_BYTES: usize = 31;
-/// The same for one tint colour: a length prefix (at most 5) and 4 colours (4 each).
+/// The same as [`SKIN_FIXED_BYTES`] for one tint colour: a length prefix (at most 5) and 4 colours
+/// (4 each).
 const TINT_FIXED_BYTES: usize = 21;
 
 /// A session: one connection, numbered by the session layer in connection order and never
@@ -73,7 +74,7 @@ impl SessionId {
     /// connection's inputs.
     pub(crate) const PROCESS: Self = Self(u64::MAX - 4);
 
-    /// Returns the session numbered `id`.
+    /// The session numbered `id`.
     pub(crate) const fn new(id: u64) -> Self {
         Self(id)
     }
@@ -500,7 +501,7 @@ impl SharedPacket {
         &self.packet
     }
 
-    /// Returns the packet's batch bodies, which `encode` makes on the first call; later calls
+    /// The packet's batch bodies, which `encode` makes on the first call; later calls
     /// share them, and a call while they are being made waits for them.
     pub(crate) async fn batches<E>(
         &self,
@@ -513,7 +514,7 @@ impl SharedPacket {
         Ok(Arc::clone(batches))
     }
 
-    /// Returns the packet to change, forgetting any batch bodies made from it.
+    /// The packet, to change it, forgetting any batch bodies made from it.
     pub(crate) fn get_mut(&mut self) -> &mut Packet {
         self.batches = OnceCell::new();
         &mut self.packet
@@ -562,9 +563,6 @@ pub(crate) enum Error {
     Closed,
 }
 
-/// A result with the queue [`enum@Error`].
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -575,6 +573,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// A result with the queue [`enum@Error`].
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An input in the queue with the place it takes in its session's share, which the tick gives
 /// back by taking it; a job's result takes none. A connection's leave also carries its connection

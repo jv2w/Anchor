@@ -54,38 +54,6 @@ use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::storage::seal::Crc32c;
 use crate::world::ChunkPos;
 
-/// The most bytes the log counts: recording stops where its inputs would pass it, and old
-/// committed segments go where its inputs and checkpoints would.
-pub(crate) const MAX_BYTES: usize = 64 << 20;
-/// The input bytes recorded since the last commit at which the log asks for a snapshot.
-const COMMIT_BYTES: usize = MAX_BYTES / 4;
-/// The first bytes of a written log.
-const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
-/// The written format's version: the layout of the log and of the checkpoints it holds, which
-/// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 26;
-/// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
-/// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
-/// their own, so a log can be larger; it is then written from its newest committed segment, or
-/// not at all.
-pub(crate) const MAX_FILE_BYTES: usize = 1 << 30;
-/// The bytes of the CRC-32C at the end of a written log.
-const CRC_BYTES: usize = 4;
-/// The folder of crash reports in the data folder.
-const CRASH_DIR: &str = "crash";
-const KIND_JOIN: u8 = 0;
-const KIND_PACKET: u8 = 1;
-const KIND_LEAVE: u8 = 2;
-const KIND_CONSOLE: u8 = 3;
-const KIND_JOB: u8 = 4;
-const KIND_MEASURE: u8 = 5;
-const MEASURE_TICK_TIME: u8 = 0;
-const MEASURE_PING: u8 = 1;
-const MEASURE_CONNECTIONS: u8 = 2;
-const MEASURE_PROCESS: u8 = 3;
-/// The outcome byte of a job result that has its JSON; other values are
-/// [`Error::code`](crate::task::Error::code)s.
-const JOB_DONE: u8 = 0;
 const ADDRESS_NONE: u8 = 0;
 const ADDRESS_V4: u8 = 4;
 const ADDRESS_V6: u8 = 6;
@@ -95,20 +63,52 @@ const ANSWER_COMMITTED: u8 = 2;
 const ANSWER_COMMIT_FAILED: u8 = 3;
 const ANSWER_LOAD_FAILED: u8 = 4;
 const ANSWER_CHECKED: u8 = 5;
+/// What the commit identity chains before each tick, input, forgotten session and answer.
+const CHAIN_ANSWER: u8 = b'A';
+const CHAIN_DROPPED: u8 = b'D';
+const CHAIN_INPUT: u8 = b'I';
+const CHAIN_TICK: u8 = b'T';
+const CHECK_PASSED: u8 = 0;
+const CHECK_DAMAGED: u8 = 1;
+const CHECK_FAILED: u8 = 2;
+/// The input bytes recorded since the last commit at which the log asks for a snapshot.
+const COMMIT_BYTES: usize = MAX_BYTES / 4;
+/// The folder of crash reports in the data folder.
+const CRASH_DIR: &str = "crash";
+/// The bytes of the CRC-32C at the end of a written log.
+const CRC_BYTES: usize = 4;
+/// The written format's version: the layout of the log and of the checkpoints it holds, which
+/// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
+const FORMAT: u32 = 26;
+/// The outcome byte of a job result that has its JSON; other values are
+/// [`Error::code`](crate::task::Error::code)s.
+const JOB_DONE: u8 = 0;
+const KIND_JOIN: u8 = 0;
+const KIND_PACKET: u8 = 1;
+const KIND_LEAVE: u8 = 2;
+const KIND_CONSOLE: u8 = 3;
+const KIND_JOB: u8 = 4;
+const KIND_MEASURE: u8 = 5;
+/// The first bytes of a written log.
+const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
+/// The most bytes the log counts: recording stops where its inputs would pass it, and old
+/// committed segments go where its inputs and checkpoints would.
+pub(crate) const MAX_BYTES: usize = 64 << 20;
+/// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
+/// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
+/// their own, so a log can be larger; it is then written from its newest committed segment, or
+/// not at all.
+pub(crate) const MAX_FILE_BYTES: usize = 1 << 30;
+const MEASURE_TICK_TIME: u8 = 0;
+const MEASURE_PING: u8 = 1;
+const MEASURE_CONNECTIONS: u8 = 2;
+const MEASURE_PROCESS: u8 = 3;
 const ORIGIN_DISK: u8 = 0;
 const ORIGIN_GENERATED: u8 = 1;
 const ORIGIN_DAMAGED: u8 = 2;
 const PLAYER_FOUND: u8 = 0;
 const PLAYER_ABSENT: u8 = 1;
 const PLAYER_DAMAGED: u8 = 2;
-const CHECK_PASSED: u8 = 0;
-const CHECK_DAMAGED: u8 = 1;
-const CHECK_FAILED: u8 = 2;
-/// What the commit identity chains before each tick, input, forgotten session and answer.
-const CHAIN_TICK: u8 = b'T';
-const CHAIN_INPUT: u8 = b'I';
-const CHAIN_DROPPED: u8 = b'D';
-const CHAIN_ANSWER: u8 = b'A';
 
 /// The input log.
 #[derive(Debug)]
@@ -437,7 +437,10 @@ impl InputLog {
         let (answer, size) = match Answer::of(response) {
             Ok(logged) => logged,
             Err(e) => {
-                warn!(error = %e, "an answer cannot be logged; ticks until the next save are not recorded");
+                warn!(
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "an answer cannot be logged; ticks until the next save are not recorded"
+                );
                 let segment = self.last_segment_mut();
                 segment.truncated = true;
                 segment.ticks.pop();
@@ -1549,6 +1552,7 @@ fn room_bytes<T>(items: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::tick::queue::Skin;
 
     #[test]
@@ -2002,7 +2006,7 @@ mod tests {
                 stack: sword.to_network(),
                 ..ItemInstance::default()
             },
-            ..Default::default()
+            ..protocol::UseItemOnEntityTransactionData::default()
         };
         let packet = Packet::InventoryTransaction(InventoryTransaction {
             transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(attack)),
@@ -2218,7 +2222,7 @@ mod tests {
         let mut flipped = bytes.clone();
         flipped[40] ^= 1;
         assert!(matches!(InputLog::decode(&flipped), Err(Error::Checksum)));
-        crate::protocol::fuzz(&bytes, 5_000, |b| {
+        crate::protocol::fuzz(&bytes, 5000, |b| {
             let mut b = b.to_vec();
             reseal(&mut b);
             InputLog::decode(&b)

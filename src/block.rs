@@ -48,27 +48,30 @@ use crate::custom;
 use crate::item;
 use crate::math::Aabb;
 
-/// Full support on every face, in the [`Info::support`] coding.
-pub(crate) const SUPPORT_FULL: u16 = 0;
-/// No support on any face, in the [`Info::support`] coding.
-pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
-
-/// The state item sentinel of [`table::STATE_ITEMS`] for a state without an item.
-const NO_ITEM: u16 = 0xffff;
 /// The state item sentinel of [`table::STATE_ITEMS`] for a state whose item the block entity
 /// decides.
 const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
 
-/// The classes of a custom block that is transparent: no PMMP class of its own.
-const CUSTOM_TRANSPARENT: [Class; 2] = [Class::Transparent, Class::Block];
+/// The room reserved for a copper block name.
+const COPPER_NAME_CAPACITY: usize = 48;
+
 /// The classes of a custom block that is opaque: no PMMP class of its own.
 const CUSTOM_OPAQUE: [Class; 2] = [Class::Opaque, Class::Block];
+
+/// The classes of a custom block that is transparent: no PMMP class of its own.
+const CUSTOM_TRANSPARENT: [Class; 2] = [Class::Transparent, Class::Block];
+
+/// The state item sentinel of [`table::STATE_ITEMS`] for a state without an item.
+const NO_ITEM: u16 = 0xffff;
 
 /// The offset in a connection word that means the state has no variants.
 const NO_VARIANTS: u32 = 0xffff;
 
-/// The room reserved for a copper block name.
-const COPPER_NAME_CAPACITY: usize = 48;
+/// Full support on every face, in the [`Info::support`] coding.
+pub(crate) const SUPPORT_FULL: u16 = 0;
+
+/// No support on any face, in the [`Info::support`] coding.
+pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
 
 /// A block state: a block name with a value for each of its properties.
 ///
@@ -692,7 +695,7 @@ impl State {
                 let full = Facing::ALL
                     .iter()
                     .filter(|f| self.support(f.face()) == SupportType::Full)
-                    .fold(0u32, |bits, f| bits | u32::from(f.bit()));
+                    .fold(0_u32, |bits, f| bits | u32::from(f.bit()));
                 (full << 4) | (NO_VARIANTS << 16)
             }
         }
@@ -1937,7 +1940,7 @@ mod tests {
     /// the neighbours decide, at the index the variant order gives.
     #[test]
     fn variants_follow_the_documented_order() {
-        let mut counts = [0usize; 8];
+        let mut counts = [0_usize; 8];
         for state in State::all() {
             let kind = state.connection();
             let (names, count): (&[&str], usize) = match kind {
@@ -1972,7 +1975,7 @@ mod tests {
                     Connection::Wall => {
                         let mut sides: Vec<_> = (0..4)
                             .map(|s| {
-                                let digit = (i / 2) / 3usize.pow(3 - s) % 3;
+                                let digit = (i / 2) / 3_usize.pow(3 - s) % 3;
                                 PropertyValue::String(["none", "short", "tall"][digit])
                             })
                             .collect();
@@ -2552,7 +2555,7 @@ mod tests {
             };
             assert_eq!(State::read(name, &properties), expected, "{}", key(r));
         }
-        assert_eq!((same, other, rejected), (8_963, 4_884, 10_113));
+        assert_eq!((same, other, rejected), (8963, 4884, 10_113));
     }
 
     /// Every alias reads as its state with its properties in any order; changed inputs (another

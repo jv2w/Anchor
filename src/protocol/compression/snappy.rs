@@ -7,15 +7,15 @@
 
 use super::{Error, Result};
 
-/// The encoder matches inside blocks of this size, so copy offsets fit in 16 bits.
-const MAX_BLOCK: usize = 1 << 16;
-const MAX_TABLE: usize = 1 << 14;
 /// Bytes kept after the last match start so the 8-byte loads stay inside the block.
 const INPUT_MARGIN: usize = 16 - 1;
-/// Smaller blocks are emitted as one literal.
-const MIN_NON_LITERAL_BLOCK: usize = 1 + 1 + INPUT_MARGIN;
+/// The encoder matches inside blocks of this size, so copy offsets fit in 16 bits.
+const MAX_BLOCK: usize = 1 << 16;
 /// A valid stream grows at most 64 bytes per 3-byte copy, under 22 times its size.
 const MAX_RATIO: usize = 22;
+const MAX_TABLE: usize = 1 << 14;
+/// Smaller blocks are emitted as one literal.
+const MIN_NON_LITERAL_BLOCK: usize = 1 + 1 + INPUT_MARGIN;
 
 /// Reusable encoder state: the match table.
 pub(crate) struct Encoder {
@@ -23,7 +23,7 @@ pub(crate) struct Encoder {
 }
 
 impl Encoder {
-    /// Returns an encoder with an empty match table.
+    /// An encoder with an empty match table.
     pub(crate) fn new() -> Self {
         Self {
             table: vec![0; MAX_TABLE].into_boxed_slice(),

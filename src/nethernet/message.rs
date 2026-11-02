@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn message_at_the_limit_passes_and_one_byte_over_fails() {
         round_trip(10_000, 3000, 10_000);
-        let mut reassembler = Reassembler::new(9_999);
+        let mut reassembler = Reassembler::new(9999);
         let framed = framed(&pattern(10_000), 3000);
         for segment in &framed[..3] {
             assert_eq!(reassembler.push(segment.clone()), Ok(None));
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn empty_data_channel_message_fails() {
-        assert_eq!(Reassembler::new(16).push(vec![]), Err(Error::Empty));
+        assert_eq!(Reassembler::new(16).push(Vec::new()), Err(Error::Empty));
     }
 
     #[test]

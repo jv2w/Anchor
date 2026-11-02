@@ -273,11 +273,11 @@ fn a_menu_opens_on_fake_blocks_with_its_title_then_its_window() {
     assert_eq!(data[0].position, [pos.x, pos.y, pos.z]);
     assert_eq!(
         data[0].nbt_data.get("CustomName"),
-        Some(&Value::String("Shop".into()))
+        Some(&Value::String("Shop".to_owned()))
     );
     assert_eq!(
         data[0].nbt_data.get("id"),
-        Some(&Value::String("Chest".into()))
+        Some(&Value::String("Chest".to_owned()))
     );
     let update = first
         .iter()

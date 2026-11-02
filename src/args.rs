@@ -195,28 +195,28 @@ mod tests {
         assert_eq!(
             task(&["import", "C:/worlds/lobby"]).expect("ok"),
             Task::Import {
-                dir: "C:/worlds/lobby".into(),
+                dir: PathBuf::from("C:/worlds/lobby"),
                 world: None
             }
         );
         assert_eq!(
             task(&["import", "w", "my world"]).expect("ok"),
             Task::Import {
-                dir: "w".into(),
+                dir: PathBuf::from("w"),
                 world: Some("my world".to_owned())
             }
         );
         assert_eq!(
             task(&["export", "C:/bds/worlds/lobby"]).expect("ok"),
             Task::Export {
-                dir: "C:/bds/worlds/lobby".into(),
+                dir: PathBuf::from("C:/bds/worlds/lobby"),
                 world: None
             }
         );
         assert_eq!(
             task(&["export", "out", "my world"]).expect("ok"),
             Task::Export {
-                dir: "out".into(),
+                dir: PathBuf::from("out"),
                 world: Some("my world".to_owned())
             }
         );

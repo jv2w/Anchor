@@ -8,24 +8,30 @@ pub use table::{Potion, Type};
 
 use crate::nbt::{Compound, Value};
 
+/// The key of an instance's ambient flag in its saved form.
+const AMBIENT: &str = "Ambient";
+
+/// The key of an instance's amplifier in its saved form.
+const AMPLIFIER: &str = "Amplifier";
+
+/// The key of an instance's duration in its saved form.
+const DURATION: &str = "Duration";
+
+/// The key of an instance's effect ID in its saved form.
+const ID: &str = "Id";
+
+/// The saved duration of an infinite instance (PMMP `Living::saveNBT`).
+const INFINITE_DURATION: i32 = -1;
+
 /// The longest duration an instance holds, in ticks (PMMP `Limits::INT32_MAX`: the saved and sent
 /// int).
 pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
 
-/// The number of effect types ([`Type::all`]).
-pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
-/// The saved duration of an infinite instance (PMMP `Living::saveNBT`).
-const INFINITE_DURATION: i32 = -1;
-/// The key of an instance's effect ID in its saved form.
-const ID: &str = "Id";
-/// The key of an instance's amplifier in its saved form.
-const AMPLIFIER: &str = "Amplifier";
-/// The key of an instance's duration in its saved form.
-const DURATION: &str = "Duration";
-/// The key of an instance's ambient flag in its saved form.
-const AMBIENT: &str = "Ambient";
 /// The key of an instance's particle flag in its saved form.
 const PARTICLES: &str = "ShowParticles";
+
+/// The number of effect types ([`Type::all`]).
+pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
 
 /// An effect with its duration and strength, as a potion or food gives it (PMMP
 /// `EffectInstance`). A `Copy` value: the `with_*` methods return a changed copy (PMMP's setters
@@ -412,8 +418,8 @@ pub(crate) fn shows_bubbles(e: &Instance) -> bool {
 /// The mean colour of `effects`, each counted once per level (PMMP `Color::mix` of the repeated
 /// colours: integer means per channel); `None` without an effect.
 pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<[u8; 4]> {
-    let mut sum = [0u32; 4];
-    let mut n = 0u32;
+    let mut sum = [0_u32; 4];
+    let mut n = 0_u32;
     for e in effects {
         let level = u32::from(e.level());
         for (s, c) in sum.iter_mut().zip(e.colour()) {

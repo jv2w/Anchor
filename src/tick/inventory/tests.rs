@@ -515,8 +515,8 @@ fn shape(r: &ItemStackResponse) -> Vec<(u8, u8, u8, i32)> {
     out
 }
 
-const CRAFT: u8 = C::CraftingInput as u8;
 const COMBINED: u8 = C::CombinedHotBarAndInventory as u8;
+const CRAFT: u8 = C::CraftingInput as u8;
 
 /// `recipe-book = false`: the recipe book's quick crafting is refused and changes nothing; the
 /// grid still crafts.
@@ -623,7 +623,7 @@ fn stack_network_ids_and_responses_follow_the_bds_craft_scenario() {
     assert_eq!(shape(&r), [(COMBINED, 0, 0, 0), (CRAFT, 28, 4, l)]);
     // Planks four times: the grid keeps its ID; the result gets a new one, then merges.
     let mut p = 0;
-    for n in 1..=4u8 {
+    for n in 1..=4_u8 {
         let id = w.next_id(s);
         let r = w.request_as(
             s,
@@ -1259,9 +1259,9 @@ fn lay_out(
         .as_ref()
         .is_some_and(|w| w.id != 0 && w.kind.is_workbench());
     let (first, side) = if workbench {
-        (32u8, 3usize)
+        (32_u8, 3_usize)
     } else {
-        (28u8, 2usize)
+        (28_u8, 2_usize)
     };
     let fitting: Vec<&(u32, Recipe<'static>)> = recipes
         .iter()
@@ -1295,7 +1295,7 @@ fn lay_out(
             inv.main.ids[usize::from(i)].net,
         )
     };
-    let mut empties: Vec<u8> = (0..36u8)
+    let mut empties: Vec<u8> = (0..36_u8)
         .filter(|i| inv.main.stack(*i).is_empty())
         .rev()
         .collect();
@@ -1318,8 +1318,8 @@ fn lay_out(
         cleared.push(cell);
     }
     for (cell, ingredient) in wanted {
-        let Some(k) =
-            (0..36u8).find(|k| left[usize::from(*k)] > 0 && ingredient.accepts(inv.main.stack(*k)))
+        let Some(k) = (0..36_u8)
+            .find(|k| left[usize::from(*k)] > 0 && ingredient.accepts(inv.main.stack(*k)))
         else {
             return actions;
         };
@@ -1395,7 +1395,7 @@ fn run_model(mode: GameMode, seed: i64, count: u32, listeners: Option<Listeners>
         .collect();
     assert!(recipes.len() >= 8, "{} recipes", recipes.len());
     let mut rng = Random::new(seed, 0, 7);
-    let (mut oks, mut errors, mut crafts, mut drops) = (0u32, 0u32, 0u32, 0u32);
+    let (mut oks, mut errors, mut crafts, mut drops) = (0_u32, 0_u32, 0_u32, 0_u32);
     let mut last: Option<(SessionId, i32, Vec<StackRequestAction>)> = None;
     for n in 0..count {
         let s = players[rng.below(2) as usize];
@@ -1931,7 +1931,7 @@ fn join_open_close_leave_cycles_leave_every_table_at_its_start() {
     let chest = BlockPos::new(3, -60, 3);
     w.double_chest(chest);
     let start = w.state.rules.block_entities.sizes();
-    for n in 0..100u64 {
+    for n in 0..100_u64 {
         let s = w.join(10 + n);
         w.give(s, Stack::new(item(it::Kind::Stick), 5));
         w.open_block(s, chest);

@@ -823,9 +823,10 @@ mod tests {
     //! Each write changes the block entity, reaches the players who see it as `BlockActorData`
     //! and is in the chunk's saved form.
 
+    use super::*;
+
     use tokio::sync::mpsc::Receiver;
 
-    use super::*;
     use crate::effect::Type as Effect;
     use crate::event::Listeners;
     use crate::nbt::Value;
@@ -1006,7 +1007,10 @@ mod tests {
         assert!(h.cx().block_entity(WORLD, sign_at).is_none());
     }
 
-    // pmmp: World::getTile, World::getTileAt, Chunk::getTile, Tile, Tile::getPosition, Tile::getBlock, BaseSign::getText, BaseSign::getFaceText, Sign::getText, Sign::getBackText, BaseSign::setText, BaseSign::setFaceText, Sign::setText, Sign::setBackText, BaseSign::isWaxed, Sign::isWaxed, BaseSign::setWaxed, Sign::setWaxed
+    // pmmp: World::getTile, World::getTileAt, Chunk::getTile, Tile, Tile::getPosition,
+    // pmmp: Tile::getBlock, BaseSign::getText, BaseSign::getFaceText, Sign::getText,
+    // pmmp: Sign::getBackText, BaseSign::setText, BaseSign::setFaceText, Sign::setText,
+    // pmmp: Sign::setBackText, BaseSign::isWaxed, Sign::isWaxed, BaseSign::setWaxed, Sign::setWaxed
     #[test]
     fn a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved() {
         let mut h = Harness::new();
@@ -1065,7 +1069,11 @@ mod tests {
         assert!(tile.is_sign_waxed());
     }
 
-    // pmmp: Chunk::getTiles, Nameable::getName, NameableTrait::getName, Nameable::setName, NameableTrait::setName, Container::canOpenWith, ContainerTrait::canOpenWith, block\tile\EnderChest::getViewerCount, block\tile\Chest::getPair, block\tile\Chest::pairWith, block\tile\Chest::unpair, block\tile\ShulkerBox::getFacing, block\tile\ShulkerBox::setFacing
+    // pmmp: Chunk::getTiles, Nameable::getName, NameableTrait::getName, Nameable::setName,
+    // pmmp: NameableTrait::setName, Container::canOpenWith, ContainerTrait::canOpenWith,
+    // pmmp: block\tile\EnderChest::getViewerCount, block\tile\Chest::getPair,
+    // pmmp: block\tile\Chest::pairWith, block\tile\Chest::unpair, block\tile\ShulkerBox::getFacing,
+    // pmmp: block\tile\ShulkerBox::setFacing
     #[test]
     fn containers_take_names_and_chests_pair_side_by_side() {
         let mut h = Harness::new();
@@ -1183,7 +1191,13 @@ mod tests {
         assert_eq!(t.view().chest_pair(), Some(b));
     }
 
-    // pmmp: block\Bed::getColor, block\tile\Bed::getColor, block\Bed::setColor, block\tile\Bed::setColor, BaseBanner::getColor, block\tile\Banner::getBaseColor, BaseBanner::setColor, block\tile\Banner::setBaseColor, BaseBanner::getPatterns, block\tile\Banner::getPatterns, BaseBanner::setPatterns, block\tile\Banner::setPatterns, block\tile\Banner::getType, block\tile\Banner::setType, block\MobHead::getRotation, block\tile\MobHead::getRotation, block\MobHead::setRotation, block\tile\MobHead::setRotation
+    // pmmp: block\Bed::getColor, block\tile\Bed::getColor, block\Bed::setColor,
+    // pmmp: block\tile\Bed::setColor, BaseBanner::getColor, block\tile\Banner::getBaseColor,
+    // pmmp: BaseBanner::setColor, block\tile\Banner::setBaseColor, BaseBanner::getPatterns,
+    // pmmp: block\tile\Banner::getPatterns, BaseBanner::setPatterns,
+    // pmmp: block\tile\Banner::setPatterns, block\tile\Banner::getType, block\tile\Banner::setType,
+    // pmmp: block\MobHead::getRotation, block\tile\MobHead::getRotation,
+    // pmmp: block\MobHead::setRotation, block\tile\MobHead::setRotation
     #[test]
     fn beds_banners_and_heads_keep_their_look() {
         let mut h = Harness::new();
@@ -1268,7 +1282,15 @@ mod tests {
         )
     }
 
-    // pmmp: block\FlowerPot::getPlant, block\tile\FlowerPot::getPlant, block\FlowerPot::setPlant, block\tile\FlowerPot::setPlant, block\ItemFrame::getFramedItem, block\tile\ItemFrame::getItem, block\ItemFrame::setFramedItem, block\tile\ItemFrame::setItem, block\ItemFrame::getItemRotation, block\tile\ItemFrame::getItemRotation, block\ItemFrame::setItemRotation, block\tile\ItemFrame::setItemRotation, block\ItemFrame::getItemDropChance, block\tile\ItemFrame::getItemDropChance, block\ItemFrame::setItemDropChance, block\tile\ItemFrame::setItemDropChance, block\Jukebox::getRecord, block\tile\Jukebox::getRecord, block\tile\Jukebox::setRecord
+    // pmmp: block\FlowerPot::getPlant, block\tile\FlowerPot::getPlant, block\FlowerPot::setPlant,
+    // pmmp: block\tile\FlowerPot::setPlant, block\ItemFrame::getFramedItem,
+    // pmmp: block\tile\ItemFrame::getItem, block\ItemFrame::setFramedItem,
+    // pmmp: block\tile\ItemFrame::setItem, block\ItemFrame::getItemRotation,
+    // pmmp: block\tile\ItemFrame::getItemRotation, block\ItemFrame::setItemRotation,
+    // pmmp: block\tile\ItemFrame::setItemRotation, block\ItemFrame::getItemDropChance,
+    // pmmp: block\tile\ItemFrame::getItemDropChance, block\ItemFrame::setItemDropChance,
+    // pmmp: block\tile\ItemFrame::setItemDropChance, block\Jukebox::getRecord,
+    // pmmp: block\tile\Jukebox::getRecord, block\tile\Jukebox::setRecord
     #[test]
     fn pots_frames_and_jukeboxes_hold_what_they_are_given() {
         let mut h = Harness::new();
@@ -1364,7 +1386,13 @@ mod tests {
         assert_eq!(sent[0].get("totalPages"), Some(&Value::Int(0)));
     }
 
-    // pmmp: block\Lectern::getBook, block\tile\Lectern::getBook, block\Lectern::setBook, block\tile\Lectern::setBook, block\Lectern::getViewedPage, block\tile\Lectern::getViewedPage, block\Lectern::setViewedPage, block\tile\Lectern::setViewedPage, block\ChiseledBookshelf::getLastInteractedSlot, block\tile\ChiseledBookshelf::getLastInteractedSlot, block\ChiseledBookshelf::setLastInteractedSlot, block\tile\ChiseledBookshelf::setLastInteractedSlot
+    // pmmp: block\Lectern::getBook, block\tile\Lectern::getBook, block\Lectern::setBook,
+    // pmmp: block\tile\Lectern::setBook, block\Lectern::getViewedPage,
+    // pmmp: block\tile\Lectern::getViewedPage, block\Lectern::setViewedPage,
+    // pmmp: block\tile\Lectern::setViewedPage, block\ChiseledBookshelf::getLastInteractedSlot,
+    // pmmp: block\tile\ChiseledBookshelf::getLastInteractedSlot,
+    // pmmp: block\ChiseledBookshelf::setLastInteractedSlot,
+    // pmmp: block\tile\ChiseledBookshelf::setLastInteractedSlot
     #[test]
     fn lecterns_and_bookshelves_keep_their_books_place() {
         let mut h = Harness::new();
@@ -1423,7 +1451,13 @@ mod tests {
         assert_eq!(t.view().last_interacted_slot(), None);
     }
 
-    // pmmp: block\Campfire::getCookingTime, block\Campfire::setCookingTime, block\tile\Beacon::getPrimaryEffect, block\tile\Beacon::getSecondaryEffect, block\tile\Beacon::setPrimaryEffect, block\tile\Beacon::setSecondaryEffect, PotionCauldron::getPotionItem, block\tile\Cauldron::getPotionItem, PotionCauldron::setPotionItem, block\tile\Cauldron::setPotionItem, WaterCauldron::getCustomWaterColor, block\tile\Cauldron::getCustomWaterColor, WaterCauldron::setCustomWaterColor, block\tile\Cauldron::setCustomWaterColor
+    // pmmp: block\Campfire::getCookingTime, block\Campfire::setCookingTime,
+    // pmmp: block\tile\Beacon::getPrimaryEffect, block\tile\Beacon::getSecondaryEffect,
+    // pmmp: block\tile\Beacon::setPrimaryEffect, block\tile\Beacon::setSecondaryEffect,
+    // pmmp: PotionCauldron::getPotionItem, block\tile\Cauldron::getPotionItem,
+    // pmmp: PotionCauldron::setPotionItem, block\tile\Cauldron::setPotionItem,
+    // pmmp: WaterCauldron::getCustomWaterColor, block\tile\Cauldron::getCustomWaterColor,
+    // pmmp: WaterCauldron::setCustomWaterColor, block\tile\Cauldron::setCustomWaterColor
     #[test]
     fn campfires_beacons_and_cauldrons_take_their_values() {
         let mut h = Harness::new();

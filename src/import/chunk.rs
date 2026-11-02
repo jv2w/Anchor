@@ -44,12 +44,35 @@ use crate::storage::codec::{BlockLayer, MAX_EXTRA_ENTRIES, check_indices};
 use crate::storage::seal::DECODE_BUDGET;
 use crate::world::LOWEST_SUB_CHUNK;
 
-/// Chunk tags.
-pub(crate) const VERSION: u8 = 0x2c;
-pub(crate) const SUB_CHUNK: u8 = 0x2f;
-const LEGACY_TERRAIN: u8 = 0x30;
+/// The chunk tag of block entities.
 pub(crate) const BLOCK_ENTITIES: u8 = 0x31;
+/// How far chunk versions 24 to 26 shift the sub-chunk y in keys.
+const CAVES_CLIFFS_OFFSET: i8 = 4;
+/// The chunk tag of legacy block extra data.
 const LEGACY_EXTRA: u8 = 0x34;
+/// The ids of legacy terrain.
+const LEGACY_IDS: usize = 32_768;
+/// The light of legacy terrain.
+const LEGACY_LIGHT: usize = 32_768;
+/// The meta nibbles of legacy terrain.
+const LEGACY_META: usize = 16_384;
+/// A legacy sub-chunk: ids and meta nibbles, and optionally light after.
+const LEGACY_SECTION: usize = 4096 + 2048;
+/// A legacy sub-chunk with light after its ids and meta nibbles.
+const LEGACY_SECTION_LIGHT: usize = LEGACY_SECTION + 4096;
+/// The chunk tag of legacy terrain.
+const LEGACY_TERRAIN: u8 = 0x30;
+/// Legacy terrain: ids, meta, light, height map, biome colours.
+const LEGACY_TERRAIN_LEN: usize = LEGACY_IDS + LEGACY_META + LEGACY_LIGHT + 256 + 1024;
+/// The most value bytes kept for one chunk.
+const MAX_CHUNK_BYTES: usize = 64 << 20;
+/// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
+const MAX_CHUNK_VERSION: u8 = 42;
+/// The newest sub-chunk version read.
+const MAX_SUB_CHUNK_VERSION: u8 = 9;
+/// The highest sub-chunk y imported: Anchor's world height.
+const MAX_SUB_CHUNK_Y: i32 = crate::world::MAX_Y >> 4;
+/// The chunk tag of the version in old worlds.
 const OLD_VERSION: u8 = 0x76;
 /// The tags whose values are kept for decoding, with their names in Mojang's LevelDB
 /// documentation for errors.
@@ -60,26 +83,12 @@ const READ_TAGS: [(u8, &str); 5] = [
     (LEGACY_EXTRA, "LegacyBlockExtraData"),
     (OLD_VERSION, "LegacyVersion"),
 ];
+/// The chunk tag of sub-chunks.
+pub(crate) const SUB_CHUNK: u8 = 0x2f;
 /// The name of [`SUB_CHUNK`] keys, as [`READ_TAGS`] names the others.
 const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
-/// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
-const MAX_CHUNK_VERSION: u8 = 42;
-/// The newest sub-chunk version read.
-const MAX_SUB_CHUNK_VERSION: u8 = 9;
-/// The highest sub-chunk y imported: Anchor's world height.
-const MAX_SUB_CHUNK_Y: i32 = crate::world::MAX_Y >> 4;
-/// How far chunk versions 24 to 26 shift the sub-chunk y in keys.
-const CAVES_CLIFFS_OFFSET: i8 = 4;
-/// The most value bytes kept for one chunk.
-const MAX_CHUNK_BYTES: usize = 64 << 20;
-/// Legacy terrain: ids, meta, light, height map, biome colours.
-const LEGACY_IDS: usize = 32_768;
-const LEGACY_META: usize = 16_384;
-const LEGACY_LIGHT: usize = 32_768;
-const LEGACY_TERRAIN_LEN: usize = LEGACY_IDS + LEGACY_META + LEGACY_LIGHT + 256 + 1024;
-/// A legacy sub-chunk: ids and meta nibbles, and optionally light after.
-const LEGACY_SECTION: usize = 4096 + 2048;
-const LEGACY_SECTION_LIGHT: usize = LEGACY_SECTION + 4096;
+/// The chunk tag of the version.
+pub(crate) const VERSION: u8 = 0x2c;
 
 /// What a database key is, for [`super::Catalog`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,18 +166,6 @@ impl Entries {
         Ok(())
     }
 
-    /// Counts `len` more bytes kept for the chunk.
-    fn count(&mut self, len: usize) -> Result<()> {
-        self.bytes = self.bytes.saturating_add(len);
-        if self.bytes > MAX_CHUNK_BYTES {
-            return Err(Error::TooLarge {
-                what: "bytes of data in a chunk",
-                limit: MAX_CHUNK_BYTES as u64,
-            });
-        }
-        Ok(())
-    }
-
     /// Names the key of this chunk ending in `suffix` (a tag, and a sub-chunk's y) in `error`.
     fn at_key(&self, suffix: &[u8], error: Error) -> Error {
         let kind = match suffix.first() {
@@ -190,6 +187,18 @@ impl Entries {
             key,
             source: Box::new(error),
         }
+    }
+
+    /// Counts `len` more bytes kept for the chunk.
+    fn count(&mut self, len: usize) -> Result<()> {
+        self.bytes = self.bytes.saturating_add(len);
+        if self.bytes > MAX_CHUNK_BYTES {
+            return Err(Error::TooLarge {
+                what: "bytes of data in a chunk",
+                limit: MAX_CHUNK_BYTES as u64,
+            });
+        }
+        Ok(())
     }
 }
 

@@ -22,6 +22,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+/// How long the harness waits for a bot past its own time limit before killing it.
+const BOT_GRACE: Duration = Duration::from_secs(30);
+/// The bot's time limit for one game scenario (the furnace smelts for 20 seconds).
+const BOT_TIMEOUT: Duration = Duration::from_secs(150);
 /// The game scenarios, in run order.
 pub(crate) const SCENARIOS: [&str; 5] = ["craft", "furnace", "enchant", "crops", "trade"];
 /// Console commands run once before the game scenarios: no mob spawning, weather, day cycle or
@@ -34,14 +38,10 @@ pub(crate) const SESSION_SETUP: &[&str] = &[
     "gamerule doweathercycle false",
     "kill @e[type=!player]",
 ];
-/// The bot's time limit for one game scenario (the furnace smelts for 20 seconds).
-const BOT_TIMEOUT: Duration = Duration::from_secs(150);
-/// How long the harness waits for a bot past its own time limit before killing it.
-const BOT_GRACE: Duration = Duration::from_secs(30);
 
 /// The player name of a scenario's bot: one new player each, so no inventory carries over.
 pub(crate) fn player(scenario: &str) -> String {
-    let mut name = String::from("P6");
+    let mut name = "P6".to_owned();
     let mut chars = scenario.chars();
     if let Some(first) = chars.next() {
         name.extend(first.to_uppercase());

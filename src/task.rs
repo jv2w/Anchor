@@ -18,7 +18,7 @@
 use std::fmt;
 
 /// The most blocking jobs waiting for their result at once.
-pub const MAX_JOBS: usize = 1_024;
+pub const MAX_JOBS: usize = 1024;
 /// The largest result of a blocking job, in bytes of its JSON form: it travels through the input
 /// log.
 pub const MAX_RESULT_BYTES: usize = 1 << 20;

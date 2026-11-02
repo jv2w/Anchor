@@ -25,18 +25,18 @@ use serde::Deserialize;
 use crate::dump::{file_names, is_dir, read, read_if_exists, write};
 use status::{Kind, Rule};
 
+/// Where items carry aliases.
+const ALIAS_DIRS: &[&str] = &["src"];
 /// The PMMP API inventory, relative to the repository root.
 const API_PATH: &str = "xtask/data/pmmp/api.json";
+/// The namespace every PMMP class-like is in.
+const ROOT: &str = "pocketmine\\";
 /// The status file.
 const STATUS_PATH: &str = "xtask/data/pmmp/status.txt";
 /// The generated table.
 const TABLE_PATH: &str = "xtask/data/pmmp/table.md";
-/// Where items carry aliases.
-const ALIAS_DIRS: &[&str] = &["src"];
 /// Where tests carry `// pmmp:` comments.
 const TEST_DIRS: &[&str] = &["src", "tests", "xtask/tests", "examples"];
-/// The namespace every PMMP class-like is in.
-const ROOT: &str = "pocketmine\\";
 
 /// What a run found.
 #[derive(Debug, Default)]

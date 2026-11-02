@@ -105,6 +105,7 @@ mod tests {
     }
 
     const DATA: &str = include_str!("../../xtask/data/reference/biomes.json");
+    const FLOATS: [&str; 5] = ["temperature", "downfall", "foliage_snow", "depth", "scale"];
 
     /// A data number at the packet's precision, rounded once from its decimal text.
     fn single(json: &Json) -> f32 {
@@ -113,7 +114,6 @@ mod tests {
 
     #[test]
     fn every_definition_resolved_by_name_equals_the_data() {
-        const FLOATS: [&str; 5] = ["temperature", "downfall", "foliage_snow", "depth", "scale"];
         let list = definition_list();
         let string = |i: usize| list.string_list[i].clone();
         // Name -> (float bits, the other fields as data JSON).

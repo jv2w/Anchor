@@ -29,18 +29,18 @@ use std::fmt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// The most player data types (16 values of up to 64 KiB keep a player's record small).
-pub const MAX_PLAYER_TYPES: usize = 16;
-/// The most server data types.
-pub const MAX_SERVER_TYPES: usize = 64;
 /// The most extension types a player holds at once.
 pub const MAX_EXTENSIONS: usize = 64;
-/// The largest saved player data value, in bytes of JSON.
-pub const MAX_PLAYER_VALUE_BYTES: usize = 64 << 10;
-/// The largest saved server data value, in bytes of JSON.
-pub const MAX_SERVER_VALUE_BYTES: usize = 1 << 20;
 /// The longest data name, in bytes.
 pub const MAX_NAME_BYTES: usize = 64;
+/// The most player data types (16 values of up to 64 KiB keep a player's record small).
+pub const MAX_PLAYER_TYPES: usize = 16;
+/// The largest saved player data value, in bytes of JSON.
+pub const MAX_PLAYER_VALUE_BYTES: usize = 64 << 10;
+/// The most server data types.
+pub const MAX_SERVER_TYPES: usize = 64;
+/// The largest saved server data value, in bytes of JSON.
+pub const MAX_SERVER_VALUE_BYTES: usize = 1 << 20;
 
 /// Why user data was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +184,8 @@ impl fmt::Display for JsonError {
         }
     }
 }
+
+impl std::error::Error for JsonError {}
 
 /// A buffer that refuses to grow past its limit.
 struct Capped {

@@ -90,7 +90,7 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         ),
         (0, 0, 0)
     );
-    assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
+    assert_eq!(snapshot(Path::new(FIXTURE)), before, "the source changed");
     // level.dat's spawn (no height: above the highest block), which the world keeps.
     assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
 
@@ -202,7 +202,7 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
         matches!(&err, Error::Import(import::Error::WorldExists { .. })),
         "{err:?}"
     );
-    assert!(snapshot(&data.0) == before, "the data folder changed");
+    assert_eq!(snapshot(&data.0), before, "the data folder changed");
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn one_and_many_threads_write_the_same_world_file() {
         let file = data.0.join("worlds").join(format!("{NAME}.redb"));
         files.push(std::fs::read(file).expect("the world file"));
     }
-    assert!(files[0] == files[1], "the world files differ");
+    assert_eq!(files[0], files[1], "the world files differ");
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn the_world_database_reads_the_keys_the_import_leaves_out() {
     }
     let missing = [b"actorprefix".as_slice(), &[0xff; 8]].concat();
     assert_eq!(db.get(&missing).expect("the read"), None);
-    assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
+    assert_eq!(snapshot(Path::new(FIXTURE)), before, "the source changed");
 
     let err = import::Db::open(Path::new(FIXTURE).join("missing")).expect_err("not a world");
     assert!(matches!(err, import::Error::File { .. }), "{err:?}");

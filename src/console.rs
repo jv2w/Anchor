@@ -47,7 +47,10 @@ fn read(mut input: impl BufRead, mut session: SessionInputs) {
         let (complete, more) = match read_bounded(&mut input, &mut line) {
             Ok(read) => read,
             Err(e) => {
-                warn!(error = %e, "the console cannot be read; console commands are off");
+                warn!(
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "the console cannot be read; console commands are off"
+                );
                 return;
             }
         };

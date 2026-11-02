@@ -7,28 +7,28 @@ use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::Compound;
 
-/// The ingredient slot.
-pub(in crate::tick) const INGREDIENT: usize = 0;
 /// The three bottle slots, left to right.
 pub(in crate::tick) const BOTTLES: [usize; 3] = [
     BrewingStandSlot::East.slot(),
     BrewingStandSlot::Northwest.slot(),
     BrewingStandSlot::Southwest.slot(),
 ];
-/// The fuel slot.
-pub(in crate::tick) const FUEL: usize = 4;
-/// The slots of a brewing stand.
-pub(in crate::tick) const SLOTS: usize = 5;
 /// Ticks one brew takes (PMMP `BREW_TIME_TICKS`).
 pub(in crate::tick) const BREW_TICKS: u16 = 400;
-/// Brews one blaze powder fuels (PMMP `BrewingFuelUseEvent` default).
-pub(in crate::tick) const FUEL_BREWS: u16 = 20;
 /// `ContainerSetData` keys (PMMP `PROPERTY_BREWING_STAND_*`).
 pub(in crate::tick) const DATA_BREW_TIME: i32 = 0;
 pub(in crate::tick) const DATA_FUEL_AMOUNT: i32 = 1;
 pub(in crate::tick) const DATA_FUEL_TOTAL: i32 = 2;
+/// The fuel slot.
+pub(in crate::tick) const FUEL: usize = 4;
+/// Brews one blaze powder fuels (PMMP `BrewingFuelUseEvent` default).
+pub(in crate::tick) const FUEL_BREWS: u16 = 20;
+/// The ingredient slot.
+pub(in crate::tick) const INGREDIENT: usize = 0;
 /// The slots the bottle results depend on: the ingredient, then the bottles in [`BOTTLES`] order.
 const RECIPE_SLOTS: [usize; 4] = [INGREDIENT, BOTTLES[0], BOTTLES[1], BOTTLES[2]];
+/// The slots of a brewing stand.
+pub(in crate::tick) const SLOTS: usize = 5;
 
 /// A brewing stand's timers.
 #[derive(Debug, Clone, Default)]
@@ -227,7 +227,7 @@ impl PartialEq for Brewing {
 }
 
 /// What one brewing tick did.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(in crate::tick) struct Step {
     /// Bit `i`: slot `i` changed.
     pub(in crate::tick) slots: u8,

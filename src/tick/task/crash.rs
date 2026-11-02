@@ -34,18 +34,18 @@ use crate::tick::tests::{join, settings, shared, tick};
 use crate::tick::{Output, Phase, SaveLink, Settings, Setup, State, Tasks, run};
 use crate::world::{BlockPos, ChunkPos, Flat};
 
-/// The child's environment variable naming its data folder.
-const DATA_ENV: &str = "ANCHOR_USER_CRASH_DATA";
-/// The child's environment variable: `run` keeps writing, `check` only reports.
-const MODE_ENV: &str = "ANCHOR_USER_CRASH_MODE";
-/// The prefix of the child's report lines.
-const REPORT: &str = "ANCHOR-USER";
-/// Kills, each followed by a restart that checks the file.
-const KILLS: u32 = 20;
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
-const SESSION: SessionId = SessionId::new(1);
+/// The child's environment variable naming its data folder.
+const DATA_ENV: &str = "ANCHOR_USER_CRASH_DATA";
+/// Kills, each followed by a restart that checks the file.
+const KILLS: u32 = 20;
+/// The child's environment variable: `run` keeps writing, `check` only reports.
+const MODE_ENV: &str = "ANCHOR_USER_CRASH_MODE";
 const NAME: &str = "keeper";
+/// The prefix of the child's report lines.
+const REPORT: &str = "ANCHOR-USER";
+const SESSION: SessionId = SessionId::new(1);
 
 /// What the server and the player keep: the last tick that wrote it, and how many ticks have.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

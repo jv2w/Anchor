@@ -276,6 +276,8 @@ fn axis(v: i16, shift: u32, sign: u32) -> i32 {
 mod tests {
     use super::*;
 
+    const MASK: i32 = 0x4000;
+
     fn event(p: Particle) -> (i32, i32) {
         match p.packet(Vec3::new(0.5, 1.0, 2.0)) {
             Packet::LevelEvent(e) => {
@@ -291,7 +293,6 @@ mod tests {
     // pmmp: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle, BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle, DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle, EntityFlameParticle, ExplodeParticle, FlameParticle, HappyVillagerParticle, HeartParticle, HugeExplodeParticle, HugeExplodeSeedParticle, InkParticle, InstantEnchantParticle, ItemBreakParticle, LavaDripParticle, LavaParticle, MobSpawnParticle, PortalParticle, PotionSplashParticle, RainSplashParticle, RedstoneParticle, SmokeParticle, SnowballPoofParticle, SonicExplosionParticle, SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle, Particle
     #[test]
     fn particles_send_pmmps_events_with_pmmps_numbers() {
-        const MASK: i32 = 0x4000;
         let stone = block::State::find("minecraft:stone", &[]).unwrap();
         let id = stone.network_id().cast_signed();
         let red = Rgba {

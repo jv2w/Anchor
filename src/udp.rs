@@ -20,19 +20,19 @@ use tracing::{debug, error, trace};
 
 use crate::{nethernet, raknet};
 
-/// Kernel socket buffers: a burst from go-raknet's dialer, which has no congestion control,
-/// is several MiB. Linux caps this at `net.core.rmem_max` without an error.
-const SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 /// Datagrams read from one socket before the task serves its other inputs.
 const RECV_BATCH: usize = 256;
-/// How often both drivers' timers run: RakNet ACKs, resends, pings and timeouts; NetherNet
-/// str0m timeouts, deadlines and session flags.
-pub(crate) const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 /// The receive buffer: larger than any datagram either transport accepts, so that an oversized
 /// one is seen.
 pub(crate) const RECV_BUFFER_BYTES: usize = 2048;
 const _: () = assert!(RECV_BUFFER_BYTES > raknet::MAX_DATAGRAM_BYTES);
 const _: () = assert!(RECV_BUFFER_BYTES > nethernet::MAX_DATAGRAM);
+/// Kernel socket buffers: a burst from go-raknet's dialer, which has no congestion control,
+/// is several MiB. Linux caps this at `net.core.rmem_max` without an error.
+const SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+/// How often both drivers' timers run: RakNet ACKs, resends, pings and timeouts; NetherNet
+/// str0m timeouts, deadlines and session flags.
+pub(crate) const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 
 /// A failure to open the port's sockets.
 #[derive(Debug)]

@@ -24,48 +24,22 @@ use crate::tick::Context;
 use crate::tick::survival::{MARKERS, OVERWORLD_CLOCK_NAME};
 use crate::world::{self, BlockPos, DAY, Particle, World};
 
-const HELP_HEADER: Msg = Msg::client("commands.help.header");
-/// The first line of `/help <command>`.
-const HELP_COMMAND_NAME: Msg = Msg::own("§e/{%0}");
-/// The last line of `/help <command>` for a command with other names.
-const HELP_COMMAND_ALIASES: Msg = Msg::own("§7Also: {%0}");
-const COMMAND_UNKNOWN: Msg = Msg::client("commands.generic.unknown");
-const PLAYERS_LIST: Msg = Msg::client("commands.players.list");
-const EMOTE: Msg = Msg::client("chat.type.emote");
 const ANNOUNCEMENT: Msg = Msg::client("chat.type.announcement");
-const SEED_SUCCESS: Msg = Msg::client("commands.seed.success");
-const SETWORLDSPAWN_SUCCESS: Msg = Msg::client("commands.setworldspawn.success");
-const DEFAULTGAMEMODE_SUCCESS: Msg = Msg::client("commands.defaultgamemode.success");
-const DIFFICULTY_SUCCESS: Msg = Msg::client("commands.difficulty.success");
-const CLOCK_SET: Msg = Msg::client("commands.time.clock.set");
-const CLOCK_ADDED: Msg = Msg::client("commands.time.clock.added");
-const CLOCK_TOO_SMALL: Msg = Msg::client("commands.time.clock.num.tooSmall");
-const CLOCK_MARKER_UNKNOWN: Msg = Msg::client("commands.time.clock.timemarker.failed");
-const CLOCK_UNKNOWN: Msg = Msg::client("commands.time.clock.failed");
-const CLOCK_QUERY_TIME: Msg = Msg::client("commands.time.clock.query.time");
-const CLOCK_PAUSED: Msg = Msg::client("commands.time.clock.paused");
-const CLOCK_RESUMED: Msg = Msg::client("commands.time.clock.resumed");
-const TIME_QUERY_DAYTIME: Msg = Msg::client("commands.time.query.daytime");
-const TIME_QUERY_GAMETIME: Msg = Msg::client("commands.time.query.gametime");
-const TIME_QUERY_DAY: Msg = Msg::client("commands.time.query.day");
-const PARTICLE_SUCCESS: Msg = Msg::client("commands.particle.success");
-const SAVE_START: Msg = Msg::client("commands.save.start");
+/// `backups = false`.
+const BACKUP_OFF: Msg = Msg::own("Backups are turned off on this server");
 /// PMMP has no backup command.
 const BACKUP_START: Msg =
     Msg::own("Saving and backing up the data files; the server log tells when the backup is made");
-/// `backups = false`.
-const BACKUP_OFF: Msg = Msg::own("Backups are turned off on this server");
-const SAVE_DISABLED: Msg = Msg::client("commands.save.disabled");
-const SAVE_ENABLED: Msg = Msg::client("commands.save.enabled");
-const STOP_START: Msg = Msg::client("commands.stop.start");
-/// The `/version` line: the software, its version, the Minecraft version and protocol, and the
-/// operating system.
-const VERSION_LINE: Msg = Msg::own("{%0} {%1} for Minecraft {%2} (protocol {%3}) on {%4}");
-/// The most particles one `/particle` shows: PMMP has no bound, and a count of 2^31 would stall
-/// the tick.
-const MAX_PARTICLES: i32 = 1024;
-/// The random stream that spreads `/particle`'s particles.
-const PARTICLE_SPREAD: u64 = random::tag("command-particle-spread");
+const CLOCK_ADDED: Msg = Msg::client("commands.time.clock.added");
+const CLOCK_MARKER_UNKNOWN: Msg = Msg::client("commands.time.clock.timemarker.failed");
+const CLOCK_PAUSED: Msg = Msg::client("commands.time.clock.paused");
+const CLOCK_QUERY_TIME: Msg = Msg::client("commands.time.clock.query.time");
+const CLOCK_RESUMED: Msg = Msg::client("commands.time.clock.resumed");
+const CLOCK_SET: Msg = Msg::client("commands.time.clock.set");
+const CLOCK_TOO_SMALL: Msg = Msg::client("commands.time.clock.num.tooSmall");
+const CLOCK_UNKNOWN: Msg = Msg::client("commands.time.clock.failed");
+const COMMAND_UNKNOWN: Msg = Msg::client("commands.generic.unknown");
+const DEFAULTGAMEMODE_SUCCESS: Msg = Msg::client("commands.defaultgamemode.success");
 /// BDS's `Difficulty` enum (P6; PMMP `World::getDifficultyFromString` takes the same words) and
 /// what `/difficulty` reads them as; a number is the difficulty's ID.
 const DIFFICULTIES: [(&str, Difficulty); 8] = [
@@ -78,13 +52,21 @@ const DIFFICULTIES: [(&str, Difficulty); 8] = [
     ("n", Difficulty::Normal),
     ("h", Difficulty::Hard),
 ];
-/// What `/time query` reads, as BDS 1.26.60 names it (its `TimeQuery2` enum).
-const TIME_QUERIES: [&str; 4] = ["time", "daytime", "gametime", "day"];
+const DIFFICULTY_SUCCESS: Msg = Msg::client("commands.difficulty.success");
+const EMOTE: Msg = Msg::client("chat.type.emote");
+/// The last line of `/help <command>` for a command with other names.
+const HELP_COMMAND_ALIASES: Msg = Msg::own("§7Also: {%0}");
+/// The first line of `/help <command>`.
+const HELP_COMMAND_NAME: Msg = Msg::own("§e/{%0}");
+const HELP_HEADER: Msg = Msg::client("commands.help.header");
 /// Which occurrence of a time marker `/time set <marker>` takes, `next` when left out (BDS
 /// 1.26.60's `TimeMarkerOccurrence` enum).
 const MARKER_OCCURRENCES: [&str; 3] = ["next", "previous", "stay"];
-/// The soft enum of the clocks `/time of` names (BDS 1.26.60's).
-pub(in crate::tick::command) const WORLD_CLOCKS: &str = "WorldClocks";
+/// The most particles one `/particle` shows: PMMP has no bound, and a count of 2^31 would stall
+/// the tick.
+const MAX_PARTICLES: i32 = 1024;
+/// The bytes in a MiB.
+const MIB: u64 = 1 << 20;
 /// PMMP's particle names (`ParticleCommand::getParticle`).
 const PARTICLE_NAMES: [&str; 35] = [
     "explode",
@@ -123,6 +105,26 @@ const PARTICLE_NAMES: [&str; 35] = [
     "blockdust",
     "sonicexplosion",
 ];
+/// The random stream that spreads `/particle`'s particles.
+const PARTICLE_SPREAD: u64 = random::tag("command-particle-spread");
+const PARTICLE_SUCCESS: Msg = Msg::client("commands.particle.success");
+const PLAYERS_LIST: Msg = Msg::client("commands.players.list");
+const SAVE_DISABLED: Msg = Msg::client("commands.save.disabled");
+const SAVE_ENABLED: Msg = Msg::client("commands.save.enabled");
+const SAVE_START: Msg = Msg::client("commands.save.start");
+const SEED_SUCCESS: Msg = Msg::client("commands.seed.success");
+const SETWORLDSPAWN_SUCCESS: Msg = Msg::client("commands.setworldspawn.success");
+const STOP_START: Msg = Msg::client("commands.stop.start");
+/// What `/time query` reads, as BDS 1.26.60 names it (its `TimeQuery2` enum).
+const TIME_QUERIES: [&str; 4] = ["time", "daytime", "gametime", "day"];
+const TIME_QUERY_DAY: Msg = Msg::client("commands.time.query.day");
+const TIME_QUERY_DAYTIME: Msg = Msg::client("commands.time.query.daytime");
+const TIME_QUERY_GAMETIME: Msg = Msg::client("commands.time.query.gametime");
+/// The `/version` line: the software, its version, the Minecraft version and protocol, and the
+/// operating system.
+const VERSION_LINE: Msg = Msg::own("{%0} {%1} for Minecraft {%2} (protocol {%3}) on {%4}");
+/// The soft enum of the clocks `/time of` names (BDS 1.26.60's).
+pub(in crate::tick::command) const WORLD_CLOCKS: &str = "WorldClocks";
 
 /// What one form of `/time` does, after its permission and clock are checked.
 type TimeAction = fn(&mut Context<'_>, Sender, &Args) -> Result<Output>;
@@ -792,7 +794,6 @@ fn status(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
 
 /// Writes the memory line of `/status` for `bytes` resident (0: unknown), in MiB to a tenth.
 pub(super) fn memory_line(bytes: u64) -> String {
-    const MIB: u64 = 1 << 20;
     if bytes == 0 {
         return "Memory: unknown".to_owned();
     }

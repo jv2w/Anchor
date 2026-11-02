@@ -797,8 +797,8 @@ mod tests {
             let mut rng = Random::new(seed, 0, 0);
             lucky += u32::from(drops(ore, &fortune(pickaxe, 3), &mut rng).items[0].count());
         }
-        assert_eq!(plain, 1_000);
+        assert_eq!(plain, 1000);
         // PMMP: 60% of breaks pick from 1..=4, so the mean is 1.9.
-        assert!((1_700..2_100).contains(&lucky), "{lucky}");
+        assert!((1700..2100).contains(&lucky), "{lucky}");
     }
 }

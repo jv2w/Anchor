@@ -875,7 +875,7 @@ fn a_permission_change_resends_the_command_list_after_the_spawn_window() {
     received(&mut rx[0]);
     Context { state: &mut state }.op("player1").unwrap();
     Context { state: &mut state }.op("player2").unwrap();
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     let count = |rx: &mut mpsc::Receiver<Outbound>| {
         received(rx)
             .0
@@ -886,7 +886,7 @@ fn a_permission_change_resends_the_command_list_after_the_spawn_window() {
     assert_eq!(count(&mut rx[0]), 1);
     assert_eq!(count(&mut rx[1]), 0, "its spawn window will carry the list");
     assert!(state.commands.resend.is_empty());
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(count(&mut rx[0]), 0, "sent once");
 }
 
@@ -920,16 +920,16 @@ fn op_and_deop_send_the_abilities_bds_sends() {
     };
     let operator = u32::from(Ability::OperatorCommands) | u32::from(Ability::Teleport);
     Context { state: &mut state }.op("PLAYER1").unwrap();
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     let got = abilities(&mut rx[0]);
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!((got[0].0, got[0].1), (1, 2), "BDS: operator");
     assert_eq!(got[0].2, 63 | operator, "BDS: survival values 255");
     Context { state: &mut state }.op("player1").unwrap();
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     assert!(abilities(&mut rx[0]).is_empty(), "already an operator");
     assert!(Context { state: &mut state }.deop("player1"));
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     let got = abilities(&mut rx[0]);
     assert_eq!(got, [(0, 1, 63)], "a member again");
 }
@@ -1116,7 +1116,7 @@ fn a_command_request_answers_with_command_output() {
             .map(|m| (m.success, m.message.as_str(), m.parameters.clone()))
             .collect::<Vec<_>>(),
         [
-            (true, "hello 2", vec![]),
+            (true, "hello 2", Vec::new()),
             (true, "commands.op.success", vec!["x".to_owned()])
         ]
     );
@@ -1265,7 +1265,7 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
             vec![
                 vec![joined, console(0, "/op Player1")],
                 vec![console(1, "op \"bad")],
-                vec![],
+                Vec::new(),
             ],
             rx,
         )
@@ -1353,9 +1353,9 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
             cx.add_to_whitelist("Alex").unwrap();
         }
     };
-    let (mut once, _rx) = server(vec![]);
+    let (mut once, _rx) = server(Vec::new());
     change(&mut once, 1);
-    let (mut twice, _rx2) = server(vec![]);
+    let (mut twice, _rx2) = server(Vec::new());
     change(&mut twice, 2);
     assert_eq!(
         once.hash(),
@@ -1385,7 +1385,7 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     );
     assert!(cx.state.saving.requested);
     let mut output = TickOutput::default();
-    tick(&mut once, &mut vec![], &mut output);
+    tick(&mut once, &mut Vec::new(), &mut output);
     let commit = output.answers.is_empty();
     assert!(!commit, "the change asked for a commit");
     // The snapshot carried every changed entry once; later changes go to the next one.
@@ -1396,7 +1396,7 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     assert_eq!(changes.len(), 4);
     assert!(changes.iter().all(|(_, w)| *w == AccessWrite::Delete));
     // An ended ban no longer counts, and the next ban list change drops it.
-    let (mut state, _rx) = server(vec![]);
+    let (mut state, _rx) = server(Vec::new());
     let mut cx = Context { state: &mut state };
     cx.ban(BanEntry::new("old").with_expires(2)).unwrap();
     cx.state.tick = 2;
@@ -1413,7 +1413,7 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
 
 #[test]
 fn a_snapshot_holds_the_list_changes() {
-    let (mut state, _rx) = server(vec![]);
+    let (mut state, _rx) = server(Vec::new());
     Context { state: &mut state }.op("steve").unwrap();
     let mut log = InputLog::default();
     let mut output = TickOutput::default();
@@ -1428,7 +1428,7 @@ fn a_snapshot_holds_the_list_changes() {
 
 #[test]
 fn joins_are_refused_in_pmmp_order_with_the_clients_or_anchors_messages() {
-    let (mut state, _rx) = server(vec![]);
+    let (mut state, _rx) = server(Vec::new());
     let mut someone = state.players[&SessionId::new(1)].identity.clone();
     // Another player: not the online one of the same XUID, whose own slot would count as free.
     someone.name = "Someone".to_owned();
@@ -1792,7 +1792,7 @@ fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
     cx.set_soft_enum("Tags", &["red team"]).unwrap();
     cx.set_soft_enum("Tags", &["vip", "red"]).unwrap();
     cx.set_soft_enum("Tags", &["vip", "red"]).unwrap();
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     let updates = |rx: &mut mpsc::Receiver<Outbound>| {
         received(rx)
             .0
@@ -1821,7 +1821,7 @@ fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
         invalid("Tags")
     );
     assert_eq!(listed(&state).1[0].values, ["vip", "red"]);
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     assert!(updates(&mut rx[0]).is_empty());
 }
 

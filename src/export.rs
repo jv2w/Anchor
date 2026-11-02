@@ -39,14 +39,14 @@ use crate::storage::{ChunkId, ChunkKind, ChunkPart, Key, MAIN_FILE, Place, Snaps
 use crate::tick::SPILL_ID;
 use crate::world::{Chunk, ChunkPos, Generator};
 
+/// Value bytes after which a run of a step's values, made into data blocks on one pool item,
+/// ends: a few blocks, so few blocks end short at the end of a run.
+const RUN_BYTES: usize = 4 * leveldb::BLOCK_BYTES;
 /// Most chunks read, then converted, per step: with [`STEP_BYTES`], bounds the chunk data
 /// held at once.
 const STEP: usize = 256;
 /// Read value bytes after which a step ends, if it has not reached [`STEP`] chunks.
 const STEP_BYTES: usize = 256 << 20;
-/// Value bytes after which a run of a step's values, made into data blocks on one pool item,
-/// ends: a few blocks, so few blocks end short at the end of a run.
-const RUN_BYTES: usize = 4 * leveldb::BLOCK_BYTES;
 
 /// What [`Server::export_world`](crate::Server::export_world) wrote and what it left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -59,28 +59,27 @@ pub struct Report {
 }
 
 impl Report {
-    /// Returns the number of chunks written: every chunk the world file holds.
+    /// The number of chunks written: every chunk the world file holds.
     pub fn chunks(&self) -> u64 {
         self.chunks
     }
 
-    /// Returns the number of block entities written.
+    /// The number of block entities written.
     pub fn block_entities(&self) -> u64 {
         self.block_entities
     }
 
-    /// Returns the number of entities left out: Anchor saves them in its own form.
+    /// The number of entities left out: Anchor saves them in its own form.
     pub fn entities(&self) -> u64 {
         self.entities
     }
 
-    /// Returns the number of scheduled block updates left out: Anchor saves them in its own
-    /// form.
+    /// The number of scheduled block updates left out: Anchor saves them in its own form.
     pub fn scheduled_updates(&self) -> u64 {
         self.scheduled_updates
     }
 
-    /// Returns the number of spills left out: the items of broken containers waiting to drop,
+    /// The number of spills left out: the items of broken containers waiting to drop,
     /// which Anchor saves in its own form beside the block entities.
     pub fn spills(&self) -> u64 {
         self.spills
@@ -224,7 +223,11 @@ pub(crate) fn run(
         Err(e) => {
             // The export's own folder goes whole, so a failure leaves no folder.
             if let Err(e) = std::fs::remove_dir_all(own) {
-                warn!(folder = %own.display(), error = %e, "could not remove the failed export's folder");
+                warn!(
+                    folder = %own.display(),
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "could not remove the failed export's folder"
+                );
             }
             return Err(e);
         }
@@ -280,7 +283,7 @@ fn write(
     let mut ids = ids.iter();
     while ids.len() > 0 {
         let mut step = Vec::with_capacity(ids.len().min(STEP));
-        let mut bytes = 0usize;
+        let mut bytes = 0_usize;
         while step.len() < STEP
             && bytes < STEP_BYTES
             && let Some(&id) = ids.next()
@@ -301,7 +304,7 @@ fn write(
         // The read values are done with: only their converted form is held from here on.
         drop(step);
         let mut runs: Vec<Vec<(Vec<u8>, Vec<u8>)>> = Vec::new();
-        let mut run_bytes = 0usize;
+        let mut run_bytes = 0_usize;
         for c in converted {
             let c = c?;
             report.chunks += 1;
@@ -367,7 +370,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     .map_err(written(path))
 }
 
-/// Returns what turns an I/O error of writing `path` into [`Error::Write`].
+/// What turns an I/O error of writing `path` into [`Error::Write`].
 fn written(path: &Path) -> impl Fn(io::Error) -> Error + '_ {
     move |source| Error::Write {
         path: path.to_path_buf(),
@@ -406,7 +409,7 @@ fn convert(
     })
 }
 
-/// Returns whether the saved block entity entry `nbt` is a spill, which only Anchor reads.
+/// Whether the saved block entity entry `nbt` is a spill, which only Anchor reads.
 fn is_spill(nbt: &Compound) -> bool {
     matches!(nbt.get("id"), Some(Value::String(id)) if id == SPILL_ID)
 }

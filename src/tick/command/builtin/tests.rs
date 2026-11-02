@@ -27,65 +27,6 @@ use crate::tick::tests::{initialised, radius, received, tick};
 use crate::tick::{Context, Output as TickOutput, State, save};
 use crate::world::BlockPos;
 
-/// The clock `/time` names: every world's.
-const CLOCK: &str = "minecraft:overworld";
-/// `/time`'s answer when a clock would go below 0.
-const CLOCK_TOO_SMALL: &str = "commands.time.clock.num.tooSmall";
-/// BDS 1.26.60's overloads of the commands Anchor shares with it, from the `AvailableCommands`
-/// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
-/// optional parameter, `soft:` for a soft enum.
-const BDS_OVERLOADS: [&str; 50] = [
-    "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
-    "deop player=target",
-    "difficulty difficulty=enum:Difficulty",
-    "difficulty difficulty=int",
-    "effect player=target Mode=enum:ClearEffects effect=enum:Effect?",
-    "effect player=target effect=enum:Effect seconds=int? amplifier=int? hideParticles=enum:Boolean?",
-    "effect player=target effect=enum:Effect Mode=enum:AddInfiniteEffect amplifier=int? hideParticles=enum:Boolean?",
-    "enchant player=target enchantmentName=enum:Enchant level=int?",
-    "enchant player=target enchantmentId=int level=int?",
-    "gamemode gameMode=enum:GameMode player=target?",
-    "gamemode gameMode=int player=target?",
-    "give player=target itemName=enum:Item amount=int? data=int? components=json?",
-    "kick name=target reason=message",
-    "kill target=target?",
-    "list",
-    "me message=message",
-    "op player=target",
-    "say message=message",
-    "setworldspawn spawnPoint=position?",
-    "spawnpoint player=target? spawnPos=position?",
-    "stop",
-    "tell target=target message=message",
-    "teleport destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "teleport destination=target",
-    "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "time mode=enum:TimeModeAdd amount=int",
-    "time mode=enum:TimeModeSet amount=int",
-    "time mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
-    "time mode=enum:TimeModeQuery time=enum:TimeQuery2",
-    "time mode=enum:TimeModePause",
-    "time mode=enum:TimeModeResume",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeAdd amount=int",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet amount=int",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeQuery clockQuery=enum:ClockTimeQuery",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModePause",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeResume",
-    "title player=target clear=enum:TitleClear",
-    "title player=target reset=enum:TitleReset",
-    "title player=target titleLocation=enum:TitleSet titleText=message",
-    "title player=target times=enum:TitleTimes fadeIn=int stay=int fadeOut=int",
-    "xp amount=int player=target?",
-    "xp amount=suffix:l player=target?",
-];
 /// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
 const BDS_ENUMS: [(&str, &[&str]); 20] = [
     ("AddInfiniteEffect", &["infinite"]),
@@ -213,8 +154,67 @@ const BDS_ENUMS: [(&str, &[&str]); 20] = [
     ("TitleSet", &["title", "subtitle", "actionbar"]),
     ("TitleTimes", &["times"]),
 ];
+/// BDS 1.26.60's overloads of the commands Anchor shares with it, from the `AvailableCommands`
+/// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
+/// optional parameter, `soft:` for a soft enum.
+const BDS_OVERLOADS: [&str; 50] = [
+    "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
+    "deop player=target",
+    "difficulty difficulty=enum:Difficulty",
+    "difficulty difficulty=int",
+    "effect player=target Mode=enum:ClearEffects effect=enum:Effect?",
+    "effect player=target effect=enum:Effect seconds=int? amplifier=int? hideParticles=enum:Boolean?",
+    "effect player=target effect=enum:Effect Mode=enum:AddInfiniteEffect amplifier=int? hideParticles=enum:Boolean?",
+    "enchant player=target enchantmentName=enum:Enchant level=int?",
+    "enchant player=target enchantmentId=int level=int?",
+    "gamemode gameMode=enum:GameMode player=target?",
+    "gamemode gameMode=int player=target?",
+    "give player=target itemName=enum:Item amount=int? data=int? components=json?",
+    "kick name=target reason=message",
+    "kill target=target?",
+    "list",
+    "me message=message",
+    "op player=target",
+    "say message=message",
+    "setworldspawn spawnPoint=position?",
+    "spawnpoint player=target? spawnPos=position?",
+    "stop",
+    "tell target=target message=message",
+    "teleport destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=target",
+    "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "time mode=enum:TimeModeAdd amount=int",
+    "time mode=enum:TimeModeSet amount=int",
+    "time mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
+    "time mode=enum:TimeModeQuery time=enum:TimeQuery2",
+    "time mode=enum:TimeModePause",
+    "time mode=enum:TimeModeResume",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeAdd amount=int",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet amount=int",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeQuery clockQuery=enum:ClockTimeQuery",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModePause",
+    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeResume",
+    "title player=target clear=enum:TitleClear",
+    "title player=target reset=enum:TitleReset",
+    "title player=target titleLocation=enum:TitleSet titleText=message",
+    "title player=target times=enum:TitleTimes fadeIn=int stay=int fadeOut=int",
+    "xp amount=int player=target?",
+    "xp amount=suffix:l player=target?",
+];
 /// BDS's values of the soft enums of [`BDS_OVERLOADS`] when a player joins, from the same packet.
 const BDS_SOFT_ENUMS: [(&str, &[&str]); 1] = [("WorldClocks", &["minecraft:overworld"])];
+/// The clock `/time` names: every world's.
+const CLOCK: &str = "minecraft:overworld";
+/// `/time`'s answer when a clock would go below 0.
+const CLOCK_TOO_SMALL: &str = "commands.time.clock.num.tooSmall";
 
 /// A key and its parameters.
 type Said = (String, Vec<String>);
@@ -244,7 +244,7 @@ fn ok(state: &mut State, sender: Sender, line: &str) -> Vec<String> {
 
 #[test]
 fn every_builtin_registers_and_users_replace_or_drop_them() {
-    let (state, _rx) = server(vec![]);
+    let (state, _rx) = server(Vec::new());
     let mut names: Vec<&str> = state.commands.list.iter().map(Command::name).collect();
     assert_eq!(
         names.len(),
@@ -278,7 +278,7 @@ fn every_builtin_registers_and_users_replace_or_drop_them() {
 // pmmp: Command::setPermissions, Command::getPermissions
 #[test]
 fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() {
-    let (mut state, _rx) = server(vec![]);
+    let (mut state, _rx) = server(Vec::new());
     let s2 = SessionId::new(2);
     let packet = available_commands(state.commands.listing(), s2, &state.players[&s2]);
     let Packet::AvailableCommands(p) = &packet else {
@@ -356,7 +356,7 @@ fn is_refused(result: &command::Result<Output>) -> bool {
 
 /// Builds a server with player 1 an operator and player 2 not.
 fn with_op() -> (State, Vec<mpsc::Receiver<Outbound>>) {
-    let (mut state, rx) = server(vec![]);
+    let (mut state, rx) = server(Vec::new());
     Context { state: &mut state }.op("player1").unwrap();
     (state, rx)
 }
@@ -368,7 +368,7 @@ fn chat(
     rx: &mut mpsc::Receiver<Outbound>,
 ) -> (Vec<(String, Vec<String>)>, Option<Packet>) {
     let mut output = TickOutput::default();
-    tick(state, &mut vec![], &mut output);
+    tick(state, &mut Vec::new(), &mut output);
     let (packets, last, _) = received(rx);
     let texts = packets
         .into_iter()
@@ -389,14 +389,14 @@ fn op_and_deop_change_the_list_tell_the_player_and_copy_operators() {
     assert_eq!(ok(&mut state, id(1), "op Player2"), ["commands.op.success"]);
     assert!(Context { state: &mut state }.is_op("player2"));
     let (to2, _) = chat(&mut state, &mut rx[1]);
-    assert_eq!(to2[0], ("§b%commands.op.message".to_owned(), vec![]));
+    assert_eq!(to2[0], ("§b%commands.op.message".to_owned(), Vec::new()));
     assert_eq!(
         ok(&mut state, Sender::Console, "deop player2"),
         ["commands.deop.success"]
     );
     assert!(!Context { state: &mut state }.is_op("player2"));
     let (to2, _) = chat(&mut state, &mut rx[1]);
-    assert_eq!(to2, [("§b%commands.deop.message".to_owned(), vec![])]);
+    assert_eq!(to2, [("§b%commands.deop.message".to_owned(), Vec::new())]);
     // Player 1, an operator, got a copy of the console's result, not of its own.
     let (to1, _) = chat(&mut state, &mut rx[0]);
     assert_eq!(
@@ -422,7 +422,11 @@ fn senders_have_names_get_messages_and_operators_get_copies() {
     cx.send_to(id(9), raw("nobody")).unwrap();
     cx.broadcast_command_message(id(2), "did it").unwrap();
     let (to2, _) = chat(&mut state, &mut rx[1]);
-    assert_eq!(to2, [("hi".to_owned(), vec![])], "no copy for the sender");
+    assert_eq!(
+        to2,
+        [("hi".to_owned(), Vec::new())],
+        "no copy for the sender"
+    );
     let (to1, _) = chat(&mut state, &mut rx[0]);
     assert_eq!(
         to1,
@@ -615,7 +619,7 @@ fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
             e.cancel();
         },
     );
-    let (mut state, _rx) = server_with(vec![], listeners);
+    let (mut state, _rx) = server_with(Vec::new(), listeners);
     Context { state: &mut state }.op("player2").unwrap();
     let start = player(&state, 2).position();
     // PMMP's success lines come before the listeners decide.
@@ -655,7 +659,7 @@ fn a_command_on_several_players_acts_on_all_of_them_or_none() {
 
 #[test]
 fn gamemode_changes_players_and_needs_the_permission_for_others() {
-    let (mut state, mut rx) = server(vec![]);
+    let (mut state, mut rx) = server(Vec::new());
     let player1 = crate::player::Id::new(SessionId::new(1));
     Context { state: &mut state }.set_permission(player1, permission::COMMAND_GAMEMODE_SELF, true);
     assert_eq!(
@@ -716,7 +720,7 @@ fn messages_to_the_players_acted_on_are_bds_raw_text() {
     assert!(to1.contains(&(format!("{moved}\n"), Vec::new())), "{to1:?}");
     let packets = {
         ok(&mut state, id(1), "give @s stone 1");
-        tick(&mut state, &mut vec![], &mut TickOutput::default());
+        tick(&mut state, &mut Vec::new(), &mut TickOutput::default());
         received(&mut rx[0]).0
     };
     assert!(packets.iter().any(|p| matches!(
@@ -923,7 +927,7 @@ fn effect_raises_the_effect_events_and_their_listeners_decide() {
             }
         },
     );
-    let (mut state, _rx) = server_with(vec![], listeners);
+    let (mut state, _rx) = server_with(Vec::new(), listeners);
     let has = |state: &State, t: effect::Type| player(state, 1).has_effect(t);
     ok(&mut state, Sender::Console, "effect player1 speed 10");
     assert!(!has(&state, effect::Type::Speed), "the add was cancelled");
@@ -1265,7 +1269,7 @@ fn the_world_age_goes_on_while_the_clock_is_paused_or_moved() {
     answer(&mut state, "time pause").unwrap();
     let (time, age) = (state.worlds[0].time_ticks(), state.worlds[0].age_ticks());
     for _ in 0..3 {
-        tick(&mut state, &mut vec![], &mut TickOutput::default());
+        tick(&mut state, &mut Vec::new(), &mut TickOutput::default());
     }
     assert_eq!(state.worlds[0].time_ticks(), time);
     assert_eq!(state.worlds[0].age_ticks(), age + 3);
@@ -1291,7 +1295,7 @@ fn add_arena(state: &mut State) -> crate::world::Id {
 
 /// Runs a tick and collects the clock states (time, paused) of each `SyncWorldClocks` `rx` got.
 fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<(i32, bool)>> {
-    tick(state, &mut vec![], &mut TickOutput::default());
+    tick(state, &mut Vec::new(), &mut TickOutput::default());
     received(rx)
         .0
         .into_iter()
@@ -1529,7 +1533,7 @@ fn title_shows_each_kind_and_needs_the_permission_for_others() {
         );
     }
     let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     let titles: Vec<(i32, String, i32)> = received(&mut rx[1])
         .0
         .into_iter()
@@ -1806,7 +1810,7 @@ fn two_particle_runs_in_one_tick_spread_apart() {
         &mut output,
     );
     for _ in 0..3 {
-        tick(&mut state, &mut vec![], &mut output);
+        tick(&mut state, &mut Vec::new(), &mut output);
     }
     let spread = |state: &mut State| {
         let before = player(state, 1).outbox.len();
@@ -1891,8 +1895,8 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
     let (mut state, _rx) = with_op();
     // The commit `op` asked for is taken and answered.
     let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![], &mut output);
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(
         ok(&mut state, id(1), "save-off"),
         ["commands.save.disabled"]
@@ -1906,8 +1910,8 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
     assert!(save::snapshot(&mut state, &mut log, false).is_some());
     let mut state = with_op().0;
     let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![], &mut output);
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     ok(&mut state, Sender::Console, "save-off");
     assert_eq!(
         ok(&mut state, Sender::Console, "save-on"),
@@ -1924,8 +1928,8 @@ fn backup_is_for_operators_and_backs_up_after_the_next_save() {
     let (mut state, _rx) = with_op();
     // The commit `op` asked for is taken and answered.
     let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![], &mut output);
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(
         permission::COMMAND_BACKUP.default(),
         permission::Default::Op
@@ -1951,8 +1955,8 @@ fn check_is_for_operators_one_at_a_time_and_tells_who_asked() {
     let (mut state, mut rx) = with_op();
     // The commit `op` asked for is taken and answered.
     let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![], &mut output);
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(permission::COMMAND_CHECK.default(), permission::Default::Op);
     assert!(is_refused(&run(&mut state, id(2), "check")));
     assert_eq!(
@@ -1985,7 +1989,7 @@ fn check_is_for_operators_one_at_a_time_and_tells_who_asked() {
             "Data file check found 1 damaged of 9 stored values (first: table chunks: a stored \
              value does not match its checksum); the server log has the details"
                 .to_owned(),
-            vec![]
+            Vec::new()
         )]
     );
     // The next check may start; its result goes to the console, and a result nobody waits for
@@ -2008,8 +2012,8 @@ fn backup_is_refused_without_backups() {
     let (mut state, _rx) = with_op();
     // The commit `op` asked for is taken and answered.
     let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![], &mut output);
-    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
+    tick(&mut state, &mut Vec::new(), &mut output);
     state.settings.backups = false;
     assert_eq!(
         fails(&mut state, Sender::Console, "backup"),
@@ -2035,7 +2039,7 @@ fn transferserver_sends_the_sending_player_only() {
     let Some(Packet::Transfer(t)) = last else {
         panic!("{last:?}");
     };
-    assert_eq!((t.address.as_str(), t.port), ("example.com", 19132));
+    assert_eq!((t.address.as_str(), t.port), ("example.com", 19_132));
 }
 
 /// Writes the record form of the overloads of an `AvailableCommands`: `command name=type ...`.
@@ -2089,7 +2093,7 @@ fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
 
 #[test]
 fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
-    let (mut state, _rx) = server(vec![]);
+    let (mut state, _rx) = server(Vec::new());
     let s1 = SessionId::new(1);
     Context { state: &mut state }.op("player1").unwrap();
     let packet = available_commands(state.commands.listing(), s1, &state.players[&s1]);

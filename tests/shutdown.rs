@@ -22,21 +22,21 @@ use anchor::config::{IntegrityCheck, LogLevel};
 use anchor::world::{BlockPos, ChunkPos};
 use anchor::{Config, Server};
 
+/// The child gives up after this many ticks, so a lost parent leaves no process behind.
+const CHILD_TICKS: u64 = 1200;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_SHUTDOWN_DATA";
+/// The data files a run writes.
+const FILES: [&str; 3] = ["main.redb", "players.redb", "world.redb"];
+/// The debug line of a start that found a file's normal-stop mark and so skipped its check.
+const MARKED: &str = "data file closed normally; its integrity is not checked";
+/// Where the marker goes: in the spawn chunk, always loaded.
+const MARKER: BlockPos = BlockPos::new(3, -60, 3);
 /// The child's environment variable: `place` puts the marker and waits for `stop`, `check`
 /// reports whether the marker is there and stops itself.
 const MODE_ENV: &str = "ANCHOR_SHUTDOWN_MODE";
 /// The prefix of the child's report line.
 const REPORT: &str = "ANCHOR-SHUTDOWN";
-/// Where the marker goes: in the spawn chunk, always loaded.
-const MARKER: BlockPos = BlockPos::new(3, -60, 3);
-/// The child gives up after this many ticks, so a lost parent leaves no process behind.
-const CHILD_TICKS: u64 = 1200;
-/// The data files a run writes.
-const FILES: [&str; 3] = ["main.redb", "players.redb", "world.redb"];
-/// The debug line of a start that found a file's normal-stop mark and so skipped its check.
-const MARKED: &str = "data file closed normally; its integrity is not checked";
 
 fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()

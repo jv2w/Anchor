@@ -14,16 +14,6 @@ use crate::event::{Actor, EntityTrampleFarmland, FarmlandHydrationChange, Leaves
 use crate::random::Random;
 use crate::world::BlockPos;
 
-/// PMMP `FillableCauldron::MAX_FILL_LEVEL`.
-pub(in crate::tick) const CAULDRON_FULL: i32 = 6;
-/// How far the rules that read only the blocks next to a block reach.
-const NEIGHBOURS: i32 = 1;
-/// The bounds of frosted ice's delay to its next check (PMMP `mt_rand(20, 40)`).
-const MIN_FROSTED_ICE_DELAY_TICKS: u32 = 20;
-const MAX_FROSTED_ICE_DELAY_TICKS: u32 = 40;
-/// The bounds of living coral's delay to its water check (PMMP `mt_rand(40, 200)`).
-const MIN_CORAL_DELAY_TICKS: u32 = 40;
-const MAX_CORAL_DELAY_TICKS: u32 = 200;
 /// The amethyst growth stages, by Bedrock name.
 const AMETHYST_STAGES: [&str; 4] = [
     "minecraft:small_amethyst_bud",
@@ -31,6 +21,18 @@ const AMETHYST_STAGES: [&str; 4] = [
     "minecraft:large_amethyst_bud",
     "minecraft:amethyst_cluster",
 ];
+/// PMMP `FillableCauldron::MAX_FILL_LEVEL`.
+pub(in crate::tick) const CAULDRON_FULL: i32 = 6;
+/// The upper bound of living coral's delay to its water check (PMMP `mt_rand(40, 200)`).
+const MAX_CORAL_DELAY_TICKS: u32 = 200;
+/// The upper bound of frosted ice's delay to its next check (PMMP `mt_rand(20, 40)`).
+const MAX_FROSTED_ICE_DELAY_TICKS: u32 = 40;
+/// The lower bound of living coral's delay to its water check.
+const MIN_CORAL_DELAY_TICKS: u32 = 40;
+/// The lower bound of frosted ice's delay to its next check.
+const MIN_FROSTED_ICE_DELAY_TICKS: u32 = 20;
+/// How far the rules that read only the blocks next to a block reach.
+const NEIGHBOURS: i32 = 1;
 
 /// Runs PMMP's `Grass::onRandomTick`: grass in the dark under a light filter dies; in the light
 /// it spreads to plain dirt nearby. Both are spreads, as in PMMP.
@@ -412,10 +414,10 @@ pub(super) fn oxidize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if rng.unit() > 64.0 / 1125.0 {
         return;
     }
-    let (mut all, mut higher) = (0u32, 0u32);
-    for x in -4i32..=4 {
-        for y in -4i32..=4 {
-            for z in -4i32..=4 {
+    let (mut all, mut higher) = (0_u32, 0_u32);
+    for x in -4_i32..=4 {
+        for y in -4_i32..=4 {
+            for z in -4_i32..=4 {
                 if (x == 0 && y == 0 && z == 0) || x.abs() + y.abs() + z.abs() > 4 {
                     continue;
                 }

@@ -35,16 +35,16 @@ const BUILD_FILES: &[&str] = &[
     ".rustfmt.toml",
     "rust-toolchain.toml",
 ];
-/// The macros that include a file, each followed by its path.
-const INCLUDE_MACROS: [&str; 2] = ["include_bytes!(", "include_str!("];
 /// The tokens of an include path from the crate folder, before its `"/…"` literal.
 const FROM_CRATE: [&str; 5] = ["concat!(", "env!(", "\"CARGO_MANIFEST_DIR\"", ")", ","];
+/// The macros that include a file, each followed by its path.
+const INCLUDE_MACROS: [&str; 2] = ["include_bytes!(", "include_str!("];
+/// The stamp of the last pass.
+const PASS: &str = "target/check/pass";
 /// The attribute that names a module's file, followed by `= "<path>"`.
 const PATH_ATTRIBUTE: &str = "#[path";
 /// The build directory under `target/`.
 const TARGET: &str = "check";
-/// The stamp of the last pass.
-const PASS: &str = "target/check/pass";
 
 /// The files the Rust sources pull in, each with the sources that pull it in, as repository
 /// paths.

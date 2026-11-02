@@ -376,13 +376,13 @@ pub(crate) struct FurnaceJson {
 /// The names of `list` as indices into `names`, as a bit set; fails on an unknown name or more
 /// than 64 names.
 pub(crate) fn bit_set(list: &[String], names: &[&str], what: &str) -> R<u64> {
-    let mut bits = 0u64;
+    let mut bits = 0_u64;
     for name in list {
         let at = names
             .iter()
             .position(|n| n == name)
             .ok_or_else(|| format!("unknown {what} {name}"))?;
-        bits |= 1u64
+        bits |= 1_u64
             .checked_shl(u32::try_from(at).map_err(|_| "bit index")?)
             .ok_or_else(|| format!("more than 64 {what}s"))?;
     }
@@ -421,7 +421,7 @@ mod tests {
             0.6,
             &[],
             &["none", "none", "full", "none", "none", "full"].map(str::to_owned),
-            vec![],
+            Vec::new(),
         )
         .unwrap();
         // North (index 2) is bit 1, east (index 5) bit 2.

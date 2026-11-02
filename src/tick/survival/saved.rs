@@ -22,41 +22,25 @@ use crate::math::to_f32;
 use crate::nbt::{Compound, List, Value};
 use crate::world::BlockPos;
 
+const ABSORPTION: &str = "AbsorptionAmount";
+const AIR: &str = "Air";
+const DEATH: [&str; 3] = ["DeathPositionX", "DeathPositionY", "DeathPositionZ"];
+const DEATH_WORLD: &str = "DeathLevel";
+const EFFECTS: &str = "ActiveEffects";
+const EXHAUSTION: &str = "foodExhaustionLevel";
+const FALL: &str = "FallDistance";
+const FIRE: &str = "Fire";
+const FIRST_PLAYED: &str = "firstPlayed";
+const FOOD: &str = "foodLevel";
+const FOOD_TIMER: &str = "foodTickTimer";
 const GAME_MODE: &str = "playerGameType";
 const HEALTH: &str = "Health";
-const ABSORPTION: &str = "AbsorptionAmount";
-const FOOD: &str = "foodLevel";
-const SATURATION: &str = "foodSaturationLevel";
-const EXHAUSTION: &str = "foodExhaustionLevel";
-const FOOD_TIMER: &str = "foodTickTimer";
-const XP_LEVEL: &str = "XpLevel";
-const XP_PROGRESS: &str = "XpP";
-const XP_TOTAL: &str = "XpTotal";
-const XP_SEED: &str = "XpSeed";
-const EFFECTS: &str = "ActiveEffects";
-const FIRE: &str = "Fire";
-const AIR: &str = "Air";
-const FALL: &str = "FallDistance";
-const SPAWN_WORLD: &str = "SpawnLevel";
-const SPAWN: [&str; 3] = ["SpawnX", "SpawnY", "SpawnZ"];
-const DEATH_WORLD: &str = "DeathLevel";
-const DEATH: [&str; 3] = ["DeathPositionX", "DeathPositionY", "DeathPositionZ"];
-const SLEEPING: &str = "SleepingPos";
 const HELD_BACK: &str = "PendingDeathDrops";
-const FIRST_PLAYED: &str = "firstPlayed";
 const LAST_PLAYED: &str = "lastPlayed";
-
-/// The most falling distance kept (a longer fall kills anyway).
-const MAX_FALL: f64 = 4096.0;
 /// The most effects read: one per effect type.
 const MAX_EFFECTS: usize = crate::effect::TYPE_COUNT;
-
-/// The protocol's game type of a game mode as the packets carry it (`UpdatePlayerGameType`,
-/// `StartGame`).
-pub(in crate::tick) fn game_mode_id(mode: GameMode) -> i32 {
-    i32::from(mode.game_type())
-}
-
+/// The most falling distance kept (a longer fall kills anyway).
+const MAX_FALL: f64 = 4096.0;
 /// The saved IDs of the game modes (PMMP `GameModeIdMap`), for saving and loading. Spectator is 3
 /// here, unlike the protocol's game type.
 const SAVED_MODES: [(GameMode, i32); 4] = [
@@ -65,6 +49,20 @@ const SAVED_MODES: [(GameMode, i32); 4] = [
     (GameMode::Adventure, 2),
     (GameMode::Spectator, 3),
 ];
+const SATURATION: &str = "foodSaturationLevel";
+const SLEEPING: &str = "SleepingPos";
+const SPAWN: [&str; 3] = ["SpawnX", "SpawnY", "SpawnZ"];
+const SPAWN_WORLD: &str = "SpawnLevel";
+const XP_LEVEL: &str = "XpLevel";
+const XP_PROGRESS: &str = "XpP";
+const XP_SEED: &str = "XpSeed";
+const XP_TOTAL: &str = "XpTotal";
+
+/// The protocol's game type of a game mode as the packets carry it (`UpdatePlayerGameType`,
+/// `StartGame`).
+pub(in crate::tick) fn game_mode_id(mode: GameMode) -> i32 {
+    i32::from(mode.game_type())
+}
 
 /// The saved ID of a game mode.
 #[expect(
@@ -315,6 +313,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::effect::{MAX_DURATION, Type as Effect};
     use crate::tick::extra::hash_nbt;
 

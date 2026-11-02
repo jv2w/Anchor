@@ -416,7 +416,7 @@ fn malformed_sub_chunks_are_errors() {
     assert!(bad(huge_count).to_string().contains("ends early"));
     // The error names the key, with the sub-chunk's y.
     assert_eq!(
-        faulty_key(decode(&entries(42, &[(&[SUB_CHUNK, 0xfd], vec![])]))),
+        faulty_key(decode(&entries(42, &[(&[SUB_CHUNK, 0xfd], Vec::new())]))),
         ("SubChunkPrefix", "03000000feffffff2ffd".to_owned())
     );
 }
@@ -462,7 +462,7 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
         &[
             (&[LEGACY_TERRAIN], terrain.clone()),
             (&[SUB_CHUNK, 0], vec![0]),
-            (&[0x2d], vec![]),
+            (&[0x2d], Vec::new()),
         ],
     );
     let raw = decode(&e).unwrap();

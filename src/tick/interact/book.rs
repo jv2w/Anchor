@@ -20,21 +20,21 @@ use crate::protocol::consts::BookAction as Action;
 use crate::protocol::packet::BookEdit;
 use crate::tick::{SessionId, State, dispatch, inventory};
 
+/// The NBT keys of a book (PMMP `WritableBookBase::TAG_*`, `WrittenBook::TAG_*`).
+const AUTHOR: &str = "author";
+const GENERATION: &str = "generation";
+/// The most characters in a title, and in an author (PMMP `handleBookEdit`; vanilla has no
+/// author limit, PMMP's is 256).
+const MAX_AUTHOR_CHARS: usize = 256;
+/// The most characters on a page (PMMP `PAGE_LENGTH_SOFT_LIMIT_CHARS`).
+const MAX_PAGE_CHARS: usize = 512;
 /// The most pages a player may give a book (PMMP `handleBookEdit`; a book that has more, made by
 /// code, may still be edited without growing).
 const MAX_PAGES: usize = 50;
-/// The most characters on a page (PMMP `PAGE_LENGTH_SOFT_LIMIT_CHARS`).
-const MAX_PAGE_CHARS: usize = 512;
-/// The most characters in a title, and in an author (PMMP `handleBookEdit`; vanilla has no
-/// author limit, PMMP's is 256).
 const MAX_TITLE_CHARS: usize = 16;
-const MAX_AUTHOR_CHARS: usize = 256;
-/// The NBT keys of a book (PMMP `WritableBookBase::TAG_*`, `WrittenBook::TAG_*`).
 pub(in crate::tick) const PAGES: &str = "pages";
-const TEXT: &str = "text";
 const PHOTO: &str = "photoname";
-const GENERATION: &str = "generation";
-const AUTHOR: &str = "author";
+const TEXT: &str = "text";
 const TITLE: &str = "title";
 
 /// A page (PMMP `WritableBookPage`).
@@ -173,13 +173,13 @@ fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>
     Some((action, with_pages(old, pages)?, modified))
 }
 
-/// Returns a page's text, cleaned (PMMP `TextFormat::clean` keeping colours); `None` over 512
+/// A page's text, cleaned (PMMP `TextFormat::clean` keeping colours); `None` over 512
 /// characters.
 fn page_text(text: &str) -> Option<String> {
     limited(text, MAX_PAGE_CHARS)
 }
 
-/// Returns `text` cleaned, if it has at most `max` characters.
+/// The `text` cleaned, if it has at most `max` characters.
 fn limited(text: &str, max: usize) -> Option<String> {
     let cleaned = clean(text);
     (cleaned.chars().count() <= max).then_some(cleaned)
@@ -214,7 +214,7 @@ pub(in crate::tick) fn page_count(book: &Stack) -> usize {
     }
 }
 
-/// Returns the `pages` list of `pages` (PMMP `WritableBookBase::serializeCompoundTag`); `None`
+/// The `pages` list of `pages` (PMMP `WritableBookBase::serializeCompoundTag`); `None`
 /// for none.
 fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
     (!pages.is_empty()).then(|| {
@@ -231,7 +231,7 @@ fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
     })
 }
 
-/// Returns `book` with `pages` and its other data as it was; `None` over the stack limits. The
+/// The `book` with `pages` and its other data as it was; `None` over the stack limits. The
 /// old pages are left out of the copy, as the new ones replace them.
 fn with_pages(book: &Stack, pages: Vec<Page>) -> Option<Stack> {
     let mut extra = book.extra().map_or_else(Extra::default, |old| Extra {

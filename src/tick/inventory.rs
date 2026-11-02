@@ -72,56 +72,98 @@ use crate::save::WorldIndex;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::world::BlockPos;
 
-/// Main inventory slots: the hotbar (0–8) and the 27 above it.
-const MAIN: usize = 36;
-/// Hotbar slots.
-const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
+const ANVIL: [Part; 2] = [
+    part(ContainerId::AnvilInput, UI_ANVIL, 1, Store::Ui(0)),
+    part(ContainerId::AnvilMaterial, UI_ANVIL + 1, 1, Store::Ui(1)),
+];
 /// Armour slots: helmet, chestplate, leggings, boots.
 const ARMOR: usize = 4;
-/// The slots a player carries items in: the main slots, armour and the off hand.
-pub(super) const CARRIED: usize = MAIN + ARMOR + 1;
 /// Slots of the armour window the client takes (the fifth is a mount's body slot).
 const ARMOR_WINDOW: usize = 5;
-/// Slots of the 2x2 crafting grid.
-const GRID: usize = 4;
-/// Ender chest slots.
-const ENDER: usize = crate::inventory::Kind::EnderChest.size();
-/// Slots of the UI window (124): the cursor at 0, the 2x2 grid at 28–31, the 3x3 grid at 32–40,
-/// the created output at 50.
-const UI_SLOTS: usize = 54;
-/// The first UI slot of the 2x2 crafting grid.
-const UI_GRID: u8 = 28;
-/// The first UI slot of the 3x3 crafting grid.
-const UI_TABLE: u8 = 32;
-/// The UI slot of the created output (container 60).
-const UI_CREATED_OUTPUT: u8 = 50;
-/// The inventory and off hand window IDs as the byte `MobEquipment` and `PlayerHotBar` carry.
-pub(super) const INVENTORY_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_INVENTORY);
-pub(super) const OFF_HAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
-/// UI slots of the station windows (PMMP `UIInventorySlotOffset`).
-const UI_ANVIL: u8 = 1;
-const UI_STONECUTTER: u8 = 3;
-const UI_TRADE: u8 = 4;
-const UI_LOOM: u8 = 9;
-const UI_ENCHANTING: u8 = 14;
-const UI_BEACON: u8 = 27;
-const UI_SMITHING: u8 = 51;
+const BARREL: [Part; 1] = [block_part(ContainerId::Barrel, 0, CHEST_SLOTS)];
+const BEACON: [Part; 1] = [part(ContainerId::BeaconPayment, UI_BEACON, 1, Store::Ui(0))];
+const BLAST_FURNACE: [Part; 3] = furnace_parts(ContainerId::BlastFurnaceIngredient);
+/// A brewing stand: the ingredient, the three bottles, the fuel (PMMP `BrewingStandInventory`).
+const BREWING_STAND: [Part; 3] = [
+    block_part(
+        ContainerId::BrewingStandInput,
+        block_entity::BREWING_INGREDIENT,
+        1,
+    ),
+    block_part(
+        ContainerId::BrewingStandResult,
+        block_entity::BREWING_BOTTLES[0],
+        block_entity::BREWING_BOTTLES.len(),
+    ),
+    block_part(ContainerId::BrewingStandFuel, block_entity::BREWING_FUEL, 1),
+];
+/// The slots a player carries items in: the main slots, armour and the off hand.
+pub(super) const CARRIED: usize = MAIN + ARMOR + 1;
+const CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, CHEST_SLOTS)];
 /// The type a server answers a window close with (PMMP `WindowTypes::NONE`, -9; P6).
 const CONTAINER_TYPE_NONE: u8 = 247;
-/// PMMP `ContainerIds::FIRST` and `LAST`: window IDs run from 2 to 99, then 1.
-const WINDOW_FIRST: u8 = 1;
-const WINDOW_LAST: u8 = 100;
-/// The window ID a client closes "the last window" with (-1).
-const WINDOW_NONE: u8 = 255;
-/// Request IDs remembered per player to refuse a repeat; clients number requests -1, -3, -5…,
-/// so a repeat within this many is a replay, not a new request.
-const RECENT_REQUESTS: usize = 256;
-/// Windows do not open while more than this many stacks wait for room less [`MAX_GIVE_BACK`]
-/// (the waiting list leaves room for what a window may hold).
-const MAX_PENDING: usize = 64;
+const DOUBLE_CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, 2 * CHEST_SLOTS)];
+/// Where a player drops items, below its eyes: the tick keeps the eye position, so the drop
+/// point is [`DROP_HEIGHT`] above the feet, 0.32 below the eyes.
+const DROP_BELOW_EYE: f64 = 0.32;
+/// How high above the feet PMMP `Player::dropItem` drops an item.
+const DROP_HEIGHT: f64 = 1.3;
+const _: () = assert!((survival::EYE_HEIGHT - DROP_HEIGHT - DROP_BELOW_EYE).abs() < 1e-9);
+const ENCHANTING: [Part; 2] = [
+    part(ContainerId::EnchantingInput, UI_ENCHANTING, 1, Store::Ui(0)),
+    part(
+        ContainerId::EnchantingMaterial,
+        UI_ENCHANTING + 1,
+        1,
+        Store::Ui(1),
+    ),
+];
+/// Ender chest slots.
+const ENDER: usize = crate::inventory::Kind::EnderChest.size();
+const ENDER_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, byte(ENDER), Store::Ender)];
+const FURNACE: [Part; 3] = furnace_parts(ContainerId::FurnaceIngredient);
+/// Slots of the 2x2 crafting grid.
+const GRID: usize = 4;
+const HOPPER: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, HOPPER_SLOTS)];
+/// Hotbar slots.
+const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
+/// The inventory window ID as the byte `MobEquipment` and `PlayerHotBar` carry.
+pub(super) const INVENTORY_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_INVENTORY);
+/// The key of the saved armour list in the saved player data (Bedrock player NBT: armour in
+/// order).
+pub(super) const KEY_ARMOR: &str = "Armor";
+/// The key of the saved ender chest list (slots by `Slot` 0–26).
+pub(super) const KEY_ENDER_CHEST: &str = "EnderChestInventory";
+/// The key of the saved main slots list (slots by `Slot` 0–35).
+pub(super) const KEY_INVENTORY: &str = "Inventory";
+/// The key of a saved stack's item name.
+const KEY_NAME: &str = "Name";
+/// The key of the saved off hand list.
+pub(super) const KEY_OFFHAND: &str = "Offhand";
+/// The key of Anchor's saved waiting stacks ([`save`]).
+pub(super) const KEY_PENDING: &str = "PendingItems";
+/// The key of the selected hotbar slot in the saved player data.
+const KEY_SELECTED_SLOT: &str = "SelectedInventorySlot";
+/// The key of a saved stack's slot in a list by `Slot`.
+const KEY_SLOT: &str = "Slot";
+/// A loom: banner 9, dye 10, pattern 11.
+const LOOM: [Part; 3] = [
+    part(ContainerId::LoomInput, UI_LOOM, 1, Store::Ui(0)),
+    part(ContainerId::LoomDye, UI_LOOM + 1, 1, Store::Ui(1)),
+    part(ContainerId::LoomMaterial, UI_LOOM + 2, 1, Store::Ui(2)),
+];
+/// Main inventory slots: the hotbar (0–8) and the 27 above it.
+const MAIN: usize = 36;
 /// The most stacks closing a window gives back: the cursor, the 2x2 grid and the crafting
 /// table's 3x3 grid.
 const MAX_GIVE_BACK: usize = 1 + GRID + 9;
+/// Windows do not open while more than this many stacks wait for room less [`MAX_GIVE_BACK`]
+/// (the waiting list leaves room for what a window may hold).
+const MAX_PENDING: usize = 64;
+/// Block picks a player may make in one tick; more do nothing (PMMP has no limit). A pick is a
+/// key press, far below one a tick, but one costs up to a shulker box's NBT built, checked and
+/// compared, whatever the few bytes of its packet.
+const MAX_PICKS_PER_TICK: u8 = 4;
 /// The most stacks a player waits with for room, and the most entries of a saved
 /// `PendingItems` list (the waiting stacks and everything held outside the slots, [`save`]).
 ///
@@ -141,71 +183,12 @@ const _: () = assert!(
     MAX_SAVED_STACKS * MAX_NBT_BYTES + MAX_PLAYER_TYPES * MAX_PLAYER_VALUE_BYTES
         <= MAX_PLAYER_EXTRA_BYTES
 );
-/// How high above the feet PMMP `Player::dropItem` drops an item.
-const DROP_HEIGHT: f64 = 1.3;
-/// Where a player drops items, below its eyes: the tick keeps the eye position, so the drop
-/// point is [`DROP_HEIGHT`] above the feet, 0.32 below the eyes.
-const DROP_BELOW_EYE: f64 = 0.32;
-const _: () = assert!((survival::EYE_HEIGHT - DROP_HEIGHT - DROP_BELOW_EYE).abs() < 1e-9);
-/// The speed of a thrown item along the look (PMMP `Player::dropItem`: direction × 0.4).
-const THROW_SPEED: f64 = 0.4;
-/// Ticks before anyone picks up a thrown item (PMMP `Player::dropItem`).
-const THROW_PICKUP_DELAY: i16 = 40;
-/// Block picks a player may make in one tick; more do nothing (PMMP has no limit). A pick is a
-/// key press, far below one a tick, but one costs up to a shulker box's NBT built, checked and
-/// compared, whatever the few bytes of its packet.
-const MAX_PICKS_PER_TICK: u8 = 4;
-/// The keys of the saved player data that hold items (Bedrock player NBT): main slots by `Slot`
-/// 0–35, armour and off hand in order, ender chest slots by `Slot` 0–26, and Anchor's waiting
-/// stacks ([`save`]).
-pub(super) const KEY_INVENTORY: &str = "Inventory";
-pub(super) const KEY_ARMOR: &str = "Armor";
-pub(super) const KEY_OFFHAND: &str = "Offhand";
-pub(super) const KEY_ENDER_CHEST: &str = "EnderChestInventory";
-pub(super) const KEY_PENDING: &str = "PendingItems";
-/// The key of the selected hotbar slot in the saved player data.
-const KEY_SELECTED_SLOT: &str = "SelectedInventorySlot";
-/// The keys of one saved stack: its slot in a list by `Slot`, and its item name.
-const KEY_SLOT: &str = "Slot";
-const KEY_NAME: &str = "Name";
-
-const CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, CHEST_SLOTS)];
-const DOUBLE_CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, 2 * CHEST_SLOTS)];
-const BARREL: [Part; 1] = [block_part(ContainerId::Barrel, 0, CHEST_SLOTS)];
+/// The off hand window ID as the byte `MobEquipment` and `PlayerHotBar` carry.
+pub(super) const OFF_HAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
+/// Request IDs remembered per player to refuse a repeat; clients number requests -1, -3, -5…,
+/// so a repeat within this many is a replay, not a new request.
+const RECENT_REQUESTS: usize = 256;
 const SHULKER_BOX: [Part; 1] = [block_part(ContainerId::ShulkerBox, 0, CHEST_SLOTS)];
-const HOPPER: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, HOPPER_SLOTS)];
-const ENDER_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, byte(ENDER), Store::Ender)];
-const WORKBENCH: [Part; 1] = [part(ContainerId::CraftingInput, UI_TABLE, 9, Store::Ui(0))];
-const FURNACE: [Part; 3] = furnace_parts(ContainerId::FurnaceIngredient);
-const BLAST_FURNACE: [Part; 3] = furnace_parts(ContainerId::BlastFurnaceIngredient);
-const SMOKER: [Part; 3] = furnace_parts(ContainerId::SmokerIngredient);
-/// A brewing stand: the ingredient, the three bottles, the fuel (PMMP `BrewingStandInventory`).
-const BREWING_STAND: [Part; 3] = [
-    block_part(
-        ContainerId::BrewingStandInput,
-        block_entity::BREWING_INGREDIENT,
-        1,
-    ),
-    block_part(
-        ContainerId::BrewingStandResult,
-        block_entity::BREWING_BOTTLES[0],
-        block_entity::BREWING_BOTTLES.len(),
-    ),
-    block_part(ContainerId::BrewingStandFuel, block_entity::BREWING_FUEL, 1),
-];
-const ENCHANTING: [Part; 2] = [
-    part(ContainerId::EnchantingInput, UI_ENCHANTING, 1, Store::Ui(0)),
-    part(
-        ContainerId::EnchantingMaterial,
-        UI_ENCHANTING + 1,
-        1,
-        Store::Ui(1),
-    ),
-];
-const ANVIL: [Part; 2] = [
-    part(ContainerId::AnvilInput, UI_ANVIL, 1, Store::Ui(0)),
-    part(ContainerId::AnvilMaterial, UI_ANVIL + 1, 1, Store::Ui(1)),
-];
 /// A smithing table: input 51, material 52, template 53.
 const SMITHING: [Part; 3] = [
     part(
@@ -227,19 +210,17 @@ const SMITHING: [Part; 3] = [
         Store::Ui(2),
     ),
 ];
+const SMOKER: [Part; 3] = furnace_parts(ContainerId::SmokerIngredient);
 const STONECUTTER: [Part; 1] = [part(
     ContainerId::StonecutterInput,
     UI_STONECUTTER,
     1,
     Store::Ui(0),
 )];
-/// A loom: banner 9, dye 10, pattern 11.
-const LOOM: [Part; 3] = [
-    part(ContainerId::LoomInput, UI_LOOM, 1, Store::Ui(0)),
-    part(ContainerId::LoomDye, UI_LOOM + 1, 1, Store::Ui(1)),
-    part(ContainerId::LoomMaterial, UI_LOOM + 2, 1, Store::Ui(2)),
-];
-const BEACON: [Part; 1] = [part(ContainerId::BeaconPayment, UI_BEACON, 1, Store::Ui(0))];
+/// Ticks before anyone picks up a thrown item (PMMP `Player::dropItem`).
+const THROW_PICKUP_DELAY: i16 = 40;
+/// The speed of a thrown item along the look (PMMP `Player::dropItem`: direction × 0.4).
+const THROW_SPEED: f64 = 0.4;
 /// A trade: payments 4 and 5 (containers 47 and 48; BDS, P6).
 const TRADE: [Part; 2] = [
     part(
@@ -255,6 +236,36 @@ const TRADE: [Part; 2] = [
         Store::Ui(1),
     ),
 ];
+/// The UI slot of the anvil window (PMMP `UIInventorySlotOffset`).
+const UI_ANVIL: u8 = 1;
+/// The UI slot of the beacon window (PMMP `UIInventorySlotOffset`).
+const UI_BEACON: u8 = 27;
+/// The UI slot of the created output (container 60).
+const UI_CREATED_OUTPUT: u8 = 50;
+/// The UI slot of the enchanting window (PMMP `UIInventorySlotOffset`).
+const UI_ENCHANTING: u8 = 14;
+/// The first UI slot of the 2x2 crafting grid.
+const UI_GRID: u8 = 28;
+/// The UI slot of the loom window (PMMP `UIInventorySlotOffset`).
+const UI_LOOM: u8 = 9;
+/// Slots of the UI window (124): the cursor at 0, the 2x2 grid at 28–31, the 3x3 grid at 32–40,
+/// the created output at 50.
+const UI_SLOTS: usize = 54;
+/// The UI slot of the smithing window (PMMP `UIInventorySlotOffset`).
+const UI_SMITHING: u8 = 51;
+/// The UI slot of the stonecutter window (PMMP `UIInventorySlotOffset`).
+const UI_STONECUTTER: u8 = 3;
+/// The first UI slot of the 3x3 crafting grid.
+const UI_TABLE: u8 = 32;
+/// The UI slot of the trade window (PMMP `UIInventorySlotOffset`).
+const UI_TRADE: u8 = 4;
+/// PMMP `ContainerIds::FIRST`: window IDs run from 2 to 99, then 1.
+const WINDOW_FIRST: u8 = 1;
+/// PMMP `ContainerIds::LAST`: window IDs run from 2 to 99, then 1.
+const WINDOW_LAST: u8 = 100;
+/// The window ID a client closes "the last window" with (-1).
+const WINDOW_NONE: u8 = 255;
+const WORKBENCH: [Part; 1] = [part(ContainerId::CraftingInput, UI_TABLE, 9, Store::Ui(0))];
 
 /// What one player carries and has open.
 #[derive(Debug)]
@@ -517,7 +528,7 @@ impl Inventory {
 
     /// The first empty main slot.
     fn first_empty(&self) -> Option<u8> {
-        (0u8..)
+        (0_u8..)
             .zip(&self.main.stacks)
             .find_map(|(i, s)| s.is_empty().then_some(i))
     }
@@ -1264,7 +1275,7 @@ pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::
 /// no window open: the list comes back as waiting stacks ([`restore`]).
 pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
     let by_slot = |stacks: &[Stack]| {
-        let list = (0u8..)
+        let list = (0_u8..)
             .zip(stacks)
             .filter(|(_, s)| !s.is_empty())
             .map(|(i, s)| {
@@ -2474,7 +2485,7 @@ pub(super) fn block_changed(
         let Some(player) = players.get_mut(session) else {
             continue;
         };
-        for i in (0..8u8).filter(|i| slots & (1 << i) != 0) {
+        for i in (0..8_u8).filter(|i| slots & (1 << i) != 0) {
             let renumber = if kept & (1 << i) == 0 {
                 request::Renumber::New
             } else {

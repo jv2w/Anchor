@@ -411,7 +411,14 @@ mod tests {
     fn a_replay_feeds_the_logged_results_without_running_the_work_and_gives_the_same_hashes() {
         let runtime = runtime();
         let (mut state, mut queue) = live(&runtime);
-        let script = vec![vec![1, 2], vec![], vec![3], vec![], vec![], vec![]];
+        let script = vec![
+            vec![1, 2],
+            Vec::new(),
+            vec![3],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ];
         // Live: whatever results have arrived by each tick are applied there.
         let (live_hashes, live_seen, log, ran) = scripted(&mut state, &script, |_, t| {
             let want = match t {

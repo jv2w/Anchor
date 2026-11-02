@@ -290,7 +290,9 @@ fn listener(then: fn(&mut PlayerEditBook, &mut Context<'_>)) -> Listeners {
     l
 }
 
-// pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction, PlayerEditBookEvent::getOldBook, PlayerEditBookEvent::getNewBook, PlayerEditBookEvent::getModifiedPages, PlayerEditBookEvent::setNewBook
+// pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction, PlayerEditBookEvent::getOldBook
+// pmmp: PlayerEditBookEvent::getNewBook, PlayerEditBookEvent::getModifiedPages
+// pmmp: PlayerEditBookEvent::setNewBook
 #[test]
 fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
     let l = listener(|e, _| {
@@ -315,7 +317,7 @@ fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
                 Edit::SwapPages,
                 quill_type,
                 quill_type,
-                [0u32, 1].as_slice()
+                [0_u32, 1].as_slice()
             )),
             dbg(true),
             dbg((
@@ -323,7 +325,7 @@ fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
                 Edit::SignBook,
                 quill_type,
                 written,
-                [0u32; 0].as_slice()
+                [0_u32; 0].as_slice()
             )),
             dbg(true),
         ]
@@ -336,7 +338,8 @@ fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
     assert_eq!(pages(&h), ["", ""]);
 }
 
-// pmmp: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel, PlayerEditBookEvent::isCancelled
+// pmmp: PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel
+// pmmp: PlayerEditBookEvent::isCancelled
 #[test]
 fn a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit() {
     let l = listener(|e, _| {

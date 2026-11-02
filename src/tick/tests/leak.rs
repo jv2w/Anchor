@@ -16,26 +16,6 @@ use crate::protocol::{
 };
 use crate::world::BlockPos;
 
-/// The blocks with a window, each opened once a cycle.
-const WINDOWS: [Kind; 16] = [
-    Kind::Chest,
-    Kind::Barrel,
-    Kind::ShulkerBox,
-    Kind::Hopper,
-    Kind::EnderChest,
-    Kind::Furnace,
-    Kind::BlastFurnace,
-    Kind::Smoker,
-    Kind::BrewingStand,
-    Kind::CraftingTable,
-    Kind::EnchantingTable,
-    Kind::Anvil,
-    Kind::SmithingTable,
-    Kind::Stonecutter,
-    Kind::Loom,
-    Kind::Beacon,
-];
-
 /// Where the window blocks go as (x, z): in front of the player at the spawn (looking south),
 /// apart so no two chests pair, and within survival reach.
 const SPOTS: [(i32, i32); 16] = [
@@ -55,6 +35,26 @@ const SPOTS: [(i32, i32); 16] = [
     (-1, 5),
     (1, 5),
     (3, 5),
+];
+
+/// The blocks with a window, each opened once a cycle.
+const WINDOWS: [Kind; 16] = [
+    Kind::Chest,
+    Kind::Barrel,
+    Kind::ShulkerBox,
+    Kind::Hopper,
+    Kind::EnderChest,
+    Kind::Furnace,
+    Kind::BlastFurnace,
+    Kind::Smoker,
+    Kind::BrewingStand,
+    Kind::CraftingTable,
+    Kind::EnchantingTable,
+    Kind::Anvil,
+    Kind::SmithingTable,
+    Kind::Stonecutter,
+    Kind::Loom,
+    Kind::Beacon,
 ];
 
 /// Every table and queue the leak test watches, by a size or a form that holds no counter.

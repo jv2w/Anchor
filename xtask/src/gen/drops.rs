@@ -21,7 +21,7 @@ pub(crate) fn generate(data: &Data) -> R<String> {
     let mut rows: Vec<String> = Vec::new();
     let mut row_at: BTreeMap<String, usize> = BTreeMap::new();
     let mut state_rows = Vec::with_capacity(data.states.len());
-    let mut counts = [0usize; 3];
+    let mut counts = [0_usize; 3];
     for s in &data.states {
         let mut list = |items: Vec<String>| {
             let key = items.concat();

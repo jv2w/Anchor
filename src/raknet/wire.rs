@@ -6,12 +6,19 @@ use std::net::{IpAddr, SocketAddr};
 
 use super::{Error, Result};
 
-/// The RakNet protocol version Minecraft speaks (go-raknet `protocolVersion`).
-pub(super) const PROTOCOL_VERSION: u8 = 11;
-/// The bytes every offline message carries (RakNet `OFFLINE_MESSAGE_DATA_ID`).
-pub(super) const MAGIC: [u8; 16] = [
-    0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
-];
+/// Address family that go-raknet writes for IPv6 addresses (`AF_INET6` on Windows).
+const AF_INET6: u16 = 23;
+/// RakNet ordering channels (`NUMBER_OF_ORDERED_STREAMS`).
+pub(super) const CHANNELS: usize = 32;
+/// Flags byte and 24-bit sequence number of a data datagram.
+pub(super) const DATAGRAM_HEADER_BYTES: usize = 4;
+
+/// Set on data datagrams by go-raknet and RakNet; receivers ignore it.
+pub(super) const FLAG_NEEDS_B_AND_AS: u8 = 0x04;
+pub(super) const FLAG_NAK: u8 = 0x20;
+pub(super) const FLAG_ACK: u8 = 0x40;
+/// Set on every connected datagram, ACK and NAK.
+pub(super) const FLAG_DATAGRAM: u8 = 0x80;
 
 pub(super) const ID_CONNECTED_PING: u8 = 0x00;
 pub(super) const ID_UNCONNECTED_PING: u8 = 0x01;
@@ -32,34 +39,26 @@ pub(super) const ID_UNCONNECTED_PONG: u8 = 0x1c;
 /// The first byte of every Minecraft game message.
 pub(super) const ID_GAME: u8 = 0xfe;
 
-/// Set on every connected datagram, ACK and NAK.
-pub(super) const FLAG_DATAGRAM: u8 = 0x80;
-pub(super) const FLAG_ACK: u8 = 0x40;
-pub(super) const FLAG_NAK: u8 = 0x20;
-/// Set on data datagrams by go-raknet and RakNet; receivers ignore it.
-pub(super) const FLAG_NEEDS_B_AND_AS: u8 = 0x04;
-
-/// IP and UDP header bytes that an MTU includes. RakNet and go-raknet count 28 for IPv6 too.
-pub(super) const UDP_HEADER_BYTES: usize = 28;
-/// Flags byte and 24-bit sequence number of a data datagram.
-pub(super) const DATAGRAM_HEADER_BYTES: usize = 4;
-/// Split count, split ID and split index of a fragment.
-const SPLIT_HEADER_BYTES: usize = 10;
+/// The bytes every offline message carries (RakNet `OFFLINE_MESSAGE_DATA_ID`).
+pub(super) const MAGIC: [u8; 16] = [
+    0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
+];
 /// The largest frame header: flags, length, message, sequence and order indices, channel, split.
 pub(super) const MAX_FRAME_HEADER_BYTES: usize = 3 + 3 + 3 + 4 + SPLIT_HEADER_BYTES;
-/// RakNet ordering channels (`NUMBER_OF_ORDERED_STREAMS`).
-pub(super) const CHANNELS: usize = 32;
-
-/// Sequence numbers and indices are 24-bit and wrap.
-pub(super) const U24_MASK: u32 = 0x00ff_ffff;
-/// Serial number arithmetic: an index less than this far ahead of a base is ahead of it.
-const U24_HALF: u32 = 0x0080_0000;
-/// The address go-raknet writes for an unset system address (`putAddr` of a zero `AddrPort`).
-const UNSET_ADDRESS: [u8; 7] = [4, 0xff, 0xff, 0xff, 0xff, 0, 0];
+/// The RakNet protocol version Minecraft speaks (go-raknet `protocolVersion`).
+pub(super) const PROTOCOL_VERSION: u8 = 11;
+/// Split count, split ID and split index of a fragment.
+const SPLIT_HEADER_BYTES: usize = 10;
 /// System addresses in `ConnectionRequestAccepted` (go-raknet `systemAddresses`).
 const SYSTEM_ADDRESSES: usize = 20;
-/// Address family that go-raknet writes for IPv6 addresses (`AF_INET6` on Windows).
-const AF_INET6: u16 = 23;
+/// Serial number arithmetic: an index less than this far ahead of a base is ahead of it.
+const U24_HALF: u32 = 0x0080_0000;
+/// Sequence numbers and indices are 24-bit and wrap.
+pub(super) const U24_MASK: u32 = 0x00ff_ffff;
+/// IP and UDP header bytes that an MTU includes. RakNet and go-raknet count 28 for IPv6 too.
+pub(super) const UDP_HEADER_BYTES: usize = 28;
+/// The address go-raknet writes for an unset system address (`putAddr` of a zero `AddrPort`).
+const UNSET_ADDRESS: [u8; 7] = [4, 0xff, 0xff, 0xff, 0xff, 0, 0];
 
 /// Reads big-endian numbers (and little-endian 24-bit ones) from a byte slice.
 #[derive(Debug)]

@@ -37,20 +37,20 @@ use crate::p6;
 
 /// The task's period: every tick.
 pub(crate) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
-/// Commands waiting in the task at most; the harness's send blocks beyond it.
-const MAX_PENDING: usize = 256;
-/// How long a command may wait for its player or chunk: 10 seconds.
-const MAX_WAIT_TICKS: u32 = 200;
+/// The actor variant of a farmer villager (`EntityVariant` of `minecraft:villager_v2`).
+const FARMER: u8 = 1;
 /// The most blocks one `fill` may change (BDS's limit).
 const MAX_FILL: u64 = 32_768;
 /// The most items one `give` may hand out (BDS's limit).
 const MAX_GIVE: u32 = 32_767;
-/// How long [`Console::settle`] waits for the reports of the commands sent.
-const SETTLE_TIMEOUT: Duration = Duration::from_secs(30);
-/// The actor variant of a farmer villager (`EntityVariant` of `minecraft:villager_v2`).
-const FARMER: u8 = 1;
+/// Commands waiting in the task at most; the harness's send blocks beyond it.
+const MAX_PENDING: usize = 256;
+/// How long a command may wait for its player or chunk: 10 seconds.
+const MAX_WAIT_TICKS: u32 = 200;
 /// The selector of every entity that is not a player, the only entity selector the bot uses.
 const NON_PLAYERS: &str = "@e[type=!player]";
+/// How long [`Console::settle`] waits for the reports of the commands sent.
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A parsed console command.
 #[derive(Debug, Clone, PartialEq)]

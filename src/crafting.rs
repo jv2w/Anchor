@@ -16,15 +16,9 @@ use crate::protocol::{
     ShapedRecipe, ShapelessRecipe, SmithingTransformRecipe, SmithingTrimRecipe, Uuid,
 };
 
-/// The meta of an ingredient that matches every meta (PMMP
-/// `TypeConverter::RECIPE_INPUT_WILDCARD_META`).
-pub(crate) const WILDCARD_META: i32 = 0x7fff;
-
-/// The priority PMMP's `CraftingDataCache` gives every crafting and furnace recipe.
-const PRIORITY: i32 = 50;
-
-/// The block name of smithing recipes, as BDS and dragonfly send it.
-const SMITHING_TABLE: &str = "smithing_table";
+/// The nodes of the flow graph of [`consumed_matches`]: the source, a node per ingredient, a node
+/// per pooled stack and the sink.
+const FLOW_NODES: usize = 1 + GRID_CELLS + MAX_PROVIDED + 1;
 
 /// The most cells a crafting grid has (the crafting table's 3x3).
 pub(crate) const GRID_CELLS: usize = 9;
@@ -32,33 +26,11 @@ pub(crate) const GRID_CELLS: usize = 9;
 /// The most distinct stacks [`consumed_matches`] takes: one per consume action of a request.
 pub(crate) const MAX_PROVIDED: usize = 64;
 
-/// The nodes of the flow graph of [`consumed_matches`]: the source, a node per ingredient, a node
-/// per pooled stack and the sink.
-const FLOW_NODES: usize = 1 + GRID_CELLS + MAX_PROVIDED + 1;
+/// The priority PMMP's `CraftingDataCache` gives every crafting and furnace recipe.
+const PRIORITY: i32 = 50;
 
-/// The armour trim pattern IDs (an item's [`TAG_TRIM_PATTERN`](crate::item::TAG_TRIM_PATTERN)), in
-/// the order BDS 1.26.52 sends them in `TrimData` (P6): each is the template
-/// `minecraft:<pattern>_armor_trim_smithing_template`.
-pub const TRIM_PATTERNS: [&str; 18] = [
-    "ward",
-    "sentry",
-    "snout",
-    "dune",
-    "spire",
-    "tide",
-    "wild",
-    "rib",
-    "coast",
-    "shaper",
-    "eye",
-    "vex",
-    "silence",
-    "wayfinder",
-    "raiser",
-    "host",
-    "flow",
-    "bolt",
-];
+/// The block name of smithing recipes, as BDS and dragonfly send it.
+const SMITHING_TABLE: &str = "smithing_table";
 
 /// The armour trim materials: material ID, text colour code and item, in the order BDS 1.26.52
 /// sends them in `TrimData` (P6).
@@ -92,6 +64,34 @@ pub const TRIM_MATERIALS: [&str; TRIM_MATERIAL_TABLE.len()] = {
     }
     ids
 };
+
+/// The armour trim pattern IDs (an item's [`TAG_TRIM_PATTERN`](crate::item::TAG_TRIM_PATTERN)), in
+/// the order BDS 1.26.52 sends them in `TrimData` (P6): each is the template
+/// `minecraft:<pattern>_armor_trim_smithing_template`.
+pub const TRIM_PATTERNS: [&str; 18] = [
+    "ward",
+    "sentry",
+    "snout",
+    "dune",
+    "spire",
+    "tide",
+    "wild",
+    "rib",
+    "coast",
+    "shaper",
+    "eye",
+    "vex",
+    "silence",
+    "wayfinder",
+    "raiser",
+    "host",
+    "flow",
+    "bolt",
+];
+
+/// The meta of an ingredient that matches every meta (PMMP
+/// `TypeConverter::RECIPE_INPUT_WILDCARD_META`).
+pub(crate) const WILDCARD_META: i32 = 0x7fff;
 
 /// A recipe of any kind the `CraftingData` packet numbers (PMMP `CraftingManager` recipes by
 /// network ID), borrowed from the static table or a server's own recipes.
@@ -760,7 +760,7 @@ pub(crate) fn consumed_matches<'a>(
         clippy::large_stack_arrays,
         reason = "performance: 22.5 KB on a 4 MiB thread stack saves an allocation per match"
     )]
-    let mut capacity = [[0u32; FLOW_NODES]; FLOW_NODES];
+    let mut capacity = [[0_u32; FLOW_NODES]; FLOW_NODES];
     for (i, ingredient) in ingredients.iter().enumerate() {
         capacity[0][1 + i] = times;
         for (p, (stack, _)) in pooled.iter().enumerate() {
@@ -1531,7 +1531,7 @@ mod tests {
         let empty = nbt::Compound::new();
         let mut changed = 0;
         for r in &table::POTION_CONTAINER_CHANGE {
-            for meta in [0u16, 5, 17] {
+            for meta in [0_u16, 5, 17] {
                 let Some(input) = Type::from_name(r.input.name, meta, None, &empty) else {
                     continue;
                 };

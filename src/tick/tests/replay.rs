@@ -10,27 +10,37 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use super::super::log::EntryKind;
-use super::super::queue::{
-    Identity, Input, InputKind, InputSender, Measure, Outbound, SessionId, SessionInputs,
-    input_queue, outbound_queue,
-};
-use super::super::{
-    Fingerprints, InputLog, Output, Phase, SaveLink, Settings, Setup, Shared, State, Tasks,
-    boundary, deliver, run, step, write_crash_log,
-};
 use super::packet;
 use crate::config::Config;
 use crate::event::{Command, Listeners, Priority};
 use crate::math::Vec3;
 use crate::protocol::Uuid;
-
 use crate::protocol::packet::{Packet, RequestChunkRadius, SetLocalPlayerAsInitialised};
 use crate::replay::{End, Error};
 use crate::runtime::ThreadCounts;
 use crate::save::{Request, Response, WorldSpec};
 use crate::storage::ChunkKind;
+use crate::tick::log::EntryKind;
+use crate::tick::queue::{
+    Identity, Input, InputKind, InputSender, Measure, Outbound, SessionId, SessionInputs,
+    input_queue, outbound_queue,
+};
+use crate::tick::{
+    Fingerprints, InputLog, Output, Phase, SaveLink, Settings, Setup, Shared, State, Tasks,
+    boundary, deliver, run, step, write_crash_log,
+};
 use crate::world::{BlockPos, Chunk, ChunkPos, Flat, Kind};
+
+/// The ticks between two stops of the tour.
+const STOP_TICKS: u64 = 12;
+/// The chunks the tour stops at, one every [`STOP_TICKS`] ticks from [`TOUR_START`].
+const STOPS: u64 = 8;
+/// Chests in each chunk of the tour's file, along z = 1 at the height of the first air.
+const TOUR_CHESTS: u8 = 6;
+/// The tick of the tour's first stop.
+const TOUR_START: u64 = 13;
+/// The ticks of a tour run: the tour and the loads of its last stop.
+const TOUR_TICKS: u64 = TOUR_START + STOP_TICKS * STOPS + 20;
 
 /// The (tick, state hash) a run's task sends every tick.
 type Hashes = Vec<(u64, u64)>;
@@ -536,7 +546,7 @@ fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
     let written = InputLog::decode(&read(&log)).unwrap();
     let starts: Vec<u64> = written
         .segments()
-        .map(super::super::Segment::start)
+        .map(crate::tick::Segment::start)
         .collect();
     assert_eq!(starts, [0, 11, 26]);
     assert_eq!(crate::save::committed_tick(&dir).unwrap(), 26);
@@ -552,15 +562,6 @@ fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
     assert_eq!(replayed, from(&live, 26));
     remove(&dir);
 }
-
-/// The chunks the tour stops at, one every [`STOP_TICKS`] ticks from [`TOUR_START`].
-const STOPS: u64 = 8;
-const TOUR_START: u64 = 13;
-const STOP_TICKS: u64 = 12;
-/// The ticks of a tour run: the tour and the loads of its last stop.
-const TOUR_TICKS: u64 = TOUR_START + STOP_TICKS * STOPS + 20;
-/// Chests in each chunk of the tour's file, along z = 1 at the height of the first air.
-const TOUR_CHESTS: u8 = 6;
 
 /// The center chunk of stop `i`: far enough from the others and the spawn that each stop loads
 /// chunks of its own.
@@ -613,7 +614,7 @@ fn tour_fixture(world: &crate::world::World) -> crate::save::Snapshot {
                 terrain.set_block(2 * k, -60, 1, chest).unwrap();
                 let first = first_chest(pos);
                 let at = BlockPos::new(first.x + 2 * i32::from(k), first.y, first.z);
-                let items = (0u8..27)
+                let items = (0_u8..27)
                     .map(|slot| {
                         let mut c = sticks(slot + 1).to_nbt();
                         c.insert("Slot".to_owned(), Value::Byte(slot));
@@ -673,7 +674,7 @@ fn tour_setup(hashes: mpsc::Sender<(u64, u64)>, seen: mpsc::Sender<(u64, u32, us
         let world = crate::world::Id::DEFAULT;
         let chests = (0..STOPS)
             .filter(|&i| ctx.block_entity(world, first_chest(stop(i))).is_some())
-            .fold(0u32, |bits, i| bits | 1 << i);
+            .fold(0_u32, |bits, i| bits | 1 << i);
         seen.try_send((tick, chests, ctx.entities(world).count()))
             .unwrap();
         let leg = tick.checked_sub(TOUR_START).filter(|t| t % STOP_TICKS == 0);
@@ -744,7 +745,7 @@ fn tour(dir: &Path) -> (PathBuf, Hashes, Seen) {
     let mut output = Output::default();
     // The loads asked for and not answered yet: each tick waits for them, so the run does not
     // outpace the save thread.
-    let mut loads = 0usize;
+    let mut loads = 0_usize;
     for _ in 0..TOUR_TICKS {
         let mut batch: Vec<Input> = std::iter::from_fn(|| queue.try_recv().ok()).collect();
         while loads > 0 {
@@ -816,7 +817,7 @@ fn tour(dir: &Path) -> (PathBuf, Hashes, Seen) {
 fn a_chunk_loading_tour_replays_to_the_same_states_on_one_and_four_threads() {
     let dir = fresh("tour");
     let (log, live, seen) = tour(&dir);
-    let every_stop = (1u32 << STOPS) - 1;
+    let every_stop = (1_u32 << STOPS) - 1;
     let loaded = seen.iter().fold(0, |bits, &(_, stops, _)| bits | stops);
     assert_eq!(
         loaded, every_stop,

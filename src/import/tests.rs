@@ -8,6 +8,15 @@ use super::*;
 use crate::import::leveldb::tests::database_files;
 use crate::save::tests::TempDir;
 
+/// Keys of two chunks of a world a 1.21 game saved, with values a strict reader rejects, as
+/// (little-endian `u32` length, bytes) of each key then its value, in key order: chunk (-198, 8),
+/// chunk version 41, whose `Data3D` holds 25 biome storages where 24 are read; chunk (-5, -44),
+/// with its block entities and three entities whose NBT holds a string of binary bytes (the
+/// `StorageKey` of `EntityStorageKeyComponent`), which is not UTF-8.
+const CONTINENTAL: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/xtask/data/import/continental.kv"
+));
 /// The world BDS 1.26.52 made: a flat world, seed 7, with blocks filled, water placed, a chest, a
 /// sign, a pig, an armor stand and pending ticks over five runs, so it has a table and a live log.
 pub(crate) const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
@@ -78,7 +87,7 @@ fn put(key: Vec<u8>, value: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
 fn the_bds_fixture_reads_as_raw_chunks_without_writing() {
     let before = snapshot(Path::new(FIXTURE));
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
-    assert_eq!(source.world().spawn, [0, 32767, 0]);
+    assert_eq!(source.world().spawn, [0, 32_767, 0]);
     let catalog = source.catalog().unwrap();
     assert_eq!(catalog.chunks.len(), 36);
     assert!(catalog.chunks.is_sorted());
@@ -108,7 +117,7 @@ fn the_bds_fixture_reads_as_raw_chunks_without_writing() {
     // Chunks with pending ticks, not imported.
     assert_eq!(ticks, 3);
     source.unchanged().unwrap();
-    assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
+    assert_eq!(snapshot(Path::new(FIXTURE)), before, "the source changed");
 }
 
 #[test]
@@ -187,16 +196,6 @@ fn a_read_takes_the_chunks_keys_only() {
     let corner = chunk::decode(&source.read(-1, -1).unwrap()).unwrap();
     assert_eq!(ids_of(corner), vec!["corner"]);
 }
-
-/// Keys of two chunks of a world a 1.21 game saved, with values a strict reader rejects, as
-/// (little-endian `u32` length, bytes) of each key then its value, in key order: chunk (-198, 8),
-/// chunk version 41, whose `Data3D` holds 25 biome storages where 24 are read; chunk (-5, -44),
-/// with its block entities and three entities whose NBT holds a string of binary bytes (the
-/// `StorageKey` of `EntityStorageKeyComponent`), which is not UTF-8.
-const CONTINENTAL: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/xtask/data/import/continental.kv"
-));
 
 /// The key and value pairs of [`CONTINENTAL`].
 pub(crate) fn continental() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {

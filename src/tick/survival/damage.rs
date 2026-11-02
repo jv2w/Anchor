@@ -41,30 +41,27 @@ use crate::tick::{
 };
 use crate::world::{self, BlockPos, Sound};
 
-/// Ticks a respawned player ignores damage (PMMP `Player::actuallyRespawn`).
-const RESPAWN_INVULNERABLE_TICKS: u32 = 60;
-/// The highest the summed protection factor counts (PMMP `applyDamageModifiers`).
-const MAX_EPF: u32 = 25;
-/// Half a player's height: hit sounds play there (PMMP `attackEntity`'s `$soundPos`).
-const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
-
 const ARMOR_WEAR: u64 = random::tag("armor-wear");
-const PROTECTION: u64 = random::tag("protection");
-const RESPIRATION: u64 = random::tag("respiration");
-const THORNS: u64 = random::tag("thorns");
-const TOOL_WEAR: u64 = random::tag("tool-wear");
-
-/// No modifier applies.
-const NO_MODIFIERS: Modifiers = [None; DamageModifier::ALL.len()];
 /// The modifiers [`finish`] works out from the player as it is when the hit applies.
 const FINISHED: [DamageModifier; 3] = [
     DamageModifier::Absorption,
     DamageModifier::ArmorHelmet,
     DamageModifier::Totem,
 ];
-
 /// The death message of a player killed through the API (the cause was not kept).
 pub(super) const GENERIC_DEATH: &str = "death.attack.generic";
+/// Half a player's height: hit sounds play there (PMMP `attackEntity`'s `$soundPos`).
+const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
+/// The highest the summed protection factor counts (PMMP `applyDamageModifiers`).
+const MAX_EPF: u32 = 25;
+/// No modifier applies.
+const NO_MODIFIERS: Modifiers = [None; DamageModifier::ALL.len()];
+const PROTECTION: u64 = random::tag("protection");
+/// Ticks a respawned player ignores damage (PMMP `Player::actuallyRespawn`).
+const RESPAWN_INVULNERABLE_TICKS: u32 = 60;
+const RESPIRATION: u64 = random::tag("respiration");
+const THORNS: u64 = random::tag("thorns");
+const TOOL_WEAR: u64 = random::tag("tool-wear");
 
 /// Why a player takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1508,7 +1505,11 @@ fn broadcast_death_message(
         crate::player::Message::Raw(chat)
     };
     if let Err(err) = crate::tick::player::broadcast(state, line) {
-        debug!(session = session.get(), error = %err, "death message not sent");
+        debug!(
+            session = session.get(),
+            error = &err as &(dyn std::error::Error + 'static),
+            "death message not sent"
+        );
     }
 }
 

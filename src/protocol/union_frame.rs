@@ -10,6 +10,12 @@ use super::types::{
     stack_request_action_variant,
 };
 
+/// gophertunnel `StackRequestActionCraftResultsDeprecated`, the last action.
+const ACTION_LAST: u8 = 20;
+/// gophertunnel `StackRequestActionPlaceInContainer`: variants from here on skip two IDs.
+const ACTION_PLACE_IN_CONTAINER: u32 = 7;
+/// The aux value written after invalid and item tag descriptors.
+const DESCRIPTOR_AUX: i32 = 32_767;
 /// gophertunnel `ItemDescriptorInvalid`.
 const DESCRIPTOR_INVALID: u8 = 0;
 /// gophertunnel `ItemDescriptorDefault`.
@@ -18,12 +24,6 @@ const DESCRIPTOR_DEFAULT: u8 = 1;
 const DESCRIPTOR_MOLANG: u8 = 2;
 /// gophertunnel `ItemDescriptorItemTag`.
 const DESCRIPTOR_ITEM_TAG: u8 = 3;
-/// The aux value written after invalid and item tag descriptors.
-const DESCRIPTOR_AUX: i32 = 32_767;
-/// gophertunnel `StackRequestActionPlaceInContainer`: variants from here on skip two IDs.
-const ACTION_PLACE_IN_CONTAINER: u32 = 7;
-/// gophertunnel `StackRequestActionCraftResultsDeprecated`, the last action.
-const ACTION_LAST: u8 = 20;
 
 impl Reader<'_> {
     /// Reads a `StackRequestAction`: the variant index, the legacy ID and the action.

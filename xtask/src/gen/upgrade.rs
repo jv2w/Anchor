@@ -27,20 +27,20 @@ use crate::dump::upgrade::{
 };
 use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, read};
 
-use self::apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 use super::body::{int_lit, str_lit};
 use super::emit::HEADER;
+use apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 
 type R<T> = Result<T, String>;
 
+/// The block schemas that add properties after the dump source's data version (1.26.30), oldest
+/// first; `data` reads them too ([`block_schema`]).
+pub(crate) const ADDING: [&str; 2] = ["0351_1.26.40_to_1.26.50.json", SCHEMA_1_26_60];
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/import/upgrade/table.rs";
 /// The block schema of 1.26.60: it adds the connection properties of fire, redstone wire and
 /// chorus plants.
 pub(crate) const SCHEMA_1_26_60: &str = "0361_1.26.50_to_1.26.60.json";
-/// The block schemas that add properties after the dump source's data version (1.26.30), oldest
-/// first; `data` reads them too ([`block_schema`]).
-pub(crate) const ADDING: [&str; 2] = ["0351_1.26.40_to_1.26.50.json", SCHEMA_1_26_60];
 
 /// The path of the copied block schema `name`.
 pub(crate) fn block_schema(root: &Path, name: &str) -> PathBuf {
@@ -737,7 +737,7 @@ fn value_lit(value: &Value) -> String {
 }
 
 fn tags_lit(tags: &[(&str, Tag<'_>)]) -> String {
-    let mut out = String::from("&[");
+    let mut out = "&[".to_owned();
     for (k, v) in tags {
         put!(out, "({}, {}),", str_lit(k), tag_lit(*v));
     }
@@ -746,7 +746,7 @@ fn tags_lit(tags: &[(&str, Tag<'_>)]) -> String {
 }
 
 fn strs_lit(list: &[&str]) -> String {
-    let mut out = String::from("&[");
+    let mut out = "&[".to_owned();
     for s in list {
         put!(out, "{},", str_lit(s));
     }
@@ -755,7 +755,7 @@ fn strs_lit(list: &[&str]) -> String {
 }
 
 fn flatten_lit(f: &Flatten<'_>) -> String {
-    let mut remaps = String::from("&[");
+    let mut remaps = "&[".to_owned();
     for (k, v) in f.remaps {
         put!(remaps, "({}, {}),", str_lit(k), str_lit(v));
     }
@@ -770,7 +770,7 @@ fn flatten_lit(f: &Flatten<'_>) -> String {
 }
 
 fn rules_lit(rules: &Rules<'_>) -> String {
-    let mut out = String::from("Rules {");
+    let mut out = "Rules {".to_owned();
     if let Some(n) = rules.renamed {
         put!(out, "renamed: Some({}),", str_lit(n));
     }

@@ -14,18 +14,18 @@ use std::time::{Duration, Instant};
 use dimpl::certificate::generate_self_signed_certificate;
 use dimpl::{Config, Dtls, DtlsCertificate, Error, Output};
 
-/// The output buffer str0m polls dimpl with (`Rtc::dtls_buf`).
-const STR0M_BUFFER: usize = 2000;
-/// Simulated time between two steps of a handshake.
-const STEP: Duration = Duration::from_millis(10);
+/// DTLS record content types.
+const CONTENT_CHANGE_CIPHER_SPEC: u8 = 20;
+const CONTENT_HANDSHAKE: u8 = 22;
+const CONTENT_APPLICATION_DATA: u8 = 23;
 /// Steps before a handshake counts as stuck: 5 simulated seconds, past several retransmissions.
 const MAX_STEPS: usize = 500;
-/// DTLS record content types.
-const CHANGE_CIPHER_SPEC: u8 = 20;
-const HANDSHAKE: u8 = 22;
-const APPLICATION_DATA: u8 = 23;
 /// DTLS record header length.
 const RECORD_HEADER: usize = 13;
+/// Simulated time between two steps of a handshake.
+const STEP: Duration = Duration::from_millis(10);
+/// The output buffer str0m polls dimpl with (`Rtc::dtls_buf`).
+const STR0M_BUFFER: usize = 2000;
 
 #[expect(
     clippy::disallowed_methods,
@@ -181,7 +181,7 @@ fn duplicate_epoch_one_record_before_change_cipher_spec_is_dropped() {
     client.handle_timeout(now).expect("start the handshake");
     drain(&mut client, &mut buffer);
 
-    let forged = record(APPLICATION_DATA, 1, 7, &[0x5a; 48]);
+    let forged = record(CONTENT_APPLICATION_DATA, 1, 7, &[0x5a; 48]);
     for copy in 1..=2 {
         no_panic("an epoch-1 record before ChangeCipherSpec", || {
             client.handle_packet(&forged)
@@ -204,16 +204,17 @@ fn duplicated_server_finished_before_change_cipher_spec_still_connects() {
     let session = no_panic("a duplicated server Finished", || {
         handshake(&mut client, &mut server, &mut now, |datagrams| {
             let all: Vec<Vec<u8>> = datagrams.iter().flat_map(|d| records(d)).collect();
-            if reordered || !all.iter().any(|r| r[0] == CHANGE_CIPHER_SPEC) {
+            if reordered || !all.iter().any(|r| r[0] == CONTENT_CHANGE_CIPHER_SPEC) {
                 return datagrams;
             }
             reordered = true;
-            let (ccs, encrypted): (Vec<_>, Vec<_>) =
-                all.into_iter().partition(|r| r[0] == CHANGE_CIPHER_SPEC);
+            let (ccs, encrypted): (Vec<_>, Vec<_>) = all
+                .into_iter()
+                .partition(|r| r[0] == CONTENT_CHANGE_CIPHER_SPEC);
             assert!(
                 encrypted
                     .iter()
-                    .all(|r| r[0] == HANDSHAKE && r[3..5] == [0, 1])
+                    .all(|r| r[0] == CONTENT_HANDSHAKE && r[3..5] == [0, 1])
             );
             let mut out = encrypted.clone();
             out.extend(encrypted);
@@ -314,7 +315,7 @@ fn truncated_supported_versions_in_auto_mode_is_rejected() {
     message.extend_from_slice(&[0, 0, 0, 0, 0]); // message_seq, fragment_offset
     message.extend_from_slice(&len[1..]);
     message.extend_from_slice(&body);
-    let datagram = record(HANDSHAKE, 0, 0, &message);
+    let datagram = record(CONTENT_HANDSHAKE, 0, 0, &message);
 
     let result = no_panic("a truncated supported_versions", || {
         client.handle_packet(&datagram)

@@ -11,15 +11,27 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+/// The chunk packets: they interleave with the spawn window by timing (a server sends them as
+/// chunks load, BDS from before the radius answer), so the window leaves them out and
+/// [`compare_chunks`] compares them by their own rules.
+pub(crate) const CHUNK_PACKETS: [&str; 3] =
+    ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 /// The deferral table, relative to the repository root.
 pub(crate) const DEFERRED_PATH: &str = "xtask/data/p6/deferred.txt";
+/// Entity packets that also carry other entities' data: BDS sends them for the flat world's
+/// mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`), Anchor never
+/// (it simulates no mobs). Only the player's own are compared.
+const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
 /// The fixed-field list, relative to the repository root.
 pub(crate) const FIELDS_PATH: &str = "xtask/data/p6/fields.txt";
-
-/// The client packet whose sending ends the spawn window.
-const WINDOW_END: &str = "SetLocalPlayerAsInitialised";
 /// The largest coordinate of a position in a capture: the world border.
 const MAX_COORDINATE: u32 = 30_000_000;
+/// The JSON null that [`field`] returns for a missing key.
+static NULL: Value = Value::Null;
+/// How many entries of one kind a difference list shows before it only counts.
+const SHOWN: usize = 10;
+/// The client packet whose sending ends the spawn window.
+const WINDOW_END: &str = "SetLocalPlayerAsInitialised";
 
 /// One received packet of a capture.
 #[derive(Debug, PartialEq)]
@@ -167,7 +179,6 @@ fn find_line(
 
 /// A field of a JSON object, or null.
 pub(crate) fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
-    static NULL: Value = Value::Null;
     value.get(key).unwrap_or(&NULL)
 }
 
@@ -353,17 +364,6 @@ fn compare_pairs(name: &str, paths: &[Vec<String>], a: &[&Value], b: &[&Value]) 
     differences
 }
 
-/// The chunk packets: they interleave with the spawn window by timing (a server sends them as
-/// chunks load, BDS from before the radius answer), so the window leaves them out and
-/// [`compare_chunks`] compares them by their own rules.
-pub(crate) const CHUNK_PACKETS: [&str; 3] =
-    ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
-
-/// Entity packets that also carry other entities' data: BDS sends them for the flat world's
-/// mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`), Anchor never
-/// (it simulates no mobs). Only the player's own are compared.
-const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
-
 /// The packets of a window that are neither deferred nor chunk packets, nor entity data of
 /// another entity than the player (`ENTITY_DATA`).
 fn kept<'a>(window: &'a [Received], deferred: &Deferred) -> Vec<&'a Received> {
@@ -441,9 +441,6 @@ pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
     }
     Ok(items)
 }
-
-/// How many entries of one kind a difference list shows before it only counts.
-const SHOWN: usize = 10;
 
 /// Compares the item packets of capture A (BDS) and B (Anchor) where both have them. Returns the
 /// differences, which fail the comparison, and notes, which are information:
@@ -734,7 +731,11 @@ impl Representations {
     /// their three item IDs.
     fn walk(value: &Value, f: &mut impl FnMut(&'static str, String)) {
         match value {
-            Value::Array(list) => list.iter().for_each(|v| Self::walk(v, f)),
+            Value::Array(list) => {
+                for v in list {
+                    Self::walk(v, f);
+                }
+            }
             Value::Object(map) => {
                 // Air (network ID 0) is an empty slot, not an item.
                 if let Some(key) = stack_key(value).filter(|k| !k.starts_with("0:")) {

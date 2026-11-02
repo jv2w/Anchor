@@ -36,10 +36,10 @@ pub(crate) struct Covered {
 
 /// The attribute that starts an alias; `doc(...)` may list other entries too.
 const ATTRIBUTE: &str = "#[doc(";
-/// The comment that lists the aliases a test covers.
-const COMMENT: &str = "// pmmp:";
 /// The comment that gives the item below it the class alias equal to its name.
 const CLASS_COMMENT: &str = "// pmmp-class:";
+/// The comment that lists the aliases a test covers.
+const COMMENT: &str = "// pmmp:";
 
 /// The aliases of `text` (alias attributes and `// pmmp-class:` comments, by line), or the
 /// errors (`line: message`) of malformed ones.

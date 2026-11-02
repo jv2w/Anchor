@@ -14,12 +14,12 @@ use crate::world::{BlockPos, MAX_Y, MIN_Y};
 
 /// The oldest a fire gets (PMMP `Fire::MAX_AGE`).
 const MAX_AGE: i32 = 15;
+/// The bounds of a fire's delay to its next update (PMMP `mt_rand(30, 40)`).
+const MAX_DELAY_TICKS: u32 = 40;
+const MIN_DELAY_TICKS: u32 = 30;
 /// How far sideways a fire reads: the air around it that may catch fire, and that air's
 /// neighbours.
 const REACH: i32 = 2;
-/// The bounds of a fire's delay to its next update (PMMP `mt_rand(30, 40)`).
-const MIN_DELAY_TICKS: u32 = 30;
-const MAX_DELAY_TICKS: u32 = 40;
 /// The burn chance bound of the blocks beside a fire, and of those above and below it (PMMP
 /// `Fire::onRandomTick`).
 const SIDE_BURN_BOUND: i32 = 300;

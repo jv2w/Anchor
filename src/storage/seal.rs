@@ -9,13 +9,20 @@
 
 use std::borrow::Cow;
 
+use super::codec::Record;
+use super::{Error, Result};
 use crate::protocol::compression::zlib::{self, Framing};
 use crate::protocol::compression::{Compression, Compressor};
 use crate::protocol::{Reader, Writer};
 
-use super::codec::Record;
-use super::{Error, Result};
-
+/// Bytes a record decoder may allocate: four times the record, for palette NBT. Extras pages
+/// are cut to read back within it (`ExtraRecord::pages`), and a player record's stacks are
+/// bounded so that it does (`item::MAX_NBT_BYTES`).
+pub(crate) const DECODE_BUDGET: usize = 4 * MAX_RECORD;
+const DEFLATE: u8 = 2;
+/// The libdeflate level values are compressed at: level 9 is 1.2% smaller and level 12 4.1% on
+/// a whole imported world, both slower.
+const DEFLATE_LEVEL: u8 = 6;
 /// The format version this Anchor writes and the only one it reads. Its layouts are in `codec`;
 /// the terrain is one value per sub-chunk, none for an empty sub-chunk of plains
 /// (`save::seal_terrain`), and extras lists are in pages. The main file holds the operators,
@@ -26,24 +33,18 @@ use super::{Error, Result};
 /// deletion mark (`deleted:` and the world's name, a `Mark`) for each world its save deleted
 /// whose file may still be there.
 pub(crate) const FORMAT_VERSION: u16 = 12;
+const HEADER: usize = 12;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
 /// whole column would take up to 24 times that, which is why the terrain is stored by
 /// sub-chunk. Extras lists are split into pages of at most this.
 pub(crate) const MAX_RECORD: usize = 16 << 20;
-/// Bytes a record decoder may allocate: four times the record, for palette NBT. Extras pages
-/// are cut to read back within it (`ExtraRecord::pages`), and a player record's stacks are
-/// bounded so that it does (`item::MAX_NBT_BYTES`).
-pub(crate) const DECODE_BUDGET: usize = 4 * MAX_RECORD;
-const HEADER: usize = 12;
 /// Records shorter than this are stored: compression cannot pay for itself.
 const MIN_COMPRESSED: usize = 64;
 const STORED: u8 = 0;
-const DEFLATE: u8 = 2;
-/// The libdeflate level values are compressed at: level 9 is 1.2% smaller and level 12 4.1% on
-/// a whole imported world, both slower.
-const DEFLATE_LEVEL: u8 = 6;
+/// `TABLES[k][b]` is the CRC of byte `b` followed by `k` zero bytes.
+static TABLES: [[u32; 256]; 8] = crc_tables();
 
 /// Encodes `record` and seals it under `key` (the key's bytes).
 pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
@@ -181,9 +182,6 @@ fn checksum(key: &[u8], sealed: &[u8]) -> u32 {
 /// A CRC detects every burst error up to 32 bits, which a non-CRC hash of the same width does not.
 pub(crate) struct Crc32c(u32);
 
-/// `TABLES[k][b]` is the CRC of byte `b` followed by `k` zero bytes.
-static TABLES: [[u32; 256]; 8] = crc_tables();
-
 #[expect(
     clippy::indexing_slicing,
     reason = "invariant: the loops index arrays of 8 and 256 within their lengths"
@@ -259,6 +257,7 @@ impl Crc32c {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::nbt::Compound;
     use crate::protocol::Rng;
     use crate::protocol::compression::Decompressor;
@@ -277,7 +276,7 @@ mod tests {
 
     /// The CRC-32C definition, one bit at a time.
     fn crc_bitwise(bytes: &[u8]) -> u32 {
-        let mut crc = !0u32;
+        let mut crc = !0_u32;
         for &b in bytes {
             crc ^= u32::from(b);
             for _ in 0..8 {
@@ -392,7 +391,7 @@ mod tests {
             Err(Error::Compression(_))
         ));
         // Encoding refuses a record over the limit.
-        let big = vec![0u8; MAX_RECORD + 1];
+        let big = vec![0_u8; MAX_RECORD + 1];
         assert!(matches!(seal_encoded(KEY, &big), Err(Error::Encode(_))));
         // A player extra or an extras list whose NBT declares more than is there.
         let mut record = encode(&PlayerRecord {
@@ -480,7 +479,7 @@ mod tests {
             }
         }
         assert!(
-            deep > 1_000,
+            deep > 1000,
             "only {deep} mutations reached the later checks"
         );
     }

@@ -146,19 +146,19 @@ mod tests {
     #[test]
     fn sets_and_packed_values_match_an_array() {
         let mut nibbles = Nibbles::Uniform(15);
-        let mut model = [15u8; 4096];
+        let mut model = [15_u8; 4096];
         nibbles.set(7, 15);
         assert_eq!(
             nibbles,
             Nibbles::Uniform(15),
             "an equal value keeps it uniform"
         );
-        for i in 0..4096u16 {
+        for i in 0..4096_u16 {
             let value = u8::try_from((u32::from(i) * 7 + 3) % 16).unwrap();
             nibbles.set(i, value);
             model[usize::from(i)] = value;
         }
-        for i in 0..4096u16 {
+        for i in 0..4096_u16 {
             assert_eq!(nibbles.get(i), model[usize::from(i)]);
         }
         assert!(nibbles.uniform().is_none());

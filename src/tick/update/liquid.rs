@@ -11,19 +11,19 @@ use crate::block::{self, Class, Face, Kind, PropertyValue};
 use crate::event::BlockSpread;
 use crate::world::{BlockPos, MAX_Y, MIN_Y};
 
+/// The side of the [`Visited`] grid.
+const GRID: usize = 2 * REACH as usize + 1;
+/// Water's and lava's scheduled update delays (PMMP `Water::tickRate`, `Lava::tickRate` outside
+/// the nether).
+pub(in crate::tick) const LAVA_TICK_RATE: u32 = 30;
 /// The highest decay (PMMP `Liquid::MAX_DECAY`).
 const MAX_DECAY: i32 = 7;
+/// The flow cost of a side without a way down (PMMP `MinimumCostFlowCalculator`).
+const NO_WAY_DOWN: i32 = 1000;
 /// How far from a liquid the rules read: the flow cost search goes four blocks out, one more to
 /// look down.
 const REACH: i32 = 5;
-/// The side of the [`Visited`] grid.
-const GRID: usize = 2 * REACH as usize + 1;
-/// The flow cost of a side without a way down (PMMP `MinimumCostFlowCalculator`).
-const NO_WAY_DOWN: i32 = 1000;
-/// Water's and lava's scheduled update delays (PMMP `Water::tickRate`, `Lava::tickRate` outside
-/// the nether).
 pub(in crate::tick) const WATER_TICK_RATE: u32 = 5;
-pub(in crate::tick) const LAVA_TICK_RATE: u32 = 30;
 
 /// A liquid block as PMMP models it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

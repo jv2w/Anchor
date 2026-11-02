@@ -9,22 +9,22 @@ use crate::item::Stack;
 use crate::nbt::Compound;
 use crate::random::Random;
 
-/// The input slot.
-pub(in crate::tick) const INPUT: usize = 0;
-/// The fuel slot.
-pub(in crate::tick) const FUEL: usize = 1;
-/// The output slot.
-pub(in crate::tick) const OUTPUT: usize = 2;
-/// The slots of a furnace.
-pub(in crate::tick) const SLOTS: usize = 3;
 /// `ContainerSetData` keys (PMMP `ContainerSetDataPacket::PROPERTY_FURNACE_*`).
 pub(in crate::tick) const DATA_COOK: i32 = 0;
 pub(in crate::tick) const DATA_BURN: i32 = 1;
 pub(in crate::tick) const DATA_MAX_BURN: i32 = 2;
 pub(in crate::tick) const DATA_XP: i32 = 3;
+/// The fuel slot.
+pub(in crate::tick) const FUEL: usize = 1;
+/// The input slot.
+pub(in crate::tick) const INPUT: usize = 0;
 /// The most experience a furnace stores: what its saved `Short` holds, so the save and the
 /// checkpoint read back what the furnace has.
 const MAX_XP: u16 = i16::MAX.cast_unsigned();
+/// The output slot.
+pub(in crate::tick) const OUTPUT: usize = 2;
+/// The slots of a furnace.
+pub(in crate::tick) const SLOTS: usize = 3;
 
 /// A furnace-like block entity's timers and stored experience.
 #[derive(Debug, Clone)]
@@ -287,7 +287,7 @@ impl PartialEq for Furnace {
 }
 
 /// What one furnace tick did, for the caller to apply outside.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(in crate::tick) struct Step {
     /// Bit `i`: slot `i` changed.
     pub(in crate::tick) slots: u8,

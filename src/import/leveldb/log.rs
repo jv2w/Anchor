@@ -17,18 +17,18 @@
 use super::{Bytes, DELETION, MAX_KEY, VALUE, masked_crc};
 use crate::import::{Error, Result};
 
-/// Log files are cut into blocks of this many bytes.
-pub(crate) const BLOCK: usize = 32 * 1024;
-/// The physical record header: checksum, length, type.
-pub(crate) const HEADER: usize = 7;
-/// Physical record types.
-pub(crate) const FULL: u8 = 1;
-pub(crate) const FIRST: u8 = 2;
-pub(crate) const MIDDLE: u8 = 3;
-pub(crate) const LAST: u8 = 4;
-const ZERO: u8 = 0;
 /// A write batch header: sequence number and count.
 const BATCH_HEADER: usize = 12;
+/// Log files are cut into blocks of this many bytes.
+pub(crate) const BLOCK: usize = 32 * 1024;
+/// Physical record types.
+pub(crate) const FIRST: u8 = 2;
+pub(crate) const FULL: u8 = 1;
+/// The physical record header: checksum, length, type.
+pub(crate) const HEADER: usize = 7;
+pub(crate) const LAST: u8 = 4;
+pub(crate) const MIDDLE: u8 = 3;
+const ZERO: u8 = 0;
 
 /// Calls `f` with each whole record of the log `data`, in order.
 pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
@@ -143,6 +143,7 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
     use crate::import::leveldb::tests::put_prefixed;
 
     /// Writes `records` as a log, splitting them into fragments at block ends like LevelDB's
@@ -214,7 +215,7 @@ pub(super) mod tests {
         let records = vec![
             vec![1; 10],
             vec![2; BLOCK * 2 + 100],
-            vec![],
+            Vec::new(),
             vec![3; BLOCK - HEADER - 10 - HEADER],
             vec![4; 5],
         ];

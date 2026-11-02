@@ -7,9 +7,19 @@ use super::apply::{self, Flatten, Kind, NewName, Remap, Rules, Schema, Tag};
 use super::*;
 
 /// PMMP's own upgrader over the 5.3.0 schemas (`xtask/php/upgrade.php`, `cargo xtask dump`).
-const GOLDEN_STATES: &str = include_str!("../../../xtask/data/upgrade/golden/states.jsonl");
 const GOLDEN_LEGACY: &str = include_str!("../../../xtask/data/upgrade/golden/legacy.jsonl");
 const GOLDEN_REFERENCE: &str = include_str!("../../../xtask/data/upgrade/golden/reference.jsonl");
+const GOLDEN_STATES: &str = include_str!("../../../xtask/data/upgrade/golden/states.jsonl");
+/// Rules that change nothing, for the schemas under test to start from.
+const NONE: Rules<'static> = Rules {
+    renamed: None,
+    flattened: None,
+    added: &[],
+    removed: &[],
+    renamed_properties: &[],
+    remapped_values: &[],
+    remapped_states: &[],
+};
 
 /// A golden state or input object as NBT: `name` and `val` plain, `states` typed.
 fn compound(json: &Json) -> Compound {
@@ -103,7 +113,7 @@ fn legacy_terrain_values_upgrade_as_pmmp_and_unknown_metas_stay_unknown() {
             None => assert_eq!(expected, legacy(id, 0), "{line}"),
         }
     }
-    assert!(known > 2_000, "{known}");
+    assert!(known > 2000, "{known}");
     assert_eq!(
         legacy(1, 0).unwrap().get("name"),
         Some(&Value::String("minecraft:stone".to_owned()))
@@ -382,16 +392,6 @@ fn block_entity_and_entity_nbt_is_upgraded_at_every_depth() {
 }
 
 // The interpreter's rules, on small schemas.
-
-const NONE: Rules<'static> = Rules {
-    renamed: None,
-    flattened: None,
-    added: &[],
-    removed: &[],
-    renamed_properties: &[],
-    remapped_values: &[],
-    remapped_states: &[],
-};
 
 fn run(
     schemas: &[Schema<'_>],

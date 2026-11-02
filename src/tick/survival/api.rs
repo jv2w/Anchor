@@ -1684,6 +1684,7 @@ fn look(state: &State, player: &Player, max_distance: u32, mut visit: impl FnMut
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::item::{Kind as ItemKind, Stack};
     use crate::nbt::{Compound, Value};
     use crate::player::MAX_TEXT;
@@ -1721,7 +1722,8 @@ mod tests {
         })
     }
 
-    // pmmp: Player::getGamemode, Player::setGamemode, Player::isSurvival, Player::isCreative, Player::isAdventure, Player::isSpectator, Player::hasFiniteResources
+    // pmmp: Player::getGamemode, Player::setGamemode, Player::isSurvival, Player::isCreative,
+    // pmmp: Player::isAdventure, Player::isSpectator, Player::hasFiniteResources
     #[test]
     fn game_mode_changes_tell_the_client_its_mode_and_abilities() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -1767,12 +1769,16 @@ mod tests {
             ..Survival::default()
         };
         let mut extra = Compound::new();
-        super::super::saved::save(&creative, &mut extra);
+        crate::tick::survival::saved::save(&creative, &mut extra);
         let mut forced = Survival::with_mode(GameMode::Adventure, true);
-        super::super::saved::load(&mut forced, &extra, &crate::custom::Registry::default());
+        crate::tick::survival::saved::load(
+            &mut forced,
+            &extra,
+            &crate::custom::Registry::default(),
+        );
         assert_eq!(forced.mode(), GameMode::Adventure);
         let mut free = Survival::with_mode(GameMode::Adventure, false);
-        super::super::saved::load(&mut free, &extra, &crate::custom::Registry::default());
+        crate::tick::survival::saved::load(&mut free, &extra, &crate::custom::Registry::default());
         assert_eq!(free.mode(), GameMode::Creative);
         // A change after the join stays, forced or not.
         forced.game_mode = Some(GameMode::Spectator);
@@ -1791,7 +1797,9 @@ mod tests {
         })
     }
 
-    // pmmp: Entity::getHealth, Entity::setHealth, Living::setHealth, Entity::getMaxHealth, Living::getMaxHealth, Entity::setMaxHealth, Living::setMaxHealth, Entity::heal, Living::getAbsorption, Living::setAbsorption
+    // pmmp: Entity::getHealth, Entity::setHealth, Living::setHealth, Entity::getMaxHealth,
+    // pmmp: Living::getMaxHealth, Entity::setMaxHealth, Living::setMaxHealth, Entity::heal,
+    // pmmp: Living::getAbsorption, Living::setAbsorption
     #[test]
     fn health_stays_within_its_maximum_and_the_client_hears_it() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -1888,7 +1896,7 @@ mod tests {
         cx.teleport(id, crate::world::Id::DEFAULT, feet).unwrap();
         player_mut(&mut state, 1).set_rotation(90.0, -10.0).unwrap();
         run(&mut state, Vec::new());
-        let eye = (feet + Vec3::new(0.0, super::super::EYE_HEIGHT, 0.0)).to_f32();
+        let eye = (feet + Vec3::new(0.0, crate::tick::survival::EYE_HEIGHT, 0.0)).to_f32();
         assert_eq!(moves(received(&mut rx1).0), [(90.0, -10.0, eye)]);
         assert_eq!(moves(received(&mut rx2).0), [(90.0, -10.0, eye)]);
         run(&mut state, Vec::new());
@@ -1936,7 +1944,10 @@ mod tests {
         );
     }
 
-    // pmmp: HungerManager::getFood, HungerManager::setFood, HungerManager::addFood, HungerManager::isHungry, HungerManager::getSaturation, HungerManager::setSaturation, HungerManager::addSaturation, HungerManager::getExhaustion, HungerManager::setExhaustion, HungerManager::exhaust
+    // pmmp: HungerManager::getFood, HungerManager::setFood, HungerManager::addFood,
+    // pmmp: HungerManager::isHungry, HungerManager::getSaturation, HungerManager::setSaturation,
+    // pmmp: HungerManager::addSaturation, HungerManager::getExhaustion,
+    // pmmp: HungerManager::setExhaustion, HungerManager::exhaust
     #[test]
     fn hunger_values_are_set_within_their_bounds() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -1986,13 +1997,19 @@ mod tests {
             "a creative player does not get hungry"
         );
         let mut extra = Compound::new();
-        super::super::save(&p.survival, &mut extra);
+        crate::tick::survival::save(&p.survival, &mut extra);
         let mut loaded = Survival::default();
-        super::super::load(&mut loaded, &extra, &crate::custom::Registry::default());
+        crate::tick::survival::load(&mut loaded, &extra, &crate::custom::Registry::default());
         assert_eq!(loaded.exhaustion, 10.0);
     }
 
-    // pmmp: ExperienceManager::getXpLevel, ExperienceManager::setXpLevel, ExperienceManager::addXpLevels, ExperienceManager::subtractXpLevels, ExperienceManager::getXpProgress, ExperienceManager::setXpProgress, ExperienceManager::addXp, ExperienceManager::subtractXp, ExperienceManager::getCurrentTotalXp, ExperienceManager::setCurrentTotalXp, ExperienceManager::getLifetimeTotalXp, Human::getEnchantmentSeed, Human::setEnchantmentSeed, Human::regenerateEnchantmentSeed
+    // pmmp: ExperienceManager::getXpLevel, ExperienceManager::setXpLevel,
+    // pmmp: ExperienceManager::addXpLevels, ExperienceManager::subtractXpLevels,
+    // pmmp: ExperienceManager::getXpProgress, ExperienceManager::setXpProgress,
+    // pmmp: ExperienceManager::addXp, ExperienceManager::subtractXp,
+    // pmmp: ExperienceManager::getCurrentTotalXp, ExperienceManager::setCurrentTotalXp,
+    // pmmp: ExperienceManager::getLifetimeTotalXp, Human::getEnchantmentSeed,
+    // pmmp: Human::setEnchantmentSeed, Human::regenerateEnchantmentSeed
     #[test]
     fn experience_and_the_enchanting_seed_follow_pmmp() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2044,7 +2061,9 @@ mod tests {
         );
     }
 
-    // pmmp: Living::getEffects, EffectCollection::all, EffectCollection::get, EffectCollection::has, EffectManager::add, EffectCollection::add, EffectManager::remove, EffectCollection::remove, EffectCollection::clear
+    // pmmp: Living::getEffects, EffectCollection::all, EffectCollection::get,
+    // pmmp: EffectCollection::has, EffectManager::add, EffectCollection::add,
+    // pmmp: EffectManager::remove, EffectCollection::remove, EffectCollection::clear
     #[test]
     fn effects_are_added_read_and_removed_as_pmmp() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2084,10 +2103,10 @@ mod tests {
         })
     }
 
+    // pmmp: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite
     /// An instance's particles, faint particles and endless duration reach the player as BDS
     /// sends `/effect <player> resistance 600 255 true` (P6 `potions`: `MobEffect` with
     /// `Particles` false, key 131 still 0) and as PMMP packs the visible effects.
-    // pmmp: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite
     #[test]
     fn effects_keep_their_particles_and_endless_duration() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2139,7 +2158,10 @@ mod tests {
         assert!(speed.is_infinite() && speed.is_ambient() && speed.is_visible());
     }
 
-    // pmmp: Entity::isOnFire, Entity::getFireTicks, Entity::setFireTicks, Entity::setOnFire, Living::setOnFire, Entity::extinguish, Living::getAirSupplyTicks, Living::getMaxAirSupplyTicks, Living::isBreathing, Entity::getFallDistance, Entity::setFallDistance, Entity::resetFallDistance, Player::resetFallDistance
+    // pmmp: Entity::isOnFire, Entity::getFireTicks, Entity::setFireTicks, Entity::setOnFire,
+    // pmmp: Living::setOnFire, Entity::extinguish, Living::getAirSupplyTicks,
+    // pmmp: Living::getMaxAirSupplyTicks, Living::isBreathing, Entity::getFallDistance,
+    // pmmp: Entity::setFallDistance, Entity::resetFallDistance, Player::resetFallDistance
     #[test]
     fn fire_air_and_falls_read_and_change() {
         let (mut state, [_rx1, mut rx2]) = two();
@@ -2192,7 +2214,8 @@ mod tests {
         assert!(marked(p), "the breathing flag is sent");
     }
 
-    // pmmp: Entity::isOnGround, Living::isSneaking, Player::isSneakPressed, Living::isSprinting, Living::isSwimming, Living::isGliding, Player::isUsingItem, Entity::getDirectionVector
+    // pmmp: Entity::isOnGround, Living::isSneaking, Player::isSneakPressed, Living::isSprinting,
+    // pmmp: Living::isSwimming, Living::isGliding, Player::isUsingItem, Entity::getDirectionVector
     #[test]
     fn movement_state_reads_what_the_client_reported() {
         let (mut state, _rx) = two();
@@ -2214,7 +2237,9 @@ mod tests {
         assert!(p.direction().x < -0.99, "90 looks west");
     }
 
-    // pmmp: Player::isFlying, Player::setFlying, Player::getAllowFlight, Player::setAllowFlight, Player::getFlightSpeedMultiplier, Player::setFlightSpeedMultiplier, Player::hasBlockCollision, Player::setHasBlockCollision
+    // pmmp: Player::isFlying, Player::setFlying, Player::getAllowFlight, Player::setAllowFlight,
+    // pmmp: Player::getFlightSpeedMultiplier, Player::setFlightSpeedMultiplier,
+    // pmmp: Player::hasBlockCollision, Player::setHasBlockCollision
     #[test]
     fn flight_and_block_collision_reach_the_ability_layers() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2247,7 +2272,8 @@ mod tests {
         assert_eq!(layers, 1);
     }
 
-    // pmmp: Player::getSpawn, Player::hasValidCustomSpawn, Player::setSpawn, Player::getDeathPosition
+    // pmmp: Player::getSpawn, Player::hasValidCustomSpawn, Player::setSpawn,
+    // pmmp: Player::getDeathPosition
     #[test]
     fn a_set_spawn_point_is_where_the_player_respawns() {
         let (mut state, _rx) = two();
@@ -2274,7 +2300,9 @@ mod tests {
         assert_eq!(p.spawn(), None);
     }
 
-    // pmmp: Entity::getNameTag, Entity::setNameTag, Entity::getScoreTag, Entity::setScoreTag, Entity::isInvisible, Entity::setInvisible, Entity::isSilent, Entity::setSilent, Entity::hasNoClientPredictions, Entity::setNoClientPredictions
+    // pmmp: Entity::getNameTag, Entity::setNameTag, Entity::getScoreTag, Entity::setScoreTag,
+    // pmmp: Entity::isInvisible, Entity::setInvisible, Entity::isSilent, Entity::setSilent,
+    // pmmp: Entity::hasNoClientPredictions, Entity::setNoClientPredictions
     #[test]
     fn tags_and_flags_reach_the_player_and_its_viewers() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2335,7 +2363,8 @@ mod tests {
         );
     }
 
-    // pmmp: Living::setAirSupplyTicks, Living::getMaxAirSupplyTicks, Living::setMaxAirSupplyTicks, Living::setBreathing
+    // pmmp: Living::setAirSupplyTicks, Living::getMaxAirSupplyTicks, Living::setMaxAirSupplyTicks,
+    // pmmp: Living::setBreathing
     #[test]
     fn the_air_supply_is_set_within_its_maximum_and_refills_to_it() {
         let (mut state, [_rx1, mut rx2]) = two();
@@ -2375,7 +2404,8 @@ mod tests {
         FlagSet::from_words(&[w.cast_unsigned()]).unwrap()
     }
 
-    // pmmp: Living::setSneaking, Living::setSprinting, Living::setSwimming, Living::setGliding, Living::getMovementSpeed, Living::setMovementSpeed
+    // pmmp: Living::setSneaking, Living::setSprinting, Living::setSwimming, Living::setGliding,
+    // pmmp: Living::getMovementSpeed, Living::setMovementSpeed
     #[test]
     fn movement_flags_and_speed_reach_the_client_and_viewers() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2406,7 +2436,9 @@ mod tests {
         assert_eq!(player_mut(&mut state, 1).movement_speed(), 0.2);
     }
 
-    // pmmp: ExperienceManager::setLifetimeTotalXp, ExperienceManager::getRemainderXp, ExperienceManager::canPickupXp, ExperienceManager::canAttractXpOrbs, ExperienceManager::setCanAttractXpOrbs
+    // pmmp: ExperienceManager::setLifetimeTotalXp, ExperienceManager::getRemainderXp,
+    // pmmp: ExperienceManager::canPickupXp, ExperienceManager::canAttractXpOrbs,
+    // pmmp: ExperienceManager::setCanAttractXpOrbs
     #[test]
     fn experience_remainder_lifetime_and_orb_settings() {
         let (mut state, _rx) = two();
@@ -2463,11 +2495,11 @@ mod tests {
         inventory::set_armor(p, 0, helmet);
         assert_eq!(p.armor_points(), points);
         assert_eq!(p.last_damage_cause(), None);
-        assert!(super::super::damage(
+        assert!(crate::tick::survival::damage(
             &mut state,
             crate::tick::SessionId::new(1),
             2.0,
-            super::super::Damage::Starvation
+            crate::tick::survival::Damage::Starvation
         ));
         let p = player_mut(&mut state, 1);
         assert_eq!(
@@ -2483,7 +2515,8 @@ mod tests {
         assert_eq!(p.last_damage_cause(), None);
     }
 
-    // pmmp: Entity::canClimb, Entity::setCanClimb, Entity::canClimbWalls, Entity::setCanClimbWalls, Player::hasAutoJump, Player::setAutoJump, Player::setMotion
+    // pmmp: Entity::canClimb, Entity::setCanClimb, Entity::canClimbWalls, Entity::setCanClimbWalls,
+    // pmmp: Player::hasAutoJump, Player::setAutoJump, Player::setMotion
     #[test]
     fn climbing_auto_jump_and_motion_reach_the_client() {
         let (mut state, [mut rx1, mut rx2]) = two();
@@ -2584,7 +2617,8 @@ mod tests {
         }
     }
 
-    // pmmp: Player::setDeathPosition, Player::getInAirTicks, Entity::getHorizontalFacing, Player::canInteract
+    // pmmp: Player::setDeathPosition, Player::getInAirTicks, Entity::getHorizontalFacing,
+    // pmmp: Player::canInteract
     #[test]
     fn death_position_air_ticks_facing_and_reach() {
         let (mut state, [_rx1, mut rx2]) = two();
@@ -2647,7 +2681,8 @@ mod tests {
         assert!(!p.can_interact(eye, f64::INFINITY));
     }
 
-    // pmmp: Player::hasItemCooldown, Player::getItemCooldownExpiry, Player::resetItemCooldown, Player::getItemUseDuration
+    // pmmp: Player::hasItemCooldown, Player::getItemCooldownExpiry, Player::resetItemCooldown,
+    // pmmp: Player::getItemUseDuration
     #[test]
     fn item_cooldowns_and_the_use_time_count_engine_ticks() {
         let (mut state, [mut rx1, _rx2]) = two();
@@ -2693,7 +2728,8 @@ mod tests {
         assert_eq!(started, 2);
     }
 
-    // pmmp: Player::dropItem, Living::getLineOfSight, Living::getTargetBlock, Entity::isUnderwater, Entity::isInsideOfSolid
+    // pmmp: Player::dropItem, Living::getLineOfSight, Living::getTargetBlock, Entity::isUnderwater,
+    // pmmp: Entity::isInsideOfSolid
     #[test]
     fn a_player_drops_items_and_sees_the_ground_below() {
         let (mut state, _rx) = two();

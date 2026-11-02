@@ -20,14 +20,20 @@ use crate::protocol::consts::TextType;
 use crate::protocol::packet::{CommandRequest, ModalFormResponse, Text};
 use crate::protocol::{CommandOrigin, Rng};
 
-/// The most unanswered forms the script remembers per session (the server keeps 16).
-pub(super) const MAX_REMEMBERED_FORMS: usize = 32;
-
-/// Seeds of the run with listeners: two keep it near the base run's time, with more work per tick.
-const BUSY_SEEDS: [u64; 2] = [SEEDS[0], SEEDS[2]];
+/// Form answers: the first and second button, closed, malformed and not JSON.
+const ANSWERS: [Option<&[u8]>; 5] = [
+    Some(b"true"),
+    Some(b"false"),
+    None,
+    Some(b"[1]"),
+    Some(b"{oops"),
+];
 
 /// What the API inputs must have reached over all seeds, besides [`REACHED`].
 const BUSY_REACHED: [&str; 1] = ["form"];
+
+/// Seeds of the run with listeners: two keep it near the base run's time, with more work per tick.
+const BUSY_SEEDS: [u64; 2] = [SEEDS[0], SEEDS[2]];
 
 /// Chat lines the clients send: plain, a command typed in chat, one a listener kicks for.
 const CHAT: [&str; 5] = ["hello", "gg", "/me dances", "/list", "bye"];
@@ -47,14 +53,8 @@ const COMMANDS: [&str; 10] = [
     "/nothing",
 ];
 
-/// Form answers: the first and second button, closed, malformed and not JSON.
-const ANSWERS: [Option<&[u8]>; 5] = [
-    Some(b"true"),
-    Some(b"false"),
-    None,
-    Some(b"[1]"),
-    Some(b"{oops"),
-];
+/// The most unanswered forms the script remembers per session (the server keeps 16).
+pub(super) const MAX_REMEMBERED_FORMS: usize = 32;
 
 /// A script made from a seed and a number of sessions.
 type MakeScript = fn(u64, usize) -> Script;

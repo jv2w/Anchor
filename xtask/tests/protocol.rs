@@ -30,31 +30,53 @@ use anchor::protocol::{
 use oracle::Record;
 use rng::Rng;
 
-/// The shield's item network ID, the value the oracle uses (`main.go` `ShieldID`) and not the
-/// server's own: the codec takes it as an argument, and the oracle's value keeps the samples
-/// readable by both sides.
-const SHIELD_ID: i32 = 357;
 /// The allocation budget of one decode: 2 × the default 16 MiB `max-batch-bytes`.
 const BUDGET: usize = 2 * 16 * 1024 * 1024;
-/// Packets in gophertunnel's client and server pools together.
-const PACKET_COUNT: usize = 244;
-/// Corpus samples per packet.
-const SAMPLES: usize = 64;
+/// The corpus, generated once per test process and grouped by packet ID.
+static CORPUS: OnceLock<BTreeMap<u32, Vec<Vec<u8>>>> = OnceLock::new();
 /// Corpus seed.
 const CORPUS_SEED: u64 = 1;
+/// NBT element types that gophertunnel drops from an empty list.
+const DROPPED_EMPTY_LIST_TYPES: [(u8, &str); 10] = [
+    (1, "Byte"),
+    (2, "Short"),
+    (5, "Float"),
+    (6, "Double"),
+    (7, "ByteArray"),
+    (8, "String"),
+    (9, "List"),
+    (10, "Compound"),
+    (11, "IntArray"),
+    (12, "LongArray"),
+];
+/// Packets whose default value gophertunnel's writer refuses too: Text needs a message, and
+/// `ClientMovementPredictionSync`'s actor flags need a bitset of their fixed size.
+const INVALID_DEFAULTS: &[u32] = &[9, 322];
 /// The per-field decode limits, which corpus samples keep within (Anchor rejects the rest).
 const LIMITS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/reference/protocol_limits.json"
 );
-/// Mutated inputs per packet.
-const MUTATIONS: usize = 1000;
+const MIB: usize = 1024 * 1024;
+/// The mutation run, made once per test process.
+static MUTATION_RUN: OnceLock<MutationRun> = OnceLock::new();
 /// Mutation seed; each packet mixes in its ID.
 const MUTATION_SEED: u64 = 0x005e_ed0f_a4c4;
+/// Mutated inputs per packet.
+const MUTATIONS: usize = 1000;
+/// Packets in gophertunnel's client and server pools together.
+const PACKET_COUNT: usize = 244;
+/// Corpus samples per packet.
+const SAMPLES: usize = 64;
+/// The shield's item network ID, the value the oracle uses (`main.go` `ShieldID`) and not the
+/// server's own: the codec takes it as an argument, and the oracle's value keeps the samples
+/// readable by both sides.
+const SHIELD_ID: i32 = 357;
+/// The bytes of a hex dump shown before it only counts.
+const SHOWN_BYTES: usize = 64;
 
 /// The corpus, generated once per test process and grouped by packet ID.
 fn corpus() -> &'static BTreeMap<u32, Vec<Vec<u8>>> {
-    static CORPUS: OnceLock<BTreeMap<u32, Vec<Vec<u8>>>> = OnceLock::new();
     CORPUS.get_or_init(|| {
         let seed = CORPUS_SEED.to_string();
         let samples = SAMPLES.to_string();
@@ -85,13 +107,12 @@ fn name(id: u32) -> String {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    const SHOWN: usize = 64;
     let mut s = String::new();
-    for b in bytes.iter().take(SHOWN) {
+    for b in bytes.iter().take(SHOWN_BYTES) {
         write!(s, "{b:02x}").expect("write to a String");
     }
-    if bytes.len() > SHOWN {
-        write!(s, "…(+{} bytes)", bytes.len() - SHOWN).expect("write to a String");
+    if bytes.len() > SHOWN_BYTES {
+        write!(s, "…(+{} bytes)", bytes.len() - SHOWN_BYTES).expect("write to a String");
     }
     s
 }
@@ -299,8 +320,7 @@ fn check_mutation(id: u32, m: &[u8]) -> (Option<Vec<u8>>, Option<String>) {
 }
 
 fn mutation_run() -> &'static MutationRun {
-    static RUN: OnceLock<MutationRun> = OnceLock::new();
-    RUN.get_or_init(|| {
+    MUTATION_RUN.get_or_init(|| {
         let mut run = MutationRun::default();
         for (&id, samples) in corpus() {
             let mut rng = Rng(MUTATION_SEED ^ u64::from(id));
@@ -365,20 +385,6 @@ fn is_known_difference(id: u32, r: &[u8], returned: &[u8]) -> bool {
     };
     differs_only_in_empty_list_types(id, &expected, returned)
 }
-
-/// NBT element types that gophertunnel drops from an empty list.
-const DROPPED_EMPTY_LIST_TYPES: [(u8, &str); 10] = [
-    (1, "Byte"),
-    (2, "Short"),
-    (5, "Float"),
-    (6, "Double"),
-    (7, "ByteArray"),
-    (8, "String"),
-    (9, "List"),
-    (10, "Compound"),
-    (11, "IntArray"),
-    (12, "LongArray"),
-];
 
 /// Whether `returned` is `expected` with some empty NBT lists' element types replaced by
 /// `TAG_End`: in the bytes, every difference is such a type byte, followed by a zero length,
@@ -813,7 +819,6 @@ fn byte_array_root(len: usize) -> Vec<u8> {
 
 #[test]
 fn an_nbt_root_over_4_mib_is_a_size_error() {
-    const MIB: usize = 1024 * 1024;
     let (id, payload) = block_actor_data(&byte_array_root(4 * MIB));
     assert_size_error(id, &payload, BUDGET);
     let (id, payload) = block_actor_data(&byte_array_root(4 * MIB - 16));
@@ -932,10 +937,6 @@ fn connection_request_lengths_over_the_input_are_size_errors() {
         assert_eq!(ConnectionRequest::parse(&request), Err(Error::Size));
     }
 }
-
-/// Packets whose default value gophertunnel's writer refuses too: Text needs a message, and
-/// `ClientMovementPredictionSync`'s actor flags need a bitset of their fixed size.
-const INVALID_DEFAULTS: &[u32] = &[9, 322];
 
 #[test]
 fn every_packet_id_has_a_default_value() {

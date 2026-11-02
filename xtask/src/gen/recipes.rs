@@ -16,9 +16,6 @@ use super::emit::HEADER;
 
 type R<T> = Result<T, String>;
 
-/// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/crafting/table.rs";
-
 /// PMMP's `FurnaceType` cases in declaration order, which is the order `CraftingDataCache` sends
 /// them in: (dump name, Rust variant).
 const FURNACE_TYPES: [(&str, &str); 5] = [
@@ -28,7 +25,8 @@ const FURNACE_TYPES: [(&str, &str); 5] = [
     ("campfire", "Campfire"),
     ("soul_campfire", "SoulCampfire"),
 ];
-
+/// The generated file, relative to the repository root.
+pub(crate) const PATH: &str = "src/crafting/table.rs";
 /// The `ShapelessRecipeType` cases PMMP's recipes use: (dump name, Rust variant). PMMP has no
 /// smithing or cartography table recipes of this kind.
 const SHAPELESS_TYPES: [(&str, &str); 2] = [

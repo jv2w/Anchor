@@ -14,40 +14,37 @@ use std::process::Command;
 
 use super::{PHP, PMMP, create_dir, file_names, read, write};
 
+/// Output names inside [`OUT`].
+pub(crate) const BLOCK_LEGACY_IDS: &str = "block_legacy_id_map.json";
+/// Source folders of the schemas.
+const BLOCK_SCHEMA_DIR: &str = "nbt_upgrade_schema";
+pub(crate) const BLOCK_SCHEMAS: &str = "blocks";
 /// The pinned checkouts, relative to the repository root, and their commits.
 pub(super) const BLOCKS: (&str, &str) = (
     ".cache/block-upgrade-schema",
     "1077ee640ed39f60266f7a7c8ab331ef76d7931e",
 );
+pub(crate) const GOLDEN: &str = "golden";
+pub(crate) const GOLDEN_FILES: [&str; 3] = ["legacy.jsonl", "states.jsonl", "reference.jsonl"];
+/// The SHA-256 initial hash value (FIPS 180-4 5.3.3).
+const H0: [u32; 8] = [
+    0x6a09_e667,
+    0xbb67_ae85,
+    0x3c6e_f372,
+    0xa54f_f53a,
+    0x510e_527f,
+    0x9b05_688c,
+    0x1f83_d9ab,
+    0x5be0_cd19,
+];
+pub(crate) const ITEM_BLOCKS: &str = "1.12.0_item_id_to_block_id_map.json";
+pub(crate) const ITEM_LEGACY_IDS: &str = "item_legacy_id_map.json";
+const ITEM_SCHEMA_DIR: &str = "id_meta_upgrade_schema";
+pub(crate) const ITEM_SCHEMAS: &str = "items";
 pub(super) const ITEMS: (&str, &str) = (
     ".cache/item-upgrade-schema",
     "dfc12b388be886ba6980d9a3b67cb1b432b563e2",
 );
-/// The output directory, relative to the repository root.
-pub(crate) const OUT: &str = "xtask/data/upgrade";
-/// Output names inside [`OUT`].
-pub(crate) const BLOCK_SCHEMAS: &str = "blocks";
-pub(crate) const ITEM_SCHEMAS: &str = "items";
-pub(crate) const BLOCK_LEGACY_IDS: &str = "block_legacy_id_map.json";
-pub(crate) const LEGACY_TABLE: &str = "legacy_1.12.0.jsonl";
-pub(crate) const ITEM_LEGACY_IDS: &str = "item_legacy_id_map.json";
-pub(crate) const ITEM_BLOCKS: &str = "1.12.0_item_id_to_block_id_map.json";
-const SOURCES: &str = "sources.json";
-pub(crate) const GOLDEN: &str = "golden";
-pub(crate) const GOLDEN_FILES: [&str; 3] = ["legacy.jsonl", "states.jsonl", "reference.jsonl"];
-/// Source folders of the schemas.
-const BLOCK_SCHEMA_DIR: &str = "nbt_upgrade_schema";
-const ITEM_SCHEMA_DIR: &str = "id_meta_upgrade_schema";
-/// The legacy block tables: 1.12.0 is the one PMMP loads; 1.9.0 only feeds the golden run.
-const LEGACY_BIN: &str = "id_meta_to_nbt/1.12.0.bin";
-const LEGACY_BIN_1_9: &str = "id_meta_to_nbt/1.9.0.bin";
-/// NBT tag types a block state holds.
-const TAG_END: u8 = 0;
-const TAG_BYTE: u8 = 1;
-const TAG_SHORT: u8 = 2;
-const TAG_INT: u8 = 3;
-const TAG_STRING: u8 = 8;
-const TAG_COMPOUND: u8 = 10;
 /// The SHA-256 round constants (FIPS 180-4 4.2.2).
 const K: [u32; 64] = [
     0x428a_2f98,
@@ -115,17 +112,20 @@ const K: [u32; 64] = [
     0xbef9_a3f7,
     0xc671_78f2,
 ];
-/// The SHA-256 initial hash value (FIPS 180-4 5.3.3).
-const H0: [u32; 8] = [
-    0x6a09_e667,
-    0xbb67_ae85,
-    0x3c6e_f372,
-    0xa54f_f53a,
-    0x510e_527f,
-    0x9b05_688c,
-    0x1f83_d9ab,
-    0x5be0_cd19,
-];
+/// The legacy block tables: 1.12.0 is the one PMMP loads; 1.9.0 only feeds the golden run.
+const LEGACY_BIN: &str = "id_meta_to_nbt/1.12.0.bin";
+const LEGACY_BIN_1_9: &str = "id_meta_to_nbt/1.9.0.bin";
+pub(crate) const LEGACY_TABLE: &str = "legacy_1.12.0.jsonl";
+/// The output directory, relative to the repository root.
+pub(crate) const OUT: &str = "xtask/data/upgrade";
+const SOURCES: &str = "sources.json";
+/// NBT tag types a block state holds.
+const TAG_END: u8 = 0;
+const TAG_BYTE: u8 = 1;
+const TAG_SHORT: u8 = 2;
+const TAG_INT: u8 = 3;
+const TAG_STRING: u8 = 8;
+const TAG_COMPOUND: u8 = 10;
 
 /// A reader of the legacy table's bytes.
 struct Bin<'a> {

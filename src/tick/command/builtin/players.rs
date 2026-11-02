@@ -21,40 +21,40 @@ use crate::world::BlockPos;
 const CLEAR_FAILURE: Msg = Msg::client("commands.clear.failure.no.items");
 const CLEAR_SUCCESS: Msg = Msg::client("commands.clear.success");
 const CLEAR_TESTING: Msg = Msg::client("commands.clear.testing");
+/// The port `/transferserver` uses when none is given.
+const DEFAULT_PORT: i32 = 19_132;
 const EFFECT_NOT_ACTIVE: Msg = Msg::client("commands.effect.failure.notActive");
 const EFFECT_NOT_ACTIVE_ALL: Msg = Msg::client("commands.effect.failure.notActive.all");
 const EFFECT_REMOVED: Msg = Msg::client("commands.effect.success.removed");
 const EFFECT_REMOVED_ALL: Msg = Msg::client("commands.effect.success.removed.all");
 const EFFECT_SUCCESS: Msg = Msg::client("commands.effect.success");
 const EFFECT_SUCCESS_INFINITE: Msg = Msg::client("commands.effect.success.infinite");
+const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
 const ENCHANT_NO_ITEM: Msg = Msg::client("commands.enchant.noItem");
 const ENCHANT_SUCCESS: Msg = Msg::client("commands.enchant.success");
-const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
-const GAMEMODE_FAILURE: Msg = Msg::own("The game mode of {%0} stays as it is");
-const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self");
-const GAMEMODE_SUCCESS_OTHER: Msg = Msg::client("commands.gamemode.success.other");
 const GAME_MODE_CHANGED: Msg = Msg::client("gameMode.changed");
+const GAMEMODE_FAILURE: Msg = Msg::own("The game mode of {%0} stays as it is");
+const GAMEMODE_SUCCESS_OTHER: Msg = Msg::client("commands.gamemode.success.other");
+const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self");
 const GIVE_SUCCESS: Msg = Msg::client("commands.give.success");
 const GIVE_SUCCESS_RECIPIENT: Msg = Msg::client("commands.give.successRecipient");
 const KILL_SUCCESSFUL: Msg = Msg::client("commands.kill.successful");
+/// The longest `/give` amount (PMMP `GiveCommand`).
+const MAX_GIVE: i32 = 32_767;
+const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
+const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
+const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
 const SPAWNPOINT_SUCCESS: Msg = Msg::client("commands.spawnpoint.success.single");
+const TITLE_SUCCESS: Msg = Msg::client("commands.title.success");
 const TP_SUCCESS: Msg = Msg::client("commands.tp.success");
 const TP_SUCCESS_COORDINATES: Msg = Msg::client("commands.tp.success.coordinates");
 const TP_SUCCESS_VICTIM: Msg = Msg::client("commands.tp.successVictim");
-const XP_WITHDRAW: Msg = Msg::client("commands.xp.failure.widthdrawXp");
+/// How whispers look: aqua, italic.
+const WHISPER_PREFIX: &str = "§b§o";
 const XP_SUCCESS: Msg = Msg::client("commands.xp.success");
 const XP_SUCCESS_LEVELS: Msg = Msg::client("commands.xp.success.levels");
 const XP_TAKEN_LEVELS: Msg = Msg::client("commands.xp.success.negative.levels");
-const TITLE_SUCCESS: Msg = Msg::client("commands.title.success");
-const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
-const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
-const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
-/// How whispers look: aqua, italic.
-const WHISPER_PREFIX: &str = "§b§o";
-/// The longest `/give` amount (PMMP `GiveCommand`).
-const MAX_GIVE: i32 = 32_767;
-/// The port `/transferserver` uses when none is given.
-const DEFAULT_PORT: i32 = 19_132;
+const XP_WITHDRAW: Msg = Msg::client("commands.xp.failure.widthdrawXp");
 
 /// A slot `/clear` empties, in PMMP's order: the inventory, the cursor, the armour, the off hand.
 #[derive(Debug, Clone, Copy)]
@@ -256,7 +256,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
 /// Lists the slots `/clear` empties and what they hold.
 fn slots(p: &Player) -> Vec<(Slot, &Stack)> {
     let inv = &p.inventory;
-    let mut out: Vec<(Slot, &Stack)> = (0u8..)
+    let mut out: Vec<(Slot, &Stack)> = (0_u8..)
         .map_while(|i| inv.main_stack(i).map(|s| (Slot::Main(i), s)))
         .collect();
     out.push((Slot::Cursor, inv.cursor()));
@@ -322,7 +322,7 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
             .filter(|_| item.is_some())
             .and_then(|n| u64::try_from(n).ok())
             .unwrap_or(u64::MAX);
-        let mut cleared = 0u64;
+        let mut cleared = 0_u64;
         for (slot, stack) in held {
             if left == 0 {
                 break;
@@ -511,7 +511,7 @@ fn give(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
-        let mut given = 0u32;
+        let mut given = 0_u32;
         // At most one stack more than the inventory has slots: the first that does not fit ends.
         while given < amount {
             let count = u8::try_from((amount - given).min(u32::from(full))).unwrap_or(full);

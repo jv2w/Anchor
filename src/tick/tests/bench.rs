@@ -17,22 +17,22 @@ use crate::item::{Stack, Type};
 use crate::nbt::Compound;
 use crate::protocol::packet::PlayerAuthInput;
 
+/// The feet height on the flat world.
+const FEET: f64 = -60.0;
+/// The most ticks [`burst`] waits for the light work to end.
+const MAX_BURST_TICKS: u32 = 10_000;
+/// The most empty ticks [`Bench::settle`] runs after its minimum.
+const MAX_SETTLE_TICKS: u32 = 2000;
+/// The most ticks [`Bench::join`] waits for the players to spawn.
+const MAX_SPAWN_TICKS: u32 = 1000;
+/// The ticks a measurement times.
+const MEASURED_TICKS: u32 = 300;
+/// The fewest ticks [`burst`] runs after the changes.
+const MIN_BURST_TICKS: u32 = 100;
 /// The view distance of every measurement.
 const VIEW_DISTANCE: u8 = 8;
 /// A walking player's speed in blocks per tick (4.317 blocks per second).
 const WALK: f64 = 0.215;
-/// The feet height on the flat world.
-const FEET: f64 = -60.0;
-/// The ticks a measurement times.
-const MEASURED_TICKS: u32 = 300;
-/// The most empty ticks [`Bench::settle`] runs after its minimum.
-const MAX_SETTLE_TICKS: u32 = 2_000;
-/// The most ticks [`Bench::join`] waits for the players to spawn.
-const MAX_SPAWN_TICKS: u32 = 1_000;
-/// The fewest ticks [`burst`] runs after the changes.
-const MIN_BURST_TICKS: u32 = 100;
-/// The most ticks [`burst`] waits for the light work to end.
-const MAX_BURST_TICKS: u32 = 10_000;
 
 /// A server and its sessions, run tick by tick.
 struct Bench {
@@ -54,7 +54,7 @@ impl Bench {
         let threads = crate::runtime::logical_cpus().max(4);
         let settings = settings(|c| {
             c.general.view_distance = VIEW_DISTANCE;
-            c.general.max_players = 1_000;
+            c.general.max_players = 1000;
             c.developer.chunks_per_tick = Config::default().developer.chunks_per_tick;
             edit(c);
         });
@@ -476,7 +476,7 @@ fn tick_costs() {
             players_walking(n, run);
         }
     }
-    for count in [1_000, 10_000] {
+    for count in [1000, 10_000] {
         for run in runs {
             items(count, run);
         }

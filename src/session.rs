@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
+use tokio::{join, pin, select};
 use tracing::{debug, error, info, warn};
 
 use crate::auth::Auth;
@@ -48,17 +49,17 @@ const ACCEPT_QUEUE: usize = 64;
 /// Session events waiting for the accept task. A session sends at most two (logged in, ended)
 /// and only after taking a permit with `send().await`, so a full queue only delays it.
 const EVENT_QUEUE: usize = 256;
-/// How long [`Network::stop`] waits for sessions to send what they still hold.
-const STOP_GRACE: Duration = Duration::from_secs(10);
-/// How often the accept task reports changed connection counts to the tick and forgets ended
-/// blocks. Each report is a logged input, so the counts the tick reads are at most this old.
-const REPORT_INTERVAL: Duration = Duration::from_secs(1);
 /// Addresses blocked at once (PMMP `Network::blockAddress` has no bound); a block past it is
 /// refused with a warning.
 const MAX_BLOCKED: usize = 4096;
+/// How often the accept task reports changed connection counts to the tick and forgets ended
+/// blocks. Each report is a logged input, so the counts the tick reads are at most this old.
+const REPORT_INTERVAL: Duration = Duration::from_secs(1);
 /// The player lists the tick sends a player before its spawn status: one with the start game and
 /// one in the spawn window.
 const SPAWN_PLAYER_LISTS: usize = 2;
+/// How long [`Network::stop`] waits for sessions to send what they still hold.
+const STOP_GRACE: Duration = Duration::from_secs(10);
 
 /// Running networking: the transports, the accept task and every session.
 #[derive(Debug)]
@@ -78,11 +79,14 @@ impl Network {
             debug!("accept task already ended");
         }
         if let Err(e) = self.accept.await {
-            warn!(error = %e, "accept task failed");
+            warn!(
+                error = &e as &(dyn std::error::Error + 'static),
+                "accept task failed"
+            );
         }
         // Signaling stops while the UDP task lets both transports' connections deliver their
         // last messages.
-        tokio::join!(self.udp.shutdown(), self.nethernet.shutdown());
+        join!(self.udp.shutdown(), self.nethernet.shutdown());
     }
 }
 
@@ -150,7 +154,7 @@ impl Accept {
         let mut report = tokio::time::interval(REPORT_INTERVAL);
         report.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            tokio::select! {
+            select! {
                 _ = &mut stop => break,
                 control = self.controls.recv(), if controls => match control {
                     Some(control) => self.on_control(control),
@@ -178,7 +182,7 @@ impl Accept {
                 Some(ended) = self.sessions.join_next(), if !self.sessions.is_empty() => {
                     if let Err(e) = ended {
                         // A panic in one session ends only that connection.
-                        warn!(error = %e, "session task failed");
+                        warn!(error = &e as &(dyn std::error::Error + 'static), "session task failed");
                     }
                 }
             }
@@ -231,7 +235,10 @@ impl Accept {
         let measure = Measure::Connections { all, logged_in };
         match self.network.try_send(InputKind::Measure(measure)) {
             Ok(()) => self.reported = (all, logged_in),
-            Err(e) => debug!(error = %e, "connection counts not reported"),
+            Err(e) => debug!(
+                error = &e as &(dyn std::error::Error + 'static),
+                "connection counts not reported"
+            ),
         }
     }
 
@@ -250,9 +257,9 @@ impl Accept {
         self.raknet.close();
         self.nethernet.close();
         let grace = tokio::time::sleep(STOP_GRACE);
-        tokio::pin!(grace);
+        pin!(grace);
         loop {
-            tokio::select! {
+            select! {
                 () = &mut grace => {
                     warn!(sessions = self.sessions.len(), "sessions did not end in time");
                     self.sessions.shutdown().await;
@@ -262,7 +269,12 @@ impl Accept {
                 Some(_) = self.events.recv() => {}
                 ended = self.sessions.join_next() => match ended {
                     None => return,
-                    Some(Err(e)) => warn!(error = %e, "session task failed"),
+                    Some(Err(e)) => {
+                        warn!(
+                            error = &e as &(dyn std::error::Error + 'static),
+                            "session task failed"
+                        );
+                    }
                     Some(Ok(())) => {}
                 },
             }
@@ -535,14 +547,14 @@ pub(crate) async fn start(
     })
 }
 
-/// Returns the largest game message a client may send, without transport framing: the
+/// The largest game message a client may send, without transport framing: the
 /// reassembly bound (the worst Snappy expansion of the largest batch and its header byte).
 fn max_message(batch: &batch::Settings) -> usize {
     let max = batch.max_batch_bytes();
     max.saturating_add(max / 6).saturating_add(42)
 }
 
-/// Returns the most a session's output before its spawn status moves its spawn deadline: the
+/// The most a session's output before its spawn status moves its spawn deadline: the
 /// time the player lists sent before it take at the download floor rate
 /// ([`packs::send_allowance`]) when `max_players` players (`max-players` at start) have skins of
 /// the largest size. The deadline's own 60 seconds are left for the rest of that output.

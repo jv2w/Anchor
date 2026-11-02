@@ -8,8 +8,28 @@ use super::emit::HEADER;
 use super::info::{bit_set, f64_lit};
 use super::names::upper_camel;
 
+/// The state item sentinels of `STATE_ITEMS` (see `src/block.rs`).
+const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
+/// The states the engine names in code (`block::AIR` and so on).
+const NAMED: &[Named] = &[
+    ("AIR", "minecraft:air", &[]),
+    (
+        "BEDROCK",
+        "minecraft:bedrock",
+        &[("infiniburn_bit", Prop::Byte(0))],
+    ),
+    ("DIRT", "minecraft:dirt", &[]),
+    ("GRASS_BLOCK", "minecraft:grass_block", &[]),
+    ("INFO_UPDATE", "minecraft:info_update", &[]),
+];
+const NO_ITEM: u16 = 0xffff;
+/// The connection word's value for no variant list.
+const NO_VARIANT: u32 = 0xffff;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/table.rs";
+
+/// A named state: constant name, block name and properties.
+type Named = (&'static str, &'static str, &'static [(&'static str, Prop)]);
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(data: &Data) -> Result<String, String> {
@@ -330,10 +350,6 @@ fn type_tags(data: &Data) -> Vec<&str> {
     set.into_iter().collect()
 }
 
-/// The state item sentinels of `STATE_ITEMS` (see `src/block.rs`).
-const NO_ITEM: u16 = 0xffff;
-const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
-
 /// The per-state gameplay data: the type tag enum, the deduplicated physics rows
 /// with their collision boxes, and each state's kind, row and item form.
 #[expect(
@@ -391,7 +407,7 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
             .support
             .iter()
             .enumerate()
-            .fold(0u16, |acc, (i, code)| acc | u16::from(*code) << (2 * i));
+            .fold(0_u16, |acc, (i, code)| acc | u16::from(*code) << (2 * i));
         let flags = u16::from(p.flags) | u16::from(p.burns_forever) << 8;
         let b = &p.break_info;
         let row = format!(
@@ -531,22 +547,6 @@ fn banner_patterns(out: &mut String, data: &Data) {
     out.push_str("];\n");
 }
 
-/// A named state: constant name, block name and properties.
-type Named = (&'static str, &'static str, &'static [(&'static str, Prop)]);
-
-/// The states the engine names in code (`block::AIR` and so on).
-const NAMED: &[Named] = &[
-    ("AIR", "minecraft:air", &[]),
-    (
-        "BEDROCK",
-        "minecraft:bedrock",
-        &[("infiniburn_bit", Prop::Byte(0))],
-    ),
-    ("DIRT", "minecraft:dirt", &[]),
-    ("GRASS_BLOCK", "minecraft:grass_block", &[]),
-    ("INFO_UPDATE", "minecraft:info_update", &[]),
-];
-
 /// The named state constants.
 fn named(out: &mut String, data: &Data) -> Result<(), String> {
     for (constant, name, properties) in NAMED {
@@ -685,7 +685,6 @@ fn variant_of(key: &StateKey, kind: &str) -> Result<Option<(StateKey, usize, usi
 
 /// The connection table: a packed word per state and the variant lists.
 fn connections(out: &mut String, data: &Data) -> Result<(), String> {
-    const NONE: u32 = 0xffff;
     let mut groups: BTreeMap<String, u8> = BTreeMap::new();
     for s in &data.states {
         if let Some(group) = s.connect.as_ref().and_then(|c| c.group.as_ref()) {
@@ -705,10 +704,10 @@ fn connections(out: &mut String, data: &Data) -> Result<(), String> {
     let mut words = Vec::with_capacity(data.states.len());
     for (i, s) in data.states.iter().enumerate() {
         let Some(connect) = &s.connect else {
-            words.push(u32::from(s.full_faces) << 4 | NONE << 16);
+            words.push(u32::from(s.full_faces) << 4 | NO_VARIANT << 16);
             continue;
         };
-        let mut variants = NONE;
+        let mut variants = NO_VARIANT;
         if let Some((base, index, count)) = variant_of(&s.key, &connect.kind)? {
             let list = *list_of.entry(base).or_insert_with(|| {
                 lists.push(vec![None; count]);
@@ -737,7 +736,7 @@ fn connections(out: &mut String, data: &Data) -> Result<(), String> {
     }
     for word in &mut words {
         let list = *word >> 16;
-        if list != NONE {
+        if list != NO_VARIANT {
             let offset = offsets
                 .get(usize::try_from(list).map_err(|_| "list")?)
                 .ok_or("list")?;

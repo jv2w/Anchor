@@ -1176,7 +1176,7 @@ impl Limits {
         recalc: 65_536,
         nodes: 262_144,
         retired: 256,
-        population_changes: 4_096,
+        population_changes: 4096,
     };
 }
 
@@ -1754,7 +1754,7 @@ mod tests {
         let mut queue = VecDeque::new();
         for cp in w.loaded_chunks() {
             let chunk = w.chunk(cp).unwrap();
-            let mut arrays = [vec![0u8; CELLS], vec![0u8; CELLS]];
+            let mut arrays = [vec![0_u8; CELLS], vec![0_u8; CELLS]];
             let mut heights = vec![MIN_Y; COLUMNS];
             for x in 0..16 {
                 for z in 0..16 {
@@ -1869,12 +1869,12 @@ mod tests {
                     .unwrap();
             }
         });
-        settle(&mut w, 4_096);
+        settle(&mut w, 4096);
         assert_matches_reference(&w);
         let mut rng = Rng(0x00e1_1001);
-        let budget = 2_000;
+        let budget = 2000;
         let mut waiting = 0;
-        for round in 1..=10_000usize {
+        for round in 1..=10_000_usize {
             let state = if rng.below(3) == 0 {
                 block::AIR
             } else {
@@ -1885,7 +1885,7 @@ mod tests {
                 assert!(w.step_light(budget) <= budget);
                 waiting += usize::from(!w.is_light_idle());
             }
-            if round == 5_000 {
+            if round == 5000 {
                 settle(&mut w, budget);
                 assert_matches_reference(&w);
             }
@@ -1917,8 +1917,8 @@ mod tests {
     fn caves() -> World {
         let stone = find("minecraft:stone");
         let mut w = world_with(&Void, 1, |pos, chunk| {
-            for x in 0..16u8 {
-                for z in 0..16u8 {
+            for x in 0..16_u8 {
+                for z in 0..16_u8 {
                     let wx = pos.x * 16 + i32::from(x);
                     let wz = pos.z * 16 + i32::from(z);
                     for y in 0..64 {
@@ -1931,7 +1931,7 @@ mod tests {
                 }
             }
         });
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         w
     }
 
@@ -1957,7 +1957,7 @@ mod tests {
         for d in 0..=14 {
             assert_eq!(
                 w.block_light(at(-10 + d)),
-                Some(14u8.saturating_sub(d.try_into().unwrap()))
+                Some(14_u8.saturating_sub(d.try_into().unwrap()))
             );
         }
         // Water filters 2: light drops by 3 into it, then by 1 again.
@@ -1969,24 +1969,24 @@ mod tests {
         // A stronger emitter beside a weaker one, then removed: the weaker keeps its light
         // (PMMP darkens it).
         w.set_block(at(-11), glowstone).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.block_light(at(-10)), Some(14));
         w.set_block(at(-11), block::AIR).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.block_light(at(-10)), Some(14));
         assert_eq!(w.block_light(at(-11)), Some(13));
         // Two torches whose light meets at 1 in x 3; the first removed, x 3 keeps 1 from the
         // second (PMMP does not look past a block it darkens from 1, so it stays dark).
         w.set_block(at(-5), block::AIR).unwrap();
         w.set_block(at(16), torch).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(
             [2, 3, 4].map(|x| w.block_light(at(x))),
             [Some(2), Some(1), Some(2)]
         );
         w.set_block(at(-10), block::AIR).unwrap();
         w.set_block(at(-11), block::AIR).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(
             [2, 3, 4].map(|x| w.block_light(at(x))),
             [Some(0), Some(1), Some(2)]
@@ -2007,7 +2007,7 @@ mod tests {
             assert_eq!(w.sky_light(shaft(y)), Some(15), "y {y}");
         }
         w.set_block(shaft(40), glass).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(
             w.sky_light(shaft(9)),
             Some(15),
@@ -2015,7 +2015,7 @@ mod tests {
         );
         // Water stops direct sky light: 15 less 3 in it, then 1 less per block below.
         w.set_block(shaft(40), water).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.sky_light(shaft(41)), Some(15));
         assert_eq!(w.sky_light(shaft(40)), Some(12));
         for k in 1..=11 {
@@ -2031,16 +2031,16 @@ mod tests {
         assert_eq!(height(&w), 41);
         // Leaves stop direct sky light and filter 0: 1 less per block.
         w.set_block(shaft(40), leaves).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.sky_light(shaft(40)), Some(14));
         assert_eq!(w.sky_light(shaft(30)), Some(4));
         w.set_block(shaft(40), block::AIR).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.sky_light(shaft(9)), Some(15));
         assert_eq!(height(&w), 9);
         // A sky blocker in the top block is lit from above the world.
         w.set_block(BlockPos::new(8, MAX_Y, 24), water).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.sky_light(BlockPos::new(8, MAX_Y, 24)), Some(12));
         assert_eq!(height(&w), MAX_Y + 1);
         assert_eq!(w.sky_light(BlockPos::new(8, MAX_Y + 1, 24)), None);
@@ -2059,11 +2059,11 @@ mod tests {
         w.light.set_limits(Limits {
             changes: 32,
             recalc: 512,
-            nodes: 8_192,
+            nodes: 8192,
             retired: 1,
             population_changes: 8,
         });
-        settle(&mut w, 4_096);
+        settle(&mut w, 4096);
         let mut rng = Rng(0x00e1_1002);
         let mut resets = 0;
         for round in 0..40 {
@@ -2082,7 +2082,7 @@ mod tests {
                 .keys()
                 .filter(|(_, k)| matches!(k, Kind::Reset | Kind::Populate))
                 .count();
-            w.step_light(3_000);
+            w.step_light(3000);
             // Changes while chunks are being lit again on the tick, and unloads of lit chunks
             // with lit neighbours (more than the retired limit).
             for _ in 0..20 {
@@ -2104,7 +2104,7 @@ mod tests {
             resets > 10,
             "overflows marked chunks to be lit again ({resets})"
         );
-        settle(&mut w, 3_000);
+        settle(&mut w, 3000);
         assert_matches_reference(&w);
     }
 
@@ -2112,7 +2112,7 @@ mod tests {
     fn unloading_drops_work_and_takes_out_the_light_it_gave() {
         let glowstone = find("minecraft:glowstone");
         let mut w = world(&Flat, 1);
-        settle(&mut w, 4_096);
+        settle(&mut w, 4096);
         // Light near the border of chunk (1, 0), half spread when the chunk unloads.
         w.set_block(BlockPos::new(16, -60, 5), glowstone).unwrap();
         w.set_block(BlockPos::new(17, -62, 5), glowstone).unwrap();
@@ -2126,7 +2126,7 @@ mod tests {
             "no task of the unloaded chunk is left"
         );
         assert_eq!(w.light.retired.len(), 1);
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.block_light(BlockPos::new(15, -60, 5)), Some(0));
         assert_matches_reference(&w);
         // Back from memory, it is lit on the tick and its light crosses again.
@@ -2141,7 +2141,7 @@ mod tests {
         assert!(!w.is_chunk_lit(pos));
         w.set_block(BlockPos::new(17, -62, 5), block::AIR).unwrap();
         w.set_block(BlockPos::new(20, -60, 9), glowstone).unwrap();
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert_eq!(w.block_light(BlockPos::new(15, -60, 5)), Some(14));
         assert_eq!(w.block_light(BlockPos::new(20, -60, 10)), Some(14));
         assert_matches_reference(&w);
@@ -2152,7 +2152,7 @@ mod tests {
         for p in all {
             w.remove_chunk(p);
         }
-        settle(&mut w, 1_000);
+        settle(&mut w, 1000);
         assert!(w.is_light_idle());
         assert_eq!(w.loaded_chunks().count(), 0);
     }
@@ -2172,7 +2172,7 @@ mod tests {
         assert_eq!(w.sky_light(under), Some(15));
         w.set_time(18_000);
         assert_eq!(w.real_sky_light(under), Some(4), "midnight");
-        w.set_time(6_000);
+        w.set_time(6000);
         assert_eq!(w.full_light(under), Some(15));
         assert_eq!(w.sky_light(BlockPos::new(48, 0, 0)), None, "not loaded");
         assert!(w.is_chunk_lit(ChunkPos::new(0, 0)));
@@ -2186,7 +2186,7 @@ mod tests {
         // On again: every chunk is lit on the tick.
         w.set_lighting(Mode::Dynamic);
         assert!(!w.is_chunk_lit(ChunkPos::new(0, 0)));
-        settle(&mut w, 4_096);
+        settle(&mut w, 4096);
         assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(14));
         assert_eq!(w.sky_light(under), Some(0));
         w.set_time(18_000);
@@ -2200,7 +2200,7 @@ mod tests {
         let torch = find("minecraft:torch");
         let mut w = world(&Flat, 1);
         w.set_lighting(Mode::OnLoad);
-        settle(&mut w, 4_096);
+        settle(&mut w, 4096);
         let under = BlockPos::new(3, MIN_Y, 3);
         assert_eq!(w.sky_light(under), Some(0), "calculated");
         let lit = w.light_hash();
@@ -2210,7 +2210,7 @@ mod tests {
         assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(0));
         let pos = ChunkPos::new(2, 0);
         load(&mut w, pos, Chunk::generate(&Flat, 3, pos), false);
-        settle(&mut w, 4_096);
+        settle(&mut w, 4096);
         assert!(w.is_chunk_lit(pos), "a loaded chunk is lit");
         assert_eq!(w.sky_light(BlockPos::new(35, MIN_Y, 3)), Some(0));
     }
@@ -2261,7 +2261,7 @@ mod tests {
         }
         assert_eq!(sky_light_reduction(-1), sky_light_reduction(23_999));
         assert_eq!(sky_light_reduction(5 * DAY + 18_000), 11);
-        assert_eq!(sky_light_reduction(6_000), 0);
+        assert_eq!(sky_light_reduction(6000), 0);
     }
 
     /// A chunk with a random state from `states` in every block of every sub-chunk.
@@ -2291,7 +2291,7 @@ mod tests {
         let mut tick = Population::new(chunk.clone());
         let mut steps = 0;
         loop {
-            let mut units = 1_000;
+            let mut units = 1000;
             steps += 1;
             if tick.run(&mut units) {
                 break;
@@ -2326,7 +2326,7 @@ mod tests {
             BlockPos::new(0, 0, 0),
         );
         load(&mut w, ChunkPos::new(0, 0), chunk, false);
-        let mut units = 0u64;
+        let mut units = 0_u64;
         while !w.is_light_idle() {
             units += u64::from(w.step_light(u32::MAX));
         }
@@ -2367,7 +2367,7 @@ mod tests {
         assert!(population.run(&mut units));
         let spent = u32::MAX - units;
         assert!(
-            spent < 4_096,
+            spent < 4096,
             "{spent} units for three sub-chunks of one block"
         );
         assert_eq!(population.finish().0, populate(&set_one_by_one));
@@ -2438,7 +2438,7 @@ mod tests {
         let us = |d: std::time::Duration, n: usize| d.as_secs_f64() * 1e6 / n as f64;
         let flat = Chunk::generate(&Flat, 0, ChunkPos::new(0, 0));
         let dense = dense(&states, 7);
-        for (name, chunk, n) in [("flat", &flat, 2_000), ("dense random", &dense, 20)] {
+        for (name, chunk, n) in [("flat", &flat, 2000), ("dense random", &dense, 20)] {
             let start = std::time::Instant::now();
             let mut bytes = 0;
             for _ in 0..n {
@@ -2465,7 +2465,7 @@ mod tests {
             settle(&mut w, u32::MAX);
             let mut rng = Rng(0x00e1_1004);
             let changes = 400;
-            let mut units = 0u64;
+            let mut units = 0_u64;
             let start = std::time::Instant::now();
             for _ in 0..changes / 2 {
                 let pos = BlockPos::new(
@@ -2491,8 +2491,8 @@ mod tests {
         let mut w = world(&Flat, 2);
         settle(&mut w, u32::MAX);
         let mut rng = Rng(0x00e1_1005);
-        let changes = 4_000;
-        let mut units = 0u64;
+        let changes = 4000;
+        let mut units = 0_u64;
         let start = std::time::Instant::now();
         for _ in 0..changes {
             let pos = BlockPos::new(
@@ -2520,7 +2520,7 @@ mod tests {
         let mut w = world(&Flat, 2);
         settle(&mut w, u32::MAX);
         let start = std::time::Instant::now();
-        let mut units = 0u64;
+        let mut units = 0_u64;
         for x in -2..=2 {
             let c = w.remove_chunk(ChunkPos::new(x, 0)).unwrap();
             w.restore_chunk(ChunkPos::new(x, 0), c);

@@ -7,9 +7,6 @@ use super::data::Data;
 use super::emit::HEADER;
 use super::items::effect_instance;
 
-/// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/effect/table.rs";
-
 /// BDS's colours (RGB) of the effects whose splash potions it shows, where they differ from
 /// PMMP's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash `LevelEvent` colours;
 /// resistance from the turtle master's mixes). The client draws potions and particles in them.
@@ -27,6 +24,8 @@ const BDS_COLOURS: [(&str, [u8; 3]); 12] = [
     ("water_breathing", [0x98, 0xda, 0xc0]),
     ("wither", [0x73, 0x61, 0x56]),
 ];
+/// The generated file, relative to the repository root.
+pub(crate) const PATH: &str = "src/effect/table.rs";
 
 /// An effect's colour (RGBA): BDS's where [`BDS_COLOURS`] has it, PMMP's otherwise.
 fn colour(name: &str, pmmp: [u8; 4]) -> [u8; 4] {

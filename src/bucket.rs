@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+const NANOS: u128 = 1_000_000_000;
+
 /// A bucket's capacity and refill rate. The caller keeps them, so a table of buckets holds only
 /// their tokens and times.
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +41,6 @@ impl Bucket {
     /// time a refill pays for is moved forward exactly, so frequent calls lose no fraction of
     /// the rate.
     pub(crate) fn take(&mut self, amount: usize, rate: Rate, now: Duration) -> bool {
-        const NANOS: u128 = 1_000_000_000;
         let per_second = u128::try_from(rate.per_second).unwrap_or(u128::MAX);
         let elapsed = now.saturating_sub(self.refilled).as_nanos();
         let earned = per_second.saturating_mul(elapsed) / NANOS;

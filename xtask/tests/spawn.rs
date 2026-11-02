@@ -36,21 +36,37 @@ use tracing::field::{Field, Visit};
 use tracing::level_filters::LevelFilter;
 use tracing::{Event, Level, Metadata, Subscriber, span};
 
+/// Cycles of the NetherNet session cycle test.
+const CYCLES: usize = 5;
+/// The issuer the test issuer signs with; the bot puts it in its tokens.
+const ISSUER: &str = "https://issuer.invalid/";
+const KID: &str = "p5-key";
+/// The addresses the starting server logs, one line per opened address (`listening …
+/// addr=…`). The servers of this process run without Anchor's console log, so their events reach
+/// [`Recorder`], the global subscriber; [`START`] lets one server start at a time, so the lines
+/// logged while it is held are that server's.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the subscriber hears the server's threads"
+)]
+static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
+/// The server log: Anchor's events down to debug of every server of this process, in order.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the subscriber hears the server's threads"
+)]
+static LOG: std::sync::Mutex<Log> = std::sync::Mutex::new(Log {
+    next: 0,
+    lines: VecDeque::new(),
+});
+/// The lines [`LOG`] keeps; older ones are dropped.
+const LOG_LINES: usize = 50_000;
 /// RakNet's offline message magic.
 const MAGIC: [u8; 16] = [
     0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
 ];
-/// The issuer the test issuer signs with; the bot puts it in its tokens.
-const ISSUER: &str = "https://issuer.invalid/";
-const KID: &str = "p5-key";
-/// The lines [`LOG`] keeps; older ones are dropped.
-const LOG_LINES: usize = 50_000;
-/// The last lines of the log a failed test shows.
-const SHOWN_LINES: usize = 300;
 /// The bot flags that choose NetherNet.
 const NETHERNET: &[&str] = &["-transport", "nethernet"];
-/// The name both bots of a duplicate-login test use.
-const TWIN: &str = "Twin";
 /// A NetherNet offer without an identity, which offline servers accept.
 const OFFER: &str = "v=0\r\n\
     o=- 1 2 IN IP4 127.0.0.1\r\n\
@@ -67,31 +83,18 @@ const OFFER: &str = "v=0\r\n\
     a=mid:0\r\n\
     a=sctp-port:5000\r\n\
     a=max-message-size:262144\r\n";
-
-/// The addresses the starting server logs, one line per opened address (`listening …
-/// addr=…`). The servers of this process run without Anchor's console log, so their events reach
-/// [`Recorder`], the global subscriber; [`START`] lets one server start at a time, so the lines
-/// logged while it is held are that server's.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the subscriber hears the server's threads"
-)]
-static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
+/// The last lines of the log a failed test shows.
+const SHOWN_LINES: usize = 300;
 /// Held while one server starts, until it has logged its addresses.
 #[expect(
     clippy::disallowed_types,
     reason = "off-tick: the tests of this process start servers on their own threads"
 )]
 static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
-/// The server log: Anchor's events down to debug of every server of this process, in order.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the subscriber hears the server's threads"
-)]
-static LOG: std::sync::Mutex<Log> = std::sync::Mutex::new(Log {
-    next: 0,
-    lines: VecDeque::new(),
-});
+/// The global subscriber, set once by the first server start.
+static SUBSCRIBER: OnceLock<()> = OnceLock::new();
+/// The name both bots of a duplicate-login test use.
+const TWIN: &str = "Twin";
 
 /// The last [`LOG_LINES`] lines of the server log and the number of the next one.
 struct Log {
@@ -209,7 +212,6 @@ impl Running {
         data_dir: &Path,
         edit: impl Fn(ServerBuilder) -> ServerBuilder,
     ) -> Self {
-        static SUBSCRIBER: OnceLock<()> = OnceLock::new();
         SUBSCRIBER.get_or_init(|| {
             tracing::subscriber::set_global_default(Recorder).expect("the only global subscriber");
         });
@@ -749,7 +751,6 @@ fn one_ip_gets_four_nethernet_peers_before_login() {
     reason = "off-tick: the test hears the quits of the server's tick and times its status poll"
 )]
 fn nethernet_sessions_end_cleanly_and_the_join_status_counts_no_one_after_they_leave() {
-    const CYCLES: usize = 5;
     let (quit, quits) = std::sync::mpsc::sync_channel(CYCLES);
     let server = Running::start_with(
         "nn-cycles",

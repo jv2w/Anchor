@@ -13,10 +13,10 @@ use super::body::str_lit;
 use super::data::{hex_lit, read_json};
 use super::emit::HEADER;
 
-/// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/world/biome/table.rs";
 /// The committed data file in `xtask/data/reference/`, written by `cargo xtask dump`.
 pub(crate) const FILE: &str = "biomes.json";
+/// The generated file, relative to the repository root.
+pub(crate) const PATH: &str = "src/world/biome/table.rs";
 
 /// One line of [`FILE`]: a biome definition as BDS sends it, without chunk generation data.
 /// Numbers keep the decimal text of `CloudburstMC`'s file; [`single`] reads them at the packet's

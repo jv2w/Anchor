@@ -14,7 +14,12 @@ use crate::item::Extra;
 use crate::save::{Request, Response};
 use crate::world;
 
-/// Returns the block above `pos`.
+static SWITCH: Block = Block::new("test:switch", "test_switch")
+    .with_properties(&[Property::bool("lit")])
+    .with_hardness(0.0)
+    .with_behaviour(&Switch);
+
+/// The block above `pos`.
 fn above(pos: BlockPos) -> BlockPos {
     BlockPos::new(pos.x, pos.y + 1, pos.z)
 }
@@ -70,11 +75,6 @@ impl Behaviour for Switch {
         w.set_block(above(pos), Kind::Dirt.default_state()).unwrap();
     }
 }
-
-static SWITCH: Block = Block::new("test:switch", "test_switch")
-    .with_properties(&[Property::bool("lit")])
-    .with_hardness(0.0)
-    .with_behaviour(&Switch);
 
 /// The test server's custom content: `RUBY`, `ORE`, `SWITCH`, `SWORD`, and a ruby smelting into
 /// a diamond in a furnace and on a campfire.

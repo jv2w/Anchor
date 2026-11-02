@@ -18,16 +18,16 @@ use crate::nbt::{Compound, Value};
 use crate::protocol::consts::{CreativeCategory, ItemEntryVersion};
 use crate::protocol::{BlockEntry, ItemEntry, packet};
 
-/// The most custom items and blocks together.
-pub(crate) const MAX_ENTRIES: usize = 4096;
-/// The most custom recipes.
-pub(crate) const MAX_RECIPES: usize = 4096;
-/// The most states of all custom blocks together.
-const MAX_ALL_STATES: usize = 65_536;
-/// The longest identifier, in bytes.
-const MAX_IDENTIFIER: usize = 128;
 /// The first block ID of custom blocks (dragonfly: 10,000 plus the block's index).
 const FIRST_BLOCK_ID: i32 = 10_000;
+/// The most states of all custom blocks together.
+const MAX_ALL_STATES: usize = 65_536;
+/// The most custom items and blocks together.
+pub(crate) const MAX_ENTRIES: usize = 4096;
+/// The longest identifier, in bytes.
+const MAX_IDENTIFIER: usize = 128;
+/// The most custom recipes.
+pub(crate) const MAX_RECIPES: usize = 4096;
 /// Why a recipe whose ingredient names no item is refused.
 const UNKNOWN_INGREDIENT: &str = "an ingredient names an unknown or unregistered item";
 
@@ -569,7 +569,7 @@ impl Registry {
         let mut resolved = Vec::with_capacity(alternatives.len() + 1);
         resolved.push(default.resolve(self, places)?);
         let mut names = BTreeMap::new();
-        for (index, (name, inventory)) in (1u16..).zip(alternatives) {
+        for (index, (name, inventory)) in (1_u16..).zip(alternatives) {
             if names.insert(creative::checked_name(name)?, index).is_some() {
                 return Err(Error::Duplicate { identifier: name });
             }
@@ -1150,6 +1150,7 @@ pub(crate) fn is_identifier(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::custom::Property;
     use crate::custom::tests::RUBY;
 

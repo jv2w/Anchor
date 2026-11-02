@@ -26,46 +26,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-/// The dimpl copy, whose tests build OpenSSL from source (its `openssl` dev-dependency is
-/// vendored).
-const DIMPL: &str = "vendor/dimpl/Cargo.toml";
-
-/// The Perl that configures that OpenSSL build on Windows: an MSVC build needs a Windows Perl, and
-/// Strawberry Perl portable is a development tool kept in the git-ignored `.cache/tools`.
-const PERL: &str = ".cache/tools/strawberry-perl-5.42.3.1/perl/bin/perl.exe";
-
-/// The str0m copy, and the patches that point its registry dev-dependencies' dimpl and
-/// str0m-proto at the copies, as in Anchor.
-const STR0M: &str = "vendor/str0m/Cargo.toml";
-const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
-const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
-
-/// The folders of the repository's Rust sources (the vendor copies aside).
-const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
-
-/// The build directory of `verify` under `target/`; `vendor-test` builds there too.
-const VERIFY_TARGET: &str = "verify";
-
-/// The flag of the second documentation check. Its build writes the same files as the first, so
-/// in one target directory each rebuilt the other's output on every run, even with nothing
-/// changed; it gets a target directory of its own.
-const PRIVATE_DOCS: &str = "--document-private-items";
-
-/// The build directory of the second documentation check under `target/`.
-const PRIVATE_DOCS_TARGET: &str = "verify-private-docs";
-
-/// The format check. No `--all`: it also formats path dependencies, the vendor copies.
-const FMT: &[&str] = &["fmt", "--check"];
-/// The lint check.
-const CLIPPY: &[&str] = &[
-    "clippy",
-    "--workspace",
-    "--all-targets",
-    "--",
-    "-D",
-    "warnings",
-];
-
 /// Checks in run order. Each passes only if it exits successfully and prints no warning.
 const CHECKS: &[&[&str]] = &[
     FMT,
@@ -120,6 +80,38 @@ const CHECKS: &[&[&str]] = &[
     // in private docs.
     &["doc", "--workspace", "--no-deps", PRIVATE_DOCS, "--quiet"],
 ];
+/// The lint check.
+const CLIPPY: &[&str] = &[
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings",
+];
+/// The dimpl copy, whose tests build OpenSSL from source (its `openssl` dev-dependency is
+/// vendored).
+const DIMPL: &str = "vendor/dimpl/Cargo.toml";
+/// The format check. No `--all`: it also formats path dependencies, the vendor copies.
+const FMT: &[&str] = &["fmt", "--check"];
+/// The Perl that configures that OpenSSL build on Windows: an MSVC build needs a Windows Perl, and
+/// Strawberry Perl portable is a development tool kept in the git-ignored `.cache/tools`.
+const PERL: &str = ".cache/tools/strawberry-perl-5.42.3.1/perl/bin/perl.exe";
+/// The flag of the second documentation check. Its build writes the same files as the first, so
+/// in one target directory each rebuilt the other's output on every run, even with nothing
+/// changed; it gets a target directory of its own.
+const PRIVATE_DOCS: &str = "--document-private-items";
+/// The build directory of the second documentation check under `target/`.
+const PRIVATE_DOCS_TARGET: &str = "verify-private-docs";
+/// The folders of the repository's Rust sources (the vendor copies aside).
+const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
+/// The str0m copy, and the patches that point its registry dev-dependencies' dimpl and
+/// str0m-proto at the copies, as in Anchor.
+const STR0M: &str = "vendor/str0m/Cargo.toml";
+const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
+const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
+/// The build directory of `verify` under `target/`; `vendor-test` builds there too.
+const VERIFY_TARGET: &str = "verify";
 
 fn main() -> io::Result<ExitCode> {
     run()
@@ -328,7 +320,7 @@ fn status(ok: bool) -> &'static str {
 
 /// The cargo that launched this task, so every step uses the same toolchain.
 fn cargo() -> OsString {
-    env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
+    env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))
 }
 
 /// The build directory `target/<name>` under the repository root.

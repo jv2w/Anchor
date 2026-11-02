@@ -20,41 +20,40 @@ use crate::protocol::{
 };
 use crate::world::BlockPos;
 
-/// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
-pub(crate) const SUB_CHUNKS: usize = 24;
-/// Block layers in a sub-chunk: layer 0 and the waterlogging layer 1.
-pub(crate) const MAX_LAYERS: usize = 2;
-/// Longest name a record holds (a player's world, a ban's reason and source).
-pub(crate) const MAX_NAME_BYTES: usize = 256;
-// A ban the list takes can be stored.
-const _: () = assert!(
-    crate::permission::MAX_REASON <= MAX_NAME_BYTES
-        && crate::permission::MAX_SOURCE <= MAX_NAME_BYTES
-);
-/// The most bytes a player's extra compound takes: what its record holds after the longest world
-/// name and the position. It holds up to `MAX_SAVED_STACKS` (`tick::inventory`) stacks and the
-/// user's data, more than the 4 MiB of one NBT root elsewhere; the record's reader budget covers
-/// it (`item::MAX_NBT_BYTES`).
-pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
-
-/// Most compounds in a chunk's list of entities or scheduled updates, and in a list an import
-/// writes: one per block of a chunk column. Scheduled updates have at most one per block;
-/// entities are bounded by the world's entity cap long before.
-pub(crate) const MAX_EXTRA_ENTRIES: usize = SUB_CHUNKS * BLOCKS;
-/// Most spills (the items of broken containers waiting to drop) a chunk's block entity list
-/// holds; beyond it new spills are lost with an error (a chunk would need this many containers
-/// broken while its world is at the entity limit).
-pub(crate) const MAX_SPILLS: usize = 1024;
-/// Most entries a chunk's block entity list keeps as read that are no block's block entity (no
-/// place in the chunk, or a second at a place): every entry of a list an import writes.
-pub(crate) const MAX_RAW_BLOCK_ENTITIES: usize = MAX_EXTRA_ENTRIES;
 /// Most compounds in a chunk's block entity list, and in one [`ExtraRecord`]: a block entity per
 /// block of a chunk column, the spills and the entries kept as read, so a list read within it
 /// can take a block entity at every block and the spills and still be written.
 pub(crate) const MAX_BLOCK_ENTITY_ENTRIES: usize =
     MAX_EXTRA_ENTRIES + MAX_SPILLS + MAX_RAW_BLOCK_ENTITIES;
+/// Most compounds in a chunk's list of entities or scheduled updates, and in a list an import
+/// writes: one per block of a chunk column. Scheduled updates have at most one per block;
+/// entities are bounded by the world's entity cap long before.
+pub(crate) const MAX_EXTRA_ENTRIES: usize = SUB_CHUNKS * BLOCKS;
+/// Block layers in a sub-chunk: layer 0 and the waterlogging layer 1.
+pub(crate) const MAX_LAYERS: usize = 2;
+/// Longest name a record holds (a player's world, a ban's reason and source).
+pub(crate) const MAX_NAME_BYTES: usize = 256;
 /// Most pages a list takes: the page number of a key is a u16.
 const MAX_PAGES: usize = 1 << 16;
+/// The most bytes a player's extra compound takes: what its record holds after the longest world
+/// name and the position. It holds up to `MAX_SAVED_STACKS` (`tick::inventory`) stacks and the
+/// user's data, more than the 4 MiB of one NBT root elsewhere; the record's reader budget covers
+/// it (`item::MAX_NBT_BYTES`).
+pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
+/// Most entries a chunk's block entity list keeps as read that are no block's block entity (no
+/// place in the chunk, or a second at a place): every entry of a list an import writes.
+pub(crate) const MAX_RAW_BLOCK_ENTITIES: usize = MAX_EXTRA_ENTRIES;
+/// Most spills (the items of broken containers waiting to drop) a chunk's block entity list
+/// holds; beyond it new spills are lost with an error (a chunk would need this many containers
+/// broken while its world is at the entity limit).
+pub(crate) const MAX_SPILLS: usize = 1024;
+/// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
+pub(crate) const SUB_CHUNKS: usize = 24;
+// A ban the list takes can be stored.
+const _: () = assert!(
+    crate::permission::MAX_REASON <= MAX_NAME_BYTES
+        && crate::permission::MAX_SOURCE <= MAX_NAME_BYTES
+);
 
 /// A value that has a sealed form in one storage table.
 pub(crate) trait Record: Sized {
@@ -267,7 +266,7 @@ impl ExtraRecord<'_> {
         }
         let mut pages = Vec::new();
         let mut page: Vec<u8> = Vec::new();
-        let (mut count, mut page_alloc) = (0u32, 0usize);
+        let (mut count, mut page_alloc) = (0_u32, 0_usize);
         let mut entry = Vec::new();
         for compound in list {
             let mut w = Writer::new(std::mem::take(&mut entry), 0);
@@ -476,7 +475,7 @@ impl Record for BanRecord {
     }
 }
 
-/// Returns the most compounds in a chunk's list of `kind`.
+/// The most compounds in a chunk's list of `kind`.
 pub(crate) fn max_entries(kind: ChunkKind) -> usize {
     match kind {
         ChunkKind::BlockEntities => MAX_BLOCK_ENTITY_ENTRIES,
@@ -549,7 +548,7 @@ pub(crate) fn check_indices(bits: u8, words: &[u32], palette_len: usize) -> Resu
     }
 }
 
-/// Returns whether each of the [`BLOCKS`] indices packed in `words` is below `palette_len`.
+/// Whether each of the [`BLOCKS`] indices packed in `words` is below `palette_len`.
 fn indices_below(bits: u8, words: &[u32], palette_len: usize) -> bool {
     if bits == 0 {
         return palette_len > 0;
@@ -559,7 +558,7 @@ fn indices_below(bits: u8, words: &[u32], palette_len: usize) -> bool {
         return true;
     }
     let per_word = 32 / usize::from(bits);
-    let mask = (1u32 << bits) - 1;
+    let mask = (1_u32 << bits) - 1;
     let mut left = BLOCKS;
     words.iter().all(|&word| {
         let here = left.min(per_word);
@@ -624,6 +623,7 @@ fn write_name(w: &mut Writer, name: &str) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
     use crate::nbt::{List, Value};
     use crate::protocol::Rng;
 
@@ -810,7 +810,7 @@ pub(crate) mod tests {
             .map(|index| {
                 let bottom = (i32::try_from(index).unwrap() + i32::from(MIN_SUB_CHUNK)) * 16;
                 let mut names: Vec<&str> = Vec::new();
-                let mut indices = vec![0u16; BLOCKS];
+                let mut indices = vec![0_u16; BLOCKS];
                 for (offset, slot) in indices.iter_mut().enumerate() {
                     let (x, z) = (offset >> 8, (offset >> 4) & 15);
                     let y = bottom + i32::try_from(offset & 15).unwrap();
@@ -952,7 +952,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// Checks that a list splits into pages of at most the limit, entries in order and never
+    /// A list splits into pages of at most the limit, entries in order and never
     /// split; each page is an [`ExtraRecord`] of its entries, and an empty list has no page.
     #[test]
     fn extras_lists_split_into_pages_under_the_limit() {
@@ -1053,10 +1053,10 @@ pub(crate) mod tests {
     #[test]
     fn over_limit_declarations_are_refused_before_allocating() {
         // Width 0 is fine; a palette length past what width 1 indexes is not.
-        let mut bytes = vec![0u8; 1];
+        let mut bytes = vec![0_u8; 1];
         bytes.extend_from_slice(&[1]);
         bytes.extend(std::iter::repeat_n(0, 128 * 4));
-        bytes.extend_from_slice(&3u16.to_le_bytes());
+        bytes.extend_from_slice(&3_u16.to_le_bytes());
         assert!(matches!(
             decode::<ChunkRecord>(&bytes),
             Err(Error::InvalidValue { .. })
@@ -1071,9 +1071,9 @@ pub(crate) mod tests {
         // A layer count over two.
         assert_eq!(decode::<ChunkRecord>(&[3]), Err(Error::Size));
         // A 16-bit palette of 4097 entries.
-        let mut bytes = vec![1u8, 16];
+        let mut bytes = vec![1_u8, 16];
         bytes.extend(std::iter::repeat_n(0, 2048 * 4));
-        bytes.extend_from_slice(&4097u16.to_le_bytes());
+        bytes.extend_from_slice(&4097_u16.to_le_bytes());
         assert!(matches!(
             decode::<ChunkRecord>(&bytes),
             Err(Error::InvalidValue { .. })
@@ -1088,7 +1088,7 @@ pub(crate) mod tests {
         let mut bytes = over.to_le_bytes().to_vec();
         bytes.resize(MAX_BLOCK_ENTITY_ENTRIES + 8, 0);
         assert_eq!(decode::<ExtraRecord<'_>>(&bytes), Err(Error::Size));
-        let mut bytes = 1000u32.to_le_bytes().to_vec();
+        let mut bytes = 1000_u32.to_le_bytes().to_vec();
         bytes.extend_from_slice(&[0; 10]);
         assert_eq!(decode::<ExtraRecord<'_>>(&bytes), Err(Error::Size));
         // A compound nested past 512 levels.
@@ -1098,7 +1098,7 @@ pub(crate) mod tests {
         }
         let mut w = Writer::new(Vec::new(), 0);
         assert!(ExtraRecord(vec![deep].into()).encode(&mut w).is_err());
-        let mut bytes = 1u32.to_le_bytes().to_vec();
+        let mut bytes = 1_u32.to_le_bytes().to_vec();
         bytes.extend_from_slice(&[10, 0, 0]);
         for _ in 0..600 {
             bytes.extend_from_slice(&[10, 1, 0, b'd']);
@@ -1159,7 +1159,7 @@ pub(crate) mod tests {
         let mut rng = Rng(0xbad_c0de);
         let seed = encode(&random_chunk(&mut rng));
         let mut decoded = 0;
-        for _ in 0..2_000 {
+        for _ in 0..2000 {
             let mut bytes = seed.clone();
             for _ in 0..=rng.below(4) {
                 let at = rng.below(bytes.len());
@@ -1172,6 +1172,6 @@ pub(crate) mod tests {
             decoded += usize::from(decode::<ChunkRecord>(&bytes).is_ok());
         }
         // Flips inside index words can still decode; truncations and insertions cannot.
-        assert!(decoded < 2_000, "{decoded} decoded");
+        assert!(decoded < 2000, "{decoded} decoded");
     }
 }

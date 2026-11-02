@@ -33,16 +33,16 @@ use crate::protocol::{
 use crate::tick::Player;
 use crate::tick::queue::SessionId;
 
-/// The alias offset of a command without aliases (PMMP and dragonfly send -1 as a u32).
-const NO_ALIASES: u32 = u32::MAX;
-/// A table position not given yet in a player's packet.
-const UNSET: u32 = u32::MAX;
-/// The enum of every command name and alias a player may type (BDS).
-pub(crate) const COMMAND_NAME_ENUM: &str = "CommandName";
 /// The suffix of a command's aliases enum after its name (BDS: `tellCommandAliases`).
 const ALIASES_SUFFIX: &str = "CommandAliases";
 /// The command the client runs itself: listed in [`COMMAND_NAME_ENUM`], never sent.
 const CLIENT_COMMAND: &str = "help";
+/// The enum of every command name and alias a player may type (BDS).
+pub(crate) const COMMAND_NAME_ENUM: &str = "CommandName";
+/// The alias offset of a command without aliases (PMMP and dragonfly send -1 as a u32).
+const NO_ALIASES: u32 = u32::MAX;
+/// A table position not given yet in a player's packet.
+const UNSET: u32 = u32::MAX;
 
 /// The network form of every registered command, built once at build.
 #[derive(Debug, Default)]

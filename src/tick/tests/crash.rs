@@ -27,10 +27,6 @@ use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 
-use super::super::queue::{Identity, InputKind, Outbound, SessionId, input_queue, outbound_queue};
-use super::super::{
-    SaveLink, Settings, Shared, State, Tasks, block_entity, entity, inventory, run, save, task,
-};
 use super::packet;
 use crate::block::{self, Face, Kind as BlockKind};
 use crate::config::Config;
@@ -42,12 +38,12 @@ use crate::protocol::Uuid;
 use crate::protocol::packet::{Packet, RequestChunkRadius};
 use crate::save::WorldSpec;
 use crate::storage::ChunkKind;
+use crate::tick::queue::{Identity, InputKind, Outbound, SessionId, input_queue, outbound_queue};
+use crate::tick::{
+    SaveLink, Settings, Shared, State, Tasks, block_entity, entity, inventory, run, save, task,
+};
 use crate::world::{BlockPos, ChunkPos, Flat};
 
-/// The child's environment variable naming its data folder.
-const DATA_ENV: &str = "ANCHOR_ITEM_CRASH_DATA";
-/// The child's environment variable: `run` keeps moving items, `check` only reports.
-const MODE_ENV: &str = "ANCHOR_ITEM_CRASH_MODE";
 /// The child's environment variable naming the phase of the item cycle (the tick modulo 12, see
 /// [`step`]) its run commits once, after [`SETTLE`] ticks of moves; without it the run commits
 /// every third tick.
@@ -55,24 +51,29 @@ const AIM_ENV: &str = "ANCHOR_ITEM_CRASH_AIM";
 /// The phases the aimed runs commit, by turns: items on the ground (2, 3), on the cursor and in the
 /// grid (6, 9), in the slots and the chest only (0).
 const AIMS: [u64; 5] = [2, 3, 6, 9, 0];
-/// Ticks of moves before an aimed commit, so that items are in every place of the cycle.
-const SETTLE: u64 = 24;
-/// The prefix of the child's report lines.
-const REPORT: &str = "ANCHOR-ITEMS";
-/// Kills, each followed by a restart that checks the file.
-const KILLS: u32 = 50;
-/// The child gives up after this many ticks, so a lost parent leaves no process behind.
-const CHILD_TICKS: u64 = 1200;
 /// The chest, in a spawn chunk (always loaded).
 const CHEST: BlockPos = BlockPos::new(4, -60, 4);
+/// The child gives up after this many ticks, so a lost parent leaves no process behind.
+const CHILD_TICKS: u64 = 1200;
+/// The child's environment variable naming its data folder.
+const DATA_ENV: &str = "ANCHOR_ITEM_CRASH_DATA";
 /// Where items are dropped: in a spawn chunk, far from the player at the spawn, so it never
 /// picks them up.
 const DROP: Vec3 = Vec3::new(12.5, -59.5, 12.5);
 /// The items and how many of each the setup gives the player.
 const ITEMS: [(ItemKind, u64); 2] = [(ItemKind::Diamond, 100), (ItemKind::Stick, 200)];
-/// The player's session and name.
-const SESSION: SessionId = SessionId::new(1);
+/// Kills, each followed by a restart that checks the file.
+const KILLS: u32 = 50;
+/// The child's environment variable: `run` keeps moving items, `check` only reports.
+const MODE_ENV: &str = "ANCHOR_ITEM_CRASH_MODE";
+/// The player's name.
 const NAME: &str = "crasher";
+/// The prefix of the child's report lines.
+const REPORT: &str = "ANCHOR-ITEMS";
+/// The player's session.
+const SESSION: SessionId = SessionId::new(1);
+/// Ticks of moves before an aimed commit, so that items are in every place of the cycle.
+const SETTLE: u64 = 24;
 
 /// Where the marker block is after tick `tick`: a walk under the spawn chunks (the dirt layer),
 /// so the terrain carries the tick too.
@@ -468,7 +469,7 @@ impl Mover {
         let joined = state
             .players
             .get(&SESSION)
-            .is_some_and(|p| p.phase != super::super::Phase::Loading);
+            .is_some_and(|p| p.phase != crate::tick::Phase::Loading);
         if !loaded || !joined {
             return false;
         }
@@ -916,13 +917,13 @@ fn remove(dir: &Path) {
 /// saved data must, or a crash right after the commit loses them.
 #[test]
 fn a_commit_holds_the_items_on_a_cursor() {
-    use super::super::Output;
-    use super::super::queue::Input;
     use crate::protocol::packet::ItemStackRequest as RequestPacket;
     use crate::protocol::{
         FullContainerName, ItemStackRequest, StackRequestAction, StackRequestSlotInfo,
         TakeStackRequestAction, TransferStackRequestAction,
     };
+    use crate::tick::Output;
+    use crate::tick::queue::Input;
     let mut state = super::new_state(super::settings(|_| {}), Listeners::default());
     state.saving.players = true;
     let mut output = Output::default();
@@ -1006,13 +1007,13 @@ fn a_commit_holds_the_items_on_a_cursor() {
 }
 
 /// Takes a commit at the next tick boundary: the items its player data and block entities hold.
-fn commit_counts(state: &mut State, output: &mut super::super::Output) -> Counts {
-    use super::super::{InputLog, boundary, deliver};
+fn commit_counts(state: &mut State, output: &mut crate::tick::Output) -> Counts {
+    use crate::tick::{InputLog, boundary, deliver};
     state.saving.requested = true;
     let pool = crate::runtime::cpu_pool(1).unwrap();
     let mut log = InputLog::default();
     let mut answers = std::mem::take(&mut output.answers);
-    super::super::step(
+    crate::tick::step(
         state,
         &mut Vec::new(),
         &mut answers,

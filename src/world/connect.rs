@@ -184,7 +184,7 @@ impl World {
         let side = |f: Facing| self.known(pos.side(f));
         // The connection set: a bit per side for which `connects` holds.
         let sides = |connects: &dyn Fn(Facing, State) -> bool| {
-            Facing::ALL.into_iter().fold(0usize, |bits, f| {
+            Facing::ALL.into_iter().fold(0_usize, |bits, f| {
                 let on = side(f).is_some_and(|s| connects(f, s));
                 bits | if on { usize::from(f.bit()) } else { 0 }
             })

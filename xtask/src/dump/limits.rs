@@ -9,10 +9,6 @@ use std::path::Path;
 
 use serde_json::Value as Json;
 
-/// The written file in `xtask/data/reference/`: gophertunnel field to its largest length in
-/// bytes (strings, byte slices) or elements (lists).
-pub(crate) const FILE: &str = "protocol_limits.json";
-
 /// Schema limits Anchor applies: schema title, property path (the JSON path without
 /// `properties`), and the fields it limits as `<Go type>.<field>`. A field limits a string or
 /// list read straight into it or through an `Optional`; `[]` after it limits each element of
@@ -628,6 +624,11 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["protocol.PresenceInfo.RichPresenceID"],
     ),
 ];
+/// The written file in `xtask/data/reference/`: gophertunnel field to its largest length in
+/// bytes (strings, byte slices) or elements (lists).
+pub(crate) const FILE: &str = "protocol_limits.json";
+/// The limit keywords read from the schemas.
+const KEYWORDS: &[&str] = &["maxLength", "maxItems", "maxProperties"];
 
 /// Schema limits with no gophertunnel list or string to apply to: title, path and why.
 const UNUSED: &[(&str, &str, &str)] = &[
@@ -687,9 +688,6 @@ const UNUSED: &[(&str, &str, &str)] = &[
         "a fixed array of four colours in gophertunnel",
     ),
 ];
-
-/// The limit keywords read from the schemas.
-const KEYWORDS: &[&str] = &["maxLength", "maxItems", "maxProperties"];
 
 /// Reads every schema in `json` (the docs' `json/` directory) and returns the text of [`FILE`].
 pub(crate) fn generate(json: &Path) -> Result<String, String> {

@@ -31,9 +31,6 @@ use crate::tick::update::{CAULDRON_FULL, LAVA_TICK_RATE, WATER_TICK_RATE};
 use crate::tick::{SessionId, State, dispatch, emit, entity, inventory, survival, trade, update};
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Particle, Sound};
 
-/// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
-const STONE_BUTTON_TICKS: u32 = 20;
-const WOODEN_BUTTON_TICKS: u32 = 30;
 /// The radius of a respawn anchor's explosion (PMMP `RespawnAnchor::explode`).
 const ANCHOR_RADIUS: f64 = 5.0;
 /// The grey chat line of a respawn anchor that becomes the respawn point (PMMP
@@ -43,8 +40,6 @@ const ANCHOR_SPAWN_SET: &str = "§7%tile.respawn_anchor.respawnSet";
 const BOTTLE_LEVELS: i32 = 2;
 /// The bites a cake has before it is gone (PMMP `Cake::MAX_BITES`).
 const CAKE_MAX_BITES: i32 = 6;
-/// The most sounds one use plays (a candle lit by a fire charge plays two).
-const MAX_USE_SOUNDS: usize = 2;
 /// The sixteen light block names by level (PMMP `Light`).
 const LIGHT_BLOCKS: [&str; 16] = [
     "minecraft:light_block_0",
@@ -64,6 +59,11 @@ const LIGHT_BLOCKS: [&str; 16] = [
     "minecraft:light_block_14",
     "minecraft:light_block_15",
 ];
+/// The most sounds one use plays (a candle lit by a fire charge plays two).
+const MAX_USE_SOUNDS: usize = 2;
+/// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
+const STONE_BUTTON_TICKS: u32 = 20;
+const WOODEN_BUTTON_TICKS: u32 = 30;
 
 /// The result of an item's own use (PMMP `ItemUseResult`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +174,7 @@ impl Watched {
     }
 }
 
-/// Returns, after listeners ran, whether the player is still in the world of `actor`, not a
+/// Whether, after listeners ran, the player is still in the world of `actor`, not a
 /// spectator, and holds `held`, so that a use planned before them can go on (a listener that took
 /// the item or moved the player away cancels it).
 pub(super) fn still_holds(state: &State, actor: &Actor, held: &Stack) -> bool {
@@ -201,11 +201,15 @@ pub(super) fn set(state: &mut State, world: WorldIndex, pos: BlockPos, block: Bl
     if let Some(w) = state.worlds.get_mut(world)
         && let Err(e) = w.set_block(pos, block)
     {
-        debug!(?pos, error = %e, "block not set");
+        debug!(
+            ?pos,
+            error = &e as &(dyn std::error::Error + 'static),
+            "block not set"
+        );
     }
 }
 
-/// Returns the block at `pos` (air where nothing is loaded).
+/// The block at `pos` (air where nothing is loaded).
 fn get(state: &State, world: WorldIndex, pos: Option<BlockPos>) -> BlockState {
     state
         .worlds
@@ -487,7 +491,7 @@ fn placement(
     Some(blocks)
 }
 
-/// Returns whether an entity or player is in the way of `block` at `pos` (PMMP
+/// Whether an entity or player is in the way of `block` at `pos` (PMMP
 /// `World::getCollidingEntities` for each collision box, [`entity::occupied`]).
 fn obstructed(state: &State, world: WorldIndex, pos: BlockPos, block: BlockState) -> bool {
     let at = block_vec(pos);
@@ -791,7 +795,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
     false
 }
 
-/// Returns whether the bell rings, hit on a side it can swing from (PMMP `Bell::onInteract`; the
+/// Whether the bell rings, hit on a side it can swing from (PMMP `Bell::onInteract`; the
 /// ring itself is an effect only).
 fn bell_rings(u: &Use) -> bool {
     let hit = props::horizontal_facing(u.actor.yaw).opposite();
@@ -805,7 +809,7 @@ fn bell_rings(u: &Use) -> bool {
     }
 }
 
-/// Returns whether bone meal grows the block: the PMMP classes whose `onInteract` has a
+/// Whether bone meal grows the block: the PMMP classes whose `onInteract` has a
 /// `Fertilizer` branch (the block update rules grow it).
 fn fertilizable(block: BlockState) -> bool {
     // Berries come off before bone meal counts (PMMP `CaveVines`, `SweetBerryBush`).
@@ -843,7 +847,7 @@ fn fertilizable(block: BlockState) -> bool {
     .any(|c| block.is(c))
 }
 
-/// Returns the item form of a block as a single stack.
+/// The item form of a block as a single stack.
 fn drops_item(block: BlockState) -> Option<Stack> {
     match block.item() {
         block::ItemForm::Item(t) => Some(Stack::new(t, 1)),
@@ -851,7 +855,7 @@ fn drops_item(block: BlockState) -> Option<Stack> {
     }
 }
 
-/// Returns the item type of a block's item form, if it has one.
+/// The item type of a block's item form, if it has one.
 fn item_type(block: BlockState) -> Option<item::Type> {
     match block.item() {
         block::ItemForm::Item(t) => Some(t),
@@ -958,7 +962,10 @@ fn anchor_spawn(state: &mut State, u: &mut Use) -> bool {
         return false;
     }
     if let Err(e) = player.set_spawn(Some((&name, u.pos))) {
-        debug!(error = %e, "respawn anchor spawn not set");
+        debug!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "respawn anchor spawn not set"
+        );
         return false;
     }
     let message = player::Message::Translation {
@@ -966,7 +973,10 @@ fn anchor_spawn(state: &mut State, u: &mut Use) -> bool {
         parameters: Vec::new(),
     };
     if let Err(e) = player.send(message) {
-        debug!(error = %e, "respawn anchor message not sent");
+        debug!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "respawn anchor message not sent"
+        );
     }
     u.play(center(u.pos), Sound::RespawnAnchorSetSpawn);
     true
@@ -990,7 +1000,7 @@ fn button(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// Returns the cake with the candle the held item places (PMMP `Cake::onInteract`), if it is one.
+/// The cake with the candle the held item places (PMMP `Cake::onInteract`), if it is one.
 fn candle_cake(item: &Stack) -> Option<BlockState> {
     let candle = item.item()?.block()?;
     if !candle.is(Class::Candle) {
@@ -1380,7 +1390,7 @@ fn grass(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// Returns which side of a sign the player at `feet` faces (PMMP `BaseSign::interactsFront`, by
+/// Which side of a sign the player at `feet` faces (PMMP `BaseSign::interactsFront`, by
 /// the sign's facing direction instead of `atan2`): true for the front.
 pub(super) fn sign_front(block: BlockState, feet: Vec3, pos: BlockPos) -> bool {
     let facing = if let Some(rotation) = props::int(block, props::ROTATION)
@@ -1592,7 +1602,7 @@ fn bucket_fill(state: &mut State, u: &mut Use, filled: Stack) -> Option<Stack> {
     Some(returned)
 }
 
-/// Returns the flowing form of a liquid at full level (Bedrock `flowing_*` with depth 0).
+/// The flowing form of a liquid at full level (Bedrock `flowing_*` with depth 0).
 fn flowing(liquid: Kind) -> Option<BlockState> {
     let name = if liquid == Kind::Lava {
         "minecraft:flowing_lava"
@@ -1649,7 +1659,7 @@ pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
     true
 }
 
-/// Returns the held item, if the player may use it in the air now (PMMP `Player::useHeldItem`:
+/// The held item, if the player may use it in the air now (PMMP `Player::useHeldItem`:
 /// not a spectator, the item's cooldown over).
 fn usable(state: &State, actor: &Actor) -> Option<Stack> {
     if actor.mode == GameMode::Spectator {

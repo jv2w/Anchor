@@ -14,7 +14,7 @@ pub(crate) enum Tag<'a> {
 }
 
 impl Tag<'_> {
-    /// Returns the tag as a value a state holds.
+    /// The tag as a value a state holds.
     pub(crate) fn to_value(self) -> Value {
         match self {
             Self::Byte(b) => Value::Byte(b),

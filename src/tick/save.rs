@@ -25,10 +25,10 @@ use crate::save::{PlayerData, Request, Snapshot, WorldValues};
 use crate::storage::{Checked, PlayerKey as StoredPlayer};
 use crate::world::{Chunk, Kind};
 
-/// Unloaded chunks waiting for a commit beyond which the tick asks for one at once.
-const MAX_UNSAVED_CHUNKS: usize = 4096;
 /// Players who left with data waiting for a commit beyond which the tick asks for one at once.
 const MAX_OFFLINE_PLAYERS: usize = 4096;
+/// Unloaded chunks waiting for a commit beyond which the tick asks for one at once.
+const MAX_UNSAVED_CHUNKS: usize = 4096;
 
 /// A chunk unloaded before a commit held its last changes.
 #[derive(Debug)]
@@ -565,7 +565,10 @@ pub(super) fn checked(state: &mut State, found: &Checked) {
         Checked::Failed(why) => format!("Data file check could not finish: {why}"),
     };
     if let Err(e) = (Context { state }).send_to(sender, player::Message::Raw(text)) {
-        debug!(error = %e, "the check result was not sent: the player is leaving");
+        debug!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "the check result was not sent: the player is leaving"
+        );
     }
 }
 
@@ -587,9 +590,10 @@ mod tests {
     //! The save events: the player data saves before a snapshot and the world saves after its
     //! commit.
 
+    use super::*;
+
     use std::cell::Cell;
 
-    use super::*;
     use crate::event::{Event, Listeners, Priority};
     use crate::tick::tests::{initialised, join, new_state, radius, settings, tick};
     use crate::tick::{Context, Output, SessionId};
@@ -727,7 +731,7 @@ mod tests {
         );
         state.commands.finish().unwrap();
         if !auto_save {
-            super::super::command::console(&mut state, "save-off");
+            crate::tick::command::console(&mut state, "save-off");
             assert!(!state.commands.auto_save());
         }
         let pool = crate::runtime::cpu_pool(1).unwrap();
@@ -747,7 +751,7 @@ mod tests {
                 },
             }];
             let mut output = Output::default();
-            super::super::step(
+            crate::tick::step(
                 &mut state,
                 &mut inputs,
                 &mut answers,
@@ -755,8 +759,8 @@ mod tests {
                 &mut output,
                 &mut log,
             );
-            super::super::deliver(&mut state, &mut output, &mut log);
-            super::super::boundary(&mut state, &mut output, &mut log);
+            crate::tick::deliver(&mut state, &mut output, &mut log);
+            crate::tick::boundary(&mut state, &mut output, &mut log);
             let requests = std::mem::take(&mut output.requests);
             commits += requests
                 .iter()

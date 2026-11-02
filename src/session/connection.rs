@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::{OwnedSemaphorePermit, mpsc};
+use tokio::{pin, select};
 use tracing::{debug, warn};
 
 use super::packs::{self, CHUNK_INTERVAL, MAX_UNDELIVERED_BYTES, Reply, Transfer};
@@ -39,38 +40,23 @@ use crate::tick::queue::{
     SharedBatches, SharedPacket,
 };
 
-/// From connection to verified login.
-const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
-/// From connection to `SetLocalPlayerAsInitialised`, plus the allowance of a resource pack
-/// download and of what the tick sends up to the spawn status ([`packs`]), the latter at most
-/// [`Shared::max_send_extension`].
-const SPAWN_DEADLINE: Duration = Duration::from_secs(60);
-/// How often a joined session reports its ping to the tick when it changed: each
-/// report is a logged input.
-const PING_REPORT: Duration = Duration::from_secs(5);
-/// The largest message before `NetworkSettings`.
-const MAX_FIRST_MESSAGE_BYTES: usize = 1024;
-/// Packets outside the login sequence held until the join. The official client's order is not
-/// observable; 32 is far above the few packets (cache status, violation warnings) clients send.
-const MAX_DEFERRED: usize = 32;
-/// Reassembled plus decompressed bytes before login verification, in batch limits.
-const MAX_PRE_AUTH_BATCHES: usize = 8;
-/// Capacity the reused payload buffers keep between messages: twice the size at which outbound
-/// batches are cut ([`batch`]), so a cut batch and a packet under it fit. A larger message (a
-/// Login or a skin of up to 4 MiB) would otherwise pin its size until the session ends.
-const MAX_KEPT_BUFFER_BYTES: usize = 2 * batch::SPLIT_BYTES;
 /// The input budget refills this fraction of `max-batch-bytes` per second.
 const BUDGET_REFILL_DIVISOR: usize = 4;
-/// The input packet budget: at the default `max-players` the rates of all sessions fit in what
-/// the tick applies (`network.md`). The burst is the session's share of the tick queue.
-const PACKET_RATE: Rate = Rate {
-    capacity: queue::MAX_SESSION_INPUTS,
-    per_second: 512,
-};
 /// A copy of the held click ([`Session::held_click`]) within this long of the last one forwarded
 /// is dropped: half a tick, so one still reaches every tick at any frame rate above 20.
 const HELD_CLICK_REPEAT: Duration =
     Duration::from_millis(1000 / 2 / crate::Context::TICKS_PER_SECOND as u64);
+/// From connection to verified login.
+const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
+/// Packets outside the login sequence held until the join. The official client's order is not
+/// observable; 32 is far above the few packets (cache status, violation warnings) clients send.
+const MAX_DEFERRED: usize = 32;
+/// The largest message before `NetworkSettings`.
+const MAX_FIRST_MESSAGE_BYTES: usize = 1024;
+/// Capacity the reused payload buffers keep between messages: twice the size at which outbound
+/// batches are cut ([`batch`]), so a cut batch and a packet under it fit. A larger message (a
+/// Login or a skin of up to 4 MiB) would otherwise pin its size until the session ends.
+const MAX_KEPT_BUFFER_BYTES: usize = 2 * batch::SPLIT_BYTES;
 /// Undelivered bytes ([`Transport::undelivered`]) at most before the session hands the
 /// connection the next batch of the tick's output. It is above the most either transport keeps
 /// in flight (RakNet 2048 datagrams of 1492 bytes and their frame cost, about 3.1 MiB; NetherNet
@@ -79,16 +65,31 @@ const HELD_CLICK_REPEAT: Duration =
 /// about 4.7 MiB of RakNet frame cost at the smallest MTU) stays under the transports' 32 MiB
 /// caps.
 const MAX_OUTPUT_UNDELIVERED_BYTES: usize = 4 * 1024 * 1024;
-/// How long after the last handover the session still counts the bodies it handed over on top
-/// of the connection's undelivered count: both transports take the session's messages as they
-/// come and report the count every 10 ms update, so by then the count holds them.
-const REPORT_WAIT: Duration = Duration::from_millis(30);
 /// Bytes of the tick's output at most waiting for delivery, all of it but the spawn windows'
 /// player lists ([`Pending::SpawnList`]): a link that falls this far behind ends, as the
 /// transports end one with 32 MiB undelivered.
 const MAX_PENDING_BYTES: usize = 32 * 1024 * 1024;
+/// Reassembled plus decompressed bytes before login verification, in batch limits.
+const MAX_PRE_AUTH_BATCHES: usize = 8;
+/// The input packet budget: at the default `max-players` the rates of all sessions fit in what
+/// the tick applies (`network.md`). The burst is the session's share of the tick queue.
+const PACKET_RATE: Rate = Rate {
+    capacity: queue::MAX_SESSION_INPUTS,
+    per_second: 512,
+};
 /// What a player who refuses required packs sees.
 const PACKS_REFUSED_MESSAGE: &str = "This server needs its resource packs: accept them to join";
+/// How often a joined session reports its ping to the tick when it changed: each
+/// report is a logged input.
+const PING_REPORT: Duration = Duration::from_secs(5);
+/// How long after the last handover the session still counts the bodies it handed over on top
+/// of the connection's undelivered count: both transports take the session's messages as they
+/// come and report the count every 10 ms update, so by then the count holds them.
+const REPORT_WAIT: Duration = Duration::from_millis(30);
+/// From connection to `SetLocalPlayerAsInitialised`, plus the allowance of a resource pack
+/// download and of what the tick sends up to the spawn status ([`packs`]), the latter at most
+/// [`Shared::max_send_extension`].
+const SPAWN_DEADLINE: Duration = Duration::from_secs(60);
 
 struct Session {
     id: SessionId,
@@ -207,7 +208,7 @@ impl Session {
         let mut undelivered = self.conn.undelivered();
         let mut ping_report = tokio::time::interval(PING_REPORT);
         ping_report.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        tokio::pin!(login_deadline, spawn_deadline, pace, report_wait);
+        pin!(login_deadline, spawn_deadline, pace, report_wait);
         let mut shutdown = self.shared.shutdown.clone();
         if *shutdown.borrow_and_update() {
             return End::Shutdown;
@@ -219,7 +220,7 @@ impl Session {
             let output_waits = !self.out_bodies.is_empty() || !self.pending.is_empty();
             let output_fits = undelivered_bytes.saturating_add(self.unreported_bytes)
                 <= MAX_OUTPUT_UNDELIVERED_BYTES;
-            tokio::select! {
+            select! {
                 message = self.conn.recv() => {
                     let Some(message) = message else { return End::Closed };
                     if let Err(e) = self.on_message(message).await {
@@ -291,7 +292,11 @@ impl Session {
     async fn finish(mut self, end: End) {
         match &end {
             End::Failed(e) => {
-                debug!(session = self.id.get(), error = %e, cause = ?std::error::Error::source(e), "session failed");
+                debug!(
+                    session = self.id.get(),
+                    error = e as &(dyn std::error::Error + 'static),
+                    "session failed"
+                );
             }
             End::Timeout(stage) => debug!(session = self.id.get(), stage, "session timed out"),
             _ => debug!(session = self.id.get(), ?end, "session ended"),
@@ -312,7 +317,11 @@ impl Session {
                 ..Disconnect::default()
             });
             if let Err(e) = self.send(&[disconnect]).await {
-                debug!(session = self.id.get(), error = %e, "shutdown message not sent");
+                debug!(
+                    session = self.id.get(),
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "shutdown message not sent"
+                );
             }
         }
         if self.identity.is_some() && self.shared.events.send(Event::Ended).await.is_err() {
@@ -432,7 +441,12 @@ impl Session {
                 // After the spawn one bad packet is dropped; the batch length
                 // prefixes keep the other packets intact.
                 Err(e) if self.spawned => {
-                    warn!(session = self.id.get(), id = header.id, error = %e, "packet dropped");
+                    warn!(
+                        session = self.id.get(),
+                        id = header.id,
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "packet dropped"
+                    );
                 }
                 Err(e) => return Err(Error::Packet(e)),
             }
@@ -701,7 +715,11 @@ impl Session {
         };
         match inputs.try_send(InputKind::Measure(Measure::Ping(millis))) {
             Ok(()) => self.reported_ping = Some(millis),
-            Err(e) => debug!(session = self.id.get(), error = %e, "ping not reported"),
+            Err(e) => debug!(
+                session = self.id.get(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "ping not reported"
+            ),
         }
     }
 
@@ -952,8 +970,6 @@ enum Error {
     Packs(packs::Error),
 }
 
-type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -988,6 +1004,8 @@ impl std::error::Error for Error {
     }
 }
 
+type Result<T, E = Error> = std::result::Result<T, E>;
+
 /// Runs one connection until it closes, then tells the tick and the accept task.
 pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
     let mut session = Session::new(id, conn, shared);
@@ -995,7 +1013,7 @@ pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
     session.finish(end).await;
 }
 
-/// Returns the packet a [`Message::Packet`] carries.
+/// The packet a [`Message::Packet`] carries.
 fn packet_of(message: &Message) -> Option<&Packet> {
     match message {
         Message::Packet(packet) => Some(packet),
@@ -1003,7 +1021,7 @@ fn packet_of(message: &Message) -> Option<&Packet> {
     }
 }
 
-/// Counts the bytes of the bodies of `batches`.
+/// The bytes of the bodies of `batches`.
 fn bytes_of(batches: &SharedBatches) -> usize {
     batches.iter().map(Vec::len).sum()
 }
@@ -1045,6 +1063,7 @@ fn deadline(at: Instant) -> tokio::time::Sleep {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::crypto::ServerKey;
     use crate::pack::Offer;
     use crate::pack::tests::UUID;
@@ -1053,6 +1072,20 @@ mod tests {
     use crate::tick::queue::{
         Input, InputReceiver, InputSender, MAX_SESSION_INPUTS, Skin, input_queue,
     };
+
+    /// Batches of 1 MiB the tick sends in the tests below.
+    const BATCH_BYTES: usize = 1024 * 1024;
+    const BATCHES: u8 = 40;
+    const FLOODERS: u64 = 80;
+    const MOST: i32 = 256;
+    const MOST_OUTPUT_TICKS: usize = 2000;
+    const MOST_STEPS: usize = 3000;
+    /// 200 seconds, past the spawn deadline and the most the output may add to it.
+    const MOST_TICKS: usize = 4000;
+    const SMALL: usize = 2000;
+    const STEP: Duration = Duration::from_millis(100);
+    /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
+    const STEP_BYTES: usize = 64 * 1024;
 
     /// Makes what the sessions share: offline, unencrypted, no packs, inputs on `inputs`.
     fn shared(inputs: InputSender) -> Arc<Shared> {
@@ -1150,7 +1183,6 @@ mod tests {
     /// client's packet still reaches the tick: each fills only its own share of the queue.
     #[test]
     fn many_sessions_at_their_budget_leave_room_for_another() {
-        const FLOODERS: u64 = 80;
         crate::raknet::tests::run(async {
             let (inputs, _queue) = input_queue(u32::try_from(FLOODERS).unwrap());
             let shared = shared(inputs);
@@ -1188,7 +1220,6 @@ mod tests {
     /// packet budget, at the most `chunks-per-tick` for as long as the chunks come.
     #[test]
     fn sub_chunk_requests_for_the_chunks_sent_take_no_packet_budget() {
-        const MOST: i32 = 256;
         crate::raknet::tests::run(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1516,7 +1547,7 @@ mod tests {
                     far.sent().await.unwrap();
                 }
             };
-            tokio::select! {
+            select! {
                 end = session.serve() => panic!("the session ended: {end:?}"),
                 () = client => {}
             }
@@ -1569,9 +1600,6 @@ mod tests {
         }
     }
 
-    /// Batches of 1 MiB the tick sends in the tests below.
-    const BATCH_BYTES: usize = 1024 * 1024;
-
     /// Takes the Join next in `queue` and returns where the tick sends its session.
     fn joined_outbound(queue: &mut InputReceiver) -> mpsc::Sender<Outbound> {
         let Ok(Input {
@@ -1605,11 +1633,6 @@ mod tests {
     /// the send limit before another batch, and every batch arrives, in order.
     #[test]
     fn a_spawn_player_list_over_the_transport_caps_goes_out_as_the_link_delivers() {
-        const BATCHES: u8 = 40;
-        /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
-        const STEP_BYTES: usize = 64 * 1024;
-        const STEP: Duration = Duration::from_millis(100);
-        const MOST_TICKS: usize = 4000;
         assert!(usize::from(BATCHES) * BATCH_BYTES > MAX_PENDING_BYTES);
         crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
@@ -1655,7 +1678,7 @@ mod tests {
                     }
                 }
             };
-            tokio::select! {
+            select! {
                 end = session.serve() => panic!("the session ended: {end:?}"),
                 () = tick => panic!("the batches took more than {MOST_TICKS} ticks"),
                 () = link => {}
@@ -1669,7 +1692,6 @@ mod tests {
     /// fills, and the connection never holds more than the send limit and one batch.
     #[test]
     fn a_link_that_delivers_nothing_ends_on_the_output_waiting_not_the_tick_queue() {
-        const MOST_TICKS: usize = 2000;
         crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1679,7 +1701,7 @@ mod tests {
             let outbound = joined_outbound(&mut queue);
             let tick = async {
                 let mut ticks = tokio::time::interval(TICK);
-                for _ in 0..MOST_TICKS {
+                for _ in 0..MOST_OUTPUT_TICKS {
                     ticks.tick().await;
                     let chunk = Message::Packet(Packet::ResourcePackChunkData(
                         packet::ResourcePackChunkData {
@@ -1702,9 +1724,9 @@ mod tests {
                     far.undelivered.send_modify(|bytes| *bytes += batch.len());
                 }
             };
-            let end = tokio::select! {
+            let end = select! {
                 end = session.serve() => end,
-                () = tick => panic!("the session took {MOST_TICKS} ticks of output"),
+                () = tick => panic!("the session took {MOST_OUTPUT_TICKS} ticks of output"),
                 () = link => panic!("the connection closed before the session ended"),
             };
             assert!(
@@ -1733,9 +1755,7 @@ mod tests {
         reason = "off-tick: the test reads the paused runtime's clock, which only timers move"
     )]
     fn output_after_the_spawn_status_does_not_move_the_spawn_deadline() {
-        /// 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second if it counted.
-        const STEP: Duration = Duration::from_millis(100);
-        const MOST_STEPS: usize = 3000;
+        // 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second if it counted.
         let waited = crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1762,7 +1782,7 @@ mod tests {
             };
             // The link delivers everything at once.
             let link = async { while far.sent().await.is_some() {} };
-            let end = tokio::select! {
+            let end = select! {
                 end = session.serve() => end,
                 () = tick => panic!("the session went on for {MOST_STEPS} steps"),
                 () = link => panic!("the connection closed before the session ended"),
@@ -1785,9 +1805,7 @@ mod tests {
         reason = "off-tick: the test reads the paused runtime's clock, which only timers move"
     )]
     fn output_without_a_spawn_status_moves_the_spawn_deadline_only_so_far() {
-        /// 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second.
-        const STEP: Duration = Duration::from_millis(100);
-        const MOST_STEPS: usize = 3000;
+        // 128 KiB each step, 1.25 MiB/s: 20 seconds of allowance a second.
         let (waited, most) = crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1811,7 +1829,7 @@ mod tests {
             };
             // The link delivers everything at once.
             let link = async { while far.sent().await.is_some() {} };
-            let end = tokio::select! {
+            let end = select! {
                 end = session.serve() => end,
                 () = tick => panic!("the session went on for {MOST_STEPS} steps"),
                 () = link => panic!("the connection closed before the session ended"),
@@ -1832,11 +1850,6 @@ mod tests {
     /// on that bound instead of holding them until its spawn deadline.
     #[test]
     fn shared_broadcasts_before_the_spawn_status_count_against_the_byte_bound() {
-        /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
-        const STEP_BYTES: usize = 64 * 1024;
-        const STEP: Duration = Duration::from_millis(100);
-        /// 200 seconds, past the spawn deadline and the most the output may add to it.
-        const MOST_TICKS: usize = 4000;
         crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1872,7 +1885,7 @@ mod tests {
                     }
                 }
             };
-            let end = tokio::select! {
+            let end = select! {
                 end = session.serve() => end,
                 () = tick => panic!("the session went on for {MOST_TICKS} ticks"),
                 () = link => panic!("the connection closed before the session ended"),
@@ -1893,7 +1906,6 @@ mod tests {
     /// end it.
     #[test]
     fn shared_output_waits_within_the_byte_bound() {
-        const SMALL: usize = 2000;
         crate::raknet::tests::run_paused(async {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
@@ -1925,7 +1937,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             };
             let link = async { while far.sent().await.is_some() {} };
-            let end = tokio::select! {
+            let end = select! {
                 end = session.serve() => end,
                 () = tick => panic!("the session went on past its bound"),
                 () = link => panic!("the connection closed before the session ended"),

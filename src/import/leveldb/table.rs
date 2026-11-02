@@ -26,25 +26,27 @@ use crate::import::{Error, Result};
 use crate::protocol::compression::zlib::{Decoder, Framing};
 use crate::protocol::compression::{Compression, Decompressor};
 
+/// Decompressed blocks kept for later reads, in bytes.
+const CACHE_BYTES: usize = 64 << 20;
 /// The footer at the end of every table.
 pub(crate) const FOOTER: usize = 48;
 pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
-/// The compression byte and checksum after each block.
-pub(crate) const TRAILER: usize = 5;
 /// The largest block, stored or decompressed, which bounds the memory one block read takes.
 pub(super) const MAX_BLOCK: usize = 16 << 20;
-/// Decompressed blocks kept for later reads, in bytes.
-const CACHE_BYTES: usize = 64 << 20;
-/// Table files kept open between reads.
-pub(super) const MAX_OPEN: usize = 64;
 /// The longest internal key: a user key and its tag.
 const MAX_INTERNAL_KEY: usize = MAX_KEY + TAG;
-
-/// Block compression ids.
+/// Table files kept open between reads.
+pub(super) const MAX_OPEN: usize = 64;
+/// The block compression id of no compression.
 pub(crate) const NONE: u8 = 0;
-const SNAPPY: u8 = 1;
-const ZLIB: u8 = 2;
+/// The block compression id of raw DEFLATE.
 pub(crate) const RAW_DEFLATE: u8 = 4;
+/// The block compression id of Snappy.
+const SNAPPY: u8 = 1;
+/// The compression byte and checksum after each block.
+pub(crate) const TRAILER: usize = 5;
+/// The block compression id of zlib with its header.
+const ZLIB: u8 = 2;
 
 /// A table of the current version, from the `MANIFEST`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,7 +512,7 @@ pub(super) fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
     Block::parse(out)
 }
 
-/// Checks that `key` is an internal key: at least a tag long, with kind 0 or 1.
+/// Fails unless `key` is an internal key: at least a tag long, with kind 0 or 1.
 pub(super) fn check_internal(key: &[u8]) -> Result<()> {
     match key.len().checked_sub(TAG).and_then(|at| key.get(at)) {
         Some(&kind) if kind <= 1 => Ok(()),
@@ -522,6 +524,7 @@ pub(super) fn check_internal(key: &[u8]) -> Result<()> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
     use crate::import::leveldb::tests::{internal, put_varint};
 
     /// Encodes sorted entries as a block with a restart every `interval` entries.
@@ -696,12 +699,12 @@ pub(super) mod tests {
         bad_kind[0].0[at] = 2;
         assert!(cursor(&encode_block(&bad_kind, 1)).seek_first().is_err());
         assert!(
-            cursor(&encode_block(&[(vec![1; 7], vec![])], 1))
+            cursor(&encode_block(&[(vec![1; 7], Vec::new())], 1))
                 .seek_first()
                 .is_err()
         );
         // Over-long key.
-        let long = vec![(internal(&vec![b'k'; MAX_KEY + 1], 1, 1), vec![])];
+        let long = vec![(internal(&vec![b'k'; MAX_KEY + 1], 1, 1), Vec::new())];
         assert!(matches!(
             cursor(&encode_block(&long, 1)).seek_first(),
             Err(Error::TooLarge { .. })

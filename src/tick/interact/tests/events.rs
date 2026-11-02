@@ -15,6 +15,32 @@ use crate::protocol::consts::{InventoryActionSource, WINDOW_ID_ARMOUR, WINDOW_ID
 use crate::protocol::{InventoryAction, UseItemOnEntityTransactionData};
 use crate::tick::Context;
 
+const BESIDE: BlockPos = BlockPos::new(2, -60, 1);
+thread_local! {
+    /// How many times a [`cancel`] listener ran on this test's thread (the tick runs there).
+    static CANCELS: Cell<u32> = const { Cell::new(0) };
+}
+thread_local! {
+    /// The meddling of this test thread's listeners.
+    static CHAOS: Cell<Chaos> = const {
+        Cell::new(Chaos {
+            seed: 0,
+            vault: 0,
+            calls: 0,
+        })
+    };
+}
+const GROUND: BlockPos = BlockPos::new(2, -61, 0);
+thread_local! {
+    /// What the re-entry test's listeners and monitors heard, in order.
+    static HEARD: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
+}
+thread_local! {
+    /// Whether the re-entry test's break listener is running.
+    static INSIDE: Cell<bool> = const { Cell::new(false) };
+}
+const PLACED: BlockPos = BlockPos::new(3, -60, 1);
+
 /// The player of the harness.
 fn me() -> crate::player::Id {
     crate::player::Id::new(SessionId::new(1))
@@ -27,11 +53,6 @@ fn listen<E: crate::event::Event>(
     let mut l = Listeners::default();
     l.push(Priority::Normal, f);
     l
-}
-
-thread_local! {
-    /// How many times a [`cancel`] listener ran on this test's thread (the tick runs there).
-    static CANCELS: Cell<u32> = const { Cell::new(0) };
 }
 
 /// A listener that cancels `E`, counted in [`cancels`].
@@ -109,8 +130,6 @@ fn use_in_air(h: &mut Harness) {
     let input = h.auth(Vec::new(), Some(air(&held)));
     h.run(vec![input]);
 }
-
-const GROUND: BlockPos = BlockPos::new(2, -61, 0);
 
 /// A client's predicted change of `slot` in its own window `window` from `old` to `new`, as a
 /// use item transaction carries it.
@@ -397,10 +416,10 @@ fn a_cancelled_placement_changes_nothing_and_resyncs() {
     assert_eq!(cancelled, twin);
 }
 
+// pmmp: BlockPlaceEvent
 /// The client takes the item away as it sends a placement; a cancelled one sends the inventory
 /// back, so the client's next click names the server's count and places, and a right prediction
 /// is not sent again.
-// pmmp: BlockPlaceEvent
 #[test]
 fn a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places() {
     let mut first = true;
@@ -432,10 +451,10 @@ fn a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places(
     assert_eq!(main_counts(&h.packets(), slot), [4]);
 }
 
+// pmmp: PlayerItemUseEvent
 /// Wearing armour by a click in the air: the client predicts the hand empty and the armour worn.
 /// A cancelled use sends the inventory back when the click, from either packet, carried that
 /// prediction, and nothing when it carried none.
-// pmmp: PlayerItemUseEvent
 #[test]
 fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
     let helmet = stack(ItemKind::IronHelmet);
@@ -457,7 +476,7 @@ fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
             h.input(Packet::InventoryTransaction(InventoryTransaction {
                 actions,
                 transaction_data: InventoryTransactionData::UseItem(Box::new(data)),
-                ..Default::default()
+                ..InventoryTransaction::default()
             }))
         } else {
             data.actions = actions;
@@ -983,10 +1002,10 @@ fn entity_click(h: &mut Harness, runtime_id: u64, at: [f32; 3]) -> Input {
                 target_entity_runtime_id: runtime_id,
                 action_type: UseItemOnEntityAction::Interact.into(),
                 clicked_position: at,
-                ..Default::default()
+                ..UseItemOnEntityTransactionData::default()
             },
         )),
-        ..Default::default()
+        ..InventoryTransaction::default()
     }))
 }
 
@@ -1091,7 +1110,8 @@ fn perform(h: &mut Harness, a: impl crate::action::Action) {
     crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
-// pmmp: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::attackBlock, Player::interactEntity
+// pmmp: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::attackBlock
+// pmmp: Player::interactEntity
 #[test]
 fn actions_do_what_the_player_would_with_events() {
     let l = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
@@ -1298,17 +1318,6 @@ impl Chaos {
     }
 }
 
-thread_local! {
-    /// The meddling of this test thread's listeners.
-    static CHAOS: Cell<Chaos> = const {
-        Cell::new(Chaos {
-            seed: 0,
-            vault: 0,
-            calls: 0,
-        })
-    };
-}
-
 /// Meddles at `at` with this thread's [`CHAOS`]; true to cancel.
 fn meddle(cx: &mut Context<'_>, at: Option<BlockPos>) -> bool {
     let mut chaos = CHAOS.get();
@@ -1432,13 +1441,6 @@ fn a_listeners_sign_text_goes_on_as_it_is_and_monitors_see_it() {
     assert_eq!(front_lines(&h), empty);
 }
 
-thread_local! {
-    /// Whether the re-entry test's break listener is running.
-    static INSIDE: Cell<bool> = const { Cell::new(false) };
-    /// What the re-entry test's listeners and monitors heard, in order.
-    static HEARD: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
-}
-
 /// Writes down `what` in [`HEARD`], marked when the break listener is running.
 fn hear(what: &str) {
     let what = if INSIDE.get() {
@@ -1456,8 +1458,6 @@ fn hear(what: &str) {
 // pmmp: BlockBreakEvent, Player::breakBlock
 #[test]
 fn direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it() {
-    const BESIDE: BlockPos = BlockPos::new(2, -60, 1);
-    const PLACED: BlockPos = BlockPos::new(3, -60, 1);
     let mut l = Listeners::default();
     l.listen_to_every_event(hear);
     l.monitor_every_event(|name| hear(&format!("monitor {name}")));
@@ -1739,7 +1739,12 @@ fn an_anchor_explosion_is_the_same_on_every_run() {
     assert_eq!(run(), run());
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock, PlayerRespawnAnchorUseEvent::getAction, BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::getFireChance, BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::isBlockBreaking, BlockExplodeEvent, BlockExplodeEvent::getPosition, BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::getYield
+// pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock
+// pmmp: PlayerRespawnAnchorUseEvent::getAction, BlockPreExplodeEvent
+// pmmp: BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::getFireChance
+// pmmp: BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::isBlockBreaking
+// pmmp: BlockExplodeEvent, BlockExplodeEvent::getPosition
+// pmmp: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::getYield
 #[test]
 fn anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome() {
     let mut l = Listeners::default();
@@ -1814,7 +1819,8 @@ fn anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors
     );
 }
 
-// pmmp: PlayerRespawnAnchorUseEvent::cancel, BlockPreExplodeEvent::cancel, BlockExplodeEvent::cancel
+// pmmp: PlayerRespawnAnchorUseEvent::cancel, BlockPreExplodeEvent::cancel
+// pmmp: BlockExplodeEvent::cancel
 #[test]
 fn cancelling_an_anchor_event_stops_what_it_announces() {
     let grass = block::GRASS_BLOCK;
@@ -1867,7 +1873,8 @@ fn a_listener_may_make_the_anchor_set_the_spawn_once() {
     );
 }
 
-// pmmp: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::setIncendiary
+// pmmp: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::setRadius
+// pmmp: BlockPreExplodeEvent::setIncendiary
 #[test]
 fn a_pre_explode_listener_may_keep_the_blocks_and_shrink_the_blast() {
     let calm = listen(|e: &mut BlockPreExplode, _: &mut Context<'_>| {
@@ -1882,7 +1889,8 @@ fn a_pre_explode_listener_may_keep_the_blocks_and_shrink_the_blast() {
     assert!(h.player().is_alive(), "a radius 0.5 blast does not reach");
 }
 
-// pmmp: BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::setIgnitions, BlockExplodeEvent::setYield
+// pmmp: BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::setIgnitions
+// pmmp: BlockExplodeEvent::setYield
 #[test]
 fn an_explode_listener_chooses_the_blocks() {
     let only_ground = listen(|e: &mut BlockExplode, _: &mut Context<'_>| {
@@ -1929,7 +1937,8 @@ fn door_sounds(packets: &[Packet]) -> usize {
         .count()
 }
 
-// pmmp: WorldSoundEvent, WorldSoundEvent::getSound, WorldSoundEvent::getPosition, WorldSoundEvent::getRecipients, World::addSound
+// pmmp: WorldSoundEvent, WorldSoundEvent::getSound, WorldSoundEvent::getPosition
+// pmmp: WorldSoundEvent::getRecipients, World::addSound
 #[test]
 fn a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played() {
     let mut l = listen(|e: &mut crate::event::WorldSound, _: &mut Context<'_>| {
@@ -2004,7 +2013,8 @@ fn a_world_sound_listener_may_silence_replace_or_keep_the_sound_from_players() {
     assert_eq!(door_sounds(&h.packets()), 1, "once, though named twice");
 }
 
-// pmmp: WorldParticleEvent, WorldParticleEvent::getParticle, WorldParticleEvent::getPosition, WorldParticleEvent::getRecipients, WorldParticleEvent::cancel, World::addParticle
+// pmmp: WorldParticleEvent, WorldParticleEvent::getParticle, WorldParticleEvent::getPosition
+// pmmp: WorldParticleEvent::getRecipients, WorldParticleEvent::cancel, World::addParticle
 #[test]
 fn a_world_particle_listener_sees_a_broken_block_and_may_hide_it() {
     let pieces = |packets: &[Packet]| {
@@ -2064,7 +2074,7 @@ fn direct_sounds_particles_and_explosions_raise_no_world_sound_or_particle() {
     );
 }
 
-/// Returns a tool of `kind` with one use left.
+/// A tool of `kind` with one use left.
 fn worn_out(kind: ItemKind) -> Stack {
     let tool = stack(kind);
     let max = tool

@@ -59,38 +59,38 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{BlockPos, Weather, World};
 
-/// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
-pub(super) const EYE_HEIGHT: f64 = 1.62;
+/// The saturation of a new or respawned player: BDS sends 5 (P6; PMMP starts at 20).
+const DEFAULT_SATURATION: f64 = 5.0;
 /// How far a player reaches an entity or a player (PMMP
 /// `Player::MAX_REACH_DISTANCE_ENTITY_INTERACTION`).
 pub(super) const ENTITY_REACH: f64 = 8.0;
-/// How far behind the plane its eyes look through a player reaches (PMMP `Player::canInteract`
-/// default `maxDiff`: `M_SQRT3 / 2`).
-const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
-/// The longest burn in ticks (PMMP `Entity::setFireTicks` refuses more than `0x7fff`).
-const MAX_FIRE_TICKS: u32 = 0x7fff;
-/// The health of a player without effects (PMMP `Attribute::HEALTH` default).
-const MAX_HEALTH: f64 = 20.0;
-/// The largest food level (PMMP `Attribute::HUNGER`).
-const MAX_FOOD: f64 = 20.0;
-/// The largest saturation (PMMP `Attribute::SATURATION`).
-const MAX_SATURATION: f64 = 20.0;
-/// The largest exhaustion: BDS's `minecraft:player.exhaustion` maximum (P6; PMMP's is 5).
-const MAX_EXHAUSTION: f64 = 20.0;
-/// The saturation of a new or respawned player: BDS sends 5 (P6; PMMP starts at 20).
-const DEFAULT_SATURATION: f64 = 5.0;
+/// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
+pub(super) const EYE_HEIGHT: f64 = 1.62;
 /// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
 const MAX_AIR: i16 = 300;
-/// The lowest air supply in ticks: a player under water reaching it takes drowning damage and
-/// has 0 again (PMMP `Living::doAirSupplyTick`).
-const MIN_AIR: i16 = -20;
-/// The most drops a [`PlayerDeath`](crate::event::PlayerDeath) listener sets that are kept: one
-/// inventory.
-const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
+/// The largest exhaustion: BDS's `minecraft:player.exhaustion` maximum (P6; PMMP's is 5).
+const MAX_EXHAUSTION: f64 = 20.0;
+/// The longest burn in ticks (PMMP `Entity::setFireTicks` refuses more than `0x7fff`).
+const MAX_FIRE_TICKS: u32 = 0x7fff;
+/// The largest food level (PMMP `Attribute::HUNGER`).
+const MAX_FOOD: f64 = 20.0;
+/// The health of a player without effects (PMMP `Attribute::HEALTH` default).
+const MAX_HEALTH: f64 = 20.0;
 /// The most held-back death drops: what death takes (the slots and the stacks waiting for room,
 /// [`inventory::MAX_SAVED_PENDING`]) and drops a listener set in its place, all refused by the
 /// world.
 const MAX_HELD_BACK: usize = inventory::CARRIED + inventory::MAX_SAVED_PENDING + MAX_LISTENER_DROPS;
+/// The most drops a [`PlayerDeath`](crate::event::PlayerDeath) listener sets that are kept: one
+/// inventory.
+const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
+/// The largest saturation (PMMP `Attribute::SATURATION`).
+const MAX_SATURATION: f64 = 20.0;
+/// The lowest air supply in ticks: a player under water reaching it takes drowning damage and
+/// has 0 again (PMMP `Living::doAirSupplyTick`).
+const MIN_AIR: i16 = -20;
+/// How far behind the plane its eyes look through a player reaches (PMMP `Player::canInteract`
+/// default `maxDiff`: `M_SQRT3 / 2`).
+const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
 /// The random stream key of the enchanting seed.
 const SEED: u64 = random::tag("player-seed");
 
@@ -1084,10 +1084,10 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
     }
 }
 
-/// Checks that a player's eyes may be moved to `eye` in `world`: the one destination rule of every
-/// teleport (the API, commands, ender pearls, chorus fruit, respawns). Fails for a world that is
-/// not loaded (unloaded, or an ID of another server) and a position that is not finite or lies
-/// outside the world border.
+/// The check that a player's eyes may be moved to `eye` in `world`: the one destination rule of
+/// every teleport (the API, commands, ender pearls, chorus fruit, respawns). It fails for a world
+/// that is not loaded (unloaded, or an ID of another server) and a position that is not finite or
+/// lies outside the world border.
 pub(super) fn check_destination(
     state: &State,
     world: WorldIndex,
@@ -1331,10 +1331,11 @@ pub(super) fn hit_sound(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use tokio::sync::mpsc;
 
     use super::effects::Active;
-    use super::*;
     use crate::block::{self, PropertyValue};
     use crate::config::Config;
     use crate::event::Listeners;
@@ -2289,7 +2290,7 @@ mod tests {
         let auth = p::PlayerAuthInput {
             position: (start + Vec3::new(2.0, 0.0, 0.0)).to_f32(),
             input_data: InputFlags::from_set(&flags),
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(auth)));
         server.run(vec![input]);
@@ -2305,7 +2306,7 @@ mod tests {
         let start = server.player(1).position;
         let far = p::PlayerAuthInput {
             position: (start + Vec3::new(20.0, 0.0, 0.0)).to_f32(),
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(far)));
         server.run(vec![input]);
@@ -2318,7 +2319,7 @@ mod tests {
         // A move back near the position ends the reset; then a fall of 5 blocks lands.
         let near = p::PlayerAuthInput {
             position: (start + Vec3::new(0.0, 5.0, 0.0)).to_f32(),
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(near)));
         server.run(vec![input]);
@@ -2327,14 +2328,14 @@ mod tests {
         let up = p::PlayerAuthInput {
             position: (start + Vec3::new(0.0, 5.0, 0.0)).to_f32(),
             tick: 1,
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(up)));
         server.run(vec![input]);
         let down = p::PlayerAuthInput {
             position: start.to_f32(),
             tick: 2,
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         let input = server.send(1, Packet::PlayerAuthInput(Box::new(down)));
         server.run(vec![input]);
@@ -2633,7 +2634,7 @@ mod tests {
         let action = p::PlayerAction {
             entity_runtime_id: 1,
             action_type: i32::from(Action::Respawn),
-            ..Default::default()
+            ..p::PlayerAction::default()
         };
         let input = server.send(1, Packet::PlayerAction(action));
         server.run(vec![input]);
@@ -2769,7 +2770,7 @@ mod tests {
         let action = p::PlayerAction {
             entity_runtime_id: runtime_id,
             action_type: i32::from(Action::Respawn),
-            ..Default::default()
+            ..p::PlayerAction::default()
         };
         let inputs = vec![
             server.send(2, Packet::Respawn(ready)),
@@ -2820,7 +2821,7 @@ mod tests {
         let action = p::PlayerAction {
             entity_runtime_id: runtime_id,
             action_type: i32::from(Action::Respawn),
-            ..Default::default()
+            ..p::PlayerAction::default()
         };
         let inputs = vec![
             server.send(2, Packet::Respawn(ready)),
@@ -2853,7 +2854,7 @@ mod tests {
         let action = p::PlayerAction {
             entity_runtime_id: 1,
             action_type: i32::from(Action::Respawn),
-            ..Default::default()
+            ..p::PlayerAction::default()
         };
         let inputs = vec![
             server.send(1, Packet::Respawn(ready)),
@@ -2925,7 +2926,7 @@ mod tests {
                 let action = p::PlayerAction {
                     entity_runtime_id: 1,
                     action_type: i32::from(Action::Respawn),
-                    ..Default::default()
+                    ..p::PlayerAction::default()
                 };
                 inputs.push(server.send(1, Packet::PlayerAction(action)));
             }
@@ -2942,7 +2943,7 @@ mod tests {
                     let action = p::PlayerAction {
                         entity_runtime_id: 1,
                         action_type: i32::from(Action::StartSprint),
-                        ..Default::default()
+                        ..p::PlayerAction::default()
                     };
                     server.send(1, Packet::PlayerAction(action))
                 })
@@ -3692,7 +3693,7 @@ mod tests {
                 let auth = p::PlayerAuthInput {
                     position: (start + Vec3::new(0.0, y, 0.0)).to_f32(),
                     tick: u64::try_from(i).unwrap() + 1,
-                    ..Default::default()
+                    ..p::PlayerAuthInput::default()
                 };
                 let input = server.send(1, Packet::PlayerAuthInput(Box::new(auth)));
                 server.run(vec![input]);
@@ -3941,7 +3942,7 @@ mod tests {
         let spawn = BlockPos::new(0, -60, 0);
         let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
         server.state.add_world(other);
-        server.state.worlds[1].set_time(5_000);
+        server.state.worlds[1].set_time(5000);
         server.take(1);
         let there = Vec3::new(0.5, -58.38, 0.5);
         teleport(&mut server.state, sid(1), 1, there);
@@ -3958,7 +3959,7 @@ mod tests {
         let sent = server.take(1);
         assert!(sent.iter().any(|p| matches!(
             p,
-            Packet::SyncWorldClocks(c) if c.sync_states.first().is_some_and(|s| s.time > 5_000)
+            Packet::SyncWorldClocks(c) if c.sync_states.first().is_some_and(|s| s.time > 5000)
         )));
         assert!(sent.iter().any(|p| matches!(p, Packet::LevelChunk(_))));
         // Back home, nothing of the trip is held.
@@ -4014,7 +4015,7 @@ mod tests {
         let spawn = BlockPos::new(0, -60, 0);
         let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
         state.add_world(other);
-        state.worlds[1].set_time(5_000);
+        state.worlds[1].set_time(5000);
         teleport(&mut state, sid(1), 1, Vec3::new(0.5, -58.38, 0.5));
         tick(&mut state, &mut Vec::new(), &mut output);
         let clocks: Vec<i32> = received(&mut rx)
@@ -4025,7 +4026,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(clocks.iter().any(|&time| time >= 5_000), "{clocks:?}");
+        assert!(clocks.iter().any(|&time| time >= 5000), "{clocks:?}");
     }
 
     #[test]
@@ -4165,7 +4166,7 @@ mod tests {
             let action = p::PlayerAction {
                 entity_runtime_id: runtime_id,
                 action_type: i32::from(Action::Respawn),
-                ..Default::default()
+                ..p::PlayerAction::default()
             };
             let a = input(s, 3, packet(Packet::Respawn(ready)));
             let b = input(s, 4, packet(Packet::PlayerAction(action)));

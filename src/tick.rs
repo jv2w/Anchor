@@ -70,20 +70,20 @@ use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::World;
 use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
 
-/// The length of a tick at [`Context::TICKS_PER_SECOND`].
-pub(crate) const TICK: Duration = Duration::from_millis(1000 / Context::TICKS_PER_SECOND as u64);
-/// The most inputs one tick applies; the rest wait for the next tick. The batch buffer is
-/// allocated once at this size.
-pub(crate) const MAX_INPUTS_PER_TICK: usize = 8_192;
-/// Save thread answers one tick applies; the rest wait for the next tick.
-pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
 /// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms.
 const LIGHT_BUDGET: u32 = 16_384;
+/// The most inputs one tick applies; the rest wait for the next tick. The batch buffer is
+/// allocated once at this size.
+pub(crate) const MAX_INPUTS_PER_TICK: usize = 8192;
 /// The most packets the serial phases may queue for one player in one tick; more means a runaway
 /// rule, and the player is disconnected instead of growing the queue.
 const MAX_OUTBOX: usize = 4096;
+/// Save thread answers one tick applies; the rest wait for the next tick.
+pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
 /// The ticks between the runs of a world without players with `slow-empty-worlds`.
 const SLOW_WORLD_PERIOD: u64 = 100;
+/// The length of a tick at [`Context::TICKS_PER_SECOND`].
+pub(crate) const TICK: Duration = Duration::from_millis(1000 / Context::TICKS_PER_SECOND as u64);
 
 /// The game state.
 #[derive(Debug)]
@@ -1645,6 +1645,50 @@ mod tests {
     use crate::save::{Loaded, PlayerLoad};
     use crate::world::{BlockPos, Chunk, ChunkPos, Flat, Generator, Kind};
 
+    const LOGGED_IN_OTHER_LOCATION: (i32, &str) = (43, "disconnectionScreen.loggedinOtherLocation");
+    const MOST: u32 = 256;
+    thread_local! {
+        /// A CPU pool per test thread; tests do not shut it down.
+        static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
+    }
+    /// Chunks within this many chunks of the spawn (a square) are loaded before the first tick,
+    /// so a spawn needs no load; the others load through the stand-in save thread.
+    const PRELOADED: i32 = 4;
+    thread_local! {
+        /// The quits the listener saw.
+        static QUITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+    /// What the scripted clients must have received over all seeds: proof the game inputs reached
+    /// their rules (moves and crafts done and refused, windows, item entities, villagers, trade
+    /// screens, broken and placed blocks, attacks).
+    const REACHED: [&str; 11] = [
+        "stack done",
+        "stack refused",
+        "window opened",
+        "item entity",
+        "villager",
+        "entity",
+        "trade window",
+        "block update",
+        "level event",
+        "actor event",
+        "inventory slot",
+    ];
+    /// Seeds of the determinism runs: different inputs, sessions colliding differently. Four
+    /// seeds of 400 ticks keep the run short while each tick carries the game inputs.
+    const SEEDS: [u64; 4] = [0x5eed_0005, 42, u64::MAX, 0x8000_0000_0000_0000];
+    /// The shared start-game batches, built once for all tests.
+    static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
+    /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,
+    /// `SyncWorldClocks`, `JigsawStructureData`, `VoxelShapes`, `StartGame`, 13
+    /// `SyncActorProperty`, `ItemRegistry`.
+    const START_GAME: [u32; 20] = [
+        124, 63, 344, 313, 337, 11, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165,
+        165, 162,
+    ];
+    /// Ticks of a determinism run.
+    const TICKS: usize = 400;
+
     /// Test settings: no player data (a join needs no load), and every loaded chunk of a view
     /// sent in one tick.
     pub(super) fn settings(edit: impl FnOnce(&mut Config)) -> Settings {
@@ -1661,10 +1705,6 @@ mod tests {
         let longest = settings(|c| c.developer.save_interval_minutes = u16::MAX);
         assert_eq!(longest.save_interval, u64::from(u16::MAX) * 1200);
     }
-
-    /// Chunks within this many chunks of the spawn (a square) are loaded before the first tick,
-    /// so a spawn needs no load; the others load through the stand-in save thread.
-    const PRELOADED: i32 = 4;
 
     /// A server with a flat persistent world, seed 0, its spawn area loaded.
     pub(super) fn new_state(settings: Settings, listeners: Listeners) -> State {
@@ -1732,9 +1772,8 @@ mod tests {
         out
     }
 
-    /// The shared start-game batches, built once for all tests.
+    /// The shared start-game batches.
     pub(super) fn shared() -> Shared {
-        static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
         SHARED
             .get_or_init(|| {
                 Shared::new(
@@ -1745,11 +1784,6 @@ mod tests {
                 .unwrap()
             })
             .clone()
-    }
-
-    thread_local! {
-        /// A CPU pool per test thread; tests do not shut it down.
-        static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
     }
 
     /// Runs and delivers one tick of `batch`; the stand-in save thread answers its requests for
@@ -2102,14 +2136,6 @@ mod tests {
         assert_eq!(results[0], results[2]);
     }
 
-    /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,
-    /// `SyncWorldClocks`, `JigsawStructureData`, `VoxelShapes`, `StartGame`, 13
-    /// `SyncActorProperty`, `ItemRegistry`.
-    const START_GAME: [u32; 20] = [
-        124, 63, 344, 313, 337, 11, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165,
-        165, 162,
-    ];
-
     #[test]
     fn a_duplicate_join_changes_nothing() {
         let (j, mut rx) = join(1, 0);
@@ -2329,10 +2355,6 @@ mod tests {
 
     #[test]
     fn a_session_with_a_full_outbound_queue_is_dropped() {
-        thread_local! {
-            /// The quits the listener saw.
-            static QUITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-        }
         let mut listeners = Listeners::default();
         listeners.push(Priority::Normal, |e: &mut PlayerQuit, _| {
             assert_eq!(e.player().session(), SessionId::new(1));
@@ -2730,8 +2752,6 @@ mod tests {
         assert!(rx.is_closed());
         (d.reason, d.message)
     }
-
-    const LOGGED_IN_OTHER_LOCATION: (i32, &str) = (43, "disconnectionScreen.loggedinOtherLocation");
 
     #[test]
     fn a_duplicate_login_replaces_the_existing_player() {
@@ -3316,9 +3336,6 @@ mod tests {
         tasks
     }
 
-    /// Ticks of a determinism run.
-    const TICKS: usize = 400;
-
     /// The start state of the determinism runs, with `listeners` (sorted): the spawn area loaded,
     /// [`script_task`] and Anchor's commands.
     fn script_state(listeners: Listeners) -> State {
@@ -3477,10 +3494,6 @@ mod tests {
         (hashes, log)
     }
 
-    /// Seeds of the determinism runs: different inputs, sessions colliding differently. Four
-    /// seeds of 400 ticks keep the run short while each tick carries the game inputs.
-    const SEEDS: [u64; 4] = [0x5eed_0005, 42, u64::MAX, 0x8000_0000_0000_0000];
-
     /// `check` of every run, the runs side by side on a pool of their own, results in run
     /// order. The runs are independent (seeds, server files), so this checks what running them in
     /// turn checks, in a fraction of the time.
@@ -3493,23 +3506,6 @@ mod tests {
         assert!(pool.shutdown());
         out
     }
-
-    /// What the scripted clients must have received over all seeds: proof the game inputs reached
-    /// their rules (moves and crafts done and refused, windows, item entities, villagers, trade
-    /// screens, broken and placed blocks, attacks).
-    const REACHED: [&str; 11] = [
-        "stack done",
-        "stack refused",
-        "window opened",
-        "item entity",
-        "villager",
-        "entity",
-        "trade window",
-        "block update",
-        "level event",
-        "actor event",
-        "inventory slot",
-    ];
 
     #[test]
     fn one_and_many_pool_threads_give_the_same_ticks_and_the_log_replays_them() {
@@ -3912,7 +3908,6 @@ mod tests {
     /// its own has every request of a tick answered in that tick: none waits, none is dropped.
     #[test]
     fn a_request_for_each_chunk_at_the_most_chunks_per_tick_is_answered_in_its_tick() {
-        const MOST: u32 = 256;
         let settings = settings(|c| c.developer.chunks_per_tick = MOST);
         let mut state = new_state(settings, Listeners::default());
         let mut output = Output::default();

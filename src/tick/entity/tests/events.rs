@@ -505,7 +505,7 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
     h.spawn(1, standing(0.0, 0.0));
     room(400);
     let mut drops = Rng(0xe8_b402);
-    let mut dropped = 0u64;
+    let mut dropped = 0_u64;
     for tick in 0..300 {
         if tick < 150 && tick % 2 == 0 {
             for _ in 0..3 {

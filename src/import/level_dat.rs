@@ -13,10 +13,10 @@ use crate::protocol::packet::PROTOCOL_VERSION;
 // Decoding `level.dat` allocates within the data files' own budget.
 use crate::storage::seal::DECODE_BUDGET;
 
-/// The newest `StorageVersion` read (PMMP `WorldDataVersions::STORAGE`).
-pub(crate) const STORAGE_VERSION: i32 = 10;
 /// The `SpawnY` Bedrock writes before the spawn has a height: the game puts it on the ground.
 pub(crate) const SPAWN_Y_UNSET: i32 = 32_767;
+/// The newest `StorageVersion` read (PMMP `WorldDataVersions::STORAGE`).
+pub(crate) const STORAGE_VERSION: i32 = 10;
 
 /// What Anchor reads of `level.dat`: the spawn and the time, which are state. No setting (seed,
 /// game mode, difficulty, game rules) is read: the imported world runs with the server's.
@@ -94,6 +94,7 @@ fn long(root: &Compound, name: &str, missing: &'static str) -> Result<i64> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
     use crate::protocol::Writer;
 
     /// A `level.dat` holding `root`.

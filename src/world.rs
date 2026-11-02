@@ -1459,7 +1459,7 @@ mod tests {
         let mut rng = Rng(0x00e1_0001);
         // x and z from -16 to 31 (the nine loaded chunks), y over the whole height.
         let mut model = BTreeMap::new();
-        for round in 0..100_000usize {
+        for round in 0..100_000_usize {
             let pool = if (round / 10_000) % 2 == 0 {
                 states.len()
             } else {
@@ -2264,7 +2264,7 @@ mod tests {
                 })
                 .collect();
             let start = std::time::Instant::now();
-            let mut found = 0usize;
+            let mut found = 0_usize;
             for &p in &positions {
                 found += usize::from(w.block(p).is_some());
             }
@@ -2298,7 +2298,7 @@ mod tests {
             > = w.loaded_chunks().map(|p| (p, 0)).collect();
             let tree: BTreeMap<ChunkPos, u8> = w.loaded_chunks().map(|p| (p, 0)).collect();
             let start = std::time::Instant::now();
-            let mut hits = 0usize;
+            let mut hits = 0_usize;
             for &p in &positions {
                 hits += usize::from(map.contains_key(&p.chunk()));
             }

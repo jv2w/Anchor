@@ -11,11 +11,10 @@ use super::body::str_lit;
 use super::data::{Data, Tag, read_json, static_compound};
 use super::emit::HEADER;
 
-/// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/item/creative.rs";
-
 /// The group key of a category's anonymous group (entries without a group).
 const ANONYMOUS: usize = usize::MAX;
+/// The generated file, relative to the repository root.
+pub(crate) const PATH: &str = "src/item/creative.rs";
 
 /// A dumped stack resolved to an item type: type index, network meta, stack NBT.
 type Stack = (usize, u16, Option<BTreeMap<String, Tag>>);

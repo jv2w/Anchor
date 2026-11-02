@@ -7,6 +7,11 @@ use std::fmt;
 
 use super::consts::CompressionAlgorithm;
 
+/// The `NetworkSettings` id of raw DEFLATE.
+const ALGORITHM_FLATE: u16 = CompressionAlgorithm::Flate as u16;
+/// The `NetworkSettings` id of Snappy.
+const ALGORITHM_SNAPPY: u16 = CompressionAlgorithm::Snappy as u16;
+
 /// The algorithm that compresses batch bodies, announced to the client in `NetworkSettings`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Compression {
@@ -21,13 +26,11 @@ pub enum Compression {
 }
 
 impl Compression {
-    /// Returns the algorithm for a `NetworkSettings` id, or `None` for an unknown id.
+    /// The algorithm for a `NetworkSettings` id, or `None` for an unknown id.
     pub const fn from_network_id(id: u16) -> Option<Self> {
-        const FLATE: u16 = CompressionAlgorithm::Flate as u16;
-        const SNAPPY: u16 = CompressionAlgorithm::Snappy as u16;
         match id {
-            FLATE => Some(Self::Zlib),
-            SNAPPY => Some(Self::Snappy),
+            ALGORITHM_FLATE => Some(Self::Zlib),
+            ALGORITHM_SNAPPY => Some(Self::Snappy),
             _ => None,
         }
     }
@@ -35,8 +38,8 @@ impl Compression {
     /// The id that `NetworkSettings` carries for this algorithm.
     pub const fn network_id(self) -> u16 {
         match self {
-            Self::Zlib => CompressionAlgorithm::Flate as u16,
-            Self::Snappy => CompressionAlgorithm::Snappy as u16,
+            Self::Zlib => ALGORITHM_FLATE,
+            Self::Snappy => ALGORITHM_SNAPPY,
         }
     }
 
@@ -164,10 +167,12 @@ impl Decompressor {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
     use crate::protocol::Rng;
 
-    pub(crate) const ROUND_TRIP_SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, 1024 * 1024];
     const LIMIT: usize = 16 * 1024 * 1024;
+    const MUTATION_LIMIT: usize = 64 * 1024;
+    pub(crate) const ROUND_TRIP_SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, 1024 * 1024];
 
     #[test]
     fn network_ids_round_trip() {
@@ -198,7 +203,7 @@ pub(crate) mod tests {
         Repetitive,
     }
 
-    /// Returns `len` bytes of `content` drawn from `seed`.
+    /// `len` bytes of `content` drawn from `seed`.
     pub(crate) fn sample(len: usize, content: Content, seed: u64) -> Vec<u8> {
         let mut rng = Rng(seed);
         let mut data = Vec::with_capacity(len);
@@ -285,7 +290,6 @@ pub(crate) mod tests {
 
     #[test]
     fn mutated_inputs_never_panic_or_exceed_the_limit() {
-        const LIMIT: usize = 64 * 1024;
         let mut rng = Rng(0x5eed);
         for compression in [Compression::Zlib, Compression::Snappy] {
             let mut decompressor = Decompressor::new(compression);
@@ -312,8 +316,11 @@ pub(crate) mod tests {
                         _ => input.truncate(at),
                     }
                 }
-                if decompressor.decompress(&input, LIMIT, &mut output).is_ok() {
-                    assert!(output.len() <= LIMIT);
+                if decompressor
+                    .decompress(&input, MUTATION_LIMIT, &mut output)
+                    .is_ok()
+                {
+                    assert!(output.len() <= MUTATION_LIMIT);
                 }
             }
         }

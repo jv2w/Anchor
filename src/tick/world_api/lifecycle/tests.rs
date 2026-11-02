@@ -562,7 +562,7 @@ fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
     let b = c.hold_chunks(world::Id::DEFAULT, at(3), 1).unwrap();
     let d = c.hold_chunks(world::Id::DEFAULT, at(2), 0).unwrap();
     // In the order they were given, wherever they overlap.
-    let want = vec![vec![], vec![a], vec![a, b, d], vec![b], vec![]];
+    let want = vec![Vec::new(), vec![a], vec![a, b, d], vec![b], Vec::new()];
     assert_eq!(tickets_at(&mut state, &probes), want);
     ticks(&mut state, &mut output, 2);
     // A replay from a checkpoint finds the same tickets and the same room left.
@@ -597,7 +597,7 @@ fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
     assert!(pool.shutdown());
     let mut c = cx(&mut state);
     assert!(c.release_chunks(b));
-    let want = vec![vec![], vec![a], vec![a, d], vec![], vec![]];
+    let want = vec![Vec::new(), vec![a], vec![a, d], Vec::new(), Vec::new()];
     assert_eq!(tickets_at(&mut state, &probes), want);
     // Released or dropped by their world's unload, tickets leave nothing behind.
     let mut c = cx(&mut state);

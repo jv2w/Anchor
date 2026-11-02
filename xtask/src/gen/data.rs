@@ -22,9 +22,20 @@ use super::upgrade::{ADDING, block_schema};
 
 type R<T> = Result<T, String>;
 
+/// The drops of a state whose drops depend on its block entity (see [`SHARED`]).
+pub(crate) const BLOCK_ENTITY_DROPS: &str = "block_entity";
+/// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
+pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
+/// PMMP classes whose collision box is inside out, with min above max (PMMP defect): a wall
+/// hanging sign squashes its cross bar by 3/4 from each side where 3/8 was meant. The 3/8 bar is
+/// BDS's box (`CloudburstMC` `blocks.json` `collisionShape`, P6 `xtask/data/p6/facts.md`), so
+/// the box is rebuilt with 3/8 on the squashed axes.
+const INSIDE_OUT_BOXES: [&str; 1] = ["WallHangingSign"];
 /// The ticks the client takes to drink a consumable it is sent without item data (potion, milk
 /// bucket, medicine): the client's own 1.6 s for them.
 const LEGACY_USE_TICKS: u16 = 32;
+/// The stack NBT `Type` of an ominous banner.
+const OMINOUS: Tag = Tag::Int(1);
 
 /// Bedrock states PMMP splits by data Anchor keeps in the block entity: the
 /// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
@@ -53,9 +64,6 @@ pub(crate) const SHARED: [(&str, &str, &str); 4] = [
         "the colour and ominous type (banner block entity `Base` and `Type`)",
     ),
 ];
-
-/// The drops of a state whose drops depend on its block entity (see [`SHARED`]).
-pub(crate) const BLOCK_ENTITY_DROPS: &str = "block_entity";
 
 /// Where a state's item form comes from, before item types are known.
 #[derive(Debug, Clone, PartialEq)]
@@ -121,9 +129,6 @@ pub(crate) struct State {
     /// The dumped drops (`blocks.json` `drops`), or [`BLOCK_ENTITY_DROPS`].
     pub(crate) drops: Json,
 }
-
-/// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
-pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
 
 /// The dump's `connect` entry: what PMMP needs to work out a state from its neighbours.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -710,7 +715,6 @@ impl Data {
 /// ominous banner (`Type` 1) has the black base colour, meta 0, where BDS sends it white, meta 15
 /// (P6). Every item read from the dumps passes here, so types and stacks agree.
 fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> u16 {
-    const OMINOUS: Tag = Tag::Int(1);
     let ominous = nbt.and_then(|n| n.get("Type")) == Some(&OMINOUS);
     if name == "minecraft:banner" && ominous && meta == 0 {
         15
@@ -935,12 +939,6 @@ fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
     }
     Ok((states, kind_defaults))
 }
-
-/// PMMP classes whose collision box is inside out, with min above max (PMMP defect): a wall
-/// hanging sign squashes its cross bar by 3/4 from each side where 3/8 was meant. The 3/8 bar is
-/// BDS's box (`CloudburstMC` `blocks.json` `collisionShape`, P6 `xtask/data/p6/facts.md`), so
-/// the box is rebuilt with 3/8 on the squashed axes.
-const INSIDE_OUT_BOXES: [&str; 1] = ["WallHangingSign"];
 
 /// The collision boxes of a dumped state with inside-out ones rebuilt, which only
 /// [`INSIDE_OUT_BOXES`] classes may have: on an axis where min is above max, PMMP trimmed
@@ -1301,7 +1299,7 @@ fn list(value: &Json) -> R<List> {
 /// Rust source of a `crate::nbt::StaticCompound` (`&[("key", Static::...)]`), keys in byte
 /// order like `nbt::Compound`.
 pub(crate) fn static_compound(c: &BTreeMap<String, Tag>) -> String {
-    let mut out = String::from("&[");
+    let mut out = "&[".to_owned();
     for (k, v) in c {
         put!(out, "({}, {}),", str_lit(k), static_value(v));
     }
@@ -1355,7 +1353,7 @@ fn float_lit(bits: u32) -> String {
 /// A hex literal of `width` digits, grouped by four.
 pub(crate) fn hex_lit(v: u64, width: usize) -> String {
     let digits = format!("{v:0width$x}");
-    let mut out = String::from("0x");
+    let mut out = "0x".to_owned();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && i.is_multiple_of(4) {
             out.push('_');
@@ -1367,8 +1365,9 @@ pub(crate) fn hex_lit(v: u64, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::names::upper_camel;
     use super::*;
+
+    use crate::r#gen::names::upper_camel;
 
     /// A PMMP state's values: `kind`, its light emission, flags and item name.
     fn values(kind: &str, light: u8, flags: &[&str], item: &str) -> (Values, i32) {

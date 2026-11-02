@@ -29,25 +29,25 @@ use anchor::event::WorldSave;
 use anchor::world::{self, BlockPos, ChunkPos, Options, World};
 use anchor::{Config, Context, Server};
 
+/// The child gives up after this many ticks, so a lost parent leaves no process behind.
+const CHILD_TICKS: u64 = 1200;
+/// Ticks of one cycle of the second world: made at 0, unloaded at 8, deleted at 10.
+const CYCLE: u64 = 12;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_CRASH_DATA";
+/// The second world, which the server makes, unloads and deletes over and over.
+const EXTRA: &str = "extra";
+/// Kills, each followed by a restart that checks the file.
+const KILLS: u32 = 50;
 /// The child's environment variable: `run` keeps moving the block and cycling the second world,
 /// `check` only reports, `idle` only starts and waits to be killed.
 const MODE_ENV: &str = "ANCHOR_CRASH_MODE";
-/// The second world, which the server makes, unloads and deletes over and over.
-const EXTRA: &str = "extra";
-/// Ticks of one cycle of the second world: made at 0, unloaded at 8, deleted at 10.
-const CYCLE: u64 = 12;
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-CRASH";
-/// Kills, each followed by a restart that checks the file.
-const KILLS: u32 = 50;
-/// The block's path stays in the spawn chunks (3 × 3 around chunk 0, 0), always loaded.
-const SPAN: i32 = 48;
-/// The child gives up after this many ticks, so a lost parent leaves no process behind.
-const CHILD_TICKS: u64 = 1200;
 /// The start of the warning a start logs for a data file it rolled back to the main file's save.
 const ROLLED_BACK: &str = "data file rolled back";
+/// The block's path stays in the spawn chunks (3 × 3 around chunk 0, 0), always loaded.
+const SPAN: i32 = 48;
 /// The console log line that follows the start's file checks.
 const STARTED: &str = "server started";
 

@@ -34,25 +34,8 @@ use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
 
-/// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
-/// reader's budget to read back: half of one NBT root ([`crate::nbt::MAX_ROOT_BYTES`]), which
-/// the villager's entity and its `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of
-/// three stacks could take 36 MiB (`item::MAX_NBT_BYTES` each). PMMP has no such limit.
-const MAX_SAVED_BYTES: usize = crate::nbt::MAX_ROOT_BYTES / 2;
-/// The experience each tier needs, as BDS sends it (P6).
-const DEFAULT_TIER_EXPERIENCE: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
-
-/// The offers (both forms).
-const RECIPES: &str = "Recipes";
-/// The experience each tier needs (both forms).
-const TIER_EXPERIENCE: &str = "TierExpRequirements";
-/// The villager's tier (saved form only; `UpdateTrade` carries it).
-const TRADE_TIER: &str = "TradeTier";
-/// The villager's trade experience (saved form only).
-const TRADE_EXPERIENCE: &str = "TradeExperience";
-/// Every key the root compound reads; the others are kept as unknown.
-const ROOT_KEYS: [&str; 4] = [RECIPES, TIER_EXPERIENCE, TRADE_TIER, TRADE_EXPERIENCE];
-
+/// A payment item's `Damage` that takes any damage (the Bedrock any-meta value, P6).
+const ANY_DAMAGE: i16 = i16::MAX;
 /// A recipe's first payment.
 const BUY_A: &str = "buyA";
 /// A recipe's second payment, only when it has one.
@@ -61,8 +44,17 @@ const BUY_B: &str = "buyB";
 const BUY_COUNT_A: &str = "buyCountA";
 /// The second payment's count (0 without one).
 const BUY_COUNT_B: &str = "buyCountB";
+/// An item compound's damage (meta).
+const DAMAGE: &str = "Damage";
+/// The experience each tier needs, as BDS sends it (P6).
+const DEFAULT_TIER_EXPERIENCE: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
 /// A recipe's demand.
 const DEMAND: &str = "demand";
+/// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
+/// reader's budget to read back: half of one NBT root ([`crate::nbt::MAX_ROOT_BYTES`]), which
+/// the villager's entity and its `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of
+/// three stacks could take 36 MiB (`item::MAX_NBT_BYTES` each). PMMP has no such limit.
+const MAX_SAVED_BYTES: usize = crate::nbt::MAX_ROOT_BYTES / 2;
 /// A recipe's maximum uses.
 const MAX_USES: &str = "maxUses";
 /// A recipe's network ID (wire form only).
@@ -71,16 +63,6 @@ const NET_ID: &str = "netId";
 const PRICE_MULTIPLIER_A: &str = "priceMultiplierA";
 /// A recipe's second price multiplier.
 const PRICE_MULTIPLIER_B: &str = "priceMultiplierB";
-/// Whether a recipe's trades drop orbs (a byte flag).
-const REWARD_EXP: &str = "rewardExp";
-/// What a recipe sells.
-const SELL: &str = "sell";
-/// The tier that unlocks a recipe.
-const TIER: &str = "tier";
-/// The villager experience per trade of a recipe.
-const TRADER_EXP: &str = "traderExp";
-/// A recipe's uses so far.
-const USES: &str = "uses";
 /// Every key a recipe compound reads; the others are kept as unknown.
 const RECIPE_KEYS: [&str; 14] = [
     BUY_A,
@@ -98,10 +80,26 @@ const RECIPE_KEYS: [&str; 14] = [
     TRADER_EXP,
     USES,
 ];
-/// An item compound's damage (meta).
-const DAMAGE: &str = "Damage";
-/// A payment item's `Damage` that takes any damage (the Bedrock any-meta value, P6).
-const ANY_DAMAGE: i16 = i16::MAX;
+/// The offers (both forms).
+const RECIPES: &str = "Recipes";
+/// Whether a recipe's trades drop orbs (a byte flag).
+const REWARD_EXP: &str = "rewardExp";
+/// Every key the root compound reads; the others are kept as unknown.
+const ROOT_KEYS: [&str; 4] = [RECIPES, TIER_EXPERIENCE, TRADE_TIER, TRADE_EXPERIENCE];
+/// What a recipe sells.
+const SELL: &str = "sell";
+/// The tier that unlocks a recipe.
+const TIER: &str = "tier";
+/// The experience each tier needs (both forms).
+const TIER_EXPERIENCE: &str = "TierExpRequirements";
+/// The villager's trade experience (saved form only).
+const TRADE_EXPERIENCE: &str = "TradeExperience";
+/// The villager's tier (saved form only; `UpdateTrade` carries it).
+const TRADE_TIER: &str = "TradeTier";
+/// The villager experience per trade of a recipe.
+const TRADER_EXP: &str = "traderExp";
+/// A recipe's uses so far.
+const USES: &str = "uses";
 
 /// The offer list of one villager NPC, kept in its entity.
 #[derive(Debug, Clone, PartialEq)]
@@ -376,7 +374,7 @@ impl Offers {
             Form::Wire => &[],
         };
         let mut recipes: Vec<Compound> = Vec::with_capacity(self.recipes.len() + skipped.len());
-        for (r, i) in self.recipes.iter().zip(0u32..) {
+        for (r, i) in self.recipes.iter().zip(0_u32..) {
             recipes.push(r.to_nbt(match form {
                 Form::Saved => None,
                 Form::Wire => self.net_id(i),

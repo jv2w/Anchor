@@ -10,8 +10,6 @@
 mod access;
 mod available;
 mod builtin;
-#[cfg(test)]
-mod tests;
 
 pub(crate) use access::Access;
 pub(crate) use available::{Listing, available_commands};
@@ -45,22 +43,22 @@ use crate::random::{self, Random};
 use crate::save::{AccessData, AccessWrite};
 use crate::storage::AccessKey;
 
-/// Permissions one player may be granted or denied while online.
-const MAX_GRANTS: usize = 1024;
-/// The random stream of `@r`.
-const RANDOM_TARGET: u64 = random::tag("command-random-target");
-/// What the console is called in messages (PMMP `ConsoleCommandSender::getName`).
-const CONSOLE_NAME: &str = "Console";
+/// The client's `[sender: message]` text of a copy of a command result for operators.
+const ADMIN_KEY: &str = "chat.type.admin";
 /// The prefix of a copy of a command result for operators: grey italics, as the client shows
 /// its own `chat.type.admin` lines.
 const ADMIN_PREFIX: &str = "§7§o";
-/// The client's `[sender: message]` text of a copy of a command result for operators.
-const ADMIN_KEY: &str = "chat.type.admin";
+/// What the console is called in messages (PMMP `ConsoleCommandSender::getName`).
+const CONSOLE_NAME: &str = "Console";
+/// Permissions one player may be granted or denied while online.
+const MAX_GRANTS: usize = 1024;
 /// The most lines of one command result a sender gets; the lines past it are replaced by one
 /// telling how many were left out (a client lists at most 1,024 in a `CommandOutput`).
 const MAX_OUTPUT_LINES: usize = 64;
 /// The most parameters of one line of a command result a sender gets.
 const MAX_OUTPUT_PARAMS: usize = 32;
+/// The random stream of `@r`.
+const RANDOM_TARGET: u64 = random::tag("command-random-target");
 
 /// The grants and denials of online players by session (PMMP permission attachments).
 pub(crate) type Grants = BTreeMap<SessionId, BTreeMap<&'static str, bool>>;
@@ -1749,3 +1747,6 @@ impl Context<'_> {
         self.state.settings.game_mode = mode;
     }
 }
+
+#[cfg(test)]
+mod tests;

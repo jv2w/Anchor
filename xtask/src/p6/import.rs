@@ -37,12 +37,10 @@ use super::{
 };
 use crate::r#gen::data::Data;
 
-/// The scenario's name in `intended.txt`.
-pub(crate) const SCENARIO: &str = "import";
-/// The seed of BDS's world.
-const SEED: &str = "20261004";
-/// The world's name, in BDS and in Anchor.
-const WORLD: &str = "p6-import";
+/// Blocks in a sub-chunk layer.
+const BLOCKS: usize = 4096;
+/// Differing blocks shown per pair of states.
+const EXAMPLES: usize = 3;
 /// Game rules set before the bot joins: the player spawns on the world spawn, as Anchor puts
 /// it, and nothing changes blocks between BDS sending them and saving them but what the
 /// world's own pending updates do (fire burned vines next to lava in an earlier run).
@@ -52,6 +50,12 @@ const RULES: [(&str, &str); 4] = [
     ("randomtickspeed", "0"),
     ("domobspawning", "false"),
 ];
+/// The scenario's name in `intended.txt`.
+pub(crate) const SCENARIO: &str = "import";
+/// The seed of BDS's world.
+const SEED: &str = "20261004";
+/// The world's name, in BDS and in Anchor.
+const WORLD: &str = "p6-import";
 
 /// Runs the scenario; returns whether it passed.
 pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
@@ -219,13 +223,9 @@ fn export(anchor_dir: &Path, folder: &Path, out: &mut impl Write) -> Result<(), 
     say(out, &format!("export: {report:?}"))
 }
 
-/// Blocks in a sub-chunk layer.
-const BLOCKS: usize = 4096;
 /// How many blocks of a pair of states differ, and where the first [`EXAMPLES`] are: x, y, z and
 /// layer.
 type Differing = (usize, Vec<[i64; 4]>);
-/// Differing blocks shown per pair of states.
-const EXAMPLES: usize = 3;
 
 /// The layers of one sent sub-chunk, each its 4,096 block network IDs in storage order (x, z,
 /// y).
@@ -257,7 +257,7 @@ fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
                 continue;
             }
             let offset = field(entry, "Offset");
-            let mut position = [0i64; 3];
+            let mut position = [0_i64; 3];
             for (k, slot) in position.iter_mut().enumerate() {
                 let (Some(c), Some(o)) = (
                     centre.get(k).and_then(Value::as_i64),
@@ -282,7 +282,7 @@ fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
 /// Standard base64 with padding, as Go's JSON writes byte slices.
 fn base64(text: &str) -> Result<Vec<u8>, String> {
     let mut out = Vec::with_capacity(text.len() / 4 * 3);
-    let (mut acc, mut bits) = (0u32, 0u32);
+    let (mut acc, mut bits) = (0_u32, 0_u32);
     for c in text.bytes().filter(|&c| c != b'=') {
         let v = match c {
             b'A'..=b'Z' => c - b'A',
@@ -322,14 +322,14 @@ fn layers(payload: &[u8]) -> Result<Layers, String> {
         }
         let mut words = Vec::new();
         // Indices per word; none at width 0.
-        let per = 32usize.checked_div(bits);
+        let per = 32_usize.checked_div(bits);
         if let Some(per) = per {
             for _ in 0..BLOCKS.div_ceil(per) {
                 words.push(u32::from_le_bytes([byte()?, byte()?, byte()?, byte()?]));
             }
         }
         let mut varint = || -> Result<i32, String> {
-            let mut value = 0u32;
+            let mut value = 0_u32;
             for shift in (0..35).step_by(7) {
                 let b = byte()?;
                 value |= u32::from(b & 0x7f) << shift;
@@ -403,7 +403,7 @@ fn compare(
     // (BDS state, Anchor state) → count and the first positions.
     let mut pairs: BTreeMap<(u32, u32), Differing> = BTreeMap::new();
     let mut excused: BTreeMap<String, usize> = BTreeMap::new();
-    let mut compared = 0usize;
+    let mut compared = 0_usize;
     for (at, a) in bds {
         let Some(b) = anchor.get(at) else {
             continue;

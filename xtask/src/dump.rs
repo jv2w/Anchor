@@ -34,32 +34,41 @@ use crate::r#gen::upgrade::SCHEMA_1_26_60;
 
 pub(crate) mod limits;
 
-/// The pinned checkouts, relative to the repository root, and their commits.
-const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
-const DRAGONFLY: (&str, &str) = (
-    ".cache/dragonfly",
-    "d86aefd9ff9b6a357d6dfadab2093af811545256",
-);
+/// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends.
+/// `biome_definitions.json` holds generation data BDS does not send.
+const BIOMES: &str = "stripped_biome_definitions.json";
+/// The block physics this command writes from [`CLOUDBURST_BLOCKS`].
+pub(crate) const BLOCK_PHYSICS: &str = "block_physics.json";
+/// Blocks new in 1.26.60 that `CloudburstMC`'s per-state data lacks, with the block whose
+/// physics they take: the closest block of the same shape.
+const BORROWED_1_26_60: [(&str, &str); 3] = [
+    ("minecraft:icicle", "minecraft:pointed_dripstone"),
+    ("minecraft:ice_crystal", "minecraft:amethyst_cluster"),
+    ("minecraft:disc_press", "minecraft:stone"),
+];
 pub(crate) const CLOUDBURST: (&str, &str) = (
     ".cache/cloudburst-data",
     "293c848098cc636a2758937fb6610b8bed1f12c5",
 );
-/// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
-const PROTOCOL_DOCS: (&str, &str) = (
-    ".cache/bedrock-protocol-docs",
-    "0879ab5c4c70be1bd520e32a8c49ea4a155616d6",
+/// `CloudburstMC`'s per-state block data, which BDS dumps.
+const CLOUDBURST_BLOCKS: &str = "blocks.json";
+const DRAGONFLY: (&str, &str) = (
+    ".cache/dragonfly",
+    "d86aefd9ff9b6a357d6dfadab2093af811545256",
 );
+/// `CloudburstMC` files Anchor sends byte for byte: `AvailableActorIdentifiers`
+/// and the shapes of `VoxelShapes`.
+const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
 /// The PMMP PHP binary (pmmp/PHP-Binaries php-build-524, PHP 8.4 PM5 for Windows): plain PHP
 /// lacks the extensions PMMP's registries load.
 const PHP: &str = ".cache/php-pm5/bin/php/php.exe";
+/// The pinned checkouts, relative to the repository root, and their commits.
+const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
+pub(crate) const PMMP_BLOCKS: &str = "blocks.json";
+pub(crate) const PMMP_CREATIVE: &str = "creative.json";
+pub(crate) const PMMP_DESERIALIZED: &str = "deserialized.json";
 /// Output directories and their files, relative to the repository root.
 pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
-pub(crate) const PMMP_BLOCKS: &str = "blocks.json";
-pub(crate) const PMMP_DESERIALIZED: &str = "deserialized.json";
-pub(crate) const PMMP_ITEMS: &str = "items.json";
-pub(crate) const PMMP_CREATIVE: &str = "creative.json";
-pub(crate) const PMMP_RECIPES: &str = "recipes.json";
-pub(crate) const PMMP_TABLES: &str = "tables.json";
 const PMMP_FILES: &[&str] = &[
     PMMP_BLOCKS,
     PMMP_DESERIALIZED,
@@ -68,10 +77,16 @@ const PMMP_FILES: &[&str] = &[
     PMMP_RECIPES,
     PMMP_TABLES,
 ];
-pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
+pub(crate) const PMMP_ITEMS: &str = "items.json";
+pub(crate) const PMMP_RECIPES: &str = "recipes.json";
+pub(crate) const PMMP_TABLES: &str = "tables.json";
+/// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
+const PROTOCOL_DOCS: (&str, &str) = (
+    ".cache/bedrock-protocol-docs",
+    "0879ab5c4c70be1bd520e32a8c49ea4a155616d6",
+);
 pub(crate) const REFERENCE_BLOCKS: &str = "blocks.json";
-pub(crate) const REFERENCE_ITEMS: &str = "items.json";
-pub(crate) const REFERENCE_ITEM_BLOCKS: &str = "item_blocks.json";
+pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
 const REFERENCE_FILES: &[&str] = &[
     REFERENCE_BLOCKS,
     REFERENCE_ITEMS,
@@ -84,17 +99,9 @@ const REFERENCE_FILES: &[&str] = &[
     BLOCK_PHYSICS,
     limits::FILE,
 ];
-/// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends.
-/// `biome_definitions.json` holds generation data BDS does not send.
-const BIOMES: &str = "stripped_biome_definitions.json";
-/// `CloudburstMC` files Anchor sends byte for byte: `AvailableActorIdentifiers`
-/// and the shapes of `VoxelShapes`.
-const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
+pub(crate) const REFERENCE_ITEM_BLOCKS: &str = "item_blocks.json";
+pub(crate) const REFERENCE_ITEMS: &str = "items.json";
 const VOXEL_SHAPES: &str = "voxel_shapes.json";
-/// `CloudburstMC`'s per-state block data, which BDS dumps.
-const CLOUDBURST_BLOCKS: &str = "blocks.json";
-/// The block physics this command writes from [`CLOUDBURST_BLOCKS`].
-pub(crate) const BLOCK_PHYSICS: &str = "block_physics.json";
 
 /// Runs `dump`; with `check`, compares instead of writing. Returns the differing files on a
 /// failed check.
@@ -316,14 +323,6 @@ fn copy_block_physics(root: &Path, reference_out: &Path, upgrade_out: &Path) -> 
     );
     write(&reference_out.join(BLOCK_PHYSICS), text.as_bytes())
 }
-
-/// Blocks new in 1.26.60 that `CloudburstMC`'s per-state data lacks, with the block whose
-/// physics they take: the closest block of the same shape.
-const BORROWED_1_26_60: [(&str, &str); 3] = [
-    ("minecraft:icicle", "minecraft:pointed_dripstone"),
-    ("minecraft:ice_crystal", "minecraft:amethyst_cluster"),
-    ("minecraft:disc_press", "minecraft:stone"),
-];
 
 /// The BDS physics of every reference state by network ID.
 struct ReferencePhysics<'a> {
@@ -579,12 +578,12 @@ pub(crate) fn remove_file(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// The reference states of fire, redstone wire and chorus plants that take the physics of
-    /// their state without the 1.26.60 connection properties (512, 1,296 and 64).
-    const CONNECTED_1_26_60: usize = 1_872;
     /// The reference states of icicles, ice crystals and disc presses that borrow physics (20, 6
     /// and 4).
     const BORROWED_STATES_1_26_60: usize = 30;
+    /// The reference states of fire, redstone wire and chorus plants that take the physics of
+    /// their state without the 1.26.60 connection properties (512, 1,296 and 64).
+    const CONNECTED_1_26_60: usize = 1872;
 
     #[test]
     fn network_hash_equals_the_reference_ids() {

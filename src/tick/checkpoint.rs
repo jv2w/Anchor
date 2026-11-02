@@ -26,6 +26,11 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use super::entity::Customs;
+use super::queue::{Identity, Outbound, SessionId, Skin};
+use super::task::UserData;
+use super::view::Key;
+use super::{Player, PlayerKey, State};
 use crate::custom::Registry;
 use crate::math::Vec3;
 use crate::nbt::{self, Compound};
@@ -34,18 +39,12 @@ use crate::protocol::Uuid;
 use crate::save::ChunkExtras;
 use crate::world::{self, BlockPos, Chunk, ChunkPos, World};
 
-use super::entity::Customs;
-use super::queue::{Identity, Outbound, SessionId, Skin};
-use super::task::UserData;
-use super::view::Key;
-use super::{Player, PlayerKey, State};
-
 /// The deepest nesting a checkpoint reads (NBT inside NBT): as deep as NBT itself allows.
 const MAX_DEPTH: usize = nbt::MAX_DEPTH;
-/// The bytes a checkpoint is charged per sub-chunk of terrain, about ([`terrain_size`]).
-const SUB_CHUNK_BYTES: usize = 4 << 10;
 /// The bytes a checkpoint is charged per loaded chunk position, about.
 const POSITION_BYTES: usize = 16;
+/// The bytes a checkpoint is charged per sub-chunk of terrain, about ([`terrain_size`]).
+const SUB_CHUNK_BYTES: usize = 4 << 10;
 
 /// A checkpoint that cannot be read.
 #[derive(Debug, Clone, PartialEq, Eq)]

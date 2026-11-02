@@ -58,14 +58,18 @@ use crate::world::{World, biome};
 
 /// What a player whose saved data is damaged sees.
 const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged. Ask the server operator.";
-/// The limited world size BDS sends (P6); the client ignores it for infinite worlds.
-const LIMITED_WORLD_SIZE: i32 = 16;
-/// BDS rewinds 40 ticks of movement history for server-authoritative movement (P6).
-const REWIND_HISTORY_SIZE: i32 = 40;
 /// The position BDS's `SetSpawnPosition` carries for a default spawn (P6).
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
-/// The dimension BDS's `SetSpawnPosition` names at join (P6).
-const SPAWN_POSITION_DIMENSION: i32 = 3;
+/// The entity types of `AvailableActorIdentifiers`: `CloudburstMC`'s `entity_identifiers.dat`
+/// (8,971 bytes), sent as it is; BDS 1.26.52 sent its version of the file byte for byte (P6).
+const ENTITY_IDENTIFIERS: &[u8] =
+    include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
+/// The join message, BDS's yellow "joined the game" line: BDS sends it as a translated `Text`
+/// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
+/// any other as it is (like [`LEFT`](super::player::LEFT)).
+const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
+/// The limited world size BDS sends (P6); the client ignores it for infinite worlds.
+const LIMITED_WORLD_SIZE: i32 = 16;
 /// The most wire bytes of a player list entry besides its name, XUID, PlayFab ID and skin
 /// ([`queue::Skin::size`]): the entry kind (a varint, at most 5, and a byte), the UUID (16), the
 /// entity ID (at most 10), 4 text length prefixes (at most 5 each), the build platform (4), 3
@@ -74,8 +78,6 @@ const LIST_ENTRY_FIXED_BYTES: usize = 63;
 /// The most bytes a `PlayerList` packet takes in a batch besides its entries: its length, its
 /// header and its entry count (at most 5 each).
 const LIST_PACKET_FIXED_BYTES: usize = 15;
-/// The most digits of a XUID (`u64::MAX`).
-const XUID_DIGITS: usize = 20;
 /// The most bytes a `PlayerList` packet of one entry takes in a batch: a name and a PlayFab ID
 /// together as long as the one identity token that holds both and a skin of [`MAX_SKIN_BYTES`].
 /// A spawn window cannot split an entry, so `max-batch-bytes` is at least this (the settings
@@ -92,21 +94,19 @@ pub(super) const PLAYER_LIST_COLOUR: Rgba = Rgba {
     b: 237,
     a: 255,
 };
-/// The entity types of `AvailableActorIdentifiers`: `CloudburstMC`'s `entity_identifiers.dat`
-/// (8,971 bytes), sent as it is; BDS 1.26.52 sent its version of the file byte for byte (P6).
-const ENTITY_IDENTIFIERS: &[u8] =
-    include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
+/// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
+/// the eyes and at the feet (P6).
+const RESPAWN_SEARCH_Y: f64 = 32_768.0;
+/// BDS rewinds 40 ticks of movement history for server-authoritative movement (P6).
+const REWIND_HISTORY_SIZE: i32 = 40;
+/// The dimension BDS's `SetSpawnPosition` names at join (P6).
+const SPAWN_POSITION_DIMENSION: i32 = 3;
 /// The block collision shapes BDS 1.26.52 sends in `VoxelShapes`: `CloudburstMC`'s
 /// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size (23,178
 /// bytes) equal BDS's (P6).
 const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
-/// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
-/// the eyes and at the feet (P6).
-const RESPAWN_SEARCH_Y: f64 = 32_768.0;
-/// The join message, BDS's yellow "joined the game" line: BDS sends it as a translated `Text`
-/// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
-/// any other as it is (like [`LEFT`](super::player::LEFT)).
-const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
+/// The most digits of a XUID (`u64::MAX`).
+const XUID_DIGITS: usize = 20;
 
 /// The start-game batches every player gets the same, the ones that skip the send hooks
 /// ([`ServerBuilder::on_send`](crate::ServerBuilder::on_send) lists them). Each is encoded and
@@ -256,7 +256,7 @@ struct CellsJson {
 
 /// What the output phase sends a player at the end of a tick. The input and view phases set it and
 /// the output phase clears it, so it is empty between ticks.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) struct Pending {
     /// `StartGame` and the item registry.
     start_game: bool,
@@ -270,7 +270,7 @@ pub(super) struct Pending {
 }
 
 /// The answer to a chunk radius request.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) struct RadiusAnswer {
     /// The granted radius.
     radius: u8,
@@ -1456,7 +1456,11 @@ pub(super) fn tell_others(state: &mut State, session: SessionId, message: Text) 
     let packets = match message.into_packets() {
         Ok(packets) => packets,
         Err(e) => {
-            debug!(session = session.get(), error = %e, "message to the others not sent");
+            debug!(
+                session = session.get(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "message to the others not sent"
+            );
             return;
         }
     };

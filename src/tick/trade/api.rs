@@ -87,7 +87,7 @@ fn to_offer(recipe: &Recipe) -> Offer {
     }
 }
 
-/// Checks that [`Context::spawn_villager`] takes `offers`, failing with the
+/// Checks `offers` for [`Context::spawn_villager`], failing with the
 /// [`custom::Error::Offer`] it would: at most [`custom::MAX_OFFERS`] offers, each with a payment,
 /// a sale, uses at most its maximum, counters at most [`custom::MAX_TRADE_COUNTER`], a tier at most
 /// [`custom::MAX_TRADE_TIER`] and price multipliers passing [`custom::is_price_multiplier`],

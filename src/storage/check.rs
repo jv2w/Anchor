@@ -82,17 +82,17 @@ pub(super) fn open_overlay(world: &Path) -> Result<Option<Database>> {
         .map_err(Error::from_open)
 }
 
+/// The unit [`Overlay`] keeps writes in: redb's page.
+const BLOCK: u64 = 4096;
 /// Most bytes of writes [`Overlay`] keeps for one check. A check writes redb's header and, as
 /// redb closes it, its allocator state, which grows with the file: 24 KiB for a 96 KiB file and
 /// 52 KiB for a 368 MiB world, clean or left by a crash. A repair (`Ok(false)`) commits only the
 /// header. So 16 MiB holds the writes of files hundreds of times larger than that world.
 const MAX_WRITTEN_BYTES: usize = 16 << 20;
-/// The unit [`Overlay`] keeps writes in: redb's page.
-const BLOCK: u64 = 4096;
-/// Bytes of the file one read of [`Overlay`] takes at once.
-const READ_AHEAD_BYTES: u64 = 256 << 10;
 /// Read-ahead blocks [`Overlay`] keeps, the least recently used replaced first: 4 MiB.
 const READ_AHEAD_BLOCKS: usize = 16;
+/// Bytes of the file one read of [`Overlay`] takes at once.
+const READ_AHEAD_BYTES: u64 = 256 << 10;
 
 /// A redb backend over a closed data file that never writes to it: writes and length changes stay
 /// in memory, at most [`MAX_WRITTEN_BYTES`] (a write past that fails), and reads see them over the
@@ -471,7 +471,7 @@ impl Check {
     /// Damage redb reports while reading a table ends that table, which is counted as one damaged
     /// value; any other read failure ends the check.
     pub(crate) fn step(&mut self) -> Option<Checked> {
-        let mut bytes = 0usize;
+        let mut bytes = 0_usize;
         while let Some((name, entries)) = self.tables.last_mut() {
             while let Some(entry) = entries.peek() {
                 let size = match entry {
@@ -533,11 +533,11 @@ impl Check {
 
 #[cfg(test)]
 pub(super) mod tests {
+    use super::*;
+
     use std::cell::Cell;
 
     use redb::{ReadableDatabase, ReadableTableMetadata, TableDefinition};
-
-    use super::*;
 
     thread_local! {
         /// The most bytes of writes one [`Overlay`] on this thread kept.
@@ -595,7 +595,7 @@ pub(super) mod tests {
         let read = db.begin_read().unwrap();
         let table = read.open_table(TABLE).unwrap();
         assert_eq!(table.len().unwrap(), 80);
-        for k in [0u16, 15, 16, 79] {
+        for k in [0_u16, 15, 16, 79] {
             let value = table.get(k.to_be_bytes().as_slice()).unwrap().unwrap();
             assert_eq!(value.value(), vec![k.to_le_bytes()[0]; 64 << 10]);
         }

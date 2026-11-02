@@ -37,11 +37,6 @@ use crate::world::{
     self, BlockPos, Chunk, ChunkPos, Entry, LOWEST_SUB_CHUNK, Paletted, SLOTS, SUB_CHUNKS,
 };
 
-/// Most chunks read, then converted, per step: bounds the chunk data held at once.
-const STEP: usize = 256;
-/// Read chunk bytes after which a step ends, if it has not reached [`STEP`] chunks: a step holds
-/// less than this plus one chunk's most (`chunk::MAX_CHUNK_BYTES`) before converting.
-const STEP_BYTES: usize = 256 << 20;
 /// The newest sub-chunk version that takes legacy block extra data as its second layer.
 const LAST_EXTRA_DATA_VERSION: u8 = 7;
 /// The sub-chunks legacy block extra data reaches: its blocks' y is 0 to 255.
@@ -49,9 +44,14 @@ const LEGACY_SUB_CHUNKS: usize = 16;
 /// Most unknown block names the report lists: the names come from the source's NBT. Blocks of
 /// names past this or [`MAX_LISTED_UNKNOWN_BYTES`] are counted apart
 /// ([`Report::unlisted_unknown_blocks`]).
-const MAX_LISTED_UNKNOWN: usize = 4_096;
+const MAX_LISTED_UNKNOWN: usize = 4096;
 /// Most bytes of the unknown block names the report lists: a name may be an NBT string's 32 KiB.
 const MAX_LISTED_UNKNOWN_BYTES: usize = 1 << 20;
+/// Most chunks read, then converted, per step: bounds the chunk data held at once.
+const STEP: usize = 256;
+/// Read chunk bytes after which a step ends, if it has not reached [`STEP`] chunks: a step holds
+/// less than this plus one chunk's most (`chunk::MAX_CHUNK_BYTES`) before converting.
+const STEP_BYTES: usize = 256 << 20;
 
 /// What [`Server::import_world`](crate::Server::import_world) imported and what it left out.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -345,7 +345,11 @@ fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storag
 )]
 fn remove_file(file: &Path) {
     if let Err(e) = std::fs::remove_file(file) {
-        error!(file = %file.display(), error = %e, "could not remove the failed import's world file");
+        error!(
+            file = %file.display(),
+            error = &e as &(dyn std::error::Error + 'static),
+            "could not remove the failed import's world file"
+        );
     }
 }
 
@@ -387,10 +391,10 @@ fn prepare<E: Sync>(
         }),
     };
     let mut report = Report {
+        entities: catalog.entities,
         nether_chunks: catalog.nether_chunks,
         end_chunks: catalog.end_chunks,
         other_dimension_chunks: catalog.other_dimension_chunks,
-        entities: catalog.entities,
         players: catalog.players,
         other_keys: catalog.other_keys,
         ..Report::default()
@@ -445,11 +449,11 @@ fn write_chunks<E: Sync>(
 ) -> crate::Result<Option<i32>> {
     let mut spawn_height = None;
     // Bytes of the names `report.unknown_blocks` lists.
-    let mut listed_bytes = 0usize;
+    let mut listed_bytes = 0_usize;
     let mut positions = positions.iter();
     while positions.len() > 0 {
         let mut read_step = Vec::with_capacity(positions.len().min(STEP));
-        let mut bytes = 0usize;
+        let mut bytes = 0_usize;
         while read_step.len() < STEP
             && bytes < STEP_BYTES
             && let Some(&(x, z)) = positions.next()
@@ -588,7 +592,7 @@ fn block_layer(layer: Layer) -> BlockLayer {
 
 /// A legacy layer as a paletted one: both keep blocks in the same slot order.
 fn legacy_layer(layer: &LegacyLayer) -> BlockLayer {
-    let mut cube = Paletted::uniform(0u16);
+    let mut cube = Paletted::uniform(0_u16);
     for offset in 0..SLOTS {
         let (id, meta) = layer.get(offset);
         cube.set(offset, legacy_value(id, meta));
@@ -644,12 +648,12 @@ fn paletted_layer(cube: &Paletted<u16>) -> BlockLayer {
 /// The chunk's unknown blocks by name, with how many there are, and how many of them are inert.
 fn unknown_blocks(chunk: &Chunk) -> (BTreeMap<String, u64>, u64) {
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    let mut inert = 0u64;
+    let mut inert = 0_u64;
     let unknown = chunk.unknown();
     if unknown.is_empty() {
         return (counts, inert);
     }
-    let mut per_entry = vec![0u64; unknown.len()];
+    let mut per_entry = vec![0_u64; unknown.len()];
     for sub in (0..SUB_CHUNKS).filter_map(|i| chunk.sub_chunk(i)) {
         for layer in sub.layers() {
             if layer.palette().iter().all(|e| e.unknown_index().is_none()) {

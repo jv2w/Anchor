@@ -26,14 +26,14 @@ use crate::udp::Sockets;
 use listener::{Config, Listener, Sink};
 use peer::Limits;
 
+/// Commands handled before the UDP task serves its other inputs.
+const COMMAND_BATCH: usize = 256;
 /// Messages from all sessions to the driver. Sends wait when it is full, which slows sessions to
 /// the pace of the UDP task instead of buffering without bound.
 const COMMAND_QUEUE: usize = 4096;
 /// Messages received on one connection that its session has not taken yet. Bytes are bounded
 /// separately ([`Inbox`]); a full queue disconnects.
 const INBOUND_QUEUE: usize = 1024;
-/// Commands handled before the UDP task serves its other inputs.
-const COMMAND_BATCH: usize = 256;
 /// The largest valid datagram: one at the largest MTU.
 pub(crate) const MAX_DATAGRAM_BYTES: usize = MAX_MTU as usize - wire::UDP_HEADER_BYTES;
 /// Connections of one transport (RakNet or NetherNet) from its handshake until the session's

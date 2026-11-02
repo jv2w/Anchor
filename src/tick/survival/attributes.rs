@@ -24,38 +24,21 @@ use crate::protocol::{
 };
 use crate::tick::{Phase, Player, SessionId, Settings, State, entity};
 
-/// Health changed.
-pub(super) const HEALTH: u16 = 1;
-/// Food level changed.
-pub(super) const HUNGER: u16 = 1 << 1;
-/// Saturation changed.
-pub(super) const SATURATION: u16 = 1 << 2;
-/// Exhaustion changed.
-pub(super) const EXHAUSTION: u16 = 1 << 3;
-/// Experience level changed.
-pub(super) const LEVEL: u16 = 1 << 4;
-/// Experience progress changed.
-pub(super) const EXPERIENCE: u16 = 1 << 5;
+/// Abilities changed (game mode, flying).
+pub(super) const ABILITIES: u16 = 1 << 8;
 /// Absorption changed.
 pub(super) const ABSORPTION: u16 = 1 << 6;
-/// Movement speed changed (sprinting, speed and slowness).
-pub(super) const MOVEMENT: u16 = 1 << 7;
+/// The absorption maximum BDS sends; more absorption raises it.
+const ABSORPTION_MAX: f32 = 16.0;
+/// The adventure settings changed (auto jump).
+pub(super) const ADVENTURE: u16 = 1 << 11;
 /// Every attribute.
 pub(super) const ALL: u16 =
     HEALTH | HUNGER | SATURATION | EXHAUSTION | LEVEL | EXPERIENCE | ABSORPTION | MOVEMENT;
-/// Abilities changed (game mode, flying).
-pub(super) const ABILITIES: u16 = 1 << 8;
-/// The name tag or the score tag changed.
-pub(super) const TAGS: u16 = 1 << 9;
-/// Entity data the API set changed (flags, fire): the end of the tick compares it.
-pub(super) const DATA: u16 = 1 << 10;
-/// The adventure settings changed (auto jump).
-pub(super) const ADVENTURE: u16 = 1 << 11;
-
-/// The absorption maximum BDS sends; more absorption raises it.
-const ABSORPTION_MAX: f32 = 16.0;
 /// The base movement speed (BDS and PMMP `Attribute::MOVEMENT_SPEED` default).
 pub(super) const BASE_SPEED: f64 = 0.1;
+/// Entity data the API set changed (flags, fire): the end of the tick compares it.
+pub(super) const DATA: u16 = 1 << 10;
 /// The attributes of a player in the order BDS sends them, with BDS's ranges and defaults
 /// (P6: 17 attributes, no modifiers).
 const DEFS: [Def; 17] = [
@@ -115,14 +98,30 @@ const DEFS: [Def; 17] = [
 ];
 /// The box width and height of a dying player, as BDS sends them at the death (P6 `others`).
 pub(super) const DYING_SIZE: [f32; 2] = [0.2, 0.2];
+/// Exhaustion changed.
+pub(super) const EXHAUSTION: u16 = 1 << 3;
+/// Experience progress changed.
+pub(super) const EXPERIENCE: u16 = 1 << 5;
+/// Health changed.
+pub(super) const HEALTH: u16 = 1;
 /// The name of the health attribute.
 pub(crate) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
+/// Food level changed.
+pub(super) const HUNGER: u16 = 1 << 1;
+/// Experience level changed.
+pub(super) const LEVEL: u16 = 1 << 4;
+/// Movement speed changed (sprinting, speed and slowness).
+pub(super) const MOVEMENT: u16 = 1 << 7;
 /// `PlayerFlagSleep`: bit 1 of the player flags (PMMP `PlayerMetadataFlags::SLEEP`).
 const PLAYER_FLAG_SLEEP: u8 = 1 << 1;
 /// The game rule that sets random block ticks per sub-chunk per tick.
 const RANDOM_TICK_SPEED: &str = "randomTickSpeed";
+/// Saturation changed.
+pub(super) const SATURATION: u16 = 1 << 2;
 /// The box height of a sneaking player (PMMP `Living::recalculateSize`).
 const SNEAKING_HEIGHT: f32 = 1.49;
+/// The name tag or the score tag changed.
+pub(super) const TAGS: u16 = 1 << 9;
 
 /// An attribute's name, range and default, and the dirty bit that marks it changed (0 for one
 /// that never changes).

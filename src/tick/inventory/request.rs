@@ -47,12 +47,19 @@ use crate::protocol::{
 use crate::tick::entity::Raise;
 use crate::tick::{Phase, Player, SessionId, State, block_entity, entity, survival};
 
-/// The most requests a player has handled per tick (PMMP: 80 per packet); more are refused.
-pub(super) const MAX_REQUESTS_PER_TICK: u16 = 80;
 /// The most actions in one request (PMMP: the recipe book's largest craft needs about 53).
 pub(super) const MAX_ACTIONS: usize = 60;
 /// The most entries of a recipe book craft's ingredient list (a recipe has at most 9).
 const MAX_INGREDIENT_ENTRIES: usize = crafting::GRID_CELLS;
+/// The most requests a player has handled per tick (PMMP: 80 per packet); more are refused.
+pub(super) const MAX_REQUESTS_PER_TICK: u16 = 80;
+/// The player's 2x2 crafting grid.
+const PLAYER_GRID: [SlotRef; 4] = [
+    SlotRef::Grid(0),
+    SlotRef::Grid(1),
+    SlotRef::Grid(2),
+    SlotRef::Grid(3),
+];
 /// The crafting table's 3x3 grid: the first nine of the window's own slots.
 const TABLE_GRID: [SlotRef; 9] = [
     SlotRef::Ui(0),
@@ -64,13 +71,6 @@ const TABLE_GRID: [SlotRef; 9] = [
     SlotRef::Ui(6),
     SlotRef::Ui(7),
     SlotRef::Ui(8),
-];
-/// The player's 2x2 crafting grid.
-const PLAYER_GRID: [SlotRef; 4] = [
-    SlotRef::Grid(0),
-    SlotRef::Grid(1),
-    SlotRef::Grid(2),
-    SlotRef::Grid(3),
 ];
 const _: () = assert!(GRID == PLAYER_GRID.len());
 const _: () = assert!(GRID <= crafting::GRID_CELLS);
@@ -305,7 +305,7 @@ impl<'a> Exec<'a> {
         if !laid_out {
             return Err(Error::Layout);
         }
-        let mut taken = [0u32; crafting::GRID_CELLS];
+        let mut taken = [0_u32; crafting::GRID_CELLS];
         for (r, stack) in &self.consumed {
             let k = refs
                 .iter()
@@ -391,7 +391,7 @@ impl<'a> Exec<'a> {
                 let craft = self.craft.as_mut().ok_or(Error::Crafting)?;
                 let index = usize::from(a.results_slot);
                 let result = craft.results.get(index).cloned().ok_or(Error::Recipe)?;
-                let bit = 1u32.checked_shl(u32::from(a.results_slot)).unwrap_or(0);
+                let bit = 1_u32.checked_shl(u32::from(a.results_slot)).unwrap_or(0);
                 // Each result is made once per craft; a second create would duplicate it.
                 if craft.created & bit != 0 {
                     return Err(Error::Crafting);
@@ -647,7 +647,7 @@ impl<'a> Exec<'a> {
     fn finish(&mut self) -> Result<()> {
         self.set_created(None)?;
         if let Some(craft) = self.craft.take() {
-            let all = 1u32
+            let all = 1_u32
                 .checked_shl(u32::try_from(craft.results.len()).unwrap_or(32))
                 .map_or(u32::MAX, |b| b - 1);
             if craft.created != all {

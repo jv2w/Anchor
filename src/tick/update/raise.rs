@@ -805,7 +805,7 @@ mod tests {
         assert_eq!(run(7, Some(200), false).0, farmland(7), "at most 7");
         assert_eq!(run(7, None, true).0, farmland(7));
         // Dry farmland becomes dirt without an event (PMMP).
-        assert_eq!(run(0, None, false), (block::DIRT, vec![]));
+        assert_eq!(run(0, None, false), (block::DIRT, Vec::new()));
     }
 
     // pmmp: BlockUpdateEvent

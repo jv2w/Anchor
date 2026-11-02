@@ -112,7 +112,7 @@ fn to_nbt(name: String, states: States) -> Compound {
 pub(crate) fn nbt(compound: &mut Compound) -> u64 {
     // Compounds still to visit; the walk keeps its stack on the heap (NBT nests 512 deep).
     let mut stack: Vec<&mut Compound> = vec![compound];
-    let mut changed = 0u64;
+    let mut changed = 0_u64;
     while let Some(c) = stack.pop() {
         if is_state_shape(c) {
             if let Some(upgraded) = state(c)

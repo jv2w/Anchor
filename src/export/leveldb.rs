@@ -23,25 +23,25 @@ use crate::import::leveldb::table::{FOOTER, MAGIC, NONE, RAW_DEFLATE, TRAILER};
 use crate::import::leveldb::{COMPARATOR, LEVELS, TAG, VALUE, masked_crc};
 use crate::protocol::compression::zlib::Encoder;
 
-/// The size a table file is closed at.
-const TABLE_BYTES: usize = 2 << 20;
 /// The size a data block is closed at, before compression. BDS 1.26.52 writes blocks of over
 /// 100 KiB (a 106,535-byte one in `xtask/data/import/flat`).
 pub(super) const BLOCK_BYTES: usize = 128 << 10;
-/// Keys between two restarts of a data block; index blocks restart at every key.
-const RESTART_INTERVAL: usize = 16;
 /// The DEFLATE level blocks are compressed at: zlib's default.
 const DEFLATE_LEVEL: u8 = 6;
-/// The level every table goes in: the last.
-const LEVEL: usize = LEVELS - 1;
-/// The tag of every key, little-endian `sequence << 8 | kind`: sequence 0, a value.
-const KEY_TAG: [u8; TAG] = [VALUE, 0, 0, 0, 0, 0, 0, 0];
 /// Version edit tags (google/leveldb `db/version_edit.cc`).
 const EDIT_COMPARATOR: u8 = 1;
 const EDIT_LOG_NUMBER: u8 = 2;
 const EDIT_NEXT_FILE: u8 = 3;
 const EDIT_LAST_SEQUENCE: u8 = 4;
 const EDIT_NEW_TABLE: u8 = 7;
+/// The tag of every key, little-endian `sequence << 8 | kind`: sequence 0, a value.
+const KEY_TAG: [u8; TAG] = [VALUE, 0, 0, 0, 0, 0, 0, 0];
+/// The level every table goes in: the last.
+const LEVEL: usize = LEVELS - 1;
+/// Keys between two restarts of a data block; index blocks restart at every key.
+const RESTART_INTERVAL: usize = 16;
+/// The size a table file is closed at.
+const TABLE_BYTES: usize = 2 << 20;
 
 /// A data block ready for a table: compressed, with its trailer.
 #[derive(Debug)]
@@ -139,8 +139,8 @@ impl BlockBuilder {
         Ok(())
     }
 
-    /// Returns the finished block, its restart offsets and their count after the entries; the
-    /// builder is empty again.
+    /// Finishes the block and returns it: the entries, their restart offsets and the offsets'
+    /// count; the builder is empty again.
     fn finish(&mut self) -> io::Result<Vec<u8>> {
         if self.restarts.is_empty() {
             self.restarts.push(0);
@@ -365,7 +365,7 @@ mod tests {
         let dir = TempDir::new("export-leveldb");
         let mut rng = Rng(0xe790_1d8b);
         let mut model = BTreeMap::new();
-        while model.len() < 2_000 {
+        while model.len() < 2000 {
             let key: Vec<u8> = (0..=rng.below(12))
                 .map(|_| rng.next().to_le_bytes()[0])
                 .collect();
@@ -373,7 +373,7 @@ mod tests {
             let len = if rng.below(40) == 0 {
                 BLOCK_BYTES + rng.below(BLOCK_BYTES)
             } else {
-                rng.below(6_000)
+                rng.below(6000)
             };
             model.insert(key, value(&mut rng, len));
         }

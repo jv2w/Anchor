@@ -14,61 +14,61 @@ use super::wire::{
 };
 use super::{Error, MAX_UNSENT_BYTES, Result};
 
-/// The smallest MTU a client may negotiate: go-raknet's server floor (`minMTUSize`). Its dialer
-/// never asks for less than 576; a request below 400 gets no reply instead of a silent clamp.
-pub(super) const MIN_MTU: u16 = 400;
-/// The largest MTU (go-raknet `maxMTUSize`), also the top of `max-mtu-size`.
-pub(crate) const MAX_MTU: u16 = 1492;
-/// The smallest full fragment: a datagram at `MIN_MTU` without IP/UDP, datagram and frame
-/// headers. Dividing the message limit by it bounds the fragments of any honest sender.
-const MIN_FRAGMENT_BYTES: usize =
-    MIN_MTU as usize - UDP_HEADER_BYTES - DATAGRAM_HEADER_BYTES - MAX_FRAME_HEADER_BYTES;
-/// Datagram numbers remembered for dropping duplicates. A later arrival than this many newer
-/// datagrams is dropped as a duplicate; its reliable frames come again in the resend.
-const DATAGRAM_HISTORY: usize = 1024;
-/// How far a datagram number or reliable index may run ahead, and how far the oldest missing
-/// reliable index may lag: far inside the 2^23 where 24-bit serial order becomes ambiguous.
-const MAX_SPAN: u32 = 1 << 22;
-/// Separate gaps in the reliable indices at most. Each costs a map entry; an honest sender has
-/// at most one per frame it is resending.
-const MAX_RELIABLE_GAPS: usize = 8192;
-/// Split messages being reassembled at once (go-raknet `maxConcurrentSplits`). Honest senders
-/// finish one before most of the next arrives; only loss keeps a few open.
-const MAX_ASSEMBLIES: usize = 16;
-/// Memory one held fragment or early ordered message costs besides its payload: its map slot
-/// and `Vec` header, with the allocator's smallest block for the payload. Charged to the held
-/// bytes so that many tiny ones cannot exceed the cap's memory, as `FRAME_COST_BYTES` does
-/// outbound.
-const PART_COST_BYTES: usize = 64;
-/// Order indices a message may run ahead of the next one due (go-raknet `maxWindowSize`).
-const ORDER_WINDOW: u32 = 2048;
-/// First congestion window, in datagrams carrying reliable frames.
-const INITIAL_CWND: usize = 32;
-/// The lowest congestion window, so that a lossy link keeps moving.
-const MIN_CWND: usize = 4;
-/// Reliable datagrams in flight at most (the resend window). go-raknet receivers accept a 2048
-/// datagram gap; more in flight could exceed it after one loss.
-const MAX_CWND: usize = 2048;
-/// Resend timeout before the first RTT sample (RFC 6298 uses 1 s; RakNet links are faster).
-const INITIAL_RTO: Duration = Duration::from_millis(500);
-/// Lowest resend timeout.
-const MIN_RTO: Duration = Duration::from_millis(100);
+/// Pending ACK ranges that trigger an ACK before the next update.
+const ACK_BATCH: usize = 64;
 /// Delay a peer may add before it ACKs: go-raknet ACKs every 100 ms. Added to the smoothed RTT
 /// in place of a smaller variation term (the clock granularity G of RFC 6298), so that samples
 /// clustered at the ACK interval do not trigger spurious resends.
 const ACK_DELAY: Duration = Duration::from_millis(100);
-/// Highest resend timeout, well inside the idle timeout so a slow link still resends.
-const MAX_RTO: Duration = Duration::from_secs(2);
+/// Datagram numbers remembered for dropping duplicates. A later arrival than this many newer
+/// datagrams is dropped as a duplicate; its reliable frames come again in the resend.
+const DATAGRAM_HISTORY: usize = 1024;
 /// Memory one queued frame costs besides its payload, charged against `MAX_UNSENT_BYTES` so that
 /// many tiny messages cannot exceed the cap's memory.
 const FRAME_COST_BYTES: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
+/// First congestion window, in datagrams carrying reliable frames.
+const INITIAL_CWND: usize = 32;
+/// Resend timeout before the first RTT sample (RFC 6298 uses 1 s; RakNet links are faster).
+const INITIAL_RTO: Duration = Duration::from_millis(500);
+/// Split messages being reassembled at once (go-raknet `maxConcurrentSplits`). Honest senders
+/// finish one before most of the next arrives; only loss keeps a few open.
+const MAX_ASSEMBLIES: usize = 16;
 /// Datagrams sent per flush at most. Flushes run every update (10 ms) and after every received
 /// datagram, so this paces a large window instead of bursting it into the peer's socket buffer
 /// (go-raknet uses the OS default, which drops a burst of a few hundred datagrams). It still
 /// allows about 3,200 datagrams (4.7 MB) per second from updates alone.
 const MAX_BURST: usize = 32;
-/// Pending ACK ranges that trigger an ACK before the next update.
-const ACK_BATCH: usize = 64;
+/// Reliable datagrams in flight at most (the resend window). go-raknet receivers accept a 2048
+/// datagram gap; more in flight could exceed it after one loss.
+const MAX_CWND: usize = 2048;
+/// The largest MTU (go-raknet `maxMTUSize`), also the top of `max-mtu-size`.
+pub(crate) const MAX_MTU: u16 = 1492;
+/// Separate gaps in the reliable indices at most. Each costs a map entry; an honest sender has
+/// at most one per frame it is resending.
+const MAX_RELIABLE_GAPS: usize = 8192;
+/// Highest resend timeout, well inside the idle timeout so a slow link still resends.
+const MAX_RTO: Duration = Duration::from_secs(2);
+/// How far a datagram number or reliable index may run ahead, and how far the oldest missing
+/// reliable index may lag: far inside the 2^23 where 24-bit serial order becomes ambiguous.
+const MAX_SPAN: u32 = 1 << 22;
+/// The lowest congestion window, so that a lossy link keeps moving.
+const MIN_CWND: usize = 4;
+/// The smallest full fragment: a datagram at `MIN_MTU` without IP/UDP, datagram and frame
+/// headers. Dividing the message limit by it bounds the fragments of any honest sender.
+const MIN_FRAGMENT_BYTES: usize =
+    MIN_MTU as usize - UDP_HEADER_BYTES - DATAGRAM_HEADER_BYTES - MAX_FRAME_HEADER_BYTES;
+/// The smallest MTU a client may negotiate: go-raknet's server floor (`minMTUSize`). Its dialer
+/// never asks for less than 576; a request below 400 gets no reply instead of a silent clamp.
+pub(super) const MIN_MTU: u16 = 400;
+/// Lowest resend timeout.
+const MIN_RTO: Duration = Duration::from_millis(100);
+/// Order indices a message may run ahead of the next one due (go-raknet `maxWindowSize`).
+const ORDER_WINDOW: u32 = 2048;
+/// Memory one held fragment or early ordered message costs besides its payload: its map slot
+/// and `Vec` header, with the allocator's smallest block for the payload. Charged to the held
+/// bytes so that many tiny ones cannot exceed the cap's memory, as `FRAME_COST_BYTES` does
+/// outbound.
+const PART_COST_BYTES: usize = 64;
 
 /// One end of a RakNet connection after the offline handshake.
 #[derive(Debug)]

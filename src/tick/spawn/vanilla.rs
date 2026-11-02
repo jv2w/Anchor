@@ -14,11 +14,9 @@ use crate::protocol::{
     CameraAimAssistPriorities, CameraAimAssistPriority, CameraPreset, Reader,
 };
 
-/// `CloudburstMC`'s `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
-/// is; BDS 1.26.52 sent its version of that `StructureData` (P6 `bot cloudburst`). Without it the
-/// official client leaves the join with "disconnectionScreen.missingStructureData".
-const JIGSAW_STRUCTURE_DATA: &[u8] =
-    include_bytes!("../../../xtask/data/reference/jigsaw_structure_data.dat");
+/// BDS's `CameraPresets` and `CameraAimAssistPresets` from a P6 capture (the file names its
+/// source); no pinned data source holds them.
+const CAMERA: &str = include_str!("../../../xtask/data/reference/bds_camera.json");
 
 /// `CloudburstMC`'s `entity_properties.nbt` as network NBT (`cargo xtask dump`): one root per
 /// entity type in the file's order, the order and `PropertyData` of BDS's 13 `SyncActorProperty`
@@ -29,9 +27,11 @@ const ENTITY_PROPERTIES: &[u8] =
 /// The number of entity types in [`ENTITY_PROPERTIES`].
 const ENTITY_PROPERTY_TYPES: usize = 13;
 
-/// BDS's `CameraPresets` and `CameraAimAssistPresets` from a P6 capture (the file names its
-/// source); no pinned data source holds them.
-const CAMERA: &str = include_str!("../../../xtask/data/reference/bds_camera.json");
+/// `CloudburstMC`'s `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
+/// is; BDS 1.26.52 sent its version of that `StructureData` (P6 `bot cloudburst`). Without it the
+/// official client leaves the join with "disconnectionScreen.missingStructureData".
+const JIGSAW_STRUCTURE_DATA: &[u8] =
+    include_bytes!("../../../xtask/data/reference/jigsaw_structure_data.dat");
 
 /// `bds_camera.json`; its `source` is for readers only.
 #[derive(Deserialize)]
@@ -245,6 +245,7 @@ pub(super) fn camera() -> [Packet; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::tick::spawn::tests::payload;
 
     #[test]

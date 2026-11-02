@@ -27,6 +27,15 @@ use crate::tick::tests::{initialised, input, join, new_state, packet, radius, re
 use crate::tick::{Output, inventory};
 use crate::world;
 
+const EXPERIENCE_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
+const HUNGER_ATTRIBUTES: [&str; 3] = [
+    "minecraft:player.hunger",
+    "minecraft:player.saturation",
+    "minecraft:player.exhaustion",
+];
+/// The seconds of skin changes the skin budget is checked over.
+const SECONDS: usize = 60;
+
 /// Players 1..=n spawned with `listeners`; session k has runtime ID k.
 struct Game {
     state: State,
@@ -114,7 +123,7 @@ impl Game {
         let auth = p::PlayerAuthInput {
             position: self.player(s).position.to_f32(),
             input_data: InputFlags::from_set(&set),
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         self.send(s, Packet::PlayerAuthInput(Box::new(auth)))
     }
@@ -342,10 +351,10 @@ fn many_attacks_in_one_tick_leave_the_target_connected() {
             crate::protocol::UseItemOnEntityTransactionData {
                 target_entity_runtime_id: 2,
                 action_type: crate::protocol::consts::UseItemOnEntityAction::Attack.into(),
-                ..Default::default()
+                ..crate::protocol::UseItemOnEntityTransactionData::default()
             },
         )),
-        ..Default::default()
+        ..p::InventoryTransaction::default()
     });
     let inputs = (0..=crate::tick::MAX_OUTBOX)
         .map(|_| game.send(1, attack.clone()))
@@ -845,7 +854,7 @@ fn move_listeners_send_the_player_back_or_elsewhere() {
     let start = game.player(1).position;
     let far = p::PlayerAuthInput {
         position: (start + Vec3::new(2.0, 0.0, 0.0)).to_f32(),
-        ..Default::default()
+        ..p::PlayerAuthInput::default()
     };
     let input = game.send(1, Packet::PlayerAuthInput(Box::new(far)));
     game.run(vec![input]);
@@ -862,7 +871,7 @@ fn move_listeners_send_the_player_back_or_elsewhere() {
     let near = p::PlayerAuthInput {
         position: (start + Vec3::new(1.0, 0.0, 0.0)).to_f32(),
         tick: 1,
-        ..Default::default()
+        ..p::PlayerAuthInput::default()
     };
     let input = game.send(1, Packet::PlayerAuthInput(Box::new(near)));
     game.run(vec![input]);
@@ -886,7 +895,7 @@ fn a_move_sent_past_the_world_border_sends_the_player_back() {
     let start = game.player(1).position;
     let moved = p::PlayerAuthInput {
         position: (start + Vec3::new(1.0, 0.0, 0.0)).to_f32(),
-        ..Default::default()
+        ..p::PlayerAuthInput::default()
     };
     let input = game.send(1, Packet::PlayerAuthInput(Box::new(moved)));
     game.run(vec![input]);
@@ -980,7 +989,8 @@ fn a_client_flight_toggle_forgets_the_fall() {
     assert!(game.survival(1).fall_distance < 0.001);
 }
 
-// pmmp: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleGlideEvent, PlayerToggleFlightEvent, PlayerJumpEvent, PlayerMissSwingEvent
+// pmmp: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent,
+// pmmp: PlayerToggleGlideEvent, PlayerToggleFlightEvent, PlayerJumpEvent, PlayerMissSwingEvent
 #[test]
 fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
     let (tx, mut seen) = record();
@@ -1024,7 +1034,7 @@ fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
     let action = p::PlayerAction {
         entity_runtime_id: 1,
         action_type: i32::from(ActionType::StartSneak),
-        ..Default::default()
+        ..p::PlayerAction::default()
     };
     let input = game.send(1, Packet::PlayerAction(action));
     game.run(vec![input]);
@@ -1044,7 +1054,7 @@ fn a_sneak_answer_carries_its_input_tick() {
             position: game.player(1).position.to_f32(),
             input_data: InputFlags::from_set(&set),
             tick,
-            ..Default::default()
+            ..p::PlayerAuthInput::default()
         };
         let input = game.send(1, Packet::PlayerAuthInput(Box::new(auth)));
         game.run(vec![input]);
@@ -1816,7 +1826,6 @@ fn a_skin_of_the_largest_size_reaches_everyone_in_its_tick() {
 
 #[test]
 fn skin_changes_every_second_reach_a_receiver_within_the_skin_budget() {
-    const SECONDS: usize = 60;
     let mut game = Game::new(2, Listeners::default());
     let mut sent = 0_usize;
     for t in 0..SECONDS * 20 {
@@ -1988,13 +1997,6 @@ fn named_events(tx: &mpsc::Sender<&'static str>) -> Listeners {
     l
 }
 
-const HUNGER_ATTRIBUTES: [&str; 3] = [
-    "minecraft:player.hunger",
-    "minecraft:player.saturation",
-    "minecraft:player.exhaustion",
-];
-const EXPERIENCE_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
-
 #[test]
 fn hunger_off_spends_and_gains_no_food_raises_no_event_and_sends_no_hunger_attribute() {
     let window = attribute_names(&spawn_window(|c| c.general.hunger = false));
@@ -2097,7 +2099,7 @@ fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
 fn move_by(game: &mut Game, s: u64, by: Vec3) -> Input {
     let auth = p::PlayerAuthInput {
         position: (game.player(s).position + by).to_f32(),
-        ..Default::default()
+        ..p::PlayerAuthInput::default()
     };
     game.send(s, Packet::PlayerAuthInput(Box::new(auth)))
 }

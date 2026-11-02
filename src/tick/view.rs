@@ -42,54 +42,54 @@ use crate::world::{
     SUB_CHUNKS, World,
 };
 
+/// How long a chunk a listener kept stays loaded before the listeners are asked again: 30
+/// seconds, PMMP's unload delay.
+const KEEP_TICKS: u64 = 600;
+/// The most fake blocks one player is shown, and the most changes of what a player is shown one
+/// tick takes from the API (clears of fake blocks it had before the tick come on top).
+pub(super) const MAX_FAKE_BLOCKS: usize = 4096;
+/// The most chunks [`ChunkUnload`] listeners may keep loaded at once; past it a cancel is
+/// ignored, so a listener that cancels every unload cannot hold the whole map in memory.
+const MAX_KEPT_CHUNKS: usize = 1024;
 /// Chunk loads the save thread may have in flight at once.
 const MAX_LOADS_IN_FLIGHT: usize = 1024;
 /// Chunk loads one tick may ask for.
 const MAX_LOADS_PER_TICK: usize = 256;
-/// The most chunks [`ChunkUnload`] listeners may keep loaded at once; past it a cancel is
-/// ignored, so a listener that cancels every unload cannot hold the whole map in memory.
-const MAX_KEPT_CHUNKS: usize = 1024;
-/// How long a chunk a listener kept stays loaded before the listeners are asked again: 30
-/// seconds, PMMP's unload delay.
-const KEEP_TICKS: u64 = 600;
-/// Unanswered sub-chunk requests a player may have queued; more are dropped. Two ticks of
-/// answers, for the requests of two ticks that arrive together.
-const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 2 * SUB_CHUNK_REQUESTS_PER_TICK;
 /// Offsets of the unanswered sub-chunk requests a player may have queued; a request past it is
 /// dropped. Two ticks of answers, as [`MAX_QUEUED_SUB_CHUNK_REQUESTS`]: the queue is bounded by
 /// the answer entries it asks for, not only by its requests of up to 8,192 offsets each.
 const MAX_QUEUED_SUB_CHUNK_OFFSETS: usize = 2 * SUB_CHUNK_OFFSETS_PER_TICK;
-/// Sub-chunk requests answered per player per tick; the rest wait for the next tick. A client
-/// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
-/// sends a tick.
-const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK_RANGE.end() as usize;
+/// Unanswered sub-chunk requests a player may have queued; more are dropped. Two ticks of
+/// answers, for the requests of two ticks that arrive together.
+const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 2 * SUB_CHUNK_REQUESTS_PER_TICK;
+/// The largest view radius: the largest `view-distance`.
+const MAX_RADIUS: u8 = *crate::config::VIEW_DISTANCE_RANGE.end();
+/// The most positions refused changes send one player again in one tick ([`View::resync`]).
+pub(super) const MAX_RESYNCS: usize = 4096;
+/// The most chunks the chunk tickets hold together, a chunk counted once per ticket holding it:
+/// the save thread's chunk loads in flight times 4.
+pub const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
+/// The largest chunk ticket radius: 17 × 17 chunks.
+pub const MAX_TICKET_RADIUS: u8 = 8;
+/// The most chunk tickets ([`Context::hold_chunks`]) held at once.
+pub const MAX_TICKETS: usize = 1024;
+/// The height map of a sub-chunk of a chunk not loaded: every column lower, as [`height_map`]
+/// gives for a chunk with no blocks.
+const NOT_LOADED_HEIGHT_MAP: (HeightMapData, Option<HeightMap>) = (HeightMapData::TooLow, None);
 /// Sub-chunk request offsets, each an answer entry with its own copy of the sub-chunk, answered
 /// per player per tick; the requests past it wait for the next tick. The most one answer holds
 /// (the Mojang limit), which the generator checks is no less than what one request holds, so
 /// every request fits a tick; it is more than the 256 × 24 sub-chunks of the most chunks
 /// `chunks-per-tick` sends a tick.
 const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN;
+/// Sub-chunk requests answered per player per tick; the rest wait for the next tick. A client
+/// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
+/// sends a tick.
+const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK_RANGE.end() as usize;
 /// `UpdateBlock` flags BDS sends (P6): neighbours and network.
 const UPDATE_FLAGS: u32 = BlockUpdateFlag::Neighbours as u32 | BlockUpdateFlag::Network as u32;
-/// The most fake blocks one player is shown, and the most changes of what a player is shown one
-/// tick takes from the API (clears of fake blocks it had before the tick come on top).
-pub(super) const MAX_FAKE_BLOCKS: usize = 4096;
-/// The most positions refused changes send one player again in one tick ([`View::resync`]).
-pub(super) const MAX_RESYNCS: usize = 4096;
-/// The largest view radius: the largest `view-distance`.
-const MAX_RADIUS: u8 = *crate::config::VIEW_DISTANCE_RANGE.end();
 /// The bits of a word of [`View::unsent`].
 const WORD_BITS: usize = u64::BITS as usize;
-/// The most chunk tickets ([`Context::hold_chunks`]) held at once.
-pub const MAX_TICKETS: usize = 1024;
-/// The most chunks the chunk tickets hold together, a chunk counted once per ticket holding it:
-/// the save thread's chunk loads in flight times 4.
-pub const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
-/// The largest chunk ticket radius: 17 × 17 chunks.
-pub const MAX_TICKET_RADIUS: u8 = 8;
-/// The height map of a sub-chunk of a chunk not loaded: every column lower, as [`height_map`]
-/// gives for a chunk with no blocks.
-const NOT_LOADED_HEIGHT_MAP: (HeightMapData, Option<HeightMap>) = (HeightMapData::TooLow, None);
 
 /// A chunk of one of the server's worlds.
 pub(super) type Key = (WorldIndex, ChunkPos);
@@ -870,7 +870,7 @@ super::checkpoint::fields!(Ticket {
 });
 
 /// Which chunk events someone listens to or monitors.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Heard {
     load: bool,
     unload: bool,
@@ -2282,6 +2282,19 @@ mod tests {
     };
     use crate::world::Flat;
 
+    /// A chunk far from the spawn and its preloaded chunks.
+    const FAR: Key = (0, ChunkPos::new(40, 40));
+    const LOADS_ANSWERED_PER_TICK: usize = 16;
+    const PLAYERS: u64 = 100;
+    /// The session's spawn deadline (60 seconds) in ticks.
+    const SPAWN_DEADLINE_TICKS: u64 = 1200;
+    const SPRINT: f32 = 0.28;
+    /// The most ticks a walking player waits for a chunk that came into its view, at the
+    /// default chunks per tick, as measured: a chunk crossing brings 17 chunks, sent 4 a tick
+    /// once their loads are answered.
+    const WALK_LATENCY_TICKS: u64 = 6;
+    const WALK_TICKS: u16 = 240;
+
     thread_local! {
         /// What the listeners of a test saw, in order.
         static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
@@ -2363,9 +2376,6 @@ mod tests {
         l.push(Priority::Normal, listener);
         l
     }
-
-    /// A chunk far from the spawn and its preloaded chunks.
-    const FAR: Key = (0, ChunkPos::new(40, 40));
 
     /// Holds `key` and loads it as the generator made it.
     fn hold_loaded(state: &mut State, key: Key) {
@@ -2474,9 +2484,9 @@ mod tests {
         assert!(is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
     }
 
+    // pmmp: ChunkUnloadEvent
     /// A listener that holds a chunk it is asked about with a ticket keeps it loaded, and the
     /// monitors see that as a cancel.
-    // pmmp: ChunkUnloadEvent
     #[test]
     fn an_unload_a_listener_holds_off_reaches_the_monitors_as_cancelled() {
         let mut listeners = on(|e: &mut ChunkUnload, cx: &mut Context<'_>| {
@@ -2494,8 +2504,8 @@ mod tests {
         assert!(is_loaded(&state, FAR) && state.chunks.kept.is_empty());
     }
 
-    /// Past the bound a cancel is ignored and the chunk unloads, and the monitors see no cancel.
     // pmmp: ChunkUnloadEvent
+    /// Past the bound a cancel is ignored and the chunk unloads, and the monitors see no cancel.
     #[test]
     fn listeners_keep_at_most_the_bound_of_chunks() {
         let mut listeners = keeping();
@@ -2678,7 +2688,7 @@ mod tests {
         let mut state = new_state(settings(edit), Listeners::default());
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
-        tick(&mut state, &mut vec![j, radius(1, 1, 1_000)], &mut output);
+        tick(&mut state, &mut vec![j, radius(1, 1, 1000)], &mut output);
         (state, received(&mut rx).0)
     }
 
@@ -3095,18 +3105,11 @@ mod tests {
         assert!(costs[1] < costs[0] * 5 / 2, "{costs:?}");
     }
 
-    /// The most ticks a walking player waits for a chunk that came into its view, at the
-    /// default chunks per tick, as measured: a chunk crossing brings 17 chunks, sent 4 a tick
-    /// once their loads are answered.
-    const WALK_LATENCY_TICKS: u64 = 6;
-
     /// A player sprinting across chunks (0.28 blocks a tick) with a view distance of 8 and the
     /// default chunks per tick gets every chunk that comes into its view within
     /// [`WALK_LATENCY_TICKS`] ticks of the tick it came in.
     #[test]
     fn a_walking_players_new_chunks_are_sent_within_a_few_ticks() {
-        const SPRINT: f32 = 0.28;
-        const WALK_TICKS: u16 = 240;
         let mut state = new_state(
             settings(|c| {
                 c.general.view_distance = 8;
@@ -3160,20 +3163,15 @@ mod tests {
         assert!(most <= Some(WALK_LATENCY_TICKS), "{most:?}");
     }
 
-    /// The session's spawn deadline (60 seconds) in ticks.
-    const SPAWN_DEADLINE_TICKS: u64 = 1_200;
-
     /// More players than the loads in flight can serve at once, each in its own chunks, at the
     /// default view distance and chunks per tick, while the save thread answers only a few loads
     /// a tick: every player, the last to connect too, is sent its spawn chunks well within the
     /// spawn deadline, as the loads go to each view in turn and not in session order.
     #[test]
     fn players_far_apart_all_get_their_spawn_chunks_before_the_spawn_deadline() {
-        const PLAYERS: u64 = 100;
-        const LOADS_ANSWERED_PER_TICK: usize = 16;
         let mut state = new_state(
             settings(|c| {
-                c.general.max_players = 1_000;
+                c.general.max_players = 1000;
                 c.developer.chunks_per_tick = crate::Config::default().developer.chunks_per_tick;
             }),
             Listeners::default(),

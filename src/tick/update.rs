@@ -61,24 +61,22 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
 
+/// The saved list keys (Bedrock `PendingTicks` entry names): the position and the engine tick
+/// the update is due at.
+const KEY_TIME: &str = "time";
+const KEY_X: &str = "x";
+const KEY_Y: &str = "y";
+const KEY_Z: &str = "z";
+/// The most positions a world's neighbour queue holds; more changed blocks wait in the world's
+/// change feed. A change queues at most seven positions.
+const MAX_NEIGHBOUR_QUEUE: usize = 1 << 18;
+/// The most neighbour updates a world runs in one tick (PMMP has no limit); measured at about
+/// 0.25 µs each in a water flow, about 4 ms.
+const MAX_NEIGHBOUR_UPDATES_PER_TICK: usize = 16_384;
 /// The most scheduled updates a world runs in one tick; the rest run in the next ticks, in
 /// order (PMMP has no limit). Measured (release): a water flow front costs about 4.3 µs an
 /// update, so this keeps a world's scheduled updates under about 18 ms a tick.
 const MAX_SCHEDULED_PER_TICK: usize = 4096;
-/// The most neighbour updates a world runs in one tick (PMMP has no limit); measured at about
-/// 0.25 µs each in a water flow, about 4 ms.
-const MAX_NEIGHBOUR_UPDATES_PER_TICK: usize = 16_384;
-/// The most positions a world's neighbour queue holds; more changed blocks wait in the world's
-/// change feed. A change queues at most seven positions.
-const MAX_NEIGHBOUR_QUEUE: usize = 1 << 18;
-
-/// The saved list keys (Bedrock `PendingTicks` entry names): the position and the engine tick
-/// the update is due at.
-const KEY_X: &str = "x";
-const KEY_Y: &str = "y";
-const KEY_Z: &str = "z";
-const KEY_TIME: &str = "time";
-
 /// Random stream purposes.
 const RANDOM_TICK: u64 = random::tag("random-tick");
 const RULE: u64 = random::tag("block-rule");
@@ -379,7 +377,7 @@ impl Parsed {
     pub(super) fn read(key: Key, list: &[Compound]) -> Self {
         let (world, chunk) = key;
         let mut entries = Vec::with_capacity(list.len());
-        let mut skipped = 0usize;
+        let mut skipped = 0_usize;
         for entry in list {
             match parse(entry) {
                 Some((pos, due)) if pos.chunk() == chunk => entries.push((pos, due)),
@@ -1690,7 +1688,7 @@ mod tests {
                 .all(|p| p.chunk() == c && (-64..-48).contains(&p.y))
         );
         // Every position of a sub-chunk comes up about equally often.
-        let mut hits = vec![0u32; 4096];
+        let mut hits = vec![0_u32; 4096];
         let mut rng = Random::new(1, 2, 3);
         for _ in 0..409_600 {
             let p = random_position(ChunkPos::new(0, 0), 0, rng.next_u64());
@@ -1708,8 +1706,8 @@ mod tests {
             result += if wet { 3.0 } else { 1.0 };
         }
         let (mut x_row, mut z_row, mut improper) = (false, false, false);
-        for x in -1i32..=1 {
-            for z in -1i32..=1 {
+        for x in -1_i32..=1 {
+            for z in -1_i32..=1 {
                 if x == 0 && z == 0 {
                     continue;
                 }
@@ -1805,7 +1803,7 @@ mod tests {
         let mut cx = Cx::new(&mut state, 0, center);
         let bound = plant::growth_bound(&cx, center, wheat).unwrap();
         assert_eq!(bound, 2);
-        let n = 30_000u32;
+        let n = 30_000_u32;
         let hits = (0..n)
             .filter(|_| plant::can_grow(&mut cx, center, wheat))
             .count();
@@ -2082,7 +2080,7 @@ mod tests {
     /// Fills world 0 with dropped sticks up to its entity limit.
     fn fill_with_entities(state: &mut State) {
         let stick = Stack::new(crate::item::Kind::Stick.default_type(), 1);
-        let mut i = 0u32;
+        let mut i = 0_u32;
         while state.rules.entities.count(0) < crate::entity::MAX_ENTITIES_PER_WORLD {
             let x = f64::from(i % 64) - 32.0;
             let z = f64::from(i / 64 % 64) - 32.0;
@@ -2334,14 +2332,14 @@ mod tests {
         let mut output = Output::default();
         let mut joins = Vec::new();
         let mut receivers = Vec::new();
-        for n in 1..=20u64 {
+        for n in 1..=20_u64 {
             let (j, rx) = join(n, 0);
             receivers.push(rx);
             joins.extend([j, radius(n, 1, 6)]);
         }
         full_tick(state, joins, pool, &mut output);
         let mut moves = Vec::new();
-        for n in 1..=20i16 {
+        for n in 1..=20_i16 {
             let i = n - 1;
             let x = f32::from((i % 5) * 48 - 96);
             let z = f32::from((i / 5) * 48 - 72);
@@ -2355,7 +2353,7 @@ mod tests {
         let mut chunks = Vec::new();
         ticking_chunks(state, 0, 4, centers.get(&0), &mut chunks);
         let chunks = chunks.len();
-        let ticks = 200u32;
+        let ticks = 200_u32;
         let start = std::time::Instant::now();
         for _ in 0..ticks {
             run_random(state, 0, centers.get(&0));

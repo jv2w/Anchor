@@ -471,7 +471,7 @@ fn open_world(plan: &mut Plan, opener: &Opener) -> Result<(), storage::Error> {
 fn log_unopened(name: &str, error: &storage::Error) {
     error!(
         world = name,
-        error = %error,
+        error = error as &(dyn std::error::Error + 'static),
         "world file did not open; its chunks are quarantined and nothing of it is saved"
     );
 }
@@ -536,7 +536,11 @@ fn remove_world_files(
         match remove_world_file(data_dir, &name) {
             Ok(()) => removed.push(name),
             Err(e) => {
-                error!(world = name, error = %e, "could not delete the world file");
+                error!(
+                    world = name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "could not delete the world file"
+                );
                 failed.push(name);
             }
         }
@@ -577,7 +581,11 @@ fn finish_deletions(data_dir: &std::path::Path, main: &mut Storage) -> Result<()
     let mut marks = Batch::with_capacity(names.len());
     for name in names {
         if let Err(e) = remove_world_file(data_dir, &name) {
-            error!(world = name, error = %e, "could not delete the world file");
+            error!(
+                world = name,
+                error = &e as &(dyn std::error::Error + 'static),
+                "could not delete the world file"
+            );
             return Err(e);
         }
         marks.delete(Key::Deleted(name));
@@ -901,7 +909,7 @@ pub(crate) fn open_with(
             }
             Err(e) => error!(
                 file = %place.file.display(),
-                error = %e,
+                error = &e as &(dyn std::error::Error + 'static),
                 "world file did not open; it is left out and as it is"
             ),
         }
@@ -930,7 +938,11 @@ fn settle_all(
 ) -> Result<(), storage::Error> {
     let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
     if let Err(e) = storage::settle(&players, saved) {
-        error!(file = %players.display(), error = %e, "data file refused; it is left as it was");
+        error!(
+            file = %players.display(),
+            error = &e as &(dyn std::error::Error + 'static),
+            "data file refused; it is left as it was"
+        );
         return Err(e);
     }
     for name in names {
@@ -940,14 +952,14 @@ fn settle_all(
             Err(e @ storage::Error::NoRollback) => {
                 error!(
                     file = %file.display(),
-                    error = %e,
+                    error = &e as &(dyn std::error::Error + 'static),
                     "data file refused; it is left as it was"
                 );
                 return Err(e);
             }
             Err(e) => error!(
                 file = %file.display(),
-                error = %e,
+                error = &e as &(dyn std::error::Error + 'static),
                 "world file was not rolled back; it is left as it is"
             ),
         }
@@ -963,7 +975,11 @@ fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(),
     let mut refused = None;
     for (place, result) in places.iter().zip(checked) {
         if let Err(e) = result {
-            error!(file = %place.file.display(), error = %e, "data file refused; it is left as it was");
+            error!(
+                file = %place.file.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "data file refused; it is left as it was"
+            );
             refused.get_or_insert(e);
         }
     }
@@ -1378,7 +1394,10 @@ pub(crate) fn run(
             Request::Chunks(keys) => match load_requested(&mut thread, pool, &keys, responses) {
                 Ok(()) => continue,
                 Err(e) => {
-                    error!(error = %e, "chunk read failed after its retries");
+                    error!(
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "chunk read failed after its retries"
+                    );
                     failure = Some(e);
                     vec![Response::LoadFailed]
                 }
@@ -1402,7 +1421,10 @@ pub(crate) fn run(
                 match commit(&mut thread, pool, &snapshot) {
                     Ok(()) => committed(&mut thread, &snapshot),
                     Err(e) => {
-                        error!(error = %e, start, "commit failed after its retries");
+                        error!(
+                            error = &e as &(dyn std::error::Error + 'static),
+                            start, "commit failed after its retries"
+                        );
                         failure = Some(e);
                         vec![Response::CommitFailed { start }]
                     }
@@ -1425,12 +1447,16 @@ pub(crate) fn run(
     if !finished || failure.is_some() {
         return failure.map_or(Ok(()), Err);
     }
+    close_files(thread)
+}
+
+/// Finishes the backups in progress and closes every file, the main file last, as in a save.
+fn close_files(mut thread: Thread) -> Result<(), storage::Error> {
     while thread.files().any(|f| f.storage.is_backing_up()) {
         backup_step(&mut thread);
     }
     let Thread { files, plans, .. } = thread;
     let Files { main, players } = files;
-    // The main file last, as in a save.
     let mut closed = Ok(());
     for file in plans
         .into_iter()
@@ -1438,7 +1464,11 @@ pub(crate) fn run(
         .chain([players, main])
     {
         if let Err(e) = file.storage.close() {
-            error!(file = %file.place.file.display(), error = %e, "data file did not close");
+            error!(
+                file = %file.place.file.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "data file did not close"
+            );
             closed = Err(e);
         }
     }
@@ -1504,7 +1534,12 @@ fn begin_backup(thread: &mut Thread, start: u64) {
     }
     for file in thread.files() {
         if let Err(e) = file.storage.begin_backup(&file.place.backups) {
-            error!(file = %file.place.file.display(), error = %e, start, "backup failed; no backup file is left");
+            error!(
+                file = %file.place.file.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                start,
+                "backup failed; no backup file is left"
+            );
         }
     }
     info!(start, "backup started");
@@ -1539,7 +1574,10 @@ fn begin_check(thread: &mut Thread, start: u64) -> Option<Checked> {
         }
     }
     if let Some(e) = failed {
-        error!(error = %e, start, "data file check could not start");
+        error!(
+            error = &e as &(dyn std::error::Error + 'static),
+            start, "data file check could not start"
+        );
         for file in thread.files() {
             file.storage.stop_check();
         }
@@ -1590,7 +1628,11 @@ fn backup_step(thread: &mut Thread) {
         Ok(None) => {}
         Ok(Some(path)) => info!(path = %path.display(), "backup made"),
         Err(e) => {
-            error!(file = %file.place.file.display(), error = %e, "backup failed; no backup file is left");
+            error!(
+                file = %file.place.file.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "backup failed; no backup file is left"
+            );
         }
     }
 }
@@ -1765,8 +1807,15 @@ pub(crate) type Terrain = [Option<SubChunkRecord>; SUB_CHUNKS];
 /// Decodes the values read for a chunk of a persistent world (in key order) and generates its
 /// terrain if none was saved ([`read_values`]); any damaged value makes the chunk damaged.
 fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Registry) -> Loaded {
-    let damaged = |part: Option<ChunkPart>, e: &dyn std::fmt::Display| {
-        warn!(world = plan.name, x = pos.x, z = pos.z, ?part, error = %e, "chunk value damaged");
+    let damaged = |part: Option<ChunkPart>, error: &(dyn std::error::Error + 'static)| {
+        warn!(
+            world = plan.name,
+            x = pos.x,
+            z = pos.z,
+            ?part,
+            error,
+            "chunk value damaged"
+        );
         Loaded::Damaged
     };
     let Some(number) = plan.number else {
@@ -1791,7 +1840,10 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
             chunk.set_split();
             Loaded::Disk(Box::new(chunk), stored)
         }
-        None => damaged(None, &"the terrain values are not a valid chunk"),
+        None => damaged(
+            None,
+            &storage::Error::Malformed("the terrain values are not a valid chunk"),
+        ),
     }
 }
 
@@ -1806,7 +1858,7 @@ pub(crate) fn read_values(
     let mut checksum = Crc32c::new();
     let mut sub_chunks: Terrain = Default::default();
     // The page each extras list expects next.
-    let mut next_pages = [0u16; 3];
+    let mut next_pages = [0_u16; 3];
     for (part, sealed) in values {
         let key = ChunkKey { chunk, part: *part }.to_bytes();
         let read = match *part {
@@ -1874,19 +1926,31 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
                     extra: record.extra,
                 }),
                 Err(e) => {
-                    warn!(player = key.as_str(), error = %e, "player data damaged");
+                    warn!(
+                        player = key.as_str(),
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "player data damaged"
+                    );
                     PlayerLoad::Damaged
                 }
             },
             Some(Ok(None)) => PlayerLoad::Absent,
             Some(Err(e)) => {
-                warn!(player = key.as_str(), error = %e, "player data read failed");
+                warn!(
+                    player = key.as_str(),
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "player data read failed"
+                );
                 PlayerLoad::Damaged
             }
             None => PlayerLoad::Damaged,
         },
         Err(e) => {
-            warn!(player = key.as_str(), error = %e, "player data read failed");
+            warn!(
+                player = key.as_str(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "player data read failed"
+            );
             PlayerLoad::Damaged
         }
     };
@@ -2069,7 +2133,7 @@ pub(crate) fn seal_terrain(id: ChunkId, chunk: &Chunk) -> Result<Vec<Write>, sto
     let all_empty = (0..SUB_CHUNKS).all(empty);
     let saved = chunk.saved_sub_chunks() | u32::from(all_empty);
     (0..SUB_CHUNKS)
-        .zip(0u8..)
+        .zip(0_u8..)
         .filter(|&(i, _)| saved & (1 << i) != 0)
         .map(|(i, index)| {
             let key = id.key(ChunkPart::SubChunk(index));
@@ -2662,7 +2726,7 @@ pub(crate) mod tests {
         ];
         let player = PlayerKey::xuid(7);
         let mut model: Vec<ChunkExtras> = vec![ChunkExtras::default(); positions.len()];
-        for round in 0..20u32 {
+        for round in 0..20_u32 {
             let mut snapshot = Snapshot {
                 start: u64::from(round),
                 ..Snapshot::default()
@@ -3304,7 +3368,7 @@ pub(crate) mod tests {
     fn one_chunk_full_of_max_text_signs_commits_and_reads_back() {
         let dir = TempDir::new("signs");
         let pos = ChunkPos::new(1, 1);
-        let signs: Vec<Compound> = (0..7_568).map(max_text_sign).collect();
+        let signs: Vec<Compound> = (0..7568).map(max_text_sign).collect();
         assert!(encode(&ExtraRecord(Cow::Borrowed(&signs))).len() > MAX_RECORD);
         for (start, list) in [(1, signs.clone()), (2, signs[..10].to_vec())] {
             let snapshot = Snapshot {
@@ -3397,7 +3461,7 @@ pub(crate) mod tests {
         else {
             panic!("unexpected answers {answers:?}");
         };
-        assert!(to_record(read) == record, "the chunk reads back as it was");
+        assert_eq!(to_record(read), record, "the chunk reads back as it was");
     }
 
     /// A saved custom block loads as its state on the CPU pool, and the chunk arrives lit with
@@ -3604,7 +3668,11 @@ pub(crate) mod tests {
         let cases: [(&str, Fill<'_>, bool); 3] = [
             (
                 "all sub-chunks",
-                &|b| (0..24).for_each(|i| sub_chunk(b, i)),
+                &|b| {
+                    for i in 0..24 {
+                        sub_chunk(b, i);
+                    }
+                },
                 true,
             ),
             (
@@ -3793,7 +3861,7 @@ pub(crate) mod tests {
                 "{place:?}: {:?}",
                 refused.err()
             );
-            assert!(read() == before, "{place:?}: a file was written");
+            assert_eq!(read(), before, "{place:?}: a file was written");
             std::fs::write(&place.file, &whole[i]).unwrap();
         }
         assert!(

@@ -51,74 +51,74 @@ use crate::world::particle_id;
 
 /// An arrow's base damage (PMMP `Arrow::$damage`).
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
-/// A cloud's first radius, in blocks (PMMP `AreaEffectCloud::DEFAULT_RADIUS`).
-pub(super) const CLOUD_RADIUS: f64 = 3.0;
-/// A cloud's life, in ticks (PMMP `AreaEffectCloud::DEFAULT_DURATION`).
-pub(super) const CLOUD_DURATION: i32 = 600;
-/// The ticks before a cloud affects an entity again (PMMP
-/// `AreaEffectCloud::DEFAULT_REAPPLICATION_DELAY`).
-pub(super) const CLOUD_REAPPLICATION: i32 = 40;
-/// A cloud's radius change per entity it affects, in blocks.
-pub(super) const CLOUD_RADIUS_ON_USE: f64 = -0.5;
-/// A cloud's radius change per tick, in blocks: it shrinks to nothing over its life.
-pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION as f64);
-/// Ticks between a cloud's applications (PMMP `UPDATE_DELAY`).
-const CLOUD_UPDATE_DELAY: u32 = 10;
-/// The smallest radius a cloud has (PMMP `entityBaseTick`).
-const CLOUD_MIN_RADIUS: f64 = 0.5;
-/// Ticks a projectile flies through its shooter (PMMP `Projectile::move`).
-const OWNER_GRACE_TICKS: u32 = 5;
-/// How much bigger an entity's box is to a projectile (PMMP `expandedCopy(0.3, …)`).
-const HIT_REACH: f64 = 0.3;
-/// How far around a splash potion's box its effects reach (PMMP `SplashPotion::onHit`).
-const SPLASH_REACH: Vec3 = Vec3::new(4.125, 2.125, 4.125);
-/// The farthest a splash potion's effects reach from the eyes, in blocks (PMMP
-/// `SplashPotion::onHit`).
-const SPLASH_RANGE: f64 = 4.0;
-/// The shortest effect a splash gives, in ticks.
-const SPLASH_MIN_TICKS: f64 = 20.0;
-/// The share of a splash's effect durations at the target's middle line ([`duration_share`]),
-/// before the cut to 1, as BDS gives it (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5
-/// and 3.5 blocks).
-const SPLASH_DURATION_FULL: f64 = 1.05;
-/// What that share loses per block of distance ([`duration_share`]).
-const SPLASH_DURATION_FALLOFF: f64 = 0.225;
 /// The shake data of an arrow that hits a block (PMMP `ArrowShakeAnimation`).
 const ARROW_SHAKE: i32 = 7;
+/// The experience a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
+const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
+/// The random stream of a bottle's experience.
+const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
 /// The weakest bow draw that shoots (PMMP `Bow::onReleaseUsing`).
 const BOW_MIN_FORCE: f64 = 0.1;
 /// The fewest ticks a bow is drawn to shoot (PMMP `Bow::onReleaseUsing`).
 const BOW_MIN_TICKS: u32 = 5;
+/// The random stream of a bow's wear.
+const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
+/// A cloud's life, in ticks (PMMP `AreaEffectCloud::DEFAULT_DURATION`).
+pub(super) const CLOUD_DURATION: i32 = 600;
+/// The smallest radius a cloud has (PMMP `entityBaseTick`).
+const CLOUD_MIN_RADIUS: f64 = 0.5;
+/// A cloud's first radius, in blocks (PMMP `AreaEffectCloud::DEFAULT_RADIUS`).
+pub(super) const CLOUD_RADIUS: f64 = 3.0;
+/// A cloud's radius change per entity it affects, in blocks.
+pub(super) const CLOUD_RADIUS_ON_USE: f64 = -0.5;
+/// A cloud's radius change per tick, in blocks: it shrinks to nothing over its life.
+pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION as f64);
+/// The ticks before a cloud affects an entity again (PMMP
+/// `AreaEffectCloud::DEFAULT_REAPPLICATION_DELAY`).
+pub(super) const CLOUD_REAPPLICATION: i32 = 40;
+/// Ticks between a cloud's applications (PMMP `UPDATE_DELAY`).
+const CLOUD_UPDATE_DELAY: u32 = 10;
+/// The random stream of a critical arrow's bonus damage.
+const CRITICAL_RANDOM: u64 = random::tag("projectile-critical");
 /// The burn a Flame bow gives its arrow (PMMP: `setOnFire(100)`), in ticks.
 const FLAME_TICKS: i16 = 2000;
 /// The burn a burning projectile gives the player or NPC it hits (PMMP `Projectile::onHitEntity`).
 const HIT_FIRE_SECONDS: i16 = 5;
-/// The fall damage an ender pearl's thrower takes (PMMP `EnderPearl::onHit`).
-const PEARL_DAMAGE: f64 = 5.0;
 /// The particles a snowball or an egg leaves where it hits (PMMP `Snowball::onHit`,
 /// `Egg::onHit`; BDS sends as many).
 const HIT_PARTICLES: usize = 6;
-/// The experience a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
-const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
-/// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
-const LINGERING_POTION: &str = "minecraft:lingering_potion";
-/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`).
-const TRIDENT_MIN_TICKS: u32 = 14;
-/// The speed of a trident thrown at a full draw, in blocks per tick (PMMP
-/// `item\Trident::onReleaseUsing`).
-const TRIDENT_FORCE: f64 = 2.4;
-/// What a trident keeps of its speed when it bounces off what it hit (PMMP
-/// `Trident::onHitEntity`).
-const TRIDENT_BOUNCE: Vec3 = Vec3::new(-0.01, -0.1, -0.01);
+/// How much bigger an entity's box is to a projectile (PMMP `expandedCopy(0.3, …)`).
+const HIT_REACH: f64 = 0.3;
 /// How far around the block it hits an ice bomb freezes water (PMMP `IceBomb::onHitBlock`: the
 /// 3 × 3 × 3 blocks around it).
 const ICE_BOMB_REACH: i32 = 1;
-/// The random stream of a critical arrow's bonus damage.
-const CRITICAL_RANDOM: u64 = random::tag("projectile-critical");
-/// The random stream of a bottle's experience.
-const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
-/// The random stream of a bow's wear.
-const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
+/// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
+const LINGERING_POTION: &str = "minecraft:lingering_potion";
+/// Ticks a projectile flies through its shooter (PMMP `Projectile::move`).
+const OWNER_GRACE_TICKS: u32 = 5;
+/// The fall damage an ender pearl's thrower takes (PMMP `EnderPearl::onHit`).
+const PEARL_DAMAGE: f64 = 5.0;
+/// What a splash's share of effect durations loses per block of distance ([`duration_share`]).
+const SPLASH_DURATION_FALLOFF: f64 = 0.225;
+/// The share of a splash's effect durations at the target's middle line ([`duration_share`]),
+/// before the cut to 1, as BDS gives it (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5
+/// and 3.5 blocks).
+const SPLASH_DURATION_FULL: f64 = 1.05;
+/// The shortest effect a splash gives, in ticks.
+const SPLASH_MIN_TICKS: f64 = 20.0;
+/// The farthest a splash potion's effects reach from the eyes, in blocks (PMMP
+/// `SplashPotion::onHit`).
+const SPLASH_RANGE: f64 = 4.0;
+/// How far around a splash potion's box its effects reach (PMMP `SplashPotion::onHit`).
+const SPLASH_REACH: Vec3 = Vec3::new(4.125, 2.125, 4.125);
+/// What a trident keeps of its speed when it bounces off what it hit (PMMP
+/// `Trident::onHitEntity`).
+const TRIDENT_BOUNCE: Vec3 = Vec3::new(-0.01, -0.1, -0.01);
+/// The speed of a trident thrown at a full draw, in blocks per tick (PMMP
+/// `item\Trident::onReleaseUsing`).
+const TRIDENT_FORCE: f64 = 2.4;
+/// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`).
+const TRIDENT_MIN_TICKS: u32 = 14;
 /// The random stream of a thrown trident's wear.
 const TRIDENT_RANDOM: u64 = random::tag("projectile-trident-wear");
 
@@ -878,7 +878,10 @@ fn freeze(state: &mut State, world: usize, pos: crate::world::BlockPos) {
                     && let Err(e) = w.set_block(at, ice)
                 {
                     // The water stays; nothing else depends on it.
-                    debug!(error = %e, "an ice bomb could not freeze water");
+                    debug!(
+                        error = &e as &(dyn std::error::Error + 'static),
+                        "an ice bomb could not freeze water"
+                    );
                 }
             }
         }
@@ -1133,7 +1136,10 @@ fn extinguish(state: &mut State, world: usize, b: BlockHit) {
             && let Err(e) = w.set_block(pos, block::AIR)
         {
             // The fire stays; nothing else depends on it.
-            debug!(error = %e, "a splash could not put out a fire");
+            debug!(
+                error = &e as &(dyn std::error::Error + 'static),
+                "a splash could not put out a fire"
+            );
         }
     }
 }
@@ -1529,7 +1535,7 @@ pub(super) fn cloud_tick(state: &mut State, id: Id, hooks: Hooks) {
     let area = e.bounding_box();
     let mut affected = Vec::new();
     let mut radius_change = 0.0;
-    let mut age_change = 0i32;
+    let mut age_change = 0_i32;
     for target in living_in(state, world, area, id, hooks) {
         let victim = match target {
             Struck::Player(s) => Victim::Player(s),
@@ -1614,6 +1620,7 @@ fn used(e: &mut Entity, age: u32, until: Vec<Victim>, radius_change: f64, age_ch
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::block::Class as BlockClass;
     use crate::nbt::Compound;
     use crate::tick::entity::physics::MOTION_THRESHOLD;
@@ -1775,7 +1782,7 @@ mod tests {
             potion_item("Regeneration", true),
         ];
         let mut trace = Vec::new();
-        for tick in 0..120u32 {
+        for tick in 0..120_u32 {
             let yaw = f64::from(tick * 37 % 360);
             let pitch = f64::from(tick % 7) * 10.0 - 30.0;
             calls(|c| c.look = (yaw, pitch));
@@ -2155,7 +2162,7 @@ mod tests {
         let expected = [full, (full * 0.6).round()];
         let eyes = [1, 2].map(|n| h.state.players[&session(n)].position);
         assert_eq!(effects.len(), 2, "player 3 is beyond 4 blocks: {effects:?}");
-        for ((who, e), (n, ticks)) in effects.iter().zip([1u64, 2].into_iter().zip(expected)) {
+        for ((who, e), (n, ticks)) in effects.iter().zip([1_u64, 2].into_iter().zip(expected)) {
             assert_eq!(*who, n);
             assert_eq!(e.effect(), regeneration.effect());
             assert_eq!(f64::from(e.duration_ticks()), ticks);

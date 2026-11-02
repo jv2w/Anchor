@@ -46,17 +46,17 @@ use crate::tick::entity::Raise;
 use crate::tick::{Context, Phase, Player, SessionId, State, survival, view};
 use crate::world::{self, BlockPos};
 
-/// Ticks between showing a menu's blocks and opening its window, so the client has the container
-/// blocks and their data when the window opens (`InvMenu` waits for the client the same way).
-/// The delay the official client needs is not verified.
-const OPEN_DELAY: u64 = 2;
-/// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
-const MAX_DISTANCE_SQUARED: f64 = 64.0;
 /// `InvMenu`'s place behind the player (`getBehindPositionOffset`): the look direction times
 /// -(1 + width) horizontally and -(1 + height) vertically, from the feet (PMMP player size
 /// 0.6 × 1.8).
 const BEHIND_HORIZONTAL: f64 = 1.6;
 const BEHIND_VERTICAL: f64 = 2.8;
+/// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
+const MAX_DISTANCE_SQUARED: f64 = 64.0;
+/// Ticks between showing a menu's blocks and opening its window, so the client has the container
+/// blocks and their data when the window opens (`InvMenu` waits for the client the same way).
+/// The delay the official client needs is not verified.
+const OPEN_DELAY: u64 = 2;
 
 /// What runs when the player clicks a menu slot or changes its editable slots, and when the menu
 /// closes.
@@ -267,7 +267,7 @@ impl Context<'_> {
             .ok_or(Error::NotOpen)?
             .stacks
             .iter_mut()
-            .zip(0u32..)
+            .zip(0_u32..)
             .nth(slot)
             .ok_or(Error::NoSlot)?;
         if *there == stack {

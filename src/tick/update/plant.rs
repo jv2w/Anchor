@@ -15,21 +15,21 @@ use crate::item::Stack;
 use crate::random::Random;
 use crate::world::{BlockPos, TreeType};
 
-/// The most age of cave and nether vines (PMMP `CaveVines::MAX_AGE`, `NetherVines::MAX_AGE`).
-pub(in crate::tick) const MAX_VINE_AGE: i32 = 25;
 /// The crop age property of the classes that have one.
 const GROWTH: &str = "growth";
-/// The oldest crop and stem (PMMP `Crops::MAX_AGE`, `Stem::MAX_AGE`).
-const MAX_CROP_GROWTH: i32 = 7;
 /// The oldest sweet berry bush (PMMP `SweetBerryBush::STAGE_MATURE`).
 const MAX_BERRY_GROWTH: i32 = 3;
 /// The oldest chorus flower, which grows no more (PMMP `ChorusFlower::MAX_AGE`).
 const MAX_CHORUS_AGE: i32 = 5;
-/// The least potential light a crop grows in (PMMP `CropGrowthHelper::MIN_LIGHT_LEVEL`).
-const MIN_CROP_LIGHT: u8 = 9;
+/// The oldest crop and stem (PMMP `Crops::MAX_AGE`, `Stem::MAX_AGE`).
+const MAX_CROP_GROWTH: i32 = 7;
+/// The most age of cave and nether vines (PMMP `CaveVines::MAX_AGE`, `NetherVines::MAX_AGE`).
+pub(in crate::tick) const MAX_VINE_AGE: i32 = 25;
 /// The least full light bamboo and bamboo saplings grow in (PMMP `Bamboo::onRandomTick`,
 /// `BambooSapling::onRandomTick`).
 const MIN_BAMBOO_LIGHT: u8 = 9;
+/// The least potential light a crop grows in (PMMP `CropGrowthHelper::MIN_LIGHT_LEVEL`).
+const MIN_CROP_LIGHT: u8 = 9;
 
 /// Runs a random tick of a plant.
 pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
@@ -717,7 +717,7 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     } else {
         let attempts = rng.range(0, if end_stone { 4 } else { 3 });
         // One bit per face, so a side is tried once.
-        let mut visited = 0u8;
+        let mut visited = 0_u8;
         for _ in 0..attempts {
             let face = pick(&mut rng, &Face::HORIZONTAL);
             let bit = 1 << face as u8;
@@ -780,7 +780,7 @@ fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
     }
     let mut rng = cx.rng();
     shuffle(&mut rng, &mut faces);
-    let mut methods = [0u8, 1, 2];
+    let mut methods = [0_u8, 1, 2];
     shuffle(&mut rng, &mut methods);
     for source in faces {
         for &method in &methods {

@@ -1920,7 +1920,7 @@ pub(crate) mod tests {
             .iter()
             .find(|datagram| stun_server_ufrag(datagram).is_some())
             .unwrap();
-        let spoofed = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 9)), 40000);
+        let spoofed = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 9)), 40_000);
         let before = h.peer.last_receive;
         h.now += Duration::from_millis(1);
         h.peer.receive(h.now, spoofed, request);

@@ -73,19 +73,19 @@ use crate::world::{BlockPos, ChunkPos};
 
 /// `Age` that means "never despawns" (PMMP).
 const AGE_NEVER: i16 = i16::MIN;
-/// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
-pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
-    super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL);
-/// The largest cloud radius and radius change read, in blocks (PMMP's default radius is 3).
-pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
-/// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
-pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
+/// Bedrock's baby flag of a mob (`IsBaby`).
+const BABY: &str = "IsBaby";
 /// The key of an NPC's data (Anchor's: PMMP keeps plugin data in the entity's own compound).
 pub(super) const DATA_KEY: &str = "AnchorData";
 /// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
 const MAINHAND: &str = "Mainhand";
-/// Bedrock's baby flag of a mob (`IsBaby`).
-const BABY: &str = "IsBaby";
+/// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
+pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
+/// The largest cloud radius and radius change read, in blocks (PMMP's default radius is 3).
+pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
+/// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
+pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
+    super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL);
 
 /// What a saved compound describes, before the store gives it a slot.
 #[derive(Debug, Clone, PartialEq)]
@@ -881,6 +881,7 @@ fn vector(v: Option<&Value>) -> Option<Vec3> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
     use crate::block::{self, Face};
     use crate::item::{Enchantment, Extra, Type};
     use crate::tick::entity::physics::tests::named;

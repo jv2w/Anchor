@@ -21,18 +21,18 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
 
+/// The child gives up after this many ticks, so a lost parent leaves no process behind.
+const CHILD_TICKS: u64 = 1200;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_LOG_DATA";
 /// The child's environment variable: `info`, `debug`, `off` (`log-level = "off"` and a program
 /// subscriber) or `own` (`without_console_log` and a program subscriber).
 const MODE_ENV: &str = "ANCHOR_LOG_MODE";
-/// The prefix of the lines the program's own subscriber writes on standard output.
-const OWN: &str = "ANCHOR-OWN";
-/// The child gives up after this many ticks, so a lost parent leaves no process behind.
-const CHILD_TICKS: u64 = 1200;
 /// How long the child holds its first tick: more than two tick periods of 50 ms, after which the
 /// tick pacer warns that ticks overran, as it does on a loaded machine.
 const OVERRUN: Duration = Duration::from_millis(200);
+/// The prefix of the lines the program's own subscriber writes on standard output.
+const OWN: &str = "ANCHOR-OWN";
 
 /// The program's own subscriber: every event's message on standard output.
 struct Own;

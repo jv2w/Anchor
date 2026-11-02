@@ -5,9 +5,9 @@ use crate::command::{Args, Command, Output, Result, Sender};
 use crate::permission;
 use crate::tick::{Context, save};
 
+const CHECK_BUSY: Msg = Msg::own("A data file check is already running");
 const CHECK_START: Msg =
     Msg::own("Saving and checking the data files; you are told the result when it ends");
-const CHECK_BUSY: Msg = Msg::own("A data file check is already running");
 
 /// Adds `/check`.
 pub(super) fn add(commands: &mut Vec<Command>) {

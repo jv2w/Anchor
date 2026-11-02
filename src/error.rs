@@ -235,10 +235,10 @@ pub(crate) fn write_chain(
     error: &(dyn std::error::Error + 'static),
 ) -> fmt::Result {
     write!(out, "{error}")?;
-    let mut cause = error.source();
-    while let Some(e) = cause {
+    let mut source = error.source();
+    while let Some(e) = source {
         write!(out, ": {e}")?;
-        cause = e.source();
+        source = e.source();
     }
     Ok(())
 }

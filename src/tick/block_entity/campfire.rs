@@ -9,8 +9,6 @@ use crate::item::Stack;
 use crate::nbt::{Compound, Value};
 use crate::world::BlockPos;
 
-/// The slots of a campfire.
-pub(in crate::tick) const SLOTS: usize = 4;
 /// Ticks between cooking updates (PMMP `UPDATE_INTERVAL_TICKS`).
 pub(in crate::tick) const INTERVAL_TICKS: u16 = 10;
 /// The saved item and time keys of each slot (PMMP `TAG_*_INPUT_ITEM`, `TAG_*_COOKING_TIME`).
@@ -20,10 +18,12 @@ const KEYS: [(&str, &str); SLOTS] = [
     ("Item3", "ItemTime3"),
     ("Item4", "ItemTime4"),
 ];
+/// The slots of a campfire.
+pub(in crate::tick) const SLOTS: usize = 4;
 
 /// A campfire's cooking times. Whether it is a soul campfire (with its own recipes) is the
 /// block's.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(in crate::tick) struct Campfire {
     /// Ticks each slot's item has cooked.
     pub(in crate::tick) times: [u16; SLOTS],

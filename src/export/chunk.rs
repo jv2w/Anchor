@@ -15,8 +15,6 @@ use crate::world::{ChunkPos, MIN_Y};
 
 /// The chunk version of the layout written.
 const CHUNK_VERSION: u8 = 42;
-/// The sub-chunk version of the layout written.
-const SUB_CHUNK_VERSION: u8 = 9;
 /// Chunk tags the import does not read.
 const DATA_3D: u8 = 0x2b;
 const FINALIZED_STATE: u8 = 0x36;
@@ -27,6 +25,8 @@ const FINISHED: i32 = 2;
 const HEIGHT_MAP_BYTES: usize = 512;
 /// A biome storage header that repeats the storage below.
 const SAME_BIOMES: u8 = 0xff;
+/// The sub-chunk version of the layout written.
+const SUB_CHUNK_VERSION: u8 = 9;
 
 /// Returns the values of the chunk at `pos` with the terrain `record` and the block entities
 /// `block_entities`, sorted by key.

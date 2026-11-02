@@ -16,27 +16,27 @@ use super::wire::{self, Cursor, FLAG_DATAGRAM, UDP_HEADER_BYTES};
 use super::{Error, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, Result};
 use crate::bucket::{Bucket, Rate};
 
+/// How long a closing connection may take to deliver what it queued (go-raknet `Close`).
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+/// From `OpenConnectionRequest2` to `NewIncomingConnection` at most (go-raknet listener).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Silence after which a connection is dropped, plus two round trips (go-raknet `startTicking`).
+const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+/// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
+const MAX_PING_IPS: usize = 4096;
+/// The largest pong payload: one datagram at the largest MTU after the pong's fixed fields.
+const MAX_PONG_DATA_BYTES: usize = MAX_MTU as usize - UDP_HEADER_BYTES - 35;
+/// How long a ping rate entry lasts without pings before it is dropped.
+const PING_IDLE: Duration = Duration::from_secs(60);
+/// How often a connected ping goes out, keeping both ends' idle timers fed (go-raknet).
+const PING_INTERVAL: Duration = Duration::from_millis(500);
 /// Pings answered back to back from one IP (`capacity`), and per second once the burst is spent.
 const PING_RATE: Rate = Rate {
     capacity: 10,
     per_second: 5,
 };
-/// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
-const MAX_PING_IPS: usize = 4096;
-/// How long a ping rate entry lasts without pings before it is dropped.
-const PING_IDLE: Duration = Duration::from_secs(60);
 /// How often idle ping rate entries are dropped.
 const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
-/// From `OpenConnectionRequest2` to `NewIncomingConnection` at most (go-raknet listener).
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Silence after which a connection is dropped, plus two round trips (go-raknet `startTicking`).
-const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
-/// How often a connected ping goes out, keeping both ends' idle timers fed (go-raknet).
-const PING_INTERVAL: Duration = Duration::from_millis(500);
-/// How long a closing connection may take to deliver what it queued (go-raknet `Close`).
-const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
-/// The largest pong payload: one datagram at the largest MTU after the pong's fixed fields.
-const MAX_PONG_DATA_BYTES: usize = MAX_MTU as usize - UDP_HEADER_BYTES - 35;
 
 /// The RakNet server state: every connection and the offline handshake.
 #[derive(Debug)]

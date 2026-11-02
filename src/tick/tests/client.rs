@@ -32,11 +32,11 @@ use crate::world::BlockPos;
 
 /// The UI slot of the created output.
 const CREATED_SLOT: u8 = 50;
-/// The UI slot of the 2x2 crafting grid's first cell; the 3x3 grid's cells follow its four.
-pub(super) const GRID_2X2: u8 = 28;
 /// The upper bound of the creative item network IDs the generator draws; the creative inventory
 /// has fewer items, so some draws are refused.
 const CREATIVE_ID_BOUND: usize = 1700;
+/// The UI slot of the 2x2 crafting grid's first cell; the 3x3 grid's cells follow its four.
+pub(super) const GRID_2X2: u8 = 28;
 
 /// What the clients of a run received, by kind, over every session: the run must reach each.
 pub(super) type Seen = BTreeMap<&'static str, usize>;

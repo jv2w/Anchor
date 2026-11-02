@@ -18,8 +18,8 @@ use std::sync::Arc;
 use redb::{Builder, ReadableDatabase, ReadableTable, StorageBackend, TableDefinition};
 use rng::Rng;
 
-const TABLE: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("chunks");
 const PAGE: usize = 4096;
+const TABLE: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("chunks");
 
 /// A file in memory, shared by the handles opened on it.
 #[derive(Debug, Clone, Default)]
@@ -127,7 +127,7 @@ fn a_damaged_byte_is_an_error_not_a_panic() {
     // the open at `Btree::get_helper`'s `unreachable!()` (#1505).
     let mut flips: Vec<(usize, u8)> = (0..base.len()).step_by(PAGE).map(|at| (at, 0xff)).collect();
     let mut rng = Rng(7);
-    flips.extend((0..1_000).map(|_| (rng.below(base.len()), 1 + (rng.next() % 255) as u8)));
+    flips.extend((0..1000).map(|_| (rng.below(base.len()), 1 + (rng.next() % 255) as u8)));
     for (at, mask) in flips {
         let mut bytes = base.clone();
         bytes[at] ^= mask;

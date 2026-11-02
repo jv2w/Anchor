@@ -16,19 +16,31 @@ use anchor::replay::End;
 use anchor::world::BlockPos;
 use anchor::{Config, Context, Server, ServerBuilder};
 
+/// The plan of the run that writes the crash log.
+const CRASH: Plan = Plan {
+    save_at: SAVE_AT,
+    panic_at: Some(PANIC_AT),
+};
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_REPLAY_DATA";
+/// The plan of the fork of a stopped world.
+const FORK: Plan = Plan {
+    save_at: FORK_SAVE_AT,
+    panic_at: Some(FORK_PANIC_AT),
+};
+/// The tick that panics in a fork of a stopped world.
+const FORK_PANIC_AT: u64 = 200;
+/// The tick whose save a fork of a stopped world commits.
+const FORK_SAVE_AT: u64 = 160;
 /// The child's environment variable: `crash` saves and panics, `restart` runs a while and stops;
 /// without backups, `base` runs a while and stops and `fork` saves and panics later.
 const MODE_ENV: &str = "ANCHOR_REPLAY_MODE";
-/// The tick whose save the crash log starts from, and the tick that panics.
-const SAVE_AT: u64 = 20;
+/// The tick that panics.
 const PANIC_AT: u64 = 100;
+/// The tick whose save the crash log starts from.
+const SAVE_AT: u64 = 20;
 /// The tick a restart stops at.
 const STOP_AT: u64 = 120;
-/// The tick whose save a fork of a stopped world commits, and the tick that panics.
-const FORK_SAVE_AT: u64 = 160;
-const FORK_PANIC_AT: u64 = 200;
 
 /// What the task of a run does: the tick it saves at and the tick it panics at, if any.
 #[derive(Debug, Clone, Copy)]
@@ -36,15 +48,6 @@ struct Plan {
     save_at: u64,
     panic_at: Option<u64>,
 }
-
-const CRASH: Plan = Plan {
-    save_at: SAVE_AT,
-    panic_at: Some(PANIC_AT),
-};
-const FORK: Plan = Plan {
-    save_at: FORK_SAVE_AT,
-    panic_at: Some(FORK_PANIC_AT),
-};
 
 /// Settings that run without the network beyond loopback, with start backups or without. Port 0
 /// lets the system pick every port at bind time: nothing connects, and a port picked earlier and

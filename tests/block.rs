@@ -339,7 +339,7 @@ fn unknown_network_ids_give_none() {
             None => assert!(!ids.contains(&id), "table ID {id:#x} not found"),
         }
     }
-    assert_eq!(hits, [0, 1_512]);
+    assert_eq!(hits, [0, 1512]);
 }
 
 #[test]

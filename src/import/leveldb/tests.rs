@@ -375,7 +375,7 @@ fn random_database(seed: u64) -> (Files, BTreeMap<Vec<u8>, Vec<u8>>, Layouts) {
 #[test]
 fn random_databases_read_like_the_model_of_their_writes() {
     let mut reached = [0_usize; 8];
-    for seed in 0..1_000 {
+    for seed in 0..1000 {
         let (files, model, layouts) = random_database(seed);
         let flags = [
             layouts.level0_tables >= 2,
@@ -393,7 +393,7 @@ fn random_databases_read_like_the_model_of_their_writes() {
         let mut db = Db::from_files(files).unwrap_or_else(|e| panic!("seed {seed}: {e:?}"));
         let expected: Vec<(Vec<u8>, Vec<u8>)> =
             model.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        assert!(scan_all(&mut db) == expected, "seed {seed}: full scan");
+        assert_eq!(scan_all(&mut db), expected, "seed {seed}: full scan");
         let mut rng = Rng(seed ^ 0xdead);
         for _ in 0..5 {
             let mut bounds = [
@@ -412,7 +412,7 @@ fn random_databases_read_like_the_model_of_their_writes() {
                 .range(start.clone()..end.clone())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            assert!(got == want, "seed {seed}: range {start:?}..{end:?}");
+            assert_eq!(got, want, "seed {seed}: range {start:?}..{end:?}");
             let key = format!("k{:03}", rng.below(45)).into_bytes();
             assert_eq!(
                 db.get(&key).unwrap(),

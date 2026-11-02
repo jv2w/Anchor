@@ -18,8 +18,6 @@ use anchor::protocol::compression::Compression;
 use anchor::world::{BlockPos, Flat, Kind};
 use anchor::{Config, Server};
 
-const MIB: usize = 1024 * 1024;
-
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
@@ -150,7 +148,7 @@ fn custom() -> Config {
     g.save_player_data = false;
     g.backups = false;
     g.shutdown_message = "Bye".to_owned();
-    g.resource_packs = vec!["a.mcpack".into(), "lobby/b.zip".into()];
+    g.resource_packs = vec![PathBuf::from("a.mcpack"), PathBuf::from("lobby/b.zip")];
     g.force_resources = true;
     g.log_level = LogLevel::Debug;
     let d = &mut config.developer;
@@ -161,8 +159,8 @@ fn custom() -> Config {
     d.enable_encryption = false;
     d.raknet = false;
     d.max_mtu_size = 1200;
-    d.nethernet_tls_cert = Some("cert.pem".into());
-    d.nethernet_tls_key = Some("key.pem".into());
+    d.nethernet_tls_cert = Some(PathBuf::from("cert.pem"));
+    d.nethernet_tls_key = Some(PathBuf::from("key.pem"));
     d.network_threads = Threads::Count(NonZeroU16::new(2).expect("non-zero"));
     d.cpu_threads = Threads::Count(NonZeroU16::new(3).expect("non-zero"));
     d.chunks_per_tick = 8;
@@ -301,6 +299,8 @@ fn every_key_reaches_its_field() {
 /// The number of keys in the default file; the one place that pins it.
 const DEFAULT_KEY_COUNT: usize = 68;
 
+const MIB: usize = 1024 * 1024;
+
 /// The `(table, key, value)` of every key line of a settings file.
 fn key_lines(text: &str) -> Vec<(String, String, String)> {
     let mut table = String::new();
@@ -422,7 +422,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""::""#, r#""::1""#, r#""fe80::1""#]),
             s(&[r#""0.0.0.0""#, r#"":::""#, r#""""#]),
         ),
-        ("general.enable-ipv6", bools(), vec![]),
+        ("general.enable-ipv6", bools(), Vec::new()),
         (
             "general.server-port",
             s(&["0", "65535"]),
@@ -438,8 +438,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["1", "10000"]),
             s(&["0", "10001"]),
         ),
-        ("general.xbox-auth", bools(), vec![]),
-        ("general.white-list", bools(), vec![]),
+        ("general.xbox-auth", bools(), Vec::new()),
+        ("general.white-list", bools(), Vec::new()),
         (
             "general.gamemode",
             s(&[
@@ -450,7 +450,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             ]),
             s(&[r#""Survival""#, r#""hardcore""#, r#""""#]),
         ),
-        ("general.force-gamemode", bools(), vec![]),
+        ("general.force-gamemode", bools(), Vec::new()),
         (
             "general.difficulty",
             s(&[r#""peaceful""#, r#""easy""#, r#""normal""#, r#""hard""#]),
@@ -458,18 +458,18 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         // `true` needs `difficulty = "hard"`; see `hardcore_needs_hard_difficulty`.
         ("general.hardcore", s(&["false"]), s(&["true"])),
-        ("general.pvp", bools(), vec![]),
-        ("general.hunger", bools(), vec![]),
-        ("general.experience", bools(), vec![]),
-        ("general.experience-orbs", bools(), vec![]),
-        ("general.fall-damage", bools(), vec![]),
-        ("general.drowning", bools(), vec![]),
-        ("general.armor", bools(), vec![]),
-        ("general.durability", bools(), vec![]),
-        ("general.beds", bools(), vec![]),
-        ("general.daylight-cycle", bools(), vec![]),
-        ("general.recipe-book", bools(), vec![]),
-        ("general.vanilla-recipes", bools(), vec![]),
+        ("general.pvp", bools(), Vec::new()),
+        ("general.hunger", bools(), Vec::new()),
+        ("general.experience", bools(), Vec::new()),
+        ("general.experience-orbs", bools(), Vec::new()),
+        ("general.fall-damage", bools(), Vec::new()),
+        ("general.drowning", bools(), Vec::new()),
+        ("general.armor", bools(), Vec::new()),
+        ("general.durability", bools(), Vec::new()),
+        ("general.beds", bools(), Vec::new()),
+        ("general.daylight-cycle", bools(), Vec::new()),
+        ("general.recipe-book", bools(), Vec::new()),
+        ("general.vanilla-recipes", bools(), Vec::new()),
         (
             "general.item-despawn-ticks",
             s(&["1", "72000"]),
@@ -480,12 +480,12 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""off""#, r#""sprint""#, r#""always""#]),
             s(&[r#""Sprint""#, "true", r#""""#]),
         ),
-        ("general.break-time-check", bools(), vec![]),
-        ("general.movement-check", bools(), vec![]),
-        ("general.show-coordinates", bools(), vec![]),
-        ("general.locator-bar", bools(), vec![]),
-        ("general.immediate-respawn", bools(), vec![]),
-        ("general.show-death-messages", bools(), vec![]),
+        ("general.break-time-check", bools(), Vec::new()),
+        ("general.movement-check", bools(), Vec::new()),
+        ("general.show-coordinates", bools(), Vec::new()),
+        ("general.locator-bar", bools(), Vec::new()),
+        ("general.immediate-respawn", bools(), Vec::new()),
+        ("general.show-death-messages", bools(), Vec::new()),
         (
             "general.level-name",
             vec![quoted("a"), quoted(&"w".repeat(64))],
@@ -519,8 +519,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             ]),
         ),
         ("general.view-distance", s(&["2", "64"]), s(&["1", "65"])),
-        ("general.save-player-data", bools(), vec![]),
-        ("general.backups", bools(), vec![]),
+        ("general.save-player-data", bools(), Vec::new()),
+        ("general.backups", bools(), Vec::new()),
         (
             "general.shutdown-message",
             vec![quoted(""), quoted(&"x".repeat(1024)), quoted(r"two\nlines")],
@@ -531,7 +531,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["[]", r#"["a.mcpack"]"#, r#"["a.zip", "b/c.mcpack"]"#]),
             s(&[r#"[""]"#, r#"["a.zip", ""]"#]),
         ),
-        ("general.force-resources", bools(), vec![]),
+        ("general.force-resources", bools(), Vec::new()),
         (
             "general.log-level",
             s(&[
@@ -564,8 +564,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["4210786", "67108864"]),
             s(&["1048576", "4210785", "67108865", "-1"]),
         ),
-        ("developer.enable-encryption", bools(), vec![]),
-        ("developer.raknet", bools(), vec![]),
+        ("developer.enable-encryption", bools(), Vec::new()),
+        ("developer.raknet", bools(), Vec::new()),
         (
             "developer.max-mtu-size",
             s(&["576", "1492"]),
@@ -620,7 +620,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
                 r#"["minecraft:grass block"]"#,
             ]),
         ),
-        ("developer.slow-empty-worlds", bools(), vec![]),
+        ("developer.slow-empty-worlds", bools(), Vec::new()),
         // `true` and `false` are the values of older files; see `old_lighting_switch_still_loads`.
         (
             "developer.lighting",
@@ -643,8 +643,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["1", "20"]),
             s(&["0", "21"]),
         ),
-        ("developer.hook-movement-packets", bools(), vec![]),
-        ("developer.hook-player-input", bools(), vec![]),
+        ("developer.hook-movement-packets", bools(), Vec::new()),
+        ("developer.hook-player-input", bools(), Vec::new()),
         (
             "developer.save-interval-minutes",
             s(&["1", "1440"]),
@@ -655,7 +655,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""always""#, r#""after-unclean-shutdown""#, r#""never""#]),
             s(&[r#""Always""#, r#""""#, "true"]),
         ),
-        ("developer.console-input", bools(), vec![]),
+        ("developer.console-input", bools(), Vec::new()),
     ]
 }
 
@@ -948,8 +948,14 @@ fn tls_cert_and_key_go_together() {
     let file = File::new("tls");
     let both = "[developer]\nnethernet-tls-cert = \"c.pem\"\nnethernet-tls-key = \"k.pem\"\n";
     let config = file.load(both).expect("both set");
-    assert_eq!(config.developer.nethernet_tls_cert, Some("c.pem".into()));
-    assert_eq!(config.developer.nethernet_tls_key, Some("k.pem".into()));
+    assert_eq!(
+        config.developer.nethernet_tls_cert,
+        Some(PathBuf::from("c.pem"))
+    );
+    assert_eq!(
+        config.developer.nethernet_tls_key,
+        Some(PathBuf::from("k.pem"))
+    );
     let error = file.load(one_key("developer.nethernet-tls-cert", "\"c.pem\""));
     assert!(
         error

@@ -38,16 +38,19 @@ use crate::clock;
 use crate::config::LogLevel;
 use crate::error::write_chain;
 
-/// The lines that may wait for the log thread: with [`LINE_BYTES`], about 16 MiB at most.
-const QUEUE_LINES: usize = 4096;
-/// The bytes of a line's message and fields, the [`CUT`] marker included: the text past them is
-/// left out. The time, the level, the brackets and the line end add 35 bytes.
-const LINE_BYTES: usize = 4096;
 /// Ends the text of a line that was cut.
 const CUT: &str = "…(cut)";
+
 /// How long the end of the log waits for the log thread to write the lines still queued. A
 /// console that takes no writes for this long loses them if the program then exits.
 const END_WAIT: Duration = Duration::from_secs(5);
+
+/// The bytes of a line's message and fields, the [`CUT`] marker included: the text past them is
+/// left out. The time, the level, the brackets and the line end add 35 bytes.
+const LINE_BYTES: usize = 4096;
+
+/// The lines that may wait for the log thread: with [`LINE_BYTES`], about 16 MiB at most.
+const QUEUE_LINES: usize = 4096;
 
 thread_local! {
     /// The console log of a pool thread: set by the pool's thread-start hook, dropped with the
@@ -604,10 +607,10 @@ pub(crate) mod tests {
     /// A field recorded as an error value shows the error and each of its causes.
     #[test]
     fn an_error_value_is_written_with_its_causes() {
-        let cause = Outer(io::Error::other("inner"));
+        let outer = Outer(io::Error::other("inner"));
         let lines = captured(|| {
             error!(
-                error = &cause as &(dyn std::error::Error + 'static),
+                error = &outer as &(dyn std::error::Error + 'static),
                 "start failed"
             );
         });

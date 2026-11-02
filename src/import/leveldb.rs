@@ -34,28 +34,29 @@ use super::{Error, Result, read_file};
 use crate::storage::seal::Crc32c;
 use table::{Cursor, TableFile, Tables};
 
-/// The longest user key.
-pub(crate) const MAX_KEY: usize = 1024;
+/// The only key order the reader knows: bytewise.
+pub(crate) const COMPARATOR: &[u8] = b"leveldb.BytewiseComparator";
+/// The kind of a deleted key.
+const DELETION: u8 = 0;
+/// Levels in a LevelDB version.
+pub(crate) const LEVELS: usize = 7;
+/// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
+const MASK_DELTA: u32 = 0xa282_ead8;
 const MAX_CURRENT: u64 = 256;
-const MAX_MANIFEST: u64 = 64 << 20;
-const MAX_LOG_BYTES: u64 = 64 << 20;
-const MAX_LOG_KEYS: usize = 1 << 20;
 const MAX_FILES: usize = 65_536;
 /// Decompressed blocks one scan may hold at once.
 const MAX_HELD: usize = 256 << 20;
-/// Levels in a LevelDB version.
-pub(crate) const LEVELS: usize = 7;
-/// The sequence and kind after the user key in an internal key.
-pub(crate) const TAG: usize = 8;
+/// The longest user key.
+pub(crate) const MAX_KEY: usize = 1024;
+const MAX_LOG_BYTES: u64 = 64 << 20;
+const MAX_LOG_KEYS: usize = 1 << 20;
+const MAX_MANIFEST: u64 = 64 << 20;
 /// The largest sequence number: 56 bits.
 const MAX_SEQUENCE: u64 = (1 << 56) - 1;
-/// Key kinds.
-const DELETION: u8 = 0;
+/// The sequence and kind after the user key in an internal key.
+pub(crate) const TAG: usize = 8;
+/// The kind of a key holding a value.
 pub(crate) const VALUE: u8 = 1;
-/// The only key order the reader knows: bytewise.
-pub(crate) const COMPARATOR: &[u8] = b"leveldb.BytewiseComparator";
-/// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
-const MASK_DELTA: u32 = 0xa282_ead8;
 
 /// The LevelDB of a Bedrock world (its `db` folder), opened read-only: the world import's own
 /// reader, for the keys the import leaves out (players, entities, the scoreboard, ...). Mojang
@@ -191,15 +192,6 @@ impl Db {
         }
     }
 
-    /// Calls `f` with each live key starting with `prefix` and its value, in key order.
-    pub fn scan_prefix(&mut self, prefix: &[u8], mut f: impl FnMut(&[u8], &[u8])) -> Result<()> {
-        let end = super::chunk::after(prefix);
-        self.scan(prefix, end.as_deref(), |key, value| {
-            f(key, value);
-            Ok(ControlFlow::Continue(()))
-        })
-    }
-
     /// The live value of `key`, if any.
     pub fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut end = Vec::with_capacity(key.len() + 1);
@@ -211,6 +203,15 @@ impl Db {
             Ok(ControlFlow::Break(()))
         })?;
         Ok(found)
+    }
+
+    /// Calls `f` with each live key starting with `prefix` and its value, in key order.
+    pub fn scan_prefix(&mut self, prefix: &[u8], mut f: impl FnMut(&[u8], &[u8])) -> Result<()> {
+        let end = super::chunk::after(prefix);
+        self.scan(prefix, end.as_deref(), |key, value| {
+            f(key, value);
+            Ok(ControlFlow::Continue(()))
+        })
     }
 
     /// Calls `f` with each live key in `[start, end)` (to the last key without `end`) and its

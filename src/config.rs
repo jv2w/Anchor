@@ -20,6 +20,14 @@ use crate::protocol::batch;
 use crate::protocol::compression::Compression;
 use crate::protocol::consts::GameType;
 
+/// The `chunks-per-tick` range: 0 would never send a chunk, and 256 sends the largest view in
+/// about 3 seconds.
+pub(crate) const CHUNKS_PER_TICK_RANGE: RangeInclusive<u32> = 1..=256;
+
+/// The `compression` values.
+const COMPRESSION_NAMES: [(&str, Compression); 2] =
+    [("snappy", Compression::Snappy), ("zlib", Compression::Zlib)];
+
 /// The file [`Config::load`] writes when the settings file is missing; a test checks that it
 /// loads as the default settings. [`Config::update_file`] adds a missing key with the comment
 /// lines right above it here, and a missing table with those above its header.
@@ -186,46 +194,52 @@ console-input = true
 # spawn = [0, -60, 0]
 "#;
 
+/// The `fixed-light-level` range: the light levels.
+const FIXED_LIGHT_LEVEL_RANGE: RangeInclusive<u8> = 0..=15;
+
+/// The `item-despawn-ticks` range: one tick to an hour.
+pub(crate) const ITEM_DESPAWN_TICKS_RANGE: RangeInclusive<u32> = 1..=72_000;
+
+/// The `item-pickup-interval` range: every tick to once a second.
+const ITEM_PICKUP_INTERVAL_RANGE: RangeInclusive<u8> = 1..=20;
+
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
+
+/// See [`MAX_MOTD_BYTES`].
+const MAX_LEVEL_NAME_BYTES: usize = 64;
 
 /// The longest `motd`, in bytes ([`is_motd`]). The RakNet pong carries `motd` and `level-name` in
 /// one datagram; 256 + 64 bytes and the other fields fit the 576-byte minimum MTU.
 pub const MAX_MOTD_BYTES: usize = 256;
-/// The `max-players` range; the player and session tables are sized from it.
-const PLAYERS_RANGE: RangeInclusive<u32> = 1..=10_000;
-/// The `item-despawn-ticks` range: one tick to an hour.
-pub(crate) const ITEM_DESPAWN_TICKS_RANGE: RangeInclusive<u32> = 1..=72_000;
-/// See [`MAX_MOTD_BYTES`].
-const MAX_LEVEL_NAME_BYTES: usize = 64;
-/// The `view-distance` range the settings file accepts.
-pub(crate) const VIEW_DISTANCE_RANGE: RangeInclusive<u8> = 2..=64;
+
 /// The longest `shutdown-message`, in bytes: a disconnect message several lines long fits.
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
-/// The `compression` values.
-const COMPRESSION_NAMES: [(&str, Compression); 2] =
-    [("snappy", Compression::Snappy), ("zlib", Compression::Zlib)];
+
 /// The `max-mtu-size` range; go-raknet's dialer probes 1492, 1200 and 576, and 1492 is the
 /// largest RakNet MTU.
 const MTU_SIZE_RANGE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU;
-/// The `network-threads` and `cpu-threads` counts; the runtime checks the total against the
-/// logical CPUs.
-const THREADS_RANGE: RangeInclusive<u16> = 1..=u16::MAX;
-/// The `chunks-per-tick` range: 0 would never send a chunk, and 256 sends the largest view in
-/// about 3 seconds.
-pub(crate) const CHUNKS_PER_TICK_RANGE: RangeInclusive<u32> = 1..=256;
+
+/// The `max-players` range; the player and session tables are sized from it.
+const PLAYERS_RANGE: RangeInclusive<u32> = 1..=10_000;
+
 /// The `spawn-radius` and `tick-radius` range; the effective radius is at most `view-distance`,
 /// so a larger value means nothing.
 const RADIUS_RANGE: RangeInclusive<u8> = 1..=*VIEW_DISTANCE_RANGE.end();
+
 /// The `random-tick-speed` range; a sub-chunk holds 4096 blocks, so more ticks than blocks add
 /// only cost.
 pub(crate) const RANDOM_TICK_SPEED_RANGE: RangeInclusive<u32> = 0..=4096;
-/// The `fixed-light-level` range: the light levels.
-const FIXED_LIGHT_LEVEL_RANGE: RangeInclusive<u8> = 0..=15;
-/// The `item-pickup-interval` range: every tick to once a second.
-const ITEM_PICKUP_INTERVAL_RANGE: RangeInclusive<u8> = 1..=20;
+
 /// The `save-interval-minutes` range: one minute to one day.
 const SAVE_INTERVAL_MINUTES_RANGE: RangeInclusive<u16> = 1..=1440;
+
+/// The `network-threads` and `cpu-threads` counts; the runtime checks the total against the
+/// logical CPUs.
+const THREADS_RANGE: RangeInclusive<u16> = 1..=u16::MAX;
+
+/// The `view-distance` range the settings file accepts.
+pub(crate) const VIEW_DISTANCE_RANGE: RangeInclusive<u8> = 2..=64;
 
 /// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
 ///
@@ -1744,11 +1758,11 @@ mod tests {
         );
 
         let mut config = Config::default();
-        config.developer.nethernet_tls_cert = Some("cert.pem".into());
+        config.developer.nethernet_tls_cert = Some(PathBuf::from("cert.pem"));
         assert!(config.validate().is_err());
         config.developer.nethernet_tls_key = Some(PathBuf::new());
         assert!(config.validate().is_err());
-        config.developer.nethernet_tls_key = Some("key.pem".into());
+        config.developer.nethernet_tls_key = Some(PathBuf::from("key.pem"));
         config.validate().expect("both set");
 
         let mut config = Config::default();
@@ -1794,7 +1808,8 @@ mod tests {
     #[test]
     fn pack_paths_resolve_against_the_data_pack_folder() {
         let mut config = Config::default();
-        config.general.resource_packs = vec!["a.zip".into(), "/abs/b.mcpack".into()];
+        config.general.resource_packs =
+            vec![PathBuf::from("a.zip"), PathBuf::from("/abs/b.mcpack")];
         let folder = Path::new("data").join(crate::pack::FOLDER);
         let paths = config.resource_pack_paths(&folder);
         assert_eq!(paths[0], Path::new("data/packs/a.zip"));

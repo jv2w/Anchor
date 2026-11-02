@@ -77,7 +77,7 @@ fn an_exported_world_imports_back_into_the_same_world_file() {
     let file = |data: &Path| {
         std::fs::read(data.join("worlds").join(format!("{NAME}.redb"))).expect("the world file")
     };
-    assert!(file(&first) == file(&second), "the world files differ");
+    assert_eq!(file(&first), file(&second), "the world files differ");
 
     // The folder is not written twice.
     let err = server(&first)

@@ -21,17 +21,23 @@ use std::slice;
 
 use crate::protocol::{Error, Reader, Result, Writer, map_charges};
 
+/// What a compound's first key and each other key take from a reader's budget: its tree's nodes
+/// ([`map_charges`]).
+const ENTRY_CHARGES: (usize, usize) = map_charges(size_of::<(String, Value)>());
+/// The room reserved for the container stack of a root.
+const FRAME_CAPACITY: usize = 16;
 /// The deepest nesting of compounds and lists, counting the root.
 pub(crate) const MAX_DEPTH: usize = 512;
 /// The most bytes one root tag may take on the wire.
 pub(crate) const MAX_ROOT_BYTES: usize = 4 << 20;
 /// The longest string in bytes (gophertunnel `maxStringSize`).
 const MAX_STRING_LEN: u16 = 0x7fff;
-/// What a compound's first key and each other key take from a reader's budget: its tree's nodes
-/// ([`map_charges`]).
-const ENTRY_CHARGES: (usize, usize) = map_charges(size_of::<(String, Value)>());
-/// The room reserved for the container stack of a root.
-const FRAME_CAPACITY: usize = 16;
+/// Returned where a child does not fit its frame or the stack would not end in its root, which
+/// the stack discipline rules out.
+const STACK_ORDER: Error = Error::InvalidValue {
+    field: "nbt",
+    reason: "container stack out of order",
+};
 
 /// The tag types, by number.
 const TAG_END: u8 = 0;
@@ -47,13 +53,6 @@ const TAG_LIST: u8 = 9;
 const TAG_COMPOUND: u8 = 10;
 const TAG_INT_ARRAY: u8 = 11;
 const TAG_LONG_ARRAY: u8 = 12;
-
-/// Returned where a child does not fit its frame or the stack would not end in its root, which
-/// the stack discipline rules out.
-const STACK_ORDER: Error = Error::InvalidValue {
-    field: "nbt",
-    reason: "container stack out of order",
-};
 
 /// A compound tag: named values in key byte order.
 pub type Compound = BTreeMap<String, Value>;
@@ -951,6 +950,15 @@ mod tests {
     use crate::protocol::fuzz;
 
     const BUDGET: usize = 1 << 26;
+    const LIMIT: usize = 4096;
+    const STATIC: StaticCompound = &[
+        ("a", Static::Byte(1)),
+        ("f", Static::Float(f32::NAN)),
+        (
+            "l",
+            Static::List(StaticList::Compound(&[&[("k", Static::Short(2))]])),
+        ),
+    ];
 
     fn read(data: &[u8], encoding: Encoding) -> Result<Compound> {
         let mut r = Reader::new(data, BUDGET, 0);
@@ -1144,14 +1152,6 @@ mod tests {
     /// compound being built from it.
     #[test]
     fn a_static_compound_equals_the_compound_it_builds() {
-        const STATIC: StaticCompound = &[
-            ("a", Static::Byte(1)),
-            ("f", Static::Float(f32::NAN)),
-            (
-                "l",
-                Static::List(StaticList::Compound(&[&[("k", Static::Short(2))]])),
-            ),
-        ];
         let owned = compound(STATIC);
         assert!(equals(&owned, STATIC));
         assert!(contains(&owned, &STATIC[..1]));
@@ -1209,7 +1209,6 @@ mod tests {
 
     #[test]
     fn a_bounded_write_stops_at_its_limit_before_copying_more() {
-        const LIMIT: usize = 4096;
         let huge = [
             Value::ByteArray(vec![0; 16 << 20]),
             Value::IntArray(vec![-1; 1 << 20]),

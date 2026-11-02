@@ -666,7 +666,7 @@ pub(crate) mod tests {
         let mut rng = Rng(0x00c4_0001);
         let mut chunk = Chunk::new();
         let mut model = vec![Entry::AIR; 384 * 256];
-        for round in 0..100_000usize {
+        for round in 0..100_000_usize {
             // Phases of many states (palettes widen), few states and air (they narrow and
             // sub-chunks empty), and of one sub-chunk (dense writes).
             let (pool, ys) = match (round / 10_000) % 3 {
@@ -713,7 +713,7 @@ pub(crate) mod tests {
         let mut rng = Rng(0x00c4_0002);
         let mut layers = [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)];
         let mut model = vec![vec![Entry::AIR; 4096]; 2];
-        for round in 0..100_000usize {
+        for round in 0..100_000_usize {
             let pool = if (round / 10_000) % 2 == 0 { 2500 } else { 2 };
             let layer = rng.below(2);
             let o = rng.below(4096);
@@ -765,7 +765,7 @@ pub(crate) mod tests {
     fn a_sub_chunk_payload_is_encoded_without_growing_its_buffer() {
         let mut chunk = Chunk::generate(&Flat, 1, ChunkPos::new(0, 0));
         // 60 states in layer 0: a 6-bit palette.
-        for (i, s) in (0u8..60).zip(State::all().step_by(97)) {
+        for (i, s) in (0_u8..60).zip(State::all().step_by(97)) {
             chunk.set_block(i % 16, -60, i / 16, s).unwrap();
         }
         let sub = chunk.sub_chunk(0).unwrap();

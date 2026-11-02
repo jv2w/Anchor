@@ -12,24 +12,20 @@ use crate::protocol::consts::CreativeCategory;
 use crate::protocol::packet::Packet;
 use crate::world::{Chunk, Entry};
 
-pub(crate) static RUBY: Item = Item::new("test:ruby", "Ruby", "test_ruby")
-    .with_creative(Creative::new(Category::Items).with_group("itemGroup.name.test"));
+static AIR_DROP: Block = Block::new("test:air_drop", "x")
+    .with_drops(Drops::Items(&[(ItemRef::Block(block::Kind::Air), 1)]));
 pub(crate) static APPLE: Item = Item::new("test:apple", "Golden Thing", "test_apple")
     .with_food_always(4, 9.6)
     .glint()
     .with_creative(Creative::new(Category::Items).with_group("itemGroup.name.test"));
-pub(crate) static SWORD: Item = Item::new("test:sword", "Ruby Sword", "test_sword")
-    .with_durability(100)
-    .with_attack_damage(7)
-    .hand_equipped()
-    .off_hand_allowed()
-    .without_creative_breaking();
-pub(crate) static ORE: Block = Block::new("test:ruby_ore", "test_ruby_ore")
-    .with_hardness(3.0)
-    .with_tool(ToolType::PICKAXE, 2)
-    .with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 2)]))
-    .with_experience(1, 3)
-    .with_creative(Creative::new(Category::Nature));
+/// A block whose one state hashes, as found by a search, to the network ID of a reference state
+/// that is not a state of the table: an alias's.
+static AS_ALIAS: Block = Block::new("test:c26250", "x");
+/// A block whose one state hashes, as found by a search, to the network ID of a reference state
+/// that is not a state of the table: an inert state's.
+static AS_INERT: Block = Block::new("test:c257583", "x");
+static BIG_STACK: Item = Item::new("test:big", "Big", "big").with_max_stack_size(65);
+static BRIGHT: Block = Block::new("test:bright", "x").with_light_emission(16);
 pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
     .with_properties(&[
         Property::enumeration("color", &["red", "blue"]),
@@ -47,6 +43,39 @@ pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
         Material::new("test_lamp").with_render_method(RenderMethod::AlphaTest),
         Material::face(block::Face::Up, "test_lamp_top"),
     ]);
+static MINECRAFT: Item = Item::new("minecraft:ruby", "Ruby", "ruby");
+static NO_NAMESPACE: Item = Item::new("ruby", "Ruby", "ruby");
+pub(crate) static ORE: Block = Block::new("test:ruby_ore", "test_ruby_ore")
+    .with_hardness(3.0)
+    .with_tool(ToolType::PICKAXE, 2)
+    .with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 2)]))
+    .with_experience(1, 3)
+    .with_creative(Creative::new(Category::Nature));
+static ORPHAN_DROP: Block =
+    Block::new("test:orphan", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 1)]));
+static OUTSIDE: Block = Block::new("test:outside", "x").with_collision_box(Some(Aabb::new(
+    Vec3::new(0.0, 0.0, 0.0),
+    Vec3::new(1.0, 1.5, 1.0),
+)));
+pub(crate) static RUBY: Item = Item::new("test:ruby", "Ruby", "test_ruby")
+    .with_creative(Creative::new(Category::Items).with_group("itemGroup.name.test"));
+pub(crate) static SWORD: Item = Item::new("test:sword", "Ruby Sword", "test_sword")
+    .with_durability(100)
+    .with_attack_damage(7)
+    .hand_equipped()
+    .off_hand_allowed()
+    .without_creative_breaking();
+static SWORD_DROP: Block =
+    Block::new("test:one_sword", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 1)]));
+static SWORDS_DROP: Block =
+    Block::new("test:swords", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 2)]));
+static UNSORTED: Block = Block::new("test:unsorted", "x")
+    .with_properties(&[Property::bool("lit"), Property::int("level", 0, 1)]);
+static UPPER: Item = Item::new("test:Ruby", "Ruby", "ruby");
+static WIDE: Block = Block::new("test:wide", "x").with_properties(&[Property::int("level", 0, 16)]);
+static WORN_STACK: Item = Item::new("test:worn", "Worn", "worn")
+    .with_durability(5)
+    .with_max_stack_size(16);
 
 /// A finished registry of every test definition.
 pub(crate) fn registry() -> Registry {
@@ -747,11 +776,6 @@ fn finish(build: impl FnOnce(&mut Registry)) -> Result<()> {
     r.finish()
 }
 
-/// Blocks whose one state hashes, as found by a search, to the network ID of a reference state
-/// that is not a state of the table: an inert state's and an alias's.
-static AS_INERT: Block = Block::new("test:c257583", "x");
-static AS_ALIAS: Block = Block::new("test:c26250", "x");
-
 #[test]
 fn a_state_with_the_network_id_of_any_vanilla_state_refuses_the_build() {
     for block in [&AS_INERT, &AS_ALIAS] {
@@ -763,28 +787,6 @@ fn a_state_with_the_network_id_of_any_vanilla_state_refuses_the_build() {
         );
     }
 }
-
-static MINECRAFT: Item = Item::new("minecraft:ruby", "Ruby", "ruby");
-static NO_NAMESPACE: Item = Item::new("ruby", "Ruby", "ruby");
-static UPPER: Item = Item::new("test:Ruby", "Ruby", "ruby");
-static BIG_STACK: Item = Item::new("test:big", "Big", "big").with_max_stack_size(65);
-static WORN_STACK: Item = Item::new("test:worn", "Worn", "worn")
-    .with_durability(5)
-    .with_max_stack_size(16);
-static UNSORTED: Block = Block::new("test:unsorted", "x")
-    .with_properties(&[Property::bool("lit"), Property::int("level", 0, 1)]);
-static WIDE: Block = Block::new("test:wide", "x").with_properties(&[Property::int("level", 0, 16)]);
-static BRIGHT: Block = Block::new("test:bright", "x").with_light_emission(16);
-static OUTSIDE: Block = Block::new("test:outside", "x").with_collision_box(Some(Aabb::new(
-    Vec3::new(0.0, 0.0, 0.0),
-    Vec3::new(1.0, 1.5, 1.0),
-)));
-static ORPHAN_DROP: Block =
-    Block::new("test:orphan", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 1)]));
-static SWORDS_DROP: Block =
-    Block::new("test:swords", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 2)]));
-static SWORD_DROP: Block =
-    Block::new("test:one_sword", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 1)]));
 
 #[test]
 fn invalid_definitions_refuse_the_build() {
@@ -933,9 +935,6 @@ fn recipe_refusals_name_the_limits_they_enforce() {
         assert_eq!(reason, expected);
     }
 }
-
-static AIR_DROP: Block = Block::new("test:air_drop", "x")
-    .with_drops(Drops::Items(&[(ItemRef::Block(block::Kind::Air), 1)]));
 
 #[test]
 fn results_and_drops_naming_no_item_say_so() {

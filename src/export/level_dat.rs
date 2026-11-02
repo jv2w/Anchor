@@ -13,6 +13,11 @@ use crate::protocol::packet::PROTOCOL_VERSION;
 use crate::storage::codec::WorldRecord;
 use crate::world::{Flat, Generator};
 
+/// `FlatWorldLayers` with one layer of air: chunks of nothing but plains.
+const AIR_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
+    {\"block_name\":\"minecraft:air\",\"count\":1}],\
+    \"encoding_version\":6,\"structure_options\":null,\
+    \"world_version\":\"version.post_1_18\"}\n";
 /// The `Generator` of a flat world.
 const FLAT_GENERATOR: i32 = 2;
 /// `FlatWorldLayers` as BDS 1.26.60 writes it for its default flat world: bedrock at y -64,
@@ -21,11 +26,6 @@ const FLAT_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     {\"block_name\":\"minecraft:bedrock\",\"count\":1},\
     {\"block_name\":\"minecraft:dirt\",\"count\":2},\
     {\"block_name\":\"minecraft:grass_block\",\"count\":1}],\
-    \"encoding_version\":6,\"structure_options\":null,\
-    \"world_version\":\"version.post_1_18\"}\n";
-/// The same with one layer of air: chunks of nothing but plains.
-const AIR_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
-    {\"block_name\":\"minecraft:air\",\"count\":1}],\
     \"encoding_version\":6,\"structure_options\":null,\
     \"world_version\":\"version.post_1_18\"}\n";
 
@@ -107,8 +107,8 @@ mod tests {
         );
     }
 
-    /// Checks that [`FLAT_LAYERS`], from which the game makes the chunks an exported `Flat` world
-    /// never saved, gives the terrain `Flat` generates.
+    /// [`FLAT_LAYERS`], from which the game makes the chunks an exported `Flat` world never
+    /// saved, gives the terrain `Flat` generates.
     #[test]
     fn the_flat_layers_are_the_terrain_flat_generates() {
         let layers: serde_json::Value = serde_json::from_str(FLAT_LAYERS).unwrap();

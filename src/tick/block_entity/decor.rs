@@ -19,11 +19,13 @@ use crate::tick::interact::{book, sign};
 use crate::tile::{DyeColour, SignText};
 use crate::world::BlockPos;
 
+/// The colour of a bed whose colour is missing or unknown: red (PMMP `Bed`).
+pub(in crate::tick) const DEFAULT_BED_COLOUR: u8 = 14;
+/// Rotations of a framed item (PMMP `ItemFrame::ROTATIONS`).
+pub(in crate::tick) const FRAME_ROTATIONS: u8 = 8;
 /// The most patterns a banner keeps; more in saved data are left out (Bedrock's loom stops at
 /// six; PMMP has no limit).
 pub(in crate::tick) const MAX_PATTERNS: usize = 16;
-/// Rotations of a framed item (PMMP `ItemFrame::ROTATIONS`).
-pub(in crate::tick) const FRAME_ROTATIONS: u8 = 8;
 /// Rotations of a mob head on the floor: sixteenths of a turn.
 pub(in crate::tick) const SKULL_ROTATIONS: u8 = 16;
 /// The mob head blocks by their PMMP `MobHeadTypeIdMap` ID, the `SkullType` byte.
@@ -36,11 +38,9 @@ pub(in crate::tick) const SKULL_TYPES: [&str; 7] = [
     "minecraft:dragon_head",
     "minecraft:piglin_head",
 ];
-/// The colour of a bed whose colour is missing or unknown: red (PMMP `Bed`).
-pub(in crate::tick) const DEFAULT_BED_COLOUR: u8 = 14;
 
 /// A sign or hanging sign.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(in crate::tick) struct Sign {
     pub(in crate::tick) front: SignText,
     pub(in crate::tick) back: SignText,
@@ -142,7 +142,7 @@ impl SignText {
 }
 
 /// A banner: base colour and patterns by PMMP's inverted dye colour IDs (black 0 … white 15).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(in crate::tick) struct Banner {
     pub(in crate::tick) base: i32,
     /// Pattern ID (`bo`, `cre`…) and colour, at most [`MAX_PATTERNS`].
@@ -534,7 +534,7 @@ mod tests {
     fn sign_text_round_trips_and_keeps_its_colour_and_glow() {
         let sign = Sign {
             front: SignText {
-                lines: ["a".into(), "b".into(), String::new(), String::new()],
+                lines: ["a".to_owned(), "b".to_owned(), String::new(), String::new()],
                 colour: 0xff00_ff00_u32.cast_signed(),
                 glowing: true,
             },
@@ -549,7 +549,7 @@ mod tests {
                 Value::Compound(c) => c.get("Text").cloned(),
                 _ => None,
             }),
-            Some(Value::String("a\nb".into()))
+            Some(Value::String("a\nb".to_owned()))
         );
         let mut read = nbt.clone();
         assert_eq!(Sign::read(&mut read, false), sign);

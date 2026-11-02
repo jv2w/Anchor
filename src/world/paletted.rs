@@ -14,11 +14,12 @@ use crate::protocol::{BLOCKS, WIDTHS, Writer, word_count};
 
 use super::{Error, Result};
 
+/// The most bytes a 32-bit varint takes.
+const MAX_VARINT32_BYTES: usize = 5;
+
 /// Slots in a cube: the protocol's blocks in a sub-chunk, as a slot offset.
 pub(crate) const SLOTS: u16 = 4096;
 const _: () = assert!(SLOTS as usize == BLOCKS);
-/// The most bytes a 32-bit varint takes.
-const MAX_VARINT32_BYTES: usize = 5;
 
 /// A cube of values of type `T`: block entries or biome IDs.
 ///
@@ -317,7 +318,7 @@ impl<T: Derive> Paletted<T> {
             return;
         }
         let (word, shift) = locate(self.bits, offset);
-        let mask = (1u32 << self.bits) - 1;
+        let mask = (1_u32 << self.bits) - 1;
         if let Some(w) = self.words.get_mut(word) {
             *w = (*w & !(mask << shift)) | (u32::from(index) << shift);
         }
@@ -380,11 +381,11 @@ impl<T: Derive> Paletted<T> {
             return;
         }
         let (old_per, new_per) = (per_word(old_bits), per_word(bits));
-        let old_mask = (1u32 << old_bits) - 1;
+        let old_mask = (1_u32 << old_bits) - 1;
         let mut slots = usize::from(SLOTS);
-        let (mut word, mut shift, mut in_word) = (0usize, 0u32, 0usize);
+        let (mut word, mut shift, mut in_word) = (0_usize, 0_u32, 0_usize);
         for &w in &old {
-            let mut from = 0u32;
+            let mut from = 0_u32;
             for _ in 0..old_per.min(slots) {
                 let index = (w >> from) & old_mask;
                 from += u32::from(old_bits);
@@ -412,7 +413,7 @@ impl<T: Derive> Paletted<T> {
         if bits >= self.bits {
             return;
         }
-        let mut map = vec![0u16; self.palette.len()];
+        let mut map = vec![0_u16; self.palette.len()];
         let mut palette = Vec::with_capacity(live);
         for ((m, &value), &count) in map.iter_mut().zip(&self.palette).zip(&self.counts) {
             if count > 0 {
@@ -495,7 +496,7 @@ fn index_in(bits: u8, words: &[u32], offset: u16) -> u16 {
     }
     let (word, shift) = locate(bits, offset);
     let w = words.get(word).copied().unwrap_or(0);
-    let mask = (1u32 << bits) - 1;
+    let mask = (1_u32 << bits) - 1;
     u16::try_from((w >> shift) & mask).unwrap_or(0)
 }
 
@@ -543,7 +544,7 @@ fn width_for(entries: usize) -> u8 {
 
 /// Entries a palette may hold at a width: what the width indexes, at most one per slot.
 fn capacity(bits: u8) -> usize {
-    (1usize << bits).min(usize::from(SLOTS))
+    (1_usize << bits).min(usize::from(SLOTS))
 }
 
 /// Converts a palette position, at most 4096, to an index.
@@ -574,7 +575,7 @@ pub(crate) mod tests {
         for o in 0..SLOTS {
             assert_eq!(p.derived(o), p.get(o).derive());
         }
-        let mut counts = vec![0u16; p.palette.len()];
+        let mut counts = vec![0_u16; p.palette.len()];
         for o in 0..SLOTS {
             counts[usize::from(p.index(o))] += 1;
         }
@@ -611,10 +612,10 @@ pub(crate) mod tests {
     #[test]
     fn random_sets_match_an_array_and_keep_the_invariants() {
         let mut rng = Rng(0x5eed_0001);
-        let mut p = Paletted::uniform(0u32);
-        let mut model = vec![0u32; usize::from(SLOTS)];
+        let mut p = Paletted::uniform(0_u32);
+        let mut model = vec![0_u32; usize::from(SLOTS)];
         let mut widths = std::collections::BTreeSet::new();
-        for round in 0..40_000usize {
+        for round in 0..40_000_usize {
             // Phases of many distinct values (widening) and of few (narrowing).
             let spread = if (round / 5000) % 2 == 0 { 3000 } else { 3 };
             let o = rng.below(model.len());
@@ -650,7 +651,7 @@ pub(crate) mod tests {
     fn kept_values_follow_their_entries_through_growth_reuse_shrinking_and_parts() {
         let mut rng = Rng(0x5eed_0002);
         let mut p = Paletted::uniform(Kept(0));
-        for round in 0..30_000usize {
+        for round in 0..30_000_usize {
             // Many distinct values fill the palette (widening, then reusing dead entries at
             // 4096); few values narrow it again.
             let spread = if (round / 6000) % 2 == 0 { 6000 } else { 3 };
@@ -672,7 +673,7 @@ pub(crate) mod tests {
     #[test]
     fn all_distinct_values_fit_in_4096_entries() {
         let mut p = Paletted::uniform(u32::MAX);
-        for round in 0..3u32 {
+        for round in 0..3_u32 {
             for o in 0..SLOTS {
                 p.set(o, u32::from(o) + round * 10_000);
                 assert!(p.palette.len() <= usize::from(SLOTS));
@@ -690,7 +691,7 @@ pub(crate) mod tests {
 
     #[test]
     fn parts_round_trip_and_are_compacted() {
-        let mut p = Paletted::uniform(5u32);
+        let mut p = Paletted::uniform(5_u32);
         for o in 0..SLOTS {
             p.set(o, u32::from(o % 7) * 3);
         }
@@ -704,8 +705,8 @@ pub(crate) mod tests {
         assert_eq!(q.palette(), [0, 3, 6, 9, 12, 15, 18]);
         assert_eq!(q.bits(), 3);
         // A palette with a repeated entry and an unused one.
-        let words = vec![0b10_01_00u32; 256];
-        let r = Paletted::from_parts(2, &words, &[4u32, 4, 8, 1]).unwrap();
+        let words = vec![0b10_01_00_u32; 256];
+        let r = Paletted::from_parts(2, &words, &[4_u32, 4, 8, 1]).unwrap();
         check(&r);
         assert_eq!(r.palette(), [4, 8]);
         assert_eq!(r.get(offset(0, 2, 0)), 8);
@@ -714,7 +715,7 @@ pub(crate) mod tests {
 
     #[test]
     fn raw_parts_give_the_exact_cube_and_malformed_ones_are_errors() {
-        let mut p = Paletted::uniform(5u32);
+        let mut p = Paletted::uniform(5_u32);
         for o in 0..SLOTS {
             p.set(o, u32::from(o % 7) * 3);
         }
@@ -723,7 +724,7 @@ pub(crate) mod tests {
         let q = Paletted::from_raw(p.bits(), p.words(), p.palette()).unwrap();
         check(&q);
         assert_eq!(q, p, "unused entries, order and width kept");
-        let u = Paletted::uniform(7u32);
+        let u = Paletted::uniform(7_u32);
         assert_eq!(Paletted::from_raw(0, &[], &[7]).unwrap(), u);
         assert!(Paletted::<u32>::from_raw(0, &[], &[7, 8]).is_err());
         assert!(
@@ -736,7 +737,7 @@ pub(crate) mod tests {
             "outside"
         );
         // 3 bits: 10 indices a word, the top 2 bits padding.
-        let mut words = vec![0u32; 410];
+        let mut words = vec![0_u32; 410];
         words[0] = 1 << 31;
         assert!(
             Paletted::<u32>::from_raw(3, &words, &[1]).is_err(),

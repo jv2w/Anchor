@@ -6,19 +6,19 @@
 use crate::item::{self, Enchantment, Extra, Kind, Stack, ToolTier};
 use crate::nbt::Value;
 
-/// The cost at which the anvil refuses outside creative mode ("too expensive").
-pub(in crate::tick) const TOO_EXPENSIVE: u32 = 40;
-/// The tag key of an item's prior work.
-const REPAIR_COST: &str = "RepairCost";
-/// The levels renaming costs.
-const RENAME_LEVELS: u32 = 1;
-/// The levels repairing with a second item of the same type costs.
-const JOIN_REPAIR_LEVELS: u32 = 2;
 /// The share of the durability, in percent, that repairing with a second item of the same type
 /// adds to the durability the second item has left.
 const JOIN_REPAIR_BONUS_PERCENT: u32 = 12;
+/// The levels repairing with a second item of the same type costs.
+const JOIN_REPAIR_LEVELS: u32 = 2;
 /// How many units of material repair a whole durability, a level each.
 const MATERIAL_UNITS: u16 = 4;
+/// The levels renaming costs.
+const RENAME_LEVELS: u32 = 1;
+/// The tag key of an item's prior work.
+const REPAIR_COST: &str = "RepairCost";
+/// The cost at which the anvil refuses outside creative mode ("too expensive").
+pub(in crate::tick) const TOO_EXPENSIVE: u32 = 40;
 
 /// What an anvil makes of its input and material.
 #[derive(Debug, Clone, PartialEq)]

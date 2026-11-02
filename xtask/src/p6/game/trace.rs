@@ -49,42 +49,9 @@ use serde_json::Value;
 
 use crate::p6::compare::field;
 
-/// The flat world's blocks by height (BDS's and Anchor's default flat world), as the bot assumes
-/// them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.
-const FLAT: [(i64, &str); 4] = [
-    (-64, "minecraft:bedrock[infiniburn_bit=0]"),
-    (-63, "minecraft:dirt[]"),
-    (-62, "minecraft:dirt[]"),
-    (-61, "minecraft:grass_block[]"),
-];
 /// How far, on `x` and `z`, a scenario's own blocks are from its area: the areas are 8 blocks
 /// apart (`gameAreas` in `xtask/go/bot/game.go`), so each scenario owns the half way to the next.
 const AREA_REACH: i32 = 4;
-/// A new player's experience level.
-const START_LEVEL: &str = "0";
-
-/// The windows whose IDs mean the same on every server: the inventory, off hand, armour and UI.
-const FIXED_WINDOWS: [i64; 4] = [0, 119, 120, 124];
-
-/// Checks whose values are fixed between servers.
-const FIXED_CHECKS: [&str; 10] = [
-    "auto craft variant",
-    "deprecated result form",
-    "place a crafting table",
-    "place a crafting table held with a wrong block runtime ID",
-    "legacy villager",
-    "legacy trading",
-    "breathing before diving",
-    "breathing under water",
-    "drowned",
-    "breathing after surfacing",
-];
-
-/// Entities whose appearance is random: experience orbs (their number and values).
-const RANDOM_ENTITIES: [&str; 1] = ["minecraft:xp_orb"];
-/// Level events that follow random entities: an experience orb picked up.
-const RANDOM_LEVEL_EVENTS: [i64; 1] = [1051];
-
 /// Packets whose number per step is shown and nothing else.
 const COUNTED: [&str; 18] = [
     "LevelChunk",
@@ -106,6 +73,35 @@ const COUNTED: [&str; 18] = [
     "PlayerHotBar",
     "LevelSoundEvent",
 ];
+/// Checks whose values are fixed between servers.
+const FIXED_CHECKS: [&str; 10] = [
+    "auto craft variant",
+    "deprecated result form",
+    "place a crafting table",
+    "place a crafting table held with a wrong block runtime ID",
+    "legacy villager",
+    "legacy trading",
+    "breathing before diving",
+    "breathing under water",
+    "drowned",
+    "breathing after surfacing",
+];
+/// The windows whose IDs mean the same on every server: the inventory, off hand, armour and UI.
+const FIXED_WINDOWS: [i64; 4] = [0, 119, 120, 124];
+/// The flat world's blocks by height (BDS's and Anchor's default flat world), as the bot assumes
+/// them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.
+const FLAT: [(i64, &str); 4] = [
+    (-64, "minecraft:bedrock[infiniburn_bit=0]"),
+    (-63, "minecraft:dirt[]"),
+    (-62, "minecraft:dirt[]"),
+    (-61, "minecraft:grass_block[]"),
+];
+/// Entities whose appearance is random: experience orbs (their number and values).
+const RANDOM_ENTITIES: [&str; 1] = ["minecraft:xp_orb"];
+/// Level events that follow random entities: an experience orb picked up.
+const RANDOM_LEVEL_EVENTS: [i64; 1] = [1051];
+/// A new player's experience level.
+const START_LEVEL: &str = "0";
 
 /// One step of a trace.
 #[derive(Debug, Default, PartialEq)]

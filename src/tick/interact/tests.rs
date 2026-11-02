@@ -25,8 +25,21 @@ use crate::tick::survival::EYE_HEIGHT;
 use crate::tick::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
 use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
 
+/// Window opening clicks squeezed into one tick by a client that changes each click a little
+/// (so none is a repeat) and acknowledges every close at once.
+const CLICKS: usize = 1000;
+/// The network IDs of the 1.26.60 reference list (the values BDS sends) of two blocks only
+/// clients know.
+const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
+/// Looking east, level.
+const EAST: f32 = 270.0;
+/// The player's feet: on the flat world's grass at the spawn.
+const FEET: [f64; 3] = [0.5, -60.0, 0.5];
+const MOSS_BLOCK: u32 = 3_743_819_255;
 /// The notes of listeners and hooks.
 const SEEN: usize = 0;
+/// Two blocks east of the feet, at foot level.
+const TARGET: BlockPos = BlockPos::new(2, -60, 0);
 /// The notes of monitors.
 const WATCHED: usize = 1;
 
@@ -37,11 +50,6 @@ thread_local! {
     /// read, as `Debug` text; they run on the test's thread, in its tick.
     static NOTES: [Cell<Vec<String>>; 2] = const { [Cell::new(Vec::new()), Cell::new(Vec::new())] };
 }
-
-/// The player's feet: on the flat world's grass at the spawn.
-const FEET: [f64; 3] = [0.5, -60.0, 0.5];
-/// Looking east, level.
-const EAST: f32 = 270.0;
 
 /// A server with one spawned player (session 1) and its outbound queue.
 struct Harness {
@@ -132,7 +140,7 @@ impl Harness {
             input_data: InputFlags::from_set(&flags),
             item_interaction_data: item,
             block_actions: (!actions.is_empty()).then_some(actions),
-            ..Default::default()
+            ..PlayerAuthInput::default()
         };
         self.input(Packet::PlayerAuthInput(Box::new(p)))
     }
@@ -212,7 +220,7 @@ fn notes(notes: usize) -> Vec<String> {
     NOTES.with(|n| n[notes].take())
 }
 
-/// Returns `v` as a note.
+/// The `Debug` text of `v`, as a note.
 fn dbg(v: impl Debug) -> String {
     format!("{v:?}")
 }
@@ -232,7 +240,7 @@ fn click(pos: BlockPos, face: Face, stack: &Stack) -> UseItemTransactionData {
         block_position: [pos.x, pos.y, pos.z],
         block_face: i32::from(face.index()),
         clicked_position: [0.5, 1.0, 0.5],
-        ..Default::default()
+        ..UseItemTransactionData::default()
     };
     data.held_item.stack.item_type.network_id =
         stack.item().map_or(0, |t| i32::from(t.runtime_id()));
@@ -258,9 +266,6 @@ fn block_item(kind: Kind, count: u8) -> Stack {
     };
     Stack::new(t, count)
 }
-
-/// Two blocks east of the feet, at foot level.
-const TARGET: BlockPos = BlockPos::new(2, -60, 0);
 
 fn creative(c: &mut Config) {
     c.general.gamemode = GameMode::Creative;
@@ -763,7 +768,7 @@ fn a_normal_transaction_that_is_no_q_key_drop_changes_nothing() {
     let entities = h.state.rules.entities.count(0);
     let tx = InventoryTransaction {
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
-        ..Default::default()
+        ..InventoryTransaction::default()
     };
     let input = h.input(Packet::InventoryTransaction(tx));
     h.run(vec![input]);
@@ -812,7 +817,7 @@ fn destroying_for_each_cause_follows_pmmp() {
     assert!(!destroy(&mut h.state, 0, TARGET, Destroy::Rules));
     // A player's break whose drop finds no room changes nothing: the world is at its entity cap.
     // (The door's drop is one of the entities already.)
-    let mut i = 0u32;
+    let mut i = 0_u32;
     while entity::has_room(&h.state, 0, 1) {
         let at = Vec3::new(
             f64::from(i % 64) - 32.0,
@@ -1028,7 +1033,7 @@ fn sneaking_places_instead_of_opening() {
             position: [0.5, -58.38, 0.5],
             input_data: InputFlags::from_set(&flags),
             item_interaction_data: Some(data),
-            ..Default::default()
+            ..PlayerAuthInput::default()
         };
         h.input(Packet::PlayerAuthInput(Box::new(p)))
     };
@@ -1117,10 +1122,6 @@ fn break_progress_does_not_carry_over_to_a_new_block() {
     assert_eq!(h.block(TARGET), obsidian);
     assert!(updates(&h.packets()).contains(&TARGET), "resynced");
 }
-
-/// Window opening clicks squeezed into one tick by a client that changes each click a little
-/// (so none is a repeat) and acknowledges every close at once.
-const CLICKS: usize = 1_000;
 
 #[test]
 fn a_client_opens_a_block_window_at_most_once_a_tick() {
@@ -1317,7 +1318,7 @@ fn a_chiseled_bookshelf_keeps_its_books_at_the_entity_limit() {
     for slot in &mut contents.items {
         *slot = book.clone();
     }
-    let mut i = 0u32;
+    let mut i = 0_u32;
     while entity::has_room(&h.state, 0, 1) {
         let at = Vec3::new(
             f64::from(i % 64) - 32.0,
@@ -1485,11 +1486,11 @@ fn the_q_key_drops_from_the_held_slot_when_the_client_stack_matches() {
     let slot = h.player().inventory.held_slot();
     let old = crate::protocol::ItemInstance {
         stack: sticks.to_network(),
-        ..Default::default()
+        ..crate::protocol::ItemInstance::default()
     };
     let new = crate::protocol::ItemInstance {
         stack: sticks.with_count(2).to_network(),
-        ..Default::default()
+        ..crate::protocol::ItemInstance::default()
     };
     let tx = InventoryTransaction {
         actions: vec![
@@ -1511,7 +1512,7 @@ fn the_q_key_drops_from_the_held_slot_when_the_client_stack_matches() {
             },
         ],
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
-        ..Default::default()
+        ..InventoryTransaction::default()
     };
     let input = h.input(Packet::InventoryTransaction(tx));
     h.run(vec![input]);
@@ -1546,7 +1547,7 @@ fn the_q_key_with_another_client_stack_sends_the_slot_back() {
     let tx = InventoryTransaction {
         actions: vec![drop, held],
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
-        ..Default::default()
+        ..InventoryTransaction::default()
     };
     let input = h.input(Packet::InventoryTransaction(tx));
     h.run(vec![input]);
@@ -1723,7 +1724,7 @@ fn a_hungry_player_eats_cake_one_bite_at_a_time() {
 fn air(stack: &Stack) -> UseItemTransactionData {
     let mut data = UseItemTransactionData {
         action_type: UseItemAction::ClickAir.into(),
-        ..Default::default()
+        ..UseItemTransactionData::default()
     };
     data.held_item.stack.item_type.network_id =
         stack.item().map_or(0, |t| i32::from(t.runtime_id()));
@@ -2263,11 +2264,6 @@ fn stored(name: &str) -> crate::nbt::Compound {
         ),
     ])
 }
-
-/// The network IDs of the 1.26.60 reference list (the values BDS sends) of two blocks only
-/// clients know.
-const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
-const MOSS_BLOCK: u32 = 3_743_819_255;
 
 /// Whether `packets` set `pos` to the block of network ID `id`.
 fn sets(packets: &[Packet], pos: BlockPos, id: u32) -> bool {

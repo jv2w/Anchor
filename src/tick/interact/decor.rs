@@ -52,7 +52,7 @@ fn entity_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<&BlockEn
     state.rules.block_entities.get(world, pos)
 }
 
-/// Returns the middle of the top of the block at `pos`, where a lectern's book and a jukebox's
+/// The middle of the top of the block at `pos`, where a lectern's book and a jukebox's
 /// record drop.
 fn top_center(pos: BlockPos) -> Vec3 {
     Vec3::new(
@@ -62,7 +62,7 @@ fn top_center(pos: BlockPos) -> Vec3 {
     )
 }
 
-/// Returns the dye colour ID of a dye-like item (PMMP: dyes, and bone meal white, lapis blue,
+/// The dye colour ID of a dye-like item (PMMP: dyes, and bone meal white, lapis blue,
 /// cocoa brown).
 fn dye_like(t: item::Type) -> Option<u8> {
     match t.kind() {
@@ -73,7 +73,7 @@ fn dye_like(t: item::Type) -> Option<u8> {
     }
 }
 
-/// Returns the colour a dye-like item gives a sign (PMMP `BaseSign::onInteract`; black is pure
+/// The colour a dye-like item gives a sign (PMMP `BaseSign::onInteract`; black is pure
 /// black), as signed ARGB.
 fn sign_colour(stack: &Stack) -> Option<i32> {
     let colour = dye_like(stack.item()?)?;

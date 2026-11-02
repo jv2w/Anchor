@@ -148,7 +148,7 @@ impl UserData {
                     let name = server.codec.name.clone();
                     error!(
                         name,
-                        error = %e,
+                        error = &e as &(dyn std::error::Error + 'static),
                         "saved server data does not deserialize into its type; the start is refused and the value kept as saved"
                     );
                     return Err(crate::Error::Data(Error::Undecodable { name }));
@@ -171,7 +171,7 @@ impl UserData {
                 }
                 Err(e) => error!(
                     name = server.codec.name,
-                    error = %e,
+                    error = &e as &(dyn std::error::Error + 'static),
                     max_bytes = MAX_SERVER_VALUE_BYTES,
                     "server data not saved; the last saved value stays"
                 ),
@@ -421,7 +421,7 @@ pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
                 Err(e) => {
                     error!(
                         name = codec.name,
-                        error = %e,
+                        error = &e as &(dyn std::error::Error + 'static),
                         "saved player data does not deserialize into its type; it reads as none and is kept as saved"
                     );
                     continue;
@@ -465,7 +465,7 @@ pub(in crate::tick) fn save_player(data: &UserData, extra: &PlayerExtra, out: &m
             }
             Err(e) => error!(
                 name = codec.name,
-                error = %e,
+                error = &e as &(dyn std::error::Error + 'static),
                 max_bytes = MAX_PLAYER_VALUE_BYTES,
                 "player data not saved; the last saved value stays"
             ),

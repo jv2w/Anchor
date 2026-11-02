@@ -37,33 +37,43 @@ use crate::protocol::{
 use crate::storage::ChunkKind;
 use crate::world::BlockPos;
 
+/// The UI slot of the enchanting input.
+const ENCHANT_INPUT: u8 = 14;
+/// The UI slot of the enchanting material.
+const ENCHANT_LAPIS: u8 = 15;
+/// Where the enchanting table stands: south-east, so drops and orbs from the north-east (the
+/// villager) reach the player unhindered.
+const ENCHANTING: BlockPos = BlockPos::new(3, -60, 1);
+/// A block face as clients number it.
+const FACE_UP: i32 = 1;
+/// A block face as clients number it.
+const FACE_WEST: i32 = 4;
 /// The player's feet: on the grass at the spawn, looking east.
 const FEET: Vec3 = Vec3::new(0.5, -60.0, 0.5);
-/// Looking east (+x): everything the scenario uses lies east of the player.
-const YAW: f32 = 270.0;
-/// Where logs and stone are set, one at a time, and where the wheat grows: next to the player.
-const WORK: BlockPos = BlockPos::new(1, -60, 0);
+/// Where the furnace stands: south-east, so drops and orbs from the north-east (the villager)
+/// reach the player unhindered.
+const FURNACE: BlockPos = BlockPos::new(2, -60, 2);
+/// The furnace's fuel slot.
+const FURNACE_FUEL: u8 = 1;
+/// The furnace's input slot.
+const FURNACE_INPUT: u8 = 0;
+/// The furnace's output slot.
+const FURNACE_OUTPUT: u8 = 2;
+/// The first UI slot of the 3x3 grid.
+const GRID_3X3: u8 = 32;
+/// The UI slot of the first trade payment.
+const PAYMENT: u8 = 4;
 /// The grass under [`WORK`], tilled into farmland.
 const SOIL: BlockPos = BlockPos::new(1, -61, 0);
-/// Where the crafting table, the furnace and the enchanting table stand: south-east, so drops
-/// and orbs from the north-east (the villager) reach the player unhindered.
+/// Where the crafting table stands: south-east, so drops and orbs from the north-east (the
+/// villager) reach the player unhindered.
 const TABLE: BlockPos = BlockPos::new(2, -60, 1);
-const FURNACE: BlockPos = BlockPos::new(2, -60, 2);
-const ENCHANTING: BlockPos = BlockPos::new(3, -60, 1);
 /// Where the villager stands (feet).
 const VILLAGER: Vec3 = Vec3::new(2.5, -60.0, -2.5);
-/// Block faces as clients number them.
-const FACE_UP: i32 = 1;
-const FACE_WEST: i32 = 4;
-/// The UI slots of the 3x3 grid, the enchanting input and material and the first trade payment.
-const GRID_3X3: u8 = 32;
-const ENCHANT_INPUT: u8 = 14;
-const ENCHANT_LAPIS: u8 = 15;
-const PAYMENT: u8 = 4;
-/// Furnace slots.
-const FURNACE_INPUT: u8 = 0;
-const FURNACE_FUEL: u8 = 1;
-const FURNACE_OUTPUT: u8 = 2;
+/// Where logs and stone are set, one at a time, and where the wheat grows: next to the player.
+const WORK: BlockPos = BlockPos::new(1, -60, 0);
+/// Looking east (+x): everything the scenario uses lies east of the player.
+const YAW: f32 = 270.0;
 
 /// The server, the player's connection and its client.
 struct Scenario {

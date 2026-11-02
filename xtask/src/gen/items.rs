@@ -13,6 +13,8 @@ use super::names::upper_camel;
 
 type R<T> = Result<T, String>;
 
+/// The state index of no block in the places tables.
+const NO_STATE: u16 = 0xffff;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/table.rs";
 
@@ -121,7 +123,7 @@ fn tags(data: &Data, out: &mut String) -> R<Vec<u128>> {
         return Err("item tags are not sorted".to_owned());
     }
     strings(out, "The item tag names, sorted.", "TAG_NAMES", &names);
-    let mut sets = vec![0u128; data.items.len()];
+    let mut sets = vec![0_u128; data.items.len()];
     for (bit, tag) in list.iter().enumerate() {
         for (set, item) in sets.iter_mut().zip(&data.items) {
             if tag.items.contains(&item.name) {
@@ -406,11 +408,10 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
 /// The per-type data that rarely repeats, kept out of the deduplicated rows: the blocks an item
 /// places and its tag set (an index into the distinct tag sets).
 fn per_type(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
-    const NONE: u16 = 0xffff;
     let state = |s: Option<u16>| match s {
-        Some(s) if s < NONE => Ok(s),
+        Some(s) if s < NO_STATE => Ok(s),
         Some(_) => Err("too many block states".to_owned()),
-        None => Ok(NONE),
+        None => Ok(NO_STATE),
     };
     for (name, doc, pick) in [
         (
@@ -476,7 +477,7 @@ fn per_type(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
 /// A 32-digit hex literal, grouped by four.
 fn u128_lit(v: u128) -> String {
     let digits = format!("{v:032x}");
-    let mut out = String::from("0x");
+    let mut out = "0x".to_owned();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && i.is_multiple_of(4) {
             out.push('_');

@@ -41,23 +41,6 @@ static CUSTOM_BLOCK_ITEM: Info = Info::custom(64, 0, 1, None);
 /// clients are sent it as the item's `use_duration`.
 const CUSTOM_EAT_TICKS: u16 = 32;
 
-/// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
-const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
-/// [`Trait`] bits of a PMMP food item (`Food`: consumable, food source, releasable).
-const TRAITS_FOOD: u32 = TRAITS_ITEM
-    | 1 << Trait::Consumable as u32
-    | 1 << Trait::ConsumableItem as u32
-    | 1 << Trait::FoodSource as u32
-    | 1 << Trait::FoodSourceItem as u32
-    | 1 << Trait::Releasable as u32;
-
-/// The state index sentinel of [`table::TYPE_PLACES`]: none.
-const NO_STATE: u16 = 0xffff;
-
-/// The NBT key PMMP's `CreativeInventoryCache` sets on a group icon to the group's index (its
-/// workaround for a 1.21.60 client glitch).
-pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
-
 /// The dye colours by PMMP `DyeColorIdMap` ID (white 0 … black 15): the dye item's name and the
 /// colour's RGB value (PMMP `DyeColor::getRgbValue`).
 const DYES: [(&str, u32); 16] = [
@@ -78,6 +61,46 @@ const DYES: [(&str, u32); 16] = [
     ("minecraft:red_dye", 0xb0_2e26),
     ("minecraft:black_dye", 0x1d_1d21),
 ];
+
+/// The names of the Education Edition items ([`is_education`]), without `minecraft:`.
+const EDUCATION_NAMES: [&str; 15] = [
+    "balloon",
+    "bleach",
+    "chemical_heat",
+    "chemistry_table",
+    "compound",
+    "compound_creator",
+    "glow_stick",
+    "ice_bomb",
+    "lab_table",
+    "material_reducer",
+    "medicine",
+    "rapid_fertilizer",
+    "sparkler",
+    "underwater_tnt",
+    "underwater_torch",
+];
+
+/// The name prefixes of the Education Edition items ([`is_education`]).
+const EDUCATION_PREFIXES: [&str; 3] = ["element_", "colored_torch_", "hard_"];
+
+/// The NBT key PMMP's `CreativeInventoryCache` sets on a group icon to the group's index (its
+/// workaround for a 1.21.60 client glitch).
+pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
+
+/// The state index sentinel of [`table::TYPE_PLACES`]: none.
+const NO_STATE: u16 = 0xffff;
+
+/// [`Trait`] bits of a PMMP food item (`Food`: consumable, food source, releasable).
+const TRAITS_FOOD: u32 = TRAITS_ITEM
+    | 1 << Trait::Consumable as u32
+    | 1 << Trait::ConsumableItem as u32
+    | 1 << Trait::FoodSource as u32
+    | 1 << Trait::FoodSourceItem as u32
+    | 1 << Trait::Releasable as u32;
+
+/// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
+const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
 
 /// An item type: a Bedrock item name with its meta value and, for a block item, the block state
 /// of its saved form ([`Type::block`]).
@@ -1380,26 +1403,8 @@ fn network_stack_with(
 /// sticks, rapid fertilizer, underwater TNT and the old chemistry names). `name` may leave out
 /// `minecraft:`. The one place that says which items they are.
 pub(crate) fn is_education(name: &str) -> bool {
-    const PREFIXES: [&str; 3] = ["element_", "colored_torch_", "hard_"];
-    const NAMES: [&str; 15] = [
-        "balloon",
-        "bleach",
-        "chemical_heat",
-        "chemistry_table",
-        "compound",
-        "compound_creator",
-        "glow_stick",
-        "ice_bomb",
-        "lab_table",
-        "material_reducer",
-        "medicine",
-        "rapid_fertilizer",
-        "sparkler",
-        "underwater_tnt",
-        "underwater_torch",
-    ];
     let name = name.strip_prefix("minecraft:").unwrap_or(name);
-    PREFIXES.iter().any(|p| name.starts_with(p)) || NAMES.contains(&name)
+    EDUCATION_PREFIXES.iter().any(|p| name.starts_with(p)) || EDUCATION_NAMES.contains(&name)
 }
 
 /// The `ItemRegistry` packet: every item of the reference list with its component data, in
@@ -1445,7 +1450,7 @@ pub(crate) fn creative_content() -> packet::CreativeContent {
                     .unwrap_or_default(),
             })
             .collect(),
-        items: (1u32..)
+        items: (1_u32..)
             .zip(&creative::ITEMS)
             .map(|(id, c)| protocol::CreativeItem {
                 creative_item_network_id: id,
@@ -1507,17 +1512,18 @@ pub(crate) fn dye_argb(colour: u8) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::collections::{BTreeMap, BTreeSet};
 
     use serde_json::Value as Json;
 
-    use super::*;
     use crate::nbt::{Compound, List, Value};
     use crate::protocol::consts::CreativeCategory;
     use crate::protocol::packet::Packet;
 
-    const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
     const CREATIVE: &str = include_str!("../xtask/data/pmmp/creative.json");
+    const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
 
     fn all() -> impl Iterator<Item = Type> {
         (0..u16::try_from(table::ITEMS.len()).unwrap()).map(Type::from_index)

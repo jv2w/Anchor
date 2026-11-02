@@ -276,7 +276,7 @@ mod tests {
             let (done, result) = std::sync::mpsc::sync_channel(1);
             let tick = runtime::spawn_thread("tick-map", {
                 let pool = Arc::clone(&pool);
-                move || done.send(pool.map(&[1u8, 2], |x| x + 1)).unwrap()
+                move || done.send(pool.map(&[1_u8, 2], |x| x + 1)).unwrap()
             })
             .unwrap();
             // The timeout only bounds a failure: with every pool thread held, the map never ends.

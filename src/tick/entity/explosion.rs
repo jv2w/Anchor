@@ -48,27 +48,27 @@ use crate::save::WorldIndex;
 use crate::tick::{SessionId, dispatch, interact};
 use crate::world::{self, BlockPos, Entry, MAX_Y, MIN_Y, World};
 
-/// The size of a TNT explosion (PMMP `PrimedTNT::explode`).
-const TNT_SIZE: f64 = 4.0;
+/// The fuse of lit TNT that an explosion reaches (PMMP `explodeB`: `mt_rand(10, 30)`).
+const CHAIN_FUSE: (i32, i32) = (10, 30);
 /// The size of an end crystal's explosion (PMMP `EndCrystal::explode`).
 const CRYSTAL_SIZE: f64 = 6.0;
-/// Explosions of primed TNT and end crystals per tick; the rest wait for the next tick.
-pub(super) const MAX_EXPLOSIONS_PER_TICK: usize = 64;
 /// Blocks the explosions of primed TNT and end crystals of one tick affect before the rest wait
 /// (each explosion runs whole, so a tick may end a little over it); also the most blocks, and the
 /// most ignitions, an explosion takes from its event's listeners.
 pub(super) const MAX_BLOCKS_PER_TICK: usize = 8192;
+/// Explosions of primed TNT and end crystals per tick; the rest wait for the next tick.
+pub(super) const MAX_EXPLOSIONS_PER_TICK: usize = 64;
 /// Rays per edge of PMMP's cube of rays.
 const RAYS: u32 = 16;
-/// The step along a ray, in blocks.
-const STEP: f64 = 0.3;
-/// The fuse of lit TNT that an explosion reaches (PMMP `explodeB`: `mt_rand(10, 30)`).
-const CHAIN_FUSE: (i32, i32) = (10, 30);
+/// The random stream of the rays' strengths and the chained fuses.
+const RAYS_RANDOM: u64 = random::tag("explosion-rays");
 /// How far an entity may move in a tick (the speed bound of `physics::MAX_SPEED` per axis plus
 /// one): entities this near an explosion move again from their new state.
 const RESTEP_REACH: f64 = physics::MAX_SPEED + 1.0;
-/// The random stream of the rays' strengths and the chained fuses.
-const RAYS_RANDOM: u64 = random::tag("explosion-rays");
+/// The step along a ray, in blocks.
+const STEP: f64 = 0.3;
+/// The size of a TNT explosion (PMMP `PrimedTNT::explode`).
+const TNT_SIZE: f64 = 4.0;
 
 /// What an explosion is (PMMP `Explosion`'s radius and fire chance, and whether `explodeA`
 /// runs).
@@ -488,7 +488,10 @@ pub(super) fn set_fire(state: &mut State, world: WorldIndex, pos: BlockPos, flam
         && let Err(e) = w.set_block(pos, flame)
     {
         // The air stays; nothing depends on the fire.
-        debug!(error = %e, "an explosion could not set a fire");
+        debug!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "an explosion could not set a fire"
+        );
     }
 }
 
@@ -730,7 +733,7 @@ fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
     let x_offset = (1.0 - diff.x.floor() / diff.x) / 2.0;
     let z_offset = (1.0 - diff.z.floor() / diff.z) / 2.0;
     let lerp = |t: f64, a: f64, b: f64| a + t * (b - a);
-    let (mut checks, mut hits) = (0u32, 0u32);
+    let (mut checks, mut hits) = (0_u32, 0_u32);
     let mut x = 0.0;
     while x <= 1.0 {
         let mut y = 0.0;
@@ -759,6 +762,7 @@ fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::packet::Packet;
     use crate::tick::entity::kind::{Character, Form};
     use crate::tick::entity::physics::tests::named;
@@ -963,7 +967,7 @@ mod tests {
         }
         assert!(light(&mut h.state, 0, line[0], 1, Raise::Events));
         let mut explosions = Vec::new();
-        for tick in 0..400u32 {
+        for tick in 0..400_u32 {
             h.entities();
             let n = h
                 .take(1)
@@ -1147,7 +1151,7 @@ mod tests {
     fn a_tick_explodes_at_most_its_budget_and_the_rest_wait() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
-        for i in 0..100i32 {
+        for i in 0..100_i32 {
             let at = Vec3::new(
                 f64::from(i % 10) * 3.0 - 15.0,
                 -40.0,
@@ -1170,7 +1174,7 @@ mod tests {
     fn incendiary_blasts_take_the_event_fire_chance() {
         let chance = |fire| Blast::new(4.0, fire).fire_chance.to_bits();
         assert_eq!(chance(true), DEFAULT_FIRE_CHANCE.to_bits());
-        assert_eq!(chance(false), 0.0f64.to_bits());
+        assert_eq!(chance(false), 0.0_f64.to_bits());
     }
 
     #[test]
@@ -1298,7 +1302,7 @@ mod tests {
                 BlockPos::new(8, -52, 8),
                 "minecraft:stone",
             );
-            for i in 0..100i32 {
+            for i in 0..100_i32 {
                 let p = BlockPos::new(i % 5 * 2 - 4, -56 + i / 25, i / 5 % 5 * 2 - 4);
                 h.state.worlds[0]
                     .set_block(p, named("minecraft:tnt"))
@@ -1330,7 +1334,7 @@ mod tests {
                     }
                 }
             }
-            let left = (0..100i32)
+            let left = (0..100_i32)
                 .filter(|i| {
                     let p = BlockPos::new(i % 5 * 2 - 4, -56 + i / 25, i / 5 % 5 * 2 - 4);
                     h.state.worlds[0].block(p).is_some_and(|s| s.is(Class::Tnt))

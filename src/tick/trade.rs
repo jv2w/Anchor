@@ -23,8 +23,6 @@
 
 mod api;
 mod offers;
-#[cfg(test)]
-mod tests;
 
 pub use api::check_offers;
 pub(super) use api::new_offers;
@@ -264,7 +262,10 @@ impl View {
         let nbt = v.offers.wire_nbt()?;
         let mut w = Writer::new(Vec::new(), 0);
         if let Err(e) = w.nbt(&nbt, Encoding::NetworkLittleEndian) {
-            warn!(error = %e, "villager offers cannot be sent");
+            warn!(
+                error = &e as &(dyn std::error::Error + 'static),
+                "villager offers cannot be sent"
+            );
             return None;
         }
         Some(Self {
@@ -594,3 +595,6 @@ fn entity_villager(state: &State, id: Id) -> Option<Villager<'_>> {
         offers,
     })
 }
+
+#[cfg(test)]
+mod tests;

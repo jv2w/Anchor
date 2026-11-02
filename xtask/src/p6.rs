@@ -61,17 +61,6 @@ use compare::field;
 
 /// The BDS copy, relative to the repository root. The original download is never run.
 const BDS_DIR: &str = ".cache/bds/1.26.60.6";
-/// Captures and logs, relative to the repository root.
-const OUT_DIR: &str = "target/p6";
-/// Scenarios every server must pass, over each transport.
-const SCENARIOS: &[&str] = &["spawn", "big-skin"];
-/// The name of the world both servers run, fixed for the comparison.
-const LEVEL_NAME: &str = "p6";
-/// The seed of the world both servers run, fixed for the comparison.
-const LEVEL_SEED: i64 = 1;
-/// The compression of the `auto` fallback runs, which `p6 bds` records and `p6 anchor` compares
-/// whatever compressions their arguments name.
-const FALLBACK_COMPRESSION: &str = "zlib";
 /// Test settings written into the copy's `server.properties`, besides the transport, ports,
 /// compression and seed of each run and the lines of [`default_settings`]. The login (offline),
 /// the world name ([`LEVEL_NAME`]) and the flat generator are fixed for the comparison, and
@@ -87,12 +76,8 @@ const BDS_SETTINGS: &[(&str, &str)] = &[
     ("level-name", LEVEL_NAME),
     ("level-type", "FLAT"),
 ];
-/// The `y` of the blocks scenario: the first air layer of BDS's default flat world (bedrock at
-/// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
-/// and fails the run.
-const BLOCKS_Y: i32 = -60;
-/// How far the blocks scenario's base position is from the player's spawn column, on `x` and `z`.
-const BLOCKS_OFFSET: i32 = 2;
+/// The BDS log line of a `setblock` that ran.
+const BLOCK_PLACED: &str = "Block placed";
 /// The steps of the blocks scenario: one block placed at (`dx`, `dy`, `dz`) from the base position
 /// with `setblock ... keep`, or removed with `setblock ... air replace` when the block is `air`. The
 /// groups are 3 blocks apart on `z`, so they do not touch each other.
@@ -169,48 +154,28 @@ const BLOCK_STEPS: &[(i32, i32, i32, &str)] = &[
     // requests at the end (columns of a sub-chunk below and above their highest block).
     (0, 40, -2, "stone"),
 ];
-/// The marker position of the blocks scenario, (`dx`, `dz`) from the base position: no step block
-/// is next to it. After each step the marker is set to the step's marker block, so every step ends
-/// with a single-block update there; both servers can make it with block changes only.
-const MARKER: (i32, i32) = (-4, 0);
-/// The marker blocks of the steps, alternating: step `n` ends with `STEP_MARKERS[n % 2]`.
-const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
-/// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
-const END_MARKER: &str = "diamond_block";
-/// The BDS log line of a `setblock` that ran.
-const BLOCK_PLACED: &str = "Block placed";
-/// How long BDS may take to run one console command of the blocks scenario.
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// How far the blocks scenario's base position is from the player's spawn column, on `x` and `z`.
+const BLOCKS_OFFSET: i32 = 2;
 /// How long the blocks bot may stay spawned; it leaves on the end marker.
 const BLOCKS_STAY: &str = "90s";
-/// The address Anchor advertises in the fallback run: an IPv6 documentation address (RFC 3849)
-/// that nothing answers, so the NetherNet negotiation fails in the client's ICE start. An
-/// unreachable IPv4 address does not fail: Anchor's own ICE checks give the client a
-/// peer-reflexive candidate. An IPv6 address needs `enable-ipv6`.
-const UNREACHABLE: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
-/// The player name of both bots of the duplicate-login run.
-const TWIN: &str = "P6Twin";
-/// How long the first bot of the duplicate-login run waits for its Disconnect.
-const TWIN_STAY: &str = "20s";
+/// The `y` of the blocks scenario: the first air layer of BDS's default flat world (bedrock at
+/// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
+/// and fails the run.
+const BLOCKS_Y: i32 = -60;
+/// How long BDS may take to run one console command of the blocks scenario.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
+const END_MARKER: &str = "diamond_block";
+/// The compression of the `auto` fallback runs, which `p6 bds` records and `p6 anchor` compares
+/// whatever compressions their arguments name.
+const FALLBACK_COMPRESSION: &str = "zlib";
 /// How long a NetherNet bot waits after the data channels open before its first packet, so the
 /// capture shows whether the server sends anything unprompted.
 const FIRST_SEND_DELAY: &str = "1s";
-/// A segment payload smaller than go-nethernet's 262,143 (the bot's default): what a sender
-/// limited to 64 KiB SCTP messages uses. `p6 bds` sends big-skin in it to record whether BDS
-/// accepts it; Anchor accepts both.
-const SMALL_SEGMENT: &str = "65535";
-const START_TIMEOUT: Duration = Duration::from_mins(2);
-const STOP_TIMEOUT: Duration = Duration::from_secs(30);
-const POLL: Duration = Duration::from_millis(200);
-/// The magic bytes of RakNet's unconnected messages.
-const RAKNET_MAGIC: [u8; 16] = [
-    0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
-];
-/// Where the text of a RakNet pong starts: ID, time (8), server GUID (8), magic (16), text length
-/// (2).
-const PONG_TEXT_OFFSET: usize = 35;
-/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
-const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
+/// The name of the world both servers run, fixed for the comparison.
+const LEVEL_NAME: &str = "p6";
+/// The seed of the world both servers run, fixed for the comparison.
+const LEVEL_SEED: i64 = 1;
 /// The addresses the Anchor server of this process logged while starting (`listening … addr=…`),
 /// kept by [`AnchorLog`].
 #[expect(
@@ -218,6 +183,43 @@ const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
     reason = "off-tick: the log of the server's threads hands the harness its addresses"
 )]
 static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
+/// The result of making [`AnchorLog`] the global log of this process.
+static LOG: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+/// The marker position of the blocks scenario, (`dx`, `dz`) from the base position: no step block
+/// is next to it. After each step the marker is set to the step's marker block, so every step ends
+/// with a single-block update there; both servers can make it with block changes only.
+const MARKER: (i32, i32) = (-4, 0);
+/// Captures and logs, relative to the repository root.
+const OUT_DIR: &str = "target/p6";
+const POLL: Duration = Duration::from_millis(200);
+/// Where the text of a RakNet pong starts: ID, time (8), server GUID (8), magic (16), text length
+/// (2).
+const PONG_TEXT_OFFSET: usize = 35;
+/// The magic bytes of RakNet's unconnected messages.
+const RAKNET_MAGIC: [u8; 16] = [
+    0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
+];
+/// Scenarios every server must pass, over each transport.
+const SCENARIOS: &[&str] = &["spawn", "big-skin"];
+/// A segment payload smaller than go-nethernet's 262,143 (the bot's default): what a sender
+/// limited to 64 KiB SCTP messages uses. `p6 bds` sends big-skin in it to record whether BDS
+/// accepts it; Anchor accepts both.
+const SMALL_SEGMENT: &str = "65535";
+const START_TIMEOUT: Duration = Duration::from_mins(2);
+/// The marker blocks of the steps, alternating: step `n` ends with `STEP_MARKERS[n % 2]`.
+const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
+/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
+const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
+const STOP_TIMEOUT: Duration = Duration::from_secs(30);
+/// The player name of both bots of the duplicate-login run.
+const TWIN: &str = "P6Twin";
+/// How long the first bot of the duplicate-login run waits for its Disconnect.
+const TWIN_STAY: &str = "20s";
+/// The address Anchor advertises in the fallback run: an IPv6 documentation address (RFC 3849)
+/// that nothing answers, so the NetherNet negotiation fails in the client's ICE start. An
+/// unreachable IPv4 address does not fail: Anchor's own ICE checks give the client a
+/// peer-reflexive candidate. An IPv6 address needs `enable-ipv6`.
+const UNREACHABLE: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
 /// The command forms, for the usage text.
 pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtask p6 anchor \
                                 [zlib|snappy]... | cargo xtask p6 run \
@@ -694,7 +696,6 @@ fn run_anchor<T>(
 
 /// Makes [`AnchorLog`] the global log of this process, once.
 fn install_log() -> Result<(), String> {
-    static LOG: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
     LOG.get_or_init(|| {
         tracing::subscriber::set_global_default(AnchorLog)
             .map_err(|e| format!("install the log of Anchor: {e}"))

@@ -63,14 +63,14 @@ use crate::storage::codec::{MAX_RAW_BLOCK_ENTITIES, MAX_SPILLS};
 use crate::tile::DyeColour;
 use crate::world::{BlockPos, ChunkPos};
 
-/// The most spilled stacks dropped per tick, over every world.
-const SPILL_DROPS_PER_TICK: usize = 64;
-/// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
-const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
-/// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
-pub(crate) const SPILL_ID: &str = "AnchorSpill";
 /// Slots of a chiseled bookshelf (PMMP `ChiseledBookshelfSlot`).
 pub(super) const BOOKSHELF_SLOTS: usize = ChiseledBookshelfSlot::ALL.len();
+/// The most spilled stacks dropped per tick, over every world.
+const SPILL_DROPS_PER_TICK: usize = 64;
+/// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
+pub(crate) const SPILL_ID: &str = "AnchorSpill";
+/// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
+const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
 /// The random stream purpose of block entity ticks (smelting experience).
 const TICK: u64 = random::tag("block-entity-tick");
 
@@ -498,7 +498,7 @@ impl super::checkpoint::Codec for BlockEntities {
 /// One chunk's block entities. Its saved list, the three together, stays within what a list
 /// holds (`storage::codec::MAX_BLOCK_ENTITY_ENTRIES`): one entity per block, at most
 /// [`MAX_SPILLS`] spills and at most [`MAX_RAW_BLOCK_ENTITIES`] raw entries.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 struct Chunk {
     entities: BTreeMap<BlockPos, BlockEntity>,
     /// Container contents waiting for room in the world to drop.
@@ -614,7 +614,7 @@ super::checkpoint::fields!(Spill { pos, items });
 
 /// A chunk's saved block entities read off the tick ([`Parsed::read`]), for
 /// [`BlockEntities::load`].
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct Parsed {
     chunk: Chunk,
     /// Whether reading took something out of the saved list, so the chunk is saved again.
@@ -1256,7 +1256,7 @@ enum Form {
 
 /// The `ContainerSetData` values a furnace or brewing stand tick changed (key and value), kept
 /// without allocating: each has three values a tick can change.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct DataChanges {
     values: [(i32, i32); 3],
     len: u8,
@@ -2571,7 +2571,7 @@ fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &R
 
 /// An `Items` list of the non-empty slots, with `Slot`.
 fn write_items(slots: &[Stack]) -> Value {
-    let list = (0u8..)
+    let list = (0_u8..)
         .zip(slots)
         .filter(|(_, s)| !s.is_empty())
         .map(|(slot, s)| {
@@ -2635,7 +2635,7 @@ pub(super) fn furnace_type(state: block::State) -> FurnaceType {
 /// The PMMP `MobHeadTypeIdMap` ID of a mob head block, by its name ([`decor::SKULL_TYPES`]); a
 /// skeleton skull's for another name.
 fn skull_type(state: block::State) -> u8 {
-    (0u8..)
+    (0_u8..)
         .zip(decor::SKULL_TYPES)
         .find(|(_, name)| *name == state.name())
         .map_or(0, |(id, _)| id)
@@ -2732,9 +2732,10 @@ fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
 
 #[cfg(test)]
 pub(in crate::tick) mod tests {
+    use super::*;
+
     use tokio::sync::mpsc;
 
-    use super::*;
     use crate::event::{Listeners, Priority};
     use crate::item::Kind as ItemKind;
     use crate::tick::Context;
@@ -3346,7 +3347,7 @@ pub(in crate::tick) mod tests {
             (
                 Kind::Sign(Box::new(decor::Sign {
                     front: crate::tile::SignText {
-                        lines: ["hi".into(), String::new(), String::new(), String::new()],
+                        lines: ["hi".to_owned(), String::new(), String::new(), String::new()],
                         colour: 7,
                         glowing: true,
                     },
@@ -3361,7 +3362,7 @@ pub(in crate::tick) mod tests {
             (
                 Kind::Banner(decor::Banner {
                     base: 4,
-                    patterns: vec![("bo".into(), 2)],
+                    patterns: vec![("bo".to_owned(), 2)],
                     ty: 0,
                 }),
                 Vec::new(),

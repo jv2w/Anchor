@@ -172,7 +172,7 @@ mod tests {
         let mut rng = Rng(0x01de_0001);
         let mut index = ChunkIndex::new();
         let mut model: BTreeMap<ChunkPos, State> = BTreeMap::new();
-        for round in 0..200_000usize {
+        for round in 0..200_000_usize {
             // Phases of growth and of mass removal, over a small and a wide area.
             let span = if (round / 50_000) % 2 == 0 { 40 } else { 4000 };
             let growing = (round / 10_000) % 2 == 0;

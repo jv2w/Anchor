@@ -75,7 +75,7 @@ fn empty_raw() -> Raw {
 
 /// A 2-bit paletted layer with palette index `index` at the slots `at`, 0 elsewhere.
 fn paletted(palette: Vec<Compound>, at: &[(u16, u32)]) -> Layer {
-    let mut words = vec![0u32; 256];
+    let mut words = vec![0_u32; 256];
     for &(offset, index) in at {
         words[usize::from(offset / 16)] |= index << ((offset % 16) * 2);
     }
@@ -92,8 +92,8 @@ fn offset(x: u16, y: u16, z: u16) -> u16 {
 
 /// A legacy layer of air with (id, meta) at the (x, y, z) positions given.
 fn legacy(blocks: &[([usize; 3], (u8, u8))]) -> Layer {
-    let mut ids = Box::new([0u8; 4096]);
-    let mut meta = Box::new([0u8; 2048]);
+    let mut ids = Box::new([0_u8; 4096]);
+    let mut meta = Box::new([0_u8; 2048]);
     for &([x, y, z], (id, m)) in blocks {
         let i = x << 8 | z << 4 | y;
         ids[i] = id;
@@ -436,8 +436,8 @@ fn distinct_unknown_raws(chunks: i32, padding: usize) -> BTreeMap<(i32, i32), Ra
     (0..chunks)
         .map(|x| {
             let mut palette = vec![state("minecraft:air", &[])];
-            let mut words = vec![0u32; 1024];
-            for i in 1..256u32 {
+            let mut words = vec![0_u32; 1024];
+            for i in 1..256_u32 {
                 let n = u32::try_from(x).unwrap() * 256 + i;
                 palette.push(state(&format!("anchor:{pad}{n}"), &[]));
                 words[usize::try_from(i / 4).unwrap()] |= i << ((i % 4) * 8);
@@ -464,7 +464,7 @@ fn distinct_unknown_raws(chunks: i32, padding: usize) -> BTreeMap<(i32, i32), Ra
 fn the_report_lists_unknown_names_only_up_to_its_count_and_byte_caps_and_counts_the_rest() {
     // 17 chunks of 255 short names pass the count cap; 5 chunks of 255 names of 1,000 bytes pass
     // the byte cap.
-    for (chunks, padding) in [(17, 0), (5, 1_000)] {
+    for (chunks, padding) in [(17, 0), (5, 1000)] {
         let disk = Disk::default();
         let mut storage = memory(&disk);
         let report = imported(
@@ -724,8 +724,8 @@ fn a_step_reads_chunks_only_up_to_its_byte_cap() {
 
 #[test]
 fn one_and_many_threads_write_identical_bytes() {
-    let raws: BTreeMap<(i32, i32), Raw> = (-12i32..13)
-        .flat_map(|x| (-12i32..13).map(move |z| (x, z)))
+    let raws: BTreeMap<(i32, i32), Raw> = (-12_i32..13)
+        .flat_map(|x| (-12_i32..13).map(move |z| (x, z)))
         .map(|(x, z)| {
             let mut raw = full_raw();
             raw.legacy_blocks[0].x = u8::try_from(x.rem_euclid(16)).unwrap();
@@ -846,8 +846,9 @@ fn a_world_file_made_before_the_import_writes_is_refused_and_kept() {
         matches!(&err, crate::Error::Import(Error::WorldExists { name }) if name == NAME),
         "{err:?}"
     );
-    assert!(
-        std::fs::read(&place.file).ok() == Some(before),
+    assert_eq!(
+        std::fs::read(&place.file).ok(),
+        Some(before),
         "the file is as it was"
     );
 }

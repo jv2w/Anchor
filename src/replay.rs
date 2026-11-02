@@ -125,9 +125,6 @@ pub enum Error {
     Storage(Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// The result of a replay.
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -164,289 +161,8 @@ impl std::error::Error for Error {
     }
 }
 
-fn format(e: impl std::error::Error + Send + Sync + 'static) -> Error {
-    Error::Format(Box::new(e))
-}
-
-fn storage(e: impl std::error::Error + Send + Sync + 'static) -> Error {
-    Error::Storage(Box::new(e))
-}
-
-/// A started thread or pool's failure.
-fn start(e: crate::Error) -> Error {
-    match e {
-        crate::Error::Start(e) => Error::Io(e),
-        e => storage(e),
-    }
-}
-
-/// Replays the crash log at `path` with the server's settings, worlds and registrations
-/// ([`Server::replay`](crate::Server::replay)).
-pub(crate) fn run(
-    config: &Config,
-    data_dir: &Path,
-    threads: ThreadCounts,
-    mut setup: Setup,
-    worlds: &[WorldSpec],
-    path: &Path,
-) -> Result<Replay> {
-    let settings = tick::Settings::new(config);
-    let fingerprints = Fingerprints::of(&settings, worlds, &setup);
-    let log = read(path)?;
-    let logged = log.fingerprints();
-    if logged.settings != fingerprints.settings {
-        return Err(Error::SettingsDiffer);
-    }
-    if logged.registrations != fingerprints.registrations {
-        return Err(Error::RegistrationsDiffer);
-    }
-    check_settled(data_dir)?;
-    let (from, file, checkpoint) = choose(&log, data_dir, &setup)?;
-    info!(
-        file = %file.main.display(),
-        tick = checkpoint.tick(),
-        "replaying the crash log"
-    );
-    let shared = tick::Shared::new(
-        config.batch_settings().map_err(format)?,
-        &setup.custom,
-        &setup.custom_entities,
-    )
-    .map_err(format)?;
-    let seeds: Vec<i64> = checkpoint.seeds().collect();
-    let specs = checkpoint_worlds(&checkpoint, &setup)?;
-    let mut opened = save::open_replica(&file, specs, &seeds).map_err(storage)?;
-    let identity = opened.identity;
-    setup.data.load(&mut opened.thread).map_err(storage)?;
-    setup.commands.start(
-        std::mem::take(&mut opened.access),
-        config.general.white_list,
-    );
-    opened
-        .thread
-        .set_lighting(config.developer.lighting.is_calculated());
-    let pool = runtime::cpu_pool(threads.cpu).map_err(start)?;
-    let mut state = State::new(settings, shared, setup, opened.worlds, opened.tick);
-    let mut disk = opened.thread;
-    disk.set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
-    let base_tick = checkpoint.tick();
-    let extras = extras(&mut disk, &pool, &checkpoint)?;
-    let mut receivers = BTreeMap::new();
-    state
-        .restore(&checkpoint, extras, |session| {
-            let (tx, rx) = outbound_queue();
-            receivers.insert(session, rx);
-            tx
-        })
-        .map_err(format)?;
-    let planned: BTreeSet<u64> = log.segments().skip(from + 1).map(Segment::start).collect();
-    let own = InputLog::replaying(checkpoint, identity, planned);
-    let (done, mut progress) = oneshot::channel();
-    let replayer = Replayer {
-        state,
-        disk,
-        pool,
-        own,
-        receivers,
-        progress: Progress {
-            tick: None,
-            ticks: 0,
-            done: Some(done),
-        },
-    };
-    let thread = runtime::spawn_tick(move || replayer.run(&log, from)).map_err(start)?;
-    let (last_tick, ticks, end) = match thread.join() {
-        Ok(result) => result?,
-        Err(payload) => {
-            let message = crate::server::panic_message(payload.as_ref());
-            let (tick, ticks) = progress.try_recv().unwrap_or((None, 0));
-            error!(%message, ?tick, "the replayed tick panicked");
-            let end = End::Panicked {
-                tick: tick.unwrap_or(base_tick),
-                message,
-            };
-            (tick, ticks, end)
-        }
-    };
-    Ok(Replay {
-        base_tick,
-        last_tick,
-        ticks,
-        end,
-    })
-}
-
-/// The worlds the run had at `checkpoint`, the ones it made or loaded included, each with the
-/// generator `setup` gives it for the name it was made with ([`crate::world::Generators::of_world`]), as the
-/// run picked it.
-fn checkpoint_worlds(checkpoint: &Checkpoint, setup: &Setup) -> Result<Vec<WorldSpec>> {
-    checkpoint
-        .worlds()
-        .iter()
-        .map(|w| {
-            Ok(WorldSpec {
-                name: w.name.clone(),
-                kind: w.kind,
-                generator: Arc::clone(
-                    setup
-                        .generators
-                        .of_world(&w.name, &w.generator)
-                        .ok_or(Error::RegistrationsDiffer)?,
-                ),
-                seed: None,
-                spawn: None,
-            })
-        })
-        .collect()
-}
-
-/// Reads the crash log at `path`.
-fn read(path: &Path) -> Result<InputLog> {
-    let bytes = crate::fs::read_bounded(path, tick::MAX_LOG_FILE_BYTES as u64).map_err(|e| {
-        if e.kind() == io::ErrorKind::FileTooLarge {
-            Error::Format("the file is larger than a crash log can be".into())
-        } else {
-            Error::Io(e)
-        }
-    })?;
-    InputLog::decode(&bytes).map_err(format)
-}
-
-/// Refuses a data folder whose players file or a world file holds a later save than its main
-/// file ([`crate::storage::check_settled`]): a save stopped before the main file, which only a
-/// start of the server rolls back. A file that does not open read-only is left to the choice of
-/// copies, which skips it.
-fn check_settled(data_dir: &Path) -> Result<()> {
-    use crate::storage::{MAIN_FILE, PLAYERS_FILE, Place};
-    let main = Place::data(data_dir, MAIN_FILE).file;
-    let worlds = save::world_files(data_dir).map_err(storage)?;
-    let files = std::iter::once(Place::data(data_dir, PLAYERS_FILE).file)
-        .chain(worlds.iter().map(|name| Place::world(data_dir, name).file));
-    for file in files {
-        if let Err(e @ crate::storage::Error::Ahead) = crate::storage::check_settled(&file, &main) {
-            return Err(storage(e));
-        }
-    }
-    Ok(())
-}
-
-/// The copies of the data file at `place` with the meta value of each one's last commit, as
-/// [`crate::storage::copies`] lists them; copies that do not open are left out.
-fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
-    let mut files = Vec::new();
-    for file in crate::storage::copies(place).map_err(storage)? {
-        match save::committed_meta(&file) {
-            Ok(meta) => files.push((meta, file)),
-            Err(e) => {
-                info!(file = %file.display(), error = %e, "data file left out of the replay");
-            }
-        }
-    }
-    Ok(files)
-}
-
-/// The data files of the save `main` names, whose main file is `file`: each other file is its
-/// newest copy committed at that save or before (see the module's documentation).
-fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayFiles> {
-    use crate::storage::{PLAYERS_FILE, Place};
-    let pick = |place: &Place| -> Result<Option<PathBuf>> {
-        Ok(copies(place)?
-            .into_iter()
-            .filter(|(meta, _)| !crate::storage::is_later(meta, main))
-            .max_by_key(|(meta, _)| meta.tick)
-            .map(|(_, path)| path))
-    };
-    let mut worlds = BTreeMap::new();
-    for name in save::world_files(data_dir).map_err(storage)? {
-        if let Some(path) = pick(&Place::world(data_dir, &name))? {
-            worlds.insert(name, path);
-        }
-    }
-    Ok(save::ReplayFiles {
-        main: file,
-        players: pick(&Place::data(data_dir, PLAYERS_FILE))?.ok_or(Error::NoMatchingWorld)?,
-        worlds,
-    })
-}
-
-/// The segment to start from (its place among the log's), its data files and its checkpoint:
-/// the oldest segment with a checkpoint whose save a main data file holds, after the log's last
-/// truncation if one is; refuses an opaque checkpoint. A file holds a segment's state if its last
-/// commit is of the segment's tick and has the segment's commit identity, unless either identity
-/// is unknown (a file no save wrote).
-fn choose(
-    log: &InputLog,
-    data_dir: &Path,
-    setup: &Setup,
-) -> Result<(usize, save::ReplayFiles, Checkpoint)> {
-    let main = crate::storage::Place::data(data_dir, crate::storage::MAIN_FILE);
-    let files = copies(&main)?;
-    let segments: Vec<&Segment> = log.segments().collect();
-    let after = segments
-        .iter()
-        .rposition(|s| s.is_truncated())
-        .map_or(0, |i| i + 1);
-    let mut usable = Vec::new();
-    let mut opaque = None;
-    for (i, segment) in segments.iter().enumerate() {
-        let Some(bytes) = segment.checkpoint() else {
-            continue;
-        };
-        let holds = |meta: &Meta| {
-            meta.tick == segment.start()
-                && meta
-                    .identity
-                    .zip(segment.identity())
-                    .is_none_or(|(file, logged)| file == logged)
-        };
-        let Some((meta, file)) = files.iter().find(|(meta, _)| holds(meta)) else {
-            continue;
-        };
-        let checkpoint =
-            Checkpoint::read(bytes, &setup.custom, &setup.custom_entities).map_err(format)?;
-        if let Some(what) = checkpoint.opaque() {
-            opaque.get_or_insert(Error::Opaque {
-                tick: segment.start(),
-                what: what.to_owned(),
-            });
-            continue;
-        }
-        usable.push((i, (*meta, file.clone()), checkpoint));
-    }
-    let pick = usable.iter().position(|(i, _, _)| *i >= after).unwrap_or(0);
-    if usable.is_empty() {
-        return Err(opaque.unwrap_or(Error::NoMatchingWorld));
-    }
-    let (i, (meta, file), checkpoint) = usable.swap_remove(pick);
-    Ok((i, files_of(data_dir, &meta, file)?, checkpoint))
-}
-
-/// The raw extras the data files (or the generator) have for the chunks `checkpoint` names: the
-/// checkpoint keeps their terrain and typed state, and the extras as they are stored.
-fn extras(
-    disk: &mut save::Thread,
-    pool: &Pool,
-    checkpoint: &Checkpoint,
-) -> Result<BTreeMap<(usize, crate::world::ChunkPos), save::ChunkExtras>> {
-    let keys: Vec<_> = checkpoint.loaded().chain(checkpoint.unsaved()).collect();
-    let mut extras = BTreeMap::new();
-    for answer in disk.load_stored(pool, &keys).map_err(storage)? {
-        let Response::Chunk { world, pos, loaded } = answer else {
-            continue;
-        };
-        match loaded {
-            Loaded::Disk(_, stored) | Loaded::Generated(_, stored) => {
-                extras.insert((world, pos), stored.extras);
-            }
-            Loaded::Damaged => {
-                return Err(Error::Diverged {
-                    tick: checkpoint.tick(),
-                });
-            }
-        }
-    }
-    Ok(extras)
-}
+/// The result of a replay.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// How far the replay got, sent to the main thread if a tick panics.
 struct Progress {
@@ -654,6 +370,294 @@ impl Replayer {
             });
         }
         Ok(out)
+    }
+}
+
+/// Replays the crash log at `path` with the server's settings, worlds and registrations
+/// ([`Server::replay`](crate::Server::replay)).
+pub(crate) fn run(
+    config: &Config,
+    data_dir: &Path,
+    threads: ThreadCounts,
+    mut setup: Setup,
+    worlds: &[WorldSpec],
+    path: &Path,
+) -> Result<Replay> {
+    let settings = tick::Settings::new(config);
+    let fingerprints = Fingerprints::of(&settings, worlds, &setup);
+    let log = read(path)?;
+    let logged = log.fingerprints();
+    if logged.settings != fingerprints.settings {
+        return Err(Error::SettingsDiffer);
+    }
+    if logged.registrations != fingerprints.registrations {
+        return Err(Error::RegistrationsDiffer);
+    }
+    check_settled(data_dir)?;
+    let (from, file, checkpoint) = choose(&log, data_dir, &setup)?;
+    info!(
+        file = %file.main.display(),
+        tick = checkpoint.tick(),
+        "replaying the crash log"
+    );
+    let shared = tick::Shared::new(
+        config.batch_settings().map_err(format)?,
+        &setup.custom,
+        &setup.custom_entities,
+    )
+    .map_err(format)?;
+    let seeds: Vec<i64> = checkpoint.seeds().collect();
+    let specs = checkpoint_worlds(&checkpoint, &setup)?;
+    let mut opened = save::open_replica(&file, specs, &seeds).map_err(storage)?;
+    let identity = opened.identity;
+    setup.data.load(&mut opened.thread).map_err(storage)?;
+    setup.commands.start(
+        std::mem::take(&mut opened.access),
+        config.general.white_list,
+    );
+    opened
+        .thread
+        .set_lighting(config.developer.lighting.is_calculated());
+    let pool = runtime::cpu_pool(threads.cpu).map_err(start)?;
+    let mut state = State::new(settings, shared, setup, opened.worlds, opened.tick);
+    let mut disk = opened.thread;
+    disk.set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
+    let base_tick = checkpoint.tick();
+    let extras = extras(&mut disk, &pool, &checkpoint)?;
+    let mut receivers = BTreeMap::new();
+    state
+        .restore(&checkpoint, extras, |session| {
+            let (tx, rx) = outbound_queue();
+            receivers.insert(session, rx);
+            tx
+        })
+        .map_err(format)?;
+    let planned: BTreeSet<u64> = log.segments().skip(from + 1).map(Segment::start).collect();
+    let own = InputLog::replaying(checkpoint, identity, planned);
+    let (done, mut progress) = oneshot::channel();
+    let replayer = Replayer {
+        state,
+        disk,
+        pool,
+        own,
+        receivers,
+        progress: Progress {
+            tick: None,
+            ticks: 0,
+            done: Some(done),
+        },
+    };
+    let thread = runtime::spawn_tick(move || replayer.run(&log, from)).map_err(start)?;
+    let (last_tick, ticks, end) = match thread.join() {
+        Ok(result) => result?,
+        Err(payload) => {
+            let message = crate::server::panic_message(payload.as_ref());
+            let (tick, ticks) = progress.try_recv().unwrap_or((None, 0));
+            error!(%message, ?tick, "the replayed tick panicked");
+            let end = End::Panicked {
+                tick: tick.unwrap_or(base_tick),
+                message,
+            };
+            (tick, ticks, end)
+        }
+    };
+    Ok(Replay {
+        base_tick,
+        last_tick,
+        ticks,
+        end,
+    })
+}
+
+/// The worlds the run had at `checkpoint`, the ones it made or loaded included, each with the
+/// generator `setup` gives it for the name it was made with ([`crate::world::Generators::of_world`]), as the
+/// run picked it.
+fn checkpoint_worlds(checkpoint: &Checkpoint, setup: &Setup) -> Result<Vec<WorldSpec>> {
+    checkpoint
+        .worlds()
+        .iter()
+        .map(|w| {
+            Ok(WorldSpec {
+                name: w.name.clone(),
+                kind: w.kind,
+                generator: Arc::clone(
+                    setup
+                        .generators
+                        .of_world(&w.name, &w.generator)
+                        .ok_or(Error::RegistrationsDiffer)?,
+                ),
+                seed: None,
+                spawn: None,
+            })
+        })
+        .collect()
+}
+
+/// Reads the crash log at `path`.
+fn read(path: &Path) -> Result<InputLog> {
+    let bytes = crate::fs::read_bounded(path, tick::MAX_LOG_FILE_BYTES as u64).map_err(|e| {
+        if e.kind() == io::ErrorKind::FileTooLarge {
+            Error::Format("the file is larger than a crash log can be".into())
+        } else {
+            Error::Io(e)
+        }
+    })?;
+    InputLog::decode(&bytes).map_err(format)
+}
+
+/// Refuses a data folder whose players file or a world file holds a later save than its main
+/// file ([`crate::storage::check_settled`]): a save stopped before the main file, which only a
+/// start of the server rolls back. A file that does not open read-only is left to the choice of
+/// copies, which skips it.
+fn check_settled(data_dir: &Path) -> Result<()> {
+    use crate::storage::{MAIN_FILE, PLAYERS_FILE, Place};
+    let main = Place::data(data_dir, MAIN_FILE).file;
+    let worlds = save::world_files(data_dir).map_err(storage)?;
+    let files = std::iter::once(Place::data(data_dir, PLAYERS_FILE).file)
+        .chain(worlds.iter().map(|name| Place::world(data_dir, name).file));
+    for file in files {
+        if let Err(e @ crate::storage::Error::Ahead) = crate::storage::check_settled(&file, &main) {
+            return Err(storage(e));
+        }
+    }
+    Ok(())
+}
+
+/// The segment to start from (its place among the log's), its data files and its checkpoint:
+/// the oldest segment with a checkpoint whose save a main data file holds, after the log's last
+/// truncation if one is; refuses an opaque checkpoint. A file holds a segment's state if its last
+/// commit is of the segment's tick and has the segment's commit identity, unless either identity
+/// is unknown (a file no save wrote).
+fn choose(
+    log: &InputLog,
+    data_dir: &Path,
+    setup: &Setup,
+) -> Result<(usize, save::ReplayFiles, Checkpoint)> {
+    let main = crate::storage::Place::data(data_dir, crate::storage::MAIN_FILE);
+    let files = copies(&main)?;
+    let segments: Vec<&Segment> = log.segments().collect();
+    let after = segments
+        .iter()
+        .rposition(|s| s.is_truncated())
+        .map_or(0, |i| i + 1);
+    let mut usable = Vec::new();
+    let mut opaque = None;
+    for (i, segment) in segments.iter().enumerate() {
+        let Some(bytes) = segment.checkpoint() else {
+            continue;
+        };
+        let holds = |meta: &Meta| {
+            meta.tick == segment.start()
+                && meta
+                    .identity
+                    .zip(segment.identity())
+                    .is_none_or(|(file, logged)| file == logged)
+        };
+        let Some((meta, file)) = files.iter().find(|(meta, _)| holds(meta)) else {
+            continue;
+        };
+        let checkpoint =
+            Checkpoint::read(bytes, &setup.custom, &setup.custom_entities).map_err(format)?;
+        if let Some(what) = checkpoint.opaque() {
+            opaque.get_or_insert(Error::Opaque {
+                tick: segment.start(),
+                what: what.to_owned(),
+            });
+            continue;
+        }
+        usable.push((i, (*meta, file.clone()), checkpoint));
+    }
+    let pick = usable.iter().position(|(i, _, _)| *i >= after).unwrap_or(0);
+    if usable.is_empty() {
+        return Err(opaque.unwrap_or(Error::NoMatchingWorld));
+    }
+    let (i, (meta, file), checkpoint) = usable.swap_remove(pick);
+    Ok((i, files_of(data_dir, &meta, file)?, checkpoint))
+}
+
+/// The data files of the save `main` names, whose main file is `file`: each other file is its
+/// newest copy committed at that save or before (see the module's documentation).
+fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayFiles> {
+    use crate::storage::{PLAYERS_FILE, Place};
+    let pick = |place: &Place| -> Result<Option<PathBuf>> {
+        Ok(copies(place)?
+            .into_iter()
+            .filter(|(meta, _)| !crate::storage::is_later(meta, main))
+            .max_by_key(|(meta, _)| meta.tick)
+            .map(|(_, path)| path))
+    };
+    let mut worlds = BTreeMap::new();
+    for name in save::world_files(data_dir).map_err(storage)? {
+        if let Some(path) = pick(&Place::world(data_dir, &name))? {
+            worlds.insert(name, path);
+        }
+    }
+    Ok(save::ReplayFiles {
+        main: file,
+        players: pick(&Place::data(data_dir, PLAYERS_FILE))?.ok_or(Error::NoMatchingWorld)?,
+        worlds,
+    })
+}
+
+/// The copies of the data file at `place` with the meta value of each one's last commit, as
+/// [`crate::storage::copies`] lists them; copies that do not open are left out.
+fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
+    let mut files = Vec::new();
+    for file in crate::storage::copies(place).map_err(storage)? {
+        match save::committed_meta(&file) {
+            Ok(meta) => files.push((meta, file)),
+            Err(e) => {
+                info!(
+                    file = %file.display(),
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "data file left out of the replay"
+                );
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// The raw extras the data files (or the generator) have for the chunks `checkpoint` names: the
+/// checkpoint keeps their terrain and typed state, and the extras as they are stored.
+fn extras(
+    disk: &mut save::Thread,
+    pool: &Pool,
+    checkpoint: &Checkpoint,
+) -> Result<BTreeMap<(usize, crate::world::ChunkPos), save::ChunkExtras>> {
+    let keys: Vec<_> = checkpoint.loaded().chain(checkpoint.unsaved()).collect();
+    let mut extras = BTreeMap::new();
+    for answer in disk.load_stored(pool, &keys).map_err(storage)? {
+        let Response::Chunk { world, pos, loaded } = answer else {
+            continue;
+        };
+        match loaded {
+            Loaded::Disk(_, stored) | Loaded::Generated(_, stored) => {
+                extras.insert((world, pos), stored.extras);
+            }
+            Loaded::Damaged => {
+                return Err(Error::Diverged {
+                    tick: checkpoint.tick(),
+                });
+            }
+        }
+    }
+    Ok(extras)
+}
+
+fn format(e: impl std::error::Error + Send + Sync + 'static) -> Error {
+    Error::Format(Box::new(e))
+}
+
+fn storage(e: impl std::error::Error + Send + Sync + 'static) -> Error {
+    Error::Storage(Box::new(e))
+}
+
+/// A started thread or pool's failure.
+fn start(e: crate::Error) -> Error {
+    match e {
+        crate::Error::Start(e) => Error::Io(e),
+        e => storage(e),
     }
 }
 

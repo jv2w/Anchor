@@ -19,14 +19,14 @@ use tracing::warn;
 use super::{CACHE_BYTES, Error, Result};
 use crate::{clock, fs};
 
+/// Names tried when another process takes the chosen one first.
+const ATTEMPTS: u32 = 100;
 /// Backups kept, of starts and online backups together.
 pub(crate) const KEPT: usize = 3;
 /// Key and value bytes an online backup copies (and a check reads) in one step, unless one value
 /// alone is larger: the save thread serves its queued requests between steps, so a load waits at
 /// most one step.
 pub(super) const STEP_BYTES: usize = 8 << 20;
-/// Names tried when another process takes the chosen one first.
-const ATTEMPTS: u32 = 100;
 const SUFFIX: &str = ".redb";
 /// Added to a backup's name while it is being written.
 const TEMP_SUFFIX: &str = ".tmp";
@@ -64,7 +64,11 @@ impl Drop for Temp {
             return;
         }
         if let Err(e) = std::fs::remove_file(&self.path) {
-            warn!(path = %self.path.display(), error = %e, "could not remove an incomplete backup");
+            warn!(
+                path = %self.path.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "could not remove an incomplete backup"
+            );
         }
     }
 }
@@ -316,7 +320,7 @@ impl Online {
         let mut txn = self.db.begin_write()?;
         txn.set_durability(Durability::None)
             .map_err(redb::Error::from)?;
-        let mut bytes = 0usize;
+        let mut bytes = 0_usize;
         while let Some((name, entries)) = self.tables.last_mut() {
             // Opening it creates it, so an empty table is in the copy too.
             let mut target = txn.open_table(TableDefinition::<&[u8], &[u8]>::new(name))?;
@@ -373,7 +377,11 @@ impl Online {
             .map_err(Error::Io)?;
         temp.rename(&path)?;
         if let Err(e) = prune(&dir, &path) {
-            warn!(path = %dir.display(), error = %e, "could not remove old backups");
+            warn!(
+                path = %dir.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "could not remove old backups"
+            );
         }
         Ok(path)
     }
@@ -491,11 +499,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let source = Builder::new().create(dir.join("server.redb")).unwrap();
         let table = TableDefinition::<&[u8], &[u8]>::new("chunks");
-        let value = vec![7u8; 1 << 20];
+        let value = vec![7_u8; 1 << 20];
         let txn = source.begin_write().unwrap();
         {
             let mut t = txn.open_table(table).unwrap();
-            for n in 0u32..48 {
+            for n in 0_u32..48 {
                 t.insert(n.to_be_bytes().as_slice(), value.as_slice())
                     .unwrap();
             }

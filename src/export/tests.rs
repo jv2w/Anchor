@@ -63,8 +63,8 @@ fn chest(x: i32, y: i32, z: i32) -> Compound {
     ])
 }
 
-/// Returns three chunks: one with terrain and a chest, one with a chest but no terrain (generated), one
-/// with empty terrain, an entity and two scheduled updates.
+/// Returns three chunks: one with terrain and a chest, one with a chest but no terrain
+/// (generated), one with empty terrain, an entity and two scheduled updates.
 fn chunks() -> Vec<StoredChunk> {
     let entity = compound(&[("identifier", Value::String("minecraft:item".to_owned()))]);
     let update = compound(&[("x", Value::Int(48))]);
@@ -95,7 +95,7 @@ fn write_world(data: &Path, record: WorldRecord, chunks: &[StoredChunk]) {
     batch.put(Key::World, seal(&Key::World.to_bytes(), &record).unwrap());
     for (pos, terrain, extras) in chunks {
         let id = save::chunk_id(record.number, *pos);
-        for (sub, index) in terrain.iter().flat_map(|t| t.sub_chunks.iter()).zip(0u8..) {
+        for (sub, index) in terrain.iter().flat_map(|t| t.sub_chunks.iter()).zip(0_u8..) {
             let key = id.key(ChunkPart::SubChunk(index));
             batch.put(key.clone(), seal(&key.to_bytes(), sub).unwrap());
         }
@@ -167,7 +167,7 @@ fn exported_chunks_read_back_as_stored() {
         let expected: Vec<(i8, Vec<Layer>)> = terrain
             .sub_chunks
             .iter()
-            .zip(-4i8..)
+            .zip(-4_i8..)
             .filter(|(sub, _)| !sub.layers.is_empty())
             .map(|(sub, y)| (y, sub.layers.iter().cloned().map(Layer::Paletted).collect()))
             .collect();

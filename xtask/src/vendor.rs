@@ -14,12 +14,12 @@ use crate::dump::upgrade::{hex, sha256};
 use crate::dump::{create_dir, is_file, read, remove_file, rename, write};
 use crate::{STR0M, STR0M_DIMPL, STR0M_PROTO, VERIFY_TARGET, cargo, target_dir};
 
-/// `<sha256>  <file name>` per line, the `sha256sum` format.
-const LIST: &str = "xtask/data/vendor/str0m-test-data.sha256";
 /// The download cache, git-ignored.
 const CACHE: &str = ".cache/str0m-test-data";
 /// Where the tests read the captures, with `include_bytes!` and a path relative to their file.
 const DATA: &str = "vendor/str0m/tests/data";
+/// `<sha256>  <file name>` per line, the `sha256sum` format.
+const LIST: &str = "xtask/data/vendor/str0m-test-data.sha256";
 /// The upstream commit of the copy, which cargo recorded when it packaged the crate.
 const VCS_INFO: &str = "vendor/str0m/.cargo_vcs_info.json";
 

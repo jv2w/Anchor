@@ -18,28 +18,28 @@ const BANIP_SUCCESS: Msg = Msg::client("commands.banip.success");
 const BANIP_SUCCESS_PLAYERS: Msg = Msg::client("commands.banip.success.players");
 const BANLIST_IPS: Msg = Msg::client("commands.banlist.ips");
 const BANLIST_PLAYERS: Msg = Msg::client("commands.banlist.players");
-const UNBAN_SUCCESS: Msg = Msg::client("commands.unban.success");
-const UNBANIP_INVALID: Msg = Msg::client("commands.unbanip.invalid");
-const UNBANIP_SUCCESS: Msg = Msg::client("commands.unbanip.success");
-const OP_MESSAGE: Msg = Msg::client("commands.op.message");
-const OP_SUCCESS: Msg = Msg::client("commands.op.success");
 const DEOP_MESSAGE: Msg = Msg::client("commands.deop.message");
 const DEOP_SUCCESS: Msg = Msg::client("commands.deop.success");
-// The client names the whitelist "allowlist": it has no `commands.whitelist.*` keys.
-const WHITELIST_ENABLED: Msg = Msg::client("commands.allowlist.enabled");
-const WHITELIST_DISABLED: Msg = Msg::client("commands.allowlist.disabled");
-const WHITELIST_LIST: Msg = Msg::client("commands.allowlist.list");
-const WHITELIST_ADD_SUCCESS: Msg = Msg::client("commands.allowlist.add.success");
-const WHITELIST_REMOVE_SUCCESS: Msg = Msg::client("commands.allowlist.remove.success");
 const KICK_SUCCESS: Msg = Msg::client("commands.kick.success");
 const KICK_SUCCESS_REASON: Msg = Msg::client("commands.kick.success.reason");
-/// What an operator sees when its status changes: aqua.
-const OP_CHANGE_PREFIX: &str = "§b";
 /// What a player kicked without a reason sees: the client's "kicked" text.
 const KICKED: &str = "disconnect.kicked";
 /// The most names `/banlist` and `/whitelist list` show (PMMP shows every one, and a list may
 /// hold 262,144); the others are counted in a last line.
 const MAX_LISTED: usize = 100;
+/// What an operator sees when its status changes: aqua.
+const OP_CHANGE_PREFIX: &str = "§b";
+const OP_MESSAGE: Msg = Msg::client("commands.op.message");
+const OP_SUCCESS: Msg = Msg::client("commands.op.success");
+const UNBAN_SUCCESS: Msg = Msg::client("commands.unban.success");
+const UNBANIP_INVALID: Msg = Msg::client("commands.unbanip.invalid");
+const UNBANIP_SUCCESS: Msg = Msg::client("commands.unbanip.success");
+// The client names the whitelist "allowlist": it has no `commands.whitelist.*` keys.
+const WHITELIST_ADD_SUCCESS: Msg = Msg::client("commands.allowlist.add.success");
+const WHITELIST_DISABLED: Msg = Msg::client("commands.allowlist.disabled");
+const WHITELIST_ENABLED: Msg = Msg::client("commands.allowlist.enabled");
+const WHITELIST_LIST: Msg = Msg::client("commands.allowlist.list");
+const WHITELIST_REMOVE_SUCCESS: Msg = Msg::client("commands.allowlist.remove.success");
 
 /// Adds the commands of this module.
 pub(super) fn add(commands: &mut Vec<Command>) {

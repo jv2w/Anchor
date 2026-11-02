@@ -13,8 +13,8 @@ use crate::tile::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::world::BlockPos;
 
 /// PMMP `Sign::TAG_FRONT_TEXT`, `TAG_BACK_TEXT`, `TAG_TEXT_BLOB`.
-pub(in crate::tick) const FRONT: &str = "FrontText";
 pub(in crate::tick) const BACK: &str = "BackText";
+pub(in crate::tick) const FRONT: &str = "FrontText";
 pub(in crate::tick) const TEXT: &str = "Text";
 
 impl Context<'_> {

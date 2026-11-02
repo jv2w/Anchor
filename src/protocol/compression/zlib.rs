@@ -13,7 +13,7 @@ const MIN_FIRST_BUFFER: usize = 4096;
 pub(crate) struct Encoder(libdeflater::Compressor);
 
 impl Encoder {
-    /// Returns an encoder at `level`, which must be in 1..=9.
+    /// An encoder at `level`, which must be in 1..=9.
     pub(crate) fn new(level: u8) -> Self {
         #[expect(
             clippy::expect_used,
@@ -155,6 +155,7 @@ pub(crate) enum Framing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::protocol::compression::tests::{Content, sample};
 
     const LIMIT: usize = 1024 * 1024;
