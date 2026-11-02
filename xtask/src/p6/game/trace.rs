@@ -13,8 +13,9 @@
 //!   whole capture (a last step, `ContainerSetData`: when a value arrives is timing);
 //! - the last state of each position a step's `UpdateBlock` and `UpdateSubChunkBlocks` packets set
 //!   (layer 0) when it differs from the state the client knew before the step (an earlier update,
-//!   else the flat world's), the keys of `BlockActorData`, `LevelEvent` types. The official server resends the
-//!   blocks around a clicked block after every placement (P6, `xtask/data/p6/facts.md`); a resend that changes nothing is shown only;
+//!   else the flat world's), the keys of `BlockActorData`, `LevelEvent` types. The official server
+//!   resends the blocks around a clicked block after every placement (P6,
+//!   `xtask/data/p6/facts.md`); a resend that changes nothing is shown only;
 //! - entities by type (`AddActor`, `AddItemActor` item, `RemoveActor`, `TakeItemActor` taker);
 //! - `UpdateTrade` window type, size, tier and flags, the key and tag types of the offers;
 //! - the player's last XP level of a step when it differs from the level before the step (the
@@ -23,24 +24,24 @@
 //!   `Disconnect`, and every packet that failed to decode. Any other `check` line is shown only:
 //!   a game scenario's check compares nothing until its name is in `FIXED_CHECKS`.
 //!
-//! Shown only, because they vary per run or by design: random values (offers, a villager's profession and name, XP orbs and points), timing
-//! (`ContainerSetData` values and counts, entity motion), sounds, chat, `UnlockedRecipes`,
-//! `SetActorData`, positions of dropped items, and `Event` types: the only one the official server sends in the
-//! scenarios is `EntityInteract` when trading opens, which feeds the client's statistics and
-//! changes nothing the client does, so Anchor does not send it (P6, `xtask/data/p6/facts.md`).
-//! What other scenarios of the session left behind is shown only, so one scenario's leftovers never land in another's
-//! comparison at whatever time they happen (a dropped item despawning): block changes, block entity
-//! data and level events farther than [`AREA_REACH`] from the scenario's area (its `teleport`
-//! step), and the removal of an entity the capture never saw added. Within a step the
-//! fixed lines are compared as a sorted list, so packets of one step that a server sends in
-//! another order still match.
+//! Shown only, because they vary per run or by design: random values (offers, a villager's
+//! profession and name, XP orbs and points), timing (`ContainerSetData` values and counts, entity
+//! motion), sounds, chat, `UnlockedRecipes`, `SetActorData`, positions of dropped items, and
+//! `Event` types: the only one the official server sends in the scenarios is `EntityInteract` when
+//! trading opens, which feeds the client's statistics and changes nothing the client does, so
+//! Anchor does not send it (P6, `xtask/data/p6/facts.md`). What other scenarios of the session
+//! left behind is shown only, so one scenario's leftovers never land in another's comparison at
+//! whatever time they happen (a dropped item despawning): block changes, block entity data and
+//! level events farther than [`AREA_REACH`] from the scenario's area (its `teleport` step), and
+//! the removal of an entity the capture never saw added. Within a step the fixed lines are
+//! compared as a sorted list, so packets of one step that a server sends in another order still
+//! match.
 //!
 //! The bot marks two kinds of steps. In a *setup* step (console commands that prepare the world)
 //! only the commands are fixed: how a server answers a command is not gameplay. A run of *random*
-//! steps (bone meal until the crop is grown, picking up a random number of drops, trading with a
-//! villager of a random profession) becomes one step whose fixed lines are the distinct *shapes*
-//! of its lines: item names, block states, counts and stack IDs replaced by `?`, commands shown
-//! only.
+//! steps (picking up a random number of drops, trading with a villager of a random profession)
+//! becomes one step whose fixed lines are the distinct *shapes* of its lines: item names, block
+//! states, counts and stack IDs replaced by `?`, commands shown only.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -83,8 +84,8 @@ const FIXED_CHECKS: [&str; 6] = [
 ];
 /// The windows whose IDs mean the same on every server: the inventory, off hand, armour and UI.
 const FIXED_WINDOWS: [i64; 4] = [0, 119, 120, 124];
-/// The flat world's blocks by height (the official server's and Anchor's default flat world), as the bot assumes
-/// them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.
+/// The flat world's blocks by height (the official server's and Anchor's default flat world), as
+/// the bot assumes them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.
 const FLAT: [(i64, &str); 4] = [
     (-64, "minecraft:bedrock[infiniburn_bit=0]"),
     (-63, "minecraft:dirt[]"),
@@ -149,6 +150,60 @@ struct Tracer<'a> {
 }
 
 impl Tracer<'_> {
+    /// Whether `position` (`[x, y, z]`, block or exact) is outside the scenario's area: another
+    /// scenario's.
+    fn elsewhere(&self, position: &Value) -> bool {
+        let coordinate = |i: usize| position.get(i).and_then(Value::as_f64).map(f64::floor);
+        match (self.area, coordinate(0), coordinate(2)) {
+            (Some((ax, az)), Some(x), Some(z)) => {
+                let reach = f64::from(AREA_REACH);
+                (x - ax).abs() > reach || (z - az).abs() > reach
+            }
+            _ => false,
+        }
+    }
+
+    /// An item stack (`ItemStack` JSON) as text: name, count, meta, block state and NBT.
+    fn item(&self, stack: &Value) -> String {
+        let id = field(field(stack, "ItemType"), "NetworkID")
+            .as_i64()
+            .unwrap_or_default();
+        let count = field(stack, "Count").as_i64().unwrap_or_default();
+        if id == 0 || count == 0 {
+            return "empty".to_owned();
+        }
+        let name = self
+            .items
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| format!("item {id}"));
+        let mut parts = vec![format!("{name} x{count}")];
+        let meta = field(field(stack, "ItemType"), "MetadataValue");
+        if meta.as_i64().unwrap_or_default() != 0 {
+            parts.push(format!("meta {meta}"));
+        }
+        let block = field(stack, "BlockRuntimeID").as_i64().unwrap_or_default();
+        if block != 0 {
+            parts.push(format!("block {}", self.block(block)));
+        }
+        let nbt = field(field(stack, "NBTData"), "compound");
+        if nbt.as_object().is_some_and(|m| !m.is_empty()) {
+            parts.push(format!("nbt {}", compact(nbt)));
+        }
+        parts.join(" ")
+    }
+
+    /// A block network ID as its state, or the number when it is unknown.
+    fn block(&self, id: i64) -> String {
+        // Network IDs are u32 hashes; captures hold them as i32 or u32.
+        let key = u32::try_from(id)
+            .or_else(|_| i32::try_from(id).map(i32::cast_unsigned))
+            .ok();
+        key.and_then(|k| self.blocks.get(&k))
+            .cloned()
+            .unwrap_or_else(|| format!("block {id}"))
+    }
+
     fn line(&mut self, v: &Value) {
         match field(v, "type").as_str() {
             Some("step") => {
@@ -195,18 +250,6 @@ impl Tracer<'_> {
             }
             Some("packet") => self.packet(v),
             _ => {}
-        }
-    }
-
-    fn fixed(&mut self, line: String) {
-        if let Some(step) = &mut self.current {
-            step.fixed.push(line);
-        }
-    }
-
-    fn shown(&mut self, line: String) {
-        if let Some(step) = &mut self.current {
-            step.shown.push(line);
         }
     }
 
@@ -258,75 +301,6 @@ impl Tracer<'_> {
         self.steps.push(step);
     }
 
-    /// A stack network ID as `#n`, numbered in order of appearance; 0 (empty) and negative IDs
-    /// (request IDs) as they are.
-    fn stack(&mut self, id: &Value) -> String {
-        let id = id.as_i64().unwrap_or_default();
-        if id <= 0 {
-            return id.to_string();
-        }
-        let next = self.stacks.len() + 1;
-        format!("#{}", self.stacks.entry(id).or_insert(next))
-    }
-
-    /// A window ID: the fixed inventory windows as they are, others as `w#n`.
-    fn window(&mut self, id: &Value) -> String {
-        let id = id.as_i64().unwrap_or_default();
-        if FIXED_WINDOWS.contains(&id) {
-            return id.to_string();
-        }
-        let next = self.windows.len() + 1;
-        format!("w#{}", self.windows.entry(id).or_insert(next))
-    }
-
-    /// An item stack (`ItemStack` JSON) as text: name, count, meta, block state and NBT.
-    fn item(&self, stack: &Value) -> String {
-        let id = field(field(stack, "ItemType"), "NetworkID")
-            .as_i64()
-            .unwrap_or_default();
-        let count = field(stack, "Count").as_i64().unwrap_or_default();
-        if id == 0 || count == 0 {
-            return "empty".to_owned();
-        }
-        let name = self
-            .items
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| format!("item {id}"));
-        let mut parts = vec![format!("{name} x{count}")];
-        let meta = field(field(stack, "ItemType"), "MetadataValue");
-        if meta.as_i64().unwrap_or_default() != 0 {
-            parts.push(format!("meta {meta}"));
-        }
-        let block = field(stack, "BlockRuntimeID").as_i64().unwrap_or_default();
-        if block != 0 {
-            parts.push(format!("block {}", self.block(block)));
-        }
-        let nbt = field(field(stack, "NBTData"), "compound");
-        if nbt.as_object().is_some_and(|m| !m.is_empty()) {
-            parts.push(format!("nbt {}", compact(nbt)));
-        }
-        parts.join(" ")
-    }
-
-    /// A block network ID as its state, or the number when it is unknown.
-    fn block(&self, id: i64) -> String {
-        // Network IDs are u32 hashes; captures hold them as i32 or u32.
-        let key = u32::try_from(id)
-            .or_else(|_| i32::try_from(id).map(i32::cast_unsigned))
-            .ok();
-        key.and_then(|k| self.blocks.get(&k))
-            .cloned()
-            .unwrap_or_else(|| format!("block {id}"))
-    }
-
-    /// An item instance (`ItemInstance` JSON): the item and its stack network ID.
-    fn instance(&mut self, instance: &Value) -> String {
-        let item = self.item(field(instance, "Stack"));
-        let id = self.stack(field(instance, "StackNetworkID"));
-        format!("{item} {id}")
-    }
-
     fn packet(&mut self, v: &Value) {
         let name = field(v, "name").as_str().unwrap_or_default().to_owned();
         let f = field(v, "fields");
@@ -367,6 +341,88 @@ impl Tracer<'_> {
             )),
             "Disconnect" => self.fixed(format!("Disconnect {}", compact(f))),
             _ => *self.counted.entry(name).or_default() += 1,
+        }
+    }
+
+    /// The player's attributes: the level is fixed, XP points and the exhaustion of actions vary.
+    fn attributes(&mut self, f: &Value) {
+        let mut values = Vec::new();
+        for a in field(f, "Attributes").as_array().into_iter().flatten() {
+            let value = field(a, "AttributeValue");
+            let name = text(field(value, "Name"));
+            if name == "minecraft:player.level" {
+                self.level = Some(field(value, "Value").to_string());
+            }
+            values.push(format!("{name}={}", field(value, "Value")));
+        }
+        self.shown(format!("UpdateAttributes player {}", values.join(" ")));
+    }
+
+    /// Container windows: opening and closing are fixed, data keys are collected.
+    fn container(&mut self, name: &str, f: &Value) {
+        let window = self.window(field(f, "WindowID"));
+        match name {
+            "ContainerOpen" => self.fixed(format!(
+                "ContainerOpen window {window} type {} position {} entity {}",
+                field(f, "ContainerType"),
+                field(f, "ContainerPosition"),
+                field(f, "ContainerEntityUniqueID")
+            )),
+            "ContainerClose" => self.fixed(format!(
+                "ContainerClose window {window} type {} server side {}",
+                field(f, "ContainerType"),
+                field(f, "ServerSide")
+            )),
+            _ => {
+                let key = field(f, "Key").as_i64().unwrap_or_default();
+                let value = field(f, "Value").as_i64().unwrap_or_default();
+                self.keys.entry(window.clone()).or_default().insert(key);
+                let entry = self.data.entry((window, key)).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 = value;
+            }
+        }
+    }
+
+    /// Entities, by what they are. The removal of an entity the capture never saw added (another
+    /// scenario's) is shown only.
+    fn entity(&mut self, name: &str, f: &Value) {
+        let kind_of = |map: &BTreeMap<i64, String>, key: &str| {
+            map.get(&field(f, key).as_i64().unwrap_or_default())
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_owned())
+        };
+        match name {
+            "AddActor" | "RemoveActor" => {
+                let kind = if name == "AddActor" {
+                    let kind = text(field(f, "EntityType"));
+                    self.remember(f, &kind);
+                    kind
+                } else {
+                    kind_of(&self.unique, "EntityUniqueID")
+                };
+                let line = format!("{name} {kind}");
+                if RANDOM_ENTITIES.contains(&kind.as_str()) || kind == "unknown" {
+                    self.shown(line);
+                } else {
+                    self.fixed(line);
+                }
+            }
+            "AddItemActor" => {
+                let item = self.item(field(field(f, "Item"), "Stack"));
+                self.remember(f, &format!("item {item}"));
+                self.fixed(format!("AddItemActor {item}"));
+                self.shown(format!("AddItemActor {item} at {}", field(f, "Position")));
+            }
+            _ => {
+                let kind = kind_of(&self.runtime, "ItemEntityRuntimeID");
+                let taker = if field(f, "TakerEntityRuntimeID").as_i64() == self.player {
+                    "the player"
+                } else {
+                    "another entity"
+                };
+                self.fixed(format!("TakeItemActor {kind} by {taker}"));
+            }
         }
     }
 
@@ -415,43 +471,48 @@ impl Tracer<'_> {
         self.shown(line);
     }
 
-    /// Container windows: opening and closing are fixed, data keys are collected.
-    fn container(&mut self, name: &str, f: &Value) {
-        let window = self.window(field(f, "WindowID"));
-        match name {
-            "ContainerOpen" => self.fixed(format!(
-                "ContainerOpen window {window} type {} position {} entity {}",
-                field(f, "ContainerType"),
-                field(f, "ContainerPosition"),
-                field(f, "ContainerEntityUniqueID")
-            )),
-            "ContainerClose" => self.fixed(format!(
-                "ContainerClose window {window} type {} server side {}",
-                field(f, "ContainerType"),
-                field(f, "ServerSide")
-            )),
-            _ => {
-                let key = field(f, "Key").as_i64().unwrap_or_default();
-                let value = field(f, "Value").as_i64().unwrap_or_default();
-                self.keys.entry(window.clone()).or_default().insert(key);
-                let entry = self.data.entry((window, key)).or_insert((0, 0));
-                entry.0 += 1;
-                entry.1 = value;
+    fn responses(&mut self, f: &Value) {
+        for r in field(f, "Responses").as_array().into_iter().flatten() {
+            let mut slots = Vec::new();
+            for info in field(r, "ContainerInfo").as_array().into_iter().flatten() {
+                let container = field(field(info, "Container"), "ContainerID");
+                for s in field(info, "SlotInfo").as_array().into_iter().flatten() {
+                    let id = self.stack(field(s, "StackNetworkID"));
+                    slots.push(format!(
+                        "{container}:{} x{} {id} durability {} name {}",
+                        field(s, "Slot"),
+                        field(s, "Count"),
+                        field(s, "DurabilityCorrection"),
+                        field(s, "CustomName")
+                    ));
+                }
             }
+            self.fixed(format!(
+                "ItemStackResponse request {} status {} [{}]",
+                field(r, "RequestID"),
+                field(r, "Status"),
+                slots.join(", ")
+            ));
         }
     }
 
-    /// Whether `position` (`[x, y, z]`, block or exact) is outside the scenario's area: another
-    /// scenario's.
-    fn elsewhere(&self, position: &Value) -> bool {
-        let coordinate = |i: usize| position.get(i).and_then(Value::as_f64).map(f64::floor);
-        match (self.area, coordinate(0), coordinate(2)) {
-            (Some((ax, az)), Some(x), Some(z)) => {
-                let reach = f64::from(AREA_REACH);
-                (x - ax).abs() > reach || (z - az).abs() > reach
-            }
-            _ => false,
-        }
+    /// The trading screen.
+    fn trade_screen(&mut self, f: &Value) {
+        let window = self.window(field(f, "WindowID"));
+        self.fixed(format!(
+            "UpdateTrade window {window} type {} size {} tier {} new UI {} demand based prices {}",
+            field(f, "WindowType"),
+            field(f, "Size"),
+            field(f, "TradeTier"),
+            field(f, "NewTradeUI"),
+            field(f, "DemandBasedPrices")
+        ));
+        self.shown(format!(
+            "UpdateTrade display name {} villager {} entity {}",
+            field(f, "DisplayName"),
+            field(f, "VillagerUniqueID"),
+            field(f, "EntityUniqueID")
+        ));
     }
 
     /// Block changes (their last state per position), block entity data and level events; those
@@ -526,79 +587,17 @@ impl Tracer<'_> {
         }
     }
 
-    /// Entities, by what they are. The removal of an entity the capture never saw added (another
-    /// scenario's) is shown only.
-    fn entity(&mut self, name: &str, f: &Value) {
-        let kind_of = |map: &BTreeMap<i64, String>, key: &str| {
-            map.get(&field(f, key).as_i64().unwrap_or_default())
-                .cloned()
-                .unwrap_or_else(|| "unknown".to_owned())
-        };
-        match name {
-            "AddActor" | "RemoveActor" => {
-                let kind = if name == "AddActor" {
-                    let kind = text(field(f, "EntityType"));
-                    self.remember(f, &kind);
-                    kind
-                } else {
-                    kind_of(&self.unique, "EntityUniqueID")
-                };
-                let line = format!("{name} {kind}");
-                if RANDOM_ENTITIES.contains(&kind.as_str()) || kind == "unknown" {
-                    self.shown(line);
-                } else {
-                    self.fixed(line);
-                }
-            }
-            "AddItemActor" => {
-                let item = self.item(field(field(f, "Item"), "Stack"));
-                self.remember(f, &format!("item {item}"));
-                self.fixed(format!("AddItemActor {item}"));
-                self.shown(format!("AddItemActor {item} at {}", field(f, "Position")));
-            }
-            _ => {
-                let kind = kind_of(&self.runtime, "ItemEntityRuntimeID");
-                let taker = if field(f, "TakerEntityRuntimeID").as_i64() == self.player {
-                    "the player"
-                } else {
-                    "another entity"
-                };
-                self.fixed(format!("TakeItemActor {kind} by {taker}"));
-            }
+    fn fixed(&mut self, line: String) {
+        if let Some(step) = &mut self.current {
+            step.fixed.push(line);
         }
     }
 
-    /// The trading screen.
-    fn trade_screen(&mut self, f: &Value) {
-        let window = self.window(field(f, "WindowID"));
-        self.fixed(format!(
-            "UpdateTrade window {window} type {} size {} tier {} new UI {} demand based prices {}",
-            field(f, "WindowType"),
-            field(f, "Size"),
-            field(f, "TradeTier"),
-            field(f, "NewTradeUI"),
-            field(f, "DemandBasedPrices")
-        ));
-        self.shown(format!(
-            "UpdateTrade display name {} villager {} entity {}",
-            field(f, "DisplayName"),
-            field(f, "VillagerUniqueID"),
-            field(f, "EntityUniqueID")
-        ));
-    }
-
-    /// The player's attributes: the level is fixed (commands change it by fixed amounts), XP points and the exhaustion of actions vary.
-    fn attributes(&mut self, f: &Value) {
-        let mut values = Vec::new();
-        for a in field(f, "Attributes").as_array().into_iter().flatten() {
-            let value = field(a, "AttributeValue");
-            let name = text(field(value, "Name"));
-            if name == "minecraft:player.level" {
-                self.level = Some(field(value, "Value").to_string());
-            }
-            values.push(format!("{name}={}", field(value, "Value")));
-        }
-        self.shown(format!("UpdateAttributes player {}", values.join(" ")));
+    /// An item instance (`ItemInstance` JSON): the item and its stack network ID.
+    fn instance(&mut self, instance: &Value) -> String {
+        let item = self.item(field(instance, "Stack"));
+        let id = self.stack(field(instance, "StackNetworkID"));
+        format!("{item} {id}")
     }
 
     /// Remembers what an added entity is, by its runtime and unique IDs.
@@ -611,29 +610,31 @@ impl Tracer<'_> {
         }
     }
 
-    fn responses(&mut self, f: &Value) {
-        for r in field(f, "Responses").as_array().into_iter().flatten() {
-            let mut slots = Vec::new();
-            for info in field(r, "ContainerInfo").as_array().into_iter().flatten() {
-                let container = field(field(info, "Container"), "ContainerID");
-                for s in field(info, "SlotInfo").as_array().into_iter().flatten() {
-                    let id = self.stack(field(s, "StackNetworkID"));
-                    slots.push(format!(
-                        "{container}:{} x{} {id} durability {} name {}",
-                        field(s, "Slot"),
-                        field(s, "Count"),
-                        field(s, "DurabilityCorrection"),
-                        field(s, "CustomName")
-                    ));
-                }
-            }
-            self.fixed(format!(
-                "ItemStackResponse request {} status {} [{}]",
-                field(r, "RequestID"),
-                field(r, "Status"),
-                slots.join(", ")
-            ));
+    fn shown(&mut self, line: String) {
+        if let Some(step) = &mut self.current {
+            step.shown.push(line);
         }
+    }
+
+    /// A stack network ID as `#n`, numbered in order of appearance; 0 (empty) and negative IDs
+    /// (request IDs) as they are.
+    fn stack(&mut self, id: &Value) -> String {
+        let id = id.as_i64().unwrap_or_default();
+        if id <= 0 {
+            return id.to_string();
+        }
+        let next = self.stacks.len() + 1;
+        format!("#{}", self.stacks.entry(id).or_insert(next))
+    }
+
+    /// A window ID: the fixed inventory windows as they are, others as `w#n`.
+    fn window(&mut self, id: &Value) -> String {
+        let id = id.as_i64().unwrap_or_default();
+        if FIXED_WINDOWS.contains(&id) {
+            return id.to_string();
+        }
+        let next = self.windows.len() + 1;
+        format!("w#{}", self.windows.entry(id).or_insert(next))
     }
 }
 
@@ -897,7 +898,7 @@ mod tests {
         "\n",
         r#"{"type":"step","name":"give"}"#,
         "\n",
-        r#"{"type":"command","line":"give P6Craft oak_log 4"}"#,
+        r#"{"type":"command","line":"give P6Trade oak_log 4"}"#,
         "\n",
         r#"{"type":"packet","name":"InventorySlot","fields":{"WindowID":0,"Slot":0,"NewItem":{"StackNetworkID":57,"Stack":{"ItemType":{"NetworkID":17,"MetadataValue":0},"Count":4,"BlockRuntimeID":0,"NBTData":{"compound":{}}}}}}"#,
         "\n",
@@ -942,7 +943,7 @@ mod tests {
         assert_eq!(
             give.fixed,
             [
-                "command give P6Craft oak_log 4",
+                "command give P6Trade oak_log 4",
                 "items [0:0 minecraft:oak_log x4]",
             ]
         );
@@ -1057,7 +1058,7 @@ mod tests {
         let leftovers = [
             r#"{"type":"packet","name":"UpdateBlock","fields":{"Position":[-10,-60,-4],"NewBlockRuntimeID":1,"Flags":3,"Layer":0}}"#,
             r#"{"type":"packet","name":"UpdateSubChunkBlocks","fields":{"Blocks":[{"BlockPos":[13,-60,12],"BlockRuntimeID":1,"Flags":3}],"Extra":[]}}"#,
-            r#"{"type":"packet","name":"BlockActorData","fields":{"Position":[-10,-60,-4],"NBTData":{"compound":{"LastFuel":{}}}}}"#,
+            r#"{"type":"packet","name":"BlockActorData","fields":{"Position":[-10,-60,-4],"NBTData":{"compound":{"Items":{}}}}}"#,
             r#"{"type":"packet","name":"LevelEvent","fields":{"EventType":2005,"Position":[-9.5,-60,-3.5],"EventData":0}}"#,
             r#"{"type":"packet","name":"RemoveActor","fields":{"EntityUniqueID":-77}}"#,
         ]
@@ -1110,7 +1111,7 @@ mod tests {
         let capture = CAPTURE.replace(r#""name":"give"}"#, r#""name":"give","setup":true}"#);
         let steps = trace(&capture, &items(), &blocks()).expect("trace");
         let give = steps.first().expect("give");
-        assert_eq!(give.fixed, ["command give P6Craft oak_log 4"]);
+        assert_eq!(give.fixed, ["command give P6Trade oak_log 4"]);
         assert!(
             give.shown
                 .contains(&"items [0:0 minecraft:oak_log x4]".to_owned())
@@ -1122,7 +1123,7 @@ mod tests {
         let step = |n: i64| {
             format!(
                 concat!(
-                    r#"{{"type":"step","name":"bone meal","random":true}}"#,
+                    r#"{{"type":"step","name":"pick up","random":true}}"#,
                     "\n",
                     r#"{{"type":"packet","name":"ItemStackResponse","fields":{{"Responses":[{{"RequestID":-1,"Status":0,"ContainerInfo":[{{"Container":{{"ContainerID":12}},"SlotInfo":[{{"Slot":0,"Count":{},"StackNetworkID":{},"DurabilityCorrection":0,"CustomName":""}}]}}]}}]}}}}"#,
                     "\n"

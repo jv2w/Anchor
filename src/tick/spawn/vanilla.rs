@@ -133,7 +133,7 @@ pub(super) fn jigsaw_structure_data() -> Packet {
         clippy::expect_used,
         reason = "invariant: the committed file decodes (the jigsaw test reads it)"
     )]
-    Packet::decode(id, JIGSAW_STRUCTURE_DATA, &mut budget, 0)
+    Packet::decode(id, JIGSAW_STRUCTURE_DATA, &mut budget)
         .expect("jigsaw_structure_data.dat decodes")
 }
 
@@ -332,7 +332,7 @@ mod tests {
             let bytes = payload(&packet);
             let mut budget = usize::MAX;
             assert_eq!(
-                Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
+                Packet::decode(packet.id(), &bytes, &mut budget).unwrap(),
                 packet
             );
         }

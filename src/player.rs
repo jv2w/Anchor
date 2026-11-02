@@ -562,7 +562,7 @@ mod tests {
             assert_eq!(t.needs_translation, translated);
             assert!(!t.message.is_empty());
             // Every text encodes: the client decodes what the codec writes.
-            Packet::Text(t).encode(&mut Vec::new(), 0).unwrap();
+            Packet::Text(t).encode(&mut Vec::new()).unwrap();
         }
     }
 

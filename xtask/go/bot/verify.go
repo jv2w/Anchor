@@ -22,6 +22,7 @@ import (
 //	entities   a painting hung on a wall, a firework rocket used on the ground, an end crystal summoned and a
 //	           trident thrown at a villager
 //	villagers  villagers summoned until each opened trading: their variant and trade screen title (facts)
+//	tradeup    trades with a villager until its tier rises: each trade's UpdateTrade and tier
 //	numbers    waxed copper scraped with an axe, copper waxed with honeycomb and a wind charge thrown (facts:
 //	           the numbers the server uses)
 //	syntax     player commands with syntax errors and with game mode and effect names in their output
@@ -410,7 +411,7 @@ func playEntities(g *game) error {
 		}
 		switch pk := pk.(type) {
 		case *packet.MoveActorDelta:
-			// The official server 1.26.60 sends a thrown trident no SetActorMotion: its moves show its course.
+			// The official server sends a thrown trident no SetActorMotion: its moves show its course.
 			if now, ok := pk.PositionX.Value(); ok && pk.EntityRuntimeID == trident.EntityRuntimeID {
 				flight = append(flight, map[string]any{"x step": sign(now - x)})
 				x = now

@@ -16,8 +16,6 @@ const NO_STATE: u16 = 0xffff;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/table.rs";
 
-type R<T> = Result<T, String>;
-
 /// Generates the file text (unformatted) for the reference list of the game version
 /// `game_version`. Fails if a lookup could not tell two types apart.
 pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String> {
@@ -61,7 +59,7 @@ pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String
 }
 
 /// The item types: the `Kind` enum, its names and the item type the dump's item registry gives.
-fn kinds(data: &Data, out: &mut String) -> R<()> {
+fn kinds(data: &Data, out: &mut String) -> Result<(), String> {
     let set: BTreeSet<&str> = data
         .items
         .iter()
@@ -112,7 +110,7 @@ fn kinds(data: &Data, out: &mut String) -> R<()> {
 }
 
 /// The enchantment enum, its IDs and the enchantments by ID.
-fn enchantments(data: &Data, out: &mut String) -> R<()> {
+fn enchantments(data: &Data, out: &mut String) -> Result<(), String> {
     let list = &data.tables.enchantments;
     let names: Vec<&str> = list.iter().map(|e| e.name.as_str()).collect();
     let variants = variants(&names)?;
@@ -165,7 +163,7 @@ fn enchantments(data: &Data, out: &mut String) -> R<()> {
     clippy::too_many_lines,
     reason = "consistency: one table layout, emitted in one pass"
 )]
-fn info(data: &Data, out: &mut String) -> R<()> {
+fn info(data: &Data, out: &mut String) -> Result<(), String> {
     let mut class_set = BTreeSet::from(["Item"]);
     for i in &data.items {
         class_set.extend(i.data.classes.iter().map(String::as_str));
@@ -180,7 +178,6 @@ fn info(data: &Data, out: &mut String) -> R<()> {
         &class_variants,
     );
     strings(out, "The name of each class.", "CLASS_NAMES", &classes);
-    let class_ids: BTreeMap<&str, String> = classes.iter().map(|c| (*c, upper_camel(c))).collect();
 
     let mut chain_at: BTreeMap<Vec<String>, (usize, usize)> = BTreeMap::new();
     let mut chains = String::new();
@@ -197,11 +194,7 @@ fn info(data: &Data, out: &mut String) -> R<()> {
         let chain_len_before = chain_len;
         let class = *chain_at.entry(chain.clone()).or_insert_with(|| {
             for c in &chain {
-                put!(
-                    chains,
-                    "Class::{},",
-                    class_ids.get(c.as_str()).map_or("", String::as_str)
-                );
+                put!(chains, "Class::{},", upper_camel(c));
             }
             chain_len += chain.len();
             (chain_len_before, chain.len())
@@ -300,7 +293,7 @@ fn info(data: &Data, out: &mut String) -> R<()> {
 }
 
 /// The blocks the item types place, kept out of the deduplicated rows because they rarely repeat.
-fn places(data: &Data, out: &mut String) -> R<()> {
+fn places(data: &Data, out: &mut String) -> Result<(), String> {
     let state = |s: Option<u16>| match s {
         Some(s) if s < NO_STATE => Ok(s),
         Some(_) => Err("too many block states".to_owned()),

@@ -61,10 +61,10 @@ fn wall(h: &mut Harness) {
 
 /// Sends player 1's `InventoryTransaction` of `data` and runs one tick.
 fn transaction(h: &mut Harness, data: InventoryTransactionData) {
-    let p = Packet::InventoryTransaction(InventoryTransaction {
+    let p = Packet::InventoryTransaction(Box::new(InventoryTransaction {
         transaction_data: data,
         ..InventoryTransaction::default()
-    });
+    }));
     h.step(vec![input(1, 1_000_000, packet(p))]);
 }
 
@@ -566,7 +566,7 @@ fn use_in_air(h: &mut Harness) {
 /// Makes player 1 let go of the held item.
 fn release(h: &mut Harness) {
     let data = ReleaseItemTransactionData::default();
-    transaction(h, InventoryTransactionData::ReleaseItem(Box::new(data)));
+    transaction(h, InventoryTransactionData::ReleaseItem(data));
 }
 
 /// Makes player 1, looking east and down, draw the held trident for `ticks` and let it go.

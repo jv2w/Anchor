@@ -42,9 +42,9 @@ use super::game;
 
 /// The verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
-/// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets differ for
-/// reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death message, its
-/// projectiles fly otherwise, it sends a sneak's two flag words in one packet).
+/// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets
+/// differ for reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death
+/// message, its projectiles fly otherwise, it sends a sneak's two flag words in one packet).
 const CHECKS_ONLY: &[&str] = &[
     "potions",
     "others",
@@ -59,10 +59,10 @@ const CHECKS_ONLY: &[&str] = &[
 const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
 /// The scenarios whose comparison is facts only: the particles scenario records what each server
 /// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the verification
-/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (items only the official server has
-/// and telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a
-/// command) and the command line lengths (the official server ends the connection from 508 bytes, Anchor answers)
-/// record the official server facts for `xtask/data/p6/facts.md`.
+/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (items only the
+/// official server has and telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its
+/// settings, not a command) and the command line lengths (the official server ends the connection
+/// from 508 bytes, Anchor answers) record the official server facts for `xtask/data/p6/facts.md`.
 const FACTS_ONLY: [&str; 27] = [
     "particles",
     "script",

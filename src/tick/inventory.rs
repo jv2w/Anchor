@@ -1187,13 +1187,13 @@ pub(super) fn answer_held(player: &mut Player) {
     let held = player.inventory.held;
     let slot = player.inventory.main.get(held).unwrap_or_default();
     let runtime_id = player.runtime_id;
-    player.send_packet(Packet::MobEquipment(Box::new(MobEquipment {
+    player.send_packet(Packet::MobEquipment(MobEquipment {
         entity_runtime_id: runtime_id,
         new_item: slot.stack.to_instance(slot.id.net),
         inventory_slot: held,
         hot_bar_slot: held,
         window_id: INVENTORY_WINDOW_BYTE,
-    })));
+    }));
 }
 
 /// Whether a hotbar selection the server did not take this tick waits for [`answer_held`].

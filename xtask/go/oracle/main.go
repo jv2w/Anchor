@@ -26,7 +26,7 @@ import (
 // ShieldID is the shield item network ID used for every Reader and Writer. Item user data carries an
 // extra blocking tick when the item is the shield, so both sides of a comparison must agree on it; the
 // Rust tests use the same value.
-const ShieldID int32 = 357
+const ShieldID int32 = 358
 
 // decompressLimit bounds decompressed output.
 const decompressLimit = 64 << 20

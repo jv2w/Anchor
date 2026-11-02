@@ -51,7 +51,7 @@ use pocketmine\nbt\tag\Tag;
 [, $dir, $bin112, $bin19, $referencePath] = $argv;
 
 $stateUpgrader = new BlockStateUpgrader(BlockStateUpgradeSchemaUtils::loadSchemas($dir . '/blocks', PHP_INT_MAX));
-// The ID map class reads only its vendor copy (5.2.0); its file must equal the 5.3.0 copy.
+// The ID map class reads only its vendor copy; its file must equal the copied one.
 if(file_get_contents(\pocketmine\BEDROCK_BLOCK_UPGRADE_SCHEMA_PATH . '/block_legacy_id_map.json') !== file_get_contents($dir . '/block_legacy_id_map.json')){
 	fwrite(STDERR, "the vendor block_legacy_id_map.json differs from the copied one\n");
 	exit(1);

@@ -22,8 +22,6 @@ pub(crate) const EVERY_TOOL: u8 = 0b11_1111;
 /// The support types of the dump, in the order of their 2-bit codes in the generated tables.
 pub(crate) const SUPPORT_TYPES: [&str; 4] = ["full", "center", "edge", "none"];
 
-type R<T> = Result<T, String>;
-
 /// The break info of a block.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,7 +57,7 @@ impl Physics {
         tags: &[String],
         support: &[String],
         boxes: Vec<[f64; 6]>,
-    ) -> R<Self> {
+    ) -> Result<Self, String> {
         let mut bits = 0;
         for flag in flags {
             let at = BLOCK_FLAGS
@@ -96,7 +94,7 @@ impl Physics {
 }
 
 /// [`SUPPORT_TYPES`] codes of six dumped support types.
-pub(crate) fn support_codes(support: &[String]) -> R<[u8; 6]> {
+pub(crate) fn support_codes(support: &[String]) -> Result<[u8; 6], String> {
     let mut codes = [0; 6];
     if support.len() != 6 {
         return Err(format!("{} support types, not 6", support.len()));
@@ -126,7 +124,7 @@ pub(crate) struct Identity {
 /// A float the generated code writes as its shortest decimal form, which must be one that
 /// `serde_json` reads exactly: at most 15 significant digits, so the significand fits in 53 bits
 /// and the reading is one correctly rounded division by a power of ten.
-pub(crate) fn exact(v: f64) -> R<f64> {
+pub(crate) fn exact(v: f64) -> Result<f64, String> {
     let text = format!("{v:e}");
     let digits = text
         .split('e')
@@ -183,9 +181,9 @@ pub(crate) struct ItemData {
     pub(crate) cooldown: Option<CooldownJson>,
     pub(crate) throw_force: Option<f64>,
     pub(crate) potion: Option<String>,
-    /// The Bedrock state placing the item puts down (`Item::getBlock()`).
+    /// The Bedrock state placing the item puts down.
     pub(crate) places: Option<Json>,
-    /// The state it puts down against a side, where that differs (`getBlock(Facing::NORTH)`).
+    /// The state it puts down against a side, where that differs.
     pub(crate) places_on_wall: Option<Json>,
 }
 
@@ -298,7 +296,7 @@ pub(crate) struct BannerJson {
 
 /// The names of `list` as indices into `names`, as a bit set; fails on an unknown name or more
 /// than 64 names.
-pub(crate) fn bit_set(list: &[String], names: &[&str], what: &str) -> R<u64> {
+pub(crate) fn bit_set(list: &[String], names: &[&str], what: &str) -> Result<u64, String> {
     let mut bits = 0_u64;
     for name in list {
         let at = names

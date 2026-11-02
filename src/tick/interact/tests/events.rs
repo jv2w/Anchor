@@ -469,11 +469,13 @@ fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
         };
         let mut data = air(&helmet);
         let input = if transaction {
-            h.input(Packet::InventoryTransaction(InventoryTransaction {
-                actions,
-                transaction_data: InventoryTransactionData::UseItem(Box::new(data)),
-                ..InventoryTransaction::default()
-            }))
+            h.input(Packet::InventoryTransaction(Box::new(
+                InventoryTransaction {
+                    actions,
+                    transaction_data: InventoryTransactionData::UseItem(Box::new(data)),
+                    ..InventoryTransaction::default()
+                },
+            )))
         } else {
             data.actions = actions;
             h.auth(Vec::new(), Some(data))
@@ -854,17 +856,19 @@ fn villager(h: &mut Harness) -> (crate::entity::Id, u64) {
 
 /// The player's right click on the entity `runtime_id` at `at`.
 fn entity_click(h: &mut Harness, runtime_id: u64, at: [f32; 3]) -> Input {
-    h.input(Packet::InventoryTransaction(InventoryTransaction {
-        transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(
-            UseItemOnEntityTransactionData {
-                target_entity_runtime_id: runtime_id,
-                action_type: UseItemOnEntityAction::Interact.into(),
-                clicked_position: at,
-                ..UseItemOnEntityTransactionData::default()
-            },
-        )),
-        ..InventoryTransaction::default()
-    }))
+    h.input(Packet::InventoryTransaction(Box::new(
+        InventoryTransaction {
+            transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(
+                UseItemOnEntityTransactionData {
+                    target_entity_runtime_id: runtime_id,
+                    action_type: UseItemOnEntityAction::Interact.into(),
+                    clicked_position: at,
+                    ..UseItemOnEntityTransactionData::default()
+                },
+            )),
+            ..InventoryTransaction::default()
+        },
+    )))
 }
 
 /// The player right-clicks the entity `runtime_id` at `at`.

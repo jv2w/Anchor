@@ -1,6 +1,5 @@
-//! `cargo xtask p6`: the reference server comparison. It builds the Go
-//! bot (`xtask/go/bot`), runs its scenarios against the official server or any running server, and
-//! compares captures. It needs Go and, for `official`, the official server copy in
+//! `cargo xtask p6`: the official server comparison. It builds the Go bot (`xtask/go/bot`), runs
+//! its scenarios against the official server or any running server, and compares captures. It needs Go and, for `official`, the official server copy in
 //! `.cache/official/`, so `verify` does not run it.
 //!
 //! - `p6 official [zlib|snappy]...`: for each compression (default both), writes the test settings into
@@ -58,7 +57,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir, is_file, write};
+use crate::dump::{
+    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir, is_file, remove_file, write,
+};
 use crate::say;
 use compare::field;
 
@@ -931,7 +932,7 @@ fn run_anchor<T>(
     let stopped = thread
         .join()
         .map_err(|_| "the Anchor thread panicked".to_owned())
-        .and_then(|run| run.map_err(|e| format!("Anchor stopped with an error: {e}")));
+        .and_then(|run| run.map_err(|e| format!("the Anchor server stopped with an error: {e}")));
     let value = result?;
     stopped?;
     Ok(value)
@@ -963,12 +964,12 @@ fn opened_ports(thread: &std::thread::JoinHandle<anchor::Result<()>>) -> Result<
         }
         drop(listened);
         if thread.is_finished() {
-            return Err("Anchor stopped before opening its addresses".to_owned());
+            return Err("the Anchor server stopped before opening its addresses".to_owned());
         }
         pause();
     }
     Err(format!(
-        "Anchor did not open its addresses within {START_TIMEOUT:?}"
+        "the Anchor server did not open its addresses within {START_TIMEOUT:?}"
     ))
 }
 
@@ -1037,8 +1038,8 @@ fn step_state(block: &str) -> Result<anchor::block::State, String> {
 }
 
 /// Anchor's side of the blocks scenario: a task for `ServerBuilder::every(STEP_TICKS, ..)` that
-/// waits for the base position, turns random ticks off, then on each call sets the next step's
-/// block or the step's marker (as `blocks` does with the official server commands), and finally the end marker.
+/// waits for the base position, then on each call sets the next step's block or the step's marker
+/// (as `blocks` does with the official server commands), and finally the end marker.
 /// The harness sends the base position once the bot has spawned; the channel is the harness's,
 /// outside the engine.
 fn anchor_steps(
@@ -1093,11 +1094,12 @@ fn anchor_steps(
     Ok(task)
 }
 
-/// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, turns random ticks
-/// off (with them on, a placed block can change on its own between steps, as copper bars oxidize,
-/// so a step's states would differ between runs and servers: `xtask/data/p6/facts.md`), changes
-/// each block of `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places the end marker: on the official server with console commands,
-/// each sent once the official server ran the one before, on Anchor with the task of [`anchor_steps`]. Reports
+/// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, changes each block of
+/// `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places
+/// the end marker: on the official server with console commands, each sent once the official
+/// server ran the one before (after turning its random ticks off: with them on, a placed block can
+/// change on its own between steps, as copper bars oxidize, so a step's states would differ
+/// between runs: `xtask/data/p6/facts.md`), on Anchor with the task of [`anchor_steps`]. Reports
 /// the block changes of each step with their states (also into `<dir>/blocks.txt`). It passes if
 /// the bot passed, every step ended and every step changed a block; the comparison with the official server is
 /// `compare_with_official`.
@@ -2071,20 +2073,6 @@ fn read_growing_text(path: &Path) -> Result<String, String> {
 )]
 fn remove_dir(path: &Path) -> Result<(), String> {
     if let Err(e) = std::fs::remove_dir_all(path)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
-        return Err(format!("{}: {e}", path.display()));
-    }
-    Ok(())
-}
-
-/// Removes a file; a missing file is fine.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn remove_file(path: &Path) -> Result<(), String> {
-    if let Err(e) = std::fs::remove_file(path)
         && e.kind() != std::io::ErrorKind::NotFound
     {
         return Err(format!("{}: {e}", path.display()));

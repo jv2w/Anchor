@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use super::extra::Extras;
 use super::queue::{Message, SessionId};
@@ -1400,12 +1400,6 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
         }
         Loaded::Damaged => {
             state.chunks.extras.chunk_unloaded(key);
-            error!(
-                world = w.name(),
-                x = pos.x,
-                z = pos.z,
-                "saved chunk is damaged; it is shown empty, kept as saved and never changed"
-            );
             w.quarantine(pos);
         }
     }
@@ -3437,7 +3431,7 @@ mod tests {
             .filter(|p| matches!(p, Packet::SubChunk(_)))
             .map(|p| {
                 let mut bytes = Vec::new();
-                p.encode(&mut bytes, 0).unwrap();
+                p.encode(&mut bytes).unwrap();
                 bytes
             })
             .collect()

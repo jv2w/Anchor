@@ -467,7 +467,7 @@ fn a_scoreboard_is_sent_whole_then_by_changed_lines() {
     );
     for p in &sent {
         let mut bytes = Vec::new();
-        p.encode(&mut bytes, 0).unwrap();
+        p.encode(&mut bytes).unwrap();
     }
 
     // The same scoreboard again sends nothing; a changed line is removed and added again.

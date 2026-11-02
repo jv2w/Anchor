@@ -363,7 +363,7 @@ impl Potion {
             clippy::indexing_slicing,
             reason = "invariant: the generated potion text table has a row per potion type"
         )]
-        table::POTION_TEXT[self as usize]
+        table::POTION_DISPLAY_NAMES[self as usize]
     }
 
     /// The effects a drink of the potion gives.

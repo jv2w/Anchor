@@ -14,7 +14,7 @@ mod registry;
 mod stack;
 mod table;
 
-pub use registry::SHIELD_RUNTIME_ID;
+pub(crate) use registry::SHIELD_RUNTIME_ID;
 #[cfg(test)]
 pub(crate) use stack::MAX_STORED_BYTES;
 pub use stack::{
@@ -1524,7 +1524,6 @@ mod tests {
             reference_ids()["minecraft:shield"],
             i64::from(SHIELD_RUNTIME_ID)
         );
-        let shield = SHIELD_RUNTIME_ID;
         let registry = registry();
         let content = creative_content();
         let mut bytes = Vec::new();
@@ -1532,7 +1531,7 @@ mod tests {
             Packet::ItemRegistry(registry.clone()),
             Packet::CreativeContent(content.clone()),
         ] {
-            packet.encode(&mut bytes, shield).unwrap();
+            packet.encode(&mut bytes).unwrap();
         }
         // The decoder takes at most `MAX_LIST_LEN` list elements, fewer than the full lists, so
         // every element goes back through the decoder in packets of that many.
@@ -1550,9 +1549,9 @@ mod tests {
         }
         for packet in packets {
             bytes.clear();
-            packet.encode(&mut bytes, shield).unwrap();
+            packet.encode(&mut bytes).unwrap();
             let mut budget = usize::MAX;
-            let decoded = Packet::decode(packet.id(), &bytes, &mut budget, shield).unwrap();
+            let decoded = Packet::decode(packet.id(), &bytes, &mut budget).unwrap();
             assert_eq!(decoded, packet);
         }
     }

@@ -12,15 +12,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 /// The chunk packets: they interleave with the spawn window by timing (a server sends them as
-/// chunks load, the official server from before the radius answer), so the window leaves them out and
-/// [`compare_chunks`] compares them by their own rules.
+/// chunks load, the official server from before the radius answer), so the window leaves them out
+/// and [`compare_chunks`] compares them by their own rules.
 pub(crate) const CHUNK_PACKETS: [&str; 3] =
     ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 /// The deferral table, relative to the repository root.
 pub(crate) const DEFERRED_PATH: &str = "xtask/data/p6/deferred.txt";
-/// Entity packets that also carry other entities' data: the official server sends them for the flat world's
-/// mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`), Anchor never
-/// (it simulates no mobs). Only the player's own are compared.
+/// Entity packets that also carry other entities' data: the official server sends them for the
+/// flat world's mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`),
+/// Anchor never (it simulates no mobs). Only the player's own are compared.
 const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
 /// The fixed-field list, relative to the repository root.
 pub(crate) const FIELDS_PATH: &str = "xtask/data/p6/fields.txt";
@@ -237,8 +237,8 @@ impl ChunkReader {
 /// The marker of the blocks scenario: its position relative to the base position and the states
 /// (as `p6::block_states` writes them) that end a step (alternating) and the scenario; and the
 /// positions the steps can change (each step position and its 8 horizontal neighbours). Changes
-/// elsewhere are the server's own (the official server turns grass under placed blocks into dirt on random ticks)
-/// and are only counted.
+/// elsewhere are the server's own (the official server turns grass under placed blocks into dirt
+/// on random ticks) and are only counted.
 #[derive(Debug)]
 pub(crate) struct Markers {
     pub(crate) position: [i64; 3],
@@ -296,10 +296,10 @@ impl StepSummary {
         }
     }
 
-    /// The packet kind Anchor sends for this step: `UpdateBlock` when one position
-    /// changed, else `UpdateSubChunkBlocks`. The official server repeats a position in one `UpdateSubChunkBlocks`
-    /// (a block and its neighbour's update of it) and sometimes sends a block and its neighbours'
-    /// updates in two packets of consecutive ticks; neither is followed.
+    /// The packet kind Anchor sends for this step: `UpdateBlock` when one position changed, else
+    /// `UpdateSubChunkBlocks`. The official server repeats a position in one
+    /// `UpdateSubChunkBlocks` (a block and its neighbour's update of it) and sometimes sends a
+    /// block and its neighbours' updates in two packets of consecutive ticks; neither is followed.
     fn normalized_kinds(&self) -> BTreeSet<&'static str> {
         match self.last.len() {
             0 => BTreeSet::new(),
@@ -517,9 +517,10 @@ pub(crate) fn compare(
     differences
 }
 
-/// The fields of a window's packets of one name, in the order `compare` pairs them. The official server sends some
-/// lists in an order that means nothing to the client and differs between its Windows and Linux
-/// builds (`xtask/data/p6/facts.md`); they are put in key order, so only their content counts:
+/// The fields of a window's packets of one name, in the order `compare` pairs them. The official
+/// server sends some lists in an order that means nothing to the client and differs between its
+/// Windows and Linux builds (`xtask/data/p6/facts.md`); they are put in key order, so only their
+/// content counts:
 /// - the `SyncActorProperty` packets, one entity type each, by `PropertyData.type`. Each entity's
 ///   own property list keeps its order: actor data refers to a property by its index there.
 /// - the `CameraAimAssistPresets` categories by `Name` (presets refer to them by name) and each
@@ -674,8 +675,8 @@ pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
     Ok(items)
 }
 
-/// Compares the item packets of capture A (official server) and B (Anchor) where both have them. Returns the
-/// differences, which fail the comparison, and notes, which are information:
+/// Compares the item packets of capture A (official server) and B (Anchor) where both have them.
+/// Returns the differences, which fail the comparison, and notes, which are information:
 /// - `ItemRegistry`: the `Items` lists must hold the same entries (`compare_registry`).
 /// - `CreativeContent`: every item of B must be in A with the same `NetworkID`, `MetadataValue`,
 ///   `BlockRuntimeID` and `NBTData`; B's groups must be consistent (`group_problems`).
@@ -748,9 +749,10 @@ fn listed(what: &str, entries: &[String]) -> Option<String> {
     ))
 }
 
-/// Compares two `ItemRegistry` item lists in runtime ID order: the official server lists them in an order that is
-/// the same on every start but neither by runtime ID nor by name, and the client looks entries up
-/// by runtime ID. Reports the names only one side has and the first differing entry.
+/// Compares two `ItemRegistry` item lists in runtime ID order: the official server lists them in
+/// an order that is the same on every start but neither by runtime ID nor by name, and the client
+/// looks entries up by runtime ID. Reports the names only one side has and the first differing
+/// entry.
 fn compare_registry(a: &Value, b: &Value) -> Vec<String> {
     let (Some(a), Some(b)) = (a.as_array(), b.as_array()) else {
         return vec!["ItemRegistry Items is not a list".to_owned()];
@@ -1143,8 +1145,9 @@ pub(crate) fn block_steps(
     Ok((steps, false))
 }
 
-/// Compares the steps of two blocks captures, A (official server) and B: per step, the last state and flags of
-/// every position, B's packet kinds against A's normalized ones (`StepSummary::normalized_kinds`)
+/// Compares the steps of two blocks captures, A (official server) and B: per step, the last state
+/// and flags of every position, B's packet kinds against A's normalized ones
+/// (`StepSummary::normalized_kinds`)
 /// and the other block packet names. `labels` name the steps in messages. Returns the differences
 /// and notes on the steps where A's own packet kinds differ from its normalized ones.
 pub(crate) fn compare_steps(
@@ -1635,7 +1638,7 @@ mod tests {
         let labels = ["s0".to_owned(), "s1".to_owned()];
         assert_eq!(compare_steps(&a, &b, &labels), (Vec::new(), Vec::new()));
         // A different last state and a single position sent in an UpdateSubChunkBlocks differ;
-        // The official server's repeated entry for one position is a note, not a difference.
+        // the official server's repeated entry for one position is a note, not a difference.
         let c_capture = blocks_capture()
             .replace(&update(1, 2, 1), &sub_chunk_update(1, &[(2, 1)]))
             .replace(

@@ -160,7 +160,7 @@ fn run(state: &mut State, output: &mut Output, s: &mut Session, mut inputs: Vec<
 
 /// A click with the empty hand on the top of the block at `pos`.
 fn click_packet(pos: BlockPos) -> Packet {
-    Packet::InventoryTransaction(InventoryTransaction {
+    Packet::InventoryTransaction(Box::new(InventoryTransaction {
         legacy_request_id: 0,
         legacy_set_item_slots: Vec::new(),
         actions: Vec::new(),
@@ -172,7 +172,7 @@ fn click_packet(pos: BlockPos) -> Packet {
             clicked_position: [0.5, 1.0, 0.5],
             ..UseItemTransactionData::default()
         })),
-    })
+    }))
 }
 
 /// The client closes its latest window.
@@ -282,19 +282,21 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
     };
     let villager = entity::spawn_npc(state, 0, Vec3::new(0.5, -60.0, 3.5), npc).unwrap();
     let target = entity::villager(state, villager).unwrap().2;
-    let use_on = s.packet(Packet::InventoryTransaction(InventoryTransaction {
-        legacy_request_id: 0,
-        legacy_set_item_slots: Vec::new(),
-        actions: Vec::new(),
-        transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(
-            UseItemOnEntityTransactionData {
-                target_entity_runtime_id: target,
-                action_type: UseItemOnEntityAction::Interact.into(),
-                position: [0.5, -58.38, 0.5],
-                ..UseItemOnEntityTransactionData::default()
-            },
-        )),
-    }));
+    let use_on = s.packet(Packet::InventoryTransaction(Box::new(
+        InventoryTransaction {
+            legacy_request_id: 0,
+            legacy_set_item_slots: Vec::new(),
+            actions: Vec::new(),
+            transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(
+                UseItemOnEntityTransactionData {
+                    target_entity_runtime_id: target,
+                    action_type: UseItemOnEntityAction::Interact.into(),
+                    position: [0.5, -58.38, 0.5],
+                    ..UseItemOnEntityTransactionData::default()
+                },
+            )),
+        },
+    )));
     run(state, output, &mut s, vec![use_on]);
     let shut = s.packet(close_packet());
     run(state, output, &mut s, vec![shut]);

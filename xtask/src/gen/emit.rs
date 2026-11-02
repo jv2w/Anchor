@@ -73,6 +73,7 @@ pub(crate) fn generate(m: &Model<'_>) -> Result<Output, String> {
     }
     packet_enum(m, &mut packet)?;
     types.push_str(&hand_limits(m, &helpers)?);
+    types.push_str(&hand_size_checks());
     let source = &m.ir.source;
     let origin = format!(
         "gophertunnel {} (commit {}), protocol {}, game version {}",
@@ -1183,9 +1184,9 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
         "/// Decodes the payload of a packet with this ID: the bytes after the packet header. Every \
          byte must be part of the packet.\n///\n/// `budget` is the allocation budget left for the \
          batch the packet came in; decoding takes what the packet allocates from \
-         it. `shield_id` is the shield's item network ID ([`crate::item::SHIELD_RUNTIME_ID`]), which changes the item wire format.\n\
-         pub fn decode(id: u32, payload: &[u8], budget: &mut usize, shield_id: i32) -> Result<Self> {\n\
-         let mut r = Reader::new(payload, *budget, shield_id);\n\
+         it.\n\
+         pub fn decode(id: u32, payload: &[u8], budget: &mut usize) -> Result<Self> {\n\
+         let mut r = Reader::new(payload, *budget, crate::item::SHIELD_RUNTIME_ID);\n\
          let packet = Self::decode_body(id, &mut r);\n*budget = r.budget();\nlet packet = packet?;\n\
          if !r.remaining().is_empty() {\nreturn Err(Error::InvalidValue { field: \"packet\", reason: \"bytes after the packet\" });\n}\n\
          Ok(packet)\n}\n\n\
@@ -1205,10 +1206,9 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
     out.push_str(
         "_ => return Err(Error::UnknownEnum { name: \"packet id\", value: id.into() }),\n})\n}\n\n\
          /// Appends the payload of the packet (without the packet header) to `out`. On an error \
-         `out` is left as it was. `shield_id` is the shield's item network ID \
-         ([`crate::item::SHIELD_RUNTIME_ID`]).\n\
-         pub fn encode(&self, out: &mut Vec<u8>, shield_id: i32) -> Result<()> {\n\
-         let start = out.len();\nlet mut w = Writer::new(std::mem::take(out), shield_id);\n\
+         `out` is left as it was.\n\
+         pub fn encode(&self, out: &mut Vec<u8>) -> Result<()> {\n\
+         let start = out.len();\nlet mut w = Writer::new(std::mem::take(out), crate::item::SHIELD_RUNTIME_ID);\n\
          let result = match self {\n",
     );
     for (_, rust, _) in &rows {
@@ -1261,6 +1261,21 @@ fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> Result<String, Stri
         );
     }
     Ok(out)
+}
+
+/// Compile-time checks that each hand type has the size `Model` assumes when it boxes large
+/// packets and union variants, so a hand type that changes size fails the build until its table
+/// row is corrected.
+fn hand_size_checks() -> String {
+    let mut out = String::from("// The sizes the generator boxes by (`HAND_TYPES`).\n");
+    for (rust, bytes) in model::hand_sizes() {
+        put!(
+            out,
+            "const _: () = assert!(std::mem::size_of::<{rust}>() == {bytes});\n"
+        );
+    }
+    out.push('\n');
+    out
 }
 
 /// The helper items the generated code uses, in `types.rs`.

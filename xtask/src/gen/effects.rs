@@ -8,8 +8,9 @@ use super::emit::HEADER;
 use super::items::effect_instance;
 
 /// The official server's colours (RGB) of the effects whose splash potions it shows, where they
-/// differ from the dump's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash `LevelEvent` colours;
-/// resistance from the turtle master's mixes). The client draws potions and particles in them.
+/// differ from the dump's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash
+/// `LevelEvent` colours; resistance from the turtle master's mixes). The client draws potions and
+/// particles in them.
 const OFFICIAL_COLOURS: [(&str, [u8; 3]); 12] = [
     ("fire_resistance", [0xff, 0x99, 0x00]),
     ("instant_damage", [0xa9, 0x65, 0x6a]),
@@ -52,7 +53,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let effect_variants = variants(&names)?;
     api_enumeration(
         &mut out,
-        "A status effect type (the dump source's `VanillaEffects`).",
+        "A status effect type.",
         "#[doc(alias = \"Effect\", alias = \"VanillaEffects\")]
 ",
         "Type",
@@ -115,15 +116,14 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     Ok(out)
 }
 
-/// The potion type enum and tables (the dump source's `PotionType`, `PotionTypeIdMap`).
+/// The potion type enum and tables.
 fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
     let potions = &data.tables.potions;
     let potion_names: Vec<&str> = potions.iter().map(|p| p.name.as_str()).collect();
     let potion_variants = variants(&potion_names)?;
     api_enumeration(
         out,
-        "A potion type (the dump source's `PotionType`): what a potion, splash potion, lingering potion or \
-         tipped arrow holds.",
+        "A potion type: what a potion, splash potion, lingering potion or tipped arrow holds.",
         "#[doc(alias = \"PotionType\")]
 ",
         "Potion",
@@ -152,8 +152,8 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
     )?;
     strings(
         out,
-        "The dump's display name of each potion type.",
-        "POTION_TEXT",
+        "The English display name of each potion type, not a translation key.",
+        "POTION_DISPLAY_NAMES",
         &potions.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
     );
     let mut instances = String::new();

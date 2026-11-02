@@ -781,24 +781,24 @@ fn waypoint(runtime_id: u64, action: u8, waypoint: Waypoint) -> Packet {
 
 /// The held item of a player, or of an NPC in slot 0.
 pub(super) fn held(runtime_id: u64, stack: &Stack, slot: u8) -> Packet {
-    Packet::MobEquipment(Box::new(MobEquipment {
+    Packet::MobEquipment(MobEquipment {
         entity_runtime_id: runtime_id,
         new_item: instance(stack),
         inventory_slot: slot,
         hot_bar_slot: slot,
         window_id: INVENTORY_WINDOW_BYTE,
-    }))
+    })
 }
 
 /// The off-hand item of a player.
 pub(super) fn off_hand(runtime_id: u64, stack: &Stack) -> Packet {
-    Packet::MobEquipment(Box::new(MobEquipment {
+    Packet::MobEquipment(MobEquipment {
         entity_runtime_id: runtime_id,
         new_item: instance(stack),
         inventory_slot: 0,
         hot_bar_slot: 0,
         window_id: OFF_HAND_WINDOW_BYTE,
-    }))
+    })
 }
 
 /// The armour of a player.

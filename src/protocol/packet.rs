@@ -8933,9 +8933,9 @@ pub enum Packet {
     /// The [`UpdateAttributes`] packet (ID 29).
     UpdateAttributes(UpdateAttributes),
     /// The [`InventoryTransaction`] packet (ID 30).
-    InventoryTransaction(InventoryTransaction),
+    InventoryTransaction(Box<InventoryTransaction>),
     /// The [`MobEquipment`] packet (ID 31).
-    MobEquipment(Box<MobEquipment>),
+    MobEquipment(MobEquipment),
     /// The [`MobArmourEquipment`] packet (ID 32).
     MobArmourEquipment(Box<MobArmourEquipment>),
     /// The [`Interact`] packet (ID 33).
@@ -9658,8 +9658,8 @@ impl Packet {
             27 => Self::ActorEvent(ActorEvent::default()),
             28 => Self::MobEffect(MobEffect::default()),
             29 => Self::UpdateAttributes(UpdateAttributes::default()),
-            30 => Self::InventoryTransaction(InventoryTransaction::default()),
-            31 => Self::MobEquipment(Box::default()),
+            30 => Self::InventoryTransaction(Box::default()),
+            31 => Self::MobEquipment(MobEquipment::default()),
             32 => Self::MobArmourEquipment(Box::default()),
             33 => Self::Interact(Interact::default()),
             34 => Self::BlockPickRequest(BlockPickRequest::default()),
@@ -9910,9 +9910,9 @@ impl Packet {
 
     /// Decodes the payload of a packet with this ID: the bytes after the packet header. Every byte must be part of the packet.
     ///
-    /// `budget` is the allocation budget left for the batch the packet came in; decoding takes what the packet allocates from it. `shield_id` is the shield's item network ID ([`crate::item::SHIELD_RUNTIME_ID`]), which changes the item wire format.
-    pub fn decode(id: u32, payload: &[u8], budget: &mut usize, shield_id: i32) -> Result<Self> {
-        let mut r = Reader::new(payload, *budget, shield_id);
+    /// `budget` is the allocation budget left for the batch the packet came in; decoding takes what the packet allocates from it.
+    pub fn decode(id: u32, payload: &[u8], budget: &mut usize) -> Result<Self> {
+        let mut r = Reader::new(payload, *budget, crate::item::SHIELD_RUNTIME_ID);
         let packet = Self::decode_body(id, &mut r);
         *budget = r.budget();
         let packet = packet?;
@@ -9957,8 +9957,8 @@ impl Packet {
             27 => Self::ActorEvent(ActorEvent::decode(r)?),
             28 => Self::MobEffect(MobEffect::decode(r)?),
             29 => Self::UpdateAttributes(UpdateAttributes::decode(r)?),
-            30 => Self::InventoryTransaction(InventoryTransaction::decode(r)?),
-            31 => Self::MobEquipment(Box::new(MobEquipment::decode(r)?)),
+            30 => Self::InventoryTransaction(Box::new(InventoryTransaction::decode(r)?)),
+            31 => Self::MobEquipment(MobEquipment::decode(r)?),
             32 => Self::MobArmourEquipment(Box::new(MobArmourEquipment::decode(r)?)),
             33 => Self::Interact(Interact::decode(r)?),
             34 => Self::BlockPickRequest(BlockPickRequest::decode(r)?),
@@ -10204,14 +10204,14 @@ impl Packet {
         })
     }
 
-    /// Appends the payload of the packet (without the packet header) to `out`. On an error `out` is left as it was. `shield_id` is the shield's item network ID ([`crate::item::SHIELD_RUNTIME_ID`]).
+    /// Appends the payload of the packet (without the packet header) to `out`. On an error `out` is left as it was.
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: generated from one gophertunnel body or table"
     )]
-    pub fn encode(&self, out: &mut Vec<u8>, shield_id: i32) -> Result<()> {
+    pub fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         let start = out.len();
-        let mut w = Writer::new(std::mem::take(out), shield_id);
+        let mut w = Writer::new(std::mem::take(out), crate::item::SHIELD_RUNTIME_ID);
         let result = match self {
             Self::Login(x) => x.encode(&mut w),
             Self::PlayStatus(x) => x.encode(&mut w),

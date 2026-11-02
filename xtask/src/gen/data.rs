@@ -12,14 +12,13 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+use super::body::{int_lit, str_lit};
+use super::info::{Break, EVERY_TOOL, Identity, ItemData, Physics, Tables, exact, support_codes};
+use super::upgrade::{ADDING, block_schema};
 use crate::dump::{
     BLOCK_PHYSICS, DUMP_BLOCKS, DUMP_DESERIALIZED, DUMP_DIR, DUMP_ITEMS, DUMP_TABLES,
     REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
 };
-
-use super::body::{int_lit, str_lit};
-use super::info::{Break, EVERY_TOOL, Identity, ItemData, Physics, Tables, exact, support_codes};
-use super::upgrade::{ADDING, block_schema};
 
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
 pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
@@ -70,8 +69,6 @@ pub(crate) const SHARED: [(&str, &str, &str); 4] = [
         "the colour and ominous type (banner block entity `Base` and `Type`)",
     ),
 ];
-
-type R<T> = Result<T, String>;
 
 /// Where a state's item form comes from, before item types are known.
 #[derive(Debug, Clone, PartialEq)]
@@ -409,7 +406,7 @@ type Upgraded = (BTreeMap<StateKey, Values>, BTreeMap<StateKey, StateKey>);
 
 impl Data {
     /// Loads and checks every file.
-    pub(crate) fn load(root: &Path) -> R<Self> {
+    pub(crate) fn load(root: &Path) -> Result<Self, String> {
         let (network, reference_names) = read_reference(root)?;
         let added = read_upgrade(root)?;
         let reading = read_dump_reading(root, &network)?;
@@ -491,7 +488,7 @@ impl Data {
         root: &Path,
         network: &BTreeMap<StateKey, u32>,
         vanilla: &[ItemBlock],
-    ) -> R<()> {
+    ) -> Result<(), String> {
         let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
         self.runtime_ids = reference
             .iter()
@@ -500,7 +497,7 @@ impl Data {
                     .map(|id| (i.name.clone(), id))
                     .map_err(|_| format!("runtime ID of {} out of range", i.name))
             })
-            .collect::<R<_>>()?;
+            .collect::<Result<_, String>>()?;
         let reference_data: BTreeMap<&str, &Json> = reference
             .iter()
             .map(|i| (i.name.as_str(), &i.data))
@@ -560,7 +557,7 @@ impl Data {
     }
 
     /// The state of a dumped block an item places.
-    fn placed(&self, json: Option<&Json>) -> R<Option<u16>> {
+    fn placed(&self, json: Option<&Json>) -> Result<Option<u16>, String> {
         json.map(|j| self.dump_state(&bedrock_state(j)?))
             .transpose()
     }
@@ -574,7 +571,7 @@ impl Data {
         &mut self,
         network: &BTreeMap<StateKey, u32>,
         vanilla: &[ItemBlock],
-    ) -> R<()> {
+    ) -> Result<(), String> {
         let block_items = self.block_item_counts();
         let mut ids = BTreeMap::new();
         for v in vanilla {
@@ -604,7 +601,7 @@ impl Data {
     /// Fails if the vanilla creative state of an item with a single dump block item type does
     /// not read, as `State::read` reads it (the state itself, else its alias), as a block whose
     /// item is that item: a stored block item is found by its block state through this reading.
-    fn check_vanilla_item_states(&self, vanilla: &[ItemBlock]) -> R<()> {
+    fn check_vanilla_item_states(&self, vanilla: &[ItemBlock]) -> Result<(), String> {
         let block_items = self.block_item_counts();
         for v in vanilla {
             if block_items.get(v.item.as_str()) != Some(&1) {
@@ -661,7 +658,7 @@ impl Data {
     fn item_form(
         &self,
         json: &Json,
-    ) -> R<(String, u16, Option<u16>, Option<BTreeMap<String, Tag>>)> {
+    ) -> Result<(String, u16, Option<u16>, Option<BTreeMap<String, Tag>>), String> {
         let obj = json.as_object().ok_or("item is not an object")?;
         let name = obj
             .get("name")
@@ -692,7 +689,7 @@ impl Data {
 
     /// The state index of a dump state in its Bedrock form of the dump's data version: its
     /// upgraded default form.
-    pub(crate) fn dump_state(&self, key: &StateKey) -> R<u16> {
+    pub(crate) fn dump_state(&self, key: &StateKey) -> Result<u16, String> {
         self.dump_state_index
             .get(key)
             .copied()
@@ -704,8 +701,10 @@ impl Data {
     /// of the name and block, the one with the stack's meta; if several have it, the one with the
     /// most type NBT that is part of the stack NBT; if none has it and the name and block have a
     /// single type, that type, as the dump reads such a meta as stack state (a firework star's
-    /// colour). The stack keeps its own meta.
-    pub(crate) fn stack(&self, json: &Json) -> R<Stack> {
+    /// colour). The stack keeps its own meta. A dumped block item always names the state its type
+    /// places, so the fallback `from_name` has for a saved block item with another state (the
+    /// block's item form) never applies here.
+    pub(crate) fn stack(&self, json: &Json) -> Result<Stack, String> {
         let (name, meta, block, nbt) = self.item_form(json)?;
         let count = json
             .get("count")
@@ -723,7 +722,7 @@ impl Data {
 
     /// The item type of an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`), by
     /// the rules of [`Data::stack`].
-    pub(crate) fn item_type(&self, json: &Json) -> R<u16> {
+    pub(crate) fn item_type(&self, json: &Json) -> Result<u16, String> {
         let (name, meta, block, nbt) = self.item_form(json)?;
         self.type_of(&name, meta, block, nbt.as_ref())
     }
@@ -735,7 +734,7 @@ impl Data {
         meta: u16,
         block: Option<u16>,
         nbt: Option<&BTreeMap<String, Tag>>,
-    ) -> R<u16> {
+    ) -> Result<u16, String> {
         let candidates = self
             .item_index
             .get(&(name.to_owned(), block))
@@ -766,7 +765,7 @@ impl Data {
     }
 
     /// The runtime ID of an item name of the reference list.
-    pub(crate) fn runtime_id(&self, name: &str) -> R<i16> {
+    pub(crate) fn runtime_id(&self, name: &str) -> Result<i16, String> {
         self.runtime_ids
             .get(name)
             .copied()
@@ -792,7 +791,7 @@ fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) ->
 /// of a component-based item's `item_properties`, both in ticks. An item sent without data
 /// (potion, milk bucket, medicine) takes [`LEGACY_USE_TICKS`]. Fails for an item with data but
 /// no such value, or a value that is not 1 to 65,535 ticks.
-fn use_ticks(name: &str, data: &Json) -> R<u16> {
+fn use_ticks(name: &str, data: &Json) -> Result<u16, String> {
     let data = compound(data).map_err(|e| format!("{name}: {e}"))?;
     if data.is_empty() {
         return Ok(LEGACY_USE_TICKS);
@@ -818,7 +817,7 @@ fn use_ticks(name: &str, data: &Json) -> R<u16> {
 }
 
 /// Reads the reference block list.
-fn read_reference(root: &Path) -> R<Reference> {
+fn read_reference(root: &Path) -> Result<Reference, String> {
     let reference: Vec<ReferenceBlock> = read_json(root, REFERENCE_DIR, REFERENCE_BLOCKS)?;
     let mut network = BTreeMap::new();
     let mut names: BTreeMap<String, Vec<StateKey>> = BTreeMap::new();
@@ -834,7 +833,7 @@ fn read_reference(root: &Path) -> R<Reference> {
 
 /// Reads the added properties of the block upgrade schemas in [`ADDING`], by block name. A
 /// block in two schemas gets the properties of both.
-fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
+fn read_upgrade(root: &Path) -> Result<BTreeMap<String, Vec<(String, Prop)>>, String> {
     let mut added: BTreeMap<String, Vec<(String, Prop)>> = BTreeMap::new();
     for schema in ADDING {
         let upgrade: Upgrade = serde_json::from_slice(&read(&block_schema(root, schema))?)
@@ -854,13 +853,19 @@ fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
 /// Reads how the dump reads the reference states (`deserialized.json`, which lists the states it
 /// does not read as themselves). Fails if a listed state is not a reference state or is listed
 /// twice.
-fn read_dump_reading(root: &Path, network: &BTreeMap<StateKey, u32>) -> R<DumpReading> {
+fn read_dump_reading(
+    root: &Path,
+    network: &BTreeMap<StateKey, u32>,
+) -> Result<DumpReading, String> {
     let list: Vec<Deserialized> = read_json(root, DUMP_DIR, DUMP_DESERIALIZED)?;
     dump_reading(list, network)
 }
 
 /// The reading of [`read_dump_reading`] from the read `deserialized.json`.
-fn dump_reading(list: Vec<Deserialized>, network: &BTreeMap<StateKey, u32>) -> R<DumpReading> {
+fn dump_reading(
+    list: Vec<Deserialized>,
+    network: &BTreeMap<StateKey, u32>,
+) -> Result<DumpReading, String> {
     let mut reading = DumpReading::new();
     for d in list {
         let key = state_key(&d.name, &d.states)?;
@@ -886,7 +891,7 @@ fn aliases(
     network: &BTreeMap<StateKey, u32>,
     state_index: &BTreeMap<StateKey, u16>,
     dump_state_index: &BTreeMap<StateKey, u16>,
-) -> R<Vec<Alias>> {
+) -> Result<Vec<Alias>, String> {
     let mut aliases = Vec::new();
     for (key, &network_id) in network {
         match reading.get(key) {
@@ -928,7 +933,7 @@ fn unimplemented_states(
     states: &BTreeMap<StateKey, Values>,
     reading: &DumpReading,
     info_update: &Identity,
-) -> R<Vec<(StateKey, Values)>> {
+) -> Result<Vec<(StateKey, Values)>, String> {
     let physics: BlockPhysics = read_json(root, REFERENCE_DIR, BLOCK_PHYSICS)?;
     let by_id: BTreeMap<u32, &PhysicsRow> = physics.states.iter().map(|s| (s.0, s)).collect();
     let mut found = Vec::new();
@@ -956,7 +961,7 @@ fn unimplemented_values(
     (hardness, light_emission, light_filter): (f64, u8, u8),
     boxes: &[[f64; 6]],
     info_update: &Identity,
-) -> R<Values> {
+) -> Result<Values, String> {
     let (flag, support) = if boxes == [UNIT_CUBE] {
         ("solid", "full")
     } else {
@@ -993,7 +998,7 @@ fn unimplemented_keys<'a>(
     network: &'a BTreeMap<StateKey, u32>,
     states: &BTreeMap<StateKey, Values>,
     reading: &DumpReading,
-) -> R<Vec<&'a StateKey>> {
+) -> Result<Vec<&'a StateKey>, String> {
     let mut keys = Vec::new();
     for key in network.keys().filter(|key| !states.contains_key(key)) {
         match reading.get(key) {
@@ -1013,7 +1018,7 @@ fn unimplemented_keys<'a>(
 /// Reads the dump states by their Bedrock form of the dump's data version and merges overlapping
 /// ones (see [`merge`]); also the default state and identity of each block type, which all its
 /// states must share.
-fn read_dump_states(root: &Path) -> R<DumpStates> {
+fn read_dump_states(root: &Path) -> Result<DumpStates, String> {
     let dump: Vec<DumpBlock> = read_json(root, DUMP_DIR, DUMP_BLOCKS)?;
     let mut groups: BTreeMap<StateKey, Vec<Values>> = BTreeMap::new();
     let mut defaults = BTreeMap::new();
@@ -1082,7 +1087,11 @@ fn read_dump_states(root: &Path) -> R<DumpStates> {
 /// The collision boxes of a dumped state with inside-out ones rebuilt, which only
 /// [`INSIDE_OUT_BOXES`] classes may have: on an axis where min is above max, the dump trimmed
 /// `min` (= 3/4) from each side, and the box keeps half of that trim, `min / 2 ..= 1 - min / 2`.
-fn valid_boxes(key: &StateKey, classes: &[String], boxes: Vec<[f64; 6]>) -> R<Vec<[f64; 6]>> {
+fn valid_boxes(
+    key: &StateKey,
+    classes: &[String],
+    boxes: Vec<[f64; 6]>,
+) -> Result<Vec<[f64; 6]>, String> {
     let inside_out =
         |b: &[f64; 6]| matches!(b, [x0, y0, z0, x1, y1, z1] if x0 > x1 || y0 > y1 || z0 > z1);
     if boxes.iter().any(inside_out)
@@ -1116,7 +1125,11 @@ fn valid_boxes(key: &StateKey, classes: &[String], boxes: Vec<[f64; 6]>) -> R<Ve
 /// classes and traits of the type `SHARED` names, and the types may differ in their block flags
 /// (a potion cauldron has no entity collision); an item form that differs becomes block entity
 /// data. Adds the names it needed `SHARED` for to `used`.
-fn merge(key: &StateKey, group: &[Values], used: &mut BTreeSet<&'static str>) -> R<Values> {
+fn merge(
+    key: &StateKey,
+    group: &[Values],
+    used: &mut BTreeSet<&'static str>,
+) -> Result<Values, String> {
     let shared = SHARED.iter().find(|(name, ..)| *name == key.name);
     let disagree = |what: &str| {
         format!(
@@ -1178,7 +1191,7 @@ fn upgrade(
     added: &BTreeMap<String, Vec<(String, Prop)>>,
     network: &BTreeMap<StateKey, u32>,
     reference_names: &BTreeMap<String, Vec<StateKey>>,
-) -> R<Upgraded> {
+) -> Result<Upgraded, String> {
     let mut used = BTreeSet::new();
     let mut states = BTreeMap::new();
     let mut defaults = BTreeMap::new();
@@ -1244,7 +1257,7 @@ fn upgrade(
 /// boxes come from the dumped variant whose client properties the state has: the dump works the
 /// connections and stair shape out from the neighbours, so the dumped state (unconnected,
 /// straight) does not have them.
-fn variant_physics(key: &StateKey, values: &Values) -> R<Physics> {
+fn variant_physics(key: &StateKey, values: &Values) -> Result<Physics, String> {
     let mut physics = values.physics.clone();
     let Some(variants) = values.connect.as_ref().and_then(|c| c.variants.as_ref()) else {
         return Ok(physics);
@@ -1272,14 +1285,18 @@ fn variant_physics(key: &StateKey, values: &Values) -> R<Physics> {
 }
 
 /// Reads a committed JSON file.
-pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(root: &Path, dir: &str, file: &str) -> R<T> {
+pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(
+    root: &Path,
+    dir: &str,
+    file: &str,
+) -> Result<T, String> {
     let path = root.join(dir).join(file);
     let bytes = read(&path)?;
     serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Reads a Bedrock block state object (`name`, `states`).
-pub(crate) fn bedrock_state(json: &Json) -> R<StateKey> {
+pub(crate) fn bedrock_state(json: &Json) -> Result<StateKey, String> {
     let name = json
         .get("name")
         .and_then(Json::as_str)
@@ -1288,7 +1305,7 @@ pub(crate) fn bedrock_state(json: &Json) -> R<StateKey> {
     state_key(name, states)
 }
 
-fn state_key(name: &str, states: &Json) -> R<StateKey> {
+fn state_key(name: &str, states: &Json) -> Result<StateKey, String> {
     let obj = states
         .as_object()
         .ok_or_else(|| format!("states of {name} are not an object"))?;
@@ -1307,7 +1324,7 @@ fn state_key(name: &str, states: &Json) -> R<StateKey> {
 }
 
 /// Reads a typed block property value: byte, int or string.
-fn prop_value(json: &Json) -> R<Prop> {
+fn prop_value(json: &Json) -> Result<Prop, String> {
     match tag(json)? {
         Tag::Byte(b) => Ok(Prop::Byte(b)),
         Tag::Int(i) => Ok(Prop::Int(i)),
@@ -1319,7 +1336,7 @@ fn prop_value(json: &Json) -> R<Prop> {
 }
 
 /// Reads a typed NBT compound body (`{key: typed value}`).
-pub(crate) fn compound(json: &Json) -> R<BTreeMap<String, Tag>> {
+pub(crate) fn compound(json: &Json) -> Result<BTreeMap<String, Tag>, String> {
     let obj = json.as_object().ok_or("NBT compound is not an object")?;
     obj.iter()
         .map(|(k, v)| Ok((k.clone(), tag(v).map_err(|e| format!("{k}: {e}"))?)))
@@ -1327,7 +1344,7 @@ pub(crate) fn compound(json: &Json) -> R<BTreeMap<String, Tag>> {
 }
 
 /// Reads one typed NBT value (`{"type": value}`).
-pub(crate) fn tag(json: &Json) -> R<Tag> {
+pub(crate) fn tag(json: &Json) -> Result<Tag, String> {
     let obj = json.as_object().ok_or("NBT value is not an object")?;
     let mut entries = obj.iter();
     let (Some((kind, value)), None) = (entries.next(), entries.next()) else {
@@ -1336,7 +1353,7 @@ pub(crate) fn tag(json: &Json) -> R<Tag> {
     tag_of(kind, value)
 }
 
-fn tag_of(kind: &str, value: &Json) -> R<Tag> {
+fn tag_of(kind: &str, value: &Json) -> Result<Tag, String> {
     Ok(match kind {
         "byte" => Tag::Byte(byte(value)?),
         "short" => Tag::Short(
@@ -1354,7 +1371,7 @@ fn tag_of(kind: &str, value: &Json) -> R<Tag> {
                 .ok_or("byte_array is not an array")?
                 .iter()
                 .map(byte)
-                .collect::<R<_>>()?,
+                .collect::<Result<_, String>>()?,
         ),
         "list" => Tag::List(list(value)?),
         "compound" => Tag::Compound(compound(value)?),
@@ -1363,7 +1380,7 @@ fn tag_of(kind: &str, value: &Json) -> R<Tag> {
 }
 
 /// A byte, signed or unsigned in the JSON, kept as its bit pattern.
-fn byte(value: &Json) -> R<u8> {
+fn byte(value: &Json) -> Result<u8, String> {
     value
         .as_i64()
         .and_then(|v| {
@@ -1375,21 +1392,21 @@ fn byte(value: &Json) -> R<u8> {
         .ok_or_else(|| format!("byte value {value} out of range"))
 }
 
-fn int(value: &Json) -> R<i32> {
+fn int(value: &Json) -> Result<i32, String> {
     value
         .as_i64()
         .and_then(|v| i32::try_from(v).ok())
         .ok_or_else(|| format!("int value {value} out of range"))
 }
 
-fn float(value: &Json) -> R<u32> {
+fn float(value: &Json) -> Result<u32, String> {
     value
         .as_u64()
         .and_then(|v| u32::try_from(v).ok())
         .ok_or_else(|| format!("float bits {value} out of range"))
 }
 
-fn string(value: &Json) -> R<String> {
+fn string(value: &Json) -> Result<String, String> {
     value
         .as_str()
         .map(str::to_owned)
@@ -1397,7 +1414,7 @@ fn string(value: &Json) -> R<String> {
 }
 
 /// A typed list body: `{"type": element type, "values": [typed values]}`.
-fn list(value: &Json) -> R<List> {
+fn list(value: &Json) -> Result<List, String> {
     let element = value
         .get("type")
         .and_then(Json::as_str)
@@ -1407,21 +1424,36 @@ fn list(value: &Json) -> R<List> {
         .and_then(Json::as_array)
         .ok_or("list without values")?;
     // Each element is itself typed; it must have the list's type.
-    let body = |v: &Json| -> R<Json> {
+    let body = |v: &Json| -> Result<Json, String> {
         v.get(element)
             .cloned()
             .ok_or_else(|| format!("list of {element} holds {v}"))
     };
     Ok(match element {
         "end" if values.is_empty() => List::End,
-        "int" => List::Int(values.iter().map(|v| int(&body(v)?)).collect::<R<_>>()?),
-        "float" => List::Float(values.iter().map(|v| float(&body(v)?)).collect::<R<_>>()?),
-        "string" => List::String(values.iter().map(|v| string(&body(v)?)).collect::<R<_>>()?),
+        "int" => List::Int(
+            values
+                .iter()
+                .map(|v| int(&body(v)?))
+                .collect::<Result<_, String>>()?,
+        ),
+        "float" => List::Float(
+            values
+                .iter()
+                .map(|v| float(&body(v)?))
+                .collect::<Result<_, String>>()?,
+        ),
+        "string" => List::String(
+            values
+                .iter()
+                .map(|v| string(&body(v)?))
+                .collect::<Result<_, String>>()?,
+        ),
         "compound" => List::Compound(
             values
                 .iter()
                 .map(|v| compound(&body(v)?))
-                .collect::<R<_>>()?,
+                .collect::<Result<_, String>>()?,
         ),
         other => return Err(format!("list of {other} is not supported (see List)")),
     })

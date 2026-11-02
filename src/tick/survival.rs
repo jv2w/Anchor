@@ -1283,7 +1283,7 @@ mod tests {
     /// The encoded payload size of a packet (without the packet header).
     fn size(packet: &Packet) -> usize {
         let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
+        packet.encode(&mut bytes).unwrap();
         bytes.len()
     }
 

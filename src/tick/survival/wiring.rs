@@ -348,7 +348,7 @@ fn an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon() {
 #[test]
 fn many_attacks_in_one_tick_leave_the_target_connected() {
     let mut game = Game::new(2, Listeners::default());
-    let attack = Packet::InventoryTransaction(p::InventoryTransaction {
+    let attack = Packet::InventoryTransaction(Box::new(p::InventoryTransaction {
         transaction_data: crate::protocol::InventoryTransactionData::UseItemOnEntity(Box::new(
             crate::protocol::UseItemOnEntityTransactionData {
                 target_entity_runtime_id: 2,
@@ -357,7 +357,7 @@ fn many_attacks_in_one_tick_leave_the_target_connected() {
             },
         )),
         ..p::InventoryTransaction::default()
-    });
+    }));
     let inputs = (0..=crate::tick::MAX_OUTBOX)
         .map(|_| game.send(1, attack.clone()))
         .collect();

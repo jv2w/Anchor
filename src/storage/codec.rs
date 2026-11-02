@@ -95,29 +95,6 @@ pub(crate) struct SubChunkRecord {
 }
 
 impl SubChunkRecord {
-    /// Writes the layers and the biomes, refusing parts that do not match their indices.
-    fn write(&self, w: &mut Writer) -> Result<()> {
-        if self.layers.len() > MAX_LAYERS {
-            return Err(Error::InvalidValue {
-                field: "sub-chunk",
-                reason: "more than two layers",
-            });
-        }
-        w.uint8(length(self.layers.len())?);
-        for layer in &self.layers {
-            write_packed(w, layer.bits, &layer.words, layer.palette.len())?;
-            for entry in &layer.palette {
-                w.nbt(entry, Encoding::LittleEndian)?;
-            }
-        }
-        let biomes = &self.biomes;
-        write_packed(w, biomes.bits, &biomes.words, biomes.palette.len())?;
-        for &id in &biomes.palette {
-            w.uint32(id);
-        }
-        Ok(())
-    }
-
     /// Reads one sub-chunk, leaving the input after it.
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let layer_count = r.uint8()?;
@@ -152,6 +129,29 @@ impl SubChunkRecord {
                 palette,
             },
         })
+    }
+
+    /// Writes the layers and the biomes, refusing parts that do not match their indices.
+    fn write(&self, w: &mut Writer) -> Result<()> {
+        if self.layers.len() > MAX_LAYERS {
+            return Err(Error::InvalidValue {
+                field: "sub-chunk",
+                reason: "more than two layers",
+            });
+        }
+        w.uint8(length(self.layers.len())?);
+        for layer in &self.layers {
+            write_packed(w, layer.bits, &layer.words, layer.palette.len())?;
+            for entry in &layer.palette {
+                w.nbt(entry, Encoding::LittleEndian)?;
+            }
+        }
+        let biomes = &self.biomes;
+        write_packed(w, biomes.bits, &biomes.words, biomes.palette.len())?;
+        for &id in &biomes.palette {
+            w.uint32(id);
+        }
+        Ok(())
     }
 }
 

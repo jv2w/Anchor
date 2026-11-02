@@ -44,7 +44,6 @@ use tracing::warn;
 use super::checkpoint::{Checkpoint, capacity, read_skin, skin_bytes};
 use super::queue::{Client, Identity, JobOutcome, LeaveReason, Measure, SessionId};
 use crate::clock;
-use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
 use crate::protocol::{
     self, Writer,
@@ -1140,8 +1139,8 @@ impl<'a> Read<'a> {
                 KIND_PACKET => {
                     let id = self.u32()?;
                     let payload = self.bytes()?;
-                    let packet = Packet::decode(id, payload, packet_budget, SHIELD_RUNTIME_ID)
-                        .map_err(Error::Packet)?;
+                    let packet =
+                        Packet::decode(id, payload, packet_budget).map_err(Error::Packet)?;
                     EntryKind::Packet(packet)
                 }
                 KIND_LEAVE => EntryKind::Leave(self.leave_reason()?),
@@ -1407,9 +1406,7 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
                 out.push(KIND_PACKET);
                 out.extend_from_slice(&packet.id().to_le_bytes());
                 body.clear();
-                packet
-                    .encode(body, SHIELD_RUNTIME_ID)
-                    .map_err(Error::Packet)?;
+                packet.encode(body).map_err(Error::Packet)?;
                 put_bytes(out, body)?;
             }
             EntryKind::Leave(reason) => out.extend_from_slice(&[KIND_LEAVE, leave_tag(*reason)]),
@@ -2152,10 +2149,10 @@ mod tests {
             },
             ..protocol::UseItemOnEntityTransactionData::default()
         };
-        let packet = Packet::InventoryTransaction(InventoryTransaction {
+        let packet = Packet::InventoryTransaction(Box::new(InventoryTransaction {
             transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(attack)),
             ..InventoryTransaction::default()
-        });
+        }));
         let mut log = InputLog::default();
         for tick in 0..20 {
             log.begin(tick);
@@ -2178,14 +2175,14 @@ mod tests {
         use crate::protocol::InventoryAction;
         use crate::protocol::packet::InventoryTransaction;
         // Each default action takes a few bytes on the wire and far more decoded.
-        let packet = Packet::InventoryTransaction(InventoryTransaction {
+        let packet = Packet::InventoryTransaction(Box::new(InventoryTransaction {
             actions: vec![InventoryAction::default(); protocol::MAX_LIST_LEN],
             ..InventoryTransaction::default()
-        });
+        }));
         let mut payload = Vec::new();
-        packet.encode(&mut payload, SHIELD_RUNTIME_ID).unwrap();
+        packet.encode(&mut payload).unwrap();
         let mut budget = usize::MAX;
-        Packet::decode(packet.id(), &payload, &mut budget, SHIELD_RUNTIME_ID).unwrap();
+        Packet::decode(packet.id(), &payload, &mut budget).unwrap();
         let copies = MAX_BYTES / (usize::MAX - budget) + 1;
         let mut log = InputLog::default();
         log.begin(0);

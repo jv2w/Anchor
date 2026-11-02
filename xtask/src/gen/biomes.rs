@@ -7,20 +7,19 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dump::REFERENCE_DIR;
-
 use super::body::str_lit;
 use super::data::{hex_lit, read_json};
 use super::emit::HEADER;
+use crate::dump::REFERENCE_DIR;
 
 /// The committed data file in `xtask/data/reference/`, written by `cargo xtask dump`.
 pub(crate) const FILE: &str = "biomes.json";
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/world/biome/table.rs";
 
-/// One line of [`FILE`]: a biome definition as the official server sends it, without chunk generation data.
-/// Numbers keep the decimal text of source B's file; [`single`] reads them at the packet's
-/// precision.
+/// One line of [`FILE`]: a biome definition as the official server sends it, without chunk
+/// generation data. Numbers keep the decimal text of source B's file; [`single`] reads them at
+/// the packet's precision.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Biome {

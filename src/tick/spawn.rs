@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::command::{self, Refusal};
 use super::hook::{self, StartHook};
@@ -1099,11 +1099,6 @@ pub(super) fn player_loaded(
         PlayerLoad::Found(data) => Some(data),
         PlayerLoad::Absent => None,
         PlayerLoad::Damaged => {
-            error!(
-                player = key.as_str(),
-                "player data unreadable; the join is refused and the record kept as saved, until \
-                 the stopped server deletes it with `Server::delete_player_data`"
-            );
             let packet = Packet::Disconnect(Disconnect {
                 reason: i32::from(DisconnectReason::Unknown),
                 hide_disconnection_screen: false,
@@ -2072,7 +2067,7 @@ mod tests {
     /// Encodes the packet's payload: the bytes after its header.
     pub(super) fn payload(packet: &Packet) -> Vec<u8> {
         let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
+        packet.encode(&mut bytes).unwrap();
         bytes
     }
 
@@ -2126,7 +2121,7 @@ mod tests {
         );
         let mut budget = usize::MAX;
         assert_eq!(
-            Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
+            Packet::decode(packet.id(), &bytes, &mut budget).unwrap(),
             packet
         );
     }

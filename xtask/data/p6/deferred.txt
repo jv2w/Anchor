@@ -4,7 +4,7 @@
 # something Anchor does not have or does nothing the client needs.
 # <packet> <status> <reason>; status `-`: Anchor never sends the packet.
 
-# The recipe book: the official server 1.26.52 unlocks entries right after the window (UnlockedRecipes
+# The recipe book: the official server unlocks entries right after the window (UnlockedRecipes
 # type 1, 20 recipes, `xtask/data/p6/facts.md`). Anchor has no recipes and sends an empty recipe list.
 UnlockedRecipes - recipe book unlocks; Anchor has no recipes
 

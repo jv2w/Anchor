@@ -317,7 +317,7 @@ pub(crate) enum Checked {
 impl Checked {
     /// What a check of several files found: this, then `next`, the result of the file `file`.
     /// The first failure or damage is the one told.
-    pub(crate) fn and(self, next: Self, file: &std::path::Path) -> Self {
+    pub(crate) fn and(self, next: Self, file: &Path) -> Self {
         let (values, damaged, first) = match self {
             Self::Failed(_) => return self,
             Self::Passed { values } => (values, 0, None),

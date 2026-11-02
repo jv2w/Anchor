@@ -798,7 +798,7 @@ fn listed(packet: &Packet) -> (Listed, BTreeMap<String, Vec<String>>) {
         .collect();
     // The packet encodes and decodes as gophertunnel's.
     let mut bytes = Vec::new();
-    packet.encode(&mut bytes, 0).unwrap();
+    packet.encode(&mut bytes).unwrap();
     (commands, enums)
 }
 

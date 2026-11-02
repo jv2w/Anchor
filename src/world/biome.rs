@@ -97,10 +97,10 @@ mod tests {
         );
         let packet = Packet::BiomeDefinitionList(list);
         let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
+        packet.encode(&mut bytes).unwrap();
         assert_eq!(bytes.len(), OFFICIAL_PAYLOAD_SIZE);
         let mut budget = usize::MAX;
-        let decoded = Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap();
+        let decoded = Packet::decode(packet.id(), &bytes, &mut budget).unwrap();
         assert_eq!(decoded, packet);
     }
 

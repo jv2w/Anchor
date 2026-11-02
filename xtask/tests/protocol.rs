@@ -69,10 +69,6 @@ const MUTATIONS: usize = 1000;
 const PACKET_COUNT: usize = 244;
 /// Corpus samples per packet.
 const SAMPLES: usize = 64;
-/// The shield's item network ID, the value the oracle uses (`main.go` `ShieldID`) and not the
-/// server's own: the codec takes it as an argument, and the oracle's value keeps the samples
-/// readable by both sides.
-const SHIELD_ID: i32 = 357;
 /// The bytes of a hex dump shown before it only counts.
 const SHOWN_BYTES: usize = 64;
 
@@ -138,12 +134,12 @@ fn diff(a: &[u8], b: &[u8]) -> String {
 
 fn decode(id: u32, payload: &[u8]) -> anchor::protocol::Result<Packet> {
     let mut budget = BUDGET;
-    Packet::decode(id, payload, &mut budget, SHIELD_ID)
+    Packet::decode(id, payload, &mut budget)
 }
 
 fn encode(packet: &Packet) -> anchor::protocol::Result<Vec<u8>> {
     let mut out = Vec::new();
-    packet.encode(&mut out, SHIELD_ID)?;
+    packet.encode(&mut out)?;
     Ok(out)
 }
 
@@ -529,11 +525,11 @@ fn nested_compounds_with_several_keys_agree_with_gophertunnel() {
         },
     };
     let packets = [
-        Packet::MobEquipment(Box::new(MobEquipment {
+        Packet::MobEquipment(MobEquipment {
             entity_runtime_id: 1,
             new_item: item,
             ..MobEquipment::default()
-        })),
+        }),
         Packet::SetActorData(SetActorData {
             entity_runtime_id: 1,
             entity_metadata: [(7, MetadataValue::CompoundTag(multi_key_compound()))]
@@ -564,7 +560,7 @@ fn nested_compounds_with_several_keys_agree_with_gophertunnel() {
 
 fn assert_size_error(id: u32, payload: &[u8], budget: usize) {
     let mut left = budget;
-    let result = Packet::decode(id, payload, &mut left, SHIELD_ID);
+    let result = Packet::decode(id, payload, &mut left);
     assert!(
         matches!(result, Err(Error::Size)),
         "{}: expected a size error, got {result:?}",
@@ -610,7 +606,7 @@ fn allocations_over_the_budget_are_size_errors() {
     let payload = blob_status(10, 10);
     assert_size_error(id, &payload, 79);
     let mut budget = 80;
-    assert!(Packet::decode(id, &payload, &mut budget, SHIELD_ID).is_ok());
+    assert!(Packet::decode(id, &payload, &mut budget).is_ok());
     assert_eq!(budget, 0, "the decode takes 10 × 8 bytes");
     assert_size_error(id, &payload, 0);
 }
@@ -948,7 +944,7 @@ fn default_packets_round_trip() {
             continue;
         };
         let mut bytes = vec![0xaa];
-        match packet.encode(&mut bytes, SHIELD_ID) {
+        match packet.encode(&mut bytes) {
             Ok(()) => {}
             Err(e) => {
                 assert_eq!(
@@ -964,7 +960,7 @@ fn default_packets_round_trip() {
         }
         let payload = bytes.get(1..).expect("the marker byte");
         let mut budget = BUDGET;
-        let decoded = match Packet::decode(id, payload, &mut budget, SHIELD_ID) {
+        let decoded = match Packet::decode(id, payload, &mut budget) {
             Ok(decoded) => decoded,
             Err(e) => {
                 failures.push(format!("{id}: decode: {e}"));
@@ -974,7 +970,7 @@ fn default_packets_round_trip() {
         assert!(budget <= BUDGET);
         let mut again = Vec::new();
         decoded
-            .encode(&mut again, SHIELD_ID)
+            .encode(&mut again)
             .expect("a decoded packet encodes");
         if again != payload {
             failures.push(format!("{id}: re-encoded bytes differ"));
@@ -987,9 +983,9 @@ fn default_packets_round_trip() {
 fn trailing_bytes_and_unknown_ids_are_errors() {
     let packet = Packet::from_id(1).expect("the login packet");
     let mut bytes = Vec::new();
-    packet.encode(&mut bytes, SHIELD_ID).expect("encodes");
+    packet.encode(&mut bytes).expect("encodes");
     bytes.push(0);
     let mut budget = BUDGET;
-    assert!(Packet::decode(1, &bytes, &mut budget, SHIELD_ID).is_err());
-    assert!(Packet::decode(0, &[], &mut budget, SHIELD_ID).is_err());
+    assert!(Packet::decode(1, &bytes, &mut budget).is_err());
+    assert!(Packet::decode(0, &[], &mut budget).is_err());
 }

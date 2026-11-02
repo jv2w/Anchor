@@ -2,8 +2,9 @@
 //! Protocol types generated from the protocol IR: gophertunnel v1.63.0 (commit 8c30047d86617a56e1f1871e3a1d47ec4f670d99), protocol 2225, game version 1.26.60.
 
 use super::{
-    BlockPos, Codec, Error, ItemInstance, ItemStack, Reader, Result, Rgba, StackRequestItem, Uuid,
-    Writer, length, length_max,
+    Bitset, BlockPos, ChunkPos, Codec, EntityMetadata, Error, GameRule, ItemInstance, ItemStack,
+    ItemType, MaterialReducer, MaterialReducerOutput, PackSetting, Reader, Result, Rgba,
+    StackRequestItem, SubChunkPos, Uuid, Writer, length, length_max,
 };
 use crate::nbt;
 use std::sync::Arc;
@@ -4920,7 +4921,7 @@ pub enum InventoryTransactionData {
     /// The [`UseItemOnEntityTransactionData`] variant.
     UseItemOnEntity(Box<UseItemOnEntityTransactionData>),
     /// The [`ReleaseItemTransactionData`] variant.
-    ReleaseItem(Box<ReleaseItemTransactionData>),
+    ReleaseItem(ReleaseItemTransactionData),
 }
 
 impl Default for InventoryTransactionData {
@@ -4937,7 +4938,7 @@ impl InventoryTransactionData {
             1 => Self::Mismatch(MismatchTransactionData::default()),
             2 => Self::UseItem(Box::default()),
             3 => Self::UseItemOnEntity(Box::default()),
-            4 => Self::ReleaseItem(Box::default()),
+            4 => Self::ReleaseItem(ReleaseItemTransactionData::default()),
             _ => return None,
         })
     }
@@ -4966,10 +4967,7 @@ impl InventoryTransactionData {
                 *x = UseItemOnEntityTransactionData::decode(r)?;
                 Self::UseItemOnEntity(x)
             }
-            Self::ReleaseItem(mut x) => {
-                *x = ReleaseItemTransactionData::decode(r)?;
-                Self::ReleaseItem(x)
-            }
+            Self::ReleaseItem(_) => Self::ReleaseItem(ReleaseItemTransactionData::decode(r)?),
         })
     }
 
@@ -8421,7 +8419,7 @@ impl Codec for VoxelCells {
             x_size: r.uint8()?,
             y_size: r.uint8()?,
             z_size: r.uint8()?,
-            storage: r.list_varuint32_max(256_048, Reader::uint8)?,
+            storage: r.byte_slice_max(256_048)?,
         })
     }
 
@@ -8429,10 +8427,7 @@ impl Codec for VoxelCells {
         w.uint8(self.x_size);
         w.uint8(self.y_size);
         w.uint8(self.z_size);
-        w.varuint32(length_max(self.storage.len(), 256_048)?);
-        for &v in &self.storage {
-            w.uint8(v);
-        }
+        w.byte_slice_max(&self.storage, 256_048)?;
         Ok(())
     }
 }
@@ -9347,3 +9342,18 @@ pub(crate) const COMMAND_DESCRIPTION_MAX_LEN: usize = 1000;
 
 /// The most bytes or elements of gophertunnel `protocol.PackSetting.Name` (Mojang `maxLength`, `maxItems`), for its hand codec.
 pub(crate) const PACK_SETTING_NAME_MAX_LEN: usize = 128;
+
+// The sizes the generator boxes by (`HAND_TYPES`).
+const _: () = assert!(std::mem::size_of::<BlockPos>() == 12);
+const _: () = assert!(std::mem::size_of::<ChunkPos>() == 8);
+const _: () = assert!(std::mem::size_of::<SubChunkPos>() == 12);
+const _: () = assert!(std::mem::size_of::<Bitset>() == 32);
+const _: () = assert!(std::mem::size_of::<EntityMetadata>() == 24);
+const _: () = assert!(std::mem::size_of::<ItemType>() == 8);
+const _: () = assert!(std::mem::size_of::<ItemStack>() == 96);
+const _: () = assert!(std::mem::size_of::<ItemInstance>() == 104);
+const _: () = assert!(std::mem::size_of::<StackRequestItem>() == 120);
+const _: () = assert!(std::mem::size_of::<MaterialReducer>() == 32);
+const _: () = assert!(std::mem::size_of::<MaterialReducerOutput>() == 8);
+const _: () = assert!(std::mem::size_of::<GameRule>() == 40);
+const _: () = assert!(std::mem::size_of::<PackSetting>() == 56);

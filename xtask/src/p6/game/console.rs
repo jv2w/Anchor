@@ -9,11 +9,12 @@
 //! back, which [`Console::settle`] prints after each scenario.
 //!
 //! Where Anchor has no counterpart, the command is accepted with a note: villager NPCs have no AI
-//! (`effect` on them changes nothing), Anchor spawns no mobs and its weather has no cycle
-//! (`domobspawning`, `doweathercycle`), and a wind charge is not in its item table. The day
-//! cycle and the fall and drowning damage (`dodaylightcycle`, `falldamage`, `drowningdamage`) are
-//! accepted with a note too: Anchor takes them from its settings, and the API session turns the day
-//! cycle off through its settings while the game session leaves it on.
+//! (`effect` on them changes nothing), Anchor spawns no mobs, its weather has no cycle and only
+//! custom blocks get random ticks (`domobspawning`, `doweathercycle`, `randomtickspeed`), and a
+//! wind charge is not in its item table. The day cycle and the fall and drowning damage
+//! (`dodaylightcycle`, `falldamage`, `drowningdamage`) are accepted with a note too: Anchor takes
+//! them from its settings, and the API session turns the day cycle off through its settings while
+//! the game session leaves it on.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -35,10 +36,14 @@ use anchor::{Context, effect, inventory};
 
 use crate::p6;
 
+/// The seconds an `effect` command without a duration lasts (the official server's default).
+const DEFAULT_EFFECT_SECONDS: u32 = 30;
 /// The task's period: every tick.
 pub(crate) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
 /// The actor variant of a farmer villager (`EntityVariant` of `minecraft:villager_v2`).
 const FARMER: u8 = 1;
+/// The uses of each offer of the farmer villager.
+const FARMER_OFFER_USES: u32 = 16;
 /// The most blocks one `fill` may change (the official server's limit).
 const MAX_FILL: u64 = 32_768;
 /// The most items one `give` may hand out (the official server's limit).
@@ -59,8 +64,6 @@ pub(crate) enum Command {
     Teleport { player: String, feet: Vec3 },
     /// `give <player> <item> [count]`, split into stacks of the item's stack size.
     Give { player: String, stacks: Vec<Stack> },
-    /// `xp <points> <player>` or `xp <levels>L <player>`.
-    Xp { player: String, amount: Xp },
     /// `setblock` and `fill`: every block of the box, corners included.
     Fill {
         from: BlockPos,
@@ -102,15 +105,6 @@ pub(crate) enum Command {
     /// `summon lightning_bolt <x> <y> <z>` (whole coordinates, the bolt at the middle of the
     /// block's floor as the official server puts it): [`Context::strike_lightning`] with damage.
     Lightning { pos: Vec3 },
-}
-
-/// The amount of an `xp` command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Xp {
-    /// XP points.
-    Points(u32),
-    /// Levels added to the player's level, keeping the progress.
-    Levels(u32),
 }
 
 /// A kind of form the forms scenario asks for (`scriptevent p6:<kind>`).
@@ -306,7 +300,8 @@ fn channel<T>(bound: usize) -> (SyncSender<T>, Receiver<T>) {
     std::sync::mpsc::sync_channel(bound)
 }
 
-/// Parses a console command line in the form the bot writes (the official server's syntax, absolute coordinates).
+/// Parses a console command line in the form the bot writes (the official server's syntax,
+/// absolute coordinates).
 pub(crate) fn parse(line: &str) -> Result<Command, String> {
     let words: Vec<&str> = line.split_whitespace().collect();
     match words.as_slice() {
@@ -318,10 +313,6 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
             "Anchor's item table has no wind charge: the numbers scenario records the official server's only",
         )),
         ["give", player, item, rest @ ..] => give(player, item, rest),
-        ["xp", amount, player] => Ok(Command::Xp {
-            player: (*player).to_owned(),
-            amount: xp(amount)?,
-        }),
         ["setblock", x, y, z, ..] => {
             let at = block_pos(x, y, z)?;
             Ok(Command::Fill {
@@ -360,7 +351,7 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
             ))
         }
         ["effect", player, name, rest @ ..] => {
-            let seconds = rest.first().map_or(Ok(30), |s| {
+            let seconds = rest.first().map_or(Ok(DEFAULT_EFFECT_SECONDS), |s| {
                 s.parse::<u32>().map_err(|_| format!("bad seconds {s:?}"))
             })?;
             let amplifier = rest.get(1).map_or(Ok(0), |a| {
@@ -374,7 +365,7 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
                 player: (*player).to_owned(),
                 effect: effect_type(name)?
                     .instance()
-                    .with_duration_ticks(seconds.saturating_mul(20))
+                    .with_duration_ticks(seconds.saturating_mul(Context::TICKS_PER_SECOND))
                     .with_amplifier(amplifier)
                     .with_visible(!hide),
             })
@@ -521,25 +512,6 @@ fn block_spec(words: &[&str]) -> Result<State, String> {
     p6::step_state(&words.join(" "))
 }
 
-/// The item type of a `give` name: an item, else the item of the block's default state.
-fn item_type(name: &str) -> Result<Type, String> {
-    item_type_with(name, 0)
-}
-
-/// [`item_type`] with a data value (the item's meta: a potion's type).
-fn item_type_with(name: &str, meta: u16) -> Result<Type, String> {
-    let full = format!("minecraft:{name}");
-    Type::from_name(&full, meta, None, &Compound::new())
-        .or_else(|| {
-            let state = p6::step_state(name).ok()?;
-            match state.item() {
-                anchor::block::ItemForm::Item(t) => Some(t),
-                _ => None,
-            }
-        })
-        .ok_or_else(|| format!("no item {full}"))
-}
-
 /// `count` of `item` in stacks of its stack size.
 fn stacks(item: Type, count: u32) -> Vec<Stack> {
     let size = u32::from(item.max_stack_size().max(1));
@@ -553,15 +525,6 @@ fn stacks(item: Type, count: u32) -> Vec<Stack> {
     out
 }
 
-/// An `xp` amount: points, or `<n>L` levels.
-fn xp(amount: &str) -> Result<Xp, String> {
-    let bad = |_| format!("bad xp amount {amount:?}");
-    match amount.strip_suffix(['L', 'l']) {
-        Some(levels) => levels.parse().map(Xp::Levels).map_err(bad),
-        None => amount.parse().map(Xp::Points).map_err(bad),
-    }
-}
-
 /// The effect type of an official server effect name (`slowness`, `instant_health`).
 fn effect_type(name: &str) -> Result<effect::Type, String> {
     let wanted: String = name.chars().filter(|c| *c != '_').collect();
@@ -570,30 +533,6 @@ fn effect_type(name: &str) -> Result<effect::Type, String> {
         .copied()
         .find(|t| format!("{t:?}").eq_ignore_ascii_case(&wanted))
         .ok_or_else(|| format!("no effect {name}"))
-}
-
-/// The offers of the console's villager: a farmer's first-tier trades as the official server sends them (P6,
-/// `xtask/data/p6/facts.md`: payments of any damage, price multipliers 0.05 and 0; the trade module numbers
-/// them, `netId`).
-fn farmer_offers() -> Result<Vec<Offer>, String> {
-    let offer = |buy: (&str, u8), sell: (&str, u8), trader_xp: u32| {
-        let buy = Stack::new(item_type(buy.0)?, buy.1);
-        let sell = Stack::new(item_type(sell.0)?, sell.1);
-        Ok(Offer::new(buy, sell, 16)
-            .with_any_damage()
-            .with_trader_xp(trader_xp)
-            .with_price_multipliers(0.05, 0.0))
-    };
-    [
-        (("wheat", 20), ("emerald", 1), 2),
-        (("potato", 26), ("emerald", 1), 2),
-        (("carrot", 22), ("emerald", 1), 2),
-        (("beetroot", 15), ("emerald", 1), 2),
-        (("emerald", 1), ("bread", 6), 1),
-    ]
-    .into_iter()
-    .map(|(buy, sell, exp)| offer(buy, sell, exp))
-    .collect()
 }
 
 /// Runs `command` once on Anchor; the answers to the forms it sends go to `answers`.
@@ -623,21 +562,6 @@ fn execute(
             let mut main = p.inventory_mut(inventory::Kind::Main);
             let left: u32 = stacks.iter().map(|s| u32::from(main.add(s).count())).sum();
             Outcome::Done((left > 0).then(|| format!("{left} did not fit")))
-        }
-        Command::Xp { player, amount } => {
-            let Some(p) = joined(cx, player) else {
-                return not_joined(player);
-            };
-            match *amount {
-                Xp::Points(points) => {
-                    p.add_xp(points);
-                    Outcome::Done(None)
-                }
-                Xp::Levels(levels) => match p.add_xp_levels(levels) {
-                    Ok(()) => Outcome::Done(None),
-                    Err(e) => Outcome::Failed(e.to_string()),
-                },
-            }
         }
         Command::Fill { from, to, state } => fill(cx, *from, *to, *state),
         Command::Villager { pos } => {
@@ -830,6 +754,49 @@ fn fill(cx: &mut Context<'_>, from: BlockPos, to: BlockPos, state: State) -> Out
     Outcome::Done(None)
 }
 
+/// The offers of the console's villager: a farmer's first-tier trades as the official server
+/// sends them (P6, `xtask/data/p6/facts.md`: payments of any damage, price multipliers 0.05 and 0;
+/// the trade module numbers them, `netId`).
+fn farmer_offers() -> Result<Vec<Offer>, String> {
+    let offer = |buy: (&str, u8), sell: (&str, u8), trader_xp: u32| {
+        let buy = Stack::new(item_type(buy.0)?, buy.1);
+        let sell = Stack::new(item_type(sell.0)?, sell.1);
+        Ok(Offer::new(buy, sell, FARMER_OFFER_USES)
+            .with_any_damage()
+            .with_trader_xp(trader_xp)
+            .with_price_multipliers(0.05, 0.0))
+    };
+    [
+        (("wheat", 20), ("emerald", 1), 2),
+        (("potato", 26), ("emerald", 1), 2),
+        (("carrot", 22), ("emerald", 1), 2),
+        (("beetroot", 15), ("emerald", 1), 2),
+        (("emerald", 1), ("bread", 6), 1),
+    ]
+    .into_iter()
+    .map(|(buy, sell, exp)| offer(buy, sell, exp))
+    .collect()
+}
+
+/// The item type of a `give` name: an item, else the item of the block's default state.
+fn item_type(name: &str) -> Result<Type, String> {
+    item_type_with(name, 0)
+}
+
+/// [`item_type`] with a data value (the item's meta: a potion's type).
+fn item_type_with(name: &str, meta: u16) -> Result<Type, String> {
+    let full = format!("minecraft:{name}");
+    Type::from_name(&full, meta, None, &Compound::new())
+        .or_else(|| {
+            let state = p6::step_state(name).ok()?;
+            match state.item() {
+                anchor::block::ItemForm::Item(t) => Some(t),
+                _ => None,
+            }
+        })
+        .ok_or_else(|| format!("no item {full}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -937,7 +904,6 @@ mod tests {
             "fill 0 0 0 100 100 100 stone",
             "setblock 0 0 0 stone keep",
             "setblock 0 0 0 no_such_block",
-            "xp 30Q P6Trade",
             "summon zombie 0 0 0",
             "kill @a",
             "gamerule pvp false",
@@ -947,18 +913,6 @@ mod tests {
             "summon lightning_bolt 4.5 -60 -20",
         ] {
             assert!(parse(line).is_err(), "{line}");
-        }
-    }
-
-    #[test]
-    fn xp_amounts_are_points_or_levels() {
-        for (amount, expected) in [
-            ("7", Xp::Points(7)),
-            ("30L", Xp::Levels(30)),
-            ("30l", Xp::Levels(30)),
-            ("30000L", Xp::Levels(30_000)),
-        ] {
-            assert_eq!(xp(amount), Ok(expected), "{amount}");
         }
     }
 

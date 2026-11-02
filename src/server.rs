@@ -4,6 +4,7 @@ use std::any::Any;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::error::TrySendError;
@@ -17,6 +18,7 @@ use crate::console;
 use crate::error::{Error, Result};
 use crate::event::{self, Priority};
 use crate::pack::{self, Offer, Pack};
+use crate::pool::Pool;
 use crate::protocol::packet::PROTOCOL_VERSION;
 use crate::runtime::{self, Runtime, ThreadCounts, ThreadTotals};
 use crate::save::{self, WorldSpec};
@@ -33,7 +35,7 @@ const INTERRUPTED_EXIT: i32 = 130;
 
 /// The most bytes `/proc/self/status` is read up to: it holds a few dozen short lines.
 #[cfg(unix)]
-const MAX_PROCESS_STATUS_BYTES: u64 = 64 * 1024;
+const MAX_PROCESS_STATUS_BYTES: u64 = 64 << 10;
 
 /// How often [`measure_process`] measures.
 const PROCESS_PERIOD: Duration = Duration::from_secs(1);
@@ -106,6 +108,15 @@ impl Server {
     ///
     /// It blocks the calling thread and uses a CPU pool of `cpu-threads` that it joins before
     /// returning. The same world file gives the same files whatever the thread count.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Start`] for a log or pool thread that cannot start.
+    /// [`Error::InvalidWorldName`] for a name that cannot be a file name.
+    /// [`Error::Export`] for a world without saved state, a temporary world, a folder that exists
+    /// and a file or chunk that cannot be written.
+    /// [`Error::Storage`], [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a data file
+    /// that is in use, cannot be read, is damaged, or is of a newer format.
     pub fn export_world(
         &self,
         world: &str,
@@ -154,6 +165,15 @@ impl Server {
     /// and the chunk and the key ([`import::Error::Key`](crate::import::Error::Key)) when a
     /// chunk's value is. The source folder is only read, and the
     /// import fails if it changes meanwhile.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Start`] for a log or pool thread that cannot start.
+    /// [`Error::InvalidWorldName`] for a name that cannot be a file name.
+    /// [`Error::Import`] for a world file of the name, or a source that cannot be read or
+    /// converted.
+    /// [`Error::Storage`], [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a data file
+    /// that cannot be opened or written, is damaged, or is of a newer format.
     #[doc(alias = "FormatConverter::execute")]
     pub fn import_world(
         &self,
@@ -221,6 +241,22 @@ impl Server {
     /// network, commits nothing and writes no file. State that listeners, tasks and behaviours
     /// keep in their closures starts over, and their callbacks run again, so what they do outside
     /// the server (files, network) happens again.
+    ///
+    /// # Errors
+    ///
+    /// [`replay::Error::Io`](crate::replay::Error::Io) for a log or thread that cannot be read or
+    /// started.
+    /// [`replay::Error::Format`](crate::replay::Error::Format) for a file that is not a crash log.
+    /// [`replay::Error::SettingsDiffer`](crate::replay::Error::SettingsDiffer) and
+    /// [`replay::Error::RegistrationsDiffer`](crate::replay::Error::RegistrationsDiffer) for a
+    /// server built unlike the logged run.
+    /// [`replay::Error::NoMatchingWorld`](crate::replay::Error::NoMatchingWorld) for data files
+    /// that hold no save of the log.
+    /// [`replay::Error::Opaque`](crate::replay::Error::Opaque) for a checkpoint that cannot be
+    /// replayed from.
+    /// [`replay::Error::Diverged`](crate::replay::Error::Diverged) for a replay that left the
+    /// logged run.
+    /// [`replay::Error::Storage`](crate::replay::Error::Storage) for a data file that failed.
     pub fn replay(self, log: impl AsRef<Path>) -> crate::replay::Result<crate::replay::Replay> {
         let _log = self.console_log().map_err(crate::replay::Error::Io)?;
         let Self {
@@ -274,9 +310,30 @@ impl Server {
     /// `<program> import <world folder> [<world name>]` runs [`import_world`](Self::import_world)
     /// and `<program> export <new folder> [<world name>]` runs
     /// [`export_world`](Self::export_world) (the default world, `level-name`, without a name).
-    /// Each then returns without starting the server, so it can run beside a running server.
-    /// Those commands given other arguments fail with [`Error::Usage`]; any other arguments are
-    /// the program's own.
+    /// Each then returns without starting the server. `update-config` and `import` can run beside
+    /// a running server; `export` is refused while one runs, as [`export_world`](Self::export_world)
+    /// says. Those commands given other arguments fail with [`Error::Usage`]; any other arguments
+    /// are the program's own.
+    ///
+    /// A stop on a tick panic or a failed save writes the input log to `data/crash/`, which
+    /// [`replay`](Self::replay) runs again.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Usage`] for arguments an argument command does not take, and [`Error::Output`] for
+    /// an answer that cannot be written to standard output.
+    /// [`Error::Config`] for a setting that cannot be used.
+    /// [`Error::Start`] for a runtime, thread or startup state that cannot start.
+    /// [`Error::Network`] for a socket that cannot be opened.
+    /// [`Error::IdentityKey`], [`Error::TlsCertificate`] and [`Error::Auth`] for the key and
+    /// certificate files and the authorization keys.
+    /// [`Error::Pack`] for a resource pack that cannot be offered.
+    /// [`Error::Data`] for a saved server data value that does not deserialize into its type.
+    /// [`Error::Storage`], [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a data file
+    /// that cannot be opened, read or saved, is damaged, or is of a newer format.
+    /// [`Error::TickPanicked`] for a tick that panicked.
+    /// [`Error::Import`] and [`Error::Export`] for a failed `import` or `export` command, and
+    /// [`Error::InvalidWorldName`] for a world name it cannot use.
     pub fn run(self) -> Result<()> {
         let task = args::current()?;
         self.run_task(task)
@@ -384,8 +441,10 @@ impl Server {
         let pool = Arc::new(pool);
         let (inputs, input_queue) = tick::queue::input_queue(config.general.max_players);
         setup.tasks.start(runtime.handle(), &inputs);
-        if config.developer.console_input {
-            crate::console::start(&inputs).map_err(Error::Start)?;
+        if config.developer.console_input
+            && let Err(e) = console::start(&inputs)
+        {
+            return Err(abort_start(runtime, pool, None, Error::Start(e)));
         }
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
@@ -412,17 +471,23 @@ impl Server {
             .thread
             .set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
         let save_pool = Arc::clone(&pool);
-        let save_thread = runtime::spawn_save(move || {
+        let save_thread = match runtime::spawn_save(move || {
             save::run(opened.thread, &save_pool, request_queue, &responder)
-        })?;
+        }) {
+            Ok(thread) => thread,
+            Err(e) => return Err(abort_start(runtime, pool, None, e)),
+        };
         let tick_pool = Arc::clone(&pool);
         let link = tick::SaveLink {
             requests,
             responses,
         };
-        let tick_thread = runtime::spawn_tick(move || {
+        let tick_thread = match runtime::spawn_tick(move || {
             tick::run(state, &tick_pool, input_queue, link, stop, crash, done)
-        })?;
+        }) {
+            Ok(thread) => thread,
+            Err(e) => return Err(abort_start(runtime, pool, Some(save_thread), e)),
+        };
         debug!(
             network_threads = threads.network,
             cpu_threads = threads.cpu,
@@ -450,21 +515,8 @@ impl Server {
         // The tick has ended: after its `Finish` the save thread commits what it holds and ends;
         // after a tick panic it ends without committing.
         let saved = save_thread.join();
-        runtime.shutdown();
-        // `Pool::shutdown` warns about threads that did not end.
-        if let Ok(pool) = Arc::try_unwrap(pool) {
-            pool.shutdown();
-        } else {
-            warn!("the CPU pool is still shared; its threads are not joined");
-        }
-        let saved = match saved {
-            Ok(result) => result.map_err(Error::from),
-            Err(payload) => {
-                let message = panic_message(payload.as_ref());
-                error!(%message, "save thread panicked");
-                Err(Error::Storage(message.into()))
-            }
-        };
+        shut_down(runtime, pool);
+        let saved = save_outcome(saved);
         match joined {
             Ok(tick::End::Stopped(log)) => {
                 if saved.is_err() {
@@ -625,7 +677,8 @@ impl ServerBuilder {
     /// generator is registered as [`generator`](Self::generator) registers one, and the world
     /// keeps this value wherever it is made or loaded under its name with that generator's name
     /// (a crash replay, a [`Context::load_world`] after an unload), even when another value of
-    /// the type has the name.
+    /// the type has the name. The default world has no generator of your own: it is the one of
+    /// `level-type`.
     #[doc(alias = "WorldManager::generateWorld")]
     #[must_use]
     pub fn world(mut self, name: impl Into<String>, kind: Kind, generator: impl Generator) -> Self {
@@ -657,6 +710,16 @@ impl ServerBuilder {
 
     /// Checks the settings, the thread budget and the world names (those of `[worlds.<name>]`
     /// included), and puts the listeners in calling order. Touches no file.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Config`] for a setting out of its range, a thread budget that does not fit and a
+    /// `[worlds.<name>]` table of a world the server does not have.
+    /// [`Error::Command`], [`Error::Custom`], [`Error::CustomEntity`] and [`Error::Data`] for
+    /// registrations that break a rule.
+    /// [`Error::DuplicateGenerator`] for two generator types of one name.
+    /// [`Error::DuplicateWorld`] and [`Error::InvalidWorldName`] for world names that clash or
+    /// cannot be file names.
     pub fn build(mut self) -> Result<Server> {
         self.config.validate()?;
         let developer = &self.config.developer;
@@ -800,6 +863,50 @@ impl Running {
         network.stop().await;
         drop(shutdown);
         Ok(())
+    }
+}
+
+/// Ends a start that failed after the runtime and the CPU pool began, and gives back `error`. The
+/// save thread, if one began, ends without committing: the tick's request queue closed with the
+/// closure that never ran.
+fn abort_start(
+    runtime: Runtime,
+    pool: Arc<Pool>,
+    save_thread: Option<JoinHandle<Result<(), crate::storage::Error>>>,
+    error: Error,
+) -> Error {
+    if let Some(save_thread) = save_thread
+        && let Err(e) = save_outcome(save_thread.join())
+    {
+        error!(
+            error = &e as &(dyn std::error::Error + 'static),
+            "the save thread failed while a failed start ended"
+        );
+    }
+    shut_down(runtime, pool);
+    error
+}
+
+/// The result of the joined save thread, a panic included.
+fn save_outcome(joined: std::thread::Result<Result<(), crate::storage::Error>>) -> Result<()> {
+    match joined {
+        Ok(result) => result.map_err(Error::from),
+        Err(payload) => {
+            let message = panic_message(payload.as_ref());
+            error!(%message, "save thread panicked");
+            Err(Error::Storage(message.into()))
+        }
+    }
+}
+
+/// Stops the runtime and waits for the CPU pool's threads.
+fn shut_down(runtime: Runtime, pool: Arc<Pool>) {
+    runtime.shutdown();
+    // `Pool::shutdown` warns about threads that did not end.
+    if let Ok(pool) = Arc::try_unwrap(pool) {
+        pool.shutdown();
+    } else {
+        warn!("the CPU pool is still shared; its threads are not joined");
     }
 }
 
@@ -1007,6 +1114,10 @@ async fn stop(stop_tick: &mpsc::Sender<()>, tick_done: oneshot::Receiver<()>) {
 mod tests {
     use super::*;
 
+    /// Set for the child process of
+    /// `a_second_stop_signal_is_logged_before_the_process_ends`.
+    const SIGNAL_CHILD_ENV: &str = "ANCHOR_SECOND_SIGNAL_CHILD";
+
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn argument_commands_answer_without_starting_the_server() {
@@ -1068,10 +1179,6 @@ mod tests {
         );
         assert!(!data.0.join("main.redb").exists());
     }
-
-    /// Set for the child process of
-    /// `a_second_stop_signal_is_logged_before_the_process_ends`.
-    const SIGNAL_CHILD_ENV: &str = "ANCHOR_SECOND_SIGNAL_CHILD";
 
     /// The process a second stop signal ends, under Anchor's console log on standard error.
     /// Without the parent's environment it does nothing.

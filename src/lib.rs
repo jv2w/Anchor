@@ -2,11 +2,11 @@
 //!
 //! A server is a binary of its own that depends on Anchor by path or git, with nothing else to
 //! set up: the fixed copies of dependencies in Anchor's `vendor/` come with it as path
-//! dependencies.
+//! dependencies, so a new Anchor commit fetches nothing but Anchor.
 //!
 //! ```toml
 //! [dependencies]
-//! anchor = { git = "<repository>" }
+//! anchor = { git = "https://github.com/jv2w/Anchor", rev = "<commit>" }
 //! ```
 //!
 //! ```no_run
@@ -21,12 +21,12 @@
 //! The binary's profiles must keep `panic = "unwind"`, the default: a panicking connection task
 //! closes only that connection. A panic in a callback that runs in the tick (a listener, a task, a
 //! command) ends the server without saving: [`Server::run`] writes the input log to `data/crash/`
-//! and returns [`Error::TickPanicked`].
+//! and returns [`Error::TickPanicked`]. [`Server::replay`] runs that log again.
 //!
 //! Items that have a counterpart in the API table carry its names as search aliases, so
-//! searching these docs for `Player::getName` finds [`Player::name`](player::Player::name). The design notes (threads
-//! and tick, network, protocol, storage, data sources, dependencies, testing, and every
-//! `anchor.toml` key) are in the repository's `.claude/docs/` folder.
+//! searching these docs for `Player::getName` finds [`Player::name`](player::Player::name). The
+//! design notes (threads and tick, network, protocol, storage, data sources, dependencies,
+//! testing, and every `anchor.toml` key) are in the repository's `.claude/docs/` folder.
 //!
 //! # Build, start and stop times
 //!

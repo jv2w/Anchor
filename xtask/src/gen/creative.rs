@@ -2,14 +2,14 @@
 //! (`creative.json`), with groups built as the dump source's `CreativeInventoryCache` builds them.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde_json::Value as Json;
-
-use crate::dump::{DUMP_CREATIVE, DUMP_DIR};
 
 use super::body::str_lit;
 use super::data::{Data, Tag, read_json, static_compound};
 use super::emit::HEADER;
+use crate::dump::{DUMP_CREATIVE, DUMP_DIR};
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/creative.rs";
@@ -18,7 +18,7 @@ pub(crate) const PATH: &str = "src/item/creative.rs";
 type Stack = (usize, u16, Option<BTreeMap<String, Tag>>);
 
 /// Generates the file text (unformatted).
-pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, String> {
+pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
     let entries: Vec<Json> = read_json(root, DUMP_DIR, DUMP_CREATIVE)?;
 
     // The dump source's `CreativeInventoryCache::buildCacheEntry`: a group gets an index the first

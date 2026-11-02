@@ -40,10 +40,9 @@ use crate::import::BLOCK_STATE_VERSION;
 use crate::nbt::{self, Compound, Value};
 use crate::permission::{self, BanEntry};
 use crate::pool::Pool;
-use crate::storage::codec::max_entries;
 use crate::storage::codec::{
     BanRecord, Biomes, BlockLayer, ChunkRecord, ExtraRecord, Mark, Meta, PlayerRecord,
-    SubChunkRecord, UserRecord, WorldRecord,
+    SubChunkRecord, UserRecord, WorldRecord, max_entries,
 };
 use crate::storage::seal::{Crc32c, MAX_RECORD, seal, seal_encoded, stored_checksum, unseal};
 use crate::storage::{
@@ -678,10 +677,9 @@ pub(crate) fn open_with(
     };
     let open = |name: &str| -> Result<Open, storage::Error> {
         let place = Place::data(data_dir, name);
-        Ok(Open {
-            storage: Storage::open(&place, checked)?,
-            place,
-        })
+        let storage =
+            Storage::open(&place, checked).inspect_err(|e| log_refused(&place.file, e))?;
+        Ok(Open { storage, place })
     };
     // A missing main file holds no save to roll back to: the other files stay as they are.
     let main_existed = storage::has_data(&Place::data(data_dir, storage::MAIN_FILE).file)?;
@@ -761,11 +759,7 @@ fn settle_all(
 ) -> Result<(), storage::Error> {
     let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
     if let Err(e) = storage::settle(&players, saved) {
-        error!(
-            path = %players.display(),
-            error = &e as &(dyn std::error::Error + 'static),
-            "data file refused; it is left as it was"
-        );
+        log_refused(&players, &e);
         return Err(e);
     }
     for name in names {
@@ -773,11 +767,7 @@ fn settle_all(
         match storage::settle(&file, saved) {
             Ok(_) => {}
             Err(e @ storage::Error::NoRollback) => {
-                error!(
-                    path = %file.display(),
-                    error = &e as &(dyn std::error::Error + 'static),
-                    "data file refused; it is left as it was"
-                );
+                log_refused(&file, &e);
                 return Err(e);
             }
             Err(e) => error!(
@@ -798,15 +788,21 @@ fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(),
     let mut refused = None;
     for (place, result) in places.iter().zip(checked) {
         if let Err(e) = result {
-            error!(
-                path = %place.file.display(),
-                error = &e as &(dyn std::error::Error + 'static),
-                "data file refused; it is left as it was"
-            );
+            log_refused(&place.file, &e);
             refused.get_or_insert(e);
         }
     }
     refused.map_or(Ok(()), Err)
+}
+
+/// Logs that the start refuses the data file `path`, which names the file the error returned to
+/// the program does not.
+fn log_refused(path: &std::path::Path, error: &storage::Error) {
+    error!(
+        path = %path.display(),
+        error = error as &(dyn std::error::Error + 'static),
+        "data file refused; it is left as it was"
+    );
 }
 
 /// The names of the world files of `data/worlds/`, in name order ([`world_names`]).
@@ -954,7 +950,14 @@ fn resolve(
             (Ok(()), _) => {}
             // A start refuses a declared world whose file does not open, as it does the main and
             // players files: the check before reads only, and the open writes.
-            (Err(e), Opener::Live { .. }) => return Err(e.into()),
+            (Err(e), Opener::Live { .. }) => {
+                error!(
+                    world = spec.name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "world file refused; it is left as it was"
+                );
+                return Err(e.into());
+            }
             (Err(e), Opener::Replay(_)) => log_unopened(&spec.name, &e),
         }
         plans.push(plan);
@@ -1012,12 +1015,7 @@ fn resolve(
         world.set_generator(spec.generator.name());
         worlds.push(world);
     }
-    stored.retain(|(name, _)| {
-        let key = storage::world_name_key(name);
-        !worlds
-            .iter()
-            .any(|w| storage::world_name_key(w.name()) == key)
-    });
+    retain_unopened(&mut stored, &worlds);
     Ok(Opened {
         worlds,
         catalog: Catalog {
@@ -1041,6 +1039,16 @@ fn resolve(
             check: None,
         },
     })
+}
+
+/// Drops from `stored` the worlds that `worlds` holds open under the same name key.
+fn retain_unopened(stored: &mut Vec<(String, WorldRecord)>, worlds: &[World]) {
+    stored.retain(|(name, _)| {
+        let key = storage::world_name_key(name);
+        !worlds
+            .iter()
+            .any(|w| storage::world_name_key(w.name()) == key)
+    });
 }
 
 /// Checks that a player standing at the spawn of the new world `world` is inside the world
@@ -1575,7 +1583,12 @@ fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &
             }
         }
         if damaged {
-            warn!(world = *world, x = pos.x, z = pos.z, "chunk extras damaged");
+            error!(
+                world_index = *world,
+                x = pos.x,
+                z = pos.z,
+                "chunk extras unreadable; the chunk is shown empty, kept as saved and never changed"
+            );
             *loaded = Loaded::Damaged;
         }
     }
@@ -1584,14 +1597,15 @@ fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &
 /// Decodes the values read for a chunk of a persistent world (in key order) and generates its
 /// terrain if none was saved ([`read_values`]); any damaged value makes the chunk damaged.
 fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Registry) -> Loaded {
+    // The one log of a quarantined chunk; the cause is in `error`.
     let damaged = |part: Option<ChunkPart>, error: &(dyn std::error::Error + 'static)| {
-        warn!(
+        error!(
             world = plan.name,
             x = pos.x,
             z = pos.z,
             ?part,
             error,
-            "chunk value damaged"
+            "chunk unreadable; it is shown empty, kept as saved and never changed"
         );
         Loaded::Damaged
     };
@@ -1690,47 +1704,41 @@ fn add_page(
     Ok(())
 }
 
-/// Loads one player's data from the players' file `storage`.
+/// Loads one player's data from the players' file `storage`. A record that cannot be read is
+/// logged here, once, with its cause.
 fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
-    let stored = Key::Player(key.clone());
-    let data = match storage.read(std::slice::from_ref(&stored)) {
-        Ok(mut values) => match values.pop() {
-            Some(Ok(Some(sealed))) => match unseal::<PlayerRecord>(&stored.to_bytes(), &sealed) {
-                Ok(record) => PlayerLoad::Found(PlayerData {
-                    world: record.world,
-                    position: record.position,
-                    extra: record.extra,
-                }),
-                Err(e) => {
-                    warn!(
-                        player = key.as_str(),
-                        error = &e as &(dyn std::error::Error + 'static),
-                        "player data damaged"
-                    );
-                    PlayerLoad::Damaged
-                }
-            },
-            Some(Ok(None)) => PlayerLoad::Absent,
-            Some(Err(e)) => {
-                warn!(
-                    player = key.as_str(),
-                    error = &e as &(dyn std::error::Error + 'static),
-                    "player data read failed"
-                );
-                PlayerLoad::Damaged
-            }
-            None => PlayerLoad::Damaged,
-        },
+    let data = match read_player(storage, &key) {
+        Ok(Some(record)) => PlayerLoad::Found(PlayerData {
+            world: record.world,
+            position: record.position,
+            extra: record.extra,
+        }),
+        Ok(None) => PlayerLoad::Absent,
         Err(e) => {
-            warn!(
+            error!(
                 player = key.as_str(),
                 error = &e as &(dyn std::error::Error + 'static),
-                "player data read failed"
+                "player data unreadable; the join is refused and the record kept as saved, until \
+                 the stopped server deletes it with `Server::delete_player_data`"
             );
             PlayerLoad::Damaged
         }
     };
     Response::Player { key, data }
+}
+
+/// The record of the player `key` in the players' file `storage`, if there is one.
+fn read_player(
+    storage: &mut Storage,
+    key: &PlayerKey,
+) -> Result<Option<PlayerRecord>, storage::Error> {
+    let stored = Key::Player(key.clone());
+    let Some(value) = storage.read(std::slice::from_ref(&stored))?.pop() else {
+        return Err(storage::Error::Malformed("no answer for the player's key"));
+    };
+    value?
+        .map(|sealed| unseal::<PlayerRecord>(&stored.to_bytes(), &sealed))
+        .transpose()
 }
 
 /// Commits a snapshot: to each world file that changed its changed chunks and extras
@@ -2164,10 +2172,12 @@ pub(crate) fn seed_or_default(name: &str, seed: Option<i64>) -> i64 {
     seed.unwrap_or_else(|| default_seed(name))
 }
 
-/// The seed of a world whose settings give none: made from its name, so it is the same at every
-/// start (nothing saves it) and differs between worlds.
+/// The seed of a world whose settings give none: made from its name in one letter case
+/// ([`storage::world_name_key`]), so it is the same at every start (nothing saves it) and for
+/// every spelling of the name, and differs between worlds.
 pub(crate) fn default_seed(name: &str) -> i64 {
-    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = crate::crypto::sha256(&[name.as_bytes()]);
+    let key = storage::world_name_key(name);
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = crate::crypto::sha256(&[key.as_bytes()]);
     i64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7])
 }
 
@@ -2417,8 +2427,7 @@ pub(crate) mod tests {
     use crate::config::Difficulty;
     use crate::protocol::{Rng, Writer};
     use crate::storage::codec::tests::{encode, random_compound};
-    use crate::world::Flat;
-    use crate::world::{Flat as FlatGenerator, Weather};
+    use crate::world::{Flat, Weather};
 
     /// What a load of chunk `pos` of world `number` answers when the file holds exactly the
     /// non-empty lists of `extras` and no terrain (for stand-ins of the save thread).
@@ -3088,11 +3097,20 @@ pub(crate) mod tests {
             let opened = open(&dir.0, specs()).unwrap();
             let w = &opened.worlds[0];
             assert_eq!((w.seed(), w.spawn()), (default_seed("world"), spawn));
-            assert_eq!(opened.worlds[1].spawn(), FlatGenerator.spawn(9));
+            assert_eq!(opened.worlds[1].spawn(), Flat.spawn(9));
             drop(opened);
         }
         assert_eq!(default_seed("world"), default_seed("world"));
         assert_ne!(default_seed("world"), default_seed("arena"));
+    }
+
+    #[test]
+    fn the_default_seed_is_the_same_in_every_letter_case_of_the_name() {
+        assert_eq!(default_seed("Lobby"), default_seed("lobby"));
+        assert_eq!(
+            seed_or_default("LOBBY", None),
+            seed_or_default("lobby", None)
+        );
     }
 
     #[test]
@@ -3239,7 +3257,7 @@ pub(crate) mod tests {
             let main = place.file.ends_with("main.redb") || place.file.ends_with("world.redb");
             assert_eq!(meta.tick, if main { 10 } else { 0 }, "{place:?}");
             // A normal stop marks the file.
-            assert!(storage::closed_normally(&place.file));
+            assert!(storage::is_closed_normally(&place.file));
         }
         assert_eq!(open(&dir.0, specs()).unwrap().tick, 30);
     }
@@ -3303,10 +3321,10 @@ pub(crate) mod tests {
             "{answers:?}"
         );
         // The stop closed the files normally all the same.
-        assert!(storage::closed_normally(
+        assert!(storage::is_closed_normally(
             &Place::data(&dir.0, storage::MAIN_FILE).file
         ));
-        assert!(storage::closed_normally(
+        assert!(storage::is_closed_normally(
             &Place::world(&dir.0, "world").file
         ));
     }
@@ -3345,7 +3363,7 @@ pub(crate) mod tests {
         );
         // Nothing after the failed snapshot was written: the file is as it was, without the
         // mark of a normal stop.
-        assert!(!storage::closed_normally(
+        assert!(!storage::is_closed_normally(
             &Place::data(&dir.0, storage::MAIN_FILE).file
         ));
         let mut opened = open(&dir.0, specs()).unwrap();
@@ -3975,7 +3993,7 @@ pub(crate) mod tests {
         ] {
             let meta = committed_meta(&place.file).unwrap();
             assert_eq!((meta.tick, meta.identity), (33, Some(7)), "{place:?}");
-            assert!(storage::closed_normally(&place.file), "{place:?}");
+            assert!(storage::is_closed_normally(&place.file), "{place:?}");
         }
         assert_eq!(data_files(&dir.0), ["main.redb", "players.redb"]);
         assert_eq!(data_files(&dir.0.join("worlds")), ["world.redb"]);
@@ -4140,7 +4158,7 @@ pub(crate) mod tests {
             );
             let after = committed_meta(&players).unwrap();
             assert_eq!((after.tick, after.identity), (meta.tick, meta.identity));
-            assert!(storage::closed_normally(&players));
+            assert!(storage::is_closed_normally(&players));
             assert!(!delete_player(&dir.0, start, &xuid).unwrap());
         }
         assert_eq!(data_files(&dir.0), ["main.redb", "players.redb"]);

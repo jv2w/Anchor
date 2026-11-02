@@ -467,10 +467,10 @@ fn start_game_blocks_carry_the_components_the_client_reads() {
         ..crate::protocol::packet::StartGame::default()
     }));
     let mut bytes = Vec::new();
-    packet.encode(&mut bytes, 0).unwrap();
+    packet.encode(&mut bytes).unwrap();
     let mut budget = usize::MAX;
     assert_eq!(
-        Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
+        Packet::decode(packet.id(), &bytes, &mut budget).unwrap(),
         packet
     );
 }

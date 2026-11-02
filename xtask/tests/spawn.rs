@@ -504,9 +504,9 @@ fn the_bot_spawns_with_snappy_and_with_zlib() {
     }
 }
 
-/// The jigsaw structure data and biome definitions Anchor sends equal the reference data, as the
-/// official server's do, checked on the wire by `bot worlddata` when the pinned checkout is in
-/// `.cache` (`cargo xtask dump` needs it too).
+/// The jigsaw structure data and biome definitions Anchor sends equal the reference data, checked
+/// on the wire by `bot worlddata` when the pinned checkout is in `.cache` (`cargo xtask dump`
+/// needs it too).
 #[test]
 fn the_jigsaw_and_biome_data_sent_equal_the_reference_data() {
     let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.cache/reference-data");
@@ -657,7 +657,7 @@ fn the_bot_spawns_over_nethernet_with_snappy_and_with_zlib() {
             lines.contains(&format!("\"CompressionAlgorithm\":{id}")),
             "NetworkSettings announces {name}"
         );
-        // The answer carries the server identity at session level, as the official server's does.
+        // The answer carries the server identity at session level.
         let identity = lines
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).expect("JSON line"))

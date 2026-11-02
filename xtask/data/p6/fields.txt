@@ -27,8 +27,8 @@ ResourcePackStack Experiments
 ResourcePackStack ExperimentsPreviouslyToggled
 ResourcePackStack IncludeEditorPacks
 
-# GameVersion is left out: it is the server build's patch version (the official server 1.26.52, Anchor 1.26.50 from
-# its protocol source); both speak protocol 2193.
+# GameVersion is left out: it is the server build's patch version, which differs between the two
+# servers; both speak the pinned protocol version.
 StartGame BaseGameVersion
 StartGame UseBlockNetworkIDHashes
 StartGame ServerAuthoritativeInventory

@@ -1,12 +1,13 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs`,
-//! `src/protocol/packet.rs` and `src/protocol/consts.rs` from it, and the block and item tables
-//! (see `data`), the biome table and the import's upgrade tables (see `upgrade`) from the
-//! committed data in `xtask/data/`. It extracts the IR into `target/` and writes the committed IR
+//! `src/protocol/packet.rs` and `src/protocol/consts.rs` from it, and the block, item, item
+//! registry, creative inventory and effect tables (see `data`), the biome table and the import's
+//! upgrade tables (see `upgrade`) from the committed data in `xtask/data/`. It extracts the IR into `target/` and writes the committed IR
 //! and the generated files only after all of them are made. With `--check` it writes nothing and
 //! fails if the committed IR or a generated file differs. The protocol decoders also apply the
 //! per-field limits in `xtask/data/reference/protocol_limits.json`.
 
+// The macro is defined before the modules, whose code uses it.
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
 macro_rules! put {
     ($out:expr, $($arg:tt)*) => {
@@ -75,7 +76,10 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
             items::PATH,
             finish(root, &items::generate(&data, game_version)?)?,
         ),
-        (registry::PATH, finish(root, &registry::generate(root)?)?),
+        (
+            registry::PATH,
+            finish(root, &registry::generate(root, game_version)?)?,
+        ),
         (
             creative::PATH,
             finish(root, &creative::generate(root, &data)?)?,

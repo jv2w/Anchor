@@ -25,7 +25,6 @@ use super::{Event, Shared};
 use crate::bucket::{Bucket, Rate};
 use crate::clock;
 use crate::crypto::encryption::{CHECKSUM_BYTES, Decryptor, Encryptor, Handshake};
-use crate::item::SHIELD_RUNTIME_ID;
 use crate::login::{self, Login, Mode};
 use crate::protocol::InventoryTransactionData;
 use crate::protocol::batch::{self, Header};
@@ -382,8 +381,7 @@ impl Session {
         }
         let mut budget = MAX_FIRST_MESSAGE_BYTES;
         let Packet::RequestNetworkSettings(RequestNetworkSettings { client_protocol }) =
-            Packet::decode(header.id, bytes, &mut budget, SHIELD_RUNTIME_ID)
-                .map_err(Error::Packet)?
+            Packet::decode(header.id, bytes, &mut budget).map_err(Error::Packet)?
         else {
             return Err(Error::Order("first packet is not RequestNetworkSettings"));
         };
@@ -430,7 +428,7 @@ impl Session {
             // Only what clients send decodes (gophertunnel's client packet pool): a packet only
             // servers send fails as one that does not decode.
             let decoded = if Packet::is_from_client(header.id) {
-                Packet::decode(header.id, bytes, &mut budget, SHIELD_RUNTIME_ID)
+                Packet::decode(header.id, bytes, &mut budget)
             } else {
                 Err(crate::protocol::Error::InvalidValue {
                     field: "packet id",
@@ -1306,17 +1304,17 @@ mod tests {
             let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
             let mut player = joined(0, &shared).await;
-            let packet = Packet::InventoryTransaction(packet::InventoryTransaction {
+            let packet = Packet::InventoryTransaction(Box::new(packet::InventoryTransaction {
                 actions: vec![
                     crate::protocol::InventoryAction::default();
                     crate::protocol::MAX_LIST_LEN
                 ],
                 ..packet::InventoryTransaction::default()
-            });
+            }));
             let mut body = Vec::new();
-            packet.encode(&mut body, SHIELD_RUNTIME_ID).unwrap();
+            packet.encode(&mut body).unwrap();
             let mut budget = usize::MAX;
-            Packet::decode(packet.id(), &body, &mut budget, SHIELD_RUNTIME_ID).unwrap();
+            Packet::decode(packet.id(), &body, &mut budget).unwrap();
             let allocated = usize::MAX - budget;
             let mut message = vec![0xff];
             batch::encode_packets([&packet], &mut Vec::new(), |p| {
@@ -1347,7 +1345,7 @@ mod tests {
             let mut player = joined(0, &shared).await;
             player.spawned = true;
             let click = |trigger: consts::TriggerType| {
-                let packet = Packet::InventoryTransaction(packet::InventoryTransaction {
+                let packet = Packet::InventoryTransaction(Box::new(packet::InventoryTransaction {
                     transaction_data: InventoryTransactionData::UseItem(Box::new(
                         crate::protocol::UseItemTransactionData {
                             action_type: u32::from(consts::UseItemAction::ClickBlock),
@@ -1356,7 +1354,7 @@ mod tests {
                         },
                     )),
                     ..packet::InventoryTransaction::default()
-                });
+                }));
                 let mut message = vec![0xff];
                 batch::encode_packets([&packet], &mut Vec::new(), |p| {
                     message.extend_from_slice(p);

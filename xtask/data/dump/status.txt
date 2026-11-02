@@ -906,6 +906,14 @@ entity\ExperienceManager::setXpAndProgress merged ExperienceManager::setXpLevel
 world\sound\EntityLandSound** skipped the entity rules play it
 world\sound\EntityLongFallSound** skipped the entity rules play it
 world\sound\EntityShortFallSound** skipped the entity rules play it
+world\sound\AnvilBreakSound** skipped anvil rule code
+world\sound\AnvilFallSound** skipped anvil rule code
+world\sound\AnvilUseSound** skipped anvil rule code
+world\sound\BlastFurnaceSound** skipped furnace rule code
+world\sound\CampfireSound** skipped campfire rule code
+world\sound\FurnaceSound** skipped furnace rule code
+world\sound\PotionFinishBrewingSound** skipped brewing rule code
+world\sound\SmokerSound** skipped furnace rule code
 entity\HungerManager::tick skipped food rule code
 entity\HungerManager::__construct skipped every player has its food
 entity\HungerManager::getFoodTickTimer skipped food rule code

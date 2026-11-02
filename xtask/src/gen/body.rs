@@ -993,6 +993,13 @@ impl<'m, 'a> Lower<'m, 'a> {
     fn list_call(&mut self, s: &Stmt) -> Result<E, String> {
         let elem = s.elem.as_ref().ok_or("slice without element")?;
         let max = self.limit(s.place.as_ref());
+        if is_byte_list(s, elem) {
+            self.fallible = true;
+            return Ok(E::new(match max {
+                Some(max) => format!("r.byte_slice_max({})", int_lit(&max.to_string())),
+                None => "r.byte_slice()".to_owned(),
+            }));
+        }
         let key = s.place.as_ref().and_then(|p| self.limit_key(p));
         self.limit_vars
             .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
@@ -1149,6 +1156,15 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let list = Self::ref_iter(&v);
                 let recv = method_recv(&v.e.code);
                 let max = self.limit(Some(place)).map(|max| int_lit(&max.to_string()));
+                if is_byte_list(s, elem) {
+                    let q = self.q();
+                    let code = match &max {
+                        Some(max) => format!("w.byte_slice_max({}, {max}){q}", list.code),
+                        None => format!("w.byte_slice({}){q}", list.code),
+                    };
+                    out.push(S::Expr(list.with_code(code).effect()));
+                    return Ok(());
+                }
                 match s.prefix.as_str() {
                     "varuint32" | "uint8" | "uint32" => {
                         let q = self.q();
@@ -3911,6 +3927,18 @@ fn contains_return(stmts: &[Stmt]) -> bool {
             || contains_return(&s.body)
             || s.cases.iter().any(|c| contains_return(&c.body))
     })
+}
+
+/// Whether a slice statement is a `varuint32` count followed by one `Uint8` per element, which
+/// is the wire form of a `ByteSlice`.
+fn is_byte_list(s: &Stmt, elem: &Param) -> bool {
+    s.prefix == "varuint32"
+        && matches!(
+            s.body.as_slice(),
+            [b] if b.kind == "io"
+                && b.method == "Uint8"
+                && b.place.as_ref().is_some_and(|p| p.kind == "var" && p.name == elem.name)
+        )
 }
 
 /// Calls `f` on every expression with its role in its parent.

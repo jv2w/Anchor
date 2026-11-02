@@ -10,8 +10,8 @@ pub(crate) enum Kind {
     Merged(String),
     /// Anchor does not have the row, for this reason.
     Skipped(String),
-    /// Anchor does not have the row yet and has not decided against it: the row stays blank with
-    /// this note (what is missing), and broader rules below do not decide it.
+    /// Anchor lacks the row and has not decided against it: the row stays blank with this note
+    /// (what is missing), and broader rules below do not decide it.
     Open(String),
 }
 

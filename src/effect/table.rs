@@ -3,9 +3,10 @@
 
 use super::{Data, Instance, PotionData};
 
-/// A status effect type (the dump source's `VanillaEffects`).
+/// A status effect type.
 #[doc(alias = "Effect", alias = "VanillaEffects")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Type {
     /// `absorption`.
     Absorption,
@@ -360,9 +361,10 @@ pub(super) static TYPES_BY_ID: [Option<Type>; 31] = [
     Some(Type::Darkness),
 ];
 
-/// A potion type (the dump source's `PotionType`): what a potion, splash potion, lingering potion or tipped arrow holds.
+/// A potion type: what a potion, splash potion, lingering potion or tipped arrow holds.
 #[doc(alias = "PotionType")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Potion {
     /// `awkward`.
     Awkward,
@@ -546,8 +548,8 @@ pub(super) static POTIONS_BY_ID: [Option<Potion>; 43] = [
     Some(Potion::StrongSlowness),
 ];
 
-/// The dump's display name of each potion type.
-pub(super) static POTION_TEXT: [&str; 43] = [
+/// The English display name of each potion type, not a translation key.
+pub(super) static POTION_DISPLAY_NAMES: [&str; 43] = [
     "Awkward",
     "Fire Resistance",
     "Harming",

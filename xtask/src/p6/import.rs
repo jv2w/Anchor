@@ -1,12 +1,13 @@
 //! `cargo xtask p6 import`: the world import against the official server. It starts the official
-//! server copy on a new world with the official server's own terrain (seed [`SEED`]) and spawn radius 0, lets the spawn bot record
-//! the sub-chunks the official server sends (`target/p6/import-official/spawn.world.jsonl`), stops the official server, which saves the
-//! world, and copies the world folder to `target/p6/import-world/` (the official server never runs from it). It
-//! then imports that folder into Anchor's default world (a Void world of the same name) with
-//! `Server::import_world`, starts Anchor, lets the bot record the sub-chunks Anchor sends
-//! (`import-anchor/spawn.world.jsonl`), and compares them block by block: every block of every
-//! sub-chunk both servers answered (an all-air answer holds air), in every layer (a layer one side
-//! does not send is air), must have the same network ID.
+//! server copy on a new world with the official server's own terrain (seed [`SEED`]) and spawn
+//! radius 0, lets the spawn bot record the sub-chunks the official server sends
+//! (`target/p6/import-official/spawn.world.jsonl`), stops the official server, which saves the
+//! world, and copies the world folder to `target/p6/import-world/` (the official server never runs
+//! from it). It then imports that folder into Anchor's default world (a Void world of the same
+//! name) with `Server::import_world`, starts Anchor, lets the bot record the sub-chunks Anchor
+//! sends (`import-anchor/spawn.world.jsonl`), and compares them block by block: every block of
+//! every sub-chunk both servers answered (an all-air answer holds air), in every layer (a layer one
+//! side does not send is air), must have the same network ID.
 //!
 //! Anchor keeps a block the dump does not have as an unknown block. It sends the stored state when
 //! the client knows it (an inert block, with no server behaviour) and `info_update` otherwise: a
@@ -19,10 +20,11 @@
 //! difference fails, printed as the pair of states with how many blocks and where.
 //!
 //! Then the export: Anchor's world is written back as a Bedrock world with
-//! `Server::export_world` (`target/p6/export-world/`), the official server starts on a copy of it with the same
-//! game rules, the bot records what the official server sends (`export-official/spawn.world.jsonl`), and that is
-//! compared with what the official server sent of its own world in the same way: the official server loads the export as the
-//! world it saved, except where Anchor stores a block as the dump source reads it.
+//! `Server::export_world` (`target/p6/export-world/`), the official server starts on a copy of it
+//! with the same game rules, the bot records what the official server sends
+//! (`export-official/spawn.world.jsonl`), and that is compared with what the official server sent
+//! of its own world in the same way: the official server loads the export as the world it saved,
+//! except where Anchor stores a block as the dump source reads it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -44,8 +46,8 @@ const BLOCKS: usize = 4096;
 /// Differing blocks shown per pair of states.
 const EXAMPLES: usize = 3;
 /// Game rules set before the bot joins: the player spawns on the world spawn, as Anchor puts
-/// it, and nothing changes blocks between the official server sending them and saving them but what the
-/// world's own pending updates do (fire burned vines next to lava in an earlier run).
+/// it, and nothing changes blocks between the official server sending them and saving them but
+/// what the world's own pending updates do (fire burning vines next to lava).
 const RULES: [(&str, &str); 4] = [
     ("spawnradius", "0"),
     ("dofiretick", "false"),
@@ -56,6 +58,8 @@ const RULES: [(&str, &str); 4] = [
 pub(crate) const SCENARIO: &str = "import";
 /// The seed of the official server's world.
 const SEED: &str = "20261004";
+/// The bits in one word of a block storage.
+const WORD_BITS: usize = 32;
 /// The world's name, in the official server and in Anchor.
 const WORLD: &str = "p6-import";
 
@@ -129,8 +133,9 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
     Ok(passed)
 }
 
-/// Starts the official server on the world [`WORLD`] (a new one of seed [`SEED`], or the one `prepare` puts in
-/// the copy's folder), sets the [`RULES`] and runs the spawn bot into `<out_dir>/spawn.jsonl`.
+/// Starts the official server on the world [`WORLD`] (a new one of seed [`SEED`], or the one
+/// `prepare` puts in the copy's folder), sets the [`RULES`] and runs the spawn bot into
+/// `<out_dir>/spawn.jsonl`.
 fn official_run(
     exe: &Path,
     bot: &Path,
@@ -162,8 +167,8 @@ fn official_run(
     )
 }
 
-/// The network ID of each reference state that is not an Anchor state but that the dump source reads as
-/// one, with that Anchor state's network ID (the generator's aliases).
+/// The network ID of each reference state that is not an Anchor state but that the dump source
+/// reads as one, with that Anchor state's network ID (the generator's aliases).
 fn aliases(root: &Path) -> Result<BTreeMap<u32, u32>, String> {
     let data = Data::load(root)?;
     data.aliases
@@ -176,25 +181,6 @@ fn aliases(root: &Path) -> Result<BTreeMap<u32, u32>, String> {
             Ok((a.network_id, state.network_id))
         })
         .collect()
-}
-
-/// Runs the spawn bot against `addr` into `<dir>/spawn.jsonl`.
-fn spawn_bot(
-    bot: &Path,
-    addr: &str,
-    dir: &Path,
-    server: &str,
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    let capture = dir.join("spawn.jsonl");
-    let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
-    let outcome = run_bot(bot, &args, &capture)?;
-    let status = if outcome.passed { "ok  " } else { "FAIL" };
-    say(
-        out,
-        &format!("{status} {server} spawn{}", outcome.failure()),
-    )?;
-    Ok(outcome.passed)
 }
 
 /// Imports `world` into a fresh Anchor data folder under `out_dir`, starts Anchor on it and runs
@@ -221,6 +207,14 @@ fn anchor_session(
     Ok(passed && report.chunks() > 0)
 }
 
+/// Exports the world of the Anchor session in `anchor_dir` into the new folder `folder`.
+fn export(anchor_dir: &Path, folder: &Path, out: &mut impl Write) -> Result<(), String> {
+    let report = server(&anchor_dir.join("data"))?
+        .export_world(WORLD, folder)
+        .map_err(|e| format!("export: {e} ({:?})", std::error::Error::source(&e)))?;
+    say(out, &format!("export: {report:?}"))
+}
+
 /// An Anchor server of the data folder `data_dir` whose default world is [`WORLD`], a Void
 /// world.
 fn server(data_dir: &Path) -> Result<anchor::Server, String> {
@@ -235,12 +229,23 @@ fn server(data_dir: &Path) -> Result<anchor::Server, String> {
         .map_err(|e| format!("build Anchor: {e}"))
 }
 
-/// Exports the world of the Anchor session in `anchor_dir` into the new folder `folder`.
-fn export(anchor_dir: &Path, folder: &Path, out: &mut impl Write) -> Result<(), String> {
-    let report = server(&anchor_dir.join("data"))?
-        .export_world(WORLD, folder)
-        .map_err(|e| format!("export: {e} ({:?})", std::error::Error::source(&e)))?;
-    say(out, &format!("export: {report:?}"))
+/// Runs the spawn bot against `addr` into `<dir>/spawn.jsonl`.
+fn spawn_bot(
+    bot: &Path,
+    addr: &str,
+    dir: &Path,
+    server: &str,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let capture = dir.join("spawn.jsonl");
+    let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
+    let outcome = run_bot(bot, &args, &capture)?;
+    let status = if outcome.passed { "ok  " } else { "FAIL" };
+    say(
+        out,
+        &format!("{status} {server} spawn{}", outcome.failure()),
+    )?;
+    Ok(outcome.passed)
 }
 
 /// The sub-chunks of a capture's `<capture>.world.jsonl`, by absolute sub-chunk position, decoded
@@ -334,7 +339,7 @@ fn layers(payload: &[u8]) -> Result<Layers, String> {
         }
         let mut words = Vec::new();
         // Indices per word; none at width 0.
-        let per = 32_usize.checked_div(bits);
+        let per = WORD_BITS.checked_div(bits);
         if let Some(per) = per {
             for _ in 0..BLOCKS.div_ceil(per) {
                 words.push(u32::from_le_bytes([byte()?, byte()?, byte()?, byte()?]));
@@ -383,11 +388,12 @@ fn state_name(states: &BTreeMap<u32, String>, id: u32) -> String {
 
 /// Compares, block by block, the sub-chunks both captures hold and prints the result, naming
 /// the two sides `sides`: each pair of differing states with how many blocks and the first
-/// positions. `official` is what the official server sent of its own world, `anchor` what was sent of Anchor's world
-/// (by Anchor, or by the official server from its export). Where Anchor sends `info_update` (an unknown block),
-/// or a stored block of an intended name the official server changed after loading, the difference is excused as
-/// [`excuse`] says. Where Anchor's world has the state the dump source reads the official server's as (`aliases`), the
-/// block is excused too.
+/// positions. `official` is what the official server sent of its own world, `anchor` what was
+/// sent of Anchor's world (by Anchor, or by the official server from its export). Where Anchor
+/// sends `info_update` (an unknown block), or a stored block of an intended name the official
+/// server changed after loading, the difference is excused as [`excuse`] says. Where Anchor's
+/// world has the state the dump source reads the official server's as (`aliases`), the block is
+/// excused too.
 fn compare(
     official: &BTreeMap<[i64; 3], Layers>,
     anchor: &BTreeMap<[i64; 3], Layers>,
@@ -491,11 +497,12 @@ fn compare(
     Ok(compared > 0 && pairs.is_empty())
 }
 
-/// Why the difference between the official server's layers `a` and Anchor's `b` at one block is intended, if it
-/// is: Anchor sends a block of an intended name as it was stored, with no server behaviour, and
-/// The official server may have changed it after loading the world (a bubble column over no soul sand turns to
-/// water, a trial spawner wakes up); or Anchor sends `unknown` (`info_update`)
-/// for a block whose name is intended, or for a waterlogged block the official server sends as its water.
+/// Why the difference between the official server's layers `a` and Anchor's `b` at one block is
+/// intended, if it is: Anchor sends a block of an intended name as it was stored, with no server
+/// behaviour, and the official server may have changed it after loading the world (a bubble
+/// column over no soul sand turns to water, a trial spawner wakes up); or Anchor sends `unknown`
+/// (`info_update`) for a block whose name is intended, or for a waterlogged block the official
+/// server sends as its water.
 fn excuse(
     [a0, a1]: [u32; 2],
     [b0, b1]: [u32; 2],

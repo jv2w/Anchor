@@ -31,16 +31,14 @@ use super::body::{int_lit, str_lit};
 use super::emit::HEADER;
 use apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 
-/// The block schemas that add properties after the dump source's data version (1.26.30), oldest
-/// first; `data` reads them too ([`block_schema`]).
+/// The block schemas that add properties after the dump source's data version, oldest first;
+/// `data` reads them too ([`block_schema`]).
 pub(crate) const ADDING: [&str; 2] = ["0351_1.26.40_to_1.26.50.json", SCHEMA_1_26_60];
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/import/upgrade/table.rs";
 /// The block schema of 1.26.60: it adds the connection properties of fire, redstone wire and
 /// chorus plants.
 pub(crate) const SCHEMA_1_26_60: &str = "0361_1.26.50_to_1.26.60.json";
-
-type R<T> = Result<T, String>;
 
 /// Upgraded legacy entries: (string ID, meta) → index into the distinct states, with those states.
 type Legacy = (BTreeMap<(String, u8), usize>, Vec<(String, States)>);
@@ -50,7 +48,7 @@ pub(crate) fn block_schema(root: &Path, name: &str) -> PathBuf {
     root.join(DIR).join(BLOCK_SCHEMAS).join(name)
 }
 
-/// A property value in a schema (the dump source's `BlockStateUpgradeSchemaModelTag`): exactly one field.
+/// A property value in a schema: exactly one field.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TagModel {
@@ -88,7 +86,7 @@ struct RemapModel {
     copied_state: Vec<String>,
 }
 
-/// A block schema file (the dump source's `BlockStateUpgradeSchemaModel`).
+/// A block schema file.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SchemaModel {
@@ -114,7 +112,7 @@ struct SchemaModel {
     remapped_states: BTreeMap<String, Vec<RemapModel>>,
 }
 
-/// An item schema file (the dump source's `ItemIdMetaUpgradeSchemaModel`).
+/// An item schema file.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct ItemSchemaModel {
@@ -150,7 +148,7 @@ fn keep_str(value: &str) -> &'static str {
     Box::leak(value.to_owned().into_boxed_str())
 }
 
-fn tag(model: &TagModel) -> R<Tag<'static>> {
+fn tag(model: &TagModel) -> Result<Tag<'static>, String> {
     match model {
         TagModel {
             byte: Some(b),
@@ -177,7 +175,9 @@ fn tag(model: &TagModel) -> R<Tag<'static>> {
     }
 }
 
-fn tags(map: Option<&BTreeMap<String, TagModel>>) -> R<&'static [(&'static str, Tag<'static>)]> {
+fn tags(
+    map: Option<&BTreeMap<String, TagModel>>,
+) -> Result<&'static [(&'static str, Tag<'static>)], String> {
     let mut out = Vec::new();
     for (k, v) in map.into_iter().flatten() {
         out.push((keep_str(k), tag(v)?));
@@ -185,7 +185,7 @@ fn tags(map: Option<&BTreeMap<String, TagModel>>) -> R<&'static [(&'static str, 
     Ok(keep(out))
 }
 
-fn flatten(model: &FlattenModel) -> R<Flatten<'static>> {
+fn flatten(model: &FlattenModel) -> Result<Flatten<'static>, String> {
     let kind = match model.flattened_property_type.as_deref() {
         None | Some("string") => Kind::String,
         Some("int") => Kind::Int,
@@ -207,7 +207,7 @@ fn flatten(model: &FlattenModel) -> R<Flatten<'static>> {
 }
 
 /// Reads one state rule.
-fn remap(model: &RemapModel) -> R<Remap<'static>> {
+fn remap(model: &RemapModel) -> Result<Remap<'static>, String> {
     let new_name = match (&model.new_name, &model.new_flattened_name) {
         (Some(n), None) => NewName::Name(keep_str(n)),
         (None, Some(f)) => NewName::Flatten(flatten(f)?),
@@ -222,7 +222,7 @@ fn remap(model: &RemapModel) -> R<Remap<'static>> {
 }
 
 /// Reads and checks one block schema.
-fn schema(model: &SchemaModel) -> R<Schema<'static>> {
+fn schema(model: &SchemaModel) -> Result<Schema<'static>, String> {
     let version = i32::from_be_bytes([
         model.max_version_major,
         model.max_version_minor,
@@ -283,7 +283,7 @@ fn schema(model: &SchemaModel) -> R<Schema<'static>> {
             .into_iter()
             .flatten()
             .map(remap)
-            .collect::<R<Vec<_>>>()
+            .collect::<Result<Vec<_>, String>>()
             .map_err(|e| format!("{name}: {e}"))?;
         let rules = Rules {
             renamed: model.renamed_ids.get(name).map(|n| keep_str(n)),
@@ -321,7 +321,7 @@ fn schema(model: &SchemaModel) -> R<Schema<'static>> {
 }
 
 /// Reads the block schemas, sorted by (version, ID) as the dump source sorts them.
-fn read_schemas(root: &Path) -> R<Vec<Schema<'static>>> {
+fn read_schemas(root: &Path) -> Result<Vec<Schema<'static>>, String> {
     let mut schemas = Vec::new();
     let mut previous = None;
     for (id, name, bytes) in schema_files(&root.join(DIR).join(BLOCK_SCHEMAS))? {
@@ -344,7 +344,7 @@ fn read_schemas(root: &Path) -> R<Vec<Schema<'static>>> {
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn schema_files(dir: &Path) -> R<Vec<(u16, String, Vec<u8>)>> {
+fn schema_files(dir: &Path) -> Result<Vec<(u16, String, Vec<u8>)>, String> {
     let mut files = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -365,7 +365,7 @@ fn schema_files(dir: &Path) -> R<Vec<(u16, String, Vec<u8>)>> {
 }
 
 /// A typed state object (`{"name", "states": {p: {"byte"|"int"|"string": v}}, "version"}`).
-fn typed_state(json: &Json) -> R<(i32, String, States)> {
+fn typed_state(json: &Json) -> Result<(i32, String, States), String> {
     let name = json
         .get("name")
         .and_then(Json::as_str)
@@ -402,7 +402,7 @@ fn typed_state(json: &Json) -> R<(i32, String, States)> {
 
 /// The reference list's block state version, which every one of its states has (the protocol
 /// version's, which Anchor writes), and its states.
-fn reference(root: &Path) -> R<(i32, BTreeSet<(String, States)>)> {
+fn reference(root: &Path) -> Result<(i32, BTreeSet<(String, States)>), String> {
     let path = root.join(REFERENCE_DIR).join(REFERENCE_BLOCKS);
     let list: Vec<Json> =
         serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -424,7 +424,7 @@ fn check_reference(
     schemas: &[Schema<'_>],
     version: i32,
     reference: &BTreeSet<(String, States)>,
-) -> R<()> {
+) -> Result<(), String> {
     let newest = schemas.last().map(|s| s.version);
     if newest != Some(version) {
         return Err(format!(
@@ -451,7 +451,7 @@ fn check_reference(
 }
 
 /// A legacy ID map file (string ID → number), checked one to one.
-fn legacy_ids(path: &Path) -> R<BTreeMap<i16, String>> {
+fn legacy_ids(path: &Path) -> Result<BTreeMap<i16, String>, String> {
     let map: BTreeMap<String, i64> =
         serde_json::from_slice(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut out = BTreeMap::new();
@@ -464,13 +464,13 @@ fn legacy_ids(path: &Path) -> R<BTreeMap<i16, String>> {
     Ok(out)
 }
 
-/// Upgrades every legacy entry to the newest version, as the dump source's `BlockIdMetaUpgrader` does when
-/// it loads the table; returns the entries whose result is not a reference state too.
+/// Upgrades every legacy entry to the newest version, as the dump source does when it loads the
+/// table; returns the entries whose result is not a reference state too.
 fn legacy(
     root: &Path,
     schemas: &[Schema<'_>],
     reference: &BTreeSet<(String, States)>,
-) -> R<(Legacy, Vec<String>)> {
+) -> Result<(Legacy, Vec<String>), String> {
     let path = root.join(DIR).join(LEGACY_TABLE);
     let text = String::from_utf8(read(&path)?).map_err(|e| format!("{LEGACY_TABLE}: {e}"))?;
     let mut entries = BTreeMap::new();
@@ -508,7 +508,7 @@ fn legacy(
 
 /// Reads the item schemas in ID order, checked as the dump source reads them: it looks IDs up lowercased,
 /// so an ID with a capital letter could never match.
-fn item_schemas(root: &Path) -> R<Vec<ItemSchema>> {
+fn item_schemas(root: &Path) -> Result<Vec<ItemSchema>, String> {
     let mut out = Vec::new();
     let mut previous = None;
     for (id, name, bytes) in schema_files(&root.join(DIR).join(ITEM_SCHEMAS))? {
@@ -542,7 +542,7 @@ fn item_schemas(root: &Path) -> R<Vec<ItemSchema>> {
 }
 
 /// The 1.12 item ID → block ID map with lowercased keys, as the dump source builds it.
-fn item_blocks(root: &Path) -> R<BTreeMap<String, String>> {
+fn item_blocks(root: &Path) -> Result<BTreeMap<String, String>, String> {
     let path = root.join(DIR).join(ITEM_SCHEMAS).join(ITEM_BLOCKS);
     let map: BTreeMap<String, String> =
         serde_json::from_slice(&read(&path)?).map_err(|e| format!("{ITEM_BLOCKS}: {e}"))?;
@@ -556,7 +556,7 @@ fn item_blocks(root: &Path) -> R<BTreeMap<String, String>> {
 }
 
 /// Generates the file text (unformatted).
-pub(crate) fn generate(root: &Path) -> R<String> {
+pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let schemas = read_schemas(root)?;
     let (version, reference) = reference(root)?;
     check_reference(&schemas, version, &reference)?;
@@ -569,9 +569,9 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Upgrade tables generated from opencollab-incubator/BedrockBlockUpgradeSchema \
-         and opencollab-incubator/BedrockItemUpgradeSchema (`xtask/data/upgrade/`): {} block schemas, \
-         {} legacy entries upgraded to {} states, {} item schemas.\n",
+        "{HEADER}\n//! Upgrade tables generated from the block and item upgrade schemas in \
+         `xtask/data/upgrade/`: {} block schemas, {} legacy entries upgraded to {} states, {} item \
+         schemas.\n",
         schemas.len(),
         entries.len(),
         states.len(),
@@ -639,8 +639,8 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     }
     put!(
         out,
-        "/// The legacy 1.12.0 table (the dump source's `BlockIdMetaUpgrader`): string ID with each known meta's \
-         index in [`LEGACY_STATES`], sorted.\npub(super) static LEGACY: [(&str, &[(u8, u16)]); {}] = [",
+        "/// The legacy 1.12.0 table: string ID with each known meta's index in [`LEGACY_STATES`], \
+         sorted.\npub(super) static LEGACY: [(&str, &[(u8, u16)]); {}] = [",
         by_id.len()
     );
     for (id, metas) in &by_id {
@@ -654,7 +654,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     id_table(
         &mut out,
         "BLOCK_IDS",
-        "Legacy numeric block IDs and their string IDs (the dump source's `LegacyBlockIdToStringIdMap`)",
+        "Legacy numeric block IDs and their string IDs",
         &block_ids,
     );
     item_tables(&mut out, &item_ids, &item_blocks, &items);
@@ -671,13 +671,12 @@ fn item_tables(
     id_table(
         out,
         "ITEM_IDS",
-        "Legacy numeric item IDs and their string IDs (the dump source's `LegacyItemIdToStringIdMap`)",
+        "Legacy numeric item IDs and their string IDs",
         item_ids,
     );
     put!(
         out,
-        "/// 1.12 item IDs, lowercase, and their block IDs (the dump source's `R12ItemIdToBlockIdMap`), \
-         sorted.\npub(super) static ITEM_BLOCKS: [(&str, &str); {}] = [",
+        "/// 1.12 item IDs, lowercase, and their block IDs, sorted.\npub(super) static ITEM_BLOCKS: [(&str, &str); {}] = [",
         item_blocks.len()
     );
     for (item, block) in item_blocks {
@@ -686,7 +685,7 @@ fn item_tables(
     out.push_str("];\n\n");
     put!(
         out,
-        "/// The item schemas in ID order (the dump source's `ItemIdMetaUpgrader`).\npub(super) static \
+        "/// The item schemas in ID order.\npub(super) static \
          ITEM_SCHEMAS: [ItemSchema; {}] = [",
         items.len()
     );

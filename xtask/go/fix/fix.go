@@ -1,7 +1,7 @@
 // Package fix corrects defects of the pinned gophertunnel source for every Go tool of xtask: it writes a
 // corrected copy of the module and a go.mod that replaces gophertunnel with it, so the extractor, the
 // oracle and the bot all build with -modfile from the same corrected source. Each defect, with its
-// evidence, is listed under "gophertunnel 결함" in .claude/docs/protocol.md.
+// evidence, is listed under "gophertunnel defects" in .claude/docs/protocol.md.
 //
 // A correction replaces text that must occur exactly once in its file, so a gophertunnel update that
 // moves or fixes the text fails here instead of passing silently.
@@ -71,8 +71,8 @@ var replacements = []replacement{
 			"\t\t\tuint64(len(animation.ImageData))/4*4 != uint64(len(animation.ImageData)) {\n",
 	},
 	// Entity data keys: 139 is reserved and 140 is the name tag render distance. The arrow and firework
-	// shooter keys are actor-specific meanings of 17 and 18. 141 is a byte the official server 1.26.60 sends players
-	// (P6), with no public name.
+	// shooter keys are actor-specific meanings of 17 and 18. 141 is a byte the official server 1.26.60
+	// sends players (P6), with no public name.
 	{
 		file: "entity_metadata.go",
 		old: "\tEntityDataKeyArrowShooterID\n\tEntityDataKeyFireworkDirection\n\tEntityDataKeyFireworkShooterID\n" +

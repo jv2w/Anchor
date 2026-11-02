@@ -1,24 +1,24 @@
 //! The game scenarios of `cargo xtask p6`: `trade`. The bot plays each one like the official client
 //! (`xtask/go/bot/game.go`) and writes the console commands it needs into its capture as `command`
-//! records; the harness runs
-//! each new command on the server's console while the bot runs (`run_scenario`). `p6 game official` runs
-//! them against a fresh official server world into `target/p6/official-game/`: first the `spawn` scenario with
-//! untouched game rules (the spawn window of this world), then `SESSION_SETUP`, then each game
-//! scenario with its own player name. Each capture gets a report (`<scenario>.txt`, see `trace`),
-//! and `p6 game compare A B` compares the fixed parts of the traces of two capture folders.
-//! `p6 game anchor` runs the same session against Anchor, started in this process with the P6
-//! settings (RakNet, zlib, a fresh flat world, as `p6 anchor`), into `target/p6/anchor-game/`: its
-//! `console` carries out the commands through Anchor's public task API (`console`), and the
-//! session ends with `p6 game compare target/p6/official-game target/p6/anchor-game` for the
-//! scenarios it ran, also written to `anchor-game/compare.txt`.
+//! records; the harness runs each new command on the server's console while the bot runs
+//! (`run_scenario`). `p6 game official` runs them against a fresh official server world into
+//! `target/p6/official-game/`: first the `spawn` scenario with untouched game rules (the spawn
+//! window of this world), then `SESSION_SETUP`, then each game scenario with its own player name.
+//! Each capture gets a report (`<scenario>.txt`, see `trace`), and `p6 game compare A B` compares
+//! the fixed parts of the traces of two capture folders. `p6 game anchor` runs the same session
+//! against Anchor, started in this process with the P6 settings (RakNet, zlib, a fresh flat world,
+//! as `p6 anchor`), into `target/p6/anchor-game/`: its `console` carries out the commands through
+//! Anchor's public task API (`console`), and the session ends with
+//! `p6 game compare target/p6/official-game target/p6/anchor-game` for the scenarios it ran, also
+//! written to `anchor-game/compare.txt`.
 
 pub(crate) mod console;
 mod trace;
 
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 /// How long the harness waits for a bot past its own time limit before killing it.
@@ -28,8 +28,8 @@ const BOT_TIMEOUT: Duration = Duration::from_secs(150);
 /// The game scenarios, in run order.
 pub(crate) const SCENARIOS: [&str; 1] = ["trade"];
 /// Console commands run once before the game scenarios: no mob spawning, weather, day cycle or
-/// random ticks (grass under a block turning to dirt), so no unrelated entity, time or block traffic
-/// lands between the steps; then every mob is removed.
+/// random ticks (grass under a block turning to dirt), so no unrelated entity, time or block
+/// traffic lands between the steps; then every mob is removed.
 pub(crate) const SESSION_SETUP: &[&str] = &[
     "gamerule domobspawning false",
     "gamerule randomtickspeed 0",
@@ -239,8 +239,8 @@ fn run_scenario(
 /// One bot of [`run_scenarios`]: its scenario, capture, process and the commands relayed.
 struct Running {
     scenario: String,
-    capture: std::path::PathBuf,
-    child: std::process::Child,
+    capture: PathBuf,
+    child: Child,
     relayed: usize,
 }
 

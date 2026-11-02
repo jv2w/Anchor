@@ -355,7 +355,7 @@ fn json_files(dir: &Path) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-/// The legacy table (the dump source's `BlockIdMetaUpgrader::loadFromString` format: unsigned varint ID
+/// The legacy table (the format the dump source loads: unsigned varint ID
 /// count; per ID its varint-length name and varint meta count; per meta the varint meta and a
 /// little-endian NBT state) as one JSON line per entry, in file order:
 /// `{"id":..,"meta":..,"state":{"name":..,"states":{..},"version":..}}`, values typed as in the

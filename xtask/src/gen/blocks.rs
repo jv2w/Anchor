@@ -11,6 +11,10 @@ use super::names::upper_camel;
 
 /// The state item sentinels of `STATE_ITEMS` (see `src/block.rs`).
 const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
+/// The most fence groups: a connection word holds the group in 4 bits.
+const MAX_FENCE_GROUPS: usize = 16;
+/// The most type tags: a physics row holds them as a 16-bit set.
+const MAX_TYPE_TAGS: usize = 16;
 /// The states the engine names in code (`block::AIR` and so on).
 const NAMED: &[Named] = &[
     ("AIR", "minecraft:air", &[]),
@@ -116,7 +120,7 @@ pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String
     named(&mut out, data)?;
     kinds(&mut out, data)?;
     info(&mut out, data)?;
-    banner_patterns(&mut out, data);
+    banner_patterns(&mut out, data)?;
     Ok(out)
 }
 
@@ -184,7 +188,7 @@ pub(crate) fn api_enumeration(
 ) {
     put!(
         out,
-        "\n/// {doc}\n{api}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{"
+        "\n/// {doc}\n{api}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n#[non_exhaustive]\npub enum {name} {{"
     );
     for (variant, documented) in variants {
         put!(out, "/// `{documented}`.\n{variant},");
@@ -194,7 +198,7 @@ pub(crate) fn api_enumeration(
 
 /// Upper camel case variants for sorted names; fails if two names give one variant.
 pub(crate) fn variants(names: &[&str]) -> Result<Vec<(String, String)>, String> {
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeSet::new();
     let mut out = Vec::with_capacity(names.len());
     for name in names {
         let variant = upper_camel(name);
@@ -358,8 +362,8 @@ fn type_tags(data: &Data) -> Vec<&str> {
 )]
 fn info(out: &mut String, data: &Data) -> Result<(), String> {
     let tags = type_tags(data);
-    if tags.len() > 16 {
-        return Err("more than 16 type tags".to_owned());
+    if tags.len() > MAX_TYPE_TAGS {
+        return Err(format!("more than {MAX_TYPE_TAGS} type tags"));
     }
     api_enumeration(
         out,
@@ -484,13 +488,10 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
 }
 
 /// The banner pattern enum and IDs.
-fn banner_patterns(out: &mut String, data: &Data) {
+fn banner_patterns(out: &mut String, data: &Data) -> Result<(), String> {
     let list = &data.tables.banner_patterns;
     let names: Vec<&str> = list.iter().map(|b| b.name.as_str()).collect();
-    let variants: Vec<(String, String)> = names
-        .iter()
-        .map(|n| (upper_camel(n), (*n).to_owned()))
-        .collect();
+    let variants = variants(&names)?;
     api_enumeration(
         out,
         "A banner pattern.",
@@ -531,6 +532,7 @@ fn banner_patterns(out: &mut String, data: &Data) {
         put!(out, "({}, BannerPattern::{v}),", str_lit(id));
     }
     out.push_str("];\n");
+    Ok(())
 }
 
 /// The named state constants.
@@ -680,8 +682,8 @@ fn connections(out: &mut String, data: &Data) -> Result<(), String> {
     for (i, v) in groups.values_mut().enumerate() {
         *v = u8::try_from(i)
             .ok()
-            .filter(|&g| g < 16)
-            .ok_or("more than 16 fence groups")?;
+            .filter(|_| i < MAX_FENCE_GROUPS)
+            .ok_or_else(|| format!("more than {MAX_FENCE_GROUPS} fence groups"))?;
     }
 
     // Variant lists by the state with the variant properties taken out, in state order.

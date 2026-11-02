@@ -369,8 +369,8 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Report, String> {
         .map_err(|e| format!("{STATUS_PATH}: {e}"))?;
     let (rules, errors) = status::parse(&status_text);
     push_errors(&mut report.errors, STATUS_PATH, errors);
-    // One error per missing target, at its first rule: a target the code has not got yet is one
-    // thing to add however many rules name it.
+    // One error per missing target, at its first rule: a target the code lacks is one thing
+    // to add however many rules name it.
     let mut missing: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
     for rule in &rules {
         if let Kind::Merged(target) = &rule.kind
@@ -714,7 +714,7 @@ mod tests {
              a\\** skipped not here\n\
              b\\Y::c merged X::b\n\
              b\\Y::d merged X::gone\n\
-             c\\Z::o open no API yet\n\
+             c\\Z::o open the API is missing\n\
              b\\** differs never reached by code rows\n",
         );
         assert!(errors.is_empty());
@@ -758,7 +758,7 @@ mod tests {
         assert_eq!(judged(r"c\Z", "Z"), (Status::Blank, String::new()));
         assert_eq!(
             judged(r"c\Z::o", "Z::o"),
-            (Status::Blank, "open: no API yet".to_owned())
+            (Status::Blank, "open: the API is missing".to_owned())
         );
         assert_eq!(used, [true, true, true, true, true, false]);
     }
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn the_namespace_root_of_the_dump_is_dropped() {
-        assert_eq!(without_root(r"pocketmine\block\Chest"), r"block\Chest");
+        assert_eq!(without_root(&format!(r"{ROOT}block\Chest")), r"block\Chest");
         assert_eq!(without_root(r"block\Chest"), r"block\Chest");
     }
 }

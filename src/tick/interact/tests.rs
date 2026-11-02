@@ -18,7 +18,7 @@ use crate::protocol::consts::{InputFlag, UseItemAction};
 use crate::protocol::packet::{PlayerAuthInput, SetLocalPlayerAsInitialised};
 use crate::protocol::{
     FlagSet, InputFlags, InventoryTransactionData, NormalTransactionData, PlayerBlockAction,
-    UseItemTransactionData,
+    ReleaseItemTransactionData, UseItemTransactionData,
 };
 use crate::tick::queue::{Input, InputKind, Message, Outbound, SessionId};
 use crate::tick::survival::EYE_HEIGHT;
@@ -110,7 +110,7 @@ impl Harness {
     /// The next input of session 1.
     fn input(&mut self, packet: Packet) -> Input {
         let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
+        packet.encode(&mut bytes).unwrap();
         self.seq += 1;
         Input {
             session: SessionId::new(1),
@@ -842,7 +842,7 @@ fn a_normal_transaction_that_is_no_q_key_drop_changes_nothing() {
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
         ..InventoryTransaction::default()
     };
-    let input = h.input(Packet::InventoryTransaction(tx));
+    let input = h.input(Packet::InventoryTransaction(Box::new(tx)));
     h.run(vec![input]);
     assert_eq!(h.held(), sticks);
     assert_eq!(h.state.rules.entities.count(0), entities);
@@ -1217,7 +1217,7 @@ fn the_q_key_drops_from_the_held_slot_when_the_client_stack_matches() {
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
         ..InventoryTransaction::default()
     };
-    let input = h.input(Packet::InventoryTransaction(tx));
+    let input = h.input(Packet::InventoryTransaction(Box::new(tx)));
     h.run(vec![input]);
     assert_eq!(h.held().count(), 3);
 }
@@ -1252,7 +1252,7 @@ fn the_q_key_with_another_client_stack_sends_the_slot_back() {
         transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
         ..InventoryTransaction::default()
     };
-    let input = h.input(Packet::InventoryTransaction(tx));
+    let input = h.input(Packet::InventoryTransaction(Box::new(tx)));
     h.run(vec![input]);
     assert_eq!(h.held().count(), 5);
     let sent: Vec<_> = h
@@ -1423,13 +1423,13 @@ fn switching_the_held_slot_cancels_a_drawn_bow() {
             "{weapon:?} drawn"
         );
         let equip = |slot: u8| {
-            Packet::MobEquipment(Box::new(crate::protocol::packet::MobEquipment {
+            Packet::MobEquipment(crate::protocol::packet::MobEquipment {
                 entity_runtime_id: 1,
                 new_item: crate::protocol::ItemInstance::default(),
                 inventory_slot: slot,
                 hot_bar_slot: slot,
                 window_id: 0,
-            }))
+            })
         };
         let away = h.input(equip(1));
         h.run(vec![away]);
@@ -1451,7 +1451,7 @@ fn switching_the_held_slot_or_moving_items_stops_eating() {
     let eat = h.auth(Vec::new(), Some(air(&apple)));
     h.run(vec![eat]);
     assert!(h.player().is_using_item());
-    let away = h.input(Packet::MobEquipment(Box::new(
+    let away = h.input(Packet::MobEquipment(
         crate::protocol::packet::MobEquipment {
             entity_runtime_id: 1,
             new_item: crate::protocol::ItemInstance::default(),
@@ -1459,7 +1459,7 @@ fn switching_the_held_slot_or_moving_items_stops_eating() {
             hot_bar_slot: 1,
             window_id: 0,
         },
-    )));
+    ));
     h.run(vec![away]);
     assert_eq!(h.player().inventory.held_slot(), 1);
     assert!(!h.player().is_using_item(), "a hotbar switch");
@@ -1604,20 +1604,26 @@ fn a_used_bow_trident_horn_or_spyglass_shows_the_using_item_flag() {
         assert!(inventory::give(h.player_mut(), stack(crate::item::Kind::Arrow)).is_empty());
         h.run(Vec::new());
         h.packets();
-        let draw = h.input(Packet::InventoryTransaction(InventoryTransaction {
-            transaction_data: InventoryTransactionData::UseItem(Box::new(air(&held))),
-            ..InventoryTransaction::default()
-        }));
+        let draw = h.input(Packet::InventoryTransaction(Box::new(
+            InventoryTransaction {
+                transaction_data: InventoryTransactionData::UseItem(Box::new(air(&held))),
+                ..InventoryTransaction::default()
+            },
+        )));
         h.run(vec![draw]);
         assert_eq!(flag(&h.packets()), Some(true), "{weapon:?} drawn");
         assert!(h.player().is_using_item());
         for _ in 0..20 {
             h.run(Vec::new());
         }
-        let release = h.input(Packet::InventoryTransaction(InventoryTransaction {
-            transaction_data: InventoryTransactionData::ReleaseItem(Box::default()),
-            ..InventoryTransaction::default()
-        }));
+        let release = h.input(Packet::InventoryTransaction(Box::new(
+            InventoryTransaction {
+                transaction_data: InventoryTransactionData::ReleaseItem(
+                    ReleaseItemTransactionData::default(),
+                ),
+                ..InventoryTransaction::default()
+            },
+        )));
         h.run(vec![release]);
         assert_eq!(flag(&h.packets()), Some(false), "{weapon:?} released");
         assert!(!h.player().is_using_item());

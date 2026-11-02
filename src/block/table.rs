@@ -75651,6 +75651,7 @@ pub(crate) const INFO_UPDATE: State = State::from_index(7388);
 
 /// A block type, such as `OakPlanks`; [`State::kind`] gives a state's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Kind {
     /// `acacia_button`.
     AcaciaButton,
@@ -78860,6 +78861,7 @@ pub(super) static KINDS: [Kind; 799] = [
 
 /// A block class or one of its parents (`Block` for every block); [`State::class`] gives a state's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Class {
     /// `ActivatorRail`.
     ActivatorRail,
@@ -79652,6 +79654,7 @@ pub(super) static CLASS_NAMES: [&str; 261] = [
 
 /// A block trait or interface (`FallableTrait` and `Fallable` are both `Fallable`); [`State::has_trait`] tells a state's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Trait {
     /// `Ageable`.
     Ageable,
@@ -81413,6 +81416,7 @@ pub(super) static KIND_DATA: [KindData; 799] = [
 /// A block type tag; [`State::has_type_tag`] tells a state's.
 #[doc(alias = "BlockTypeTags")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum TypeTag {
     /// `bamboo_mosaic`.
     BambooMosaic,
@@ -94799,6 +94803,7 @@ pub(super) static STATE_ITEMS: [u16; 19076] = [
 /// A banner pattern.
 #[doc(alias = "BannerPatternType")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum BannerPattern {
     /// `border`.
     Border,

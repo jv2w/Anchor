@@ -179,7 +179,7 @@ func (g *game) takeOffer(o offer) error {
 	return err
 }
 
-// farmerSummon summons an adult farmer villager (a villager_v2 in the official server 1.26.60). The summon
+// farmerSummon summons an adult farmer villager (a villager_v2 in the official server). The summon
 // event replaces the random spawn event, and minecraft:become_farmer is the villager_v2 event that sets one
 // profession: minecraft:spawn_farmer picks one of five professions at random, and a fisherman's first
 // tier may hold no offer the bot can pay for.
@@ -244,7 +244,7 @@ type offer struct {
 
 // firstOffer is the first offer unlocked at the villager's tier (UpdateTrade TradeTier), without a second
 // payment, whose first payment the inventory holds. The client cannot take a locked offer; the official
-// server 1.26.52 accepts one anyway, and its trader XP raises the villager's tier.
+// server accepts one anyway, and its trader XP raises the villager's tier.
 func (g *game) firstOffer(offers map[string]any, tier int32) (offer, error) {
 	list, _ := offers["Recipes"].([]any)
 	for _, r := range list {

@@ -42,7 +42,7 @@ const feedLimit = 1 << 18
 // gameScenarios are the game scenarios and their scripts (scenarios.go), with the API scenarios (api.go).
 var gameScenarios = map[string]func(*game) error{
 	"dive":      (*game).dive,
-	"trade":    playTrade,
+	"trade":     playTrade,
 	"commands":  playCommands,
 	"kick":      playKick,
 	"forms":     playForms,
@@ -57,7 +57,7 @@ var gameScenarios = map[string]func(*game) error{
 // scenario has none: it does not teleport.
 var gameAreas = map[string]protocol.BlockPos{
 	"dive":      {-12, -60, -12},
-	"trade":    {-12, -60, 20},
+	"trade":     {-12, -60, 20},
 	"commands":  {-4, -60, -12},
 	"kick":      {-4, -60, 4},
 	"forms":     {-4, -60, 12},
@@ -517,11 +517,12 @@ func (g *game) breathing() bool {
 
 // setSlot stores a slot the server sent.
 func (g *game) setSlot(ref slotRef, it protocol.ItemInstance) {
-	if it.Stack.Count == 0 || it.Stack.NetworkID == 0 {
+	st := stack{item: it.Stack, id: it.StackNetworkID}
+	if st.empty() {
 		delete(g.slots, ref)
 		return
 	}
-	g.slots[ref] = stack{item: it.Stack, id: it.StackNetworkID}
+	g.slots[ref] = st
 }
 
 // name is the item name of a slot's item.

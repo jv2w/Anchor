@@ -157,6 +157,16 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["packet.ClientCacheMissResponse.Blobs"],
     ),
     (
+        "Clientbound Data Driven UI Show Screen Payload",
+        "ScreenId",
+        &["packet.ClientBoundDataDrivenUIShowScreen.ScreenID"],
+    ),
+    (
+        "Clientbound Data Store Payload",
+        "Updates",
+        &["packet.ClientBoundDataStore.Updates"],
+    ),
+    (
         "ClientboundMapItemDataPacketPayload",
         "Creation Map IDs",
         &["packet.ClientBoundMapItemData.MapsIncludedIn"],
@@ -180,16 +190,6 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         "ClientboundMatchmakingStatePacketPayload",
         "Destination Name",
         &["packet.ClientboundMatchmakingState.DestinationName"],
-    ),
-    (
-        "Clientbound Data Driven UI Show Screen Payload",
-        "ScreenId",
-        &["packet.ClientBoundDataDrivenUIShowScreen.ScreenID"],
-    ),
-    (
-        "Clientbound Data Store Payload",
-        "Updates",
-        &["packet.ClientBoundDataStore.Updates"],
     ),
     (
         "CodeBuilderRuntimeAction",
@@ -226,16 +226,16 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         "Data Store Name",
         &["protocol.DataStoreRemoval.DataStoreName"],
     ),
+    (
+        "Data Store Update",
+        "Data Store Name",
+        &["protocol.DataStoreUpdate.DataStoreName"],
+    ),
     // The string alternative of the value.
     (
         "Data Store Update",
         "Data/oneOf/2",
         &["protocol.DataStoreUpdate.StringValue"],
-    ),
-    (
-        "Data Store Update",
-        "Data Store Name",
-        &["protocol.DataStoreUpdate.DataStoreName"],
     ),
     (
         "Data Store Update",
@@ -301,14 +301,14 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["protocol.ItemStackRequest.FilterStrings[]"],
     ),
     (
-        "ItemStackRequestReservedAction",
-        "Reserved Id",
-        &["protocol.CraftReservedStackRequestAction.ReservedID"],
-    ),
-    (
         "ItemStackRequestPacketPayload",
         "Requests",
         &["packet.ItemStackRequest.Requests"],
+    ),
+    (
+        "ItemStackRequestReservedAction",
+        "Reserved Id",
+        &["protocol.CraftReservedStackRequestAction.ReservedID"],
     ),
     // One blob hash per sub-chunk plus the biome blob (gophertunnel: at most 64 sub-chunks).
     (
@@ -326,16 +326,16 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         "Client Pixels List",
         &["packet.MapInfoRequest.ClientPixels"],
     ),
+    (
+        "MatchmakingStateOptions",
+        "Triggering Player Name",
+        &["protocol.MatchmakingStateOptions.TriggeringPlayerName"],
+    ),
     ("MessageAndParams", "Message", &["packet.Text.Message"]),
     (
         "MessageAndParams",
         "Parameter List",
         &["packet.Text.Parameters"],
-    ),
-    (
-        "MatchmakingStateOptions",
-        "Triggering Player Name",
-        &["protocol.MatchmakingStateOptions.TriggeringPlayerName"],
     ),
     ("MessageOnly", "Message", &["packet.Text.Message"]),
     (

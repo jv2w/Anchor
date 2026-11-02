@@ -251,12 +251,6 @@ impl State {
         self.rules.entities.types()
     }
 
-    /// Whether world `world` runs its world rules this tick: its time, block updates, block
-    /// entities and light (`slow-empty-worlds`, [`wake`]). Server tasks and events always run.
-    pub(crate) fn is_awake(&self, world: WorldIndex) -> bool {
-        self.awake.get(world) != Some(&Pace::Asleep)
-    }
-
     /// A hash of everything a replay must reproduce, independent of thread count, OS and the
     /// order of the map in memory (FNV-1a 64 over fields in a fixed order and width).
     ///
@@ -502,10 +496,10 @@ impl State {
             })
     }
 
-    /// Sets the commit identity of the state the server file holds
-    /// ([`crate::save::Opened::identity`]).
-    pub(crate) fn set_identity(&mut self, identity: Option<u64>) {
-        self.identity = identity;
+    /// Whether world `world` runs its world rules this tick: its time, block updates, block
+    /// entities and light (`slow-empty-worlds`, [`wake`]). Server tasks and events always run.
+    pub(crate) fn is_awake(&self, world: WorldIndex) -> bool {
+        self.awake.get(world) != Some(&Pace::Asleep)
     }
 
     /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
@@ -513,78 +507,22 @@ impl State {
         self.network.connect(link);
     }
 
-    /// Disconnects every player with the shutdown message, then runs the callbacks their quits
-    /// deferred, so that what they change is in the final snapshot.
-    fn close_all(&mut self, output: &mut Output) {
-        let sessions: Vec<SessionId> = self.players.keys().copied().collect();
-        for session in sessions {
-            debug!(session = session.get(), "closing for shutdown");
-            let reason = self.settings.shutdown_message.clone();
-            let packet = Packet::Disconnect(Disconnect {
-                reason: i32::from(DisconnectReason::Shutdown),
-                hide_disconnection_screen: false,
-                message: reason.clone(),
-                filtered_message: String::new(),
-            });
-            self.send_off(session, QuitReason::Shutdown, String::new(), packet, output);
-        }
-        dispatch::run_deferred(self, &mut 0);
+    /// Sets the commit identity of the state the server file holds
+    /// ([`crate::save::Opened::identity`]).
+    pub(crate) fn set_identity(&mut self, identity: Option<u64>) {
+        self.identity = identity;
     }
 
-    /// The player of `session`, if any, is sent off: [`player::quit`] for `reason` with
-    /// `quit_message`, then it is forgotten and its session closes with `packet` last
-    /// ([`Self::close`]).
-    fn send_off(
-        &mut self,
-        session: SessionId,
-        reason: QuitReason,
-        quit_message: String,
-        packet: Packet,
-        output: &mut Output,
-    ) {
-        player::quit(self, session, reason, quit_message);
-        if let Some(player) = self.remove(session) {
-            self.close(player, packet, output);
-        }
-    }
-
-    /// The player of `session`, if any, leaves for `reason` without a message to the client:
-    /// [`player::quit`] with the official server's left line, then it is forgotten and its
-    /// outbound queue closes.
-    fn leave(&mut self, session: SessionId, reason: QuitReason) {
-        let reason_text = reason.to_string();
-        player::quit(self, session, reason, player::LEFT.to_owned());
-        if let Some(p) = self.remove(session) {
-            info!(session = session.get(), player = %p.identity.name, reason = %reason_text, "player left");
-        }
-    }
-
-    /// Removes the player of `session`, if any, with its index entries and the chunks it held; its
-    /// open window closes first, so the cursor and grid items are back in its inventory. Unsaved
-    /// data stays in memory for the next commit. Returns the player.
-    fn remove(&mut self, session: SessionId) -> Option<Player> {
-        inventory::close_window(self, session);
-        let mut player = self.players.remove(&session)?;
-        self.index.remove(&player.key);
-        self.names
-            .remove(&(player.identity.name.to_ascii_lowercase(), session));
-        self.uuids.remove(&(player.identity.uuid, session));
-        self.runtime_ids.remove(&player.runtime_id);
-        spawn::left(self, &mut player);
-        form::left(self, session);
-        command::left(self, session);
-        entity::left(self, session);
-        let stored = save::storage_key(&player.key);
-        if self
-            .loading
-            .get(&stored)
-            .is_some_and(|l| l.session == session)
-        {
-            self.loading.remove(&stored);
-        }
-        view::close(self, &mut player);
-        save::left(self, &player);
-        Some(player)
+    /// The players who see chunk `chunk` of `world`, in session order: a lookup of the index of
+    /// who sees each chunk ([`view::Chunks::viewers_of`]), where a view is only while it is open.
+    fn chunk_viewers(
+        &self,
+        world: WorldIndex,
+        chunk: crate::world::ChunkPos,
+    ) -> impl Iterator<Item = SessionId> + Clone + '_ {
+        self.chunks
+            .viewers_of(chunk)
+            .filter(move |s| self.players.get(s).is_some_and(|p| p.world == world))
     }
 
     /// Closes the session of `player`, which [`Self::remove`] returned, with `packet` after the
@@ -615,19 +553,10 @@ impl State {
         output.closes.push((outbound, messages, packet));
     }
 
-    /// Adds a player, which must have a new session and a key no player has.
-    fn insert(&mut self, session: SessionId, player: Player) {
-        self.index.insert(player.key.clone(), session);
-        self.names
-            .insert((player.identity.name.to_ascii_lowercase(), session));
-        self.uuids.insert((player.identity.uuid, session));
-        self.runtime_ids.insert(player.runtime_id, session);
-        self.players.insert(session, player);
-    }
-
     /// Queues `packet` for every player that sees chunk `chunk` of `world`, except `except`
     /// (block effects, entity packets, another player's movement and animations), as a viewer
-    /// ([`Player::send_to_viewer`]).
+    /// ([`Player::send_to_viewer`]). Each viewer gets its own copy: a shared packet would be sent
+    /// after the viewer's outbox ([`Player::send_shared`]) and change the order of its packets.
     fn broadcast(
         &mut self,
         world: WorldIndex,
@@ -648,16 +577,88 @@ impl State {
         }
     }
 
-    /// The players who see chunk `chunk` of `world`, in session order: a lookup of the index of
-    /// who sees each chunk ([`view::Chunks::viewers_of`]), where a view is only while it is open.
-    fn chunk_viewers(
-        &self,
-        world: WorldIndex,
-        chunk: crate::world::ChunkPos,
-    ) -> impl Iterator<Item = SessionId> + Clone + '_ {
-        self.chunks
-            .viewers_of(chunk)
-            .filter(move |s| self.players.get(s).is_some_and(|p| p.world == world))
+    /// Disconnects every player with the shutdown message, then runs the callbacks their quits
+    /// deferred, so that what they change is in the final snapshot.
+    fn close_all(&mut self, output: &mut Output) {
+        let sessions: Vec<SessionId> = self.players.keys().copied().collect();
+        for session in sessions {
+            debug!(session = session.get(), "closing for shutdown");
+            let reason = self.settings.shutdown_message.clone();
+            let packet = Packet::Disconnect(Disconnect {
+                reason: i32::from(DisconnectReason::Shutdown),
+                hide_disconnection_screen: false,
+                message: reason.clone(),
+                filtered_message: String::new(),
+            });
+            self.send_off(session, QuitReason::Shutdown, String::new(), packet, output);
+        }
+        dispatch::run_deferred(self, &mut 0);
+    }
+
+    /// Adds a player, which must have a new session and a key no player has.
+    fn insert(&mut self, session: SessionId, player: Player) {
+        self.index.insert(player.key.clone(), session);
+        self.names
+            .insert((player.identity.name.to_ascii_lowercase(), session));
+        self.uuids.insert((player.identity.uuid, session));
+        self.runtime_ids.insert(player.runtime_id, session);
+        self.players.insert(session, player);
+    }
+
+    /// The player of `session`, if any, leaves for `reason` without a message to the client:
+    /// [`player::quit`] with the official server's left line, then it is forgotten and its
+    /// outbound queue closes.
+    fn leave(&mut self, session: SessionId, reason: QuitReason) {
+        let reason_text = reason.to_string();
+        player::quit(self, session, reason, player::LEFT.to_owned());
+        if let Some(p) = self.remove(session) {
+            info!(session = session.get(), player = %p.identity.name, reason = %reason_text, "player left");
+        }
+    }
+
+    /// The player of `session`, if any, is sent off: [`player::quit`] for `reason` with
+    /// `quit_message`, then it is forgotten and its session closes with `packet` last
+    /// ([`Self::close`]).
+    fn send_off(
+        &mut self,
+        session: SessionId,
+        reason: QuitReason,
+        quit_message: String,
+        packet: Packet,
+        output: &mut Output,
+    ) {
+        player::quit(self, session, reason, quit_message);
+        if let Some(player) = self.remove(session) {
+            self.close(player, packet, output);
+        }
+    }
+
+    /// Removes the player of `session`, if any, with its index entries and the chunks it held; its
+    /// open window closes first, so the cursor items are back in its inventory. Unsaved
+    /// data stays in memory for the next commit. Returns the player.
+    fn remove(&mut self, session: SessionId) -> Option<Player> {
+        inventory::close_window(self, session);
+        let mut player = self.players.remove(&session)?;
+        self.index.remove(&player.key);
+        self.names
+            .remove(&(player.identity.name.to_ascii_lowercase(), session));
+        self.uuids.remove(&(player.identity.uuid, session));
+        self.runtime_ids.remove(&player.runtime_id);
+        spawn::left(self, &mut player);
+        form::left(self, session);
+        command::left(self, session);
+        entity::left(self, session);
+        let stored = save::storage_key(&player.key);
+        if self
+            .loading
+            .get(&stored)
+            .is_some_and(|l| l.session == session)
+        {
+            self.loading.remove(&stored);
+        }
+        view::close(self, &mut player);
+        save::left(self, &player);
+        Some(player)
     }
 }
 
@@ -726,7 +727,8 @@ pub(crate) struct Settings {
     immediate_respawn: bool,
     /// Whether every player sees how a player died (`show-death-messages`).
     show_death_messages: bool,
-    /// Whether a world without players runs one tick in every 100 (`slow-empty-worlds`).
+    /// Whether a world without players runs one tick in every [`SLOW_WORLD_PERIOD_TICKS`]
+    /// (`slow-empty-worlds`).
     slow_empty_worlds: bool,
     /// Ticks between item pickup checks (`item-pickup-interval`).
     item_pickup_interval: u8,
@@ -812,13 +814,6 @@ impl Settings {
     }
 }
 
-checkpoint::fields!(ViewLimits {
-    view_distance,
-    chunks_per_tick,
-    spawn_radius,
-    tick_radius,
-});
-
 /// What the user registers on the [`ServerBuilder`](crate::ServerBuilder), fixed when the server is
 /// built and moved into the state when it runs. Each field belongs to the module that uses it.
 #[derive(Debug, Default)]
@@ -897,7 +892,7 @@ pub struct Player {
     pending: spawn::Pending,
     /// What the rule modules keep of the player between joins (`extra`).
     extra: extra::Player,
-    /// Slots, cursor, craft grids and open windows.
+    /// Slots, cursor and open windows.
     inventory: inventory::Inventory,
     /// Health, food, XP, effects, and game mode.
     survival: survival::Survival,
@@ -923,27 +918,13 @@ impl Player {
     /// [`world_api::EFFECT_RESERVE`] packets of room, so one client's inputs, which can make every
     /// viewer get packets in a loop, cannot fill another player's outbox and disconnect it.
     pub(crate) fn has_viewer_room(&self) -> bool {
-        self.outbox.len().saturating_add(self.shared_outbox.len())
-            < MAX_OUTBOX - world_api::EFFECT_RESERVE
-    }
-
-    /// Queues `packet` for this player: it is sent after this tick's other packets. More than
-    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback). A
-    /// packet that does not encode, such as one with a string or list over its Mojang limit
-    /// (the client would refuse it), ends the player's connection when it is sent.
-    #[doc(alias = "NetworkSession::sendDataPacket")]
-    pub fn send_packet(&mut self, packet: Packet) {
-        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
-            self.outbox.push(packet);
-        } else {
-            self.overflowed = true;
-        }
+        self.queued() < MAX_OUTBOX - world_api::EFFECT_RESERVE
     }
 
     /// Queues `packet`, which other players get too, without a copy for this player: it is sent
     /// after this tick's outbox and counts against the same bound.
     pub(crate) fn send_shared(&mut self, packet: std::sync::Arc<queue::SharedPacket>) {
-        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
+        if self.queued() < MAX_OUTBOX {
             self.shared_outbox.push(packet);
         } else {
             self.overflowed = true;
@@ -956,6 +937,24 @@ impl Player {
         if self.has_viewer_room() {
             self.send_packet(packet);
         }
+    }
+
+    /// Queues `packet` for this player: it is sent after this tick's other packets. More than
+    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback). A
+    /// packet that does not encode, such as one with a string or list over its Mojang limit
+    /// (the client would refuse it), ends the player's connection when it is sent.
+    #[doc(alias = "NetworkSession::sendDataPacket")]
+    pub fn send_packet(&mut self, packet: Packet) {
+        if self.queued() < MAX_OUTBOX {
+            self.outbox.push(packet);
+        } else {
+            self.overflowed = true;
+        }
+    }
+
+    /// The packets queued for this player this tick, shared ones included.
+    fn queued(&self) -> usize {
+        self.outbox.len().saturating_add(self.shared_outbox.len())
     }
 }
 
@@ -1065,6 +1064,13 @@ impl Drop for CrashGuard {
         }
     }
 }
+
+checkpoint::fields!(ViewLimits {
+    view_distance,
+    chunks_per_tick,
+    spawn_radius,
+    tick_radius,
+});
 
 /// The tick thread: runs ticks every [`TICK`] until `stop` receives or closes or a commit fails,
 /// then disconnects every player, hands the final snapshot to the save thread (unless a commit
@@ -1182,7 +1188,7 @@ pub(crate) fn replay_tick(
     step(state, inputs, responses, pool, &mut output, log);
     deliver(state, &mut output, log);
     for &session in dropped {
-        self::dropped(state, log, session);
+        self::dropped(state, session, log);
     }
     boundary(state, &mut output, log);
     if log.needs_checkpoint() {
@@ -1277,6 +1283,8 @@ fn step_marked(
             InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
         };
         match &*entry {
+            // A join applied above: its outbound queue is not part of the log.
+            EntryKind::Join(_) => {}
             EntryKind::Packet(packet) => {
                 if let Some(packet) = hook::receive(state, session, packet) {
                     apply_packet(state, session, &packet);
@@ -1286,8 +1294,6 @@ fn step_marked(
             EntryKind::Console(line) => command::console(state, line),
             EntryKind::Job(outcome) => task::finish(state, seq, outcome),
             EntryKind::Measure(measure) => network::apply(state, session, *measure),
-            // A join applied above: its outbound queue is not part of the log.
-            EntryKind::Join(_) => {}
         }
         dispatch::run_deferred(state, &mut deferred_runs);
     }
@@ -1505,7 +1511,7 @@ fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
             }
             Err(TrySendError::Closed(_)) => {}
         }
-        dropped(state, log, session);
+        dropped(state, session, log);
     }
     for (outbound, messages, packet) in output.closes.drain(..) {
         // The session closes when the queue does; a full or closed queue only loses what was
@@ -1519,7 +1525,7 @@ fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
 
 /// Forgets a session whose outbound queue was full or closed after the output: its player leaves
 /// as on a disconnect, and `log` records it, so a replay drops it at the same point.
-fn dropped(state: &mut State, log: &mut InputLog, session: SessionId) {
+fn dropped(state: &mut State, session: SessionId, log: &mut InputLog) {
     log.dropped(session);
     state.leave(session, QuitReason::ConnectionLost);
 }
@@ -1687,6 +1693,20 @@ mod tests {
         assert_eq!(longest.save_interval, u64::from(u16::MAX) * 1200);
     }
 
+    /// The shared start-game batches.
+    pub(super) fn shared() -> Shared {
+        SHARED
+            .get_or_init(|| {
+                Shared::new(
+                    crate::protocol::batch::Settings::default(),
+                    &crate::custom::Registry::default(),
+                    &entity::Customs::default(),
+                )
+                .unwrap()
+            })
+            .clone()
+    }
+
     /// A server with a flat persistent world, seed 0, its spawn area loaded.
     pub(super) fn new_state(settings: Settings, listeners: Listeners) -> State {
         let world = World::new("world", Kind::Persistent, 0, Flat.spawn(0));
@@ -1733,6 +1753,10 @@ mod tests {
                         });
                     }
                 }
+                Request::Worlds(_)
+                | Request::DeleteWorlds(_)
+                | Request::Discard(_)
+                | Request::Finish => {}
                 Request::Player(key) => out.push(Response::Player {
                     key,
                     data: PlayerLoad::Absent,
@@ -1747,27 +1771,9 @@ mod tests {
                         }));
                     }
                 }
-                Request::Worlds(_)
-                | Request::DeleteWorlds(_)
-                | Request::Discard(_)
-                | Request::Finish => {}
             }
         }
         out
-    }
-
-    /// The shared start-game batches.
-    pub(super) fn shared() -> Shared {
-        SHARED
-            .get_or_init(|| {
-                Shared::new(
-                    crate::protocol::batch::Settings::default(),
-                    &crate::custom::Registry::default(),
-                    &entity::Customs::default(),
-                )
-                .unwrap()
-            })
-            .clone()
     }
 
     /// Runs and delivers one tick of `batch`; the stand-in save thread answers its requests for
@@ -1951,7 +1957,7 @@ mod tests {
     /// An in-game packet input of its encoded size.
     pub(super) fn packet(packet: Packet) -> InputKind {
         let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
+        packet.encode(&mut bytes).unwrap();
         InputKind::Packet {
             packet,
             size: bytes.len(),
@@ -2687,9 +2693,9 @@ mod tests {
         assert_eq!(packets.last(), Some(&last));
         for p in &packets {
             let mut bytes = Vec::new();
-            p.encode(&mut bytes, 0).unwrap();
+            p.encode(&mut bytes).unwrap();
             let mut budget = usize::MAX;
-            assert_eq!(&Packet::decode(p.id(), &bytes, &mut budget, 0).unwrap(), p);
+            assert_eq!(&Packet::decode(p.id(), &bytes, &mut budget).unwrap(), p);
         }
     }
 
@@ -2987,6 +2993,36 @@ mod tests {
     /// One tick of a determinism run: the state hash after it and what every session received.
     type Observed = (u64, Vec<Received>);
 
+    /// `packet` as the input log gives it back to a replay: it must decode to itself.
+    fn round_trip(packet: Packet) -> InputKind {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes).unwrap();
+        let mut budget = usize::MAX;
+        let decoded = Packet::decode(packet.id(), &bytes, &mut budget).unwrap();
+        assert_eq!(decoded, packet, "the packet does not survive its codec");
+        InputKind::Packet {
+            packet,
+            size: bytes.len(),
+        }
+    }
+
+    pub(super) fn moved_to(session: u64, seq: u64, position: [f32; 3]) -> Input {
+        let p = crate::protocol::packet::PlayerAuthInput {
+            position,
+            ..crate::protocol::packet::PlayerAuthInput::default()
+        };
+        input(session, seq, packet(Packet::PlayerAuthInput(Box::new(p))))
+    }
+
+    fn sub_chunks(session: u64, seq: u64, position: [i32; 3], offsets: Vec<[i8; 3]>) -> Input {
+        let p = crate::protocol::packet::SubChunkRequest {
+            dimension: 0,
+            offsets,
+            position,
+        };
+        input(session, seq, packet(Packet::SubChunkRequest(p)))
+    }
+
     /// A fixed-seed script of inputs for `sessions` sessions: joins (some under one name, so
     /// duplicate logins happen), chunk radius requests (some invalid), right and wrong
     /// initialisations, moves (some to positions that are not finite), sub-chunk requests, packets
@@ -3233,7 +3269,7 @@ mod tests {
                 let client = self.clients.entry(*s).or_default();
                 for p in &packets {
                     bytes.clear();
-                    p.encode(&mut bytes, 0).unwrap();
+                    p.encode(&mut bytes).unwrap();
                     content.bytes(&bytes);
                     client.learn(p, &mut self.seen);
                     if let Packet::AddActor(a) = p
@@ -3254,19 +3290,6 @@ mod tests {
                 }
             }
             out
-        }
-    }
-
-    /// `packet` as the input log gives it back to a replay: it must decode to itself.
-    fn round_trip(packet: Packet) -> InputKind {
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
-        let mut budget = usize::MAX;
-        let decoded = Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap();
-        assert_eq!(decoded, packet, "the packet does not survive its codec");
-        InputKind::Packet {
-            packet,
-            size: bytes.len(),
         }
     }
 
@@ -3513,7 +3536,7 @@ mod tests {
                 received(rx);
             }
             for &session in &t.dropped {
-                dropped(&mut state, &mut log, session);
+                dropped(&mut state, session, &mut log);
             }
             boundary(&mut state, &mut output, &mut log);
             output.requests.clear();
@@ -3793,23 +3816,6 @@ mod tests {
         player.data_dirty = true;
     }
 
-    pub(super) fn moved_to(session: u64, seq: u64, position: [f32; 3]) -> Input {
-        let p = crate::protocol::packet::PlayerAuthInput {
-            position,
-            ..crate::protocol::packet::PlayerAuthInput::default()
-        };
-        input(session, seq, packet(Packet::PlayerAuthInput(Box::new(p))))
-    }
-
-    fn sub_chunks(session: u64, seq: u64, position: [i32; 3], offsets: Vec<[i8; 3]>) -> Input {
-        let p = crate::protocol::packet::SubChunkRequest {
-            dimension: 0,
-            offsets,
-            position,
-        };
-        input(session, seq, packet(Packet::SubChunkRequest(p)))
-    }
-
     /// The chunk positions of the `LevelChunk`s among `packets`.
     fn level_chunks(packets: &[Packet]) -> Vec<[i32; 2]> {
         packets
@@ -3961,7 +3967,7 @@ mod tests {
     }
 
     #[test]
-    fn sub_chunk_requests_get_bds_answers() {
+    fn sub_chunk_requests_get_the_official_answers() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);

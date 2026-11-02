@@ -1,4 +1,4 @@
-//! The Go cross-check of the world import reader: df-mc/goleveldb, a LevelDB
+//! The Go cross-check of the world import reader: goleveldb, a LevelDB
 //! reader, must read the official server's fixture world (`xtask/data/import/flat`) as
 //! `xtask/data/import/flat.dump` says, and Anchor's reader is checked against that same file
 //! (`import::leveldb::tests::the_fixture_reads_like_goleveldb`). Like the other Go tests,
@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
-fn goleveldb_reads_the_bds_fixture_as_the_committed_dump() {
+fn goleveldb_reads_the_fixture_as_the_committed_dump() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = Command::new("go")
         .args(["run", "./leveldbdump", "../data/import/flat/db"])

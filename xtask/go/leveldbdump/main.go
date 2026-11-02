@@ -1,8 +1,8 @@
 // Command leveldbdump prints every live key of a Bedrock world's LevelDB `db` folder with the
 // SHA-256 of its value, in key order, one `hex(key) hex(sha256(value))` line each. Anchor's
 // reader must print the same (`cargo test -p xtask --test import_reader`). It reads with
-// df-mc/goleveldb on a copy of the folder: goleveldb replays the
-// logs into new files when it opens a database, and the source must stay untouched.
+// goleveldb on a copy of the folder: goleveldb replays the logs into new files when it opens a
+// database, and the source must stay untouched.
 package main
 
 import (

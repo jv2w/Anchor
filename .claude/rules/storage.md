@@ -79,6 +79,7 @@ paths:
 - Convert and seal chunks as the save thread does, so the bytes equal those Anchor writes itself. Write all-air chunks too.
 - Make the same source give the same bytes whatever the thread count.
 - Write all imported data in one write transaction. If any chunk fails, leave no file.
+- Write into `<name>.redb.tmp` (which the listing of `data/worlds/` skips), flush it, then rename it to its name. On failure, remove the temporary file.
 
 ## Export
 - Open the world file read-only and read it in one read transaction. Write nothing in the data folder.

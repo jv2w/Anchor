@@ -50,22 +50,6 @@ const TARGET: &str = "check";
 /// paths.
 type Includes = BTreeMap<String, BTreeSet<String>>;
 
-/// Runs the check, writing its lines and `PASS` or `FAIL` to `out`, and returns whether it
-/// passed.
-pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
-    let before = Snapshot::take(root)?;
-    if read_stamp(root)?.as_deref() == Some(before.stamp.as_str()) {
-        say(out, "unchanged since the last pass\nPASS")?;
-        return Ok(true);
-    }
-    let passed = check(root, &before.files, &before.includes, out)?;
-    // A file that changed while the steps ran was seen in two states; the next check runs again.
-    if passed && Snapshot::take(root)?.stamp == before.stamp {
-        write_stamp(root, &before.stamp)?;
-    }
-    Ok(passed)
-}
-
 /// What the check depends on at one moment.
 #[derive(Debug)]
 struct Snapshot {
@@ -88,32 +72,6 @@ impl Snapshot {
             stamp,
         })
     }
-}
-
-/// Runs the steps the changed `files` need, stopping at the first failure, and writes their
-/// lines and `PASS` or `FAIL` to `out`.
-fn check(
-    root: &Path,
-    files: &[String],
-    includes: &Includes,
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    let plan = Plan::new(root, files, includes);
-    if !plan.code {
-        say(out, "no code changed\nPASS")?;
-        return Ok(true);
-    }
-    let mut steps: Vec<Vec<String>> = vec![args(FMT), args(CLIPPY)];
-    steps.extend(plan.tests());
-    for step in &steps {
-        let step: Vec<&str> = step.iter().map(String::as_str).collect();
-        if !cargo_step(out, &step, TARGET)? {
-            say(out, "FAIL")?;
-            return Ok(false);
-        }
-    }
-    say(out, "PASS")?;
-    Ok(true)
 }
 
 /// What the changed files need run.
@@ -183,6 +141,48 @@ impl Plan {
         steps.extend(targets("xtask", &self.xtask_tests));
         steps
     }
+}
+
+/// Runs the check, writing its lines and `PASS` or `FAIL` to `out`, and returns whether it
+/// passed.
+pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
+    let before = Snapshot::take(root)?;
+    if read_stamp(root)?.as_deref() == Some(before.stamp.as_str()) {
+        say(out, "unchanged since the last pass\nPASS")?;
+        return Ok(true);
+    }
+    let passed = check(root, &before.files, &before.includes, out)?;
+    // A file that changed while the steps ran was seen in two states; the next check runs again.
+    if passed && Snapshot::take(root)?.stamp == before.stamp {
+        write_stamp(root, &before.stamp)?;
+    }
+    Ok(passed)
+}
+
+/// Runs the steps the changed `files` need, stopping at the first failure, and writes their
+/// lines and `PASS` or `FAIL` to `out`.
+fn check(
+    root: &Path,
+    files: &[String],
+    includes: &Includes,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let plan = Plan::new(root, files, includes);
+    if !plan.code {
+        say(out, "no code changed\nPASS")?;
+        return Ok(true);
+    }
+    let mut steps: Vec<Vec<String>> = vec![args(FMT), args(CLIPPY)];
+    steps.extend(plan.tests());
+    for step in &steps {
+        let step: Vec<&str> = step.iter().map(String::as_str).collect();
+        if !cargo_step(out, &step, TARGET)? {
+            say(out, "FAIL")?;
+            return Ok(false);
+        }
+    }
+    say(out, "PASS")?;
+    Ok(true)
 }
 
 /// `cargo test` of the changed integration test files of `package`, if any.

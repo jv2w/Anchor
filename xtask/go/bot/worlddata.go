@@ -28,7 +28,7 @@ import (
 // (gzip, big-endian NBT) value for value, with its top-level definition lists in identifier order
 // (sortByIdentifier). It prints one line per difference, then SAME or DIFFERENT, and reports whether both matched.
 func worlddataCommand(args []string, out io.Writer) (bool, error) {
-	fs := flag.NewFlagSet("bot worlddata",flag.ContinueOnError)
+	fs := flag.NewFlagSet("bot worlddata", flag.ContinueOnError)
 	world := fs.String("world", "", "the capture's .world.jsonl file")
 	data := fs.String("data", "", "the reference data checkout")
 	if err := fs.Parse(args); err != nil {

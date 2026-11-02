@@ -62,31 +62,7 @@ pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
 /// An upper camel case Rust name of a snake case or dump name (`oak_planks` → `OakPlanks`), with
 /// acronyms as one word (`TNT` → `Tnt`).
 pub(crate) fn upper_camel(name: &str) -> String {
-    let mut joined = String::with_capacity(name.len());
-    for part in name.split('_') {
-        let mut chars = part.chars();
-        if let Some(first) = chars.next() {
-            joined.extend(first.to_uppercase());
-            joined.push_str(chars.as_str());
-        }
-    }
-    // An upper case letter after another stays upper only where a lower case one follows it
-    // (`HTTPServer` → `HttpServer`).
-    let chars: Vec<char> = joined.chars().collect();
-    let mut out = String::with_capacity(joined.len());
-    for (i, c) in chars.iter().enumerate() {
-        let previous_upper = i
-            .checked_sub(1)
-            .and_then(|p| chars.get(p))
-            .is_some_and(char::is_ascii_uppercase);
-        let next_lower = chars.get(i + 1).is_some_and(char::is_ascii_lowercase);
-        if c.is_ascii_uppercase() && previous_upper && !next_lower {
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(*c);
-        }
-    }
-    out
+    camel_of(&words(name))
 }
 
 /// The Rust constant name of a Go name (`SCREAMING_SNAKE_CASE`). `qualified` is the name the

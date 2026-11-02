@@ -71,8 +71,8 @@ pub(crate) const DUMP_TABLES: &str = "tables.json";
 /// Source B files Anchor sends byte for byte: `AvailableActorIdentifiers`
 /// and the shapes of `VoxelShapes`.
 const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
-/// The dump PHP binary (php-build-524, PHP 8.4 PM5 for Windows): plain PHP
-/// lacks the extensions the dump source's registries load.
+/// The dump PHP binary (php-build-524, PHP 8.4 for Windows): plain PHP lacks the extensions the
+/// dump source's registries load.
 const PHP: &str = ".cache/dump-php/bin/php/php.exe";
 /// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
 const PROTOCOL_DOCS: (&str, &str) = (
@@ -100,20 +100,75 @@ const REFERENCE_FILES: &[&str] = &[
 pub(crate) const REFERENCE_ITEM_BLOCKS: &str = "item_blocks.json";
 /// The reference list's items.
 pub(crate) const REFERENCE_ITEMS: &str = "items.json";
-/// The pinned reference list source A checkout, relative to the repository root, and its commit.
-const REFERENCE_SOURCE_A: (&str, &str) = (
-    ".cache/reference-a",
-    "d86aefd9ff9b6a357d6dfadab2093af811545256",
-);
 /// The pinned reference list source B checkout, relative to the repository root, and its commit.
 pub(crate) const REFERENCE_SOURCE: (&str, &str) = (
     ".cache/reference-data",
     "293c848098cc636a2758937fb6610b8bed1f12c5",
 );
+/// The pinned reference list source A checkout, relative to the repository root, and its commit.
+const REFERENCE_SOURCE_A: (&str, &str) = (
+    ".cache/reference-a",
+    "d86aefd9ff9b6a357d6dfadab2093af811545256",
+);
 /// Source B's per-state block data, which holds the official server's block physics.
 const REFERENCE_SOURCE_BLOCKS: &str = "blocks.json";
 /// The block shapes copied from source B.
 const VOXEL_SHAPES: &str = "voxel_shapes.json";
+
+/// The part of a block upgrade schema the physics rule reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddingSchema {
+    added_properties: BTreeMap<String, BTreeMap<String, Json>>,
+}
+
+/// One biome of source B's file, by name.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct OfficialBiome {
+    id: Option<Json>,
+    temperature: f64,
+    downfall: f64,
+    red_spore_density: f64,
+    blue_spore_density: f64,
+    ash_density: f64,
+    white_ash_density: f64,
+    foliage_snow: f64,
+    depth: f64,
+    scale: f64,
+    map_water_color: Colour,
+    rain: bool,
+    tags: Vec<String>,
+    chunk_gen_data: Option<Json>,
+}
+
+/// One block state of source B's per-state data: the fields Anchor reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfficialBlock {
+    block_state_hash: i64,
+    hardness: f64,
+    light_emission: u8,
+    light_dampening: u8,
+    collision_shape: Vec<[f64; 6]>,
+}
+
+/// One state of the reference list: the fields the physics rule reads.
+#[derive(Deserialize)]
+struct ReferenceState {
+    name: String,
+    states: BTreeMap<String, Json>,
+    network_id: u32,
+}
+
+/// The official server's physics of every reference state by network ID.
+struct ReferencePhysics<'a> {
+    by_id: BTreeMap<u32, &'a OfficialBlock>,
+    /// The states that took them by the connection rule.
+    connected: usize,
+    /// The states that took them by the borrowing rule.
+    borrowed: usize,
+}
 
 /// Runs `dump`; in check mode, compares instead of writing. Returns the differing files on a
 /// failed check.
@@ -207,26 +262,6 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     Ok(differ)
 }
 
-/// One biome of source B's file, by name.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct OfficialBiome {
-    id: Option<Json>,
-    temperature: f64,
-    downfall: f64,
-    red_spore_density: f64,
-    blue_spore_density: f64,
-    ash_density: f64,
-    white_ash_density: f64,
-    foliage_snow: f64,
-    depth: f64,
-    scale: f64,
-    map_water_color: Colour,
-    rain: bool,
-    tags: Vec<String>,
-    chunk_gen_data: Option<Json>,
-}
-
 /// Writes source B's biome definitions to `out` as [`biomes::FILE`], one biome per line in
 /// name order. Fails on a field the packet has no place for that is not null or zero: the official
 /// server sends no ID (-1) and no chunk generation data, and the densities have no packet field.
@@ -266,32 +301,6 @@ fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
     }
     text.push_str("\n]\n");
     write(&out.join(biomes::FILE), text.as_bytes())
-}
-
-/// One block state of source B's per-state data: the fields Anchor reads.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OfficialBlock {
-    block_state_hash: i64,
-    hardness: f64,
-    light_emission: u8,
-    light_dampening: u8,
-    collision_shape: Vec<[f64; 6]>,
-}
-
-/// One state of the reference list: the fields the physics rule reads.
-#[derive(Deserialize)]
-struct ReferenceState {
-    name: String,
-    states: BTreeMap<String, Json>,
-    network_id: u32,
-}
-
-/// The part of a block upgrade schema the physics rule reads.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AddingSchema {
-    added_properties: BTreeMap<String, BTreeMap<String, Json>>,
 }
 
 /// Writes the physics of every reference block state (the official server's values from source B's
@@ -334,15 +343,6 @@ fn copy_block_physics(root: &Path, reference_out: &Path, upgrade_out: &Path) -> 
         rows.join(",\n")
     );
     write(&reference_out.join(BLOCK_PHYSICS), text.as_bytes())
-}
-
-/// The official server's physics of every reference state by network ID.
-struct ReferencePhysics<'a> {
-    by_id: BTreeMap<u32, &'a OfficialBlock>,
-    /// The states that took them by the connection rule.
-    connected: usize,
-    /// The states that took them by the borrowing rule.
-    borrowed: usize,
 }
 
 /// The official server's physics of every reference state. Source B's per-state data predates 1.26.60,

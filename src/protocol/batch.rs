@@ -443,8 +443,7 @@ fn decode_into(payload: &[u8], settings: &Settings, out: &mut Vec<(Header, Packe
         .ok_or(size)?;
     out.reserve(packets.len());
     for (header, bytes) in packets {
-        let packet = Packet::decode(header.id, bytes, &mut budget, SHIELD_RUNTIME_ID)
-            .map_err(Error::Packet)?;
+        let packet = Packet::decode(header.id, bytes, &mut budget).map_err(Error::Packet)?;
         out.push((header, packet));
     }
     Ok(())
@@ -553,7 +552,7 @@ fn append_packet(packet: &Packet, payload: &mut Vec<u8>) -> protocol::Result<()>
     let result = w.length_prefixed(|w| {
         // Every packet ID fits the header's 10 bits (`Header::MAX_ID`); sub-clients are 0.
         w.varuint32(packet.id());
-        packet.encode(w.buffer_mut(), SHIELD_RUNTIME_ID)
+        packet.encode(w.buffer_mut())
     });
     *payload = w.into_inner();
     if result.is_err() {
@@ -610,9 +609,8 @@ mod tests {
                 // Default packets that encode and read back alone (PlayerAuthInput does not).
                 let mut bytes = Vec::new();
                 let mut budget = MIB;
-                p.encode(&mut bytes, SHIELD_RUNTIME_ID).is_ok()
-                    && Packet::decode(p.id(), &bytes, &mut budget, SHIELD_RUNTIME_ID).as_ref()
-                        == Ok(p)
+                p.encode(&mut bytes).is_ok()
+                    && Packet::decode(p.id(), &bytes, &mut budget).as_ref() == Ok(p)
             })
             .collect();
         packets.push(login(1000));
@@ -924,7 +922,7 @@ mod tests {
     /// The client would reject it.
     #[test]
     fn packets_over_a_field_limit_do_not_encode() {
-        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_RUNTIME_ID);
+        let encodes = |packet: Packet| packet.encode(&mut Vec::new());
         let title = |len: usize| {
             Packet::BossEvent(BossEvent {
                 boss_bar_title: "a".repeat(len),
@@ -968,7 +966,7 @@ mod tests {
                 ..PlayerSkin::default()
             })
         };
-        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_RUNTIME_ID);
+        let encodes = |packet: Packet| packet.encode(&mut Vec::new());
         assert_eq!(encodes(skin(1, 1, 4)), Ok(()));
         assert!(matches!(
             encodes(skin(0x4000_0001, 1, 4)),

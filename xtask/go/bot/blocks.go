@@ -161,7 +161,7 @@ func (c *blockCheck) readSubChunk(buf *bytes.Buffer) error {
 		if header&1 != 1 {
 			return errors.New("palette is not in runtime (network) form")
 		}
-		if !slices.Contains([]int{0, 1, 2, 3, 4, 5, 6, 8, 16}, bits) {
+		if !slices.Contains(blockWidths, bits) {
 			return fmt.Errorf("bits per block %v", bits)
 		}
 		words := 0

@@ -36,26 +36,28 @@ const HAND_FUNCTIONS: &[(&str, &str)] = &[(
     "stack_request_item_descriptor_count",
 )];
 
-/// Go types with a hand-written Rust type (`src/protocol/*.rs`): Go name, Rust name, and
-/// whether the Rust type is `Copy`.
-const HAND_TYPES: &[(&str, &str, bool)] = &[
-    ("protocol.BlockPos", "BlockPos", true),
-    ("protocol.ChunkPos", "ChunkPos", true),
-    ("protocol.SubChunkPos", "SubChunkPos", true),
-    ("protocol.Bitset", "Bitset", false),
-    ("protocol.EntityMetadata", "EntityMetadata", false),
-    ("protocol.ItemType", "ItemType", true),
-    ("protocol.ItemStack", "ItemStack", false),
-    ("protocol.ItemInstance", "ItemInstance", false),
-    ("protocol.StackRequestItem", "StackRequestItem", false),
-    ("protocol.MaterialReducer", "MaterialReducer", false),
+/// Go types with a hand-written Rust type (`src/protocol/*.rs`): Go name, Rust name, whether the
+/// Rust type is `Copy`, and its size in bytes, which decides boxing; the generated code asserts
+/// each size at compile time.
+const HAND_TYPES: &[(&str, &str, bool, u64)] = &[
+    ("protocol.BlockPos", "BlockPos", true, 12),
+    ("protocol.ChunkPos", "ChunkPos", true, 8),
+    ("protocol.SubChunkPos", "SubChunkPos", true, 12),
+    ("protocol.Bitset", "Bitset", false, 32),
+    ("protocol.EntityMetadata", "EntityMetadata", false, 24),
+    ("protocol.ItemType", "ItemType", true, 8),
+    ("protocol.ItemStack", "ItemStack", false, 96),
+    ("protocol.ItemInstance", "ItemInstance", false, 104),
+    ("protocol.StackRequestItem", "StackRequestItem", false, 120),
+    ("protocol.MaterialReducer", "MaterialReducer", false, 32),
     (
         "protocol.MaterialReducerOutput",
         "MaterialReducerOutput",
         true,
+        8,
     ),
-    ("protocol.GameRule", "GameRule", false),
-    ("protocol.PackSetting", "PackSetting", false),
+    ("protocol.GameRule", "GameRule", false, 40),
+    ("protocol.PackSetting", "PackSetting", false, 56),
 ];
 
 /// The `protocol.IO` methods and their Rust form (the `Reader` and `Writer` methods in
@@ -411,7 +413,7 @@ impl<'a> Model<'a> {
     }
 
     fn collect_names(&mut self) -> Result<(), String> {
-        let hand: BTreeSet<&str> = HAND_TYPES.iter().map(|(_, r, _)| *r).collect();
+        let hand: BTreeSet<&str> = hand_names().collect();
         let mut seen: BTreeMap<(Module, String), String> = BTreeMap::new();
         for t in &self.ir.types {
             if hand_type(&t.name).is_some() {
@@ -523,27 +525,16 @@ impl<'a> Model<'a> {
                         .unwrap_or(0);
                     return largest + 8;
                 }
-                match t.name.as_str() {
-                    "protocol.BlockPos" | "protocol.SubChunkPos" => 12,
-                    "protocol.ChunkPos"
-                    | "protocol.ItemType"
-                    | "protocol.MaterialReducerOutput" => 8,
-                    "protocol.ItemStack" => 112,
-                    "protocol.ItemInstance" => 120,
-                    "protocol.StackRequestItem" => 136,
-                    "protocol.GameRule" => 40,
-                    "protocol.PackSetting" => 56,
-                    "protocol.Bitset" | "protocol.EntityMetadata" | "protocol.MaterialReducer" => {
-                        32
-                    }
-                    name => self.types.get(name).map_or(8, |d| {
-                        if let Some(u) = &d.underlying {
-                            self.size(u)
-                        } else {
-                            self.struct_size(d)
-                        }
-                    }),
+                if let Some(bytes) = hand_size(&t.name) {
+                    return bytes;
                 }
+                self.types.get(t.name.as_str()).map_or(8, |d| {
+                    if let Some(u) = &d.underlying {
+                        self.size(u)
+                    } else {
+                        self.struct_size(d)
+                    }
+                })
             }
             "external" => match t.name.as_str() {
                 "mgl32.Vec3" => 12,
@@ -647,15 +638,27 @@ pub(crate) fn elem(t: &Type) -> Result<&Type, String> {
 
 /// The Rust names of the hand-written types.
 pub(crate) fn hand_names() -> impl Iterator<Item = &'static str> {
-    HAND_TYPES.iter().map(|(_, r, _)| *r)
+    HAND_TYPES.iter().map(|(_, rust, _, _)| *rust)
+}
+
+/// The Rust names of the hand-written types with their sizes in bytes.
+pub(crate) fn hand_sizes() -> impl Iterator<Item = (&'static str, u64)> {
+    HAND_TYPES.iter().map(|(_, rust, _, bytes)| (*rust, *bytes))
 }
 
 /// The hand type of a Go type.
 pub(crate) fn hand_type(go: &str) -> Option<(&'static str, bool)> {
-    HAND_TYPES
-        .iter()
-        .find(|(g, _, _)| *g == go)
-        .map(|(_, r, c)| (*r, *c))
+    hand_row(go).map(|(_, rust, copy, _)| (*rust, *copy))
+}
+
+/// The size in bytes of the hand type of a Go type.
+fn hand_size(go: &str) -> Option<u64> {
+    hand_row(go).map(|(_, _, _, bytes)| *bytes)
+}
+
+/// The [`HAND_TYPES`] row of a Go type.
+fn hand_row(go: &str) -> Option<&'static (&'static str, &'static str, bool, u64)> {
+    HAND_TYPES.iter().find(|(g, _, _, _)| *g == go)
 }
 
 /// The IO method with the writer taking its value by `pass` and not failing; its reader returns

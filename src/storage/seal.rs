@@ -489,6 +489,33 @@ mod tests {
         );
     }
 
+    fn float(n: usize) -> f64 {
+        f64::from(u32::try_from(n).unwrap())
+    }
+
+    /// A flat chunk: bedrock, two dirt and grass at the bottom, plains.
+    fn flat_chunk() -> ChunkRecord {
+        use crate::storage::codec::tests::{block, pack};
+        let mut chunk = empty_chunk();
+        let indices: Vec<u16> = (0..4096)
+            .map(|offset| match offset & 15 {
+                0 => 1,
+                1 | 2 => 2,
+                3 => 3,
+                _ => 0,
+            })
+            .collect();
+        chunk.sub_chunks[0].layers.push(BlockLayer {
+            bits: 2,
+            words: pack(2, &indices),
+            palette: ["air", "bedrock", "dirt", "grass_block"]
+                .iter()
+                .map(|n| block(&format!("minecraft:{n}"), &[]))
+                .collect(),
+        });
+        chunk
+    }
+
     /// Measures the compression of chunk records: `cargo test --release --lib
     /// storage::seal::tests::measure_compression -- --ignored --nocapture`.
     #[test]
@@ -573,32 +600,5 @@ mod tests {
                 float(raw) / elapsed.as_secs_f64() / 1e6
             );
         }
-    }
-
-    fn float(n: usize) -> f64 {
-        f64::from(u32::try_from(n).unwrap())
-    }
-
-    /// A default flat chunk of the official server: bedrock, two dirt and grass at the bottom, plains.
-    fn flat_chunk() -> ChunkRecord {
-        use crate::storage::codec::tests::{block, pack};
-        let mut chunk = empty_chunk();
-        let indices: Vec<u16> = (0..4096)
-            .map(|offset| match offset & 15 {
-                0 => 1,
-                1 | 2 => 2,
-                3 => 3,
-                _ => 0,
-            })
-            .collect();
-        chunk.sub_chunks[0].layers.push(BlockLayer {
-            bits: 2,
-            words: pack(2, &indices),
-            palette: ["air", "bedrock", "dirt", "grass_block"]
-                .iter()
-                .map(|n| block(&format!("minecraft:{n}"), &[]))
-                .collect(),
-        });
-        chunk
     }
 }

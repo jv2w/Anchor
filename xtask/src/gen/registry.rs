@@ -1,5 +1,5 @@
-//! `src/item/registry.rs`: the 1.26.60 item registry, every entry of the reference
-//! list (`xtask/data/reference/items.json`) with its component data, in runtime ID order.
+//! `src/item/registry.rs`: the item registry, every entry of the reference list
+//! (`xtask/data/reference/items.json`) with its component data, in runtime ID order.
 
 use serde::Deserialize;
 use serde_json::Value as Json;
@@ -26,9 +26,10 @@ struct Entry {
     data: Json,
 }
 
-/// Generates the file text (unformatted). Fails if the list is not in strict runtime ID order or
-/// an ID does not fit the network's int16.
-pub(crate) fn generate(root: &std::path::Path) -> Result<String, String> {
+/// Generates the file text (unformatted) for the reference list of the game version
+/// `game_version`. Fails if the list is not in strict runtime ID order or an ID does not fit the
+/// network's int16.
+pub(crate) fn generate(root: &std::path::Path, game_version: &str) -> Result<String, String> {
     let entries: Vec<Entry> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
     let shield = entries
         .iter()
@@ -37,11 +38,11 @@ pub(crate) fn generate(root: &std::path::Path) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The item registry generated from the 1.26.60 reference list: \
+        "{HEADER}\n//! The item registry generated from the {game_version} reference list: \
          {} entries.\n\n\
          use super::RegistryEntry;\n\n\
          /// The runtime ID of `{SHIELD}`: item stacks of it carry a blocking tick on the wire.\n\
-         pub const SHIELD_RUNTIME_ID: i32 = {};\n\n\
+         pub(crate) const SHIELD_RUNTIME_ID: i32 = {};\n\n\
          /// Every item of the reference list in runtime ID order: (name, runtime ID, component \
          based, version, data).\npub(super) static ENTRIES: [RegistryEntry; {}] = [",
         entries.len(),

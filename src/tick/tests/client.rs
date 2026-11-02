@@ -212,7 +212,7 @@ impl Client {
                         hand: 0,
                     };
                     return vec![transaction_packet(InventoryTransactionData::ReleaseItem(
-                        Box::new(data),
+                        data,
                     ))];
                 }
                 let mut out = Vec::new();
@@ -236,13 +236,13 @@ impl Client {
                         .cloned()
                         .unwrap_or_default();
                     let net = self.net(C::CombinedHotBarAndInventory as u8, slot);
-                    out.push(Packet::MobEquipment(Box::new(MobEquipment {
+                    out.push(Packet::MobEquipment(MobEquipment {
                         entity_runtime_id: player.runtime_id,
                         new_item: stack.to_instance(net),
                         inventory_slot: slot,
                         hot_bar_slot: slot,
                         window_id: 0,
-                    })));
+                    }));
                     data.hot_bar_slot = i32::from(slot);
                     data.held_item = stack.to_instance(net);
                 }
@@ -318,13 +318,13 @@ impl Client {
                     .cloned()
                     .unwrap_or_default();
                 let net = self.net(C::CombinedHotBarAndInventory as u8, slot);
-                vec![Packet::MobEquipment(Box::new(MobEquipment {
+                vec![Packet::MobEquipment(MobEquipment {
                     entity_runtime_id: player.runtime_id,
                     new_item: stack.to_instance(net),
                     inventory_slot: slot,
                     hot_bar_slot: slot,
                     window_id: if rng.below(10) == 0 { 119 } else { 0 },
-                }))]
+                })]
             }
             15 => {
                 let actions = [
@@ -392,12 +392,16 @@ impl Client {
                     old_item: stack.to_instance(0),
                     new_item: ItemInstance::default(),
                 };
-                vec![Packet::InventoryTransaction(InventoryTransaction {
-                    legacy_request_id: 0,
-                    legacy_set_item_slots: Vec::new(),
-                    actions: vec![world, container],
-                    transaction_data: InventoryTransactionData::Normal(NormalTransactionData {}),
-                })]
+                vec![Packet::InventoryTransaction(Box::new(
+                    InventoryTransaction {
+                        legacy_request_id: 0,
+                        legacy_set_item_slots: Vec::new(),
+                        actions: vec![world, container],
+                        transaction_data: InventoryTransactionData::Normal(
+                            NormalTransactionData {},
+                        ),
+                    },
+                ))]
             }
         }
     }
@@ -773,12 +777,12 @@ fn auth_packet(
 
 /// An inventory transaction packet of `data`.
 fn transaction_packet(data: InventoryTransactionData) -> Packet {
-    Packet::InventoryTransaction(InventoryTransaction {
+    Packet::InventoryTransaction(Box::new(InventoryTransaction {
         legacy_request_id: 0,
         legacy_set_item_slots: Vec::new(),
         actions: Vec::new(),
         transaction_data: data,
-    })
+    }))
 }
 
 /// The request slot `slot` of `container`, named by `stack_network_id`.

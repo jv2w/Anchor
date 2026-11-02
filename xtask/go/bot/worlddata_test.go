@@ -116,7 +116,7 @@ func TestWorlddataCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testing
 func TestWorlddataCheckFailsWithoutJigsawStructureData(t *testing.T) {
 	data := writeWorlddata(t, map[string]any{"jigsaws": []any{}})
 	var out bytes.Buffer
-	// A capture with the biome definitions but no jigsaw data, as Anchor sent before it sent one.
+	// A capture with the biome definitions but no jigsaw data.
 	world := writeWorld(t, plains(2, 0))
 	same, err := worlddataCommand([]string{"-world", world, "-data", data}, &out)
 	if err != nil || same || !strings.Contains(out.String(), "no JigsawStructureData") {

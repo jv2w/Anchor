@@ -97,7 +97,7 @@ pub enum End {
 #[non_exhaustive]
 pub enum Error {
     /// The log or a thread could not be read or started.
-    Io(std::io::Error),
+    Io(io::Error),
     /// The file is not a crash log Anchor can read, or one of its checkpoints is damaged.
     Format(Box<dyn std::error::Error + Send + Sync>),
     /// The server's settings or worlds differ from those of the run that wrote the log.

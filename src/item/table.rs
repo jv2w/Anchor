@@ -12972,6 +12972,7 @@ pub(super) static NAMES: [(&str, i16); 1379] = [
 
 /// An item type, such as `IronIngot`; [`Type::kind`] gives an item type's. Block items have none: their block state has a `block::Kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Kind {
     /// `acacia_boat`.
     AcaciaBoat,
@@ -14606,6 +14607,7 @@ pub(super) static KIND_DEFAULTS: [Type; 323] = [
 // api-class: Enchantment
 #[doc(alias = "VanillaEnchantments")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Enchantment {
     /// `aqua_affinity`.
     AquaAffinity,
@@ -14731,6 +14733,7 @@ pub(super) static ENCHANTMENT_IDS: [u8; 23] = [
 
 /// An item class or one of its parents (`Item` for every item); [`Type::class`] gives an item type's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Class {
     /// `Apple`.
     Apple,
